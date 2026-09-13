@@ -428,3 +428,67 @@ export const IconSend = ({ size = 20 }: P) => (
     <path d="M11 13l10-10" />
   </svg>
 );
+
+/** Крестик «закрыть» (Icons.Default.Close). */
+export const IconClose = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M6 6l12 12M18 6 6 18" />
+  </svg>
+);
+
+/** Прицел «где я» (Icons.Default.MyLocation). */
+export const IconLocate = ({ size = 21 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="6.5" />
+    <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+  </svg>
+);
+
+/** Облако перечёркнуто — нет связи (Icons.Default.CloudOff). */
+export const IconCloudOff = ({ size = 24 }: P) => (
+  <svg {...base(size)}>
+    <path d="M7.5 18.5h10a4 4 0 0 0 .9-7.9A6 6 0 0 0 8.2 8.4" />
+    <path d="M5.4 10.6A4 4 0 0 0 7.5 18.5" />
+    <path d="M4 4l16 16" />
+  </svg>
+);
+
+/** Контурная звезда (Icons.Outlined.StarOutline) — до оценки. */
+export const IconStarOutline = ({ size = 18 }: P) => (
+  <svg {...base(size)}>
+    <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 17l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z" />
+  </svg>
+);
+
+/** Галочка в круге (Icons.Default.CheckCircle). */
+export const IconCheckCircle = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8.5 12.2l2.4 2.4 4.8-5" />
+  </svg>
+);
+
+/** Ладони — «договоримся» (Icons.Default.Handshake). */
+export const IconHandshake = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M3 9.5 7 6l4 1.5 4-1.5 6 4v6l-4 3.5-4-2-4 2-6-5Z" />
+    <path d="M11 7.5 8.5 11l2 1.5 2.5-2.5" />
+  </svg>
+);
+
+/** Две стрелки — перевод по СБП (Icons.Default.SwapHoriz). */
+export const IconSwap = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 8h13l-3-3M20 16H7l3 3" />
+  </svg>
+);
+
+/** Карта в кружке — «календарь занят» (Icons.Default.EventBusy). */
+export const IconEventBusy = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+    <path d="M3.5 9.5h17M8 3v4M16 3v4" />
+    <path d="M9.5 13l5 5M14.5 13l-5 5" />
+  </svg>
+);

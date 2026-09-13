@@ -16530,3 +16530,2091 @@ button.settings-row:active {
 .alist .pay-trip {
   margin-top: 0;
 }
+
+/* ================================================================
+   Водитель на линии — зеркало InstantDriverOnlineController / InstantDriverWaitingScreen /
+   InstantOfferOverlay / InstantDriverTripScreen / TaxiDriverNavigationScreen /
+   TaxiDriverCompletedScreen / TaxiDriverCancelledScreen (android).
+   ================================================================ */
+/* Modifier.appearIn(index): элемент приходит снизу каскадом со шкалы cascadeIn. */
+.appear {
+  animation: fadeUp var(--motion-slow) ease both calc(var(--cascade-in) * var(--i, 0));
+}
+.spinner--sm {
+  width: 22px;
+  height: 22px;
+  border-width: 2px;
+  border-top-color: var(--green2);
+}
+.spinner--on-filled {
+  border-color: color-mix(in srgb, var(--on-filled) 35%, transparent);
+  border-top-color: var(--on-filled);
+}
+
+/* ---- Кабинет: тумблер, дашборд, отдых, прогресс смены ---- */
+.tdrive {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+  padding-bottom: var(--space-xl);
+}
+.tdrive > * {
+  margin-top: 0 !important;
+}
+.tdrive__off {
+  padding-top: var(--space-xl);
+}
+/* TaxiDashboardCard: карточка 28 с тенью, поля 4; тёмно-зелёная плашка 22 с белым текстом. */
+.tdash {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+}
+.tdash__hero {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--header-top);
+  color: var(--on-accent);
+}
+.tdash__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.tdash__text small {
+  color: color-mix(in srgb, var(--on-accent) 85%, transparent);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-semibold);
+}
+.tdash__text b {
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+.tdash__text span {
+  color: color-mix(in srgb, var(--on-accent) 85%, transparent);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tdash__text em {
+  color: color-mix(in srgb, var(--on-accent) 72%, transparent);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-style: normal;
+}
+.tdash__car {
+  display: inline-flex;
+  color: color-mix(in srgb, var(--on-accent) 50%, transparent);
+}
+.tdash__fee {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+}
+.tdash__fee-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.tdash__fee-row span {
+  flex: 1;
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.tdash__fee-row b {
+  color: var(--green2);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.tdash__tiers {
+  display: flex;
+  gap: var(--space-xs);
+}
+.tdash__tier {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  height: 34px;
+  border-radius: var(--radius-tiny);
+  background: var(--mint);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease;
+}
+.tdash__tier.is-on {
+  background: var(--green2);
+  color: var(--on-accent);
+}
+.tdash__fee p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+/* TaxiShiftProgressCard: последний час — тёплое предупреждение. */
+.tshift {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  --shift-accent: var(--green2);
+  transition: background var(--motion-entry) ease, border-color var(--motion-entry) ease;
+}
+.tshift.is-warm {
+  --shift-accent: var(--warn);
+  background: var(--warn-bg);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.tshift__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--shift-accent);
+}
+.tshift__head strong {
+  flex: 1;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.tshift__head span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tshift__time {
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.tshift__bar {
+  display: block;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  overflow: hidden;
+}
+.tshift__bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--shift-accent);
+  transition: width var(--motion-count) ease;
+}
+.tshift p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* TaxiRestCard: спокойная мятная палитра — отдых, а не наказание. */
+.trest {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--green2) 35%, transparent);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.trest__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.trest__moon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  color: var(--on-filled);
+}
+.trest strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.trest p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.trest__ride {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+}
+.trest__btn {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+}
+.tshift__week {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tshift__week.is-close {
+  color: var(--warn);
+}
+.trest__text {
+  align-self: flex-start;
+  padding: 0;
+  font-weight: var(--weight-bold);
+}
+.trest__done {
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+
+/* ---- Ожидание заказа: шторка над картой (InstantDriverWaitingScreen) ---- */
+/* Пилюля «На линии · ищем заказ»: точка 9 с дышащим ореолом 18 (canonBreath, PULSE). */
+.tdw-pill {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + var(--space-lg));
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  max-width: calc(100% - var(--space-lg) * 2 - 56px);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  --pill-accent: var(--green2);
+}
+.tdw-pill.is-gold {
+  --pill-accent: var(--canon-gold);
+}
+.tdw-pill > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tdw-pill__dot {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
+.tdw-pill__dot::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-pill);
+  background: var(--pill-accent);
+}
+.tdw-pill__dot i {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--pill-accent) 22%, transparent);
+  animation: tdwBreath var(--motion-pulse) ease-in-out infinite alternate;
+}
+@keyframes tdwBreath {
+  from { transform: scale(0.82); opacity: 0.43; }
+  to { transform: scale(1.18); opacity: 0.07; }
+}
+.tdw-recenter {
+  top: calc(env(safe-area-inset-top) + 78px);
+  right: var(--space-lg);
+  border: 1px solid var(--border);
+  box-shadow: var(--depth-card);
+  color: var(--green2);
+}
+/* Шапка: сводка (peek) — Title, caption, зона зелёным micro; подробная (half) — «Ищем заказ рядом». */
+.tdw-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  animation: fadeIn var(--motion-normal) ease both;
+}
+.tdw-head h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.tdw-head p {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tdw-head small {
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+}
+/* DriverBlockedStrip: красная плашка по центру — что случилось и где чинится. */
+.tdw-blocked {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-self: center;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+  color: var(--danger);
+  text-align: center;
+}
+.tdw-blocked strong {
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.tdw-blocked span {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.tdw-blocked--warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.tdw-note {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  text-align: center;
+}
+/* InstantWaitingDemandCard: мятная, при сбое — золотая 12 %. */
+.tdw-demand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--green2) 18%, transparent);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.tdw-demand.is-gold {
+  border-color: color-mix(in srgb, var(--canon-gold) 40%, transparent);
+  background: color-mix(in srgb, var(--canon-gold) 12%, transparent);
+}
+.tdw-demand__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+}
+.tdw-demand.is-gold .tdw-demand__icon {
+  color: var(--gold-ink);
+}
+.tdw-demand__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tdw-demand__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.tdw-demand__text small {
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+/* InstantWaitingMetrics: 2×2, плитки 92; «Сегодня» — мятная. */
+.tdw-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+.tdw-metric {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  height: 92px;
+  padding: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.tdw-metric.is-hi {
+  border-color: color-mix(in srgb, var(--green2) 20%, transparent);
+  background: var(--mint);
+}
+.tdw-metric__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+}
+.tdw-metric__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tdw-metric__text small {
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tdw-metric__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tdw-skel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+.tdw-skel .skeleton {
+  height: 92px;
+  border-radius: var(--radius-item);
+}
+/* InstantWaitingZoneRow */
+.tdw-zone {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--green2);
+}
+.tdw-zone__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tdw-zone__text small {
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.tdw-zone__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.tdw__off {
+  width: 100%;
+  min-height: 56px;
+  margin-top: 0;
+}
+
+/* ---- «Почему не взял?» — панель снизу (InstantDeclineReasonPanel) ---- */
+.tdecl {
+  position: absolute;
+  left: var(--space-lg);
+  right: var(--space-lg);
+  bottom: calc(env(safe-area-inset-bottom) + var(--space-lg));
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-sheet);
+  animation: tdeclIn var(--motion-slow) cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes tdeclIn {
+  from { opacity: 0; transform: translateY(50%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.tdecl__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.tdecl__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tdecl__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.tdecl__text span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tdecl__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--muted);
+}
+/* Две колонки: шесть коротких причин видны разом, ответ одним касанием. */
+.tdecl__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+.tdecl__chip {
+  min-height: 48px;
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  text-align: center;
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.tdecl__chip.is-on {
+  border-color: var(--green2);
+  background: var(--mint);
+  color: var(--green2);
+}
+.tdecl__chip:disabled:not(.is-on) {
+  opacity: 0.6;
+}
+
+/* ---- Входящий оффер (InstantOfferOverlay): маршрут 48 % + шторка 66 % ---- */
+.toffer {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--bg);
+  animation: fadeIn var(--motion-quick) ease both;
+}
+.toffer__map {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48%;
+  pointer-events: none;
+}
+.toffer__map > div {
+  height: 100%;
+}
+.toffer__chip {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + var(--space-sm));
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.toffer__chip svg {
+  color: var(--green2);
+}
+/* Шторка 66 %: приходит снизу (64) с проявлением — «offer-sheet-appear», SLOW. */
+.toffer__sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 66%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: 0 var(--space-lg);
+  border-radius: 30px 30px 0 0;
+  background: var(--bg);
+  box-shadow: var(--depth-sheet);
+  animation: tofferUp var(--motion-slow) ease both;
+}
+@keyframes tofferUp {
+  from { opacity: 0; transform: translateY(64px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.toffer__handle {
+  display: block;
+  flex: none;
+  width: 42px;
+  height: 4px;
+  margin: var(--space-sm) auto 0;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+}
+.toffer__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.toffer__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.toffer__title h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.toffer__title p {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.toffer__title p.is-red {
+  color: var(--danger);
+}
+/* InstantOfferTimer: кольцо 62, штрих 4, число Bold в цвете акцента, «сек» micro. */
+.toffer__timer {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 62px;
+  height: 62px;
+  color: var(--green2);
+}
+.toffer__timer.is-red {
+  color: var(--danger);
+}
+.toffer__timer svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.toffer__track,
+.toffer__ring {
+  fill: none;
+  stroke-width: 4;
+}
+.toffer__track {
+  stroke: var(--border);
+}
+.toffer__ring {
+  stroke: currentColor;
+  stroke-linecap: butt;
+  transition: stroke-dashoffset var(--motion-tick) linear, stroke var(--motion-quick) ease;
+}
+.toffer__timer b {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.toffer__timer small {
+  margin-top: -2px;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.toffer__scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding-bottom: var(--space-xs);
+  overflow-y: auto;
+}
+/* InstantOfferRouteCard */
+.toffer-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.toffer-card__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.toffer-card__pin {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.toffer-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.toffer-card__text small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.toffer-card__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.toffer-card__meta {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+/* InstantOfferMoneyAndClass: две равные колонки одной высоты 116 — строгая сетка. */
+.toffer-money {
+  display: flex;
+  gap: var(--space-sm);
+  height: 116px;
+}
+.toffer-money__income {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--green2) 18%, transparent);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.toffer-money__income small {
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.toffer-money__income b {
+  color: var(--text);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+.toffer-money__income span {
+  color: var(--green2);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.toffer-money__facts {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.toffer-fact {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--green2);
+}
+.toffer-fact > span {
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* InstantOfferPassengerTrust: рамка золотая 45 %, щит в золотом круге 46. */
+.toffer-trust {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--canon-gold) 45%, transparent);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.toffer-trust__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--canon-gold) 14%, transparent);
+  color: var(--gold-ink);
+}
+.toffer-trust__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.toffer-trust__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.toffer-trust__text small {
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.toffer-trust__star {
+  flex: none;
+  display: inline-flex;
+  color: var(--canon-gold);
+}
+/* InstantOfferHonestDetails: маркер 5 зелёный, текст micro. */
+.toffer-notes {
+  margin: 0;
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.toffer-notes li {
+  position: relative;
+  padding-left: calc(5px + var(--space-xs));
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.toffer-notes li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+}
+.toffer__note {
+  margin: 0;
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.toffer__actions {
+  flex: none;
+  display: flex;
+  gap: var(--space-sm);
+  padding-bottom: calc(var(--space-sm) + env(safe-area-inset-bottom));
+}
+.toffer__btn {
+  flex: 1;
+  min-height: 56px;
+  margin-top: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.toffer__btn:disabled {
+  opacity: 0.5;
+}
+
+/* ---- Поездка до посадки (InstantDriverTripScreen): шапка, карта 36 %, карточка 22 ---- */
+.ttrip {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.ttrip > .screen-header,
+.ttrip > .subheader {
+  flex: none;
+}
+.ttrip__map {
+  flex: 0 0 36%;
+  min-height: 0;
+}
+.ttrip__map > div {
+  height: 100%;
+}
+.ttrip__card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-item) var(--radius-item) 0 0;
+  background: var(--surface);
+  box-shadow: var(--depth-sheet);
+}
+.ttrip__scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-lg) var(--space-sm);
+  overflow-y: auto;
+}
+.ttrip__scroll > * {
+  margin-top: 0 !important;
+}
+.ttrip__scroll .progress-rail {
+  margin-bottom: 0;
+}
+.ttrip__scroll .trip-actions:empty {
+  display: none;
+}
+.ttrip__bar {
+  flex: none;
+  padding: var(--space-sm) var(--space-lg) calc(var(--space-md) + env(safe-area-inset-bottom));
+}
+.ttrip__primary {
+  width: 100%;
+  margin-top: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ttrip__primary:disabled {
+  opacity: 0.5;
+}
+/* Пассажир: иконка 20, имя Bold + чип «заказ для другого», маршрут muted; чат (мята) и звонок (зелёный). */
+.ttrip-who {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.ttrip-who__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+}
+.ttrip-who__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ttrip-who__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.ttrip-who__name strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ttrip-who__name em {
+  flex: none;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-tiny);
+  background: var(--taxi-bg);
+  color: var(--taxi-text);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+  font-style: normal;
+}
+.ttrip-who__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ttrip-who__btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.ttrip-who__btn--call {
+  background: var(--green2);
+  color: var(--on-filled);
+}
+/* «Как найти»: мятная плашка, подъезд Bold, комментарий 14/20. */
+.ttrip-find {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.ttrip-find__head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.ttrip-find strong {
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.ttrip-find p {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.ttrip__pay {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.ttrip__net {
+  margin: 0;
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+/* TaxiPromoPayRow (водителю): мятная плашка, сумма на руки Bold зелёным, полная — зачёркнута. */
+.ttrip-promo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+}
+.ttrip-promo__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--green2);
+}
+.ttrip-promo__row strong {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.ttrip-promo__row s {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.ttrip-promo small {
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* Контурные кнопки 48, радиус 14: навигатор (зелёная), «не вышел» (красная), SOS (рамка красная 50 %). */
+.ttrip-navi,
+.ttrip-noshow,
+.ttrip-sos,
+.tdc-unpaid {
+  width: 100%;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  transition: transform var(--motion-quick) ease;
+}
+.ttrip-navi:active,
+.ttrip-noshow:active,
+.ttrip-sos:active,
+.tdc-unpaid:active {
+  transform: scale(0.98);
+}
+.ttrip-noshow {
+  color: var(--danger);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.ttrip-sos {
+  gap: var(--space-xs);
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  color: var(--danger);
+}
+.tdc-unpaid {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.ttrip-cancel {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  background: transparent;
+  color: var(--danger);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-medium);
+}
+.ttrip__err {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* InstantWaitingRow: акцент зелёный в бесплатное окно, красный — платные минуты; полоска 4 убывает. */
+.ttrip-wait {
+  --wait-accent: var(--green2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--wait-accent) 40%, transparent);
+  border-radius: var(--radius-item);
+  background: color-mix(in srgb, var(--wait-accent) 8%, transparent);
+  transition: border-color var(--motion-slow) ease, background var(--motion-slow) ease;
+}
+.ttrip-wait.is-paid {
+  --wait-accent: var(--danger);
+}
+.ttrip-wait__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 24px;
+  color: var(--wait-accent);
+}
+.ttrip-wait__row strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.ttrip-wait__bar {
+  display: block;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+  overflow: hidden;
+}
+.ttrip-wait__bar i {
+  display: block;
+  height: 100%;
+  background: var(--wait-accent);
+  transition: width var(--motion-tick) linear;
+}
+
+/* ---- Навигатор после посадки (TaxiDriverNavigationScreen) ---- */
+.tdn__chev {
+  display: inline-flex;
+  transform: rotate(90deg);
+}
+.tdn__sos {
+  border: 1px solid color-mix(in srgb, var(--danger) 50%, transparent);
+}
+.tdn__locate {
+  top: calc(env(safe-area-inset-top) + 80px);
+  border: 1px solid var(--border);
+  color: var(--green2);
+}
+.tdn__locate.is-active {
+  border-color: var(--taxi-text);
+  color: var(--taxi-text);
+}
+.tdn-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.tdn-head h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.tdn-head p {
+  margin: 0;
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* DriverNavigatorPassengerCard: круг 52 с инициалом, имя Heading, три круглых действия 48. */
+.tdn-who {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.tdn-who__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+.tdn-who__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.tdn-who__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tdn-who__text strong {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tdn-who__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tdn-who__actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+.tdn-act {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-strong);
+  text-decoration: none;
+}
+.tdn-act__circle {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.tdn-act small {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  white-space: nowrap;
+}
+/* DriverNavigatorDestination: жёлтый круг 40 с булавкой такси. */
+.tdn-dest {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+}
+.tdn-dest__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--taxi-bg);
+  color: var(--taxi-text);
+}
+.tdn-dest__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.tdn-dest__text small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.tdn-dest__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-semibold);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tdn-pay {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+}
+.tdn-pay span {
+  flex: 1;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tdn-pay b {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.tdn-navi {
+  width: 100%;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-button);
+  line-height: var(--line-button);
+  font-weight: var(--weight-bold);
+}
+.tdn-err {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tdn-route {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+}
+.tdn-route__stop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--green2);
+}
+.tdn-route__stop span {
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tdn__finish {
+  width: 100%;
+  margin-top: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tdn__finish:disabled {
+  opacity: 0.5;
+}
+
+/* ---- Финал водителя (TaxiDriverCompletedScreen) и отмена (TaxiDriverCancelledScreen) ---- */
+.tdc {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.tdc__scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0 var(--space-lg) var(--space-lg);
+  overflow-y: auto;
+}
+.tdc__scroll > * {
+  width: 100%;
+  margin-top: 0 !important;
+}
+.tdc__title {
+  margin: 0;
+  padding: calc(env(safe-area-inset-top) + var(--space-lg)) 0 var(--space-sm);
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  text-align: center;
+}
+/* TaxiDriverIncomeHero */
+.tdc-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-lg) var(--space-xl);
+  border: 1px solid color-mix(in srgb, var(--green2) 22%, transparent);
+  border-radius: var(--radius-card);
+  background: var(--mint);
+  text-align: center;
+}
+.tdc-hero__icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  background: var(--green2);
+  color: var(--on-filled);
+}
+.tdc-hero__label {
+  color: var(--green2);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-semibold);
+}
+.tdc-hero__amount {
+  color: var(--text);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+/* TaxiDriverMoneySummary: три ячейки, разделители 1×64. */
+.tdc-money {
+  display: flex;
+  align-items: center;
+  padding: var(--space-md) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.tdc-money__cell {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0 var(--space-xs);
+  text-align: center;
+}
+.tdc-money__cell small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.tdc-money__cell strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-semibold);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tdc-money__div {
+  flex: none;
+  width: 1px;
+  height: 64px;
+  background: var(--border);
+}
+.tdc-promo {
+  margin: 0;
+  padding: var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--green2) 18%, transparent);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* TaxiDriverPassengerRating */
+.tdc-rate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.tdc-rate__who {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+}
+.tdc-rate__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+.tdc-rate__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.tdc-rate__text strong {
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tdc-rate__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tdc-rate__done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  width: 100%;
+  min-height: 148px;
+  color: var(--green2);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.tdc-rate__done strong {
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.tdc-rate__done small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tdc-rate__form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+}
+.tdc-rate__form h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+  text-align: center;
+}
+.tdc-rate__stars {
+  display: flex;
+  gap: var(--space-xs);
+}
+.tdc-rate__star {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.tdc-rate__star svg {
+  transform: scale(0.88);
+  transition: transform var(--motion-quick) ease;
+}
+.tdc-rate__star.is-on {
+  color: var(--canon-star);
+}
+.tdc-rate__star.is-on svg {
+  transform: scale(1);
+}
+.tdc-rate__tags {
+  display: flex;
+  gap: var(--space-sm);
+  width: 100%;
+}
+.tdc-rate__tag {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  padding: var(--space-sm) var(--space-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  text-align: center;
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.tdc-rate__tag.is-on {
+  border-color: var(--green2);
+  background: var(--mint);
+  color: var(--green2);
+}
+.tdc-rate__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  text-align: center;
+}
+.tdc-rate__send {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 0;
+}
+.tdc-rate__send:disabled {
+  opacity: 0.5;
+}
+.tdc-err {
+  margin: 0;
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  animation: fadeIn var(--motion-quick) ease both;
+}
+.tdc-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+/* TaxiDriverCompletedActionRow: 72, круг 44, иконка 22. */
+.rcpt-act--lg {
+  min-height: 72px;
+}
+.rcpt-act--lg .rcpt-act__icon {
+  width: 44px;
+  height: 44px;
+}
+.rcpt-act--lg .rcpt-act__text small {
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.tdc-unpaid__sent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tdc__bar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-lg) calc(var(--space-md) + env(safe-area-inset-bottom));
+  background: var(--bg);
+}
+.tdc__primary {
+  width: 100%;
+  min-height: 56px;
+  margin-top: 0;
+}
+.tdc__primary:disabled {
+  opacity: 0.5;
+}
+.tdc__text-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 var(--space-lg);
+  border: 0;
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-semibold);
+}
+/* Отмена: нейтральная шапка (не зелёная галочка), маршрут в мяте, факты 2×2, деньги. */
+.tdx-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: calc(env(safe-area-inset-top) + var(--space-lg)) 0 var(--space-sm);
+  text-align: center;
+}
+.tdx-head__icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--muted-strong);
+}
+.tdx-head h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.tdx-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tdx-route {
+  padding: var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--green2) 20%, transparent);
+  border-radius: var(--radius-card);
+  background: var(--mint);
+}
+.tdx-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.tdx-facts__row {
+  display: flex;
+  gap: var(--space-sm);
+}
+.tdx-fact {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 88px;
+  padding: var(--space-sm);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+}
+.tdx-fact__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.tdx-fact__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.tdx-fact__text small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.tdx-fact__text strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-semibold);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tdx-money {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.tdx-money.is-fee {
+  border-color: color-mix(in srgb, var(--green2) 20%, transparent);
+  background: var(--mint);
+}
+.tdx-money__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--muted-strong);
+}
+.tdx-money.is-fee .tdx-money__icon {
+  background: var(--green2);
+  color: var(--on-filled);
+}
+.tdx-money__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.tdx-money__text small {
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.tdx-money.is-fee .tdx-money__text small {
+  color: var(--green2);
+}
+.tdx-money__text strong {
+  color: var(--text);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+.tdx-money__text span {
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.tdx-problem {
+  min-height: 76px;
+}
+
+/* ---- Material 3 AlertDialog ---- */
+.adlg-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+  background: color-mix(in srgb, var(--scrim) 36%, transparent);
+  animation: fadeIn var(--motion-quick) ease both;
+}
+.adlg {
+  width: 100%;
+  min-width: 280px;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-sheet);
+  animation: fadeUp var(--motion-normal) cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.adlg__title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.adlg__text {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.adlg__actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+.adlg__btn {
+  min-height: 40px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+}
+.adlg__btn--green {
+  color: var(--green2);
+}
+.adlg__btn--danger {
+  color: var(--danger);
+}
+.adlg__btn:disabled {
+  opacity: 0.5;
+}
+.adlg__choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.adlg__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: 72px;
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--bg);
+  color: var(--green2);
+  text-align: left;
+}
+.adlg__choice > span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.adlg__choice strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-semibold);
+}
+.adlg__choice small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tdw-pill__dot i,
+  .toffer__sheet,
+  .tdecl {
+    animation: none;
+  }
+}

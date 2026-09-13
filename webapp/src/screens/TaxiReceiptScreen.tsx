@@ -20,7 +20,7 @@ import {
   type TaxiReceipt,
 } from "../api/instant";
 import { thankOrder, fetchOrderTip, type TipInfo } from "../api/family";
-import { createIncident } from "../api/incidents";
+import FileIncidentCard from "../components/FileIncidentCard";
 import { RideCardSkeleton, ErrorState } from "../components/States";
 import SbpPay from "../components/SbpPay";
 import PayTripCard from "../components/PayTripCard";
@@ -46,19 +46,6 @@ type State =
   | { kind: "error" }
   | { kind: "soft"; reason: "notyet" | "pending" }
   | { kind: "ready"; r: TaxiReceipt };
-
-/** Типы спора по поездке — перечень incidentTypesRide (FairnessScreens.kt). */
-const INCIDENT_TYPES: { key: string; ru: string; ba: string }[] = [
-  { key: "rude", ru: "Нагрубили", ba: "Ҡупал һөйләште" },
-  { key: "unsafe", ru: "Опасная езда", ba: "Хәүефле йөрөтөү" },
-  { key: "non_payment", ru: "Не заплатили", ba: "Түләмәнеләр" },
-  { key: "overcharge", ru: "Взяли больше договорённого", ba: "Килешкәндән артыҡ алдылар" },
-  { key: "route_detour", ru: "Повезли не той дорогой", ba: "Икенсе юлдан алып барҙылар" },
-  { key: "passenger_no_show", ru: "Пассажир не вышел", ba: "Юлаусы сыҡманы" },
-  { key: "driver_no_show", ru: "Водитель не приехал", ba: "Йөрөтөүсе килмәне" },
-  { key: "harassment", ru: "Приставания, угрозы", ba: "Бәйләнеү, янау" },
-  { key: "rules_violation", ru: "Нарушение правил", ba: "Ҡағиҙәләрҙе боҙоу" },
-];
 
 /** Строка счёта: слева за что (muted), справа сколько (Bold, цвет причины); ниже — подсказка. */
 function Line({ label, value, tone = "text", hint }: { label: string; value: string; tone?: "text" | "warn" | "green" | "red"; hint?: string }) {
@@ -116,9 +103,6 @@ export default function TaxiReceiptScreen() {
   const [errText, setErrText] = useState("");
   const [successText, setSuccessText] = useState("");
   const [problem, setProblem] = useState<"none" | "choice" | "dispute">("none");
-  const [disputeType, setDisputeType] = useState("");
-  const [disputeTypesOpen, setDisputeTypesOpen] = useState(true);
-  const [disputeText, setDisputeText] = useState("");
   const [disputeFiled, setDisputeFiled] = useState(false);
   // Чем поблагодарить: тёплое «рәхмәт» всегда, деньги — только если водитель
   // сам их включил. null = сервер ещё не ответил или чаевые выключены.
@@ -244,22 +228,6 @@ export default function TaxiReceiptScreen() {
     } finally {
       setPendingStar(0);
       setRateBusy(false);
-    }
-  }
-
-  async function fileDispute(r: TaxiReceipt) {
-    if (busy || !disputeType || !disputeText.trim() || !r.counterparty_id) return;
-    setBusy("dispute");
-    try {
-      await createIncident({ respondent_id: r.counterparty_id, type: disputeType, description: disputeText.trim(), order_id: r.order_id });
-      setDisputeFiled(true);
-      setProblem("none");
-      setErrText("");
-      setSuccessText(appText("Разбор открыт. Мы сообщим о решении.", "Ҡарау асылды. Ҡарар тураһында хәбәр итербеҙ."));
-    } catch (e) {
-      fail(e, appText("Не получилось открыть разбор. Проверь сеть.", "Ҡарауҙы асып булманы. Селтәрҙе тикшер."));
-    } finally {
-      setBusy(null);
     }
   }
 
@@ -528,10 +496,7 @@ export default function TaxiReceiptScreen() {
                     icon={<IconShield size={20} />}
                     title={appText("Открыть разбор", "Ҡарауҙы асыу")}
                     text={appText("Выслушаем обе стороны", "Ике яҡты ла тыңлаясаҡбыҙ")}
-                    onClick={() => {
-                      setProblem("dispute");
-                      setDisputeTypesOpen(true);
-                    }}
+                    onClick={() => setProblem("dispute")}
                   />
                 )}
                 <div className="settings-confirm__row">
@@ -543,49 +508,19 @@ export default function TaxiReceiptScreen() {
             )}
 
             {problem === "dispute" && (r.counterparty_id ?? 0) > 0 && (
-              /* FileIncidentDialog: выбрал тип — список сворачивается в одну строку. */
-              <div className="settings-confirm settings-confirm--card settings-confirm--plain">
-                <strong>{appText("Открыть разбор", "Ҡарауҙы асыу")}</strong>
-                <span>
-                  {appText(
-                    `Мы позовём ${r.counterparty_name || appText("участника поездки", "сәфәрҙә ҡатнашыусыны")} объясниться и решим по-соседски. Решение объясним вам обоим.`,
-                    `${r.counterparty_name || "Сәфәрҙә ҡатнашыусы"} кешене аңлатырға саҡырабыҙ һәм күршеләрсә хәл итәбеҙ. Ҡарарҙы икегеҙгә лә аңлатабыҙ.`
-                  )}
-                </span>
-                <strong className="acard__title">{appText("Что случилось?", "Нимә булды?")}</strong>
-                <div className="inc-resolve__choices" role="radiogroup">
-                  {(disputeTypesOpen ? INCIDENT_TYPES : INCIDENT_TYPES.filter((t) => t.key === disputeType)).map((t) => (
-                    <button
-                      key={t.key}
-                      type="button"
-                      role="radio"
-                      aria-checked={disputeType === t.key}
-                      className={"choice-row choice-row--sm" + (disputeType === t.key ? " is-on" : "")}
-                      onClick={() => {
-                        if (disputeTypesOpen) {
-                          setDisputeType(t.key);
-                          setDisputeTypesOpen(false);
-                        } else setDisputeTypesOpen(true);
-                      }}
-                    >
-                      {disputeType === t.key ? <IconCheck size={18} /> : <IconFlag size={18} />} {appText(t.ru, t.ba)}
-                    </button>
-                  ))}
-                  {!disputeTypesOpen && <small className="acard__date">{appText("Нажми, чтобы выбрать другое", "Башҡаһын һайлар өсөн баҫ")}</small>}
-                </div>
-                <label className="field">
-                  <span className="field__label">{appText("Как было", "Нисек булды")}</span>
-                  <textarea className="field__input field__area" rows={3} maxLength={2000} value={disputeText} onChange={(e) => setDisputeText(e.target.value)} />
-                </label>
-                <div className="settings-confirm__row">
-                  <button type="button" className="btn-ghost settings-confirm__muted" onClick={() => setProblem("none")} disabled={busy === "dispute"}>
-                    {appText("Отмена", "Кире алыу")}
-                  </button>
-                  <button type="button" className="btn-ghost inc-resolve__save" onClick={() => void fileDispute(r)} disabled={busy === "dispute" || !disputeType || !disputeText.trim()}>
-                    {busy === "dispute" ? appText("…", "…") : appText("Открыть разбор", "Ҡарауҙы асыу")}
-                  </button>
-                </div>
-              </div>
+              <FileIncidentCard
+                respondentId={r.counterparty_id ?? 0}
+                respondentName={r.counterparty_name ?? ""}
+                orderId={r.order_id}
+                onCancel={() => setProblem("none")}
+                onFiled={() => {
+                  setDisputeFiled(true);
+                  setProblem("none");
+                  setErrText("");
+                  setSuccessText(appText("Разбор открыт. Мы сообщим о решении.", "Ҡарау асылды. Ҡарар тураһында хәбәр итербеҙ."));
+                }}
+                onError={(text) => setErrText(text)}
+              />
             )}
 
             {/* Пассажир может завершить оплату прямо из чека, если закрыл финальный экран. */}

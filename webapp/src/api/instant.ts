@@ -157,6 +157,18 @@ export interface InstantOrder {
    * в приложении, и звонить надо по телефону из карточки, а не заказчику.
    */
   for_other?: boolean;
+  /** Кому везём (только водителю после accept): нужен разбору и оценке. */
+  passenger_id?: number | null;
+  /** Как найти: подъезд и комментарий пассажира — водителю до подачи. */
+  entrance?: string;
+  comment?: string;
+  /** Оффер: дорога до пассажира (км) и минуты подачи — по ним водитель решает «брать?». */
+  offer_pickup_km?: number | null;
+  offer_pickup_eta_min?: number | null;
+  /** Деньги водителя копейками: с пассажира / комиссия / чистыми. Старый сервер не шлёт. */
+  driver_gross_kop?: number;
+  driver_fee_kop?: number;
+  driver_net_kop?: number;
 }
 
 /** Остановка по пути (waypoints_json на сервере). Координаты, а не название: по ним считают цену. */
@@ -394,9 +406,10 @@ export function cancelInstantOrder(id: number, reason = ""): Promise<InstantOrde
 /** POST /instant/orders/{id}/rate — оценить вторую сторону завершённого заказа (1..5). */
 export function rateInstantOrder(
   id: number,
-  stars: number
+  stars: number,
+  tags = ""
 ): Promise<{ ratee_id: number; rating: number; count: number }> {
-  return apiPost(`/instant/orders/${id}/rate`, { stars });
+  return apiPost(`/instant/orders/${id}/rate`, { stars, tags });
 }
 
 // ------------------------------- Водитель -------------------------------
@@ -638,6 +651,10 @@ export interface Workday {
   blocked: boolean; // лимит исчерпан → нужен отдых
   unlock_at: string | null;
   return_ride_used: boolean; // «один попутчик домой» уже использован
+  /** Недельный потолок (скользящее окно): сколько за неделю и когда он закрыл линию. */
+  week_seconds?: number;
+  week_limit_hours?: number;
+  week_blocked?: boolean;
   // --- дашборд за сегодня (debt.driver_dashboard) ---
   earnings_today: number; // ₽
   gross_today_kop: number;

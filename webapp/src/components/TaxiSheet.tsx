@@ -53,9 +53,12 @@ export default function TaxiSheet({
   const startY = useRef<number | null>(null);
   const moved = useRef(false);
   // Шапка — зона хвата, но в ней живут поля и кнопки (адреса заказа): их нажатия — не жест.
-  const fromControl = (target: EventTarget | null) =>
-    target instanceof Element && target.closest("input, textarea, select, button, a, [role='button']") !== null &&
-    !(target instanceof Element && target.classList.contains("taxi-sheet__grip"));
+  // Сама шапка тоже role="button" — её closest() находит всегда; контрол — только то, что внутри неё.
+  const fromControl = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) return false;
+    const control = target.closest("input, textarea, select, button, a, [role='button']");
+    return control !== null && !control.classList.contains("taxi-sheet__grip");
+  };
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (fromControl(e.target)) return;
     startY.current = e.clientY;
