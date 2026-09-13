@@ -23,7 +23,6 @@ import {
   fetchMyOrders,
   fetchInstantOrder,
   cancelInstantOrder,
-  rateInstantOrder,
   fetchNearbyDrivers,
   ACTIVE_PASSENGER_STATUSES,
   isUnlocked,
@@ -55,13 +54,14 @@ import { TaxiOptions, TaxiRoundTrip, TaxiStops, type OrderStop } from "../compon
 import WaitlistForm from "../components/WaitlistForm";
 import { LoadingList } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
-import { IconCar, IconStar, IconPhone, IconChat, IconHome, IconWork, IconPin, IconClock, IconCheck, IconBolt, IconReceipt, IconChevron, IconProfile, IconShield, IconWallet } from "../components/Icons";
+import { IconCar, IconStar, IconPhone, IconChat, IconHome, IconWork, IconPin, IconClock, IconBolt, IconChevron, IconProfile, IconShield, IconWallet } from "../components/Icons";
 import { YuMoon, YuQuiet, YuWomenOnly } from "../components/BrandIcons";
 import { priceLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
 import { minDateTimeNow, maxDateTimeInDays } from "../utils/dateInput";
 import { setActiveTaxiOrder, setTaxiOrderOnScreen } from "../navSignals";
 import TaxiTripProgress from "../components/TaxiTripProgress";
+import TaxiPassengerCompleted from "./TaxiPassengerCompletedScreen";
 import TaxiSheet, { TaxiSheetOverlayButton, type TaxiSheetStop } from "../components/TaxiSheet";
 
 /** Класс машины человеческой строкой (подписи живут в клиенте, коды — на сервере). */
@@ -1204,7 +1204,6 @@ function TrackingView({
   const ru = lang !== "ba";
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
-  const [rated, setRated] = useState(false);
   // «В твоём классе никого нет» — что предложить взамен. null = предлагать нечего.
   const [alts, setAlts] = useState<FallbackOption[] | null>(null);
   const [altBusy, setAltBusy] = useState(false);
@@ -1296,22 +1295,6 @@ function TrackingView({
     setBusy(false);
     setCancelOpen(false);
     onCancelled();
-  }
-
-  /** Оценка не ушла — «спасибо» показывать нельзя, человек решит, что оценил. */
-  const [rateNote, setRateNote] = useState("");
-
-  async function rate(stars: number) {
-    try {
-      await rateInstantOrder(order.id, stars);
-      track("instant_order_rate");
-      setRateNote("");
-      setRated(true);
-    } catch {
-      setRateNote(
-        appText("Оценка не отправилась. Попробуй ещё раз.", "Баһа китмәне. Тағы ҡабатла.")
-      );
-    }
   }
 
   // --- Поиск машины ---
@@ -1489,74 +1472,16 @@ function TrackingView({
     );
   }
 
-  // --- Завершено: цена + оценка ---
+  // --- Завершено: водитель, оценка, «Итого», чек, «забыл вещь» (TaxiPassengerCompletedScreen) ---
   if (s === "done") {
     return (
-      <>
-        {/* TaxiPassengerCompletedScreen: тихая шапка, водитель крупно, оценка, «Итого», действия. */}
-        <SubHeader title={appText("Поездка завершена", "Сәфәр тамамланды")} onBack={() => navigate(-1)} />
-        <div className="taxi-done">
-          <div className="taxi-done__person">
-            <span className="taxi-done__avatar" aria-hidden>
-              {(order.driver_name || appText("Водитель", "Йөрөтөүсе")).trim().charAt(0).toUpperCase()}
-              {order.driver_verified && (
-                <span className="taxi-done__verified"><IconShield size={18} /></span>
-              )}
-            </span>
-            <div className="taxi-done__who">
-              <h2 className="taxi-done__name">{order.driver_name || appText("Водитель", "Йөрөтөүсе")}</h2>
-              {order.driver_car && <p className="taxi-done__car">{order.driver_car}</p>}
-            </div>
-          </div>
-          {!rated ? (
-            <div className="rate-card">
-              <div className="rate-card__title">{appText("Как прошла поездка?", "Сәфәр нисек үтте?")}</div>
-              <div className="rate-stars">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    className="rate-star"
-                    onClick={() => rate(n)}
-                    aria-label={appText(`${n} звёзд`, `${n} йондоҙ`)}
-                  >
-                    <IconStar size={40} />
-                  </button>
-                ))}
-              </div>
-              {rateNote && (
-                <div className="notice" role="status">
-                  {rateNote}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="taxi-done__thanks" role="status">
-              <span className="taxi-done__thanks-icon" aria-hidden><IconCheck size={32} /></span>
-              <h2>{appText("Спасибо за оценку", "Баһа өсөн рәхмәт")}</h2>
-            </div>
-          )}
-          <div className="taxi-done__money">
-            <div>
-              <h3>{appText("Итого", "Бөтәһе")}</h3>
-              <p>{appText("Оплата напрямую водителю — как договорились.", "Түләү тура йөрөтөүсегә — килешкәнсә.")}</p>
-            </div>
-            <b>{priceLabel(order.price_final ?? order.price_estimate, ru)}</b>
-          </div>
-          <button type="button" className="btn-primary taxi-done__new" onClick={onNewOrder}>
-            {appText("Новый заказ", "Яңы заказ")}
-          </button>
-          {/* Чек — сразу и потом: он остаётся в «Мои поездки на такси», а не теряется. */}
-          <button type="button" className="taxi-done__row" onClick={() => navigate(`/taxi-receipt/${order.id}`)}>
-            <span className="taxi-done__row-icon" aria-hidden><IconReceipt size={20} /></span>
-            <span className="taxi-done__row-main">
-              <strong>{appText("Чек и детали", "Чек һәм ентеклектәр")}</strong>
-              <small>{appText("Сумма, маршрут и помощь", "Сумма, юл һәм ярҙам")}</small>
-            </span>
-            <IconChevron size={20} />
-          </button>
-        </div>
-      </>
+      <TaxiPassengerCompleted
+        order={order}
+        onClose={() => navigate(-1)}
+        onNewOrder={onNewOrder}
+        onOpenReceipt={() => navigate(`/taxi-receipt/${order.id}`)}
+        onOpenChat={onOpenChat}
+      />
     );
   }
 

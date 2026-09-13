@@ -18751,3 +18751,206 @@ button.settings-row:active {
     animation: none;
   }
 }
+
+/* ---- Финал пассажира (TaxiCompletedScreen.kt) ---- */
+.tpc {
+  display: flex;
+  flex-direction: column;
+  margin: 0 calc(var(--space-lg) * -1);
+}
+/* TaxiCompletedTopBar: круг «закрыть» 48 слева, подпись caption muted по центру. */
+.tpc__top {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 64px;
+  padding: 0 var(--space-md);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tpc__close {
+  position: absolute;
+  left: var(--space-md);
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--depth-raised);
+}
+.tpc__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-lg) calc(var(--space-lg) + env(safe-area-inset-bottom));
+}
+.tpc__body > * {
+  width: 100%;
+  margin-top: 0 !important;
+}
+.tpc__person {
+  justify-content: center;
+  gap: var(--space-lg);
+}
+.tpc__person .taxi-done__who {
+  flex: 1;
+}
+/* TaxiRatingPicker: заголовок Title, звёзды 40 в ячейках 52 по всей ширине, метки-пилюли. */
+.tpc-rate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.tpc-rate h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+  text-align: center;
+}
+.tpc-rate__stars {
+  display: flex;
+  justify-content: space-evenly;
+  width: 100%;
+}
+.tpc-rate__star {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.tpc-rate__star svg {
+  transform: scale(0.9);
+  transition: transform var(--motion-quick) ease;
+}
+.tpc-rate__star.is-on {
+  color: var(--canon-star);
+}
+.tpc-rate__star.is-on svg {
+  transform: scale(1);
+}
+.tpc-rate__tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-sm);
+  animation: fadeUp var(--motion-quick) ease both;
+}
+.tpc-rate__tag {
+  min-height: 48px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.tpc-rate__tag.is-on {
+  border-color: var(--green2);
+  background: var(--mint);
+  color: var(--green2);
+}
+.tpc-rate__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  text-align: center;
+}
+/* TaxiRatingThanks: круг 64 мятный с галочкой, Title, «5 звёзд». */
+.tpc-thanks {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 184px;
+  text-align: center;
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.tpc-thanks__icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--mint);
+  color: var(--green2);
+}
+.tpc-thanks h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.tpc-thanks small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* TaxiCompletedMoney: «Итого» Heading + способ расчёта, сумма Display. */
+.tpc-money {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.tpc-money__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.tpc-money__text strong {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.tpc-money__text small {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tpc-money b {
+  flex: none;
+  color: var(--text);
+  font-size: var(--font-display);
+  line-height: var(--line-display);
+  font-weight: var(--weight-bold);
+}
+.tpc__primary {
+  margin-top: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tpc__primary:disabled {
+  opacity: 0.5;
+}
+.tpc__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
