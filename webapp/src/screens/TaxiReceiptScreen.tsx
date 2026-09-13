@@ -159,9 +159,11 @@ export default function TaxiReceiptScreen() {
     return () => ac.abort();
   }, [load]);
 
-  // Чаевые — отдельным запросом: их отсутствие не должно ломать чек.
+  // Чаевые — отдельным запросом и только пассажиру (водителю сервер отвечает 403):
+  // их отсутствие не должно ломать чек.
+  const role = state.kind === "ready" ? state.r.role : null;
   useEffect(() => {
-    if (!id) return;
+    if (!id || role !== "passenger") return;
     const ac = new AbortController();
     fetchOrderTip(id, ac.signal)
       .then((t) => {
@@ -170,7 +172,7 @@ export default function TaxiReceiptScreen() {
       })
       .catch(() => setTip(null));
     return () => ac.abort();
-  }, [id]);
+  }, [id, role]);
 
   const fail = (e: unknown, fallback: string) => setErrText(e instanceof ApiError && e.message ? e.message : fallback);
   const netFail = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.");
