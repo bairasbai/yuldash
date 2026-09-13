@@ -15515,3 +15515,195 @@ button.settings-row:active {
 .calc-disclaimer svg {
   flex: none;
 }
+
+/* ---- «Мой бизнес» — кабинет партнёра (PartnerCabinetScreen.kt) ---- */
+/* PartnerPendingView: по центру, круг 68 жёлтый с часами, заголовок 24, имя 16, текст muted. */
+.pstate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-xl) var(--space-sm);
+  text-align: center;
+}
+.pstate__icon {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: var(--radius-pill);
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.pstate h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
+.pstate strong {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.pstate p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* PartnerRejectedView: красная карточка с причиной. */
+.preject {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  border-radius: var(--radius-item);
+  background: var(--danger-bg);
+}
+.preject strong {
+  color: var(--danger);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.preject p {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.preject span {
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* PartnerForm: поля по одному, интервал 12. */
+.pform {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.pform .field {
+  margin: 0;
+}
+.pform__submit {
+  margin-top: 0;
+  width: 100%;
+}
+.pcab__name {
+  color: var(--text);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+  overflow-wrap: anywhere;
+}
+.partner-tile--lg {
+  width: 48px;
+  height: 48px;
+}
+.pcab__edit {
+  align-self: flex-start;
+  min-height: 40px;
+  padding: 0;
+}
+.alist .pcab__redeem {
+  margin-top: 0;
+  width: 100%;
+}
+.pcab__create {
+  flex: none;
+  min-height: 40px;
+  padding: 0 var(--space-md);
+}
+/* AppCard подписки и выписки: радиус 28, тень, поля 16. */
+.pcard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+}
+.pcard--tight {
+  gap: var(--space-xs);
+}
+.pcard__title {
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.abtn--body {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.abtn--42 {
+  min-height: 42px;
+}
+.abtn--gold {
+  background: var(--canon-gold);
+  color: var(--gold-ink);
+}
+.abadge--dim {
+  color: var(--muted);
+}
+/* Золотой чип «Премиум»: радиус 8, 12 Bold, CanonGold + CanonGoldInk. */
+.gold-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-tiny);
+  background: var(--canon-gold);
+  color: var(--gold-ink);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+}
+/* PlanCard: радиус 28, рамка 1 (премиум — 2 золотая), название 19, цена зелёным 19. */
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.plan--premium {
+  border: 2px solid var(--canon-gold);
+}
+.plan__price {
+  color: var(--green2);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+.plan__current {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.ppay__title {
+  color: var(--green);
+  font-size: var(--font-heading);
+  line-height: var(--line-heading);
+  font-weight: var(--weight-bold);
+}
+/* Карточка-диалог погашения: обычная рамка, не красная. */
+.settings-confirm--plain {
+  border-color: var(--border);
+}
+.redeem__hero {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--green2);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-bold);
+}
