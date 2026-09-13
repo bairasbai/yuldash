@@ -41,6 +41,7 @@ import { LoadingList, ErrorState } from "../components/States";
 import { AvailableParcelCard, CarryParcelCard, CodeDialog } from "../components/parcelUi";
 import ParcelProblemActions from "../components/ParcelProblemActions";
 import ParcelPhoto from "../components/ParcelPhoto";
+import ParcelTrackMap from "../components/ParcelTrackMap";
 import CityField from "../components/CityField";
 import { IconStar, IconCheck, IconCopy, IconBox, IconCamera, IconClock, IconTrend, IconRoute, IconWallet } from "../components/Icons";
 import { YuCourierWalk, YuModeCourier } from "../components/BrandIcons";
@@ -475,6 +476,8 @@ function CarryOrders({ onGoAvailable }: { onGoAvailable: () => void }) {
   const [photos, setPhotos] = useState<Record<number, string>>({});
   const [codeBusy, setCodeBusy] = useState(false);
   const [codeErr, setCodeErr] = useState<string | null>(null);
+  /** Чью карту смотреть, когда везёшь несколько посылок. */
+  const [trackedId, setTrackedId] = useState<number | null>(null);
 
   const load = useCallback((signal?: AbortSignal) => {
     setBoot("loading");
@@ -572,8 +575,31 @@ function CarryOrders({ onGoAvailable }: { onGoAvailable: () => void }) {
       </div>
     );
   }
+  // Онлайн-трекинг: карта одна — при нескольких доставках курьер выбирает, чью смотреть,
+  // а по умолчанию открыта та, что уже в пути.
+  const activeParcels = items.filter((p) => p.status === "accepted" || p.status === "in_transit");
+  const tracked = activeParcels.find((p) => p.id === trackedId) ?? activeParcels.find((p) => p.status === "in_transit") ?? activeParcels[0];
   return (
     <div style={{ marginTop: 4 }}>
+      {tracked && (
+        <div className="parcel-track-block">
+          <span className="dl-hint">
+            {activeParcels.length > 1
+              ? appText("Ты в пути — отправители видят тебя на карте. Выбери доставку:", "Һин юлда — ебәреүселәр һине картала күрә. Илтеүҙе һайла:")
+              : appText("Ты в пути — отправитель видит тебя на карте", "Һин юлда — ебәреүсе һине картала күрә")}
+          </span>
+          {activeParcels.length > 1 && (
+            <div className="cpick-row" role="radiogroup">
+              {activeParcels.map((p) => (
+                <button key={p.id} type="button" role="radio" aria-checked={p.id === tracked.id} className={"cpick" + (p.id === tracked.id ? " is-on" : "")} onClick={() => setTrackedId(p.id)}>
+                  {(p.to_city || appText("Доставка", "Илтеү")) + ` · №${p.id}`}
+                </button>
+              ))}
+            </div>
+          )}
+          <ParcelTrackMap key={tracked.id} parcel={tracked} asCourier />
+        </div>
+      )}
       {items.map((p) => (
         <div key={p.id}>
           <CarryParcelCard

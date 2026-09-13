@@ -35,6 +35,8 @@ import {
   CodeDialog,
 } from "../components/parcelUi";
 import ParcelRate from "../components/ParcelRate";
+import ParcelPhotoStrip from "../components/ParcelPhotoStrip";
+import ParcelTrackMap from "../components/ParcelTrackMap";
 import ParcelProblemActions from "../components/ParcelProblemActions";
 import RoadsideHelp from "../components/RoadsideHelp";
 import ParcelReceiptCard from "../components/ParcelReceiptCard";
@@ -213,6 +215,8 @@ function MineTab() {
             <ParcelReturnNotice status={p.status} reason={p.return_reason} forCourier={false} />
             <ParcelDeadlineNote deliverBy={p.deliver_by} overdue={p.overdue} status={p.status} forCourier={false} />
             <ParcelAddressBlock from={p.from_address} to={p.to_address} />
+            {/* Снимки на границах ответственности — отправителю они нужны так же, как курьеру. */}
+            <ParcelPhotoStrip pickupUrl={p.pickup_photo_url} deliveryUrl={p.delivery_photo_url} />
             {(p.cancel_fee_kop ?? 0) > 0 && (
               <div className="parcel-card__warn">
                 {appText("Компенсация курьеру после отмены: ", "Кире алғандан һуң курьерға компенсация: ")}
@@ -238,6 +242,13 @@ function MineTab() {
                 <button type="button" className="btn-soft btn-soft--compact" onClick={() => navigate(`/parcel-chat/${p.id}`)}>
                   <IconChat size={18} /> {appText("Написать курьеру", "Курьерға яҙырға")}
                 </button>
+                {/* Живая карта — только пока посылка едет вперёд (accepted / in_transit). */}
+                {(p.status === "accepted" || p.status === "in_transit") && (
+                  <div className="parcel-track-block">
+                    <span className="dl-hint">{appText("Курьер в пути — следи на карте", "Курьер юлда — картала күҙәт")}</span>
+                    <ParcelTrackMap parcel={p} asCourier={false} />
+                  </div>
+                )}
               </>
             )}
             {/* «Купи и привези»: в магазине оказалось дороже согласованного. Без этой

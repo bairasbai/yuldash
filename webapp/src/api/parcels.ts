@@ -60,6 +60,9 @@ export interface Parcel {
   from_city: string;
   to_city: string;
   from_lat: number | null;
+  /** Фото «взял целой» / «отдал целой» — только сторонам сделки (/secure/evidence). */
+  pickup_photo_url?: string;
+  delivery_photo_url?: string;
   from_lng: number | null;
   to_lat: number | null;
   to_lng: number | null;

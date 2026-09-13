@@ -12,6 +12,9 @@ import { isCarrying } from "../api/parcels";
 import { dayMonthLong, rubLabel } from "../utils/format";
 import { IconArrow, IconPhone, IconCheck, IconChat, IconBox, IconProfile } from "./Icons";
 import ParcelPhoto from "./ParcelPhoto";
+import ParcelPhotoStrip from "./ParcelPhotoStrip";
+import { YuRoute } from "./BrandIcons";
+import { openNavigator } from "../utils/navigator";
 import {
   ParcelAddressBlock,
   ParcelDeadlineNote,
@@ -259,6 +262,27 @@ export function CarryParcelCard({
       <ParcelDeadlineNote deliverBy={p.deliver_by} overdue={p.overdue} status={p.status} forCourier />
       <CourierCargoRow p={p} />
       <ParcelAddressBlock from={p.from_address} to={p.to_address} prominent />
+      {/* Маршрут в навигаторе — туда, где машина нужна ПРЯМО СЕЙЧАС: пока посылка не забрана —
+          к отправителю, в пути — к получателю, на возврате — снова к отправителю. */}
+      {(() => {
+        const navActive = p.status === "accepted" || p.status === "in_transit" || p.status === "returning";
+        const toPickup = p.status === "accepted" || p.status === "returning";
+        const lat = toPickup ? p.from_lat : p.to_lat;
+        const lng = toPickup ? p.from_lng : p.to_lng;
+        if (!navActive || lat == null || lng == null) return null;
+        return (
+          <>
+            <button type="button" className="btn-soft btn-soft--compact" onClick={() => openNavigator(lat, lng)}>
+              <YuRoute size={18} /> {appText("Маршрут", "Юл")}
+            </button>
+            <p className="dl-hint">
+              {toPickup ? appText("Откроет навигатор к точке забора.", "Алып китеү нөктәһенә навигаторҙы аса.") : appText("Откроет навигатор к точке вручения.", "Тапшырыу нөктәһенә навигаторҙы аса.")}
+            </p>
+          </>
+        );
+      })()}
+      {/* Что курьер снял сам: подтверждение его же добросовестности, если начнётся спор. */}
+      <ParcelPhotoStrip pickupUrl={p.pickup_photo_url} deliveryUrl={p.delivery_photo_url} />
 
       {/* Контакты: получатель всегда, отправитель — пока посылка в работе (и при возврате —
           это точка возврата). Телефон ОТПРАВИТЕЛЯ нужен ровно тогда, когда что-то пошло не так:

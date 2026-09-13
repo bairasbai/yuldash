@@ -19446,3 +19446,97 @@ button.settings-row:active {
   font-size: var(--font-caption);
   line-height: var(--line-caption);
 }
+
+/* ---- Посылка: снимки границ ответственности и карта доставки ---- */
+.pshots {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.pshots__row {
+  display: flex;
+  gap: var(--space-sm);
+}
+.pshot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.pshot small {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.pshot__btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.pshot__img {
+  display: block;
+  width: 84px;
+  height: 84px;
+  border-radius: var(--radius-field);
+  background: var(--bg);
+  object-fit: cover;
+}
+.pshot__img--none {
+  border: 1px dashed var(--border);
+}
+.pshot-view {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: var(--space-lg);
+  background: var(--scrim);
+  animation: fadeIn var(--motion-quick) ease both;
+}
+.pshot-view img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.parcel-track-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.parcel-track {
+  height: 192px;
+  border-radius: var(--radius-item);
+  overflow: hidden;
+}
+.parcel-track > div {
+  height: 100%;
+}
+/* CourierPickChip: 48, радиус 14; выбранная — мята с зелёной рамкой. */
+.cpick-row {
+  display: flex;
+  gap: var(--space-sm);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.cpick-row::-webkit-scrollbar {
+  display: none;
+}
+.cpick {
+  flex: none;
+  min-height: 48px;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--muted-strong);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.cpick.is-on {
+  border-color: var(--green2);
+  background: var(--mint);
+  color: var(--green2);
+}
