@@ -774,7 +774,7 @@
   }
 }
 
-/* ---- Intro ---- */
+/* ---- Intro — зеркало IntroScreen.kt + IntroHero.kt ---- */
 .intro {
   /* Montserrat — как IntroScreen.kt: единственный экран с брендовой гарнитурой. */
   font-family: var(--font-family-intro);
@@ -785,100 +785,228 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-xs);
+  overflow: hidden;
   border: 0;
   padding: env(safe-area-inset-top) var(--space-xl) env(safe-area-inset-bottom);
-  background:
-    radial-gradient(circle at 50% 50%, transparent 0%, color-mix(in srgb, var(--scrim) 39%, transparent) 100%),
-    linear-gradient(color-mix(in srgb, var(--scrim) 22%, transparent), color-mix(in srgb, var(--scrim) 22%, transparent)),
-    var(--header-top);
+  background: var(--header-top); /* тот же зелёный, что у системного сплэша — бесшовный хэндофф */
   color: var(--on-accent);
   text-align: center;
 }
-/* BrandHero: белый круг 132 с логотипом (поля 24). */
+/* Пейзаж проявляется из зелёного (SCENE) и медленно «наезжает» 1.08 → 1 (DRIFT). */
+.intro__scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation:
+    introSceneIn var(--motion-scene) ease-in-out both,
+    introKenBurns var(--motion-drift) ease-in-out both;
+}
+@keyframes introSceneIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes introKenBurns {
+  from { transform: scale(1.08); }
+  to { transform: scale(1); }
+}
+/* Тёплая вуаль 20 % + виньетка: читаемость белого текста поверх сцены. */
+.intro__veil {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--scrim) 22%, transparent);
+}
+.intro__vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, transparent 0%, color-mix(in srgb, var(--scrim) 39%, transparent) 100%);
+}
+/* Золотая пыльца в небе (SkyMotes): семь точек, мерцают в темпе AMBIENT. */
+.intro__motes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.intro__motes i {
+  position: absolute;
+  border-radius: var(--radius-pill);
+  background: var(--canon-gold);
+  opacity: 0.3;
+  animation: introMote var(--motion-ambient) ease-in-out infinite alternate;
+}
+@keyframes introMote {
+  from { opacity: 0.12; transform: translateY(0); }
+  to { opacity: 0.52; transform: translateY(-14px); }
+}
+.intro__column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: opacity var(--motion-entry) ease-in-out, transform var(--motion-entry) ease-in;
+}
+.intro__column.is-exiting {
+  opacity: 0;
+  transform: scale(1.06);
+}
+/* BrandHero: белый круг 132 с логотипом (поля 24), пружинный settle 0.96 → 1. */
 .intro__mark {
   display: grid;
   place-items: center;
   width: 132px;
   height: 132px;
-  margin-bottom: var(--space-xs);
+  margin: var(--space-xl) 0 var(--space-xs);
   padding: var(--space-xl);
   border-radius: var(--radius-pill);
   background: var(--on-accent);
-  animation: popIn var(--motion-entry) ease both;
+  box-shadow: var(--depth-flat);
+  animation: introSettle var(--motion-count) cubic-bezier(0.34, 1.4, 0.64, 1) both;
 }
-.intro__mark svg,
 .intro__mark img {
   width: 100%;
   height: 100%;
 }
+@keyframes introSettle {
+  from { transform: scale(0.96); }
+  to { transform: scale(1); }
+}
+/* Слот слова: «Попутчик» и «Юлдаш» лежат друг на друге, по центру; высота 56, при крупном шрифте растёт. */
 .intro__stage {
+  position: relative;
+  display: grid;
+  place-items: center;
   min-height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
 }
-.intro__word {
-  font-weight: var(--weight-bold);
-  letter-spacing: 0.045em;
+.intro__stage > span {
+  grid-area: 1 / 1;
 }
-.intro__word--meaning {
+/* StaggerWord: буквы приходят каскадом снизу (ENTRY/COUNT), уходят каскадом вверх. */
+.intro__meaning {
+  display: inline-flex;
   font-size: var(--font-intro-meaning);
   line-height: var(--line-intro-brand);
   font-weight: var(--weight-medium);
-  letter-spacing: 0.03em;
-  animation: letterIn var(--motion-slow) ease both;
+  letter-spacing: 1px;
+  pointer-events: none;
 }
-.intro__word--brand {
+.intro__meaning i {
+  display: inline-block;
+  font-style: normal;
+  opacity: 0;
+  transform: translateY(-33%);
+  transition:
+    opacity var(--motion-normal) ease-in-out calc(var(--cascade-in) * var(--i)),
+    transform var(--motion-slow) ease-in-out calc(var(--cascade-in) * var(--i));
+}
+.intro__meaning.is-in i {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--motion-entry) cubic-bezier(0.16, 1, 0.3, 1) calc(var(--cascade-in) * var(--i)),
+    transform var(--motion-count) cubic-bezier(0.16, 1, 0.3, 1) calc(var(--cascade-in) * var(--i));
+}
+/* «Юлдаш»: fade + scale 0.92 → 1, tracking-in, золотой блик проходит по буквам (CINEMA). */
+.intro__brand {
   font-size: var(--font-intro-brand);
   line-height: var(--line-intro-brand);
-  animation: brandIn var(--motion-entry) cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0;
+  opacity: 0;
+  transform: scale(0.92);
+  color: var(--on-accent);
+  /* Два слоя под текстом: бегущая золотая полоса 200px поверх сплошного белого — иначе буквы вне полосы пустые. */
+  background-image:
+    linear-gradient(90deg, transparent 0 38%, var(--canon-gold) 50%, transparent 62% 100%),
+    linear-gradient(var(--on-accent), var(--on-accent));
+  background-size: 200px 100%, 100% 100%;
+  background-repeat: no-repeat, no-repeat;
+  background-position: -260px 0, 0 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  transition:
+    opacity var(--motion-scene) cubic-bezier(0.16, 1, 0.3, 1),
+    transform var(--motion-scene) cubic-bezier(0.34, 1.3, 0.64, 1),
+    letter-spacing var(--motion-scene) cubic-bezier(0.16, 1, 0.3, 1);
 }
-@keyframes letterIn {
-  from {
-    opacity: 0;
-    letter-spacing: 0.4em;
-  }
-  to {
-    opacity: 0.92;
-    letter-spacing: 0;
-  }
+.intro__brand.is-in {
+  opacity: 1;
+  transform: scale(1);
+  letter-spacing: 2px;
 }
-@keyframes brandIn {
-  from {
-    opacity: 0;
-    transform: scale(0.86);
-    letter-spacing: 0.3em;
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-    letter-spacing: 0.045em;
-  }
+.intro__brand.is-sheen {
+  animation: introSheen var(--motion-cinema) ease-in-out both;
 }
+@keyframes introSheen {
+  from { background-position: -260px 0, 0 0; }
+  to { background-position: 720px 0, 0 0; }
+}
+/* Золотая черта 72×4 из центра. */
 .intro__rule {
-  margin-top: var(--space-md);
+  display: block;
   width: 72px;
   height: 4px;
+  margin-top: var(--space-md);
   border-radius: var(--radius-tiny);
   background: var(--canon-gold);
-  animation: fadeUp var(--motion-entry) ease both calc(var(--cascade-in) * 8);
+  transform: scaleX(0);
+  transition: transform var(--motion-scene) cubic-bezier(0.16, 1, 0.3, 1);
+}
+.intro__rule.is-in {
+  transform: scaleX(1);
+}
+/* Слот слогана: высота зарезервирована; RU уходит вверх, BA приходит снизу. */
+.intro__slogans {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 24px;
+  margin-top: var(--space-lg);
+  width: 100%;
 }
 .intro__slogan {
-  margin: var(--space-lg) 0 0;
+  grid-area: 1 / 1;
   font-size: var(--font-body);
   line-height: var(--line-body);
   font-weight: var(--weight-medium);
-  letter-spacing: 0.03em;
-  opacity: 0.92;
-  animation: fadeUp var(--motion-entry) ease both calc(var(--cascade-in) * 11);
+  letter-spacing: 0.5px;
+  color: color-mix(in srgb, var(--on-accent) 92%, transparent);
+  opacity: 0;
+  transform: translateY(25%);
+  transition: opacity var(--motion-entry) cubic-bezier(0.16, 1, 0.3, 1), transform var(--motion-entry) cubic-bezier(0.16, 1, 0.3, 1);
 }
+.intro__slogan.is-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+.intro__slogan.is-out {
+  opacity: 0;
+  transform: translateY(-25%);
+  transition: opacity var(--motion-normal) ease-in-out, transform var(--motion-normal) ease-in-out;
+}
+.intro__slogan.is-in + .intro__slogan.is-in,
+.intro__slogans .intro__slogan:last-child.is-in {
+  transition-delay: var(--motion-normal);
+}
+/* «Пропустить» приходит через 1,4 с — сначала дать сцене подышать. */
 .intro__skip {
   position: absolute;
   bottom: calc(env(safe-area-inset-bottom) + 18px);
   font-size: var(--font-caption);
   color: color-mix(in srgb, var(--on-accent) 70%, transparent);
+  opacity: 0;
+  transition: opacity var(--motion-entry) ease;
+}
+.intro__skip.is-in {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro__scene,
+  .intro__motes i,
+  .intro__mark {
+    animation: none;
+  }
 }
 
 /* ---- Onboarding — зеркало OnboardingContent (YuldashApp.kt) ---- */
