@@ -7,22 +7,27 @@
 #   3. на сервере кладёт рядом с живой папкой, ДОКЛАДЫВАЕТ старые assets/ (хешированные,
 #      их ещё может просить старый service worker), атомарно меняет папки, чистит assets
 #      старше 2 дней, перечитывает nginx;
-#   4. проверяет: главная 200, sw.js без кэша, manifest на месте.
+#   4. проверяет С СЕРВЕРА (curl по 127.0.0.1 с именем сайта): главная 200, sw.js без кэша,
+#      manifest на месте. С ноута публичный домен часто не виден (ТСПУ/VPN, docs/lessons.md),
+#      поэтому проверка с ноута — только справочно, деплой она не валит.
 #
-# Перед первым запуском — docs/deploy-pwa.md (DNS, nginx, HTTPS, CORS на бэкенде).
+# Перед первым запуском — bash webapp/server-setup.sh (DNS, nginx, HTTPS, CORS, VAPID —
+# одной командой; подробности в docs/deploy-pwa.md).
 # Запуск: bash webapp/deploy.sh   (из корня репо или из webapp/)
 
 set -euo pipefail
 
 HOST="root@85.239.52.55"
 KEY="$HOME/.ssh/id_ed25519"
-SSH="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -i $KEY"
-SCP="scp -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -i $KEY"
+SSH="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o BatchMode=yes -i $KEY"
+SCP="scp -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o BatchMode=yes -i $KEY"
 LIVE="/var/www/yuldash-webapp/dist"       # root из nginx.conf.example
-SITE_URL="https://app.yulbash.ru"
+DOMAIN="app.yulbash.ru"
+SITE_URL="https://$DOMAIN"
 TARBALL="/tmp/yuldash-webapp.tar.gz"
 
 cd "$(dirname "$0")"
+WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 
 retry() { # retry <описание> <команда...>
   local desc="$1"; shift
@@ -33,6 +38,9 @@ retry() { # retry <описание> <команда...>
   done
   echo "!!! $desc — не удалось после 5 попыток"; return 1
 }
+# Удалённый скрипт — из ФАЙЛА, не из heredoc на stdin: heredoc вычитывается первой попыткой,
+# и повтор после обрыва SSH получил бы пустой скрипт и ложный «успех».
+ssh_script() { $SSH "$HOST" "bash -s" < "$1"; }
 
 echo "== 0/5 настройки сборки =="
 if [ ! -f .env.production ]; then
@@ -55,16 +63,17 @@ echo "== 3/5 загрузка =="
 retry "scp tarball" $SCP "$TARBALL" "$HOST:$TARBALL"
 
 echo "== 4/5 деплой (overlay + prune + reload nginx) =="
-retry "remote deploy" $SSH "$HOST" "bash -s" <<REMOTE
+cat > "$WORK/deploy-remote.sh" <<REMOTE
 set -e
 NEW=${LIVE}.new
 rm -rf \$NEW && mkdir -p \$NEW
 tar xzf ${TARBALL} -C \$NEW
 # Старый service worker у людей ещё может запросить прежние хешированные файлы —
-# докладываем их к новой сборке (cp -n: новые не перетираем).
+# докладываем их к новой сборке (cp -n: новые не перетираем; -p: сохраняем даты,
+# иначе каждая выкатка «омолаживает» старые файлы и чистка по -mtime их никогда не тронет).
 if [ -d ${LIVE}/assets ]; then
   mkdir -p \$NEW/assets
-  cp -rn ${LIVE}/assets/. \$NEW/assets/ || true
+  cp -rpn ${LIVE}/assets/. \$NEW/assets/ || true
 fi
 mkdir -p "\$(dirname ${LIVE})"
 rm -rf ${LIVE}.old
@@ -76,11 +85,22 @@ chown -R www-data:www-data "\$(dirname ${LIVE})" 2>/dev/null || true
 nginx -t && systemctl reload nginx
 echo "DEPLOY_DONE, файлов в assets: \$(ls ${LIVE}/assets | wc -l)"
 REMOTE
+retry "remote deploy" ssh_script "$WORK/deploy-remote.sh"
 
-echo "== 5/5 проверка =="
-retry "главная" bash -c "curl -sf -o /dev/null -w 'index: %{http_code}\n' $SITE_URL/"
-retry "manifest" bash -c "curl -sf -o /dev/null -w 'manifest: %{http_code}\n' $SITE_URL/manifest.webmanifest"
-echo -n "sw.js cache-control: "
-curl -sI "$SITE_URL/sw.js" | tr -d '\r' | awk -F': ' 'tolower($1)=="cache-control"{print $2}' | grep -q "no-cache" \
-  && echo "no-cache ✓" || echo "!!! sw.js кэшируется — проверь location = /sw.js в nginx"
+echo "== 5/5 проверка (с сервера по 127.0.0.1 — ноут за ТСПУ/VPN домен может не видеть) =="
+cat > "$WORK/verify-remote.sh" <<REMOTE
+set -e
+R="--resolve ${DOMAIN}:443:127.0.0.1"
+code() { curl -sk -o /dev/null -m 10 -w '%{http_code}' \$R "${SITE_URL}\$1"; }
+INDEX=\$(code /);                    echo "index: \$INDEX"
+MANI=\$(code /manifest.webmanifest); echo "manifest: \$MANI"
+SW=\$(curl -skI -m 10 \$R "${SITE_URL}/sw.js" | tr -d '\r' | awk -F': ' 'tolower(\$1)=="cache-control"{print \$2}')
+echo "sw.js cache-control: \${SW:-<нет заголовка>}"
+[ "\$INDEX" = 200 ] || { echo "!!! главная не 200"; exit 1; }
+[ "\$MANI" = 200 ]  || { echo "!!! manifest не 200"; exit 1; }
+echo "\$SW" | grep -q "no-cache" && echo "sw.js: no-cache ✓" || { echo "!!! sw.js кэшируется — проверь location = /sw.js в nginx"; exit 1; }
+REMOTE
+retry "проверка с сервера" ssh_script "$WORK/verify-remote.sh"
+echo -n "с ноута (справочно): "
+curl -s -o /dev/null -m 10 -w 'index: %{http_code}\n' "$SITE_URL/" || echo "нет ответа (обычно ТСПУ/VPN, не поломка)"
 echo "Готово."
