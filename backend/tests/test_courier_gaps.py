@@ -202,6 +202,34 @@ def test_declared_value_and_photos_are_stored(client, user_factory):
     assert _parcel(pid).delivery_photo_url == give_url
 
 
+def test_parcel_parties_can_open_their_photos(client, user_factory):
+    """Снимки «взял / отдал целой» открываются сторонам посылки, и только им.
+
+    Раньше выдача /secure/evidence знала лишь стороны СПОРА: курьер и отправитель получали 403
+    на собственные же фото, и плитка со снимком в обоих клиентах стояла пустой — красивая рамка
+    вокруг пустоты (найдено 13.09.2026 при переносе экрана посылки в PWA).
+    """
+    courier = _make_courier(client, user_factory, name="ГапФотоКурьер")
+    sender = user_factory(name="ГапФотоОтпр")
+    stranger = user_factory(name="ГапФотоЧужой")
+    order = _order(client, sender)
+    pid, code = order["id"], order["confirm_code"]
+    pickup = upload_evidence(client, courier["auth"])
+    assert client.post(f"/parcels/{pid}/accept", headers=courier["auth"],
+                       json={"pickup_photo_url": pickup}).status_code == 200
+    give = upload_evidence(client, courier["auth"])
+    assert client.post(f"/parcels/{pid}/status", headers=courier["auth"],
+                       json={"status": "in_transit"}).status_code == 200
+    assert client.post(f"/parcels/{pid}/status", headers=courier["auth"],
+                       json={"status": "delivered", "code": code, "delivery_photo_url": give}
+                       ).status_code == 200
+    for url in (pickup, give):
+        path = url[url.index("/secure/evidence/"):]
+        assert client.get(path, headers=courier["auth"]).status_code == 200, "курьер не видит свой снимок"
+        assert client.get(path, headers=sender["auth"]).status_code == 200, "отправитель не видит снимок"
+        assert client.get(path, headers=stranger["auth"]).status_code == 403, "посторонний открыл приватное фото"
+
+
 # ============== Уведомления курьерам о новых заказах ==============
 def test_couriers_get_notified_about_new_order(client, user_factory):
     """Раньше заявка висела в пустоте: три курьера ехали мимо и не знали о ней."""
