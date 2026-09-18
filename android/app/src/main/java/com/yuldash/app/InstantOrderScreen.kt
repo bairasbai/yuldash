@@ -2838,6 +2838,32 @@ private fun InstantDestinationPicker(
                         }
                     }
                 }
+                // Ночной тариф — та же честность, что и сурж (2026-09-18): сервер уже считал и
+                // отдавал night_note, но экран его не показывал — наценка была видна, а причина нет.
+                AnimatedVisibility(
+                    visible = estimate?.night == true,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    val est = estimate
+                    val pct = (((est?.nightK ?: 1.0) - 1.0) * 100).toInt()
+                    Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("🌙", fontSize = TxTitle, lineHeight = LhTitle)
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    // Серверный текст (двуязычный) — источник правды; локальный — фолбэк.
+                                    appText(
+                                        est?.nightNoteRu?.ifBlank { null } ?: "Ночной тариф: сейчас дороже на $pct% — в это время машин на линии мало.",
+                                        est?.nightNoteBa?.ifBlank { null } ?: "Төнгө тариф: хәҙер $pct%-ҡа ҡиммәтерәк — был ваҡытта линияла машина аҙ.",
+                                    ),
+                                    color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
+                                )
+                            }
+                        }
+                    }
+                }
                 // Что нужно в салоне: детское кресло по возрасту, коляска, животное, багаж.
                 // Это НЕ класс — галочка поверх любого класса: машина не может стоять в двух классах,
                 // а кресло возить может любая. Фильтр на сервере жёсткий: без кресла заказ не придёт.

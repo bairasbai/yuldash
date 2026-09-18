@@ -70,6 +70,34 @@ class ApiClientTaxiCourierTest {
     }
 
     /**
+     * Ночной тариф (§ instant_service.night_note): сервер уже отдавал поле, клиент его не читал
+     * (2026-09-18) — наценка была видна, а причина нет. Проверяем и разбор, и default для
+     * старого/дневного ответа без этих полей (клиент не должен падать и не должен считать ночь).
+     */
+    @Test
+    fun instantEstimate_parsesNightNote() = runBlocking {
+        server.enqueue(
+            json(
+                """{"price":410,"distance_km":9.0,"eta_min":14.0,"night":true,"night_k":1.2,
+                   "night_note":{"ru":"Ночной тариф: дороже на 20%","ba":"Төнгө тариф: 20%-ҡа ҡиммәт"}}"""
+            )
+        )
+        val est = ApiClient.instantEstimate(52.5, 58.3, 52.6, 58.4).getOrThrow()
+        assertTrue(est.night)
+        assertEquals(1.2, est.nightK, 0.001)
+        assertEquals("Ночной тариф: дороже на 20%", est.nightNoteRu)
+        assertEquals("Төнгө тариф: 20%-ҡа ҡиммәт", est.nightNoteBa)
+    }
+
+    @Test
+    fun instantEstimate_dayEstimate_nightDefaultsFalse() = runBlocking {
+        server.enqueue(json("""{"price":300,"distance_km":6.0,"eta_min":10.0}"""))
+        val est = ApiClient.instantEstimate(52.5, 58.3, 52.6, 58.4).getOrThrow()
+        assertEquals(false, est.night)
+        assertEquals("", est.nightNoteRu)
+    }
+
+    /**
      * «Не знаю время подачи» сервер отдаёт как null — и это должно доехать до экрана именно как
      * «неизвестно», а не как бодрое «0 минут». Ноль здесь читался бы как «машина уже у подъезда».
      */

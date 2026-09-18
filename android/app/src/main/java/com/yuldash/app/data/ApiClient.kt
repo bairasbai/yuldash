@@ -2419,6 +2419,7 @@ object ApiClient {
             instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
                 roundTrip, returnWaitMin, stops, scheduledAtIso), auth = true).map { o ->
             val note = o.optJSONObject("surge_note")
+            val nightNote = o.optJSONObject("night_note")   // null, когда сейчас день/ночной тариф не настроен
             val promoNote = o.optJSONObject("promo_note")   // null, когда скидки нет
             val pickupNote = o.optJSONObject("pickup_note") // null, когда подача ничего не стоит
             val waitHint = o.optJSONObject("pickup_wait_hint") // null, когда ждать нечего
@@ -2436,6 +2437,10 @@ object ApiClient {
                 surgeK = o.optDouble("surge_k", 1.0),
                 surgeNoteRu = note?.optString("ru") ?: "",
                 surgeNoteBa = note?.optString("ba") ?: "",
+                night = o.optBoolean("night", false),
+                nightK = o.optDouble("night_k", 1.0),
+                nightNoteRu = nightNote?.optString("ru") ?: "",
+                nightNoteBa = nightNote?.optString("ba") ?: "",
                 options = (0 until optArr.length()).map { i ->
                     val c = optArr.getJSONObject(i)
                     InstantClassOption(
@@ -5202,6 +5207,12 @@ data class InstantEstimateDto(
     val surgeK: Double = 1.0,
     val surgeNoteRu: String = "",
     val surgeNoteBa: String = "",
+    // Ночной тариф (§ instant_service.night_note) — сервер считает и отдаёт RU/BA-объяснение
+    // уже сегодня, но до 2026-09-18 клиент его не читал: наценка была, а почему — не видно.
+    val night: Boolean = false,
+    val nightK: Double = 1.0,
+    val nightNoteRu: String = "",
+    val nightNoteBa: String = "",
     val options: List<InstantClassOption> = emptyList(),
     // Динамический тариф v2. Defaults сохраняют совместимость со старым сервером.
     val basePrice: Int = 0,

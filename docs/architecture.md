@@ -64,6 +64,19 @@
 по Уфе; засев трогает только тарифы, где ночь не настроена руками. ⚠️ В тестах выключена
 (`conftest`: `NIGHT_K_DEFAULT=1.0`), иначе половина проверок цены зависела бы от часа прогона.
 
+**Прозрачность ночной наценки на Android (2026-09-18).** Сервер с самого начала отдавал
+`night`/`night_k`/`night_note{ru,ba}` в `estimate` (как и `surge_note` — см. батч B3 выше), PWA
+их уже показывала (`InstantOrderScreen.tsx`, блок «Ночь» в разборе цены), а Android — нет:
+`InstantEstimateDto` эти поля не парсил, баннер не рисовался. Наценка была видна, а причина —
+нет. Добавлено симметрично суржу: `ApiClient.kt` — 3 новых поля DTO + разбор `night_note`
+(мёртвый URL-фолбэк на случай старого сервера — тот же текст, что шлёт `night_note()` на
+бэкенде); `InstantOrderScreen.kt` — второй `AnimatedVisibility`-баннер (🌙, тот же `CanonTaxiBg`/
+`CanonTaxi`, что у суржа ⚡) сразу под суржевым — оба могут быть видны одновременно (пик спроса
+ночью — обычное дело). Тесты: `ApiClientTaxiCourierTest` (+2: разбор night_note, дефолт `night=false`
+на дневном ответе без полей), `ApiClientEndpointContractTest` (+3 ключа в мастер-список:
+`night_k`/`night`/`night_note`, чтобы общий фикстур-тест продолжал бить по этим полям на всех
+ручках). `testDebugUnitTest` (оба класса) зелёный, `assembleDebug` — см. `tasks.md`.
+
 **Отмена и ожидание (`instant_service`)** — `cancel_fee_with_pickup_kop` = подача + дорога
 водителя + его ожидание, потолок = `Tariff.pickup_max_rub`; `cancel_fee_parts_kop` отдаёт
 разбор клиенту. `wait_free_minutes` 5 → 3, `no_show_extra_minutes` 3 → 5 (кнопка «не вышел»

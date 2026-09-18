@@ -100,6 +100,7 @@ class ApiClientEndpointContractTest {
         "hours", "id", "impressions", "invited", "invited_by", "k", "km", "lat", "level",
         "limit_hours", "limit_per_user", "limit_sec", "limit_total", "lng", "max_kop", "max_price",
         "min_kop", "month", "my_response_id", "my_stars", "net_kop", "net_today_kop", "next_at",
+        "night_k",
         "no_show_today", "online", "order_id", "orders_active", "orders_period", "orders_today",
         "owed_commission_kop",
         "owner_id", "parcels_helped", "partner_id", "passenger", "passenger_rating", "pay_amount",
@@ -157,7 +158,8 @@ class ApiClientEndpointContractTest {
         "active_flag", "already_thanked", "blocked", "can_act", "can_invite", "commission_estimated",
         "confirmed", "contact_then_cancel", "contact_unlocked", "deleted", "discount_available",
         "driver_verified", "earned", "edited", "enabled", "expired", "fragile", "from_admin",
-        "has_premium", "has_requisite", "has_tolls", "is_insider", "live", "notify_by_default", "ok",
+        "has_premium", "has_requisite", "has_tolls", "is_insider", "live", "night",
+        "notify_by_default", "ok",
         "overdue", "paid", "peer_verified", "premium", "rating_shield", "read", "required",
         "responded", "return_ride_used", "rules_accepted", "settled", "sms_sent",
         "subscription_active", "verified", "with_kids",
@@ -174,7 +176,7 @@ class ApiClientEndpointContractTest {
     private val objectKeys = listOf(
         "application", "boost", "breakdown", "by_role", "coupon", "courier", "donate", "from",
         "funnel", "how",
-        "message", "money", "next", "offer", "order", "partner", "payee", "profile", "promo",
+        "message", "money", "next", "night_note", "offer", "order", "partner", "payee", "profile", "promo",
         "promo_note", "rank", "rating", "sbp", "settlement", "statement", "surge_note", "title", "to",
         "top_route", "user",
     )
