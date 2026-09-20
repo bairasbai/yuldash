@@ -398,4 +398,3 @@ function PayoutSection({
     </section>
   );
 }
-
