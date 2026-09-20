@@ -24,6 +24,8 @@ internal object SessionKeys {
     val CLEARED_ON_LOGOUT = listOf(
         "token",           // токен входа
         "refresh_token",   // токен продления сессии
+        "refresh_rotation_id", // секрет одной попытки продления, не переживает смену аккаунта
+        "refresh_rotation_token", // ключ, к которому привязана эта попытка
         "user_name",       // имя человека
         "user_role",       // кем он был в приложении
         "push_token",      // иначе устройство прошлого владельца снова зарегистрируется
@@ -58,6 +60,8 @@ internal object SessionKeys {
      * настроил под СЕБЯ И ТЕЛЕФОН, а не то, что он сделал внутри аккаунта.
      */
     val SURVIVES_LOGOUT = mapOf(
+        "secure_clear_pending" to "отметка удаления недоступного зашифрованного офлайн-кеша; сохраняется до подтверждённой очистки",
+        "auth_store_state" to "источник сессии и отметка выхода; не содержит ключей, запрещает восстановление старого аккаунта",
         "app_language" to "язык интерфейса — настройка телефона; сбросить значит встретить нового человека чужим языком",
         "dark_override" to "тёмная тема — настройка внешнего вида устройства",
         "sounds" to "звуки уведомлений — настройка устройства",
@@ -71,5 +75,11 @@ internal object SessionKeys {
         "mode_hint_shown" to "подсказку про режимы на этом телефоне уже показывали",
         "update_dismissed_code" to "«не напоминать про это обновление» — решение владельца устройства",
         "last_store_review_ms" to "когда просили оценить приложение; сброс превратил бы выход в повод спросить снова",
+    )
+
+    /** Cleared by each store's atomic reset, never separately through CLEARED_BY_FILE. */
+    val CLEARED_BY_STORE: Map<String, List<String>> = mapOf(
+        "yuldash_trippass" to listOf(OfflineMigration.JOURNAL, TripPassDeletion.KEY),
+        "yuldash_outbox" to listOf(OfflineMigration.JOURNAL),
     )
 }

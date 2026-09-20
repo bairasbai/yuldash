@@ -356,6 +356,29 @@ export const IconWarn = ({ size = 22 }: P) => (
   </svg>
 );
 
+// Язык (Icons.Default.Language): глобус.
+export const IconGlobe = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18M12 3c2.6 2.8 2.6 15.2 0 18M12 3c-2.6 2.8-2.6 15.2 0 18" />
+  </svg>
+);
+
+// Размер текста (Icons.Default.FormatSize): большая и маленькая «А».
+export const IconTextSize = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M3 18 8 6l5 12M4.8 14h6.4M14 18l3-7 3 7M15.1 15.5h3.8" />
+  </svg>
+);
+
+// Информация (Icons.Default.Info): кружок с «i» — сноски и подсказки.
+export const IconInfo = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5M12 8v.2" />
+  </svg>
+);
+
 // Удостоверение / бейдж (документы водителя).
 export const IconIdCard = ({ size = 22 }: P) => (
   <svg {...base(size)}>
@@ -395,5 +418,77 @@ export const IconLock = ({ size = 22 }: P) => (
     <rect x="4.5" y="10.5" width="15" height="10" rx="2.2" />
     <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
     <path d="M12 14.5v2.5" />
+  </svg>
+);
+
+/** Бумажный самолётик — «Отправить» (Icons.Default.Send). */
+export const IconSend = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M21 3 3 10.5l8 2.5 2.5 8L21 3Z" />
+    <path d="M11 13l10-10" />
+  </svg>
+);
+
+/** Крестик «закрыть» (Icons.Default.Close). */
+export const IconClose = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M6 6l12 12M18 6 6 18" />
+  </svg>
+);
+
+/** Прицел «где я» (Icons.Default.MyLocation). */
+export const IconLocate = ({ size = 21 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="6.5" />
+    <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+  </svg>
+);
+
+/** Облако перечёркнуто — нет связи (Icons.Default.CloudOff). */
+export const IconCloudOff = ({ size = 24 }: P) => (
+  <svg {...base(size)}>
+    <path d="M7.5 18.5h10a4 4 0 0 0 .9-7.9A6 6 0 0 0 8.2 8.4" />
+    <path d="M5.4 10.6A4 4 0 0 0 7.5 18.5" />
+    <path d="M4 4l16 16" />
+  </svg>
+);
+
+/** Контурная звезда (Icons.Outlined.StarOutline) — до оценки. */
+export const IconStarOutline = ({ size = 18 }: P) => (
+  <svg {...base(size)}>
+    <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 17l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z" />
+  </svg>
+);
+
+/** Галочка в круге (Icons.Default.CheckCircle). */
+export const IconCheckCircle = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8.5 12.2l2.4 2.4 4.8-5" />
+  </svg>
+);
+
+/** Ладони — «договоримся» (Icons.Default.Handshake). */
+export const IconHandshake = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M3 9.5 7 6l4 1.5 4-1.5 6 4v6l-4 3.5-4-2-4 2-6-5Z" />
+    <path d="M11 7.5 8.5 11l2 1.5 2.5-2.5" />
+  </svg>
+);
+
+/** Две стрелки — перевод по СБП (Icons.Default.SwapHoriz). */
+export const IconSwap = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 8h13l-3-3M20 16H7l3 3" />
+  </svg>
+);
+
+/** Карта в кружке — «календарь занят» (Icons.Default.EventBusy). */
+export const IconEventBusy = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+    <path d="M3.5 9.5h17M8 3v4M16 3v4" />
+    <path d="M9.5 13l5 5M14.5 13l-5 5" />
   </svg>
 );

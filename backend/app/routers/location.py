@@ -136,7 +136,12 @@ async def trip_location(websocket: WebSocket, booking_id: int):
             return
         # Приватность: точная live-позиция — только во время активной поездки.
         if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
-            await websocket.close(code=1008, reason="Trip not active")
+            # Ожидание подтверждения допускает повтор, завершённая бронь — нет.
+            # Проверяем это после участника, чтобы не раскрывать чужой статус.
+            reason = "Trip ended" if booking.status in (
+                BookingStatus.done, BookingStatus.cancelled,
+            ) else "Trip not active"
+            await websocket.close(code=1008, reason=reason)
             return
         driver_id = ride.driver_id
 
@@ -241,7 +246,10 @@ async def instant_location(websocket: WebSocket, order_id: int):
             await websocket.close(code=1008, reason="Forbidden")
             return
         if order.status not in INSTANT_LOC_ACTIVE:
-            await websocket.close(code=1008, reason="Order not active")
+            reason = "Order ended" if order.status in (
+                InstantOrderStatus.done, InstantOrderStatus.cancelled, InstantOrderStatus.expired,
+            ) else "Order not active"
+            await websocket.close(code=1008, reason=reason)
             return
         driver_id = order.driver_id
 
@@ -375,7 +383,10 @@ async def parcel_location(websocket: WebSocket, parcel_id: int):
             await websocket.close(code=1008, reason="Forbidden")
             return
         if parcel.status not in PARCEL_LOC_ACTIVE:
-            await websocket.close(code=1008, reason="Delivery not active")
+            reason = "Parcel ended" if parcel.status in (
+                "delivered", "canceled", "returned",
+            ) else "Delivery not active"
+            await websocket.close(code=1008, reason=reason)
             return
         courier_id = parcel.courier_id
 

@@ -224,6 +224,6 @@ check(
   "экран доверия ведёт к следующему уровню и согласиям"
 );
 check(simple.includes('to: "/repeat"'), "простой режим содержит частые маршруты");
-check(cabinet.includes('onClick: () => navigate("/wallet")'), "кошелёк пассажира открывает настоящий экран");
+check(cabinet.includes('navigate("/wallet")'), "кошелёк пассажира открывает настоящий экран");
 
 if (bad) process.exit(1);

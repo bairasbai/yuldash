@@ -13,6 +13,7 @@
 
 /** Ключи одного человека — уходят вместе с ним. */
 const PERSONAL_KEYS = [
+  "yuldash.outbox.changed", // только сигнал обновления очереди, без текста сообщений
   "yuldash.consents", // согласия 152-ФЗ: их даёт человек, а не телефон
   "yuldash.role", // пассажир/водитель — роль этого человека
   "yuldash.filterPrefs", // маршруты, которые он ищет: куда ездит — личное
@@ -52,6 +53,17 @@ function clearByPrefix(store: Storage): void {
     if (k && PERSONAL_PREFIXES.some((p) => k.startsWith(p))) doomed.push(k);
   }
   doomed.forEach((k) => store.removeItem(k));
+}
+
+/** Вкладка хранит своего владельца отдельно от общего localStorage. */
+export function syncPersonalSession(generation: string): void {
+  try {
+    if (sessionStorage.getItem("yuldash.session") === generation) return;
+    clearByPrefix(sessionStorage);
+    sessionStorage.setItem("yuldash.session", generation);
+  } catch {
+    /* Хранилище может быть недоступно в приватном режиме. */
+  }
 }
 
 export function clearPersonalLocal(): void {

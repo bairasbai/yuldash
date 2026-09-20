@@ -1,6 +1,8 @@
 // ================================================================
 //  «Посылки» (M3). RequireAuth → /parcels. Три вкладки:
-//   • Отправить — форма → POST /parcels → крупный код вручения + сбор;
+//   • Отправить — мастер в три шага (components/ParcelSendWizard.tsx): «по пути» →
+//     POST /parcels, курьер / «купи и привези» → /courier/estimate + /courier/orders;
+//     в конце — крупный код вручения;
 //   • Мои — GET /parcels/mine (статус, код, курьер, «Отменить»);
 //   • Возить — «по пути» доставка: Доступные (GET /parcels/available,
 //     «Взять») и Везу (GET /parcels/carrying, телефон + статусы).
@@ -14,7 +16,6 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
-  createParcel,
   fetchMyParcels,
   cancelParcel,
   parcelRedeliverRequest,
@@ -23,9 +24,7 @@ import {
   setParcelStatus,
   fetchCarrying,
   type Parcel,
-  type ParcelSize,
 } from "../api/parcels";
-import { rubLabel } from "../utils/format";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, ErrorState } from "../components/States";
 import {
@@ -36,13 +35,25 @@ import {
   CodeDialog,
 } from "../components/parcelUi";
 import ParcelRate from "../components/ParcelRate";
+import ParcelPhotoStrip from "../components/ParcelPhotoStrip";
+import ParcelTrackMap from "../components/ParcelTrackMap";
 import ParcelProblemActions from "../components/ParcelProblemActions";
+import CompletedParcelCard, { isCompletedParcel } from "../components/CompletedParcelCard";
 import RoadsideHelp from "../components/RoadsideHelp";
 import ParcelReceiptCard from "../components/ParcelReceiptCard";
 import RaiseBudget from "../components/RaiseBudget";
-import CourierOrderForm from "../components/CourierOrderForm";
-import { IconBox, IconCheck, IconChat, IconCopy, IconGift, IconRoute, IconShield, IconStar } from "../components/Icons";
-import { track } from "../analytics";
+import ParcelSendWizard from "../components/ParcelSendWizard";
+import {
+  ParcelAddressBlock,
+  ParcelCodeCard,
+  ParcelCourierRow,
+  ParcelDeadlineNote,
+  ParcelReturnNotice,
+  ParcelRouteRow,
+} from "../components/parcelForm";
+import { CourierDeliveryProgress } from "../components/TaxiTripProgress";
+import { kopExactLabel } from "../utils/format";
+import { IconBox, IconCheck, IconChat, IconProfile, IconShield } from "../components/Icons";
 import { useAuth } from "../auth/AuthProvider";
 import { canOpenParcelDispute } from "../utils/parcelDispute.js";
 
@@ -74,397 +85,36 @@ export default function ParcelsScreen() {
 
   return (
     <>
-      <SubHeader
-        title={appText("Посылки", "Бандеролдәр")}
-        subtitle={appText("Доставка между сёлами «между своими»", "Ауылдар араһында «үҙебеҙ» доставка")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Посылки", "Бандеролдәр")} onBack={() => navigate(-1)} />
 
-      <div className="taxi-when parcel-tabs">
-        <button type="button" className={"taxi-when__tab" + (tab === "send" ? " is-active" : "")} onClick={() => setTab("send")}>
-          {appText("Отправить", "Ебәреү")}
-        </button>
-        <button type="button" className={"taxi-when__tab" + (tab === "mine" ? " is-active" : "")} onClick={() => setTab("mine")}>
-          {appText("Мои", "Минеке")}
-        </button>
-        <button type="button" className={"taxi-when__tab" + (tab === "carry" ? " is-active" : "")} onClick={() => setTab("carry")}>
-          {appText("Возить", "Йөрөтөү")}
-        </button>
-      </div>
-
-      {tab === "send" && <SendTab onSent={() => setTab("mine")} />}
-      {tab === "mine" && <MineTab />}
-      {tab === "carry" && <CarryTab />}
-    </>
-  );
-}
-
-// ============================ Вкладка «Отправить» ============================
-function SendTab({ onSent }: { onSent: () => void }) {
-  const { appText, lang } = useLang();
-  const ru = lang !== "ba";
-
-  /**
-   * Два способа отправить, и они правда разные.
-   *
-   * «По пути» — вещь едет с тем, кто и так туда собрался: дёшево, но когда получится.
-   * «Курьером» — человек едет специально за деньги: есть срок и цена заранее.
-   * Раньше в вебе был только первый, и тому, кому надо сегодня, приложение отвечало
-   * «жди попутчика».
-   */
-  const [mode, setMode] = useState<"poputka" | "courier">("poputka");
-
-  const [fromCity, setFromCity] = useState("");
-  const [toCity, setToCity] = useState("");
-  const [size, setSize] = useState<ParcelSize>("small");
-  const [desc, setDesc] = useState("");
-  const [receiver, setReceiver] = useState("");
-  const [phone, setPhone] = useState("");
-  const [rules, setRules] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<Parcel | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  // «Что и за сколько везём» — без этого курьер видел маршрут и размер, а решить,
-  // браться или нет, было не по чему. Блок сворачиваемый: обязательного тут ничего нет.
-  const [more, setMore] = useState(false);
-  const [fromAddr, setFromAddr] = useState("");
-  const [toAddr, setToAddr] = useState("");
-  const [price, setPrice] = useState("");
-  const [value, setValue] = useState("");
-  const [weight, setWeight] = useState("");
-  const [fragile, setFragile] = useState(false);
-  const [deliverBy, setDeliverBy] = useState("");
-
-  const weightNum = Number(weight.replace(",", "."));
-  const weightOk = !weight.trim() || (Number.isFinite(weightNum) && weightNum <= 100);
-
-  const canSubmit =
-    fromCity.trim() && toCity.trim() && receiver.trim() && rules && weightOk && !busy;
-
-  async function submit() {
-    if (!canSubmit) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const p = await createParcel({
-        from_city: fromCity.trim(),
-        to_city: toCity.trim(),
-        size,
-        description: desc.trim(),
-        receiver_name: receiver.trim(),
-        receiver_phone: phone.trim(),
-        rules_accepted: rules,
-        // Деньги — в копейках: сервер везде считает целыми, чтобы не терять на округлении.
-        price_kop: price.trim() ? Math.max(0, Math.round(Number(price) * 100)) : 0,
-        declared_value_kop: value.trim() ? Math.max(0, Math.round(Number(value) * 100)) : 0,
-        from_address: fromAddr.trim(),
-        to_address: toAddr.trim(),
-        weight_kg: weight.trim() ? Math.max(0, weightNum) : 0,
-        fragile,
-        deliver_by: deliverBy || null,
-      });
-      track("parcel_create");
-      setCreated(p);
-    } catch (e) {
-      setError(
-        e instanceof ApiError && e.message
-          ? e.message
-          : appText("Не получилось создать заявку. Попробуй снова.", "Заявка яһап булманы. Ҡабат ҡара.")
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function copyCode(code: string) {
-    navigator.clipboard?.writeText(code).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1800);
-      },
-      () => {}
-    );
-  }
-
-  // Успех: крупный код вручения + сбор.
-  if (created) {
-    const price = created.price_kop > 0 ? created.price_kop : created.fee_kop;
-    return (
-      <div className="parcel-done">
-        <div className="parcel-done__emoji"><IconBox size={34} /></div>
-        <h2>{appText("Заявка создана!", "Заявка яһалды!")}</h2>
-        <p className="parcel-card__desc" style={{ textAlign: "center" }}>
-          {appText(
-            "Назови этот код получателю. Он скажет его курьеру при получении — так подтвердится вручение.",
-            "Был кодты алыусыға әйт. Ул уны курьерға тапшырғанда әйтә — тапшырыу шулай раҫлана."
-          )}
-        </p>
-        <div className="parcel-code">
-          <div className="parcel-code__label">{appText("Код вручения", "Тапшырыу коды")}</div>
-          <div className="parcel-code__value">{created.confirm_code}</div>
-          <button type="button" className="btn-soft" onClick={() => copyCode(created.confirm_code || "")}>
-            {copied ? <IconCheck size={18} /> : <IconCopy size={18} />}
-            {copied ? appText("Скопировано", "Күсерелде") : appText("Копировать", "Күсереү")}
-          </button>
-        </div>
-        <div className="info-list">
-          <div className="info-row">
-            <span className="info-row__k">{appText("Маршрут", "Юл")}</span>
-            <span className="info-row__v">{created.from_city} → {created.to_city}</span>
-          </div>
-          <div className="info-row">
-            <span className="info-row__k">{appText("Размер", "Үлсәм")}</span>
-            <span className="info-row__v">{sizeLabel(created.size, ru)}</span>
-          </div>
-          <div className="info-row">
-            <span className="info-row__k">{appText("Сбор Юлдаша", "Юлдаш сбыры")}</span>
-            <span className="info-row__v">{rubLabel(price)}</span>
-          </div>
-        </div>
-        <button type="button" className="btn-primary submit-btn" style={{ marginTop: 14 }} onClick={onSent}>
-          {appText("К моим посылкам", "Минең бандеролдәргә")}
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <>
-      {/* Чем отличаются способы — говорим прямо в подписи, а не мелким шрифтом ниже:
-          человеку, которому надо сегодня, важно понять это в первую секунду. */}
-      <div className="seg" style={{ marginTop: 14 }}>
-        <button
-          type="button"
-          className={"seg__item" + (mode === "poputka" ? " is-active" : "")}
-          onClick={() => setMode("poputka")}
-        >
-          {appText("По пути · дешевле", "Юл ыңғайы · арзаныраҡ")}
-        </button>
-        <button
-          type="button"
-          className={"seg__item" + (mode === "courier" ? " is-active" : "")}
-          onClick={() => setMode("courier")}
-        >
-          {appText("Курьером · быстрее", "Курьер менән · тиҙерәк")}
-        </button>
-      </div>
-
-      {mode === "courier" ? (
-        <CourierOrderForm onCreated={onSent} />
-      ) : (
-        <>
-      <div className="field-row" style={{ marginTop: 14 }}>
-        <label className="field" style={{ flex: 1 }}>
-          <span className="field__label">{appText("Откуда", "Ҡайҙан")}</span>
-          <input className="field__input" value={fromCity} onChange={(e) => setFromCity(e.target.value)} placeholder={appText("Село/город", "Ауыл/ҡала")} />
-        </label>
-        <label className="field" style={{ flex: 1 }}>
-          <span className="field__label">{appText("Куда", "Ҡайҙа")}</span>
-          <input className="field__input" value={toCity} onChange={(e) => setToCity(e.target.value)} placeholder={appText("Село/город", "Ауыл/ҡала")} />
-        </label>
-      </div>
-
-      {/* Размер */}
-      <span className="field__label" style={{ marginTop: 14, display: "block" }}>
-        {appText("Размер посылки", "Бандероль үлсәме")}
-      </span>
-      <div className="seg" style={{ marginTop: 6 }}>
-        {(["small", "medium", "large"] as ParcelSize[]).map((s) => (
-          <button key={s} type="button" className={"seg__item" + (size === s ? " is-active" : "")} onClick={() => setSize(s)}>
-            <span>{s === "small" ? <IconBox size={20} /> : s === "medium" ? <IconGift size={20} /> : <IconBox size={20} />}</span>
-            {sizeLabel(s, ru)}
+      {/* ParcelTab (Android): рамка 14, внутри плитки — активная мятная с зелёной рамкой. */}
+      <div className="parcel-tabs" role="tablist">
+        {(
+          [
+            ["send", appText("Отправить", "Ебәреү")],
+            ["mine", appText("Мои", "Минеке")],
+            ["carry", appText("Возить", "Йөрөтөү")],
+          ] as [Tab, string][]
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            className={"parcel-tabs__tab" + (tab === id ? " is-active" : "")}
+            onClick={() => setTab(id)}
+          >
+            {label}
           </button>
         ))}
       </div>
 
-      <label className="field" style={{ marginTop: 14 }}>
-        <span className="field__label">{appText("Что за посылка", "Ниндәй бандероль")}</span>
-        <textarea
-          className="field__area"
-          value={desc}
-          onChange={(e) => setDesc(e.target.value)}
-          placeholder={appText("Например: документы, книга, гостинец", "Мәҫәлән: документтар, дарыу, күстәнәс")}
-          rows={2}
-        />
-      </label>
-
-      <div className="field-row" style={{ marginTop: 12 }}>
-        <label className="field" style={{ flex: 1 }}>
-          <span className="field__label">{appText("Имя получателя", "Алыусы исеме")}</span>
-          <input className="field__input" value={receiver} onChange={(e) => setReceiver(e.target.value)} placeholder={appText("Кто встретит", "Кем ҡаршы ала")} />
-        </label>
-        <label className="field" style={{ flex: 1 }}>
-          <span className="field__label">{appText("Телефон", "Телефон")}</span>
-          <input className="field__input" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="+7 900 000-00-00" />
-        </label>
+      {/* Смена вкладки — с затуханием (AnimatedContent), а не одним кадром. */}
+      <div className="parcel-tab-body" key={tab}>
+        {tab === "send" && <ParcelSendWizard onSent={() => setTab("mine")} />}
+        {tab === "mine" && <MineTab />}
+        {tab === "carry" && <CarryTab />}
       </div>
-
-      {/* Цена доставки — не в «дополнительно»: без неё курьеру нечем решить, браться или нет */}
-      <label className="field" style={{ marginTop: 12 }}>
-        <span className="field__label">{appText("Сколько платишь за доставку, ₽", "Илтеү өсөн күпме түләйһең, ₽")}</span>
-        <input
-          className="field__input"
-          type="number"
-          inputMode="numeric"
-          min={0}
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-          placeholder={appText("0 — по-соседски, бесплатно", "0 — күршеләрсә, бушлай")}
-        />
-        <span className="field__hint">
-          {appText(
-            "Курьер видит сумму до того, как возьмёт посылку. Деньги отдаёшь напрямую ему.",
-            "Курьер аҫылманы алғанға тиклем сумманы күрә. Аҡсаны тура уға бирәһең."
-          )}
-        </span>
-      </label>
-
-      {/* Остальное — по желанию, но каждое поле снимает по одному спору потом */}
-      <button
-        type="button"
-        className="more-toggle"
-        onClick={() => setMore((v) => !v)}
-        aria-expanded={more}
-      >
-        {appText("Дополнительно", "Өҫтәмә")}
-        <span className="more-toggle__chev">{more ? "▴" : "▾"}</span>
-      </button>
-
-      {more && (
-        <div className="more-body">
-          <div className="field-row">
-            <label className="field" style={{ flex: 1 }}>
-              <span className="field__label">{appText("Откуда забрать", "Ҡайҙан алырға")}</span>
-              <input
-                className="field__input"
-                value={fromAddr}
-                onChange={(e) => setFromAddr(e.target.value)}
-                maxLength={200}
-                placeholder={appText("Дом, квартира или ориентир", "Йорт, фатир йәки билдә")}
-              />
-            </label>
-            <label className="field" style={{ flex: 1 }}>
-              <span className="field__label">{appText("Куда привезти", "Ҡайҙа килтерергә")}</span>
-              <input
-                className="field__input"
-                value={toAddr}
-                onChange={(e) => setToAddr(e.target.value)}
-                maxLength={200}
-                placeholder={appText("«У мечети», «синие ворота»", "«Мәсет янында», «зәңгәр ҡапҡа»")}
-              />
-            </label>
-          </div>
-
-          <div className="field-row" style={{ marginTop: 12 }}>
-            <label className="field" style={{ flex: 1 }}>
-              <span className="field__label">{appText("Вес, кг", "Ауырлыҡ, кг")}</span>
-              <input
-                className="field__input"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                max={100}
-                value={weight}
-                onChange={(e) => setWeight(e.target.value)}
-                placeholder={appText("Примерно", "Яҡынса")}
-              />
-              {!weightOk && (
-                <span className="field__hint" style={{ color: "var(--danger)" }}>
-                  {appText(
-                    "Вес больше 100 кг — это уже грузоперевозка",
-                    "Ауырлыҡ 100 кг-дан артыҡ — был инде йөк ташыу"
-                  )}
-                </span>
-              )}
-            </label>
-            <label className="field" style={{ flex: 1 }}>
-              <span className="field__label">{appText("Ценность, ₽", "Хаҡы, ₽")}</span>
-              <input
-                className="field__input"
-                type="number"
-                inputMode="numeric"
-                min={0}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                placeholder={appText("Необязательно", "Мотлаҡ түгел")}
-              />
-              {/* Честно про границы: это не страховка. Но и без цифры разбор
-                  упирается в «стоило дорого» против «ничего не стоило». */}
-              <span className="field__hint">
-                {appText(
-                  "Если что-то случится, это будет ориентиром при разборе. Не страховка — но без цифры спорить не о чем.",
-                  "Берәй хәл булһа, был тикшереүҙә ориентир булыр. Иминләштереү түгел — әммә һанһыҙ бәхәсләшеп булмай."
-                )}
-              </span>
-            </label>
-          </div>
-
-          <label className="field" style={{ marginTop: 12 }}>
-            <span className="field__label">{appText("Нужно доставить не позже", "Ошо көндән һуң түгел")}</span>
-            <input
-              className="field__input"
-              type="date"
-              value={deliverBy}
-              onChange={(e) => setDeliverBy(e.target.value)}
-            />
-            <span className="field__hint">
-              {appText("Пусто — не срочно, когда получится.", "Буш — ашығыс түгел, ҡасан килеп сыға.")}
-            </span>
-          </label>
-
-          <label className="list-row list-row--check" style={{ marginTop: 12 }}>
-            <div className="list-row__main">
-              <div className="list-row__title">{appText("Хрупкое", "Ватыла торған")}</div>
-              <div className="list-row__sub">
-                {appText(
-                  "Курьер повезёт аккуратнее и не поставит сверху тяжёлое.",
-                  "Курьер һаҡсылыраҡ алып барыр, өҫтөнә ауырҙы ҡуймаҫ."
-                )}
-              </div>
-            </div>
-            <input
-              type="checkbox"
-              className="checkbox"
-              checked={fragile}
-              onChange={() => setFragile((v) => !v)}
-              aria-label={appText("Хрупкое", "Ватыла торған")}
-            />
-          </label>
-        </div>
-      )}
-
-      {/* Правила — обязательный чекбокс */}
-      <label className="list-row list-row--check" style={{ marginTop: 14 }}>
-        <div className="list-row__main">
-          <div className="list-row__title">{appText("Соглашаюсь с правилами", "Ҡағиҙәләр менән ризамын")}</div>
-          <div className="list-row__sub">
-            {appText(
-              "Не отправляю запрещённое, деньги, документы без описи. Мы возим «между своими».",
-              "Тыйылған, аҡса, теркәүһеҙ документ ебәрмәйем. Беҙ «үҙебеҙ араһында» йөрөтәбеҙ."
-            )}
-          </div>
-        </div>
-        <input type="checkbox" className="checkbox" checked={rules} onChange={() => setRules((v) => !v)} aria-label={appText("Правила", "Ҡағиҙәләр")} />
-      </label>
-
-      {/* Главное про ожидания: везёт сосед по пути, а не курьерская служба
-          со страховкой. Сказать это надо до отправки, а не при разборе спора. */}
-      <p className="parcel-expect">
-        {appText(
-          "Курьер — обычный попутчик, а не служба доставки. Не клади ценное, хрупкое или запрещённое. Ответственность за содержимое — на тебе.",
-          "Курьер — ябай юлдаш, доставка хеҙмәте түгел. Ҡиммәтле, ватыҡ йәки тыйылған әйберҙе һалма. Эстәлеге өсөн яуаплылыҡ — һиндә."
-        )}
-      </p>
-
-      {error && <div className="auth__error">{error}</div>}
-
-      <button type="button" className="btn-primary submit-btn" style={{ marginTop: 14 }} onClick={submit} disabled={!canSubmit}>
-        {busy ? appText("Создаём…", "Яһайбыҙ…") : <><IconBox size={18} /> {appText("Создать заявку", "Заявка яһау")}</>}
-      </button>
-        </>
-      )}
     </>
   );
 }
@@ -473,7 +123,8 @@ function SendTab({ onSent }: { onSent: () => void }) {
 type Boot = "loading" | "error" | "ready";
 
 function MineTab() {
-  const { appText } = useLang();
+  const { appText, lang } = useLang();
+  const ru = lang !== "ba";
   const { user } = useAuth();
   const navigate = useNavigate();
   const [boot, setBoot] = useState<Boot>("loading");
@@ -546,47 +197,61 @@ function MineTab() {
         const active = p.status !== "delivered" && p.status !== "canceled";
         return (
           <div key={p.id} className="parcel-card">
-            <div className="parcel-card__head">
-              <div className="parcel-card__to">{appText("Кому", "Кемгә")}: {p.receiver_name || "—"}</div>
+            {/* Шапка как в Android MyParcelCard: маршрут жирно + «размер · описание», справа статус. */}
+            <div className="parcel-card__head parcel-card__head--route">
+              <div className="parcel-card__route">
+                <ParcelRouteRow from={p.from_city} to={p.to_city} />
+                <div className="dl-hint">
+                  {sizeLabel(p.size, ru)}
+                  {p.description ? `  ·  ${p.description}` : ""}
+                </div>
+              </div>
               <StatusPillParcel status={p.status} />
             </div>
-            <div className="repeat-route">
-              <span>{p.from_city}</span>
-              <span className="repeat-route__arrow">→</span>
-              <span>{p.to_city}</span>
+            {/* Порядок блоков — как в Android MyParcelCard: рельса, возврат, срок, адреса, компенсация,
+                получатель, курьер, покупки, код, «заехать ещё раз», «Отменить». */}
+            {p.status !== "canceled" && p.status !== "cancelled" && (
+              <CourierDeliveryProgress status={p.status} />
+            )}
+            <ParcelReturnNotice status={p.status} reason={p.return_reason} forCourier={false} />
+            <ParcelDeadlineNote deliverBy={p.deliver_by} overdue={p.overdue} status={p.status} forCourier={false} />
+            <ParcelAddressBlock from={p.from_address} to={p.to_address} />
+            {/* Снимки на границах ответственности — отправителю они нужны так же, как курьеру. */}
+            <ParcelPhotoStrip pickupUrl={p.pickup_photo_url} deliveryUrl={p.delivery_photo_url} />
+            {(p.cancel_fee_kop ?? 0) > 0 && (
+              <div className="parcel-card__warn">
+                {appText("Компенсация курьеру после отмены: ", "Кире алғандан һуң курьерға компенсация: ")}
+                {kopExactLabel(p.cancel_fee_kop ?? 0)}
+                {appText(". Рассчитайтесь напрямую.", ". Туранан-тура иҫәпләшегеҙ.")}
+              </div>
+            )}
+            <div className="parcel-card__receiver">
+              <span className="parcel-card__receiver-icon" aria-hidden><IconProfile size={16} /></span>
+              <span className="parcel-card__receiver-name">{appText("Получатель: ", "Алыусы: ")}{p.receiver_name || "—"}</span>
+              {p.price_kop > 0 && <b className="parcel-card__price">{kopExactLabel(p.price_kop)}</b>}
             </div>
-            {/* Код вручения — свой, показываем отправителю */}
-            {p.confirm_code && active && (
-              <div className="parcel-card__code">
-                <span>{appText("Код вручения", "Тапшырыу коды")}</span>
-                <b>{p.confirm_code}</b>
-              </div>
-            )}
-            {/* Курьер, если принята */}
+            {/* Курьер, если принята: плашка + «Написать курьеру». Чат — где оставить, кому отдать,
+                когда будут дома: письменно, а не в звонке. */}
             {p.courier && (
-              <div className="parcel-card__courier">
-                <div className="parcel-card__courier-name">
-                  <IconRoute size={15} /> {p.courier.name || appText("Курьер", "Курьер")}
-                  {p.courier.rating != null && (
-                    <span className="taxi-driver__rating"><IconStar size={13} /> {p.courier.rating.toFixed(1)}</span>
-                  )}
-                </div>
-                {p.courier.phone && (
-                  <a className="btn-soft" href={`tel:${p.courier.phone}`}>{appText("Позвонить", "Шылтыратыу")}</a>
-                )}
-                {/* Чат: где оставить, кому отдать, когда будут дома — письменно, а не в звонке. */}
-                <button
-                  type="button"
-                  className="btn-soft"
-                  onClick={() => navigate(`/parcel-chat/${p.id}`)}
-                >
-                  <IconChat size={18} /> {appText("Чат", "Чат")}
+              <>
+                <ParcelCourierRow
+                  name={p.courier.name}
+                  rating={p.courier.rating}
+                  ratingCount={p.courier.rating_count}
+                  phone={p.courier.phone}
+                />
+                <button type="button" className="btn-soft btn-soft--compact" onClick={() => navigate(`/parcel-chat/${p.id}`)}>
+                  <IconChat size={18} /> {appText("Написать курьеру", "Курьерға яҙырға")}
                 </button>
-              </div>
+                {/* Живая карта — только пока посылка едет вперёд (accepted / in_transit). */}
+                {(p.status === "accepted" || p.status === "in_transit") && (
+                  <div className="parcel-track-block">
+                    <span className="dl-hint">{appText("Курьер в пути — следи на карте", "Курьер юлда — картала күҙәт")}</span>
+                    <ParcelTrackMap parcel={p} asCourier={false} />
+                  </div>
+                )}
+              </>
             )}
-            {/* Курьер уже потратил свои деньги на товар — просто «отменить» тут
-                нечестно по отношению к нему. Разбираться нужно через спор, где
-                слышны обе стороны. */}
             {/* «Купи и привези»: в магазине оказалось дороже согласованного. Без этой
                 кнопки курьер не мог провести расчёт — товар куплен на его деньги,
                 а сумма выше той, на которую согласился заказчик. Оба висели. */}
@@ -597,67 +262,72 @@ function MineTab() {
                 onDone={() => load()}
               />
             )}
-            {active && (p.settlement?.goods_actual_kop ?? 0) > 0 ? (
+            {/* Курьер уже потратил свои деньги на товар — просто «отменить» тут
+                нечестно по отношению к нему. Разбираться нужно через спор, где
+                слышны обе стороны. */}
+            {active && (p.settlement?.goods_actual_kop ?? 0) > 0 && (
               <div className="parcel-card__warn">
                 {appText(
                   "Курьер уже купил товар. Обычная отмена недоступна — если что-то пошло не так, открой спор.",
                   "Курьер тауарҙы һатып алған инде. Ғәҙәти кире алыу мөмкин түгел — проблема булһа, бәхәс ас."
                 )}
               </div>
-            ) : (
-              active && (
-                <>
-                  {/* Курьер уже в пути — отмена стоит ему времени и бензина.
-                      Сумму называем ДО нажатия, а не после. */}
-                  {p.courier && (
-                    <div className="parcel-card__warn">
-                      {(p.cancel_fee_preview_kop ?? 0) > 0
+            )}
+            {/* Код вручения — свой, показываем отправителю */}
+            {p.confirm_code && active && (
+              <ParcelCodeCard code={p.confirm_code} label={appText("Код вручения (передай получателю)", "Тапшырыу коды (алыусыға бир)")} />
+            )}
+            {active && (p.settlement?.goods_actual_kop ?? 0) <= 0 && (
+              <>
+                {/* Курьер уже в пути — отмена стоит ему времени и бензина.
+                    Сумму называем ДО нажатия, а не после. */}
+                {p.courier && (
+                  <div className="parcel-card__warn">
+                    {(p.cancel_fee_preview_kop ?? 0) > 0
+                      ? appText(
+                          `Курьер уже принял заказ. Отмена сейчас — компенсация курьеру ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} ₽${cancelPartsRu(p)} за потраченное время и дорогу. Расчёт напрямую с курьером.`,
+                          `Курьер заказды алған инде. Хәҙер кире алһаң — курьерға ваҡыт һәм юл өсөн ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} һум${cancelPartsBa(p)} компенсация. Иҫәпләшеү курьер менән туранан-тура.`
+                        )
+                      : appText(
+                          "Курьер уже принял заказ. После отмены сервис зафиксирует компенсацию за потраченное время и дорогу; сумма появится в карточке, расчёт — напрямую.",
+                          "Курьер заказды алған инде. Кире алғандан һуң сервис ваҡыт һәм юл өсөн компенсацияны теркәр; сумма карточкала күренер, иҫәпләшеү — туранан-тура."
+                        )}
+                  </div>
+                )}
+                {/* Курьер приехал и не застал получателя. Раньше у отправителя тут не
+                    было ничего, кроме чата: дозвонись как-нибудь сам, а нет — плати за
+                    возврат почти полную доставку. Теперь есть дешёвый выход. Цену заезда
+                    называем ДО нажатия и считаем на сервере. */}
+                {p.can_request_redelivery && (
+                  <div className="redeliver-card">
+                    <strong>{appText("Курьер не застал получателя", "Курьер алыусыны тапманы")}</strong>
+                    <span>
+                      {(p.return_fee_parts?.next_redeliver_kop ?? 0) > 0
                         ? appText(
-                            `Курьер уже принял заказ. Отмена сейчас — компенсация курьеру ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} ₽${cancelPartsRu(p)} за потраченное время и дорогу. Расчёт напрямую с курьером.`,
-                            `Курьер заказды алған инде. Хәҙер кире алһаң — курьерға ваҡыт һәм юл өсөн ${Math.round((p.cancel_fee_preview_kop ?? 0) / 100)} һум${cancelPartsBa(p)} компенсация. Иҫәпләшеү курьер менән туранан-тура.`
+                            `Свяжись с ним и попроси курьера заехать ещё раз — заезд стоит ${Math.round((p.return_fee_parts?.next_redeliver_kop ?? 0) / 100)} ₽, это дешевле возврата (${Math.round((p.return_fee_parts?.total_kop ?? 0) / 100)} ₽).`,
+                            `Уның менән бәйләнеш тот һәм курьерҙан ҡабат инеүҙе һора — инеү ${Math.round((p.return_fee_parts?.next_redeliver_kop ?? 0) / 100)} һум тора, был кире ҡайтарыуҙан (${Math.round((p.return_fee_parts?.total_kop ?? 0) / 100)} һум) арзаныраҡ.`
                           )
                         : appText(
-                            "Курьер уже принял заказ. После отмены сервис зафиксирует компенсацию за потраченное время и дорогу; сумма появится в карточке, расчёт — напрямую.",
-                            "Курьер заказды алған инде. Кире алғандан һуң сервис ваҡыт һәм юл өсөн компенсацияны теркәр; сумма карточкала күренер, иҫәпләшеү — туранан-тура."
+                            "Свяжись с ним и попроси курьера заехать ещё раз — доплаты за этот заезд не будет.",
+                            "Уның менән бәйләнеш тот һәм курьерҙан ҡабат инеүҙе һора — был инеү өсөн өҫтәмә түләү булмаясаҡ."
                           )}
-                    </div>
-                  )}
-                  {/* Курьер приехал и не застал получателя. Раньше у отправителя тут не
-                      было ничего, кроме чата: дозвонись как-нибудь сам, а нет — плати за
-                      возврат почти полную доставку. Теперь есть дешёвый выход. Цену заезда
-                      называем ДО нажатия и считаем на сервере. */}
-                  {p.can_request_redelivery && (
-                    <div className="parcel-card__warn" style={{ marginTop: 10 }}>
-                      <strong>{appText("Курьер не застал получателя", "Курьер алыусыны тапманы")}</strong>
-                      <div style={{ marginTop: 4 }}>
-                        {(p.return_fee_parts?.next_redeliver_kop ?? 0) > 0
-                          ? appText(
-                              `Свяжись с ним и попроси курьера заехать ещё раз — заезд стоит ${Math.round((p.return_fee_parts?.next_redeliver_kop ?? 0) / 100)} ₽, это дешевле возврата (${Math.round((p.return_fee_parts?.total_kop ?? 0) / 100)} ₽).`,
-                              `Уның менән бәйләнеш тот һәм курьерҙан ҡабат инеүҙе һора — инеү ${Math.round((p.return_fee_parts?.next_redeliver_kop ?? 0) / 100)} һум тора, был кире ҡайтарыуҙан (${Math.round((p.return_fee_parts?.total_kop ?? 0) / 100)} һум) арзаныраҡ.`
-                            )
-                          : appText(
-                              "Свяжись с ним и попроси курьера заехать ещё раз — доплаты за этот заезд не будет.",
-                              "Уның менән бәйләнеш тот һәм курьерҙан ҡабат инеүҙе һора — был инеү өсөн өҫтәмә түләү булмаясаҡ."
-                            )}
-                      </div>
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        style={{ marginTop: 10 }}
-                        onClick={() => onRedeliver(p.id)}
-                        disabled={busyId === p.id}
-                      >
-                        {busyId === p.id
-                          ? appText("Просим…", "Һорайбыҙ…")
-                          : appText("Попросить заехать ещё раз", "Ҡабат инеүҙе һорау")}
-                      </button>
-                    </div>
-                  )}
-                  <button type="button" className="btn-ghost" style={{ marginTop: 10 }} onClick={() => onCancel(p.id)} disabled={busyId === p.id}>
-                    {busyId === p.id ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить", "Кире алыу")}
-                  </button>
-                </>
-              )
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-soft"
+                      onClick={() => onRedeliver(p.id)}
+                      disabled={busyId === p.id}
+                    >
+                      {busyId === p.id
+                        ? appText("Просим…", "Һорайбыҙ…")
+                        : appText("Попросить заехать ещё раз", "Ҡабат инеүҙе һорау")}
+                    </button>
+                  </div>
+                )}
+                <button type="button" className="btn-soft" onClick={() => onCancel(p.id)} disabled={busyId === p.id}>
+                  {busyId === p.id ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить", "Кире алыу")}
+                </button>
+              </>
             )}
 
             {canOpenParcelDispute(p, user?.id) && (
@@ -780,7 +450,7 @@ function CarryingList({ onGoAvailable }: { onGoAvailable: () => void }) {
 
   const load = useCallback((signal?: AbortSignal) => {
     setBoot("loading");
-    fetchCarrying(signal)
+    fetchCarrying(signal, true)
       .then((rows) => {
         setItems(rows);
         setBoot("ready");
@@ -817,8 +487,8 @@ function CarryingList({ onGoAvailable }: { onGoAvailable: () => void }) {
     setCodeBusy(true);
     setCodeErr(null);
     try {
-      await setParcelStatus(codeFor.id, "delivered", code.trim());
-      setItems((prev) => prev.filter((x) => x.id !== codeFor.id));
+      const completed = await setParcelStatus(codeFor.id, "delivered", code.trim());
+      setItems((prev) => prev.map((x) => x.id === completed.id ? completed : x));
       setCodeFor(null);
     } catch (e) {
       setCodeErr(
@@ -850,7 +520,10 @@ function CarryingList({ onGoAvailable }: { onGoAvailable: () => void }) {
 
   return (
     <div style={{ marginTop: 4 }}>
-      {items.map((p) => (
+      {items.some(isCompletedParcel) && <p className="dl-hint">{appText("В работе и последние завершённые доставки", "Эштәге һәм һуңғы тамамланған илтеүҙәр")}</p>}
+      {items.map((p) => isCompletedParcel(p) ? (
+        <CompletedParcelCard key={p.id} parcel={p} onChanged={() => load()} />
+      ) : (
         <div key={p.id}>
           <CarryParcelCard
             p={p}

@@ -327,7 +327,7 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                             add(appText("Поездка ${estimate.ridePrice} ₽", "Сәфәр ${estimate.ridePrice} һум"))
                             if (estimate.pickupFee > 0) {
                                 add(appText("дорога водителя ${estimate.pickupFee} ₽",
-                                    "водитель юлы ${estimate.pickupFee} һум"))
+                                    "йөрөтөүсе юлы ${estimate.pickupFee} һум"))
                             }
                             if (estimate.optionsFee > 0) {
                                 add(appText("опции ${estimate.optionsFee} ₽",
@@ -349,7 +349,7 @@ private fun TaxiPricingBreakdown(estimate: InstantEstimateDto?) {
                             Text(
                                 appText(
                                     "Водителю по пути — дорога вдвое дешевле, было бы ${estimate.pickupFullFee} ₽",
-                                    "Водителгә юл ыңғайы — юл ике тапҡыр арзаныраҡ, ${estimate.pickupFullFee} һум булыр ине",
+                                    "Йөрөтөүсегә юл ыңғайы — юл ике тапҡыр арзаныраҡ, ${estimate.pickupFullFee} һум булыр ине",
                                 ),
                                 color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                             )
@@ -2204,7 +2204,7 @@ private fun InstantDestinationPicker(
         titleRu = "Откуда тебя забрать?",
         titleBa = "Һине ҡайҙан алырға?",
         whyRu = "По геолокации мы сами подставим точку подачи и покажем свободные машины рядом — не придётся набирать свой адрес руками. Точку видит только водитель твоего заказа.",
-        whyBa = "Геолокация буйынса килеү нөктәһен үҙебеҙ ҡуябыҙ һәм яҡындағы буш машиналарҙы күрһәтәбеҙ — адресты ҡулдан яҙырға кәрәкмәй. Нөктәне тик һинең заказ водителе генә күрә.",
+        whyBa = "Геолокация буйынса килеү нөктәһен үҙебеҙ ҡуябыҙ һәм яҡындағы буш машиналарҙы күрһәтәбеҙ — адресты ҡулдан яҙырға кәрәкмәй. Нөктәне тик һинең заказ йөрөтөүсеһе генә күрә.",
         onGranted = { LocationPrefs.sharingEnabled = true },
     )
     val hasLocPerm = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
@@ -2831,6 +2831,32 @@ private fun InstantDestinationPicker(
                                     appText(
                                         est?.surgeNoteRu?.ifBlank { null } ?: "Сейчас заказов больше обычного — цена выше на $pct%. Вызвать или подождать?",
                                         est?.surgeNoteBa?.ifBlank { null } ?: "Хәҙер заказдар күберәк — хаҡ $pct%-ҡа юғарыраҡ. Саҡырырғамы, әллә көтөргәме?",
+                                    ),
+                                    color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
+                                )
+                            }
+                        }
+                    }
+                }
+                // Ночной тариф — та же честность, что и сурж (2026-09-18): сервер уже считал и
+                // отдавал night_note, но экран его не показывал — наценка была видна, а причина нет.
+                AnimatedVisibility(
+                    visible = estimate?.night == true,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    val est = estimate
+                    val pct = (((est?.nightK ?: 1.0) - 1.0) * 100).toInt()
+                    Surface(shape = CanonItemShape, color = CanonTaxiBg, border = BorderStroke(1.dp, CanonTaxi)) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("🌙", fontSize = TxTitle, lineHeight = LhTitle)
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    // Серверный текст (двуязычный) — источник правды; локальный — фолбэк.
+                                    appText(
+                                        est?.nightNoteRu?.ifBlank { null } ?: "Ночной тариф: сейчас дороже на $pct% — в это время машин на линии мало.",
+                                        est?.nightNoteBa?.ifBlank { null } ?: "Төнгө тариф: хәҙер $pct%-ҡа ҡиммәтерәк — был ваҡытта линияла машина аҙ.",
                                     ),
                                     color = CanonText, fontSize = TxCaption, lineHeight = LhCaption,
                                 )
@@ -6565,11 +6591,18 @@ internal fun InstantDriverTripScreen(
 
     // Live-трек (B7a-3): пока заказ активен — шлём свою позицию пассажиру (WS, не чаще ~5с),
     // он видит движущуюся машину. Заказ кончился / ушли с экрана → сокет закрывается.
-    val isOrderActive = observeRemote && order?.isActive == true
+    // Окончательный отказ WS важнее запоздалого HTTP-статуса. Состояние принадлежит этому заказу:
+    // поздний callback старого канала не должен выключать GPS следующего.
+    val trackingTerminated = remember(orderId) { mutableStateOf(false) }
+    val isOrderActive = observeRemote && order?.isActive == true && !trackingTerminated.value
     val trackSocket = remember { mutableStateOf<com.yuldash.app.data.InstantLocationSocket?>(null) }
     DisposableEffect(orderId, isOrderActive) {
         if (!isOrderActive) return@DisposableEffect onDispose { }
-        val s = com.yuldash.app.data.InstantLocationSocket(orderId, onPeer = { }).also { it.connect() }
+        val s = com.yuldash.app.data.InstantLocationSocket(
+            orderId,
+            onPeer = { },
+            onTerminated = { trackingTerminated.value = true },
+        ).also { it.connect() }
         trackSocket.value = s
         onDispose { s.close(); trackSocket.value = null }
     }
@@ -7215,7 +7248,7 @@ internal fun DriverDestinationCard(
                     }
                 }
                 TextButton(onClick = { askReason = false }) {
-                    Text(appText("Назад", "Кире"), color = CanonMuted)
+                    Text(appText("Назад", "Артҡа"), color = CanonMuted)
                 }
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {

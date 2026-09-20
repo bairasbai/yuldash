@@ -26,7 +26,7 @@ from ..models import (
 )
 from ..security import (
     current_user, gen_otp, is_placeholder_phone, issue_tokens, normalize_phone,
-    revoke_all_refresh, rotate_refresh,
+    revoke_all_refresh, rotate_refresh, lock_refresh_user,
 )
 from ..services import (
     find_user_by_phone, guard_own_media_url, send_sms, set_driver_docs_verdict,
@@ -668,6 +668,7 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
 
 class RefreshIn(BaseModel):
     refresh_token: str
+    rotation_id: str | None = Field(default=None, strict=True, pattern=r'^[0-9a-f]{64}$')
 
 
 @router.post("/auth/refresh")
@@ -687,7 +688,7 @@ def refresh(body: RefreshIn, session: Session = Depends(get_session),
         raise herr(400, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
     guard_device_not_banned(session, x_device_id)
-    return rotate_refresh(session, body.refresh_token.strip())
+    return rotate_refresh(session, body.refresh_token.strip(), rotation_id=body.rotation_id)
 
 
 # VK / WhatsApp вход — ОТКЛЮЧЕНО до безопасной реализации.
@@ -1014,10 +1015,12 @@ def logout(user: User = Depends(current_user), session: Session = Depends(get_se
     трубку отцовской и слал его уведомления на экран, который теперь смотрит сын. А кнопка
     называется «Выйти со всех устройств» — значит должна выходить и здесь.
     """
+    user = lock_refresh_user(session, user.id)
+    if user is None:
+        raise HTTPException(401, "Unauthorized")
     user.tokens_valid_from = utcnow()
     session.add(user)
-    session.commit()
-    revoke_all_refresh(session, user.id)
+    revoke_all_refresh(session, user.id, commit=False)
     for строка in session.exec(select(DeviceToken).where(DeviceToken.user_id == user.id)).all():
         session.delete(строка)
     for строка in session.exec(
@@ -1032,6 +1035,23 @@ class PushTokenIn(BaseModel):
     token: str
 
 
+def _guard_push_token_owner(existing: DeviceToken, user_id: int, device_id: str) -> None:
+    # Смена аккаунта требует совпадающей отметки устройства. Отсутствие отметки
+    # не доказывает владение: старый клиент может обновить СВОЙ токен, а для смены
+    # владельца сначала должен выйти (logout/unregister освобождает запись).
+    different_device = bool(existing.device_id and device_id and existing.device_id != device_id)
+    unproven_transfer = existing.user_id != user_id and not (
+        existing.device_id and device_id and existing.device_id == device_id
+    )
+    if different_device or unproven_transfer:
+        log.warning("[PUSH] попытка забрать чужую запись устройства: user_id=%s, владелец=%s",
+                    user_id, existing.user_id)
+        raise herr(409,
+                   "Это устройство привязано к другому аккаунту. Выйди из него на этом "
+                   "телефоне и войди заново.",
+                   "Был ҡоролма башҡа иҫәпкә бәйләнгән. Ошо телефондан унан сыҡ та яңынан ин.")
+
+
 @router.post("/push/register")
 def push_register(body: PushTokenIn, user: User = Depends(current_user),
                   session: Session = Depends(get_session),
@@ -1043,24 +1063,7 @@ def push_register(body: PushTokenIn, user: User = Depends(current_user),
     did = normalize_device_id(x_device_id)
     existing = session.exec(select(DeviceToken).where(DeviceToken.token == body.token)).first()
     if existing:
-        # Перепривязка нужна по-настоящему: общий телефон в семье, отец вышел — зашёл сын,
-        # и уведомления должны идти тому, кто сейчас в приложении. Но раньше её мог сделать
-        # КТО УГОДНО, зная строку токена (аудит 2026-08-08, волна 147): жертва оставалась
-        # без единого устройства и переставала получать всё — сообщения, «водитель подъехал»,
-        # даже напоминание по сигналу SOS. Тихо: приложение выглядит рабочим, просто
-        # уведомления «почему-то не приходят».
-        #
-        # Различаем по устройству: забрать чужую запись можно только с того самого телефона,
-        # на котором она живёт. Старый клиент без отметки устройства не наказываем — иначе
-        # смена человека на общем телефоне сломается у тех, кто не обновился.
-        чужое_устройство = bool(existing.device_id and did and existing.device_id != did)
-        if чужое_устройство:
-            log.warning("[PUSH] попытка забрать чужую запись устройства: user_id=%s, владелец=%s",
-                        user.id, existing.user_id)
-            raise herr(409,
-                       "Это устройство привязано к другому аккаунту. Выйди из него на этом "
-                       "телефоне и войди заново.",
-                       "Был ҡоролма башҡа иҫәпкә бәйләнгән. Ошо телефондан унан сыҡ та яңынан ин.")
+        _guard_push_token_owner(existing, user.id, did)
         existing.user_id = user.id
         if did:
             existing.device_id = did
@@ -1077,6 +1080,7 @@ def push_register(body: PushTokenIn, user: User = Depends(current_user),
         session.rollback()
         row = session.exec(select(DeviceToken).where(DeviceToken.token == body.token)).first()
         if row:
+            _guard_push_token_owner(row, user.id, did)
             row.user_id = user.id
             if did:
                 row.device_id = did

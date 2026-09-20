@@ -127,7 +127,7 @@ export default function ParcelProblemActions({
       )}
 
       {/* Обе стороны: спор */}
-      {canDispute && (!closed || role === "sender") ? (
+      {canDispute ? (
         sheet === "none" && (
           <button
             type="button"

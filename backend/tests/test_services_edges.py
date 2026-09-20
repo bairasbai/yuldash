@@ -383,14 +383,14 @@ def test_send_push_initializes_firebase_and_ignores_per_token_errors(monkeypatch
         def __init__(self, path):
             self.path = path
 
-    class Notification:
-        def __init__(self, title, body):
-            self.title = title
-            self.body = body
+    class AndroidConfig:
+        def __init__(self, priority):
+            self.priority = priority
 
     class Message:
-        def __init__(self, notification, token):
-            self.notification = notification
+        def __init__(self, token, data, android):
+            self.data = data
+            self.android = android
             self.token = token
 
     def initialize_app(cert):
@@ -414,7 +414,7 @@ def test_send_push_initializes_firebase_and_ignores_per_token_errors(monkeypatch
                                            else RuntimeError("fcm send failed")) for m in messages])
 
     credentials.Certificate = Certificate
-    messaging.Notification = Notification
+    messaging.AndroidConfig = AndroidConfig
     messaging.Message = Message
     messaging.send_each = send_each
     firebase_admin.initialize_app = initialize_app

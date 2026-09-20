@@ -1754,16 +1754,24 @@ def can_rate_order(session: Session, order: InstantOrder, viewer: User,
     (`RATING_WINDOW_DAYS`). Уже оценённую — тоже можно: повтор просто обновляет оценку, и
     прятать звёзды после первого тапа значило бы «передумать нельзя».
     """
-    from .rating_service import RATING_WINDOW_DAYS
+    from fastapi import HTTPException
+    from .rating_service import guard_rating_on_pause, guard_rating_window
     if order.status != S.done or order.driver_id is None or order.passenger_id is None:
         return False
     if viewer.id not in (order.driver_id, order.passenger_id):
         return False
     случилось = order.done_at or order.created_at
-    if случилось is None:
-        return True
     now = now or utcnow()
-    return (now - случилось) <= timedelta(days=RATING_WINDOW_DAYS)
+    # Флаг экрана и запись оценки используют одни правила: пауза закрывает архив,
+    # но не запрещает оценить только что законченную поездку.
+    try:
+        guard_rating_window(случилось, now=now)
+        guard_rating_on_pause(session, viewer.id, случилось, now=now)
+    except HTTPException as exc:
+        if exc.status_code in (403, 409):
+            return False
+        raise
+    return True
 
 
 def passenger_may_close(order: InstantOrder, now: Optional[datetime] = None) -> bool:

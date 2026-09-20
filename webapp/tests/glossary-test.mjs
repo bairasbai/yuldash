@@ -13,8 +13,8 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEB = join(HERE, "..", "src");
-// Приложение лежит рядом с worktree — проверяем и его, если доступно.
-const APP = join(HERE, "..", "..", "..", "..", "..", "android", "app", "src", "main", "java", "com", "yuldash", "app");
+// Android из того же checkout: лишние переходы вверх смешивали разные ветки.
+const APP = join(HERE, "..", "..", "android", "app", "src", "main", "java", "com", "yuldash", "app");
 
 /** Утверждённые термины: русский → единственно верный башкирский. */
 const GLOSSARY = {

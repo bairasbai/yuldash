@@ -4,6 +4,10 @@
 //  Действия: подтвердить (resolve) / отклонить (reject); «оставить паузу»
 //  (keep_pause) для тяжёлых категорий — §9 лестница мер срабатывает на бэке.
 //  Меры вручную: пауза/снятие паузы такси цели (quality pause/unpause).
+//  Вид — зеркало AdminReportsContent (SecondaryScreens.kt): вводная строка,
+//  карточка с рамкой (тяжёлая открытая — красноватой), тег категории и статус
+//  в одной строке с датой, «кто → на кого», текст, кнопки разбора, меры.
+//  Фильтр по статусу есть только в вебе — оставлен рядом чипами.
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -18,46 +22,38 @@ import {
   type AdminReport,
 } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
-import { formatRelative } from "../utils/format";
-import { IconCheck, IconFlag, IconPhone, IconShield } from "../components/Icons";
+import { AdminFilterChips, AdminIntro, AdminTag, ListedEmpty, ListedError, ListedLoading } from "../components/adminUi";
 
 type State = "loading" | "error" | "ready";
 
 const FILTERS: { key: string; ru: string; ba: string }[] = [
   { key: "new", ru: "Новые", ba: "Яңы" },
-  { key: "reviewing", ru: "В работе", ba: "Эштә" },
-  { key: "resolved", ru: "Приняты", ba: "Ҡабул" },
-  { key: "rejected", ru: "Отклонены", ba: "Кире" },
+  { key: "reviewing", ru: "В разборе", ba: "Тикшереүҙә" },
+  { key: "resolved", ru: "Подтверждены", ba: "Раҫланған" },
+  { key: "rejected", ru: "Отклонены", ba: "Кире ҡағылған" },
   { key: "", ru: "Все", ba: "Барыһы" },
 ];
 
+/** Категории §9 — те же id и слова, что в перечне жалобы (reportCategoriesAll). */
 const CAT_LABEL: Record<string, [string, string]> = {
-  safety: ["Безопасность", "Именлек"],
-  fraud: ["Обман с ценой", "Хаҡ менән алдау"],
-  noshow: ["Не приехал", "Килмәне"],
+  rude: ["Нахамил", "Тупаҫланды"],
+  kicked_out: ["Высадил в пути", "Юлда төшөрөп ҡалдырҙы"],
+  dangerous_driving: ["Опасное вождение", "Хәүефле йөрөтөү"],
+  price_fraud: ["Обман с ценой", "Хаҡ менән алдау"],
+  dirty_car: ["Грязная машина", "Бысраҡ машина"],
+  late: ["Опоздал", "Һуңланы"],
+  safety_threat: ["Угроза безопасности", "Хәүефһеҙлеккә янау"],
+  no_show: ["Не пришёл к машине", "Машинаға килмәне"],
+  damage: ["Испортил машину", "Машинаны боҙҙо"],
   unpaid: ["Не заплатил", "Түләмәне"],
-  dirty: ["Грязная машина", "Бысраҡ машина"],
-  late: ["Опоздание", "Һуңланы"],
   other: ["Другое", "Башҡа"],
 };
 
-function statusBadge(s: string): string {
-  switch (s) {
-    case "resolved":
-      return "badge--mint";
-    case "rejected":
-      return "badge--danger";
-    case "reviewing":
-      return "badge--gold";
-    default:
-      return "badge--gold";
-  }
-}
+/** Тяжёлые категории (⛔ §9): мгновенная пауза такси до разбора. */
+const SEVERE = new Set(["safety_threat", "kicked_out", "dangerous_driving"]);
 
 export default function AdminReportsScreen() {
-  const { appText, lang } = useLang();
-  const ru = lang !== "ba";
+  const { appText } = useLang();
   const navigate = useNavigate();
 
   const [filter, setFilter] = useState<string>("new");
@@ -92,68 +88,57 @@ export default function AdminReportsScreen() {
 
   return (
     <>
-      <SubHeader
-        title={appText("Жалобы", "Зарланыуҙар")}
-        subtitle={appText("Разбор и меры", "Тикшереү һәм саралар")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Жалобы", "Ялыуҙар")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        <AdminIntro>
+          {appText(
+            "Жалобы пользователей. Подтверди или отклони — лестница наказаний дальше считается сама. Автора видишь только ты.",
+            "Ҡулланыусы ялыуҙары. Раҫла йәки кире ҡаҡ — язалар баҫҡысы артабан үҙе иҫәпләнә. Авторҙы тик һин күрәһең."
+          )}
+        </AdminIntro>
 
-      <div className="chip-scroll" role="tablist" aria-label={appText("Фильтр жалоб", "Зарланыу фильтры")}>
-        {FILTERS.map((f) => (
-          <button
-            key={f.key || "all"}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.key}
-            className={"chip" + (filter === f.key ? " chip--on" : "")}
-            onClick={() => setFilter(f.key)}
-          >
-            {appText(f.ru, f.ba)}
-          </button>
-        ))}
+        <AdminFilterChips
+          label={appText("Фильтр жалоб", "Ялыу фильтры")}
+          options={FILTERS.map((f) => ({ key: f.key, label: appText(f.ru, f.ba) }))}
+          value={filter}
+          onChange={setFilter}
+        />
+
+        {state === "loading" && <ListedLoading />}
+        {state === "error" && <ListedError onRetry={() => load(filter)} />}
+
+        {state === "ready" && reports.length === 0 && (
+          <ListedEmpty
+            title={appText("Жалоб нет", "Ялыу юҡ")}
+            subtitle={appText("Хороший знак — пользователи довольны.", "Яҡшы билдә — ҡулланыусылар риза.")}
+          />
+        )}
+
+        {state === "ready" && reports.map((r) => <ReportCard key={r.id} report={r} onPatch={patch} />)}
       </div>
-
-      {state === "loading" && <LoadingList count={3} />}
-      {state === "error" && <ErrorState onRetry={() => load(filter)} />}
-
-      {state === "ready" && reports.length === 0 && (
-        <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__icon"><IconShield size={34} /></div>
-          <h2>{appText("Здесь пусто", "Бында буш")}</h2>
-          <p>{appText("Жалоб в этом разделе нет.", "Был бүлектә зарланыуҙар юҡ.")}</p>
-        </div>
-      )}
-
-      {state === "ready" && reports.length > 0 && (
-        <div className="admin-cards">
-          {reports.map((r) => (
-            <ReportCard key={r.id} report={r} ru={ru} onPatch={patch} />
-          ))}
-        </div>
-      )}
     </>
   );
 }
 
-function ReportCard({
-  report,
-  ru,
-  onPatch,
-}: {
-  report: AdminReport;
-  ru: boolean;
-  onPatch: (r: AdminReport) => void;
-}) {
+function ReportCard({ report, onPatch }: { report: AdminReport; onPatch: (r: AdminReport) => void }) {
   const { appText } = useLang();
   const [busy, setBusy] = useState<null | "resolve" | "reject" | "pause" | "unpause">(null);
   const [error, setError] = useState<string | null>(null);
-  const [keepPause, setKeepPause] = useState(false);
   const [pauseMsg, setPauseMsg] = useState<string | null>(null);
 
   const open = report.status === "new" || report.status === "reviewing";
+  const severe = SEVERE.has(report.category);
   const cat = CAT_LABEL[report.category] ?? CAT_LABEL.other;
+  const [stLabel, stTone] =
+    report.status === "resolved"
+      ? [appText("Подтверждена", "Раҫланған"), "green"]
+      : report.status === "rejected"
+        ? [appText("Отклонена", "Кире ҡағылған"), "muted"]
+        : report.status === "reviewing"
+          ? [appText("В разборе", "Тикшереүҙә"), "warn"]
+          : [appText("Новая", "Яңы"), "warn"];
 
-  async function act(kind: "resolve" | "reject") {
+  async function act(kind: "resolve" | "reject", keepPause = false) {
     if (busy) return;
     setBusy(kind);
     setError(null);
@@ -199,93 +184,67 @@ function ReportCard({
   }
 
   return (
-    <div className="admin-card">
-      <div className="admin-card__head">
-        <div className="admin-card__title">
-          <IconFlag size={16} /> {appText(cat[0], cat[1])}
-        </div>
-        <span className={`badge ${statusBadge(report.status)}`}>
-          {report.status === "resolved"
-            ? appText("Принята", "Ҡабул")
-            : report.status === "rejected"
-            ? appText("Отклонена", "Кире ҡағылған")
-            : report.status === "reviewing"
-            ? appText("В работе", "Эштә")
-            : appText("Новая", "Яңы")}
-        </span>
+    <article className={"acard acard--tight" + (severe && open ? " acard--severe" : "")}>
+      <div className="acard__row">
+        <AdminTag tone={severe ? "red" : "green"}>{appText(cat[0], cat[1])}</AdminTag>
+        <span className={`atext atext--${stTone}`}>{stLabel}</span>
+        <span className="acard__spacer" />
+        {report.created_at.length >= 10 && <small className="acard__date">{report.created_at.slice(0, 10)}</small>}
       </div>
-
-      <div className="admin-card__sub">
-        {appText("На кого", "Кемгә")}: <b>{report.target_name}</b>
-        {report.target_phone && (
-          <a className="admin-card__phone" href={`tel:${report.target_phone}`} style={{ marginLeft: 8 }}>
-            <IconPhone size={14} /> {report.target_phone}
-          </a>
-        )}
-      </div>
-      <div className="admin-card__sub">
-        {appText("От кого", "Кемдән")}: {report.reporter_name} · {formatRelative(report.created_at, ru)}
-      </div>
-      {report.reason && <p className="admin-card__reason">«{report.reason}»</p>}
+      <strong className="acard__title">{report.reporter_name}  →  {report.target_name}</strong>
+      {report.target_phone && (
+        <a className="acard__sub acard__link" href={`tel:${report.target_phone}`}>
+          {report.target_phone}
+        </a>
+      )}
+      <p className="acard__text">{report.reason || appText("без деталей", "ентекһеҙ")}</p>
       {report.resolution && (
-        <p className="admin-card__sub">{appText("Итог", "Һөҙөмтә")}: {report.resolution}</p>
+        <span className="acard__sub">{appText("Решение: ", "Ҡарар: ") + report.resolution}</span>
       )}
 
       {error && <div className="auth__error">{error}</div>}
-      {pauseMsg && <div className="safe-note" style={{ marginTop: 8 }}><p>{pauseMsg}</p></div>}
+      {pauseMsg && <span className="acard__sub">{pauseMsg}</span>}
 
       {open && (
         <>
-          <label className="admin-check">
-            <input type="checkbox" checked={keepPause} onChange={(e) => setKeepPause(e.target.checked)} />
-            <span>{appText("Оставить паузу такси при подтверждении", "Раҫлағанда такси паузаһын ҡалдырырға")}</span>
-          </label>
-          <div className="field-row" style={{ marginTop: 10 }}>
+          <div className="acard__actions">
+            <button type="button" className="abtn" onClick={() => act("resolve")} disabled={busy !== null}>
+              {busy === "resolve" ? appText("…", "…") : appText("Подтвердить", "Раҫлау")}
+            </button>
             <button
               type="button"
-              className="btn-soft"
-              style={{ flex: 1 }}
+              className="abtn abtn--outline abtn--red"
               onClick={() => act("reject")}
               disabled={busy !== null}
             >
               {busy === "reject" ? appText("…", "…") : appText("Отклонить", "Кире ҡағыу")}
             </button>
+          </div>
+          {/* ⛔ Тяжёлая: пауза стоит «до разбора» — можно подтвердить, ОСТАВИВ паузу. */}
+          {severe && (
             <button
               type="button"
-              className="btn-primary"
-              style={{ flex: 1 }}
-              onClick={() => act("resolve")}
+              className="abtn abtn--text abtn--warn"
+              onClick={() => act("resolve", true)}
               disabled={busy !== null}
             >
-              {busy === "resolve" ? (
-                appText("…", "…")
-              ) : (
-                <><IconCheck size={18} /> {appText("Подтвердить", "Раҫлау")}</>
-              )}
+              {appText("Подтвердить и оставить паузу такси", "Раҫлап такси паузаһын ҡалдырыу")}
             </button>
-          </div>
+          )}
         </>
       )}
 
       {/* Ручные меры по цели — доступны всегда (в т.ч. после разбора). */}
-      <div className="field-row" style={{ marginTop: 10 }}>
-        <button
-          type="button"
-          className="btn-soft btn-soft--sm"
-          onClick={() => pause(true)}
-          disabled={busy !== null}
-        >
-          {busy === "pause" ? appText("…", "…") : appText("Пауза такси 72 ч", "Такси паузаһы 72 сәғ")}
-        </button>
-        <button
-          type="button"
-          className="btn-soft btn-soft--sm"
-          onClick={() => pause(false)}
-          disabled={busy !== null}
-        >
-          {busy === "unpause" ? appText("…", "…") : appText("Снять паузу", "Паузаны алыу")}
-        </button>
-      </div>
-    </div>
+      {report.target_user_id > 0 && (
+        <div className="acard__actions">
+          <button type="button" className="abtn abtn--text abtn--warn abtn--small" onClick={() => pause(true)} disabled={busy !== null}>
+            {busy === "pause" ? appText("…", "…") : appText("⏸ Пауза такси 72ч", "⏸ Такси паузаһы 72сәғ")}
+          </button>
+          <button type="button" className="abtn abtn--text abtn--small" onClick={() => pause(false)} disabled={busy !== null}>
+            {busy === "unpause" ? appText("…", "…") : appText("▶ Снять паузу", "▶ Паузаны алыу")}
+          </button>
+        </div>
+      )}
+    </article>
   );
 }

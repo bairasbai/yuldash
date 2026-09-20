@@ -19,36 +19,25 @@ import {
   type AdminCourierApplication,
 } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
-import { formatRelative } from "../utils/format";
-import { IconCheck, IconPhone, IconBox } from "../components/Icons";
+import { RideCardSkeleton } from "../components/States";
+import { AdminFilterChips, AdminIntro, AdminStatusBadge, ListedEmpty, ListedError } from "../components/adminUi";
+import { IconBox, IconCar } from "../components/Icons";
 
 type State = "loading" | "error" | "ready";
 
 const FILTERS: { key: string; ru: string; ba: string }[] = [
   { key: "pending", ru: "На проверке", ba: "Тикшереүҙә" },
-  { key: "approved", ru: "Одобренные", ba: "Хупланған" },
-  { key: "rejected", ru: "Отклонённые", ba: "Кире ҡағылған" },
+  { key: "approved", ru: "Одобрены", ba: "Раҫланған" },
+  { key: "rejected", ru: "Отклонены", ba: "Кире ҡағылған" },
   { key: "all", ru: "Все", ba: "Барыһы" },
 ];
 
+/** courierTransportLabel: легковой / грузовой, незнакомое — как есть. */
 function transportLabel(t: string, appText: (r: string, b: string) => string): string {
-  if (t === "car") return appText("Легковой", "Еңел авто");
-  if (t === "cargo") return appText("Грузовой", "Йөк авто");
+  const k = t.toLowerCase();
+  if (k === "car") return appText("Легковой", "Еңел машина");
+  if (k === "cargo") return appText("Грузовой", "Йөк машинаһы");
   return t;
-}
-
-function statusBadge(s: string): { cls: string; ru: string; ba: string } {
-  switch (s) {
-    case "approved":
-      return { cls: "badge--mint", ru: "Одобрен", ba: "Хупланған" };
-    case "pending":
-      return { cls: "badge--gold", ru: "На проверке", ba: "Тикшереүҙә" };
-    case "rejected":
-      return { cls: "badge--danger", ru: "Отклонён", ba: "Кире" };
-    default:
-      return { cls: "badge--muted", ru: s, ba: s };
-  }
 }
 
 /** Защищённое селфи: тянем с токеном → objectURL, чистим при размонтировании. */
@@ -80,25 +69,20 @@ function SecureImage({ url, alt }: { url: string | null; alt: string }) {
   }, [url]);
 
   if (failed) {
-    return (
-      <div className="doc-photo doc-photo--empty" role="img" aria-label={alt}>
-        <span>{appText("Нет фото", "Фото юҡ")}</span>
-      </div>
-    );
+    return <small className="adoc-none">{appText("нет файла", "файл юҡ")}</small>;
   }
   if (!src) {
-    return <div className="doc-photo skeleton" aria-hidden />;
+    return <div className="adoc adoc--tall skeleton" aria-hidden />;
   }
   return (
-    <a href={src} target="_blank" rel="noreferrer" className="doc-photo">
+    <a href={src} target="_blank" rel="noreferrer" className="adoc adoc--tall">
       <img src={src} alt={alt} loading="lazy" />
     </a>
   );
 }
 
 export default function AdminCourierScreen() {
-  const { appText, lang } = useLang();
-  const ru = lang !== "ba";
+  const { appText } = useLang();
   const navigate = useNavigate();
 
   const [filter, setFilter] = useState<string>("pending");
@@ -109,7 +93,9 @@ export default function AdminCourierScreen() {
     setState("loading");
     fetchCourierApplications(status, signal)
       .then((list) => {
-        setApps(list);
+        // pending — сверху, затем по дате (свежие выше), как в приложении.
+        const rank = (a: AdminCourierApplication) => (a.status === "pending" ? 1 : 0);
+        setApps([...list].sort((a, b) => rank(b) - rank(a) || (b.created_at ?? "").localeCompare(a.created_at ?? "")));
         setState("ready");
       })
       .catch((e) => {
@@ -135,56 +121,50 @@ export default function AdminCourierScreen() {
 
   return (
     <>
-      <SubHeader
-        title={appText("Заявки курьеров", "Курьер заявкалары")}
-        subtitle={appText("Проверка и одобрение", "Тикшереү һәм хуплау")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Курьеры", "Курьерҙар")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        <AdminIntro>
+          {appText(
+            "Заявки «Стать курьером»: сверь селфи с документом, транспорт и кто пригласил, потом одобри или отклони с причиной.",
+            "«Курьер булыу» заявкалары: документ менән селфины, транспортты һәм кем саҡырғанын тикшер, аҙаҡ раҫла йәки сәбәп менән кире ҡаҡ."
+          )}
+        </AdminIntro>
 
-      <div className="chip-scroll" role="tablist" aria-label={appText("Фильтр заявок", "Заявка фильтры")}>
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.key}
-            className={"chip" + (filter === f.key ? " chip--on" : "")}
-            onClick={() => setFilter(f.key)}
-          >
-            {appText(f.ru, f.ba)}
-          </button>
-        ))}
+        <AdminFilterChips
+          label={appText("Фильтр заявок", "Заявка фильтры")}
+          options={FILTERS.map((f) => ({ key: f.key, label: appText(f.ru, f.ba) }))}
+          value={filter}
+          onChange={setFilter}
+        />
+
+        {state === "loading" && (
+          <>
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
+        {state === "error" && <ListedError onRetry={() => load(filter)} />}
+
+        {state === "ready" && apps.length === 0 && (
+          <ListedEmpty
+            title={appText("Заявок нет", "Заявка юҡ")}
+            subtitle={appText("Здесь появятся соседи, которые хотят возить посылки.", "Бында бандероль илтергә теләгән күршеләр күренер.")}
+          />
+        )}
+
+        {state === "ready" && apps.map((a, i) => <CourierCard key={a.id} app={a} index={i} onPatch={patch} />)}
       </div>
-
-      {state === "loading" && <LoadingList count={2} />}
-      {state === "error" && <ErrorState onRetry={() => load(filter)} />}
-
-      {state === "ready" && apps.length === 0 && (
-        <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__icon"><IconBox size={40} /></div>
-          <h2>{appText("Здесь пусто", "Бында буш")}</h2>
-          <p>{appText("Заявок курьеров в этом разделе нет.", "Был бүлектә курьер заявкалары юҡ.")}</p>
-        </div>
-      )}
-
-      {state === "ready" && apps.length > 0 && (
-        <div className="admin-cards">
-          {apps.map((a) => (
-            <CourierCard key={a.id} app={a} ru={ru} onPatch={patch} />
-          ))}
-        </div>
-      )}
     </>
   );
 }
 
 function CourierCard({
   app,
-  ru,
+  index,
   onPatch,
 }: {
   app: AdminCourierApplication;
-  ru: boolean;
+  index: number;
   onPatch: (id: number, status: string) => void;
 }) {
   const { appText } = useLang();
@@ -193,13 +173,11 @@ function CourierCard({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
 
-  const badge = statusBadge(app.status);
-
   function fail(e: unknown) {
     setError(
       e instanceof ApiError && e.message
         ? e.message
-        : appText("Не получилось. Попробуй ещё раз.", "Булманы. Ҡабат ҡара.") // DRAFT
+        : appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     );
   }
 
@@ -232,104 +210,63 @@ function CourierCard({
     }
   }
 
-  const canModerate = app.status === "pending";
+  const isCargo = app.transport === "cargo";
 
   return (
-    <div className="admin-card">
-      <div className="admin-card__head">
-        <div className="admin-card__title">{app.name || appText("Курьер", "Курьер")}</div>
-        <span className={`badge ${badge.cls}`}>{appText(badge.ru, badge.ba)}</span>
+    <article className="acard" style={{ animationDelay: `calc(var(--cascade-in) * ${Math.min(index, 6)})` }}>
+      <div className="acard__row">
+        <strong className="acard__title acard__grow">{app.name || appText("Без имени", "Исемһеҙ")}</strong>
+        <AdminStatusBadge status={app.status} />
       </div>
-
-      {app.phone && (
-        <a className="admin-card__phone" href={`tel:${app.phone}`}>
-          <IconPhone size={16} /> {app.phone}
-        </a>
+      {app.phone && <span className="acard__sub">{app.phone}</span>}
+      <span className="acard__text acard__iconline acard__iconline--green">
+        {isCargo ? <IconBox size={18} /> : <IconCar size={18} />}
+        {appText("Транспорт: ", "Транспорт: ") + transportLabel(app.transport, appText)}
+      </span>
+      {app.invited_by_name && <span className="atext atext--green acard__caption">{appText("Пригласил: ", "Саҡырҙы: ") + app.invited_by_name}</span>}
+      {app.selfie_url && (
+        <>
+          <span className="acard__label">{appText("Селфи с документом (сверь лицо)", "Документ менән селфи (йөҙҙө сағыштыр)")}</span>
+          <SecureImage url={app.selfie_url} alt={appText("Фото документа курьера", "Курьер документы фотоһы")} />
+        </>
       )}
-      <div className="admin-card__sub">
-        {appText("Транспорт", "Транспорт")}: {transportLabel(app.transport, appText)}
-      </div>
-      {app.invited_by_name && (
-        <div className="admin-card__sub">
-          {appText("Пригласил", "Саҡырҙы")}: <b>{app.invited_by_name}</b>
-        </div>
-      )}
-      {app.created_at && (
-        <div className="admin-card__sub">{formatRelative(app.created_at, ru)}</div>
-      )}
-
-      <div className="doc-photos">
-        <div className="doc-photos__item">
-          <span className="doc-photos__cap">{appText("Селфи с документом", "Документ менән селфи")}</span>
-          <SecureImage url={app.selfie_url} alt={appText("Селфи курьера", "Курьер селфиһы")} />
-        </div>
-      </div>
-
-      {app.reject_reason && app.status === "rejected" && (
-        <p className="admin-card__sub">{appText("Причина", "Сәбәп")}: {app.reject_reason}</p>
+      {app.status === "rejected" && app.reject_reason && (
+        <span className="acard__text acard__text--danger">{appText("Причина: ", "Сәбәбе: ") + app.reject_reason}</span>
       )}
 
       {error && <div className="auth__error">{error}</div>}
 
-      {canModerate && !rejecting && (
-        <div className="field-row" style={{ marginTop: 12 }}>
-          <button
-            type="button"
-            className="btn-soft"
-            style={{ flex: 1 }}
-            onClick={() => setRejecting(true)}
-            disabled={busy !== null}
-          >
-            {appText("Отклонить", "Кире ҡағыу")}
-          </button>
-          <button
-            type="button"
-            className="btn-primary"
-            style={{ flex: 1 }}
-            onClick={approve}
-            disabled={busy !== null}
-          >
-            {busy === "approve" ? appText("…", "…") : (
-              <><IconCheck size={18} /> {appText("Одобрить", "Раҫлау")}</>
-            )}
-          </button>
-        </div>
-      )}
-
-      {canModerate && rejecting && (
+      {app.status === "pending" && (
         <>
-          <textarea
-            className="field__input field__area"
-            style={{ marginTop: 12, minHeight: 76, paddingTop: 12 }}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder={appText(
-              "Причина отказа — курьер увидит и подаст снова",
-              "Кире ҡағыу сәбәбе — курьер күрер һәм ҡабат ебәрер"
-            )}
-          />
-          <div className="field-row" style={{ marginTop: 10 }}>
-            <button
-              type="button"
-              className="btn-soft"
-              style={{ flex: 1 }}
-              onClick={() => setRejecting(false)}
-              disabled={busy !== null}
-            >
-              {appText("Назад", "Артҡа")}
+          <div className="acard__actions">
+            <button type="button" className="abtn abtn--48" onClick={approve} disabled={busy !== null}>
+              {busy === "approve" ? appText("…", "…") : appText("Одобрить", "Раҫлау")}
             </button>
             <button
               type="button"
-              className="btn-danger"
-              style={{ flex: 1, marginTop: 0 }}
-              onClick={reject}
+              className="abtn abtn--48 abtn--outline abtn--red"
+              onClick={() => {
+                setRejecting((v) => !v);
+                setReason("");
+              }}
               disabled={busy !== null}
             >
-              {busy === "reject" ? appText("…", "…") : appText("Отклонить", "Кире ҡағыу")}
+              {appText("Отклонить", "Кире ҡағыу")}
             </button>
           </div>
+          {rejecting && (
+            <div className="acard__reject">
+              <label className="field">
+                <span className="field__label">{appText("Почему отклоняешь (увидит курьер)", "Ниңә кире ҡағаһың (курьер күрер)")}</span>
+                <input className="field__input" value={reason} onChange={(e) => setReason(e.target.value.slice(0, 300))} autoFocus />
+              </label>
+              <button type="button" className="abtn abtn--48 abtn--danger" onClick={reject} disabled={busy !== null || !reason.trim()}>
+                {busy === "reject" ? appText("…", "…") : appText("Отклонить с причиной", "Сәбәп менән кире ҡағыу")}
+              </button>
+            </div>
+          )}
         </>
       )}
-    </div>
+    </article>
   );
 }

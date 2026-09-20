@@ -109,7 +109,8 @@ internal fun HomeRoute(
                 // Живое гео гейтится на activeTrip != null (см. эффект TripLocationService выше):
                 // для подтверждённой поездки, открытой из списка, ставим activeTrip = ride, иначе
                 // сервис заглохнет и попутчик не увидит позицию. Для неактивной брони — null (как было).
-                activeTrip = if (bookingStatusAllowsActiveTrip(status)) ride else null
+                // done остаётся доступным экраном оценки, но уже не включает живую геолокацию.
+                activeTrip = if (bookingStatusAllowsBoarding(status)) ride else null
                 activeBookingId = ride.id.toIntOrNull()
                 onBookingStatus(status)
                 screen = if (bookingStatusAllowsActiveTrip(status)) Screen.ActiveTrip else Screen.Booking

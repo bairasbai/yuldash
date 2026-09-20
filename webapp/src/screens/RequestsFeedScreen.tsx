@@ -227,7 +227,7 @@ function RespondSheet({
     <div className="sheet-backdrop" onClick={onClose} role="presentation">
       <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <div className="sheet__grip" aria-hidden />
-        <h2 style={{ margin: "0 0 4px", fontSize: "var(--font-heading)", fontWeight: 800 }}>
+        <h2 style={{ margin: "0 0 4px", fontSize: "var(--font-heading)", fontWeight: "var(--weight-bold)" }}>
           {appText("Твой отклик", "Яуабың")}
         </h2>
         <p className="sheet__note" style={{ marginTop: 0 }}>

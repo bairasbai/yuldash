@@ -2,7 +2,7 @@ from datetime import date as date_type, datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import BigInteger, Index, UniqueConstraint
+from sqlalchemy import BigInteger, Column, ForeignKey, Integer, Index, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
 from .timeutil import utcnow
@@ -131,6 +131,8 @@ class RefreshToken(SQLModel, table=True):
     user_id: int = Field(index=True, foreign_key="user.id")
     token_hash: str = Field(index=True, unique=True)
     revoked: bool = False
+    rotation_id_hash: Optional[str] = None
+    rotated_at: Optional[datetime] = None
     expires_at: datetime
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -589,6 +591,17 @@ class Message(SQLModel, table=True):
     # (мошенник не может прикинуться поддержкой — флаг ставит только сервер).
     from_admin: bool = False
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class ChatMessageRequest(SQLModel, table=True):
+    """REST retry receipt; no request key is exposed in Message responses."""
+    __table_args__ = (UniqueConstraint("sender_id", "booking_id", "request_key", name="uq_chat_message_request"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    sender_id: int
+    booking_id: int
+    request_key: str = Field(max_length=128)
+    payload_hash: str = Field(max_length=64)
+    message_id: int = Field(sa_column=Column(Integer, ForeignKey("message.id", ondelete="CASCADE"), nullable=False, index=True))
 
 
 class TrustedContact(SQLModel, table=True):

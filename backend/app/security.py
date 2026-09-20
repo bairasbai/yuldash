@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import re
 import secrets
 import string
@@ -13,6 +14,7 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .db import get_session
+from .errors import herr
 from .models import RefreshToken, User
 from .timeutil import utcnow
 
@@ -84,12 +86,14 @@ def _hash_refresh(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def issue_tokens(session: Session, user_id: int) -> dict:
+def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] = None) -> dict:
     """Выдать пару access+refresh. Refresh — непрозрачный, в БД лежит ХЕШ.
 
     Граница последнего logout остаётся навсегда: иначе новый вход оживит все старые
     access-токены. Новую пару выпускаем строго после этой границы."""
-    user = session.get(User, user_id)
+    user = lock_refresh_user(session, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
     issued_after = user.tokens_valid_from if user else None
     if user:
         # Отметка «человек жив»: пишется при каждой выдаче пары ключей, то есть у активного —
@@ -97,27 +101,58 @@ def issue_tokens(session: Session, user_id: int) -> dict:
         # (волна 139). Отдельного запроса не стоит: строка уже в сессии и всё равно сохраняется.
         user.last_seen_at = utcnow()
         session.add(user)
-    raw = secrets.token_urlsafe(48)
+    raw = refresh_raw if refresh_raw is not None else secrets.token_urlsafe(48)
     session.add(RefreshToken(
         user_id=user_id, token_hash=_hash_refresh(raw),
         expires_at=utcnow() + timedelta(days=settings.refresh_expire_days),
     ))
-    session.commit()
-    return {
+    pair = {
         "access_token": make_token(user_id, issued_after=issued_after),
         "refresh_token": raw,
         "token_type": "bearer",
     }
+    session.commit()
+    return pair
 
 
-def rotate_refresh(session: Session, raw: str) -> dict:
-    """Проверить refresh, ОТОЗВАТЬ его (one-time) и выдать новую пару. Иначе 401."""
-    # with_for_update: блокируем строку токена → два параллельных /auth/refresh с одним
-    # refresh не пройдут оба проверку (TOCTOU) и не выдадут две пары токенов.
+REFRESH_RECOVERY_SECONDS = 120
+
+
+def lock_refresh_user(session: Session, user_id: int) -> Optional[User]:
+    """One lock order for rotation/recovery/logout: User, then RefreshToken.
+
+    SQLite ignores FOR UPDATE. A no-op write obtains its writer lock before any
+    authorization state is read; PostgreSQL uses the row lock instead.
+    """
+    if session.get_bind().dialect.name == 'sqlite':
+        session.execute(update(User).where(User.id == user_id).values(last_seen_at=User.last_seen_at))
+    return session.exec(select(User).where(User.id == user_id).with_for_update()
+                        .execution_options(populate_existing=True)).first()
+
+
+def _recovery_token(raw: str, rotation_id: str) -> str:
+    message = b'refresh-recovery-v1\0' + raw.encode() + b'\0' + rotation_id.encode()
+    return hmac.new(settings.jwt_secret.encode(), message, hashlib.sha256).hexdigest()
+
+
+def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None) -> dict:
+    """Ротация одноразовая; тот же секрет попытки восстанавливает её результат 120с."""
+    if rotation_id is not None and (
+        not isinstance(rotation_id, str) or re.fullmatch(r'[0-9a-f]{64}', rotation_id) is None
+    ):
+        raise herr(422, "Не получилось продлить вход. Войди заново.",
+                   "Инеүҙе оҙайтып булманы. Яңынан ин.")
+    owner_id = session.exec(select(RefreshToken.user_id).where(
+        RefreshToken.token_hash == _hash_refresh(raw))).first()
+    if owner_id is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
+    owner = lock_refresh_user(session, owner_id)
     rt = session.exec(
         select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(raw)).with_for_update()
+        .execution_options(populate_existing=True)
     ).first()
-    if not rt or rt.revoked or rt.expires_at < utcnow():
+    now = utcnow()
+    if not owner or not rt or rt.expires_at <= now:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
     # Бан устройства — вторая половина проверки (волна 204). Первая стоит в роутере и читает
     # заголовок `X-Device-Id`; но заголовок шлёт КЛИЕНТ, и забаненному достаточно перестать
@@ -128,8 +163,23 @@ def rotate_refresh(session: Session, raw: str) -> dict:
     # запомненное устройство сменилось, и продление снова работает. Пожизненной блокировки
     # человека тут никто не вводил.
     from .antifraud import guard_device_not_banned   # локальный импорт: без цикла на старте
-    хозяин = session.get(User, rt.user_id)
-    guard_device_not_banned(session, хозяин.last_device_id if хозяин else "")
+    guard_device_not_banned(session, owner.last_device_id)
+    if rt.revoked:
+        if (rotation_id is None or rt.rotation_id_hash is None or rt.rotated_at is None
+                or not hmac.compare_digest(rt.rotation_id_hash, _hash_refresh(rotation_id))
+                or not 0 <= (now - rt.rotated_at).total_seconds() <= REFRESH_RECOVERY_SECONDS):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
+        child_raw = _recovery_token(raw, rotation_id)
+        child = session.exec(select(RefreshToken).where(
+            RefreshToken.token_hash == _hash_refresh(child_raw)).with_for_update()
+            .execution_options(populate_existing=True)).first()
+        if (not child or child.user_id != owner.id or child.revoked or child.expires_at <= now
+                or (owner.tokens_valid_from is not None and rt.rotated_at <= owner.tokens_valid_from)):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
+        # No new row, no change to either expiry or recovery window. The User
+        # lock stays held until this request's session closes, excluding logout.
+        return {'access_token': make_token(owner.id, issued_after=owner.tokens_valid_from),
+                'refresh_token': child_raw, 'token_type': 'bearer'}
     # Гасим токен АТОМАРНО: условие «он ещё не погашен» живёт внутри UPDATE.
     #
     # Блокировка строки выше закрывает гонку на PostgreSQL, но SQLite её игнорирует — а на нём
@@ -143,23 +193,31 @@ def rotate_refresh(session: Session, raw: str) -> dict:
     burned = session.execute(
         update(RefreshToken)
         .where(RefreshToken.id == rt.id, RefreshToken.revoked == False)   # noqa: E712 — SQL IS FALSE
-        .values(revoked=True)
+        .values(revoked=True, rotation_id_hash=_hash_refresh(rotation_id) if rotation_id else None,
+                rotated_at=now if rotation_id else None)
     )
     if burned.rowcount == 0:
         session.rollback()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
-    session.commit()
-    return issue_tokens(session, rt.user_id)
+    try:
+        # Отзыв и новая пара фиксируются вместе, после успешной подписи JWT.
+        if rotation_id is not None:
+            return issue_tokens(session, rt.user_id, refresh_raw=_recovery_token(raw, rotation_id))
+        return issue_tokens(session, rt.user_id)
+    except Exception:
+        session.rollback()
+        raise
 
 
-def revoke_all_refresh(session: Session, user_id: int) -> None:
+def revoke_all_refresh(session: Session, user_id: int, *, commit: bool = True) -> None:
     """Отозвать все refresh-токены пользователя (logout со всех устройств)."""
     for rt in session.exec(select(RefreshToken).where(
         RefreshToken.user_id == user_id, RefreshToken.revoked == False  # noqa: E712
     )).all():
         rt.revoked = True
         session.add(rt)
-    session.commit()
+    if commit:
+        session.commit()
 
 
 # Требования к КАЖДОМУ входящему токену. Одна точка на все четыре двери: REST (`current_user`,

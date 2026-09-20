@@ -21,11 +21,15 @@ class LocationSocket(
     private val bookingId: Int,
     private val onPeer: (Peer) -> Unit,                 // позиция другого участника
     private val onConnected: (Boolean) -> Unit = {},
+    private val socketFactory: WebSocket.Factory = client,
+    private val scheduleTask: (Runnable, Long, TimeUnit) -> Unit = { task, delay, unit -> scheduler.schedule(task, delay, unit); Unit },
+    private val onTerminated: () -> Unit = {},
 ) {
     data class Peer(val role: String, val lat: Double, val lng: Double, val bearing: Double?, val ts: Long)
 
     private var ws: WebSocket? = null
     @Volatile private var closed = false
+    @Volatile private var generation = 0L
     @Volatile private var attempt = 0
     @Volatile private var softAttempt = 0        // мягкий ретрай «поездка не активна» — с потолком MAX_SOFT_ATTEMPTS
 
@@ -49,35 +53,44 @@ class LocationSocket(
         }
     }
 
+    @Synchronized
     fun connect() { closed = false; attempt = 0; softAttempt = 0; NetworkMonitor.subscribe(netListener); openSocket() }
 
     @Synchronized
     private fun openSocket() {
         if (closed) return
         val token = ApiClient.currentToken() ?: return
+        val connection = ++generation
         ws?.close(4999, "replaced")   // закрываем старый сокет перед новым (гонка reconnect↔connect → двойной GPS-канал); 4999 = терминал, без churn
         val url = "${ApiClient.wsBase()}/ws/trip/$bookingId/location"   // токен НЕ в URL — первым сообщением
-        ws = client.newWebSocket(
+        ws = socketFactory.newWebSocket(
             Request.Builder().url(url).build(),
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
-                    attempt = 0; softAttempt = 0
-                    onConnected(true)
+                    synchronized(this@LocationSocket) {
+                        if (closed || generation != connection) return
+                        webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
+                        attempt = 0
+                        onConnected(true)
+                    }
                 }
                 override fun onMessage(webSocket: WebSocket, text: String) {
-                    runCatching {
-                        val o = JSONObject(text)
-                        if (o.optString("type") == "loc") {
-                            onPeer(
-                                Peer(
-                                    role = o.optString("role"),
-                                    lat = o.optDouble("lat"),
-                                    lng = o.optDouble("lng"),
-                                    bearing = if (o.isNull("bearing")) null else o.optDouble("bearing"),
-                                    ts = o.optLong("ts"),
+                    synchronized(this@LocationSocket) {
+                        if (closed || generation != connection) return
+                        runCatching {
+                            val o = JSONObject(text)
+                            if (o.optString("type") == "loc") {
+                                softAttempt = 0
+                                onPeer(
+                                    Peer(
+                                        role = o.optString("role"),
+                                        lat = o.optDouble("lat"),
+                                        lng = o.optDouble("lng"),
+                                        bearing = if (o.isNull("bearing")) null else o.optDouble("bearing"),
+                                        ts = o.optLong("ts"),
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
@@ -87,17 +100,25 @@ class LocationSocket(
                     webSocket.close(code, null)
                 }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    onConnected(false)
-                    // Поездка ещё не активна (бронь pending/подтверждается) — сервер закрывает 1008 "Trip not active".
-                    // Это НЕ терминал: бронь станет confirmed → подключимся. Мягкий ретрай раз в 15с (сервис
-                    // живёт только во время поездки → не вечный цикл). Иначе сразу после брони стрим бы не запускался.
-                    if (code == 1008 && reason.contains("not active", ignoreCase = true)) { softReconnect(); return }
-                    // Forbidden / Invalid token / прочие 1008|4xxx — настоящий терминал, не долбимся.
-                    if (code != 1008 && code !in 4000..4999) scheduleReconnect()
+                    synchronized(this@LocationSocket) {
+                        if (closed || generation != connection) return
+                        ws = null
+                        onConnected(false)
+                        // Поездка ещё не активна (бронь pending/подтверждается) — сервер закрывает 1008 "Trip not active".
+                        // Это НЕ терминал: бронь станет confirmed → подключимся. Мягкий ретрай раз в 15с (сервис
+                        // живёт только во время поездки → не вечный цикл). Иначе сразу после брони стрим бы не запускался.
+                        if (code == 1008 && reason.contains("not active", ignoreCase = true)) { softReconnect(); return }
+                        // Forbidden / Invalid token / прочие 1008|4xxx — настоящий терминал, не долбимся.
+                        if (code != 1008 && code !in 4000..4999) scheduleReconnect() else terminate()
+                    }
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    onConnected(false)
-                    scheduleReconnect()
+                    synchronized(this@LocationSocket) {
+                        if (closed || generation != connection) return
+                        ws = null
+                        onConnected(false)
+                        scheduleReconnect()
+                    }
                 }
             },
         )
@@ -111,18 +132,34 @@ class LocationSocket(
         if (closed) return
         attempt++
         val delay = minOf(MAX_DELAY_SEC, 1L shl minOf(attempt - 1, 5))   // 1,2,4,8,16,30… cap 30
-        scheduler.schedule({ openSocket() }, delay, TimeUnit.SECONDS)
+        scheduleReconnectAfter(delay)
     }
 
-    /** Поездка ещё не активна → пробуем снова раз в 15с, БЕЗ счётчика попыток (станет confirmed — подключимся).
-     *  Цикл ограничен жизнью сервиса: он закрывает сокет, когда поездка кончилась. */
+    /** Ожидаем подтверждение не больше сорока повторов; транспортный handshake не сбрасывает лимит. */
     private fun softReconnect() {
-        if (closed || softAttempt >= MAX_SOFT_ATTEMPTS) return
+        if (closed) return
+        if (softAttempt >= MAX_SOFT_ATTEMPTS) { terminate(); return }
         softAttempt++
-        scheduler.schedule({ openSocket() }, SOFT_RETRY_SEC, TimeUnit.SECONDS)
+        scheduleReconnectAfter(SOFT_RETRY_SEC)
+    }
+
+    private fun scheduleReconnectAfter(delay: Long) {
+        val connection = generation
+        scheduleTask(Runnable {
+            synchronized(this) {
+                if (!closed && generation == connection) openSocket()
+            }
+        }, delay, TimeUnit.SECONDS)
+    }
+
+    private fun terminate() {
+        if (closed) return
+        close()
+        onTerminated()
     }
 
     /** Отправить свою позицию другому участнику. true — ушло. */
+    @Synchronized
     fun sendLoc(lat: Double, lng: Double, bearing: Double? = null): Boolean {
         val o = JSONObject().put("type", "loc").put("lat", lat).put("lng", lng)
             .put("ts", System.currentTimeMillis() / 1000)
@@ -130,8 +167,10 @@ class LocationSocket(
         return ws?.send(o.toString()) ?: false
     }
 
+    @Synchronized
     fun close() {
         closed = true
+        generation++
         NetworkMonitor.unsubscribe(netListener)   // отписка обязательна — не будим мёртвый канал, не течём
         ws?.close(1000, null)
         ws = null

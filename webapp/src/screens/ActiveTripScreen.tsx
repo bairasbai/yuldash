@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import {
   fetchBookingDetails,
   fetchTripState,
@@ -56,7 +56,7 @@ import { ChatVoiceButton, VoiceBubble } from "../components/ChatVoice";
 import { IconArrow, IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
-import { enqueue, outboxCount, subscribeOutbox, watchOutbox } from "../utils/outbox";
+import { createOutboxId, enqueue, outboxCount, subscribeOutbox, watchOutbox } from "../utils/outbox";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
 import {
   forgetWinterCheck,
@@ -396,18 +396,28 @@ export default function ActiveTripScreen() {
   /** Водитель: «выехал / подъезжаю / завершил». Ошибку показываем текстом, экран не ломаем. */
   async function sendPhase(phase: DriverPhase) {
     if (phaseBusy) return;
+    const generation = getSessionGeneration();
+    const currentSession = () => generation === getSessionGeneration();
     setPhaseBusy(true);
     setPhaseNote("");
     try {
       await setDriverStatus(bookingId, phase);
+      if (!currentSession()) return;
       const fresh = await fetchTripState(bookingId);
+      if (!currentSession()) return;
       setTrip(fresh);
       if (phase === "done") setPhaseNote(appText("Поездка завершена", "Сәфәр тамамланды"));
     } catch (e) {
+      if (!currentSession()) return;
       if (e instanceof ApiError && e.status === 0) {
         // Трасса без связи: отметка не пропадает — уйдёт сама, когда сеть вернётся.
-        enqueue(bookingId, "driver_status", phase);
-        setPhaseNote(appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ"));
+        try {
+          await enqueue(bookingId, "driver_status", phase);
+          if (!currentSession()) return;
+          setPhaseNote(appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ"));
+        } catch {
+          if (currentSession()) setPhaseNote(appText("Не получилось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер."));
+        }
       } else {
         setPhaseNote(
           e instanceof ApiError && e.message
@@ -416,7 +426,7 @@ export default function ActiveTripScreen() {
         );
       }
     } finally {
-      setPhaseBusy(false);
+      if (currentSession()) setPhaseBusy(false);
     }
   }
 
@@ -450,6 +460,7 @@ export default function ActiveTripScreen() {
   const [myTags, setMyTags] = useState<string[]>([]);
   const [rateText, setRateText] = useState("");
   const [rateBusy, setRateBusy] = useState(false);
+  const [rateNote, setRateNote] = useState("");
 
   function pickStars(n: number) {
     setMyStars(n);
@@ -465,12 +476,12 @@ export default function ActiveTripScreen() {
   async function sendRate() {
     if (!bookingId || myStars < 1 || rateBusy) return;
     setRateBusy(true);
+    setRateNote("");
     try {
       await rateBooking(bookingId, myStars, rateText.trim(), myTags);
       setRated(true);
     } catch {
-      /* уже оценено / не завершена — тихо */
-      setRated(true);
+      setRateNote(appText("Не получилось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер."));
     } finally {
       setRateBusy(false);
     }
@@ -818,6 +829,7 @@ export default function ActiveTripScreen() {
               <button type="button" className="btn-primary" style={{ marginTop: 10 }} onClick={() => void sendRate()} disabled={rateBusy}>
                 {rateBusy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Отправить оценку", "Баһаны ебәрергә")}
               </button>
+              {rateNote && <div className="consents__status error" role="alert">{rateNote}</div>}
             </>
           )}
         </div>
@@ -858,6 +870,8 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
   const { appText } = useLang();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState("");
+  const [textBusy, setTextBusy] = useState(false);
+  const textSending = useRef(false);
   const [live, setLive] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -942,22 +956,42 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
   }, [messages]);
 
   // Общая отправка (поле ввода и быстрые ответы): живой сокет, фолбэк — REST.
-  async function sendText(t: string) {
-    if (!t) return;
-    const sentLive = chatRef.current?.send(t);
-    if (!sentLive) {
+  async function sendText(t: string): Promise<boolean> {
+    if (!t || textSending.current) return false;
+    const generation = getSessionGeneration();
+    const currentSession = () => generation === getSessionGeneration();
+    textSending.current = true;
+    setTextBusy(true);
+    setAttachNote("");
+    try {
+      const sentLive = chatRef.current?.send(t);
+      if (sentLive) return true;
+      const requestId = createOutboxId();
       try {
-        const m = await sendMessageRest(bookingId, t);
+        const m = await sendMessageRest(bookingId, t, undefined, requestId);
+        if (!currentSession()) return false;
         upsert(m);
+        return true;
       } catch (e) {
+        if (!currentSession()) return false;
         if (e instanceof ApiError && e.status === 0) {
           // Сети нет (трасса) — не теряем: отправим сами, когда связь вернётся.
-          enqueue(bookingId, "message", t);
-          setQueued(outboxCount(bookingId));
-        } else if (e instanceof ApiError) {
-          setText(t); // сервер отказал — вернём текст, решать человеку
+          try {
+            await enqueue(bookingId, "message", t, requestId);
+            if (!currentSession()) return false;
+            setQueued(outboxCount(bookingId));
+            return true;
+          } catch {
+            if (!currentSession()) return false;
+          }
         }
+        setText((current) => current || t);
+        setAttachNote(appText("Не получилось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер."));
+        return false;
       }
+    } finally {
+      textSending.current = false;
+      if (currentSession()) setTextBusy(false);
     }
   }
 
@@ -1023,8 +1057,10 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
   async function send() {
     const t = text.trim();
     if (!t) return;
-    setText("");
-    await sendText(t);
+    const generation = getSessionGeneration();
+    if (await sendText(t)) {
+      if (generation === getSessionGeneration()) setText((current) => current.trim() === t ? "" : current);
+    }
   }
 
   return (
@@ -1167,7 +1203,7 @@ function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
         />
         <ChatPhotoButton onReady={(t) => void sendText(t)} onProblem={setAttachNote} />
                 <ChatVoiceButton onSend={(u) => void sendVoice(u)} onProblem={setAttachNote} />
-        <button type="button" onClick={send} aria-label={appText("Отправить", "Ебәреү")}>
+        <button type="button" onClick={send} disabled={textBusy} aria-label={appText("Отправить", "Ебәреү")}>
           <IconArrow size={20} />
         </button>
       </div>

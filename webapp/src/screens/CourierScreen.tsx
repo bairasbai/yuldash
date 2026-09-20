@@ -35,15 +35,17 @@ import {
   setParcelStatus,
   type Parcel,
 } from "../api/parcels";
-import { formatWhen, pluralRu, rubLabel } from "../utils/format";
+import { formatWhen, rubLabel } from "../utils/format";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, ErrorState } from "../components/States";
 import { AvailableParcelCard, CarryParcelCard, CodeDialog } from "../components/parcelUi";
 import ParcelProblemActions from "../components/ParcelProblemActions";
+import CompletedParcelCard, { isCompletedParcel } from "../components/CompletedParcelCard";
 import ParcelPhoto from "../components/ParcelPhoto";
+import ParcelTrackMap from "../components/ParcelTrackMap";
 import CityField from "../components/CityField";
-import { IconStar, IconCheck, IconCopy, IconBox, IconCamera, IconTrend } from "../components/Icons";
-import { YuCourierWalk } from "../components/BrandIcons";
+import { IconStar, IconCheck, IconCopy, IconBox, IconCamera, IconClock, IconTrend, IconRoute, IconWallet } from "../components/Icons";
+import { YuCourierWalk, YuModeCourier } from "../components/BrandIcons";
 import { serverMs } from "../utils/serverTime";
 import { rememberPayment } from "../utils/pendingPayment";
 import { track } from "../analytics";
@@ -175,17 +177,21 @@ export default function CourierScreen() {
     );
   }
   if (boot === "need-approval") {
+    // CourierNotApprovedView (Android): круг 96 мятный с иконкой, заголовок 19 Bold, текст, золотая кнопка.
     return (
       <>
         <SubHeader title={appText("Курьер Юлдаш", "Юлдаш курьеры")} onBack={() => navigate(-1)} />
-        <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__icon">
-            <YuCourierWalk size={36} />
-          </div>
-          <h2>{appText("Сначала стань курьером", "Башта курьер бул")}</h2>
-          <p>{appText("Чтобы брать заказы, нужна одобренная заявка. Это займёт пару минут.", "Заказ алыр өсөн хупланған ғариза кәрәк. Был бер-ике минут.")}</p>
-          <button type="button" className="btn-primary" onClick={() => navigate("/courier-onboarding")}>
-            {appText("Стать курьером", "Курьер булыу")}
+        <div className="gate">
+          <span className="gate__badge gate__badge--mint" aria-hidden><YuModeCourier size={48} /></span>
+          <h2 className="gate__title">{appText("Стань курьером Юлдаша", "Юлдаш курьеры бул")}</h2>
+          <p className="gate__body">
+            {appText(
+              "Развози посылки своим и зарабатывай. Текущая ставка комиссии — в кабинете курьера.",
+              "Үҙебеҙҙекеләргә бандеролдәр илт тә аҡса эшлә. Хәҙерге комиссия ставкаһы — курьер кабинетында."
+            )}
+          </p>
+          <button type="button" className="btn-primary btn-accent gate__primary" onClick={() => navigate("/courier-onboarding")}>
+            <IconRoute size={18} /> {appText("Стать курьером", "Курьер булыу")}
           </button>
         </div>
       </>
@@ -195,11 +201,7 @@ export default function CourierScreen() {
   // ---------------- На линии ----------------
   return (
     <>
-      <SubHeader
-        title={appText("Режим курьера", "Курьер режимы")}
-        subtitle={appText("Бери доставки рядом и зарабатывай", "Яҡындағы доставкаларҙы ал һәм эшлә")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Режим курьера", "Курьер режимы")} onBack={() => navigate(-1)} />
 
       {paused && (
         <div className="courier-pause">
@@ -210,28 +212,31 @@ export default function CourierScreen() {
         </div>
       )}
 
-      {/* Тумблер «на линии» */}
-      <button
-        type="button"
-        className={"onb__simple" + (online ? " is-active" : "")}
-        onClick={toggleOnline}
-        disabled={onlineBusy || paused}
-        style={{ marginTop: 14 }}
-      >
-        <span className={"status-dot" + (online ? " status-dot--on" : "")} aria-hidden />
-        <span className="onb__simple-text">
-          <b>{appText("Я на линии", "Мин линияла")}</b>
-          <span>
-            {online
-              ? appText("Ищем для тебя доставки рядом", "Һиңә яҡын доставкалар эҙләйбеҙ")
-              : appText("Включи, когда готов брать заказы", "Заказ алырға әҙер булғас ҡабыҙ")}
+      {/* CourierLineHero Android: карточка с градиентной шапкой на линии, тумблером и зоной работы внутри. */}
+      <section className={"line-hero" + (online ? " is-online" : "")}>
+        <button
+          type="button"
+          className="line-hero__head"
+          onClick={toggleOnline}
+          disabled={onlineBusy || paused}
+          aria-pressed={online}
+          aria-label={appText("Работа курьера", "Курьер эше")}
+        >
+          <span className="line-hero__tile" aria-hidden><YuModeCourier size={24} /></span>
+          <span className="line-hero__text">
+            <b>{online ? appText("Ты на линии", "Һин линияла") : appText("Готов к заказам?", "Заказдарға әҙерме?")}</b>
+            <span>
+              {online
+                ? appText("Показываем подходящие доставки", "Яраҡлы доставкаларҙы күрһәтәбеҙ")
+                : appText("Включи линию, когда будешь готов", "Әҙер булғас, линияны ҡабыҙ")}
+            </span>
           </span>
-        </span>
-        <span className={"switch" + (online ? " on" : "")} />
-      </button>
+          <span className={"switch" + (online ? " on" : "")} aria-hidden />
+        </button>
+        <div className="line-hero__zone">
 
       {/* Город работы: сервер по нему отбирает заказы, поэтому спрашиваем до выхода на линию */}
-      <label className="field" style={{ marginTop: 14 }}>
+      <label className="field" style={{ marginTop: 0 }}>
         <span className="field__label">{appText("Город работы", "Эш ҡалаһы")}</span>
         <input
           className="field__input"
@@ -277,7 +282,7 @@ export default function CourierScreen() {
       )}
 
       {/* Зона работы */}
-      <span className="field__label" style={{ marginTop: 14, display: "block" }}>
+      <span className="field__label" style={{ display: "block" }}>
         {appText("Зона работы", "Эш зонаһы")}
       </span>
       <div className="chips">
@@ -293,6 +298,8 @@ export default function CourierScreen() {
           {zoneNote}
         </div>
       )}
+        </div>
+      </section>
 
       {/* Вкладки */}
       <div className="taxi-when parcel-tabs" style={{ marginTop: 16 }}>
@@ -309,35 +316,7 @@ export default function CourierScreen() {
 
       {tab === "available" && <AvailableOrders zone={zone} online={online} onGoOnline={toggleOnline} />}
       {tab === "carry" && <CarryOrders onGoAvailable={() => setTab("available")} />}
-      {tab === "cabinet" && me && (
-        <>
-          <Cabinet me={me} onReload={() => load()} />
-          {/* ⭐ Приоритет: кому заказ падает первым и за что. Считается по ДОСТАВКАМ,
-              отдельно от такси — работа разная, заслуги одной роли в другую не переносятся. */}
-          <div style={{ marginTop: 12 }}>
-            <PriorityCard courier />
-          </div>
-          {/* Заработок отдельно от комиссии: иначе работа выглядит одним сплошным долгом. */}
-          <button
-            type="button"
-            className="btn-soft"
-            style={{ width: "100%", marginTop: 12 }}
-            onClick={() => navigate("/courier-earnings")}
-          >
-            <IconTrend size={18} /> {appText("Мой заработок", "Минең табыш")}
-          </button>
-          {/* Фотоконтроль машины (580-ФЗ): две стороны кузова и багажник раз в две недели.
-              Здесь дверь, а не сводка — состояние человек видит на самом экране. */}
-          <button
-            type="button"
-            className="btn-soft"
-            style={{ width: "100%", marginTop: 12 }}
-            onClick={() => navigate("/car-photo?mode=courier")}
-          >
-            <IconCamera size={18} /> {appText("Фотоконтроль машины", "Машина фотоконтроле")}
-          </button>
-        </>
-      )}
+      {tab === "cabinet" && me && <Cabinet me={me} onReload={() => load()} />}
     </>
   );
 }
@@ -498,10 +477,13 @@ function CarryOrders({ onGoAvailable }: { onGoAvailable: () => void }) {
   const [photos, setPhotos] = useState<Record<number, string>>({});
   const [codeBusy, setCodeBusy] = useState(false);
   const [codeErr, setCodeErr] = useState<string | null>(null);
+  const [goodsErrors, setGoodsErrors] = useState<Record<number, string | undefined>>({});
+  /** Чью карту смотреть, когда везёшь несколько посылок. */
+  const [trackedId, setTrackedId] = useState<number | null>(null);
 
   const load = useCallback((signal?: AbortSignal) => {
     setBoot("loading");
-    fetchCarrying(signal)
+    fetchCarrying(signal, true)
       .then((rows) => {
         setItems(rows);
         setBoot("ready");
@@ -547,12 +529,18 @@ function CarryOrders({ onGoAvailable }: { onGoAvailable: () => void }) {
 
   async function onGoods(id: number, kop: number) {
     setBusyId(id);
+    setGoodsErrors((prev) => ({ ...prev, [id]: undefined }));
     try {
       const r = await setGoodsCost(id, kop);
       track("courier_goods_cost");
       setItems((prev) => prev.map((x) => (x.id === id ? { ...x, settlement: r.settlement } : x)));
-    } catch {
-      /* тихо — курьер повторит */
+    } catch (e) {
+      setGoodsErrors((prev) => ({
+        ...prev,
+        [id]: e instanceof ApiError && e.message
+          ? e.message
+          : appText("Не получилось сохранить стоимость покупки. Повтори попытку.", "Һатып алыу хаҡын һаҡлап булманы. Ҡабатлап ҡара."),
+      }));
     } finally {
       setBusyId(null);
     }
@@ -563,8 +551,8 @@ function CarryOrders({ onGoAvailable }: { onGoAvailable: () => void }) {
     setCodeBusy(true);
     setCodeErr(null);
     try {
-      await setParcelStatus(codeFor.id, "delivered", code.trim(), photos[codeFor.id]);
-      setItems((prev) => prev.filter((x) => x.id !== codeFor.id));
+      const completed = await setParcelStatus(codeFor.id, "delivered", code.trim(), photos[codeFor.id]);
+      setItems((prev) => prev.map((x) => x.id === completed.id ? completed : x));
       setCodeFor(null);
     } catch (e) {
       setCodeErr(
@@ -595,9 +583,35 @@ function CarryOrders({ onGoAvailable }: { onGoAvailable: () => void }) {
       </div>
     );
   }
+  // Онлайн-трекинг: карта одна — при нескольких доставках курьер выбирает, чью смотреть,
+  // а по умолчанию открыта та, что уже в пути.
+  const activeParcels = items.filter((p) => p.status === "accepted" || p.status === "in_transit");
+  const tracked = activeParcels.find((p) => p.id === trackedId) ?? activeParcels.find((p) => p.status === "in_transit") ?? activeParcels[0];
   return (
     <div style={{ marginTop: 4 }}>
-      {items.map((p) => (
+      {tracked && (
+        <div className="parcel-track-block">
+          <span className="dl-hint">
+            {activeParcels.length > 1
+              ? appText("Ты в пути — отправители видят тебя на карте. Выбери доставку:", "Һин юлда — ебәреүселәр һине картала күрә. Илтеүҙе һайла:")
+              : appText("Ты в пути — отправитель видит тебя на карте", "Һин юлда — ебәреүсе һине картала күрә")}
+          </span>
+          {activeParcels.length > 1 && (
+            <div className="cpick-row" role="radiogroup">
+              {activeParcels.map((p) => (
+                <button key={p.id} type="button" role="radio" aria-checked={p.id === tracked.id} className={"cpick" + (p.id === tracked.id ? " is-on" : "")} onClick={() => setTrackedId(p.id)}>
+                  {(p.to_city || appText("Доставка", "Илтеү")) + ` · №${p.id}`}
+                </button>
+              ))}
+            </div>
+          )}
+          <ParcelTrackMap key={tracked.id} parcel={tracked} asCourier />
+        </div>
+      )}
+      {items.some(isCompletedParcel) && <p className="dl-hint">{appText("В работе и последние завершённые доставки", "Эштәге һәм һуңғы тамамланған илтеүҙәр")}</p>}
+      {items.map((p) => isCompletedParcel(p) ? (
+        <CompletedParcelCard key={p.id} parcel={p} onChanged={() => load()} />
+      ) : (
         <div key={p.id}>
           <CarryParcelCard
             p={p}
@@ -607,6 +621,9 @@ function CarryOrders({ onGoAvailable }: { onGoAvailable: () => void }) {
             onDeliver={() => { setCodeErr(null); setCodeFor(p); }}
             onGoodsCost={(kop) => onGoods(p.id, kop)}
           />
+          {goodsErrors[p.id] && (
+            <p className="dl-hint dl-hint--warn" role="alert">{goodsErrors[p.id]}</p>
+          )}
           {/* Граница ответственности: снимок «отдал целой» до ввода кода.
               В споре его отсутствие говорит само за себя. */}
           <ParcelPhoto
@@ -627,12 +644,6 @@ function CarryOrders({ onGoAvailable }: { onGoAvailable: () => void }) {
 }
 
 // ============================ Кабинет курьера ============================
-const TIER_LABEL: Record<string, { ru: string; ba: string }> = {
-  tier1: { ru: "Новичок", ba: "Яңы" },
-  tier2: { ru: "Опытный", ba: "Тәжрибәле" },
-  tier3: { ru: "Ветеран", ba: "Ветеран" },
-  promo: { ru: "Промо запуска", ba: "Старт промоһы" },
-};
 
 function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
   const { appText } = useLang();
@@ -641,8 +652,7 @@ function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
   const [pay, setPay] = useState<CommissionPayment | null>(null);
   const [msg, setMsg] = useState<{ ru: string; ba: string } | null>(null);
   const [copied, setCopied] = useState(false);
-
-  const tier = TIER_LABEL[s.fee_tier] ?? TIER_LABEL.tier3;
+  const navigate = useNavigate();
 
   async function onPay() {
     if (busy) return;
@@ -723,89 +733,167 @@ function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
     );
   }
 
+  const owed = s.commission_owed_kop;
+  const pausedUntil = me.paused_until ?? me.profile?.paused_until ?? null;
+  const tierLine =
+    s.fee_tier === "promo"
+      ? appText("Промо-ставка", "Акция ставкаһы")
+      : s.fee_tier === "tier1"
+        ? appText("Стартовая ступень", "Башланғыс баҫҡыс")
+        : s.fee_tier === "tier2"
+          ? appText("Следующая ступень", "Киләһе баҫҡыс")
+          : s.fee_tier === "tier3"
+            ? appText("Обычная ставка", "Ғәҙәти ставка")
+            : appText("Комиссия по твоей ступени", "Баҫҡысың буйынса комиссия");
+  const promo = s.fee_tier === "promo";
+  const feePct = String(s.current_fee_percent).replace(".", ",");
+
   return (
-    <div style={{ marginTop: 16 }}>
-      {/* Рейтинг */}
-      <div className="courier-rating">
-        <div className="courier-rating__val">
-          <IconStar size={22} /> {me.rating.avg != null ? me.rating.avg.toFixed(1) : "—"}
-        </div>
-        <div className="courier-rating__meta">
-          {me.rating.count > 0
-            ? appText(
-                `${me.rating.count} ${pluralRu(me.rating.count, "оценка", "оценки", "оценок")} доставки`,
-                `${me.rating.count} доставка баһаһы`
-              )
-            : appText("Пока нет оценок", "Әле баһа юҡ")}
-        </div>
-      </div>
-
-      {/* Текущая ступень комиссии */}
-      <div className="courier-fee">
-        <div>
-          <div className="courier-fee__pct">{s.current_fee_percent}%</div>
-          <div className="courier-fee__label">{appText("Сейчас платишь комиссию", "Хәҙер комиссия түләйһең")}</div>
-        </div>
-        <span className="badge badge--mint">{appText(tier.ru, tier.ba)}</span>
-      </div>
-
-      {/* За что берём процент. Без этой строки «комиссия» читается как штраф,
-          а не как плата за то, что заказы вообще нашлись. */}
-      <p className="courier-fee__why">
-        {appText(
-          `Это сбор Юлдаша (${s.current_fee_percent}%) за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.`,
-          `Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы (${s.current_fee_percent}%). Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш.`
-        )}
-      </p>
-
-      {/* Выписка */}
-      <div className="info-list">
-        <div className="info-row">
-          <span className="info-row__k">{appText("Доставлено заказов", "Еткерелгән заказ")}</span>
-          <span className="info-row__v">{s.delivered_count}</span>
-        </div>
-        <div className="info-row">
-          <span className="info-row__k">{appText("Комиссия всего", "Барлыҡ комиссия")}</span>
-          <span className="info-row__v">{rubLabel(s.commission_earned_kop)}</span>
-        </div>
-        <div className="info-row">
-          <span className="info-row__k">{appText("Уже оплачено", "Түләнгән")}</span>
-          <span className="info-row__v">{rubLabel(s.commission_paid_kop)}</span>
-        </div>
-        <div className="info-row">
-          <span className="info-row__k">{appText("К оплате сейчас", "Хәҙер түләргә")}</span>
-          <span className="info-row__v">{rubLabel(s.commission_owed_kop)}</span>
-        </div>
-      </div>
-
-      {msg && <div className="consents__status ok" style={{ marginTop: 12 }}>{appText(msg.ru, msg.ba)}</div>}
-
-      <button
-        type="button"
-        className="btn-primary submit-btn"
-        style={{ marginTop: 14 }}
-        onClick={onPay}
-        disabled={busy || s.commission_owed_kop <= 0}
-      >
-        {busy
-          ? appText("Готовим оплату…", "Түләү әҙерләйбеҙ…")
-          : s.commission_owed_kop > 0
-            ? appText(`Оплатить комиссию · ${rubLabel(s.commission_owed_kop)}`, `Комиссия түләргә · ${rubLabel(s.commission_owed_kop)}`)
-            : appText("Комиссия оплачена", "Комиссия түләнгән")}
+    <div className="cabinet">
+      {/* Заработок отдельно от комиссии: иначе работа выглядит одним сплошным долгом. */}
+      <button type="button" className="btn-soft" onClick={() => navigate("/courier-earnings")}>
+        <IconTrend size={18} /> {appText("Мой заработок", "Минең табыш")}
+      </button>
+      {/* Фотоконтроль машины (580-ФЗ): две стороны кузова и багажник раз в две недели. */}
+      <button type="button" className="btn-soft" onClick={() => navigate("/car-photo?mode=courier")}>
+        <IconCamera size={18} /> {appText("Фотоконтроль машины", "Машина фотоконтроле")}
       </button>
 
-      <p className="receipt__foot">
-        {appText(
-          "Текущая ставка показана выше. Начисления за завершённые доставки и остаток к оплате — в этой выписке.",
-          "Хәҙерге ставка өҫтә күрһәтелгән. Тамамланған илтеүҙәр өсөн иҫәпләнгән комиссия һәм түләү ҡалдығы — ошо өҙөмтәлә."
-        )}
-      </p>
+      {/* ⭐ Приоритет: кому заказ падает первым и за что. Считается по ДОСТАВКАМ,
+          отдельно от такси — работа разная, заслуги одной роли в другую не переносятся. */}
+      <PriorityCard courier />
 
-      {me.application?.reviewed_at && (
-        <p className="receipt__foot" style={{ marginTop: 4 }}>
-          {appText("Курьер с", "Курьер")} {formatWhen(me.application.reviewed_at, true)}
-        </p>
+      {pausedUntil && (
+        <div className="cab-note cab-note--warn">
+          <span className="cab-note__icon" aria-hidden><IconClock size={24} /></span>
+          <span className="cab-note__text">
+            <strong>{appText("Пауза по качеству", "Сифат буйынса пауза")}</strong>
+            <small>
+              {appText(
+                `Пауза до ${pausedUntil.slice(0, 10)}. Подтяни рейтинг — и снова в строю. Мы рядом, поможем.`,
+                `${pausedUntil.slice(0, 10)} тиклем пауза. Рейтингты күтәр — һәм ҡабат сафта. Беҙ янда, ярҙам итербеҙ.`
+              )}
+            </small>
+          </span>
+        </div>
       )}
+
+      {/* Рейтинг: плитка со звездой, «Твой рейтинг», крупная оценка и число оценок. */}
+      <div className="cab-note">
+        <span className="cab-note__tile" aria-hidden><IconStar size={24} /></span>
+        <span className="cab-note__text">
+          <small className="cab-note__label">{appText("Твой рейтинг", "Һинең рейтинг")}</small>
+          {me.rating.avg != null && me.rating.count > 0 ? (
+            <>
+              <b className="cab-note__big">{me.rating.avg.toFixed(1).replace(".", ",")} ★</b>
+              <small>{appText(`оценок: ${me.rating.count}`, `баһа: ${me.rating.count}`)}</small>
+            </>
+          ) : (
+            <>
+              <strong>{appText("Пока нет оценок", "Әлегә оценка юҡ")}</strong>
+              <small>{appText("Первые доставки — и рейтинг появится.", "Тәүге илтеүҙәр — һәм рейтинг күренер.")}</small>
+            </>
+          )}
+        </span>
+      </div>
+
+      <div className="cab-note cab-note--mint">
+        <span className="cab-note__tile cab-note__tile--surface" aria-hidden><IconCheck size={24} /></span>
+        <span className="cab-note__text">
+          <small className="cab-note__label is-green">{appText("Доставлено заказов", "Тапшырылған заказдар")}</small>
+          <b className="cab-note__big">{s.delivered_count}</b>
+        </span>
+      </div>
+
+      {/* Текущая ступень комиссии. Без этой строки «комиссия» читается как штраф,
+          а не как плата за то, что заказы вообще нашлись. */}
+      {s.fee_tier && (
+        <div className={"cab-note cab-note--column" + (promo ? " cab-note--mint" : "")}>
+          <div className="cab-note__row">
+            <span className={"cab-note__tile" + (promo ? " cab-note__tile--surface" : "")} aria-hidden><IconTrend size={24} /></span>
+            <span className="cab-note__text">
+              <strong>{appText(`Сейчас ты платишь ${feePct}% комиссии`, `Хәҙер һин ${feePct}% комиссия түләйһең`)}</strong>
+              <small className={promo ? "is-green" : ""}>{tierLine}</small>
+            </span>
+          </div>
+          {s.commission_min_kop > 0 && (
+            <p className="dl-hint">
+              {appText(
+                `Комиссия минимум ${rubLabel(s.commission_min_kop)} за доставку. Всё прозрачно — видно, сколько и за что.`,
+                `Комиссия иң кәме ${rubLabel(s.commission_min_kop)} бер илтеү өсөн. Барыһы ла асыҡ — күпме һәм ни өсөн икәне күренә.`
+              )}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Комиссия: заработали · оплачено · к оплате (крупно). */}
+      <div className={"statement" + (owed > 0 ? " statement--due" : "")}>
+        <div className="statement__head">
+          <IconWallet size={24} />
+          <strong>{appText("Наша комиссия за доставки", "Илтеүҙәр өсөн беҙҙең комиссия")}</strong>
+        </div>
+        <p className="dl-hint">
+          {appText(
+            `Это сбор Юлдаша (${feePct}%) за то, что мы свели тебя с заказами. Твой доход остаётся у тебя — сюда попадает только наша часть.`,
+            `Был — заказдар менән таныштырғаныбыҙ өсөн Юлдаш сборы (${feePct}%). Килемең үҙеңдә ҡала — бында тик беҙҙең өлөш.`
+          )}
+        </p>
+        <div className="statement__row">
+          <span>{appText("Всего заработали мы", "Барлығы беҙ эшләнек")}</span>
+          <b>{rubLabel(s.commission_earned_kop)}</b>
+        </div>
+        <div className="statement__row">
+          <span>{appText("Уже оплачено", "Түләнгән")}</span>
+          <b className="is-green">{rubLabel(s.commission_paid_kop)}</b>
+        </div>
+        <div className={"statement__due" + (owed > 0 ? " is-due" : "")}>
+          <strong>{appText("К оплате сейчас", "Хәҙер түләргә")}</strong>
+          <b>{rubLabel(owed)}</b>
+        </div>
+        {msg && <div className="consents__status ok" style={{ marginTop: 0 }}>{appText(msg.ru, msg.ba)}</div>}
+        {owed > 0 ? (
+          <>
+            <button type="button" className="btn-primary btn-accent submit-btn" onClick={onPay} disabled={busy}>
+              {busy ? appText("Готовим оплату…", "Түләү әҙерләйбеҙ…") : appText("Оплатить комиссию", "Комиссияны түләү")}
+            </button>
+            <p className="dl-hint">
+              {appText(
+                "Переведи сумму по СБП на реквизиты Юлдаша — админ подтвердит оплату вручную.",
+                "Сумманы СБП аша Юлдаш реквизиттарына күсер — админ түләүҙе ҡулдан раҫлар."
+              )}
+            </p>
+          </>
+        ) : (
+          <p className="dl-hint is-green">
+            {appText("Долгов нет — спасибо, что возишь по-честному.", "Бурыс юҡ — намыҫлы илткәнең өсөн рәхмәт.")}
+          </p>
+        )}
+      </div>
+
+      {(me.application || me.profile) && (
+        <div className="cab-facts">
+          <span>
+            {appText("Транспорт: ", "Транспорт: ")}
+            {me.application?.transport === "car"
+              ? appText("Легковой", "Еңел машина")
+              : me.application?.transport === "cargo"
+                ? appText("Грузовой", "Йөк машинаһы")
+                : me.application?.transport ?? "—"}
+          </span>
+          <strong className={me.profile?.online ? "is-green" : ""}>
+            {appText("Статус: ", "Статус: ")}
+            {me.profile?.online ? appText("на линии", "линияла") : appText("не на линии", "линияла түгел")}
+          </strong>
+          {me.application?.reviewed_at && (
+            <small>{appText("Курьер с", "Курьер")} {formatWhen(me.application.reviewed_at, true)}</small>
+          )}
+        </div>
+      )}
+
+      <button type="button" className="btn-soft" onClick={onReload}>
+        {appText("Обновить", "Яңыртыу")}
+      </button>
     </div>
   );
 }

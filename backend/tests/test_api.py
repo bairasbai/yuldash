@@ -142,11 +142,12 @@ def test_push_register_idempotent_and_reassign(client, user_factory):
     a = user_factory("PushDupA")
     b = user_factory("PushDupB")
     t = "dup-token-xyz"
+    device = {"X-Device-Id": "shared-idempotent-device"}
     # тот же токен дважды одним юзером — оба 200, без 500 (главный кейс бага)
-    assert client.post("/push/register", headers=a["auth"], json={"token": t}).status_code == 200
-    assert client.post("/push/register", headers=a["auth"], json={"token": t}).status_code == 200
-    # другой юзер шлёт тот же токен — устройство сменило владельца, перепривязка
-    assert client.post("/push/register", headers=b["auth"], json={"token": t}).status_code == 200
+    assert client.post("/push/register", headers={**a["auth"], **device}, json={"token": t}).status_code == 200
+    assert client.post("/push/register", headers={**a["auth"], **device}, json={"token": t}).status_code == 200
+    # Другой аккаунт на том же устройстве: совпадающий ID разрешает перепривязку.
+    assert client.post("/push/register", headers={**b["auth"], **device}, json={"token": t}).status_code == 200
     # ровно одна строка на токен, владелец — последний (B); дубля нет
     with Session(engine) as s:
         rows = s.exec(select(DeviceToken).where(DeviceToken.token == t)).all()

@@ -1,9 +1,9 @@
 // ================================================================
 //  Локальные флаги первого запуска и предпочтений (localStorage).
-//  Не персональные данные — только UX-состояние приложения на устройстве.
-//  Согласия 152-ФЗ здесь тоже локальные: у бэкенда пока нет эндпоинта согласий,
-//  поэтому отметку храним на устройстве (честно, без выдуманного API).
+//  Согласия — зеркало серверных записей только для текущей сессии.
+//  Старые отметки без владельца восстанавливаются через сервер, не наследуются.
 // ================================================================
+import { getSessionGeneration } from "./api/client";
 
 export type Role = "passenger" | "driver";
 export type ConsentKind = "offer" | "privacy" | "geo";
@@ -41,7 +41,8 @@ export const flags = {
   consents(): Consents {
     try {
       const raw = localStorage.getItem(K.consents);
-      const o = raw ? (JSON.parse(raw) as Partial<Consents>) : {};
+      const o = raw ? (JSON.parse(raw) as Partial<Consents> & { session?: string }) : {};
+      if (o.session !== getSessionGeneration()) return { offer: false, privacy: false, geo: false };
       return { offer: !!o.offer, privacy: !!o.privacy, geo: !!o.geo };
     } catch {
       return { offer: false, privacy: false, geo: false };
@@ -49,7 +50,7 @@ export const flags = {
   },
   setConsent(kind: ConsentKind, value: boolean): Consents {
     const next = { ...this.consents(), [kind]: value };
-    localStorage.setItem(K.consents, JSON.stringify(next));
+    localStorage.setItem(K.consents, JSON.stringify({ ...next, session: getSessionGeneration() }));
     return next;
   },
 };

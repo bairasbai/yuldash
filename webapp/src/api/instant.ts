@@ -88,6 +88,10 @@ export interface InstantOrder {
   cancel_fee_now_kop: number;
   // Пассажир глазами водителя (в оффере и активном заказе).
   passenger_rating: number | null;
+  /** Собственная оценка текущего участника; 0 — ещё не оценивал. */
+  my_stars?: number;
+  /** Сервер проверяет статус, срок оценки и ограничения аккаунта. */
+  can_rate?: boolean;
   passenger_trips: number;
   // Раскрывается только после accept:
   driver_name: string;
@@ -157,6 +161,18 @@ export interface InstantOrder {
    * в приложении, и звонить надо по телефону из карточки, а не заказчику.
    */
   for_other?: boolean;
+  /** Кому везём (только водителю после accept): нужен разбору и оценке. */
+  passenger_id?: number | null;
+  /** Как найти: подъезд и комментарий пассажира — водителю до подачи. */
+  entrance?: string;
+  comment?: string;
+  /** Оффер: дорога до пассажира (км) и минуты подачи — по ним водитель решает «брать?». */
+  offer_pickup_km?: number | null;
+  offer_pickup_eta_min?: number | null;
+  /** Деньги водителя копейками: с пассажира / комиссия / чистыми. Старый сервер не шлёт. */
+  driver_gross_kop?: number;
+  driver_fee_kop?: number;
+  driver_net_kop?: number;
 }
 
 /** Остановка по пути (waypoints_json на сервере). Координаты, а не название: по ним считают цену. */
@@ -394,9 +410,10 @@ export function cancelInstantOrder(id: number, reason = ""): Promise<InstantOrde
 /** POST /instant/orders/{id}/rate — оценить вторую сторону завершённого заказа (1..5). */
 export function rateInstantOrder(
   id: number,
-  stars: number
+  stars: number,
+  tags = ""
 ): Promise<{ ratee_id: number; rating: number; count: number }> {
-  return apiPost(`/instant/orders/${id}/rate`, { stars });
+  return apiPost(`/instant/orders/${id}/rate`, { stars, tags });
 }
 
 // ------------------------------- Водитель -------------------------------
@@ -492,6 +509,8 @@ export interface TaxiApplication {
   osago_until: string | null;
   permit_until: string | null;
   inspection_until: string | null;
+  /** ОСГОП — страховка пассажиров, обязательна для такси с 2024 года. Старый сервер поле не шлёт. */
+  osgop_until?: string | null;
   docs_expired: boolean; // хоть один срок вышел → допуск снят
   docs_missing: string[]; // какие сроки ещё не заполнены
   docs_days_left: number | null; // до ближайшего истечения; отрицательное = просрочен
@@ -636,6 +655,10 @@ export interface Workday {
   blocked: boolean; // лимит исчерпан → нужен отдых
   unlock_at: string | null;
   return_ride_used: boolean; // «один попутчик домой» уже использован
+  /** Недельный потолок (скользящее окно): сколько за неделю и когда он закрыл линию. */
+  week_seconds?: number;
+  week_limit_hours?: number;
+  week_blocked?: boolean;
   // --- дашборд за сегодня (debt.driver_dashboard) ---
   earnings_today: number; // ₽
   gross_today_kop: number;
@@ -680,6 +703,12 @@ export interface TaxiReceipt {
   paid: boolean;
   driver_name: string;
   driver_verified: boolean;
+  /** Вторая сторона (для разбора спора) — id и имя, без телефона. */
+  counterparty_id?: number;
+  counterparty_name?: string;
+  /** Своя оценка, если уже ставил: чек открывают через неделю, пустые звёзды выглядели как потеря. */
+  my_stars?: number;
+  my_rating_tags?: string;
   /**
    * Из чего сложилась сумма (2026-08-23). Раньше в чеке была одна цифра, и на вопрос
    * «куда делись деньги» ответить было нечем. Старый сервер полей не шлёт → нули.
@@ -752,6 +781,7 @@ export interface TaxiDocsInput {
   osago_until?: string | null; // YYYY-MM-DD
   permit_until?: string | null;
   inspection_until?: string | null;
+  osgop_until?: string | null;
   osago_url?: string;
   permit_photo_url?: string;
 }

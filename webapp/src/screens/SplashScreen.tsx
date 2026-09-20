@@ -25,13 +25,13 @@ export default function SplashScreen() {
   useEffect(() => {
     if (status === "loading") return;
     if (status === "authed") {
-      navigate("/rides", { replace: true });
+      navigate("/map", { replace: true });
       return;
     }
     // гость
     if (!flags.introSeen()) navigate("/intro", { replace: true });
     else if (!flags.onboarded()) navigate("/onboarding", { replace: true });
-    else navigate("/rides", { replace: true });
+    else navigate("/map", { replace: true });
   }, [status, navigate]);
 
   return (

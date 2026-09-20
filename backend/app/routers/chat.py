@@ -1,12 +1,14 @@
 """Чат по броне: REST (история/отправка), WebSocket (реальное время),
 инбокс диалогов, лента уведомлений. Плюс зеркальные чаты такси-заказа и посылки."""
 import json
+import hashlib
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
+from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
 
 from ..antifraud import moderate_text
@@ -15,7 +17,7 @@ from ..db import engine, get_session
 from ..errors import herr
 from ..flood import TOO_FAST_MESSAGES
 from ..models import (
-    Booking, BookingStatus, InstantOrder, InstantOrderStatus, Message, ParcelDelivery, Ride,
+    Booking, BookingStatus, ChatMessageRequest, InstantOrder, InstantOrderStatus, Message, ParcelDelivery, Ride,
     User, UserRole,
 )
 from ..security import authenticate_ws, current_user
@@ -689,12 +691,36 @@ def list_parcel_messages(parcel_id: int, limit: int = 500, user: User = Depends(
     return [m for m in rows if user.id not in _hidden_ids(m)]
 
 
+def _replay_message(session: Session, booking_id: int, sender_id: int, key: str, digest: str):
+    receipt = session.exec(select(ChatMessageRequest).where(
+        ChatMessageRequest.booking_id == booking_id,
+        ChatMessageRequest.sender_id == sender_id,
+        ChatMessageRequest.request_key == key,
+    )).first()
+    if receipt is None:
+        return None
+    if receipt.payload_hash != digest:
+        raise herr(409, "Этот ключ уже использован для другого сообщения",
+                   "Был асҡыс башҡа хәбәр өсөн ҡулланылған")
+    message = session.get(Message, receipt.message_id)
+    if message is None:
+        raise herr(409, "Сообщение больше недоступно", "Хәбәр бүтән мөмкин түгел")
+    return message
+
+
 @router.post("/bookings/{booking_id}/messages", response_model=Message)
-def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_user), session: Session = Depends(get_session),
+                 idempotency_key: Optional[str] = Header(None, min_length=1, max_length=128)):
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     other_party = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
     if is_blocked(session, user.id, other_party):
         raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
+    digest = hashlib.sha256(json.dumps(body.model_dump(), sort_keys=True, ensure_ascii=False,
+                                       separators=(",", ":")).encode("utf-8")).hexdigest()
+    if idempotency_key is not None:
+        replay = _replay_message(session, booking_id, user.id, idempotency_key, digest)
+        if replay is not None:
+            return replay
     _guard_booking_chat_open(booking, ride)
     _guard_chat_burst(session, user.id, Message.booking_id == booking_id)
     # Пустое сообщение (или одни пробелы) не отправляем: собеседник получал пуш «Новое
@@ -711,7 +737,19 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
     msg = Message(booking_id=booking_id, sender_id=user.id, flag=_flag_for(body, check_contact=False),
                   from_admin=(user.role == UserRole.admin), **body.model_dump())
     session.add(msg)
-    session.commit()
+    try:
+        session.flush()
+        if idempotency_key is not None:
+            session.add(ChatMessageRequest(sender_id=user.id, booking_id=booking_id,
+                request_key=idempotency_key, payload_hash=digest, message_id=msg.id))
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        if idempotency_key is not None:
+            replay = _replay_message(session, booking_id, user.id, idempotency_key, digest)
+            if replay is not None:
+                return replay
+        raise
     session.refresh(msg)
     # Живая доставка собеседнику с открытым чатом (как в WS-хендлере) — иначе голос/фото/текст-фолбэк
     # виден только после переполла истории. Поля совместимы с клиентским ChatSocket (id/sender_id/text/timestamp).

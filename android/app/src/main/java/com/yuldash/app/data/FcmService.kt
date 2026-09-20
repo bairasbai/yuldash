@@ -27,6 +27,11 @@ class FcmService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(msg: RemoteMessage) {
+        // Сессия загружена Application до запуска сервиса. Сообщение могло быть в пути при выходе.
+        if (!ApiClient.isLoggedIn()) return
+        // Токен устройства переживает смену аккаунта; адресат проверяется до показа, включая оффер.
+        val recipient = msg.data["recipient_user_id"]?.toIntOrNull() ?: return
+        if (recipient <= 0 || recipient != ApiClient.myUserId()) return
         // Тумблер «Уведомления» (Настройки) выключен → не показываем пуш (клиентское заглушение).
         if (!AppPrefs.notifications(this)) return
         // Оффер такси (B7a-2): data-only пуш от matcher'а → полноэкранная карточка «Новый заказ 🚕»
@@ -63,7 +68,7 @@ class FcmService : FirebaseMessagingService() {
         val channelId = if (type in CHAT_TYPES) CHANNEL_CHAT else CHANNEL_DEFAULT
         ensureChannels(this)
         // Ход такси-заказа (B9b-2): тап открывает экран заказа пассажира (extra ловит MainActivity).
-        val openInstantOrder = type == "instant_status"
+        val openInstantOrder = type in setOf("instant_status", "instant_payment", "instant_im_coming")
         // Ход посылки: «курьер найден / забрал / в пути / вручил / возврат». Раньше эти пуши
         // приходили без типа — тап вёл просто в приложение, а отправитель узнавал статус, только
         // если сам догадывался переключить вкладку. Теперь тап открывает «Посылки».

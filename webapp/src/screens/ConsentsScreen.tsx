@@ -5,6 +5,8 @@ import { flags, type ConsentKind, type Consents } from "../flags";
 import { fetchMyConsents, grantConsent } from "../api/trust";
 import { IconChevron } from "../components/Icons";
 import { formatWhen } from "../utils/format";
+import { useAuth } from "../auth/AuthProvider";
+import { getSessionGeneration } from "../api/client";
 
 /**
  * Согласия по 152-ФЗ (оферта / политика конфиденциальности / геолокация).
@@ -23,6 +25,12 @@ import { formatWhen } from "../utils/format";
  * поддержку и удаление аккаунта), и делать вид, что это тумблер, — обманывать.
  */
 export default function ConsentsScreen() {
+  useAuth(); // Публичный экран должен обновляться вместе с аккаунтом.
+  const generation = getSessionGeneration();
+  return <ConsentsForm key={generation} generation={generation} />;
+}
+
+function ConsentsForm({ generation }: { generation: string }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
@@ -33,26 +41,26 @@ export default function ConsentsScreen() {
   const [note, setNote] = useState("");
 
   const load = useCallback((signal?: AbortSignal) => {
+    if (generation !== getSessionGeneration()) return;
     fetchMyConsents(signal)
       .then((rows) => {
+        if (signal?.aborted || generation !== getSessionGeneration()) return;
         const map: Record<string, string> = {};
         rows.forEach((c) => {
           map[String(c.kind)] = c.granted_at;
         });
         setGranted(map);
         // Сервер — источник правды: он помнит согласие и после переустановки браузера.
-        setState((prev) => {
-          let next = prev;
-          (Object.keys(map) as ConsentKind[]).forEach((k) => {
-            if (!next[k]) next = flags.setConsent(k, true);
-          });
-          return next;
+        let next = flags.consents();
+        (Object.keys(map) as ConsentKind[]).forEach((k) => {
+          if (!next[k]) next = flags.setConsent(k, true);
         });
+        setState(next);
       })
       .catch(() => {
         /* нет сети / нет ручки — остаёмся на локальной отметке, экран работает */
       });
-  }, []);
+  }, [generation]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -61,25 +69,28 @@ export default function ConsentsScreen() {
   }, [load]);
 
   async function toggle(kind: ConsentKind) {
+    if (generation !== getSessionGeneration()) return;
     if (busy) return;
     // Уже зафиксировано на сервере — снимать нечего: см. пояснение выше.
     if (granted[kind]) return;
     setBusy(kind);
     setNote("");
-    // Локально отмечаем сразу: человек нажал и должен увидеть результат.
-    setState((prev) => flags.setConsent(kind, !prev[kind]));
+    // Согласие считается записанным только после подтверждения сервера.
     try {
       const c = await grantConsent(kind as "offer" | "privacy" | "geo" | "age18");
+      if (generation !== getSessionGeneration()) return;
+      setState(flags.setConsent(kind, true));
       setGranted((prev) => ({ ...prev, [kind]: c.granted_at }));
     } catch {
+      if (generation !== getSessionGeneration()) return;
       setNote(
         appText(
-          "Согласие пока не записалось на сервере — отметим, когда появится сеть.",
-          "Ризалыҡ серверҙа әле яҙылманы — селтәр булғас яҙырбыҙ."
+          "Согласие пока не записалось на сервере. Попробуй ещё раз.",
+          "Ризалыҡ серверҙа әле яҙылманы. Ҡабатлап ҡара."
         )
       );
     } finally {
-      setBusy(null);
+      if (generation === getSessionGeneration()) setBusy(null);
     }
   }
 
@@ -114,7 +125,7 @@ export default function ConsentsScreen() {
     },
   ];
 
-  const allDone = items.every((i) => state[i.kind]);
+  const allDone = items.every((i) => !!granted[i.kind]);
 
   return (
     <>

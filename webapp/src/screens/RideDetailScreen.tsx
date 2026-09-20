@@ -33,7 +33,7 @@ export default function RideDetailScreen() {
     load(controller.signal);
     return () => { controller.abort(); requestVersion.current++; };
   }, [load]);
-  const close = () => navigate("/rides");
+  const close = () => navigate("/map");
   const available = ride && (!ride.status || ride.status === "active") && ride.seats_left > 0;
   return <>
     <ScreenHeader title={appText("Поездка", "Сәфәр")} />

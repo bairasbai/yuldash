@@ -21,7 +21,7 @@ from ..db import get_session
 from ..logs import admin_action
 from ..errors import herr
 from ..antifraud import moderate_open_text
-from ..models import Booking, Incident, InstantOrder, Ride, User, UserRole
+from ..models import Booking, Incident, InstantOrder, ParcelDelivery, Ride, User, UserRole
 from ..safety_logic import (
     INCIDENT_TYPES, SEVERE_TYPES, active_incidents_count, apply_incident_resolution,
     clamp, completed_trips_for, csv_from_urls, ensure_active, guard_own_evidence,
@@ -144,7 +144,6 @@ def _context_route(session: Session, inc: Incident) -> Optional[str]:
     if inc.booking_id:
         return _route_for(session, inc.booking_id)
     if inc.parcel_id:
-        from ..models import ParcelDelivery
         p = session.get(ParcelDelivery, inc.parcel_id)
         return f"📦 {p.from_city}→{p.to_city}" if p else None
     if inc.order_id:
@@ -497,11 +496,22 @@ def withdraw_incident(incident_id: int, user: User = Depends(current_user), sess
 
 # ----------------------------- Фото-доказательства: приватная выдача -----------------------------
 def _can_view_evidence(session: Session, user_id: int, name: str) -> bool:
-    """Файл виден только СТОРОНАМ спора, к которому он приложен (или админу — проверка снаружи).
-    Ищем инцидент, где юзер — участник И имя файла встречается в одном из CSV доказательств."""
+    """Файл виден только СТОРОНАМ записи, к которой он приложен (или админу — проверка снаружи).
+
+    Две записи держат приватные снимки: спор (доказательства заявителя и обвинённого) и посылка
+    (фото «взял целой» / «отдал целой»). Второй случай тут не проверяли — курьер и отправитель
+    получали 403 на СВОИ же снимки, и в обоих клиентах плитка с фото посылки стояла пустой
+    (найдено при переносе экрана посылки в PWA, 13.09.2026). Ищем запись, где юзер — участник
+    И имя файла встречается в одном из полей со ссылками."""
     row = session.exec(select(Incident.id).where(
         or_(Incident.reporter_id == user_id, Incident.respondent_id == user_id),
         or_(Incident.evidence_urls.contains(name), Incident.respondent_evidence_urls.contains(name)),
+    )).first()
+    if row is not None:
+        return True
+    row = session.exec(select(ParcelDelivery.id).where(
+        or_(ParcelDelivery.sender_id == user_id, ParcelDelivery.courier_id == user_id),
+        or_(ParcelDelivery.pickup_photo_url.contains(name), ParcelDelivery.delivery_photo_url.contains(name)),
     )).first()
     return row is not None
 

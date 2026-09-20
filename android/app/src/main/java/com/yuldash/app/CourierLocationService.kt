@@ -38,6 +38,7 @@ import com.yuldash.app.data.InstantLocationSocket
 class CourierLocationService : Service() {
     private var sockets: List<InstantLocationSocket> = emptyList()
     private var currentIds: List<Int> = emptyList()   // каким доставкам сейчас служим (для смены набора)
+    private var socketGeneration = 0L
     private var lm: LocationManager? = null
     private var listener: LocationListener? = null
     private var lastSent = 0L
@@ -90,13 +91,37 @@ class CourierLocationService : Service() {
         if (currentIds != ids) {
             sockets.forEach { it.close() }
             currentIds = ids
-            sockets = ids.map { id -> InstantLocationSocket.forParcel(id, onPeer = { }) }
+            val generation = ++socketGeneration
+            sockets = ids.map { id ->
+                InstantLocationSocket.forParcel(id, onPeer = { }, onTerminated = {
+                    watchdog.post {
+                        if (socketGeneration == generation) removeFinishedParcel(id)
+                    }
+                })
+            }
             sockets.forEach { it.connect() }
         }
         if (listener == null) startLocationUpdates()
         watchdog.removeCallbacks(autoStop)
         watchdog.postDelayed(autoStop, MAX_LIFETIME_MS)
         return START_STICKY
+    }
+
+    private fun removeFinishedParcel(id: Int) {
+        val index = currentIds.indexOf(id)
+        if (index < 0) return
+        sockets[index].close()
+        sockets = sockets.filterIndexed { i, _ -> i != index }
+        currentIds = currentIds.filterIndexed { i, _ -> i != index }
+        if (currentIds.isEmpty()) {
+            stopTracking()
+            stopSelf()
+        } else {
+            // Остальные доставки продолжаются; завершённую нельзя восстановить после смерти процесса.
+            getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_PARCELS, currentIds.joinToString(",")).apply()
+            getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(currentIds.size))
+        }
     }
 
     private fun startLocationUpdates() {
@@ -174,9 +199,12 @@ class CourierLocationService : Service() {
             .build()
     }
 
-    override fun onDestroy() {
+    private fun stopTracking() {
+        socketGeneration++
         watchdog.removeCallbacks(autoStop)
         listener?.let { runCatching { lm?.removeUpdates(it) } }
+        listener = null
+        lm = null
         sockets.forEach { it.close() }
         sockets = emptyList()
         currentIds = emptyList()
@@ -185,6 +213,10 @@ class CourierLocationService : Service() {
         // правильно: доставка тогда ещё шла.
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .remove(KEY_PARCELS).remove(KEY_LANG).apply()
+    }
+
+    override fun onDestroy() {
+        stopTracking()
         super.onDestroy()
     }
 

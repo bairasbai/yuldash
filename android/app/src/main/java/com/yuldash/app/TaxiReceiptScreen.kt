@@ -527,11 +527,11 @@ private fun TaxiReceiptBreakdown(r: InstantReceiptDto) {
         if (r.pickupFeeKop > 0) {
             val km = kotlin.math.round(r.pickupKm).toInt()
             TaxiReceiptLine(
-                appText("Дорога водителя к тебе, ~$km км", "Водителдең һиңә тиклем юлы, ~$km км"),
+                appText("Дорога водителя к тебе, ~$km км", "Йөрөтөүсенең һиңә тиклем юлы, ~$km км"),
                 "+" + kopToRub(r.pickupFeeKop), CanonGreen2,
                 hint = if (r.pickupEnroute)
                     appText("Ему было по пути — вдвое дешевле", "Уға юл ыңғайы ине — ике тапҡыр арзаныраҡ")
-                else appText("Уходит водителю целиком", "Тулыһынса водителгә бара"),
+                else appText("Уходит водителю целиком", "Тулыһынса йөрөтөүсегә бара"),
             )
         }
         if (r.weatherFeeKop > 0) {
@@ -544,14 +544,14 @@ private fun TaxiReceiptBreakdown(r: InstantReceiptDto) {
             }
             TaxiReceiptLine(
                 weather, "+" + kopToRub(r.weatherFeeKop), CanonGreen2,
-                hint = appText("Уходит водителю целиком", "Тулыһынса водителгә бара"),
+                hint = appText("Уходит водителю целиком", "Тулыһынса йөрөтөүсегә бара"),
             )
         }
         if (r.optionsFeeKop > 0) {
             TaxiReceiptLine(
                 appText("Кресло и опции", "Ултырғыс һәм өҫтәмәләр"),
                 "+" + kopToRub(r.optionsFeeKop), CanonGreen2,
-                hint = appText("Уходит водителю целиком", "Тулыһынса водителгә бара"),
+                hint = appText("Уходит водителю целиком", "Тулыһынса йөрөтөүсегә бара"),
             )
         }
         if (r.promoDiscountKop > 0) {

@@ -23,6 +23,7 @@ import java.net.HttpURLConnection
 import java.net.NoRouteToHostException
 import java.net.URL
 import java.net.UnknownHostException
+import java.security.SecureRandom
 
 /**
  * Тонкий клиент к настоящему бэкенду (FastAPI, см. docs/server.md).
@@ -85,6 +86,21 @@ object ApiClient {
     internal var testTrace: ((String) -> Unit)? = null
 
     @Volatile private var token: String? = null
+    // Меняется только на границе входа/выхода. Refresh сохраняет поколение.
+    private val sessionLock = Any()
+    @Volatile private var sessionGeneration = 0L
+    private data class RequestSession(val generation: Long, val bearer: String?)
+    private fun requestSession() = synchronized(sessionLock) { RequestSession(sessionGeneration, token) }
+    internal fun queueSessionGeneration(): Long = sessionGeneration
+    private fun sameSession(generation: Long) = sessionGeneration == generation
+    private class SessionChangedException : IllegalStateException("Session changed")
+    private fun <T> staleSession(): Result<T> = Result.failure(SessionChangedException())
+    private fun expireSession(generation: Long) = synchronized(sessionLock) {
+        if (sameSession(generation)) {
+            logout()
+            sessionExpired.value = true
+        }
+    }
     @Volatile private var refreshToken: String? = null
     @Volatile private var userName: String? = null
     @Volatile private var userRole: String? = null
@@ -142,6 +158,9 @@ object ApiClient {
     }
 
     @Volatile private var prefs: android.content.SharedPreferences? = null
+    @Volatile private var plainAuthPrefs: android.content.SharedPreferences? = null
+    @Volatile private var secureAuthPrefs: android.content.SharedPreferences? = null
+    @Volatile private var authStoreSource: String? = null
     // Каталог кеша приложения — нужен, чтобы убрать записанные голосовые при выходе (волна 75).
     @Volatile private var cacheDir: java.io.File? = null
 
@@ -203,7 +222,7 @@ object ApiClient {
     }
 
     /** Зовём один раз при старте приложения. */
-    fun init(context: Context) {
+    fun init(context: Context) = synchronized(sessionLock) {
         val app = context.applicationContext
         cacheDir = app.cacheDir
         appCtx = app
@@ -215,7 +234,7 @@ object ApiClient {
         }.getOrNull()?.takeIf { it.isNotBlank() }
         // Шифрованное хранилище токена (через Android Keystore). Если на устройстве недоступно —
         // не ломаем вход, мягко падаем на обычные prefs.
-        val secure = runCatching {
+        var secure = runCatching {
             val masterKey = MasterKey.Builder(app)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
@@ -228,15 +247,12 @@ object ApiClient {
             )
         }.getOrNull()
         val plain = app.getSharedPreferences("yuldash", Context.MODE_PRIVATE)
-        // Миграция со старого незашифрованного хранилища (один раз): переносим токен в secure.
-        if (secure != null && plain.contains("token")) {
-            secure.edit()
-                .putString("token", plain.getString("token", null))
-                .putString("refresh_token", plain.getString("refresh_token", null))
-                .putString("user_name", plain.getString("user_name", null))
-                .apply()
-            plain.edit().remove("token").remove("refresh_token").remove("user_name").apply()
-        }
+        // The source marker prevents stale plaintext from replacing a newer
+        // encrypted login, and keeps logout authoritative while Keystore is unavailable.
+        val selected = runCatching { AuthStorePolicy.resolve(plain, secure) }.getOrNull()
+        plainAuthPrefs = plain
+        secureAuthPrefs = secure
+        authStoreSource = selected?.source
         // Keystore недоступен (бывает на «кривых» прошивках) → токены легли бы в ОТКРЫТЫЙ xml,
         // и раньше это происходило совершенно молча. Вход не ломаем (иначе человек не войдёт
         // вообще), но факт делаем видимым: флаг + сигнал в Sentry без единого байта PII.
@@ -249,18 +265,25 @@ object ApiClient {
                 )
             }
         }
-        val p = secure ?: plain
+        val p = selected?.prefs
         prefs = p
-        token = p.getString("token", null)
-        refreshToken = p.getString("refresh_token", null)
-        userName = p.getString("user_name", null)
-        userRole = p.getString("user_role", null)
+        sessionGeneration++
+        respCache.clear()
+        cachedUserId = null
+        cachedUserIdForToken = null
+        token = p?.getString("token", null)
+        refreshToken = p?.getString("refresh_token", null)
+        userName = p?.getString("user_name", null)
+        userRole = p?.getString("user_role", null)
         // Прогрев кеша статики из prefs → цены пакетов/буста видны мгновенно на холодном старте (сеть освежит по TTL).
         seedStatic("ad-packages", ::parseAdPackages)
         seedStatic("boost-plans", ::parseBoostPlans)
         // F11: локальные хранилища офлайн-паспорта поездки и очереди исходящих действий.
         TripPassStore.init(app)
         Outbox.init(app)
+        // Startup can invalidate auth without going through logout (corruption,
+        // interrupted login/logout). Do not hand the previous user's offline data to a guest.
+        if (token.isNullOrBlank()) clearAssociatedPersonalData()
     }
 
     fun isLoggedIn(): Boolean = !token.isNullOrBlank()
@@ -333,16 +356,32 @@ object ApiClient {
     private const val TTL_SLOW = 5 * 60_000L      // popular-routes, my-routes (обновляются медленно)
     private const val TTL_FEED = 3 * 60_000L      // feed (счётчики дня)
     private const val TTL_PERSONAL = 90_000L      // me, referral, contacts (+ инвалидация на мутациях)
-    private class CacheEntry(val ts: Long, val value: Any?)
+    private class CacheEntry(val ts: Long, val value: Any?, val generation: Long = sessionGeneration)
     private val respCache = java.util.concurrent.ConcurrentHashMap<String, CacheEntry>()
     private fun invalidate(vararg keys: String) { keys.forEach { respCache.remove(it) } }
 
     @Suppress("UNCHECKED_CAST")
-    private suspend fun <T : Any> cachedGet(key: String, ttlMs: Long, fetch: suspend () -> Result<T>): Result<T> {
-        respCache[key]?.let { c ->
-            if (System.currentTimeMillis() - c.ts < ttlMs && c.value != null) return Result.success(c.value as T)
+    private suspend fun <T : Any> cachedGet(
+        key: String,
+        ttlMs: Long,
+        onValue: (T) -> Unit = {},
+        fetch: suspend () -> Result<T>,
+    ): Result<T> {
+        val generation = synchronized(sessionLock) {
+            respCache[key]?.let { c ->
+                if (c.generation == sessionGeneration && System.currentTimeMillis() - c.ts < ttlMs && c.value != null)
+                    return Result.success(c.value as T)
+            }
+            sessionGeneration
         }
-        return fetch().onSuccess { respCache[key] = CacheEntry(System.currentTimeMillis(), it) }
+        val result = fetch()
+        return synchronized(sessionLock) {
+            if (!sameSession(generation)) staleSession()
+            else result.onSuccess {
+                respCache[key] = CacheEntry(System.currentTimeMillis(), it, generation)
+                onValue(it)
+            }
+        }
     }
 
     // Персист публичной статики (цены пакетов/буста) в prefs → на холодном старте цены видны
@@ -370,17 +409,24 @@ object ApiClient {
         prefs?.edit()?.putString("user_name", n)?.apply()
     }
 
-    fun saveToken(t: String) {
+    fun saveToken(t: String) = synchronized(sessionLock) {
+        check(persistNewSession { editor ->
+            editor.putString("token", t).remove("refresh_token")
+                .remove("refresh_rotation_id").remove("refresh_rotation_token")
+                .remove("user_name").remove("user_role")
+        }) { "Session storage unavailable" }
+        sessionGeneration++
+        respCache.clear()
+        cachedUserId = null
+        cachedUserIdForToken = null
         token = t
-        prefs?.edit()?.putString("token", t)?.apply()
+        refreshToken = null
+        userName = null
+        userRole = null
+        sessionExpired.value = false
     }
 
-    private fun saveRefresh(t: String) {
-        refreshToken = t
-        prefs?.edit()?.putString("refresh_token", t)?.apply()
-    }
-
-    fun logout() {
+    fun logout() = synchronized(sessionLock) {
         // Серверный выход: помечаем токен недействительным на сервере (logout со всех устройств,
         // ревокация при потере телефона). Токен захватываем в local val — иначе гонка с очисткой ниже.
         val t = token
@@ -417,7 +463,9 @@ object ApiClient {
     }
 
     /** Локальная очистка сессии (токены, имя, кеши). Реюз: logout + deleteAccount. */
-    private fun clearLocalSession() {
+    private fun clearLocalSession() = synchronized(sessionLock) {
+        plainAuthPrefs?.let { AuthStorePolicy.logout(it, secureAuthPrefs, prefs) }
+        sessionGeneration++
         token = null
         refreshToken = null
         userName = null
@@ -435,6 +483,11 @@ object ApiClient {
         prefs?.edit()?.apply {
             SessionKeys.CLEARED_ON_LOGOUT.forEach { remove(it) }
         }?.apply()
+        clearAssociatedPersonalData()
+    }
+
+    /** Also used after a startup auth reset, once both offline stores have been initialized. */
+    private fun clearAssociatedPersonalData() {
         // Ящиков настроек на диске несколько, и раньше выход ходил только в тот, где лежит токен
         // (волна 109). В остальных оставались «я вожу», номер брони и номера посылок — а по двум
         // последним фоновый сервис умеет ВОСКРЕСНУТЬ и снова начать слать GPS уже под новым
@@ -446,6 +499,8 @@ object ApiClient {
                     .apply { keys.forEach { remove(it) } }
                     .apply()
             }
+            // Шторка тоже содержит данные прежнего аккаунта; каналы и их настройки сохраняем.
+            runCatching { ctx.getSystemService(android.app.NotificationManager::class.java)?.cancelAll() }
         }
         TripPassStore.clearAll()
         Outbox.clearAll()
@@ -477,8 +532,14 @@ object ApiClient {
 
     /** Необратимое удаление аккаунта и всех данных на сервере (POST /me/delete).
      *  При успехе локально очищаем сессию — как при выходе. Ошибку прокидываем наверх. */
-    suspend fun deleteAccount(): Result<Unit> =
-        call("POST", "/me/delete", JSONObject(), auth = true).onSuccess { clearLocalSession() }.map { }
+    suspend fun deleteAccount(): Result<Unit> {
+        val generation = requestSession().generation
+        val result = call("POST", "/me/delete", JSONObject(), auth = true, expectedGeneration = generation)
+        return synchronized(sessionLock) {
+            if (!sameSession(generation)) staleSession()
+            else result.onSuccess { clearLocalSession() }.map { }
+        }
+    }
 
     /** Выписка «что Юлдаш обо мне знает»: живые счётчики и сроки автоудаления.
      *  Сроки приходят с сервера — те же, по которым реально чистится база. */
@@ -548,27 +609,25 @@ object ApiClient {
         call("POST", "/auth/request-code", JSONObject().put("phone", phone), auth = false).map { }
 
     /** Проверить код. При успехе сохраняем токен и возвращаем JSON юзера. */
-    suspend fun verifyCode(phone: String, code: String, name: String): Result<JSONObject> =
-        call(
-            "POST", "/auth/verify",
+    suspend fun verifyCode(phone: String, code: String, name: String): Result<JSONObject> {
+        val generation = requestSession().generation
+        val result = call("POST", "/auth/verify",
             JSONObject().put("phone", phone).put("code", code).put("name", name),
-            auth = false,
-        ).onSuccess { obj ->
-            obj.optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
-            obj.optString("refresh_token").takeIf { it.isNotBlank() }?.let { saveRefresh(it) }
-            // V12: чистим сессионные кеши на ЛОГИНЕ (не только на логауте) — иначе me/contacts/referral
-            // могут до TTL отдать данные прошлого аккаунта, если logout не отработал (edge: 401 при пустом refresh).
-            respCache.clear(); cachedUserId = null; cachedUserIdForToken = null
-            // Имя сервер кладёт в user.name (не в корень) — читаем оттуда, иначе фолбэк на введённое.
-            val serverName = obj.optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() }
-            saveName(serverName ?: name)
-            registerCurrentPushToken()   // SMS-вход тоже регистрирует устройство для push (иначе пуши не идут до перезапуска)
+            auth = false, expectedGeneration = generation)
+        return result.fold({ commitAuth(it, generation, name) }, { Result.failure(it) }).onSuccess {
+            registerCurrentPushToken()
             Analytics.log("login", mapOf("method" to "sms"))
         }
-
+    }
     /** Редактирование профиля: имя для показа. При успехе обновляем кеш имени. */
-    suspend fun updateName(name: String): Result<Unit> =
-        call("POST", "/me/update", JSONObject().put("name", name), auth = true).onSuccess { saveName(name); invalidate("me") }.map { }
+    suspend fun updateName(name: String): Result<Unit> {
+        val generation = requestSession().generation
+        val result = call("POST", "/me/update", JSONObject().put("name", name), auth = true, expectedGeneration = generation)
+        return synchronized(sessionLock) {
+            if (!sameSession(generation)) staleSession()
+            else result.onSuccess { saveName(name); invalidate("me") }.map { }
+        }
+    }
 
     /** Сохранить аватар (публичный URL из uploadChatPhoto). */
     suspend fun updateAvatar(url: String): Result<Unit> =
@@ -607,13 +666,38 @@ object ApiClient {
     // ---------- OAuth: Telegram / VK / WhatsApp ----------
     // Возврат из соцсети DeepLink'ом → сюда. При успехе сохраняем токен+имя (как SMS-вход).
 
-    private fun JSONObject.applyAuth(): JSONObject = apply {
-        optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
-        optString("refresh_token").takeIf { it.isNotBlank() }?.let { saveRefresh(it) }
-        optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() }?.let(::saveName)
-        registerCurrentPushToken()   // после входа — зарегистрировать устройство для push
+    private fun commitAuth(obj: JSONObject, generation: Long, fallbackName: String? = null): Result<JSONObject> =
+        synchronized(sessionLock) {
+            if (!sameSession(generation)) return@synchronized staleSession()
+            val access = obj.optString("access_token").takeIf { it.isNotBlank() }
+                ?: return@synchronized Result.failure(IllegalStateException("Missing access token"))
+            val refresh = obj.optString("refresh_token").takeIf { it.isNotBlank() }
+            val name = obj.optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() } ?: fallbackName
+            val role = obj.optJSONObject("user")?.optString("role")?.takeIf { it.isNotBlank() }
+            if (!persistNewSession { editor ->
+                editor.putString("token", access).putString("refresh_token", refresh)
+                    .remove("refresh_rotation_id").remove("refresh_rotation_token")
+                    .putString("user_name", name).putString("user_role", role)
+            }) return@synchronized Result.failure(IOException("Session was not persisted"))
+            sessionGeneration++
+            respCache.clear()
+            cachedUserId = null
+            cachedUserIdForToken = null
+            token = access
+            refreshToken = refresh
+            sessionExpired.value = false
+            userName = name
+            userRole = role
+            Result.success(obj)
+        }
+    private fun persistNewSession(write: (android.content.SharedPreferences.Editor) -> Unit): Boolean {
+        val selected = prefs ?: return appCtx == null // Calls without init exist only in isolated unit tests.
+        val plain = plainAuthPrefs ?: return false
+        val source = authStoreSource ?: return false
+        // A nonempty new token skips the guest-startup cleanup; finish the old reset first.
+        if (!TripPassStore.ensureResetCommitted() || !Outbox.ensureResetCommitted()) return false
+        return AuthStorePolicy.writeSession(plain, AuthStorePolicy.Selection(selected, source), write)
     }
-
     /** Старт входа через Telegram. Возвращает request_id — app по нему строит ссылку t.me/<bot>?start=request_id. */
     suspend fun tgStart(): Result<String> =
         call("POST", "/auth/tg/start", JSONObject(), auth = false)
@@ -621,24 +705,26 @@ object ApiClient {
             .onSuccess { Analytics.log("login_start", mapOf("method" to "telegram")) }   // старт входа → видно отвал «начал, но не дошёл до кода»
 
     /** Проверка 6-значного кода, который бот прислал в Telegram. При успехе — токен+имя. */
-    suspend fun tgVerify(requestId: String, code: String): Result<JSONObject> =
-        call(
-            "POST", "/auth/tg/verify",
+    suspend fun tgVerify(requestId: String, code: String): Result<JSONObject> {
+        val generation = requestSession().generation
+        val result = call("POST", "/auth/tg/verify",
             JSONObject().put("request_id", requestId).put("code", code),
-            auth = false,
-        ).onSuccess { it.applyAuth(); Analytics.log("login", mapOf("method" to "telegram")) }
-
+            auth = false, expectedGeneration = generation)
+        return result.fold({ commitAuth(it, generation) }, { Result.failure(it) }).onSuccess {
+            registerCurrentPushToken()
+            Analytics.log("login", mapOf("method" to "telegram"))
+        }
+    }
     /** Минимальная поддерживаемая версия приложения (force-update, B9b-1). Без авторизации.
      *  min_version_code=0 → проверка выключена. Ошибка/офлайн → вызывающий НЕ блокирует. */
     suspend fun minAppVersion(): Result<JSONObject> = call("GET", "/version/min", null, auth = false)
 
     /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
-    suspend fun me(): Result<JSONObject> = cachedGet("me", TTL_PERSONAL) {
+    suspend fun me(): Result<JSONObject> = cachedGet("me", TTL_PERSONAL, onValue = { o: JSONObject ->
+        o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName)
+        o.optString("role").takeIf { it.isNotBlank() }?.let(::saveRole)
+    }) {
         call("GET", "/me", null, auth = true)
-            .onSuccess { o ->
-                o.optString("name").takeIf { it.isNotBlank() }?.let(::saveName)
-                o.optString("role").takeIf { it.isNotBlank() }?.let(::saveRole)
-            }
     }
 
     // ---------- Поездки ----------
@@ -1411,8 +1497,23 @@ object ApiClient {
             }
         }
 
-    suspend fun sendMessage(bookingId: Int, text: String): Result<Unit> =
-        call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true).map { }
+    suspend fun sendMessage(bookingId: Int, text: String, requestKey: String? = null): Result<Unit> =
+        call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true,
+            idempotencyKey = requestKey).map { }
+
+    /** Bind queued work before it can suspend or switch to a new account. */
+    internal suspend fun sendQueuedAction(action: OutboxAction, generation: Long): Result<Unit> {
+        return when (action.kind) {
+            "message" -> call("POST", "/bookings/${action.bookingId}/messages",
+                JSONObject().put("text", action.payload), auth = true, expectedGeneration = generation,
+                idempotencyKey = Outbox.messageRequestKey(action)).map { }
+            "trip_status" -> call("POST", "/bookings/${action.bookingId}/trip-status",
+                JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation).map { }
+            "driver_status" -> call("POST", "/bookings/${action.bookingId}/driver-status",
+                JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation).map { }
+            else -> Result.success(Unit)
+        }
+    }
 
     suspend fun editMessage(bookingId: Int, messageId: Int, text: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages/$messageId/edit", JSONObject().put("text", text), auth = true).map { }
@@ -2419,6 +2520,7 @@ object ApiClient {
             instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
                 roundTrip, returnWaitMin, stops, scheduledAtIso), auth = true).map { o ->
             val note = o.optJSONObject("surge_note")
+            val nightNote = o.optJSONObject("night_note")   // null, когда сейчас день/ночной тариф не настроен
             val promoNote = o.optJSONObject("promo_note")   // null, когда скидки нет
             val pickupNote = o.optJSONObject("pickup_note") // null, когда подача ничего не стоит
             val waitHint = o.optJSONObject("pickup_wait_hint") // null, когда ждать нечего
@@ -2436,6 +2538,10 @@ object ApiClient {
                 surgeK = o.optDouble("surge_k", 1.0),
                 surgeNoteRu = note?.optString("ru") ?: "",
                 surgeNoteBa = note?.optString("ba") ?: "",
+                night = o.optBoolean("night", false),
+                nightK = o.optDouble("night_k", 1.0),
+                nightNoteRu = nightNote?.optString("ru") ?: "",
+                nightNoteBa = nightNote?.optString("ba") ?: "",
                 options = (0 until optArr.length()).map { i ->
                     val c = optArr.getJSONObject(i)
                     InstantClassOption(
@@ -3305,9 +3411,15 @@ object ApiClient {
         auth: Boolean,
         isRetry: Boolean = false,        // повтор после обновления access-токена (чтобы не зациклиться)
         retryOnNetwork: Boolean = true,  // M5: повторять транзитные обрывы связи с backoff (по умолчанию вкл.)
-    ): Result<JSONObject> = withContext(Dispatchers.IO) {
+        expectedGeneration: Long? = null,
+        idempotencyKey: String? = null,
+    ): Result<JSONObject> {
+        val snapshot = requestSession()
+        val generation = expectedGeneration ?: snapshot.generation
+        val sessionBound = auth || expectedGeneration != null
+        return withContext(Dispatchers.IO) {
         testTrace?.invoke("вошли в вызов $method $path")
-        val usedToken = if (auth) token else null
+        val usedToken = if (auth) snapshot.bearer else null
         // M5: паузы backoff между попытками ТОЛЬКО при сетевом обрыве ДО получения ответа.
         // Ответ с HTTP-кодом (4xx/5xx) — это ApiException и НЕ повторяется, отмена корутины
         // пробрасывается.
@@ -3329,6 +3441,7 @@ object ApiClient {
         val backoff = if (retryOnNetwork && testTimeoutMs == null) longArrayOf(400L, 900L) else LongArray(0)
         var attempt = 0
         while (true) {
+            if (sessionBound && !sameSession(generation)) return@withContext staleSession()
             var conn: HttpURLConnection? = null
             try {
                 conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
@@ -3336,6 +3449,7 @@ object ApiClient {
                     connectTimeout = connectMs
                     readTimeout = readMs
                     setRequestProperty("Accept", "application/json")
+                    idempotencyKey?.let { setRequestProperty("Idempotency-Key", it) }
                     deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
                     if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
                     if (body != null) {
@@ -3350,6 +3464,7 @@ object ApiClient {
                 serverUnreachable.value = false
                 val stream = if (code in 200..299) conn.inputStream else conn.errorStream
                 val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                if (sessionBound && !sameSession(generation)) return@withContext staleSession()
                 return@withContext if (code in 200..299) {
                     val obj = when {
                         text.isBlank() -> JSONObject()
@@ -3361,12 +3476,10 @@ object ApiClient {
                 } else if (code == 401 && auth && !isRetry && !refreshToken.isNullOrBlank()) {
                     // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
                     conn.disconnect(); conn = null
-                    if (tryRefresh(usedToken)) call(method, path, body, auth, isRetry = true)
-                    else {
-                        logout()   // refresh мёртв → чистим локальную сессию, иначе isLoggedIn() врёт true и юзер «залипает» с 401 на каждом запросе
-                        sessionExpired.value = true   // сигнал UI: показать «войди снова» и уйти на Login (не молчать пустыми экранами)
-                        Result.failure(ApiException(401, genericByStatus(401, langBa)))
-                    }
+                    val refreshed = tryRefresh(usedToken, generation)
+                    if (refreshed.isSuccess) call(method, path, body, auth, isRetry = true, expectedGeneration = generation,
+                        idempotencyKey = idempotencyKey)
+                    else Result.failure(refreshed.exceptionOrNull()!!)
                 } else if (code == 401 && auth) {
                     // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,
                     // не сохранился, вычищен) либо повтор после обновления снова дал 401.
@@ -3382,8 +3495,7 @@ object ApiClient {
                     //
                     // Условие «есть refresh-токен» описывало ЧАСТЫЙ случай, а не ВСЕ. Мёртвая
                     // сессия — это всегда конец сессии, независимо от того, чем её пытались лечить.
-                    logout()
-                    sessionExpired.value = true
+                    expireSession(generation)
                     Result.failure(ApiException(401, genericByStatus(401, langBa)))
                 } else {
                     Result.failure(ApiException(code, errorMessage(code, text), detailCode(text)))
@@ -3413,6 +3525,7 @@ object ApiClient {
         @Suppress("UNREACHABLE_CODE")
         Result.failure(IllegalStateException("call() loop exited unexpectedly"))
     }
+    }
 
     /** Загрузка файла через multipart/form-data (поле `file` + `ext`). В отличие от base64-JSON
      *  не держит весь файл удвоенным в памяти как строку. Сервер принимает и multipart, и base64
@@ -3423,8 +3536,13 @@ object ApiClient {
         ext: String,
         filename: String,
         isRetry: Boolean = false,
-    ): Result<JSONObject> = withContext(Dispatchers.IO) {
-        val usedToken = token
+        expectedGeneration: Long? = null,
+    ): Result<JSONObject> {
+        val snapshot = requestSession()
+        val generation = expectedGeneration ?: snapshot.generation
+        return withContext(Dispatchers.IO) {
+        if (!sameSession(generation)) return@withContext staleSession()
+        val usedToken = snapshot.bearer
         var conn: HttpURLConnection? = null
         try {
             val boundary = "----yuldash${System.nanoTime().toString(16)}"
@@ -3452,12 +3570,19 @@ object ApiClient {
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (!sameSession(generation)) return@withContext staleSession()
             if (code in 200..299) {
                 Result.success(if (text.isBlank()) JSONObject() else JSONObject(text))
             } else if (code == 401 && !isRetry && !refreshToken.isNullOrBlank()) {
                 conn.disconnect(); conn = null
-                if (tryRefresh(usedToken)) callMultipart(path, fileBytes, ext, filename, isRetry = true)
-                else Result.failure(ApiException(401, genericByStatus(401, langBa)))
+                val refreshed = tryRefresh(usedToken, generation)
+                if (refreshed.isSuccess) callMultipart(path, fileBytes, ext, filename, isRetry = true, expectedGeneration = generation)
+                else Result.failure(refreshed.exceptionOrNull()!!)
+            } else if (code == 401) {
+                // Как у обычного запроса: без refresh или после неудачного повтора
+                // сервер уже окончательно отверг сессию.
+                expireSession(generation)
+                Result.failure(ApiException(401, genericByStatus(401, langBa)))
             } else {
                 Result.failure(ApiException(code, errorMessage(code, text)))
             }
@@ -3467,18 +3592,59 @@ object ApiClient {
             conn?.disconnect()
         }
     }
+    }
 
     /** Обновить пару токенов по refresh. Mutex: при пачке 401 рефреш идёт один раз.
      *  `staleToken` — access, с которым словили 401; если он уже сменился — другой поток обновил. */
-    private suspend fun tryRefresh(staleToken: String?): Boolean = refreshMutex.withLock {
-        if (token != null && token != staleToken) return@withLock true   // уже обновил другой запрос
-        val rt = refreshToken ?: return@withLock false
-        call("POST", "/auth/refresh", JSONObject().put("refresh_token", rt), auth = false, isRetry = true)
-            .map { obj ->
-                obj.optString("access_token").takeIf { it.isNotBlank() }?.let { saveToken(it) }
-                obj.optString("refresh_token").takeIf { it.isNotBlank() }?.let { saveRefresh(it) }
+    private suspend fun tryRefresh(staleToken: String?, generation: Long): Result<Unit> = refreshMutex.withLock {
+        val intent = synchronized(sessionLock) {
+            if (!sameSession(generation)) return@withLock staleSession()
+            if (token != null && token != staleToken) return@withLock Result.success(Unit)
+            val rt = refreshToken ?: return@withLock Result.failure(ApiException(401, genericByStatus(401, langBa)))
+            val p = prefs ?: return@withLock Result.failure(IOException("Refresh storage unavailable"))
+            val id = runCatching {
+                val saved = p.getString("refresh_rotation_id", null)
+                if (p.getString("refresh_rotation_token", null) == rt && saved?.matches(Regex("[0-9a-f]{64}")) == true) saved
+                else ByteArray(32).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it.toInt() and 255) }
+            }.getOrElse { return@withLock Result.failure(IOException("Refresh intent unavailable", it)) }
+            // commit обязателен даже для существующего intent: предыдущая запись могла
+            // изменить только RAM-кеш SharedPreferences, но не пережить остановку процесса.
+            val saved = runCatching { p.edit().putString("refresh_rotation_id", id)
+                .putString("refresh_rotation_token", rt).commit() }.getOrDefault(false)
+            if (!saved) return@withLock Result.failure(IOException("Refresh intent was not persisted"))
+            rt to id
+        }
+        val (rt, rotationId) = intent
+        val result = call("POST", "/auth/refresh", JSONObject().put("refresh_token", rt).put("rotation_id", rotationId),
+            auth = false, isRetry = true, expectedGeneration = generation)
+        synchronized(sessionLock) {
+            if (!sameSession(generation)) return@withLock staleSession()
+            result.exceptionOrNull()?.let { failure ->
+                // Только явный отказ в продлении завершает вход. Сеть/5xx не означают,
+                // что ключ отозван. Возвращаем ошибку, не бросаем её во внешний GET retry.
+                if (failure is ApiException && failure.status in listOf(401, 403)) expireSession(generation)
+                return@withLock Result.failure(failure)
             }
-            .isSuccess
+            val obj = result.getOrThrow()
+            val access = (obj.opt("access_token") as? String)?.takeIf { it.isNotBlank() }
+            val refresh = (obj.opt("refresh_token") as? String)?.takeIf { it.isNotBlank() }
+            if (access == null || refresh == null) {
+                return@withLock Result.failure(ApiException(502, genericByStatus(502, langBa)))
+            }
+            // Атомарное обновление пары внутри той же сессии — не новый вход.
+            val persisted = runCatching { prefs?.edit()?.putString("token", access)?.putString("refresh_token", refresh)
+                ?.remove("refresh_rotation_id")?.remove("refresh_rotation_token")?.commit() == true }.getOrDefault(false)
+            if (!persisted) {
+                // commit(false) тоже меняет RAM prefs. Вернуть старую пару и intent,
+                // чтобы повтор/init не приняли непроверенную запись за успешную.
+                runCatching { prefs?.edit()?.putString("token", token)?.putString("refresh_token", rt)
+                    ?.putString("refresh_rotation_id", rotationId)?.putString("refresh_rotation_token", rt)?.commit() }
+                return@withLock Result.failure(IOException("Refreshed session was not persisted"))
+            }
+            token = access
+            refreshToken = refresh
+            Result.success(Unit)
+        }
     }
 
     // ═══════════ M1: Купонный маркетплейс «Скидки по пути» + кабинет партнёра ═══════════
@@ -5202,6 +5368,12 @@ data class InstantEstimateDto(
     val surgeK: Double = 1.0,
     val surgeNoteRu: String = "",
     val surgeNoteBa: String = "",
+    // Ночной тариф (§ instant_service.night_note) — сервер считает и отдаёт RU/BA-объяснение
+    // уже сегодня, но до 2026-09-18 клиент его не читал: наценка была, а почему — не видно.
+    val night: Boolean = false,
+    val nightK: Double = 1.0,
+    val nightNoteRu: String = "",
+    val nightNoteBa: String = "",
     val options: List<InstantClassOption> = emptyList(),
     // Динамический тариф v2. Defaults сохраняют совместимость со старым сервером.
     val basePrice: Int = 0,

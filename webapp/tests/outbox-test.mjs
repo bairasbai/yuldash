@@ -1,3 +1,5 @@
+import { IDBFactory } from 'fake-indexeddb';
+globalThis.indexedDB = new IDBFactory();
 // Проверка очереди исходящих на настоящем модуле (собранном esbuild-ом).
 // Подделываем только браузер: localStorage, window, fetch.
 
@@ -44,9 +46,9 @@ const check = (ok, label, extra = "") => {
 };
 
 // --- 1. Сети нет: действия копятся ---
-ob.enqueue(7, "message", "жду у поворота");
-ob.enqueue(7, "driver_status", "departed");
-ob.enqueue(7, "message", "подъезжаю");
+await ob.enqueue(7, "message", "жду у поворота");
+await ob.enqueue(7, "driver_status", "departed");
+await ob.enqueue(7, "message", "подъезжаю");
 check(ob.outboxCount(7) === 3, "три действия легли в очередь", `count=${ob.outboxCount(7)}`);
 check(ob.hasPending(), "очередь непустая");
 
@@ -71,15 +73,15 @@ check(sent[1].url.includes("/driver-status"), "статус ушёл на сво
 // --- 4. Сервер отказал: очередь не застревает навсегда ---
 sent.length = 0;
 mode = "reject";
-ob.enqueue(7, "message", "поздно, бронь закрыта");
-ob.enqueue(7, "message", "второе");
+await ob.enqueue(7, "message", "поздно, бронь закрыта");
+await ob.enqueue(7, "message", "второе");
 changed = await ob.flushOutbox();
 check(ob.outboxCount(7) === 0, "отказ сервера снимает действие, очередь не отравлена", `count=${ob.outboxCount(7)}`);
 
 // --- 5. Событие «сеть вернулась» разгружает само ---
 sent.length = 0;
 mode = "down";
-ob.enqueue(9, "message", "еду");
+await ob.enqueue(9, "message", "еду");
 let flushedCalls = 0;
 const stop = ob.watchOutbox(() => flushedCalls++);
 await new Promise((r) => setImmediate(r));
@@ -93,8 +95,8 @@ stop();
 
 // --- 6. Выход из аккаунта чистит чужое ---
 mode = "down";
-ob.enqueue(11, "message", "чужое сообщение");
-ob.clearOutbox();
+await ob.enqueue(11, "message", "чужое сообщение");
+await ob.clearOutbox();
 check(!ob.hasPending() && ob.outboxCount(11) === 0, "выход из аккаунта очистил очередь");
 
 // --- 7. Повреждённое хранилище не роняет экран ---

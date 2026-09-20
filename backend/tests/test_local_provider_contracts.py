@@ -153,12 +153,11 @@ def test_fcm_real_sdk_payload_and_selective_dead_token_cleanup(monkeypatch, user
         assert isinstance(message, messaging.Message)
         assert message.data["ref_id"] == "42"
         assert message.data["ref_kind"] == "instant"
-        if data_only:
-            assert message.notification is None
-            assert message.android.priority == "high"
-            assert message.data["title"] == "Заголовок"
-        else:
-            assert message.notification.title == "Заголовок"
+        assert message.notification is None
+        assert message.android.priority == "high"
+        assert message.data["title"] == "Заголовок"
+        assert message.data["body"] == "Текст"
+        assert message.data["recipient_user_id"] == str(owner["id"])
     with Session(engine) as session:
         remaining = set(session.exec(select(DeviceToken.token).where(
             DeviceToken.user_id.in_([owner["id"], neighbor["id"]]))).all())

@@ -42,12 +42,22 @@ type Load = "loading" | "ok" | "error";
  * к нужному месту важнее, чем к точному адресу.
  */
 function deepLink(n: AppNotification): string | null {
+  // Старые сообщения подписчикам сохранены с ref_kind=request/ride.
+  // Получатель заявки — водитель, а новой поездки — пассажир.
+  if (n.type === "request_watch") return "/requests-feed";
+  if (n.type === "route_watch" && n.ref_kind === "ride") {
+    return n.ref_id ? `/rides/${n.ref_id}` : null;
+  }
   switch (n.ref_kind) {
     // --- события с собственной страницей ---
+    case "booking_done":
+      return n.ref_id ? `/trip/${n.ref_id}` : null;
     case "booking":
       return n.ref_id ? `/booking/${n.ref_id}` : null;
     case "request":
       return n.ref_id ? `/requests/${n.ref_id}/responses` : null;
+    case "request_watch":
+      return "/requests-feed";
     case "support":
       return n.ref_id ? `/support/${n.ref_id}` : null;
     // Разбор — самое тяжёлое, что бывает с аккаунтом: человеку надо видеть,

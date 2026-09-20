@@ -785,7 +785,7 @@ private fun CourierWorkContent(
  * координаты сервер не хранит, чужим канал закрыт.
  */
 @Composable
-private fun CourierLiveLocationLink(parcels: List<ParcelDto>) {
+internal fun CourierLiveLocationLink(parcels: List<ParcelDto>) {
     val ctx = LocalContext.current
     val activeIds = remember(parcels) {
         parcels.filter { it.status == "accepted" || it.status == "in_transit" }.map { it.id }

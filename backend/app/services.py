@@ -424,9 +424,10 @@ def send_push(session: Session, user_id: int, title: str, body: str,
     `data` — необязательный data-payload (напр. оффер «Быстрого заказа» → полноэкранная карточка
     на клиенте). FCM требует строковые значения в data — приводим к str на всякий случай.
 
-    `data_only=True` (оффер такси, B7a-2): БЕЗ блока notification + AndroidConfig(priority=high).
-    Иначе свёрнутое приложение получает системную плашку вместо onMessageReceived → полноэкранная
-    карточка «Новый заказ» не всплывает. title/body кладём в data — клиент сам рисует уведомление.
+    FCM всегда data-only: клиент проверяет recipient_user_id перед показом. Блок notification
+    обходит эту проверку в фоне и может показать сообщение прошлого аккаунта после выхода.
+    title/body кладём в data; высокий приоритет сохраняет доставку оффера такси через сервис.
+    Параметр data_only оставлен для совместимости вызовов, безопасный формат общий для всех.
     В браузере такого различия нет: там уведомление рисует service worker в любом случае."""
     # Браузер — ПЕРВЫМ и отдельно: раньше функция выходила на первой же строке, когда
     # Firebase не настроен, и веб-подписки не получали вообще ничего.
@@ -439,24 +440,18 @@ def send_push(session: Session, user_id: int, title: str, body: str,
         from firebase_admin import credentials, messaging
         if _fcm_app is None:
             _fcm_app = firebase_admin.initialize_app(credentials.Certificate(settings.firebase_credentials))
-        payload_data = {k: str(v) for k, v in data.items()} if data else None
-        if data_only:
-            payload_data = payload_data or {}
-            payload_data.setdefault("title", title)
-            payload_data.setdefault("body", body)
+        payload_data = {k: str(v) for k, v in data.items()} if data else {}
+        payload_data.setdefault("title", title)
+        payload_data.setdefault("body", body)
+        # Получателя задаёт адресат отправки, а не произвольный payload вызывающего.
+        payload_data["recipient_user_id"] = str(user_id)
         tokens = [d.token for d in session.exec(select(DeviceToken).where(DeviceToken.user_id == user_id)).all()]
         if not tokens:
             return
         messages = []
         for t in tokens:
-            msg_kwargs = {"token": t}
-            if not data_only:
-                msg_kwargs["notification"] = messaging.Notification(title=title, body=body)
-            else:
-                msg_kwargs["android"] = messaging.AndroidConfig(priority="high")   # будим из doze
-            if payload_data:                         # data-payload только когда есть (не ломаем прежних вызовов)
-                msg_kwargs["data"] = payload_data
-            messages.append(messaging.Message(**msg_kwargs))
+            messages.append(messaging.Message(token=t, data=payload_data,
+                                              android=messaging.AndroidConfig(priority="high")))
         # Устойчивость к нагрузке: один batch-вызов вместо N последовательных сетевых round-trip
         # (массовые каскадные уведомления перестают тормозить обработчик).
         resp = messaging.send_each(messages)
@@ -475,17 +470,20 @@ def send_push(session: Session, user_id: int, title: str, body: str,
 def _web_push_url(data: dict | None) -> str:
     """Куда вести человека по клику на уведомление в браузере.
 
-    В `data` лежит та же пара `ref_kind`/`ref_id`, что уходит и в приложение, — здесь она
-    превращается в адрес страницы. Соответствие ровно то же, что на экране уведомлений
+    Транспорт передаёт `type`/`id`; старые вызовы могут передавать `ref_kind`/`ref_id`.
+    Обе формы превращаются в адрес страницы. Соответствие то же, что на экране уведомлений
     в `webapp`: событие без своей страницы ведёт туда, где оно видно целиком.
 
     Неизвестный вид → корень. Открыть приложение и не угадать экран лучше, чем не открыть.
     """
-    kind = str((data or {}).get("ref_kind") or "")
-    ref = (data or {}).get("ref_id")
+    kind = str((data or {}).get("type") or (data or {}).get("ref_kind") or "")
+    ref = (data or {}).get("id") or (data or {}).get("ref_id")
     if ref:
         with_page = {
             "booking": f"/booking/{ref}",
+            "booking_done": f"/trip/{ref}",
+            "chat": f"/booking/{ref}",
+            "ride": f"/rides/{ref}",
             "request": f"/requests/{ref}/responses",
             "support": f"/support/{ref}",
             "incident": f"/incidents/{ref}",
@@ -495,6 +493,11 @@ def _web_push_url(data: dict | None) -> str:
     return {
         "parcel": "/parcels",
         "instant": "/taxi",
+        "instant_status": "/taxi",
+        "instant_payment": "/taxi",
+        "instant_im_coming": "/taxi",
+        "order_chat": "/taxi",
+        "request_watch": "/requests-feed",
         "ride": "/driver",
         "debt": "/driver",
         "taxi_apply": "/taxi-onboarding",
@@ -530,7 +533,8 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
     if not subs:
         return
 
-    tag_parts = [str((data or {}).get("ref_kind") or ""), str((data or {}).get("ref_id") or "")]
+    tag_parts = [str((data or {}).get("type") or (data or {}).get("ref_kind") or ""),
+                 str((data or {}).get("id") or (data or {}).get("ref_id") or "")]
     tag = "-".join([x for x in tag_parts if x])
     payload = json.dumps({
         "title": title,
@@ -783,7 +787,7 @@ def _city_keys(name: str) -> set[str]:
 
 def _push_async(items: "list") -> None:
     """FCM-рассылка в фоновом daemon-потоке (своя сессия) — сеть не держит обработчик запроса.
-    items: список (user_id, title, body). Ошибки глотаем: пуш вторичен, запись в ленте уже есть.
+    items: список (user_id, title, body, data). Ошибки глотаем: пуш вторичен, запись в ленте уже есть.
 
     Ночью молчим: сюда приходят только новости про маршруты («появилась поездка», «пассажир
     на твоём маршруте»), а они прекрасно ждут до утра. Запись в Центре уведомлений уже сделана
@@ -796,8 +800,8 @@ def _push_async(items: "list") -> None:
     def run():
         try:
             with Session(engine) as s:
-                for uid, title, body in items:
-                    send_push(s, uid, title, body)
+                for uid, title, body, data in items:
+                    send_push(s, uid, title, body, data=data)
         except Exception as e:  # noqa: BLE001
             log.warning(f"[ROUTE_WATCH] async push error: {e}")
     threading.Thread(target=run, daemon=True).start()
@@ -819,7 +823,7 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
             )
         ).all()
         notified = 0
-        to_push: list = []   # (user_id, title, body) — FCM отправим в фоне после записи в ленту
+        to_push: list = []   # (user_id, title, body, data) — FCM отправим в фоне после записи в ленту
         # Кого оповещать НЕЛЬЗЯ (аудит 2026-08-07). Рассылка обходила обе защиты сразу:
         #  • чёрный список — человек, которого водитель заблокировал, получал пуш о его поездке;
         #  • «только для своих» — закрытую поездку лента прячет и забронировать её нельзя,
@@ -869,7 +873,8 @@ def notify_route_watchers(session: Session, ride: Ride) -> int:
                 route, route,
                 ref_kind="ride", ref_id=ride.id, push=False,
             )
-            to_push.append((w.user_id, "Появилась поездка", route))
+            to_push.append((w.user_id, "Появилась поездка", route,
+                            {"type": "ride", "id": str(ride.id)}))
             w.last_notified_at = now
             session.add(w)
             notified += 1
@@ -927,9 +932,10 @@ def notify_request_watchers(session: Session, request: RideRequest) -> int:
                 session, w.user_id, "request_watch",
                 "Пассажир на твоём маршруте", "Юлыңда юлаусы бар",
                 route, route,
-                ref_kind="request", ref_id=request.id, push=False,
+                ref_kind="request_watch", ref_id=request.id, push=False,
             )
-            to_push.append((w.user_id, "Пассажир на твоём маршруте", route))
+            to_push.append((w.user_id, "Пассажир на твоём маршруте", route,
+                            {"type": "request_watch", "id": str(request.id)}))
             w.last_notified_at = now
             session.add(w)
             notified += 1

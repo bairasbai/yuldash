@@ -16,26 +16,21 @@ import {
   type WaitlistEntry,
 } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
-import { formatRelative } from "../utils/format";
-import { IconCheck, IconPhone, IconClock, IconShare } from "../components/Icons";
+import { RideCardSkeleton } from "../components/States";
+import { AdminIntro, AdminStatCard, ListedEmpty, ListedError } from "../components/adminUi";
+import { IconShare } from "../components/Icons";
 
 type State = "loading" | "error" | "ready";
 
-const FILTERS: { key: string; role?: string; invited?: boolean; ru: string; ba: string }[] = [
-  { key: "waiting", invited: false, ru: "Ждут", ba: "Көтә" },
-  { key: "drivers", role: "driver", ru: "Водители", ba: "Водителдәр" },
-  { key: "passengers", role: "passenger", ru: "Пассажиры", ba: "Юлсылар" },
-  { key: "invited", invited: true, ru: "Позваны", ba: "Саҡырылған" },
-  { key: "all", ru: "Все", ba: "Барыһы" },
-];
+/** Фильтры как в приложении: роль — радио («Все / Пассажиры / Водители»), статус — переключаемые «Ждут» / «Позваны». */
+type RoleFilter = "" | "passenger" | "driver";
 
 export default function AdminWaitlistScreen() {
-  const { appText, lang } = useLang();
-  const ru = lang !== "ba";
+  const { appText } = useLang();
   const navigate = useNavigate();
 
-  const [filter, setFilter] = useState("waiting");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("");
+  const [invitedFilter, setInvitedFilter] = useState<boolean | null>(false);
   const [state, setState] = useState<State>("loading");
   const [data, setData] = useState<WaitlistResponse | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -43,11 +38,10 @@ export default function AdminWaitlistScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback((key: string, signal?: AbortSignal) => {
+  const load = useCallback((role: RoleFilter, invited: boolean | null, signal?: AbortSignal) => {
     setState("loading");
     setSelected(new Set());
-    const f = FILTERS.find((x) => x.key === key)!;
-    fetchWaitlist({ role: f.role, invited: f.invited, limit: 500, signal })
+    fetchWaitlist({ role: role || undefined, invited: invited ?? undefined, limit: 500, signal })
       .then((res) => {
         setData(res);
         setState("ready");
@@ -60,9 +54,9 @@ export default function AdminWaitlistScreen() {
 
   useEffect(() => {
     const ac = new AbortController();
-    load(filter, ac.signal);
+    load(roleFilter, invitedFilter, ac.signal);
     return () => ac.abort();
-  }, [filter, load]);
+  }, [roleFilter, invitedFilter, load]);
 
   function toggle(id: number) {
     setSelected((prev) => {
@@ -80,8 +74,8 @@ export default function AdminWaitlistScreen() {
     setNotice(null);
     try {
       const res = await inviteWaitlist([...selected]);
-      setNotice(appText(`Отмечено в волне: ${res.invited}`, `Тулҡында билдәләнде: ${res.invited}`)); // DRAFT
-      load(filter);
+      setNotice(appText(`Волна помечена: ${res.invited}`, `Тулҡын билдәләнде: ${res.invited}`)); // DRAFT
+      load(roleFilter, invitedFilter);
     } catch (e) {
       setError(e instanceof ApiError && e.message ? e.message : appText("Не получилось отметить волну.", "Тулҡынды билдәләп булманы.") /* DRAFT */);
     } finally {
@@ -111,129 +105,145 @@ export default function AdminWaitlistScreen() {
     }
   }
 
+  const rows = data?.items ?? [];
+
   return (
     <>
-      <SubHeader
-        title={appText("Лист ожидания", "Көтөү исемлеге")}
-        subtitle={appText("Ранний доступ и волны", "Иртә инеү һәм тулҡындар")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Лист ожидания", "Көтөү исемлеге")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        <AdminIntro>
+          {appText(
+            "Ранний доступ: кто ждёт запуска такси. Выбери записи и пометь волну — рассылку делаешь сам, СМС отсюда не уходят.",
+            "Иртә инеү: такси асылыуын кем көтә. Яҙмаларҙы һайла ла тулҡынды билдәлә — хәбәрҙе үҙең ебәрәһең, СМС бынан китмәй."
+          )}
+        </AdminIntro>
 
-      {data && (
-        <div className="stat-grid" style={{ marginBottom: 4 }}>
-          <div className="stat-tile">
-            <b>{data.total.toLocaleString("ru-RU")}</b>
-            <span>{appText("всего", "барлығы")}</span>
-          </div>
-          <div className="stat-tile">
-            <b>{data.by_role.driver.toLocaleString("ru-RU")}</b>
-            <span>{appText("водители", "йөрөтөүселәр")}</span>
-          </div>
-          <div className="stat-tile">
-            <b>{data.invited.toLocaleString("ru-RU")}</b>
-            <span>{appText("позваны", "саҡырылған")}</span>
-          </div>
-        </div>
-      )}
+        {/* Счётчики: всего / ждут / позваны, пассажиры / водители — по всей базе, не по фильтру. */}
+        {data && (
+          <>
+            <div className="astat-row">
+              <AdminStatCard label={appText("Всего", "Барлығы")} value={String(data.total)} />
+              <AdminStatCard label={appText("Ждут", "Көтәләр")} value={String(data.total - data.invited)} />
+              <AdminStatCard label={appText("Позваны", "Саҡырылған")} value={String(data.invited)} />
+            </div>
+            <div className="astat-row">
+              <AdminStatCard label={appText("Пассажиры", "Пассажирҙар")} value={String(data.by_role.passenger)} />
+              <AdminStatCard label={appText("Водители", "Йөрөтөүселәр")} value={String(data.by_role.driver)} />
+            </div>
+            {data.by_city.length > 0 && (
+              <div className="afilter-row" aria-label={appText("По городам", "Ҡалалар буйынса")}>
+                {data.by_city.map((c) => (
+                  <span key={c.city} className="acity-chip">
+                    {c.city} · {c.count}
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
-      {data && data.by_city.length > 0 && (
-        <div className="chip-scroll" aria-label={appText("По городам", "Ҡалалар буйынса")}>
-          {data.by_city.slice(0, 12).map((c) => (
-            <span key={c.city} className="chip" style={{ pointerEvents: "none" }}>
-              {c.city} · {c.count}
-            </span>
+        {/* Фильтры: роль — радио, «Ждут» / «Позваны» — переключаются повторным нажатием. */}
+        <div className="afilter-row" role="group" aria-label={appText("Фильтр листа ожидания", "Көтөү фильтры")}>
+          {(
+            [
+              ["", appText("Все", "Барыһы")],
+              ["passenger", appText("Пассажиры", "Пассажирҙар")],
+              ["driver", appText("Водители", "Йөрөтөүселәр")],
+            ] as [RoleFilter, string][]
+          ).map(([key, label]) => (
+            <button
+              key={key || "all"}
+              type="button"
+              role="radio"
+              aria-checked={roleFilter === key}
+              className={"afilter" + (roleFilter === key ? " is-on" : "")}
+              onClick={() => setRoleFilter(key)}
+            >
+              {label}
+            </button>
           ))}
-        </div>
-      )}
-
-      <div className="chip-scroll" role="tablist" aria-label={appText("Фильтр листа ожидания", "Көтөү фильтры")}>
-        {FILTERS.map((f) => (
           <button
-            key={f.key}
             type="button"
-            role="tab"
-            aria-selected={filter === f.key}
-            className={"chip" + (filter === f.key ? " chip--on" : "")}
-            onClick={() => setFilter(f.key)}
+            aria-pressed={invitedFilter === false}
+            className={"afilter" + (invitedFilter === false ? " is-on" : "")}
+            onClick={() => setInvitedFilter(invitedFilter === false ? null : false)}
           >
-            {appText(f.ru, f.ba)}
+            {appText("Ждут", "Көтәләр")}
           </button>
-        ))}
+          <button
+            type="button"
+            aria-pressed={invitedFilter === true}
+            className={"afilter" + (invitedFilter === true ? " is-on" : "")}
+            onClick={() => setInvitedFilter(invitedFilter === true ? null : true)}
+          >
+            {appText("Позваны", "Саҡырылған")}
+          </button>
+        </div>
+
+        {notice && <p className="dl-hint">{notice}</p>}
+        {error && <div className="auth__error">{error}</div>}
+
+        {state === "loading" && rows.length === 0 && (
+          <>
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
+        {state === "error" && <ListedError onRetry={() => load(roleFilter, invitedFilter)} />}
+
+        {state === "ready" && rows.length === 0 && (
+          <ListedEmpty
+            title={appText("Пока никого", "Әлегә бер кем дә юҡ")}
+            subtitle={appText("Здесь появятся номера с лендинга и из приложения.", "Бында лендингтан һәм ҡушымтанан номерҙар күренер.")}
+          />
+        )}
+
+        {state !== "error" && rows.map((e) => <WaitRow key={e.id} entry={e} selected={selected.has(e.id)} onToggle={() => toggle(e.id)} />)}
+
+        {/* Пометить волну — появляется, когда что-то выбрано. */}
+        {selected.size > 0 && (
+          <button type="button" className="abtn abtn--tall" onClick={invite} disabled={inviting}>
+            {inviting
+              ? appText("…", "…")
+              : appText(`Пометить волну (${selected.size})`, `Тулҡынды билдәләү (${selected.size})`)}
+          </button>
+        )}
+
+        {/* Есть только в вебе: выгрузка CSV для рассылки. */}
+        <button type="button" className="abtn abtn--text" onClick={exportCsv}>
+          <IconShare size={18} /> {appText("Выгрузить CSV", "CSV төшөрөү")}
+        </button>
       </div>
-
-      <button type="button" className="btn-soft btn-soft--sm" onClick={exportCsv} style={{ marginBottom: 4 }}>
-        <IconShare size={16} /> {appText("Выгрузить CSV", "CSV төшөрөү")}
-      </button>
-
-      {notice && <div className="safe-note" style={{ marginTop: 8 }}><p>{notice}</p></div>}
-      {error && <div className="auth__error" style={{ marginTop: 8 }}>{error}</div>}
-
-      {state === "loading" && <LoadingList count={3} />}
-      {state === "error" && <ErrorState onRetry={() => load(filter)} />}
-
-      {state === "ready" && data && data.items.length === 0 && (
-        <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__icon"><IconClock size={40} /></div>
-          <h2>{appText("Здесь пусто", "Бында буш")}</h2>
-          <p>{appText("В этом фильтре никого нет.", "Был фильтрҙа бер кем дә юҡ.")}</p>
-        </div>
-      )}
-
-      {state === "ready" && data && data.items.length > 0 && (
-        <div className="admin-cards">
-          {data.items.map((e) => (
-            <WaitRow key={e.id} entry={e} ru={ru} selected={selected.has(e.id)} onToggle={() => toggle(e.id)} />
-          ))}
-        </div>
-      )}
-
-      {/* Плавающая панель приглашения выбранных */}
-      {selected.size > 0 && (
-        <div className="wait-invite-bar">
-          <span>{appText(`Выбрано: ${selected.size}`, `Һайланды: ${selected.size}`)}</span>
-          <button type="button" className="btn-primary" onClick={invite} disabled={inviting}>
-            {inviting ? appText("…", "…") : (<><IconCheck size={18} /> {appText("Отметить волну", "Тулҡын билдәләү")}</>)}
-          </button>
-        </div>
-      )}
     </>
   );
 }
 
-function WaitRow({
-  entry,
-  ru,
-  selected,
-  onToggle,
-}: {
-  entry: WaitlistEntry;
-  ru: boolean;
-  selected: boolean;
-  onToggle: () => void;
-}) {
+/** Строка листа: чекбокс (позванных заново не помечаем), телефон 16 Bold, «город · роль · дата», бейдж «Позван». */
+function WaitRow({ entry, selected, onToggle }: { entry: WaitlistEntry; selected: boolean; onToggle: () => void }) {
   const { appText } = useLang();
   const invited = !!entry.invited_at;
+  const meta = [
+    entry.city || "",
+    entry.role === "driver" ? appText("водитель", "йөрөтөүсе") : appText("пассажир", "пассажир"),
+    entry.created_at.slice(0, 10),
+  ]
+    .filter(Boolean)
+    .join("  ·  ");
   return (
-    <div className="admin-card" style={{ padding: 14 }}>
-      <label className="admin-check" style={{ marginTop: 0, alignItems: "flex-start" }}>
-        <input type="checkbox" checked={selected} onChange={onToggle} disabled={invited} aria-label={appText("Выбрать для волны", "Тулҡынға һайлау")} />
-        <span style={{ flex: 1 }}>
-          <a className="admin-card__phone" href={`tel:${entry.phone}`} style={{ marginTop: 0 }}>
-            <IconPhone size={14} /> {entry.phone}
-          </a>
-          <span className="admin-card__sub" style={{ display: "block" }}>
-            {entry.role === "driver" ? appText("Водитель", "Йөрөтөүсе") : appText("Пассажир", "Юлсы")}
-            {entry.city ? ` · ${entry.city}` : ""}
-            {" · "}
-            {formatRelative(entry.created_at, ru)}
-          </span>
-          {invited && (
-            <span className="badge badge--mint" style={{ marginTop: 6, display: "inline-block" }}>
-              {appText("позван", "саҡырылған")} · {formatRelative(entry.invited_at, ru)}
-            </span>
-          )}
-        </span>
-      </label>
-    </div>
+    <label className="await">
+      <input
+        type="checkbox"
+        className="await__check"
+        checked={selected}
+        onChange={onToggle}
+        disabled={invited}
+        aria-label={appText("Выбрать для волны", "Тулҡынға һайлау")}
+      />
+      <span className="await__text">
+        <strong>{entry.phone}</strong>
+        <small>{meta}</small>
+      </span>
+      {invited && <span className="abadge abadge--ok">{appText("Позван", "Саҡырылған")}</span>}
+    </label>
   );
 }

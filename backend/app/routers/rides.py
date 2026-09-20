@@ -351,7 +351,8 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     notify_map_changed()   # карточка на карте/в ленте обновится live
     for b in live:         # пуши после commit
         send_push(session, b.passenger_id, "Поездка обновлена",
-                  f"{ride.from_city} → {ride.to_city}: изменено — {', '.join(changed)}. Загляни в детали.")
+                  f"{ride.from_city} → {ride.to_city}: изменено — {', '.join(changed)}. Загляни в детали.",
+                  data={"type": "booking", "id": str(b.id)})
     return public_ride_payload(ride_out(ride, session), full=True)  # свой рейс — свой текст
 
 
@@ -786,7 +787,7 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
     affected = _live_bookings(session, ride_id)
     ride.status = RideStatus.done
     session.add(ride)
-    done_ids: list[int] = []
+    completed: list[Booking] = []
     dropped: list[Booking] = []      # брони, которые водитель так и не подтвердил
     now = utcnow()
     for b in affected:
@@ -805,7 +806,7 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
             dropped.append(b)
         else:
             b.status = BookingStatus.done
-            done_ids.append(b.passenger_id)
+            completed.append(b)
         session.add(b)
     session.commit()
     session.refresh(ride)
@@ -813,7 +814,7 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
     # (бронь у водителя, семейный контроль, такси) начисляли его давно, а эта кнопка —
     # самая частая у водителя — нет. Сосед позвал человека в Юлдаш, тот раскатался,
     # а бонус не приходил никогда: просто потому, что рейсы он закрывал не той кнопкой.
-    if done_ids:
+    if completed:
         from .referral import reward_driver_referral
         reward_driver_referral(session, ride.driver_id)
     notify_map_changed()
@@ -828,13 +829,13 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
             f"{route}: рейс китте, ә бронь яуапһыҙ ҡалды. Яҡындағы башҡа сәфәрҙәрҙе ҡара.",
             ref_kind="booking", ref_id=b.id,
         )
-    for pid in done_ids:
+    for b in completed:
         push_notification(
-            session, pid, "ride",
+            session, b.passenger_id, "ride",
             "Поездка завершена", "Сәфәр тамамланды",
             f"{route}: спасибо, что ехали вместе! Оцени поездку.",
             f"{route}: бергә барғаныңа рәхмәт! Сәфәрҙе баһала.",
-            ref_kind="ride", ref_id=ride.id,
+            ref_kind="booking_done", ref_id=b.id,
         )
     return public_ride_payload(ride_out(ride, session), full=True)  # свой рейс — свой текст
 

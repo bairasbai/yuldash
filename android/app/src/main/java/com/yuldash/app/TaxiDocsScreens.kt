@@ -152,6 +152,7 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit, onCarPhoto: () -> Unit = {}
     var error by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
+    var documentsVersion by remember { mutableIntStateOf(0) }
     var msg by remember { mutableStateOf<String?>(null) }
     var errText by remember { mutableStateOf<String?>(null) }
 
@@ -169,10 +170,17 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit, onCarPhoto: () -> Unit = {}
     }
 
     LaunchedEffect(reload) {
+        if (busy) return@LaunchedEffect
         loading = true; error = false
-        ApiClient.getMyTaxiApplication()
+        val requestedVersion = documentsVersion
+        val result = ApiClient.getMyTaxiApplication()
+        // Старый снимок GET не должен отменять уже начатое сохранение даты.
+        if (requestedVersion == documentsVersion && !busy) result
             .onSuccess { app = it }
-            .onFailure { error = true }
+            .onFailure {
+                if (it is ApiException && it.status == 404) app = null
+                else error = true
+            }
         // Ошибку этого запроса НЕ показываем: фотоконтроль — дополнение к экрану документов,
         // и его недоступность не повод рисовать человеку красный экран поверх рабочих сроков.
         ApiClient.getCarPhoto("taxi").onSuccess { carPhoto = it }
@@ -181,6 +189,7 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit, onCarPhoto: () -> Unit = {}
 
     fun save(field: String, isoDate: String) {
         if (busy) return
+        documentsVersion++
         busy = true; errText = null; msg = null
         scope.launch {
             val r = when (field) {
@@ -202,7 +211,7 @@ internal fun TaxiDocumentsScreen(onBack: () -> Unit, onCarPhoto: () -> Unit = {}
         // Сроки и статус документов подтверждает админ вручную — человек ждёт чужого решения.
         AppPullRefresh(
             refreshing = loading && app != null,
-            onRefresh = { reload++ },
+            onRefresh = { if (!busy) reload++ },
             modifier = Modifier.padding(padding),
         ) {
         LazyColumn(

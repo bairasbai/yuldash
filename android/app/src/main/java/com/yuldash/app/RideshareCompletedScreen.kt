@@ -216,7 +216,12 @@ internal fun RideshareCompletedScreen(
             actionError = null
         },
         onReviewExpanded = { reviewExpanded = !reviewExpanded },
-        onReviewText = { reviewText = it.take(500) },
+        onReviewText = {
+            reviewText = it.take(500)
+            ratingTouched = true
+            ratingSent = false
+            actionError = null
+        },
         onSubmit = {
             if (ratingSent) {
                 onClose()
@@ -682,6 +687,7 @@ private fun RideshareRatingCard(
                             OutlinedTextField(
                                 value = reviewText,
                                 onValueChange = onReviewText,
+                                enabled = !busy,
                                 modifier = Modifier.fillMaxWidth().testTag("rideshareReviewText"),
                                 placeholder = { Text(appText("Что запомнилось?", "Нимә иҫтә ҡалды?")) },
                                 minLines = 2,

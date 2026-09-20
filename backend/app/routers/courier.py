@@ -1839,6 +1839,19 @@ class ParcelRateIn(BaseModel):
     text: str = Field("", max_length=500)   # текстовый отзыв (опц.) — на модерацию, ≤500
 
 
+@router.get("/parcels/{parcel_id}/my-rating")
+def parcel_my_rating(parcel_id: int, user: User = Depends(current_user),
+                     session: Session = Depends(get_session)):
+    """Собственный голос участника: читается и на паузе, не раскрывает чужую оценку."""
+    parcel = session.get(ParcelDelivery, parcel_id)
+    if not parcel or user.id not in (parcel.sender_id, parcel.courier_id):
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    stars = session.exec(
+        select(Rating.stars).where(Rating.parcel_id == parcel_id, Rating.rater_id == user.id)
+    ).first()
+    return {"stars": stars}
+
+
 @router.post("/parcels/{parcel_id}/rate")
 def parcel_rate(parcel_id: int, body: ParcelRateIn, user: User = Depends(current_user),
                 session: Session = Depends(get_session)):

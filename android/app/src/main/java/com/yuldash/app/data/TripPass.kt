@@ -96,8 +96,10 @@ object TripPassStore {
     private const val KEY_PREFIX = "pass_"
     @Volatile private var prefs: SharedPreferences? = null
     @Volatile private var plainPrefs: SharedPreferences? = null
+    @Volatile private var securePrefs: SharedPreferences? = null
+    private var migration: OfflineMigration.Selection? = null
 
-    fun init(context: Context) {
+    @Synchronized fun init(context: Context) {
         val app = context.applicationContext
         val secure = runCatching {
             val masterKey = MasterKey.Builder(app)
@@ -111,8 +113,13 @@ object TripPassStore {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             )
         }.getOrNull()
-        plainPrefs = app.getSharedPreferences(PREF_PLAIN, Context.MODE_PRIVATE)
-        val plain = plainPrefs!!
+        initStores(app.getSharedPreferences(PREF_PLAIN, Context.MODE_PRIVATE), secure)
+    }
+
+    @Synchronized internal fun initStores(plain: SharedPreferences, secure: SharedPreferences?) {
+        plainPrefs = plain
+        val available = OfflineStoreReset.availableSecure(plain, secure)
+        securePrefs = available
         // Разовый перенос из открытого хранилища в шифрованное — как в очереди исходящих.
         //
         // Зачем (аудит 2026-08-08, волна 74). На «кривой» прошивке Keystore может не подняться,
@@ -122,8 +129,9 @@ object TripPassStore {
         // ни перенести, ни стереть их никто не пытался. Выход из аккаунта чистил только текущее
         // хранилище — то есть обещание «вышел, и чужих данных на телефоне нет» выполнялось
         // не полностью. У соседней очереди исходящих такой перенос был с самого начала.
-        if (secure != null) migratePlain(plain, secure)
-        prefs = secure ?: plain
+        migration = OfflineMigration.open(plain, available) { it.startsWith(KEY_PREFIX) }
+        prefs = migration!!.storage
+        TripPassDeletion.reconcile(plain, available, migration!!.writable)
     }
 
     /**
@@ -132,12 +140,8 @@ object TripPassStore {
      * и тест на переезд был бы зелёным на пустоте (урок волны 61). Здесь оба хранилища —
      * обычные параметры, и тест подставляет свои.
      */
-    internal fun migratePlain(plain: SharedPreferences, secure: SharedPreferences) {
-        val moved = plain.all.filterKeys { it.startsWith(KEY_PREFIX) }
-        if (moved.isEmpty()) return
-        secure.edit().apply { moved.forEach { (k, v) -> if (v is String) putString(k, v) } }.apply()
-        plain.edit().clear().apply()
-    }
+    internal fun migratePlain(plain: SharedPreferences, secure: SharedPreferences): Boolean =
+        OfflineMigration.open(plain, secure) { it.startsWith(KEY_PREFIX) }.writable
 
     private fun sp(context: Context): SharedPreferences {
         prefs?.let { return it }
@@ -145,42 +149,83 @@ object TripPassStore {
         return prefs!!
     }
 
-    /** Сохранить/обновить паспорт брони. */
-    fun save(context: Context, pass: TripPass) {
-        runCatching {
-            sp(context).edit().putString(KEY_PREFIX + pass.bookingId, pass.toJson().toString()).apply()
-        }
+    /** A new login must not hide an uncommitted logout reset behind its new auth token. */
+    @Synchronized internal fun ensureResetCommitted(): Boolean {
+        val plain = plainPrefs ?: return true
+        if (OfflineMigration.resetUnconfirmed(plain)) clearAll()
+        return !OfflineMigration.resetUnconfirmed(plain)
     }
 
+    /** Сохранить/обновить паспорт брони. */
+    @Synchronized fun save(
+        context: Context,
+        pass: TripPass,
+        retryMigration: Boolean = false,
+        expectedGeneration: Long? = null,
+    ): Boolean = runCatching {
+        if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) return@runCatching false
+        sp(context)
+        if (TripPassDeletion.blocks(plainPrefs ?: return@runCatching false, pass.bookingId)) return@runCatching false
+        if (retryMigration && migration?.writable == false) {
+            val plain = plainPrefs ?: return@runCatching false
+            // A save retry must never undo an unconfirmed logout reset.
+            if (OfflineMigration.resetUnconfirmed(plain)) return@runCatching false
+            val secure = securePrefs
+            if (secure != null) initStores(plain, secure) else init(context)
+        }
+        val store = sp(context)
+        if (migration?.writable == false) return@runCatching false
+        commitOfflineString(store, KEY_PREFIX + pass.bookingId, pass.toJson().toString())
+    }.getOrDefault(false)
+
     /** Прочитать паспорт (синхронно, из локального хранилища) — доступно без сети. */
-    fun load(context: Context, bookingId: Int): TripPass? = runCatching {
-        sp(context).getString(KEY_PREFIX + bookingId, null)?.let { TripPass.fromJson(JSONObject(it)) }
+    @Synchronized fun load(context: Context, bookingId: Int): TripPass? = runCatching {
+        sp(context)
+        if (TripPassDeletion.blocks(plainPrefs ?: return@runCatching null, bookingId)) return@runCatching null
+        migration?.read(KEY_PREFIX + bookingId)?.let { TripPass.fromJson(JSONObject(it)) }
     }.getOrNull()
 
     /** Дополнить сохранённый паспорт кодом посадки (приходит на экране активной поездки). */
-    fun updateBoardingCode(context: Context, bookingId: Int, code: String) {
+    @Synchronized fun updateBoardingCode(context: Context, bookingId: Int, code: String) {
         if (code.isBlank()) return
         val cur = load(context, bookingId) ?: return
         if (cur.boardingCode == code) return
         save(context, cur.copy(boardingCode = code))
     }
 
-    /** Убрать паспорт (бронь завершена/отменена) — не держим лишние ПДн на диске. */
-    fun remove(context: Context, bookingId: Int) {
-        runCatching { sp(context).edit().remove(KEY_PREFIX + bookingId).apply() }
-    }
+    enum class RemovalResult { CLEARED, DEFERRED, NOT_SAVED }
+
+    /** CLEARED means both sources were erased; DEFERRED means a durable deletion barrier exists. */
+    @Synchronized fun requestRemoval(context: Context, bookingId: Int, expectedGeneration: Long? = null): RemovalResult = runCatching {
+        if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) {
+            return@runCatching RemovalResult.NOT_SAVED
+        }
+        sp(context)
+        val plain = plainPrefs ?: return@runCatching RemovalResult.NOT_SAVED
+        if (OfflineMigration.resetUnconfirmed(plain)) return@runCatching RemovalResult.NOT_SAVED
+        if (!TripPassDeletion.request(plain, bookingId)) return@runCatching RemovalResult.NOT_SAVED
+        if (TripPassDeletion.reconcile(plain, securePrefs, migration?.writable == true)) RemovalResult.CLEARED
+        else RemovalResult.DEFERRED
+    }.getOrDefault(RemovalResult.NOT_SAVED)
+
+    /** Compatibility result: true only when physical cleanup of both stores was confirmed. */
+    @Synchronized fun remove(context: Context, bookingId: Int): Boolean =
+        requestRemoval(context, bookingId) == RemovalResult.CLEARED
 
     /**
      * Стереть ВСЕ паспорта — выход из аккаунта / удаление аккаунта.
      * В паспорте лежат имя и телефон пассажира: на общем телефоне это чужие ПДн (152-ФЗ),
      * следующий вошедший не должен их видеть. Контекст не нужен: зовётся после init().
      */
-    fun clearAll() {
-        runCatching { prefs?.edit()?.clear()?.apply() }
-        // И открытое хранилище тоже — там могли осесть паспорта прошлых запусков, когда
-        // шифрование не поднималось (волна 74). Обещание «вышел — чужих данных нет» должно
-        // выполняться целиком, а не для того хранилища, которое активно прямо сейчас.
-        runCatching { plainPrefs?.edit()?.clear()?.apply() }
+    @Synchronized fun clearAll() {
+        plainPrefs?.let { plain ->
+            if (!OfflineStoreReset.clear(plain, securePrefs)) {
+                securePrefs = null
+                prefs = plain
+            }
+            migration = OfflineMigration.open(plain, securePrefs) { it.startsWith(KEY_PREFIX) }
+            prefs = migration!!.storage
+        }
     }
 }
 
@@ -191,6 +236,7 @@ data class OutboxAction(
     val kind: String,     // "message" | "trip_status" | "driver_status"
     val payload: String,  // текст сообщения / код статуса
     val createdAt: Long,
+    val requestKey: String = "",
 )
 
 /**
@@ -199,10 +245,14 @@ data class OutboxAction(
  * Хранение — на диске (переживает перезапуск). Compose-наблюдаемый счётчик [version] для UI.
  */
 object Outbox {
+    private var queueGeneration = 0L // Protected by this object's monitor, never held across HTTP.
     private const val PREF_SECURE = "yuldash_outbox_secure"
     private const val PREF = "yuldash_outbox"      // старое открытое хранилище (разовая миграция)
     private const val KEY = "queue"
     @Volatile private var prefs: SharedPreferences? = null
+    @Volatile private var plainPrefs: SharedPreferences? = null
+    @Volatile private var securePrefs: SharedPreferences? = null
+    private var migration: OfflineMigration.Selection? = null
     private val flushMutex = Mutex()
     private var seq = System.currentTimeMillis()
 
@@ -222,7 +272,7 @@ object Outbox {
      * Keystore недоступен (бывает на «кривых» прошивках) → работаем как раньше: потерять
      * неотправленное сообщение хуже, чем сохранить его в открытом виде.
      */
-    fun init(context: Context) {
+    @Synchronized fun init(context: Context) {
         val app = context.applicationContext
         val secure = runCatching {
             val masterKey = MasterKey.Builder(app)
@@ -236,13 +286,16 @@ object Outbox {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             )
         }.getOrNull()
-        val plain = app.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        // Разовый перенос: то, что уже лежит открытым текстом, переезжает в шифрованное.
-        if (secure != null && plain.contains(KEY)) {
-            secure.edit().putString(KEY, plain.getString(KEY, null)).apply()
-            plain.edit().remove(KEY).apply()
-        }
-        prefs = secure ?: plain
+        initStores(app.getSharedPreferences(PREF, Context.MODE_PRIVATE), secure)
+    }
+
+    @Synchronized internal fun initStores(plain: SharedPreferences, secure: SharedPreferences?) {
+        queueGeneration++
+        plainPrefs = plain
+        val available = OfflineStoreReset.availableSecure(plain, secure)
+        securePrefs = available
+        migration = OfflineMigration.open(plain, available) { it == KEY }
+        prefs = migration!!.storage
     }
 
     private fun sp(context: Context): SharedPreferences {
@@ -251,37 +304,47 @@ object Outbox {
         return prefs!!
     }
 
+    @Synchronized internal fun ensureResetCommitted(): Boolean {
+        val plain = plainPrefs ?: return true
+        if (OfflineMigration.resetUnconfirmed(plain)) clearAll()
+        return !OfflineMigration.resetUnconfirmed(plain)
+    }
+
     private fun readAll(context: Context): MutableList<OutboxAction> {
-        val raw = runCatching { sp(context).getString(KEY, null) }.getOrNull() ?: return mutableListOf()
+        val raw = runCatching { sp(context); migration?.read(KEY) }.getOrNull() ?: return mutableListOf()
         return runCatching {
             val arr = JSONArray(raw)
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                OutboxAction(o.optLong("id"), o.optInt("booking_id"), o.optString("kind"), o.optString("payload"), o.optLong("created_at"))
+                OutboxAction(o.optLong("id"), o.optInt("booking_id"), o.optString("kind"), o.optString("payload"), o.optLong("created_at"), o.optString("request_key"))
             }.toMutableList()
         }.getOrDefault(mutableListOf())
     }
 
-    private fun writeAll(context: Context, list: List<OutboxAction>) {
+    private fun writeAll(context: Context, list: List<OutboxAction>): Boolean {
+        sp(context)
+        if (migration?.writable == false) return false
         val arr = JSONArray()
         list.forEach { a ->
-            arr.put(JSONObject().put("id", a.id).put("booking_id", a.bookingId).put("kind", a.kind).put("payload", a.payload).put("created_at", a.createdAt))
+            arr.put(JSONObject().put("id", a.id).put("booking_id", a.bookingId).put("kind", a.kind).put("payload", a.payload).put("created_at", a.createdAt).put("request_key", a.requestKey))
         }
-        runCatching { sp(context).edit().putString(KEY, arr.toString()).apply() }
-        version.value = version.value + 1
+        val saved = runCatching { commitOfflineString(sp(context), KEY, arr.toString()) }.getOrDefault(false)
+        if (saved) version.value = version.value + 1
+        return saved
     }
 
     /** Сколько действий в очереди по конкретной брони (для плашки «N в очереди»). */
-    fun count(context: Context, bookingId: Int): Int =
+    @Synchronized fun count(context: Context, bookingId: Int): Int =
         readAll(context).count { it.bookingId == bookingId }
 
     /** Есть ли вообще что отправлять (любая бронь) — чтобы не дёргать flush на пустой очереди при старте (M4). */
-    fun hasPending(context: Context): Boolean = readAll(context).isNotEmpty()
+    @Synchronized fun hasPending(context: Context): Boolean = readAll(context).isNotEmpty()
 
-    fun enqueue(context: Context, action: OutboxAction) {
+    @Synchronized fun enqueue(context: Context, action: OutboxAction, expectedGeneration: Long? = null): Boolean {
+        if (expectedGeneration != null && ApiClient.queueSessionGeneration() != expectedGeneration) return false
         val list = readAll(context)
         list.add(action)
-        writeAll(context, list)
+        return writeAll(context, list)
     }
 
     /**
@@ -289,13 +352,28 @@ object Outbox {
      * прошлого пользователя ушли бы ОТ НОВОГО аккаунта при первом же появлении сети.
      * Контекст не нужен: зовётся после init().
      */
-    fun clearAll() {
-        runCatching { prefs?.edit()?.remove(KEY)?.apply() }
+    @Synchronized fun clearAll() {
+        queueGeneration++
+        plainPrefs?.let { plain ->
+            if (!OfflineStoreReset.clear(plain, securePrefs)) {
+                securePrefs = null
+                prefs = plain
+            }
+            migration = OfflineMigration.open(plain, securePrefs) { it == KEY }
+            prefs = migration!!.storage
+        }
         version.value = version.value + 1
     }
 
     fun newMessage(bookingId: Int, text: String) =
-        OutboxAction(nextId(), bookingId, "message", text, System.currentTimeMillis())
+        OutboxAction(nextId(), bookingId, "message", text, System.currentTimeMillis(), java.util.UUID.randomUUID().toString())
+
+    internal fun messageRequestKey(action: OutboxAction): String = action.requestKey.ifBlank {
+        // Old queues have no key: derive a stable identity from the stored action, never text alone.
+        val identity = JSONArray().put("android-outbox-v1").put(action.id).put(action.bookingId)
+            .put(action.createdAt).put(action.payload).toString()
+        java.util.UUID.nameUUIDFromBytes(identity.toByteArray(Charsets.UTF_8)).toString()
+    }
 
     fun newTripStatus(bookingId: Int, status: String) =
         OutboxAction(nextId(), bookingId, "trip_status", status, System.currentTimeMillis())
@@ -311,12 +389,18 @@ object Outbox {
     /**
      * Отправить всё, что накопилось, по порядку. Успех → удаляем из очереди.
      * Сетевая ошибка → останавливаемся, оставляем на потом (ретрай при следующей сети).
-     * Ошибка сервера (не сеть, напр. бронь закрыта) → выбрасываем действие, чтобы очередь
+     * Временный HTTP-отказ (408/429/5xx) → оставляем до следующего запуска flush.
+     * Окончательный отказ (например, бронь закрыта) → снимаем действие, чтобы очередь
      * не «отравилась» вечным повтором. Ничего не роняем.
      */
     suspend fun flush(context: Context): Boolean = flushMutex.withLock {
         var changed = false
-        var list = readAll(context)
+        val generation = synchronized(this) {
+            sp(context)
+            if (migration?.writable == false) return@withLock false
+            queueGeneration
+        }
+        val session = ApiClient.queueSessionGeneration()
         // Протухшие СТАТУСЫ выбрасываем, сообщения — никогда.
         //
         // `createdAt` лежал в очереди с самого начала и не использовался нигде. А между тем
@@ -331,33 +415,29 @@ object Outbox {
         //
         // Шесть часов, а не двадцать минут: связь в дороге пропадает надолго, и статус,
         // отправленный через час, всё ещё про эту поездку.
-        val now = System.currentTimeMillis()
-        val fresh = list.filter { it.kind == "message" || now - it.createdAt <= STATUS_MAX_AGE_MS }
-        if (fresh.size != list.size) {
-            list = fresh.toMutableList()
-            writeAll(context, list); changed = true
-        }
-        while (list.isNotEmpty()) {
-            val a = list.first()
-            val result = when (a.kind) {
-                "message" -> ApiClient.sendMessage(a.bookingId, a.payload)
-                "trip_status" -> ApiClient.setTripStatus(a.bookingId, a.payload)
-                "driver_status" -> ApiClient.driverStatus(a.bookingId, a.payload).map { }
-                else -> Result.success(Unit)
-            }
-            if (result.isSuccess) {
-                list = list.drop(1).toMutableList()
-                writeAll(context, list); changed = true
-            } else {
-                val err = result.exceptionOrNull()
-                if (err is ApiException) {
-                    // Сервер увидел запрос и отверг (не сеть) — повтор не поможет, снимаем из очереди.
-                    list = list.drop(1).toMutableList()
-                    writeAll(context, list); changed = true
-                } else {
-                    // Сеть всё ещё лежит — прекращаем, попробуем позже.
-                    break
+        while (true) {
+            val action = synchronized(this) {
+                if (generation != queueGeneration || session != ApiClient.queueSessionGeneration()) return@withLock changed
+                val current = readAll(context)
+                val now = System.currentTimeMillis()
+                val fresh = current.filter { it.kind == "message" || now - it.createdAt <= STATUS_MAX_AGE_MS }
+                if (fresh.size != current.size) {
+                    if (!writeAll(context, fresh)) return@withLock changed
+                    changed = true
                 }
+                fresh.firstOrNull()
+            } ?: break
+            val result = ApiClient.sendQueuedAction(action, session)
+            val failure = result.exceptionOrNull()
+            if (failure != null && (failure !is ApiException ||
+                    failure.status == 408 || failure.status == 429 || failure.status in 500..599)) break
+            synchronized(this) {
+                if (generation != queueGeneration || session != ApiClient.queueSessionGeneration()) return@withLock changed
+                // Merge with the live queue: messages added during HTTP must not be overwritten.
+                val current = readAll(context)
+                val remaining = current.filterNot { it.id == action.id }
+                if (!writeAll(context, remaining)) return@withLock changed
+                changed = true
             }
         }
         changed

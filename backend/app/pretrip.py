@@ -100,7 +100,8 @@ def confirm(session: Session, driver_id: int, health_ok: bool, car_ok: bool,
 
     Все три пункта обязательны: «частично готов» — это не готов, и подписывать за человека
     мы не будем. Поэтому строка существует только в состоянии «подтверждено полностью»;
-    повтор в тот же день просто обновляет заметку (UNIQUE driver_id+day, дублей нет).
+    повтор в той же смене обновляет заметку; после отдыха начинает новое подтверждение
+    в существующей строке дня (UNIQUE driver_id+day, дублей нет).
     """
     if not (health_ok and car_ok and no_alcohol):
         raise herr(
@@ -108,10 +109,15 @@ def confirm(session: Session, driver_id: int, health_ok: bool, car_ok: bool,
             "Нужно подтвердить все три пункта — иначе на линию нельзя",
             "Өс пункттың өсөһөн дә раҫларға кәрәк — юғиһә линияға сыға алмайһың",
         )
-    day = local_day()
+    now = utcnow()
+    day = local_day(now)
     c = today_check(session, driver_id, day)
     if c is None:
-        c = PreTripCheck(driver_id=driver_id, day=day)
+        c = PreTripCheck(driver_id=driver_id, day=day, created_at=now)
+    elif not _still_this_shift(session, c, driver_id, now):
+        # The same calendar day may contain a new shift after a full rest.
+        # Keeping the old timestamp would leave this explicit confirmation expired.
+        c.created_at = now
     c.health_ok = True
     c.car_ok = True
     c.no_alcohol = True

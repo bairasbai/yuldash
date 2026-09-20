@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import { enqueue } from "../utils/outbox";
 import {
   fetchBookingShares,
@@ -116,12 +116,16 @@ export default function ShareTripCard({
 
   async function sendStatus(status: TripStatus) {
     if (!bookingId || busy) return;
+    const generation = getSessionGeneration();
+    const currentSession = () => generation === getSessionGeneration();
     setBusy(true);
     try {
       const updated = await setTripStatus(bookingId, status);
+      if (!currentSession()) return;
       setShares(updated);
       setNote(appText("Близкие получили сообщение", "Яҡындарға хәбәр китте"));
     } catch (e) {
+      if (!currentSession()) return;
       // Трасса без связи — это норма, а не сбой. «Я сел» и «доехал» — ровно те отметки,
       // которые человек делает в дороге между сёлами, и терять их нельзя: близкие ждут
       // именно их. Кладём в очередь — уйдёт само, когда сеть вернётся.
@@ -129,13 +133,18 @@ export default function ShareTripCard({
       // Отличаем обрыв связи от отказа сервера: `status === 0` — до сервера не достучались.
       // Ответ сервера («поездка уже завершена») повторять бессмысленно, он не изменится.
       if (e instanceof ApiError && e.status === 0) {
-        enqueue(bookingId, "trip_status", status);
-        setNote(appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ"));
+        try {
+          await enqueue(bookingId, "trip_status", status);
+          if (!currentSession()) return;
+          setNote(appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ"));
+        } catch {
+          if (currentSession()) setNote(appText("Не получилось отправить статус.", "Хәлде ебәреп булманы."));
+        }
       } else {
         setNote(appText("Не получилось отправить статус.", "Хәлде ебәреп булманы."));
       }
     } finally {
-      setBusy(false);
+      if (currentSession()) setBusy(false);
     }
   }
 

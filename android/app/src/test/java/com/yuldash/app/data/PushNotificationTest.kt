@@ -46,12 +46,14 @@ class PushNotificationTest {
 
     private fun message(data: Map<String, String>): RemoteMessage {
         val b = RemoteMessage.Builder("test@fcm")
+        b.addData("recipient_user_id", "2")
         data.forEach { (k, v) -> b.addData(k, v) }
         return b.build()
     }
 
     @Before
     fun reset() {
+        ApiClient.saveToken("header.eyJzdWIiOiIyIn0.signature")
         manager().cancelAll()
         AppPrefs.setNotifications(ctx, true)
         AppPrefs.setSounds(ctx, true)
@@ -158,6 +160,7 @@ class PushNotificationTest {
 
     @Test
     fun `новый токен устройства уходит на сервер без падения`() {
+        ApiClient.saveToken("") // сценарий без входа: никакой фоновой сетевой регистрации
         service().onNewToken("новый-токен-устройства")
         // Без входа в аккаунт регистрация — тихий no-op, но упасть она не имеет права.
     }

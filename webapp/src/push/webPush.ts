@@ -12,6 +12,7 @@
 //  устройстве» — localStorage (webPushEnabled).
 // ================================================================
 import { sendWebPushSubscription, PushBackendMissing, unsubscribeWebPush } from "../api/push";
+import { getSessionGeneration } from "../api/client";
 
 const ENABLED_KEY = "yuldash.push.web.enabled";
 
@@ -88,6 +89,8 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
  * Честная мягкая деградация на каждом шаге (см. EnableResult).
  */
 export async function enableWebPush(): Promise<EnableResult> {
+  const generation = getSessionGeneration();
+  const currentSession = () => generation === getSessionGeneration();
   if (!pushSupported()) {
     // iOS в обычном табе Safari: PushManager появляется только в standalone.
     if (isIos() && !isStandalone()) return "need-standalone";
@@ -100,26 +103,32 @@ export async function enableWebPush(): Promise<EnableResult> {
 
   try {
     const perm = await Notification.requestPermission();
+    if (!currentSession()) return "error";
     if (perm !== "granted") {
       setWebPushEnabled(false);
       return "denied";
     }
 
     const reg = await navigator.serviceWorker.ready;
+    if (!currentSession()) return "error";
     // Переиспользуем существующую подписку, если она уже есть.
     let sub = await reg.pushManager.getSubscription();
+    if (!currentSession()) return "error";
     if (!sub) {
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(key),
       });
+      if (!currentSession()) return "error";
     }
 
     try {
       await sendWebPushSubscription(sub);
+      if (!currentSession()) return "error";
       setWebPushEnabled(true);
       return "ok";
     } catch (e) {
+      if (!currentSession()) return "error";
       if (e instanceof PushBackendMissing) {
         // Клиент подписался честно, но приёмника на сервере ещё нет.
         // Флаг включаем: подписка в браузере реальна, останется дослать позже.
@@ -129,6 +138,7 @@ export async function enableWebPush(): Promise<EnableResult> {
       throw e;
     }
   } catch {
+    if (!currentSession()) return "error";
     setWebPushEnabled(false);
     return "error";
   }
@@ -136,18 +146,23 @@ export async function enableWebPush(): Promise<EnableResult> {
 
 /** Отписаться на этом устройстве (снять подписку браузера + флаг). */
 export async function disableWebPush(): Promise<void> {
+  const generation = getSessionGeneration();
+  const currentSession = () => generation === getSessionGeneration();
   setWebPushEnabled(false);
   if (!pushSupported()) return;
   try {
     // При выходе нужна только уже существующая регистрация. ready может ждать вечно,
     // если worker не установлен (обычная вкладка/dev или неудачная установка PWA).
     const reg = await navigator.serviceWorker.getRegistration();
+    if (!currentSession()) return;
     if (!reg) return;
     const sub = await reg.pushManager.getSubscription();
+    if (!currentSession()) return;
     if (sub) {
       // Сначала говорим серверу, потом гасим подписку в браузере. Иначе на общем телефоне
       // следующий вошедший продолжал бы получать чужие уведомления: локального удаления мало.
       await unsubscribeWebPush(sub.endpoint);
+      if (!currentSession()) return;
       await sub.unsubscribe();
     }
   } catch {

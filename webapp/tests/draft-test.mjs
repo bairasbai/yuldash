@@ -28,7 +28,7 @@ check(got?.inn === "027812345678" && got?.permit === "АА-123", "анкета �
 check(d.readDraft("никогда-не-было") === null, "пустой ключ → null");
 
 // --- 3. Протухший (старше недели) не отдаётся и вычищается ---
-store.set(P, JSON.stringify({ at: Date.now() - 8 * 24 * 3600 * 1000, data: { inn: "старое" } }));
+store.set(P, JSON.stringify({ at: Date.now() - 8 * 24 * 3600 * 1000, session: "", data: { inn: "старое" } }));
 check(d.readDraft(KEY) === null, "черновику больше недели → не подставляем");
 check(!store.has(P), "и он сразу вычищен из хранилища");
 

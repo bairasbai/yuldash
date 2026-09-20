@@ -1,0 +1,30 @@
+import { until } from './outbox-helpers.mjs';
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { IDBFactory } from 'fake-indexeddb';
+import { fileURLToPath } from 'node:url';
+const {outputFiles}=await build({stdin:{contents:"export * from './src/api/client'; export * from './src/api/chat'; export * from './src/utils/outbox';",resolveDir:fileURLToPath(new URL('../',import.meta.url)),loader:'ts'},bundle:true,write:false,format:'esm',platform:'node',define:{'import.meta.env':'{}'}});
+globalThis.indexedDB=new IDBFactory();const storage=new Map();globalThis.localStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)};
+const api=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text).toString('base64'));api.setSession('A','refresh-A');
+const received=[],messages=new Map();
+globalThis.fetch=async(url,init)=>{
+ const key=init.headers['Idempotency-Key'];received.push(key);
+ const identity=key??`unkeyed-${received.length}`;
+ if(!messages.has(identity))messages.set(identity,{id:messages.size+1,text:JSON.parse(init.body).text});
+ if(received.length===1)throw new TypeError('Response lost after commit');
+ return new Response(JSON.stringify(messages.get(identity)));
+};
+const identity=api.createOutboxId?.()??'original-intent';
+await assert.rejects(api.sendMessageRest(42,'one message',undefined,identity),e=>e.status===0);
+await api.enqueue(42,'message','one message',identity);
+const reloaded=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'// reloaded').toString('base64'));await reloaded.flushOutbox();
+assert.equal(messages.size,1,'Lost response caused a second server message');
+assert.deepEqual(received,[identity,identity]);assert.equal(reloaded.hasPending(),false);
+console.log('✓ first REST attempt and durable retry retain the same idempotency key');
+Object.defineProperty(globalThis,'navigator',{value:{},configurable:true});
+received.length=0;messages.clear();let release;const gate=new Promise(r=>release=r);
+globalThis.fetch=async(url,init)=>{const key=init.headers['Idempotency-Key'];received.push(key);const k=key??`missing-${received.length}`;if(!messages.has(k))messages.set(k,{id:messages.size+1,text:JSON.parse(init.body).text});await gate;return new Response(JSON.stringify(messages.get(k)));};
+await api.enqueue(42,'message','parallel');const attempts=Promise.all([api.flushOutbox(),reloaded.flushOutbox()]);
+try {await until(()=>received.length===2);} finally {release();await attempts;}
+assert.equal(messages.size,1);assert.equal(received.length,2);assert.ok(received[0]);assert.equal(received[0],received[1]);
+console.log('✓ two senders without Web Locks retain the same key for server deduplication');

@@ -10,6 +10,72 @@ export const API_BASE = (
 
 const TOKEN_KEY = "yuldash.token";
 const REFRESH_KEY = "yuldash.refresh";
+const SESSION_KEY = "yuldash.session";
+
+// A committed intent survives a lost response/reload. IndexedDB serializes
+// creation across tabs even when Web Locks is unavailable.
+async function refreshIntentTransaction<T>(work: (store: IDBObjectStore, done: (value: T) => void) => void): Promise<T> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open("yuldash-refresh-intents", 1);
+    let blocked = false;
+    request.onupgradeneeded = () => request.result.createObjectStore("intents");
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => { blocked = true; reject(new Error("Refresh storage blocked")); };
+    request.onsuccess = () => {
+      if (blocked) request.result.close();
+      else resolve(request.result);
+    };
+  });
+  return new Promise<T>((resolve, reject) => {
+    const tx = db.transaction("intents", "readwrite");
+    let result: T;
+    tx.oncomplete = () => { db.close(); resolve(result); };
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error("Refresh storage aborted")); };
+    try { work(tx.objectStore("intents"), value => { result = value; }); }
+    catch (error) { tx.abort(); reject(error); }
+  });
+}
+
+export function getRefreshRotationId(generation: string, refresh: string): Promise<string> {
+  return refreshIntentTransaction((store, done) => {
+    const request = store.get([generation, refresh]);
+    request.onsuccess = () => {
+      if (generation !== getSessionGeneration() || refresh !== getRefreshToken()) {
+        done(""); return;
+      }
+      if (typeof request.result === "string" && /^[a-f0-9]{64}$/.test(request.result)) {
+        done(request.result); return;
+      }
+      try {
+        const nonce = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, "0")).join("");
+        store.put(nonce, [generation, refresh]);
+        done(nonce);
+      } catch { store.transaction.abort(); }
+    };
+  });
+}
+
+export function clearRefreshRotationId(generation: string, refresh: string): Promise<void> {
+  return refreshIntentTransaction((store, done) => { store.delete([generation, refresh]); done(undefined); });
+}
+
+function discardPreviousRefreshIntents(): void {
+  void refreshIntentTransaction<void>((store, done) => {
+    const request = store.openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) { done(undefined); return; }
+      // Read the current owner here: delayed cleanup from A must preserve B.
+      if (!Array.isArray(cursor.key) || cursor.key[0] !== getSessionGeneration()) cursor.delete();
+      cursor.continue();
+    };
+  }).catch(() => { /* Cleanup can retry at the next session boundary. */ });
+}
+
+/** Вход/выход меняет поколение, тихое продление токенов — нет. */
+export function getSessionGeneration(): string {
+  return localStorage.getItem(SESSION_KEY) ?? "";
+}
 
 /**
  * Ссылка ведёт на НАШ сервер?
@@ -40,6 +106,20 @@ export function getToken(): string | null {
 }
 
 export function setToken(token: string | null): void {
+  writeToken(token);
+  markNewSession();
+}
+
+function markNewSession(): void {
+  // Маркер общий для вкладок; токены при тихом refresh его не меняют.
+  const generation = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random()}`;
+  localStorage.setItem(SESSION_KEY, generation);
+  discardPreviousRefreshIntents();
+}
+
+function writeToken(token: string | null): void {
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
 }
@@ -55,8 +135,17 @@ export function setRefreshToken(token: string | null): void {
 
 /** Сохранить/очистить обе части сессии одним швом. */
 export function setSession(access: string | null, refresh?: string | null): void {
-  setToken(access);
-  if (refresh !== undefined) setRefreshToken(refresh);
+  writeToken(access);
+  setRefreshToken(refresh ?? null);
+  markNewSession();
+}
+
+/** Ответ refresh вправе обновить только ту сессию, которая его отправила. */
+export function rotateSession(access: string, refresh: string, generation: string): boolean {
+  if (generation !== getSessionGeneration() || !access || !refresh) return false;
+  writeToken(access);
+  setRefreshToken(refresh);
+  return true;
 }
 
 /** Ошибка API с кодом статуса — экраны решают, как показать. */
@@ -84,15 +173,30 @@ export function setRefreshHandler(fn: (() => Promise<boolean>) | null): void {
   refreshHandler = fn;
 }
 // Один общий полёт обновления: параллельные 401 не запускают N рефрешей.
-let refreshInFlight: Promise<boolean> | null = null;
-function runRefresh(): Promise<boolean> {
+let refreshInFlight: { generation: string; promise: Promise<boolean> } | null = null;
+function runRefresh(generation: string, staleToken: string | null): Promise<boolean> {
   if (!refreshHandler) return Promise.resolve(false);
-  if (!refreshInFlight) {
-    refreshInFlight = refreshHandler().finally(() => {
-      refreshInFlight = null;
+  if (!refreshInFlight || refreshInFlight.generation !== generation) {
+    const flight = { generation, promise: Promise.resolve(false) };
+    const refresh = async () => {
+      if (generation !== getSessionGeneration()) return false;
+      if (getToken() !== staleToken) return true;
+      return refreshHandler ? refreshHandler() : false;
+    };
+    // Web Locks разделяет очередь между вкладками одного сайта.
+    const pending = typeof navigator !== "undefined" && navigator.locks
+      ? navigator.locks.request(`yuldash-auth-refresh:${generation}`, refresh)
+      : refresh();
+    flight.promise = Promise.resolve(pending).catch(error => {
+      // Недоступность refresh не означает, что вход отозван.
+      // Ошибка этого запроса не является отказом исходному действию очереди.
+      throw new ApiError(0, error instanceof ApiError ? error.message : genericByStatus(0, isBashkir()));
+    }).finally(() => {
+      if (refreshInFlight === flight) refreshInFlight = null;
     });
+    refreshInFlight = flight;
   }
-  return refreshInFlight;
+  return refreshInFlight.promise;
 }
 
 function authHeaders(): Record<string, string> {
@@ -214,9 +318,16 @@ function errorMessage(status: number, detail: unknown): string {
 
 async function request<T>(
   path: string,
-  init: RequestInit & { auth?: boolean; _retried?: boolean } = {}
+  init: RequestInit & { auth?: boolean; _retried?: boolean; _generation?: string } = {}
 ): Promise<T> {
-  const { auth = true, headers, _retried = false, ...rest } = init;
+  const { auth = true, headers, _retried = false, _generation = getSessionGeneration(), ...rest } = init;
+  const checkSession = () => {
+    if (auth && _generation !== getSessionGeneration()) {
+      throw new ApiError(409, genericByStatus(409, isBashkir()));
+    }
+  };
+  checkSession();
+  const sentToken = getToken();
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
@@ -232,17 +343,23 @@ async function request<T>(
     // это «Failed to fetch» (Chrome), «Load failed» (Safari) — английский технический
     // текст, который экраны показывают человеку как есть (`e.message`, 146 мест).
     // Кладём сразу человеческую фразу на его языке.
+    checkSession();
     throw new ApiError(0, genericByStatus(0, isBashkir()));
   }
 
+  checkSession();
+
   if (res.status === 401) {
     // Access протух → один раз пробуем обновить по refresh и повторить запрос.
-    if (auth && !_retried && getRefreshToken() && (await runRefresh())) {
-      return request<T>(path, { ...init, _retried: true });
+    if (auth && !_retried && getRefreshToken()) {
+      const refreshed = getToken() !== sentToken || await runRefresh(_generation, sentToken);
+      checkSession();
+      if (refreshed) return request<T>(path, { ...init, _retried: true, _generation });
     }
-    setToken(null);
-    setRefreshToken(null);
-    onUnauthorized?.();
+    if (auth) {
+      setSession(null, null);
+      onUnauthorized?.();
+    }
     throw new ApiError(
       401,
       isBashkir() ? "Яңынан инергә кәрәк." : "Нужно войти заново."
@@ -260,11 +377,14 @@ async function request<T>(
     } catch {
       /* тело не JSON (упал прокси, отдал HTML) — остаётся человеческая фраза */
     }
+    checkSession();
     throw new ApiError(res.status, detail);
   }
 
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  const body = await res.json();
+  checkSession();
+  return body as T;
 }
 
 export function apiGet<T>(
@@ -277,13 +397,16 @@ export function apiGet<T>(
 export function apiPost<T>(
   path: string,
   body?: unknown,
-  opts?: { auth?: boolean; signal?: AbortSignal }
+  opts?: { auth?: boolean; signal?: AbortSignal; idempotencyKey?: string }
 ): Promise<T> {
   return request<T>(path, {
     method: "POST",
     auth: opts?.auth,
     signal: opts?.signal,
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers: {
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(opts?.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 }

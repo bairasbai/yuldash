@@ -77,6 +77,7 @@ const IncomeCalculatorScreen = lazyScreen(() => import("./screens/IncomeCalculat
 const InvitesScreen = lazyScreen(() => import("./screens/InvitesScreen"));
 const MyStatsScreen = lazyScreen(() => import("./screens/MyStatsScreen"));
 const MyDataScreen = lazyScreen(() => import("./screens/MyDataScreen"));
+const MyRidesScreen = lazyScreen(() => import("./screens/MyRidesScreen"));
 const PartnerCabinetScreen = lazyScreen(() => import("./screens/PartnerCabinetScreen"));
 const PayDoneScreen = lazyScreen(() => import("./screens/PayDoneScreen"));
 const PaymentInfoScreen = lazyScreen(() => import("./screens/PaymentInfoScreen"));
@@ -177,6 +178,7 @@ function Shell() {
 }
 
 export default function App() {
+  const { status: queueStatus, user: queueUser } = useAuth();
   // Приложение поднялось — значит куски грузятся. Снимаем метку разовой
   // перезагрузки, чтобы следующее обновление сайта тоже сработало.
   useEffect(() => {
@@ -185,7 +187,7 @@ export default function App() {
 
   // Накопленные без сети «выехал»/«доехал» и сообщения досылаем на СТАРТЕ, а не
   // только на экране поездки: человек мог закрыть его и больше не открывать.
-  useEffect(() => watchOutbox(() => {}), []);
+  useEffect(() => watchOutbox(() => {}), [queueStatus, queueUser]);
 
   return (
     <Suspense fallback={<div className="app-main"><LoadingList count={2} /></div>}>
@@ -198,7 +200,10 @@ export default function App() {
 
       {/* Приложение с нижней навигацией */}
       <Route element={<Shell />}>
-        <Route path="/rides" element={<RidesScreen />} />
+        {/* Вкладка «Поездки» = «Мои поездки», как HomeTab.Rides в Android. Лента попуток живёт на
+            вкладке «Карта»; по прямой ссылке с фильтрами маршрута — /rides/feed. */}
+        <Route path="/rides" element={<MyRidesScreen />} />
+        <Route path="/rides/feed" element={<RidesScreen />} />
         <Route path="/rides/:id" element={<RideDetailScreen />} />
         {/* Home-витрина (карта) — публична, гость тоже видит */}
         <Route path="/map" element={<HomeScreen />} />

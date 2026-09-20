@@ -19,11 +19,9 @@ import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { fetchMyTrust, type TrustPhrase, type TrustSummary } from "../api/trust";
 import { LoadingList, ErrorState } from "../components/States";
-import { IconCheck, IconChevron, IconProfile, IconReceipt, IconShield } from "../components/Icons";
+import { SettingsGroup, SettingsNavRow } from "../components/cabinetUi";
+import { IconCheck, IconProfile, IconReceipt, IconShield, IconUsers } from "../components/Icons";
 import { SubHeader } from "./ConsentsScreen";
-
-/** Порядок уровней фиксирован: 0 → 3. Названия каждого берём с сервера. */
-const LEVELS = [0, 1, 2, 3];
 
 export default function TrustScreen() {
   const { appText, lang } = useLang();
@@ -59,141 +57,131 @@ export default function TrustScreen() {
     return () => ac.abort();
   }, [load]);
 
+  const ladder = [
+    appText("Новичок", "Яңы"),
+    appText("Знакомый", "Таныш"),
+    appText("Проверен", "Тикшерелгән"),
+    appText("Свой", "Үҙебеҙҙеке"),
+  ];
+
   return (
     <>
-      <SubHeader
-        title={appText("Доверие", "Ышаныс")}
-        subtitle={appText("Твой круг «между своими»", "«Үҙебеҙ араһында» түңәрәгең")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Доверие", "Ышаныс")} onBack={() => navigate(-1)} />
+      <div className="cabinet">
+        <p className="dl-hint">
+          {appText(
+            "Юлдаш — поездки между своими. Чем выше доверие, тем шире круг.",
+            "Юлдаш — үҙебеҙҙекеләр араһында сәфәрҙәр. Ышаныс юғарыраҡ — түңәрәк киңерәк."
+          )}
+        </p>
 
-      {state === "loading" && <LoadingList count={3} />}
-      {state === "error" && <ErrorState onRetry={() => load()} />}
+        {state === "loading" && <LoadingList count={2} />}
+        {state === "error" && <ErrorState onRetry={() => load()} />}
 
-      {state === "ready" && data && (
-        <>
-          <div className="trust-hero">
-            <div className="trust-hero__badge">
-              <IconShield size={30} />
-            </div>
-            <div className="trust-hero__level">
-              L{data.level} · {say(data.title)}
-            </div>
-            <div className="trust-progress" aria-hidden>
-              {[1, 2, 3].map((i) => (
-                <span key={i} className={i <= data.level ? "on" : ""} />
-              ))}
-            </div>
-            {data.next ? (
-              <p className="trust-hero__next">
-                {appText("Следующий уровень — ", "Киләһе кимәл — ")}
-                <b>{say(data.next.title)}</b>: {say(data.next.how)}
-              </p>
-            ) : (
-              <p className="trust-hero__next">
-                {appText("Ты на высшем уровне доверия. Спасибо!", "Һин иң юғары ышаныс кимәлендә. Рәхмәт!")}
-              </p>
-            )}
-          </div>
-
-          {/* Что даёт нынешний уровень — списком, а не одной фразой: это его смысл. */}
-          <div className="list">
-            {data.benefits.map((b, i) => (
-              <div key={i} className="list-row trust-row reached">
-                <div className="trust-row__dot on">
-                  <IconCheck size={16} />
-                </div>
-                <div className="list-row__main">
-                  <div className="list-row__sub">{say(b)}</div>
-                </div>
+        {state === "ready" && data && (
+          <>
+            {/* TrustLevelCard: круг с иконкой уровня (золотой на L3), «Твой уровень», название 24,
+                лесенка из четырёх сегментов и «Что тебе доступно». */}
+            <section className="trust-card">
+              <div className="trust-card__head">
+                <span className={"trust-card__badge" + (data.level >= 3 ? " is-top" : "")} aria-hidden>
+                  {data.level >= 3 ? <IconUsers size={28} /> : data.level === 2 ? <IconShield size={28} /> : <IconProfile size={28} />}
+                </span>
+                <span className="trust-card__text">
+                  <small>{appText("Твой уровень", "Кимәлең")}</small>
+                  <strong>{say(data.title)}</strong>
+                </span>
               </div>
-            ))}
-          </div>
-
-          {/* Что откроет следующий уровень. Показываем ДО того, как человек его получит:
-              иначе «поднимись выше» это просьба без причины. */}
-          {data.next && (
-            <>
-              <h2 className="section-title">
-                {appText("Что даст следующий уровень", "Киләһе кимәл нимә бирә")}
-              </h2>
-              <div className="list">
-                {data.next.benefits.map((b, i) => (
-                  <div key={i} className="list-row trust-row">
-                    <div className="trust-row__dot">
-                      <span>L{data.next?.level}</span>
-                    </div>
-                    <div className="list-row__main">
-                      <div className="list-row__sub">{say(b)}</div>
-                    </div>
-                  </div>
+              <div className="trust-ladder" aria-hidden>
+                {ladder.map((t, i) => (
+                  <span key={t} className={"trust-ladder__step" + (i <= data.level ? " is-reached" : "") + (i === data.level ? " is-current" : "")}>
+                    <span className="trust-ladder__bar"><span style={{ transitionDelay: `${i * 60}ms` }} /></span>
+                    <small>{t}</small>
+                  </span>
                 ))}
               </div>
-              <button type="button" className="btn-primary trust-next-action" onClick={openNext}>
-                {data.next.level === 1
-                  ? appText("Заполнить профиль", "Профильде тултыр")
-                  : data.next.level === 2
-                    ? appText("Пройти проверку", "Тикшереүҙе үт")
-                    : appText("Ввести код приглашения", "Саҡырыу кодын индер")}
-              </button>
-            </>
-          )}
-
-          {/* Лестница целиком — чтобы видеть, где ты и сколько ещё впереди. */}
-          <div className="list">
-            {LEVELS.map((n) => {
-              const reached = n <= data.level;
-              const isNext = data.next?.level === n;
-              return (
-                <div key={n} className={"list-row trust-row" + (reached ? " reached" : "")}>
-                  <div className={"trust-row__dot" + (reached ? " on" : "")}>
-                    {reached ? <IconCheck size={16} /> : <span>L{n}</span>}
-                  </div>
-                  <div className="list-row__main">
-                    <div className="list-row__title">
-                      L{n}
-                      {n === data.level ? ` · ${say(data.title)}` : ""}
-                      {isNext && data.next ? ` · ${say(data.next.title)}` : ""}
-                    </div>
-                  </div>
+              {data.level === 0 && (
+                <p className="dl-hint">
+                  {appText(
+                    "Ты полноправный участник Юлдаша. Уровень открывает новые возможности — двигайся в своём темпе.",
+                    "Һин Юлдаштың тулы хоҡуҡлы ҡатнашыусыһы. Кимәл яңы мөмкинлектәр аса — үҙ тиҙлегеңдә бар."
+                  )}
+                </p>
+              )}
+              {data.benefits.length > 0 && (
+                <div className="trust-benefits">
+                  <strong>{appText("Что тебе доступно", "Һиңә нимә асыҡ")}</strong>
+                  {data.benefits.map((b, i) => (
+                    <span key={i} className="trust-benefit">
+                      <IconCheck size={18} />
+                      {say(b)}
+                    </span>
+                  ))}
                 </div>
-              );
-            })}
-          </div>
+              )}
+            </section>
 
-          {/* Звать своих может только проверенный: иначе «круг своих» перестанет
-              что-либо значить. Кнопка появляется ровно тогда, когда право есть. */}
-          {data.can_invite && (
-            <button
-              type="button"
-              className="btn-primary"
-              style={{ marginTop: 14 }}
-              onClick={() => navigate("/invites")}
-            >
-              {appText("Позвать своего", "Үҙеңдекен саҡырыу")}
-            </button>
-          )}
+            {/* TrustNextCard: мятная карточка — что откроет следующий уровень и как его получить. */}
+            {data.next && (
+              <section className="trust-next">
+                <div className="trust-next__head">
+                  <small>{appText("Следующий уровень", "Киләһе кимәл")}</small>
+                  <strong>{say(data.next.title)}</strong>
+                  <span>{say(data.next.how)}</span>
+                </div>
+                {data.next.benefits.length > 0 && (
+                  <div className="trust-benefits">
+                    {data.next.benefits.map((b, i) => (
+                      <span key={i} className="trust-benefit">
+                        <IconCheck size={18} />
+                        {say(b)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <button type="button" className="btn-primary submit-btn" onClick={openNext}>
+                  {data.next.level === 1
+                    ? appText("Заполнить профиль", "Профильде тултыр")
+                    : data.next.level === 2
+                      ? appText("Пройти проверку", "Тикшереүҙе үт")
+                      : appText("Ввести код приглашения", "Саҡырыу кодын индер")}
+                </button>
+              </section>
+            )}
 
-          <div className="list trust-links">
-            <button type="button" className="list-row" onClick={() => navigate("/invites")}>
-              <span className="trust-row__dot"><IconProfile size={16} /></span>
-              <span className="list-row__main">
-                <span className="list-row__title">{appText("Позвать своего", "Үҙеңдекен саҡыр")}</span>
-                <span className="list-row__sub">{appText("Пригласительные коды в круг доверия", "Ышаныс түңәрәгенә саҡырыу кодтары")}</span>
-              </span>
-              <IconChevron size={18} />
-            </button>
-            <button type="button" className="list-row" onClick={() => navigate("/consents")}>
-              <span className="trust-row__dot"><IconReceipt size={16} /></span>
-              <span className="list-row__main">
-                <span className="list-row__title">{appText("Согласия и данные", "Ризалыҡтар һәм мәғлүмәт")}</span>
-                <span className="list-row__sub">{appText("Оферта, политика, геолокация", "Оферта, сәйәсәт, геолокация")}</span>
-              </span>
-              <IconChevron size={18} />
-            </button>
-          </div>
-        </>
-      )}
+            {/* Звать своих может только проверенный: иначе «круг своих» перестанет что-либо значить. */}
+            {data.can_invite && (
+              <section className="trust-invite">
+                <div className="trust-invite__head">
+                  <span className="trust-invite__icon" aria-hidden><IconUsers size={22} /></span>
+                  <span className="trust-card__text">
+                    <strong>{appText("Ты можешь звать своих", "Һин үҙеңдекеләрҙе саҡыра алаһың")}</strong>
+                    <small>{appText("Приглашай тех, кому доверяешь", "Ышанған кешеләреңде саҡыр")}</small>
+                  </span>
+                </div>
+                <button type="button" className="btn-soft" onClick={() => navigate("/invites")}>
+                  <IconUsers size={18} /> {appText("Позвать своего", "Үҙеңдекен саҡыр")}
+                </button>
+              </section>
+            )}
+
+            <SettingsGroup>
+              <SettingsNavRow
+                icon={<IconUsers size={24} />}
+                title={appText("Позвать своего", "Үҙеңдекен саҡыр")}
+                subtitle={appText("Пригласительные коды в круг доверия", "Ышаныс түңәрәгенә саҡырыу кодтары")}
+                onClick={() => navigate("/invites")}
+              />
+              <SettingsNavRow
+                icon={<IconReceipt size={24} />}
+                title={appText("Согласия и данные", "Ризалыҡтар һәм мәғлүмәт")}
+                subtitle={appText("Оферта, политика, геолокация", "Оферта, сәйәсәт, геолокация")}
+                onClick={() => navigate("/consents")}
+              />
+            </SettingsGroup>
+          </>
+        )}
+      </div>
     </>
   );
 }

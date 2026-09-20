@@ -73,7 +73,7 @@ export default function FamilyOrderScreen() {
               "Яҡының өсөн юлдаш эҙләй башланыҡ. Кәрәк булһа, Юлдаш ярҙамы бәйләнештә."
             )}
           </p>
-          <button type="button" className="btn-primary" onClick={() => navigate("/rides")}>
+          <button type="button" className="btn-primary" onClick={() => navigate("/map")}>
             {appText("Хорошо", "Яҡшы")}
           </button>
         </div>

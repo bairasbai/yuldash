@@ -280,7 +280,9 @@ internal fun NotificationsScreen(
     onBack: () -> Unit,
     onSelectTab: (HomeTab) -> Unit,
     onOpenBooking: (Int) -> Unit = {},
+    onOpenCompletedBooking: (Int) -> Unit = {},
     onOpenResponses: (Int) -> Unit = {},
+    onOpenRequestsFeed: () -> Unit = {},
     onRouteWatches: () -> Unit = {},
     onOpenSupport: (Int) -> Unit = {},
     onOpenParcels: () -> Unit = {},
@@ -344,9 +346,13 @@ internal fun NotificationsScreen(
     // обещала переход. Человек читал «Курьер забрал посылку», жал и оставался на том же месте.
     fun openDeepLink(n: NotifDto) {
         markRead(n.id)
+        // Старые записи подписок сохранялись с refKind=request, но адресованы водителю.
+        if (n.type == "request_watch") { onOpenRequestsFeed(); return }
         val ref = n.refId ?: return
         when (n.refKind) {
+            "request_watch" -> onOpenRequestsFeed()
             "booking" -> onOpenBooking(ref)
+            "booking_done" -> onOpenCompletedBooking(ref)
             "request" -> onOpenResponses(ref)
             "support" -> onOpenSupport(ref)
             "parcel" -> onOpenParcels()          // «Посылки»: там карточка с ходом доставки
@@ -2362,7 +2368,7 @@ internal fun HelpScreen(
         Triple(Icons.Default.AddRoad, appText("Как создать заявку?", "Заявканы нисек булдырырға?"), appText(
             "Вкладка «Заявка» → укажи маршрут, дату и число мест → отправь. Водители увидят заявку и откликнутся; подходящего выберешь во вкладке «Чат» → «Заявки».",
             "«Заявка» бүлеге → юлды, көндө һәм урын һанын күрһәт → ебәр. Йөрөтөүселәр заявканы күреп яуап бирер; «Чат» → «Заявкалар»ҙа кәрәклеһен һайларһың.")),
-        Triple(Icons.Default.Shield, appText("Как проходит проверка водителя?", "Водитель нисек тикшерелә?"), appText(
+        Triple(Icons.Default.Shield, appText("Как проходит проверка водителя?", "Йөрөтөүсе нисек тикшерелә?"), appText(
             "Водитель загружает фото прав и авто в разделе «Стать водителем». Модератор Юлдаша проверяет вручную и ставит значок «Проверен». Документы видны только модератору.",
             "Йөрөтөүсе «Йөрөтөүсе булыу» бүлегендә права һәм машина фотоһын тейәй. Юлдаш модераторы ҡулдан тикшереп «Тикшерелгән» билдәһен ҡуя. Документтар тик модераторға күренә.")),
         Triple(Icons.Default.Notifications, appText("Что делать в экстренной ситуации?", "Ашығыс хәлдә нимә эшләргә?"), appText(

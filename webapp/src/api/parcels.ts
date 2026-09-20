@@ -60,6 +60,9 @@ export interface Parcel {
   from_city: string;
   to_city: string;
   from_lat: number | null;
+  /** Фото «взял целой» / «отдал целой» — только сторонам сделки (/secure/evidence). */
+  pickup_photo_url?: string;
+  delivery_photo_url?: string;
   from_lng: number | null;
   to_lat: number | null;
   to_lng: number | null;
@@ -135,6 +138,8 @@ export interface Parcel {
   fragile?: boolean;
   /** «Нужно не позже» (ГГГГ-ММ-ДД). null = не срочно. */
   deliver_by?: string | null;
+  /** Срок вышел, а посылка ещё не вручена — считает сервер, клиент не гадает по часам. */
+  overdue?: boolean;
   /** Точные адреса — открываются принявшему курьеру (у чужих их нет). */
   from_address?: string;
   to_address?: string;
@@ -275,12 +280,21 @@ export function uploadEvidence(file: File, signal?: AbortSignal): Promise<{ url:
   return apiUpload<{ url: string }>("/upload/evidence", form, { signal });
 }
 
-/** GET /parcels/carrying — что я везу (accepted|in_transit), телефон получателя виден. */
-export function fetchCarrying(signal?: AbortSignal): Promise<Parcel[]> {
-  return apiGet<Parcel[]>("/parcels/carrying", { signal });
+/** Активные доставки; по запросу также последние 10 завершённых заказов. */
+export function fetchCarrying(signal?: AbortSignal, includeRecent = false): Promise<Parcel[]> {
+  return apiGet<Parcel[]>(`/parcels/carrying${includeRecent ? "?include_recent=true" : ""}`, { signal });
 }
 
 // ------------------------------- Взаимная оценка доставки -------------------------------
+/** Собственная оценка текущего участника; оценка второй стороны не раскрывается. */
+export async function fetchParcelMyRating(id: number): Promise<{ stars: number | null }> {
+  const result = await apiGet<{ stars: number | null }>(`/parcels/${id}/my-rating`);
+  if (!result || (result.stars !== null && (!Number.isInteger(result.stars) || result.stars < 1 || result.stars > 5))) {
+    throw new Error("Invalid parcel rating response");
+  }
+  return result;
+}
+
 /** POST /parcels/{id}/rate — оценить вторую сторону после вручения (1..5 + опц. текст). */
 export function rateParcel(
   id: number,

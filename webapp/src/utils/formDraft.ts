@@ -6,10 +6,11 @@
 //  найти ОСАГО в галерее. Вернулся — форма пустая, и всё заново.
 //  Приложение это переживает (`rememberSaveable`), сайт до сих пор — нет.
 //
-//  Храним только текст, который человек ввёл сам. Ничего чувствительного:
-//  ни телефонов, ни кодов, ни токенов — эти поля просто не отдаём сюда.
+//  Анкеты содержат личные поля и ссылки на документы. Черновик доступен
+//  только создавшей его сессии; при выходе удаляется общей очисткой.
 // ================================================================
 import { useEffect, useRef, useState } from "react";
+import { getSessionGeneration } from "../api/client";
 
 const PREFIX = "yuldash.draft.";
 /** Старше недели — уже не черновик, а мусор: человек давно передумал. */
@@ -18,6 +19,7 @@ const MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 interface Stored<T> {
   at: number;
   data: T;
+  session: string;
 }
 
 export function readDraft<T>(key: string): T | null {
@@ -26,6 +28,7 @@ export function readDraft<T>(key: string): T | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Stored<T>;
     if (!parsed || typeof parsed.at !== "number") return null;
+    if (parsed.session !== getSessionGeneration()) return null;
     if (Date.now() - parsed.at > MAX_AGE_MS) {
       localStorage.removeItem(PREFIX + key);
       return null;
@@ -38,7 +41,7 @@ export function readDraft<T>(key: string): T | null {
 
 export function writeDraft<T>(key: string, data: T): void {
   try {
-    localStorage.setItem(PREFIX + key, JSON.stringify({ at: Date.now(), data }));
+    localStorage.setItem(PREFIX + key, JSON.stringify({ at: Date.now(), data, session: getSessionGeneration() }));
   } catch {
     /* переполнено / приватный режим — просто не сохраняем */
   }
@@ -76,6 +79,7 @@ export function useFormDraft<T extends object>(
   key: string,
   initial: T
 ): [T, (patch: Partial<T>) => void, () => void] {
+  const generation = useRef(getSessionGeneration()).current;
   const [value, setValue] = useState<T>(() => {
     const saved = readDraft<T>(key);
     // Поля берём из initial: у сохранённого черновика может не быть новых полей,
@@ -84,11 +88,16 @@ export function useFormDraft<T extends object>(
   });
 
   useEffect(() => {
+    if (generation !== getSessionGeneration()) return;
     writeDraft(key, value);
-  }, [key, value]);
+  }, [key, value, generation]);
 
-  const patch = (p: Partial<T>) => setValue((prev) => ({ ...prev, ...p }));
+  const patch = (p: Partial<T>) => {
+    if (generation !== getSessionGeneration()) return;
+    setValue((prev) => ({ ...prev, ...p }));
+  };
   const forget = () => {
+    if (generation !== getSessionGeneration()) return;
     clearDraft(key);
     setValue(initial);
   };
@@ -109,18 +118,20 @@ export function useDraftSync<T extends object>(
   values: T,
   apply: (saved: Partial<T>) => void
 ): void {
+  const generation = useRef(getSessionGeneration()).current;
   const restored = useRef(false);
   const applyRef = useRef(apply);
   applyRef.current = apply;
 
   useEffect(() => {
+    if (generation !== getSessionGeneration()) return;
     const saved = readDraft<Partial<T>>(key);
     if (saved) applyRef.current(saved);
     restored.current = true;
-  }, [key]);
+  }, [key, generation]);
 
   useEffect(() => {
-    if (!restored.current) return;
+    if (!restored.current || generation !== getSessionGeneration()) return;
     writeDraft(key, values);
   });
 }

@@ -8,12 +8,20 @@
 #  пути к сертификатам, затем: nginx -t && systemctl reload nginx
 # ================================================================
 
-# HTTP → HTTPS редирект
+# HTTP → HTTPS редирект (+ проверка Let's Encrypt по HTTP — иначе продление сертификата
+# упрётся в редирект). Каталог /var/www/letsencrypt создаёт server-setup.sh; он живёт
+# отдельно от dist/, который deploy.sh подменяет целиком.
 server {
     listen 80;
     listen [::]:80;
     server_name app.yulbash.ru;
-    return 301 https://$host$request_uri;
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type "text/plain";
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
 }
 
 server {

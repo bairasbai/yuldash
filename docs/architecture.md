@@ -1,5 +1,23 @@
 # 🗺️ Карта кода Юлдаш
 
+## Хранение Android-сессии (19.09.2026)
+
+`TripPassDeletion.kt` хранит в plain подтверждённые номера удалённых паспортов. Отметка перекрывает load/save и старый migration snapshot, живёт до согласованного logout reset. initStores завершает удаление из доступных источников после переноса. requestRemoval различает CLEARED/DEFERRED/NOT_SAVED; старый Boolean remove сообщает только физически завершённую очистку. BookingScreen больше не сохраняет паспорта статусов вне confirmed/onboard. ActiveTripScreen теперь очищает Compose-состояние и запрашивает удаление в IO при done/cancelled, обрабатывает NOT_SAVED диалогом с повтором; отменённый экран закрывается после CLEARED/DEFERRED. requestRemoval проверяет ожидаемое поколение сессии. Проверки: audit-active-trip-deletion-2026-09-20.md. [Протокол и доказательства](audit-trip-pass-deletion-2026-09-20.md).
+
+`Outbox.flush` сохраняет очередь и останавливается при 408/429/5xx до следующего запуска; окончательные HTTP-отказы снимаются по прежнему правилу. [Проверки повторной отправки](audit-android-outbox-http-2026-09-19.md). Для сообщений OutboxAction хранит requestKey; ApiClient передаёт Idempotency-Key, BookingActiveTripScreen сохраняет исходную REST-попытку для ручного повтора и очереди. [Сквозная проверка](audit-android-message-retry-2026-09-19.md).
+
+`Outbox.flush` удаляет обработанный id из актуального списка под коротким монитором; HTTP выполняется вне монитора. Поколение очереди меняется при clearAll/initStores, поколение ApiClient передаётся в sendQueuedAction. UI привязывает поздний enqueue к исходной сессии. [Проверка конкурирующих действий](audit-android-outbox-races-2026-09-19.md).
+
+`OfflineWrites.kt` подтверждает запись паспорта/очереди через commit. `TripPassStore.save` и `Outbox.enqueue` возвращают Boolean; enqueue из UI выполняется в IO и сериализован. BookingScreen теперь показывает отдельное предупреждение при отказе saveTripPass и повторяет сохранение по кнопке; save может явно повторить незавершённый перенос, не снимая карантин выхода, и проверяет поколение сессии. Неполученный/пустой код посадки не затирает прежний паспорт. Отказ updateBoardingCode остаётся открытым; отказ удаления теперь показан с отдельным повтором в ActiveTripScreen. [Проверки экрана брони](audit-booking-offline-save-2026-09-20.md), [тесты записи и убийства процесса](audit-android-offline-durable-write-2026-09-19.md). Это не протокол доставки ровно один раз.
+
+`OfflineStoreReset.kt`: отдельная отметка `secure_clear_pending` в plain-хранилищах TripPassStore/Outbox. Выход удаляет текущие plain-данные и оставляет требование очистить недоступный secure. initStores стирает старый secure до переноса новых plain-данных; при отказе остаётся на plain и повторяет позже. [Проверки и ограничения](audit-android-offline-store-recovery-2026-09-19.md).
+
+После init офлайн-хранилищ `ApiClient` очищает связанные личные данные, если ключ входа отсутствует/пуст. Общую `clearAssociatedPersonalData` используют и этот путь, и обычный выход; нормальный запуск с сессией сохраняет офлайн-поездки. [Проверка сброса связанных данных](audit-android-auth-reset-data-2026-09-19.md).
+
+`AuthStorePolicy.resolve` также проверяет типы всех полей выбранной сессии до передачи в ApiClient. У EncryptedSharedPreferences неверный тип может вернуть null вместо исключения: проверяется присутствующее значение. Повреждение требует очистки и повторной проверки читаемости, ошибки записи остаются ошибками. [Результаты отдельной проверки](audit-android-auth-corruption-2026-09-19.md).
+
+`android/.../data/AuthStorePolicy.kt` выбирает актуальное хранилище по `auth_store_state` в обычных настройках `yuldash`: plain/secure/pending/logout. Отметка переживает выход; сами поля аккаунта — нет. `ApiClient.init` разрешает источник под sessionLock; `commitAuth` сохраняет полную сессию до изменения памяти. Для старых конфликтующих хранилищ без отметки нужен повторный вход. Проверки и ограничения — [аудит Android-хранилища](audit-android-auth-storage-2026-09-19.md).
+
 > Чтобы НЕ читать весь файл. Иди сразу в нужный ФАЙЛ (UI давно разрезан), `grep` по имени функции.
 > ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — сразу ниже.
 
@@ -63,6 +81,19 @@
 стоял 1.0, то есть ночь стоила как день. Теперь `night_k_default` = 1.15, окно 22:00–06:00
 по Уфе; засев трогает только тарифы, где ночь не настроена руками. ⚠️ В тестах выключена
 (`conftest`: `NIGHT_K_DEFAULT=1.0`), иначе половина проверок цены зависела бы от часа прогона.
+
+**Прозрачность ночной наценки на Android (2026-09-18).** Сервер с самого начала отдавал
+`night`/`night_k`/`night_note{ru,ba}` в `estimate` (как и `surge_note` — см. батч B3 выше), PWA
+их уже показывала (`InstantOrderScreen.tsx`, блок «Ночь» в разборе цены), а Android — нет:
+`InstantEstimateDto` эти поля не парсил, баннер не рисовался. Наценка была видна, а причина —
+нет. Добавлено симметрично суржу: `ApiClient.kt` — 3 новых поля DTO + разбор `night_note`
+(мёртвый URL-фолбэк на случай старого сервера — тот же текст, что шлёт `night_note()` на
+бэкенде); `InstantOrderScreen.kt` — второй `AnimatedVisibility`-баннер (🌙, тот же `CanonTaxiBg`/
+`CanonTaxi`, что у суржа ⚡) сразу под суржевым — оба могут быть видны одновременно (пик спроса
+ночью — обычное дело). Тесты: `ApiClientTaxiCourierTest` (+2: разбор night_note, дефолт `night=false`
+на дневном ответе без полей), `ApiClientEndpointContractTest` (+3 ключа в мастер-список:
+`night_k`/`night`/`night_note`, чтобы общий фикстур-тест продолжал бить по этим полям на всех
+ручках). `testDebugUnitTest` (оба класса) зелёный, `assembleDebug` — см. `tasks.md`.
 
 **Отмена и ожидание (`instant_service`)** — `cancel_fee_with_pickup_kop` = подача + дорога
 водителя + его ожидание, потолок = `Tariff.pickup_max_rub`; `cancel_fee_parts_kop` отдаёт
@@ -1496,8 +1527,10 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
   бросает 403, если в записи есть ПРИВАТНЫЙ снимок другого человека. Стоит на четырёх дверях:
   `create_incident` (общая точка — её зовут и `/incidents`, и спор по доставке), `/incidents/{id}/respond`,
   `/parcels/{id}/accept` и `/parcels/{id}/status` (фото «взял/отдал целой»). Публичные `/media/...`
-  не проверяются (открыты по построению). Читать приложенное по-прежнему могут стороны спора и
-  админ (`_can_view_evidence`). Тесты — `test_audit_20260808.py` раздел 13.
+  не проверяются (открыты по построению). Читать приложенное могут стороны спора, а с 18.09.2026 —
+  и стороны посылки (отправитель и курьер) для её фото «взял/отдал целой», плюс админ
+  (`_can_view_evidence`). Тесты — `test_audit_20260808.py` раздел 13, `test_courier_gaps.py`
+  (`test_parcel_parties_can_open_their_photos`).
 - **Пауза убирает из ВЫДАЧИ, а не только из действий (2026-08-08, по просьбе Александра).**
   `safety_logic.suspended_user_ids(session)` — один select «кто сейчас на паузе» (условие
   `suspended_until > now`, ленивый пересчёт не нужен). Применяется: `rides.py::_hide_suspended`
@@ -3976,3 +4009,218 @@ Android `AdminRatings` и `AdminReviews` больше не слиты в одн�
 пассажира — настоящий `/wallet`. `tests/parity-test.mjs` теперь проверяет не только наличие
 маршрута, но и эти действия, живую поездку, двустороннее подтверждение расчёта и состояния
 водителя.
+
+## Визуальный паритет PWA с Android — шрифты, сторож токенов, компоненты (12.09.2026)
+
+- **Шрифты** (`webapp/public/fonts/`, `@font-face` в `src/index.css`): Roboto 400/500/600/700
+  сабсетами latin / cyrillic / cyrillic-ext (башкирские буквы — в cyrillic-ext), Montserrat 500 и 900
+  (сконвертированы из `android/…/res/font`). `body` — `var(--font-family)` (Roboto первым, как Compose);
+  `.intro` — `var(--font-family-intro)` (Montserrat, как `IntroScreen.kt`). Веса — токены с именами
+  Compose: `--weight-normal/medium/semibold/bold`; семантические `--weight-title` и т.п. — их псевдонимы.
+- **Сторож токенов** `webapp/tests/canon-sync-test.mjs` (в `run.mjs`): читает `CanonTokens.kt` и
+  `index.css`; сверяет цвета (светлая и обе тёмные ветки по подписи `/* CanonX */`), радиусы,
+  `CanonSpace`, кегли/межстрочные/веса; запрещает `font-weight`/`font-size` числом; цвета и радиусы
+  числом в `ui.css` — храповик с бюджетом (сейчас 57 и 5, цель 0).
+- **Общие компоненты `ui.css`** по эталону: `.screen-header` = зелёный CanonTitle в потоке (не плашка),
+  `.screen-header--sub` = ScreenTopBar; `.btn-primary/.btn-soft/.btn-danger/.btn-accent` = четыре
+  стиля `AppButton` (54dp, Bold 16, CanonOnFilled), `.btn-ghost` = TextButton; `.state` =
+  EmptyStateCard/AppErrorState (карточка, круг 62); нижние вкладки по `YuldashBottomItem`.
+  Токен `--on-filled` = CanonBg в обеих темах.
+
+### Партии (а)–(в): экраны PWA по эталонам Android (12.09.2026)
+
+- `webapp/src/components/parcelForm.tsx` — кирпичи формы доставки, 1:1 с `ParcelsScreen.kt`:
+  `DeliverySectionTitle/Hint/ErrorCard/BlockedHint`, `ParcelStepProgress`, `DeliveryTypeCard`,
+  `ParcelSizeCard`, `UrgencyChip`, `DeliveryWaitNote`, `ParcelDeadlinePicker` (системный календарь
+  через `showPicker()`, иначе поле даты в форме), `EstimateCard`, `ParcelCargoTypePicker`,
+  `ParcelFragileSwitch`, `RulesCheckbox`, `ParcelRouteSummary`, `ParcelRouteRow`,
+  `MobilityScreenIntro`; плюс константы `PARCEL_MAX_WEIGHT_KG/ADDRESS_MAX_LEN/DESC_MAX/CARGO_TYPES`
+  и хелперы `cargoTypeLabel/Emoji`, `parcelSizeHint`, `deliveryDateAhead/Human`. Стили — раздел
+  «Форма доставки» в `ui.css` (`.dl-*`, `.pstep`, `.dtype-card`, `.urg-chip`, `.cargo-chip`,
+  `.fragile`, `.rules-card`, `.estimate`, `.screen-intro`, `.parcel-created`, `.parcel-status`).
+- `webapp/src/components/ParcelSendWizard.tsx` — вкладка «Отправить» на `/parcels`: мастер в три
+  шага (`STEP_ROUTE/PARCEL/RECEIVER`) как `SendParcelTab`; «по пути» → `createParcel`, курьер и
+  «купи и привези» → `resolveCity` (`searchSettlements`, затем `geocode`) → `estimateCourier` →
+  `createCourierOrder`; успех — `ParcelCreatedView`. Заменил старую простыню `SendTab` и отдельную
+  `CourierOrderForm.tsx` (удалена). `ParcelsScreen.tsx` оставил себе вкладки (`.parcel-tabs` =
+  `ParcelTab`), «Мои» (`MineTab`, шапка карточки = `MyParcelCard`) и «Возить».
+- `StatusPillParcel` (`parcelUi.tsx`) теперь = `ParcelStatusChip`: те же слова и цвета по статусу
+  (`created` — жёлтый «Ждёт курьера», `accepted/in_transit/delivered` — мятный, `canceled` — красный,
+  `returning/returned` — жёлтый).
+- Карточки посылки: блоки `ParcelAddressBlock`, `ParcelDeadlineNote`, `ParcelReturnNotice`,
+  `ParcelCourierRow`, `ParcelCodeCard`, `isParcelTerminal`, `deliveryDayName` — тоже в `parcelForm.tsx`;
+  рельса — `ProgressRail` (общая) + `CourierDeliveryProgress` / `courierProgressIndex` в
+  `TaxiTripProgress.tsx`. `CarryParcelCard` (`parcelUi.tsx`) = `CourierCarryingCard` с `CourierCargoRow`
+  и `CourierContact`; тело карточки «Мои» в `ParcelsScreen.tsx` = `MyParcelCard`. Тип `Parcel` получил
+  `overdue` (сервер шлёт `_is_overdue`).
+- Курьер: `CourierOnboardingScreen.tsx` = `CourierApplyFormContent` + `CourierStatusScaffold`
+  (классы `.apply-hero`, `.section-head`, `.rules-list/.rule-row`, `.transport-chip`, `.invite-note`,
+  `.agree-card`, `.gate*`); гейт «не курьер» в `CourierScreen.tsx` = `CourierNotApprovedView` (`.gate`).
+  `.photo-slot` теперь = Android `UploadTile` (общий с экранами водителя).
+
+### Партия (г): кабинеты (12.09.2026)
+
+- `webapp/src/components/cabinetUi.tsx` — `SettingsGroup`, `SettingsNavRow`, `SettingSwitchRow`
+  (BookingActiveTripScreen.kt), `CabinetMetric`, `RestrictionsCard`, `SectionHeader` (UiKit), `ArchiveRideRow`
+  (ProfileScreen.kt). Стили — раздел «Кабинеты» в `ui.css` (`.cabinet`, `.settings-group/.settings-row`,
+  `.cab-metric(s)`, `.quick-order`, `.restrictions`, `.driver-ride*`, `.archive-row`).
+- `webapp/src/components/moneyUi.tsx` — `MoneyPeriodSwitch`, `EarnPeriodChips`, `MoneyTotalsCard`, `MoneyLine`,
+  `MoneySectionHeader`, `MoneyDayRow` (CourierEarningsScreen.kt `MoneyType`). Стили — «Денежные экраны».
+- `States.tsx` получил `EmptyStateCard({icon,title,text,action,onAction})` = Android `EmptyStateCard`.
+- Экраны: `PassengerCabinetScreen.tsx` = `PassengerCabinetContent`; `DriverCabinetScreen.tsx` =
+  `DriverCabinetContent` (порядок блоков как в приложении, `RideEditActions` с `editOnly`);
+  `WalletScreen.tsx` = `WalletScreen.kt` (баланс, `PayoutSoonCard`/`PayoutCard` с подтверждением, реестр);
+  `DriverEarningsScreen.tsx` / `CourierEarningsScreen.tsx` = `Driver/CourierEarningsScreen.kt`.
+- Вторая половина (г): `CourierScreen.tsx::Cabinet` = `CourierCabinetTab` (`.cab-note*`, `.statement*`, `.cab-facts`);
+  `DriverTaxiRidesScreen.tsx` = `DriverTaxiRidesScreen.kt` (`.taxi-ride-row*`, `.ride-tag*`);
+  `TaxiDocumentsScreen.tsx` = `TaxiDocumentsScreen` (`.docs-hero`, `.docs-notice`, `.docs-registry`, `.docs-photo`,
+  `.doc-row*`, `.docs-foot`; тип `TaxiApplication.osgop_until`); `PretripCheckScreen.tsx` = `PretripCheckScreen`
+  (`.pretrip-*`); `AdsCabinetScreen.tsx` = `AdsCabinetScreen` (`.ads-package`, `.ad-card*`, `.ad-badge*`, `submitAd`).
+  Иконка `IconInfo` в `Icons.tsx`.
+
+### Партия (д): вход, онбординг, настройки, доверие, SOS (12.09.2026)
+
+- `LoginScreen.tsx` = `LoginScreen.kt`: `.login-hero` (фото `/login_salavat_yulaev_hero.webp`, `__shade` на
+  `--scrim`, `__logo`, `.login-lang` чипы через `setLang`, `__word`, `.login-features`), `.login-card` (наезд
+  на фото, радиус 44), `.login-tg` (green2, 72), `.login-error`; ветка СМС только при `SMS_LOGIN_ENABLED`
+  (`.login-divider`, `.login-phone`, `.login-sms`, `.login-input*`); согласия → `/consents`, `/privacy`.
+- `SettingsScreen.tsx` = `SettingsScreen.kt`: `.settings__title`, группы из `cabinetUi.tsx`, инлайн-пикеры
+  темы/размера (`picker` state → `.settings-group__body` с `.seg`), `PushToggle`, группа админа, веб-только
+  группа, «О приложении» (`VITE_APP_VERSION ?? "web"`), `logoutAsk`, `.danger-card` + `.settings-confirm--card`.
+- `TrustScreen.tsx` = `TrustScreens.kt`: `.trust-card` (`__badge.is-top` золотой, `.trust-ladder__step.is-reached/
+  .is-current`, `.trust-benefits`), `.trust-next` (мятная), `.trust-invite`, `SettingsGroup` ссылок.
+- `SosScreen.tsx` = `SosScreen.kt`: `.sos-head`, `.sos-112` (`tel:112`), `.sos-services` (102/101/103),
+  `.sos-dictate` (копирует заметку + координаты), `.sos-notify`, `.sos-cats`, `.sos-info--ok/--bad`, `.sos-law`.
+- `OnboardingScreen.tsx` = `OnboardingContent` (YuldashApp.kt): четыре слайда (`eyebrow/title/body/hero/items/note`),
+  `finish(to, simple)` ставит флаги и ведёт на `/login` (последний слайд), `/map` («Пропустить») или `/simple`
+  (карточка простого режима); `.onb__top` с `.login-lang onb__lang`, `.onb__page` (keyed), `.onb-hero`
+  (`/onboarding_bashkir_hero.webp`, `__shade`, `__logo`, `__glass`, `__icon`), `.onb-item` + `.onb-bubble`,
+  `.onb-roles/.onb-role` (radio), `.onb-simple`, `.onb-note`, `.onb__foot` (`.onb__nav`, `.onb-dots`, `.onb__next`).
+  Старые `.onb__simple*` (тумблер простого режима) остались — их используют `CreateRequestScreen`,
+  `CreateRideScreen`, `TaxiDrive`.
+- `IntroScreen.tsx` без изменений в логике; вид — `.intro` (виньетка + `--header-top`), `.intro__mark` 132,
+  `.intro__word--meaning/--brand` на токенах `--font-intro-*`, `.intro__rule` 72×4, `.intro__slogan`, `.intro__skip`.
+- Токены в `index.css`: `--font-login-display: 52px; --line-login-display: 56px; --font-intro-meaning: 36px;
+  --font-intro-brand: 44px; --line-intro-brand: 56px`. Каскад появления — `calc(var(--cascade-in) * N)`.
+
+### Партия (е): админка (12.09.2026)
+
+- `webapp/src/components/adminUi.tsx` — общие кирпичи админки: `AdminIntro` (вводная muted 14/20),
+  `ListedEmpty` / `ListedError` / `ListedLoading` (RidesRequestsChatScreens.kt), `AdminFilterChips`
+  (`.afilter`, 48/радиус 14, активный мятный), `AdminStatusBadge` (`.abadge--ok/bad/wait`), `AdminTag`
+  (`.atag--green/red/warn/muted`, подложка 12 %), `AdminStatCard` (`.astat`), `SmallAvatar`, `NearbyChip`
+  (`.fchip`, зеркало NearbyFilterChip). Стили — раздел «Админка — общие кирпичи» в `ui.css`: лента `.alist`,
+  карточка `.acard` (Surface CanonItemShape с рамкой, поля 16, интервал 8; `--tight`, `--severe`, `--btn`,
+  `--waits`), кнопки `.abtn` (Material Button 44/радиус 14; `--outline`, `--text`, `--red`, `--warn`,
+  `--muted`, `--danger`, `--48`, `--46`, `--tall`, `--tiny`), `.adoc` (DocImage 180/200), `.autocheck`,
+  `.alookup`, `.acity`/`.aday` (города и день журнала), `.await` (строка листа ожидания), `.pulse-*`,
+  `.tflag`, `.amsg`/`.athread__subject`, `.rules-note`/`.rstars`/`.rating-card`/`.areview`, `.inc-*`/`.choice-row`
+  (споры), `.asos-*` (SOS админа), `.queue-section`/`.pending-pill`/`.partner-tile`/`.promo-*`, `.pstatement`,
+  `.ads-*`, `.calc-*`.
+- Общий тумблер `.switch` (46×28, бегунок 22) теперь живёт своим блоком в `ui.css` — раньше лежал внутри
+  блока онбординга и ушёл вместе с ним.
+- `AdminCabinetScreen.tsx` = `AdminCabinetScreen` (SecondaryScreens.kt): `SettingsGroup`/`SettingsNavRow`,
+  три группы + четвёртая веб-только. Экраны: `AdminDriversScreen.tsx` (= `AdminDriversContent`, `AutoCheckRow`),
+  `AdminReportsScreen.tsx` (= `AdminReportsContent`, категории §9 из `reportCategoriesAll`),
+  `AdminPaymentRequestsScreen.tsx` (= `AdminPaymentRequestsScreen`, экспортирует `DebtCard`, который
+  переиспользует веб-только `AdminDebtsScreen.tsx`), `AdminRequestScreen.tsx`, `AdminResponsesScreen.tsx`,
+  `AdminTaxiScreen.tsx` (= `AdminTaxiScreen.kt`: заявки + экспортируемые `TaxiCitiesSection`,
+  `PretripJournalSection`; последний переиспользует веб-только `AdminPretripScreen.tsx`),
+  `AdminTaxiPulseScreen.tsx` (= `AdminTaxiPulseScreen.kt`, экспортирует `PriceComplaintCard` для веб-только
+  `AdminPriceComplaintsScreen.tsx`), `AdminWaitlistScreen.tsx`, `AdminTextFlagsScreen.tsx`, `AdminSupportScreen.tsx`,
+  `AdminReviewsScreen.tsx` (два маршрута: `/admin/ratings` = `AdminRatingsScreen.kt`, `/admin/reviews` =
+  `AdminReviewsScreen.kt`), `AdminIncidentsScreen.tsx` (типы спора — перечень `FairnessScreens.kt`),
+  `AdminSosScreen.tsx`, `AdminModerationScreen.tsx`, `AdminPartnersScreen.tsx`, `AdminPromoScreen.tsx`,
+  `AdminParcelsScreen.tsx`, `AdminCourierScreen.tsx`, `AdminAdsScreen.tsx` (форма создания/правки внутри;
+  `components/AdminAdCreate.tsx` удалён), `IncomeCalculatorScreen.tsx`, веб-только `AdminCarPhotoScreen.tsx`.
+- Иконка `IconSend` в `Icons.tsx`.
+
+## Push: переходы и владение устройством — 12.09.2026
+
+FcmService устанавливает открытие текущего заказа для instant_status, instant_payment и instant_im_coming, как MainActivity для сырых FCM extras. Backend push/register вызывает общий guard владельца токена перед обновлением и в обработке IntegrityError. Переход между владельцами требует совпадающего непустого device_id либо предварительного освобождения через выход. Проверки и границы: audit-push-routing-2026-09-12.md.
+<!-- Push audit continuation, 2026-09-12 -->
+Продолжение push-аудита: MainActivity передаёт taxi_apply/courier_apply через DeepLink.pendingApplicationScreen, YuldashApp открывает существующий экран заявки после стартовых экранов и проверки входа. ApiClient.clearLocalSession очищает показанные системные уведомления, сохраняя каналы. rides.edit_ride передаёт каждому пассажиру номер его брони. Проверки и границы: [отчёт push](audit-push-routing-2026-09-12.md).
+
+12.09.2026, продолжение: _push_async передаёт data поездки подписчику. Обработчик pendingParcels ждёт завершения стартовых экранов. FcmService требует локального входа; системные фоновые notification-пакеты обходят этот обработчик — полная защита поздних push остаётся открытой.
+
+12.09.2026, request_watch: отдельный ref_kind/type ведёт водителя в RequestsFeed (/requests-feed), request по-прежнему ведёт автора к ответам. Клиенты учитывают старые записи по type=request_watch. _web_push_url принимает type/id и ref_kind/ref_id. Подробные доказательства — audit-push-routing-2026-09-12.md.
+
+12.09.2026: FCM send_push отправляет data-only с recipient_user_id адресата. FcmService сверяет его с ApiClient.myUserId до обычного уведомления/такси-оффера. Web Push независим и не изменён этим контрактом. Сначала сервер, затем Android; доказательства и границы — audit-push-routing-2026-09-12.md.
+
+12.09.2026, завершение попутки: booking_done несёт номер личной брони, MainActivity→pendingCompletedBookingId→ActiveTrip с серверным статусом; веб /trip/id. Обычный ride ждёт стартовые экраны. Завершённые бронь/рейс не подменяются друг другом.
+
+12.09.2026: done разрешён для ActiveTrip как экрана завершения, но activeTrip (признак живой геолокации) при восстановлении и открытии из списка устанавливается только для confirmed/onboard. RideshareCompletedScreen различает сохранённую оценку и изменённый отзыв, блокирует ввод при отправке.
+
+### Геолокация попутки — уточнение 12.09.2026
+LocationSocket.onTerminated → TripLocationService Handler(main) → stopTracking (GPS, TripLocationBus, сохранённая бронь) → stopSelf. Старые callbacks/таймеры ограничены поколением соединения; terminal1008 не восстанавливается NetworkMonitor. Pending сохраняет до40повторов; done/cancelled сервер возвращает Trip ended. Подробные локальные доказательства: audit-push-routing-2026-09-12.md.
+
+### Геолокация такси и доставки — 12.09.2026
+InstantLocationSocket закрывает terminal-подписку окончательно (включая сеть и старые таймеры). CourierLocationService принимает onTerminated для каждой посылки: удаляет её и обновляет сохранённый набор; пустой набор → GPS cleanup/stopSelf. Гео возврата returning и связь terminal с GPS экрана таксиста остаются отдельными проверками. См. audit-push-routing-2026-09-12.md.
+
+### 12.09.2026 — GPS таксиста и возврат
+InstantDriverTripScreen: trackingTerminated хранится на orderId, WS terminal отключает GPS, пока HTTP ещё active. Новый заказ запускает независимый state. Returning по решению29.07 исключён из GPS; CourierLiveLocationLink фильтр сохранён (internal для runtime-теста). Доказательства audit-push-routing-2026-09-12.md.
+
+### 12.09.2026 — старый inbox completion
+notifications.py: _legacy_completion_bookings пакетно восстанавливает личную done-бронь для точной старой подписи complete_ride; NotificationOut меняет ref_kind/ref_id без записи в Notification. Существующие Android/Web handlers booking_done открывают оценку. Неоднозначная история остаётся ограничением. См. audit-push-routing-2026-09-12.md.
+
+### 12.09.2026 — неудачная публичная ссылка
+YuldashApp хранит failedRideLink отдельно от pendingRideId, показывает Canon AlertDialog с повтором либо недоступностью. Новый pending скрывает предыдущую ошибку; успешный повтор открывает Booking. Подробности audit-push-routing-2026-09-12.md.
+
+Личные ссылки (12.09.2026): YuldashApp сохраняет pendingBookingChatId/pendingCompletedBookingId до входа, проверяет участника через ApiClient.getTripState (/bookings/id/role) до установки activeBookingId. Ответ применяется только в той же сессии и действующем эффекте. Общий диалог публичной/личной ссылки хранит тип назначения для повтора. Доказательства — audit-push-routing-2026-09-12.md.
+
+12.09.2026 — Общие DeepLink назначения (посылки/поддержка/споры/заявки/анкеты): YuldashApp проверяет вход до погашения сигнала, ждёт смены экрана после Login. GeneralLinkLoginTest проверяет 7 направлений и однократное открытие. Данные загружают существующие экраны с серверной проверкой доступа.
+
+12.09.2026 — NavSignals кабинетов/заказа ждут входа; SOS такси сбрасывает весь контекст, SOSпослеLoginвозвращаетсябезавтоPOST. SaveableStateHolder и ключи экранов привязаны к ApiClient.myUserId для изоляции черновиков; JWTrefresh того же пользователя ключ не меняет. Доказательства audit-push-routing-2026-09-12.md.
+
+12.09.2026 — Login является границей истории переходов: эффект screen очищает navHistory и не добавляет предыдущий личный экран. Это закрывает возврат старого SOS после истечения сессии и входа другого водителя. Подтверждения в audit-push-routing-2026-09-12.md.
+
+12.09.2026 — ApiClient: sessionGeneration/sessionLock отделяют вход/выход от refresh. Запросы и повтор после401 удерживают исходное поколение, кеш публикуется с проверкой поколения; refresh атомарно меняет пару токенов без нового поколения. SMS/TG commitAuth, deleteAccount, updateName и кеш /me сохраняют состояние только для своей сессии. Доказательства и ограничения — audit-push-routing-2026-09-12.md.
+12.09.2026 — Web HTTP: client.ts связывает запрос/refresh с поколением сессии; auth.ts использует rotateSession для обновления токенов без нового входа. Проверки и границы: audit-push-routing-2026-09-12.md.
+12.09.2026 — AuthProvider проверяет поколение перед публикацией профиля и продолжением выхода; clearSessionData общий для logout и терминального 401. Отложенная очистка Cache Storage отменяется после нового входа.
+12.09.2026 — webPush.ts удерживает поколение сессии через браузерные и HTTP-ожидания, включая catch; старая операция не меняет флаг и не начинает следующий шаг после нового входа.
+12.09.2026 — Веб: общий yuldash.session вместо локального поколения; Web Locks очередь по маркеру с повторным чтением токена; AuthProvider слушает storage и проверяет новый профиль. Ограничения fallback/реального браузера — в аудите.
+12.09.2026 — SosScreen и ConsentsScreen: публичная оболочка следит за auth, внутренняя форма ключуется общим маркером сессии. Поздние API/GPS callbacks проверяют маркер, простой refresh форму не сбрасывает.
+12.09.2026 — ConsentsForm: запись локального true после успешного grantConsent, allDone только по серверному granted; ошибка допускает явный повтор, автоочередь не заявляется.
+12.09.2026 — flags.consents хранит маркер сессии вместе с зеркалом; чужие/legacy значения отбрасываются и восстанавливаются сервером. Реальные Chromium storage/Web Locks проверены локально, API имитирован.
+12.09.2026 — Настоящий MapKit повторно проверен на текущей ветке: событие onMapLoaded и просмотренный снимок; дополнительно 8 инструментальных экранных тестов. Не приравнивать их к физической GPS-навигации. Доказательства в текущем аудите.
+
+12.09.2026 — privacy.syncPersonalSession синхронизирует владельца sessionStorage на границах AuthProvider; поколение совпадает — данные сохраняются, не совпадает — личные префиксы удаляются. Общий localStorage эта функция не меняет.
+
+12.09.2026 — outbox.flushOutbox и watchOutbox привязаны к поколению сессии. После ответа удаляется только обработанное действие из свежего списка; занятость относится к поколению, старый запрос не блокирует нового владельца. Межвкладочная атомарность localStorage этим не обеспечивается.
+
+12.09.2026 — formDraft сохраняет session рядом с at/data и читает только свою сессию. useDraftSync/useFormDraft закрепляют поколение на срок жизни формы; старые эффекты и callback забывания не изменяют черновик другого аккаунта.
+
+12.09.2026 — OutboxAction.session привязывает сохранённое действие к поколению авторизации. readAll не возвращает действия чужой сессии и legacy без владельца; enqueue не переносит их в новый список.
+
+12.09.2026 — flushOutbox сериализует drainOutbox через Web Lock текущего поколения; локальный флаг остаётся для одной вкладки. enqueue пока синхронный read/modify/write массива localStorage, межвкладочная атомарность не подтверждена.
+
+12.09.2026 — outbox id новых действий UUID (резерв время/random/seq), числовые id читаются для старого формата. Короткий Web Lock над localStorage оказался недостаточен в Chromium stress и откатан; enqueue остаётся синхронным, потеря конкурентных добавлений открыта.
+
+12.09.2026 — Очередь перенесена в outboxStore.ts/IndexedDB yuldash-outbox-v1 (actions+imported). enqueue async подтверждает transaction.oncomplete; удаление по session/id, порядок autoIncrement. outbox.ts держит UI-снимок, обновляет его через BroadcastChannel/storage, startup flush читает БД. Старый localStorage только импортируется с квитанциями; активная запись новых действий туда прекращена.
+
+12.09.2026 — REST текст брони: TripChat создаёт createOutboxId до первого POST, enqueue хранит тот же id; sendMessageRest передаёт Idempotency-Key. Backend ChatMessageRequest связывает sender/booking/key с hash исходного payload и Message, UNIQUE защищает повтор. Миграция bt_chat_message_retry; DTO Message не расширяется.
+
+12.09.2026 — PostgreSQL16.15 подтвердил UNIQUE/replay при двух реальных соединениях. Новая незакрытая граница outboxStore.legacy: identity(session,id) недостаточно для старых числовых коллизий разных действий; новое воспроизведение в текущем отчёте.
+
+2026-09-12: outboxStore.ts переносит старую очередь группами старых id, различает содержимое SHA-256 и сохраняет исходную последовательность добавления. imported хранит массив отпечатков; старые true-квитанции читаются совместимо. Регрессия: tests/outbox-legacy-collision-test.mjs (7 сценариев), подробности и ограничения в audit-push-routing-2026-09-12.md.
+
+19.09.2026: квитанции REST-чата удаляются через FK ON DELETE CASCADE вместе с Message; срок задаётся родительской записью MSG_DAYS. Индекс message_id добавлен моделью и миграцией bu_chat_receipt_index; уникальность sender/booking/key сохранена. Проверено фактическое SQL-удаление и миграция без потери существующих данных.
+
+19.09.2026 — веб: components/CompletedParcelCard.tsx — общая финальная карточка курьера; используется CarryOrders в CourierScreen и CarryingList в ParcelsScreen. fetchCarrying(signal,true) добавляет последние10финальных; финальные действия ограничены серверным контрактом. Подробности audit-courier-completion-2026-09-19.md.
+
+19.09.2026 — GET /parcels/{id}/my-rating (courier.py): только собственные stars/null участника. Веб ParcelRate загружает этот факт и перечитывает после ошибки POST; внутреннее состояние привязано key к доставке и поколению аккаунта. Отчёт audit-parcel-rating-recovery-2026-09-19.md.
+
+19.09.2026 — utils/useTaxiRating.ts в вебе: общий поток финальных оценок пассажира/водителя, читает my_stars/can_rate заказа, сверяет факт после ошибки записи; финальные компоненты имеют key заказа/сессии. Сервер can_rate_order использует те же проверки срока/паузы, что POST. Отчёт audit-taxi-rating-recovery-2026-09-19.md.
+
+19.09.2026 — ApiClient.tryRefresh возвращает Result<Unit>: временная ошибка сохраняется в обычном и multipart-запросе, только терминальный отказ завершает соответствующее поколение входа. До записи проверяется полная строковая пара ключей. Протокол backend refresh остаётся одноразовым; потеря уже закоммиченного ответа отдельно открыта. Подробности audit-refresh-outage-2026-09-19.md.
+
+19.09.2026 — refresh recovery: POST /auth/refresh принимает optional rotation_id (64hex), RefreshToken хранит rotation_id_hash/rotated_at (миграция bv_refresh_recovery). Повтор120сек восстанавливает тот же HMAC-child без продления refresh. User-lock общий для issuance/rotation/recovery/logout, logout атомарный. Cleanup сохраняет окно. Веб intent в отдельной IndexedDB, Android intent в prefs с commit до HTTP. Подробности audit-refresh-recovery-2026-09-19.md.
+
+20.09.2026: перенос plain→secure подтверждает commit копии до удаления источника; при отказе остаётся на plain. OfflineStoreReset хранит незавершённую очистку также в памяти под монитором: commit(false) может уже изменить память настроек. Повторный init не доверяет исчезнувшему из памяти маркеру. Отказ удаления исходника миграции остаётся отдельным открытым случаем (audit-offline-migration-open-cases-2026-09-20.md).
+Предрейсовое подтверждение backend/app/pretrip.py обновляет created_at только при окончании предыдущей смены; повтор внутри смены не продлевает её.
+
+20.09.2026 — TaxiDocumentsScreen увеличивает documentsVersion при начале сохранения; поздний GET применяет результат только для текущей версии вне busy. Обновление во время сохранения не запускается. Три сценария позднего200/404/503 и два загрузки прошли (audit-taxi-documents-race-2026-09-20.md).
+
+20.09.2026 — OfflineMigration.kt: журнал v1 со снимком переносимых строк в plain → secure commit → удаление исходных ключей и журнала одним commit. Selection блокирует изменения при незавершённом переносе и читает снимок. TripPassStore сериализован монитором; Outbox.flush проверяет writable до HTTP. OfflineStoreReset закрывает снимок перед выходом и отменяет журнал лишь после подтверждённого plain reset. [Проверки и открытые случаи](audit-offline-migration-journal-2026-09-20.md).
+
+20.09.2026 — persistNewSession проверяет TripPassStore/Outbox.ensureResetCommitted до AuthStorePolicy.writeSession. Хранилище повторяет clearAll при quarantine; неподтверждённый первый reset блокирует запись нового токена, подтверждённыйPENDING при недоступномsecure допускает её. [Сквозной API-тест](audit-login-offline-reset-2026-09-20.md).

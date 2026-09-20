@@ -20,6 +20,7 @@ from .config import settings
 from .db import engine
 from .storage import StorageError, get_storage
 from .timeutil import utcnow
+from .security import REFRESH_RECOVERY_SECONDS
 
 DRY = "--dry-run" in sys.argv
 
@@ -71,6 +72,7 @@ FAMILY_SMS_DAYS = 30
 # → красный тест, пока кто-то не решит её судьбу. До волны 29 такого решения не принимал никто:
 # 42 таблицы из 61 просто росли, и понять, что из этого осознанно, было нельзя.
 KEEP_FOREVER = {
+    "chatmessagerequest": "Отдельно не храним: чистим каскадно при удалении message (FK ON DELETE CASCADE); срок родителя MSG_DAYS.",
     # Аккаунт и его прямые части. Стираются целиком при удалении аккаунта (app/account.py).
     "user": "сам аккаунт — живёт, пока человек им пользуется",
     "driverprofile": "профиль водителя = часть аккаунта",
@@ -151,8 +153,9 @@ def _rules(now):
         ("telegram-сессии >1д", "tgauth", "created_at < :c", {"c": cut(TG_DAYS)}),
         ("события загрузок >2д", "uploadevent", "created_at < :c", {"c": cut(UPLOAD_DAYS)}),
         ("протухшие refresh-токены",
-         "refreshtoken", "(revoked = true OR expires_at < :now) AND created_at < :c",
-         {"now": now, "c": cut(TOKEN_DAYS)}),
+         "refreshtoken", "(revoked = true OR expires_at < :now) AND created_at < :c "
+         "AND (rotated_at IS NULL OR rotated_at < :recovery_cutoff)",
+         {"now": now, "c": cut(TOKEN_DAYS), "recovery_cutoff": now - timedelta(seconds=REFRESH_RECOVERY_SECONDS)}),
         ("показы/клики рекламы >90д", "adevent", "created_at < :c", {"c": cut(ADEVENT_DAYS)}),
         ("причины отказа от офферов >90д", "offerdecline", "created_at < :c", {"c": cut(DECLINE_DAYS)}),
         ("брошенные водителем заказы >90д", "drivercancel", "at < :c", {"c": cut(DRIVER_CANCEL_DAYS)}),

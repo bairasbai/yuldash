@@ -22,6 +22,34 @@ const OUT = join(HERE, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
 const SUITES = [
+  { test: "taxi-rating-recovery-test", src: null, out: null, bundle: false },
+  { test: "parcel-rating-recovery-test", src: null, out: null, bundle: false },
+  { test: "courier-completion-test", src: null, out: null, bundle: false },
+  { test: "taxi-bootstrap-test", src: null, out: null, bundle: false },
+  { test: "courier-goods-error-test", src: null, out: null, bundle: false },
+  { test: "tab-personal-storage-test", src: null, out: null, bundle: false },
+  { test: "outbox-session-boundary-test", src: null, out: null, bundle: false },
+  { test: "outbox-cross-tab-test", src: null, out: null, bundle: false },
+  { test: "outbox-id-test", src: null, out: null, bundle: false },
+  { test: "outbox-idb-test", src: null, out: null, bundle: false },
+  { test: "outbox-save-ui-test", src: null, out: null, bundle: false },
+  { test: "outbox-delivery-key-test", src: null, out: null, bundle: false },
+  { test: "outbox-legacy-collision-test", src: null, out: null, bundle: false },
+  { test: "outbox-transient-error-test", src: null, out: null, bundle: false },
+  { test: "refresh-outage-test", src: null, out: null, bundle: false },
+  { test: "refresh-replay-test", src: null, out: null, bundle: false },
+  { test: "auth-unavailable-gate-test", src: null, out: null, bundle: false },
+  { test: "draft-owner-test", src: null, out: null, bundle: false },
+  { test: "consent-mirror-owner-test", src: null, out: null, bundle: false },
+  { test: "sos-account-boundary-test", src: null, out: null, bundle: false },
+  { test: "consents-account-boundary-test", src: null, out: null, bundle: false },
+  { test: "auth-provider-cross-tab-test", src: null, out: null, bundle: false },
+  { test: "cross-tab-session-test", src: null, out: null, bundle: false },
+  { test: "web-push-session-test", src: null, out: null, bundle: false },
+  { test: "auth-provider-session-test", src: null, out: null, bundle: false },
+  { test: "session-boundary-test", src: null, out: null, bundle: false },
+  { test: "trip-rating-submit-test", src: null, out: null, bundle: false },
+  { test: "notification-destinations-test", src: null, out: null, bundle: false },
   { test: "taxi-wait-cancel-test", src: null, out: null, bundle: false },
   { test: "taxi-origin-picker-test", src: null, out: null, bundle: false },
   { test: "ride-booking-path-test", src: null, out: null, bundle: false },
@@ -68,6 +96,8 @@ const SUITES = [
   { test: "driver-offer-accept-race-test", src: null, out: null, bundle: false },
   // Экран Android без маршрута PWA теперь ломает проверку в том же коммите.
   { test: "parity-test", src: null, out: null, bundle: false },
+  // Токены сайта читаются из CanonTokens.kt: цвет, радиус, отступ, кегль разошлись — набор красный.
+  { test: "canon-sync-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.

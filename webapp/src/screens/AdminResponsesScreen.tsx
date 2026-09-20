@@ -11,9 +11,8 @@ import { ApiError } from "../api/client";
 import { adminRequestResponses, adminAcceptResponse } from "../api/admin";
 import type { ResponseItem } from "../api/requests";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList } from "../components/States";
+import { AdminIntro, ListedEmpty, ListedLoading, SmallAvatar } from "../components/adminUi";
 import { priceLabel } from "../utils/format";
-import { IconStar, IconCheck, IconChat, IconShield } from "../components/Icons";
 
 type State = "idle" | "loading" | "error" | "ready";
 
@@ -80,119 +79,88 @@ export default function AdminResponsesScreen() {
 
   return (
     <>
-      <SubHeader
-        title={appText("Принять отклик за юзера", "Юзер өсөн яуап")}
-        subtitle={appText("Выбор водителя по заявке", "Заявка буйынса йөрөтөүсе")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Отклики по заявке", "Заявка буйынса яуаптар")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        <AdminIntro>
+          {appText(
+            "Из Telegram-уведомления возьми № заявки. Открой отклики и прими за пользователя после звонка.",
+            "Telegram хәбәренән заявка № ал. Шылтыратҡас яуаптарҙы ас, ҡулланыусы өсөн ҡабул ит."
+          )}
+        </AdminIntro>
 
-      <div className="field-row" style={{ alignItems: "flex-end" }}>
-        <label className="field" style={{ flex: 1 }}>
-          <span className="field__label">{appText("Номер заявки", "Заявка номеры")}</span>
-          <input
-            className="field__input"
-            type="number"
-            inputMode="numeric"
-            value={reqId}
-            onChange={(e) => setReqId(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && load()}
-            placeholder="123"
-          />
-        </label>
-        <button
-          type="button"
-          className="btn-primary"
-          style={{ height: 48 }}
-          onClick={load}
-          disabled={!reqId.trim() || state === "loading"}
-        >
-          {state === "loading" ? appText("Ищем…", "Эҙләйбеҙ…") : appText("Показать", "Күрһәт")}
-        </button>
-      </div>
+        {/* Поле № заявки и «Открыть» в один ряд, как в приложении. */}
+        <div className="alookup">
+          <label className="field">
+            <span className="field__label">{appText("№ заявки", "Заявка №")}</span>
+            <input
+              className="field__input"
+              type="number"
+              inputMode="numeric"
+              value={reqId}
+              onChange={(e) => setReqId(e.target.value.replace(/\D/g, "").slice(0, 8))}
+              onKeyDown={(e) => e.key === "Enter" && load()}
+              placeholder="123"
+            />
+          </label>
+          <button type="button" className="abtn" onClick={load} disabled={!reqId.trim() || state === "loading"}>
+            {state === "loading" ? appText("…", "…") : appText("Открыть", "Асыу")}
+          </button>
+        </div>
 
-      {error && <div className="auth__error" style={{ marginTop: 12 }}>{error}</div>}
+        {error && <div className="auth__error">{error}</div>}
 
-      {state === "loading" && <LoadingList count={2} />}
+        {state === "loading" && <ListedLoading />}
 
-      {accepted && (
-        <div className="safe-note" style={{ marginTop: 12 }}>
-          <div className="safe-note__emoji" aria-hidden><IconCheck size={22} /></div>
-          <p>
+        {accepted && (
+          <p className="dl-hint">
             {appText(
-              `Отклик принят. Поездка и бронь #${accepted.bookingId} созданы за пользователя.`,
-              `Яуап ҡабул ителде. Сәфәр һәм бронь #${accepted.bookingId} юзер өсөн булдырылды.`
+              `Поездка создана (бронь #${accepted.bookingId}). Перезвони пассажиру и водителю.`,
+              `Сәфәр булдырылды (бронь #${accepted.bookingId}). Пассажирға һәм йөрөтөүсегә шылтырат.`
             )}
           </p>
-        </div>
-      )}
+        )}
 
-      {state === "ready" && items.length === 0 && (
-        <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__icon"><IconShield size={34} /></div>
-          <h2>{appText("Откликов пока нет", "Әлегә яуап юҡ")}</h2>
-          <p>
-            {appText(
+        {state === "ready" && items.length === 0 && (
+          <ListedEmpty
+            title={appText("Откликов нет или заявка не найдена", "Яуап юҡ йәки заявка табылманы")}
+            subtitle={appText(
               `На заявку #${loadedId} водители ещё не откликнулись.`,
-              `#${loadedId} заявкаға водителдәр әле яуап бирмәне.`
+              `#${loadedId} заявкаға йөрөтөүселәр әле яуап бирмәне.`
             )}
-          </p>
-        </div>
-      )}
+          />
+        )}
 
-      {state === "ready" && items.length > 0 && (
-        <div className="list" style={{ marginTop: 12 }}>
-          {items.map((it) => {
+        {state === "ready" &&
+          items.map((it) => {
             const isAccepted = it.status === "accepted";
             return (
-              <div key={it.id} className="list-row">
-                <div className="list-row__main">
-                  <div className="list-row__title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {it.driver_name}
-                    {it.driver_rating != null && (
-                      <span className="profile-card__rating" style={{ fontSize: "var(--font-caption)" }}>
-                        <IconStar size={13} /> {it.driver_rating.toFixed(1)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="list-row__sub">
-                    {priceLabel(it.price, ru)}
-                    {it.comment ? ` · ${it.comment}` : ""}
-                  </div>
+              <article key={it.id} className="acard">
+                <div className="acard__row">
+                  <SmallAvatar src={it.driver_avatar} name={it.driver_name} size={42} />
+                  <strong className="acard__title">{it.driver_name}</strong>
+                  {it.driver_rating != null && <span className="acard__sub">★ {it.driver_rating}</span>}
+                  <span className="acard__spacer" />
+                  {it.price > 0 && <b className="acard__amount acard__amount--green">{priceLabel(it.price, ru)}</b>}
                 </div>
+                {it.comment && <span className="acard__sub">{it.comment}</span>}
                 {isAccepted ? (
-                  <span className="badge badge--mint">{appText("Принят", "Ҡабул ителде")}</span>
+                  <span className="atext atext--green">{appText("Принято", "Ҡабул ителде")}</span>
                 ) : (
                   <button
                     type="button"
-                    className="btn-primary btn-soft--sm"
+                    className="abtn"
                     onClick={() => accept(it.id)}
                     disabled={acceptingId !== null || alreadyAccepted}
                   >
-                    {acceptingId === it.id ? (
-                      appText("Принимаем…", "Ҡабул итәбеҙ…")
-                    ) : (
-                      <><IconCheck size={16} /> {appText("Принять", "Ҡабул итеү")}</>
-                    )}
+                    {acceptingId === it.id
+                      ? appText("Принимаем…", "Ҡабул итәбеҙ…")
+                      : appText("Принять за пользователя", "Ҡулланыусы өсөн ҡабул итеү")}
                   </button>
                 )}
-              </div>
+              </article>
             );
           })}
-        </div>
-      )}
-
-      {state === "idle" && (
-        <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__icon"><IconChat size={34} /></div>
-          <h2>{appText("Введи номер заявки", "Заявка номерын индер")}</h2>
-          <p>
-            {appText(
-              "Найди заявку по номеру и прими подходящий отклик за пользователя.",
-              "Заявканы номеры буйынса тап һәм тап килгән яуапты юзер өсөн ҡабул ит."
-            )}
-          </p>
-        </div>
-      )}
+      </div>
     </>
   );
 }

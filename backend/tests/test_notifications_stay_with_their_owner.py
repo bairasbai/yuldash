@@ -150,3 +150,58 @@ def test_свой_телефон_можно_перерегистрировать
 
     assert ещё_раз.status_code == 200, f"повторная регистрация своего телефона упала: {ещё_раз.text}"
     assert len(_устройств(человек["id"])) == 1, "запись задвоилась"
+
+
+def test_other_account_cannot_claim_token_without_device_id(client, user_factory):
+    owner = user_factory("Device owner")
+    other = user_factory("Other account")
+    token = "synthetic-token-missing-device-proof"
+    assert client.post("/push/register", headers={**owner["auth"], "X-Device-Id": "owner-device"},
+                       json={"token": token}).status_code == 200
+    response = client.post("/push/register", headers=other["auth"], json={"token": token})
+    assert response.status_code == 409
+    assert _устройств(owner["id"]) == [token]
+    assert _устройств(other["id"]) == []
+
+
+def test_legacy_token_without_device_cannot_move_to_another_account(client, user_factory):
+    owner = user_factory("Legacy owner")
+    other = user_factory("Other legacy account")
+    token = "synthetic-token-legacy-owner-proof"
+    assert client.post("/push/register", headers=owner["auth"], json={"token": token}).status_code == 200
+    assert client.post("/push/register", headers=owner["auth"], json={"token": token}).status_code == 200
+    assert client.post("/push/register", headers=other["auth"], json={"token": token}).status_code == 409
+    assert _устройств(owner["id"]) == [token]
+    # Explicit logout frees the token even on clients without a device marker.
+    assert client.post("/auth/logout", headers=owner["auth"]).status_code == 200
+    assert client.post("/push/register", headers=other["auth"], json={"token": token}).status_code == 200
+
+
+def test_registration_insert_race_still_checks_device_owner(client, user_factory):
+    from sqlalchemy.exc import IntegrityError
+    from app.routers.auth import push_register, PushTokenIn
+    from app.models import User
+    from fastapi import HTTPException
+    import pytest
+    owner = user_factory("Race owner")
+    other = user_factory("Race other")
+    with Session(engine) as real:
+        other_user = real.get(User, other["id"])
+    row = DeviceToken(user_id=owner["id"], token="synthetic-race-token", device_id="owner-device")
+    class Result:
+        def __init__(self, value): self.value = value
+        def first(self): return self.value
+    class RacingSession:
+        reads = 0
+        def exec(self, _):
+            self.reads += 1
+            return Result(None if self.reads == 1 else row)
+        def add(self, _): pass
+        def commit(self):
+            if self.reads == 1:
+                raise IntegrityError("insert", {}, Exception("unique token"))
+        def rollback(self): pass
+    with pytest.raises(HTTPException) as caught:
+        push_register(PushTokenIn(token=row.token), other_user, RacingSession(), "other-device")
+    assert caught.value.status_code == 409
+    assert row.user_id == owner["id"]

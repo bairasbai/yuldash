@@ -6,12 +6,15 @@
 //  включается одной переменной, когда появится юрлицо для sms.ru.
 // ================================================================
 import {
+  ApiError,
   apiGet,
   apiPost,
   apiUpload,
   getRefreshToken,
-  setRefreshToken,
-  setToken,
+  getRefreshRotationId,
+  clearRefreshRotationId,
+  getSessionGeneration,
+  rotateSession,
 } from "./client";
 
 /** Пользователь из GET /me (User + рейтинг). Поля — по backend User-модели. */
@@ -97,19 +100,37 @@ export function verifySmsCode(
 
 /** Обновить пару токенов по refresh (ротация: старый гасится). */
 export async function refreshSession(): Promise<boolean> {
+  const generation = getSessionGeneration();
   const rt = getRefreshToken();
   if (!rt) return false;
   try {
+    const rotationId = await getRefreshRotationId(generation, rt);
+    if (generation !== getSessionGeneration()) return false;
+    if (getRefreshToken() !== rt) return true; // Another tab already renewed this session.
+    if (!rotationId) return false;
     const pair = await apiPost<Omit<TokenPair, "user">>(
       "/auth/refresh",
-      { refresh_token: rt },
+      { refresh_token: rt, rotation_id: rotationId },
       { auth: false }
     );
-    setToken(pair.access_token);
-    setRefreshToken(pair.refresh_token);
-    return true;
-  } catch {
-    return false;
+    if (!pair || typeof pair.access_token !== "string" || !pair.access_token.trim() ||
+        typeof pair.refresh_token !== "string" || !pair.refresh_token.trim()) {
+      throw new Error("Invalid refresh token pair");
+    }
+    if (generation !== getSessionGeneration()) return false;
+    // A delayed replay of R1 must not overwrite an already completed R2 -> R3.
+    if (getRefreshToken() !== rt) return true;
+    const rotated = rotateSession(pair.access_token, pair.refresh_token, generation);
+    if (rotated) await clearRefreshRotationId(generation, rt).catch(() => {});
+    return rotated;
+  } catch (error) {
+    if (generation !== getSessionGeneration()) return false;
+    if (getRefreshToken() !== rt) return true;
+    if (error instanceof ApiError && [401, 403].includes(error.status)) {
+      await clearRefreshRotationId(generation, rt).catch(() => {});
+      return false;
+    }
+    throw error;
   }
 }
 

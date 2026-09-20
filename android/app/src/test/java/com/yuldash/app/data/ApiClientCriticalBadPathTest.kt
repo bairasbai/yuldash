@@ -39,6 +39,8 @@ class ApiClientCriticalBadPathTest {
 
     @Before
     fun setup() {
+        // Test failure classification, not production-length waits or retry scheduling.
+        ApiClient.testTimeoutMs = 1000
         server = MockWebServer()
         server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
@@ -50,6 +52,7 @@ class ApiClientCriticalBadPathTest {
         ApiClient.logout()
         ApiClient.testBaseUrl = null
         server.shutdown()
+        ApiClient.testTimeoutMs = null
     }
 
     private fun disconnect() = MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)

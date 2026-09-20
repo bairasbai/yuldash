@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.TripPass
 import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.OfflineStoreReset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -71,14 +72,14 @@ class SecureStoreFallbackGuardTest {
 
     @Test
     fun `выход из аккаунта не оставляет телефон водителя на диске`() {
-        TripPassStore.init(ctx)
+        TripPassStore.initStores(ctx.getSharedPreferences("yuldash_trippass", Context.MODE_PRIVATE), null)
         TripPassStore.save(ctx, pass(43))
 
         TripPassStore.clearAll()
 
         val plainLeft = ctx.getSharedPreferences("yuldash_trippass", Context.MODE_PRIVATE).all
-        assertTrue("после выхода в открытом хранилище остались данные: ${plainLeft.keys}",
-            plainLeft.isEmpty())
+        assertEquals("после выхода допустима только отметка очистки недоступного secure",
+            mapOf(OfflineStoreReset.PENDING to true), plainLeft)
         assertTrue("паспорт читается после выхода из аккаунта", TripPassStore.load(ctx, 43) == null)
     }
 
@@ -94,11 +95,13 @@ class SecureStoreFallbackGuardTest {
         assertTrue(
             "очистка при выходе не трогает открытое хранилище — часть паспортов переживёт " +
                 "выход из аккаунта и достанется следующему владельцу телефона",
-            src.contains("plainPrefs?.edit()?.clear()"),
+            src.contains("OfflineStoreReset.clear(plain, securePrefs)") &&
+                source("OfflineStoreReset.kt").contains("plain.edit().clear().putBoolean(PENDING, true).commit()"),
         )
         assertTrue(
             "у очереди исходящих пропал разовый перенос из открытого хранилища",
-            src.contains("plain.contains(KEY)") && src.contains("plain.edit().remove(KEY)"),
+            src.contains("OfflineMigration.open(plain, available) { it == KEY }") &&
+                source("OfflineMigration.kt").contains("remove(JOURNAL)"),
         )
     }
 }

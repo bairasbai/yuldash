@@ -83,7 +83,8 @@ class SessionKeysGuardTest {
 
     @Test
     fun `у каждого ключа на диске есть решение про выход из аккаунта`() {
-        val decided = SessionKeys.CLEARED_BY_FILE.values.flatten().toSet() + SessionKeys.SURVIVES_LOGOUT.keys
+        val decided = SessionKeys.CLEARED_BY_FILE.values.flatten().toSet() +
+            SessionKeys.CLEARED_BY_STORE.values.flatten() + SessionKeys.SURVIVES_LOGOUT.keys
         val forgotten = (keysInSources() - decided).sorted()
         assertTrue(
             "эти ключи пишутся на диск, но никто не решил, переживают ли они выход из аккаунта: " +
@@ -103,8 +104,10 @@ class SessionKeysGuardTest {
         )
         // Паспорта поездок (чужие имена и телефоны) и очередь исходящих — отдельные хранилища,
         // список ключей их не покрывает, поэтому проверяем отдельно.
-        assertTrue("паспорта поездок должны стираться при выходе", logout.contains("TripPassStore.clearAll"))
-        assertTrue("очередь исходящих должна стираться при выходе", logout.contains("Outbox.clearAll"))
+        assertTrue("выход должен вызывать общую очистку", logout.contains("clearAssociatedPersonalData()"))
+        val associated = src.substringAfter("private fun clearAssociatedPersonalData()").substringBefore("\n    }")
+        assertTrue("паспорта поездок должны стираться при выходе", associated.contains("TripPassStore.clearAll"))
+        assertTrue("очередь исходящих должна стираться при выходе", associated.contains("Outbox.clearAll"))
     }
 
     @Test
@@ -124,10 +127,12 @@ class SessionKeysGuardTest {
     fun `выход заходит в каждый ящик настроек, а не только в тот, где токен`() {
         val src = File("src/main/java/com/yuldash/app/data/ApiClient.kt").readText()
         val logout = src.substringAfter("private fun clearLocalSession()").substringBefore("\n    }")
+        assertTrue("выход должен вызывать общую очистку", logout.contains("clearAssociatedPersonalData()"))
+        val associated = src.substringAfter("private fun clearAssociatedPersonalData()").substringBefore("\n    }")
         assertTrue(
             "очистка перестала ходить по адресам из SessionKeys.CLEARED_BY_FILE — значит снова " +
                 "чистит один ящик, хотя ключи лежат в нескольких",
-            logout.contains("CLEARED_BY_FILE"),
+            associated.contains("CLEARED_BY_FILE"),
         )
     }
 

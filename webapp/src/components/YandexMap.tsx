@@ -48,6 +48,10 @@ interface YandexMapProps {
   center?: GeoPoint;
   zoom?: number;
   className?: string;
+  /** Зоны спроса (InstantRouteMap): полупрозрачные круги, радиус и насыщенность по весу. */
+  zones?: { lat: number; lng: number; weight: number }[];
+  /** Счётчик «вернуться к себе»: изменился — камера едет на `me`/`from`. */
+  recenterTick?: number;
 }
 
 // ---- Одноразовая загрузка скрипта Яндекс.Карт ----
@@ -113,6 +117,8 @@ export default function YandexMap({
   center = { lat: 54.7388, lng: 55.9721 }, // Уфа
   zoom = 11,
   className,
+  zones,
+  recenterTick = 0,
 }: YandexMapProps) {
   const { appText } = useLang();
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -201,6 +207,29 @@ export default function YandexMap({
       map.geoObjects.add(line);
     }
 
+    // Круги спроса — как в приложении: до шести зон, вторая по счёту — золотая. Отдельные
+    // точки заказов не рисуем, чтобы карта ожидания не стала инструментом слежения.
+    const valid = (zones ?? []).filter((z) => z.lat !== 0 || z.lng !== 0).slice(0, 6);
+    const maxWeight = Math.max(0.0001, ...valid.map((z) => z.weight));
+    valid.forEach((z, index) => {
+      const weight = Math.min(1, Math.max(0.15, z.weight / maxWeight));
+      const gold = index === 1;
+      try {
+        const circle = new ymaps.Circle([[z.lat, z.lng], 420 + 880 * weight], {}, {
+          fillColor: gold ? GOLD : GREEN,
+          fillOpacity: 0.1 + 0.16 * weight,
+          strokeColor: gold ? GOLD : GREEN,
+          strokeOpacity: 0.55,
+          strokeWidth: 1.2 + weight,
+          zIndex: -2,
+          interactivityModel: "default#transparent",
+        });
+        map.geoObjects.add(circle);
+      } catch {
+        /* круг — украшение, без него карта живёт */
+      }
+    });
+
     if (from) dot(from, GREEN, undefined);
     if (me) dot(me, GREEN);
     if (to) dot(to, GOLD);
@@ -231,7 +260,20 @@ export default function YandexMap({
     } else if (bounds.length === 1) {
       map.setCenter(bounds[0], Math.max(zoom, 13));
     }
-  }, [status, from, to, route, me, markers, zoom]);
+  }, [status, from, to, route, me, markers, zoom, zones]);
+
+  // «Вернуться к себе»: увёл карту пальцем — кнопка возвращает камеру к своей точке.
+  useEffect(() => {
+    const map = mapRef.current;
+    const p = me ?? from;
+    if (!map || !p || recenterTick === 0) return;
+    try {
+      map.setCenter([p.lat, p.lng], Math.max(map.getZoom?.() ?? zoom, 13), { duration: 260 });
+    } catch {
+      /* карта ещё не готова */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recenterTick]);
 
   const heightStyle = typeof height === "number" ? `${height}px` : height;
 

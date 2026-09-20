@@ -37,12 +37,13 @@ export function fetchMessages(
 export function sendMessageRest(
   bookingId: number,
   text: string,
-  voiceUrl?: string
+  voiceUrl?: string,
+  requestId?: string
 ): Promise<ChatMessage> {
   return apiPost<ChatMessage>(`/bookings/${bookingId}/messages`, {
     text,
     voice_url: voiceUrl,
-  });
+  }, { idempotencyKey: requestId });
 }
 
 /**

@@ -25,7 +25,8 @@ import {
   type CarPhotoCheckRow,
 } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
+import { RideCardSkeleton } from "../components/States";
+import { AdminIntro, AdminTag, ListedEmpty, ListedError } from "../components/adminUi";
 import { IconCar, IconCheck, IconWarn } from "../components/Icons";
 import { formatRelative } from "../utils/format";
 
@@ -100,47 +101,46 @@ export default function AdminCarPhotoScreen() {
 
   return (
     <>
-      <SubHeader
-        title={appText("Фотоконтроль машин", "Машина фотоконтроле")}
-        subtitle={appText("580-ФЗ · очередь на просмотр", "580-ФЗ · ҡарау сираты")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Фотоконтроль машин", "Машина фотоконтроле")} onBack={() => navigate(-1)} />
+      <div className="alist">
+      <AdminIntro>
+        {appText(
+          "Снимки машин по 580-ФЗ: раз в две недели и по жалобе. Прими или попроси переснять — с причиной.",
+          "580-ФЗ буйынса машина рәсемдәре: ике аҙнаға бер һәм зар буйынса. Ҡабул ит йәки сәбәп менән яңынан төшөрөргә һора."
+        )}
+      </AdminIntro>
 
-      {state === "loading" && <LoadingList count={2} />}
-      {state === "error" && <ErrorState onRetry={() => load()} />}
+      {state === "loading" && (
+        <>
+          <RideCardSkeleton />
+          <RideCardSkeleton />
+        </>
+      )}
+      {state === "error" && <ListedError onRetry={() => load()} />}
 
       {state === "ready" && rows.length === 0 && (
-        <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__icon">
-            <IconCheck size={34} />
-          </div>
-          <h2>{appText("Очередь пуста", "Сират буш")}</h2>
-          <p>
-            {appText(
-              "Все фотоконтроли разобраны. Новые появятся здесь, как только водители пришлют снимки.",
-              "Бөтә фотоконтролдәр ҡаралған. Йөрөтөүселәр рәсем ебәреү менән яңылары бында күренер."
-            )}
-          </p>
-        </div>
+        <ListedEmpty
+          icon={<IconCheck size={34} />}
+          title={appText("Очередь пуста", "Сират буш")}
+          subtitle={appText(
+            "Все фотоконтроли разобраны. Новые появятся здесь, как только водители пришлют снимки.",
+            "Бөтә фотоконтролдәр ҡаралған. Йөрөтөүселәр рәсем ебәреү менән яңылары бында күренер."
+          )}
+        />
       )}
 
       {state === "ready" &&
         rows.map((row) => (
-          <div key={row.id} className="act-card">
-            <div className="act-card__title">
-              <IconCar size={18} />{" "}
-              {row.mode === "courier"
-                ? appText("Курьер", "Курьер")
-                : appText("Таксист", "Таксист")}{" "}
-              #{row.user_id}
-              {row.kind !== "periodic" && (
-                <span className="badge badge--gold" style={{ marginLeft: 8 }}>
-                  {appText("по жалобе", "зар буйынса")}
-                </span>
-              )}
+          <article key={row.id} className="acard">
+            <div className="acard__row">
+              <strong className="acard__title acard__iconline acard__iconline--green acard__grow">
+                <IconCar size={18} />
+                {row.mode === "courier" ? appText("Курьер", "Курьер") : appText("Таксист", "Таксист")} #{row.user_id}
+              </strong>
+              {row.kind !== "periodic" && <AdminTag tone="warn">{appText("по жалобе", "зар буйынса")}</AdminTag>}
             </div>
 
-            <p className="act-card__text">
+            <p className="acard__sub">
               {row.submitted_at
                 ? appText(
                     `Прислано ${formatRelative(row.submitted_at, true)}`,
@@ -223,32 +223,19 @@ export default function AdminCarPhotoScreen() {
               />
             </label>
 
-            <div className="act-card__actions">
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={busyId === row.id}
-                onClick={() => void decide(row, true)}
-              >
-                <IconCheck size={16} /> {appText("Принять", "Ҡабул итеү")}
+            <div className="acard__actions">
+              <button type="button" className="abtn abtn--48" disabled={busyId === row.id} onClick={() => void decide(row, true)}>
+                {appText("Принять", "Ҡабул итеү")}
               </button>
-              <button
-                type="button"
-                className="btn-ghost"
-                disabled={busyId === row.id}
-                onClick={() => void decide(row, false)}
-              >
+              <button type="button" className="abtn abtn--48 abtn--outline abtn--red" disabled={busyId === row.id} onClick={() => void decide(row, false)}>
                 {appText("Переснять", "Яңынан төшөрөргә")}
               </button>
             </div>
-          </div>
+          </article>
         ))}
 
-      {note && (
-        <div className="notice" role="status">
-          {note}
-        </div>
-      )}
+      {note && <p className="dl-hint" role="status">{note}</p>}
+      </div>
     </>
   );
 }

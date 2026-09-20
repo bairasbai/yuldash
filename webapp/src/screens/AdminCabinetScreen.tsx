@@ -1,14 +1,16 @@
 // ================================================================
 //  Кабинет админа → /admin (RequireAdmin).
-//  Хаб-меню всех админ-разделов. Волны 8А/8Б/8В реализованы — вся админка
-//  активна (модерация + рост + бизнесы/промо/посылки/курьеры).
-//  Двуязычно, токены Canon, тач-цели ≥48px.
+//  Зеркало AdminCabinetScreen (SecondaryScreens.kt): вводная строка и три
+//  группы SettingsGroup/SettingsNavRow в порядке приложения. Разделы, которых
+//  в приложении нет (отзывы о приложении, жалобы на цену, фотоконтроль,
+//  готовность, долги), — отдельной четвёртой группой, чтобы дороги к ним
+//  не пропали при выравнивании. Двуязычно, токены Canon, тач-цели ≥48px.
 // ================================================================
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { SubHeader } from "./ConsentsScreen";
+import { SettingsGroup, SettingsNavRow } from "../components/cabinetUi";
 import {
-  IconChevron,
   IconRequest,
   IconChat,
   IconWheel,
@@ -17,19 +19,24 @@ import {
   IconStar,
   IconRocket,
   IconCar,
-  IconClock,
   IconTrend,
-  IconWork,
-  IconGift,
+  IconTicket,
   IconBox,
   IconWarn,
   IconShield,
   IconCheck,
+  IconPhone,
+  IconSignal,
+  IconMegaphone,
+  IconBlock,
+  IconStore,
+  IconRoute,
+  IconCamera,
+  IconReceipt,
 } from "../components/Icons";
 
 interface AdminLink {
-  key: string;
-  to?: string; // есть → активен; нет → «скоро»
+  to: string;
   icon: JSX.Element;
   title: string;
   sub: string;
@@ -39,215 +46,194 @@ export default function AdminCabinetScreen() {
   const { appText } = useLang();
   const navigate = useNavigate();
 
-  // Волна 8А — ядро модерации (реализовано).
-  const ready: AdminLink[] = [
+  // Группа 1 — заявка и отклики за человека без интернета.
+  const manual: AdminLink[] = [
     {
-      // Первым в списке намеренно: сигнал о помощи не должен ждать своей очереди.
-      key: "sos",
-      to: "/admin/sos",
-      icon: <IconWarn size={22} />,
-      title: appText("Сигналы SOS", "SOS сигналдары"),
-      sub: appText("Кто просит помощи прямо сейчас", "Кем хәҙер ярҙам һорай"),
-    },
-    {
-      key: "incidents",
-      to: "/admin/incidents",
-      icon: <IconShield size={22} />,
-      title: appText("Разбор споров", "Бәхәстәрҙе ҡарау"),
-      sub: appText("Обе версии, решение с объяснением", "Ике версия, аңлатмалы ҡарар"),
-    },
-    {
-      key: "moderation",
-      to: "/admin/moderation",
-      icon: <IconCheck size={22} />,
-      title: appText("Очередь модерации", "Модерация сираты"),
-      sub: appText("Бизнесы и купоны без решения", "Ҡарарһыҙ бизнестар һәм купондар"),
-    },
-    {
-      key: "text-flags",
-      to: "/admin/text-flags",
-      icon: <IconFlag size={22} />,
-      title: appText("Помеченные тексты", "Билдәләнгән текстар"),
-      sub: appText("Фишинг, увод контакта, грубость", "Фишинг, контакт алыу, тупаҫлыҡ"),
-    },
-    {
-      key: "price-complaints",
-      to: "/admin/price-complaints",
-      icon: <IconWallet size={22} />,
-      title: appText("Жалобы на цену", "Хаҡҡа зарлар"),
-      sub: appText("На какой сумме люди отваливаются", "Кешеләр ниндәй суммала китә"),
-    },
-    {
-      key: "car-photo",
-      to: "/admin/car-photo",
-      icon: <IconCar size={22} />,
-      title: appText("Фотоконтроль машин", "Машина фотоконтроле"),
-      sub: appText("Снимки на просмотр (580-ФЗ)", "Ҡарау өсөн рәсемдәр (580-ФЗ)"),
-    },
-    {
-      key: "pretrip",
-      to: "/admin/pretrip",
-      icon: <IconCheck size={22} />,
-      title: appText("Готовность к работе", "Эшкә әҙерлек"),
-      sub: appText("Журнал предрейсовых отметок (580-ФЗ)", "Рейс алды билдәләр журналы"),
-    },
-    {
-      key: "debts",
-      to: "/admin/debts",
-      icon: <IconWallet size={22} />,
-      title: appText("Долги по комиссии", "Комиссия бурыстары"),
-      sub: appText("Подтвердить, отклонить или списать", "Раҫлау, кире ҡағыу йәки алып ташлау"),
-    },
-    {
-      key: "support",
-      to: "/admin/support",
-      icon: <IconChat size={22} />,
-      title: appText("Обращения в поддержку", "Ярҙамға мөрәжәғәттәр"),
-      sub: appText("Ответить человеку — ответ уйдёт сразу", "Кешегә яуап — шунда уҡ бара"),
-    },
-    {
-      key: "request",
       to: "/admin/request",
-      icon: <IconRequest size={22} />,
-      title: appText("Заявка за юзера", "Юзер өсөн заявка"),
-      sub: appText("Оформить поездку по телефону", "Телефон буйынса сәфәр рәтләү"),
+      icon: <IconPhone size={24} />,
+      title: appText("Заявка за пользователя", "Ҡулланыусы өсөн заявка"),
+      sub: appText("Создать заявку после «Попросить звонок»", "«Шылтыратыу һорау»ҙан һуң заявка булдырыу"),
     },
     {
-      key: "responses",
       to: "/admin/responses",
-      icon: <IconChat size={22} />,
-      title: appText("Принять отклик за юзера", "Юзер өсөн яуап ҡабул итеү"),
-      sub: appText("Выбрать водителя по заявке", "Заявка буйынса йөрөтөүсе һайлау"),
+      icon: <IconRequest size={24} />,
+      title: appText("Отклики по заявке", "Заявка буйынса яуаптар"),
+      sub: appText("Принять отклик за пользователя без интернета", "Интернетһыҙ ҡулланыусы өсөн яуап ҡабул итеү"),
     },
+  ];
+
+  // Группа 2 — модерация и безопасность, порядок как в приложении.
+  const moderation: AdminLink[] = [
     {
-      key: "drivers",
       to: "/admin/drivers",
-      icon: <IconWheel size={22} />,
-      title: appText("Модерация водителей", "Йөрөтөүселәрҙе тикшереү"),
-      sub: appText("Права, авто — одобрить/отклонить", "Права, авто — раҫлау/кире ҡағыу"),
+      icon: <IconWheel size={24} />,
+      title: appText("Модерация водителей", "Йөрөтөүселәрҙе модерациялау"),
+      sub: appText("Проверить права и фото, одобрить", "Права һәм фотоны тикшереп раҫлау"),
     },
     {
-      key: "reports",
+      to: "/admin/taxi",
+      icon: <IconCar size={24} />,
+      title: appText("Таксисты", "Таксистар"),
+      sub: appText("Заявки 580-ФЗ и города, где включено такси", "580-ФЗ заявкалары һәм такси ҡабыҙылған ҡалалар"),
+    },
+    {
+      to: "/admin/taxi-pulse",
+      icon: <IconSignal size={24} />,
+      title: appText("Пульс такси", "Такси пульсы"),
+      sub: appText("На линии, активные заказы, счётчики дня по городам", "Линияла, актив заказдар, көн һандары ҡалалар буйынса"),
+    },
+    {
+      to: "/admin/waitlist",
+      icon: <IconMegaphone size={24} />,
+      title: appText("Лист ожидания", "Көтөү исемлеге"),
+      sub: appText("Ранний доступ: кто ждёт запуска, волны приглашений", "Иртә инеү: кем көтә, саҡырыу тулҡындары"),
+    },
+    {
       to: "/admin/reports",
-      icon: <IconFlag size={22} />,
-      title: appText("Жалобы", "Зарланыуҙар"),
-      sub: appText("Разбор и меры", "Тикшереү һәм саралар"),
+      icon: <IconFlag size={24} />,
+      title: appText("Жалобы", "Ялыуҙар"),
+      sub: appText("Разобрать жалобы пользователей", "Ҡулланыусы ялыуҙарын тикшереү"),
     },
     {
-      key: "payments",
-      to: "/admin/payment-requests",
-      icon: <IconWallet size={22} />,
-      title: appText("Заявки на оплату", "Түләү заявкалары"),
-      sub: appText("Подтвердить переводы (СБП)", "Күсереүҙәрҙе раҫлау (СБП)"),
+      to: "/admin/text-flags",
+      icon: <IconBlock size={24} />,
+      title: appText("Помеченные тексты", "Билдәләнгән текстар"),
+      sub: appText("Телефоны, мат и фишинг в открытых полях", "Асыҡ ҡырҙарҙа телефон, тупаҫлыҡ, фишинг"),
     },
-    // Волна 8Б — отзывы, реклама, такси, лист ожидания, пульс, доход.
     {
-      key: "ratings",
+      to: "/admin/support",
+      icon: <IconChat size={24} />,
+      title: appText("Обращения в поддержку", "Ярҙамға мөрәжәғәттәр"),
+      sub: appText("Ответить человеку и закрыть вопрос", "Кешегә яуап биреү һәм һорауҙы ябыу"),
+    },
+    {
       to: "/admin/ratings",
-      icon: <IconStar size={22} />,
-      title: appText("Отзывы о поездках", "Сәфәрҙәр тураһында фекерҙәр"),
-      sub: appText("Публикация и защита рейтинга", "Баҫтырыу һәм рейтингты һаҡлау"),
+      icon: <IconStar size={24} />,
+      title: appText("Отзывы на модерации", "Модерациялағы фекерҙәр"),
+      sub: appText("Одобрить текст к показу в профиле", "Текстты профилдә күрһәтергә раҫлау"),
     },
     {
-      key: "reviews",
+      to: "/admin/incidents",
+      icon: <IconShield size={24} />,
+      title: appText("Разбор споров", "Бәхәстәрҙе ҡарау"),
+      sub: appText("Обе версии рядом, телефоны сторон, решение с объяснением", "Ике версия ҡатар, телефондар, аңлатмалы ҡарар"),
+    },
+    {
+      to: "/admin/sos",
+      icon: <IconWarn size={24} />,
+      title: appText("Сигналы SOS", "SOS сигналдары"),
+      sub: appText("Кто позвал на помощь: позвонить и отметить «принял»", "Кем ярҙам һораған: шылтыратып «ҡабул иттем» тип билдәләү"),
+    },
+    {
+      to: "/admin/moderation",
+      icon: <IconStore size={24} />,
+      title: appText("Модерация витрины", "Витрина модерацияһы"),
+      sub: appText("Что я ещё не смотрел: бизнесы и купоны", "Ҡарамағаным: бизнестар һәм купондар"),
+    },
+    {
+      to: "/admin/partners",
+      icon: <IconStore size={24} />,
+      title: appText("Бизнесы-партнёры", "Партнёр-бизнестар"),
+      sub: appText("Модерация: одобрить купонных партнёров", "Модерация: купон партнёрҙарын раҫлау"),
+    },
+    {
+      to: "/admin/promo",
+      icon: <IconTicket size={24} />,
+      title: appText("Промокоды и кампании", "Промокодтар һәм акциялар"),
+      sub: appText("Коды для блогеров и акций, статистика", "Блогерҙар һәм акциялар өсөн кодтар, статистика"),
+    },
+    {
+      to: "/admin/parcels",
+      icon: <IconBox size={24} />,
+      title: appText("Посылки", "Бандеролдәр"),
+      sub: appText("Доставки и собранный сбор", "Илтеүҙәр һәм йыйылған сбор"),
+    },
+    {
+      to: "/admin/courier",
+      icon: <IconRoute size={24} />,
+      title: appText("Курьеры", "Курьерҙар"),
+      sub: appText("Заявки курьеров: одобрить или отклонить", "Курьер заявкалары: раҫлау йәки кире ҡағыу"),
+    },
+  ];
+
+  // Группа 3 — деньги и рост.
+  const money: AdminLink[] = [
+    {
+      to: "/admin/payment-requests",
+      icon: <IconWallet size={24} />,
+      title: appText("Заявки на оплату", "Түләү заявкалары"),
+      sub: appText("Подтвердить оплату буста и донаты", "Буст түләүен раҫлау һәм донаттар"),
+    },
+    {
+      to: "/admin/ads",
+      icon: <IconRocket size={24} />,
+      title: appText("Реклама", "Реклама"),
+      sub: appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"),
+    },
+    {
+      to: "/admin/income",
+      icon: <IconTrend size={24} />,
+      title: appText("Калькулятор дохода", "Килем калькуляторы"),
+      sub: appText("Прикинь месячную выручку и «чистыми» по маршруту", "Маршрут буйынса айлыҡ килемде һәм таҙаһын самала"),
+    },
+  ];
+
+  // Есть только в вебе: отзывы о приложении, жалобы на цену, фотоконтроль, готовность, долги.
+  const webOnly: AdminLink[] = [
+    {
       to: "/admin/reviews",
-      icon: <IconStar size={22} />,
+      icon: <IconStar size={24} />,
       title: appText("Отзывы о приложении", "Ҡушымта тураһында фекерҙәр"),
       sub: appText("Отзывы для витрины Юлдаша", "Юлдаш витринаһы өсөн фекерҙәр"),
     },
     {
-      key: "ads",
-      to: "/admin/ads",
-      icon: <IconRocket size={22} />,
-      title: appText("Реклама", "Реклама"),
-      sub: appText("Модерация объявлений партнёров", "Партнёр иғландарын тикшереү"),
+      to: "/admin/price-complaints",
+      icon: <IconWallet size={24} />,
+      title: appText("Жалобы на цену", "Хаҡҡа зарлар"),
+      sub: appText("На какой сумме люди отваливаются", "Кешеләр ниндәй суммала китә"),
     },
     {
-      key: "taxi",
-      to: "/admin/taxi",
-      icon: <IconCar size={22} />,
-      title: appText("Такси", "Такси"),
-      sub: appText("Заявки таксистов и города", "Такси заявкалары һәм ҡалалар"),
+      to: "/admin/car-photo",
+      icon: <IconCamera size={24} />,
+      title: appText("Фотоконтроль машин", "Машина фотоконтроле"),
+      sub: appText("Снимки на просмотр (580-ФЗ)", "Ҡарау өсөн рәсемдәр (580-ФЗ)"),
     },
     {
-      key: "waitlist",
-      to: "/admin/waitlist",
-      icon: <IconClock size={22} />,
-      title: appText("Лист ожидания", "Көтөү исемлеге"),
-      sub: appText("Ранний доступ и волны", "Иртә инеү һәм тулҡындар"),
+      to: "/admin/pretrip",
+      icon: <IconCheck size={24} />,
+      title: appText("Готовность к работе", "Эшкә әҙерлек"),
+      sub: appText("Журнал предрейсовых отметок (580-ФЗ)", "Рейс алды билдәләр журналы"),
     },
     {
-      key: "pulse",
-      to: "/admin/taxi-pulse",
-      icon: <IconTrend size={22} />,
-      title: appText("Пульс такси", "Такси тибеше"),
-      sub: appText("Спрос и предложение вживую", "Ихтыяж һәм тәҡдим тере"),
-    },
-    {
-      key: "income",
-      to: "/admin/income",
-      icon: <IconWallet size={22} />,
-      title: appText("Калькулятор дохода", "Килем калькуляторы"),
-      sub: appText("Прогноз выручки автора", "Автор килеме фаразы"),
-    },
-    // Волна 8В — бизнесы, промо, посылки, курьеры (завершает админку).
-    {
-      key: "business",
-      to: "/admin/partners",
-      icon: <IconWork size={22} />,
-      title: appText("Бизнесы", "Бизнестар"),
-      sub: appText("Модерация партнёрских компаний", "Партнёр компанияларын тикшереү"),
-    },
-    {
-      key: "promo",
-      to: "/admin/promo",
-      icon: <IconGift size={22} />,
-      title: appText("Промокоды и кампании", "Промокодтар һәм кампаниялар"),
-      sub: appText("Блогеры, партнёры, акции", "Блогерҙар, партнёрҙар, акциялар"),
-    },
-    {
-      key: "parcels",
-      to: "/admin/parcels",
-      icon: <IconBox size={22} />,
-      title: appText("Доставки посылок", "Бандероль доставкалары"),
-      sub: appText("Контроль и доход", "Контроль һәм килем"),
-    },
-    {
-      key: "couriers",
-      to: "/admin/courier",
-      icon: <IconBox size={22} />,
-      title: appText("Заявки курьеров", "Курьер заявкалары"),
-      sub: appText("Проверка и одобрение", "Тикшереү һәм хуплау"),
+      to: "/admin/debts",
+      icon: <IconReceipt size={24} />,
+      title: appText("Долги по комиссии", "Комиссия бурыстары"),
+      sub: appText("Подтвердить, отклонить или списать", "Раҫлау, кире ҡағыу йәки алып ташлау"),
     },
   ];
 
+  const group = (items: AdminLink[]) => (
+    <SettingsGroup>
+      {items.map((r) => (
+        <SettingsNavRow key={r.to} icon={r.icon} title={r.title} subtitle={r.sub} onClick={() => navigate(r.to)} />
+      ))}
+    </SettingsGroup>
+  );
+
   return (
     <>
-      <SubHeader
-        title={appText("Кабинет админа", "Админ кабинеты")}
-        subtitle={appText("Модерация и управление", "Тикшереү һәм идара итеү")}
-        onBack={() => navigate(-1)}
-      />
-
-      <h2 className="section-title">{appText("Модерация", "Тикшереү")}</h2>
-      <div className="list">
-        {ready.map((r) => (
-          <button
-            key={r.key}
-            type="button"
-            className="list-row list-row--link"
-            onClick={() => navigate(r.to!)}
-          >
-            <span className="list-row__icon">{r.icon}</span>
-            <div className="list-row__main">
-              <div className="list-row__title">{r.title}</div>
-              <div className="list-row__sub">{r.sub}</div>
-            </div>
-            <span className="list-row__chev">
-              <IconChevron size={20} />
-            </span>
-          </button>
-        ))}
+      <SubHeader title={appText("Кабинет админа", "Админ кабинеты")} onBack={() => navigate(-1)} />
+      <div className="cabinet">
+        <p className="dl-hint">
+          {appText(
+            "Единый центр управления Юлдашем. Виден только администратору.",
+            "Юлдашты идара итеү үҙәге. Тик админға күренә."
+          )}
+        </p>
+        {group(manual)}
+        {group(moderation)}
+        {group(money)}
+        {group(webOnly)}
       </div>
     </>
   );

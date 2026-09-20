@@ -181,7 +181,8 @@ android {
         versionCode = 2
         versionName = "1.0.0"      // первый публичный релиз
         // Рунер инструментальных тестов (без него AGP берёт легаси android.test.* → краш Compose-тестов).
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = providers.gradleProperty("storageAuditRunner").orNull
+            ?: "androidx.test.runner.AndroidJUnitRunner"
 
         // Пробрасываем ключ в BuildConfig (в коде не хардкодим).
         buildConfigField("String", "YANDEX_MAPKIT_KEY", "\"$mapkitKey\"")

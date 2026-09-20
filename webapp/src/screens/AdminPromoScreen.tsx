@@ -17,22 +17,14 @@ import {
   type AdminPromoIn,
 } from "../api/admin";
 import { SubHeader } from "./ConsentsScreen";
-import { LoadingList, ErrorState } from "../components/States";
-import { formatRelative } from "../utils/format";
-import { IconGift, IconCheck } from "../components/Icons";
+import { RideCardSkeleton } from "../components/States";
+import { AdminIntro, ListedEmpty, ListedError } from "../components/adminUi";
+import { IconGift, IconRocket, IconTicket } from "../components/Icons";
 
 type State = "loading" | "error" | "ready";
 
-/** datetime-local (localtime) → ISO для бэка; пусто → null. */
-function toIso(local: string): string | null {
-  if (!local) return null;
-  const d = new Date(local);
-  return isNaN(d.getTime()) ? null : d.toISOString();
-}
-
 export default function AdminPromoScreen() {
-  const { appText, lang } = useLang();
-  const ru = lang !== "ba";
+  const { appText } = useLang();
   const navigate = useNavigate();
 
   const [state, setState] = useState<State>("loading");
@@ -43,7 +35,9 @@ export default function AdminPromoScreen() {
     setState("loading");
     fetchAdminPromos(signal)
       .then((list) => {
-        setPromos(list);
+        // Включённые — сверху, затем по дате (свежие выше), как в приложении.
+        const rank = (p: AdminPromo) => (p.active_flag ? 1 : 0);
+        setPromos([...list].sort((a, b) => rank(b) - rank(a) || (b.created_at ?? "").localeCompare(a.created_at ?? "")));
         setState("ready");
       })
       .catch((e) => {
@@ -66,110 +60,96 @@ export default function AdminPromoScreen() {
     setShowForm(false);
   }
 
-  const appliedTotal = promos.reduce((s, p) => s + p.applied, 0);
-  const activeTotal = promos.reduce((s, p) => s + p.active, 0);
+  // Форма — отдельный экран, как PromoCreateForm в приложении.
+  if (showForm) {
+    return <PromoForm onBack={() => setShowForm(false)} onCreated={prepend} />;
+  }
 
   return (
     <>
-      <SubHeader
-        title={appText("Промокоды и кампании", "Промокодтар һәм кампаниялар")}
-        subtitle={appText("Блогеры, партнёры, акции", "Блогерҙар, партнёрҙар, акциялар")}
-        onBack={() => navigate(-1)}
-      />
+      <SubHeader title={appText("Промокоды и кампании", "Промокодтар һәм акциялар")} onBack={() => navigate(-1)} />
+      <div className="alist">
+        <AdminIntro>
+          {appText(
+            "Коды для блогеров и акций. Applied — сколько ввели, Active — сколько стали активными.",
+            "Блогерҙар һәм акциялар өсөн кодтар. Applied — нисә кеше индерҙе, Active — нисәһе актив булды."
+          )}
+        </AdminIntro>
+        <button type="button" className="btn-primary btn-accent promo-create" onClick={() => setShowForm(true)}>
+          + {appText("Создать код", "Код булдырыу")}
+        </button>
 
-      <div className="stat-grid" style={{ marginBottom: 4 }}>
-        <div className="stat-tile">
-          <b>{promos.length}</b>
-          <span>{appText("кампаний", "кампания")}</span>
-        </div>
-        <div className="stat-tile">
-          <b>{appliedTotal}</b>
-          <span>{appText("применили", "ҡулланды")}</span>
-        </div>
-        <div className="stat-tile stat-tile--hl">
-          <b>{activeTotal}</b>
-          <span>{appText("активных", "әүҙем")}</span>
-        </div>
+        {state === "loading" && (
+          <>
+            <RideCardSkeleton />
+            <RideCardSkeleton />
+          </>
+        )}
+        {state === "error" && <ListedError onRetry={() => load()} />}
+
+        {state === "ready" && promos.length === 0 && (
+          <ListedEmpty
+            title={appText("Пока нет кодов", "Әлегә кодтар юҡ")}
+            subtitle={appText("Создай первый промокод — для блогера или акции.", "Беренсе промокодты булдыр — блогер йәки акция өсөн.")}
+          />
+        )}
+
+        {state === "ready" && promos.map((p, i) => <PromoCard key={p.id} promo={p} index={i} onPatch={patch} />)}
       </div>
-
-      <button
-        type="button"
-        className={showForm ? "btn-soft" : "btn-primary"}
-        style={{ marginTop: 4 }}
-        onClick={() => setShowForm((v) => !v)}
-      >
-        {showForm ? appText("Скрыть форму", "Форманы йәшереү") : appText("Создать промокод", "Промокод булдырыу")}
-      </button>
-
-      {showForm && <PromoForm onCreated={prepend} />}
-
-      {state === "loading" && <LoadingList count={3} />}
-      {state === "error" && <ErrorState onRetry={() => load()} />}
-
-      {state === "ready" && promos.length === 0 && (
-        <div className="state" style={{ paddingTop: 24 }}>
-          <div className="state__icon"><IconGift size={40} /></div>
-          <h2>{appText("Пока нет кампаний", "Әле кампаниялар юҡ")}</h2>
-          <p>{appText("Создай первый промокод — для блогера или акции.", "Блогер йәки акция өсөн беренсе промокод булдыр.")}</p>
-        </div>
-      )}
-
-      {state === "ready" && promos.length > 0 && (
-        <div className="admin-cards">
-          {promos.map((p) => (
-            <PromoCard key={p.id} promo={p} ru={ru} onPatch={patch} />
-          ))}
-        </div>
-      )}
     </>
   );
 }
 
-const EMPTY: AdminPromoIn = {
-  code: "",
-  title: "",
-  owner_phone: "",
-  campaign: "",
-  kind: "welcome",
-  perk_value: 0,
-  limit_total: 0,
-  limit_per_user: 1,
-};
+/** «гггг-мм-дд» из ISO или пусто. */
+function shortDate(iso: string | null): string {
+  return iso && iso.length >= 10 ? iso.slice(0, 10) : "";
+}
 
-function PromoForm({ onCreated }: { onCreated: (p: AdminPromo) => void }) {
+function PromoForm({ onBack, onCreated }: { onBack: () => void; onCreated: (p: AdminPromo) => void }) {
   const { appText } = useLang();
-  const [form, setForm] = useState<AdminPromoIn>(EMPTY);
-  const [validFrom, setValidFrom] = useState("");
+  const [code, setCode] = useState("");
+  const [title, setTitle] = useState("");
+  const [campaign, setCampaign] = useState("");
+  const [kind, setKind] = useState<"welcome" | "boost">("welcome");
+  const [perkValue, setPerkValue] = useState("1");
+  const [ownerPhone, setOwnerPhone] = useState("");
+  const [limitTotal, setLimitTotal] = useState("100");
   const [validUntil, setValidUntil] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function upd<K extends keyof AdminPromoIn>(key: K, value: AdminPromoIn[K]) {
-    setForm((f) => ({ ...f, [key]: value }));
-  }
+  const isBoost = kind === "boost";
+  const canSubmit = !!code.trim() && !!campaign.trim();
 
   async function submit() {
     if (busy) return;
-    if (!form.code.trim()) {
-      setError(appText("Нужен код промокода", "Промокод коды кәрәк")); // DRAFT
+    const c = code.trim();
+    if (!c || !campaign.trim()) {
+      setError(appText("Заполни код и кампанию.", "Код һәм кампанияны тултыр."));
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const created = await createAdminPromo({
-        ...form,
-        code: form.code.trim().toUpperCase(),
-        owner_phone: form.owner_phone?.trim() || undefined,
-        valid_from: toIso(validFrom),
-        valid_until: toIso(validUntil),
-      });
+      const body: AdminPromoIn = {
+        code: c.toUpperCase(),
+        title: title.trim() || c,
+        description: "",
+        campaign: campaign.trim(),
+        kind,
+        perk_value: isBoost ? Number(perkValue) || 0 : 0,
+        limit_total: Number(limitTotal) || 0,
+        limit_per_user: 1, // на человека код всегда один — см. подпись в форме
+        owner_phone: ownerPhone.trim() || undefined,
+        valid_until: validUntil.trim() || null,
+      };
+      const created = await createAdminPromo(body);
       onCreated(created);
     } catch (e) {
       setError(
         e instanceof ApiError && e.message
           ? e.message
-          : appText("Не получилось создать. Попробуй снова.", "Булдырып булманы. Ҡабат ҡара.") // DRAFT
+          : appText("Не получилось создать. Повтори.", "Булдырып булманы. Ҡабатла.")
       );
     } finally {
       setBusy(false);
@@ -177,132 +157,76 @@ function PromoForm({ onCreated }: { onCreated: (p: AdminPromo) => void }) {
   }
 
   return (
-    <div className="admin-card" style={{ marginTop: 10 }}>
-      <label className="field__label">{appText("Код", "Код")}</label>
-      <input
-        className="field__input"
-        value={form.code}
-        onChange={(e) => upd("code", e.target.value)}
-        placeholder={appText("Например: SOSED", "Мәҫәлән: SOSED")}
-        style={{ textTransform: "uppercase" }}
-      />
+    <>
+      <SubHeader title={appText("Новый промокод", "Яңы промокод")} onBack={onBack} />
+      <div className="alist">
+        <label className="field">
+          <span className="field__label">{appText("Код", "Код")}</span>
+          <input
+            className="field__input promo-code-input"
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase().replace(/\s+/g, ""))}
+            placeholder="BLOGER10"
+            autoCapitalize="characters"
+          />
+        </label>
+        <label className="field">
+          <span className="field__label">{appText("Название", "Исеме")}</span>
+          <input className="field__input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={appText("Осенняя акция", "Көҙгө акция")} />
+        </label>
+        <label className="field">
+          <span className="field__label">{appText("Кампания", "Кампания")}</span>
+          <input className="field__input" value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="autumn_2026" />
+        </label>
 
-      <label className="field__label" style={{ marginTop: 10 }}>{appText("Название", "Исем")}</label>
-      <input
-        className="field__input"
-        value={form.title}
-        onChange={(e) => upd("title", e.target.value)}
-        placeholder={appText("Кампания блогера / акция", "Блогер кампанияһы / акция")}
-      />
+        <div className="promo-kind">
+          <span className="acard__label">{appText("Что даёт код", "Код нимә бирә")}</span>
+          <div className="promo-kind__row" role="radiogroup">
+            <button type="button" role="radio" aria-checked={!isBoost} className={"promo-kind__chip" + (!isBoost ? " is-on" : "")} onClick={() => setKind("welcome")}>
+              <IconGift size={18} /> {appText("Приветствие", "Сәләмләү")}
+            </button>
+            <button type="button" role="radio" aria-checked={isBoost} className={"promo-kind__chip" + (isBoost ? " is-on" : "")} onClick={() => setKind("boost")}>
+              <IconRocket size={18} /> {appText("Поднятия", "Күтәреү")}
+            </button>
+          </div>
+        </div>
 
-      <label className="field__label" style={{ marginTop: 10 }}>{appText("Тип бонуса", "Бонус төрө")}</label>
-      <select
-        className="field__input"
-        value={form.kind}
-        onChange={(e) => upd("kind", e.target.value as "welcome" | "boost")}
-      >
-        <option value="welcome">{appText("Приветствие (атрибуция)", "Сәләм (атрибуция)")}</option>
-        <option value="boost">{appText("Бесплатные поднятия", "Бушлай күтәреүҙәр")}</option>
-      </select>
-
-      {form.kind === "boost" && (
-        <>
-          <label className="field__label" style={{ marginTop: 10 }}>
-            {appText("Сколько поднятий", "Күпме күтәреү")}
+        {isBoost && (
+          <label className="field">
+            <span className="field__label">{appText("Сколько бесплатных поднятий", "Нисә бушлай күтәреү")}</span>
+            <input className="field__input" inputMode="numeric" value={perkValue} onChange={(e) => setPerkValue(e.target.value.replace(/\D/g, ""))} placeholder="3" />
           </label>
-          <input
-            className="field__input"
-            type="number"
-            inputMode="numeric"
-            value={String(form.perk_value ?? 0)}
-            onChange={(e) => upd("perk_value", Math.max(0, Number(e.target.value) || 0))}
-          />
-        </>
-      )}
+        )}
+        <label className="field">
+          <span className="field__label">{appText("Телефон блогера (необязательно)", "Блогер телефоны (мәжбүри түгел)")}</span>
+          <input className="field__input" inputMode="tel" value={ownerPhone} onChange={(e) => setOwnerPhone(e.target.value)} placeholder="+7 917 000 00 00" />
+        </label>
+        {/* Поле «на человека» убрано намеренно: сервер выдаёт код ОДИН РАЗ на аккаунт. */}
+        <label className="field">
+          <span className="field__label">{appText("Лимит всего", "Бөтә лимит")}</span>
+          <input className="field__input" inputMode="numeric" value={limitTotal} onChange={(e) => setLimitTotal(e.target.value.replace(/\D/g, ""))} placeholder="100" />
+        </label>
+        <label className="field">
+          <span className="field__label">{appText("Действует до (гггг-мм-дд, необязательно)", "Тиклем ғәмәлдә (гггг-мм-дд, мәжбүри түгел)")}</span>
+          <input className="field__input" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} placeholder="2026-12-31" />
+        </label>
 
-      <label className="field__label" style={{ marginTop: 10 }}>
-        {appText("Телефон блогера (необязательно)", "Блогер телефоны (мотлаҡ түгел)")}
-      </label>
-      <input
-        className="field__input"
-        value={form.owner_phone ?? ""}
-        onChange={(e) => upd("owner_phone", e.target.value)}
-        placeholder="+7…"
-      />
+        {error && <div className="auth__error">{error}</div>}
 
-      <label className="field__label" style={{ marginTop: 10 }}>{appText("Кампания (метка)", "Кампания (билдә)")}</label>
-      <input
-        className="field__input"
-        value={form.campaign}
-        onChange={(e) => upd("campaign", e.target.value)}
-        placeholder={appText("Например: instagram-май", "Мәҫәлән: instagram-май")}
-      />
-
-      <div className="field-row" style={{ marginTop: 10 }}>
-        <div style={{ flex: 1 }}>
-          <label className="field__label">{appText("Всего (0 = без лимита)", "Барлығы (0 = сикһеҙ)")}</label>
-          <input
-            className="field__input"
-            type="number"
-            inputMode="numeric"
-            value={String(form.limit_total ?? 0)}
-            onChange={(e) => upd("limit_total", Math.max(0, Number(e.target.value) || 0))}
-          />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label className="field__label">{appText("На человека", "Кешегә")}</label>
-          <input
-            className="field__input"
-            type="number"
-            inputMode="numeric"
-            value={String(form.limit_per_user ?? 1)}
-            onChange={(e) => upd("limit_per_user", Math.max(1, Number(e.target.value) || 1))}
-          />
-        </div>
+        <button type="button" className="btn-primary btn-accent promo-create" onClick={submit} disabled={busy || !canSubmit}>
+          {busy ? appText("Создаём…", "Булдырабыҙ…") : <><IconTicket size={20} /> {appText("Создать код", "Код булдырыу")}</>}
+        </button>
       </div>
-
-      <div className="field-row" style={{ marginTop: 10 }}>
-        <div style={{ flex: 1 }}>
-          <label className="field__label">{appText("С даты (необяз.)", "Датанан (мотлаҡ түгел)")}</label>
-          <input
-            className="field__input"
-            type="datetime-local"
-            value={validFrom}
-            onChange={(e) => setValidFrom(e.target.value)}
-          />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label className="field__label">{appText("До даты (необяз.)", "Датаға тиклем")}</label>
-          <input
-            className="field__input"
-            type="datetime-local"
-            value={validUntil}
-            onChange={(e) => setValidUntil(e.target.value)}
-          />
-        </div>
-      </div>
-
-      {error && <div className="auth__error">{error}</div>}
-
-      <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
-        {busy ? appText("Создаём…", "Булдырабыҙ…") : appText("Создать промокод", "Промокод булдырыу")}
-      </button>
-    </div>
+    </>
   );
 }
 
-function PromoCard({
-  promo,
-  ru,
-  onPatch,
-}: {
-  promo: AdminPromo;
-  ru: boolean;
-  onPatch: (p: AdminPromo) => void;
-}) {
+function PromoCard({ promo, index, onPatch }: { promo: AdminPromo; index: number; onPatch: (p: AdminPromo) => void }) {
   const { appText } = useLang();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isBoost = promo.kind.toLowerCase() === "boost";
+  const until = shortDate(promo.valid_until);
 
   async function toggle() {
     if (busy) return;
@@ -315,7 +239,7 @@ function PromoCard({
       setError(
         e instanceof ApiError && e.message
           ? e.message
-          : appText("Не получилось. Попробуй ещё раз.", "Булманы. Ҡабат ҡара.") // DRAFT
+          : appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
       );
     } finally {
       setBusy(false);
@@ -323,52 +247,52 @@ function PromoCard({
   }
 
   return (
-    <div className="admin-card">
-      <div className="admin-card__head">
-        <div className="admin-card__title" style={{ fontFamily: "monospace", letterSpacing: 1 }}>
-          {promo.code}
-        </div>
-        <span className={`badge ${promo.active_flag ? "badge--mint" : "badge--muted"}`}>
-          {promo.active_flag ? appText("Включён", "Ҡабыҙылған") : appText("Выключен", "Һүндерелгән")}
+    <article className="acard acard--md" style={{ animationDelay: `calc(var(--cascade-in) * ${Math.min(index, 6)})` }}>
+      <div className="acard__row acard__row--md">
+        <span className="partner-tile" aria-hidden>{isBoost ? <IconRocket size={22} /> : <IconGift size={22} />}</span>
+        <span className="acard__stack acard__grow">
+          <strong className="promo-code">{promo.code}</strong>
+          <span className="acard__caption acard__text">{promo.title || promo.campaign}</span>
         </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={promo.active_flag}
+          aria-label={promo.code}
+          className="acity__switch"
+          onClick={toggle}
+          disabled={busy}
+        >
+          <span className={"switch" + (promo.active_flag ? " on" : "")} aria-hidden />
+        </button>
       </div>
-
-      {promo.title && <div className="admin-card__sub">{promo.title}</div>}
-      <div className="admin-card__sub">
-        {promo.kind === "boost"
-          ? appText(`Бонус: ${promo.perk_value} поднятий`, `Бонус: ${promo.perk_value} күтәреү`)
-          : appText("Приветствие", "Сәләм")}
-        {promo.owner_id ? <> · {appText("блогер", "блогер")}</> : <> · {appText("акция Юлдаша", "Юлдаш акцияһы")}</>}
-        {promo.campaign && <> · {promo.campaign}</>}
+      {/* Тип + бонус */}
+      <span className="abadge abadge--ok acard__self">
+        {isBoost ? appText(`Boost · ${promo.perk_value} поднятий`, `Boost · ${promo.perk_value} күтәреү`) : appText("Приветствие", "Сәләмләү")}
+      </span>
+      {/* Воронка applied → active */}
+      <div className="promo-funnel">
+        <span className="promo-metric">
+          <b>{promo.applied}</b>
+          <small>{appText("Ввели", "Индерҙе")}</small>
+        </span>
+        <span className="promo-funnel__arrow" aria-hidden>→</span>
+        <span className="promo-metric">
+          <b>{promo.active}</b>
+          <small>{appText("Активны", "Актив")}</small>
+        </span>
+        <span className="acard__spacer" />
+        <small className="promo-funnel__of">{appText(`из ${promo.limit_total}`, `${promo.limit_total} тан`)}</small>
       </div>
-
-      {/* Статистика: применили всего / из них реально активны (по ним платят блогеру). */}
-      <div className="ad-stat-row">
-        <span>{appText("Применили", "Ҡулланды")}: <b>{promo.applied}</b></span>
-        <span>{appText("Активны", "Әүҙем")}: <b>{promo.active}</b></span>
-        {promo.limit_total > 0 && (
-          <span>{appText("Лимит", "Сик")}: <b>{promo.redeemed_count}/{promo.limit_total}</b></span>
-        )}
-      </div>
-      {promo.created_at && (
-        <div className="admin-card__sub">{formatRelative(promo.created_at, ru)}</div>
+      <span className="acard__sub">
+        {appText(`Лимит: ${promo.limit_total} всего · один раз на человека`, `Лимит: ${promo.limit_total} бөтәһе · бер кешегә бер тапҡыр`)}
+      </span>
+      {promo.owner_id != null && (
+        <small className="acard__date">{appText(`Код блогера (владелец #${promo.owner_id})`, `Блогер коды (эйәһе #${promo.owner_id})`)}</small>
       )}
-
+      {until && <small className="acard__date">{appText(`Действует до ${until}`, `${until} тиклем ғәмәлдә`)}</small>}
+      {!promo.active_flag && <span className="abadge abadge--wait acard__self">{appText("Выключен", "Һүндерелгән")}</span>}
       {error && <div className="auth__error">{error}</div>}
-
-      <button
-        type="button"
-        className="btn-soft btn-soft--sm"
-        style={{ marginTop: 12 }}
-        onClick={toggle}
-        disabled={busy}
-      >
-        {busy ? appText("…", "…") : promo.active_flag ? (
-          appText("Выключить", "Һүндереү")
-        ) : (
-          <><IconCheck size={16} /> {appText("Включить", "Ҡабыҙыу")}</>
-        )}
-      </button>
-    </div>
+    </article>
   );
 }

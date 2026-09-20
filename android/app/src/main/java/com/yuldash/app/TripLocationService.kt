@@ -35,6 +35,7 @@ import com.yuldash.app.data.TripLocationBus
 class TripLocationService : Service() {
     private var socket: LocationSocket? = null
     private var currentBookingId = -1          // какой брони сейчас служит сокет (для смены поездки)
+    private var socketGeneration = 0L
     private var lm: LocationManager? = null
     private var listener: LocationListener? = null
     private var lastSent = 0L
@@ -75,7 +76,20 @@ class TripLocationService : Service() {
         if (currentBookingId != bookingId) {
             socket?.close()
             currentBookingId = bookingId
-            socket = LocationSocket(bookingId, onPeer = { TripLocationBus.peer = it }).also { it.connect() }
+            val generation = ++socketGeneration
+            socket = LocationSocket(
+                bookingId,
+                onPeer = { TripLocationBus.peer = it },
+                onTerminated = {
+                    watchdog.post {
+                        if (socketGeneration == generation) {
+                            // Не ждём onDestroy: отказ уже окончательный, GPS и восстановление больше не нужны.
+                            stopTracking()
+                            stopSelf()
+                        }
+                    }
+                },
+            ).also { it.connect() }
         }
         if (listener == null) startLocationUpdates()   // GPS-слушатель один на сервис (шлёт в текущий socket)
         // Сторож-таймаут: если вызывающий (YuldashApp) крашнется и не позовёт stop(), сервис бы висел
@@ -137,9 +151,12 @@ class TripLocationService : Service() {
             .build()
     }
 
-    override fun onDestroy() {
+    private fun stopTracking() {
+        socketGeneration++
         watchdog.removeCallbacks(autoStop)
         listener?.let { runCatching { lm?.removeUpdates(it) } }
+        listener = null
+        lm = null
         socket?.close()
         socket = null
         currentBookingId = -1
@@ -149,6 +166,10 @@ class TripLocationService : Service() {
         // чтобы будущее воскрешение сервиса НЕ подняло уже законченную поездку (приватность + не тот стрим).
         // Если процесс убили без onDestroy (OOM) — prefs остаётся, и это правильно: поездка ещё шла.
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_BOOKING).remove(KEY_LANG).apply()
+    }
+
+    override fun onDestroy() {
+        stopTracking()
         super.onDestroy()
     }
 

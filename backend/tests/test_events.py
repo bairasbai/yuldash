@@ -59,12 +59,13 @@ def test_ingest_strips_sensitive_keys(client):
 
 def test_sanitize_truncates_long_string_and_drops_nested():
     props = sanitize_props({
-        "event": "x", "long": "a" * 500, "nested": {"secret": 1}, "list": [1, 2, 3],
+        "event": "x", "long": "z" * 500, "nested": {"secret": 1}, "list": [1, 2, 3],
         "flag": False, "n": 7,
     })
     # С волны 45 порог короче (64): аналитика — это ярлыки экранов, а не свободный текст,
     # и длинная строка почти всегда означает, что в телеметрию заехало чужое.
-    assert len(props["long"]) == _MAX_STR
+    # Не hex: секретоподобная строка отдельно маскируется, а здесь проверяем обрезку.
+    assert props["long"] == "z" * _MAX_STR
     assert "nested" not in props and "list" not in props  # вложенное отброшено
     assert props["flag"] is False and props["n"] == 7
 

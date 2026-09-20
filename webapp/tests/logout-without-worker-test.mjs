@@ -10,6 +10,7 @@ const mocks = {
     export const useContext=()=>null;`,
   "react/jsx-runtime": `export const jsx=(type,props)=>({type,props}); export const jsxs=jsx;`,
   "../api/client": `export const getToken=()=> 'local-token'; export const setSession=(...v)=>globalThis.__events.push(['session',...v]);
+    export const getSessionGeneration=()=>0;
     export const setRefreshHandler=()=>{}; export const setUnauthorizedHandler=()=>{};`,
   "../api/auth": `export const fetchMe=async()=>({}); export const refreshSession=async()=>({});
     export const logoutServer=async()=>{globalThis.__events.push(['server-logout']);};`,
@@ -17,7 +18,7 @@ const mocks = {
     export const unsubscribeWebPush=async endpoint=>{globalThis.__events.push(['push-revoke',endpoint]);};`,
   "../utils/outbox": `export const clearOutbox=()=>globalThis.__events.push(['outbox-clear']);`,
   "../utils/formDraft": `export const clearAllDrafts=()=>globalThis.__events.push(['drafts-clear']);`,
-  "../utils/privacy": `export const clearPersonalLocal=()=>globalThis.__events.push(['personal-clear']);`,
+  "../utils/privacy": `export const syncPersonalSession=()=>{}; export const clearPersonalLocal=()=>globalThis.__events.push(['personal-clear']);`,
 };
 const bundled = await build({
   stdin: { contents: `export { AuthProvider } from './src/auth/AuthProvider.tsx';`,

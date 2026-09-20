@@ -418,8 +418,9 @@ def test_account_refresh_profile_and_push_edges(client, user_factory):
     assert client.post("/auth/whatsapp-callback").status_code == 501
     assert client.post("/push/register", headers=first["auth"], json={"token": "   "}).status_code == 400
 
-    assert client.post("/push/register", headers=first["auth"], json={"token": "shared-token"}).status_code == 200
-    assert client.post("/push/register", headers=second["auth"], json={"token": "shared-token"}).status_code == 200
+    device = {"X-Device-Id": "shared-edge-device"}
+    assert client.post("/push/register", headers={**first["auth"], **device}, json={"token": "shared-token"}).status_code == 200
+    assert client.post("/push/register", headers={**second["auth"], **device}, json={"token": "shared-token"}).status_code == 200
     with Session(engine) as session:
         token = session.exec(select(DeviceToken).where(DeviceToken.token == "shared-token")).first()
         assert token.user_id == second["id"]

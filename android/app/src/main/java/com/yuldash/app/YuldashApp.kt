@@ -172,6 +172,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -259,6 +260,8 @@ import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
+import androidx.compose.ui.platform.testTag
 
 internal fun bookingStatusAllowsActiveTrip(status: String): Boolean =
     status == "confirmed" || status == "onboard" || status == "done"
@@ -319,7 +322,10 @@ internal fun YuldashApp() {
         context.getSharedPreferences("yuldash_prefs", android.content.Context.MODE_PRIVATE)
     }
     // Память экранов: что было на экране, когда с него ушли (см. SaveableStateProvider ниже).
-    val screenStates = rememberSaveableStateHolder()
+    // Черновики принадлежат аккаунту, а не устройству. Обновление токена того же
+    // пользователя сохраняет их; выход или смена пользователя создаёт новое хранилище.
+    val screenStateOwner = ApiClient.myUserId()
+    val screenStates = key(screenStateOwner) { rememberSaveableStateHolder() }
     // Чем человек рассчитывается с водителем. Помним между заказами: платят изо дня в день
     // одинаково, и заставлять выбирать заново каждый раз — мелкая, но ежедневная работа.
     // Первый заказ — наличные: «договоримся» звучит нейтрально, но на деле это отложенный спор.
@@ -405,6 +411,18 @@ internal fun YuldashApp() {
     var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
     var sosBookingId by rememberSaveable { mutableStateOf(0) }         // SOS с контекстом попутки; 0 = без поездки
     var sosContextNote by rememberSaveable { mutableStateOf("") }      // подпись дежурному (курьер: маршрут доставки)
+    var returnToSosAfterLogin by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(returnToSosAfterLogin, screen) {
+        if (!returnToSosAfterLogin || !ApiClient.isLoggedIn()) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        // После входа аккаунт мог смениться. Возвращаем только экран, без чужого контекста
+        // и без автоматической отправки: пользователь должен снова нажать кнопку SOS.
+        sosOrderId = 0
+        sosBookingId = 0
+        sosContextNote = ""
+        returnToSosAfterLogin = false
+        screen = Screen.Sos
+    }
     var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
     var taxiReceiptOrderId by rememberSaveable { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
     // Чат по посылке: id + с кем говорим + статус (по нему чат уходит в read-only после закрытия).
@@ -451,8 +469,9 @@ internal fun YuldashApp() {
     LaunchedEffect(wantDriverCabinet, screen) {
         if (!wantDriverCabinet) return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
         NavSignals.openDriverCabinet.value = false
-        if (ApiClient.isLoggedIn() && screen != Screen.InstantDriverTrip) screen = Screen.DriverCabinet
+        if (screen != Screen.InstantDriverTrip) screen = Screen.DriverCabinet
     }
     // Тап по пушу про рекламу или партнёрство — тем же путём, что кабинет водителя выше.
     // Раньше эти два вида открывались только из ленты внутри приложения, а из шторки вели
@@ -461,15 +480,17 @@ internal fun YuldashApp() {
     LaunchedEffect(wantAds, screen) {
         if (!wantAds) return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
         NavSignals.openAdsCabinet.value = false
-        if (ApiClient.isLoggedIn()) screen = Screen.AdsCabinet
+        screen = Screen.AdsCabinet
     }
     val wantPartner by NavSignals.openPartnerCabinet
     LaunchedEffect(wantPartner, screen) {
         if (!wantPartner) return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
         NavSignals.openPartnerCabinet.value = false
-        if (ApiClient.isLoggedIn()) screen = Screen.PartnerCabinet
+        screen = Screen.PartnerCabinet
     }
     // Кнопки «Написать»/SOS живут глубоко в экранах такси (в т.ч. встроенных в главную) —
     // навигация через NavSignals (паттерн openDriverCabinet), без колбэков через все слои.
@@ -502,6 +523,8 @@ internal fun YuldashApp() {
         // P3: тот же guard — тап по пушу SOS на холодном старте не должен теряться под сплэшем.
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
         sosOrderId = wantSosForOrder
+        sosBookingId = 0
+        sosContextNote = ""
         NavSignals.openSosForOrder.value = 0
         screen = Screen.Sos
     }
@@ -525,8 +548,9 @@ internal fun YuldashApp() {
     LaunchedEffect(wantInstantOrder, screen) {
         if (!wantInstantOrder) return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
         NavSignals.openInstantOrder.value = false
-        if (ApiClient.isLoggedIn()) screen = Screen.InstantOrder
+        screen = Screen.InstantOrder
     }
     // Force-update (B9b-1): при старте ПАРАЛЛЕЛЬНО обычному запуску спрашиваем /version/min.
     // versionCode < min с сервера → блокирующий экран «Обнови Юлдаш» (ниже, поверх всего).
@@ -586,18 +610,75 @@ internal fun YuldashApp() {
             notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
-    // F16 deep-link: пришли по ссылке yulbash.ru/r/{id} → тянем публичную витрину поездки
-    // и открываем её карточку в приложении. Не нашлась/ошибка сети → тихо остаёмся где были
-    // (ссылка всё равно открыла приложение). Реагируем и на холодный старт, и на новую ссылку.
-    LaunchedEffect(DeepLink.pendingRideId.value) {
+    var failedRideLink by rememberSaveable { mutableStateOf<Int?>(null) }
+    var rideLinkUnavailable by rememberSaveable { mutableStateOf(false) }
+    // null: публичная поездка; false: чат брони; true: завершённая бронь.
+    var failedBookingDestination by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    var bookingLinkAttempt by remember { mutableIntStateOf(0) }
+    // Публичная ссылка: ошибка не должна молча терять назначение, повтор использует тот же id.
+    LaunchedEffect(DeepLink.pendingRideId.value, screen) {
         val rideId = DeepLink.pendingRideId.value ?: return@LaunchedEffect
-        DeepLink.pendingRideId.value = null   // одноразово — не переоткрываем при рекомпозиции
-        ApiClient.getRide(rideId).onSuccess { dto ->
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        failedRideLink = null
+        failedBookingDestination = null
+        val result = ApiClient.getRide(rideId)
+        // Не менять ключ LaunchedEffect до окончания запроса: это отменяло саму загрузку.
+        if (!isActive || DeepLink.pendingRideId.value != rideId) return@LaunchedEffect
+        DeepLink.pendingRideId.value = null
+        result.onSuccess { dto ->
             selectedRide = dto.toUiRide()
             activeBookingId = null
             selectedBookingStatus = ""
             screen = Screen.Booking
+        }.onFailure { error ->
+            rideLinkUnavailable = (error as? ApiException)?.status in listOf(403, 404, 410)
+            failedBookingDestination = null
+            failedRideLink = rideId
         }
+    }
+    failedRideLink?.takeIf {
+        DeepLink.pendingRideId.value == null && DeepLink.pendingBookingChatId.value == null &&
+            DeepLink.pendingCompletedBookingId.value == null
+    }?.let { rideId ->
+        val tagPrefix = if (failedBookingDestination == null) "rideLink" else "bookingLink"
+        AlertDialog(
+            modifier = Modifier.testTag("${tagPrefix}Failure"),
+            onDismissRequest = { failedRideLink = null },
+            shape = CanonCardShape,
+            containerColor = CanonSurface,
+            titleContentColor = CanonText,
+            textContentColor = CanonMuted,
+            title = { Text(if (rideLinkUnavailable)
+                appText("Поездка недоступна", "Сәфәрҙе асып булмай")
+            else appText("Не получилось открыть поездку", "Сәфәрҙе асып булманы")) },
+            text = { Text(if (rideLinkUnavailable)
+                appText("Поездка удалена или доступ к ней закрыт.", "Сәфәр юйылған йәки уға инеү рөхсәте юҡ.")
+            else appText("Проверь сеть и попробуй снова.", "Селтәрҙе тикшереп ҡабатла.")) },
+            confirmButton = {
+                if (rideLinkUnavailable) {
+                    TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { failedRideLink = null }) {
+                        Text(appText("Закрыть", "Ябыу"), color = CanonGreen2)
+                    }
+                } else {
+                    TextButton(modifier = Modifier.testTag("${tagPrefix}Retry"), onClick = {
+                        val pending = when (failedBookingDestination) {
+                            true -> DeepLink.pendingCompletedBookingId
+                            false -> DeepLink.pendingBookingChatId
+                            null -> DeepLink.pendingRideId
+                        }
+                        if (pending.value == null) pending.value = rideId
+                        failedRideLink = null
+                    }) { Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2) }
+                }
+            },
+            dismissButton = {
+                if (!rideLinkUnavailable) {
+                    TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { failedRideLink = null }) {
+                        Text(appText("Закрыть", "Ябыу"), color = CanonMuted)
+                    }
+                }
+            },
+        )
     }
     // Кнопка «Написать» из карточки посылки → чат с второй стороной доставки.
     LaunchedEffect(DeepLink.pendingParcelChat.value) {
@@ -611,50 +692,82 @@ internal fun YuldashApp() {
     // Пуш о ходе посылки → открываем «Посылки». Отправитель не должен догадываться, что для
     // проверки статуса надо самому зайти в приложение и переключить вкладку: тап по уведомлению
     // ведёт прямо туда, где видно, где его посылка. Не вошёл — сначала вход.
-    LaunchedEffect(DeepLink.pendingParcels.value) {
+    LaunchedEffect(DeepLink.pendingParcels.value, screen) {
         if (!DeepLink.pendingParcels.value) return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
         DeepLink.pendingParcels.value = false   // одноразово — не переоткрываем при рекомпозиции
-        screen = if (ApiClient.isLoggedIn()) Screen.Parcels else Screen.Login
+        screen = Screen.Parcels
     }
-    // Тап по пушу «новое сообщение» в попутке → бронь с чатом (аудит 2026-08-06: раньше
-    // открывалась просто карта, а переписку человек искал сам). Экран брони сам догружает
-    // детали по id — здесь достаточно самого номера. Не вошёл — сначала вход.
-    // Пуши поддержки и споров теперь несут адрес — открываем нужный экран, а не «просто
-    // приложение». Тот же приём и те же оговорки, что у брони ниже: ждём конца сплэша,
-    // гасим сигнал одноразово, без входа — сначала вход.
+    // Пуши поддержки, споров и заявок: ждём запуска и входа, затем гасим сигнал.
     LaunchedEffect(DeepLink.pendingSupport.value, screen) {
         if (!DeepLink.pendingSupport.value) return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
         DeepLink.pendingSupport.value = false
-        screen = if (ApiClient.isLoggedIn()) Screen.Support else Screen.Login
+        screen = Screen.Support
+    }
+    LaunchedEffect(DeepLink.pendingApplicationScreen.value, screen) {
+        val destination = DeepLink.pendingApplicationScreen.value ?: return@LaunchedEffect
+        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
+        DeepLink.pendingApplicationScreen.value = null
+        screen = destination
     }
     LaunchedEffect(DeepLink.pendingFairness.value, screen) {
         if (!DeepLink.pendingFairness.value) return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
         DeepLink.pendingFairness.value = false
-        screen = if (ApiClient.isLoggedIn()) Screen.FairnessCenter else Screen.Login
+        screen = Screen.FairnessCenter
     }
     // «Водитель откликнулся на твою заявку» — открываем отклики именно этой заявки.
     LaunchedEffect(DeepLink.pendingRequestResponsesId.value, screen) {
         val rid = DeepLink.pendingRequestResponsesId.value ?: return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        DeepLink.pendingRequestResponsesId.value = null
         if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
+        DeepLink.pendingRequestResponsesId.value = null
         responsesRequestId = rid
         screen = Screen.RequestResponses
     }
-    LaunchedEffect(DeepLink.pendingBookingChatId.value, screen) {
-        val bid = DeepLink.pendingBookingChatId.value ?: return@LaunchedEffect
-        // P3: ждём, пока сплэш/интро/онбординг отработают — иначе они перезапишут screen, а сигнал
-        // уже погашен, и тап по пушу на холодном старте (самый частый случай) потерялся бы.
+    LaunchedEffect(DeepLink.pendingRequestsFeed.value, screen) {
+        if (!DeepLink.pendingRequestsFeed.value) return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        DeepLink.pendingBookingChatId.value = null   // одноразово — не переоткрываем при рекомпозиции
         if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "",
-                            price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
-        activeBookingId = bid
-        selectedBookingStatus = ""
-        screen = Screen.Booking
+        DeepLink.pendingRequestsFeed.value = false
+        screen = Screen.RequestsFeed
+    }
+    // Личное назначение сохраняем до входа. Не устанавливаем бронь до проверки участника.
+    listOf(false, true).forEach { completed ->
+        val pending = if (completed) DeepLink.pendingCompletedBookingId else DeepLink.pendingBookingChatId
+        LaunchedEffect(pending.value, screen, bookingLinkAttempt) {
+            val bid = pending.value ?: return@LaunchedEffect
+            if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+            failedRideLink = null
+            val sessionToken = ApiClient.currentToken()
+            if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
+            val result = ApiClient.getTripState(bid)
+            if (!isActive || pending.value != bid) return@LaunchedEffect
+            // В том числе после обновления токена: новый запрос проверит текущую сессию.
+            if (sessionToken != ApiClient.currentToken()) {
+                if (ApiClient.isLoggedIn()) bookingLinkAttempt++ else screen = Screen.Login
+                return@LaunchedEffect
+            }
+            pending.value = null
+            val state = result.getOrNull()
+            if (state != null && state.role in listOf("driver", "passenger")) {
+                selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "",
+                    price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
+                activeBookingId = bid
+                selectedBookingStatus = ""
+                if (completed) activeTrip = null
+                screen = if (completed) Screen.ActiveTrip else Screen.Booking
+            } else {
+                rideLinkUnavailable = (result.exceptionOrNull() as? ApiException)?.status in listOf(403, 404, 410)
+                failedBookingDestination = completed
+                failedRideLink = bid
+            }
+        }
     }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
     var partnerAds by vm.partnerAds
@@ -706,7 +819,10 @@ internal fun YuldashApp() {
         // Intro тоже транзитный (брендовое интро первого запуска) — иначе «Назад» из кабинета водителя
         // на first-run проваливал обратно на экран Intro (Intro→Onboarding пушил Intro в историю).
         val transient = navPrev == Screen.Splash || navPrev == Screen.Login || navPrev == Screen.Onboarding || navPrev == Screen.Intro
-        if (!navPopping && screen != navPrev && !transient) navHistory.add(navPrev)   // forward → запоминаем, откуда пришли (Intro/Splash/Login/Onboarding — не в трейл)
+        // Вход — граница сессии. После clearUserData нельзя снова записать предыдущий
+        // личный экран: следующий водитель смог бы вернуться к нему кнопкой «Назад».
+        if (screen == Screen.Login) navHistory.clear()
+        else if (!navPopping && screen != navPrev && !transient) navHistory.add(navPrev)
         navPopping = false
         navPrev = screen
     }
@@ -745,8 +861,8 @@ internal fun YuldashApp() {
                         selectedRide = restoredRide
                         selectedBookingStatus = b.status
                         // Live-гео и карта гейтятся на activeTrip: ставим его только для активной поездки.
-                        activeTrip = if (bookingStatusAllowsActiveTrip(b.status)) restoredRide else null
-                        // Бронь уже не активна (напр. завершена/отменена) → показываем детали, а не экран поездки.
+                        activeTrip = if (bookingStatusAllowsBoarding(b.status)) restoredRide else null
+                        // Отменённая бронь → детали; done остаётся на экране завершения и оценки.
                         if (screen == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status)) screen = Screen.Booking
                         restored = true
                     }
@@ -975,7 +1091,7 @@ internal fun YuldashApp() {
         // Состояние экрана переживает уход с него: ушёл в «Способы оплаты» и вернулся —
         // маршрут, цена и введённый текст на месте. Обычный `when` уничтожает композицию
         // ушедшего экрана вместе с его состоянием, и человек вводил адрес заново.
-        screenStates.SaveableStateProvider(scr) {
+        screenStates.SaveableStateProvider("$screenStateOwner:${scr.name}") {
         when (scr) {
             // Кабинет админа — двадцать один экран, и все просят одно и то же:
             // «назад» и «перейти». Держать их здесь значило раздувать выбор экрана до
@@ -1206,7 +1322,7 @@ internal fun YuldashApp() {
             )
             Screen.Sos -> SosScreen(
                 onBack = { goBack() },
-                onLoginRequired = { screen = Screen.Login },
+                onLoginRequired = { returnToSosAfterLogin = true; screen = Screen.Login },
                 orderId = sosOrderId.takeIf { it > 0 },     // контекст такси-заказа (B7b-2); 0 = обычный SOS
                 bookingId = sosBookingId.takeIf { it > 0 }, // контекст попутки; 0 = обычный SOS
                 contextNote = sosContextNote.takeIf { it.isNotBlank() },  // курьер: маршрут доставки
@@ -1227,6 +1343,8 @@ internal fun YuldashApp() {
                 },
                 // Тап по «отклик на заявку» → экран откликов этой заявки.
                 onOpenResponses = { rid -> responsesRequestId = rid; screen = Screen.RequestResponses },
+                onOpenCompletedBooking = { bid -> DeepLink.pendingCompletedBookingId.value = bid },
+                onOpenRequestsFeed = { screen = Screen.RequestsFeed },
                 onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches },
                 // Тап по уведомлению поддержки → тред обращения (ref_id = id тикета).
                 onOpenSupport = { tid -> supportTicketId = tid; screen = Screen.SupportTicket },

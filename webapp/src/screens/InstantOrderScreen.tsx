@@ -23,7 +23,6 @@ import {
   fetchMyOrders,
   fetchInstantOrder,
   cancelInstantOrder,
-  rateInstantOrder,
   fetchNearbyDrivers,
   ACTIVE_PASSENGER_STATUSES,
   isUnlocked,
@@ -50,30 +49,20 @@ import ShareTripCard from "../components/ShareTripCard";
 import TaxiTripActions, { WaitForCarCard } from "../components/TaxiTripActions";
 import PriceComplaint from "../components/PriceComplaint";
 import PriceFactors from "../components/PriceFactors";
-import PayMethodPicker, { rememberedPayMethod } from "../components/PayMethodPicker";
+import PayMethodPicker, { PAY_METHODS_OPEN, rememberedPayMethod } from "../components/PayMethodPicker";
 import { TaxiOptions, TaxiRoundTrip, TaxiStops, type OrderStop } from "../components/TaxiOrderExtras";
 import WaitlistForm from "../components/WaitlistForm";
 import { LoadingList } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
-import {
-  IconCar,
-  IconStar,
-  IconPhone,
-  IconChat,
-  IconHome,
-  IconWork,
-  IconPin,
-  IconClock,
-  IconCheck,
-  IconBolt,
-  IconReceipt,
-  IconChevron,
-} from "../components/Icons";
-import { YuMoon, YuQuiet, YuWomenOnly } from "../components/BrandIcons";
-import { priceLabel } from "../utils/format";
+import { IconCar, IconStar, IconPhone, IconChat, IconHome, IconWork, IconPin, IconClock, IconBolt, IconChevron, IconClose, IconProfile, IconShield, IconWallet } from "../components/Icons";
+import { YuMoon, YuWomenOnly } from "../components/BrandIcons";
+import { priceLabel, kopExactLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
 import { minDateTimeNow, maxDateTimeInDays } from "../utils/dateInput";
 import { setActiveTaxiOrder, setTaxiOrderOnScreen } from "../navSignals";
+import TaxiTripProgress from "../components/TaxiTripProgress";
+import TaxiPassengerCompleted from "./TaxiPassengerCompletedScreen";
+import TaxiSheet, { TaxiSheetOverlayButton, type TaxiSheetStop } from "../components/TaxiSheet";
 
 /** Класс машины человеческой строкой (подписи живут в клиенте, коды — на сервере). */
 function categoryLabel(cat: string, appText: (ru: string, ba: string) => string): string {
@@ -92,7 +81,7 @@ function categoryLabel(cat: string, appText: (ru: string, ba: string) => string)
 }
 
 type Point = { lat: number; lng: number; text: string };
-type View = "boot" | "gate" | "compose" | "tracking";
+type View = "boot" | "error" | "gate" | "compose" | "tracking";
 
 const POLL_MS = 3500;
 /** Насколько вперёд сервер принимает предзаказ (`scheduled_max_days` в конфиге). */
@@ -143,14 +132,16 @@ export default function InstantOrderScreen() {
     setView("boot");
     const proceed = (pt: GeoPoint | null) => {
       if (pt) {
-        setFrom({ lat: pt.lat, lng: pt.lng, text: appText("Моё место", "Урыным") });
+        const origin = { lat: pt.lat, lng: pt.lng, text: appText("Моё место", "Урыным") };
+        setFrom(origin);
         // «Моё место» — это подпись для человека, а не адрес. Без обратного геокодера
         // ровно эта строка уходила в заказ, и водитель в списке видел безымянную точку;
         // сам пассажир потом не мог понять в истории, откуда ехал. Ответ пустой
         // (нет ключа, геокодер молчит) — оставляем прежнюю подпись, экран не ломается.
         reverseGeocode(pt.lat, pt.lng)
           .then((r) => {
-            if (r.title) setFrom({ lat: pt.lat, lng: pt.lng, text: r.title });
+            // Ручной выбор мог произойти, пока геокодер отвечал.
+            if (r.title) setFrom((current) => current === origin ? { ...origin, text: r.title } : current);
           })
           .catch(() => {});
       }
@@ -165,11 +156,8 @@ export default function InstantOrderScreen() {
           }
           checkAvailability(pt);
         })
-        .catch((e) => {
-          // 404 (эндпоинта ещё нет) — идём проверять гейт, он тоже мягко деградирует.
-          if (e instanceof ApiError && e.status === 404) checkAvailability(pt);
-          else checkAvailability(pt);
-        });
+        // Пока свои заказы не прочитаны, отсутствие активной поездки неизвестно.
+        .catch(() => setView("error"));
     };
     const checkAvailability = (pt: GeoPoint | null) => {
       fetchTaxiAvailability(pt?.lat, pt?.lng)
@@ -181,10 +169,12 @@ export default function InstantOrderScreen() {
             setView("gate");
           }
         })
-        .catch(() => {
-          // Эндпоинта ещё нет / нет сети → мягкий гейт «скоро».
-          setGateMsg(null);
-          setView("gate");
+        .catch((e) => {
+          // Старый сервер без функции — гейт; временный отказ — повтор загрузки.
+          if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
+            setGateMsg(null);
+            setView("gate");
+          } else setView("error");
         });
     };
 
@@ -246,6 +236,20 @@ export default function InstantOrderScreen() {
       <>
         <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
         <LoadingList count={2} />
+      </>
+    );
+  }
+
+  if (view === "error") {
+    return (
+      <>
+        <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
+        <div className="state" role="alert">
+          <p>{appText("Не получилось загрузить такси. Проверь сеть и повтори.", "Таксиҙы йөкләп булманы. Селтәрҙе тикшереп ҡабатла.")}</p>
+          <button type="button" className="btn-primary" onClick={boot}>
+            {appText("Повторить", "Ҡабатлау")}
+          </button>
+        </div>
       </>
     );
   }
@@ -339,6 +343,13 @@ function ComposeView({
   const [geoNote, setGeoNote] = useState("");
   const [category, setCategory] = useState<TaxiCategory>("standard");
   const [estimate, setEstimate] = useState<EstimateResult | null>(null);
+  // Положение шторки: пока нет назначения — развёрнута (адреса и подсказки), после выбора —
+  // наполовину: карта важнее длинной формы. Тронул руками — больше не переключаем сами.
+  const [sheetStop, setSheetStop] = useState<TaxiSheetStop>("full");
+  const sheetTouched = useRef(false);
+  useEffect(() => {
+    if (!sheetTouched.current) setSheetStop(to ? "half" : "full");
+  }, [to]);
   const [estimating, setEstimating] = useState(false);
   const [when, setWhen] = useState<"now" | "later">("now");
   const [schedAt, setSchedAt] = useState("");
@@ -499,32 +510,33 @@ function ComposeView({
 
   const canOrder = !!from && !!to && !busy && (when === "now" || !!schedAt);
 
+  /* Как в Android: форма заказа живёт в шторке над картой (TaxiSheetScaffold, halfBodyFraction 0.32).
+     Пока нет назначения — шторка развёрнута, после выбора — наполовину, карта важнее длинной формы. */
   return (
     <>
-      <SubHeader
-        title={appText("Куда едем?", "Ҡайҙа барабыҙ?")}
-        subtitle={appText("Быстрый заказ · такси между своими", "Тиҙ заказ · үҙебеҙ араһында такси")}
-        onBack={() => navigate(-1)}
-      />
-
-      <div className="home-map" style={{ marginTop: 4 }}>
-        <YandexMap
-          from={from}
-          to={to}
-          route={!!(from && to)}
-          markers={
-            !to
-              ? nearby.map((d, i) => ({ id: `d${i}`, lat: d.lat, lng: d.lng, kind: "me" as const }))
-              : undefined
-          }
-          height={200}
-        />
-      </div>
-
-      {/* ❄️ Погода на маршруте — до заказа, а не когда машина уже едет */}
-      <WeatherWarningCard weather={weather} />
-
-      {/* Точки маршрута */}
+      <TaxiSheet
+        stop={sheetStop}
+        onStopChange={(next) => { sheetTouched.current = true; setSheetStop(next); }}
+        halfBodyFraction={0.32}
+        map={
+          <YandexMap
+            from={from}
+            to={to}
+            route={!!(from && to)}
+            markers={
+              !to
+                ? nearby.map((d, i) => ({ id: `d${i}`, lat: d.lat, lng: d.lng, kind: "me" as const }))
+                : undefined
+            }
+            height="100%"
+          />
+        }
+        overlay={
+          <TaxiSheetOverlayButton position="left" label={appText("Назад", "Артҡа")} onClick={() => navigate(-1)}>
+            <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}><IconChevron size={22} /></span>
+          </TaxiSheetOverlayButton>
+        }
+        header={
       <div className="taxi-route">
         <PlacePicker
           origin
@@ -561,12 +573,17 @@ function ComposeView({
         />
         <PlacePicker value={to} onPick={setTo} />
       </div>
-
+        }
+        body={
+          <>
       {geoNote && (
         <div className="notice" role="status">
           {geoNote}
         </div>
       )}
+
+      {/* ❄️ Погода на маршруте — до заказа, а не когда машина уже едет */}
+      <WeatherWarningCard weather={weather} />
 
       {/* Классы с ценами */}
       {to && (
@@ -581,24 +598,30 @@ function ComposeView({
                 className={"taxi-class" + (active ? " is-active" : "")}
                 onClick={() => setCategory(cat)}
               >
-                <span className="taxi-class__icon">
-                  <IconCar size={26} />
+                {/* TaxiServiceClassTile: та же картинка тарифа, что в Android (res/drawable), чип «N мин» на ней. */}
+                <span className="taxi-class__car" aria-hidden>
+                  <img src={cat === "standard" ? "/tariffs/economy.webp" : "/tariffs/comfort.webp"} alt="" />
+                  {estimate?.pickup_eta_min != null && (
+                    <span className="taxi-class__eta">{appText(`${estimate.pickup_eta_min} мин`, `${estimate.pickup_eta_min} мин`)}</span>
+                  )}
                 </span>
                 <span className="taxi-class__name">
                   {cat === "standard" ? appText("Эконом", "Эконом") : appText("Комфорт", "Комфорт")}
                 </span>
-                {/* Чем классы отличаются — иначе выбор между ними вслепую */}
-                <span className="taxi-class__hint">
-                  {cat === "standard"
-                    ? appText("обычная машина", "ғәҙәти машина")
-                    : appText("новее и просторнее", "яңыраҡ һәм киңерәк")}
-                </span>
-                <span className="taxi-class__price">
-                  {estimating && price == null
-                    ? "…"
-                    : price != null
-                      ? priceLabel(price, ru)
-                      : "—"}
+                <span className="taxi-class__row">
+                  <span className="taxi-class__price">
+                    {estimating && price == null
+                      ? "…"
+                      : price != null
+                        ? priceLabel(price, ru)
+                        : "—"}
+                  </span>
+                  {/* Чем классы отличаются — иначе выбор между ними вслепую */}
+                  <span className="taxi-class__hint">
+                    {cat === "standard"
+                      ? appText("обычная машина", "ғәҙәти машина")
+                      : appText("новее и просторнее", "яңыраҡ һәм киңерәк")}
+                  </span>
                 </span>
               </button>
             );
@@ -772,6 +795,10 @@ function ComposeView({
         </details>
       )}
 
+          </>
+        }
+        extra={
+          <>
       {/* Сейчас / На время */}
       {to && (
         <>
@@ -974,38 +1001,43 @@ function ComposeView({
           )}
         </div>
       )}
-
-      <button
-        type="button"
-        className="btn-primary btn-taxi submit-btn"
-        style={{ marginTop: 14 }}
-        onClick={order}
-        disabled={!canOrder}
-      >
-        {busy ? (
-          appText("Отправляем…", "Ебәрәбеҙ…")
-        ) : when === "later" ? (
-          <>
-            <IconClock size={18} /> {appText("Заказать на время", "Ваҡытҡа заказ итеү")}
           </>
-        ) : (
-          <>
-            <IconCar size={18} />{" "}
-            {estimate
-              ? appText(`Вызвать за ${priceLabel(estimate.price, ru)}`, `${priceLabel(estimate.price, ru)} — саҡырыу`)
-              : appText("Вызвать машину", "Машина саҡырыу")}
-          </>
-        )}
-      </button>
-
-      <button
-        type="button"
-        className="btn-soft"
-        style={{ marginTop: 10 }}
-        onClick={() => navigate("/scheduled")}
-      >
-        <IconClock size={18} /> {appText("Мои предзаказы", "Алдан заказдарым")}
-      </button>
+        }
+        footer={
+          to ? (
+            <div className="taxi-order-footer">
+              {/* Чип способа оплаты 54dp (InstantControlShape) + «Заказать» CanonGreen2/CanonOnFilled, как в Android. */}
+              <button
+                type="button"
+                className="taxi-order-footer__pay"
+                onClick={() => navigate("/payment-methods")}
+                aria-label={appText("Способ оплаты", "Түләү ысулы")}
+              >
+                <IconWallet size={20} />
+                <span>{PAY_METHODS_OPEN.find((m) => m.code === payMethod)?.[ru ? "shortRu" : "shortBa"] ?? ""}</span>
+              </button>
+              <button
+                type="button"
+                className="btn-primary submit-btn taxi-order-footer__cta"
+                onClick={order}
+                disabled={!canOrder}
+              >
+                {busy
+                  ? appText("Отправляем…", "Ебәрәбеҙ…")
+                  : when === "later"
+                    ? appText("Заказать на время", "Ваҡытҡа заказ итеү")
+                    : estimate
+                      ? appText(`Заказать за ${priceLabel(estimate.price, ru)}`, `${priceLabel(estimate.price, ru)} — заказ итеү`)
+                      : appText("Заказать", "Заказ итеү")}
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="btn-soft" onClick={() => navigate("/scheduled")}>
+              <IconClock size={18} /> {appText("Мои предзаказы", "Алдан заказдарым")}
+            </button>
+          )
+        }
+      />
     </>
   );
 }
@@ -1187,7 +1219,6 @@ function TrackingView({
   const ru = lang !== "ba";
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
-  const [rated, setRated] = useState(false);
   // «В твоём классе никого нет» — что предложить взамен. null = предлагать нечего.
   const [alts, setAlts] = useState<FallbackOption[] | null>(null);
   const [altBusy, setAltBusy] = useState(false);
@@ -1281,58 +1312,61 @@ function TrackingView({
     onCancelled();
   }
 
-  /** Оценка не ушла — «спасибо» показывать нельзя, человек решит, что оценил. */
-  const [rateNote, setRateNote] = useState("");
-
-  async function rate(stars: number) {
-    try {
-      await rateInstantOrder(order.id, stars);
-      track("instant_order_rate");
-      setRateNote("");
-      setRated(true);
-    } catch {
-      setRateNote(
-        appText("Оценка не отправилась. Попробуй ещё раз.", "Баһа китмәне. Тағы ҡабатла.")
-      );
-    }
-  }
-
   // --- Поиск машины ---
   if (searching) {
     return (
       <>
-        <SubHeader title={appText("Ищем машину", "Машина эҙләйбеҙ")} onBack={() => navigate(-1)} />
-        <div className="taxi-search">
-          <div className="taxi-search__pulse" aria-hidden>
-            <IconCar size={40} />
-          </div>
-          <h2>{appText("Ищем машину рядом…", "Яҡында машина эҙләйбеҙ…")}</h2>
-          {/* Заказ вернулся в поиск после того, как назначенный водитель отменил. Без этой
-              строки человек видит просто «ищем машину» там, где минуту назад к нему ехала
-              машина, — и решает, что приложение сбросило заказ. Главное сказать: делать
-              ничего не надо, адрес и цена прежние. */}
-          {(order.reassigns ?? 0) > 0 && (
-            <div className="taxi-search__note">
-              {appText(
-                "Первый водитель отменил — ищем другую машину. Адрес и цена те же.",
-                "Беренсе йөрөтөүсе баш тартты — башҡа машина эҙләйбеҙ. Адрес та, хаҡ та шул уҡ."
+        {/* TaxiSearchingScreen: карта во весь экран, поверх — шторка. Шапка: «Ищем машину» + чип-секундомер;
+            тело: статус, полоска прогресса, примерная цена; подвал: отмена поиска. */}
+        <TaxiSheet
+          halfBodyFraction={0.32}
+          map={<YandexMap from={fromPt} to={null} height="100%" />}
+          overlay={
+            <TaxiSheetOverlayButton position="left" label={appText("Назад", "Артҡа")} onClick={() => navigate(-1)}>
+              <span style={{ display: "inline-flex", transform: "rotate(180deg)" }}><IconChevron size={22} /></span>
+            </TaxiSheetOverlayButton>
+          }
+          header={
+            <div className="taxi-search__head">
+              <h2 className="taxi-search__title">{appText("Ищем машину", "Машина эҙләйбеҙ")}</h2>
+              <SearchElapsedChip startedAt={order.created_at} />
+            </div>
+          }
+          body={
+            <div className="taxi-search">
+              <p>
+                {appText(
+                  "Подбираем ближайшего водителя. Обычно это меньше минуты.",
+                  "Иң яҡын йөрөтөүсене табабыҙ. Ғәҙәттә бер минуттан кәм."
+                )}
+              </p>
+              <div className="taxi-search__bar" aria-hidden><span /></div>
+              {/* Заказ вернулся в поиск после того, как назначенный водитель отменил. Без этой
+                  строки человек видит просто «ищем машину» там, где минуту назад к нему ехала
+                  машина, — и решает, что приложение сбросило заказ. Главное сказать: делать
+                  ничего не надо, адрес и цена прежние. */}
+              {(order.reassigns ?? 0) > 0 && (
+                <div className="taxi-search__note">
+                  {appText(
+                    "Первый водитель отменил — ищем другую машину. Адрес и цена те же.",
+                    "Беренсе йөрөтөүсе баш тартты — башҡа машина эҙләйбеҙ. Адрес та, хаҡ та шул уҡ."
+                  )}
+                </div>
+              )}
+              <div className="taxi-fare-line">
+                <span>{appText("Примерная цена", "Яҡынса хаҡ")}</span>
+                <b>{priceLabel(order.price_estimate, ru)}</b>
+              </div>
+              {cancelNote && (
+                <div className="notice" role="status">
+                  {cancelNote}
+                </div>
               )}
             </div>
-          )}
-          <p>
-            {appText(
-              "Подбираем ближайшего водителя. Обычно это меньше минуты.",
-              "Иң яҡын йөрөтөүсене табабыҙ. Ғәҙәттә бер минуттан кәм."
-            )}
-          </p>
-          <div className="taxi-fare-line">
-            <span>{appText("Примерная цена", "Яҡынса хаҡ")}</span>
-            <b>{priceLabel(order.price_estimate, ru)}</b>
-          </div>
-        </div>
-
-        {/* Никого в выбранном классе — предлагаем соседний. Решает пассажир, цену видит заранее. */}
-        {alts && alts.length > 0 && (
+          }
+          extra={
+            /* Никого в выбранном классе — предлагаем соседний. Решает пассажир, цену видит заранее. */
+            alts && alts.length > 0 ? (
           <div className="act-card act-card--warn">
             <div className="act-card__title">
               <IconCar size={18} /> {appText("В твоём классе пока никого", "Һайлаған класта әлегә бер кем юҡ")}
@@ -1364,24 +1398,22 @@ function TrackingView({
               </button>
             ))}
           </div>
-        )}
-        <button
-          type="button"
-          className="btn-ghost"
-          style={{ marginTop: 8 }}
-          onClick={() => setCancelOpen(true)}
-          disabled={busy}
-        >
-          {appText("Отменить поиск", "Эҙләүҙе туҡтатыу")}
-        </button>
-
-        {/* Во время поиска отмена бесплатна — но «почему» спрашиваем так же:
-            «долго ждать» на этой фазе и есть самый ценный ответ. */}
-        {cancelNote && (
-          <div className="notice" role="status">
-            {cancelNote}
-          </div>
-        )}
+            ) : null
+          }
+          footer={
+            /* Во время поиска отмена бесплатна — но «почему» спрашиваем так же:
+               «долго ждать» на этой фазе и есть самый ценный ответ. */
+            <button
+              type="button"
+              className="btn-soft"
+              style={{ width: "100%" }}
+              onClick={() => setCancelOpen(true)}
+              disabled={busy}
+            >
+              {appText("Отменить поиск", "Эҙләүҙе туҡтатыу")}
+            </button>
+          }
+        />
         {cancelOpen && (
           <CancelSheet
             feeRub={0}
@@ -1432,84 +1464,61 @@ function TrackingView({
     );
   }
 
-  // --- Отменён ---
+  // --- Отменён: InstantFinalCard (красный круг, честный текст про плату/страйки, «Новый заказ») ---
   if (s === "cancelled") {
-    const byDriver = order.cancel_by === "driver";
+    const fee = order.cancel_fee_kop ?? 0;
+    const subtitle = order.no_show
+      ? appText(
+          `Водитель ждал ${order.wait_free_min}+ минут, но не дождался. Подача — ${kopExactLabel(fee)}, переведи водителю. Частые такие отмены ставят такси на паузу.`,
+          `Йөрөтөүсе ${order.wait_free_min}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${kopExactLabel(fee)}, йөрөтөүсегә күсер. Йыш улай булһа — такси паузаға китә.`
+        )
+      : fee > 0 && order.cancel_by === "passenger"
+        ? appText(
+            `Отмена была платной: ${kopExactLabel(fee)} (подача) — переведи водителю. Частые платные отмены ставят такси на паузу.`,
+            `Кире алыу түләүле булды: ${kopExactLabel(fee)} (килеү хаҡы) — йөрөтөүсегә күсер. Йыш түләүле кире алыуҙар таксиҙы паузаға ҡуя.`
+          )
+        : order.cancel_by === "driver"
+          ? appText("Водитель отменил. Попробуй заказать снова.", "Йөрөтөүсе баш тартты. Ҡабат заказ ит.")
+          : appText("Ты отменил заказ — бесплатно.", "Һин заказды кире алдың — бушлай.");
     return (
       <>
         <SubHeader title={appText("Заказ отменён", "Заказ кире алынды")} onBack={() => navigate(-1)} />
-        <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__icon"><YuQuiet size={34} /></div>
-          <h2>{byDriver ? appText("Водитель отменил заказ", "Йөрөтөүсе заказды кире алды") : appText("Заказ отменён", "Заказ кире алынды")}</h2>
-          <p>
-            {appText(
-              "Бывает. Давай вызовем другую машину — рядом наверняка есть свободные.",
-              "Була. Әйҙә, башҡа машина саҡырайыҡ — яҡында буштар бар."
-            )}
-          </p>
-          <button type="button" className="btn-primary" onClick={onNewOrder}>
+        <div className="ifinal ifinal--bad">
+          <span className="ifinal__icon appear" style={{ "--i": 0 } as React.CSSProperties} aria-hidden><IconClose size={40} /></span>
+          <h2 className="appear" style={{ "--i": 1 } as React.CSSProperties}>
+            {order.no_show ? appText("Поездка не состоялась", "Сәфәр булманы") : appText("Заказ отменён", "Заказ ҡабул ителмәне")}
+          </h2>
+          <p className="appear" style={{ "--i": 3 } as React.CSSProperties}>{subtitle}</p>
+          {/* Телефон/чат уже открывались → мягко напоминаем завершать поездку в приложении. */}
+          {order.contact_then_cancel && (
+            <p className="ifinal__soft appear" style={{ "--i": 4 } as React.CSSProperties}>
+              {appText(
+                "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
+                "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚"
+              )}
+            </p>
+          )}
+          <button type="button" className="btn-primary ifinal__action appear" style={{ "--i": 5 } as React.CSSProperties} onClick={onNewOrder}>
             {appText("Новый заказ", "Яңы заказ")}
+          </button>
+          <button type="button" className="ifinal__close appear" style={{ "--i": 6 } as React.CSSProperties} onClick={() => navigate(-1)}>
+            {appText("Закрыть", "Ябыу")}
           </button>
         </div>
       </>
     );
   }
 
-  // --- Завершено: цена + оценка ---
+  // --- Завершено: водитель, оценка, «Итого», чек, «забыл вещь» (TaxiPassengerCompletedScreen) ---
   if (s === "done") {
     return (
-      <>
-        <SubHeader title={appText("Поездка завершена", "Сәфәр тамамланды")} onBack={() => navigate(-1)} />
-        <div className="taxi-done">
-          <div className="state__icon"><IconCheck size={34} /></div>
-          <div className="taxi-fare">
-            <span>{appText("К оплате", "Түләргә")}</span>
-            <b>{priceLabel(order.price_final ?? order.price_estimate, ru)}</b>
-          </div>
-          <p className="taxi-done__hint">
-            {appText("Оплата напрямую водителю — как договорились.", "Түләү тура йөрөтөүсегә — килешкәнсә.")}
-          </p>
-        </div>
-        {!rated ? (
-          <div className="rate-card">
-            <div className="rate-card__title">{appText("Как прошла поездка?", "Сәфәр нисек үтте?")}</div>
-            <div className="rate-stars">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className="rate-star"
-                  onClick={() => rate(n)}
-                  aria-label={appText(`${n} звёзд`, `${n} йондоҙ`)}
-                >
-                  <IconStar size={34} />
-                </button>
-              ))}
-            </div>
-            {rateNote && (
-              <div className="notice" role="status">
-                {rateNote}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="consents__status ok" style={{ marginTop: 14 }}>
-            {appText("Спасибо за оценку! 🌿", "Баһаң өсөн рәхмәт! 🌿")}
-          </div>
-        )}
-        {/* Чек — сразу и потом: он остаётся в «Мои поездки на такси», а не теряется. */}
-        <button
-          type="button"
-          className="btn-soft"
-          style={{ width: "100%", marginTop: 14 }}
-          onClick={() => navigate(`/taxi-receipt/${order.id}`)}
-        >
-          <IconReceipt size={18} /> {appText("Чек за поездку", "Сәфәр чегы")}
-        </button>
-        <button type="button" className="btn-primary" style={{ marginTop: 10 }} onClick={onNewOrder}>
-          {appText("Новый заказ", "Яңы заказ")}
-        </button>
-      </>
+      <TaxiPassengerCompleted
+        order={order}
+        onClose={() => navigate(-1)}
+        onNewOrder={onNewOrder}
+        onOpenReceipt={() => navigate(`/taxi-receipt/${order.id}`)}
+        onOpenChat={onOpenChat}
+      />
     );
   }
 
@@ -1518,36 +1527,50 @@ function TrackingView({
     ? appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
     : appText("В пути", "Юлда");
 
+  /* TaxiTripScreen Android: карта во весь экран, шторка с положениями. Шапка — статус и рельса;
+     тело — водитель и маршрут с ценой; развёрнутая — «поделиться», ожидание, действия в пути;
+     поверх карты — «свернуть» слева и SOS справа. */
   return (
     <>
-      <SubHeader
-        title={phaseTitle}
-        subtitle={
-          enRoute
-            ? appText(`≈ ${Math.round(order.eta_min)} мин до подачи`, `≈ ${Math.round(order.eta_min)} мин килеүгә`)
-            : appText("Хорошей дороги 🌿", "Юлың уң булһын 🌿")
+      <TaxiSheet
+        halfBodyFraction={order.status === "onboard" ? 0.44 : 0.36}
+        map={<YandexMap from={fromPt} to={toPt} route={!!(fromPt && toPt)} height="100%" />}
+        overlay={
+          <>
+            <TaxiSheetOverlayButton position="left" label={appText("Свернуть поездку", "Сәфәрҙе йыйыу")} onClick={() => navigate(-1)}>
+              <span style={{ display: "inline-flex", transform: "rotate(90deg)" }}><IconChevron size={22} /></span>
+            </TaxiSheetOverlayButton>
+            <TaxiSheetOverlayButton position="right" label={appText("Экстренная помощь", "Ашығыс ярҙам")} onClick={() => navigate("/sos")} large>
+              <span className="taxi-sheet__sos">SOS</span>
+            </TaxiSheetOverlayButton>
+          </>
         }
-        onBack={() => navigate(-1)}
-      />
-
-      {(fromPt || toPt) && (
-        <div className="home-map" style={{ marginTop: 4 }}>
-          <YandexMap from={fromPt} to={toPt} route={!!(fromPt && toPt)} height={200} />
-        </div>
-      )}
-
+        header={
+          <div className="taxi-trip-head">
+            <h1 className="taxi-trip-head__title">{phaseTitle}</h1>
+            <p className="taxi-trip-head__sub">
+              {enRoute
+                ? appText(`≈ ${Math.round(order.eta_min)} мин до подачи`, `≈ ${Math.round(order.eta_min)} мин килеүгә`)
+                : appText("Хорошей дороги 🌿", "Юлың уң булһын 🌿")}
+            </p>
+            {/* Рельса прогресса — как TaxiTripProgress в шапке поездки Android. */}
+            <TaxiTripProgress status={order.status} />
+          </div>
+        }
+        body={
+          <>
       {/* Карточка водителя */}
       {unlocked && (
         <div className="taxi-driver">
           <div className="taxi-driver__avatar">
-            <IconCar size={26} />
+            <IconProfile size={22} />
           </div>
           <div className="taxi-driver__info">
             <div className="taxi-driver__name">
               {order.driver_name || appText("Водитель", "Йөрөтөүсе")}
               {order.driver_verified && (
-                <span className="badge badge--mint" style={{ marginLeft: 8 }}>
-                  {appText("Проверен", "Тикшерелгән")}
+                <span className="taxi-driver__verified" aria-label={appText("Проверен", "Тикшерелгән")}>
+                  <IconShield size={16} />
                 </span>
               )}
             </div>
@@ -1559,6 +1582,7 @@ function TrackingView({
                 </span>
               )}
             </div>
+            {order.driver_plate && <span className="taxi-driver__plate">{order.driver_plate}</span>}
           </div>
           <div className="taxi-driver__actions">
             <button
@@ -1602,6 +1626,10 @@ function TrackingView({
         )}
       </div>
 
+          </>
+        }
+        extra={
+          <>
       {/* Поделиться поездкой с близким: живая карта у него в браузере, без приложения */}
       {enRoute && <ShareTripCard orderId={order.id} />}
 
@@ -1631,6 +1659,16 @@ function TrackingView({
         </button>
       )}
 
+      <p className="taxi-note">
+        {appText(
+          "Юлдаш — такси между своими. Береги водителя, води себя по-доброму 🤝",
+          "Юлдаш — үҙебеҙ араһында такси. Йөрөтөүсегә иғтибарлы бул 🤝"
+        )}
+      </p>
+          </>
+        }
+      />
+
       {cancelOpen && (
         <CancelSheet
           feeRub={Math.round(order.cancel_fee_now_kop / 100)}
@@ -1641,13 +1679,6 @@ function TrackingView({
           onConfirm={() => void cancel(cancelReason ?? "")}
         />
       )}
-
-      <p className="taxi-note">
-        {appText(
-          "Юлдаш — такси между своими. Береги водителя, води себя по-доброму 🤝",
-          "Юлдаш — үҙебеҙ араһында такси. Йөрөтөүсегә иғтибарлы бул 🤝"
-        )}
-      </p>
     </>
   );
 }
@@ -1790,5 +1821,25 @@ function CancelSheet({
         </button>
       </div>
     </div>
+  );
+}
+
+/** Чип «Ищем mm:ss» — как Surface(CanonGreen2, 14dp) в шапке TaxiSearchingScreen: секунды считаются
+ *  от серверного начала поиска, чтобы после перезагрузки счётчик не начинался с нуля. */
+function SearchElapsedChip({ startedAt }: { startedAt?: string | null }) {
+  const { appText } = useLang();
+  const startedMs = startedAt ? Date.parse(startedAt) : NaN;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const sec = Number.isFinite(startedMs) ? Math.floor((now - startedMs) / 1000) : NaN;
+  const shown = Number.isFinite(sec) && sec >= 0 && sec <= 7200;
+  const mmss = shown ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : "";
+  return (
+    <span className="taxi-search__chip" role="timer">
+      {shown ? appText(`Ищем ${mmss}`, `${mmss} эҙләйбеҙ`) : appText("Ищем", "Эҙләйбеҙ")}
+    </span>
   );
 }

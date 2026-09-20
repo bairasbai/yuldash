@@ -365,6 +365,7 @@ class MainActivity : ComponentActivity() {
             // Сервер теперь кладёт адрес в КАЖДОЕ уведомление, у которого он есть
             // (см. services.push_notification). Разбираем то, что умеем открыть точно:
             "booking" -> DeepLink.pendingBookingChatId.value = id     // бронь попутки → её экран
+            "booking_done" -> DeepLink.pendingCompletedBookingId.value = id
             "support" -> DeepLink.pendingSupport.value = true         // ответ поддержки → «Поддержка»
             "incident" -> DeepLink.pendingFairness.value = true       // решение по спору
             // Лента уведомлений внутри приложения разбирает ДЕСЯТЬ видов, а тап по пушу —
@@ -378,6 +379,9 @@ class MainActivity : ComponentActivity() {
             "partner" -> NavSignals.openPartnerCabinet.value = true   // оплата/статус подписки → кабинет партнёра
             "instant" -> NavSignals.openInstantOrder.value = true     // заказ такси
             "request" -> DeepLink.pendingRequestResponsesId.value = id  // отклики на мою заявку
+            "request_watch" -> DeepLink.pendingRequestsFeed.value = true
+            "taxi_apply" -> DeepLink.pendingApplicationScreen.value = Screen.TaxiOnboarding
+            "courier_apply" -> DeepLink.pendingApplicationScreen.value = Screen.CourierOnboarding
             else -> return
         }
         i.removeExtra(FcmService.EXTRA_PUSH_TYPE)   // не сработать повторно при пересоздании
@@ -402,6 +406,9 @@ class MainActivity : ComponentActivity() {
 /** Мост deep-link → Compose: onCreate/onNewIntent пишут сюда id поездки,
  *  YuldashApp читает как snapshot-состояние и открывает поездку. */
 internal object DeepLink {
+    val pendingCompletedBookingId = mutableStateOf<Int?>(null)
+    val pendingRequestsFeed = mutableStateOf(false)
+    val pendingApplicationScreen = mutableStateOf<Screen?>(null)
     val pendingRideId = mutableStateOf<Int?>(null)
     /** Тап по пушу о посылке → открыть «Посылки». Сбрасывается тем, кто открыл (одноразовый сигнал). */
     val pendingParcels = mutableStateOf(false)

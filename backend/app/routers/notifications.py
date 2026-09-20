@@ -12,7 +12,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Notification, User
+from ..models import Booking, BookingStatus, Notification, Ride, User
 from ..security import current_user
 from ..timeutil import utcnow
 
@@ -35,6 +35,28 @@ class NotificationOut(BaseModel):
 class NotificationsOut(BaseModel):
     unread: int                  # бейдж на иконке
     items: List[NotificationOut]
+
+
+def _legacy_completion_bookings(rows, user_id: int, session: Session) -> dict[int, int]:
+    """Resolve only the historical complete_ride signature; never rewrite stored events."""
+    candidates = [r for r in rows if (
+        r.type == "ride" and r.ref_kind == "ride"
+        and r.title_ru == "Поездка завершена" and r.title_ba == "Сәфәр тамамланды"
+        and r.ref_id is not None and r.ref_id > 0
+    )]
+    if not candidates:
+        return {}
+    # One query for the whole page. Join excludes references to a removed ride.
+    bookings = session.exec(
+        select(Booking.ride_id, Booking.id).join(Ride, Ride.id == Booking.ride_id).where(
+            Booking.ride_id.in_({r.ref_id for r in candidates}),
+            Booking.passenger_id == user_id, Booking.status == BookingStatus.done,
+        )
+    ).all()
+    by_ride: dict[int, list[int]] = {}
+    for ride_id, booking_id in bookings:
+        by_ride.setdefault(ride_id, []).append(booking_id)
+    return {r.id: by_ride[r.ref_id][0] for r in candidates if len(by_ride.get(r.ref_id, [])) == 1}
 
 
 @router.get("/notifications", response_model=NotificationsOut)
@@ -60,6 +82,7 @@ def notifications(
         select(func.count()).select_from(Notification).where(
             Notification.user_id == user.id, Notification.read_at.is_(None))
     ).one()
+    legacy_bookings = _legacy_completion_bookings(rows, user.id, session)
     items = [
         NotificationOut(
             id=r.id,
@@ -68,8 +91,8 @@ def notifications(
             title_ba=r.title_ba,
             body_ru=r.body_ru,
             body_ba=r.body_ba,
-            ref_kind=r.ref_kind,
-            ref_id=r.ref_id,
+            ref_kind="booking_done" if r.id in legacy_bookings else r.ref_kind,
+            ref_id=legacy_bookings.get(r.id, r.ref_id),
             read=r.read_at is not None,
             created_at=r.created_at.isoformat() if r.created_at else "",
         )
