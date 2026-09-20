@@ -22,6 +22,7 @@ const OUT = join(HERE, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
 const SUITES = [
+  { test: "session-caches-test", src: null, out: null, bundle: false },
   { test: "taxi-rating-recovery-test", src: null, out: null, bundle: false },
   { test: "parcel-rating-recovery-test", src: null, out: null, bundle: false },
   { test: "courier-completion-test", src: null, out: null, bundle: false },

@@ -25,6 +25,7 @@ import { disableWebPush } from "../push/webPush";
 import { clearOutbox } from "../utils/outbox";
 import { clearAllDrafts } from "../utils/formDraft";
 import { clearPersonalLocal, syncPersonalSession } from "../utils/privacy";
+import { clearSessionCaches } from "../utils/sessionCaches";
 
 type Status = "loading" | "authed" | "guest" | "unavailable";
 
@@ -58,10 +59,7 @@ function clearSessionData(): void {
   // переживают logout и доступны на общем устройстве через DevTools → Cache Storage.
   if (typeof caches !== "undefined") {
     const clearedGeneration = getSessionGeneration();
-    caches.keys().then((keys) => {
-      if (clearedGeneration !== getSessionGeneration()) return;
-      return Promise.all(keys.map((k) => caches.delete(k)));
-    }).catch(() => {});
+    void clearSessionCaches(() => clearedGeneration === getSessionGeneration()).catch(() => {});
   }
 }
 

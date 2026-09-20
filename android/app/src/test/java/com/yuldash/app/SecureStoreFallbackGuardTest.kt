@@ -72,12 +72,12 @@ class SecureStoreFallbackGuardTest {
 
     @Test
     fun `выход из аккаунта не оставляет телефон водителя на диске`() {
-        TripPassStore.initStores(ctx.getSharedPreferences("yuldash_trippass", Context.MODE_PRIVATE), null)
+        TripPassStore.initStores(ctx.getSharedPreferences("yuldash_trippass_v2", Context.MODE_PRIVATE), null)
         TripPassStore.save(ctx, pass(43))
 
         TripPassStore.clearAll()
 
-        val plainLeft = ctx.getSharedPreferences("yuldash_trippass", Context.MODE_PRIVATE).all
+        val plainLeft = ctx.getSharedPreferences("yuldash_trippass_v2", Context.MODE_PRIVATE).all
         assertEquals("после выхода допустима только отметка очистки недоступного secure",
             mapOf(OfflineStoreReset.PENDING to true), plainLeft)
         assertTrue("паспорт читается после выхода из аккаунта", TripPassStore.load(ctx, 43) == null)

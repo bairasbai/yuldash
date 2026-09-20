@@ -32,8 +32,8 @@ class LoginAfterOfflineResetFailureTest {
         var outbox = MemoryDiskPreferences()
         override fun getApplicationContext(): Context = this
         override fun getSharedPreferences(name: String, mode: Int): SharedPreferences = when (name) {
-            "yuldash_trippass" -> passes
-            "yuldash_outbox" -> outbox
+            "yuldash_trippass_v2" -> passes
+            "yuldash_outbox_v2" -> outbox
             else -> super.getSharedPreferences(name, mode)
         }
         fun restartDisks() {

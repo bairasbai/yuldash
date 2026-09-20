@@ -91,8 +91,9 @@ data class TripPass(
  * Если Keystore недоступен — мягко падаем на обычные prefs (как ApiClient с токеном).
  */
 object TripPassStore {
-    private const val PREF_SECURE = "yuldash_trippass_secure"
-    private const val PREF_PLAIN = "yuldash_trippass"
+    // v1 has no trustworthy owner. Keep it isolated; never migrate it into v2.
+    private const val PREF_SECURE = "yuldash_trippass_secure_v2"
+    private const val PREF_PLAIN = "yuldash_trippass_v2"
     private const val KEY_PREFIX = "pass_"
     @Volatile private var prefs: SharedPreferences? = null
     @Volatile private var plainPrefs: SharedPreferences? = null
@@ -186,11 +187,14 @@ object TripPassStore {
     }.getOrNull()
 
     /** Дополнить сохранённый паспорт кодом посадки (приходит на экране активной поездки). */
-    @Synchronized fun updateBoardingCode(context: Context, bookingId: Int, code: String) {
-        if (code.isBlank()) return
-        val cur = load(context, bookingId) ?: return
-        if (cur.boardingCode == code) return
-        save(context, cur.copy(boardingCode = code))
+    @Synchronized fun updateBoardingCode(
+        context: Context, bookingId: Int, code: String,
+        expectedGeneration: Long? = null, retryMigration: Boolean = false,
+    ): Boolean {
+        if (code.isBlank() || (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration())) return false
+        val cur = load(context, bookingId) ?: return false
+        // Even an equal in-memory value does not prove the last disk write succeeded.
+        return save(context, cur.copy(boardingCode = code), retryMigration, expectedGeneration)
     }
 
     enum class RemovalResult { CLEARED, DEFERRED, NOT_SAVED }
@@ -246,8 +250,8 @@ data class OutboxAction(
  */
 object Outbox {
     private var queueGeneration = 0L // Protected by this object's monitor, never held across HTTP.
-    private const val PREF_SECURE = "yuldash_outbox_secure"
-    private const val PREF = "yuldash_outbox"      // старое открытое хранилище (разовая миграция)
+    private const val PREF_SECURE = "yuldash_outbox_secure_v2"
+    private const val PREF = "yuldash_outbox_v2"      // старое открытое хранилище (разовая миграция)
     private const val KEY = "queue"
     @Volatile private var prefs: SharedPreferences? = null
     @Volatile private var plainPrefs: SharedPreferences? = null

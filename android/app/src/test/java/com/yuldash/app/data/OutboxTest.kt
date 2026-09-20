@@ -137,7 +137,7 @@ class OutboxTest {
 
     @Test
     fun `битая запись на диске не роняет приложение`() {
-        ctx.getSharedPreferences("yuldash_outbox", android.content.Context.MODE_PRIVATE)
+        ctx.getSharedPreferences("yuldash_outbox_v2", android.content.Context.MODE_PRIVATE)
             .edit().putString("queue", "это не json").apply()
         assertEquals("испорченный файл читается как пустая очередь", 0, Outbox.count(ctx, 7))
         assertFalse(Outbox.hasPending(ctx))

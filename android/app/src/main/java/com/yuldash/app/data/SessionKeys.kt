@@ -79,6 +79,8 @@ internal object SessionKeys {
 
     /** Cleared by each store's atomic reset, never separately through CLEARED_BY_FILE. */
     val CLEARED_BY_STORE: Map<String, List<String>> = mapOf(
+        "yuldash_trippass_v2" to listOf(OfflineMigration.JOURNAL, TripPassDeletion.KEY),
+        "yuldash_outbox_v2" to listOf(OfflineMigration.JOURNAL),
         "yuldash_trippass" to listOf(OfflineMigration.JOURNAL, TripPassDeletion.KEY),
         "yuldash_outbox" to listOf(OfflineMigration.JOURNAL),
     )

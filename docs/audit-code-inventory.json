@@ -78,23 +78,23 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 128,
+    "android_main": 129,
     "backend_main": 103,
     "infra_resource_config": 294,
     "public_site_promo": 89,
-    "pwa_main": 268,
-    "test_support": 792
+    "pwa_main": 269,
+    "test_support": 798
   },
   "counts_by_block": {
-    "B01": 98,
-    "B02": 154,
+    "B01": 103,
+    "B02": 156,
     "B03": 97,
     "B04": 74,
     "B05": 29,
     "B06": 75,
     "B07": 100,
     "B08": 162,
-    "B09": 501,
+    "B09": 502,
     "B10": 294,
     "B11": 90
   },
@@ -293,7 +293,7 @@
       "path": "android/app/src/androidTest/java/com/yuldash/app/data/AuthStorageProcessInstrumentedTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "fc8fac55e7cf930fb42e21bf1cb4092d4ab3b6f2a6c4cc85dc954faeb3d71849",
+      "sha256": "2f4975d897a0b51022d22ba3b1d97b642775aa66d6da002d09911124255d8603",
       "lines": 231
     },
     {
@@ -496,8 +496,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "2b3a8b947e5c3f773ec714a25cf604c165d856a64d791221e43846e801026ea7",
-      "lines": 3701
+      "sha256": "e3c13a4e4b3c2e1362696c629ffc42fa1d3fb9725f40a2cd10bdebce5277f05f",
+      "lines": 3792
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -678,8 +678,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/LoginScreen.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "a4f30ef78047363f929066d9f363366ceda3915f77e7e16e7cd9df10a689568e",
-      "lines": 1272
+      "sha256": "c5a618a85238099b401f93c66edf8e0712f1b530af260e66a77639d091908a4b",
+      "lines": 1291
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MainActivity.kt",
@@ -1119,8 +1119,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "58f243e5ded184692c8aabadfa2f138786ed72868c6817d71b15b4359f189e4f",
-      "lines": 7913
+      "sha256": "762450d09fc29e4deec7d64e39dfc090ce9fc2c221b16a927c091cf286273187",
+      "lines": 7917
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -1179,6 +1179,13 @@
       "lines": 86
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/data/OfflineLegacyStores.kt",
+      "kind": "android_main",
+      "block": "B01",
+      "sha256": "b5a59803daf6f65f6584f2e8d29429cbebefdddd869d84529560fb00f24ac4b8",
+      "lines": 31
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/data/OfflineMigration.kt",
       "kind": "android_main",
       "block": "B01",
@@ -1203,8 +1210,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "48afec5d667a4c028f591c96b8c382aedd1e72ebee2771e547644b75303e944a",
-      "lines": 85
+      "sha256": "d2b621b27813cbb894715cc11cd88e8209e4a29b1c38b8c208036dba93af0b7a",
+      "lines": 87
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/TripLocationBus.kt",
@@ -1217,8 +1224,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "5f82f88614169cc4e96fb877d211dc48bed10c3d790b3e1c224f4fe1e1d1d827",
-      "lines": 445
+      "sha256": "704f2e230d003b67c9741ac67241366453ee074d59a2011a54c679e924bab2db",
+      "lines": 449
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPassDeletion.kt",
@@ -1571,6 +1578,13 @@
       "lines": 130
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/ActiveTripBoardingCodeSaveTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "7396c482d7cd49e46933dc2ee54810598a5f9841073bbdb177c6b552d0f64923",
+      "lines": 183
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripDeletionTest.kt",
       "kind": "test_support",
       "block": "B02",
@@ -1737,6 +1751,13 @@
       "block": "B02",
       "sha256": "03d5bdba18f6c3955373b6946eda7a63d8c1cd15ed7b23fb78a9127e32408554",
       "lines": 217
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/BookingHistoryCleanupTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "6a03611090bdda3c9772077df3ee5eccd492c27cce4e0411913a6bf6736bc57e",
+      "lines": 122
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingLinkLoginTest.kt",
@@ -1968,6 +1989,13 @@
       "block": "B01",
       "sha256": "2b90dbb1ca8ef52cbc9c0269bc65fd07e0a60ce6cba3ff43acc3e9808ee5369a",
       "lines": 250
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/LoginFailureRecoveryTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "62b2dbc5b36af52d7f91dcd2fdbb68240d330fc1624ea469e61d27833abcf9bf",
+      "lines": 204
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/LoginFormContentTest.kt",
@@ -2365,7 +2393,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/SecureStoreFallbackGuardTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "443b84303fcbde37761af409cd7eb5175402ec01077d3c92624b6dd08d8ecc30",
+      "sha256": "4ef890c22d0a8d3ebb2aad18720c68fa92dbd2c77a10b7b90bd16100b6d1fc36",
       "lines": 107
     },
     {
@@ -2887,6 +2915,13 @@
       "lines": 162
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/data/BoardingCodePersistenceTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "b3361cfc71aea96d6f9695dcb2f6c4080788de7a4ef392f5acf3054356c3aef6",
+      "lines": 85
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/data/ChatRetryLiveBackendTest.kt",
       "kind": "test_support",
       "block": "B05",
@@ -2908,6 +2943,13 @@
       "lines": 280
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/data/LegacyOfflineOwnerTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "b30d7d6a6347cd7224a11a5252964d5b5af221f891620d942449631bd007c8b1",
+      "lines": 166
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/data/LocationSocketLifecycleTest.kt",
       "kind": "test_support",
       "block": "B06",
@@ -2918,7 +2960,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/data/LoginAfterOfflineResetFailureTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "fef715488249e34fbd44f44f986660e6d0b19979eb1e9f6e9c4f86ed68833103",
+      "sha256": "63de55b903ba6311dcf67e67a00124a0fb79d57efc9a57eb65e48c468cb42455",
       "lines": 157
     },
     {
@@ -2988,7 +3030,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/data/OutboxTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "6f145094f9ee8b1ac6bb290fccaea65f175f733156f801e4942d6fff33054757",
+      "sha256": "52bdd8571df5ddb6d02166f2e299129360d8e703c47d21371accec88669ee9de",
       "lines": 161
     },
     {
@@ -9785,8 +9827,8 @@
       "path": "webapp/src/auth/AuthProvider.tsx",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "cd98895264cb192984f6c019b67d63d382fdcbea11e746f095b8aee6a07fc231",
-      "lines": 225
+      "sha256": "070a11ab783cde3ee96218c71d84a9f633613dd50f19fab334e7d2e7baeadc92",
+      "lines": 223
     },
     {
       "path": "webapp/src/components/ActiveTaxiBar.tsx",
@@ -11315,6 +11357,13 @@
       "lines": 64
     },
     {
+      "path": "webapp/src/utils/sessionCaches.ts",
+      "kind": "pwa_main",
+      "block": "B01",
+      "sha256": "945bd0cc3a862245faffbf353f769d0a174506ae6e1255a8a0e402446137bc1b",
+      "lines": 29
+    },
+    {
       "path": "webapp/src/utils/tripDetailsSync.d.ts",
       "kind": "pwa_main",
       "block": "B02",
@@ -11710,8 +11759,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "65f0aec9dd9d7f4fc352ff1c77bf968db4989c9cd166b0751f136e4225dc81b5",
-      "lines": 171
+      "sha256": "b0bfe728b157429a2a86c4a877f013ffe7f9e06f3d31e2d81347ace0ed5a1b8c",
+      "lines": 172
     },
     {
       "path": "webapp/tests/session-boundary-test.mjs",
@@ -11719,6 +11768,13 @@
       "block": "B01",
       "sha256": "67163abe695117261f8e82f933f1dc9550860b8d8a332feb9cd3cb6b9b631346",
       "lines": 238
+    },
+    {
+      "path": "webapp/tests/session-caches-test.mjs",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "8668fe6c55abc8e092bb14b9f93a668f635555e72456328ec42401faa8c5115a",
+      "lines": 16
     },
     {
       "path": "webapp/tests/sos-account-boundary-test.mjs",

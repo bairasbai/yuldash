@@ -101,10 +101,10 @@ class AuthStorageProcessInstrumentedTest {
                 ApiClient.testBaseUrl = "http://127.0.0.1:9"
                 ApiClient.init(ctx)
                 ApiClient.saveToken("qa-next-owner")
-                val passPlain = ctx.getSharedPreferences("yuldash_trippass", 0)
-                val queuePlain = ctx.getSharedPreferences("yuldash_outbox", 0)
-                TripPassStore.initStores(passPlain, secure("yuldash_trippass_secure"))
-                Outbox.initStores(queuePlain, secure("yuldash_outbox_secure"))
+                val passPlain = ctx.getSharedPreferences("yuldash_trippass_v2", 0)
+                val queuePlain = ctx.getSharedPreferences("yuldash_outbox_v2", 0)
+                TripPassStore.initStores(passPlain, secure("yuldash_trippass_secure_v2"))
+                Outbox.initStores(queuePlain, secure("yuldash_outbox_secure_v2"))
                 TripPassStore.save(ctx, TripPass.fromJson(JSONObject().put("booking_id", 1)))
                 Outbox.enqueue(ctx, Outbox.newMessage(1, "QA previous owner"))
                 // Model an unavailable store without damaging the device's actual Keystore.
@@ -177,9 +177,9 @@ class AuthStorageProcessInstrumentedTest {
                 assertNotNull(TripPassStore.load(ctx, 2))
                 assertEquals(0, Outbox.count(ctx, 1))
                 assertEquals(1, Outbox.count(ctx, 2))
-                assertFalse(secure("yuldash_trippass_secure").contains("pass_1"))
-                assertFalse(ctx.getSharedPreferences("yuldash_trippass", 0).contains(OfflineStoreReset.PENDING))
-                assertFalse(ctx.getSharedPreferences("yuldash_outbox", 0).contains(OfflineStoreReset.PENDING))
+                assertFalse(secure("yuldash_trippass_secure_v2").contains("pass_1"))
+                assertFalse(ctx.getSharedPreferences("yuldash_trippass_v2", 0).contains(OfflineStoreReset.PENDING))
+                assertFalse(ctx.getSharedPreferences("yuldash_outbox_v2", 0).contains(OfflineStoreReset.PENDING))
             }
             "migration" -> {
                 assertEquals("qa-legacy-access", ApiClient.currentToken())

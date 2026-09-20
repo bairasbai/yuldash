@@ -493,6 +493,7 @@ object ApiClient {
         // последним фоновый сервис умеет ВОСКРЕСНУТЬ и снова начать слать GPS уже под новым
         // владельцем телефона. Адрес каждого ключа теперь записан в `SessionKeys.CLEARED_BY_FILE`.
         appCtx?.let { ctx ->
+            OfflineLegacyStores.clear(ctx)
             SessionKeys.CLEARED_BY_FILE.forEach { (file, keys) ->
                 if (file == SessionKeys.MAIN_PREFS) return@forEach   // основной ящик закрыт выше
                 ctx.getSharedPreferences(file, Context.MODE_PRIVATE).edit()
@@ -678,7 +679,7 @@ object ApiClient {
                 editor.putString("token", access).putString("refresh_token", refresh)
                     .remove("refresh_rotation_id").remove("refresh_rotation_token")
                     .putString("user_name", name).putString("user_role", role)
-            }) return@synchronized Result.failure(IOException("Session was not persisted"))
+            }) return@synchronized Result.failure(SessionPersistenceException())
             sessionGeneration++
             respCache.clear()
             cachedUserId = null
@@ -5299,6 +5300,9 @@ object ApiClient {
  * них надо ровно наоборот — начать новую попытку или не трогать её вовсе (волна 219).
  */
 class ApiException(val status: Int, message: String, val detailCode: String = "") : Exception(message)
+
+/** The server accepted a single-use code, but local session storage could not commit it. */
+internal class SessionPersistenceException : IOException("Session was not persisted")
 
 /** Цена одного класса машины в options оценки — все цены одним запросом.
  *  `open=false` — класс есть в тарифах, но в этом городе ещё не набралось водителей. */

@@ -246,6 +246,7 @@ import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.SessionPersistenceException
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
@@ -372,6 +373,7 @@ private fun LoginFormCard(
     var tgRequestId by rememberSaveable { mutableStateOf("") }
     var nameInput by rememberSaveable { mutableStateOf("") }       // имя при регистрации (необязательно)
     var needPhone by rememberSaveable { mutableStateOf(false) }   // сервер требует номер (403 phone_required)
+    var freshCodeRequired by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
     // Строки ошибок считаем здесь (в @Composable-контексте с currentLanguage) — колбэки получают готовый текст.
@@ -391,6 +393,8 @@ private fun LoginFormCard(
     val errSendFail = appTextFor(currentLanguage, "Не получилось отправить код. Проверь интернет и повтори.", "Код ебәреп булманы. Интернетты тикшер ҙә ҡабатла.")
     val errEnterCode = appTextFor(currentLanguage, "Введи код из SMS", "SMS кодын индер")
     val errBadCode = appTextFor(currentLanguage, "Неверный код", "Код дөрөҫ түгел")
+    val errVerify = appTextFor(currentLanguage, "Не удалось проверить код. Попробуй ещё раз.", "Кодты тикшереп булманы. Тағы бер тапҡыр ҡара.")
+    val errSaveLogin = appTextFor(currentLanguage, "Не удалось сохранить вход на телефоне. Получи новый код и попробуй ещё раз.", "Телефонда инеүҙе һаҡлап булманы. Яңы код ал да тағы инеп ҡара.")
 
     fun openTelegram(url: String) {
         runCatching {
@@ -422,6 +426,7 @@ private fun LoginFormCard(
                             .onSuccess { req ->
                                 loading = false
                                 tgRequestId = req
+                                freshCodeRequired = false
                                 code = ""
                                 tgMode = true
                                 openTelegram("https://t.me/${BuildConfig.TELEGRAM_BOT}?start=$req")
@@ -434,7 +439,8 @@ private fun LoginFormCard(
         // Кнопка «Войти» на шаге ввода Telegram-кода. Гард двойного тапа + пустого кода — как раньше.
         onTgVerify = {
             if (!loading) {
-                if (!isLoginCodeValid(code)) { error = errEnterTgCode } else {
+                if (freshCodeRequired) { error = errSaveLogin }
+                else if (!isLoginCodeValid(code)) { error = errEnterTgCode } else {
                     loading = true; error = null
                     scope.launch {
                         ApiClient.tgVerify(tgRequestId, code.trim())
@@ -445,12 +451,17 @@ private fun LoginFormCard(
                             }
                             .onFailure { e ->
                                 loading = false
-                                when ((e as? ApiException)?.status) {
+                                if (e is SessionPersistenceException) {
+                                    needPhone = false
+                                    freshCodeRequired = true
+                                    error = errSaveLogin
+                                } else when ((e as? ApiException)?.status) {
                                     403 -> { needPhone = true; error = errPhoneRequired }   // нужен номер
                                     409 -> { needPhone = false; error = errCodeNotYet }    // код ещё идёт от Telegram под нагрузкой
                                     410 -> { needPhone = false; error = errExpiredCode }   // код истёк
                                     429 -> { needPhone = false; error = errTooManyCode }   // много попыток
-                                    else -> { needPhone = false; error = errBadTgCode }    // неверный код
+                                    400 -> { needPhone = false; error = errBadTgCode }
+                                    else -> { needPhone = false; error = errVerify }
                                 }
                             }
                     }
@@ -470,6 +481,7 @@ private fun LoginFormCard(
                         .onSuccess { req ->
                             loading = false
                             tgRequestId = req
+                            freshCodeRequired = false
                             code = ""
                             openTelegram("https://t.me/${BuildConfig.TELEGRAM_BOT}?start=$req")
                         }
@@ -477,7 +489,7 @@ private fun LoginFormCard(
                 }
             }
         },
-        onBackFromTg = { tgMode = false; code = ""; error = null },
+        onBackFromTg = { tgMode = false; code = ""; error = null; freshCodeRequired = false },
         onToggleSmsForm = { showPhone = !showPhone },
         onChangePhone = { step = 0; code = ""; error = null },
         // SMS-кнопка «Получить код» / «Войти». Гарды двойного тапа и пустых полей — как в прежнем onClick.
@@ -499,7 +511,14 @@ private fun LoginFormCard(
                         scope.launch {
                             ApiClient.verifyCode(phone.trim(), code.trim(), nameInput.trim())
                                 .onSuccess { loading = false; onContinue() }
-                                .onFailure { loading = false; error = errBadCode }
+                                .onFailure { e ->
+                                    loading = false
+                                    error = when {
+                                        e is SessionPersistenceException -> errSaveLogin
+                                        e is ApiException && e.status == 400 -> errBadCode
+                                        else -> errVerify
+                                    }
+                                }
                         }
                     }
                 }

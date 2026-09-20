@@ -395,6 +395,26 @@ internal fun BookingScreen(
             offlineSaveBusy = false
         }
     }
+    var historyRemovalFailed by remember(bookingId) { mutableStateOf(false) }
+    var historyRemovalBusy by remember(bookingId) { mutableStateOf(false) }
+    var historyRemovalRetry by remember(bookingId) { mutableIntStateOf(0) }
+    // Only fresh server details authorize removing the old offline copy, not a list hint.
+    val historyTerminal = details?.status in setOf("done", "cancelled")
+    LaunchedEffect(bookingId, historyTerminal, detailsSession, historyRemovalRetry) {
+        val id = bookingId ?: return@LaunchedEffect
+        if (!historyTerminal || detailsSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        historyRemovalBusy = true
+        val removalSession = detailsSession
+        try {
+            val result = withContext(Dispatchers.IO) {
+                TripPassStore.requestRemoval(context, id, expectedGeneration = removalSession)
+            }
+            if (removalSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+            historyRemovalFailed = result == TripPassStore.RemovalResult.NOT_SAVED
+        } finally {
+            historyRemovalBusy = false
+        }
+    }
     val displayRide = details?.let {
         ride.copy(
             id = it.rideId.toString(),
@@ -521,6 +541,28 @@ internal fun BookingScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
+            item(key = "history-offline-removal") {
+                AnimatedVisibility(visible = historyRemovalFailed && historyTerminal) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (historyRemovalBusy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = CanonGreen2)
+                        EmptyStateCard(
+                            title = appText("Не удалось удалить сохранённую поездку", "Һаҡланған сәфәрҙе юйып булманы"),
+                            text = appText(
+                                "Поездка уже закрыта. Её копия может остаться на телефоне. Попробуй удалить ещё раз.",
+                                "Сәфәр ябылған инде. Уның күсермәһе телефонда ҡалырға мөмкин. Тағы юйып ҡара.",
+                            ),
+                            icon = Icons.Default.Refresh,
+                            action = if (historyRemovalBusy) null else appText("Повторить удаление", "Тағы юйырға"),
+                            onAction = {
+                                if (!historyRemovalBusy) {
+                                    historyRemovalBusy = true
+                                    historyRemovalRetry++
+                                }
+                            },
+                        )
+                    }
+                }
+            }
             if (bookingPending) {
                 item {
                     InfoCard(
@@ -1527,6 +1569,30 @@ internal fun ActiveTripScreen(
     var tempSeq by remember(bookingId) { mutableStateOf(-2) }
     val restAttempts = remember(bookingId) { mutableMapOf<Int, com.yuldash.app.data.OutboxAction>() }
     var boardingCode by remember(bookingId) { mutableStateOf("") }
+    var codeSaveFailed by remember(bookingId) { mutableStateOf(false) }
+    var codeSaveBusy by remember(bookingId) { mutableStateOf(false) }
+    var codeSaveRetry by remember(bookingId) { mutableIntStateOf(0) }
+    LaunchedEffect(bookingId, boardingCode, codeSaveRetry, terminalBooking) {
+        val id = bookingId ?: return@LaunchedEffect
+        if (boardingCode.isBlank() || terminalBooking != null || tripSession != ApiClient.queueSessionGeneration()) {
+            codeSaveFailed = false
+            return@LaunchedEffect
+        }
+        codeSaveBusy = true
+        val codeToSave = boardingCode
+        try {
+            val saved = withContext(Dispatchers.IO) {
+                TripPassStore.updateBoardingCode(context, id, codeToSave,
+                    expectedGeneration = tripSession, retryMigration = codeSaveRetry > 0)
+            }
+            if (tripSession != ApiClient.queueSessionGeneration() || bookingStatus == "done" || bookingStatus == "cancelled") return@LaunchedEffect
+            codeSaveFailed = !saved
+            tripPass = TripPassStore.load(context, id)
+        } finally {
+            codeSaveBusy = false
+        }
+    }
+
     // Договорённость об оплате (ЗАПИСЬ, не платёж) — показываем обеим сторонам в активной поездке.
     var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
     var payAmount by remember(bookingId) { mutableStateOf<Int?>(null) }
@@ -1555,10 +1621,7 @@ internal fun ActiveTripScreen(
         historyLoading = false
         ApiClient.getBoardingCode(id).onSuccess { code ->
             if (tripSession != ApiClient.queueSessionGeneration() || bookingStatus == "done" || bookingStatus == "cancelled") return@onSuccess
-            boardingCode = code
-            // F11: дополним офлайн-паспорт кодом посадки (его пассажир называет водителю без сети).
-            TripPassStore.updateBoardingCode(context, id, code)
-            tripPass = TripPassStore.load(context, id)
+            if (code.isNotBlank()) boardingCode = code
         }
         ApiClient.getBookingDetails(id).onSuccess { d ->
             payMethod = d.payMethod
@@ -1858,6 +1921,28 @@ internal fun ActiveTripScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
+            item(key = "boarding-code-save") {
+                AnimatedVisibility(visible = codeSaveFailed && terminalBooking == null) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (codeSaveBusy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = CanonGreen2)
+                        EmptyStateCard(
+                            title = appText("Код не сохранён на телефоне", "Код телефонда һаҡланманы"),
+                            action = if (codeSaveBusy) null else appText("Сохранить код ещё раз", "Кодты тағы һаҡларға"),
+                            text = appText(
+                                "Код виден сейчас, но без сети может быть недоступен. Попробуй сохранить ещё раз. Если не получится, открой бронь и сохрани поездку заново.",
+                                "Код хәҙер күренә, ләкин интернетһыҙ асылмауы мөмкин. Тағы һаҡлап ҡара. Булмаһа, бронде ас та сәфәрҙе яңынан һаҡла.",
+                            ),
+                            icon = Icons.Default.Refresh,
+                            onAction = {
+                                if (!codeSaveBusy) {
+                                    codeSaveBusy = true
+                                    codeSaveRetry++
+                                }
+                            },
+                        )
+                    }
+                }
+            }
             item {
                 ActiveTripOptionBHero(
                     driverName = ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
@@ -1894,7 +1979,13 @@ internal fun ActiveTripScreen(
             // F11: офлайн-режим — сервер недоступен, но паспорт поездки сохранён локально.
             if (offline && tripPass != null) {
                 item { OfflineTripBanner(modifier = Modifier.appearIn(0)) }
-                item { TripPassCard(pass = tripPass!!, modifier = Modifier.appearIn(1)) }
+                item {
+                    // A known newer server code must not be contradicted by the old offline copy.
+                    val stored = tripPass!!
+                    val shown = if (boardingCode.isNotBlank() && stored.boardingCode != boardingCode)
+                        stored.copy(boardingCode = "") else stored
+                    TripPassCard(pass = shown, modifier = Modifier.appearIn(1))
+                }
             }
             // F12 «Зимний протокол»: спокойное напоминание в морозную ночь (ноя–мар + ночь).
             if (frostyNight) {
