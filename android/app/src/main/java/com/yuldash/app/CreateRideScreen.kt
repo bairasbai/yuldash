@@ -401,7 +401,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
                 // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                 publishScope.launch {
                     ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, waypoints.filter { it.isNotBlank() }.joinToString(" | "), noMinors)
-                        .onSuccess { publishing = false; onPublish(ride) }
+                        .onSuccess { id -> publishing = false; onPublish(ride.copy(id = id.toString())) }
                         // Сервер объясняет отказ по-человечески («время выезда уже прошло»,
                         // «слишком много активных поездок»). Показываем именно его слова:
                         // раньше на любой отказ писали «проверь сеть» — водитель проверял сеть,

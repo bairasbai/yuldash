@@ -260,7 +260,7 @@ class ApiClientRidesTest {
 
     @Test
     fun publishRide_sendsPostWithSnakeCaseBody() = runBlocking {
-        server.enqueue(json("{}"))
+        server.enqueue(json("""{"id":42}"""))
         val res = ApiClient.publishRide(
             fromCity = "Уфа",
             toCity = "Стерлитамак",
@@ -272,7 +272,7 @@ class ApiClientRidesTest {
             baggage = true,
             category = "regular",
         )
-        assertTrue(res.isSuccess)
+        assertEquals(42, res.getOrThrow())
         val recorded = server.takeRequest()
         assertEquals("POST", recorded.method)
         assertEquals("/rides", recorded.path)

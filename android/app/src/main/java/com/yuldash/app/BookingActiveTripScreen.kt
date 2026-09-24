@@ -344,7 +344,19 @@ internal fun BookingScreen(
     // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
     // не подставляем — молча возвращаемся назад.
     if (ride == null) {
-        LaunchedEffect(Unit) { onBack() }
+        if (bookingId == null) {
+            LaunchedEffect(Unit) { onBack() }
+        } else {
+            // The parent is restoring this known booking. Do not race its server lookup with back navigation.
+            Scaffold(
+                containerColor = CanonBg,
+                topBar = { ScreenTopBar(appText("Детали поездки", "Сәфәр тураһында"), onBack) },
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = CanonGreen2)
+                }
+            }
+        }
         return
     }
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
@@ -1512,8 +1524,11 @@ internal fun ActiveTripScreen(
     LaunchedEffect(bookingId, lifecycleOwner) {
         val id = bookingId ?: return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            while (true) {
-                ApiClient.getTripState(id)
+            // Recheck on lifecycle resume and before every poll: this screen belongs to one login.
+            while (tripSession == ApiClient.queueSessionGeneration()) {
+                val stateResult = ApiClient.getTripState(id)
+                if (tripSession != ApiClient.queueSessionGeneration()) return@repeatOnLifecycle
+                stateResult
                     .onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; acceptBookingStatus(st.status); offline = false }
                     // Сетевой сбой (не ApiException) → уходим в офлайн-режим: поднимаем сохранённый паспорт.
                     .onFailure { e -> if (e !is ApiException) offline = true }

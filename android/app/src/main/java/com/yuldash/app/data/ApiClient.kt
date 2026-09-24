@@ -891,7 +891,7 @@ object ApiClient {
         quiet: Boolean = false,      // тихая поездка (в конце — чтобы не сдвигать позиционные вызовы)
         waypoints: String = "",     // остановки по пути (названия через " | ")
         noMinors: Boolean = false,  // не беру пассажиров младше 18 без сопровождения взрослого
-    ): Result<Unit> = call(
+    ): Result<Int> = call(
         "POST", "/rides",
         JSONObject()
             .put("from_city", fromCity)
@@ -920,7 +920,9 @@ object ApiClient {
             .put("parcel_size", parcelSize)
             .put("partner_id", partnerId ?: JSONObject.NULL),
         auth = true,
-    ).map { }.onSuccess { Analytics.log("publish_ride") }
+    ).mapCatching { response ->
+        response.getInt("id").also { require(it > 0) { "Invalid published ride id" } }
+    }.onSuccess { Analytics.log("publish_ride") }
 
     // ---------- F22: клиники-партнёры (медцентры) ----------
 
@@ -956,10 +958,28 @@ object ApiClient {
      * Способ по умолчанию — "negotiate" (договоримся); сумма опц. (null = сервер возьмёт цену поездки). */
     suspend fun book(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
+        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "",
+    ): Result<Int> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone)
+        .map { it.optInt("id") }
+
+    /** Preserve the server status: a newly requested seat is not yet confirmed by the driver. */
+    suspend fun bookWithStatus(
+        rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
+        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "",
+    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone)
+        .mapCatching { response ->
+            val id = response.getInt("id")
+            val status = response.getString("status")
+            require(id > 0 && status in setOf("pending", "confirmed", "onboard")) { "Invalid booking response" }
+            BookingCreatedDto(id, status)
+        }
+
+    private suspend fun createBookingResponse(
+        rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
         // Едет несовершеннолетний: взрослый обязателен (имя + телефон) — это и запись согласия,
         // и водителю есть кому позвонить. Сервер без них бронь не создаст.
         minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "",
-    ): Result<Int> = call(
+    ): Result<JSONObject> = call(
         "POST", "/bookings",
         JSONObject().put("ride_id", rideId).put("seats", seats)
             .put("pay_method", payMethod)
@@ -972,7 +992,7 @@ object ApiClient {
                 }
             },
         auth = true,
-    ).map { it.optInt("id") }.onSuccess { Analytics.log("booking") }
+    ).onSuccess { Analytics.log("booking") }
 
     /** Поправить договорённость об оплате брони (может любая сторона — пассажир/водитель).
      * Это ЗАПИСЬ «как договорились платить», а не платёж. */
@@ -6538,6 +6558,9 @@ data class DriverBookingDto(
 
 /** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */
 data class ReferralDto(val code: String, val invited: Int, val credits: Int, val redeemed: Boolean)
+
+/** Identity and authoritative status returned by booking creation/replay. */
+data class BookingCreatedDto(val id: Int, val status: String)
 
 /** Моя бронь со сводкой поездки — для экрана «Мои поездки». */
 data class BookingMineDto(

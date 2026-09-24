@@ -4232,3 +4232,23 @@ YuldashApp хранит failedRideLink отдельно от pendingRideId, по
 20.09.2026, QA-B01-010: рабочие TripPassStore/Outbox используют отдельные plain/secure-файлы с суффиксом _v2. Перенос plain→secure работает только внутри v2. Старые файлы без владельца никогда не открываются рабочими хранилищами, не переносятся и не отправляются; при обычном старте с сессией сохраняются на диске. OfflineLegacyStores вызывается общей очисткой сессии и применяет прежний durable reset к legacy-файлам. Отказ очистки не разрешает их чтение. Это изоляция формата, а не восстановление владельца.
 
 24.09.2026, QA-B02-003: начальная цепочка ActiveTripScreen messages → boarding-code → details привязана к tripSession целиком. Проверка поколения выполняется перед стартом и после каждого suspend, до применения результата или следующего запроса. Защита отдельного ApiClient.call сама по себе не останавливает последующие вызовы старого экрана. Границы проверки — audit-blocks.md.
+
+24.09.2026, QA-B02-003, polling: ActiveTripScreen сверяет tripSession в условии цикла repeatOnLifecycle и после getTripState до применения success/failure. Смена аккаунта останавливает этот цикл; повторный RESUMED проверяет ту же исходную сессию. Защита начальной загрузки сохранена. Управляемые проверки и их границы — audit-blocks.md.
+
+24.09.2026 — основной проход ролей теперь фиксирован в audit-blocks.md (PATH-01–13). CreateRidePublishJourneyTest проверяет умную обёртку CreateRideScreen с вводом, нативными DatePickerDialog/TimePickerDialog и настоящим ApiClient против локального HTTP: успешная публикация и503→повтор. Переход YuldashApp после callback и запись настоящего сервера этим тестом не покрываются.
+
+24.09.2026 — PATH-02/03: publishRide возвращает положительный серверный ID, CreateRideScreen передаёт его в Ride.id вместо local-…; YuldashApp добавляет полученную карточку в свой список. bookWithStatus сохраняет id/status ответа: pending остаётся в Booking без activeTrip, confirmed/onboard открывают ActiveTrip. Старый book с Result<Int> сохранён через общий createBookingResponse. Новые проверки/границы: QA-B02-006 в audit-blocks.md; серверную реализацию и PWA эта группа не меняет.
+
+
+QA-B02-007 (24.09): BookingScreen при ride=null и известном bookingId показывает ожидание восстановления родителем YuldashApp; только отсутствие и Ride, и bookingId вызывает немедленный onBack. Родитель по-прежнему обрабатывает неуспех загрузки. Доказательства — audit-blocks.md, BookingConfirmationJourneyTest.
+
+
+QA-B02-009: MapScreen в BoxWithConstraints закрепляет header только при maxHeight>=560dp×max(fontScale,1); иначе header является первым элементом LazyColumn, чтобы список не сжимался до нуля. LocalPoolingNativeMapEnabled default=true позволяет JVM-тесту отключить только native-поверхность. Жизненный цикл реального MapKit при прокрутке компактного режима требует устройства; см.audit-blocks.md.
+
+
+QA-B03-001: InstantDestinationPicker показывает errorText в закреплённом footer при Half/Peek, а в Full — в существующей карточке расчёта. InstantOrderScreen передаёт renderNativeMap=false в mapContent поиска/поездки для JVM; production defaulttrue. TaxiPassengerJourneyTest проверяет заказ/статусы/оценку и сигнал чека,не водительские действия и не сам чек.
+
+
+QA-B03-002: InstantDriverOnlineController принимает nullable mapContent и передаёт в WaitingScreen/OfferOverlay; null сохраняет нативную карту. TaxiDriverJourneyTest начинает с online=true, реальные HTTP-кнопки accept→arrived→onboard→done; оболочка теста соединяет controller callback с TripScreen. Не заменяет допуск/общую навигацию/MapKit.
+
+24.09.2026 — CourierScreen: для пользователя без approved-заявки PoputkaDeliveryTabs показывает две вкладки «Заказы» / «Везу». Лента остаётся только попутной (poputkaOnly=true), принятые посылки открывает существующий CourierCarryingTab; профессиональная линия и кабинет не включаются. Список доставок передаётся существующему CourierLiveLocationLink; разрешение геолокации и прекращение трансляции остаются в общем механизме. Доказательства и границы — QA-B04-001 в audit-blocks.md.

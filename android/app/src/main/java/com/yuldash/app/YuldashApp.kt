@@ -1293,8 +1293,13 @@ internal fun YuldashApp() {
                         if (rid != null && !bookingInFlight) {
                             bookingInFlight = true
                             appScope.launch {
-                                ApiClient.book(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone)
-                                    .onSuccess { bid -> activeBookingId = bid; selectedBookingStatus = "confirmed"; activeTrip = selectedRide; screen = Screen.ActiveTrip }
+                                ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone)
+                                    .onSuccess { booking ->
+                                        activeBookingId = booking.id
+                                        selectedBookingStatus = booking.status
+                                        activeTrip = selectedRide.takeIf { bookingStatusAllowsBoarding(booking.status) }
+                                        screen = if (bookingStatusAllowsActiveTrip(booking.status)) Screen.ActiveTrip else Screen.Booking
+                                    }
                                     // Сервер объясняет отказ по-человечески («укажите взрослого»,
                                     // «водитель берёт только 18+»). Показываем его слова, а не
                                     // общее «повтори»: иначе человек не поймёт, что чинить.

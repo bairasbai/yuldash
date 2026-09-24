@@ -276,14 +276,7 @@ internal fun CourierScreen(
                         onBecomeCourier = onBecomeCourier,
                         compact = true,
                     )
-                    CourierAvailableTab(
-                        online = false,
-                        lineBusy = false,
-                        zone = "region",
-                        workCity = "",
-                        onGoOnline = {},
-                        poputkaOnly = true,
-                    )
+                    PoputkaDeliveryTabs()
                 }
                 m == null -> Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
@@ -292,6 +285,46 @@ internal fun CourierScreen(
                                            onCarPhoto = onCarPhoto, reloadingMe = loading)
             }
         }
+    }
+}
+
+/** Попутные доставки доступны независимо от заявки профессионального курьера. */
+@Composable
+private fun PoputkaDeliveryTabs() {
+    var sub by rememberSaveable { mutableIntStateOf(0) }
+    var carrying by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
+    Column(Modifier.fillMaxSize()) {
+        Surface(
+            color = CanonSurface,
+            shape = CanonItemShape,
+            border = BorderStroke(1.dp, CanonBorder),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        ) {
+            Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                CourierSubTab(appText("Заказы", "Заказдар"), sub == 0, Modifier.weight(1f)) { sub = 0 }
+                CourierSubTab(appText("Везу", "Илтәм"), sub == 1, Modifier.weight(1f)) { sub = 1 }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        AnimatedContent(
+            targetState = sub,
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
+            label = "poputka-delivery-sub",
+        ) { selected ->
+            if (selected == 0) {
+                CourierAvailableTab(
+                    online = false, lineBusy = false, zone = "region", workCity = "",
+                    onGoOnline = {}, poputkaOnly = true,
+                )
+            } else {
+                CourierCarryingTab(
+                    online = false, list = carrying, onList = { carrying = it },
+                    onGoOrders = { sub = 0 },
+                )
+            }
+        }
+        CourierLiveLocationLink(carrying)
     }
 }
 

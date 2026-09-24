@@ -1750,6 +1750,7 @@ internal fun InstantOrderScreen(
                             order = o,
                             onCancel = { cancelReasonForId = o.id },
                             embedded = embedded,
+                            mapContent = if (renderNativeMap) null else { modifier -> Box(modifier) },
                         )
                     }
                     "enroute" -> current?.let { o ->
@@ -1762,6 +1763,7 @@ internal fun InstantOrderScreen(
                             onMinimize = onBack,
                             onOpenPayments = onOpenPayments,
                             onOrderUpdated = { order = it },
+                            mapContent = if (renderNativeMap) null else { modifier -> Box(modifier) },
                         )
                     }
                     "expired" -> current?.let { o ->
@@ -2943,6 +2945,17 @@ private fun InstantDestinationPicker(
             // шторки. Раньше кнопка жила в «полном» положении: в среднем её просто
             // не было, а это единственное, ради чего сюда пришли.
             if (toPoint != null) {
+                // The detailed estimate card is hidden in Half/Peek; keep failures visible beside the action.
+                if (sheetStop != TaxiSheetStop.Full && errorText != null) {
+                    Surface(color = CanonDangerBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            errorText.orEmpty(),
+                            color = CanonRed,
+                            style = CanonCaption,
+                            modifier = Modifier.padding(CanonSpace.sm),
+                        )
+                    }
+                }
                 val scheduled = scheduledAtMs != null
                 Row(
                     Modifier.fillMaxWidth(),
@@ -5404,6 +5417,7 @@ internal fun InstantDriverOnlineController(
     workday: com.yuldash.app.data.TaxiWorkdayDto? = null,
     zone: com.yuldash.app.data.InstantZoneDto? = null,
     onGoOffline: () -> Unit = {},
+    mapContent: (@Composable (Modifier) -> Unit)? = null,
     onOpenTrip: (Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -5500,6 +5514,7 @@ internal fun InstantDriverOnlineController(
             connectionLost = presenceFails >= 2,
             blockedReason = offerBlocked,
             onGoOffline = onGoOffline,
+            mapContent = mapContent,
         )
     }
     // Вопрос «почему не взял» рисуем ДО оверлея: сиблинги в Box накладываются по порядку, и
@@ -5521,6 +5536,7 @@ internal fun InstantDriverOnlineController(
         InstantOfferOverlay(
             order = current,
             accepting = accepting,
+            mapContent = mapContent,
             onAccept = {
                 if (accepting) return@InstantOfferOverlay
                 if (instantOfferRemainingMillis(current.offerExpiresAt, System.currentTimeMillis()) <= 0L) {
@@ -6125,6 +6141,7 @@ private fun InstantDeclineReasonPanel(
 internal fun InstantOfferOverlay(
     order: InstantOrderDto,
     accepting: Boolean = false,
+    mapContent: (@Composable (Modifier) -> Unit)? = null,
     onAccept: () -> Unit,
     onDecline: () -> Unit,
     onSkipTap: (() -> Unit)? = null,
@@ -6167,12 +6184,16 @@ internal fun InstantOfferOverlay(
     Box(Modifier.fillMaxSize().background(CanonBg)) {
         // Вариант A: маршрут — первый слой решения. Карта не интерактивна, чтобы случайный
         // свайп в последние секунды не отнял у водителя возможность принять заказ.
+        if (mapContent != null) {
+            mapContent(Modifier.fillMaxWidth().fillMaxHeight(0.48f))
+        } else {
         InstantRouteMap(
             from = from,
             to = to,
             interactive = false,
             modifier = Modifier.fillMaxWidth().fillMaxHeight(0.48f),
         )
+        }
 
         Surface(
             color = CanonSurface.copy(alpha = 0.94f),

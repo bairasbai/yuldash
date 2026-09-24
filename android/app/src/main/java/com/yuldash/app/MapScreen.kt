@@ -263,6 +263,9 @@ import kotlinx.coroutines.launch
 // Цвет линии маршрута на карте MapKit (ARGB): фирменный зелёный Юлдаша с прозрачностью.
 private const val ROUTE_STROKE_ARGB: Long = 0xCC0B6B3A
 
+// The native MapKit surface cannot run in JVM UI journeys. Keep all list/API/navigation logic real.
+internal val LocalPoolingNativeMapEnabled = androidx.compose.runtime.staticCompositionLocalOf { true }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MapScreen(
@@ -386,13 +389,8 @@ internal fun MapScreen(
     // Карта вложена в HomeScreen-Scaffold (он уже даёт отступ под меню и статус-бар).
     // Свой Scaffold НЕ должен добавлять системные инсеты второй раз → contentWindowInsets = 0.
     Scaffold(containerColor = CanonBg, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-        ) {
-            // Закреплённый верх: шапка + карта (НЕ в прокрутке → вертикальный пан двигает карту, а не страницу).
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        val header: @Composable (Modifier) -> Unit = { headerModifier ->
+            Column(modifier = headerModifier) {
                 Spacer(Modifier.height(4.dp))
                 Box(Modifier.appearIn(0)) { HomeHeader(onSos = onSos) }
                 Spacer(Modifier.height(12.dp))
@@ -413,6 +411,15 @@ internal fun MapScreen(
                 // (contentPadding ниже «съедается» прокруткой, поэтому воздух ставим тут, в пине).
                 Spacer(Modifier.height(12.dp))
             }
+        }
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.padding(padding).fillMaxSize()) {
+        // Fixed map/header must leave room for the rides list, including enlarged system text.
+        val pinHeader = maxHeight >= 560.dp * androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+        ) {
+            if (pinHeader) header(Modifier.padding(horizontal = 16.dp))
             // Прокручиваемый низ: простой режим, ближайшие поездки, реклама.
             LazyColumn(
                 modifier = Modifier
@@ -422,6 +429,9 @@ internal fun MapScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp)   // низ потеснее (просьба: внизу было много места)
             ) {
+                if (!pinHeader) {
+                    item(key = "compact_map_header") { header(Modifier) }
+                }
                 // F15: баннер «на праздник» — только когда близко событие (нет события → пункта нет, без пустой дырки).
                 seasonalEvent?.takeIf { !seasonalDismissed }?.let { sev ->
                     item(key = "seasonal") {
@@ -643,6 +653,7 @@ internal fun MapScreen(
             }
         }
     }
+    } // Scaffold
     // Тап по маркеру/карточке поездки → карта показывает её маршрут (выше), детали — карточкой снизу.
     // Не модалка (нет затемнения карты): тап мимо карточки закрывает; карта с линией маршрута видна.
     if (selectedRide != null) {
@@ -757,7 +768,7 @@ private fun MapHero(
                 // на экран (первая карточка выглядывает снизу и сама говорит «листай дальше»).
                 .height(280.dp)   // сетка 4dp
         ) {
-            if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank() && nativeMapVisible) {
+            if (LocalPoolingNativeMapEnabled.current && BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank() && nativeMapVisible) {
                 YandexMapCard(
                     modifier = Modifier.matchParentSize(),
                     activeTrip = activeTrip,
