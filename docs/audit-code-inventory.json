@@ -83,11 +83,11 @@
     "infra_resource_config": 294,
     "public_site_promo": 89,
     "pwa_main": 269,
-    "test_support": 798
+    "test_support": 800
   },
   "counts_by_block": {
-    "B01": 103,
-    "B02": 156,
+    "B01": 104,
+    "B02": 157,
     "B03": 97,
     "B04": 74,
     "B05": 29,
@@ -496,8 +496,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "e3c13a4e4b3c2e1362696c629ffc42fa1d3fb9725f40a2cd10bdebce5277f05f",
-      "lines": 3792
+      "sha256": "51632d3100d15ddabb00b975de148786ffc1d7fdd8cccd69ed4196e512dbb944",
+      "lines": 3800
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -1590,6 +1590,20 @@
       "block": "B02",
       "sha256": "24e3bc064eb5af8b9d73eddbe2537333dd7513b3b4470ebe6fe4a2d03920430d",
       "lines": 253
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/ActiveTripLateTerminalTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "112729d748ab315eeaeb570616e895e4f118a35e7a5d7b0806da6c2568c3bef6",
+      "lines": 153
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/ActiveTripSessionChainTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "1de63ebf2bc538f47d1dfea8e7ddf265bf16cc9fed7d5beb9265451c499fe4ea",
+      "lines": 120
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/AdminAdsContentTest.kt",

@@ -1613,17 +1613,25 @@ internal fun ActiveTripScreen(
     // История — по REST (один раз, + повтор по кнопке). + код посадки брони.
     LaunchedEffect(bookingId, historyTick) {
         val id = bookingId ?: run { historyLoading = false; return@LaunchedEffect }
+        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
         historyLoading = true
         historyError = false
-        ApiClient.getMessages(id)
+        val historyResult = ApiClient.getMessages(id)
+        // Каждый запрос защищён отдельно, но следующий иначе захватит уже новый аккаунт.
+        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        historyResult
             .onSuccess { messages = it }
             .onFailure { historyError = true }
         historyLoading = false
-        ApiClient.getBoardingCode(id).onSuccess { code ->
-            if (tripSession != ApiClient.queueSessionGeneration() || bookingStatus == "done" || bookingStatus == "cancelled") return@onSuccess
+        val codeResult = ApiClient.getBoardingCode(id)
+        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        codeResult.onSuccess { code ->
+            if (bookingStatus == "done" || bookingStatus == "cancelled") return@onSuccess
             if (code.isNotBlank()) boardingCode = code
         }
-        ApiClient.getBookingDetails(id).onSuccess { d ->
+        val detailsResult = ApiClient.getBookingDetails(id)
+        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        detailsResult.onSuccess { d ->
             payMethod = d.payMethod
             payAmount = d.payAmount
             if (d.departAt.isNotBlank()) departIso = d.departAt
