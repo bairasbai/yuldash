@@ -232,12 +232,12 @@ export default function LoginScreen() {
                           placeholder={appText("Твоё имя (необязательно)", "Исемең (мотлаҡ түгел)")}
                           aria-label={appText("Имя", "Исем")}
                         />
-                        {/* one-time-code — айфон сам предложит код прямо над клавиатурой. */}
+                        {/* one-time-code — айфон сам предложит код прямо над клавиатурой.
+                            Без maxLength: браузер резал бы вставку «123 456» до очистки (как в Android — сначала цифры, потом 6). */}
                         <input
                           className="login-input login-input--code"
                           inputMode="numeric"
                           autoComplete="one-time-code"
-                          maxLength={6}
                           value={smsCode}
                           onChange={(e) => { setSmsCode(filterLoginCode(e.target.value)); setSmsError(null); }}
                           placeholder={appText("Код из SMS", "SMS коды")}
@@ -295,15 +295,15 @@ export default function LoginScreen() {
             </label>
             <label className="login-input-wrap">
               <IconLock size={22} />
+              {/* Без maxLength: вставка «123 456» / «123-456» сначала очищается до цифр, потом режется до 6. */}
               <input
                 className="login-input login-input--code"
                 inputMode="numeric"
                 autoComplete="one-time-code"
-                maxLength={6}
                 placeholder={appText("Код из Telegram", "Telegram коды")}
                 value={code}
                 onChange={(e) => {
-                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                  setCode(filterLoginCode(e.target.value));
                   setError(null);
                 }}
                 aria-label={appText("Код из Telegram", "Telegram коды")}

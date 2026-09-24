@@ -258,7 +258,7 @@ Android-интерфейса записываем явно. Без парных 
 | QA-B09-P001 | YuldashApp.kt::Splash/splashTarget, MainActivity.kt::system splash → SplashScreen.tsx | Частично проверен | Код принят Astra; unit7 и браузерные сценарии запуска прошли. Открыты парные кадры Android, широкий экран/крупный текст и установленная PWA; см. доказательства ниже |
 | QA-B09-P002 | IntroScreen.kt + IntroHero.kt → IntroScreen.tsx | Частично проверен | Astra принял код и линейный font scale; spring проверен Compose probe; геометрия/шрифты 9 браузерных вариантов. Открыты синхронные кадры, точный растр логотипа, установленная PWA и общая оболочка P008 |
 | QA-B09-P003 | YuldashApp.kt::OnboardingScreen → OnboardingScreen.tsx | Частично проверен | Astra принял pager; final check/build и browser11/11 прошли; ещё4 новых wide/resize/rapid сценария прошли.20 точных Material icons, tracking, жесты/role/simple/keyboard. Открыты BA-словарь против Android, покадровое движение, installed PWA/оболочка |
-| QA-B09-P004 | LoginScreen.kt → LoginScreen.tsx | В работе | План Astra принят; Sol исправляет только поведение Login/helpers/unit, Luna готовит изолированный browser harness. CSS следующим подпунктом; B01 и настоящий вход отдельно |
+| QA-B09-P004 | LoginScreen.kt → LoginScreen.tsx | В работе | Поведение принято: unit/review и браузер 34/34 дважды (synthetic, RU/BA). Исправлена вставка кода с разделителями (maxLength резал до фильтра). Открыто: CSS/движение (план п.7), сохранение шага после reload (п.8), B01 и настоящий вход |
 
 
 
@@ -706,3 +706,24 @@ Sol выполнил tsc --noEmit: exit0. Эти группы не суммир�
 проверки записи access/refresh/marker. Luna получил браузер исключительно для synthetic
 behavior P004; CSS и полная сборка ждут следующего подпункта. Новые видимые RU/BA пары
 переиспользованы из Android; окончательная языковая/провайдерная приёмка не подменяется этим.
+
+### P004: браузерная проверка поведения входа, 24.09.2026 (после остановки Codex)
+
+Продолжение выполнял Claude. Harness `test-results/pwa-parity-login.mjs` (34 synthetic сценария Luna) впервые запущен на dev4175
+с `VITE_TELEGRAM_BOT=yuldash_qa_bot` (вымышленный бот; без него экран честно показывает «Вход через Telegram скоро»
+и start не отправляется). Внешняя сеть заблокирована, window.open перехвачен, реальные провайдеры не вызывались.
+
+Первый прогон 23/34. Разбор каждого падения по Android-эталону:
+- **дефект продукта (2):** `maxLength={6}` у полей кода резал сырую вставку до очистки: «12x3456789» → «12345»,
+  так же «123 456» / «123-456». Android сначала оставляет цифры, потом 6 (LoginScreen.kt:417). Убран maxLength
+  у TG- и SMS-кода, TG-поле использует общий filterLoginCode;
+- **ожидания harness (9):** текст сбоя start — Android errTgStart «Не получилось связаться с сервером…» (4);
+  после 403 и короткого кода Android меняет баннер ошибки на «Введи код из Telegram», а текст про номер остаётся
+  в отдельном needPhone-баннере (2); ссылка после 410/429 читалась раньше ответа нового start — добавлено ожидание
+  открытия (3). Продукт в этих случаях совпадает с Android.
+
+Итог: **34/34 дважды подряд**, pageErrors 0. После правки: 65 web-наборов exit0, `npm run build` exit0.
+Отчёты: `test-results/pwa-parity-login-run1-20260924.json`, `test-results/pwa-parity-login.json`.
+Границы: synthetic ответы, Chrome на Windows, без телефона, настоящего Telegram и установки PWA.
+Открыто в P004: CSS/движение по плану п.7 (радиус логотипа, вуаль, каскад появления, раскрытие баннеров,
+спиннер в кнопке, размер подсказки кода, иконки Info/Refresh), сохранение шага после reload (п.8).

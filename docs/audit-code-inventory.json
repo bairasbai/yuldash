@@ -82,11 +82,11 @@
     "backend_main": 103,
     "infra_resource_config": 294,
     "public_site_promo": 89,
-    "pwa_main": 278,
-    "test_support": 804
+    "pwa_main": 280,
+    "test_support": 805
   },
   "counts_by_block": {
-    "B01": 104,
+    "B01": 107,
     "B02": 157,
     "B03": 97,
     "B04": 74,
@@ -10870,8 +10870,8 @@
       "path": "webapp/src/screens/LoginScreen.tsx",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "a2afb3d79785339c5916b517688d995c8a1c2abc49415e8ea3c762100a873d92",
-      "lines": 429
+      "sha256": "9b081f807b5b26af6379702e4cdd28b40cc0483639cefa919f52f0e147a393c9",
+      "lines": 351
     },
     {
       "path": "webapp/src/screens/MyDataScreen.tsx",
@@ -11350,6 +11350,20 @@
       "lines": 59
     },
     {
+      "path": "webapp/src/utils/loginFlow.d.ts",
+      "kind": "pwa_main",
+      "block": "B01",
+      "sha256": "27bb07f9c08d8ef1816f6f6e977d8a396a6615519c076430d36acbdc71fd32dc",
+      "lines": 36
+    },
+    {
+      "path": "webapp/src/utils/loginFlow.js",
+      "kind": "pwa_main",
+      "block": "B01",
+      "sha256": "ef4fd3fbb5b3b2f41524aa00a4d381fc50ed6f126487507a739ed87d505a3942",
+      "lines": 150
+    },
+    {
       "path": "webapp/src/utils/navigator.ts",
       "kind": "pwa_main",
       "block": "B09",
@@ -11679,6 +11693,13 @@
       "lines": 44
     },
     {
+      "path": "webapp/tests/login-flow-test.mjs",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "6429de6bc09164548ee80b3de13441c99cecfbba52977d362b9ce461774dc397",
+      "lines": 234
+    },
+    {
       "path": "webapp/tests/logout-without-worker-test.mjs",
       "kind": "test_support",
       "block": "B09",
@@ -11857,8 +11878,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "c304e4b8d7bad18dba1396ccaa880d380649871ff348f52108d3f9f297633b9d",
-      "lines": 176
+      "sha256": "26659091dada0730ac22a131fbb2cfddb2837b9d25f39c614f3b9dd299522444",
+      "lines": 177
     },
     {
       "path": "webapp/tests/session-boundary-test.mjs",
