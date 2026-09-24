@@ -203,3 +203,506 @@ GREEN: **22/22 случая в 7 классах**, 0 ошибок/пропуск
 Артефакты в C:/Users/Bayra/Yuldash/test-results/: b02-late-red-20260924.log, b02-late-red-junit-20260924.zip, b02-late-green-20260924.log, b02-late-green-counts-20260924.json, b02-late-green-junit-20260924.zip. SHA256 текущих исходников в audit-code-inventory.json; дельта b02-late-inventory-delta-20260924.json.
 
 **QA-B02-003 остаётся частичным.** Следующая локальная проверка: регулярный getTripState после смены входа, затем WebSocket/reconnect и цепочка flushOutbox. Их нельзя считать проверенными результатом начальной загрузки. QA-B02-004 на устройстве остаётся открытым. Коммит/слияние/push не выполнялись.
+
+## Последовательный паритет Android → PWA — 24.09.2026
+
+Поручение пользователя: дизайн, действия и состояния по Android, по очереди файл за файлом.
+Это отдельный проход соответствия внутри B09 со ссылками на B01–B08; он не закрывает их
+незавершённые проверки надёжности и внешних сервисов. Основа `386c3360`, ветка
+`codex/pwa-parity-sequential`, папка `C:/Users/Bayra/.codex/worktrees/pwa-parity-sequential/Yuldash`.
+Android release — эталон; debug-обходы входа не переносим. Различия системного браузерного и
+Android-интерфейса записываем явно. Без парных визуальных доказательств нельзя принять дизайн.
+
+### Роли, ресурсы и расход контекста
+
+- root — единственный координатор, писатель реестра/мозга и владелец общей сборки/браузера.
+- `gpt-6-astra`, low — план и финальная приёмка конкретного пакета. Получает источники,
+  компактный diff, результаты и ограничения; не перечитывает всю историю.
+- `gpt-6-luna`, high — адресный поиск, карта зависимостей, механическая настройка.
+- `gpt-6-sol`, medium — правка текущей пары по утверждённому заданию. Простые механические
+  замены можно передать Luna; безопасность/деньги/неясное поведение возвращать старшей модели.
+- До трёх подчинённых одновременно, обычно достаточно одного исполнителя и одного читателя.
+  `fork_turns=none`: передаём точные пути, критерии, запреты, версию; отчёт до 400–600 слов.
+- Один файл — один писатель. Общий CSS даётся исполнителю только на селекторы текущей пары;
+  другой редактор CSS в этот момент не запускается. Эмулятор/браузер/сборка с одним владельцем.
+- После одной неудачной исправляющей попытки с неясной причиной — эскалация старшей модели.
+  Полные тесты только при интеграции; точечный повтор — по изменённой ветке поведения.
+- Точные стоимости и процент экономии не измерены. Уменьшаем дублирование контекста,
+  ненужные агенты, полный повтор тестов и объём возвращаемых журналов.
+
+Локальные профили `.codex/agents/parity-*.toml` сохраняют правила ролей; фактический запуск
+текущих агентов выполняется явным выбором модели. Расписание `android-pwa-30`, ACTIVE,
+каждые 30 минут: отчёт о принятом, текущем и препятствиях, затем продолжение очереди.
+Расписание не разрешает второму исполнителю редактировать занятый файл. После завершения
+прохода расписание приостанавливается.
+
+### Критерий приёмки каждой пары
+
+1. Зафиксировать Android-функции, PWA-файлы, влияющие зависимости и SHA256 снимка.
+2. Сверить содержание/порядок/геометрию/цвета/шрифты и анимации в одинаковой области экрана.
+3. Проверить RU/BA, светлую/тёмную тему, обычный/увеличенный текст, узкую/широкую область.
+4. Проверить клики, переходы и назад, поля запросов, загрузку/пусто/ошибку/повтор, разрешения,
+   восстановление и отсутствие сети — применимые к текущей паре состояния.
+5. Приложить наблюдаемое доказательство и команду/шаги. Чтение, статический тест и сборка
+   не заменяют исполнение сценария. Старшая модель проверяет и принимает или возвращает.
+6. При недоступном устройстве/провайдере оставить отдельный открытый критерий и продолжить
+   независимую следующую пару. Нельзя выдавать такой переход за завершённый паритет.
+
+Порядок: старт → общая оболочка → попутки обеих ролей → такси обеих ролей → доставка обеих
+ролей → чаты/уведомления/безопасность → профиль/настройки/деньги/прочее → админка → общий путь.
+
+### Очередь пар файлов
+
+| ID | Android → PWA | Состояние | Владелец / доказательство / остаток |
+|---|---|---|---|
+| QA-B09-P001 | YuldashApp.kt::Splash/splashTarget, MainActivity.kt::system splash → SplashScreen.tsx | Частично проверен | Код принят Astra; unit7 и браузерные сценарии запуска прошли. Открыты парные кадры Android, широкий экран/крупный текст и установленная PWA; см. доказательства ниже |
+| QA-B09-P002 | IntroScreen.kt + IntroHero.kt → IntroScreen.tsx | Частично проверен | Astra принял код и линейный font scale; spring проверен Compose probe; геометрия/шрифты 9 браузерных вариантов. Открыты синхронные кадры, точный растр логотипа, установленная PWA и общая оболочка P008 |
+| QA-B09-P003 | YuldashApp.kt::OnboardingScreen → OnboardingScreen.tsx | Частично проверен | Astra принял pager; final check/build и browser11/11 прошли; ещё4 новых wide/resize/rapid сценария прошли.20 точных Material icons, tracking, жесты/role/simple/keyboard. Открыты BA-словарь против Android, покадровое движение, installed PWA/оболочка |
+| QA-B09-P004 | LoginScreen.kt → LoginScreen.tsx | В работе | План Astra принят; Sol исправляет только поведение Login/helpers/unit, Luna готовит изолированный browser harness. CSS следующим подпунктом; B01 и настоящий вход отдельно |
+
+
+
+#### Общие зависимости
+
+| ID | Android → PWA | Состояние | Владелец / доказательство / остаток |
+|---|---|---|---|
+| QA-B09-P005 | YuldashApp.kt::ScreenTopBar → webapp/src/components/ScreenHeader.tsx | Ожидает | Общая зависимость; владелец root назначает отдельно |
+| QA-B09-P006 | UiKit.kt::AppLoading/AppErrorState/AppEmptyState → webapp/src/components/States.tsx | Ожидает | Общая зависимость состояний; владелец root назначает отдельно |
+| QA-B09-P007 | CanonTokens.kt::CanonGreenInk/CanonBg/CanonMotion → webapp/src/index.css | Ожидает | Общая зависимость токенов; владелец root назначает отдельно |
+| QA-B09-P008 | AppNavHome.kt::HomeRoute → webapp/src/App.tsx::Shell | Ожидает | Общая оболочка; владелец root назначает отдельно |
+| QA-B09-P009 | YuldashApp.kt::YuldashBottomBar → webapp/src/components/BottomNav.tsx | Ожидает | Общая навигация; владелец root назначает отдельно |
+| QA-B09-P010 | YuldashApp.kt::Screen.Login и проверки входа (эквивалент общего gate требует привязки) → webapp/src/components/RequireAuth.tsx | Ожидает | Общая граница входа; владелец root назначает отдельно |
+| QA-B09-P011 | AppNavAdmin.kt::AdminNav → webapp/src/components/RequireAdmin.tsx | Ожидает | Общий gate; владелец root назначает отдельно |
+#### Оболочка / карта
+
+| ID | Android → PWA | Состояние | Владелец / доказательство / остаток |
+|---|---|---|---|
+| QA-B09-P012 | YuldashApp.kt::Screen.Filters → webapp/src/screens/FiltersScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P013 | YuldashApp.kt::Screen.Home → HomeRoute → webapp/src/screens/HomeScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P014 | YuldashApp.kt::Screen.RouteWatches → webapp/src/screens/RouteWatchesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P015 | YuldashApp.kt::Screen.SavedPlaces → webapp/src/screens/SavedPlacesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P016 | YuldashApp.kt::Screen.SimpleMode → webapp/src/screens/SimpleModeScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+
+#### Попутка
+
+| ID | Android → PWA | Состояние | Владелец / доказательство / остаток |
+|---|---|---|---|
+| QA-B09-P017 | YuldashApp.kt::Screen.ActiveTrip → webapp/src/screens/ActiveTripScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P018 | YuldashApp.kt::Screen.Booking → webapp/src/screens/BookingScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P019 | YuldashApp.kt::Screen.CreateRequest → webapp/src/screens/CreateRequestScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P020 | YuldashApp.kt::Screen.CreateRide → webapp/src/screens/CreateRideScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P021 | YuldashApp.kt::Screen.DriverCabinet → webapp/src/screens/DriverCabinetScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P022 | YuldashApp.kt::Screen.DriverProfile → webapp/src/screens/DriverProfileScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P023 | YuldashApp.kt::Screen.DriverResponses → webapp/src/screens/DriverResponsesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P024 | YuldashApp.kt::Screen.EditRequest → webapp/src/screens/EditRequestScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P025 | требует привязки → webapp/src/screens/MyRequestsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P026 | AppNavHome.kt::HomeRoute/HomeTab.Rides → webapp/src/screens/MyRidesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P027 | YuldashApp.kt::Screen.PassengerCabinet → webapp/src/screens/PassengerCabinetScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P028 | YuldashApp.kt::Screen.RepeatTrip → webapp/src/screens/RepeatTripScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P029 | YuldashApp.kt::Screen.RequestResponses → webapp/src/screens/RequestResponsesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P030 | YuldashApp.kt::Screen.RequestsFeed → webapp/src/screens/RequestsFeedScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P031 | требует привязки → webapp/src/screens/RideDetailScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P032 | требует привязки → webapp/src/screens/RidesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P033 | YuldashApp.kt::Screen.ScheduledOrders → webapp/src/screens/ScheduledOrdersScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P034 | YuldashApp.kt::Screen.TripReceipt → webapp/src/screens/TripReceiptScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P035 | YuldashApp.kt::Screen.VerifyDriver → webapp/src/screens/VerifyDriverScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P036 | YuldashApp.kt::Screen.VoiceRequest → webapp/src/screens/VoiceRequestScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+
+#### Такси
+
+| ID | Android → PWA | Состояние | Владелец / доказательство / остаток |
+|---|---|---|---|
+| QA-B09-P037 | YuldashApp.kt::Screen.Boost → webapp/src/screens/BoostScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P038 | YuldashApp.kt::Screen.DriverEarnings → webapp/src/screens/DriverEarningsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P039 | AppNavOrders.kt::Screen.DriverTaxiRides → webapp/src/screens/DriverTaxiRidesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P040 | YuldashApp.kt::Screen.FamilyOrder → webapp/src/screens/FamilyOrderScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P041 | AppNavOrders.kt::Screen.InstantChat → webapp/src/screens/InstantChatScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P042 | AppNavOrders.kt::Screen.InstantDriverTrip → webapp/src/screens/InstantDriverTripScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P043 | AppNavOrders.kt::Screen.InstantOrder → webapp/src/screens/InstantOrderScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P044 | AppNavOrders.kt::Screen.MyTaxiTrips → webapp/src/screens/MyTaxiTripsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P045 | AppNavOrders.kt::Screen.PretripCheck → webapp/src/screens/PretripCheckScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P046 | требует привязки → webapp/src/screens/TaxiClassesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P047 | AppNavOrders.kt::Screen.TaxiDocuments → webapp/src/screens/TaxiDocumentsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P048 | требует привязки → webapp/src/screens/TaxiDriverCancelledScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P049 | требует привязки → webapp/src/screens/TaxiDriverCompletedScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P050 | требует привязки → webapp/src/screens/TaxiDriverNavigationScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P051 | AppNavOrders.kt::Screen.TaxiOnboarding → webapp/src/screens/TaxiOnboardingScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P052 | InstantOrderScreen.kt::TaxiPassengerCompletedScreen → webapp/src/screens/TaxiPassengerCompletedScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P053 | AppNavOrders.kt::Screen.TaxiReceipt → webapp/src/screens/TaxiReceiptScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+
+#### Доставка
+
+| ID | Android → PWA | Состояние | Владелец / доказательство / остаток |
+|---|---|---|---|
+| QA-B09-P054 | AppNavOrders.kt::Screen.CourierEarnings → webapp/src/screens/CourierEarningsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P055 | AppNavOrders.kt::Screen.CourierOnboarding → webapp/src/screens/CourierOnboardingScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P056 | AppNavOrders.kt::Screen.Courier → webapp/src/screens/CourierScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P057 | AppNavOrders.kt::Screen.ParcelChat → webapp/src/screens/ParcelChatScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P058 | AppNavOrders.kt::Screen.Parcels → webapp/src/screens/ParcelsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+
+#### Чат / уведомления / безопасность
+
+| ID | Android → PWA | Состояние | Владелец / доказательство / остаток |
+|---|---|---|---|
+| QA-B09-P059 | YuldashApp.kt::Screen.Blocklist → webapp/src/screens/BlocklistScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P060 | AppNavHome.kt::HomeRoute/HomeTab.Chat → webapp/src/screens/ChatInboxScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P061 | YuldashApp.kt::Screen.IncidentDetail → webapp/src/screens/IncidentDetailScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P062 | YuldashApp.kt::Screen.Notifications → webapp/src/screens/NotificationsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P063 | YuldashApp.kt::Screen.Report → webapp/src/screens/ReportScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P064 | YuldashApp.kt::Screen.Safety → webapp/src/screens/SafetyScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P065 | YuldashApp.kt::Screen.Sos → webapp/src/screens/SosScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P066 | YuldashApp.kt::Screen.SupportTicket → webapp/src/screens/SupportTicketScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P067 | YuldashApp.kt::Screen.SupportTickets → webapp/src/screens/SupportTicketsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P068 | YuldashApp.kt::Screen.TrustedContacts → webapp/src/screens/TrustedContactsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P069 | YuldashApp.kt::Screen.Trust → webapp/src/screens/TrustScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+
+#### Профиль / настройки / деньги / прочее
+
+| ID | Android → PWA | Состояние | Владелец / доказательство / остаток |
+|---|---|---|---|
+| QA-B09-P070 | YuldashApp.kt::Screen.AdEditor → webapp/src/screens/AdEditorScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P071 | YuldashApp.kt::Screen.AdsCabinet → webapp/src/screens/AdsCabinetScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P072 | YuldashApp.kt::Screen.AppReview → webapp/src/screens/AppReviewScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P073 | YuldashApp.kt::Screen.CallbackHelp → webapp/src/screens/CallbackHelpScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P074 | AppNavOrders.kt::Screen.CarPhoto → webapp/src/screens/CarPhotoScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P075 | YuldashApp.kt::Screen.ClinicRides → webapp/src/screens/ClinicRidesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P076 | YuldashApp.kt::Screen.Consents → webapp/src/screens/ConsentsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P077 | YuldashApp.kt::Screen.Coupons → webapp/src/screens/CouponsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P078 | требует привязки → webapp/src/screens/EditProfileScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P079 | YuldashApp.kt::Screen.FairnessCenter → webapp/src/screens/FairnessCenterScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P080 | YuldashApp.kt::Screen.Help → webapp/src/screens/HelpScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P081 | YuldashApp.kt::Screen.Invites → webapp/src/screens/InvitesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P082 | требует привязки → webapp/src/screens/LegalScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P083 | YuldashApp.kt::Screen.MyData → webapp/src/screens/MyDataScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P084 | YuldashApp.kt::Screen.MyStats → webapp/src/screens/MyStatsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P085 | YuldashApp.kt::Screen.PartnerCabinet → webapp/src/screens/PartnerCabinetScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P086 | требует привязки → webapp/src/screens/PayDoneScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P087 | YuldashApp.kt::Screen.PaymentInfo → webapp/src/screens/PaymentInfoScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P088 | YuldashApp.kt::Screen.PaymentMethods → webapp/src/screens/PaymentMethodsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P089 | YuldashApp.kt::Screen.PricingInfo → webapp/src/screens/PricingInfoScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P090 | YuldashApp.kt::Screen.Privacy → webapp/src/screens/PrivacyScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P091 | AppNavHome.kt::HomeRoute/HomeTab.Profile → webapp/src/screens/ProfileScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P092 | YuldashApp.kt::Screen.PromoCode → webapp/src/screens/PromoCodeScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P093 | YuldashApp.kt::Screen.Rules → webapp/src/screens/RulesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P094 | YuldashApp.kt::Screen.Settings → webapp/src/screens/SettingsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P095 | YuldashApp.kt::Screen.Support → SupportScreen → webapp/src/screens/SupportYuldashScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P096 | YuldashApp.kt::Screen.Wallet → webapp/src/screens/WalletScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+
+#### Админка
+
+| ID | Android → PWA | Состояние | Владелец / доказательство / остаток |
+|---|---|---|---|
+| QA-B09-P097 | AppNavAdmin.kt::Screen.AdminAds → webapp/src/screens/AdminAdsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P098 | AppNavAdmin.kt::Screen.AdminCabinet → webapp/src/screens/AdminCabinetScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P099 | требует привязки → webapp/src/screens/AdminCarPhotoScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P100 | AppNavAdmin.kt::Screen.AdminCourier → webapp/src/screens/AdminCourierScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P101 | требует привязки → webapp/src/screens/AdminDebtsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P102 | AppNavAdmin.kt::Screen.AdminDrivers → webapp/src/screens/AdminDriversScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P103 | AppNavAdmin.kt::Screen.AdminIncidents → webapp/src/screens/AdminIncidentsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P104 | AppNavAdmin.kt::Screen.AdminModeration → webapp/src/screens/AdminModerationScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P105 | AppNavAdmin.kt::Screen.AdminParcels → webapp/src/screens/AdminParcelsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P106 | AppNavAdmin.kt::Screen.AdminPartners → webapp/src/screens/AdminPartnersScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P107 | AppNavAdmin.kt::Screen.AdminPaymentRequests → webapp/src/screens/AdminPaymentRequestsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P108 | требует привязки → webapp/src/screens/AdminPretripScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P109 | требует привязки → webapp/src/screens/AdminPriceComplaintsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P110 | AppNavAdmin.kt::Screen.AdminPromo → webapp/src/screens/AdminPromoScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P111 | AppNavAdmin.kt::Screen.AdminReports → webapp/src/screens/AdminReportsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P112 | AppNavAdmin.kt::Screen.AdminRequest → webapp/src/screens/AdminRequestScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P113 | AppNavAdmin.kt::Screen.AdminResponses → webapp/src/screens/AdminResponsesScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P114 | AppNavAdmin.kt::Screen.AdminReviews → webapp/src/screens/AdminReviewsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P115 | AppNavAdmin.kt::Screen.AdminSos → webapp/src/screens/AdminSosScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P116 | AppNavAdmin.kt::Screen.AdminSupport → webapp/src/screens/AdminSupportScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P117 | AppNavAdmin.kt::Screen.AdminTaxiPulse → webapp/src/screens/AdminTaxiPulseScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P118 | AppNavAdmin.kt::Screen.AdminTaxi → webapp/src/screens/AdminTaxiScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P119 | AppNavAdmin.kt::Screen.AdminTextFlags → webapp/src/screens/AdminTextFlagsScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P120 | AppNavAdmin.kt::Screen.AdminWaitlist → webapp/src/screens/AdminWaitlistScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+| QA-B09-P121 | YuldashApp.kt::Screen.IncomeCalculator → webapp/src/screens/IncomeCalculatorScreen.tsx | Ожидает | Root назначает одного владельца при старте; доказательств паритета пока нет |
+
+Перечислено ровно 114 файлов экранов из `webapp/src/screens`: P001–P004 — стартовые экраны, далее 110 остальных файлов. Это инвентаризация будущих пар, а не проверка или подтверждение паритета. Для записей с «требует привязки» соответствие Android пока не установлено.
+
+### Доказательства P001/P002, 24.09.2026, локальный checkpoint
+
+Sol реализовал, Astra принял код чтением diff; root выполнил проверки. Splash теперь пустой
+зелёный переход, release-маршрут гостя ведёт во вход; unavailable сохраняет сессию и даёт
+двуязычный повтор. Intro: направление букв, оформление пропуска, вуаль/виньетка/пыльца,
+финальный кадр без анимаций, однократное завершение и доступный клавиатурный пропуск.
+
+- `cd webapp; npm run check` — exit0, все наборы прошли. Новые unit: Splash7, Intro4;
+  motion9. Числа — группы проверок, напечатанные соответствующими скриптами, не процент покрытия.
+- `npm run build` — exit0 после последней правки CSS. Предупреждение о JS chunk >500kB
+  остаётся; Android не менялся и новая Gradle-сборка в этом проходе не выполнялась.
+- `node test-results/pwa-parity-start-20260924.mjs` — exit0, JSON содержит9/9 passed:
+  первые4 маршрута, ожидание /me в RU/BA × light/dark, отказ500/повтор, reduce-motion,
+  клавиатурный пропуск, естественная последовательность Intro. Chromium390×844,
+  синтетическая сессия, внешняя сеть перехвачена; не проверка настоящего входа/сервера/карт.
+- Артефакты относительно корня worktree: `test-results/pwa-parity-start-20260924.json`,
+  снимки `test-results/pwa-parity-start/*.png`. Root просмотрел reduced-motion кадр PWA.
+  Предыдущие красные прогоны сохранены как `*-red.json` и `*-red2.json`: исправлены
+  ошибки fixtures (двойной /me в StrictMode; near API должен возвращать count/items).
+  Эти неудачи не записываем как подтверждённые продуктовые дефекты.
+- Повтор общего check обоснован: первоначально отсутствовал fake-indexeddb и сторож
+  отклонил raw transition-delay:0s. Удалена только junction node_modules, исходная папка
+  main сохранена; `npm ci --offline --ignore-scripts` установил lockfile локально.
+  Redundant delay удалён без ослабления сторожа. Финальный build повторён из-за правки CSS.
+- Инвентаризация обновлена:6 новых и4 изменённых исходных/тестовых файла, удалённых0;
+  старый снимок `test-results/pwa-parity-inventory-before-20260924.json`. Прямой блок B09,
+  связанные B01–B08 не считаются заново проверенными только из-за этих тестов.
+
+**Не принято как 1:1:** Android эмулятор запущен из существующего APK, сняты
+`android-start.png` (это Onboarding, не Intro) и `android-reduced.mp4`; кадры видео не
+извлечены/не просмотрены. Нет парного визуального доказательства. SHA логотипов различаются,
+это не доказывает визуальную разницу; начальная Android spring в вебе пока приближена.
+Широкий экран, увеличенный текст, установленная PWA и точное покадровое движение открыты.
+
+P003: чтением найдены пропуск→map вместо Login, отсутствие свайпа, футер в общем потоке,
+различия BA-текстов/объяснения простого режима, отсутствие последней полосы доверия,
+иконка пассажира, сохранённая роль вместо начальной passenger и различия stagger.
+Источники: `YuldashApp.kt:882,1656,1663,1675,1737,1968,1982,2020,2180,2192`;
+`OnboardingScreen.tsx:49,76,87,165,183,214,251`; `ui.css:1043,1060,1315`
+(номера до следующей правки). Это задания на план Astra, не уже исправленный результат.
+
+Ресурсы checkpoint освобождены: исполнители закончили, dev4175 остановлен, запущенный
+root эмулятор закрыт; активных замков на файлы/сборку нет. Следующий запуск: проверить
+инвентаризацию, открыть визуальные остатки P001/P002; при объективном ограничении
+записать его и перейти к плану P003, не закрывая остатки. Для локального браузерного
+повтора поднять `npm run dev -- --host 127.0.0.1 --port 4175 --strictPort` в webapp;
+без изменения исходников не повторять весь check/build. Автоматизация ACTIVE.
+
+### Продолжение P002: визуальные расхождения подтверждены кадрами
+
+24.09.2026: root извлёк кадры локальных `android-reduced.mp4` и нового
+`android-normal.mp4` скриптом `test-results/extract-intro-frames.mjs`, без сетевых запросов.
+Playwright Chromium не декодирует этот H264; установленный Chrome в отдельном временном
+профиле декодирует. Артефакты: соседние `android-reduced-frames/` и `android-normal-frames/`,
+manifest с размерами/временем. Просмотрены reduced8.0s и normal5.0/9.0s; первый подтверждает
+финальную сцену, второй normal5.0s — пустой зелёный Splash, normal9.0s — бренд с бликом.
+Это не одинаковые временные фазы и не доказательство совпадения роликов.
+
+Android reduced8.0s:1080×2340; край сцены начинается y274 (скан пикселей Bitmap),
+высота2066. `adb wm density`=440, значит2.75px/dp и область392.727×751.273dp.
+Сверять PWA393×751,dpr2.75 с допуском округления, отдельно учитывать верхнюю плашку
+сети и системные панели как зависимость общей оболочки. Кадр PWA08 подтверждает
+слишком крупную эмблему внутри круга; точное геометрическое исправление в работе.
+
+Astra утвердил доп.план: BrandHero224×158, circle132 top24/image84 contain;
+интервалы4/12/16; точная spring вместо600мс, drift и умножение выходного масштаба;
+фазы пыльцы/sceneAlpha, исчезновение пропуска, Compose easing и физические размеры
+блика/виньетки. Sol — единственный писатель Intro/CSSintro/utils/tests; Luna — только
+новый visual harness; root — docs/эмулятор/браузер. План P003 ждёт текущую пару.
+
+Для Intro скопирован без изменения Android asset в `webapp/public/intro_logo.webp`:
+SHA256 обоих `1B7AF481FC616623073C703A523093ABE55508B4ECE70154A7CB7A31B4F7F119`.
+Прежний общий веб-логотип не заменён. Это не генерация новой картинки.
+
+По локальному байткоду установленного Compose animation-core1.11.3: StiffnessLow200,
+Float threshold0.01; SpringEstimation для logo0.96→1/damping0.72 даёт172мс,
+brand0.92→1/damping0.82 даёт227мс. Это расчёт Android-алгоритма, не измерение
+wall-clock: продолжение корутины зависит от кадра. Прежние unit с760мс отражали
+реализацию веба, а не доказывали совпадение Android. Приёмка P002 поэтому открыта.
+
+Дополнительные доказательства P002: Java source-file probe действительно вызвал
+FloatSpringSpec из `C:/Users/Bayra/.gradle/caches/9.3.0/transforms/8264c2ca1c9f3f7a1217ac50ecc6426d/workspace/transformed/animation-core/jars/classes.jar`
+с kotlin-stdlib2.3.0. Длительности172/227мс подтверждены выполнением, не только формулой;
+artifact `test-results/pwa-parity-start/IntroSpringProbe.java` хранит вызовы и sample times.
+Код использует spring, Compose bezier, один RAF и точную геометрию. Astra вернул уход
+RU-слогана на месте; отдельный first-child.is-out удалён, slide(-25%) восстановлен.
+
+Первый visual harness дал7/7, но root выявил слабый критерий: при xlarge корень976.3px
+в viewport751px и circle171.6px вместо132. Тест проверял только покрытие фоном и пропустил
+лишнюю высоту. Исходный результат `pwa-parity-intro-visual-before-zoom.json` сохранён;
+усиленный8-сценарный тест воспроизвёл2 RED (`no vertical document overflow`). Это реальный
+дефект продукта; он отличается от ошибок fixtures предыдущего прохода.
+Sol применяет локальный inverse zoom, не меняя общий fontScale.ts; Luna дополнительно
+проверяет нелинейный Android FontScaling, чтобы не закреплять линейное умножение текста.
+Новый native artifact `android-font130.mp4` и `android-font130-frames/` записан с font_scale1.3;
+настройки отдельного тестового эмулятора после записи возвращены к font_scale1.0 и
+animator_duration_scale0 (исходные значения). Полный критерий крупного шрифта ещё открыт.
+
+### P002: геометрия и шрифты приняты локально; ограничения остаются
+
+Luna проверил байткод Compose ui-unit 1.11.3: вызов MainActivity.kt:294
+`Density(float,float)` создаёт DensityImpl с FontScalingLinear. Нелинейный
+`Density(Context)` здесь не используется. Поэтому текст в PWA умножается на фактический
+html.zoom; локальный обратный zoom сохраняет dp-геометрию. Для 44sp при 1.3 это 57.2px,
+для строки 56sp — 72.8px. Astra повторно принял код, cleanup и отсутствие RAF в reduce.
+
+Root усилил `test-results/pwa-parity-intro-visual.mjs`: теперь кроме размеров/центра/scroll
+проверяются font-size, line-height и letter-spacing четырёх текстовых групп.
+9/9 прошли: RU/BA × light/dark, узкий/широкий экран, normal/large/xlarge, в том числе
+320×568 xlarge. Просмотрен снимок узкого xlarge: слоган переносится, обрезания нет.
+Отдельный браузерный сценарный набор `pwa-parity-start-20260924.mjs` также 9/9:
+маршруты, временный отказ входа/повтор, reduce, клавиатура и естественная последовательность.
+Это разные наборы проверок, не процент паритета. Источник — одноимённые JSON в test-results.
+
+Полный `npm run check` выявил asset budget RED: новая Android-копия 249990 байт
+нарушает предел отдельного файла 200KiB и суммарный 600KiB. Тест не ослабляли.
+Возвращён существующий `/yuldash_logo.webp`, размер в Intro 84×84 contain сохранён.
+Новая копия перемещена в `test-results/pwa-parity-start/android-intro-logo-reference.webp`,
+не удалена безвозвратно; Android-исходник не менялся. Точечный budget-test теперь exit0:
+613350 байт / 1024 = 598.9746KiB, допустимо 614400 байт. Остальные наборы общего check
+прошли до этой замены ссылки; неизменённые наборы ради счётчика не повторяются.
+
+Растры НЕ идентичны: веб 360×481, Android 559×747. Root сравнил оба через sharp
+contain 231×231 (84dp × DPR2.75) на белом фоне: MAE 0.7061, RMSE 2.3533 уровней
+8-bit канала; 1.3062% каналов различаются больше чем на 10. Эти числа не являются
+согласованным допуском приёмки. Точное совпадение ассета остаётся открытым; новая
+генерация картинки и скрытое повышение бюджета не использованы.
+
+Для дальнейшего полного закрытия P002 нужны согласованный растровый результат в бюджете,
+синхронное сравнение движения, установленная PWA и общая оболочка P008. Статус частичный,
+не «1 в 1». Сравнение системного font_scale на установленном APK тоже ограничено:
+исходный APK-файл другой задачи впоследствии пересобран, соответствие установленного
+бинарника всем текущим исходникам не доказано. Числовая линейная проверка относится
+к проверенному пути исходников/Compose, не подменяет этот пробел устройства.
+
+После возврата оптимизированного ассета root повторил затронутый visual: 9/9 exit0,
+и production build: exit0, precache114 / 2424.92KiB. Предупреждение main chunk560.25kB
+остаётся. Причина повторов — замена ссылки и состава public; это не новые уникальные
+сценарии. Инвентаризация обновлена: добавлены introMotion.js/.d.ts и его тест, изменены
+6 файлов, удалений нет; предыдущий снимок `pwa-parity-inventory-before-intro-motion-20260924.json`.
+
+P003 начат по принятому плану: Sol единственный писатель OnboardingScreen, CSSonb,
+локальных helpers/icons/unit; Luna пишет только новый браузерный harness в test-results.
+Root ведёт docs и все браузерные/эмуляторные проверки. Сборка свободна, dev4175 работает.
+
+P003 первый build exit0 (300 modules, main565.77kB warning), но это НЕ приёмка.
+Astra чтением выявил: touchend неизменённой страницы сбрасывает vertical scroll;
+key={step} уничтожает keyboard focus; JS parallax остаётся при reduced-motion.
+Узкий тест одного swipePage этого не покрывал. Первые локальные исправления Sol прошли
+его regression unit, однако полноценный HorizontalPager ещё отсутствовал.
+Принят новый конкретный план: четыре стабильные scroll-snap панели, независимая
+вертикальная прокрутка, фактический scrollLeft как источник номера, smooth/auto для
+normal/reduced, aria-hidden+inert неактивных панелей, постоянный фокус контейнера,
+параллакс по offset/DPR и одноразовое появление посещённых панелей. Не обходим замечание
+общим «платформенным ограничением». Luna готовит CDP touch, а не mouse-имитацию touch.
+
+Android reference PNG/XML сохранены в `test-results/pwa-parity-onboarding`, ограничения
+бинарника и координаты — `native-capture-notes.md`. Четыре RU верхних страницы, BA страницы
+1–3 сверху и 4 в прокрученном состоянии; не перепутывать состояния при сравнении.
+Дополнительный Luna icon_evidence читает только локальные контуры Material icons и пишет
+один artifact в test-results; product-файлы остаются у одного Sol.
+
+### P003: контроллер принят; точные контуры и типографика
+
+Astra принял исправленный scroll-snap контроллер: обработчик использует актуальные refs,
+cancel в `createPagerFrameGate` обнуляет id и позволяет следующий RAF; regression
+cancel→schedule покрыт unit. 4 постоянные панели сохраняют вертикальную позицию, фокус
+уходящей панели переносится до inert. Браузерный harness использует CDP touch, не mouse.
+Первый tap RED был связан с выборкой во время инерции: после ожидания 5 стабильных RAF
+полный набор 11/11 прошёл, scrollTop473→473→473 после tap и next/back. Исторический GREEN
+сохранён в `pwa-parity-onboarding-pager-green.json`, ранний RED — `*-touch-red.json`.
+
+Root просмотрел RU и узкий BA кадры. Найден реальный выход эмблемы за белую плитку;
+исправлено на явные 40×40 contain внутри 48×48/padding4. Дополнительные assertions
+проверяют control/text bounds и 48px target; не требуют вмещения всего прокручиваемого
+содержимого. Отсутствие переполнения контейнера само по себе недостаточно.
+
+Luna извлёк PathBuilder-команды 20 реально используемых filled-иконок. Root отдельно
+подтвердил текущую зависимость командой `:app:dependencyInsight --dependency
+material-icons-extended --configuration debugRuntimeClasspath --offline --no-daemon`:
+Material Icons extended/extended-android 1.7.8 под Compose BOM2026.06.00, exit0.
+`test-results/pwa-parity-onboarding/material-filled-icons.json` сохраняет d, addPath
+границы, NonZero, fillAlpha1, stroke=null. `Pin` — один compound path с четырьмя подпутями,
+цифры1/2/3, не геометка. `Sos` — буквенные контуры без круга. В локальный OnboardingIcons
+перенесены все20, общий Icons.tsx не изменён. Root `verify-material-icons.mjs` сравнил
+каждый d, группировку и fillRule с JSON:20 совпадений. Предыдущие ошибки запуска самого
+validator (PowerShell quoting, относительный путь, имя Sos/SOS) не являются багами продукта.
+
+Material3 тоже проверен текущим dependencyInsight:1.4.0, exit0 (не assembleDebug).
+Luna подтвердил цепочку `YuldashTheme → MaterialTheme → ProvideTextStyle(bodyLarge)`:
+обычный Text наследует tracking0.5sp; Button/TextButton — labelLarge tracking0.1sp.
+Байткод: `C:/Users/Bayra/.gradle/caches/9.3.0/transforms/ee4295d53b9155f4075c11adc3ebd50f/workspace/transformed/material3/jars/classes.jar`,
+MaterialThemeKt$MaterialTheme$2, ButtonKt$Button$2 и TypeScaleTokens. PWA задаёт значения
+локально в Onboarding с fontScale, не меняет глобальную типографику.
+
+После tracking полный browser дал10/11: у BA Skip на320×568/xlarge правый край322.328px,
+текст320.328px (viewport320). Это новый реальный RED, сохранён `*-tracking-red.json`;
+предыдущее подозрение при старом tracking не подтвердилось. Sol исправляет перенос
+кнопки без уменьшения текста или touch target. onbAppear также уточняется:
+Android graphicsLayer translationY34f — physical px, значит CSS34/DPR; easing default
+tween — FastOutSlowIn (.4,0,.2,1), не CSS ease. Точный покадровый паритет ещё не доказан.
+
+Полный check в этом состоянии выявил только glossary-test RED5. Причина — буквальный
+перенос BA «водитель/водителде» из Android, противоречащий действующему словарю
+«йөрөтөүсе». Astra решил вернуть пять прежних PWA переводов, не ослаблять тест и не менять
+Android в этой задаче. **Буквальное совпадение этих BA-строк остаётся открытым**; нужен
+общий согласованный эталон, а не скрытое исключение. Остальные наборы этого check прошли.
+
+### Итог текущего пакета P003 (не полный паритет)
+
+После правок five BA/узкой кнопки/physical motion root выполнил final integration:
+- `npm run check` exit0, все наборы прошли; onboarding-flow печатает5 групп, это не
+  процент покрытия. Отдельные glossary/motion/onboarding-flow тоже exit0.
+- `npm run build` exit0,300 modules, precache114 / 2442.07KiB; предупреждение main
+  chunk574.19kB остаётся. Android исходники не менялись, assembleDebug не запускался;
+  две Gradle dependencyInsight проверки не подменяют сборку приложения.
+- `node test-results/pwa-parity-onboarding.mjs` final11/11 passed,0 page errors;
+  RU/BA × light/dark четыре страницы,320×568 xlarge, CDP touch/vertical/tap/next-back,
+  две последовательные ArrowRight, radio, finish/skip/simple/historyreplace/dismissal,
+  reduced-motion, text/control bounds и computed tracking. Продуктовые API не вызваны:
+  синтетические preferences, intercept внешней сети,503 неизвестным API.
+- Root просмотрел RU slide1 после tracking и narrow BA после переноса кнопки:
+  заголовок RU переносится как native reference; BA Skip в две строки, внутри viewport.
+  Это визуальное наблюдение конкретных кадров, не полный pixel-diff всего экрана.
+- Инвентаризация:4 добавленных файла (icons, flow.js/.d.ts, flow-test),3 изменённых
+  (OnboardingScreen,ui.css,tests/run),0 удалённых. Старый снимок
+  `test-results/pwa-parity-inventory-before-onboarding-20260924.json`; --check без дрейфа,
+  git diff --check exit0. Повтор final оправдан интеграцией новых контуров/tracking/motion
+  и исправлением реальных RED, не записан как дополнительные уникальные сценарии.
+
+Следующая независимая проверка P003: широкий viewport и resize/быстрые клики в браузере
+(пока только unit контроллера); затем разбор глобальных insets/оболочки P008 и installed
+PWA как общих зависимостей. Изменение размеров/шрифтов в реальном Android проверить на
+APK, чья связь с исходниками доказана. После фиксации этих границ — P004 Login по очереди.
+Первые P001/P002/P003 остаются частичными, вся цель ACTIVE,1:1 не заявлено.
+
+Ресурсы checkpoint освобождены: браузерные contexts закрыты, dev4175 остановлен,
+запущенный root emulator-5554 закрыт, Gradle/build и product-файлы не заняты.
+Настройки эмулятора восстановлены к font_scale1.0/animator_duration_scale0 до закрытия.
+Автоматизация `android-pwa-30` проверена ACTIVE; коммит/слияние/push в этом пакете не делались.
+Следующий проход начинает с инвентаризации и незакрытых независимых критериев P003,
+не повторяет неизменённые полные наборы и не считает этот checkpoint завершением всей цели.
+
+### P003 — недостающие layout-проверки; переход к P004
+
+24.09.2026: исходники P003 не менялись. Luna выполнил только4 новых сценария:
+RU/BA 768×1024, изменение393→768→320 на третьей странице, быстрые Next/Back.
+`test-results/pwa-parity-onboarding.json`:4/4 passed, pageErrors/failures/API requests
+пустые. Root проверил JSON: scrollTop третьей панели96 на всех трёх ширинах,
+роль driver сохранена; после быстрых переходов scrollLeft1179 и0 при ширине393,
+только текущая панель не inert, фокус остаётся на pager. Новых снимков этот прогон
+не создавал (screenshots=[]); это геометрия/поведение, не визуальная pixel-приёмка.
+Предыдущие11 сценариев не повторялись. Общие ограничения выше остаются открытыми.
+
+P004: принят план `test-results/pwa-parity-login-plan.md` (Astra, чтение Android/PWA).
+Очередь: поведение TG/SMS и защита поздних ответов → локальный CSS/движение → приёмка.
+Sol p004_login_behavior владеет LoginScreen, новым loginFlow и unit-тестом/run;
+Luna p003_layout_checks — только новым browser harness, без запуска до передачи;
+root — docs/сервер4175/интеграция. AuthProvider/client, Android/backend/mobile не менять.
+Нужны свежий Telegram request_id при повторе (кроме403/chat), различение400 и сети/5xx,
+один login event, общий синхронный busy и session-generation/mounted/attempt барьеры,
+SMS границы Android, двуязычные сообщения и ссылки согласия. Сохранение шага после
+reload пока отдельный открытый критерий; реальные провайдеры не вызываются.
+
+Дополнительная проверка Astra/root до кода: `/login` вне RequireAuth (App.tsx:199),
+поэтому собственный login не размонтирует экран. Cleanup операции не должен зависеть
+от обновляемого auth context; StrictMode требует восстановления mounted в setup.
+`client.ts:137–140` сохраняет access, refresh, затем поколение неатомарно; отказ записи
+может оставить часть сессии. Это открытый общий риск хранения B01, не исправление P004.
+P004 обязан остановить analytics/name/navigation, различить ошибку сохранения и OTP,
+не разрешать повтор использованного OTP и предлагать новый start, без самодельного rollback.
+Чтение поколения (`client.ts:76–77`) тоже может бросить: операция останавливается безопасно,
+пустое фиктивное поколение вместо ошибки недопустимо. Unit/browser доказательства этих
+барьеров не означают атомарность общего хранилища или отсутствие частично записанных токенов.
+
+P004, поведение реализовано: LoginScreen использует новый loginFlow.js/.d.ts;
+login-flow-test зарегистрирован в tests/run.mjs. Astra принял код после исправления
+найденного403→неполный код→ложный сброс needPhone; regression добавлен. Root выполнил
+`node tests/login-flow-test.mjs` (14 групп), glossary, auth-unavailable-gate (4),
+auth-provider-session (9), auth-provider-cross-tab (12), session-boundary (12): exit0.
+Причина запуска — новая граница применения login, не изменение общих auth-файлов.
+Sol выполнил tsc --noEmit: exit0. Эти группы не суммируем в процент покрытия.
+Исключение mocked login в unit — одна проверка реакции контроллера, НЕ три реальные
+проверки записи access/refresh/marker. Luna получил браузер исключительно для synthetic
+behavior P004; CSS и полная сборка ждут следующего подпункта. Новые видимые RU/BA пары
+переиспользованы из Android; окончательная языковая/провайдерная приёмка не подменяется этим.

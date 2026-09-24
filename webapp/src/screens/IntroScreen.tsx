@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { flags } from "../flags";
 import { useLang } from "../i18n/lang";
+import { useFontScale } from "../fontScale";
+import { createIntroTimeline, introInitialStage } from "../utils/introTimeline";
+import { cubicBezier, introMotionFrame, INTRO_EASE, MOTES, moteFrame, springValue } from "../utils/introMotion";
 
 /**
  * Брендовое интро (один раз). Зеркало android/IntroScreen.kt + IntroHero.kt:
@@ -16,116 +19,137 @@ const BRAND_WORD = "Юлдаш";
 const SLOGAN_RU = "Поездки между своими";
 const SLOGAN_BA = "Үҙебеҙҙекеләр араһында юллашыу";
 
-/** Золотая пыльца в небе: x, y (доли экрана), радиус, темп мерцания. Точки — как MOTES в IntroHero.kt. */
-const MOTES: [number, number, number, number][] = [
-  [0.14, 0.1, 2.0, 0.6],
-  [0.27, 0.3, 1.5, 0.85],
-  [0.78, 0.16, 2.2, 0.5],
-  [0.86, 0.36, 1.6, 0.7],
-  [0.66, 0.24, 1.7, 0.9],
-  [0.1, 0.4, 1.4, 0.55],
-  [0.9, 0.5, 1.5, 0.65],
-];
-
-type Stage = {
-  meaning: boolean;
-  brand: boolean;
-  sheen: boolean;
-  underline: boolean;
-  slogan: boolean;
-  sloganBa: boolean;
-  exiting: boolean;
-  skip: boolean;
-};
-
-const START: Stage = { meaning: false, brand: false, sheen: false, underline: false, slogan: false, sloganBa: false, exiting: false, skip: false };
+function currentDocumentZoom(): number {
+  if (typeof document === "undefined") return 1;
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).zoom);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
 
 export default function IntroScreen() {
   const navigate = useNavigate();
   const { appText } = useLang();
-  const [stage, setStage] = useState<Stage>(START);
-  const done = useRef(false);
+  const [fontScale] = useFontScale();
+  const [documentZoom, setDocumentZoom] = useState(currentDocumentZoom);
+  const reduceMotion = useRef(typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+  const [stage, setStage] = useState(() => introInitialStage(reduceMotion.current));
+  const timeline = useRef<ReturnType<typeof createIntroTimeline> | null>(null);
+  const sceneRef = useRef<HTMLImageElement | null>(null);
+  const columnRef = useRef<HTMLDivElement | null>(null);
+  const markRef = useRef<HTMLSpanElement | null>(null);
+  const brandRef = useRef<HTMLSpanElement | null>(null);
+  const motesRef = useRef<HTMLSpanElement | null>(null);
+  const vignetteRef = useRef<HTMLSpanElement | null>(null);
 
-  const finish = () => {
-    if (done.current) return;
-    done.current = true;
-    flags.setIntroSeen();
-    navigate("/onboarding", { replace: true });
-  };
+  useLayoutEffect(() => {
+    const syncZoom = () => setDocumentZoom(currentDocumentZoom());
+    syncZoom();
+    window.addEventListener("resize", syncZoom);
+    return () => window.removeEventListener("resize", syncZoom);
+  }, [fontScale]);
 
   useEffect(() => {
-    const timers: number[] = [];
-    const at = (ms: number, fn: () => void) => timers.push(window.setTimeout(fn, ms));
-    const set = (patch: Partial<Stage>) => setStage((s) => ({ ...s, ...patch }));
-
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) {
-      at(1000, finish);
-      return () => timers.forEach(window.clearTimeout);
+    const pixelRatio = () => window.devicePixelRatio || 1;
+    const setPhysicalSizes = () => {
+      vignetteRef.current?.style.setProperty("--intro-vignette-radius", `${1500 / pixelRatio()}px`);
+      if (brandRef.current) brandRef.current.style.backgroundSize = `${200 / pixelRatio()}px 100%, 100% 100%`;
+    };
+    setPhysicalSizes();
+    window.addEventListener("resize", setPhysicalSizes);
+    const started = performance.now();
+    let brandStarted: number | null = null;
+    let sheenStarted: number | null = null;
+    let exitStarted: number | null = null;
+    let frame = 0;
+    if (!reduceMotion.current) {
+      const moteNodes = Array.from(motesRef.current?.children ?? []) as HTMLElement[];
+      const draw = (now: number) => {
+        const elapsed = now - started;
+        const values = introMotionFrame(elapsed, exitStarted === null ? null : now - exitStarted);
+        if (sceneRef.current) {
+          sceneRef.current.style.opacity = String(values.sceneAlpha);
+          sceneRef.current.style.transform = `scale(${values.sceneScale})`;
+        }
+        if (columnRef.current) {
+          columnRef.current.style.opacity = String(values.columnAlpha);
+          columnRef.current.style.transform = `scale(${values.columnScale})`;
+        }
+        if (markRef.current) markRef.current.style.transform = `scale(${values.logoScale})`;
+        if (brandRef.current && brandStarted !== null) {
+          brandRef.current.style.transform = `scale(${springValue(0.92, 1, now - brandStarted, 0.82)})`;
+        }
+        if (brandRef.current && sheenStarted !== null) {
+          const sheen = cubicBezier(Math.min(1, (now - sheenStarted) / 1600), INTRO_EASE.inOutSine);
+          brandRef.current.style.backgroundPosition = `${(-260 + 980 * sheen) / pixelRatio()}px 0, 0 0`;
+        }
+        moteNodes.forEach((node, index) => {
+          const mote = moteFrame(MOTES[index], values.moteProgress, values.sceneAlpha);
+          node.style.left = `${mote.x * 100}%`;
+          node.style.top = `${mote.y * 100}%`;
+          node.style.opacity = String(mote.alpha);
+        });
+        frame = window.requestAnimationFrame(draw);
+      };
+      frame = window.requestAnimationFrame(draw);
     }
-
-    // Таймлайн IntroScreen.kt: логотип «садится» пружиной (~600 мс), дальше — по шагам.
-    let t = 600;
-    at(1400, () => set({ skip: true }));
-    t += 160;
-    at(t, () => set({ meaning: true })); // «Попутчик» по буквам
-    t += 1200;
-    at(t, () => set({ meaning: false })); // слово уходит каскадом
-    t += 420;
-    at(t, () => set({ brand: true })); // «Юлдаш» — целым
-    at(t + 360, () => set({ sheen: true })); // медленный люкс-блик
-    t += 500;
-    at(t, () => set({ underline: true }));
-    t += 780;
-    at(t, () => set({ slogan: true }));
-    t += 1400;
-    at(t, () => set({ sloganBa: true })); // русский подышал — потом башкирский
-    t += 1200;
-    at(t, () => set({ exiting: true }));
-    t += 500;
-    at(t, finish);
-    return () => timers.forEach(window.clearTimeout);
+    const controller = createIntroTimeline(
+      reduceMotion.current,
+      (patch) => {
+        const now = performance.now();
+        if (patch.brand) brandStarted = now;
+        if (patch.sheen) sheenStarted = now;
+        if (patch.exiting) exitStarted = now;
+        setStage((current) => ({ ...current, ...patch }));
+      },
+      () => {
+        flags.setIntroSeen();
+        navigate("/onboarding", { replace: true });
+      },
+    );
+    timeline.current = controller;
+    return () => {
+      controller.dispose();
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", setPhysicalSizes);
+      if (timeline.current === controller) timeline.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <button type="button" className="intro" onClick={finish} aria-label={appText("Пропустить", "Үткәреү")}>
+    <button type="button" className="intro" onClick={() => timeline.current?.skip()} aria-label={appText("Пропустить", "Үткәреү")}
+      style={{ zoom: 1 / documentZoom, "--intro-font-scale": documentZoom } as React.CSSProperties}>
       {/* Пейзаж: проявляется из зелёного + мягкий push-in. Поверх — вуаль 20 % и виньетка. */}
-      <img className="intro__scene" src="/intro_landscape.svg" alt="" aria-hidden />
+      <img ref={sceneRef} className="intro__scene" src="/intro_landscape.svg" alt="" aria-hidden />
       <span className="intro__veil" aria-hidden />
-      <span className="intro__vignette" aria-hidden />
-      <span className="intro__motes" aria-hidden>
-        {MOTES.map(([x, y, r, spd], i) => (
-          <i
-            key={i}
-            style={{
-              left: `${x * 100}%`,
-              top: `${(0.06 + y * 0.46) * 100}%`,
-              width: r * 2,
-              height: r * 2,
-              animationDuration: `calc(var(--motion-ambient) / ${spd})`,
-              animationDelay: `calc(var(--motion-ambient) * -${(i * 0.13).toFixed(2)})`,
-            }}
-          />
-        ))}
+      <span ref={vignetteRef} className="intro__vignette" aria-hidden
+        style={{ "--intro-vignette-radius": `${1500 / (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1)}px` } as React.CSSProperties} />
+      <span ref={motesRef} className="intro__motes" aria-hidden>
+        {MOTES.map((mote, i) => {
+          const initial = moteFrame(mote, 0, reduceMotion.current ? 1 : 0);
+          return <i key={i} style={{
+            left: `${initial.x * 100}%`, top: `${initial.y * 100}%`,
+            width: initial.radius * 2, height: initial.radius * 2,
+            opacity: initial.alpha,
+          }} />;
+        })}
       </span>
 
-      <div className={"intro__column" + (stage.exiting ? " is-exiting" : "")}>
-        {/* BrandHero: белый круг 132 с логотипом, лёгкий settle. */}
-        <span className="intro__mark">
+      <div ref={columnRef} className={"intro__column" + (stage.exiting ? " is-exiting" : "")}>
+        {/* BrandHero: слот 224×158, круг 132 сверху через 24. */}
+        <span className="intro__hero"><span ref={markRef} className="intro__mark">
           <img src="/yuldash_logo.webp" alt="Юлдаш" />
-        </span>
+        </span></span>
 
         {/* Слот слова: «Попутчик» по буквам ↔ «Юлдаш» целым с бликом. */}
         <span className="intro__stage">
-          <span className={"intro__meaning" + (stage.meaning ? " is-in" : "")} aria-hidden={!stage.meaning}>
+          <span className={"intro__meaning is-" + stage.meaningPhase} aria-hidden={stage.meaningPhase !== "in"}>
             {[...MEANING_WORD].map((ch, i) => (
               <i key={i} style={{ "--i": i } as React.CSSProperties}>
                 {ch}
               </i>
             ))}
           </span>
-          <span className={"intro__brand" + (stage.brand ? " is-in" : "") + (stage.sheen ? " is-sheen" : "")} aria-hidden={!stage.brand}>
+          <span ref={brandRef} className={"intro__brand" + (stage.brand ? " is-in" : "")} aria-hidden={!stage.brand}>
             {BRAND_WORD}
           </span>
         </span>
@@ -139,7 +163,7 @@ export default function IntroScreen() {
         </span>
       </div>
 
-      <span className={"intro__skip" + (stage.skip ? " is-in" : "")}>{appText("Пропустить", "Үткәреү")}</span>
+      <span className={"intro__skip" + (stage.exiting ? " is-out" : stage.skip ? " is-in" : "")}>{appText("Пропустить", "Үткәреү")}</span>
     </button>
   );
 }

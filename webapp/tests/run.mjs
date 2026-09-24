@@ -22,6 +22,11 @@ const OUT = join(HERE, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
 const SUITES = [
+  { test: "login-flow-test", src: null, out: null, bundle: false },
+  { test: "onboarding-flow-test", src: null, out: null, bundle: false },
+  { test: "intro-motion-test", src: null, out: null, bundle: false },
+  { test: "intro-behavior-test", src: null, out: null, bundle: false },
+  { test: "splash-navigation-test", src: null, out: null, bundle: false },
   { test: "session-caches-test", src: null, out: null, bundle: false },
   { test: "taxi-rating-recovery-test", src: null, out: null, bundle: false },
   { test: "parcel-rating-recovery-test", src: null, out: null, bundle: false },

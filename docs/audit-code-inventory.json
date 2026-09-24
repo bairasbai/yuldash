@@ -82,8 +82,8 @@
     "backend_main": 103,
     "infra_resource_config": 294,
     "public_site_promo": 89,
-    "pwa_main": 269,
-    "test_support": 800
+    "pwa_main": 278,
+    "test_support": 804
   },
   "counts_by_block": {
     "B01": 104,
@@ -94,14 +94,14 @@
     "B06": 75,
     "B07": 100,
     "B08": 162,
-    "B09": 502,
+    "B09": 515,
     "B10": 294,
     "B11": 90
   },
   "excluded_counts": {
     "binary_asset_or_non_source": 116,
     "documentation": 14,
-    "documentation_artifacts_or_private_material": 244,
+    "documentation_artifacts_or_private_material": 245,
     "experimental_not_current_product": 21,
     "legacy_flutter_do_not_modify": 22,
     "secret_or_local_settings_not_read": 2
@@ -10020,6 +10020,13 @@
       "lines": 102
     },
     {
+      "path": "webapp/src/components/OnboardingIcons.tsx",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "4ec14a66d4d185ac017dfbb9ffbe53b32015563c17a3bb3df704e299afab80af",
+      "lines": 125
+    },
+    {
       "path": "webapp/src/components/ParcelPhoto.tsx",
       "kind": "pwa_main",
       "block": "B04",
@@ -10842,8 +10849,8 @@
       "path": "webapp/src/screens/IntroScreen.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "01b9f093dccad8fea98f573c15858fd82d18d7b2e407ae57dc4a944751eb64dd",
-      "lines": 145
+      "sha256": "44de6e36fe431d0bf52f73c62975ca1e0b4efe49488a4663700f34ec9b523bf5",
+      "lines": 169
     },
     {
       "path": "webapp/src/screens/InvitesScreen.tsx",
@@ -10912,8 +10919,8 @@
       "path": "webapp/src/screens/OnboardingScreen.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "d5b6aab1fe44fb1a6de51fd1b4ed10621da1243dc95e4807c4f343f34bef6e7e",
-      "lines": 265
+      "sha256": "3e82a557994a280236f67f02d4e1caa8c12c517d044ca681c826b724aa5932bb",
+      "lines": 362
     },
     {
       "path": "webapp/src/screens/ParcelChatScreen.tsx",
@@ -11101,8 +11108,8 @@
       "path": "webapp/src/screens/SplashScreen.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "bcbc0d0268bf9697d40edeee0b42bc2bfdc74543fae910e118bd3a447e626f82",
-      "lines": 55
+      "sha256": "fcfd9de7c5f5d9ea89787b87f26dc834b327518cc68106f5d8154dea4ec21aca",
+      "lines": 33
     },
     {
       "path": "webapp/src/screens/SupportTicketScreen.tsx",
@@ -11234,8 +11241,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "35a41a8fba7c2324d64ee9c5c399842cb763dffc7bf2b0b92ed8df37cd309757",
-      "lines": 19697
+      "sha256": "d340b13dbf26d86fd7c50a3ab3e45fc9874c70b77e14621640379cf31974f6d4",
+      "lines": 19815
     },
     {
       "path": "webapp/src/uiPrefs.ts",
@@ -11315,11 +11322,53 @@
       "lines": 130
     },
     {
+      "path": "webapp/src/utils/introMotion.d.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "321f9962200750e71c8577a74ef38dab2e74b8be404ef8d24bcbaf4cb84b9d2c",
+      "lines": 10
+    },
+    {
+      "path": "webapp/src/utils/introMotion.js",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "d6df1d593c158c24deae19dc303c53205d521fa73c264670c1df74d141efad62",
+      "lines": 73
+    },
+    {
+      "path": "webapp/src/utils/introTimeline.d.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "6a614805215ba4ea28f4e10ada82c856d9f8ec4e3bb9bfc87ec1a0123f81d363",
+      "lines": 20
+    },
+    {
+      "path": "webapp/src/utils/introTimeline.js",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "8adb03d4c1307c84c253bdeec01d1cd726527282089c5bf6f6842558602c36cb",
+      "lines": 59
+    },
+    {
       "path": "webapp/src/utils/navigator.ts",
       "kind": "pwa_main",
       "block": "B09",
       "sha256": "df175de85daf3e116953a7a6ad0270e87385a4da413abcba580d887bc6175d2d",
       "lines": 18
+    },
+    {
+      "path": "webapp/src/utils/onboardingFlow.d.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "af2835f4237433e38780182f72b2e25c3eeaef4d369dc5110b98127d8bdca202",
+      "lines": 14
+    },
+    {
+      "path": "webapp/src/utils/onboardingFlow.js",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "6adeea5312eec50a5b7cbc1b5aa3adcdf8bec8a104569b97bfe77264414b7154",
+      "lines": 71
     },
     {
       "path": "webapp/src/utils/outbox.ts",
@@ -11376,6 +11425,20 @@
       "block": "B01",
       "sha256": "945bd0cc3a862245faffbf353f769d0a174506ae6e1255a8a0e402446137bc1b",
       "lines": 29
+    },
+    {
+      "path": "webapp/src/utils/splashTarget.d.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "3fa86b92b48061a6c4c1979aa1100f24ab14751bf024d12b59d31f9e2af9c3de",
+      "lines": 9
+    },
+    {
+      "path": "webapp/src/utils/splashTarget.js",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "a7a6cb6043c025ae524736547e39ead161fa70b5bb62a14e31cd47fc661711c8",
+      "lines": 22
     },
     {
       "path": "webapp/src/utils/tripDetailsSync.d.ts",
@@ -11602,6 +11665,20 @@
       "lines": 154
     },
     {
+      "path": "webapp/tests/intro-behavior-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "f6ff553111888f6e6fbfd5af1aad60e38ed8643f05efd20be9610c13780dc86f",
+      "lines": 93
+    },
+    {
+      "path": "webapp/tests/intro-motion-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "777c066edaae2520ef5c3daa393844182f4df219ea1cdcaee96fcd556f77a5b8",
+      "lines": 44
+    },
+    {
       "path": "webapp/tests/logout-without-worker-test.mjs",
       "kind": "test_support",
       "block": "B09",
@@ -11628,6 +11705,13 @@
       "block": "B06",
       "sha256": "385642db5535be358ddca6d876235469ba06ffe077c4e7a15b31a2154c967730",
       "lines": 40
+    },
+    {
+      "path": "webapp/tests/onboarding-flow-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "b3084c4de70b6b67dd3d300fe1ec756959aba5c979887a3d166b4bda36be313d",
+      "lines": 93
     },
     {
       "path": "webapp/tests/outbox-cross-tab-test.mjs",
@@ -11773,8 +11857,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "b0bfe728b157429a2a86c4a877f013ffe7f9e06f3d31e2d81347ace0ed5a1b8c",
-      "lines": 172
+      "sha256": "c304e4b8d7bad18dba1396ccaa880d380649871ff348f52108d3f9f297633b9d",
+      "lines": 176
     },
     {
       "path": "webapp/tests/session-boundary-test.mjs",
@@ -11796,6 +11880,13 @@
       "block": "B08",
       "sha256": "0660325fbc2bd2b6db2e2a0ebd7cf113e8460a884c6cc88e5754fbfdcca7e00b",
       "lines": 54
+    },
+    {
+      "path": "webapp/tests/splash-navigation-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "caf93a1ddb6486c5e3718ce1bea2d2dfc3121fe65a489de18d02cc7ac3dc2f47",
+      "lines": 67
     },
     {
       "path": "webapp/tests/st-test.mjs",
@@ -12543,6 +12634,10 @@
     },
     {
       "path": "docs/00-INDEX.md",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
+      "path": "docs/HANDOFF-2026-09-24.md",
       "reason": "documentation_artifacts_or_private_material"
     },
     {
