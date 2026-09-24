@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
-import { ApiError, apiPost } from "../api/client";
+import { ApiError, apiPost, getSessionGeneration } from "../api/client";
 import {
   TELEGRAM_BOT,
   tgStart,
@@ -15,6 +15,7 @@ import {
 } from "../api/auth";
 import { IconBlock, IconLock, IconPhone, IconProfile, IconShield, IconTelegram, IconWarn } from "../components/Icons";
 import { track } from "../analytics";
+import { createLoginFlow, filterLoginCode, nextNeedPhone, type LoginError, type LoginFlowDeps } from "../utils/loginFlow";
 
 type Step = "choose" | "code";
 
@@ -36,150 +37,69 @@ export default function LoginScreen() {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [needPhone, setNeedPhone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LoginError | null>(null);
   const [smsOpen, setSmsOpen] = useState(false);
   // SMS-форма (заморожена флагом VITE_SMS_LOGIN_ENABLED — как в приложении).
   const [phone, setPhone] = useState("");
   const [smsStep, setSmsStep] = useState<"phone" | "code">("phone");
   const [smsCode, setSmsCode] = useState("");
   const [smsName, setSmsName] = useState("");
-  const [smsBusy, setSmsBusy] = useState(false);
-  const [smsError, setSmsError] = useState<string | null>(null);
+  const [smsError, setSmsError] = useState<LoginError | null>(null);
 
-  const botMissing = TELEGRAM_BOT.length === 0;
-
-  /** Шаг 1: просим сервер отправить код в SMS. */
-  async function smsRequest() {
-    const p = phone.trim();
-    if (smsBusy || p.length < 6) return;
-    setSmsBusy(true);
-    setSmsError(null);
-    track("login_start", { method: "sms" });
-    try {
-      await requestSmsCode(p);
-      setSmsStep("code");
-      setSmsCode("");
-    } catch (e) {
-      setSmsError(
-        e instanceof ApiError && e.status === 429
-          ? appText("Слишком часто. Подожди минуту.", "Артыҡ йыш. Бер минут көт.")
-          : e instanceof ApiError && e.message
-            ? e.message
-            : appText("Не получилось отправить код.", "Код ебәреп булманы.")
-      );
-    } finally {
-      setSmsBusy(false);
-    }
+  const live = useRef({ login, navigate, from });
+  live.current = { login, navigate, from };
+  const flow = useRef<ReturnType<typeof createLoginFlow> | null>(null);
+  if (!flow.current) {
+    const deps: LoginFlowDeps = {
+      getGeneration: getSessionGeneration,
+      botAvailable: () => TELEGRAM_BOT.length > 0,
+      tgStart, tgVerify, smsRequest: requestSmsCode, smsVerify: verifySmsCode,
+      login: (access, refresh, user) => live.current.login(access, refresh, user),
+      updateName: (updatedName) => apiPost("/me/update", { name: updatedName }),
+      getStatus: (e) => e instanceof ApiError ? e.status : 0,
+      telegramStartUrl, telegramChatUrl,
+      openTelegram: (url) => window.open(url, "_blank", "noopener,noreferrer"),
+      track,
+      navigate: () => live.current.navigate(live.current.from, { replace: true }),
+      onBusy: setLoading,
+      onError: (kind) => {
+        setError(kind);
+        setSmsError(kind);
+        setNeedPhone((current) => nextNeedPhone(current, kind));
+      },
+      onTgStarted: (id) => { setRequestId(id); setCode(""); setNeedPhone(false); setStep("code"); },
+      onSmsStarted: () => { setSmsStep("code"); setSmsCode(""); },
+    };
+    flow.current = createLoginFlow(deps);
   }
-
-  /** Шаг 2: проверяем код и входим. */
-  async function smsVerify() {
-    const p = phone.trim();
-    const c = smsCode.trim();
-    if (smsBusy || c.length < 4) return;
-    setSmsBusy(true);
-    setSmsError(null);
-    try {
-      const res = await verifySmsCode(p, c, smsName.trim());
-      login(res.access_token, res.refresh_token, res.user);
-      navigate(from, { replace: true });
-    } catch (e) {
-      setSmsError(
-        e instanceof ApiError && e.message
-          ? e.message
-          : appText("Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
-      );
-    } finally {
-      setSmsBusy(false);
+  useEffect(() => {
+    flow.current?.revive();
+    return () => flow.current?.dispose();
+  }, []);
+  const onStart = () => flow.current?.start();
+  const onVerify = () => flow.current?.verify(requestId, code, name);
+  const smsRequest = () => flow.current?.smsRequest(phone);
+  const smsVerify = () => flow.current?.smsVerify(phone, smsCode, smsName);
+  const errorText = (kind: LoginError | null) => {
+    switch (kind) {
+      case "botMissing": return appText("Вход через Telegram скоро", "Telegram аша инеү тиҙҙән");
+      case "start": return appText("Не получилось связаться с сервером. Проверь интернет и повтори.", "Сервер менән бәйләнеш булманы. Интернетты тикшер ҙә ҡабатла.");
+      case "enterTgCode": return appText("Введи код из Telegram", "Telegram кодын индер");
+      case "badTgCode": return appText("Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп, ҡабат индер.");
+      case "phoneRequired": return appText("Для безопасности нужен номер. В Telegram нажми «📱 Поделиться номером», потом вернись и нажми «Войти».", "Хәүефһеҙлек өсөн номер кәрәк. Telegram'да «📱 Номер менән бүлешергә» баҫ, аҙаҡ кире ҡайтып «Инеү» баҫ.");
+      case "notYet": return appText("Код ещё идёт от Telegram — подожди пару секунд и нажми «Войти» снова.", "Код Telegram'дан килә — бер-ике секунд көт тә «Инеү» баҫ.");
+      case "expired": return appText("Код истёк. Получи новый — открой Telegram ещё раз.", "Код ваҡыты бөттө. Яңыһын ал — Telegram'ды тағы ас.");
+      case "tooMany": return appText("Слишком много попыток. Получи новый код.", "Бик күп омтылыш. Яңы код ал.");
+      case "save": return appText("Не удалось сохранить вход на телефоне. Получи новый код и попробуй ещё раз.", "Телефонда инеүҙе һаҡлап булманы. Яңы код ал да тағы инеп ҡара.");
+      case "enterPhone": return appText("Введи номер телефона", "Телефон номерын индер");
+      case "sendFail": return appText("Не получилось отправить код. Проверь интернет и повтори.", "Код ебәреп булманы. Интернетты тикшер ҙә ҡабатла.");
+      case "smsTooMany": return appText("Слишком часто. Подожди минуту.", "Артыҡ йыш. Бер минут көт.");
+      case "enterSmsCode": return appText("Введи код из SMS", "SMS кодын индер");
+      case "badSmsCode": return appText("Неверный код", "Код дөрөҫ түгел");
+      case "verify": return appText("Не удалось проверить код. Попробуй ещё раз.", "Кодты тикшереп булманы. Тағы бер тапҡыр ҡара.");
+      default: return null;
     }
-  }
-
-  function openTelegram(url: string) {
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
-
-  async function onStart() {
-    if (loading) return;
-    if (botMissing) {
-      setError(appText("Вход через Telegram скоро", "Telegram аша инеү тиҙҙән"));
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    track("login_start", { method: "telegram" });
-    try {
-      const { request_id } = await tgStart();
-      setRequestId(request_id);
-      setCode("");
-      setNeedPhone(false);
-      setStep("code");
-      openTelegram(telegramStartUrl(request_id));
-    } catch {
-      setError(appText("Не удалось начать вход. Повтори.", "Инеүҙе башлап булманы. Ҡабатла."));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onVerify() {
-    if (loading) return;
-    if (code.trim().length !== 6) {
-      setError(appText("Введите код из Telegram", "Telegram кодын индерегеҙ"));
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await tgVerify(requestId, code.trim());
-      // Сначала сохраняем сессию (токен в localStorage) — тогда /me/update пойдёт с авторизацией.
-      login(res.access_token, res.refresh_token, res.user);
-      track("login_success", { method: "telegram" });
-      // Имя как в приложении: иначе веб-входы не попадают в общую воронку регистрации.
-      track("login", { method: "telegram" });
-      // Имя как в приложении: иначе веб-входы не попадают в общую воронку регистрации.
-      track("login", { method: "telegram" });
-      // Необязательное имя при первом входе — обновим профиль (реальный /me/update).
-      const nm = name.trim();
-      if (nm) {
-        try {
-          await apiPost("/me/update", { name: nm });
-        } catch {
-          /* имя не критично — вошли всё равно */
-        }
-      }
-      navigate(from, { replace: true });
-    } catch (e) {
-      const status = e instanceof ApiError ? e.status : 0;
-      if (status === 403) {
-        setNeedPhone(true);
-        setError(
-          appText(
-            "Для безопасности нужен номер. В Telegram нажми «📱 Поделиться номером», потом вернись и нажми «Войти».",
-            "Хәүефһеҙлек өсөн номер кәрәк. Telegram'да «📱 Номер менән бүлешергә» баҫ, аҙаҡ кире ҡайтып «Инеү» баҫ."
-          )
-        );
-      } else if (status === 409) {
-        setNeedPhone(false);
-        setError(
-          appText(
-            "Код ещё идёт от Telegram — подожди пару секунд и нажми «Войти» снова.",
-            "Код Telegram'дан килә — бер-ике секунд көт тә «Инеү» баҫ."
-          )
-        );
-      } else if (status === 410) {
-        setNeedPhone(false);
-        setError(appText("Код истёк. Получи новый — открой Telegram ещё раз.", "Код ваҡыты бөттө. Яңыһын ал — Telegram'ды тағы ас."));
-      } else if (status === 429) {
-        setNeedPhone(false);
-        setError(appText("Слишком много попыток. Получи новый код.", "Бик күп омтылыш. Яңы код ал."));
-      } else {
-        setNeedPhone(false);
-        setError(appText("Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп, ҡабат индер."));
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
+  };
 
   const langChip = (code: "ru" | "ba", label: string) => (
     <button
@@ -249,16 +169,16 @@ export default function LoginScreen() {
 
             {/* Ошибка входа: что случилось + что делать + «Повторить». Вход — единственная дверь,
                 и «упало молча» здесь дороже всего. */}
-            {error && (
+            {error && !smsOpen && (
               <div className="login-error" role="alert">
                 <div className="login-error__row">
                   <IconWarn size={20} />
-                  <span>{error}</span>
+                  <span>{errorText(error)}</span>
                 </div>
                 <small>
                   {appText(
-                    "Проверь интернет. Если код от бота ещё не дошёл — подожди пару секунд.",
-                    "Интернетты тикшер. Бот коды әле килмәһә — бер-ике секунд көт."
+                    "Нет интернета или код ещё не пришёл? Проверь связь и нажми «Повторить».",
+                    "Интернет юҡмы, әллә код килеп еткәне юҡмы? Бәйләнеште тикшер ҙә «Ҡабатла» баҫ."
                   )}
                 </small>
                 <button type="button" className="btn-soft" onClick={onStart} disabled={loading}>
@@ -274,7 +194,7 @@ export default function LoginScreen() {
                   <em>{appText("или", "йәки")}</em>
                   <span />
                 </div>
-                <button type="button" className="btn-soft login-phone" onClick={() => setSmsOpen((v) => !v)}>
+                <button type="button" className="btn-soft login-phone" onClick={() => { flow.current?.invalidate(); setSmsOpen((v) => !v); setSmsError(null); }}>
                   <IconPhone size={24} /> {appText("Войти по номеру телефона", "Телефон номеры аша инеү")}
                 </button>
                 {smsOpen && (
@@ -292,13 +212,13 @@ export default function LoginScreen() {
                           inputMode="tel"
                           autoComplete="tel"
                           value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
+                          onChange={(e) => { flow.current?.invalidate(); setPhone(e.target.value); setSmsCode(""); setSmsError(null); }}
                           placeholder={appText("Номер телефона", "Телефон номеры")}
                           aria-label={appText("Номер телефона", "Телефон номеры")}
                         />
-                        {smsError && <div className="auth__error">{smsError}</div>}
-                        <button type="button" className="btn-primary login-primary" onClick={smsRequest} disabled={smsBusy || phone.trim().length < 6}>
-                          {smsBusy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Получить код", "Код алыу")}
+                        {smsError && <div className="auth__error">{errorText(smsError)}</div>}
+                        <button type="button" className="btn-primary login-primary" onClick={smsRequest} disabled={loading}>
+                          {loading ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Получить код", "Код алыу")}
                         </button>
                       </>
                     ) : (
@@ -306,27 +226,29 @@ export default function LoginScreen() {
                         <input
                           className="login-input"
                           autoComplete="name"
+                          maxLength={120}
                           value={smsName}
-                          onChange={(e) => setSmsName(e.target.value)}
+                          onChange={(e) => setSmsName(e.target.value.slice(0, 120))}
                           placeholder={appText("Твоё имя (необязательно)", "Исемең (мотлаҡ түгел)")}
                           aria-label={appText("Имя", "Исем")}
                         />
-                        {/* one-time-code — айфон сам предложит код прямо над клавиатурой. */}
+                        {/* one-time-code — айфон сам предложит код прямо над клавиатурой.
+                            Без maxLength: браузер резал бы вставку «123 456» до очистки (как в Android — сначала цифры, потом 6). */}
                         <input
                           className="login-input login-input--code"
                           inputMode="numeric"
                           autoComplete="one-time-code"
                           value={smsCode}
-                          onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, ""))}
+                          onChange={(e) => { setSmsCode(filterLoginCode(e.target.value)); setSmsError(null); }}
                           placeholder={appText("Код из SMS", "SMS коды")}
                           aria-label={appText("Код из SMS", "SMS коды")}
                         />
-                        <button type="button" className="btn-ghost" onClick={() => { setSmsStep("phone"); setSmsError(null); }}>
+                        <button type="button" className="btn-ghost" onClick={() => { flow.current?.invalidate(); setSmsStep("phone"); setSmsCode(""); setSmsError(null); }}>
                           {appText("Изменить номер", "Номерҙы үҙгәртеү")}
                         </button>
-                        {smsError && <div className="auth__error">{smsError}</div>}
-                        <button type="button" className="btn-primary login-primary" onClick={smsVerify} disabled={smsBusy || smsCode.trim().length < 4}>
-                          {smsBusy ? appText("Входим…", "Инәбеҙ…") : appText("Войти", "Инеү")}
+                        {smsError && <div className="auth__error">{errorText(smsError)}</div>}
+                        <button type="button" className="btn-primary login-primary" onClick={smsVerify} disabled={loading}>
+                          {loading ? appText("Входим…", "Инәбеҙ…") : appText("Войти", "Инеү")}
                         </button>
                       </>
                     )}
@@ -339,16 +261,15 @@ export default function LoginScreen() {
             <p className="login-consent">
               {appText("Входя, ты подтверждаешь, что тебе есть 18 лет, и принимаешь", "Инеп, һин 18 йәшең тулғанын раҫлайһың һәм ҡабул итәһең:")}
               <br />
-              <a href="/consents" onClick={(e) => { e.preventDefault(); navigate("/consents"); }}>{appText("Условия", "Шарттарҙы")}</a>
-              {" "}{appText("и", "һәм")}{" "}
-              <a href="/privacy" onClick={(e) => { e.preventDefault(); navigate("/privacy"); }}>{appText("Политику", "Сәйәсәтте")}</a>
+              <a href="https://yulbash.ru/terms/">{appText("Условия", "Шарттарҙы")}</a>
+              {" · "}
+              <a href="https://yulbash.ru/privacy/">{appText("Политику конфиденциальности", "Конфиденциаллек сәйәсәтен")}</a>
             </p>
           </>
         ) : (
           <>
-            <p className="login-card__lead">
-              {appText("Открой Telegram, нажми «Старт» — бот пришлёт 6-значный код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот 6 һанлы код ебәрер. Шуны индер.")}
-            </p>
+            <p className="login-card__lead">{appText("Заходи через Telegram — быстро и безопасно", "Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡуллан")}</p>
+            <p className="login-card__lead">{appText("Открой Telegram, нажми «Старт» — бот пришлёт 6-значный код. Введи его сюда.", "Telegram'ды ас, «Старт» баҫ — бот 6 һанлы код ебәрер. Шуны индер.")}</p>
             {needPhone && (
               <div className="login-need-phone">
                 <IconShield size={24} />
@@ -374,15 +295,15 @@ export default function LoginScreen() {
             </label>
             <label className="login-input-wrap">
               <IconLock size={22} />
+              {/* Без maxLength: вставка «123 456» / «123-456» сначала очищается до цифр, потом режется до 6. */}
               <input
                 className="login-input login-input--code"
                 inputMode="numeric"
                 autoComplete="one-time-code"
-                maxLength={6}
                 placeholder={appText("Код из Telegram", "Telegram коды")}
                 value={code}
                 onChange={(e) => {
-                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                  setCode(filterLoginCode(e.target.value));
                   setError(null);
                 }}
                 aria-label={appText("Код из Telegram", "Telegram коды")}
@@ -392,15 +313,15 @@ export default function LoginScreen() {
               <div className="login-error" role="alert">
                 <div className="login-error__row">
                   <IconWarn size={20} />
-                  <span>{error}</span>
+                  <span>{errorText(error)}</span>
                 </div>
                 <small>
                   {appText(
-                    "Проверь интернет. Если код от бота ещё не дошёл — подожди пару секунд.",
-                    "Интернетты тикшер. Бот коды әле килмәһә — бер-ике секунд көт."
+                    "Нет интернета или код ещё не пришёл? Проверь связь и нажми «Повторить».",
+                    "Интернет юҡмы, әллә код килеп еткәне юҡмы? Бәйләнеште тикшер ҙә «Ҡабатла» баҫ."
                   )}
                 </small>
-                <button type="button" className="btn-soft" onClick={onVerify} disabled={loading}>
+                <button type="button" className="btn-soft" onClick={error === "save" ? onStart : onVerify} disabled={loading}>
                   {appText("Повторить", "Ҡабатлау")}
                 </button>
               </div>
@@ -412,13 +333,14 @@ export default function LoginScreen() {
             <button
               type="button"
               className="btn-ghost login-link"
-              onClick={() => openTelegram(needPhone ? telegramChatUrl() : telegramStartUrl(requestId))}
+              onClick={() => flow.current?.openTelegramAgain(needPhone)}
+              disabled={loading}
             >
               {needPhone
                 ? appText("Открыть Telegram и поделиться номером", "Telegram'ды асып, номер менән бүлешергә")
                 : appText("Открыть Telegram ещё раз", "Telegram'ды тағы асырға")}
             </button>
-            <button type="button" className="btn-ghost login-link login-link--muted" onClick={() => setStep("choose")}>
+            <button type="button" className="btn-ghost login-link login-link--muted" onClick={() => { flow.current?.invalidate(); setStep("choose"); setCode(""); setError(null); setNeedPhone(false); }}>
               {appText("Назад", "Артҡа")}
             </button>
           </>

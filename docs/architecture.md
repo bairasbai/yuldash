@@ -4252,3 +4252,34 @@ QA-B03-001: InstantDestinationPicker показывает errorText в закр�
 QA-B03-002: InstantDriverOnlineController принимает nullable mapContent и передаёт в WaitingScreen/OfferOverlay; null сохраняет нативную карту. TaxiDriverJourneyTest начинает с online=true, реальные HTTP-кнопки accept→arrived→onboard→done; оболочка теста соединяет controller callback с TripScreen. Не заменяет допуск/общую навигацию/MapKit.
 
 24.09.2026 — CourierScreen: для пользователя без approved-заявки PoputkaDeliveryTabs показывает две вкладки «Заказы» / «Везу». Лента остаётся только попутной (poputkaOnly=true), принятые посылки открывает существующий CourierCarryingTab; профессиональная линия и кабинет не включаются. Список доставок передаётся существующему CourierLiveLocationLink; разрешение геолокации и прекращение трансляции остаются в общем механизме. Доказательства и границы — QA-B04-001 в audit-blocks.md.
+
+24.09.2026, QA-B09-P001/P002: PWA utils/splashTarget.js определяет release-направление
+Splash и отменяемый таймер60/140мс; loading/unavailable удерживают стартовый экран.
+utils/introTimeline.js хранит начальное состояние, последовательность этапов и однократный
+finish/skip/dispose. Экраны связывают контроллеры с React/navigate; тесты исполняют те же
+контроллеры. Полное визуальное соответствие не заявлено; критерии в audit-blocks.md.
+
+P002, следующий локальный проход: `utils/introMotion.js` содержит числовую модель
+Compose spring/easing/drift/SkyMotes. IntroScreen обновляет DOM одним requestAnimationFrame,
+без React-render на каждом кадре; reduced-motion не запускает этот цикл. Локальный inverse
+zoom компенсирует общий html.zoom только для Intro, а шрифт/строка/tracking масштабируются
+отдельно через --intro-font-scale. Общий fontScale.ts не менялся. Эмблема использует
+существующий оптимизированный yuldash_logo.webp в слоте 84×84 contain; точный растр Android
+остаётся открытым из-за ограничений загрузочного бюджета, не объявлен идентичным.
+
+P003: `utils/onboardingFlow.js` разделяет обычное завершение→login с выбранной ролью
+и simple→simple без записи роли; включает scroll-position контроллер и отменяемый RAF gate.
+OnboardingScreen держит четыре постоянные scroll-snap панели с независимым vertical scroll,
+неактивные inert/aria-hidden; язык/футер вне pager. Локальный inverse zoom сохраняет
+геометрию, текст и tracking масштабируются отдельно. `OnboardingIcons.tsx` содержит только
+20 нужных этому экрану filled-векторов Compose Material1.7.8; общий Icons.tsx не меняется.
+Ordinary Text tracking0.5sp и Material button0.1sp перенесены из Material3 1.4.0;
+onbAppear и parallax физические смещения делят на DPR. Полные границы — P003 реестра.
+
+P004 (поведение входа): `utils/loginFlow.js` — используемый LoginScreen контроллер
+TG/SMS с общим синхронным busy, номером операции, dispose/revive и проверкой поколения
+сессии. Собственный login принимает новое поколение; ожидание имени не может перенаправить
+другой аккаунт. Ошибка сохранения блокирует повтор использованного OTP до нового запроса.
+`nextNeedPhone` сохраняет шаг403 при локальной ошибке ввода; повтор Telegram получает новый
+request_id, кроме открытия чата для передачи номера. Общий AuthProvider/client не менялся;
+неатомарное хранение пары токенов и восстановление шага после reload остаются открытыми.

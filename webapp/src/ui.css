@@ -729,41 +729,35 @@
 /* ---- Splash ---- */
 .splash {
   min-height: 100dvh;
+  background: linear-gradient(to bottom, var(--header-top), var(--header-bottom));
+}
+.splash__unavailable {
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
-  background: radial-gradient(120% 80% at 50% 20%, #0e7d44 0%, #073f25 70%);
-  color: #fff;
+  gap: var(--space-md);
+  padding: calc(var(--space-xl) + env(safe-area-inset-top))
+    calc(var(--space-xl) + env(safe-area-inset-right))
+    calc(var(--space-xl) + env(safe-area-inset-bottom))
+    calc(var(--space-xl) + env(safe-area-inset-left));
+  color: var(--on-accent);
   text-align: center;
 }
-.splash__mark {
-  animation: fadeUp var(--motion-slow) ease both, floaty var(--loop-shine) ease-in-out infinite var(--motion-entry);
-  filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.35));
+.splash__unavailable button {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 var(--space-lg);
+  border: 1px solid var(--on-accent);
+  border-radius: var(--radius-item);
+  background: transparent;
+  color: var(--on-accent);
+  font: inherit;
 }
-.splash__word {
-  margin-top: 18px;
-  font-size: var(--font-display);
-  font-weight: var(--weight-bold);
-  letter-spacing: -0.01em;
-  animation: fadeUp var(--motion-slow) ease both calc(var(--cascade-in) * 2);
-}
-.splash__slogan {
-  margin: 4px 0 0;
-  opacity: 0.85;
-  font-size: var(--font-body);
-  animation: fadeUp var(--motion-slow) ease both calc(var(--cascade-in) * 5);
-}
-.splash__spin {
-  margin-top: 28px;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.25);
-  border-top-color: #fff;
-  animation: spin var(--loop-spin) linear infinite;
+.splash__unavailable button:focus-visible {
+  outline: 2px solid var(--on-accent);
+  outline-offset: 4px;
 }
 @keyframes floaty {
   0%, 100% {
@@ -776,21 +770,26 @@
 
 /* ---- Intro — зеркало IntroScreen.kt + IntroHero.kt ---- */
 .intro {
+  --intro-mote: #f0c840; /* IntroHero.kt KuraiGold: краска пейзажа, не CanonGold UI. */
   /* Montserrat — как IntroScreen.kt: единственный экран с брендовой гарнитурой. */
   font-family: var(--font-family-intro);
   position: relative;
   min-height: 100dvh;
-  width: 100%;
+  width: 100vw;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   border: 0;
-  padding: env(safe-area-inset-top) var(--space-xl) env(safe-area-inset-bottom);
+  padding: 0;
   background: var(--header-top); /* тот же зелёный, что у системного сплэша — бесшовный хэндофф */
   color: var(--on-accent);
   text-align: center;
+}
+.intro:focus-visible {
+  outline: 2px solid var(--on-accent);
+  outline-offset: -4px;
 }
 /* Пейзаж проявляется из зелёного (SCENE) и медленно «наезжает» 1.08 → 1 (DRIFT). */
 .intro__scene {
@@ -799,28 +798,19 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  animation:
-    introSceneIn var(--motion-scene) ease-in-out both,
-    introKenBurns var(--motion-drift) ease-in-out both;
-}
-@keyframes introSceneIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes introKenBurns {
-  from { transform: scale(1.08); }
-  to { transform: scale(1); }
+  opacity: 0;
+  transform: scale(1.08);
 }
 /* Тёплая вуаль 20 % + виньетка: читаемость белого текста поверх сцены. */
 .intro__veil {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--scrim) 22%, transparent);
+  background: rgb(0 0 0 / 20%);
 }
 .intro__vignette {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 50% 50%, transparent 0%, color-mix(in srgb, var(--scrim) 39%, transparent) 100%);
+  background: radial-gradient(circle var(--intro-vignette-radius, 1500px) at 50% 50%, transparent 0%, rgb(0 0 0 / 35%) 100%);
 }
 /* Золотая пыльца в небе (SkyMotes): семь точек, мерцают в темпе AMBIENT. */
 .intro__motes {
@@ -831,45 +821,50 @@
 .intro__motes i {
   position: absolute;
   border-radius: var(--radius-pill);
-  background: var(--canon-gold);
-  opacity: 0.3;
-  animation: introMote var(--motion-ambient) ease-in-out infinite alternate;
-}
-@keyframes introMote {
-  from { opacity: 0.12; transform: translateY(0); }
-  to { opacity: 0.52; transform: translateY(-14px); }
+  background: var(--intro-mote);
+  transform: translate(-50%, -50%);
 }
 .intro__column {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  transition: opacity var(--motion-entry) ease-in-out, transform var(--motion-entry) ease-in;
+  max-width: 100%;
+  padding-inline: min(var(--space-xl), max(0px, calc((100vw - 224px) / 2)));
+  transform: scale(1);
 }
 .intro__column.is-exiting {
-  opacity: 0;
-  transform: scale(1.06);
+  /* Exit alpha and scale share the scene frame clock. */
 }
-/* BrandHero: белый круг 132 с логотипом (поля 24), пружинный settle 0.96 → 1. */
+/* BrandHero: слот 224×158, круг 132 сверху через 24, картинка 84×84. */
+.intro__hero {
+  display: block;
+  position: relative;
+  flex: none;
+  width: 224px;
+  max-width: 100%;
+  height: 158px;
+}
 .intro__mark {
   display: grid;
   place-items: center;
+  position: absolute;
+  top: 24px;
+  left: 0;
+  right: 0;
   width: 132px;
   height: 132px;
-  margin: var(--space-xl) 0 var(--space-xs);
+  margin: 0 auto;
   padding: var(--space-xl);
   border-radius: var(--radius-pill);
   background: var(--on-accent);
   box-shadow: var(--depth-flat);
-  animation: introSettle var(--motion-count) cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  transform: scale(0.96);
 }
 .intro__mark img {
-  width: 100%;
-  height: 100%;
-}
-@keyframes introSettle {
-  from { transform: scale(0.96); }
-  to { transform: scale(1); }
+  width: 84px;
+  height: 84px;
+  object-fit: contain;
 }
 /* Слот слова: «Попутчик» и «Юлдаш» лежат друг на друге, по центру; высота 56, при крупном шрифте растёт. */
 .intro__stage {
@@ -877,6 +872,7 @@
   display: grid;
   place-items: center;
   min-height: 56px;
+  margin-top: var(--space-xs);
 }
 .intro__stage > span {
   grid-area: 1 / 1;
@@ -884,20 +880,17 @@
 /* StaggerWord: буквы приходят каскадом снизу (ENTRY/COUNT), уходят каскадом вверх. */
 .intro__meaning {
   display: inline-flex;
-  font-size: var(--font-intro-meaning);
-  line-height: var(--line-intro-brand);
+  font-size: calc(var(--font-intro-meaning) * var(--intro-font-scale));
+  line-height: calc(var(--line-intro-brand) * var(--intro-font-scale));
   font-weight: var(--weight-medium);
-  letter-spacing: 1px;
+  letter-spacing: calc(1px * var(--intro-font-scale));
   pointer-events: none;
 }
 .intro__meaning i {
   display: inline-block;
   font-style: normal;
   opacity: 0;
-  transform: translateY(-33%);
-  transition:
-    opacity var(--motion-normal) ease-in-out calc(var(--cascade-in) * var(--i)),
-    transform var(--motion-slow) ease-in-out calc(var(--cascade-in) * var(--i));
+  transform: translateY(50%);
 }
 .intro__meaning.is-in i {
   opacity: 1;
@@ -906,10 +899,17 @@
     opacity var(--motion-entry) cubic-bezier(0.16, 1, 0.3, 1) calc(var(--cascade-in) * var(--i)),
     transform var(--motion-count) cubic-bezier(0.16, 1, 0.3, 1) calc(var(--cascade-in) * var(--i));
 }
+.intro__meaning.is-out i {
+  opacity: 0;
+  transform: translateY(-33%);
+  transition:
+    opacity var(--motion-normal) cubic-bezier(0.4, 0, 0.2, 1) calc(var(--cascade-out) * var(--i)),
+    transform var(--motion-slow) cubic-bezier(0.4, 0, 0.2, 1) calc(var(--cascade-out) * var(--i));
+}
 /* «Юлдаш»: fade + scale 0.92 → 1, tracking-in, золотой блик проходит по буквам (CINEMA). */
 .intro__brand {
-  font-size: var(--font-intro-brand);
-  line-height: var(--line-intro-brand);
+  font-size: calc(var(--font-intro-brand) * var(--intro-font-scale));
+  line-height: calc(var(--line-intro-brand) * var(--intro-font-scale));
   font-weight: var(--weight-bold);
   letter-spacing: 0;
   opacity: 0;
@@ -917,7 +917,7 @@
   color: var(--on-accent);
   /* Два слоя под текстом: бегущая золотая полоса 200px поверх сплошного белого — иначе буквы вне полосы пустые. */
   background-image:
-    linear-gradient(90deg, transparent 0 38%, var(--canon-gold) 50%, transparent 62% 100%),
+    linear-gradient(90deg, var(--on-accent) 0%, var(--on-accent) 25%, var(--canon-gold) 50%, var(--on-accent) 75%, var(--on-accent) 100%),
     linear-gradient(var(--on-accent), var(--on-accent));
   background-size: 200px 100%, 100% 100%;
   background-repeat: no-repeat, no-repeat;
@@ -927,20 +927,11 @@
   -webkit-text-fill-color: transparent;
   transition:
     opacity var(--motion-scene) cubic-bezier(0.16, 1, 0.3, 1),
-    transform var(--motion-scene) cubic-bezier(0.34, 1.3, 0.64, 1),
     letter-spacing var(--motion-scene) cubic-bezier(0.16, 1, 0.3, 1);
 }
 .intro__brand.is-in {
   opacity: 1;
-  transform: scale(1);
-  letter-spacing: 2px;
-}
-.intro__brand.is-sheen {
-  animation: introSheen var(--motion-cinema) ease-in-out both;
-}
-@keyframes introSheen {
-  from { background-position: -260px 0, 0 0; }
-  to { background-position: 720px 0, 0 0; }
+  letter-spacing: calc(2px * var(--intro-font-scale));
 }
 /* Золотая черта 72×4 из центра. */
 .intro__rule {
@@ -967,14 +958,18 @@
 }
 .intro__slogan {
   grid-area: 1 / 1;
-  font-size: var(--font-body);
-  line-height: var(--line-body);
+  font-size: calc(var(--font-body) * var(--intro-font-scale));
+  line-height: calc(var(--line-body) * var(--intro-font-scale));
   font-weight: var(--weight-medium);
-  letter-spacing: 0.5px;
+  letter-spacing: calc(0.5px * var(--intro-font-scale));
   color: color-mix(in srgb, var(--on-accent) 92%, transparent);
   opacity: 0;
   transform: translateY(25%);
   transition: opacity var(--motion-entry) cubic-bezier(0.16, 1, 0.3, 1), transform var(--motion-entry) cubic-bezier(0.16, 1, 0.3, 1);
+}
+.intro__slogan:first-child {
+  transform: none;
+  transition: opacity var(--motion-entry) cubic-bezier(0.16, 1, 0.3, 1);
 }
 .intro__slogan.is-in {
   opacity: 1;
@@ -983,7 +978,7 @@
 .intro__slogan.is-out {
   opacity: 0;
   transform: translateY(-25%);
-  transition: opacity var(--motion-normal) ease-in-out, transform var(--motion-normal) ease-in-out;
+  transition: opacity var(--motion-normal) cubic-bezier(0.37, 0, 0.63, 1), transform var(--motion-normal) cubic-bezier(0.37, 0, 0.63, 1);
 }
 .intro__slogan.is-in + .intro__slogan.is-in,
 .intro__slogans .intro__slogan:last-child.is-in {
@@ -992,52 +987,117 @@
 /* «Пропустить» приходит через 1,4 с — сначала дать сцене подышать. */
 .intro__skip {
   position: absolute;
-  bottom: calc(env(safe-area-inset-bottom) + 18px);
-  font-size: var(--font-caption);
-  color: color-mix(in srgb, var(--on-accent) 70%, transparent);
+  bottom: calc(env(safe-area-inset-bottom) + 32px);
+  display: grid;
+  place-items: center;
+  min-width: 168px;
+  min-height: 48px;
+  padding: 0 var(--space-lg);
+  border: 1px solid rgb(255 255 255 / 32%);
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 12%);
+  font-size: calc(var(--font-body) * var(--intro-font-scale));
+  line-height: calc(var(--line-body) * var(--intro-font-scale));
+  font-weight: var(--weight-medium);
+  letter-spacing: calc(0.5px * var(--intro-font-scale));
+  color: var(--on-accent);
   opacity: 0;
-  transition: opacity var(--motion-entry) ease;
+  transform: translateY(33%);
+  transition: opacity var(--motion-entry) cubic-bezier(0.16, 1, 0.3, 1), transform var(--motion-entry) cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
 }
 .intro__skip.is-in {
   opacity: 1;
+  transform: translateY(0);
+}
+.intro__skip.is-out {
+  opacity: 0;
+  transform: translateY(0);
+  transition: opacity var(--motion-quick) cubic-bezier(0.4, 0, 0.2, 1);
 }
 @media (prefers-reduced-motion: reduce) {
-  .intro__scene,
-  .intro__motes i,
+  .intro__scene {
+    opacity: 1;
+    transform: scale(1);
+  }
   .intro__mark {
-    animation: none;
+    transform: scale(1);
+  }
+  .intro__brand.is-in {
+    transform: scale(1);
+  }
+  .intro__column,
+  .intro__meaning i,
+  .intro__brand,
+  .intro__rule,
+  .intro__skip {
+    transition: none;
+  }
+  .intro__slogan,
+  .intro__slogan.is-in,
+  .intro__slogan.is-out,
+  .intro__slogan.is-in + .intro__slogan.is-in,
+  .intro__slogans .intro__slogan:last-child.is-in {
+    transition: none;
   }
 }
 
 /* ---- Onboarding — зеркало OnboardingContent (YuldashApp.kt) ---- */
 .onb {
-  min-height: 100dvh;
+  height: 100dvh;
+  min-height: 0;
+  width: 100vw;
   display: flex;
   flex-direction: column;
-  padding: calc(env(safe-area-inset-top) + 12px) var(--space-lg) calc(env(safe-area-inset-bottom) + var(--space-lg));
+  overflow: hidden;
+  padding: calc(env(safe-area-inset-top) + 12px) 0 calc(env(safe-area-inset-bottom) + var(--space-lg));
   background: var(--bg);
   color: var(--text);
+  letter-spacing: calc(0.5px * var(--onb-font-scale));
 }
 .onb__top {
   display: flex;
   justify-content: flex-end;
+  flex: none;
+  padding-right: var(--space-lg);
   padding-bottom: var(--space-xs);
 }
 .onb__top .login-lang {
   position: static;
   box-shadow: none;
 }
-.onb__page {
+.onb__lang .login-lang__chip { min-width: 48px; min-height: 48px; font-size: calc(var(--font-caption) * var(--onb-font-scale)); }
+.onb__pager {
   flex: 1;
+  min-height: 0;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  padding: var(--space-sm) 0 var(--space-lg);
-  animation: fadeIn var(--motion-normal) ease both;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
 }
+.onb__pager::-webkit-scrollbar { display: none; }
+.onb__panel {
+  flex: 0 0 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-snap-align: start;
+  scrollbar-width: none;
+  padding: var(--space-sm) var(--space-lg) var(--space-md);
+}
+.onb__panel::-webkit-scrollbar { display: none; }
+.onb__slide { display: flex; flex-direction: column; gap: var(--space-md); }
+.onb__pager:focus-visible { outline: 2px solid var(--green2); outline-offset: -2px; }
+.onb__announce { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@keyframes onbAppear { from { opacity: 0; transform: translateY(var(--onb-appear-y)); } to { opacity: 1; transform: translateY(0); } }
+.onb-appear { animation: onbAppear var(--motion-entry) cubic-bezier(0.4, 0, 0.2, 1) both; animation-delay: calc(var(--cascade-in) * var(--onb-delay, 0)); }
 /* OnboardingHeroCard: 318, CanonCardShape, фото + вертикальный и горизонтальный градиенты. */
 .onb-hero {
   position: relative;
+  flex: none;
   height: 318px;
   overflow: hidden;
   border-radius: var(--radius-card);
@@ -1049,13 +1109,14 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transform: translateX(calc(var(--onb-parallax, 0px) * 42)) scale(1.04);
 }
 .onb-hero__shade {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, transparent 45%, color-mix(in srgb, var(--scrim) 16%, transparent) 100%),
-    linear-gradient(180deg, color-mix(in srgb, var(--scrim) 18%, transparent) 0%, transparent 46%, color-mix(in srgb, var(--scrim) 64%, transparent) 100%);
+    linear-gradient(90deg, color-mix(in srgb, var(--green2) 54%, transparent) 0%, transparent 45%, color-mix(in srgb, black 14%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, black 16%, transparent) 0%, transparent 46%, color-mix(in srgb, black 58%, transparent) 100%);
 }
 .onb-hero__logo {
   position: absolute;
@@ -1071,8 +1132,10 @@
   box-shadow: var(--depth-raised);
 }
 .onb-hero__logo img {
-  width: 100%;
-  height: 100%;
+  display: block;
+  width: 40px;
+  height: 40px;
+  min-width: 0;
   object-fit: contain;
 }
 /* Стеклянная плашка: 18 % белого с рамкой 30 %, «Юлдаш» 24 Bold и подпись 16 Bold. */
@@ -1088,17 +1151,17 @@
   border: 1px solid color-mix(in srgb, var(--on-accent) 30%, transparent);
   border-radius: var(--radius-item);
   background: color-mix(in srgb, var(--on-accent) 18%, transparent);
-  backdrop-filter: blur(6px);
   color: var(--on-accent);
+  transform: translateX(calc(var(--onb-parallax, 0px) * 62));
 }
 .onb-hero__glass strong {
-  font-size: var(--font-title);
-  line-height: var(--line-title);
+  font-size: calc(var(--font-title) * var(--onb-font-scale));
+  line-height: calc(var(--line-title) * var(--onb-font-scale));
   font-weight: var(--weight-bold);
 }
 .onb-hero__glass small {
-  font-size: var(--font-body);
-  line-height: var(--line-body);
+  font-size: calc(var(--font-body) * var(--onb-font-scale));
+  line-height: calc(var(--line-body) * var(--onb-font-scale));
   font-weight: var(--weight-bold);
   opacity: 0.94;
 }
@@ -1108,25 +1171,26 @@
   bottom: var(--space-xl);
   display: grid;
   place-items: center;
-  width: 60px;
-  height: 60px;
+  width: 72px;
+  height: 72px;
   border: 1px solid color-mix(in srgb, var(--on-accent) 34%, transparent);
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--on-accent) 20%, transparent);
   color: var(--on-accent);
+  transform: translate(calc(var(--onb-parallax, 0px) * 120), calc(var(--onb-parallax, 0px) * -24));
 }
 .onb__title {
-  margin: var(--space-xs) 0 0;
+  margin: 0;
   color: var(--text);
-  font-size: var(--font-display);
-  line-height: var(--line-display);
+  font-size: calc(var(--font-display) * var(--onb-font-scale));
+  line-height: calc(var(--line-display) * var(--onb-font-scale));
   font-weight: var(--weight-bold);
 }
 .onb__body {
   margin: 0;
   color: var(--muted);
-  font-size: var(--font-body);
-  line-height: var(--line-body);
+  font-size: calc(var(--font-body) * var(--onb-font-scale));
+  line-height: calc(var(--line-body) * var(--onb-font-scale));
   font-weight: var(--weight-medium);
 }
 /* OnboardingFeatureCard: CanonItemShape, рамка 1, поля 16; круг 58 мятный с иконкой 30 и номером. */
@@ -1142,7 +1206,6 @@
   background: var(--surface);
   color: var(--text);
   text-align: left;
-  animation: fadeUp var(--motion-entry) ease both;
 }
 .onb-bubble {
   position: relative;
@@ -1157,8 +1220,8 @@
 }
 .onb-bubble b {
   position: absolute;
-  right: -2px;
-  bottom: -2px;
+  right: 0;
+  top: 0;
   display: grid;
   place-items: center;
   width: 22px;
@@ -1166,8 +1229,8 @@
   border-radius: var(--radius-pill);
   background: var(--green2);
   color: var(--on-filled);
-  font-size: var(--font-micro);
-  line-height: var(--line-micro);
+  font-size: calc(var(--font-micro) * var(--onb-font-scale));
+  line-height: calc(var(--line-micro) * var(--onb-font-scale));
   font-weight: var(--weight-bold);
 }
 .onb-item__text {
@@ -1178,14 +1241,14 @@
   gap: var(--space-xs);
 }
 .onb-item__text strong {
-  font-size: var(--font-heading);
-  line-height: var(--line-heading);
+  font-size: calc(var(--font-heading) * var(--onb-font-scale));
+  line-height: calc(var(--line-heading) * var(--onb-font-scale));
   font-weight: var(--weight-bold);
 }
 .onb-item__text small {
   color: var(--muted);
-  font-size: var(--font-body);
-  line-height: var(--line-body);
+  font-size: calc(var(--font-body) * var(--onb-font-scale));
+  line-height: calc(var(--line-body) * var(--onb-font-scale));
 }
 /* OnboardingRoleCard: выбранная — мятная, справа радио. */
 .onb-roles {
@@ -1194,7 +1257,6 @@
   gap: var(--space-md);
 }
 .onb-role {
-  animation-delay: calc(var(--cascade-in) * 2);
   transition: background var(--motion-quick) ease, border-color var(--motion-quick) ease;
 }
 .onb-role.is-active {
@@ -1213,6 +1275,36 @@
   border-color: var(--green2);
   box-shadow: inset 0 0 0 5px var(--green2);
 }
+.onb-role { cursor: pointer; min-height: 90px; }
+.onb-role:focus-visible,
+.onb__nav-btn:focus-visible,
+.onb__next:focus-visible,
+.onb-simple__on:focus-visible,
+.onb-simple__later:focus-visible,
+.onb__lang .login-lang__chip:focus-visible { outline: 2px solid var(--green2); outline-offset: 2px; }
+.onb-trust {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+}
+.onb-trust span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text);
+  text-align: center;
+  white-space: pre-line;
+  font-size: calc(var(--font-micro) * var(--onb-font-scale));
+  line-height: calc(var(--line-micro) * var(--onb-font-scale));
+  font-weight: var(--weight-bold);
+}
+.onb-trust svg { flex: none; color: var(--green2); }
 /* OnboardingSimpleModeCard: мятная карточка, круг 46 белый, кнопка и «Не сейчас». */
 .onb-simple {
   display: flex;
@@ -1221,8 +1313,6 @@
   padding: var(--space-lg);
   border-radius: var(--radius-item);
   background: var(--mint);
-  animation: fadeUp var(--motion-entry) ease both;
-  animation-delay: calc(var(--cascade-in) * 3);
 }
 .onb-simple__head {
   display: flex;
@@ -1241,26 +1331,31 @@
 }
 .onb-simple__head strong {
   color: var(--text);
-  font-size: var(--font-body);
-  line-height: var(--line-body);
+  font-size: calc(var(--font-body) * var(--onb-font-scale));
+  line-height: calc(var(--line-body) * var(--onb-font-scale));
   font-weight: var(--weight-bold);
 }
 .onb-simple p {
   margin: 0;
   color: var(--text);
   opacity: 0.82;
-  font-size: var(--font-body);
-  line-height: var(--line-body);
+  font-size: calc(var(--font-body) * var(--onb-font-scale));
+  line-height: calc(var(--line-body) * var(--onb-font-scale));
 }
 .onb-simple__on {
   width: 100%;
+  min-height: 52px;
   margin-top: 0;
+  font-size: calc(var(--font-body) * var(--onb-font-scale));
+  letter-spacing: calc(0.1px * var(--onb-font-scale));
 }
 .onb-simple__later {
   width: 100%;
+  min-height: 48px;
   color: var(--muted);
-  font-size: var(--font-body);
+  font-size: calc(var(--font-body) * var(--onb-font-scale));
   font-weight: var(--weight-bold);
+  letter-spacing: calc(0.1px * var(--onb-font-scale));
 }
 /* OnboardingSafetyNote: мятная плашка с замком и жирным текстом. */
 .onb-note {
@@ -1272,11 +1367,9 @@
   border-radius: var(--radius-item);
   background: var(--mint);
   color: var(--green2);
-  font-size: var(--font-body);
-  line-height: var(--line-body);
+  font-size: calc(var(--font-body) * var(--onb-font-scale));
+  line-height: calc(var(--line-body) * var(--onb-font-scale));
   font-weight: var(--weight-bold);
-  animation: fadeUp var(--motion-entry) ease both;
-  animation-delay: calc(var(--cascade-in) * 5);
 }
 .onb-note svg {
   flex: none;
@@ -1285,7 +1378,9 @@
 .onb__foot {
   display: flex;
   flex-direction: column;
+  flex: none;
   gap: var(--space-sm);
+  padding: 0 var(--space-lg);
 }
 .onb__nav {
   display: flex;
@@ -1297,6 +1392,9 @@
   display: inline-block;
   min-width: 82px;
   font-weight: var(--weight-bold);
+  min-height: 48px;
+  font-size: calc(var(--font-caption) * var(--onb-font-scale));
+  letter-spacing: calc(0.1px * var(--onb-font-scale));
 }
 .onb-dots {
   flex: 1;
@@ -1321,8 +1419,28 @@
   min-height: 58px;
   margin-top: 0;
   border-radius: var(--radius-item);
-  font-size: var(--font-heading);
-  line-height: var(--line-heading);
+  font-size: calc(var(--font-heading) * var(--onb-font-scale));
+  line-height: calc(var(--line-heading) * var(--onb-font-scale));
+  letter-spacing: calc(0.1px * var(--onb-font-scale));
+}
+@media (max-width: 350px) {
+  .onb { --onb-side: 12px; }
+  .onb__top { padding-right: var(--onb-side); }
+  .onb__panel { padding-left: var(--onb-side); padding-right: var(--onb-side); }
+  .onb__foot { padding-left: var(--onb-side); padding-right: var(--onb-side); }
+  .onb__nav-btn { min-width: 72px; padding-inline: 2px; }
+  .onb__nav-btn:last-child {
+    max-width: calc(100% - 72px - 82px - 16px);
+    white-space: normal;
+    overflow-wrap: normal;
+    line-height: calc(var(--line-caption) * var(--onb-font-scale));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onb-appear { animation: none; }
+  .onb-dots span,
+  .onb-role,
+  .onb-role__radio { transition: none; }
 }
 
 /* Тумблер-строка «только свои» / «на линии» (CreateRequest, CreateRide, TaxiDrive) — общий вид. */
