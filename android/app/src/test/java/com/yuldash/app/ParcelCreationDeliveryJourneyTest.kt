@@ -3,6 +3,7 @@ package com.yuldash.app
 import android.app.Application
 import android.content.Context
 import android.os.Looper
+import android.view.ViewGroup
 import androidx.compose.runtime.*
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.Role
@@ -20,6 +21,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowDialog
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** Real sender/carrier screens; account switching and server storage are supplied by the stand. */
@@ -166,7 +168,7 @@ class ParcelCreationDeliveryJourneyTest {
         compose.onNodeWithText("Забрал, еду").performClick()
         compose.waitUntil(15000) { status == "in_transit" }
         waitFor("Доставлено")
-        clickScrolled("Доставлено")
+        openDialogWithTextField { clickScrolled("Доставлено") }
         waitFor("Код от получателя")
         if (withFailures) {
             compose.onNodeWithText("Код от получателя").performTextReplacement("000000")
@@ -210,6 +212,25 @@ class ParcelCreationDeliveryJourneyTest {
         val matcher = hasText(label) and hasClickAction()
         scroll(matcher)
         compose.onNode(matcher).performClick()
+    }
+    /**
+     * Robolectric-only: a platform-width (WRAP_CONTENT) dialog holding a text field re-measures
+     * forever here, so Compose never idles. The same dialog settles on a device
+     * (ParcelHandoverDialogInstrumentedTest), so the product stays as is: the freshly shown
+     * window is widened to MATCH_PARENT before the first idle wait. Field and buttons stay real.
+     */
+    private fun openDialogWithTextField(open: () -> Unit) {
+        val previous = ShadowDialog.getLatestDialog()
+        open()
+        repeat(10) {
+            val dialog = ShadowDialog.getLatestDialog()
+            if (dialog != null && dialog !== previous && dialog.isShowing) {
+                dialog.window!!.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                return
+            }
+            compose.mainClock.advanceTimeByFrame()
+        }
+        fail("dialog with a text field did not open")
     }
     private fun waitFor(label: String, substring: Boolean = false) {
         compose.waitUntil(15000) {

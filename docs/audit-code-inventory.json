@@ -80,28 +80,28 @@
   "counts_by_kind": {
     "android_main": 129,
     "backend_main": 103,
-    "infra_resource_config": 294,
+    "infra_resource_config": 295,
     "public_site_promo": 89,
     "pwa_main": 269,
-    "test_support": 808
+    "test_support": 809
   },
   "counts_by_block": {
     "B01": 105,
     "B02": 160,
     "B03": 100,
-    "B04": 74,
+    "B04": 75,
     "B05": 29,
     "B06": 75,
     "B07": 100,
     "B08": 162,
     "B09": 503,
-    "B10": 294,
+    "B10": 295,
     "B11": 90
   },
   "excluded_counts": {
     "binary_asset_or_non_source": 116,
     "documentation": 14,
-    "documentation_artifacts_or_private_material": 245,
+    "documentation_artifacts_or_private_material": 247,
     "experimental_not_current_product": 21,
     "legacy_flutter_do_not_modify": 22,
     "secret_or_local_settings_not_read": 2
@@ -176,6 +176,13 @@
       "block": "B10",
       "sha256": "a4b467876e3a324091fb011ca41a2dcdd72620a29a5ae34e2b518829811e2d94",
       "lines": 160
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/ParcelHandoverDialogInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "18ead2a8b91874425cc03a5f9ace6eb7719e8227930daf074aa265c278fb93d5",
+      "lines": 145
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/PassengerRequestPremiumInstrumentedTest.kt",
@@ -2143,6 +2150,13 @@
       "block": "B01",
       "sha256": "74f43b498a13af458de6a969bbba90772adb19e6ffc4b18c061b4f83aec823a1",
       "lines": 100
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/ParcelCreationDeliveryJourneyTest.kt",
+      "kind": "test_support",
+      "block": "B04",
+      "sha256": "8c3206f8937afc102e5e2535429b1279a9dbdd0859e52c2037ed6c82ce4b65c7",
+      "lines": 249
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ParcelPushColdStartTest.kt",
@@ -11954,6 +11968,10 @@
   ],
   "excluded": [
     {
+      "path": ".claude/.proven-config-version",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
       "path": ".claude/agents/README.md",
       "reason": "documentation_artifacts_or_private_material"
     },
@@ -12007,6 +12025,10 @@
     },
     {
       "path": ".claude/launch.json",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
+      "path": ".claude/proven-config.json",
       "reason": "documentation_artifacts_or_private_material"
     },
     {
