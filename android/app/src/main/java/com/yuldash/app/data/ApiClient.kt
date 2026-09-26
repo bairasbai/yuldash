@@ -1143,12 +1143,12 @@ object ApiClient {
 
     // ---------- Доверенные контакты / SOS ----------
 
-    suspend fun addContact(name: String, relation: String, phone: String, notifyByDefault: Boolean): Result<Unit> =
+    suspend fun addContact(name: String, relation: String, phone: String, notifyByDefault: Boolean): Result<ContactDto> =
         call(
             "POST", "/trusted-contacts",
             JSONObject().put("name", name).put("relation", relation).put("phone", phone).put("notify_by_default", notifyByDefault),
             auth = true,
-        ).onSuccess { invalidate("contacts") }.map { }   // добавили контакт → следующий getContacts тянет свежий список
+        ).onSuccess { invalidate("contacts") }.map { parseContactDto(it) }   // созданный контакт → экран сверяет id с оптимистичным (D13-1/D13-2)
 
     /**
      * Убрать доверенный контакт. Сервер умел это с самого начала, а приложение не звало:

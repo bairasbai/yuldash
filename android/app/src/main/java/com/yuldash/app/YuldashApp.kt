@@ -1541,7 +1541,31 @@ internal fun YuldashApp() {
                     trustedContacts.add(contact)
                     appScope.launch {
                         ApiClient.addContact(contact.name, contact.relation, contact.phone, contact.notifyByDefault)
-                            .onSuccess { Toast.makeText(context, if (language == AppLanguage.Ba) "Контакт өҫтәлде" else "Контакт добавлен", Toast.LENGTH_SHORT).show() }
+                            .onSuccess { dto ->
+                                Toast.makeText(context, if (language == AppLanguage.Ba) "Контакт өҫтәлде" else "Контакт добавлен", Toast.LENGTH_SHORT).show()
+                                // D13-1/D13-2: сверяем оптимистичный id=0 с настоящим id сервера — иначе
+                                // шаринг поездки и удаление в этой же сессии продолжат стучаться в id,
+                                // которого сервер не узнаёт (404 на шаринге, тишина на удалении).
+                                if (dto.id > 0) {
+                                    // F-13 G5 finding 4: reconcile THIS optimistic object by identity, not
+                                    // "the first entry with a matching phone" — a stale id-0 duplicate for
+                                    // the same phone (a leftover from a prior add, or a fast re-add) must
+                                    // not steal this response's id and leave THIS contact stuck at 0 (still
+                                    // unreachable by share, D13-1). The backend upserts by phone, so any
+                                    // other now-redundant same-phone entry is dropped.
+                                    val idx = trustedContacts.indexOfFirst { it === contact }
+                                    if (idx >= 0) {
+                                        val resolved = trustedContacts[idx].copy(id = dto.id)
+                                        trustedContacts[idx] = resolved
+                                        trustedContacts.removeAll { it !== resolved && it.phone == contact.phone }
+                                    }
+                                } else {
+                                    ApiClient.getContacts().onSuccess { list ->
+                                        trustedContacts.clear()
+                                        trustedContacts.addAll(list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) })
+                                    }
+                                }
+                            }
                             .onFailure {
                                 trustedContacts.remove(contact)
                                 Toast.makeText(context, if (language == AppLanguage.Ba) "Булманы. Сетте тикшереп ҡабатла" else "Не получилось. Проверь сеть и повтори", Toast.LENGTH_SHORT).show()

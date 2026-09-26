@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -66,6 +68,7 @@ private val PLACEMENT_OPTIONS = listOf(
 @Composable
 internal fun AdminAdsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var founderUsed by remember { mutableStateOf(0) }
@@ -77,6 +80,13 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
     var editing by remember { mutableStateOf<AdminAdDto?>(null) }
 
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
+    // Action failures (publish/pause/delete/approve/reject) must not blank the whole screen —
+    // only reload() (the initial/list load) uses `error`. D10-1: they used to share the same
+    // onFailure{error=loadErr}, so one rejected "Одобрить" hid the entire list behind a
+    // full-screen "Не удалось загрузить" and swallowed the server's actual reason (e.g. the
+    // missing-erid explanation). Same actionErr/serverSaid idiom as the sibling Admin*Screen.kt
+    // files (AdminCourierScreen.kt:89, AdminModerationScreen.kt:65, etc).
+    val actionErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
 
     suspend fun reload() {
         loading = true; error = null
@@ -143,24 +153,24 @@ internal fun AdminAdsScreen(onBack: () -> Unit) {
                         busy = busyId == ad.id,
                         onPublish = {
                             busyId = ad.id
-                            scope.launch { ApiClient.setAdStatus(ad.id, "active").onSuccess { reload() }.onFailure { error = loadErr }; busyId = null }
+                            scope.launch { ApiClient.setAdStatus(ad.id, "active").onSuccess { reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErr), Toast.LENGTH_LONG).show() }; busyId = null }
                         },
                         onPause = {
                             busyId = ad.id
-                            scope.launch { ApiClient.setAdStatus(ad.id, "paused").onSuccess { reload() }.onFailure { error = loadErr }; busyId = null }
+                            scope.launch { ApiClient.setAdStatus(ad.id, "paused").onSuccess { reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErr), Toast.LENGTH_LONG).show() }; busyId = null }
                         },
                         onDelete = {
                             busyId = ad.id
-                            scope.launch { ApiClient.deleteAd(ad.id).onSuccess { reload() }.onFailure { error = loadErr }; busyId = null }
+                            scope.launch { ApiClient.deleteAd(ad.id).onSuccess { reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErr), Toast.LENGTH_LONG).show() }; busyId = null }
                         },
                         onEdit = { editing = ad; showForm = false },
                         onApprove = {
                             busyId = ad.id
-                            scope.launch { ApiClient.approveAd(ad.id, ad.erid).onSuccess { reload() }.onFailure { error = loadErr }; busyId = null }
+                            scope.launch { ApiClient.approveAd(ad.id, ad.erid).onSuccess { reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErr), Toast.LENGTH_LONG).show() }; busyId = null }
                         },
                         onReject = { reason ->
                             busyId = ad.id
-                            scope.launch { ApiClient.rejectAd(ad.id, reason).onSuccess { reload() }.onFailure { error = loadErr }; busyId = null }
+                            scope.launch { ApiClient.rejectAd(ad.id, reason).onSuccess { reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErr), Toast.LENGTH_LONG).show() }; busyId = null }
                         },
                     )
                 }

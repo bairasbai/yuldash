@@ -15,6 +15,7 @@ package com.yuldash.app
 // список обращений — не справочник номеров. Нужен звонок — админ найдёт человека
 // в его карточке.
 
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,7 +74,11 @@ internal fun AdminSupportScreen(onBack: () -> Unit) {
     var reloadKey by remember { mutableIntStateOf(0) }
     var thread by remember { mutableStateOf<SupportTicketDto?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var closeError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    // Тот же текст, что и у отказа списка (:183) — открыть тред не удалось по той же причине.
+    val loadFailedMsg = appText("Не удалось загрузить. Проверь сеть.", "Йөкләп булманы. Селтәрҙе тикшер.")
 
     LaunchedEffect(onlyOpen, reloadKey) {
         loading = true; error = false
@@ -101,7 +107,11 @@ internal fun AdminSupportScreen(onBack: () -> Unit) {
                 onOnlyOpen = { onlyOpen = it },
                 onRetry = { reloadKey += 1 },
                 onOpen = { id ->
-                    scope.launch { ApiClient.adminSupportThread(id).onSuccess { thread = it } }
+                    scope.launch {
+                        ApiClient.adminSupportThread(id)
+                            .onSuccess { thread = it; closeError = false }
+                            .onFailure { Toast.makeText(ctx, loadFailedMsg, Toast.LENGTH_LONG).show() }
+                    }
                 },
                 modifier = Modifier.padding(padding),
             )
@@ -109,19 +119,23 @@ internal fun AdminSupportScreen(onBack: () -> Unit) {
             AdminSupportThread(
                 ticket = open,
                 busy = busy,
-                onReply = { text ->
+                closeError = closeError,
+                onReply = { text, onResult ->
                     busy = true
                     scope.launch {
                         ApiClient.adminSupportReply(open.id, text)
-                            .onSuccess { thread = it; reloadKey += 1 }
+                            .onSuccess { thread = it; reloadKey += 1; closeError = false; onResult(true) }
+                            .onFailure { onResult(false) }
                         busy = false
                     }
                 },
                 onClose = {
                     busy = true
+                    closeError = false
                     scope.launch {
                         ApiClient.adminSupportClose(open.id)
                             .onSuccess { thread = it; reloadKey += 1 }
+                            .onFailure { closeError = true }
                         busy = false
                     }
                 },
@@ -238,11 +252,13 @@ private fun AdminSupportRow(t: AdminSupportTicketDto, onClick: () -> Unit) {
 internal fun AdminSupportThread(
     ticket: SupportTicketDto,
     busy: Boolean,
-    onReply: (String) -> Unit,
+    closeError: Boolean,
+    onReply: (String, onResult: (Boolean) -> Unit) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var text by remember(ticket.id) { mutableStateOf("") }
+    var replyError by remember(ticket.id) { mutableStateOf(false) }
 
     LazyColumn(
         modifier.padding(horizontal = 16.dp),
@@ -289,10 +305,28 @@ internal fun AdminSupportThread(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        // Ответ не ушёл: текст остаётся в поле (не стираем зря набранное), и рядом видно почему.
+        if (replyError) {
+            item {
+                Text(
+                    appText(
+                        "Ответ не отправлен. Текст сохранён — проверь сеть и попробуй ещё раз.",
+                        "Яуап ебәрелмәне. Текст һаҡланды — селтәрҙе тикшереп ҡабатла.",
+                    ),
+                    color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold,
+                )
+            }
+        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = { if (text.isNotBlank()) { onReply(text.trim()); text = "" } },
+                    onClick = {
+                        val toSend = text.trim()
+                        if (toSend.isNotBlank()) {
+                            replyError = false
+                            onReply(toSend) { ok -> if (ok) text = "" else replyError = true }
+                        }
+                    },
                     enabled = !busy && text.isNotBlank(),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
@@ -310,6 +344,17 @@ internal fun AdminSupportThread(
                     Spacer(Modifier.width(8.dp))
                     Text(appText("Закрыть", "Ябыу"))
                 }
+            }
+        }
+        if (closeError) {
+            item {
+                Text(
+                    appText(
+                        "Не получилось закрыть обращение. Проверь сеть и попробуй ещё раз.",
+                        "Мөрәжәғәтте ябып булманы. Селтәрҙе тикшереп ҡабатла.",
+                    ),
+                    color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold,
+                )
             }
         }
         item {

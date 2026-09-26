@@ -1827,11 +1827,19 @@ private fun CourierCarryingTab(
  * Приватность как у такси-трека: поток живёт лишь пока посылка в работе (accepted/in_transit),
  * координаты сервер не хранит, канал закрыт для чужих.
  */
+// JVM-тесты не могут поднять нативный MapKit (нет ACCESS_NETWORK_STATE в Robolectric) — тот же
+// приём, что LocalPoolingNativeMapEnabled в MapScreen.kt:267. По умолчанию — боевое поведение.
+internal val LocalParcelNativeMapEnabled = androidx.compose.runtime.staticCompositionLocalOf { true }
+
 @Composable
 internal fun ParcelTrackMap(parcel: ParcelDto, asCourier: Boolean, modifier: Modifier = Modifier) {
     val from = parcel.fromLat?.let { la -> parcel.fromLng?.let { lo -> com.yandex.mapkit.geometry.Point(la, lo) } }
     val to = parcel.toLat?.let { la -> parcel.toLng?.let { lo -> com.yandex.mapkit.geometry.Point(la, lo) } }
     if (from == null && to == null) return   // без координат карту не рисуем
+    if (!LocalParcelNativeMapEnabled.current) {
+        Box(modifier.fillMaxWidth().height(192.dp).clip(CanonItemShape))
+        return
+    }
     val active = parcel.status == "accepted" || parcel.status == "in_transit"
 
     var peerPoint by remember(parcel.id) { mutableStateOf<com.yandex.mapkit.geometry.Point?>(null) }

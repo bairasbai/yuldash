@@ -1597,7 +1597,10 @@ internal fun TrustedContactsScreen(
         loading = false
     }
     // Слияние: затравка → сервер → добавленные локально; дубли убираем по телефону, порядок сохраняем.
-    val merged = remember(contacts, serverContacts, locallyAdded.toList()) {
+    // Ключ — СОДЕРЖИМОЕ родительского списка (contacts.toList()), а не сам объект (D13-3): это один
+    // и тот же SnapshotStateList на всё время экрана, и remember(contacts) считает его «тем же» даже
+    // после того как родитель обновил id или откатил добавление — правка родителя сюда не доходила.
+    val merged = remember(contacts.toList(), serverContacts, locallyAdded.toList()) {
         (contacts + serverContacts + locallyAdded).distinctBy { it.phone }
     }
     if (showAdd) {
@@ -1617,8 +1620,11 @@ internal fun TrustedContactsScreen(
                     val r = rel.trim().ifBlank { defaultRel }
                     val newContact = TrustedContact(nm.trim(), r, ph.trim(), true, relationBa = r)
                     onAddContact(newContact)
-                    // Показать сразу в списке, не дожидаясь обновления родителя/сервера.
-                    if (merged.none { it.phone == newContact.phone }) locallyAdded.add(newContact)
+                    // Показать сразу в списке, не дожидаясь обновления родителя/сервера — но только
+                    // если родитель ещё не добавил его сам (D13-3): проверяем ЖИВОЙ contacts, а не
+                    // merged, снятый ДО добавления — иначе после отката сервера контакт застревал бы
+                    // тут навсегда, ведь родитель его уже убрал, а этот набор — нет.
+                    if (contacts.none { it.phone == newContact.phone }) locallyAdded.add(newContact)
                     nm = ""; rel = ""; ph = ""; showAdd = false
                 }) { Text(appText("Добавить", "Өҫтәргә"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
@@ -1651,14 +1657,24 @@ internal fun TrustedContactsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     val phone = victim.phone
+                    // D13-2: диалог мог открыться на ещё оптимистичном id=0 объекте, пока сервер уже
+                    // выдал настоящий id (та же сессия). Сверяем по телефону в живых списках —
+                    // иначе DELETE не уходит вовсе, и SMS/SOS продолжат идти контакту, которого
+                    // «убрали» только на экране.
+                    val resolvedId = when {
+                        victim.id > 0 -> victim.id
+                        else -> contacts.firstOrNull { it.phone == phone && it.id > 0 }?.id
+                            ?: serverContacts.firstOrNull { it.phone == phone && it.id > 0 }?.id
+                            ?: 0
+                    }
                     toDelete = null
                     removedPhones.add(phone)
                     locallyAdded.removeAll { it.phone == phone }
                     deleteScope.launch {
                         // id > 0 — контакт с сервера. Только что добавленный локально ещё без id:
                         // его достаточно убрать из списка, на сервере его пока нет.
-                        if (victim.id > 0) {
-                            ApiClient.deleteContact(victim.id).onFailure {
+                        if (resolvedId > 0) {
+                            ApiClient.deleteContact(resolvedId).onFailure {
                                 removedPhones.remove(phone)   // не получилось — контакт возвращается на экран
                                 Toast.makeText(ctx, serverSaid(it, deleteFailed), Toast.LENGTH_LONG).show()
                             }

@@ -26,7 +26,7 @@ internal fun AdminNav(screen: Screen, onBack: () -> Unit, onOpen: (Screen) -> Un
             onBack = { onBack() },
             onAdminRequest = { onOpen(Screen.AdminRequest) },
             onAdminResponses = { onOpen(Screen.AdminResponses) },
-            onAds = { onOpen(Screen.AdsCabinet) },
+            onAds = { onOpen(Screen.AdminAds) },
             onDrivers = { onOpen(Screen.AdminDrivers) },
             onReports = { onOpen(Screen.AdminReports) },
             onTextFlags = { onOpen(Screen.AdminTextFlags) },
