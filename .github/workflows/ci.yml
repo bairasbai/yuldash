@@ -31,7 +31,11 @@ concurrency:
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 15          # зависший тест не сожрёт дефолтные 360 минут лимита Actions
+    # Потолок — чтобы зависший тест не съел дефолтные 360 минут Actions. Но он обязан быть
+    # БОЛЬШЕ честного прогона: набор вырос до ~4800 тестов (локально без покрытия — 12,5 мин,
+    # в CI с --cov дольше), и старые 15 минут обрывали «Run tests» на середине — джоба
+    # выглядела «cancelled», а не «failure» (run 36020879013 в main, run 36241030822 в PR #114).
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: backend
@@ -63,7 +67,7 @@ jobs:
   # Плюс валидируем миграции alembic (одна голова, upgrade/downgrade идемпотентны) на реальной БД.
   backend-tests-postgres:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45          # тот же набор + миграции на Postgres; 20 минут обрывали прогон (см. backend-tests)
     defaults:
       run:
         working-directory: backend
