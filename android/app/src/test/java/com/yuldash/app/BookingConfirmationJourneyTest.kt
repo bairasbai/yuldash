@@ -128,9 +128,9 @@ class BookingConfirmationJourneyTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             requests.any { it.first == "GET /driver/bookings" }
         }
-        compose.waitForIdle()
-        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
-            .performScrollToNode(hasText("Подтвердить"))
+        // Запрос броней ушёл — но кнопка «Подтвердить» рисуется по его ОТВЕТУ. В CI тест искал
+        // её раньше (PR #116, 2026-09-26: «No node … 'Подтвердить' in scrollable container»).
+        awaitInList("Подтвердить")
         compose.onNodeWithText("Подтвердить").performClick()
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
@@ -159,8 +159,7 @@ class BookingConfirmationJourneyTest {
         compose.onNodeWithText("Открыть поездку").performClick()
         waitForText("Я сел")
         compose.waitUntil(15000) { requests.any { it.first == "GET /bookings/42/boarding-code" } }
-        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
-            .performScrollToNode(hasText("Код посадки"))
+        awaitInList("Код посадки")   // тот же шаблон: ждём сам блок, а не отправку запроса
         waitForText("5678")
         compose.onAllNodesWithText("5678").assertCountEquals(1)
         compose.onNodeWithText("Я сел").performClick()
@@ -288,6 +287,15 @@ class BookingConfirmationJourneyTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
         }
+    }
+    // Ждём, пока строка появится в списке: удачная прокрутка к ней и есть признак, что экран
+    // дорисован по ответу сервера, а не только что запрос ушёл (как в CreateRidePublishJourneyTest).
+    private fun awaitInList(text: String) = compose.waitUntil(15000) {
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        runCatching {
+            compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+                .performScrollToNode(hasText(text))
+        }.isSuccess
     }
     private fun json(body: String, code: Int = 200) = MockResponse().setResponseCode(code)
         .setHeader("Content-Type", "application/json").setBody(body)
