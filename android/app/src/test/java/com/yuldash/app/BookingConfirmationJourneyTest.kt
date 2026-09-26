@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -111,7 +112,7 @@ class BookingConfirmationJourneyTest {
         choosePublicRide()
         compose.onNodeWithText("Забронировать место").performClick()
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             vm.activeBookingId.value == 42
         }
         compose.runOnIdle {
@@ -125,22 +126,22 @@ class BookingConfirmationJourneyTest {
         compose.runOnIdle { stage.value = -1 }
         compose.runOnIdle { ApiClient.logout(); ApiClient.saveToken("local-driver"); stage.value = 1 }
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             requests.any { it.first == "GET /driver/bookings" }
         }
-        compose.waitForIdle()
-        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
-            .performScrollToNode(hasText("Подтвердить"))
+        // Запрос броней ушёл — но кнопка «Подтвердить» рисуется по его ОТВЕТУ. В CI тест искал
+        // её раньше (PR #116, 2026-09-26: «No node … 'Подтвердить' in scrollable container»).
+        awaitInList("Подтвердить")
         compose.onNodeWithText("Подтвердить").performClick()
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             status == "confirmed" && requests.count { it.first == "GET /driver/bookings" } >= 2
         }
         assertEquals(1, requests.count { it == ("POST /bookings/42/confirm" to "Bearer local-driver") })
         // Условие выше ждёт, что повторный запрос броней УШЁЛ, а не что его ответ уже нарисован.
         // На быстрой машине разницы не видно; в CI кнопка «Подтвердить» ещё стояла на экране.
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             compose.onAllNodesWithText("Подтвердить").fetchSemanticsNodes().isEmpty()
         }
         compose.onAllNodesWithText("Подтвердить").assertCountEquals(0)
@@ -159,8 +160,7 @@ class BookingConfirmationJourneyTest {
         compose.onNodeWithText("Открыть поездку").performClick()
         waitForText("Я сел")
         compose.waitUntil(15000) { requests.any { it.first == "GET /bookings/42/boarding-code" } }
-        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
-            .performScrollToNode(hasText("Код посадки"))
+        awaitInList("Код посадки")   // тот же шаблон: ждём сам блок, а не отправку запроса
         waitForText("5678")
         compose.onAllNodesWithText("5678").assertCountEquals(1)
         compose.onNodeWithText("Я сел").performClick()
@@ -207,7 +207,7 @@ class BookingConfirmationJourneyTest {
         choosePublicRide()
         compose.onNodeWithText("Забронировать место").performClick()
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == "Тестовый временный отказ брони"
         }
         compose.runOnIdle {
@@ -258,7 +258,7 @@ class BookingConfirmationJourneyTest {
         compose.mainClock.advanceTimeBy(500)
         compose.runOnIdle { assertNull("No selected Ride may be preseeded", vm.selectedRide.value) }
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             requests.any { it.first == "GET /rides/near" }
         }
         compose.mainClock.advanceTimeBy(500)
@@ -283,11 +283,29 @@ class BookingConfirmationJourneyTest {
         }
     }
 
+    // Сообщить Compose о записях состояния, сделанных вне композиции (сигнал из теста, ответы
+    // ViewModel). Обычно это делает GlobalSnapshotManager, но в Robolectric он может «уснуть»
+    // до конца прогона: сброс главного Looper между тестами выкидывает его отложенную отправку,
+    // а флаг «уже отправлено» остаётся поднятым — экран больше не узнаёт об изменениях
+    // (CI 2026-09-26: после оценки так и не появилось «Готово»). Встроенное ожидание Compose делает то же.
+    private fun settle() {
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        Snapshot.sendApplyNotifications()
+    }
     private fun waitForText(text: String) {
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
         }
+    }
+    // Ждём, пока строка появится в списке: удачная прокрутка к ней и есть признак, что экран
+    // дорисован по ответу сервера, а не только что запрос ушёл (как в CreateRidePublishJourneyTest).
+    private fun awaitInList(text: String) = compose.waitUntil(15000) {
+        settle()
+        runCatching {
+            compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+                .performScrollToNode(hasText(text))
+        }.isSuccess
     }
     private fun json(body: String, code: Int = 200) = MockResponse().setResponseCode(code)
         .setHeader("Content-Type", "application/json").setBody(body)
