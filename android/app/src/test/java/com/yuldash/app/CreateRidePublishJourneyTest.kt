@@ -140,6 +140,10 @@ class CreateRidePublishJourneyTest {
         compose.waitForIdle()
         list().performScrollToNode(hasText("Опубликована"))
         compose.onNodeWithText("Опубликована").assertIsDisplayed()
+        // Маршрут и статус — в одной карточке, но прокрутка к статусу не обязана показать и
+        // маршрут: высота строк зависит от шрифтов, и на Linux (CI) «Уфа → Сибай» оставалась за
+        // краем экрана — узел есть, но не виден. Прокручиваем к самому маршруту.
+        list().performScrollToNode(hasText("Уфа → Сибай"))
         compose.onNodeWithText("Уфа → Сибай").assertIsDisplayed()
         assertEquals(1, bodies.size)
         verifyPayload(bodies.single())

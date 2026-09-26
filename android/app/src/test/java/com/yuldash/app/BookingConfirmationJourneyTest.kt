@@ -137,6 +137,12 @@ class BookingConfirmationJourneyTest {
             status == "confirmed" && requests.count { it.first == "GET /driver/bookings" } >= 2
         }
         assertEquals(1, requests.count { it == ("POST /bookings/42/confirm" to "Bearer local-driver") })
+        // Условие выше ждёт, что повторный запрос броней УШЁЛ, а не что его ответ уже нарисован.
+        // На быстрой машине разницы не видно; в CI кнопка «Подтвердить» ещё стояла на экране.
+        compose.waitUntil(15000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodesWithText("Подтвердить").fetchSemanticsNodes().isEmpty()
+        }
         compose.onAllNodesWithText("Подтвердить").assertCountEquals(0)
 
         // Reopen the same booking via the production restoration path. Login itself is fixture setup.

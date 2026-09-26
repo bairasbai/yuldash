@@ -260,6 +260,17 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/**
+ * Имя Telegram-бота для входа. В приложении — из BuildConfig (local.properties). Тест настоящего
+ * потока входа подставляет своё через [testName]: без local.properties (как в CI) BuildConfig пуст,
+ * и такой тест проверял бы не вход, а наличие файла на машине разработчика. Приём тот же, что
+ * у `ApiClient.testBaseUrl`.
+ */
+internal object TelegramLoginBot {
+    internal var testName: String? = null
+    val name: String get() = testName ?: BuildConfig.TELEGRAM_BOT
+}
+
 // ─────────────────────────── Валидация входа (чистые функции, без Compose) ───────────────────────────
 // Вынесены из onClick в отдельные функции → тестируются на JVM напрямую (без рендера) и переиспользуются
 // формой (кнопка «disabled» при невалиде). Правила ровно те же, что были инлайном в LoginFormCard.
@@ -419,7 +430,7 @@ private fun LoginFormCard(
         // Главный вход через Telegram (экран выбора). Гард двойного тапа: `if (loading) return`.
         onTelegramStart = {
             if (!loading) {
-                if (BuildConfig.TELEGRAM_BOT.isBlank()) { error = tgSoon } else {
+                if (TelegramLoginBot.name.isBlank()) { error = tgSoon } else {
                     loading = true; error = null
                     scope.launch {
                         ApiClient.tgStart()
@@ -429,7 +440,7 @@ private fun LoginFormCard(
                                 freshCodeRequired = false
                                 code = ""
                                 tgMode = true
-                                openTelegram("https://t.me/${BuildConfig.TELEGRAM_BOT}?start=$req")
+                                openTelegram("https://t.me/${TelegramLoginBot.name}?start=$req")
                             }
                             .onFailure { loading = false; error = errTgStart }
                     }
@@ -473,7 +484,7 @@ private fun LoginFormCard(
         // после протухшего кода (410) или лимита попыток (429) переоткрытие старого request_id вело в тупик.
         onTelegramOpen = {
             if (needPhone) {
-                openTelegram("https://t.me/${BuildConfig.TELEGRAM_BOT}")
+                openTelegram("https://t.me/${TelegramLoginBot.name}")
             } else if (!loading) {
                 loading = true; error = null
                 scope.launch {
@@ -483,7 +494,7 @@ private fun LoginFormCard(
                             tgRequestId = req
                             freshCodeRequired = false
                             code = ""
-                            openTelegram("https://t.me/${BuildConfig.TELEGRAM_BOT}?start=$req")
+                            openTelegram("https://t.me/${TelegramLoginBot.name}?start=$req")
                         }
                         .onFailure { loading = false; error = errTgStart }
                 }

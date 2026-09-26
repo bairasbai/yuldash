@@ -82,8 +82,17 @@ class TaxiDocumentsRaceTest {
         }
         waitText("до 01.01.2030")
         compose.waitUntil(5000) { photos.get() == 1 }
-        compose.onNode(hasScrollAction()).performTouchInput { swipeDown(startY = top + 5f, endY = bottom - 5f, durationMillis = 1000) }
-        compose.waitUntil(5000) { reads.get() == 2 }
+        // Первая загрузка экрана заканчивается только после ОТВЕТА на фото машины: пока он не
+        // обработан, `loading` не снят, и «потянуть — обновить» честно игнорируется (обновление и
+        // так идёт). Отправленный запрос ≠ обработанный ответ: на быстрой машине разницы не видно,
+        // в CI жест уходил в пустоту и вторая загрузка не начиналась. Тянем снова, как человек, —
+        // пока экран не начнёт настоящее обновление (лишний жест во время обновления игнорируется).
+        var pulls = 0
+        while (reads.get() < 2) {
+            check(++pulls <= 5) { "pull-to-refresh never started the second read" }
+            compose.onNode(hasScrollAction()).performTouchInput { swipeDown(startY = top + 5f, endY = bottom - 5f, durationMillis = 1000) }
+            runCatching { compose.waitUntil(3000) { reads.get() == 2 } }
+        }
         compose.onNodeWithText("ОСАГО").performScrollTo().performClick()
         compose.runOnIdle {
             val dialog = ShadowAlertDialog.getLatestAlertDialog() as DatePickerDialog

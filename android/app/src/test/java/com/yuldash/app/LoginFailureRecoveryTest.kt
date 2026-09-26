@@ -63,7 +63,10 @@ class LoginFailureRecoveryTest {
     private fun session(account: String) = """{"access_token":"$account-access","refresh_token":"$account-refresh","user":{"name":"Test $account","role":"passenger"}}"""
 
     @Before fun setup() {
-        assertTrue("Telegram entry must be configured for this real-screen test", BuildConfig.TELEGRAM_BOT.isNotBlank())
+        // Настоящий поток входа через Telegram. Имя бота подставляем сами: раньше тест требовал
+        // BuildConfig.TELEGRAM_BOT из local.properties, и в CI (файла нет) падал ещё в setup —
+        // проверял наличие файла на машине разработчика, а не вход.
+        TelegramLoginBot.testName = "yuldash_test_bot"
         ApiClient.resetForTest()
         context = OfflineContext(ApplicationProvider.getApplicationContext())
         server = MockWebServer().apply {
@@ -106,6 +109,7 @@ class LoginFailureRecoveryTest {
         ApiClient.logout()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
+        TelegramLoginBot.testName = null
         server.shutdown()
     }
 
