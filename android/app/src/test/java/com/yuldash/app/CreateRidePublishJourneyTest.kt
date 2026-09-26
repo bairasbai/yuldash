@@ -126,8 +126,9 @@ class CreateRidePublishJourneyTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             requests.contains("GET /driver/rides")
         }
-        compose.waitForIdle()
-        list().performScrollToNode(hasText("Опубликовать маршрут"))
+        // Кнопка — в карточке «маршрутов нет», а та появляется только после ОТВЕТА на запрос;
+        // пока он не разобран, на её месте заглушка загрузки. В CI тест искал кнопку раньше.
+        awaitInList("Опубликовать маршрут")
         compose.onNodeWithText("Опубликовать маршрут").performClick()
         compose.runOnIdle { assertEquals(Screen.CreateRide, vm.screen.value) }
         fillForm(mount = false)
@@ -137,9 +138,13 @@ class CreateRidePublishJourneyTest {
             created != null && vm.screen.value == Screen.DriverCabinet &&
                 requests.count { it == "GET /driver/rides" } >= 2
         }
-        compose.waitForIdle()
-        list().performScrollToNode(hasText("Опубликована"))
+        // Повторный запрос ушёл — но карточка «Опубликована» рисуется по его ответу. Ждём её саму.
+        awaitInList("Опубликована")
         compose.onNodeWithText("Опубликована").assertIsDisplayed()
+        // Маршрут и статус — в одной карточке, но прокрутка к статусу не обязана показать и
+        // маршрут: высота строк зависит от шрифтов, и на Linux (CI) «Уфа → Сибай» оставалась за
+        // краем экрана — узел есть, но не виден. Прокручиваем к самому маршруту.
+        list().performScrollToNode(hasText("Уфа → Сибай"))
         compose.onNodeWithText("Уфа → Сибай").assertIsDisplayed()
         assertEquals(1, bodies.size)
         verifyPayload(bodies.single())
@@ -172,6 +177,12 @@ class CreateRidePublishJourneyTest {
     }
 
     private fun list() = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+    // Ждём, пока строка появится в списке: удачная прокрутка к ней и есть признак, что экран
+    // дорисован по ответу сервера, а не только что запрос ушёл.
+    private fun awaitInList(text: String) = compose.waitUntil(15000) {
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        runCatching { list().performScrollToNode(hasText(text)) }.isSuccess
+    }
     private fun edit(label: String, value: String) {
         list().performScrollToNode(hasText(label))
         compose.onNodeWithText(label).performTextReplacement(value)

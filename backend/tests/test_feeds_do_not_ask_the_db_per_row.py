@@ -70,15 +70,22 @@ def reader(user_factory):
     return user_factory("СчётчикЧитатель")
 
 
+# Свой день для замера. Лента общая на весь прогон и режется потолком выдачи (FEED_MAX = 200):
+# к этому тесту в ней уже за двести поездок из других тестов, и оба замера упирались в потолок —
+# «197 > 197» (CI на Postgres, 2026-09-26; на SQLite проходило по случайности). Фильтр по дню
+# идёт тем же путём (rides_out → public_rides_payload → visible_rides), но считает только наши.
+FEED_DAY = "2031-06-19"
+
+
 def test_лента_поездок_не_растёт_по_запросам(client, user_factory, reader):
     first = user_factory("СчётчикВодитель1", role=UserRole.driver)
-    _ride(client, first, comment="счётчик-мало")
-    few_queries, few_rows = _cost(client, "/rides", reader)
+    _ride(client, first, comment="счётчик-мало", depart_at=f"{FEED_DAY}T10:00:00")
+    few_queries, few_rows = _cost(client, f"/rides?date={FEED_DAY}", reader)
 
     for i in range(15):
         drv = user_factory(f"СчётчикВодитель{i + 2}", role=UserRole.driver)
-        _ride(client, drv, comment=f"счётчик-много-{i}")
-    many_queries, many_rows = _cost(client, "/rides", reader)
+        _ride(client, drv, comment=f"счётчик-много-{i}", depart_at=f"{FEED_DAY}T10:00:00")
+    many_queries, many_rows = _cost(client, f"/rides?date={FEED_DAY}", reader)
 
     assert many_rows > few_rows, "лента не выросла — замер бессмысленный"
     assert many_queries <= few_queries + ALLOWED_GROWTH, (

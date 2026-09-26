@@ -1,6 +1,6 @@
 """Legacy complete_ride inbox entries resolve only to an unambiguous personal booking."""
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlmodel import Session
 
 from app.db import engine
@@ -97,10 +97,19 @@ def test_other_notification_signatures_are_unchanged(client, user_factory, chang
     assert (row["ref_kind"], row["ref_id"]) == (changes.get("ref_kind", "ride"), changes.get("ref_id", ride))
 
 
+def _advance_booking_ids():
+    """An explicit id does not move PostgreSQL's sequence: without this, a later booking in
+    ANY test is handed the same id (UniqueViolation on booking_pkey, CI 2026-09-26).
+    SQLite takes max(id) + 1 by itself."""
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as connection:
+            connection.execute(text(
+                "SELECT setval(pg_get_serial_sequence('booking', 'id'), (SELECT MAX(id) FROM booking))"))
+
+
 def test_ride_id_is_not_interpreted_as_booking_id(client, user_factory):
     owner, ride = _setup(client, user_factory)
     foreign = user_factory("CollisionOwner")
-    personal = 10_000_000 + ride
     # A different entity may have exactly the notification's numeric reference.
     with Session(engine) as session:
         collision = session.get(Booking, ride)
@@ -108,10 +117,11 @@ def test_ride_id_is_not_interpreted_as_booking_id(client, user_factory):
             collision = Booking(id=ride, passenger_id=foreign["id"],
                                 ride_id=ride, status=BookingStatus.done)
             session.add(collision)
+            session.commit()
+            _advance_booking_ids()
         assert collision.id == ride and collision.passenger_id != owner["id"]
-        assert personal != ride
-        session.add(Booking(id=personal, passenger_id=owner["id"], ride_id=ride, status=BookingStatus.done))
-        session.commit()
+    personal = _booking(owner, ride)
+    assert personal != ride
     _notice(owner, ride)
     row = _inbox(client, owner)["items"][0]
     assert (row["ref_kind"], row["ref_id"]) == ("booking_done", personal)
