@@ -30,7 +30,6 @@ JWT ради этого не стали: замена трогает вход В
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 REQ = Path(__file__).resolve().parents[1] / "requirements.txt"
@@ -80,25 +79,28 @@ def test_границы_не_запирают_исправления_безоп�
 
 
 def test_установленное_укладывается_в_границы():
-    """Границы должны описывать то, на чём проект реально работает, а не мешать ему."""
+    """Границы должны описывать то, на чём проект реально работает, а не мешать ему.
+
+    Сверяем с записью целиком (`packaging` приходит вместе с pytest), а не по первой цифре:
+    у библиотек 0.x потолок бывает точнее мажорного (`sqlmodel<0.0.45`), и сравнение одной
+    цифры принимало стоящую 0.0.44 за «не влезает в <0.0.45».
+    """
     from importlib.metadata import PackageNotFoundError, version
+
+    from packaging.requirements import Requirement
+    from packaging.version import Version
 
     конфликты = []
     for d in _зависимости():
-        m = re.match(r"^([A-Za-z0-9_.\-]+)(\[[^\]]+\])?", d)
-        if not m:
-            continue
-        имя = m.group(1)
-        потолок = re.search(r"<\s*(\d+)", d)
-        if not потолок:
+        req = Requirement(d)
+        if not req.specifier:
             continue
         try:
-            стоит = version(имя)
+            стоит = version(req.name)
         except PackageNotFoundError:
             continue
-        мажор = int(стоит.split(".")[0])
-        if мажор >= int(потолок.group(1)):
-            конфликты.append(f"{имя} {стоит} не влезает в {d}")
+        if not req.specifier.contains(Version(стоит), prereleases=True):
+            конфликты.append(f"{req.name} {стоит} не влезает в {d}")
 
     assert not конфликты, (
         f"границы противоречат тому, что установлено: {конфликты}. Значит на сервере "
