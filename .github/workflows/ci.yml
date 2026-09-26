@@ -135,7 +135,16 @@ jobs:
           # из Android Studio (это JDK 21) — поэтому у него они шли, а в CI падали.
           java-version: "21"
           cache: gradle          # кеш ~/.gradle → быстрее повторные сборки
+      # Пакеты — ЯВНО, а не умолчанием действия. По умолчанию setup-android@v3 ставит
+      # «tools platform-tools», а `tools` — старые SDK Tools, давно заменённые cmdline-tools.
+      # Когда в образе раннера sdkmanager стал 16.0 (между 07.08 и 24.09.2026), он перестал
+      # находить этот пакет: «Failed to find package 'tools'» → exit 1, и ОБЕ Android-джобы
+      # падали ещё до Gradle (run 36020879013 в main, run 36241030822 в PR #114).
+      # Платформы и build-tools, как и раньше, — из образа раннера / докачивает AGP
+      # (лицензии действие принимает само). Разбор — docs/architecture-audit.md.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Собрать debug APK
         # local.properties/google-services.json в git нет — build.gradle.kts подставляет
         # безопасные дефолты (пустые ключи, push выключен), так что сборка проходит без секретов.
@@ -186,6 +195,8 @@ jobs:
           distribution: temurin
           cache: gradle
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools   # не умолчание «tools …»: причина — у setup-android в android-build
       # Тесты + порог покрытия одной задачей: jacocoCoverageVerification сам зовёт прогон
       # и отчёт. Раньше здесь стоял голый testDebugUnitTest, и порог, заведённый в
       # build.gradle.kts, не проверялся вообще — то есть «храповик» держался только на том,
