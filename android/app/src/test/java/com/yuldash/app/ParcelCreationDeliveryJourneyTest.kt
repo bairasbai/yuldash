@@ -168,6 +168,15 @@ class ParcelCreationDeliveryJourneyTest {
         compose.onNodeWithText("Забрал, еду").performClick()
         compose.waitUntil(15000) { status == "in_transit" }
         waitFor("Доставлено")
+        // Надпись «Доставлено» появляется раньше, чем кнопка становится активной: пока не
+        // закончилось прошлое действие («Забрал, еду»), она disabled (`enabled = !busy`), и клик
+        // по ней пустой. На быстрой машине разницы не видно; в CI клик уходил в неактивную кнопку
+        // и окно вручения не открывалось («dialog with a text field did not open»).
+        compose.waitUntil(15000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodes(hasText("Доставлено") and hasClickAction() and isEnabled())
+                .fetchSemanticsNodes().isNotEmpty()
+        }
         openDialogWithTextField { clickScrolled("Доставлено") }
         waitFor("Код от получателя")
         if (withFailures) {

@@ -2,6 +2,7 @@ package com.yuldash.app
 
 import android.app.Application
 import android.content.Context
+import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
@@ -35,6 +36,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.Collections
@@ -179,6 +181,12 @@ class BookingCompletionDestinationTest {
             assertEquals(Screen.ActiveTrip, vm.screen.value)
             assertEquals(42, vm.activeBookingId.value)
             assertEquals("Completed booking must not enable live location after restoration", null, vm.activeTrip.value)
+        }
+        // Поездка приходит раньше, чем экран дорисовывает итог: на быстрой машине плашка уже
+        // стоит, в CI её ещё не было. Ждём сам итог, а не косвенный признак.
+        compose.waitUntil(10_000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("rideshareCompletedHero").assertExists()
     }
