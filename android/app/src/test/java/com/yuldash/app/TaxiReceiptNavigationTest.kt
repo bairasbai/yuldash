@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.lifecycle.*
@@ -151,10 +152,19 @@ class TaxiReceiptNavigationTest {
     // Таймаут здесь в CI выглядел как голое «Condition still not satisfied after 15000 ms»:
     // ни экрана, ни сигнала, ни запросов (2026-09-26, 1 прогон из 3, локально не повторяется).
     // Теперь он сам говорит, где остановились, — чинить по показаниям, а не по догадке.
+    // Сообщить Compose о записях состояния, сделанных вне композиции (сигнал из теста, ответы
+    // ViewModel). Обычно это делает GlobalSnapshotManager, но в Robolectric он может «уснуть»
+    // до конца прогона: сброс главного Looper между тестами выкидывает его отложенную отправку,
+    // а флаг «уже отправлено» остаётся поднятым — экран больше не узнаёт об изменениях
+    // (CI 2026-09-26: screen=Support, signal=71). Встроенное ожидание Compose делает то же.
+    private fun settle() {
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        Snapshot.sendApplyNotifications()
+    }
     private fun waitOrExplain(what: String, condition: () -> Boolean) {
         try {
             compose.waitUntil(15000) {
-                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                settle()
                 condition()
             }
         } catch (e: ComposeTimeoutException) {
