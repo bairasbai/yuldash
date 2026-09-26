@@ -31,10 +31,12 @@ concurrency:
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
-    # Потолок — чтобы зависший тест не съел дефолтные 360 минут Actions. Но он обязан быть
-    # БОЛЬШЕ честного прогона: набор вырос до ~4800 тестов (локально без покрытия — 12,5 мин,
-    # в CI с --cov дольше), и старые 15 минут обрывали «Run tests» на середине — джоба
-    # выглядела «cancelled», а не «failure» (run 36020879013 в main, run 36241030822 в PR #114).
+    # Потолок — чтобы зависший тест не съел дефолтные 360 минут Actions. Честный прогон набора
+    # (~4800 тестов) локально без покрытия 9–13 мин; в CI с --cov дольше — запас с лихвой.
+    # «cancelled» по таймауту (run 36242782291, PR #115) был НЕ от размера набора: sqlmodel 0.0.45+
+    # валил почти каждый тест (см. backend/requirements.txt), падение ~3–5 с, и прогон упирался в
+    # потолок, не дойдя до отчёта с причиной. Отсюда --maxfail ниже: массовое падение краснеет
+    # за минуты и печатает причину в лог, а не молча выжигает 40 минут.
     timeout-minutes: 40
     defaults:
       run:
@@ -58,7 +60,7 @@ jobs:
         # не заметил. Планка поднята до 85 (чуть ниже факта): ловит откат, но не заставляет
         # писать пустые тесты ради цифры. Правила и разбор — docs/testing.md.
         # Число здесь и в backend/.coveragerc должно совпадать.
-        run: python -m pytest tests/ -q --cov=app --cov-report=term-missing --cov-fail-under=85
+        run: python -m pytest tests/ -q --maxfail=25 --cov=app --cov-report=term-missing --cov-fail-under=85
 
   # Тот же набор тестов, но на РЕАЛЬНОМ Postgres (как в проде на yulbash.ru), а не на SQLite.
   # Зачем отдельная джоба: SQLite не проверяет внешние ключи и не даёт настоящих блокировок строк.
@@ -67,7 +69,7 @@ jobs:
   # Плюс валидируем миграции alembic (одна голова, upgrade/downgrade идемпотентны) на реальной БД.
   backend-tests-postgres:
     runs-on: ubuntu-latest
-    timeout-minutes: 45          # тот же набор + миграции на Postgres; 20 минут обрывали прогон (см. backend-tests)
+    timeout-minutes: 45          # тот же набор + миграции на Postgres; потолок и --maxfail — см. backend-tests
     defaults:
       run:
         working-directory: backend
@@ -111,7 +113,7 @@ jobs:
       - name: Run tests on Postgres (FK + реальная гонка брони под FOR UPDATE)
         env:
           DATABASE_URL: postgresql+psycopg2://yuldash:yuldash@localhost:5432/yuldash_run
-        run: python -m pytest tests/ -q
+        run: python -m pytest tests/ -q --maxfail=25
 
   # Android debug-сборка в CI (закрывает разрыв: раньше APK собирался только локально у Александра).
   # БЛОКИРУЮЩИЙ: сборка стабильно зелёная (стек такси+курьер+монетизация+доводка собран многократно),
