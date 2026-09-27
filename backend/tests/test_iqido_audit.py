@@ -3,7 +3,7 @@
 Покрывает находки код-аудита: валидация длины (#47), auth-негатив (#26/#4: подделка/протухание
 JWT), краевые случаи (seats<1), устойчивость Telegram-вебхука (#18/#21), кламп цены отклика (QA#8).
 """
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from jose import jwt
 from sqlmodel import Session, select
@@ -52,7 +52,7 @@ def test_forged_jwt_rejected(client):
 
 def test_expired_jwt_rejected(client, user_factory):
     u = user_factory("ExpUser")
-    exp = int((utcnow() - timedelta(hours=1)).timestamp())
+    exp = int((utcnow() - timedelta(hours=1)).replace(tzinfo=timezone.utc).timestamp())
     expired = jwt.encode({"sub": str(u["id"]), "exp": exp}, settings.jwt_secret, algorithm="HS256")
     r = client.get("/me", headers={"Authorization": f"Bearer {expired}"})
     assert r.status_code == 401, "просроченный токен должен быть 401"

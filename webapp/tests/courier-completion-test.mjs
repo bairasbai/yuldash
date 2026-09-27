@@ -24,7 +24,7 @@ async function loadScreen(file,name){
  mocks['../api/parcels']+=`\nexport const fetchCarrying=(signal,recent)=>{globalThis.__completion.requests.push(recent);return Promise.resolve(globalThis.__completion.rows);};
  export const setParcelStatus=async(id,status,code)=>{const h=globalThis.__completion;h.calls.push({id,status,code});if(h.reject)throw Error('wrong code');const next={...h.rows[0],status};h.rows=[next];return next;};`;
  mocks['../api/parcels']=mocks['../api/parcels'].replace('export '+fixture('fetchCarrying'),'').replace('export '+fixture('setParcelStatus'),'').replace('export '+fixture('isCarrying'),`export const isCarrying=s=>['accepted','in_transit','returning'].includes(s);`);
- mocks['../api/client']=`export class ApiError extends Error {}`;
+ mocks['../api/client']=`export class ApiError extends Error {} export const getSessionGeneration=()=>'';`;
  for(const name of ['parcelAttemptFailed','parcelDispute','parcelReturnDone','parcelReturnStart','releaseParcel'])if(!mocks['../api/parcels'].includes('function '+name))mocks['../api/parcels']+='\nexport '+fixture(name);
  for(const name of ['IconArrow','IconFlag','IconWarn'])if(!mocks['../components/Icons'].includes('function '+name))mocks['../components/Icons']+='\nexport '+fixture(name);
  const result=await build({stdin:{contents:source+`\nexport {${name}};`,resolveDir:root+'src/screens',loader:'tsx'},bundle:true,write:false,platform:'node',format:'esm',jsx:'automatic',plugins:[{name:'fixtures',setup(b){b.onResolve({filter:/.*/},a=>{

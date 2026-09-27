@@ -15,6 +15,7 @@ import { fetchPaymentStatus } from "../api/boost";
 import { readPendingPayment, forgetPayment } from "../utils/pendingPayment";
 import { IconCheck, IconClock, IconWarn } from "../components/Icons";
 import { SubHeader } from "./ConsentsScreen";
+import { getSessionGeneration } from "../api/client";
 
 type State = "checking" | "paid" | "waiting" | "unknown";
 
@@ -27,6 +28,7 @@ export default function PayDoneScreen() {
   const navigate = useNavigate();
 
   const pending = useRef(readPendingPayment());
+  const owner = useRef(getSessionGeneration()).current;
   const [state, setState] = useState<State>(pending.current ? "checking" : "unknown");
   const [tries, setTries] = useState(0);
 
@@ -58,12 +60,12 @@ export default function PayDoneScreen() {
     try {
       const s = await fetchPaymentStatus(p.paymentId);
       if (s.status === "succeeded") {
-        forgetPayment();
+        forgetPayment(owner);
         setState("paid");
         return;
       }
       if (s.status === "canceled") {
-        forgetPayment();
+        forgetPayment(owner);
         setState("unknown");
         return;
       }

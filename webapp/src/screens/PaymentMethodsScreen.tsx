@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { captureOwner } from "../utils/ownedStorage";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { setPaymentMethod, type PaymentMethod } from "../api/instant";
@@ -25,6 +26,7 @@ const SOON_SUBTITLES: Record<string, [string, string]> = {
 };
 
 export default function PaymentMethodsScreen() {
+  const [personalOwner] = useState(captureOwner);
   const { appText } = useLang();
   const navigate = useNavigate();
   const [search] = useSearchParams();
@@ -53,14 +55,14 @@ export default function PaymentMethodsScreen() {
     if (busy) return;
     setFailed(null);
     if (!orderId) {
-      rememberPayMethod(method);
+      rememberPayMethod(method, personalOwner);
       setCurrent(method);
       return;
     }
     setBusy(method);
     try {
       await setPaymentMethod(orderId, method);
-      rememberPayMethod(method);
+      rememberPayMethod(method, personalOwner);
       setCurrent(method);
     } catch {
       setFailed(method);

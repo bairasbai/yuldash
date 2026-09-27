@@ -13,7 +13,7 @@
 // ================================================================
 import { useState } from "react";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import {
   payBooking,
   payInstantOrder,
@@ -51,6 +51,7 @@ export default function PayTripCard({
   }
 
   async function pay(method: PayMethodKey) {
+    const owner = getSessionGeneration();
     if (busy) return;
     setBusy(method);
     setError(null);
@@ -59,7 +60,7 @@ export default function PayTripCard({
         kind === "booking" ? await payBooking(id, method) : await payInstantOrder(id, method);
       // Банк вернул ссылку — дальше платит человек в своём банке.
       if (r.confirmation_url) {
-        if (r.payment_id) rememberPayment(r.payment_id, "trip", window.location.pathname);
+        if (r.payment_id) rememberPayment(r.payment_id, "trip", window.location.pathname, owner);
         window.location.href = r.confirmation_url;
         return;
       }

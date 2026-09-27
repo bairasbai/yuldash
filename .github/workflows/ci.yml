@@ -54,6 +54,8 @@ jobs:
         # Быстрый гейт: ловит забытые/неиспользуемые импорты и переменные до прогона тестов.
         # Только F-набор (Pyflakes) — без спорного стиля, чтобы не заваливать PR-ы по мелочи.
         run: ruff check app/ --select F
+      - name: Backup restore script regression checks (local command doubles)
+        run: python -m pytest ../tools/test_restore_verify.py -q
       - name: Run tests
         # Порог покрытия пакета app/. Стоял 70% «мягко, на старте» — но фактическое покрытие
         # 89,8%, и такой порог уже ничего не ловил: можно было снести треть тестов, и CI бы
@@ -107,6 +109,31 @@ jobs:
           alembic upgrade head
           alembic downgrade base
           alembic upgrade head
+      - name: Restore drill — plain and encrypted dumps on isolated Postgres
+        # Реальный pg_dump/psql, без production-данных. Сначала мигрирована yuldash_test;
+        # verifier создаёт/удаляет свои verify_* базы и проверяет текущую ревизию.
+        env:
+          DB_NAME: yuldash_test
+          BACKUP_ENV_FILE: /dev/null
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          export APP_DIR="$PWD"
+          # Оба клиента из того же PG16 image; версия psql хоста не влияет на drill.
+          export PSQL_AS="docker exec -i -e PGUSER=yuldash $POSTGRES_CONTAINER"
+          drill_dir=$(mktemp -d)
+          trap 'rm -rf "$drill_dir"' EXIT
+          # pg_dump берём из server image16, чтобы формат соответствовал PostgreSQL16.
+          docker exec "$POSTGRES_CONTAINER" pg_dump -U yuldash -d yuldash_test \
+            --no-owner --no-privileges | gzip > "$drill_dir/current.sql.gz"
+          bash ops/restore-verify.sh "$drill_dir/current.sql.gz"
+          export BACKUP_ENCRYPT_PASSPHRASE="synthetic-ci-restore-$GITHUB_RUN_ID"
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:BACKUP_ENCRYPT_PASSPHRASE -in "$drill_dir/current.sql.gz" \
+            -out "$drill_dir/current.sql.gz.enc"
+          bash ops/restore-verify.sh "$drill_dir/current.sql.gz.enc"
+          remaining=$(docker exec "$POSTGRES_CONTAINER" psql -U yuldash -tA -d postgres -c "SELECT count(*) FROM pg_database WHERE datname LIKE 'verify_yuldash_test_%';")
+          test "$remaining" = "0"
       - name: Отдельная чистая база под тестовый прогон
         # conftest поднимает схему через create_all; даём ему свежую базу, не тронутую alembic-шагом.
         run: PGPASSWORD=yuldash psql -h localhost -U yuldash -d yuldash_test -c "CREATE DATABASE yuldash_run;"
@@ -264,6 +291,7 @@ jobs:
   # Не зависит от backend-tests — гоняется параллельно, своя рабочая папка.
   webapp-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: webapp
@@ -276,6 +304,33 @@ jobs:
           cache-dependency-path: webapp/package-lock.json
       - name: Install deps
         run: npm ci
+      - name: Regression checks
+        run: npm run check
       - name: Build
         run: npm run build
         # tsc (типы) + vite build → dist/. Секреты не нужны: VITE_* пустые → мягкие плейсхолдеры.
+
+  # Публичный сайт — отдельная поверхность, сборка PWA его не проверяет.
+  web-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install deps
+        run: npm ci
+      - name: Regression checks
+        run: npm run check
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: Public routes and local links
+        run: npm run check:export

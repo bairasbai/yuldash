@@ -8,8 +8,9 @@
 //  Время сервера, очередь без сети, черновики форм, чистка при выходе,
 //  возврат из банка, тексты ошибок, язык дат, повтор по видимости экрана.
 //
-//  Без новых зависимостей: модуль собирается тем же esbuild, что и сайт,
-//  браузерные вещи (localStorage, document) подделываются в самом наборе.
+//  Модули собираются тем же esbuild, что и сайт. Router-набор исполняет React
+//  через react-test-renderer; browser History, localStorage и document — fixtures.
+//  Эти наборы не заменяют настоящий браузер или установленную PWA.
 // ================================================================
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
@@ -22,6 +23,10 @@ const OUT = join(HERE, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
 const SUITES = [
+  { test: "router-migration-test", src: null, out: null, bundle: false },
+  { test: "active-trip-owner-write-test", src: null, out: null, bundle: false },
+  { test: "terminal-session-owner-test", src: null, out: null, bundle: false },
+  { test: "session-storage-atomic-test", src: null, out: null, bundle: false },
   { test: "login-flow-test", src: null, out: null, bundle: false },
   { test: "onboarding-flow-test", src: null, out: null, bundle: false },
   { test: "intro-motion-test", src: null, out: null, bundle: false },
@@ -117,12 +122,12 @@ let failed = 0;
 /** Запустить набор и напечатать итог. */
 function runSuite(s) {
   try {
-    const out = execFileSync("node", [join(HERE, `${s.test}.mjs`)], {
+    const out = execFileSync(process.execPath, [join(HERE, `${s.test}.mjs`)], {
       cwd: HERE,
       stdio: "pipe",
       env: { ...process.env },
     }).toString();
-    const passed = (out.match(/^✓/gm) || []).length;
+    const passed = (out.match(/^(?:✓|PASS )/gm) || []).length;
     console.log(`  ✓ ${s.test} — ${passed} проверок`);
   } catch (e) {
     console.log(`  ✗ ${s.test} — ПРОВАЛ`);

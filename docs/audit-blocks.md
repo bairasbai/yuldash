@@ -1,5 +1,277 @@
 # Единый реестр проверки Юлдаш
 
+## Релизный аудит 27.09.2026
+
+База: `6fa0595d88bea4fcd59d4a1e2139c2d128cf6821`, ветка
+`audit/release-readiness-2026-09-27`. Владелец поручил аудит, исправления,
+тесты и подготовку релиза. По отдельному запросу владельца 27.09.2026
+текущий пакет подготовлен к commit/push в ветку аудита; main и production не меняются.
+Оркестрация: пять независимых зон (security, journeys, PWA, Android, release),
+отдельный read-only reviewer и root-интегратор. Одному файлу назначен один писатель.
+Старые отчёты и числа ниже не превращаются в свежие результаты.
+
+Входная инвентаризация: добавлены 2 файла, изменены 15 относительно прежнего
+снимка, удалённых нет. Затронуты B01/B02/B03/B04/B06/B09/B10, влияние общих
+зависимостей требует рассматривать все блоки. Это дрейф с прежнего аудита,
+не 17 найденных ошибок. Новый снимок фиксируется после интеграции.
+
+Итоговая инвентаризация текущего checkpoint:129 Android +104 backend +281 PWA
++295 infrastructure/config +90 public/promo +831 tests/support =1730 файлов.
+Это количество учтённых файлов, не просмотренных вручную файлов и не тестов.
+`python tools/audit_inventory.py --check` после сохранения: пустой дрейф.
+
+**Статус релиза: НЕ ГОТОВ.** Исправленные локальные сценарии не закрывают
+обязательные внешние и платформенные критерии. Финальный backend coverage-прогон:
+4896 PASS /30 SKIP /0 FAIL, line coverage92,7% при пороге85%. PWA owner/session
+изоляция прошла независимое ревью и локальные регрессии; после Router/build-chain
+обновления PWA69/69 наборов, audit11→0. Android QA-B05-003 внедрён и отревьюирован,
+но компиляция/50 написанных тестовых случаев и внешние проверки не приняты.
+
+| ID | Дефект / проверка | Доказательство и статус | Граница |
+|---|---|---|---|
+| QA-B01-011 | PWA: access/refresh/поколение сохранялись частично; действие A могло использовать bearer B | Fault-injection RED → GREEN; единый JSON commit, logout tombstone, снимок request credentials, unavailable/retry при отказе чтения | Локальные Node-модели Storage/IndexedDB/fetch; установленный PWA и смешанные старые/новые вкладки не приняты |
+| QA-B01-012 | PWA: поздний refresh A затирает вход B между проверкой и записью | Исправлено generation-scoped refresh overlay без записи main pointer; независимый reviewer68 управляемых interleavings GREEN | Только гонка refresh: modern/legacy/markerless × loginB/logout. Не все операции аккаунта |
+| QA-B01-014 | PWA: поздний окончательный401 очищал новый вход B, а outbox/HTTP/deferred UI могли пересечь владельцев | Локально исправлено: неизменяемый revoke точного owner, v2 pointer без секретов, owner-namespaced credentials/personal data, expected-generation для HTTP/outbox/deferred writes. Полный PWA check68/68; targeted29+22+13+16+3 GREEN; независимый reviewer не нашёл блокера активной сессии | Не доказан установленный PWA/Service Worker на устройстве. Shared legacy-байты и ownerless legacy-данные нельзя безопасно физически удалить при одновременно открытой старой версии; нужен согласованный rollout/reload/relogin. При двух одновременных login возможен невыбранный credential-slot проигравшего входа |
+| QA-B01-015 | JWT issuance/revocation использовали naive UTC.timestamp как местное время | RED8/16 + legacy-marker RED9/27 → профиль118/118 GREEN, новый модуль27случаев; явный UTC и signed iat_utc=true | UTC/Chicago/Ufa. Legacy token без marker после любого сохранённого cutoff отклоняется; rollout всех issuers вместе. JWT expiry library не обходилась, старый тест создавал будущий exp |
+| QA-B01-013 | Telegram: другой /start переназначал request с уже привязанным чужим телефоном | Локальный RED выдачи доступа к существующему аккаунту → условный SQL UPDATE, GREEN в профиле security | Вебхук с корректным секретом подменён локально; не утверждается взлом настоящего Telegram |
+| QA-B08-001 | Web Push: чужая подписка переносилась без подтверждения устройства | RED → проверка владельца в обычном и insert-conflict путях; GREEN security | device_id остаётся клиентской меткой, не аппаратной аттестацией |
+| QA-B06-002 | Web Push: произвольный HTTPS endpoint разрешал серверные обращения | 12 endpoint RED → allowlist регистрации/отправки, запрет redirects; GREEN security | Google FCM/Mozilla/Apple/WNS; неизвестные провайдеры блокируются. Реальная отправка не выполнялась |
+| QA-B06-003 | Antifraud GPS использовал naive UTC.timestamp в Redis-anchor/TrackGuard | RED12/33 + legacy RED3 → явный UTC и versioned Redis key; профиль148/148 GREEN,36 новых случаев | Реальные tzset UTC/Chicago/Уфа, DST и последовательная модель разных workers; не настоящий Redis/GPS/multiprocess. Старые anchors истекают за1ч |
+| QA-B04-003 | После снятия курьера новый наследовал подход и открытое ожидание старого | 4 RED → общий reset до забора, пересчёт при новом accept; финальный профиль63/63 | Уже записанные ожидание/товары/ledger сохранены. Компенсации прежнему курьеру не добавлены |
+| QA-B04-004 | Admin/timeout отдавали уже купленный товар новому курьеру; goods-cost не блокировал назначение | 2 RED + query-lock RED → запрет переназначения и общий row lock; входит в63/63 | PostgreSQL-конкуренция не запущена. Закупка требует ручного разбора; переназначение in_transit/returning остаётся открытым |
+| QA-B05-002 | ChatSocket Android: смена аккаунта, поздние callbacks и terminal reconnect | Код защищён owner/session/connection generation; constructor/factories получают captured owner экрана. Написаны33 случая:11×3канала | НЕ ВЫПОЛНЕНЫ: Gradle8.13 недоступен по сети, SDK/adb/javac не обнаружены. Transport compile/runtime и устройство не подтверждены |
+| QA-B05-003 | Android chat UI после смены аккаунта мог продолжить REST fallback/polling или применить queued callback | ВНЕДРЕНО, независимый source review принят; 20 API-обёрток передают expectedGeneration до HTTP/multipart, Outbox сохраняет owner через mutex, UI callbacks/terminal taxi/voice cleanup защищены. Написано17 адресных методов | НЕТ runtime RED/GREEN и compile: SDK недоступен. 17 методов +33 socket executions =50 написанных,0 выполненных. Не заявляется account-safety всего ActiveTrip: share/SOS/winter/payment/rating handlers вне scope |
+| QA-B10-002 | Restore drill отвергал исправный зашифрованный дамп как gzip | RED1/5 → GREEN6/6, независимый повтор6/6; streaming decrypt→gzip до создания БД, env-key экспортируется | Настоящие openssl/gzip, psql подменён. Реальный PostgreSQL restore не доказан; авто-выбор по-прежнему только .sql.gz, .enc через аргумент |
+| QA-B10-003 | CI не запускал PWA regressions и не проверял отдельный сайт | Добавлены check PWA, самостоятельный web check/lint/build/export, backup regression | Локальные проверки не равны выполнению GitHub Actions |
+| QA-B10-004 | pytest.timeout метки WS-тестов игнорировались без plugin | В dev requirements добавлен pytest-timeout>=2.3,<3, установлен2.4.0; полный coverage-прогон с активным plugin GREEN | Plugin/marker проверены локально, не GitHub Actions |
+| QA-B10-005 | Полный coverage-прогон зависал/exit139 около rate reminder | Воспроизведён N² expiry:8→72,16→272; per-item commit сохранён с одним финальным expire. Synthetic2400:47,415→12,199s; финал4896 PASS,92,7% coverage | Native exit139 отдельно не воспроизведён и не приписывается доказанно этой причине; текущий полный gate стабилен локально |
+| QA-B10-006 | Restore verifier давал ложный OK при двух heads, недоступном Alembic или несовпадающей ревизии | RED 10/16 → GREEN 16/16; совместный ops-профиль 27/27. Успех требует одной головы кода и одной совпадающей DB revision | Реальные Alembic/OpenSSL/gzip; psql подменён. Исторический dump не объявляется повреждённым из-за old revision; нужен отдельный upgrade на восстановленной копии. Script не выполняет upgrade/stamp |
+| QA-B10-007 | PWA runtime/build dependency advisories | Полный npm audit 11→0; Router7.18.4, Vite7.3.6, React plugin5.2.0, PWA plugin1.3.0. Clean npm ci,69/69 наборов, tsc/build под Node22.23.3 GREEN | React18.3.1 и прежние syntax targets сохранены; browser/SW/device upgrade не проверен. Main chunk657,47kB/gzip198,83kB, предупреждение >500kB остаётся |
+| QA-B01-016 | PWA теряла query/hash после login, некорректный return state ломал navigation; admin unavailable терял deep link | Guards сохраняют полный локальный URL; Login отбрасывает external/non-string/control/backslash targets. RequireAdmin сохраняет URL и даёт retry. Router RED10/18 → финал19/19, root/reviewer повтор GREEN | Реальные React18/BrowserRouter/Routes/production guards/Login callback, но synthetic History/auth/API/screen contents. Это не браузерная приёмка и не доказанная внешняя эксплуатация |
+| QA-B11-001 | Сайт: deploy удалял APK при чистом export; сломанный skip-якорь информационных страниц | Проверка перед tar/SCP запрещает выпуск без объявленного файла; anchors исправлены,7 node tests GREEN | APK отсутствует: release preflight намеренно RED. Подпись/версия APK и браузерная приёмка не проверялись |
+| QA-B11-002 | BA-интерфейс не обновлял document language | Реальный транспилированный LangProvider:2 RED →2 GREEN при гидратации/переключении | До выполнения JS статический /ba HTML пока lang=ru; полная accessibility-приёмка открыта |
+| QA-B11-003 | Web dependency audit: Next16.2.9 и transitives давали8 записей полного audit | Next/eslint-config16.3.3, sharp0.35.4, PostCSS8.5.23 и совместимые transitives; полный npm audit8→0, test/lint/build/export GREEN | Только `web/` static export; не PWA dependency audit и не доказательство общей безопасности |
+
+Security-профиль:64/64, из них28 новых; courier-профиль:63/63, из них9 новых.
+Не складывать эти числа с полным серверным прогоном или повторными проверками.
+Доказательства courier — `test-results/courier-*-20260927.xml`, restore —
+`test-results/release-restore-20260927.xml`; security —
+`test-results/release-security-20260927.xml` после интеграционного сохранения.
+Все артефакты относятся к этой локальной среде, не к production.
+
+### Оставшиеся критерии по блокам
+
+- B01: QA-B01-014 локально закрыт для активной v2-сессии: terminal401 и явный logout
+  отзывают только точного владельца, HTTP/outbox/deferred writes несут ожидаемое
+  поколение, персональные ключи физически разделены. Остаются rollout старых вкладок,
+  настоящий вход/браузер/устройство. Shared v1/legacy credentials и ownerless legacy
+  personal data новая версия не принимает и не читает, но не удаляет конкурентно:
+  старая вкладка могла бы записать их снова. Нужны принудительные reload/relogin и
+  запрет отката на старый клиент. Ошибка removeItem может оставить недоступный остаток;
+  два одновременно завершившихся login могут оставить невыбранный credential-slot.
+  Это не раскрывает его активной сессии, но не является гарантией полного secure erase.
+- B02/B03: старые основные пути не переаттестованы целиком; совместная работа двух участников,
+  Android-навигация, все редкие отказы и реальный backend остаются в прежней очереди.
+- B04/B07: проверены конкретные пересчёты доставки; весь такси/попутки/внешние платежи,
+  чеки и административные решения после забора этим не закрыты.
+- B05/B06: Android compile/test + устройство; QA-B05-003, WS потеря подтверждения, GPS/MapKit/push,
+  полные REST/Compose lifecycle границы. Настоящие провайдеры не вызывались.
+- B08: тесты входа/подписок не являются полным аудитом всех админских маршрутов.
+- B09: локальные PWA проверки; без браузерной приёмки всех экранов RU/BA/тем/размеров.
+- B10: Android debug/release/R8, PostgreSQL race и upgrade старой схемы, настоящий restore,
+  прогон Actions. PWA dependency audit локально закрыт11→0; эксплуатационный rollout
+  старых клиентов остаётся. Миграционный create_all baseline использует
+  текущие модели: чистая миграция не доказывает upgrade старого production.
+- B11: подписанный APK, браузер/мобильная проверка, политика Metrika/consent требует
+  отдельного решения; promo проверен только на manifest/lock consistency, не на рендер.
+
+### Метод и ограничения текущих прогонов
+
+Продолжение 27.09, Android: три chat экрана, ApiClient, TripPass.Outbox и ChatSocket.
+Captured owner проходит до HTTP и socket construction, а не проверяется только
+в UI. `ChatExpectedOwnerTest`:10 методов (матрица20 API-операций внутри двух методов,
+не20 отдельных JUnit); `ChatScreenOwnerTest`:7; `ChatSocketLifecycleTest`:11×3=33.
+Все50 только написаны, прежние30 socket-сценариев входят в это число.
+Снимок методов/параметризации и SHA256 всех9 Android source/test файлов —
+`test-results/android-chat-owner-checkpoint-20260927.json`, статус
+`AUTHORED_NOT_EXECUTED`, executed_tests=0.
+Reviewer обнаружил и исполнитель исправил два соседних пути: recapture owner в
+constructor сокета и cleanup голосового файла при отмене до запуска coroutine.
+Второй использует `Job.invokeOnCompletion` с captured path. Явных дополнительных
+блокеров source review не нашёл; компиляция не доказана. Адресный Python API-contract
+после правок ApiClient:3/3 GREEN (`release-android-api-contract-20260927.xml`),
+это проверка маршрутов в исходниках, не выполнение Kotlin.
+
+Команда для Android-окружения с SDK/JDK21 (здесь не выполнена):
+
+```sh
+bash ./gradlew :app:testDebugUnitTest \
+  --tests '*ChatExpectedOwnerTest' --tests '*ChatScreenOwnerTest' \
+  --tests '*ChatSocketLifecycleTest' --tests '*ActiveTripSessionChainTest' \
+  --tests '*ActiveTripPollingSessionTest' --tests '*OutboxConcurrencyTest' \
+  --tests '*WebSocketClientsTest' :app:assembleDebug --no-daemon
+```
+
+Продолжение 27.09, PWA Router/build-chain: `test-results/pwa-release-checkpoint-20260927.json`
+содержит runtime Node22.23.3,69/69 наборов,19 router cases, build/hash/audit.
+`pwa-router-red-20260927.log`:8 PASS/10 FAIL до routing-fix;
+`pwa-router-green-20260927.log` и root `pwa-router-root-final-20260927.log`:19/19.
+Девятнадцатый сценарий добавлен по review — unavailable админки не меняет URL,
+retry возвращает доступ после проверки. `pwa-check-node22-final-20260927.log`
+имеет полный footer и69 завершённых наборов. Дочерние тесты запускаются через
+`process.execPath`, поэтому используют выбранный Node, а не случайный PATH.
+`pwa-build-node22-20260927.log`:307 modules,115 precache entries/2473,06KiB,
+main657,47kB/gzip198,83kB. Browser targets chrome87/edge88/firefox78/safari14
+зафиксированы явно; это syntax target, не гарантия всех runtime API этих браузеров.
+Прежние 68-наборные результаты ниже относятся к checkpoint до dependency migration.
+
+Продолжение 27.09, restore graph: `test-results/restore-graph-red-20260927.xml`
+содержит 16 случаев, 10 падений; `restore-graph-green-20260927.xml` — 16/16;
+`restore-graph-final-20260927.xml` — 27/27 (16 restore-сценариев +11 прежних guards).
+Новых случаев schema/graph —10; не суммировать повторные прогоны.
+Это адресный повтор из-за изменения ops script, не новый полный backend-прогон.
+В CI после PostgreSQL upgrade/downgrade/upgrade добавлен настоящий plain/encrypted
+restore drill: оба клиента pg_dump/psql из service image PostgreSQL16, отдельные
+verify_* базы, синтетический ключ, проверка отсутствия оставшихся баз. YAML и bash
+syntax проверены (`test-results/restore-ci-static-check-20260927.json`);
+сам CI-step здесь **не выполнен**. Он проверит текущую пустую
+мигрированную схему, не production-данные и не upgrade исторического dump.
+Остаток самого ops script: ошибку DROP cleanup пока подавляет, INT/TERM trap не
+является доказательством прекращения работы; SIGKILL гарантированно перехватить нельзя.
+CI на успешном пути отдельно проверяет отсутствие verify_*; при ранней ошибке
+остатки ограничены одноразовым service-container. Это не закрытие production cleanup.
+
+Окружение перепроверено: `test-results/postgres-apt-update-20260927.log` —
+обычный apt-get update exit100, запрещены setgroups/seteuid; локального PostgreSQL
+нет. `test-results/android-wrapper-retry-20260927.log` — wrapper8.13 остановился
+на `java.net.SocketException: Network is unreachable`, SDK/adb/javac не найдены.
+`test-results/release-browser-blocker-20260927.log` — **резюме**, не raw log:
+штатный Playwright Chromium install exit1 после повреждённых/пустых zip-ответов;
+причина ответа не установлена, браузерных проверок не было. Ограничения не обходились.
+
+Итоговая backend-интеграция после всех backend-правок (Python3.12, SQLite):
+**4896 PASS /30 SKIP /0 FAIL /0 ERROR**,4926 собранных случая,715 предупреждений,
+671.45s, exit0. Line coverage: **20371/21967 =92,7346%**, порог85% пройден.
+JUnit: `test-results/release-backend-coverage-final-20260927.xml`; coverage JSON:
+`test-results/release-coverage-final-20260927.json`; полный лог рядом. Команда:
+
+```sh
+.venv/bin/python -m pytest tests -q --maxfail=10 --timeout=90 \
+  -o faulthandler_timeout=30 --cov=app --cov-report=term \
+  --cov-report=json:../test-results/release-coverage-final-20260927.json \
+  --cov-fail-under=85 --junitxml=../test-results/release-backend-coverage-final-20260927.xml
+```
+
+30 пропусков:27 требуют PostgreSQL/row locks,2 — отсутствующие файлы Android-подписи,
+1 — событие searching, не предназначенное приложению. Это line coverage, не branch,
+не процент сценариев и не доказательство production/реального PostgreSQL.
+
+Промежуточная функциональная интеграция backend до второго пакета исправлений
+(Python3.12, SQLite):
+**4854 PASS /30 SKIP /0 FAIL /0 ERROR**, 4884 собранных случая,715 предупреждений,
+410.91s, exit0. Команда из `backend/`:
+
+```sh
+.venv/bin/python -m pytest tests -vv --maxfail=10 --timeout=90 -o faulthandler_timeout=30 --junitxml=../test-results/release-backend-functional-20260927.xml
+```
+
+Лог — `test-results/release-backend-functional-20260927.log`, JUnit с тем же именем
+и расширением `.xml`. В логе нет Timeout/FAILED/ERROR. Это запуск **без coverage**:
+сам по себе он не закрывал QA-B10-005 и CI-порог85%; эти критерии позже закрыты
+финальным coverage-прогоном выше. Пропуски:27 требуют PostgreSQL/row locks,
+2 — отсутствующие локальные файлы Android-подписи,1 — событие searching, которое
+по контракту не предназначено приложению. Пропуск не считается успешной проверкой.
+
+Финальный root-повтор PWA `npm run check`:68 наборов GREEN, exit0. Точечный root-повтор
+реального session/storage/provider-кода: atomic29/29, terminal-owner22/22,
+AuthProvider13/13, cross-tab16/16, ActiveTrip deferred writes3/3; лог
+`test-results/release-pwa-owner-targeted-20260927.log`. Чистая production-сборка root
+в новый временный outDir успешна:302 modules,115 precache entries/2455,69KiB;
+предупреждение о main chunk581,83KiB остаётся. Node/fake IndexedDB не заменяют
+реальный браузер, установленный Service Worker или устройство.
+Для web прошли9 новых тестов и9 motion-тестов, lint, сборка12 static pages,
+export-проверка7 маршрутов. Root повторил check/export, exit0,
+`test-results/release-web-check-20260927.log`. Строгая release-проверка намеренно
+останавливается из-за отсутствующего `/yuldash.apk`, deploy не выполнялся.
+
+Backend CI-gate `ruff check app/ --select F`: GREEN. Дополнительный широкий
+`ruff check app scripts --statistics`:2146 замечаний, exit1, лог
+`test-results/release-backend-full-lint-20260927.log`. Это более широкий набор правил,
+не используемый текущим CI; происхождение каждого замечания не аттестовано,
+число не означает2146 новых багов. Массовая автоматическая правка не выполнялась.
+
+### Dependency triage (локальный scanner, не доказательство эксплуатации)
+
+Отчёты: `test-results/release-web-npm-audit-20260927.json`,
+`test-results/release-webapp-npm-audit-20260927.json`,
+`test-results/release-pip-audit-20260927.json`. Registry доступен. В `web/` и
+`webapp/` версии и lock обновлены отдельными проверяемыми пакетами.
+
+- PWA до миграции:11 записей пакетов (5high/6moderate), включая runtime Router6.30.4.
+  После Router7.18.4 и совместимого build-chain update —0 полного npm audit.
+  Отчёты: `pwa-audit-before-20260927.json`, `pwa-audit-final-20260927.json`;
+  версии/peer engines/официальные источники — `pwa-dependency-migration-20260927.json`.
+  Ни force, ни overrides не применялись. SSR-hydration по-прежнему не используется.
+- Web: полный audit до обновления8 записей (1critical/6high/1moderate), после —0.
+  Установлены Next/eslint-config-next16.3.3, sharp0.35.4, PostCSS8.5.23,
+  nanoid3.3.19, baseline-browser-mapping2.11.26 и совместимые lock-only fixes.
+  Доказательства: `release-web-npm-audit-{before-update,after-update,final}-20260927.json`.
+- PWA build-chain: Vite7.3.6 + vite-plugin-pwa1.3.0 + plugin-react5.2.0;
+  Node engines `^20.19.0 || >=22.12.0`, проверено на22.23.3 с clean npm ci.
+  React18.3.1 сохранён; dev-only react-test-renderer18.3.1 добавлен для реального
+  Router lifecycle. Browser/SW rollout и warning крупного chunk остаются открытыми.
+- Python: scanner вернул14 entries для2пакетов, после дедупликации по ID
+  7уникальных ID: ecdsa1 и pip6. pip25.0.1 — инструмент окружения, не runtime
+  приложения; ecdsa требует сохранения анализа использования HS256. Эти числа
+  не означают14 независимых эксплуатируемых дыр. `pip check` конфликтов не нашёл.
+
+### Диагностика и актуальность
+
+Первый запуск общего backend из корня завершился ImportError из-за cwd — ошибка
+команды, не продукта. Следующий был остановлен10RED/452PASS/1SKIP: security-тесты
+добавлялись после импорта старого auth в процессе. Этот смешанный снимок не считается
+релизным доказательством.
+
+Следующий полный прогон без coverage:4826 PASS /1 FAIL /30 SKIP (4857 случаев).
+Единственный FAIL — `test_expired_jwt_rejected`: naive UTC.timestamp на этой машине
+создавал exp на5часов вперёд, а не истёкший токен. Исправлен тест; смежная реальная
+зависимость issuance/revocation от timezone исправлена и закреплена27 новыми случаями
+QA-B01-015. Доказательство профиля118/118 — `test-results/release-security-utc-20260927.xml`.
+
+Первый интеграционный coverage-прогон после freeze остановлен на3525 символах
+прогресса после более5минут без продвижения (exit130 после Ctrl-C), без итоговой
+статистики. Не считать GREEN или завершённым покрытием. Лог:
+`test-results/release-backend-accepted-20260927.log` (имя файла не означает приёмку).
+Изолированная проверка соседних `test_request_feed_premium.py` и
+`test_request_keeps_its_word.py` с coverage/timeout30:10 PASS за12.46s, зависание
+не повторилось. Причина не установлена; лог `test-results/release-stall-probe-20260927.log`.
+Повтор всего набора использует `--timeout=90 -o faulthandler_timeout=30 -vv`,
+чтобы следующий сбой сохранил конкретный test ID и стеки, а не только точки.
+
+Этот повтор (`test-results/release-backend-bounded-20260927.log`) завершился
+exit139 / Segmentation fault на `test_rate_reminder.py::test_reminds_only_unrated_party_once`
+около68%. Перед завершением faulthandler на30s вывел главный поток в SQLAlchemy
+`mapper.py::_gen_cache_key`; стек оборвался. Причина native crash не установлена:
+не приписывать его автоматически ни продукту, ни coverage, ни окружению.
+Итоговые JUnit/coverage не получены. Изолированный модуль с тем же coverage
+прошёл4/4 за6.34s (`test-results/release-rate-reminder-probe-20260927.log`).
+Отдельный полный функциональный набор без coverage завершился4854 PASS /30 SKIP,
+включая оба проблемных участка. Он не заменяет непройденный порог покрытия85% в CI
+и не доказывает, что виноват именно измеритель покрытия. Повтор без установленной
+причины не считать достаточной стабилизацией. Исходники во время этих прогонов
+не менялись; финальный inventory check пустой, git diff --check GREEN.
+
+Последующий адресный synthetic backlog доказал продуктовую причину замедления
+rate reminder: commit каждого изN items истекал всеN загруженных ORM-объектов.
+До правки2400 items/4800 notifications:47,415s и faulthandler dump после30s;
+после правки:12,199s, все checkpoints сохранены, dump/crash нет. Адресный профиль55/55.
+Финальный полный coverage-прогон выше прошёл до конца; QA-B10-005 локально закрыт.
+Это не позволяет ретроспективно объявить установленной причину прежнего native exit139.
+
+У courier отдельный промежуточный запуск дал SQLite readonly на startup; последующий
+профиль63/63 прошёл. Причина readonly не доказана, не скрывается как продуктовый RED.
+
+
 Создан 20.09.2026. Этот документ — очередь оставшейся работы и единственное место для текущих статусов блоков. Старые отчёты остаются доказательствами, их не переписываем. Инвентаризация файлов не означает, что их поведение проверено.
 
 ## Основной проход пользователей — фиксированный список от 24.09.2026

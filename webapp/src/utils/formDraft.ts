@@ -11,6 +11,7 @@
 // ================================================================
 import { useEffect, useRef, useState } from "react";
 import { getSessionGeneration } from "../api/client";
+import { ownedStorage, clearOwnedStorage } from "./ownedStorage";
 
 const PREFIX = "yuldash.draft.";
 /** Старше недели — уже не черновик, а мусор: человек давно передумал. */
@@ -22,15 +23,19 @@ interface Stored<T> {
   session: string;
 }
 
-export function readDraft<T>(key: string): T | null {
+export function readDraft<T>(key: string, owner?: string): T | null {
   try {
-    const raw = localStorage.getItem(PREFIX + key);
+    owner ??= getSessionGeneration();
+    if (owner !== getSessionGeneration()) return null;
+    // Old tagged records are readable only by their exact owner. Never delete
+    // the shared legacy key: an old-version tab may concurrently replace it.
+    const raw = ownedStorage(owner).getItem(PREFIX + key) ?? (owner ? localStorage.getItem(PREFIX + key) : null);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Stored<T>;
     if (!parsed || typeof parsed.at !== "number") return null;
-    if (parsed.session !== getSessionGeneration()) return null;
+    if (parsed.session !== owner || owner !== getSessionGeneration()) return null;
     if (Date.now() - parsed.at > MAX_AGE_MS) {
-      localStorage.removeItem(PREFIX + key);
+      ownedStorage(owner).removeItem(PREFIX + key);
       return null;
     }
     return parsed.data;
@@ -39,31 +44,29 @@ export function readDraft<T>(key: string): T | null {
   }
 }
 
-export function writeDraft<T>(key: string, data: T): void {
+export function writeDraft<T>(key: string, data: T, owner?: string): void {
   try {
-    localStorage.setItem(PREFIX + key, JSON.stringify({ at: Date.now(), data, session: getSessionGeneration() }));
+    owner ??= getSessionGeneration();
+    ownedStorage(owner).setItem(PREFIX + key, JSON.stringify({ at: Date.now(), data, session: owner }));
   } catch {
     /* переполнено / приватный режим — просто не сохраняем */
   }
 }
 
-export function clearDraft(key: string): void {
+export function clearDraft(key: string, owner?: string): void {
   try {
-    localStorage.removeItem(PREFIX + key);
+    owner ??= getSessionGeneration();
+    ownedStorage(owner).setItem(PREFIX + key, "null");
   } catch {
     /* нечего чистить */
   }
 }
 
 /** Стереть все черновики — при выходе из аккаунта (на общем телефоне это чужое). */
-export function clearAllDrafts(): void {
+export function clearAllDrafts(owner?: string): void {
   try {
-    const keys: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith(PREFIX)) keys.push(k);
-    }
-    keys.forEach((k) => localStorage.removeItem(k));
+    owner ??= getSessionGeneration();
+    clearOwnedStorage(owner, PREFIX);
   } catch {
     /* нечего чистить */
   }
@@ -81,7 +84,7 @@ export function useFormDraft<T extends object>(
 ): [T, (patch: Partial<T>) => void, () => void] {
   const generation = useRef(getSessionGeneration()).current;
   const [value, setValue] = useState<T>(() => {
-    const saved = readDraft<T>(key);
+    const saved = readDraft<T>(key, generation);
     // Поля берём из initial: у сохранённого черновика может не быть новых полей,
     // добавленных в форму позже.
     return saved ? { ...initial, ...saved } : initial;
@@ -89,7 +92,7 @@ export function useFormDraft<T extends object>(
 
   useEffect(() => {
     if (generation !== getSessionGeneration()) return;
-    writeDraft(key, value);
+    writeDraft(key, value, generation);
   }, [key, value, generation]);
 
   const patch = (p: Partial<T>) => {
@@ -98,7 +101,7 @@ export function useFormDraft<T extends object>(
   };
   const forget = () => {
     if (generation !== getSessionGeneration()) return;
-    clearDraft(key);
+    clearDraft(key, generation);
     setValue(initial);
   };
 
@@ -125,13 +128,13 @@ export function useDraftSync<T extends object>(
 
   useEffect(() => {
     if (generation !== getSessionGeneration()) return;
-    const saved = readDraft<Partial<T>>(key);
+    const saved = readDraft<Partial<T>>(key, generation);
     if (saved) applyRef.current(saved);
     restored.current = true;
   }, [key, generation]);
 
   useEffect(() => {
     if (!restored.current || generation !== getSessionGeneration()) return;
-    writeDraft(key, values);
+    writeDraft(key, values, generation);
   });
 }

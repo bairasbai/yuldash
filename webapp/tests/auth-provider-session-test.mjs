@@ -17,15 +17,17 @@ const mocks = {
     export const useMemo=fn=>fn();`,
   'react/jsx-runtime': `export const jsx=(type,props)=>({type,props}),jsxs=jsx;`,
   client: `const h=globalThis.__authProviderSession;
+    export const revokedGeneration=owner=>'revoked:'+owner,SESSION_REVOKE_PREFIX='yuldash.session.revoked.';
+    export const revokeSession=owner=>{if(h.revokeFailure)throw new Error('Quota');h.beforeRevoke?.();if(h.generation===owner){h.token=null;h.refresh=null;h.generation=revokedGeneration(owner);}};
     export const getToken=()=>h.token,getSessionGeneration=()=>h.generation;
-    export const setSession=(token,refresh)=>{h.token=token;h.refresh=refresh;h.generation++;};
+    export const setSession=(token,refresh)=>{h.token=token;h.refresh=refresh;h.generation=(Number(h.generation)||0)+1;return h.generation;};
     export const setRefreshHandler=fn=>h.refreshHandler=fn,setUnauthorizedHandler=fn=>h.unauthorizedHandler=fn;`,
   auth: `const h=globalThis.__authProviderSession;
     export const fetchMe=()=>{const request=h.makeDeferred();h.requests.push(request);return request.promise;};
     export const refreshSession=async()=>true;
     export const logoutServer=()=>{h.logoutBearers.push(h.token);return h.serverLogout.promise;};`,
   push: `export const disableWebPush=()=>globalThis.__authProviderSession.disable.promise;`,
-  outbox: `export const clearOutbox=()=>globalThis.__authProviderSession.clears.push('outbox');`,
+  outbox: `export const clearOutbox=owner=>{globalThis.__authProviderSession.cleanupOwners??=[];globalThis.__authProviderSession.cleanupOwners.push(owner);globalThis.__authProviderSession.clears.push('outbox');};`,
   drafts: `export const clearAllDrafts=()=>globalThis.__authProviderSession.clears.push('drafts');`,
   privacy: `export const syncPersonalSession=()=>{}; export const clearPersonalLocal=()=>globalThis.__authProviderSession.clears.push('personal');`,
 };
@@ -34,11 +36,11 @@ const result = await build({entryPoints:[root+'src/auth/AuthProvider.tsx'],bundl
   b.onLoad({filter:/.*/,namespace:'boundary'},a=>({contents:mocks[a.path],loader:'js'}));
 }}]});
 const {AuthProvider} = await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
-function reset(){delete globalThis.caches;Object.assign(h,{states:[],refs:[],callbacks:[],effectDeps:[],effects:[],cleanups:[],requests:[],token:'A',refresh:'refresh-A',generation:1,makeDeferred:deferred,disable:deferred(),serverLogout:deferred(),logoutBearers:[],clears:[]});}
+function reset(){delete globalThis.caches;Object.assign(h,{revokeFailure:false,beforeRevoke:null,states:[],refs:[],callbacks:[],effectDeps:[],effects:[],cleanups:[],requests:[],token:'A',refresh:'refresh-A',generation:1,makeDeferred:deferred,disable:deferred(),serverLogout:deferred(),logoutBearers:[],clears:[]});}
 function render(){h.si=h.ri=h.ei=h.ci=0;return AuthProvider({children:null}).props.value;}
 function mount(){reset();const value=render();for(const fn of h.effects.splice(0))h.cleanups.push(fn());return value;}
 const A={id:101,name:'Account A'}, B={id:202,name:'Account B'};
-function loginB(){render().login('B','refresh-B',B);}
+function loginB(){render().login('B','refresh-B',B);h.loginCleanup=[...h.clears];}
 function assertB(){const value=render();assert.equal(h.token,'B','B token must survive');assert.equal(value.status,'authed','B must stay authenticated');assert.equal(value.user?.id,202,'B must keep its own profile');}
 async function readyA(){mount();h.requests[0].resolve(A);await flush();assert.equal(render().user.id,101);}
 let failed=0,total=0;
@@ -55,11 +57,11 @@ await test('late manual profile refresh cannot replace B',async()=>{
 });
 await test('logout waiting for push removal cannot logout or clear B',async()=>{
   await readyA();const logout=render().logout();loginB();h.disable.resolve();h.serverLogout.resolve({ok:true});await logout;
-  assert.deepEqual(h.logoutBearers,[],'Old logout must not send logoutServer with B bearer');assertB();assert.deepEqual(h.clears,[],'B local data must not be cleared');
+  assert.deepEqual(h.logoutBearers,[],'Old logout must not send logoutServer with B bearer');assertB();assert.deepEqual(h.clears,h.loginCleanup,'No additional cleanup after B login');
 });
 await test('logout waiting for server response cannot clear B',async()=>{
   await readyA();h.disable.resolve();const logout=render().logout();await flush();assert.deepEqual(h.logoutBearers,['A']);
-  loginB();h.serverLogout.resolve({ok:true});await logout;assertB();assert.deepEqual(h.clears,[]);
+  loginB();h.serverLogout.resolve({ok:true});await logout;assertB();assert.deepEqual(h.clears,h.loginCleanup);
 });
 await test('normal startup refresh and logout still work',async()=>{
   await readyA();const refresh=render().refresh();h.requests[1].resolve({...A,name:'Updated A'});await refresh;assert.equal(render().user.name,'Updated A');
@@ -69,13 +71,13 @@ await test('terminal 401 while logout awaits server still clears personal data',
   await readyA();h.disable.resolve();const logout=render().logout();await flush();
   assert.deepEqual(h.logoutBearers,['A']);
   // The real HTTP client's terminal-401 contract clears tokens before notifying the provider.
-  h.token=null;h.refresh=null;h.generation++;h.unauthorizedHandler();
+  const owner=h.generation;h.token=null;h.refresh=null;h.generation='revoked:'+owner;h.unauthorizedHandler(owner,true);
   h.serverLogout.reject(new Error('terminal 401'));await logout;
   assert.equal(render().status,'guest');assert.equal(render().user,null);
   assert.deepEqual(h.clears,['outbox','drafts','personal'],'Expired logout must still remove personal local data');
 });
 await test('terminal 401 outside explicit logout clears personal data',async()=>{
-  await readyA();h.token=null;h.refresh=null;h.generation++;h.unauthorizedHandler();
+  await readyA();const owner=h.generation;h.token=null;h.refresh=null;h.generation='revoked:'+owner;h.unauthorizedHandler(owner,true);
   assert.equal(render().status,'guest');assert.equal(render().user,null);
   assert.deepEqual(h.clears,['outbox','drafts','personal'],'Automatic session expiry must clear personal local data');
 });
@@ -85,6 +87,24 @@ await test('deferred cache enumeration from logout A cannot delete B caches',asy
   h.disable.resolve();h.serverLogout.resolve({ok:true});await render().logout();
   loginB();keys.resolve(['runtime-personal']);await flush();
   assertB();assert.deepEqual(deleted,[],'Delayed cache cleanup must not delete the new session cache');
+});
+await test('explicit logout durable write failure shows unavailable without claiming guest',async()=>{
+ await readyA();h.revokeFailure=true;h.disable.resolve();h.serverLogout.resolve({ok:true});
+ await assert.rejects(render().logout(),/Quota/);assert.equal(h.token,'A');assert.equal(render().status,'unavailable');
+ assert.equal(render().user,null);assert.deepEqual(h.clears,[]);
+});
+await test('explicit logout revoke interleaving preserves B and reloads its profile',async()=>{
+ await readyA();h.beforeRevoke=()=>{h.token='B';h.refresh='refresh-B';h.generation=2;};
+ h.disable.resolve();h.serverLogout.resolve({ok:true});await render().logout();
+ assert.equal(h.token,'B');assert.equal(render().status,'loading');assert.equal(render().user,null);
+ h.requests.at(-1).resolve(B);await flush();assertB();
+});
+await test('terminal revoke failure hides A private UI and preserves retryable credentials',async()=>{
+ await readyA();h.unauthorizedHandler(1,false);assert.equal(h.token,'A');assert.equal(render().status,'unavailable');
+ assert.equal(render().user,null);assert.deepEqual(h.clears,[]);
+});
+await test('late terminal401 handler for A retains logged-in B profile',async()=>{
+ await readyA();loginB();h.unauthorizedHandler(1,true);assertB();
 });
 console.log(`AuthProvider: ${total-failed} passed, ${failed} failed`);
 if(failed)process.exitCode=1;

@@ -11,6 +11,9 @@ import {
 import {
   getToken,
   getSessionGeneration,
+  revokedGeneration,
+  revokeSession,
+  SESSION_REVOKE_PREFIX,
   setSession,
   setRefreshHandler,
   setUnauthorizedHandler,
@@ -43,24 +46,21 @@ interface AuthCtx {
   retrySession: () => void;
 }
 
-function clearSessionData(): void {
+function clearSessionData(owner: string): void {
   // Неотправленные сообщения прошлого человека нельзя оставлять: на общем телефоне
   // они ушли бы ОТ НОВОГО аккаунта при первом же появлении сети.
-  void Promise.resolve(clearOutbox()).catch(() => {});
+  void Promise.resolve(clearOutbox(owner)).catch(() => {});
   // Черновики анкет — тоже личное: на общем телефоне следующий не должен
   // увидеть чужой ИНН и номер разрешения.
-  clearAllDrafts();
+  clearAllDrafts(owner);
   // Согласия, роль, маршруты поиска, номер заказа. Согласие с офертой даёт
   // ЧЕЛОВЕК: без этого следующий вошедший числился бы согласившимся с тем,
   // чего не видел. Язык и тему оставляем — это настройки телефона.
-  clearPersonalLocal();
-  syncPersonalSession(getSessionGeneration());
+  clearPersonalLocal(owner);
   // P1-1: чистим рантайм-кеши Service Worker — иначе приватные ответы (ленты/координаты)
   // переживают logout и доступны на общем устройстве через DevTools → Cache Storage.
-  if (typeof caches !== "undefined") {
-    const clearedGeneration = getSessionGeneration();
-    void clearSessionCaches(() => clearedGeneration === getSessionGeneration()).catch(() => {});
-  }
+  // Runtime private caching is disabled. Historical caches have no owner keys:
+  // expiry of A cannot safely delete shared caches potentially used by B.
 }
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -71,13 +71,17 @@ const Ctx = createContext<AuthCtx | null>(null);
  * Регистрирует в HTTP-клиенте обработчики 401 (разлогин) и рефреша (тихое продление).
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<Status>(() =>
-    getToken() ? "loading" : "guest"
-  );
+  const [status, setStatus] = useState<Status>(() => {
+    try { return getToken() ? "loading" : "guest"; }
+    catch { return "unavailable"; }
+  });
   const [user, setUser] = useState<Me | null>(null);
   // Чтобы обработчик 401 не тянул stale-замыкания.
   const mounted = useRef(true);
+  const observedGeneration = useRef<string | null>(null);
+  const storageUnavailable = useRef(false);
   const retrySessionRef = useRef<() => void>(() => {});
+  const loadCurrentSessionRef = useRef<() => void>(() => {});
   const retrySession = useCallback(() => retrySessionRef.current(), []);
 
   const applyGuest = useCallback(() => {
@@ -89,9 +93,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Клиент дергает эти хуки при 401 / истёкшем access.
   useEffect(() => {
     setRefreshHandler(refreshSession);
-    setUnauthorizedHandler(() => {
-      clearSessionData();
-      applyGuest();
+    setUnauthorizedHandler((owner, persisted) => {
+      if (persisted) clearSessionData(owner);
+      let current: string;
+      try { current = getSessionGeneration(); }
+      catch {
+        storageUnavailable.current = true;
+        setUser(null); setStatus("unavailable");
+        return;
+      }
+      if (current === revokedGeneration(owner)) {
+        observedGeneration.current = current;
+        syncPersonalSession(current);
+        applyGuest();
+      } else if (!persisted && current === owner && mounted.current) {
+        storageUnavailable.current = true;
+        setUser(null);
+        setStatus("unavailable");
+      } else if (observedGeneration.current !== current) {
+        loadCurrentSessionRef.current();
+      }
     });
     return () => {
       setRefreshHandler(null);
@@ -104,19 +125,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mounted.current = true;
     let ac: AbortController | null = null;
     let retryGeneration: string | null = null;
+    const showStorageUnavailable = () => {
+      ac?.abort();
+      storageUnavailable.current = true;
+      retryGeneration = null;
+      setUser(null);
+      setStatus("unavailable");
+    };
     const loadSession = () => {
       retryGeneration = null;
       ac?.abort();
-      syncPersonalSession(getSessionGeneration());
       setUser(null);
-      if (!getToken()) {
+      let generation: string;
+      let token: string | null;
+      try {
+        generation = getSessionGeneration();
+        token = getToken();
+      } catch {
+        showStorageUnavailable();
+        return;
+      }
+      storageUnavailable.current = false;
+      observedGeneration.current = generation;
+      syncPersonalSession(generation);
+      if (!token) {
         setStatus("guest");
         return;
       }
       setStatus("loading");
       const request = new AbortController();
       ac = request;
-      const generation = getSessionGeneration();
       fetchMe(request.signal)
       .then((me) => {
         if (!mounted.current || request.signal.aborted || generation !== getSessionGeneration()) return;
@@ -124,21 +162,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus("authed");
       })
       .catch((e) => {
-        if (generation !== getSessionGeneration()) return;
-        if (request.signal.aborted || e?.name === "AbortError") return;
+        if (!mounted.current || request.signal.aborted || e?.name === "AbortError") return;
+        try { if (generation !== getSessionGeneration()) return; }
+        catch { showStorageUnavailable(); return; }
         // Не удалось проверить профиль — это не доказательство выхода.
         retryGeneration = generation;
         setStatus("unavailable");
       });
     };
+    loadCurrentSessionRef.current = loadSession;
     const retry = () => {
-      if (retryGeneration !== null && retryGeneration === getSessionGeneration() && getToken()) loadSession();
+      if (storageUnavailable.current) { loadSession(); return; }
+      try {
+        if (retryGeneration !== null && retryGeneration === getSessionGeneration() && getToken()) loadSession();
+      } catch { showStorageUnavailable(); }
     };
     retrySessionRef.current = retry;
     const storageChanged = (event: StorageEvent) => {
-      if (event.storageArea && event.storageArea !== localStorage) return;
-      if (event.key !== "yuldash.session" && event.key !== null) return;
-      if (event.key !== null && event.newValue !== getSessionGeneration()) return;
+      const revokedOwner = event.key?.startsWith(SESSION_REVOKE_PREFIX)
+        ? event.key.slice(SESSION_REVOKE_PREFIX.length) : null;
+      if (event.key !== "yuldash.session" && event.key !== null && revokedOwner === null) return;
+      // A queued obsolete event must not reload the current account. The stored
+      // value now includes the token pair, whereas generation changes only on
+      // login/logout: same-account refresh must not reset the profile or forms.
+      try {
+        if (event.storageArea && event.storageArea !== localStorage) return;
+        if (event.key !== null && event.newValue !== localStorage.getItem(event.key)) return;
+        if (revokedOwner !== null && event.newValue === "1") clearSessionData(revokedOwner);
+        if (!storageUnavailable.current && observedGeneration.current === getSessionGeneration()) return;
+      } catch { showStorageUnavailable(); return; }
       loadSession();
     };
     loadSession();
@@ -151,6 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted.current = false;
       ac?.abort();
       retrySessionRef.current = () => {};
+      loadCurrentSessionRef.current = () => {};
       if (typeof window !== "undefined") window.removeEventListener?.("storage", storageChanged);
       if (typeof window !== "undefined") {
         window.removeEventListener?.("online", retry);
@@ -160,8 +213,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [applyGuest]);
 
   const login = useCallback((access: string, refresh: string, me: Me) => {
-    setSession(access, refresh);
-    syncPersonalSession(getSessionGeneration());
+    let previousOwner: string | null = null;
+    try { previousOwner = getSessionGeneration(); } catch { /* Replacement can recover damaged storage. */ }
+    const generation = setSession(access, refresh);
+    if (previousOwner !== null) clearSessionData(previousOwner);
+    if (generation !== getSessionGeneration()) { loadCurrentSessionRef.current(); return; }
+    storageUnavailable.current = false;
+    observedGeneration.current = generation;
+    syncPersonalSession(generation);
     setUser(me);
     setStatus("authed");
   }, []);
@@ -171,21 +230,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Пуши гасим ДО выхода: серверу нужен ещё живой токен, чтобы отвязать подписку.
     // Иначе на общем телефоне следующий вошедший получал бы чужие уведомления.
     try {
-      await disableWebPush();
+      await disableWebPush(generation);
     } catch {
       /* не критично — выход важнее */
     }
     if (generation !== getSessionGeneration()) return;
     try {
-      await logoutServer();
+      await logoutServer(generation);
     } catch {
       /* нет сети / уже протух — всё равно чистим локально */
     }
     if (generation !== getSessionGeneration()) return;
-    setSession(null, null);
+    try { revokeSession(generation); }
+    catch (error) {
+      if (generation === getSessionGeneration()) {
+        storageUnavailable.current = true;
+        setUser(null); setStatus("unavailable");
+      }
+      throw error;
+    }
+    clearSessionData(generation);
+    if (getSessionGeneration() !== revokedGeneration(generation)) {
+      loadCurrentSessionRef.current();
+      return;
+    }
+    storageUnavailable.current = false;
+    observedGeneration.current = revokedGeneration(generation);
     setUser(null);
     setStatus("guest");
-    clearSessionData();
+    syncPersonalSession(revokedGeneration(generation));
+    if (typeof caches !== "undefined") {
+      const clearedGeneration = revokedGeneration(generation);
+      void clearSessionCaches(() => clearedGeneration === getSessionGeneration()).catch(() => {});
+    }
   }, []);
 
   const refresh = useCallback(async () => {

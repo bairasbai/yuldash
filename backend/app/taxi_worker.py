@@ -316,6 +316,11 @@ def close_stuck_parcels(session: Session, dry_run: bool = False) -> list:
         select(ParcelDelivery).where(
             ParcelDelivery.status.in_(_PARCEL_STUCK_STATUSES),
             ParcelDelivery.created_at <= cutoff,         # грубый предфильтр по индексу
+            # Купленный товар уже у курьера, даже если он ещё не нажал «везу».
+            # Не возвращаем его в общий список и не теряем, кто оплатил покупку.
+            ~((ParcelDelivery.status == "accepted")
+              & (ParcelDelivery.delivery_type == "buy_bring")
+              & (ParcelDelivery.goods_actual_kop > 0)),
         ).limit(500)
     ).all()
     handled = []
@@ -328,15 +333,21 @@ def close_stuck_parcels(session: Session, dry_run: bool = False) -> list:
         try:
             fresh = session.exec(
                 select(ParcelDelivery).where(ParcelDelivery.id == p.id).with_for_update()
+                .execution_options(populate_existing=True)
             ).first()
             if (not fresh or fresh.status in _PARCEL_FINAL
                     or fresh.status not in _PARCEL_STUCK_STATUSES
                     or _last_parcel_move_at(fresh) > cutoff):
                 continue                                # успели закрыть/сдвинуть параллельно
+            if (fresh.status == "accepted" and fresh.delivery_type == "buy_bring"
+                    and (fresh.goods_actual_kop or 0) > 0):
+                continue                                # покупка появилась после начального чтения
             prev_courier = fresh.courier_id
             route = f"{fresh.from_city} → {fresh.to_city}"
             released = fresh.status == "accepted"
             if released:
+                from .routers.courier import reset_uncollected_courier_approach
+                reset_uncollected_courier_approach(fresh)
                 fresh.courier_id = None
                 fresh.status = "created"
                 fresh.accepted_at = None

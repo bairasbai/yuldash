@@ -27,7 +27,7 @@ function LangToggle() {
 function Chrome({ children }: { children: ReactNode }) {
   const { lang } = useLang();
   return (
-    <main className="relative min-h-screen px-6 pb-24 pt-6">
+    <main id="top" tabIndex={-1} className="relative min-h-screen px-6 pb-24 pt-6">
       <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(120%_100%_at_50%_-10%,#10241a_0%,#0a1410_60%,#070f0b_100%)]" />
       <div className="mx-auto max-w-3xl">
         <div className="glass mb-10 flex items-center justify-between gap-4 rounded-full px-4 py-2.5">

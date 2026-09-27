@@ -216,30 +216,43 @@ def _по_сервису(session: Session, сервис: Сервис, dry_run: 
     # на каждого участника: за сутки таких поездок столько же, сколько поездок в городе.
     rated = сервис.оценки(session, items)
     справочник = сервис.справочник(session, items)
-    for item in items:
-        стороны = сервис.стороны(справочник, item)
-        # Нет второй стороны — оценивать некого, молчим обоим. Так было и у попутки
-        # (там проверяли `if ride`): заказ, который никто не взял, закрывается
-        # без водителя, и «оцени поездку» человеку, который так и не уехал, — это насмешка.
-        if any(uid is None for uid in стороны):
-            стороны = ()
-        for uid in стороны:
-            if (item.id, uid) in rated:
-                continue              # уже оценил эту поездку → не напоминаем
+    # Keep each item's durable checkpoint, but do not expire all N loaded ORM
+    # objects N times. A proxy may only forward reads; assigning its attribute
+    # would silently shadow the real session's policy, so leave proxies alone.
+    expire_policy = session.expire_on_commit if isinstance(session, Session) and not dry_run else None
+    if expire_policy is not None:
+        session.expire_on_commit = False
+    try:
+        for item in items:
+            стороны = сервис.стороны(справочник, item)
+            # Нет второй стороны — оценивать некого, молчим обоим. Так было и у попутки
+            # (там проверяли `if ride`): заказ, который никто не взял, закрывается
+            # без водителя, и «оцени поездку» человеку, который так и не уехал, — это насмешка.
+            if any(uid is None for uid in стороны):
+                стороны = ()
+            for uid in стороны:
+                if (item.id, uid) in rated:
+                    continue              # уже оценил эту поездку → не напоминаем
+                if not dry_run:
+                    push_notification(
+                        session, uid, "ride",
+                        сервис.заголовок[0], сервис.заголовок[1],
+                        сервис.текст[0], сервис.текст[1],
+                        ref_kind=сервис.ключ, ref_id=item.id,
+                    )
+                reminded.append((item.id, uid))
+            # Помечаем ВСЕГДА (даже если оба уже оценили или вторая сторона пропала) →
+            # не пере-сканируем каждый проход.
             if not dry_run:
-                push_notification(
-                    session, uid, "ride",
-                    сервис.заголовок[0], сервис.заголовок[1],
-                    сервис.текст[0], сервис.текст[1],
-                    ref_kind=сервис.ключ, ref_id=item.id,
-                )
-            reminded.append((item.id, uid))
-        # Помечаем ВСЕГДА (даже если оба уже оценили или вторая сторона пропала) →
-        # не пере-сканируем каждый проход.
-        if not dry_run:
-            item.rate_reminded = True
-            session.add(item)
-            session.commit()
+                item.rate_reminded = True
+                session.add(item)
+                session.commit()
+    finally:
+        if expire_policy is not None:
+            session.expire_on_commit = expire_policy
+            if expire_policy:
+                # Preserve freshness for the caller, once rather than per item.
+                session.expire_all()
     return reminded
 
 

@@ -45,7 +45,10 @@ const device = {
   "yuldash.chatSafetySeen": "1",
   "yuldash.pref.sounds": "1",
 };
-Object.entries({ ...personal, ...device }).forEach(([k, v]) => store.set(k, v));
+const owner = "account-A", prefix = "yuldash.owner.account-A:";
+Object.entries(personal).forEach(([k, v]) => store.set(prefix + k, v));
+Object.entries(device).forEach(([k, v]) => store.set(k, v));
+sess.set("yuldash.session", owner);
 // Эти живут в сессионном хранилище вкладки.
 sess.set("yuldash.winterAsk.4471", "1");
 sess.set("yuldash.winterAsk.4472", "1");
@@ -53,10 +56,10 @@ sess.set("yuldash.tracked.booking_created", "1");
 sess.set("yuldash.scroll.rides", "1200");
 sess.set("yuldash.chunkReload", "1");
 
-p.clearPersonalLocal();
+p.clearPersonalLocal(owner);
 
 for (const k of Object.keys(personal)) {
-  check(!store.has(k), `стёрто личное: ${k}`);
+  check(!store.has(prefix + k), `стёрто личное: ${k}`);
 }
 for (const [k, v] of Object.entries(device)) {
   check(store.get(k) === v, `осталась настройка телефона: ${k}`, store.get(k) ?? "—");
@@ -68,7 +71,7 @@ check(!sess.has("yuldash.scroll.rides"), "стёрта память прокру
 check(sess.get("yuldash.chunkReload") === "1", "техническая метка в сессии не тронута");
 
 // Согласия — отдельно подчеркнём: без них новый человек считался бы согласившимся.
-check(!store.has("yuldash.consents"), "согласие с офертой не наследуется новым человеком");
+check(!store.has(prefix + "yuldash.consents"), "согласие с офертой не наследуется новым человеком");
 
 // Приватный режим Safari: хранилище кидает ошибку — не падаем.
 const real = globalThis.localStorage;
@@ -88,7 +91,7 @@ globalThis.localStorage = {
   removeItem: () => { throw new Error("SecurityError"); },
 };
 let crashed = false;
-try { p.clearPersonalLocal(); } catch { crashed = true; }
+try { p.clearPersonalLocal(owner); } catch { crashed = true; }
 globalThis.localStorage = real;
 globalThis.sessionStorage = realSess;
 check(!crashed, "запрет хранилища не роняет выход из аккаунта");

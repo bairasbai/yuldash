@@ -397,14 +397,15 @@ object Outbox {
      * Окончательный отказ (например, бронь закрыта) → снимаем действие, чтобы очередь
      * не «отравилась» вечным повтором. Ничего не роняем.
      */
-    suspend fun flush(context: Context): Boolean = flushMutex.withLock {
+    suspend fun flush(context: Context, expectedGeneration: Long? = null): Boolean = flushMutex.withLock {
+        if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) return@withLock false
         var changed = false
         val generation = synchronized(this) {
             sp(context)
             if (migration?.writable == false) return@withLock false
             queueGeneration
         }
-        val session = ApiClient.queueSessionGeneration()
+        val session = expectedGeneration ?: ApiClient.queueSessionGeneration()
         // Протухшие СТАТУСЫ выбрасываем, сообщения — никогда.
         //
         // `createdAt` лежал в очереди с самого начала и не использовался нигде. А между тем

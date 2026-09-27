@@ -166,8 +166,8 @@ export function uploadProfilePhoto(file: File, signal?: AbortSignal): Promise<{ 
 }
 
 /** POST /auth/logout — гасит сессию на сервере (best-effort). */
-export function logoutServer(): Promise<{ ok: boolean }> {
-  return apiPost<{ ok: boolean }>("/auth/logout");
+export function logoutServer(expectedGeneration?: string): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>("/auth/logout", undefined, { expectedGeneration });
 }
 
 /** POST /me/delete — необратимое удаление аккаунта и всех персональных данных

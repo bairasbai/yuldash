@@ -1005,8 +1005,8 @@ object ApiClient {
     ).map { }
 
     /** Приватные детали брони: телефон и точная встреча открываются только после подтверждения. */
-    suspend fun getBookingDetails(bookingId: Int): Result<BookingDetailsDto> =
-        call("GET", "/bookings/$bookingId/details", null, auth = true).map { o ->
+    suspend fun getBookingDetails(bookingId: Int, expectedGeneration: Long? = null): Result<BookingDetailsDto> =
+        call("GET", "/bookings/$bookingId/details", null, auth = true, expectedGeneration = expectedGeneration).map { o ->
             parseBookingDetailsDto(o)
         }
 
@@ -1518,9 +1518,9 @@ object ApiClient {
             }
         }
 
-    suspend fun sendMessage(bookingId: Int, text: String, requestKey: String? = null): Result<Unit> =
+    suspend fun sendMessage(bookingId: Int, text: String, requestKey: String? = null, expectedGeneration: Long? = null): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true,
-            idempotencyKey = requestKey).map { }
+            idempotencyKey = requestKey, expectedGeneration = expectedGeneration).map { }
 
     /** Bind queued work before it can suspend or switch to a new account. */
     internal suspend fun sendQueuedAction(action: OutboxAction, generation: Long): Result<Unit> {
@@ -1536,16 +1536,16 @@ object ApiClient {
         }
     }
 
-    suspend fun editMessage(bookingId: Int, messageId: Int, text: String): Result<Unit> =
-        call("POST", "/bookings/$bookingId/messages/$messageId/edit", JSONObject().put("text", text), auth = true).map { }
+    suspend fun editMessage(bookingId: Int, messageId: Int, text: String, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/bookings/$bookingId/messages/$messageId/edit", JSONObject().put("text", text), auth = true, expectedGeneration = expectedGeneration).map { }
 
     /** scope: "all" — удалить у всех (только своё), "me" — скрыть у себя. */
-    suspend fun deleteMessage(bookingId: Int, messageId: Int, scope: String): Result<Unit> =
-        call("DELETE", "/bookings/$bookingId/messages/$messageId?scope=$scope", null, auth = true).map { }
+    suspend fun deleteMessage(bookingId: Int, messageId: Int, scope: String, expectedGeneration: Long? = null): Result<Unit> =
+        call("DELETE", "/bookings/$bookingId/messages/$messageId?scope=$scope", null, auth = true, expectedGeneration = expectedGeneration).map { }
 
     /** Код посадки брони (виден только участникам) — пассажир называет, водитель сверяет. */
-    suspend fun getBoardingCode(bookingId: Int): Result<String> =
-        call("GET", "/bookings/$bookingId/boarding-code", null, auth = true).map { it.optString("code") }
+    suspend fun getBoardingCode(bookingId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("GET", "/bookings/$bookingId/boarding-code", null, auth = true, expectedGeneration = expectedGeneration).map { it.optString("code") }
 
     /** Роль в брони: "driver" | "passenger" — экран активной поездки показывает нужные кнопки. */
     suspend fun getBookingRole(bookingId: Int): Result<String> =
@@ -1553,16 +1553,16 @@ object ApiClient {
 
     /** Состояние активной поездки (для live-баннера): роль + статус брони + подфаза водителя
      *  (""/departed/arriving). Экран активной поездки опрашивает это раз в ~12с. */
-    suspend fun getTripState(bookingId: Int): Result<TripStateDto> =
-        call("GET", "/bookings/$bookingId/role", null, auth = true).map {
+    suspend fun getTripState(bookingId: Int, expectedGeneration: Long? = null): Result<TripStateDto> =
+        call("GET", "/bookings/$bookingId/role", null, auth = true, expectedGeneration = expectedGeneration).map {
             TripStateDto(it.optString("role"), it.optString("status"), it.optString("driver_phase"),
                          it.optBoolean("arrival_verified", false),
                          it.optBoolean("alone_with_driver", false))
         }
 
     /** Водитель отмечает «выехал»/«подъезжаю» → push пассажиру. status: "departed"|"arriving". */
-    suspend fun driverStatus(bookingId: Int, status: String): Result<Unit> =
-        call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true).map { }
+    suspend fun driverStatus(bookingId: Int, status: String, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true, expectedGeneration = expectedGeneration).map { }
 
     /** Мой реферал: код, сколько привёл, бонусы, вводил ли чей-то код. */
     suspend fun getReferral(): Result<ReferralDto> = cachedGet("referral", TTL_PERSONAL) {
@@ -1581,8 +1581,8 @@ object ApiClient {
         call("POST", "/boost/free", JSONObject().put("ride_id", rideId), auth = true)
             .onSuccess { invalidate("referral") }.map { it.optInt("credits") }   // потратили бонус → сбросить кеш
 
-    suspend fun getMessages(bookingId: Int): Result<List<MessageDto>> =
-        call("GET", "/bookings/$bookingId/messages", null, auth = true).map { obj ->
+    suspend fun getMessages(bookingId: Int, expectedGeneration: Long? = null): Result<List<MessageDto>> =
+        call("GET", "/bookings/$bookingId/messages", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 parseMessageDto(arr.getJSONObject(i))
@@ -1591,15 +1591,15 @@ object ApiClient {
 
     // ---------- Чат такси-заказа (B7b-1): та же механика, привязка к order_id ----------
     /** История чата заказа. После done/отмены сервер отдаёт read-only историю. */
-    suspend fun getOrderMessages(orderId: Int): Result<List<MessageDto>> =
-        call("GET", "/instant/orders/$orderId/messages", null, auth = true).map { obj ->
+    suspend fun getOrderMessages(orderId: Int, expectedGeneration: Long? = null): Result<List<MessageDto>> =
+        call("GET", "/instant/orders/$orderId/messages", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i -> parseMessageDto(arr.getJSONObject(i)) }
         }
 
     /** Отправить текст в чат заказа (REST-фолбэк, когда WS лежит). */
-    suspend fun sendOrderMessage(orderId: Int, text: String): Result<Unit> =
-        call("POST", "/instant/orders/$orderId/messages", JSONObject().put("text", text), auth = true).map { }
+    suspend fun sendOrderMessage(orderId: Int, text: String, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/messages", JSONObject().put("text", text), auth = true, expectedGeneration = expectedGeneration).map { }
 
     // ---------- Чат доставки: отправитель ↔ курьер (привязка к parcel_id) ----------
     // До этого по посылке можно было только позвонить. «Оставь у соседей», «я на работе до шести»,
@@ -1607,31 +1607,31 @@ object ApiClient {
     // переписки ещё и не остаётся следа, если потом спор.
 
     /** История переписки по посылке. После вручения/отмены сервер отдаёт её только для чтения. */
-    suspend fun getParcelMessages(parcelId: Int): Result<List<MessageDto>> =
-        call("GET", "/parcels/$parcelId/messages", null, auth = true).map { obj ->
+    suspend fun getParcelMessages(parcelId: Int, expectedGeneration: Long? = null): Result<List<MessageDto>> =
+        call("GET", "/parcels/$parcelId/messages", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i -> parseMessageDto(arr.getJSONObject(i)) }
         }
 
     /** Отправить текст в чат посылки (REST-фолбэк, когда WS лежит). */
-    suspend fun sendParcelMessage(parcelId: Int, text: String): Result<Unit> =
-        call("POST", "/parcels/$parcelId/messages", JSONObject().put("text", text), auth = true).map { }
+    suspend fun sendParcelMessage(parcelId: Int, text: String, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/parcels/$parcelId/messages", JSONObject().put("text", text), auth = true, expectedGeneration = expectedGeneration).map { }
 
     // Голосовое: загрузить аудио (multipart) → URL, затем отправить сообщение со ссылкой.
-    suspend fun uploadVoice(bytes: ByteArray): Result<String> =
-        callMultipart("/voice", bytes, "m4a", "voice.m4a").map { it.optString("url") }
+    suspend fun uploadVoice(bytes: ByteArray, expectedGeneration: Long? = null): Result<String> =
+        callMultipart("/voice", bytes, "m4a", "voice.m4a", expectedGeneration = expectedGeneration).map { it.optString("url") }
 
-    suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String): Result<Unit> =
-        call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true).map { }
+    suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true, expectedGeneration = expectedGeneration).map { }
 
     // Фото в чате: загрузить (multipart) → публичный URL, затем отправить как сообщение с меткой [img].
-    suspend fun uploadChatPhoto(bytes: ByteArray, ext: String = "jpg"): Result<String> =
-        callMultipart("/upload/chat-photo", bytes, ext, "photo.$ext").map { it.optString("url") }
+    suspend fun uploadChatPhoto(bytes: ByteArray, ext: String = "jpg", expectedGeneration: Long? = null): Result<String> =
+        callMultipart("/upload/chat-photo", bytes, ext, "photo.$ext", expectedGeneration = expectedGeneration).map { it.optString("url") }
 
     const val IMG_PREFIX = "[img]"
 
-    suspend fun sendPhotoMessage(bookingId: Int, photoUrl: String): Result<Unit> =
-        sendMessage(bookingId, "$IMG_PREFIX$photoUrl")
+    suspend fun sendPhotoMessage(bookingId: Int, photoUrl: String, expectedGeneration: Long? = null): Result<Unit> =
+        sendMessage(bookingId, "$IMG_PREFIX$photoUrl", expectedGeneration = expectedGeneration)
 
     // ---------- Проверка водителя ----------
     /** Загрузить фото (документ/авто) через multipart → публичный URL. */
@@ -2174,8 +2174,8 @@ object ApiClient {
         )
     }
 
-    suspend fun setTripStatus(bookingId: Int, status: String): Result<Unit> =
-        call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true).map { }
+    suspend fun setTripStatus(bookingId: Int, status: String, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true, expectedGeneration = expectedGeneration).map { }
 
     /** Оценить вторую сторону поездки (1..5 звёзд) + опц. текстовый отзыв (≤500, идёт на модерацию)
      *  и быстрые метки («вежливый», «вовремя») — коды из закрытого списка, сервер их фильтрует. */
@@ -2869,8 +2869,8 @@ object ApiClient {
         }
 
     /** Детали заказа: пассажир поллит статус (searching→offered→accepted→arriving→onboard→done). */
-    suspend fun getInstantOrder(id: Int): Result<InstantOrderDto> =
-        call("GET", "/instant/orders/$id", null, auth = true).map { it.toInstantOrderDto() }
+    suspend fun getInstantOrder(id: Int, expectedGeneration: Long? = null): Result<InstantOrderDto> =
+        call("GET", "/instant/orders/$id", null, auth = true, expectedGeneration = expectedGeneration).map { it.toInstantOrderDto() }
 
     /** Активный оффер для водителя (поллинг-фолбэк к пушу). null = нет входящего заказа. */
     suspend fun getDriverOffer(): Result<InstantOrderDto?> =
@@ -4173,8 +4173,8 @@ object ApiClient {
     }
 
     /** Отправитель: мои посылки (с кодом вручения и курьером, если принята). */
-    suspend fun getMyParcels(): Result<List<ParcelDto>> =
-        call("GET", "/parcels/mine", null, auth = true).map { obj ->
+    suspend fun getMyParcels(expectedGeneration: Long? = null): Result<List<ParcelDto>> =
+        call("GET", "/parcels/mine", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
         }
@@ -4246,8 +4246,8 @@ object ApiClient {
     /** Курьер: активные + короткая история завершённых доставок.
      *  Финальная карточка не исчезает после вручения/отмены/возврата: остаются квитанция,
      *  компенсация, оценка и спор. Сервер ограничивает историю последними 10 строками. */
-    suspend fun getCarryingParcels(): Result<List<ParcelDto>> =
-        call("GET", "/parcels/carrying?include_recent=true&recent_limit=10", null, auth = true).map { obj ->
+    suspend fun getCarryingParcels(expectedGeneration: Long? = null): Result<List<ParcelDto>> =
+        call("GET", "/parcels/carrying?include_recent=true&recent_limit=10", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { parseParcel(arr.getJSONObject(it)) }
         }

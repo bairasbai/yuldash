@@ -73,12 +73,12 @@ def _let_time_pass(fake_redis, driver_id: int, seconds: int = 120):
     анти-фрод честно считает это телепортом (200 км/ч), а точку — поддельной. Поэтому
     состариваем якорь анти-фрода: для кода это выглядит как «прошло две минуты».
     """
-    raw = fake_redis.get(f"af:pt:{driver_id}")
+    raw = fake_redis.get(f"af:pt:utc:v1:{driver_id}")
     if not raw:
         return
     text = raw.decode() if isinstance(raw, bytes) else raw
     lat, lng, ts = text.split(",")
-    fake_redis.set(f"af:pt:{driver_id}", f"{lat},{lng},{float(ts) - seconds}")
+    fake_redis.set(f"af:pt:utc:v1:{driver_id}", f"{lat},{lng},{float(ts) - seconds}")
 
 
 def _factor(body: dict, code: str):

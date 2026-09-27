@@ -10,7 +10,8 @@ const mocks = {
     export const useContext=()=>null;`,
   "react/jsx-runtime": `export const jsx=(type,props)=>({type,props}); export const jsxs=jsx;`,
   "../api/client": `export const getToken=()=> 'local-token'; export const setSession=(...v)=>globalThis.__events.push(['session',...v]);
-    export const getSessionGeneration=()=>0;
+    export const getSessionGeneration=()=>globalThis.__owner??0; export const revokedGeneration=owner=>'revoked:'+owner,SESSION_REVOKE_PREFIX='yuldash.session.revoked.';
+    export const revokeSession=owner=>{globalThis.__events.push(['revoke',owner]);globalThis.__owner=revokedGeneration(owner);};
     export const setRefreshHandler=()=>{}; export const setUnauthorizedHandler=()=>{};`,
   "../api/auth": `export const fetchMe=async()=>({}); export const refreshSession=async()=>({});
     export const logoutServer=async()=>{globalThis.__events.push(['server-logout']);};`,
@@ -36,6 +37,7 @@ globalThis.localStorage = { getItem:()=>null, setItem:()=>{}, removeItem:k=>glob
 let failed = 0;
 async function check(label, registration) {
   globalThis.__events = [];
+  globalThis.__owner = 0;
   Object.defineProperty(globalThis, "navigator", {configurable:true, value:{serviceWorker:{
     ready: new Promise(()=>{}), getRegistration: async()=>registration,
   }}});
@@ -48,7 +50,7 @@ async function check(label, registration) {
   try {
     assert.equal(completed, true, "logout blocked by serviceWorker.ready");
     assert.ok(__events.some(e=>e[0]==='server-logout'));
-    assert.ok(__events.some(e=>e[0]==='session' && e[1]===null && e[2]===null));
+    assert.ok(__events.some(e=>e[0]==='revoke' && e[1]===0));
     assert.ok(__events.some(e=>e[0]==='state' && e[1]==='guest'));
     for (const action of ['outbox-clear','drafts-clear','personal-clear']) assert.ok(__events.some(e=>e[0]===action));
     if (registration?.pushManager) {

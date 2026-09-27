@@ -5,12 +5,88 @@
 // ================================================================
 
 export const API_BASE = (
-  import.meta.env.VITE_API_BASE ?? "https://yulbash.ru"
+  import.meta.env?.VITE_API_BASE ?? "https://yulbash.ru"
 ).replace(/\/+$/, "");
 
 const TOKEN_KEY = "yuldash.token";
 const REFRESH_KEY = "yuldash.refresh";
 const SESSION_KEY = "yuldash.session";
+const ROTATION_PREFIX = "yuldash.session.rotation.";
+const CREDENTIAL_PREFIX = "yuldash.session.credentials.";
+export const SESSION_REVOKE_PREFIX = "yuldash.session.revoked.";
+export const revokedGeneration = (owner: string): string => `revoked:${owner}`;
+
+interface StoredSession {
+  version: 1;
+  generation: string;
+  access: string | null;
+  refresh: string | null;
+}
+
+function parseSession(raw: string): StoredSession {
+  const value: unknown = JSON.parse(raw);
+  if (!value || typeof value !== "object") throw new Error("Invalid session storage");
+  const record = value as Partial<StoredSession>;
+  if (record.version !== 1 || typeof record.generation !== "string" ||
+      !(record.access === null || typeof record.access === "string") ||
+      !(record.refresh === null || typeof record.refresh === "string") ||
+      (record.access === null && record.refresh !== null)) throw new Error("Invalid session storage");
+  return record as StoredSession;
+}
+
+function readBaseSession(credentials = true): StoredSession {
+  const raw = localStorage.getItem(SESSION_KEY);
+  if (raw?.startsWith("{")) {
+    const pointer = JSON.parse(raw);
+    if (pointer?.version !== 2) return parseSession(raw);
+    if (typeof pointer.generation !== "string" || typeof pointer.authenticated !== "boolean") throw new Error("Invalid session pointer");
+    const empty: StoredSession = { version: 1, generation: pointer.generation, access: null, refresh: null };
+    if (!credentials || !pointer.authenticated || localStorage.getItem(SESSION_REVOKE_PREFIX + pointer.generation) === "1") return empty;
+    const payload = localStorage.getItem(CREDENTIAL_PREFIX + pointer.generation);
+    // A concurrent revoke may remove the payload after the first marker read.
+    if (localStorage.getItem(SESSION_REVOKE_PREFIX + pointer.generation) === "1") return empty;
+    if (payload === null) throw new Error("Missing session credentials");
+    const session = parseSession(payload);
+    if (session.generation !== pointer.generation || !session.access) throw new Error("Invalid session credentials");
+    return session;
+  }
+  // Read-only compatibility with the old three-key format. The first successful
+  // login/logout replaces it; refresh must never rewrite the active owner pointer.
+  return { version: 1, generation: raw ?? "", access: credentials ? localStorage.getItem(TOKEN_KEY) : null, refresh: credentials ? localStorage.getItem(REFRESH_KEY) : null };
+}
+
+function readSession(): StoredSession {
+  const base = readBaseSession();
+  if (localStorage.getItem(SESSION_REVOKE_PREFIX + base.generation) === "1") {
+    return { ...base, generation: revokedGeneration(base.generation), access: null, refresh: null };
+  }
+  if (!base.access) return base;
+  const raw = localStorage.getItem(ROTATION_PREFIX + base.generation);
+  if (raw === null) return base;
+  const rotated = parseSession(raw);
+  if (rotated.generation !== base.generation || !rotated.access) throw new Error("Invalid session rotation storage");
+  return rotated;
+}
+
+function writeSession(record: StoredSession): void {
+  // Stage the entire pair in a unique owner slot, then atomically publish only
+  // its secret-free pointer. A failed publish leaves the previous pair active.
+  const key = CREDENTIAL_PREFIX + record.generation;
+  if (record.access) localStorage.setItem(key, JSON.stringify(record));
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ version: 2, generation: record.generation, authenticated: !!record.access }));
+  } catch (error) {
+    try { localStorage.removeItem(key); } catch { /* Unselected orphan; never read as another owner. */ }
+    throw error;
+  }
+  // Another tab may already have revoked the just-published owner.
+  if (localStorage.getItem(SESSION_REVOKE_PREFIX + record.generation) === "1") {
+    try { localStorage.removeItem(key); } catch { /* Durable revoke still blocks reads. */ }
+  }
+  // Never delete shared legacy keys here: an old-version tab could have replaced
+  // them with B's credentials. v2 readers do not consult them; coordinated legacy
+  // storage retirement is a rollout task, not an unsafe check-then-delete.
+}
 
 // A committed intent survives a lost response/reload. IndexedDB serializes
 // creation across tabs even when Web Locks is unavailable.
@@ -74,7 +150,8 @@ function discardPreviousRefreshIntents(): void {
 
 /** Вход/выход меняет поколение, тихое продление токенов — нет. */
 export function getSessionGeneration(): string {
-  return localStorage.getItem(SESSION_KEY) ?? "";
+  const owner = readBaseSession(false).generation;
+  return localStorage.getItem(SESSION_REVOKE_PREFIX + owner) === "1" ? revokedGeneration(owner) : owner;
 }
 
 /**
@@ -102,50 +179,64 @@ export function isOwnApiUrl(url: string): boolean {
 }
 
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return readSession().access;
 }
 
 export function setToken(token: string | null): void {
-  writeToken(token);
-  markNewSession();
+  setSession(token);
 }
 
-function markNewSession(): void {
+function newSessionGeneration(): string {
   // Маркер общий для вкладок; токены при тихом refresh его не меняют.
-  const generation = typeof crypto !== "undefined" && "randomUUID" in crypto
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random()}`;
-  localStorage.setItem(SESSION_KEY, generation);
-  discardPreviousRefreshIntents();
-}
-
-function writeToken(token: string | null): void {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
 }
 
 export function getRefreshToken(): string | null {
-  return localStorage.getItem(REFRESH_KEY);
+  return readSession().refresh;
 }
 
 export function setRefreshToken(token: string | null): void {
-  if (token) localStorage.setItem(REFRESH_KEY, token);
-  else localStorage.removeItem(REFRESH_KEY);
+  const current = readSession();
+  if (current.access) writeRotation({ ...current, refresh: token });
 }
 
 /** Сохранить/очистить обе части сессии одним швом. */
-export function setSession(access: string | null, refresh?: string | null): void {
-  writeToken(access);
-  setRefreshToken(refresh ?? null);
-  markNewSession();
+export function setSession(access: string | null, refresh?: string | null): string {
+  let previousGeneration: string | null = null;
+  try { previousGeneration = readBaseSession(false).generation; } catch { /* A new login/logout may replace damaged storage. */ }
+  const generation = newSessionGeneration();
+  writeSession({ version: 1, generation, access: access || null, refresh: access ? refresh || null : null });
+  if (previousGeneration !== null) {
+    try { localStorage.removeItem(ROTATION_PREFIX + previousGeneration); } catch { /* No longer authoritative. */ }
+    try { localStorage.removeItem(CREDENTIAL_PREFIX + previousGeneration); } catch { /* Exact unselected owner only. */ }
+  }
+  discardPreviousRefreshIntents();
+  return generation;
+}
+
+function writeRotation(record: StoredSession): boolean {
+  // Never rewrite the owner pointer: B may log in after our generation check.
+  // A late write then affects only A's slot, which readers of B cannot select.
+  const key = ROTATION_PREFIX + record.generation;
+  localStorage.setItem(key, JSON.stringify(record));
+  if (record.generation === getSessionGeneration()) return true;
+  try { localStorage.removeItem(key); } catch { /* Orphaned slot is never selected. */ }
+  return false;
 }
 
 /** Ответ refresh вправе обновить только ту сессию, которая его отправила. */
 export function rotateSession(access: string, refresh: string, generation: string): boolean {
   if (generation !== getSessionGeneration() || !access || !refresh) return false;
-  writeToken(access);
-  setRefreshToken(refresh);
-  return true;
+  return writeRotation({ version: 1, generation, access, refresh });
+}
+
+/** Durable invalidation never writes the active-account pointer. */
+export function revokeSession(owner: string): void {
+  localStorage.setItem(SESSION_REVOKE_PREFIX + owner, "1");
+  try { localStorage.removeItem(CREDENTIAL_PREFIX + owner); } catch { /* Revocation remains authoritative. */ }
+  try { localStorage.removeItem(ROTATION_PREFIX + owner); } catch { /* Revocation remains authoritative. */ }
 }
 
 /** Ошибка API с кодом статуса — экраны решают, как показать. */
@@ -160,8 +251,8 @@ export class ApiError extends Error {
 }
 
 /** Кого оповестить об истечении сессии (401) — заполнит слой авторизации позже. */
-let onUnauthorized: (() => void) | null = null;
-export function setUnauthorizedHandler(fn: (() => void) | null): void {
+let onUnauthorized: ((owner: string, persisted: boolean) => void) | null = null;
+export function setUnauthorizedHandler(fn: ((owner: string, persisted: boolean) => void) | null): void {
   onUnauthorized = fn;
 }
 
@@ -197,11 +288,6 @@ function runRefresh(generation: string, staleToken: string | null): Promise<bool
     refreshInFlight = flight;
   }
   return refreshInFlight.promise;
-}
-
-function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 /** Язык интерфейса для текстов ошибок. Читаем из того же места, что и i18n. */
@@ -320,21 +406,24 @@ async function request<T>(
   path: string,
   init: RequestInit & { auth?: boolean; _retried?: boolean; _generation?: string } = {}
 ): Promise<T> {
-  const { auth = true, headers, _retried = false, _generation = getSessionGeneration(), ...rest } = init;
+  // Bind this request's credentials and owner to one committed snapshot. A tab
+  // switching accounts after checkSession must not replace A's bearer with B's.
+  const session = readSession();
+  const { auth = true, headers, _retried = false, _generation = session.generation, ...rest } = init;
   const checkSession = () => {
     if (auth && _generation !== getSessionGeneration()) {
       throw new ApiError(409, genericByStatus(409, isBashkir()));
     }
   };
   checkSession();
-  const sentToken = getToken();
+  const sentToken = session.access;
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...rest,
       headers: {
         Accept: "application/json",
-        ...(auth ? authHeaders() : {}),
+        ...(auth && sentToken ? { Authorization: `Bearer ${sentToken}` } : {}),
         ...(headers as Record<string, string> | undefined),
       },
     });
@@ -357,8 +446,14 @@ async function request<T>(
       if (refreshed) return request<T>(path, { ...init, _retried: true, _generation });
     }
     if (auth) {
-      setSession(null, null);
-      onUnauthorized?.();
+      // Immutable, owner-scoped invalidation: a late A failure must never write
+      // the shared main pointer after B logs in. Refresh cannot overwrite this.
+      try { revokeSession(_generation); }
+      catch {
+        onUnauthorized?.(_generation, false);
+        throw new ApiError(0, genericByStatus(0, isBashkir()));
+      }
+      onUnauthorized?.(_generation, true);
     }
     throw new ApiError(
       401,
@@ -397,12 +492,13 @@ export function apiGet<T>(
 export function apiPost<T>(
   path: string,
   body?: unknown,
-  opts?: { auth?: boolean; signal?: AbortSignal; idempotencyKey?: string }
+  opts?: { auth?: boolean; signal?: AbortSignal; idempotencyKey?: string; expectedGeneration?: string }
 ): Promise<T> {
   return request<T>(path, {
     method: "POST",
     auth: opts?.auth,
     signal: opts?.signal,
+    _generation: opts?.expectedGeneration,
     headers: {
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       ...(opts?.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {}),

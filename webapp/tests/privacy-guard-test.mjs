@@ -56,7 +56,8 @@ const DEVICE_KEYS = new Set([
 ]);
 // Эти чистятся своим кодом, не через privacy.ts.
 const CLEARED_ELSEWHERE = new Set([
-  "yuldash.session", // client.ts заменяет случайный маркер при каждом входе/выходе; личных данных нет.
+  "yuldash.owner.", // generation namespaces: privacy.clearPersonalLocal(owner).
+  "yuldash.session", // client.ts хранит атомарный вход и generation-scoped rotation; выход ставит tombstone и чистит прежний slot.
   "yuldash.token",
   "yuldash.refresh",
   "yuldash.outbox",

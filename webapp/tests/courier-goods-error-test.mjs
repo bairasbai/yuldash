@@ -13,7 +13,7 @@ export function useEffect(fn,deps){const x=h.current,i=x.i++,p=x.values[i];if(!p
 'react/jsx-runtime':`export const Fragment='fragment';export const jsx=(type,props,key)=>({type,props,key}),jsxs=jsx;`,
 'react-router-dom':`export const useNavigate=()=>()=>{};export const Link='a';`,
 lang:`export const useLang=()=>({lang:globalThis.__courierGoods.ba?'ba':'ru',appText:(ru,ba)=>globalThis.__courierGoods.ba?ba:ru});`,
-client:`export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}} globalThis.__courierGoods.ApiError=ApiError;`,
+client:`export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}} globalThis.__courierGoods.ApiError=ApiError;export const getSessionGeneration=()=>'';`,
 courier:`export const setGoodsCost=(id,kop)=>globalThis.__courierGoods.save(id,kop);export const fetchCourierMe=courierOnline=courierOffline=fetchCourierAvailable=payCourierCommission=()=>{};`,
 parcels:`export const fetchCarrying=async()=>globalThis.__courierGoods.rows;export const isCarrying=s=>s==='accepted'||s==='in_transit';export const acceptParcel=parcelArrived=setParcelStatus=()=>{};`,
 format:`export const rubLabel=n=>String(n/100);export const formatWhen=dayMonthLong=()=>'';`,

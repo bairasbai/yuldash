@@ -15,7 +15,9 @@ export interface OutboxAction {
 }
 
 const listeners = new Set<() => void>();
-let snapshot: OutboxAction[] = [], snapshotSession = "", readVersion = 0, clearVersion = 0;
+let snapshot: OutboxAction[] = [], snapshotSession = "", readVersion = 0;
+const clearVersions = new Map<string, number>();
+const clearVersion = (owner: string) => clearVersions.get(owner) ?? 0;
 let channel: BroadcastChannel | null = null;
 let listening = false;
 const SIGNAL = "yuldash.outbox.changed";
@@ -43,8 +45,8 @@ function changed(): void {
 
 /** Снимок служит только для UI. Отправитель всегда читает транзакционную базу. */
 export async function refreshOutbox(): Promise<void> {
-  const generation = getSessionGeneration(), version = ++readVersion, cleared = clearVersion;
-  const active = () => generation === getSessionGeneration() && cleared === clearVersion;
+  const generation = getSessionGeneration(), version = ++readVersion, cleared = clearVersion(generation);
+  const active = () => generation === getSessionGeneration() && cleared === clearVersion(generation);
   const rows = await listActions(generation, active);
   if (!active() || version !== readVersion) return;
   snapshot = rows; snapshotSession = generation; notify();
@@ -64,8 +66,8 @@ export function createOutboxId(): string {
 
 /** Promise завершается только после commit, ошибки записи не маскируются под успех. */
 export async function enqueue(bookingId: number, kind: OutboxKind, payload: string, id: string = createOutboxId()): Promise<void> {
-  const generation = getSessionGeneration(), cleared = clearVersion;
-  const active = () => generation === getSessionGeneration() && cleared === clearVersion;
+  const generation = getSessionGeneration(), cleared = clearVersion(generation);
+  const active = () => generation === getSessionGeneration() && cleared === clearVersion(generation);
   await insertAction({ id, session: generation, bookingId, kind, payload, createdAt: Date.now() }, active);
   changed();
   // Сохранение уже подтверждено. Сбой обновления счётчика не должен предлагать повтор записи.
@@ -77,10 +79,13 @@ export function outboxCount(bookingId: number): number {
 export function hasPending(): boolean {
   return snapshotSession === getSessionGeneration() && snapshot.length > 0;
 }
-export async function clearOutbox(): Promise<void> {
-  const generation = getSessionGeneration();
-  clearVersion++; readVersion++; snapshot = []; snapshotSession = generation; notify();
-  try { localStorage.removeItem("yuldash.outbox"); } catch { /* Вход не зависит от localStorage cleanup. */ }
+export async function clearOutbox(generation = getSessionGeneration()): Promise<void> {
+  clearVersions.set(generation, clearVersion(generation) + 1);
+  if (snapshotSession === generation) {
+    snapshot = []; notify();
+  }
+  // Old-format shared keys may be written by an old tab. Never delete B's value
+  // while cleaning A; migration filters rows by their exact owner.
   await clearActions(generation);
   changed();
 }
@@ -93,13 +98,13 @@ function isPermanentRejection(error: unknown): boolean {
 async function run(a: OutboxAction): Promise<void> {
   switch (a.kind) {
     case "message":
-      await sendMessageRest(a.bookingId, a.payload, undefined, String(a.id));
+      await sendMessageRest(a.bookingId, a.payload, undefined, String(a.id), a.session);
       return;
     case "trip_status":
-      await setTripStatus(a.bookingId, a.payload as TripStatus);
+      await setTripStatus(a.bookingId, a.payload as TripStatus, a.session);
       return;
     case "driver_status":
-      await setDriverStatus(a.bookingId, a.payload as DriverPhase);
+      await setDriverStatus(a.bookingId, a.payload as DriverPhase, a.session);
       return;
     default:
       return; // неизвестный вид (старая версия сайта) — просто снимаем
@@ -108,10 +113,10 @@ async function run(a: OutboxAction): Promise<void> {
 
 let flushing: string | null = null;
 export async function flushOutbox(): Promise<boolean> {
-  const generation = getSessionGeneration(), cleared = clearVersion;
+  const generation = getSessionGeneration(), cleared = clearVersion(generation);
   if (flushing === generation) return false;
   flushing = generation;
-  const active = () => generation === getSessionGeneration() && cleared === clearVersion;
+  const active = () => generation === getSessionGeneration() && cleared === clearVersion(generation);
   const drain = async () => {
     let sent = false;
     while (active()) {

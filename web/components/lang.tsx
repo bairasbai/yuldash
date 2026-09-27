@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { track } from "./analytics";
 
 export type Lang = "ru" | "ba";
@@ -432,6 +432,11 @@ const LangCtx = createContext<Ctx | null>(null);
 
 export function LangProvider({ children, initial = "ru" }: { children: ReactNode; initial?: Lang }) {
   const [lang, setLangState] = useState<Lang>(initial);
+  // Общий статический layout начинается с RU; после загрузки /ba и переключения
+  // языка произношение скринридера должно следовать видимому тексту.
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
   const setLang = (l: Lang) => {
     setLangState(l);
     track(l === "ba" ? "lang_ba" : "lang_ru"); // цель Метрики: интерес к башкирскому

@@ -16,7 +16,7 @@ const check = (ok, label, extra = "") => {
   console.log(`${ok ? "✓" : "✗"} ${label}${extra ? "   " + extra : ""}`);
 };
 
-const K = "yuldash.pendingPayment";
+const K = "yuldash.owner.:yuldash.pendingPayment";
 
 // --- 1. Запомнили → вернулись → знаем, что проверять и куда вести ---
 m.rememberPayment(9012, "boost", "/driver");

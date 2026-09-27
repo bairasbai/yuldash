@@ -72,6 +72,8 @@ internal fun ParcelChatScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val chatSession = remember(parcelId) { ChatScreenSession() }
+    DisposableEffect(chatSession) { onDispose { chatSession.close() } }
     val myId = remember { ApiClient.myUserId() ?: -1 }
 
     var messages by remember(parcelId) { mutableStateOf<List<MessageDto>>(emptyList()) }
@@ -92,11 +94,11 @@ internal fun ParcelChatScreen(
     val statusOwner = LocalLifecycleOwner.current
     LaunchedEffect(parcelId, peerIsCourier, statusOwner) {
         statusOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            while (isActive) {
+            while (isActive && chatSession.isCurrent()) {
                 delay(20_000)
                 // Отдельной ручки «одна посылка» в API нет, и заводить её ради статуса не стоит:
                 // берём свой же список (сервер и так проверяет, что посылка твоя).
-                val list = if (peerIsCourier) ApiClient.getMyParcels() else ApiClient.getCarryingParcels()
+                val list = chatSession.run { if (peerIsCourier) ApiClient.getMyParcels(chatSession.generation) else ApiClient.getCarryingParcels(chatSession.generation) }
                 list.onSuccess { items ->
                     items.firstOrNull { it.id == parcelId }?.let { liveStatus = it.status }
                 }
@@ -115,9 +117,10 @@ internal fun ParcelChatScreen(
 
     // История (REST). Повтор — по кнопке «Повторить».
     LaunchedEffect(parcelId, historyTick) {
+        chatSession.requireCurrent()
         historyLoading = true
         historyError = false
-        ApiClient.getParcelMessages(parcelId)
+        chatSession.run { ApiClient.getParcelMessages(parcelId, chatSession.generation) }
             .onSuccess { messages = it }
             .onFailure { historyError = true }
         historyLoading = false
@@ -127,8 +130,10 @@ internal fun ParcelChatScreen(
     val chatSocket = remember(parcelId) {
         ChatSocket.forParcel(
             parcelId,
+            expectedGeneration = chatSession.generation,
             onMessage = { inc ->
                 scope.launch {
+                    chatSession.requireCurrent()
                     val optIdx = messages.indexOfFirst { it.id < 0 && it.senderId == myId && it.text == inc.text }
                     val dto = MessageDto(inc.id, inc.text, inc.senderId, flag = inc.flag, fromAdmin = inc.fromAdmin)
                     messages = when {
@@ -138,11 +143,15 @@ internal fun ParcelChatScreen(
                     }
                 }
             },
-            onConnected = { wsConnected = it },
+            onConnected = { connected -> scope.launch {
+                chatSession.requireCurrent()
+                wsConnected = connected
+            } },
             // Сервер не принял сообщение (слишком быстрый поток). Убираем его с экрана и
             // возвращаем текст в поле ввода — иначе оно висело бы как отправленное.
             onRejected = { tempId, _ ->
                 scope.launch {
+                    chatSession.requireCurrent()
                     val lost = messages.firstOrNull { it.id == tempId }
                     messages = messages.filter { it.id != tempId }
                     if (lost != null && input.isBlank()) input = lost.text
@@ -158,13 +167,15 @@ internal fun ParcelChatScreen(
     // После реконнекта дотягиваем пропущенное по REST (живой приём стоял, пока сокет был мёртв).
     var wasEverConnected by remember(parcelId) { mutableStateOf(false) }
     LaunchedEffect(wsConnected) {
+        chatSession.requireCurrent()
         if (wsConnected) {
-            if (wasEverConnected) ApiClient.getParcelMessages(parcelId).onSuccess { messages = it }
+            if (wasEverConnected) chatSession.run { ApiClient.getParcelMessages(parcelId, chatSession.generation) }.onSuccess { messages = it }
             wasEverConnected = true
         }
     }
 
     fun send() {
+        if (!chatSession.isCurrent()) return
         val text = input.trim()
         if (text.isEmpty() || sending || readOnly) return
         val tempId = tempSeq
@@ -175,8 +186,8 @@ internal fun ParcelChatScreen(
         if (viaWs) return   // эхо WS заменит оптимистичное настоящим
         sending = true
         scope.launch {
-            ApiClient.sendParcelMessage(parcelId, text)
-                .onSuccess { ApiClient.getParcelMessages(parcelId).onSuccess { messages = it } }
+            chatSession.run { ApiClient.sendParcelMessage(parcelId, text, chatSession.generation) }
+                .onSuccess { chatSession.run { ApiClient.getParcelMessages(parcelId, chatSession.generation) }.onSuccess { messages = it } }
                 .onFailure {
                     messages = messages.filter { it.id != tempId }   // честно: не ушло — не показываем
                     input = text

@@ -4,6 +4,7 @@
 //  Публично: фильтры — локальная UX-настройка, вход не нужен.
 // ================================================================
 import { useState } from "react";
+import { captureOwner } from "../utils/ownedStorage";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import {
@@ -18,6 +19,7 @@ import { IconCheck, IconUsers } from "../components/Icons";
 import { AmenityIcon } from "../components/amenityIcons";
 
 export default function FiltersScreen() {
+  const [personalOwner] = useState(captureOwner);
   const { appText } = useLang();
   const navigate = useNavigate();
   const [prefs, setPrefs] = useState<FilterPrefs>(() => loadFilters());
@@ -26,7 +28,7 @@ export default function FiltersScreen() {
   // Любое изменение сразу пишем в localStorage — «настройка живёт».
   function update(next: FilterPrefs) {
     setPrefs(next);
-    saveFilters(next);
+    saveFilters(next, personalOwner);
     setSaved(true);
   }
 
@@ -142,7 +144,7 @@ export default function FiltersScreen() {
           className="btn-soft"
           style={{ marginTop: 14 }}
           onClick={() => {
-            clearFilters();
+            clearFilters(personalOwner);
             update({ city: "", maxPrice: null, amenities: [], onlyTrusted: false });
           }}
         >

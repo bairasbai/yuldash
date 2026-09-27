@@ -1,5 +1,29 @@
 # 🧪 Тесты и покрытие — правила Юлдаша
 
+> Обновление27.09.2026: текущие измерения и ограничения находятся в
+> `docs/audit-blocks.md`, а числа замера04.08 ниже — исторические. Новый набор
+> не считается исполненным из-за одного присутствия тестового файла.
+> Для backend ставить requirements-dev.txt целиком: pytest-timeout обеспечивает
+> существующие deadlines WebSocket-тестов (до этого pytest игнорировал метки).
+> Для JWT NumericDate никогда не использовать naive UTC.timestamp(): явно
+> поставить timezone.utc; регрессии host-TZ — test_auth_utc_timestamps.py.
+> Restore-проверки запускаются отдельно: `python -m pytest ../tools/test_restore_verify.py -q`
+> из backend. Они заменяют только PostgreSQL-команду, не openssl/gzip, и не являются
+> настоящим восстановлением БД. Node fault-injection не подменяет браузер/устройство.
+> Итог27.09 после freeze:4896 PASS /30 SKIP /0 FAIL, line coverage
+> 20371/21967=92,7346%; порог85% пройден. JUnit —
+> `test-results/release-backend-coverage-final-20260927.xml`, JSON —
+> `test-results/release-coverage-final-20260927.json`. QA-B10-005 локально закрыт:
+> устранён N² `expire_on_commit` в rate reminder; это не заменяет PostgreSQL,
+> Android, CI или production-проверки. После Router/build migration PWA:69/69 наборов,
+> новые Router19/19; прежний owner/session профиль29+22+13+16+3 входит в общий check.
+> Runtime — Node22.23.3, минимальные engines `^20.19.0 || >=22.12.0`.
+> Есть чистая установка и build, нет настоящего браузера/устройства.
+> Android:50 написанных случаев в ChatExpectedOwnerTest/ChatScreenOwnerTest/
+> ChatSocketLifecycleTest,0 выполненных. Python API-contract3/3 проверяет только
+> извлечение маршрутов из Kotlin, не компиляцию. Restore graph/schema16/16,
+> ops-профиль27/27 — реальный Alembic/openssl/gzip, но подменённый psql.
+
 > Кому: агенту и Александру. Что считать «покрыто», где стоит порог и почему именно там.
 > Замер и настройка порогов — 2026-08-04.
 
@@ -7,7 +31,7 @@
 
 ## Коротко
 
-| Что | Сейчас | Порог (сборка краснеет ниже) |
+| Что | Исторический замер04.08.2026 | Порог (сборка краснеет ниже) |
 |---|---|---|
 | **Бэкенд** (`backend/app`) | **90,2%** | **85%** |
 | **Приложение: слой данных** (`com.yuldash.app.data`) | **82,7%** | **78%** |

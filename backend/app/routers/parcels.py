@@ -1403,6 +1403,8 @@ def parcel_release(parcel_id: int, body: Optional[ParcelReasonIn] = None,
                    "Һин тауарҙы һатып алғанһың — баш тартып булмай. Аҡсаны ҡайтарыр өсөн бәхәс ас")
     reason = ((body.reason if body else "") or "").strip()[:200]
     sender_id = parcel.sender_id
+    from .courier import reset_uncollected_courier_approach
+    reset_uncollected_courier_approach(parcel)
     parcel.courier_id = None
     parcel.status = "created"
     parcel.accepted_at = None
@@ -1890,13 +1892,19 @@ def admin_release_courier(parcel_id: int, body: Optional[ParcelReasonIn] = None,
     """Снять курьера с доставки: он пропал, не отвечает, физически не может довезти.
     Посылка возвращается в общий список и её сможет взять другой курьер."""
     _require_admin(user)
-    parcel = session.get(ParcelDelivery, parcel_id)
+    parcel = session.exec(select(ParcelDelivery).where(
+        ParcelDelivery.id == parcel_id).with_for_update()).one_or_none()
     if not parcel:
         raise herr(404, "Посылка не найдена", "Бандероль табылманы")
     if parcel.status in _FINAL_STATUSES:
         raise herr(409, "Доставка уже завершена", "Доставка инде тамамланған")
+    if parcel.delivery_type == "buy_bring" and (parcel.goods_actual_kop or 0) > 0:
+        raise herr(409, "Курьер уже купил товар — отмена только через спор",
+                   "Курьер тауарҙы һатып алған — кире алыу тик бәхәс аша")
     prev_courier = parcel.courier_id
     reason = ((body.reason if body else "") or "").strip()[:200]
+    from .courier import reset_uncollected_courier_approach
+    reset_uncollected_courier_approach(parcel)
     parcel.courier_id = None
     parcel.status = "created"
     parcel.accepted_at = None

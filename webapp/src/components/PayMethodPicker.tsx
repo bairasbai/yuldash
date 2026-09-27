@@ -22,6 +22,8 @@ import { useLang } from "../i18n/lang";
 import type { PaymentMethod } from "../api/instant";
 import { IconWallet } from "./Icons";
 import { track } from "../analytics";
+import { getSessionGeneration } from "../api/client";
+import { ownedStorage, captureOwner } from "../utils/ownedStorage";
 
 /** Где лежит последний выбор. Человек платит одинаково почти всегда — спрашивать заново незачем. */
 const PREF_KEY = "yuldash.payMethod";
@@ -53,7 +55,7 @@ export const PAY_METHODS_SOON: { code: "card" | "corporate"; ru: string; ba: str
 /** Последний выбор человека. Ничего не выбирал — наличные, как в Android. */
 export function rememberedPayMethod(): PaymentMethod {
   try {
-    const v = localStorage.getItem(PREF_KEY);
+    const v = ownedStorage(getSessionGeneration()).getItem(PREF_KEY);
     if (v === "cash" || v === "sbp" || v === "negotiate") return v;
   } catch {
     /* приватный режим — просто умолчание */
@@ -62,9 +64,11 @@ export function rememberedPayMethod(): PaymentMethod {
 }
 
 /** Запомнить выбор для следующего заказа — тот же ключ использует отдельный экран. */
-export function rememberPayMethod(method: PaymentMethod): void {
+export function rememberPayMethod(method: PaymentMethod, owner?: string | null): void {
   try {
-    localStorage.setItem(PREF_KEY, method);
+    if (owner === null) return;
+    owner ??= getSessionGeneration();
+    ownedStorage(owner).setItem(PREF_KEY, method);
   } catch {
     /* Приватный режим: текущий заказ всё равно получит выбор напрямую. */
   }
@@ -78,12 +82,13 @@ export default function PayMethodPicker({
   onChange: (m: PaymentMethod) => void;
 }) {
   const { appText } = useLang();
+  const [personalOwner] = useState(captureOwner);
   const [open, setOpen] = useState(false);
   const cur = PAY_METHODS_OPEN.find((m) => m.code === value) ?? PAY_METHODS_OPEN[2];
 
   function pick(m: PaymentMethod) {
     onChange(m);
-    rememberPayMethod(m);
+    rememberPayMethod(m, personalOwner);
     setOpen(false);
   }
 

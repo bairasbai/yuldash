@@ -4283,4 +4283,58 @@ TG/SMS с общим синхронным busy, номером операции,
 другой аккаунт. Ошибка сохранения блокирует повтор использованного OTP до нового запроса.
 `nextNeedPhone` сохраняет шаг403 при локальной ошибке ввода; повтор Telegram получает новый
 request_id, кроме открытия чата для передачи номера. Общий AuthProvider/client не менялся;
-неатомарное хранение пары токенов и восстановление шага после reload остаются открытыми.
+на момент P004 неатомарное хранение пары токенов и восстановление шага после reload
+оставались открытыми. Session/storage часть позже заменена v2-протоколом ниже;
+восстановление шага loginFlow после reload остаётся отдельным UI-критерием.
+# Изменения релизного аудита 27.09.2026
+
+- PWA v2: `yuldash.session` — только secret-free pointer
+  `{version:2,generation,authenticated}`. Access/refresh лежат в точном
+  `yuldash.session.credentials.<generation>`, refresh overlay — в slot того же
+  поколения, окончательный отзыв — в неизменяемом
+  `yuldash.session.revoked.<generation>`. Terminal401 и logout захватывают owner
+  до async-работы; HTTP, outbox и отложенные UI-записи получают expected generation.
+  Персональные localStorage/IndexedDB записи разделены по owner, поэтому поздняя A
+  не удаляет и не отправляет B. AuthProvider скрывает профиль до проверки нового
+  token и не допускает пару user B/token C.
+- PWA transition: ownerless v1/legacy данные новая версия не усыновляет и не читает,
+  но не удаляет конкурентно с открытым старым клиентом. Нужен согласованный
+  reload/relogin без отката; отказ `removeItem` может оставить физически недоступный
+  остаток, а два одновременно завершившихся login — невыбранный credential slot.
+  Это сознательная граница синхронного localStorage-протокола, не обещание secure erase.
+- Android: `data/ChatSocket.kt` привязан к поколению аккаунта и номеру соединения;
+  все три канала используют общий барьер callbacks/reconnect. Владелец передаётся
+  из ChatScreenSession в constructor/factories, чтобы socket не присвоил новый login.
+  Три chat экрана передают captured generation через20 совместимых API-обёрток
+  до HTTP/multipart, Outbox.flush сохраняет его после mutex. Проверки до/после await
+  и внутри queued UI callback предотвращают stale continuations. Terminal taxi
+  status монотонен, voice upload cleanup привязан к завершению Job, включая отмену
+  до старта.50 lifecycle/owner/Compose случаев написаны,0 выполнены; source review
+  не заменяет заблокированную Android compile/runtime проверку.
+- Backend: Telegram request привязывается условным SQL UPDATE к одной личности.
+  `push_endpoint_policy.py` задаёт допустимые Web Push назначения и запрещает
+  HTTP redirects; политика проверяется при регистрации и отправке старых записей.
+- Antifraud: GPS-время переводится в POSIX timestamp только из aware UTC. Redis-anchor
+  версионирован как `af:pt:utc:v1:{uid}`; старый `af:pt:{uid}` не смешивается с новым
+  и истекает по прежнему TTL.
+- Rate reminder: per-item commit остаётся checkpoint-ом, но для настоящей SQLModel
+  Session на время batch отключается `expire_on_commit`; после цикла исходный режим
+  восстанавливается и выполняется один `expire_all()`. Это убирает N² expiration
+  загруженного набора, не меняя поведение proxy/test sessions.
+- Доставка: общий `reset_uncollected_courier_approach` очищает расчёт прежнего
+  назначения только до забора; закупленный товар нельзя отдавать другому курьеру
+  обычным снятием/таймаутом. Точная проверка и ограничения — в реестре.
+- Ops: restore-verify проверяет gzip после расшифровки потоково, до создания БД;
+  plaintext на диск не сохраняется. Проверка схемы теперь обязательна: успешный
+  Alembic CLI, одна голова кода и одна совпадающая восстановленная ревизия. Неизвестная
+  совместимость даёт FAIL; исторический dump не объявляется повреждённым.
+  CI drill применяет plain/encrypted dump текущей тестовой схемы через pg_dump/psql
+  того же PG16 service image. Сам CI-step и реальный restore PostgreSQL ещё не выполнены.
+- Public web: Next/eslint-config-next16.3.3, sharp0.35.4 и обновлённые build-transitives
+  дают полный `npm audit`0 и сохраняют static export.
+- PWA отдельным пакетом: Router7.18.4/Vite7.3.6/plugin-react5.2.0/PWA1.3.0,
+  React18.3.1 прежний, Node engines `^20.19.0 || >=22.12.0`. Audit0, clean Node22
+  check69/build GREEN. Browser syntax targets сохранены явно; native SW/device
+  обновление ещё не проверено. Guards сохраняют pathname+search+hash, Login
+  принимает только корректный локальный return path; RequireAdmin в unavailable
+  сохраняет адрес и показывает существующий retry вместо перенаправления в профиль.

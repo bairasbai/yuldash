@@ -4,6 +4,8 @@
 //  Применяются к списку поездок клиентски (мягко, без нового API).
 // ================================================================
 import type { Ride } from "./api/rides";
+import { getSessionGeneration } from "./api/client";
+import { ownedStorage } from "./utils/ownedStorage";
 
 export type Amenity =
   | "women_only"
@@ -32,7 +34,7 @@ const KEY = "yuldash.filterPrefs";
 
 export function loadFilters(): FilterPrefs {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = ownedStorage(getSessionGeneration()).getItem(KEY);
     if (!raw) return { ...emptyFilters };
     const o = JSON.parse(raw) as Partial<FilterPrefs>;
     return {
@@ -47,12 +49,12 @@ export function loadFilters(): FilterPrefs {
   }
 }
 
-export function saveFilters(f: FilterPrefs): void {
-  localStorage.setItem(KEY, JSON.stringify(f));
+export function saveFilters(f: FilterPrefs, owner: string | null = getSessionGeneration()): void {
+  ownedStorage(owner).setItem(KEY, JSON.stringify(f));
 }
 
-export function clearFilters(): void {
-  localStorage.removeItem(KEY);
+export function clearFilters(owner: string | null = getSessionGeneration()): void {
+  ownedStorage(owner).removeItem(KEY);
 }
 
 /** Активен ли хоть один фильтр (для баннера «фильтры включены»). */

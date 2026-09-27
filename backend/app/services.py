@@ -519,6 +519,8 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
     разрешение или удалил сайт с телефона; без чистки таблица растёт вечно, а мы каждый раз
     ходим в сеть впустую.
     """
+    from .push_endpoint_policy import PushRequestsSession, is_allowed_push_endpoint
+
     if not (settings.vapid_private_key and settings.vapid_public_key):
         return
     try:
@@ -547,18 +549,24 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
 
     dead: list[str] = []
     for s in subs:
+        # Also enforce the policy on subscriptions stored before validation was
+        # introduced. Do not send to an unsafe old row or log its capability URL.
+        if not is_allowed_push_endpoint(s.endpoint):
+            continue
         try:
-            webpush(
-                subscription_info={
-                    "endpoint": s.endpoint,
-                    "keys": {"p256dh": s.p256dh, "auth": s.auth},
-                },
-                data=payload,
-                vapid_private_key=settings.vapid_private_key,
-                vapid_claims={"sub": settings.vapid_subject},
-                content_encoding=(s.content_encoding or "aes128gcm"),
-                timeout=10,
-            )
+            with PushRequestsSession() as transport:
+                webpush(
+                    subscription_info={
+                        "endpoint": s.endpoint,
+                        "keys": {"p256dh": s.p256dh, "auth": s.auth},
+                    },
+                    data=payload,
+                    vapid_private_key=settings.vapid_private_key,
+                    vapid_claims={"sub": settings.vapid_subject},
+                    content_encoding=(s.content_encoding or "aes128gcm"),
+                    timeout=10,
+                    requests_session=transport,
+                )
         except WebPushException as e:  # noqa: PERF203
             code = getattr(getattr(e, "response", None), "status_code", 0)
             if code in (404, 410):

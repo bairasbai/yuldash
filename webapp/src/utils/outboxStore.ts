@@ -1,4 +1,3 @@
-import { getSessionGeneration } from "../api/client";
 import type { OutboxAction } from "./outbox";
 
 const DATABASE = "yuldash-outbox-v1";
@@ -138,7 +137,7 @@ export async function clearActions(generation: string): Promise<void> {
       const cursor = request.result;
       if (!cursor) return;
       // Поздняя очистка A не затрагивает уже вошедшего B.
-      if (cursor.value.session === generation || cursor.value.session !== getSessionGeneration()) cursor.delete();
+      if (cursor.value.session === generation) cursor.delete();
       cursor.continue();
     };
   });

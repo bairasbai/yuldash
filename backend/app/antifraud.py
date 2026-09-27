@@ -5,7 +5,7 @@
 Приватность: device_id, координаты и телефоны в логи открытым текстом НЕ пишем.
 """
 import re
-from datetime import timedelta
+from datetime import timedelta, timezone
 from typing import Optional
 
 from fastapi import HTTPException
@@ -202,8 +202,12 @@ def teleport_filter(r, user_id: int, lat: float, lng: float, now_ts: Optional[fl
     if r is None:
         return True
     from .services import haversine_km   # локальный импорт: без циклов на старте
-    now_ts = now_ts if now_ts is not None else utcnow().timestamp()
-    key = f"af:pt:{user_id}"
+    # utcnow() — наивный UTC; timestamp() без tzinfo трактует его как местное
+    # время процесса и ломает интервалы между разными workers и на смене DST.
+    now_ts = now_ts if now_ts is not None else utcnow().replace(tzinfo=timezone.utc).timestamp()
+    # Старый якорь мог содержать неизвестный сдвиг TZ. Не смешиваем поколения
+    # при rolling restart: прежние ключи сами исчезнут по часовому TTL.
+    key = f"af:pt:utc:v1:{user_id}"
     try:
         prev = r.get(key)
     except Exception:  # noqa: BLE001 — сбой Redis не роняет приём координат
@@ -496,7 +500,7 @@ class TrackGuard:
 
     def ok(self, lat: float, lng: float, now_ts: Optional[float] = None) -> bool:
         from .services import haversine_km
-        now_ts = now_ts if now_ts is not None else utcnow().timestamp()
+        now_ts = now_ts if now_ts is not None else utcnow().replace(tzinfo=timezone.utc).timestamp()
         if self._anchor is not None:
             p_lat, p_lng, p_ts = self._anchor
             elapsed_h = max(now_ts - p_ts, 1.0) / 3600.0

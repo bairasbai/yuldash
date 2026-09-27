@@ -76,7 +76,7 @@ def test_browser_transport_serializes_destination(user_factory, monkeypatch, dat
     monkeypatch.setattr(pywebpush, "webpush", lambda **kwargs: captured.append(kwargs))
     with Session(engine) as session:
         session.add(WebPushSubscription(user_id=owner["id"],
-                    endpoint=f"https://push.example/local-destination/{owner['id']}", p256dh="test", auth="test"))
+                    endpoint=f"https://fcm.googleapis.com/local-destination/{owner['id']}", p256dh="test", auth="test"))
         session.commit()
         services._send_web_push(session, owner["id"], "Title", "Body", data)
     assert len(captured) == 1

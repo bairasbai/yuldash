@@ -19,6 +19,7 @@ import CommunityFeedStrip from "../components/CommunityFeedStrip";
 import { fetchRidesNear, fetchRequestsNear, type NearRequest } from "../api/discovery";
 import type { Ride } from "../api/rides";
 import { applyRideFilters, clearFilters, loadFilters, saveFilters, type Amenity, type FilterPrefs } from "../filterPrefs";
+import { captureOwner } from "../utils/ownedStorage";
 import { IconRides, IconGift, IconPin, IconCalendar, IconClock, IconClose, IconHospital, IconChevron } from "../components/Icons";
 import { YuModeTaxi, YuWomenOnly, YuChildSeat, YuPet, YuLuggage, YuAc, YuSmokeFree, YuQuiet } from "../components/BrandIcons";
 import { PartnerAdSlot } from "../components/PartnerAd";
@@ -36,6 +37,7 @@ type Status = "loading" | "error" | "ready";
 const PAGE = 30;
 
 export default function HomeScreen() {
+  const [personalOwner] = useState(captureOwner);
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
@@ -89,12 +91,12 @@ export default function HomeScreen() {
   function toggleAmenity(a: Amenity) {
     setPrefs((cur) => {
       const next = { ...cur, amenities: cur.amenities.includes(a) ? cur.amenities.filter((x) => x !== a) : [...cur.amenities, a] };
-      saveFilters(next);
+      saveFilters(next, personalOwner);
       return next;
     });
   }
   function resetFilters() {
-    clearFilters();
+    clearFilters(personalOwner);
     setPrefs(loadFilters());
   }
 

@@ -11,7 +11,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 
 export default function RequireAdmin({ children }: { children: ReactNode }) {
-  const { status, user } = useAuth();
+  const { status, user, retrySession } = useAuth();
   const location = useLocation();
   const { appText } = useLang();
 
@@ -24,8 +24,17 @@ export default function RequireAdmin({ children }: { children: ReactNode }) {
     );
   }
 
+  if (status === "unavailable") {
+    return (
+      <div className="center-fill" role="status" aria-live="polite">
+        <p>{appText("Не получилось проверить вход. Попробуй ещё раз.", "Инеүҙе тикшереп булманы. Ҡабатлап ҡара.") /* DRAFT */}</p>
+        <button className="btn-primary" onClick={retrySession}>{appText("Повторить", "Ҡабатлау")}</button>
+      </div>
+    );
+  }
+
   if (status === "guest") {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   }
 
   if (user?.role !== "admin") {

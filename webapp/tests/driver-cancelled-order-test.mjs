@@ -26,7 +26,7 @@ check(
   "ответ cancelled/expired действительно закрывает активную поездку"
 );
 check(
-  screen.includes("clearStoredDriverOrder(localStorage, ACTIVE_KEY, orderId)"),
+  screen.includes("clearStoredDriverOrder(personalStore, ACTIVE_KEY, orderId)"),
   "очищается только запись завершившегося заказа, а не возможного нового"
 );
 check(

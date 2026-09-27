@@ -34,7 +34,7 @@ function ConsentsForm({ generation }: { generation: string }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
-  const [state, setState] = useState<Consents>(() => flags.consents());
+  const [state, setState] = useState<Consents>(() => flags.consents(generation));
   /** Когда согласие зафиксировано на сервере. Пусто = сервер о нём ещё не знает. */
   const [granted, setGranted] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<ConsentKind | null>(null);
@@ -51,9 +51,9 @@ function ConsentsForm({ generation }: { generation: string }) {
         });
         setGranted(map);
         // Сервер — источник правды: он помнит согласие и после переустановки браузера.
-        let next = flags.consents();
+        let next = flags.consents(generation);
         (Object.keys(map) as ConsentKind[]).forEach((k) => {
-          if (!next[k]) next = flags.setConsent(k, true);
+          if (!next[k]) next = flags.setConsent(k, true, generation);
         });
         setState(next);
       })
@@ -79,7 +79,7 @@ function ConsentsForm({ generation }: { generation: string }) {
     try {
       const c = await grantConsent(kind as "offer" | "privacy" | "geo" | "age18");
       if (generation !== getSessionGeneration()) return;
-      setState(flags.setConsent(kind, true));
+      setState(flags.setConsent(kind, true, generation));
       setGranted((prev) => ({ ...prev, [kind]: c.granted_at }));
     } catch {
       if (generation !== getSessionGeneration()) return;

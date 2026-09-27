@@ -111,6 +111,7 @@ export default function ActiveTripScreen() {
   const { user } = useAuth();
   const { id } = useParams();
   const bookingId = Number(id);
+  const sessionOwner = useRef(getSessionGeneration()).current;
   const currentBookingIdRef = useRef(bookingId);
   currentBookingIdRef.current = bookingId;
 
@@ -123,7 +124,7 @@ export default function ActiveTripScreen() {
    * у машины на ночной трассе. Читаем СРАЗУ, до всякой загрузки: если сервер не ответит,
    * человеку всё равно есть что показать.
    */
-  const [pass, setPass] = useState<TripPass | null>(() => loadTripPass(bookingId));
+  const [pass, setPass] = useState<TripPass | null>(() => loadTripPass(bookingId, sessionOwner));
   const [driverLoc, setDriverLoc] = useState<GeoPoint | null>(null);
   const [rated, setRated] = useState(false);
   const [winterAskForId, setWinterAskForId] = useState<number | null>(null);
@@ -149,7 +150,7 @@ export default function ActiveTripScreen() {
       lastDetailsAtRef.current = Date.now();
       setDetails(d);
       if (isTerminalBookingStatus(d.status)) {
-        dropTripPass(bookingId);
+        dropTripPass(bookingId, sessionOwner);
         setPass(null);
       } else if (d.contact_unlocked) {
         setPass((previous) => {
@@ -167,7 +168,7 @@ export default function ActiveTripScreen() {
             price: d.pay_amount ?? d.price,
             seats: d.seats,
           };
-          saveTripPass(snapshot);
+          saveTripPass(snapshot, sessionOwner);
           return { ...snapshot, savedAt: Date.now() };
         });
       }
@@ -219,7 +220,7 @@ export default function ActiveTripScreen() {
     detailsStatusRef.current = null;
     detailsSyncBusyRef.current = false;
     lastDetailsAtRef.current = Date.now();
-    setPass(loadTripPass(bookingId));
+    setPass(loadTripPass(bookingId, sessionOwner));
   }, [bookingId]);
 
   useEffect(() => {
@@ -247,7 +248,7 @@ export default function ActiveTripScreen() {
         tripRef.current = fresh;
         setTrip(fresh);
         if (isTerminalBookingStatus(fresh.status)) {
-          dropTripPass(bookingId);
+          dropTripPass(bookingId, sessionOwner);
           setPass(null);
           return;
         }
@@ -283,7 +284,7 @@ export default function ActiveTripScreen() {
         setPass((prev) => {
           if (!prev || !r.code) return prev;
           const next = { ...prev, boardingCode: r.code };
-          saveTripPass(next);
+          saveTripPass(next, sessionOwner);
           return next;
         });
       })
@@ -378,7 +379,7 @@ export default function ActiveTripScreen() {
       setPass((current) => {
         if (!current) return current;
         const next = { ...current, price: agreement.pay_amount ?? current.price };
-        saveTripPass(next);
+        saveTripPass(next, sessionOwner);
         return next;
       });
       setPayNote(appText("Записали. Вторая сторона это видит.", "Яҙҙыҡ. Икенсе яҡ быны күрә."));

@@ -11,7 +11,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import {
   supportDonate,
   SUPPORT_PRESETS_RUB,
@@ -39,6 +39,7 @@ export default function SupportYuldashScreen() {
   const valid = effective >= SUPPORT_MIN_RUB && effective <= SUPPORT_MAX_RUB;
 
   async function pay() {
+    const owner = getSessionGeneration();
     if (!valid || busy) return;
     setBusy(true);
     setError(null);
@@ -46,7 +47,7 @@ export default function SupportYuldashScreen() {
       const r = await supportDonate(effective);
       // ЮKassa вернула ссылку — уводим на неё, дальше платит банк.
       if (r.confirmation_url) {
-        rememberPayment(r.payment_id, "donate", "/support-yuldash");
+        rememberPayment(r.payment_id, "donate", "/support-yuldash", owner);
         window.location.href = r.confirmation_url;
         return;
       }

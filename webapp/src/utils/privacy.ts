@@ -11,7 +11,9 @@
 //  где заводятся.
 // ================================================================
 
-/** Ключи одного человека — уходят вместе с ним. */
+import { clearOwnedStorage } from "./ownedStorage";
+
+/** Legacy keys are never adopted without an owner. Kept for migration inventory. */
 const PERSONAL_KEYS = [
   "yuldash.outbox.changed", // только сигнал обновления очереди, без текста сообщений
   "yuldash.consents", // согласия 152-ФЗ: их даёт человек, а не телефон
@@ -66,16 +68,19 @@ export function syncPersonalSession(generation: string): void {
   }
 }
 
-export function clearPersonalLocal(): void {
+export function clearPersonalLocal(owner: string): void {
   try {
-    PERSONAL_KEYS.forEach((k) => localStorage.removeItem(k));
-    clearByPrefix(localStorage);
+    clearOwnedStorage(owner);
   } catch {
     /* хранилище недоступно (приватный режим) — стирать нечего */
   }
   try {
-    clearByPrefix(sessionStorage);
+    if (sessionStorage.getItem("yuldash.session") === owner) clearByPrefix(sessionStorage);
   } catch {
     /* то же самое для сессионного */
   }
 }
+
+// Referenced by privacy classification tooling; legacy values cannot be assigned
+// to A or B safely and are deliberately not removed alongside modern namespaces.
+export const legacyPersonalKeys = PERSONAL_KEYS;

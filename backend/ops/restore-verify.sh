@@ -9,8 +9,8 @@
 #   2) поднимает его во ВРЕМЕННУЮ базу (боевую НЕ трогает);
 #   3) проверяет целостность: сколько таблиц, сколько строк в ключевых
 #      (user / ride / booking);
-#   4) сверяет схему с кодом: `alembic heads` (граф миграций цел) и, если в
-#      дампе есть alembic_version, сравнивает применённую ревизию с головой кода;
+#   4) строго сверяет схему с кодом: `alembic heads` должен успешно вернуть
+#      ровно одну голову; alembic_version — ровно одну такую же ревизию;
 #   5) печатает итог OK / FAIL и гарантированно сносит временную базу.
 #
 # Секретов в скрипте нет — доступ к БД через peer (sudo -u postgres) или
@@ -20,7 +20,10 @@
 #   backend/ops/restore-verify.sh                 # проверить самый свежий дамп
 #   backend/ops/restore-verify.sh /путь/дамп.sql.gz   # проверить конкретный файл
 #
-# Код возврата: 0 = OK (восстановление удалось), 1 = FAIL (бэкап негоден).
+# Код возврата: 0 = данные восстановлены и схема совпадает с текущим кодом;
+# 1 = восстановление или подтверждение совместимости не удалось. Старый дамп
+# с другой ревизией не объявляется негодным: отдельно испытайте его upgrade
+# на восстановленной копии. Этот скрипт не выполняет ни upgrade, ни stamp.
 # =============================================================================
 
 set -uo pipefail  # без -e: часть проверок мы обрабатываем сами и хотим дойти до итога
@@ -62,8 +65,22 @@ else
 fi
 [ -n "$BACKUP" ] && [ -f "$BACKUP" ] || fail "не нашёл ни одного бэкапа в $BACKUP_DIR (маска ${DB_NAME}-*.sql.gz)"
 
-# Проверяем, что gzip не битый, ещё до разворачивания.
-gzip -t "$BACKUP" 2>/dev/null || fail "битый gzip-архив: $BACKUP"
+# Проверяем именно расшифрованный gzip до создания БД. Зашифрованные байты
+# сами по себе не gzip; plaintext на диск не записываем.
+backup_gzip_stream() {
+  if [ "${BACKUP##*.}" = "enc" ]; then
+    openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+      -pass env:BACKUP_ENCRYPT_PASSPHRASE -in "$BACKUP"
+  else
+    cat -- "$BACKUP"
+  fi
+}
+if [ "${BACKUP##*.}" = "enc" ]; then
+  [ -n "${BACKUP_ENCRYPT_PASSPHRASE:-}" ] || fail "дамп зашифрован, а BACKUP_ENCRYPT_PASSPHRASE не задан"
+  # Значение из sourced env-файла тоже должно быть доступно дочернему openssl.
+  export BACKUP_ENCRYPT_PASSPHRASE
+fi
+backup_gzip_stream | gzip -t 2>/dev/null || fail "не удалось проверить gzip или расшифровать бэкап: $BACKUP"
 echo "[verify] проверяю бэкап: $BACKUP ($(du -h "$BACKUP" | cut -f1))"
 
 # --- 3) Временная база + гарантированная уборка за собой --------------------
@@ -84,15 +101,7 @@ echo "[verify] восстанавливаю дамп во временную б�
 # Дамп из облака зашифрован (волна 130): там персональные данные всего района, и в чужое
 # хранилище он уходит только под шифром. Расшифровываем на лету тем же ключом, что и шифровали.
 # Локальные дампы лежат как есть — они на нашем сервере, под правами yuldash.
-if [ "${BACKUP##*.}" = "enc" ]; then
-  if [ -z "${BACKUP_ENCRYPT_PASSPHRASE:-}" ]; then
-    fail "дамп зашифрован, а BACKUP_ENCRYPT_PASSPHRASE не задан — расшифровать нечем.
-       Ключ хранится ОТДЕЛЬНО от бэкапов (менеджер паролей), это и есть смысл шифрования."
-  fi
-  if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:BACKUP_ENCRYPT_PASSPHRASE        -in "$BACKUP" | gunzip -c | $PSQL_AS psql -q -v ON_ERROR_STOP=1 -d "$TMPDB" >/dev/null; then
-    fail "не удалось расшифровать или применить дамп — проверь ключ и целость файла"
-  fi
-elif ! gunzip -c "$BACKUP" | $PSQL_AS psql -q -v ON_ERROR_STOP=1 -d "$TMPDB" >/dev/null; then
+if ! backup_gzip_stream | gunzip -c | $PSQL_AS psql -q -v ON_ERROR_STOP=1 -d "$TMPDB" >/dev/null; then
   fail "psql не смог применить дамп (см. вывод выше) — бэкап негоден"
 fi
 
@@ -117,25 +126,28 @@ done
 
 # --- 6) Сверка схемы с кодом (alembic) --------------------------------------
 # 6.1 Граф миграций в коде цел и голова одна (не разъехались ветки ревизий).
-HEAD_LINE=""
-if [ -f "$APP_DIR/alembic.ini" ]; then
-  HEAD_LINE="$(cd "$APP_DIR" && "$ALEMBIC_CMD" heads 2>/dev/null | head -n1 || true)"
+schema_fail() {
+  fail "данные восстановились, но совместимость схемы с текущим кодом не подтверждена: $*. Для исторического дампа испытайте upgrade на отдельной восстановленной копии; stamp не заменяет миграции."
+}
+[ -f "$APP_DIR/alembic.ini" ] || schema_fail "нет alembic.ini в $APP_DIR"
+if ! HEAD_LINES="$(cd "$APP_DIR" && "$ALEMBIC_CMD" heads)"; then
+  schema_fail "не удалось выполнить alembic heads — проверьте окружение и граф миграций"
 fi
-if [ -n "$HEAD_LINE" ]; then
-  CODE_HEAD="$(echo "$HEAD_LINE" | awk '{print $1}')"
-  echo "[verify] голова миграций в коде: $CODE_HEAD"
-  # 6.2 Какая ревизия применена в восстановленной базе (если она уже под alembic).
-  DB_REV="$(psql_tmp "SELECT version_num FROM alembic_version LIMIT 1;" 2>/dev/null | tr -d '[:space:]')"
-  if [ -z "$DB_REV" ]; then
-    echo "[verify] WARN: в дампе нет alembic_version — база ещё не под alembic (это нормально до первого upgrade)"
-  elif [ "$DB_REV" = "$CODE_HEAD" ]; then
-    echo "[verify] схема совпадает с кодом (ревизия $DB_REV = голова)"
-  else
-    echo "[verify] WARN: применённая ревизия ($DB_REV) != голова кода ($CODE_HEAD) — возможно, нужен upgrade"
-  fi
-else
-  echo "[verify] WARN: не удалось выполнить 'alembic heads' (нет alembic.ini в $APP_DIR или venv) — проверку схемы пропускаю"
+HEAD_COUNT="$(printf '%s\n' "$HEAD_LINES" | awk 'NF {n++} END {print n+0}')"
+[ "$HEAD_COUNT" = 1 ] || schema_fail "ожидалась одна голова миграций, получено $HEAD_COUNT"
+CODE_HEAD="$(printf '%s\n' "$HEAD_LINES" | awk 'NF && $NF == "(head)" {print $1}')"
+[ -n "$CODE_HEAD" ] || schema_fail "не распознан результат alembic heads"
+echo "[verify] голова миграций в коде: $CODE_HEAD"
+
+# 6.2 Проверяем все строки: LIMIT 1 скрывал разошедшиеся ветки в самом дампе.
+if ! DB_REVISIONS="$(psql_tmp "SELECT version_num FROM alembic_version;" 2>/dev/null)"; then
+  schema_fail "не удалось прочитать alembic_version"
 fi
+REV_COUNT="$(printf '%s\n' "$DB_REVISIONS" | awk 'NF {n++} END {print n+0}')"
+[ "$REV_COUNT" = 1 ] || schema_fail "ожидалась одна применённая ревизия, получено $REV_COUNT"
+DB_REV="$(printf '%s\n' "$DB_REVISIONS" | tr -d '[:space:]')"
+[ "$DB_REV" = "$CODE_HEAD" ] || schema_fail "ревизия дампа ($DB_REV) не совпадает с головой кода ($CODE_HEAD)"
+echo "[verify] схема совпадает с кодом (ревизия $DB_REV = голова)"
 
 # --- 7) Итог ----------------------------------------------------------------
 echo "[verify] OK: бэкап $BACKUP успешно восстановлен и прошёл проверку целостности."

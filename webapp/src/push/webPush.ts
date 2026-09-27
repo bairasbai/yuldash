@@ -13,6 +13,7 @@
 // ================================================================
 import { sendWebPushSubscription, PushBackendMissing, unsubscribeWebPush } from "../api/push";
 import { getSessionGeneration } from "../api/client";
+import { ownedStorage } from "../utils/ownedStorage";
 
 const ENABLED_KEY = "yuldash.push.web.enabled";
 
@@ -54,11 +55,11 @@ export function permission(): NotificationPermission {
 
 /** Отмечено ли, что пуши включены на этом устройстве (для индикатора). */
 export function isWebPushEnabled(): boolean {
-  return localStorage.getItem(ENABLED_KEY) === "1";
+  return ownedStorage(getSessionGeneration()).getItem(ENABLED_KEY) === "1";
 }
-function setWebPushEnabled(v: boolean): void {
-  if (v) localStorage.setItem(ENABLED_KEY, "1");
-  else localStorage.removeItem(ENABLED_KEY);
+function setWebPushEnabled(v: boolean, owner: string): void {
+  if (v) ownedStorage(owner).setItem(ENABLED_KEY, "1");
+  else ownedStorage(owner).removeItem(ENABLED_KEY);
 }
 
 /** Итог попытки включить пуши — экран решает, что показать. */
@@ -105,7 +106,7 @@ export async function enableWebPush(): Promise<EnableResult> {
     const perm = await Notification.requestPermission();
     if (!currentSession()) return "error";
     if (perm !== "granted") {
-      setWebPushEnabled(false);
+      setWebPushEnabled(false, generation);
       return "denied";
     }
 
@@ -123,32 +124,32 @@ export async function enableWebPush(): Promise<EnableResult> {
     }
 
     try {
-      await sendWebPushSubscription(sub);
+      await sendWebPushSubscription(sub, generation);
       if (!currentSession()) return "error";
-      setWebPushEnabled(true);
+      setWebPushEnabled(true, generation);
       return "ok";
     } catch (e) {
       if (!currentSession()) return "error";
       if (e instanceof PushBackendMissing) {
         // Клиент подписался честно, но приёмника на сервере ещё нет.
         // Флаг включаем: подписка в браузере реальна, останется дослать позже.
-        setWebPushEnabled(true);
+        setWebPushEnabled(true, generation);
         return "ok-pending-server";
       }
       throw e;
     }
   } catch {
     if (!currentSession()) return "error";
-    setWebPushEnabled(false);
+    setWebPushEnabled(false, generation);
     return "error";
   }
 }
 
 /** Отписаться на этом устройстве (снять подписку браузера + флаг). */
-export async function disableWebPush(): Promise<void> {
-  const generation = getSessionGeneration();
+export async function disableWebPush(generation = getSessionGeneration()): Promise<void> {
   const currentSession = () => generation === getSessionGeneration();
-  setWebPushEnabled(false);
+  if (!currentSession()) return;
+  setWebPushEnabled(false, generation);
   if (!pushSupported()) return;
   try {
     // При выходе нужна только уже существующая регистрация. ready может ждать вечно,
@@ -161,7 +162,7 @@ export async function disableWebPush(): Promise<void> {
     if (sub) {
       // Сначала говорим серверу, потом гасим подписку в браузере. Иначе на общем телефоне
       // следующий вошедший продолжал бы получать чужие уведомления: локального удаления мало.
-      await unsubscribeWebPush(sub.endpoint);
+      await unsubscribeWebPush(sub.endpoint, generation);
       if (!currentSession()) return;
       await sub.unsubscribe();
     }

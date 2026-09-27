@@ -289,13 +289,21 @@ import kotlinx.coroutines.withContext
  * чтобы паспорт был полным ещё до входа в активную поездку. Телефон водителя (ПДн) уходит
  * в secure-хранилище TripPassStore и НЕ логируется.
  */
+/** Completion also runs when a cancelled screen scope never starts the upload body. */
+internal fun kotlinx.coroutines.CoroutineScope.launchChatVoiceUpload(
+    path: String,
+    block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit,
+): kotlinx.coroutines.Job = launch(block = block).also { job ->
+    job.invokeOnCompletion { ApiClient.dropVoiceFile(path) }
+}
+
 private suspend fun saveTripPass(
     context: android.content.Context,
     d: com.yuldash.app.data.BookingDetailsDto,
     expectedGeneration: Long,
     retryMigration: Boolean = false,
 ): Boolean {
-    val code = ApiClient.getBoardingCode(d.bookingId).getOrNull()?.takeIf { it.isNotBlank() } ?: return false
+    val code = ApiClient.getBoardingCode(d.bookingId, expectedGeneration).getOrNull()?.takeIf { it.isNotBlank() } ?: return false
     return withContext(Dispatchers.IO) { TripPassStore.save(
         context,
         TripPass(
@@ -1462,6 +1470,8 @@ internal fun ActiveTripScreen(
     // F11: офлайн-паспорт брони. Читаем СРАЗУ из локального (secure) хранилища — данные видны без сети.
     var tripPass by remember(bookingId) { mutableStateOf(bookingId?.let { TripPassStore.load(context, it) }) }
     val tripSession = remember(bookingId) { ApiClient.queueSessionGeneration() }
+    val chatSession = remember(bookingId) { ChatScreenSession(tripSession) }
+    DisposableEffect(chatSession) { onDispose { chatSession.close() } }
     var removalFailed by remember(bookingId) { mutableStateOf(false) }
     var removalBusy by remember(bookingId) { mutableStateOf(false) }
     var removalRetry by remember(bookingId) { mutableStateOf(0) }
@@ -1526,7 +1536,7 @@ internal fun ActiveTripScreen(
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             // Recheck on lifecycle resume and before every poll: this screen belongs to one login.
             while (tripSession == ApiClient.queueSessionGeneration()) {
-                val stateResult = ApiClient.getTripState(id)
+                val stateResult = chatSession.run { ApiClient.getTripState(id, tripSession) }
                 if (tripSession != ApiClient.queueSessionGeneration()) return@repeatOnLifecycle
                 stateResult
                     .onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; acceptBookingStatus(st.status); offline = false }
@@ -1631,20 +1641,20 @@ internal fun ActiveTripScreen(
         if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
         historyLoading = true
         historyError = false
-        val historyResult = ApiClient.getMessages(id)
+        val historyResult = chatSession.run { ApiClient.getMessages(id, tripSession) }
         // Каждый запрос защищён отдельно, но следующий иначе захватит уже новый аккаунт.
         if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
         historyResult
             .onSuccess { messages = it }
             .onFailure { historyError = true }
         historyLoading = false
-        val codeResult = ApiClient.getBoardingCode(id)
+        val codeResult = chatSession.run { ApiClient.getBoardingCode(id, tripSession) }
         if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
         codeResult.onSuccess { code ->
             if (bookingStatus == "done" || bookingStatus == "cancelled") return@onSuccess
             if (code.isNotBlank()) boardingCode = code
         }
-        val detailsResult = ApiClient.getBookingDetails(id)
+        val detailsResult = chatSession.run { ApiClient.getBookingDetails(id, tripSession) }
         if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
         detailsResult.onSuccess { d ->
             payMethod = d.payMethod
@@ -1661,10 +1671,12 @@ internal fun ActiveTripScreen(
         bookingId?.let { id ->
             ChatSocket(
                 bookingId = id,
+                expectedGeneration = tripSession,
                 onMessage = { inc ->
                     // WS-колбэк приходит с фонового потока OkHttp → правку Compose-state делаем на main
                     // (read-modify-write `messages` иначе может потерять обновление при гонке потоков).
                     voiceScope.launch {
+                        chatSession.requireCurrent()
                         // оптимистичное = отрицательный id, не помеченное как «не доставлено», моё, тот же текст
                         val optIdx = messages.indexOfFirst { it.id < 0 && it.id !in failedIds && it.senderId == myId && it.text == inc.text }
                         val dto = MessageDto(inc.id, inc.text, inc.senderId, flag = inc.flag, fromAdmin = inc.fromAdmin)
@@ -1675,12 +1687,16 @@ internal fun ActiveTripScreen(
                         }
                     }
                 },
-                onConnected = { wsConnected = it },
+                onConnected = { connected -> voiceScope.launch {
+                    chatSession.requireCurrent()
+                    wsConnected = connected
+                } },
                 // Сервер не принял сообщение (слишком быстрый поток). Помечаем его
                 // «Не доставлено · Повторить» — тем же способом, что и отказ по обычному
                 // запросу. Молча оставить нельзя: оно висело бы как отправленное.
                 onRejected = { tempId, _ ->
                     voiceScope.launch {
+                        chatSession.requireCurrent()
                         failedIds = failedIds + tempId
                         Toast.makeText(context, tooFastMsg, Toast.LENGTH_SHORT).show()
                     }
@@ -1696,9 +1712,10 @@ internal fun ActiveTripScreen(
     // живой приём мог простоять, пока сокет был мёртв. Первый коннект не трогаем — историю уже грузит эффект выше.
     var wasEverConnected by remember(bookingId) { mutableStateOf(false) }
     LaunchedEffect(wsConnected) {
+        chatSession.requireCurrent()
         if (wsConnected) {
             if (wasEverConnected) {
-                bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { messages = it } }
+                bookingId?.let { id -> chatSession.run { ApiClient.getMessages(id, tripSession) }.onSuccess { messages = it } }
             }
             wasEverConnected = true
         }
@@ -1707,13 +1724,14 @@ internal fun ActiveTripScreen(
     // F11: авто-ретрай очереди исходящих при появлении сети. Слушаем ConnectivityManager: сеть вернулась →
     // разгружаем очередь (сообщения/статусы), затем подтягиваем авторитетную историю и состояние.
     fun flushOutbox() {
+        if (!chatSession.isCurrent()) return
         val id = bookingId ?: return
         voiceScope.launch {
-            val changed = Outbox.flush(context)
+            val changed = chatSession.run { Outbox.flush(context, tripSession) }
             if (changed) {
                 queuedIds = emptySet()
-                ApiClient.getMessages(id).onSuccess { messages = it }
-                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; acceptBookingStatus(st.status); offline = false }
+                chatSession.run { ApiClient.getMessages(id, tripSession) }.onSuccess { messages = it }
+                chatSession.run { ApiClient.getTripState(id, tripSession) }.onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; acceptBookingStatus(st.status); offline = false }
             }
         }
     }
@@ -1737,8 +1755,9 @@ internal fun ActiveTripScreen(
     //   отправится само при появлении сети (F11), ничего не теряется;
     // - ошибка сервера → «Не доставлено · Повторить» (ручной повтор, как прежде).
     fun deliver(tempId: Int, text: String) {
+        if (!chatSession.isCurrent()) return
         val bid = bookingId ?: return
-        val queueSession = ApiClient.queueSessionGeneration()
+        val queueSession = tripSession
         val ws = chatSocket
         // tempId уходит на сервер: если он откажется принять сообщение, вернёт этот же номер,
         // и мы пометим «Не доставлено» именно это сообщение (см. onRejected).
@@ -1746,8 +1765,8 @@ internal fun ActiveTripScreen(
         if (sentViaWs) return   // эхо WS заменит оптимистичное сообщение настоящим
         val action = restAttempts.getOrPut(tempId) { Outbox.newMessage(bid, text) }
         voiceScope.launch {
-            ApiClient.sendMessage(bid, action.payload, Outbox.messageRequestKey(action))
-                .onSuccess { ApiClient.getMessages(bid).onSuccess { messages = it } }   // забираем авторитетную историю
+            chatSession.run { ApiClient.sendMessage(bid, action.payload, Outbox.messageRequestKey(action), tripSession) }
+                .onSuccess { chatSession.run { ApiClient.getMessages(bid, tripSession) }.onSuccess { messages = it } }   // забираем авторитетную историю
                 .onFailure { e ->
                     if (e is ApiException) {
                         failedIds = failedIds + tempId
@@ -1756,7 +1775,7 @@ internal fun ActiveTripScreen(
                         Toast.makeText(context, serverSaid(e, sendFailMsg), Toast.LENGTH_LONG).show()
                     } else {
                         // Нет сети → в очередь на авто-ретрай. Сообщение остаётся на экране с меткой «в очереди».
-                        val saved = withContext(Dispatchers.IO) { Outbox.enqueue(context, action, queueSession) }
+                        val saved = chatSession.run { withContext(Dispatchers.IO) { Outbox.enqueue(context, action, queueSession) } }
                         if (saved) queuedIds = queuedIds + tempId else failedIds = failedIds + tempId
                         Toast.makeText(context, if (saved) queuedMsg else queueSaveFailMsg, Toast.LENGTH_SHORT).show()
                     }
@@ -1765,6 +1784,7 @@ internal fun ActiveTripScreen(
     }
 
     fun sendText(text: String) {
+        if (!chatSession.isCurrent()) return
         val t = text.trim()
         if (t.isEmpty() || bookingId == null) return
         val tempId = tempSeq
@@ -1774,6 +1794,7 @@ internal fun ActiveTripScreen(
     }
 
     fun retry(tempId: Int, text: String) {
+        if (!chatSession.isCurrent()) return
         failedIds = failedIds - tempId
         deliver(tempId, text)
     }
@@ -1789,19 +1810,20 @@ internal fun ActiveTripScreen(
     // Один шов для всех status-CTA: новая закреплённая кнопка B и старые сценарии используют
     // тот же серверный переход, очередь без сети и очистку офлайн-паспорта.
     fun updateTripStatus(st: String) {
+        if (!chatSession.isCurrent()) return
         val bid = bookingId
-        val queueSession = ApiClient.queueSessionGeneration()
+        val queueSession = tripSession
         if (role == "driver") {
             if (bid == null) {
                 if (st == "done") bookingStatus = "done"
             } else voiceScope.launch {
-                ApiClient.driverStatus(bid, st)
+                chatSession.run { ApiClient.driverStatus(bid, st, tripSession) }
                     .onSuccess {
                         if (st == "done") {
                             bookingStatus = "done"
                         } else {
                             Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
-                            ApiClient.getTripState(bid).onSuccess { s ->
+                            chatSession.run { ApiClient.getTripState(bid, tripSession) }.onSuccess { s ->
                                 role = s.role
                                 driverPhase = s.driverPhase
                                 arrivalVerified = s.arrivalVerified
@@ -1812,7 +1834,7 @@ internal fun ActiveTripScreen(
                     }
                     .onFailure { e ->
                         if (e !is ApiException) {
-                            val saved = withContext(Dispatchers.IO) { Outbox.enqueue(context, Outbox.newDriverStatus(bid, st), queueSession) }
+                            val saved = chatSession.run { withContext(Dispatchers.IO) { Outbox.enqueue(context, Outbox.newDriverStatus(bid, st), queueSession) } }
                             Toast.makeText(context, if (saved) queuedMsg else queueSaveFailMsg, Toast.LENGTH_SHORT).show()
                         } else {
                             // Сервер объясняет отказ подробно: «ты ещё далеко от места
@@ -1829,11 +1851,11 @@ internal fun ActiveTripScreen(
             if (bid == null) {
                 if (st == "done") bookingStatus = "done"
             } else voiceScope.launch {
-                ApiClient.setTripStatus(bid, st)
+                chatSession.run { ApiClient.setTripStatus(bid, st, tripSession) }
                     .onSuccess {
                         if (st == "done") {
                             bookingStatus = "done"
-                        } else ApiClient.getTripState(bid).onSuccess { s ->
+                        } else chatSession.run { ApiClient.getTripState(bid, tripSession) }.onSuccess { s ->
                             role = s.role
                             driverPhase = s.driverPhase
                             arrivalVerified = s.arrivalVerified
@@ -1843,7 +1865,7 @@ internal fun ActiveTripScreen(
                     }
                     .onFailure { e ->
                         if (e !is ApiException) {
-                            val saved = withContext(Dispatchers.IO) { Outbox.enqueue(context, Outbox.newTripStatus(bid, st), queueSession) }
+                            val saved = chatSession.run { withContext(Dispatchers.IO) { Outbox.enqueue(context, Outbox.newTripStatus(bid, st), queueSession) } }
                             if (!saved && status == st) status = previousStatus
                             Toast.makeText(context, if (saved) queuedMsg else queueSaveFailMsg, Toast.LENGTH_SHORT).show()
                         } else {
@@ -2452,11 +2474,11 @@ internal fun ActiveTripScreen(
                     canDeleteAll = saved && m.senderId == myId && !m.deleted,
                     canDeleteMine = saved && !m.deleted,
                     onRetry = { retry(m.id, m.text) },
-                    onEdit = { editingId = m.id; draft = m.text },
+                    onEdit = { if (chatSession.isCurrent()) { editingId = m.id; draft = m.text } },
                     onDelete = { scope ->
                         if (bookingId != null) voiceScope.launch {
-                            ApiClient.deleteMessage(bookingId, m.id, scope)
-                                .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
+                            chatSession.run { ApiClient.deleteMessage(bookingId, m.id, scope, tripSession) }
+                                .onSuccess { chatSession.run { ApiClient.getMessages(bookingId, tripSession) }.onSuccess { messages = it } }
                                 .onFailure { Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
                         }
                     },
@@ -2485,12 +2507,12 @@ internal fun ActiveTripScreen(
                     onDraftChange = { draft = it },
                     onSend = {
                         val t = draft.trim()
-                        if (t.isNotEmpty() && bookingId != null) {
+                        if (t.isNotEmpty() && bookingId != null && chatSession.isCurrent()) {
                             val eid = editingId
                             if (eid != null) {
                                 voiceScope.launch {
-                                    ApiClient.editMessage(bookingId, eid, t)
-                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
+                                    chatSession.run { ApiClient.editMessage(bookingId, eid, t, tripSession) }
+                                        .onSuccess { chatSession.run { ApiClient.getMessages(bookingId, tripSession) }.onSuccess { messages = it } }
                                         .onFailure { Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
                                 }
                                 editingId = null
@@ -2501,27 +2523,27 @@ internal fun ActiveTripScreen(
                         }
                     },
                     onVoiceRecorded = { path, _ ->
-                        Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show()
-                        if (bookingId != null) voiceScope.launch {
-                            val bytes = runCatching { File(path).readBytes() }.getOrNull()
-                            if (bytes != null) ApiClient.uploadVoice(bytes)
-                                .onSuccess { url ->
-                                    ApiClient.sendVoiceMessage(bookingId, url)   // результат больше НЕ выброшен: сбой = «не отправилось», не молчим
-                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                                }
-                                .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                            // Запись ушла (или не ушла) — на телефоне ей делать нечего: это голос
-                            // человека, и он не должен копиться в кеше до смены владельца (волна 75).
-                            ApiClient.dropVoiceFile(path)
-                        }
+                        if (bookingId != null && chatSession.isCurrent()) {
+                            Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show()
+                            voiceScope.launchChatVoiceUpload(path) {
+                                chatSession.requireCurrent()
+                                val bytes = runCatching { File(path).readBytes() }.getOrNull()
+                                if (bytes != null) chatSession.run { ApiClient.uploadVoice(bytes, tripSession) }
+                                    .onSuccess { url ->
+                                        chatSession.run { ApiClient.sendVoiceMessage(bookingId, url, tripSession) }
+                                            .onSuccess { chatSession.run { ApiClient.getMessages(bookingId, tripSession) }.onSuccess { messages = it } }
+                                            .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
+                                    }
+                                    .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
+                            }
+                        } else ApiClient.dropVoiceFile(path)
                     },
                     onPhotoPicked = { bytes ->
                         if (bookingId != null) voiceScope.launch {
-                            ApiClient.uploadChatPhoto(bytes)
+                            chatSession.run { ApiClient.uploadChatPhoto(bytes, expectedGeneration = tripSession) }
                                 .onSuccess { url ->
-                                    ApiClient.sendPhotoMessage(bookingId, url)   // результат больше НЕ выброшен
-                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
+                                    chatSession.run { ApiClient.sendPhotoMessage(bookingId, url, tripSession) }
+                                        .onSuccess { chatSession.run { ApiClient.getMessages(bookingId, tripSession) }.onSuccess { messages = it } }
                                         .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
                                 }
                                 .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
@@ -3811,5 +3833,3 @@ internal fun MessageBubble(
         }
     }
 }
-
-

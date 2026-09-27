@@ -3,7 +3,7 @@ import Image from "next/image";
 
 export default function NotFound() {
   return (
-    <main className="relative flex min-h-[100dvh] flex-col items-center justify-center px-6 text-center">
+    <main id="top" tabIndex={-1} className="relative flex min-h-[100dvh] flex-col items-center justify-center px-6 text-center">
       {/* фон-свечение */}
       <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(120%_120%_at_50%_0%,#10241a_0%,#0a1410_60%,#070f0b_100%)]" />
       <div className="pointer-events-none absolute left-1/2 top-1/3 -z-10 h-72 w-72 -translate-x-1/2 rounded-full bg-green-bright/20 blur-[120px]" />

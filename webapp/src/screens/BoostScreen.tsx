@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import {
   fetchBoostPlans,
   createBoost,
@@ -80,6 +80,7 @@ export default function BoostScreen() {
   const canPay = rideId != null && tier != null && !busy;
 
   async function pay() {
+    const owner = getSessionGeneration();
     if (!canPay || rideId == null || tier == null) return;
     setBusy(true);
     setError(null);
@@ -89,7 +90,7 @@ export default function BoostScreen() {
       // ЮKassa: уводим в браузерную оплату.
       if (res.status === "pending" && res.method === "yookassa" && res.confirmation_url) {
         // Уходим в банк целиком — номер платежа в памяти не переживёт возврата.
-        rememberPayment(res.payment_id, "boost", "/driver");
+        rememberPayment(res.payment_id, "boost", "/driver", owner);
         window.location.href = res.confirmation_url;
         return;
       }

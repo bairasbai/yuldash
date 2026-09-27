@@ -18,7 +18,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
+import { ownedStorage } from "../utils/ownedStorage";
 import { fetchDriverStatus, setDriverOnline, type DriverStatus } from "../api/driver";
 import { commissionLabel } from "../utils/commissionLabel";
 import {
@@ -193,6 +194,7 @@ function useNowMs(active = true): number {
 }
 
 export default function InstantDriverTripScreen() {
+  const personalStore = useRef(ownedStorage(getSessionGeneration())).current;
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
@@ -251,15 +253,15 @@ export default function InstantDriverTripScreen() {
           setDriver(st);
           setBoot("ready");
           // Восстановление активной поездки (id в localStorage — у водителя нет /mine).
-          const saved = Number(localStorage.getItem(ACTIVE_KEY) || 0);
+          const saved = Number(personalStore.getItem(ACTIVE_KEY) || 0);
           if (saved) {
             fetchInstantOrder(saved)
               .then((o) => {
                 if (!canRestoreDriverOrder(activeIdRef.current, saved)) return;
                 if (["accepted", "arriving", "onboard"].includes(o.status)) setCurrentActive(o);
-                else clearStoredDriverOrder(localStorage, ACTIVE_KEY, saved);
+                else clearStoredDriverOrder(personalStore, ACTIVE_KEY, saved);
               })
-              .catch(() => clearStoredDriverOrder(localStorage, ACTIVE_KEY, saved));
+              .catch(() => clearStoredDriverOrder(personalStore, ACTIVE_KEY, saved));
           }
         });
       })
@@ -421,7 +423,7 @@ export default function InstantDriverTripScreen() {
         .then((o) => {
           if (!alive || !isCurrentDriverOrderPoll(activeIdRef.current, orderId)) return;
           if (isReleasedDriverOrderStatus(o.status)) {
-            clearStoredDriverOrder(localStorage, ACTIVE_KEY, orderId);
+            clearStoredDriverOrder(personalStore, ACTIVE_KEY, orderId);
             setTripNote("");
             setEndedNote(
               o.status === "cancelled"
@@ -442,7 +444,7 @@ export default function InstantDriverTripScreen() {
           }
           setCurrentActive(o);
           if (o.status === "done") {
-            clearStoredDriverOrder(localStorage, ACTIVE_KEY, orderId);
+            clearStoredDriverOrder(personalStore, ACTIVE_KEY, orderId);
           }
         })
         .catch(() => {});
@@ -476,7 +478,7 @@ export default function InstantDriverTripScreen() {
       const o = await acceptOrder(offer.id);
       setCurrentActive(o);
       setOffer(null);
-      localStorage.setItem(ACTIVE_KEY, String(o.id));
+      personalStore.setItem(ACTIVE_KEY, String(o.id));
       return "accepted";
     } catch (e) {
       const st = e instanceof ApiError ? e.status : -1;
@@ -565,7 +567,7 @@ export default function InstantDriverTripScreen() {
       setCurrentActive(o);
       setTripNote("");
       // «Готово» — экран финала (доход, оценка пассажира); чек — кнопкой с него.
-      if (o.status === "done") clearStoredDriverOrder(localStorage, ACTIVE_KEY, o.id);
+      if (o.status === "done") clearStoredDriverOrder(personalStore, ACTIVE_KEY, o.id);
     } catch (e) {
       // Молчать нельзя, особенно на «Завершить»: водитель уверен, что закрыл
       // поездку, убирает телефон и уезжает — а заказ висит открытым.
@@ -589,7 +591,7 @@ export default function InstantDriverTripScreen() {
     try {
       const o = await cancelInstantOrder(active.id, reason);
       track("instant_order_cancel");
-      clearStoredDriverOrder(localStorage, ACTIVE_KEY, active.id);
+      clearStoredDriverOrder(personalStore, ACTIVE_KEY, active.id);
       // Заказ закрыт (не вышел / пассажир уже в машине) — экран «Заказ отменён», как в приложении.
       // До посадки сервер отдаёт заказ следующему водителю и возвращает его в поиске — нам он
       // больше не принадлежит, возвращаемся на линию.
@@ -615,7 +617,7 @@ export default function InstantDriverTripScreen() {
 
   /** Финал закрыт: «Вернуться на линию» — экран ожидания, тумблер как был. */
   function releaseActive() {
-    if (active) clearStoredDriverOrder(localStorage, ACTIVE_KEY, active.id);
+    if (active) clearStoredDriverOrder(personalStore, ACTIVE_KEY, active.id);
     setCurrentActive(null);
     setTripNote("");
     setEndedNote(""); // отмену человек уже видел экраном — повторять её строкой незачем

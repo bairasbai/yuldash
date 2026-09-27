@@ -9,7 +9,7 @@ const response=(status,body={})=>new Response(JSON.stringify(body),{status});
 async function check(name,fn){
  globalThis.indexedDB=new IDBFactory();const storage=new Map();globalThis.localStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)};
  const api=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'\n//'+serial++).toString('base64'));api.setSession('A','refresh-A');api.setRefreshHandler(api.refreshSession);
- let cleared=0;const cleanup=[];api.setUnauthorizedHandler(()=>{cleared++;cleanup.push(api.clearOutbox());});
+ let cleared=0;const cleanup=[];api.setUnauthorizedHandler(owner=>{cleared++;cleanup.push(api.clearOutbox(owner));});
  try{await fn({api,cleared:()=>cleared,cleanup});passed++;console.log('✓ '+name);}catch(e){failed++;console.log('FAIL '+name+': '+e.message);}
 }
 for(const failure of [0,400,408,422,429,500,503,'broken','empty'])await check('refresh '+failure+' preserves session and queued message until recovery',async({api,cleared})=>{

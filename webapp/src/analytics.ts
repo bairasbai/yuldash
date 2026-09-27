@@ -12,6 +12,7 @@
 //  блокируем и агрессивно не ретраим. Появится ручка на бэке — просто заработает.
 // ================================================================
 import { API_BASE } from "./api/client";
+import { ownedStorage, captureOwner } from "./utils/ownedStorage";
 
 const CID_KEY = "yuldash.cid";
 const LANG_KEY = "yuldash.lang"; // тот же ключ, что у i18n/lang
@@ -24,15 +25,16 @@ export type TrackProps = Record<string, string | number | boolean>;
 const DENY = /phone|tel|name|lat|lng|lon|coord|token|email|address|addr|otp|code|secret|password/i;
 
 /** Анонимный идентификатор устройства (uuid). Не персональные данные. */
-function clientId(): string {
+function clientId(owner: string | null): string {
   try {
-    let id = localStorage.getItem(CID_KEY);
+    const store = ownedStorage(owner);
+    let id = store.getItem(CID_KEY);
     if (!id) {
       id =
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : `yu-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-      localStorage.setItem(CID_KEY, id);
+      store.setItem(CID_KEY, id);
     }
     return id;
   } catch {
@@ -70,13 +72,14 @@ function sanitize(props?: TrackProps): TrackProps {
  * props — только безопасный контекст (роль, категория, класс, город). Без PII.
  */
 export function track(event: string, props?: TrackProps): void {
+  const owner = captureOwner();
   const payload = {
     event,
-    client_id: clientId(),
+    client_id: clientId(owner),
     ts: Date.now(),
     // Общий безопасный контекст — подставляем автоматически, чтобы вызовы были короткими.
     lang: localStorage.getItem(LANG_KEY) === "ba" ? "ba" : "ru",
-    role: localStorage.getItem(ROLE_KEY) === "driver" ? "driver" : "passenger",
+    role: ownedStorage(owner).getItem(ROLE_KEY) === "driver" ? "driver" : "passenger",
     standalone: isStandalone(),
     ...sanitize(props),
   };

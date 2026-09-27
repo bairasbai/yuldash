@@ -3,7 +3,7 @@ import hmac
 import re
 import secrets
 import string
-from datetime import timedelta
+from datetime import timedelta, timezone
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
@@ -77,7 +77,8 @@ def make_token(user_id: int, *, issued_after=None) -> str:
     # (часы Windows дают одинаковое значение соседним вызовам) защищает явная выдача
     # строго после сохранённой границы + нестрогое сравнение в _token_revoked.
     return jwt.encode(
-        {"sub": str(user_id), "iat": now.timestamp(), "exp": exp},
+        {"sub": str(user_id), "iat": now.replace(tzinfo=timezone.utc).timestamp(),
+         "iat_utc": True, "exp": exp},
         settings.jwt_secret, algorithm="HS256",
     )
 
@@ -268,10 +269,17 @@ def _token_revoked(payload: dict, user: User) -> bool:
     сессии, поэтому он тоже считается отозванным."""
     if not user.tokens_valid_from:
         return False
+    # Older workers emitted a local-time-shifted iat. Once this user has logged
+    # out, that value cannot prove a token is newer than the cutoff. The signed
+    # marker distinguishes corrected UTC tokens without rejecting every legacy
+    # session on upgrade. Do not run old/new issuers together during rollout.
+    if payload.get("iat_utc") is not True:
+        return True
     iat = payload.get("iat")
     if iat is None:
         return True
-    return float(iat) <= user.tokens_valid_from.timestamp()
+    # DB timestamps are naive UTC, not the process's local wall clock.
+    return float(iat) <= user.tokens_valid_from.replace(tzinfo=timezone.utc).timestamp()
 
 
 def gen_otp() -> str:

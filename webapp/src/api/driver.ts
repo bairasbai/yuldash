@@ -124,9 +124,10 @@ export type DriverPhase = "departed" | "arriving" | "done";
 
 export function setDriverStatus(
   bookingId: number,
-  status: DriverPhase
+  status: DriverPhase,
+  expectedGeneration?: string
 ): Promise<{ ok?: boolean; status?: string }> {
-  return apiPost(`/bookings/${bookingId}/driver-status`, { status });
+  return apiPost(`/bookings/${bookingId}/driver-status`, { status }, { expectedGeneration });
 }
 
 /** Завершить весь рейс (все брони разом) — POST /rides/{id}/complete. */

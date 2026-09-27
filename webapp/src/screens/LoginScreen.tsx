@@ -29,7 +29,12 @@ export default function LoginScreen() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from ?? "/map";
+  const requestedFrom: unknown = (location.state as { from?: unknown } | null)?.from;
+  // History state is not a trusted URL. Router v7 rejects external navigation;
+  // retain complete local destinations, but never accept schemes/authority paths.
+  const from = typeof requestedFrom === "string" && requestedFrom.startsWith("/") &&
+    !requestedFrom.startsWith("//") && !/[\\\u0000-\u0020\u007f]/.test(requestedFrom)
+    ? requestedFrom : "/map";
 
   const [step, setStep] = useState<Step>("choose");
   const [requestId, setRequestId] = useState("");

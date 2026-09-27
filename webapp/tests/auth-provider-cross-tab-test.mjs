@@ -17,8 +17,11 @@ const mocks = {
     export const useMemo=fn=>fn();`,
   'react/jsx-runtime': `export const jsx=(type,props)=>({type,props}),jsxs=jsx;`,
   client: `const h=globalThis.__authProviderCrossTab;
-    export const getToken=()=>h.token,getSessionGeneration=()=>String(h.generation);
-    export const setSession=(token,refresh)=>{h.token=token;h.refresh=refresh;h.generation++;};
+    export const revokedGeneration=owner=>'revoked:'+owner,SESSION_REVOKE_PREFIX='yuldash.session.revoked.';
+    export const revokeSession=owner=>{h.token=null;h.refresh=null;h.generation=revokedGeneration(owner);};
+    const read=()=>{if(h.storageFailed)throw new Error('Session storage unavailable');};
+    export const getToken=()=>{read();return h.token;},getSessionGeneration=()=>{read();return String(h.generation);};
+    export const setSession=(token,refresh)=>{h.token=token;h.refresh=refresh;h.generation++;const committed=String(h.generation);h.afterCommit?.();return committed;};
     export const setRefreshHandler=fn=>h.refreshHandler=fn,setUnauthorizedHandler=fn=>h.unauthorizedHandler=fn;`,
   auth: `const h=globalThis.__authProviderCrossTab;
     export const fetchMe=()=>{const request=h.makeDeferred();request.token=h.token;h.requests.push(request);return request.promise;};
@@ -34,7 +37,8 @@ const result = await build({entryPoints:[root+'src/auth/AuthProvider.tsx'],bundl
   b.onLoad({filter:/.*/,namespace:'boundary'},a=>({contents:mocks[a.path],loader:'js'}));
 }}]});
 const {AuthProvider} = await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
-function reset(){delete globalThis.caches;globalThis.window=new EventTarget();globalThis.localStorage={getItem:key=>key==='yuldash.token'?h.token:key==='yuldash.session'?String(h.generation):null};Object.assign(h,{states:[],refs:[],callbacks:[],effectDeps:[],effects:[],cleanups:[],requests:[],token:'A',refresh:'refresh-A',generation:1,makeDeferred:deferred,disable:deferred(),serverLogout:deferred(),logoutBearers:[],clears:[]});}
+function storedSession(){return JSON.stringify({version:1,generation:String(h.generation),access:h.token,refresh:h.refresh});}
+function reset(){delete globalThis.caches;globalThis.window=new EventTarget();globalThis.localStorage={getItem:key=>key==='yuldash.token'?h.token:key==='yuldash.session'?storedSession():null};Object.assign(h,{states:[],refs:[],callbacks:[],effectDeps:[],effects:[],cleanups:[],requests:[],token:'A',refresh:'refresh-A',generation:1,storageFailed:false,makeDeferred:deferred,disable:deferred(),serverLogout:deferred(),logoutBearers:[],clears:[]});}
 function render(){h.si=h.ri=h.ei=h.ci=0;return AuthProvider({children:null}).props.value;}
 function mount(){reset();const value=render();for(const fn of h.effects.splice(0))h.cleanups.push(fn());return value;}
 const A={id:101,name:'Account A'}, B={id:202,name:'Account B'};
@@ -46,9 +50,9 @@ async function test(label,fn){total++;try{await fn();console.log('PASS '+label);
 
 // External tab has already committed shared storage before the browser emits storage.
 function externalSession(token, generation) {
-  const oldValue=String(h.generation);h.token=token;h.generation=generation;
+  const oldValue=storedSession();h.token=token;h.generation=generation;
   const event=new Event('storage');
-  Object.assign(event,{key:'yuldash.session',oldValue,newValue:String(generation),storageArea:localStorage});
+  Object.assign(event,{key:'yuldash.session',oldValue,newValue:storedSession(),storageArea:localStorage});
   window.dispatchEvent(event);
 }
 function requireRequest(token) {
@@ -79,8 +83,8 @@ await test('late startup A failure cannot remove external login B',async()=>{
   a.reject(new Error('old A failed'));await flush();assertUser(202);
 });
 await test('same-session token refresh storage event preserves A UI',async()=>{
-  await readyA();h.token='A-refreshed';
-  const event=new Event('storage');Object.assign(event,{key:'yuldash.token',oldValue:'A',newValue:h.token,storageArea:localStorage});window.dispatchEvent(event);
+  await readyA();const oldValue=storedSession();h.token='A-refreshed';h.refresh='refresh-A-new';
+  const event=new Event('storage');Object.assign(event,{key:'yuldash.session',oldValue,newValue:storedSession(),storageArea:localStorage});window.dispatchEvent(event);
   await flush();assertUser(101);assert.equal(h.requests.length,1,'Token rotation in same session must not restart profile');
 });
 await test('logout already waiting from A must not send logout as external B',async()=>{
@@ -111,6 +115,28 @@ await test('manual retry restores unavailable profile',async()=>{
 });
 await test('old retry marker cannot reload or hide a newly logged-in account',async()=>{
  mount();h.requests[0].reject(new Error('offline'));await flush();loginB();window.dispatchEvent(new Event('online'));assert.equal(h.requests.length,1);assertB();
+});
+await test('unreadable startup storage shows unavailable and retries without inventing a session',async()=>{
+ reset();h.storageFailed=true;render();for(const fn of h.effects.splice(0))h.cleanups.push(fn());
+ assert.equal(render().status,'unavailable');assert.equal(render().user,null);assert.equal(h.requests.length,0);assert.deepEqual(h.clears,[]);
+ render().retrySession();assert.equal(render().status,'unavailable');assert.equal(h.requests.length,0);
+ h.storageFailed=false;render().retrySession();assert.equal(render().status,'loading');assert.equal(h.requests.length,1);
+ h.requests[0].resolve(A);await flush();assertUser(101);
+});
+await test('unreadable external session hides private profile until storage recovers',async()=>{
+ await readyA();h.storageFailed=true;
+ const event=new Event('storage');Object.assign(event,{key:'yuldash.session',newValue:storedSession(),storageArea:localStorage});window.dispatchEvent(event);
+ assert.equal(render().status,'unavailable');assert.equal(render().user,null);assert.equal(h.requests.length,1);
+ h.storageFailed=false;externalSession('B',2);requireRequest('B').resolve(B);await flush();assertUser(202);
+});
+await test('successful local login clears a previous storage retry',async()=>{
+ reset();h.storageFailed=true;render();for(const fn of h.effects.splice(0))h.cleanups.push(fn());
+ h.storageFailed=false;loginB();window.dispatchEvent(new Event('online'));assertB();assert.equal(h.requests.length,0);
+});
+await test('C committed inside B login cannot leave profile B with credentials C',async()=>{
+ await readyA();h.afterCommit=()=>{h.token='C';h.refresh='refresh-C';h.generation=3;};
+ loginB();h.afterCommit=null;assert.equal(render().user,null);assert.equal(render().status,'loading');
+ externalSession('C',3);requireRequest('C').resolve({id:303,name:'Account C'});await flush();assertUser(303);
 });
 console.log(`AuthProvider cross-tab: ${total-failed} passed, ${failed} failed`);
 if(failed)process.exitCode=1;

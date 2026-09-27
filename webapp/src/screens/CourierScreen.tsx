@@ -16,7 +16,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PriorityCard from "../components/PriorityCard";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import {
   fetchCourierMe,
   courierOnline,
@@ -655,6 +655,7 @@ function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
   const navigate = useNavigate();
 
   async function onPay() {
+    const owner = getSessionGeneration();
     if (busy) return;
     setBusy(true);
     setMsg(null);
@@ -665,7 +666,7 @@ function Cabinet({ me, onReload }: { me: CourierMe; onReload: () => void }) {
         setMsg({ ru: "Комиссия оплачена. Спасибо! 💚", ba: "Комиссия түләнде. Рәхмәт! 💚" });
         onReload();
       } else if (r.method === "yookassa" && r.confirmation_url) {
-        rememberPayment(r.payment_id, "commission", "/courier");
+        rememberPayment(r.payment_id, "commission", "/courier", owner);
         window.location.href = r.confirmation_url;
       } else {
         setPay(r); // sbp_manual — реквизиты

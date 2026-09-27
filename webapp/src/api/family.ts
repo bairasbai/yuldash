@@ -85,8 +85,8 @@ export function revokeBookingShare(
 }
 
 /** «Села / доехала / завершила» — близкие получают SMS только при реальной смене статуса. */
-export function setTripStatus(bookingId: number, status: TripStatus): Promise<TripShare[]> {
-  return apiPost<TripShare[]>(`/bookings/${bookingId}/trip-status`, { status });
+export function setTripStatus(bookingId: number, status: TripStatus, expectedGeneration?: string): Promise<TripShare[]> {
+  return apiPost<TripShare[]>(`/bookings/${bookingId}/trip-status`, { status }, { expectedGeneration });
 }
 
 // --- Такси (заказ) ---

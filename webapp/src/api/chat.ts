@@ -38,12 +38,13 @@ export function sendMessageRest(
   bookingId: number,
   text: string,
   voiceUrl?: string,
-  requestId?: string
+  requestId?: string,
+  expectedGeneration?: string
 ): Promise<ChatMessage> {
   return apiPost<ChatMessage>(`/bookings/${bookingId}/messages`, {
     text,
     voice_url: voiceUrl,
-  }, { idempotencyKey: requestId });
+  }, { idempotencyKey: requestId, expectedGeneration });
 }
 
 /**

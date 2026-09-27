@@ -4,6 +4,7 @@
 //  Старые отметки без владельца восстанавливаются через сервер, не наследуются.
 // ================================================================
 import { getSessionGeneration } from "./api/client";
+import { ownedStorage, captureOwner } from "./utils/ownedStorage";
 
 export type Role = "passenger" | "driver";
 export type ConsentKind = "offer" | "privacy" | "geo";
@@ -32,25 +33,25 @@ export const flags = {
   onboarded: () => readBool(K.onboarded),
   setOnboarded: () => writeBool(K.onboarded, true),
 
-  role: (): Role => (localStorage.getItem(K.role) === "driver" ? "driver" : "passenger"),
-  setRole: (r: Role) => localStorage.setItem(K.role, r),
+  role: (): Role => (ownedStorage(captureOwner()).getItem(K.role) === "driver" ? "driver" : "passenger"),
+  setRole: (r: Role, owner = getSessionGeneration()) => ownedStorage(owner).setItem(K.role, r),
 
   simpleMode: () => readBool(K.simpleMode),
   setSimpleMode: (v: boolean) => writeBool(K.simpleMode, v),
 
-  consents(): Consents {
+  consents(owner = getSessionGeneration()): Consents {
     try {
-      const raw = localStorage.getItem(K.consents);
+      const raw = ownedStorage(owner).getItem(K.consents) ?? (owner ? localStorage.getItem(K.consents) : null);
       const o = raw ? (JSON.parse(raw) as Partial<Consents> & { session?: string }) : {};
-      if (o.session !== getSessionGeneration()) return { offer: false, privacy: false, geo: false };
+      if (o.session !== owner || owner !== getSessionGeneration()) return { offer: false, privacy: false, geo: false };
       return { offer: !!o.offer, privacy: !!o.privacy, geo: !!o.geo };
     } catch {
       return { offer: false, privacy: false, geo: false };
     }
   },
-  setConsent(kind: ConsentKind, value: boolean): Consents {
-    const next = { ...this.consents(), [kind]: value };
-    localStorage.setItem(K.consents, JSON.stringify({ ...next, session: getSessionGeneration() }));
+  setConsent(kind: ConsentKind, value: boolean, owner = getSessionGeneration()): Consents {
+    const next = { ...this.consents(owner), [kind]: value };
+    ownedStorage(owner).setItem(K.consents, JSON.stringify({ ...next, session: owner }));
     return next;
   },
 };

@@ -17,7 +17,7 @@ const check = (ok, label, extra = "") => {
 };
 
 const KEY = "taxi-application";
-const P = "yuldash.draft." + KEY;
+const P = "yuldash.owner.:yuldash.draft." + KEY;
 
 // --- 1. Записал → прочитал ---
 d.writeDraft(KEY, { inn: "027812345678", permit: "АА-123", carClass: "comfort" });

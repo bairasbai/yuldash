@@ -27,7 +27,7 @@ check(
 );
 check(
   screen.includes("if (isTerminalBookingStatus(fresh.status))") &&
-    screen.includes("dropTripPass(bookingId)"),
+    screen.includes("dropTripPass(bookingId, sessionOwner)"),
   "done/cancelled из /role сразу очищает TripPass"
 );
 check(

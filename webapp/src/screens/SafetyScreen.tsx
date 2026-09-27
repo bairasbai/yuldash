@@ -11,6 +11,7 @@
 //  приложения одна настройка жила бы своей жизнью.
 // ================================================================
 import { useState } from "react";
+import { captureOwner } from "../utils/ownedStorage";
 import { Link, useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { loadFilters, saveFilters } from "../filterPrefs";
@@ -26,13 +27,14 @@ import {
 } from "../components/Icons";
 
 export default function SafetyScreen() {
+  const [personalOwner] = useState(captureOwner);
   const { appText } = useLang();
   const navigate = useNavigate();
   const [onlyTrusted, setOnlyTrusted] = useState(() => loadFilters().onlyTrusted);
 
   function toggleTrusted(next: boolean) {
     setOnlyTrusted(next);
-    saveFilters({ ...loadFilters(), onlyTrusted: next });
+    saveFilters({ ...loadFilters(), onlyTrusted: next }, personalOwner);
   }
 
   const rows: { to: string; icon: JSX.Element; title: string; sub: string }[] = [

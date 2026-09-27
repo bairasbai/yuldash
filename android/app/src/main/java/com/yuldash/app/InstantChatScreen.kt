@@ -48,11 +48,34 @@ import com.yuldash.app.data.MessageDto
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+
+/** A retained screen must never continue an old account's work using a new login. */
+internal class ChatScreenSession(val generation: Long = ApiClient.queueSessionGeneration()) {
+    @Volatile private var active = true
+    fun isCurrent(): Boolean = active && generation == ApiClient.queueSessionGeneration()
+    fun close() { active = false }
+    fun requireCurrent() {
+        if (!isCurrent()) throw CancellationException("Chat screen owner changed")
+    }
+    suspend fun <T> run(block: suspend () -> T): T {
+        currentCoroutineContext().ensureActive()
+        requireCurrent()
+        val result = block()
+        currentCoroutineContext().ensureActive()
+        requireCurrent()
+        return result
+    }
+}
 
 @Composable
 internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val chatSession = remember(orderId) { ChatScreenSession() }
+    DisposableEffect(chatSession) { onDispose { chatSession.close() } }
     val myId = remember { ApiClient.myUserId() ?: -1 }
 
     var messages by remember(orderId) { mutableStateOf<List<MessageDto>>(emptyList()) }
@@ -67,6 +90,9 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
     var role by remember(orderId) { mutableStateOf("") }
     var orderStatus by remember(orderId) { mutableStateOf("") }
     val readOnly = orderStatus == "done" || orderStatus == "cancelled" || orderStatus == "expired"
+    fun acceptOrderStatus(value: String) {
+        if (orderStatus !in setOf("done", "cancelled", "expired")) orderStatus = value
+    }
 
     val sendFailMsg = appText("Сообщение не отправлено. Повтори.", "Хәбәр ебәрелмәне. Ҡабатла.")
     val tooFastMsg = appText("Слишком быстро. Подожди минуту и продолжи.",
@@ -74,10 +100,11 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
 
     // История + статус заказа (REST). Повтор — по кнопке «Повторить» (historyTick).
     LaunchedEffect(orderId, historyTick) {
+        chatSession.requireCurrent()
         historyLoading = true
         historyError = false
-        ApiClient.getInstantOrder(orderId).onSuccess { role = it.role; orderStatus = it.status }
-        ApiClient.getOrderMessages(orderId)
+        chatSession.run { ApiClient.getInstantOrder(orderId, chatSession.generation) }.onSuccess { role = it.role; acceptOrderStatus(it.status) }
+        chatSession.run { ApiClient.getOrderMessages(orderId, chatSession.generation) }
             .onSuccess { messages = it }
             .onFailure { historyError = true }
         historyLoading = false
@@ -88,9 +115,9 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(orderId, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            while (isActive) {
+            while (isActive && chatSession.isCurrent()) {
                 delay(15_000)
-                ApiClient.getInstantOrder(orderId).onSuccess { role = it.role; orderStatus = it.status }
+                chatSession.run { ApiClient.getInstantOrder(orderId, chatSession.generation) }.onSuccess { role = it.role; acceptOrderStatus(it.status) }
                 // expired — тоже конечный статус (чат уже read-only): дальше опрашивать нечего.
                 if (orderStatus == "done" || orderStatus == "cancelled" || orderStatus == "expired") break
             }
@@ -101,8 +128,10 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
     val chatSocket = remember(orderId) {
         ChatSocket.forOrder(
             orderId,
+            expectedGeneration = chatSession.generation,
             onMessage = { inc ->
                 scope.launch {
+                    chatSession.requireCurrent()
                     val optIdx = messages.indexOfFirst { it.id < 0 && it.senderId == myId && it.text == inc.text }
                     val dto = MessageDto(inc.id, inc.text, inc.senderId, flag = inc.flag, fromAdmin = inc.fromAdmin)
                     messages = when {
@@ -112,12 +141,16 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
                     }
                 }
             },
-            onConnected = { wsConnected = it },
+            onConnected = { connected -> scope.launch {
+                chatSession.requireCurrent()
+                wsConnected = connected
+            } },
             // Сервер не принял сообщение (слишком быстрый поток). Убираем его с экрана и
             // возвращаем текст в поле ввода — иначе оно висело бы как отправленное, а на
             // самом деле не ушло никуда.
             onRejected = { tempId, _ ->
                 scope.launch {
+                    chatSession.requireCurrent()
                     val lost = messages.firstOrNull { it.id == tempId }
                     messages = messages.filter { it.id != tempId }
                     if (lost != null && input.isBlank()) input = lost.text
@@ -133,13 +166,15 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
     // После реконнекта дотягиваем пропущенное по REST (живой приём стоял, пока сокет был мёртв).
     var wasEverConnected by remember(orderId) { mutableStateOf(false) }
     LaunchedEffect(wsConnected) {
+        chatSession.requireCurrent()
         if (wsConnected) {
-            if (wasEverConnected) ApiClient.getOrderMessages(orderId).onSuccess { messages = it }
+            if (wasEverConnected) chatSession.run { ApiClient.getOrderMessages(orderId, chatSession.generation) }.onSuccess { messages = it }
             wasEverConnected = true
         }
     }
 
     fun send() {
+        if (!chatSession.isCurrent()) return
         val text = input.trim()
         if (text.isEmpty() || sending || readOnly) return
         val tempId = tempSeq
@@ -150,8 +185,8 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
         if (viaWs) return   // эхо WS заменит оптимистичное настоящим
         sending = true
         scope.launch {
-            ApiClient.sendOrderMessage(orderId, text)
-                .onSuccess { ApiClient.getOrderMessages(orderId).onSuccess { messages = it } }
+            chatSession.run { ApiClient.sendOrderMessage(orderId, text, chatSession.generation) }
+                .onSuccess { chatSession.run { ApiClient.getOrderMessages(orderId, chatSession.generation) }.onSuccess { messages = it } }
                 .onFailure {
                     messages = messages.filter { it.id != tempId }   // честно: не ушло — не показываем
                     input = text

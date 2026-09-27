@@ -48,9 +48,9 @@ export function serializeSubscription(sub: PushSubscription): WebPushSubscriptio
  * Отправить подписку на сервер. Требует авторизации (Bearer) — подписка
  * привязывается к аккаунту. 404/405 → PushBackendMissing (мягко).
  */
-export async function sendWebPushSubscription(sub: PushSubscription): Promise<void> {
+export async function sendWebPushSubscription(sub: PushSubscription, expectedGeneration?: string): Promise<void> {
   try {
-    await apiPost<{ ok: boolean }>("/push/web/subscribe", serializeSubscription(sub));
+    await apiPost<{ ok: boolean }>("/push/web/subscribe", serializeSubscription(sub), { expectedGeneration });
   } catch (e) {
     if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
       throw new PushBackendMissing();
@@ -77,8 +77,8 @@ export function unregisterPush(token: string): Promise<{ ok: boolean }> {
  *
  * Идемпотентно, ошибки глотаем: выход из аккаунта не должен падать из-за пуша.
  */
-export function unsubscribeWebPush(endpoint: string): Promise<{ ok: boolean }> {
-  return apiPost<{ ok: boolean }>("/push/web/unsubscribe", { endpoint }).catch(() => ({
+export function unsubscribeWebPush(endpoint: string, expectedGeneration?: string): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>("/push/web/unsubscribe", { endpoint }, { expectedGeneration }).catch(() => ({
     ok: false,
   }));
 }

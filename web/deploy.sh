@@ -40,6 +40,8 @@ retry() { # retry <описание> <команда...>
 
 echo "== 1/4 сборка =="
 npm run build
+# APK не хранится в git. Не заменять живой сайт сборкой без его скачиваемых файлов.
+node scripts/check-public-export.mjs --release
 
 echo "== 2/4 упаковка =="
 tar czf "$TARBALL" -C out .

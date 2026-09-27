@@ -24,6 +24,9 @@
 //   • в аналитику и логи ничего из паспорта не уходит.
 // ================================================================
 
+import { getSessionGeneration } from "../api/client";
+import { ownedStorage } from "./ownedStorage";
+
 /** Ключ на бронь: паспортов может быть несколько (две поездки в один день). */
 const KEY = (bookingId: number) => `yuldash.tripPass.${bookingId}`;
 
@@ -52,18 +55,20 @@ export interface TripPass {
  * Пустой код посадки не мешает: у части поездок его нет, а госномер и телефон
  * нужны всё равно.
  */
-export function saveTripPass(p: Omit<TripPass, "savedAt">): void {
+export function saveTripPass(p: Omit<TripPass, "savedAt">, owner?: string): void {
   try {
-    localStorage.setItem(KEY(p.bookingId), JSON.stringify({ ...p, savedAt: Date.now() }));
+    owner ??= getSessionGeneration();
+    ownedStorage(owner).setItem(KEY(p.bookingId), JSON.stringify({ ...p, savedAt: Date.now() }));
   } catch {
     /* приватный режим или переполнение — офлайн-паспорта просто не будет */
   }
 }
 
 /** Достать паспорт. Нет или битый — null, экран просто не покажет карточку. */
-export function loadTripPass(bookingId: number): TripPass | null {
+export function loadTripPass(bookingId: number, owner?: string): TripPass | null {
   try {
-    const raw = localStorage.getItem(KEY(bookingId));
+    owner ??= getSessionGeneration();
+    const raw = ownedStorage(owner).getItem(KEY(bookingId));
     if (!raw) return null;
     const v = JSON.parse(raw) as TripPass;
     return v && typeof v === "object" && v.bookingId === bookingId ? v : null;
@@ -78,9 +83,10 @@ export function loadTripPass(bookingId: number): TripPass | null {
  * Держать его дольше нельзя — это телефон живого человека и код посадки,
  * которые после поездки не нужны никому.
  */
-export function dropTripPass(bookingId: number): void {
+export function dropTripPass(bookingId: number, owner?: string): void {
   try {
-    localStorage.removeItem(KEY(bookingId));
+    owner ??= getSessionGeneration();
+    ownedStorage(owner).removeItem(KEY(bookingId));
   } catch {
     /* не критично */
   }

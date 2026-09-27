@@ -12,7 +12,7 @@ none», просроченный, выписанный до «выйти со в
 
 Тесты ниже — про сам вход, поэтому проверяют его напрямую, а не через один эндпоинт.
 """
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 import pytest
 from jose import jwt
@@ -29,13 +29,13 @@ def _token(**claims) -> str:
 def test_токен_без_срока_жизни_не_принимается():
     """Вечный ключ — это ключ, который нельзя отозвать временем."""
     with pytest.raises(Exception):
-        _decode(_token(sub="1", iat=utcnow().timestamp()))
+        _decode(_token(sub="1", iat=utcnow().replace(tzinfo=timezone.utc).timestamp()))
 
 
 def test_токен_без_владельца_не_принимается():
     """Без `sub` непонятно, чей это ключ вообще."""
     with pytest.raises(Exception):
-        _decode(_token(exp=(utcnow() + timedelta(days=1)).timestamp()))
+        _decode(_token(exp=(utcnow() + timedelta(days=1)).replace(tzinfo=timezone.utc).timestamp()))
 
 
 def test_нормальный_токен_работает(client, user_factory):
@@ -49,8 +49,8 @@ def test_просроченный_токен_не_пускает(client, user_fa
     """Регресс на то, что и так работало: срок жизни соблюдается."""
     person = user_factory("Человек со старым токеном")
     stale = _token(sub=str(person["id"]),
-                   iat=(utcnow() - timedelta(days=9)).timestamp(),
-                   exp=(utcnow() - timedelta(days=8)).timestamp())
+                   iat=(utcnow() - timedelta(days=9)).replace(tzinfo=timezone.utc).timestamp(),
+                   exp=(utcnow() - timedelta(days=8)).replace(tzinfo=timezone.utc).timestamp())
     r = client.get("/me", headers={"Authorization": f"Bearer {stale}"})
     assert r.status_code == 401, r.text
 
@@ -59,8 +59,8 @@ def test_подделанная_подпись_не_пускает(client, user_
     """Регресс: секрет чужой — дверь закрыта."""
     person = user_factory("Человек с поддельным токеном")
     forged = jwt.encode(
-        {"sub": str(person["id"]), "iat": utcnow().timestamp(),
-         "exp": (utcnow() + timedelta(days=1)).timestamp()},
+        {"sub": str(person["id"]), "iat": utcnow().replace(tzinfo=timezone.utc).timestamp(),
+         "exp": (utcnow() + timedelta(days=1)).replace(tzinfo=timezone.utc).timestamp()},
         "не-наш-секрет", algorithm="HS256",
     )
     r = client.get("/me", headers={"Authorization": f"Bearer {forged}"})

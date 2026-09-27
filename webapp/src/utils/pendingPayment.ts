@@ -10,6 +10,8 @@
 //  жив (проверка идёт на возврате, ON_RESUME).
 // ================================================================
 
+import { getSessionGeneration } from "../api/client";
+import { ownedStorage } from "./ownedStorage";
 const KEY = "yuldash.pendingPayment";
 /** Дольше суток платёж не ждём: человек давно закрыл вопрос. */
 const MAX_AGE_MS = 24 * 3600 * 1000;
@@ -26,11 +28,13 @@ export interface PendingPayment {
 export function rememberPayment(
   paymentId: number,
   what: PendingPayment["what"],
-  backTo: string
+  backTo: string,
+  owner?: string
 ): void {
   try {
+    owner ??= getSessionGeneration();
     const data: PendingPayment = { paymentId, what, backTo, at: Date.now() };
-    localStorage.setItem(KEY, JSON.stringify(data));
+    ownedStorage(owner).setItem(KEY, JSON.stringify(data));
   } catch {
     /* хранилище недоступно — экран возврата просто попросит проверить вручную */
   }
@@ -38,12 +42,13 @@ export function rememberPayment(
 
 export function readPendingPayment(): PendingPayment | null {
   try {
-    const raw = localStorage.getItem(KEY);
+    const store = ownedStorage(getSessionGeneration());
+    const raw = store.getItem(KEY);
     if (!raw) return null;
     const p = JSON.parse(raw) as PendingPayment;
     if (!p || typeof p.paymentId !== "number" || typeof p.at !== "number") return null;
     if (Date.now() - p.at > MAX_AGE_MS) {
-      localStorage.removeItem(KEY);
+      store.removeItem(KEY);
       return null;
     }
     return p;
@@ -52,9 +57,10 @@ export function readPendingPayment(): PendingPayment | null {
   }
 }
 
-export function forgetPayment(): void {
+export function forgetPayment(owner?: string): void {
   try {
-    localStorage.removeItem(KEY);
+    owner ??= getSessionGeneration();
+    ownedStorage(owner).removeItem(KEY);
   } catch {
     /* нечего чистить */
   }

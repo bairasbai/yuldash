@@ -5,6 +5,9 @@ import { VitePWA } from "vite-plugin-pwa";
 // Юлдаш PWA. Service worker кеширует app shell (офлайн-оболочка).
 // registerType: autoUpdate — новая версия подтягивается сама.
 export default defineConfig({
+  // Preserve the Vite 5 browser baseline during the build-chain upgrade.
+  // Vite 7's default would silently require newer Safari/Android browsers.
+  build: { target: ["chrome87", "edge88", "firefox78", "safari14"] },
   plugins: [
     react(),
     VitePWA({

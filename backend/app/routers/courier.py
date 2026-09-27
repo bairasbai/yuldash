@@ -459,6 +459,23 @@ def courier_pickup_fee_kop(straight_km: Optional[float], zone: str) -> int:
     return min(int(round(оплачиваемые * per_km / 1000.0)) * 1000, max_kop)   # округление до 10 ₽
 
 
+def reset_uncollected_courier_approach(parcel) -> None:
+    """Снять расчёт прежнего курьера ДО забора; сохранить уже записанные суммы.
+
+    Новый курьер не наследует чужую дорогу и открытый счётчик ожидания. Это не
+    расчёт компенсации снятому курьеру: начисления/товары/закрытое ожидание здесь
+    не меняются. Сохраняет вызывающий код вместе со снятием назначения.
+    """
+    if parcel.status != "accepted" or parcel.delivery_type not in ("courier", "buy_bring"):
+        return
+    parcel.delivery_price_kop = max(
+        0, int(parcel.delivery_price_kop or 0) - int(parcel.pickup_fee_kop or 0))
+    parcel.pickup_fee_kop = 0
+    parcel.pickup_km = 0.0
+    parcel.pickup_pending = float(parcel.distance_km or 0) > 0
+    parcel.waiting_started_at = None
+
+
 def settle_courier_pickup(session: Session, parcel, courier_id: int, now=None) -> None:
     """Зафиксировать дорогу курьера к посылке в момент, когда он взял заказ.
 
@@ -1448,7 +1465,10 @@ def courier_goods_cost(order_id: int, body: GoodsCostIn, user: User = Depends(cu
     именно эту сумму + доставку. Только назначенный курьер (courier_id==me, иначе 404 — IDOR закрыт),
     только buy_bring (иначе 409), только до вручения (иначе 409). Сумма > 0 и ≤ потолок (иначе 422).
     Возвращает блок settlement — «к оплате получателем» (товар + доставка = итого)."""
-    parcel = session.get(ParcelDelivery, order_id)
+    # Тот же лок, что у снятия курьера: проверка владельца и запись покупки
+    # должны пройти до переназначения либо увидеть его уже завершённым.
+    parcel = session.exec(select(ParcelDelivery).where(
+        ParcelDelivery.id == order_id).with_for_update()).one_or_none()
     if not parcel or parcel.courier_id != user.id:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "buy_bring":

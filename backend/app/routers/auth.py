@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, or_
+from sqlalchemy import delete, func, or_, update as sql_update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -19,6 +19,7 @@ from ..config import _phone_key, settings
 from ..db import engine, get_session
 from ..errors import herr
 from ..logs import admin_action, log
+from ..push_endpoint_policy import is_allowed_push_endpoint
 from ..models import (
     Ad, Booking, DeviceToken, DriverProfile, InstantOrder, Message, Notification, OtpCode,
     Payment, Rating, RequestResponse, Ride, SosEvent, TgAuth, User, UserRole,
@@ -405,16 +406,22 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         parts = text.split(maxsplit=1)
         req = parts[1].strip() if len(parts) > 1 else ""
         with Session(engine) as s:
-            row = s.exec(select(TgAuth).where(TgAuth.request_id == req)).first() if req else None
-            if row and row.status in ("waiting", "sent") and row.expires_at > utcnow():
-                code = gen_otp()
-                row.telegram_id = str(frm["id"])
-                row.username = frm.get("username", "") or ""
-                row.first_name = frm.get("first_name", "") or ""
-                row.code = code
-                row.status = "sent"
-                s.add(row)
-                s.commit()
+            code = gen_otp()
+            # A request's shared_phone belongs to its original Telegram identity.
+            # Rebinding it would let another Telegram user obtain a new code for
+            # that phone (including an existing SMS account). Keep the identity
+            # check inside UPDATE so concurrent /start deliveries cannot rebind it.
+            claimed = s.execute(sql_update(TgAuth).where(
+                TgAuth.request_id == req,
+                TgAuth.status.in_(("waiting", "sent")),
+                TgAuth.expires_at > utcnow(),
+                or_(TgAuth.telegram_id.is_(None), TgAuth.telegram_id == str(frm["id"])),
+            ).values(
+                telegram_id=str(frm["id"]), username=frm.get("username", "") or "",
+                first_name=frm.get("first_name", "") or "", code=code, status="sent",
+            )).rowcount if req else 0
+            s.commit()
+            if claimed:
                 reply = (
                     f"Твой код для входа в Юлдаш: {code}\n"
                     "Код живёт 5 минут.\n\n"
@@ -1035,7 +1042,7 @@ class PushTokenIn(BaseModel):
     token: str
 
 
-def _guard_push_token_owner(existing: DeviceToken, user_id: int, device_id: str) -> None:
+def _guard_push_token_owner(existing: DeviceToken | WebPushSubscription, user_id: int, device_id: str) -> None:
     # Смена аккаунта требует совпадающей отметки устройства. Отсутствие отметки
     # не доказывает владение: старый клиент может обновить СВОЙ токен, а для смены
     # владельца сначала должен выйти (logout/unregister освобождает запись).
@@ -1119,10 +1126,8 @@ def push_web_subscribe(body: WebPushSubIn, user: User = Depends(current_user),
 
     Пара к `/push/unregister`: там отвязка FCM-токена, здесь — подписки браузера.
 
-    Перепривязка к текущему человеку разрешена и нужна: на общем телефоне отец вышел,
-    зашёл сын — уведомления должны идти тому, кто сейчас в аккаунте. Подменить чужую
-    подписку «зная строку» тут нельзя так же, как и у FCM: браузер выдаёт endpoint только
-    своему сайту и своему устройству, а перед перепривязкой мы всё равно требуем вход.
+    Перепривязка требует той же отметки устройства, как у FCM. Без неё сначала
+    нужен выход прежнего владельца: знание endpoint не доказывает владение браузером.
 
     Идемпотентно: повторная подписка тем же браузером обновляет запись, а не плодит новую.
     """
@@ -1134,9 +1139,9 @@ def push_web_subscribe(body: WebPushSubIn, user: User = Depends(current_user),
     if not endpoint or not p256dh or not auth_key:
         raise herr(400, "Не получилось подключить уведомления. Попробуй позже.",
                    "Хәбәрҙәрҙе тоташтырып булманы. Һуңыраҡ ҡабатла.")
-    # Адрес пуш-сервиса — это всегда https. Всё остальное принимать незачем: своим
-    # запросом человек ничего не добьётся, а нам чинить потом «почему не приходит».
-    if not endpoint.startswith("https://"):
+    # A user-supplied HTTPS URL can still point to our own/private network.
+    # Only the supported browser push providers may receive outbound requests.
+    if not is_allowed_push_endpoint(endpoint):
         raise herr(400, "Не получилось подключить уведомления. Попробуй позже.",
                    "Хәбәрҙәрҙе тоташтырып булманы. Һуңыраҡ ҡабатла.")
 
@@ -1146,6 +1151,7 @@ def push_web_subscribe(body: WebPushSubIn, user: User = Depends(current_user),
         select(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint)
     ).first()
     if row:
+        _guard_push_token_owner(row, user.id, did)
         row.user_id = user.id
         row.p256dh, row.auth, row.content_encoding = p256dh, auth_key, enc
         if did:
@@ -1166,6 +1172,7 @@ def push_web_subscribe(body: WebPushSubIn, user: User = Depends(current_user),
             select(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint)
         ).first()
         if row:
+            _guard_push_token_owner(row, user.id, did)
             row.user_id = user.id
             row.p256dh, row.auth, row.content_encoding = p256dh, auth_key, enc
             if did:

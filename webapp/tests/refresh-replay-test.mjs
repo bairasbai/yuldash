@@ -34,6 +34,21 @@ await check('two tabs without Web Locks use the same persisted nonce', async api
   await Promise.all([api.refreshSession(), other.refreshSession()]);
   assert.equal(bodies.length, 2); assert.match(bodies[0].rotation_id ?? '', /^[a-f0-9]{64}$/); assert.deepEqual(bodies[0], bodies[1]);
 });
+await check('failed token commit retains old pair and nonce for replay after reload', async api => {
+  const original = localStorage.setItem;
+  let first;
+  globalThis.fetch = async (_, init) => { first = JSON.parse(init.body); return response(200, pair); };
+  localStorage.setItem = () => { throw new Error('Quota exhausted'); };
+  await assert.rejects(api.refreshSession());
+  assert.equal(api.getToken(), 'A'); assert.equal(api.getRefreshToken(), 'R');
+  assert.equal((await intents()).length, 1);
+  localStorage.setItem = original;
+  const reloaded = await instance();
+  globalThis.fetch = async (_, init) => { assert.deepEqual(JSON.parse(init.body), first); return response(200, pair); };
+  assert.equal(await reloaded.refreshSession(), true);
+  assert.equal(api.getToken(), 'A2'); assert.equal(api.getRefreshToken(), 'R2');
+  assert.deepEqual(await intents(), []);
+});
 await check('next parent refresh receives a new nonce', async api => {
   const bodies = [];
   globalThis.fetch = async (_, init) => { bodies.push(JSON.parse(init.body)); return response(200, { access_token: 'A' + bodies.length, refresh_token: 'R' + bodies.length }); };
