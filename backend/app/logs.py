@@ -11,6 +11,28 @@
 CLI-скрипт cleanup.py осознанно печатает отчёт через print() — это консольный вывод, не логи."""
 import logging
 import os
+import re
+
+
+class _TelegramCredentialFilter(logging.Filter):
+    """Mask a Telegram bot credential before HTTPX records reach any handler."""
+    _url = re.compile(r"(https?://api\.telegram\.org/bot)[^/\s?#\"']+", re.IGNORECASE)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        safe = self._url.sub(r"\1<скрыто>", message)
+        if safe != message:
+            # Change this record only; HTTPX Request/payload and logger levels stay intact.
+            # Clear args too, so structured handlers cannot retain the original URL.
+            record.msg = safe
+            record.args = ()
+        return True
+
+
+_httpx_log = logging.getLogger("httpx")
+_filter_name = "yuldash.telegram-credential"
+if not any(getattr(f, "name", None) == _filter_name for f in _httpx_log.filters):
+    _httpx_log.addFilter(_TelegramCredentialFilter(_filter_name))
 
 log = logging.getLogger("yuldash")
 

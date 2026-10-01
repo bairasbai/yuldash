@@ -848,7 +848,7 @@ private fun CourierZoneChip(icon: ImageVector, label: String, active: Boolean, e
     val bg by animateColorAsState(if (active) CanonGreen2 else CanonSurface, tween(CanonMotion.QUICK), label = "zone")
     // Рамка и надпись тоже переезжают: раньше фон плыл, а текст с обводкой щёлкали кадром.
     val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "zone-line")
-    val ink by animateColorAsState(if (active) Color.White else CanonMutedStrong, tween(CanonMotion.QUICK), label = "zone-ink")
+    val ink by animateColorAsState(if (active) CanonOnFilled else CanonMutedStrong, tween(CanonMotion.QUICK), label = "zone-ink")
     Surface(
         onClick = onClick, enabled = enabled, color = bg, shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, line),

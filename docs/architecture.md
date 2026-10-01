@@ -1,5 +1,21 @@
 # 🗺️ Карта кода Юлдаш
 
+## Общая кнопка и обязательное обновление (01.10.2026, DESIGN-R4)
+
+UiKit.AppButton сохраняет action name в semantics только приloading; idle имеет прежний Text, progress/disabled остаются Material. ForceUpdateScreen использует ограниченный viewport со scroll/minHeight и Arrangement.Center: короткий контент по центру, крупный шрифт читает полный текст/CTA прокруткой. Существующие RU/BA/Canon/insets/анимация/URL ветки сохранены. Component32JVM/8device и ограничения — [журнал](audit-journal.md); это не проверка всего version/min пути.
+
+## Ошибка чтения офлайн-очереди (01.10.2026, QA-B01-019)
+
+TripPass.kt/Outbox отличает отсутствующий queue от неизвестного snapshot: readAll возвращает null при ошибке чтения/JSON или quarantine. enqueue и обе точки чтения flush прекращают запись при null, сохраняя прежние данные; обычная пустая очередь работает. count/hasPending пока отображают0/false, видимое восстановление повреждённого хранилища остаётся открытым. Доказательства JVM/настоящих preferences/мутации и границы — [журнал QA019](audit-journal.md).
+
+## Использованный SMS-код и история выдачи (01.10.2026, QA-B01-018)
+
+Успешный SMS claim теперь условно обновляет OtpCode в общей транзакции входа: `code=""`, `expires_at=now`, `created_at` сохраняется для действующего throttle. Повтор прежнего/пустого кода отклоняется. Telegram webhook удаляет истёкшую строку только после её 60-секундного окна выдачи; прежняя суточная чистка и явное удаление аккаунта остаются прежними. Новых колонок/миграций/зависимостей нет. Реальные DB-проверки и ограничения — QA-B01-018 в [журнале](audit-journal.md).
+
+## SMS-бюджеты в транзакции (состояние QA-B01-017 до следующего исправления)
+
+`routers/auth.py` нормализует phone и до чтения живых OTP/числа недавних выдач получает общий transaction lock. PostgreSQL использует параметризованный `pg_advisory_xact_lock` с signed64 SHA-ключом namespace+phone; SQLite — настоящий no-op UPDATE OtpCode для writer lock, в том числе при пустом наборе. Затем действуют прежние лимиты и условные записи; commit/rollback освобождает lock. Ошибка SQL не даёт создать код/сессию/отправку SMS. Таблицы, зависимости и клиентский договор не менялись. Проверенная версия и границы — [QA-B01-017 в журнале](audit-journal.md). Успешный verify по-прежнему удаляет OtpCode: throttle после серии успешных входов исследуется отдельно.
+
 ## Хранение Android-сессии (19.09.2026)
 
 B01, 20.09.2026: commitAuth возвращает отдельную SessionPersistenceException при неподтверждённой записи сессии. LoginScreen различает её, HTTP400 и временную ошибку проверки. После принятого сервером кода и локального отказа повтор запрещает отправлять уже использованный код; новый Telegram request_id снимает это состояние. Локальные сценарии и ограничения — QA-B01-007 в [едином реестре](audit-blocks.md).
@@ -4284,3 +4300,35 @@ TG/SMS с общим синхронным busy, номером операции,
 `nextNeedPhone` сохраняет шаг403 при локальной ошибке ввода; повтор Telegram получает новый
 request_id, кроме открытия чата для передачи номера. Общий AuthProvider/client не менялся;
 неатомарное хранение пары токенов и восстановление шага после reload остаются открытыми.
+
+30.09.2026 — B01/QA-B01-011: YuldashApp хранит destinationAfterLogin через rememberSaveable только как Screen. openProtectedScreen направляет гостя к реальной форме и потребляет целевой экран при успехе; целевое Home сохраняет startHomeTab. HomeRoute, кабинеты, Help и SimpleMode используют этот общий переход. openTrustedContacts сохраняет возврат и тоже проходит через защиту. Цель не содержит аккаунтных данных и не запускает запись автоматически. Проверенные границы и последующий diff — audit-journal.md.
+
+01.10.2026 — локальный аудит B01: SMS/TG verification использует условный claim кода с rowcount и одну внешнюю транзакцию аккаунта/устройства/согласий/refresh. Уведомления успеха выполняются после commit. Вспомогательные helpers сохраняют прежний default commit для остальных callers; login передаёт commit=False. Неверные попытки считают SQL attempts+1 с лимитом/сроком/кодом/owner, Telegram также status; non-ASCII input/config не вызывает compare_digest500. AuthStorePolicy.logout при отказе marker всё равно синхронно очищает доступные stores, но возвращает false при неполной записи. Проверенные версии и ограничения — QA-B01-012/013/015 в audit-journal.md; это локальные изменения, не deployment.
+
+01.10.2026 — QA-B01-014/016: store fixed-code сначала под User lock проверяет passenger-роль. Выдача передаёт review_session=True: JWT несёт подписанный claim, opaque refresh — серверную метку review., включённую в полный token_hash. REST/optional/WS и refresh запрещают такую сессию при live role != passenger. Ротация с/без rotation_id и HMAC recovery наследуют ограничение. Обычный подтверждённый вход сохраняет прежний тип сессии и права; пользовательские роль/данные не меняются этим ограничением. Колонки/миграции не добавлены. Старые немаркированные токены автоматически не распознаются: их отдельный отзыв — условие выпуска, не выполненное локальным аудитом.
+
+01.10.2026 — QA-B01-020: OfflineWrites хранит в WeakHashMap по стабильному plain store последний подтверждённый nullable snapshot, если candidate commit=false и rollback не подтверждён. Selection.read учитывает snapshot; OfflineMigration.open сначала восстанавливает запись или возвращает writable=false, Outbox.flush прекращает HTTP до recovery. Новая secure wrapper связана тем же plain scope. Успешный coordinated reset удаляет весь guard только после plain clear+marker commit, TripPassDeletion — лишь удалённые ключи после обоих физических remove commits. Две ограниченные попытки восстановления не заменяют проверку результата commit. Это защита текущего процесса, не durable journal: cold-process recovery при продолжающемся отказе записи открыт. Никаких новых prefs/таблиц/версий/зависимостей.
+
+01.10.2026 — QA-B01-021, реализация в проверке: PersonalDataExports.prepare пишет temporary shared/yuldash-my-data-UUID.txt, FileProvider displayName сохраняет серверное yuldash-my-data.txt. Захваченное поколение сессии проверяется до/после IO и перед share; prepare/finally удаляют свою stale/unshared копию. ApiClient.runIfCurrentSession удерживает sessionLock только на короткой публикации, файл пишется вне lock. clearAssociatedPersonalData вызывает clear: revokeREAD для legacyURI и текущих собственныхUUIDфайлов, отдельное delete; другие shared files/grants не очищаются этим export-механизмом. Старый fixedname/URI поддержан для очистки прежней версии. Новый исходник ещё не объявлен runtime-принятым; критерии/actualproof вQA021, холодное завершение междуIO/cleanup и physicalfailure открыты.
+
+
+01.10.2026 — QA021 локальная/device верификация новой экспортной связки выполнена:62 JVM и8 device, query/noquery READ revoke наAPI35 подтверждён реальным внешнимUID. Конкретные source/hashes/границы checkpoint иaudit-blocks; полный Profile/navigation/backend/coldIO не доказаны. Дизайн DataRow приfont2 BA выделенDESIGN018, кprivacyPASS не прибавляется.
+
+01.10.2026 — MyData DataRow: title/value/note теперь общая weighted Column с Top alignment. Связи export/ApiClient/FileProvider не изменились; проверены10unit и8actualAndroid после изменения. Подробные hashes/ограничения — DESIGN018 в audit-journal.md; весь экран/матрица ещё не закрыты.
+
+
+01.10.2026 — QA-B01-022: MyStats PNG переиспользует общий PersonalDataExports.preparePng/prepareFile. Path уникальный UUID, displayName прежний; clearOwnExports удаляет/revoke только свои text/PNG UUID и legacy my-data.txt/my_yuldash.png. Screen mount фиксирует owner generation до загрузки карточки, publication через ApiClient session monitor; незавершённая/отменённая копияdiscard, Bitmaprecycle, busystate. Текущий аккаунт при настоящей ошибке записи сохраняет textfallback, отмена его не запускает. Scope фактических JVM/device и открытые cold/external критерии — audit-journal.md.
+
+01.10.2026 — QA-B07-002/003: booking/pay использует согласованную pay_amount врублях; Nonelegacy→price, explicit0 не становитсяprice. Новая правка effectiveamount запрещена после paid или существующего pending/succeededbookingPayment; sameeffectiveamount/методonly остаются доступными. Agreement и создание счёта сериализуются BookingFORUPDATE/populate_existing. Existinginvoice releaseBooking transaction доHTTP/sync сохраняет Payment→Booking порядок activation; canceledsync повторно читаетсвежиеBooking/amount/pending. Первый bookingPayment уже имеетyookassa tag доcommit дляповтора в промежутке commit→outbound. Это preventionновыхрасхождений; исторические ошибочные строки не ремонтированы. SQLite/PG последовательные proofs вжурнале, concurrency ещё проверяется.
+
+## Одна транзакция подтверждения оплаты — QA-B07-004, 01.10.2026
+
+В `routers/payments.py` ручные confirm/reject сначала получают свежую Payment под FOR UPDATE. Confirm из canceled и reject из succeeded возвращают409; повторы succeeded-confirm/canceled-reject остаются идемпотентными. `_activate_payment` удерживает Payment lock до общего commit эффекта и succeeded. Для booking/ride/taxi_debt вызываются `ledger.settle_booking`, `ledger.settle_instant_order`, `debt.mark_all_paid` с keyword-only `commit=False`. Default=True у helpers сохраняет самостоятельный commit прежних cash/direct callers. Проценты, суммы, схема БД и API успешных ответов не менялись. Refund helper внутри void_debt_for_order добавляет запись в ту же транзакцию. Courier/boost сохраняют прежний единый commit.
+
+Actual SQL fault before Payment UPDATE доказал отсутствие оставшихся earn/fee/refund/paid/debt/boost изменений после отката; реальный PostgreSQL подтвердил блокировки и исчезновение committed paid/pending окна. Итоговые профили142SQLite/158PG, рамки и исторические сбои в [журнале](audit-journal.md). Не доказаны настоящие провайдер/перевод/падение процесса и весь набор денег.
+
+01.10.2026 — /callback не хранит тикет; HTTPokTrue выдаётся только при True существующего notify_admin_telegram, False становится двуязычной503. Telegram APIaccept не подтверждает звонок. Android request screen optimistic state пока отдельный открытый QA-B08-001; runtime контракт new18+6neighbors.
+
+01.10.2026 — notify_admin_telegram при exception сохраняет localwarning только classname; boolFalse/status/payload остаютсяпрежними. QA00248/7profile, HTTPXINFO отдельныйopenканал. CallbackAndroid singleflight/success-afterHTTP использует AppButton loading и existinggeneration; устройство/полныйscreenmatrix отдельны.
+
+01.10.2026 — QA-B08-003: logs.py устанавливает постоянный filter именованного httpx logger доhandlers; matching Telegramcredential заменяется в record.msg/args без изменения Request/JSON/loggerlevels. Реальная productionlevel/exposure не измерена.

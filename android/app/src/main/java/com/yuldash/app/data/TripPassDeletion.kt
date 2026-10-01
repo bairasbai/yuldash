@@ -51,6 +51,7 @@ internal object TripPassDeletion {
         if (deleted.isEmpty()) return@runCatching true
         val secureCleared = secure?.edit()?.apply { deleted.forEach { remove("pass_$it") } }?.commit() == true
         val plainCleared = plain.edit().apply { deleted.forEach { remove("pass_$it") } }.commit()
+        if (secureCleared && plainCleared) discardOfflineWriteRecovery(plain, deleted.map { "pass_$it" }.toSet())
         secureCleared && plainCleared
     }.getOrDefault(false)
 

@@ -4,7 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.test.runner.AndroidJUnitRunner
 
-/** Storage-only runner: no Activity or YuldashApplication startup hooks.
+/** Plain Application avoids YuldashApplication startup hooks; test Activities can still run.
  * Run on the isolated emulator with radios disabled; providers can initialize
  * before tests, so replacing Application alone is not network isolation.
  */

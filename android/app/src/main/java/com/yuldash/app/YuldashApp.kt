@@ -9,6 +9,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -340,6 +344,7 @@ internal fun YuldashApp() {
     var requestsLoading by remember { mutableStateOf(true) }   // скелетон «Моих заявок» до первой загрузки
     var requestsError by remember { mutableStateOf(false) }   // обрыв связи ≠ «заявок нет» (аудит 2026-08-04)
     var bookingInFlight by remember { mutableStateOf(false) }  // бронь уже уходит на сервер → второй тап игнорируем
+    var callbackInFlight by remember { mutableStateOf(false) }
     var requestsReload by remember { mutableStateOf(0) }      // кнопка «Повторить» на экране заявок
     val appScope = rememberCoroutineScope()
     var activeBookingId by vm.activeBookingId
@@ -368,6 +373,8 @@ internal fun YuldashApp() {
     // screen/language/startHomeTab переживают и смерть процесса (persistNav в SavedStateHandle, ниже).
     var screen by vm.screen
     var language by vm.language
+    // Сохраняем только запрошенный экран, без данных прежнего аккаунта или автодействия.
+    var destinationAfterLogin by rememberSaveable { mutableStateOf<Screen?>(null) }
     // SharedPreferences — источник языка для настоящего холодного старта, когда SavedStateHandle пуст.
     // Пока гидратация не закончилась, не пишем дефолтный RU обратно на диск и сервер.
     val persistedLanguage = remember(context) { AppPrefs.language(context) }
@@ -899,6 +906,13 @@ internal fun YuldashApp() {
         startHomeTab = tab
         screen = Screen.Home
     }
+    fun openProtectedScreen(destination: Screen) {
+        if (ApiClient.isLoggedIn()) screen = destination
+        else {
+            destinationAfterLogin = destination
+            screen = Screen.Login
+        }
+    }
     // Единый пошаговый «Назад» (верхняя стрелка И аппаратная кнопка): снимаем последний экран трейла.
     // Дошли до Home / трейл пуст → Home на ПОСЛЕДНЕЙ вкладке (startHomeTab синхронён с активной вкладкой Home).
     fun goBack() {
@@ -918,9 +932,11 @@ internal fun YuldashApp() {
     fun openTrustedContacts(returnScreen: Screen = Screen.SimpleMode, returnHomeTab: HomeTab = HomeTab.Profile) {
         trustedContactsReturnScreen = returnScreen
         trustedContactsReturnHomeTab = returnHomeTab
-        screen = Screen.TrustedContacts
+        openProtectedScreen(Screen.TrustedContacts)
     }
     fun closeTrustedContacts() {
+        navHistory.removeLastOrNull()
+        navPopping = true
         if (trustedContactsReturnScreen == Screen.Home) openHome(trustedContactsReturnHomeTab) else screen = trustedContactsReturnScreen
     }
 
@@ -1038,7 +1054,7 @@ internal fun YuldashApp() {
             }
         }
         BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home && screen != Screen.Splash && screen != Screen.Intro) {
-            goBack()   // единый пошаговый возврат по трейлу — та же логика, что верхняя стрелка «Назад»
+            if (screen == Screen.TrustedContacts) closeTrustedContacts() else goBack()
         }
         // Плашка «нет связи с сервером» — одна на всё приложение, ВНУТРИ провайдера языка
         // (иначе надпись выходила по-русски в башкирском режиме) и В ПОТОКЕ, а не поверх:
@@ -1180,7 +1196,11 @@ internal fun YuldashApp() {
                     },
                     onContinue = {
                         sessionVersion++   // вход завершён → перечитать роль/мои заявки/контакты под новым токеном
-                        if (prefs.getString("preferred_role", "") == RideRole.Driver.name) {
+                        val destination = destinationAfterLogin
+                        destinationAfterLogin = null
+                        if (destination != null) {
+                            if (destination == Screen.Home) openHome(startHomeTab) else screen = destination
+                        } else if (prefs.getString("preferred_role", "") == RideRole.Driver.name) {
                             startHomeTab = HomeTab.Profile   // назад из кабинета водителя → профиль
                             screen = Screen.DriverCabinet     // выбрал «Я водитель» → сразу в кабинет (проверка/публикация)
                         } else openHome()
@@ -1197,6 +1217,7 @@ internal fun YuldashApp() {
                 requestsError = requestsError,
                 payMethod = payMethod,
                 onRetryRequests = { requestsReload++ },
+                onLoginRequired = { openProtectedScreen(it) },
                 onBookingStatus = { selectedBookingStatus = it },
                 onRouteWatchPrefill = { from, to ->
                     routeWatchPrefillFrom = from ?: ""
@@ -1431,7 +1452,7 @@ internal fun YuldashApp() {
                 onSelectTab = { tab -> openHome(tab) },
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,
-                onSupportChat = { if (ApiClient.isLoggedIn()) screen = Screen.SupportTickets else screen = Screen.Login }
+                onSupportChat = { openProtectedScreen(Screen.SupportTickets) }
             )
             Screen.PassengerCabinet -> PassengerCabinetScreen(
                 rides = rides,
@@ -1446,11 +1467,11 @@ internal fun YuldashApp() {
                 },
                 onFindRide = { openHome(HomeTab.Map) },
                 onCreateRequest = { screen = Screen.CreateRequest },
-                onInstantOrder = { if (ApiClient.isLoggedIn()) screen = Screen.InstantOrder else screen = Screen.Login },
-                onScheduledOrders = { if (ApiClient.isLoggedIn()) screen = Screen.ScheduledOrders else screen = Screen.Login },
-                onMyTaxiTrips = { if (ApiClient.isLoggedIn()) screen = Screen.MyTaxiTrips else screen = Screen.Login },
-                onWallet = { if (ApiClient.isLoggedIn()) screen = Screen.Wallet else screen = Screen.Login },
-                onSavedPlaces = { if (ApiClient.isLoggedIn()) screen = Screen.SavedPlaces else screen = Screen.Login },
+                onInstantOrder = { openProtectedScreen(Screen.InstantOrder) },
+                onScheduledOrders = { openProtectedScreen(Screen.ScheduledOrders) },
+                onMyTaxiTrips = { openProtectedScreen(Screen.MyTaxiTrips) },
+                onWallet = { openProtectedScreen(Screen.Wallet) },
+                onSavedPlaces = { openProtectedScreen(Screen.SavedPlaces) },
                 onSafety = { screen = Screen.Safety }
             )
             Screen.DriverCabinet -> DriverCabinetScreen(
@@ -1462,12 +1483,12 @@ internal fun YuldashApp() {
                 onRequestsFeed = { screen = Screen.RequestsFeed },
                 onInstantTrip = { id -> instantTripOrderId = id; screen = Screen.InstantDriverTrip },
                 onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
-                onWallet = { if (ApiClient.isLoggedIn()) screen = Screen.Wallet else screen = Screen.Login },
-                onEarnings = { if (ApiClient.isLoggedIn()) screen = Screen.DriverEarnings else screen = Screen.Login },
-                onTaxiRides = { if (ApiClient.isLoggedIn()) screen = Screen.DriverTaxiRides else screen = Screen.Login },
-                onTaxiDocs = { if (ApiClient.isLoggedIn()) screen = Screen.TaxiDocuments else screen = Screen.Login },
-                onPretrip = { if (ApiClient.isLoggedIn()) screen = Screen.PretripCheck else screen = Screen.Login },
-                onMyResponses = { if (ApiClient.isLoggedIn()) screen = Screen.DriverResponses else screen = Screen.Login },
+                onWallet = { openProtectedScreen(Screen.Wallet) },
+                onEarnings = { openProtectedScreen(Screen.DriverEarnings) },
+                onTaxiRides = { openProtectedScreen(Screen.DriverTaxiRides) },
+                onTaxiDocs = { openProtectedScreen(Screen.TaxiDocuments) },
+                onPretrip = { openProtectedScreen(Screen.PretripCheck) },
+                onMyResponses = { openProtectedScreen(Screen.DriverResponses) },
             )
             Screen.ScheduledOrders -> ScheduledOrdersScreen(
                 onBack = { goBack() },
@@ -1506,13 +1527,13 @@ internal fun YuldashApp() {
             Screen.SimpleMode -> SimpleModeScreen(
                 latestRequests = localRequests,
                 onBack = { goBack() },
-                onVoiceRequest = { if (ApiClient.isLoggedIn()) screen = Screen.VoiceRequest else screen = Screen.Login },
-                onFamilyOrder = { if (ApiClient.isLoggedIn()) screen = Screen.FamilyOrder else screen = Screen.Login },
-                onTrustedContacts = { if (ApiClient.isLoggedIn()) openTrustedContacts(returnScreen = Screen.SimpleMode) else screen = Screen.Login },
-                onRepeatTrip = { if (ApiClient.isLoggedIn()) screen = Screen.RepeatTrip else screen = Screen.Login },
-                onCallbackHelp = { if (ApiClient.isLoggedIn()) screen = Screen.CallbackHelp else screen = Screen.Login },
+                onVoiceRequest = { openProtectedScreen(Screen.VoiceRequest) },
+                onFamilyOrder = { openProtectedScreen(Screen.FamilyOrder) },
+                onTrustedContacts = { openTrustedContacts(returnScreen = Screen.SimpleMode) },
+                onRepeatTrip = { openProtectedScreen(Screen.RepeatTrip) },
+                onCallbackHelp = { openProtectedScreen(Screen.CallbackHelp) },
                 onSos = { openSos() },
-                onChat = { if (ApiClient.isLoggedIn()) openHome(HomeTab.Chat) else screen = Screen.Login }
+                onChat = { startHomeTab = HomeTab.Chat; openProtectedScreen(Screen.Home) }
             )
             Screen.VoiceRequest -> VoiceRequestScreen(
                 contacts = trustedContacts,
@@ -1534,7 +1555,7 @@ internal fun YuldashApp() {
             )
             Screen.TrustedContacts -> TrustedContactsScreen(
                 contacts = trustedContacts,
-                onBack = { goBack() },
+                onBack = { closeTrustedContacts() },
                 onAddContact = { contact ->
                     // Безопасность: контакт получает статус поездки/SOS — успех показываем ПО ФАКТУ сервера,
                     // при сбое откатываем (иначе fire-and-forget = «добавлен» на экране, а на сервере нет).
@@ -1552,7 +1573,7 @@ internal fun YuldashApp() {
             Screen.RepeatTrip -> RepeatTripScreen(
                 contacts = trustedContacts,
                 onBack = { goBack() },
-                onLoginRequired = { screen = Screen.Login },
+                onLoginRequired = { openProtectedScreen(Screen.RepeatTrip) },
                 onRepeat = { request ->
                     localRequests.add(0, request)
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Йыш сәфәр ҡабатланды" else "Частая поездка повторена", Toast.LENGTH_SHORT).show()
@@ -1561,17 +1582,28 @@ internal fun YuldashApp() {
             )
             Screen.CallbackHelp -> CallbackHelpScreen(
                 requested = callbackRequested,
+                loading = callbackInFlight,
                 onBack = { goBack() },
                 onRequest = { note ->
-                    // Ждём ответ сервера: «заявка создана» показываем по факту, при сбое — честная ошибка (не ложный успех).
-                    callbackRequested = true
-                    appScope.launch {
-                        ApiClient.requestCallback(note)
-                            .onSuccess { Toast.makeText(context, if (language == AppLanguage.Ba) "Шылтыратыу заявкаһы булдырылды" else "Заявка на звонок создана", Toast.LENGTH_SHORT).show() }
-                            .onFailure {
-                                callbackRequested = false
-                                Toast.makeText(context, if (language == AppLanguage.Ba) "Булманы. Сетте тикшереп ҡабатла" else "Не получилось. Проверь сеть и повтори", Toast.LENGTH_SHORT).show()
+                    if (!callbackInFlight) {
+                        callbackInFlight = true
+                        val generation = ApiClient.queueSessionGeneration()
+                        appScope.launch {
+                            try {
+                                val result = ApiClient.requestCallback(note)
+                                if (ApiClient.isCurrentSession(generation)) {
+                                    result.onSuccess {
+                                        callbackRequested = true
+                                        Toast.makeText(context, if (language == AppLanguage.Ba) "Шылтыратыу заявкаһы булдырылды" else "Заявка на звонок создана", Toast.LENGTH_SHORT).show()
+                                    }.onFailure {
+                                        callbackRequested = false
+                                        Toast.makeText(context, if (language == AppLanguage.Ba) "Булманы. Сетте тикшереп ҡабатла" else "Не получилось. Проверь сеть и повтори", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            } finally {
+                                callbackInFlight = false
                             }
+                        }
                     }
                 }
             )
@@ -1816,12 +1848,13 @@ internal fun OnboardingLangChip(text: String, active: Boolean, onClick: () -> Un
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .clickable(onClick = onClick)
+            .semantics { selected = active; role = Role.RadioButton }
             .background(if (active) CanonGreen2 else Color.Transparent)
             .heightIn(min = 48.dp)
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = if (active) Color.White else CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(text, color = if (active) CanonOnFilled else CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -2064,7 +2097,10 @@ internal fun OnboardingRoleCard(
     onClick: () -> Unit
 ) {
     Card(
-        modifier = Modifier.bounceClick(onClick),
+        modifier = Modifier.bounceClick(onClick).semantics(mergeDescendants = true) {
+            this.selected = selected
+            role = Role.RadioButton
+        },
         colors = CardDefaults.cardColors(containerColor = if (selected) CanonMint else CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
@@ -2486,9 +2522,9 @@ internal fun YuldashBottomBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()   // на жест-навигации иконки меню не уезжают под системную полосу
-                .height(78.dp)
+                .heightIn(min = 78.dp)
                 .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
             YuldashBottomItem(
                 selected = selectedTab == HomeTab.Map,
@@ -2534,8 +2570,8 @@ private fun RowScope.YuldashBottomItem(
     badge: Boolean = false
 ) {
     val pillColor by animateColorAsState(if (selected) CanonGold else Color.Transparent, tween(CanonMotion.NORMAL), label = "navPill")
-    val iconTint by animateColorAsState(if (selected) CanonText else CanonMuted, tween(CanonMotion.NORMAL), label = "navTint")
-    val labelColor by animateColorAsState(if (selected) CanonGold else CanonMutedStrong, tween(CanonMotion.NORMAL), label = "navLabel")
+    val iconTint by animateColorAsState(if (selected) CanonGoldInk else CanonMuted, tween(CanonMotion.NORMAL), label = "navTint")
+    val labelColor by animateColorAsState(if (selected) CanonGreen else CanonMutedStrong, tween(CanonMotion.NORMAL), label = "navLabel")
     val iconScale by animateFloatAsState(if (selected) 1.12f else 1f, tween(CanonMotion.NORMAL), label = "navScale")
     val badgeScale by animateFloatAsState(if (badge) 1f else 0f, tween(CanonMotion.QUICK), label = "navBadge")
     val interaction = remember { MutableInteractionSource() }
@@ -2543,6 +2579,7 @@ private fun RowScope.YuldashBottomItem(
         modifier = Modifier
             .weight(1f)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .semantics(mergeDescendants = true) { this.selected = selected; role = Role.Tab }
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -2581,9 +2618,11 @@ private fun RowScope.YuldashBottomItem(
         Text(
             text = label,
             color = labelColor,
-            fontSize = 12.sp,
+            style = CanonMicro,
+            modifier = Modifier.fillMaxWidth(),
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            maxLines = 1,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
     }

@@ -15,8 +15,9 @@ internal object OfflineMigration {
         val writable: Boolean,
         val snapshot: Map<String, String> = emptyMap(),
         val readable: Boolean = true,
+        val recoveryScope: SharedPreferences = storage,
     ) {
-        fun read(key: String): String? = if (!readable) null else snapshot[key] ?: storage.getString(key, null)
+        fun read(key: String): String? = if (!readable) null else snapshot[key] ?: readOfflineString(storage, recoveryScope, key)
     }
 
     @Synchronized fun quarantine(plain: SharedPreferences) { quarantined[plain] = true }
@@ -33,7 +34,11 @@ internal object OfflineMigration {
         secure: SharedPreferences?,
         accepts: (String) -> Boolean,
     ): Selection {
-        if (quarantined.containsKey(plain)) return Selection(plain, false, readable = false)
+        fun select(storage: SharedPreferences, writable: Boolean, snapshot: Map<String, String> = emptyMap(), readable: Boolean = true) =
+            Selection(storage, writable, snapshot, readable, plain)
+        if (quarantined.containsKey(plain)) return select(plain, false, readable = false)
+        // Do not migrate/send an unconfirmed candidate, including through a new secure wrapper.
+        if (!recoverOfflineWrites(plain, secure)) return select(secure ?: plain, false)
         var snapshot = pending[plain]
         var copied = false
         return try {
@@ -47,28 +52,28 @@ internal object OfflineMigration {
                 }
                 pending[plain] = snapshot!!
             }
-            if (secure == null) return Selection(plain, snapshot == null, snapshot.orEmpty())
+            if (secure == null) return select(plain, snapshot == null, snapshot.orEmpty())
             if (snapshot == null) {
                 snapshot = plain.all.filterKeys(accepts).mapValues { (_, value) ->
                     (value as? String) ?: error("Invalid offline value")
                 }
-                if (snapshot!!.isEmpty()) return Selection(secure, true)
+                if (snapshot!!.isEmpty()) return select(secure, true)
                 pending[plain] = snapshot!!
             }
             val values = snapshot!!
             val data = JSONObject().apply { values.forEach { (key, value) -> put(key, value) } }
             val journal = JSONObject().put("version", 1).put("data", data).toString()
-            if (!plain.edit().putString(JOURNAL, journal).commit()) return Selection(plain, false, values)
+            if (!plain.edit().putString(JOURNAL, journal).commit()) return select(plain, false, values)
             if (!secure.edit().apply { values.forEach { (key, value) -> putString(key, value) } }.commit())
-                return Selection(plain, false, values)
+                return select(plain, false, values)
             copied = true
             if (!plain.edit().apply { values.keys.forEach { remove(it) }; remove(JOURNAL) }.commit())
-                return Selection(secure, false, values)
+                return select(secure, false, values)
             pending.remove(plain)
-            Selection(secure, true)
+            select(secure, true)
         } catch (_: Exception) {
             // Invalid/unreadable journal is uncertainty, never permission to replace or send data.
-            Selection(if (copied) secure!! else plain, false, snapshot.orEmpty(), readable = snapshot != null)
+            select(if (copied) secure!! else plain, false, snapshot.orEmpty(), readable = snapshot != null)
         }
     }
 }

@@ -8,6 +8,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
@@ -703,17 +707,17 @@ internal fun LoginFormContent(
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
             ) {
                 if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = CanonOnFilled, strokeWidth = 2.dp)
                 } else {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = CanonOnFilled, modifier = Modifier.size(28.dp))
                         Spacer(Modifier.width(16.dp))
                         Text(
                             appTextFor(currentLanguage, "Войти через Telegram", "Telegram аша инеү"),
-                            color = Color.White, fontSize = LoginBody, lineHeight = 23.sp,
+                            color = CanonOnFilled, fontSize = LoginBody, lineHeight = 23.sp,
                             fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                         )
                     }
@@ -1190,7 +1194,7 @@ private fun LoginLangChip(text: String, active: Boolean, onClick: () -> Unit) {
         if (active) CanonGreen2 else Color.Transparent, tween(CanonMotion.NORMAL, easing = EaseOutExpo), label = "langChipBg",
     )
     val fg by animateColorAsState(
-        if (active) Color.White else CanonMuted, tween(CanonMotion.NORMAL, easing = EaseOutExpo), label = "langChipFg",
+        if (active) CanonOnFilled else CanonMuted, tween(CanonMotion.NORMAL, easing = EaseOutExpo), label = "langChipFg",
     )
     Box(
         modifier = Modifier
@@ -1198,6 +1202,7 @@ private fun LoginLangChip(text: String, active: Boolean, onClick: () -> Unit) {
             .clip(RoundedCornerShape(999.dp))
             .background(bg)
             .clickable(onClickLabel = appText("Сменить язык: $text", "Телде алмаштырыу: $text"), onClick = onClick)
+            .semantics { selected = active; role = Role.RadioButton }
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {

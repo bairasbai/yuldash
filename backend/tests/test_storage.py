@@ -71,13 +71,15 @@ def test_default_backend_is_local_without_s3_keys():
     assert isinstance(get_storage(), LocalStorage)
 
 
-def test_storage_is_s3_property():
+@pytest.mark.parametrize("ambient_backend", ["", "local", "s3"])
+def test_storage_is_s3_property(monkeypatch, ambient_backend):
     """storage_is_s3: явный режим главнее авто; авто включается только при полном наборе ключей."""
+    monkeypatch.setenv("STORAGE_BACKEND", ambient_backend)
     assert Settings(storage_backend="", s3_bucket="", s3_access_key="", s3_secret_key="").storage_is_s3 is False
     # авто: неполный набор → всё ещё локальный
-    assert Settings(s3_bucket="b", s3_access_key="a").storage_is_s3 is False
+    assert Settings(storage_backend="", s3_bucket="b", s3_access_key="a", s3_secret_key="").storage_is_s3 is False
     # авто: полный набор → S3
-    assert Settings(s3_bucket="b", s3_access_key="a", s3_secret_key="s").storage_is_s3 is True
+    assert Settings(storage_backend="", s3_bucket="b", s3_access_key="a", s3_secret_key="s").storage_is_s3 is True
     # явный local главнее наличия ключей
     assert Settings(storage_backend="local", s3_bucket="b", s3_access_key="a", s3_secret_key="s").storage_is_s3 is False
     # явный s3 даже без ключей (валидатор прода отдельно ругнётся)

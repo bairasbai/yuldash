@@ -13,7 +13,7 @@ from ..config import settings
 from ..flood import TOO_FAST_CREATING, guard_burst
 from ..db import get_session
 from ..errors import herr
-from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Rating, Ride, RideStatus, User
+from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Payment, Rating, Ride, RideStatus, User
 from ..cancel_reason_text import cancel_reason_text
 from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
                             guard_women_only)
@@ -375,14 +375,29 @@ class PayAgreementIn(BaseModel):
 
 @router.post("/bookings/{booking_id}/pay-agreement")
 def set_pay_agreement(booking_id: int, body: PayAgreementIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Зафиксировать/поправить договорённость об оплате. Это ЗАПИСЬ («как решили платить»),
-    НЕ платёж — деньги через приложение не идут. Править может любая сторона брони
-    (пассажир и водитель), запись видна обоим — опора в споре «мы же договаривались о 400»."""
+    """Записать договорённость обеих сторон; этот запрос не проводит платёж.
+
+    Сумма меняется до выставления счёта/оплаты. Повтор той же суммы и запись способа
+    допустимы после них; уже созданный счёт и квитанцию нельзя менять задним числом.
+    """
+    # Сериализуем правку с созданием счёта. Payment здесь только читаем:
+    # применение оплаты блокирует Payment → Booking, обратный порядок опасен.
+    booking = session.get(Booking, booking_id, with_for_update=True, populate_existing=True)
     booking, _ride = booking_and_ride_for_user(session, booking_id, user)
+    amount = _clean_pay_amount(body.pay_amount) if body.pay_amount is not None else None
+    current_amount = booking.pay_amount if booking.pay_amount is not None else booking.price
+    if amount is not None and amount != current_amount:
+        issued = session.exec(select(Payment.id).where(
+            Payment.booking_id == booking.id, Payment.purpose == "booking",
+            Payment.status.in_(["pending", "succeeded"]),
+        )).first()
+        if booking.paid or issued is not None:
+            raise herr(409, "Счёт уже выставлен. Сумму изменить нельзя.",
+                       "Иҫәп инде сығарылған. Сумманы үҙгәртеп булмай.")
     if body.pay_method is not None:
         booking.pay_method = body.pay_method
-    if body.pay_amount is not None:
-        booking.pay_amount = _clean_pay_amount(body.pay_amount)
+    if amount is not None:
+        booking.pay_amount = amount
     session.add(booking)
     session.commit()
     session.refresh(booking)

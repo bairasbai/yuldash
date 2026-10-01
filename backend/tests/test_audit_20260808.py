@@ -146,13 +146,12 @@ def test_foreign_lookalike_number_does_not_get_admin(client, user_factory, monke
 
 def test_otp_attempts_are_counted_per_phone(client):
     """Новый код больше не обнуляет счётчик: потолок общий на все живые коды номера."""
-    from app.routers.auth import MAX_OTP_ATTEMPTS_PER_PHONE
     phone = "+79990009090"
     with Session(engine) as s:
-        # Три живых кода номера, у каждого уже есть неудачные попытки — суммарно выше потолка.
-        per_row = (MAX_OTP_ATTEMPTS_PER_PHONE // 3) + 1
-        for i in range(3):
-            s.add(OtpCode(phone=phone, code=f"11111{i}", attempts=per_row,
+        # Три старых кода исчерпали общий бюджет; свежий код ещё не имеет попыток.
+        # latest=0 исключает ложный green из-за отдельного ограничения attempts>=5.
+        for i, attempts in enumerate((5, 5, 5, 0)):
+            s.add(OtpCode(phone=phone, code=f"11111{i}", attempts=attempts,
                           expires_at=utcnow() + timedelta(minutes=5)))
         s.commit()
     r = client.post("/auth/verify", json={"phone": phone, "code": "000000"})

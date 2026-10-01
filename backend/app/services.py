@@ -273,7 +273,7 @@ def blocked_user_ids(session: Session, uid: int) -> set[int]:
 
 
 # ----------------------------- Телефон: один номер — один человек -----------------------------
-def find_user_by_phone(session: Session, raw: str):
+def find_user_by_phone(session: Session, raw: str, *, commit: bool = True):
     """ЕДИНСТВЕННАЯ дверь «найти человека по номеру». Возвращает `User` или None.
 
     Ищет по приведённому виду (`normalize_phone`), а если не нашёл — по написаниям, которые
@@ -307,7 +307,10 @@ def find_user_by_phone(session: Session, raw: str):
         if user.phone != norm:
             user.phone = norm      # самолечение: дальше этот человек ищется по одному виду
             session.add(user)
-            session.commit()
+            if commit:
+                session.commit()
+            else:
+                session.flush()
             session.refresh(user)
         return user
     return None
@@ -1005,7 +1008,8 @@ def notify_admin_telegram(text: str, reply_markup: dict | None = None) -> bool:
         )
         return 200 <= r.status_code < 300
     except Exception as e:  # noqa: BLE001 — уведомление не должно ронять запрос
-        log.warning(f"[ADMIN_TG] error {e}")
+        # Exception text can contain the bot credential in the request URL.
+        log.warning("[ADMIN_TG] error %s", type(e).__name__)
         return False
 
 

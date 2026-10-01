@@ -176,7 +176,7 @@ object TripPassStore {
         }
         val store = sp(context)
         if (migration?.writable == false) return@runCatching false
-        commitOfflineString(store, KEY_PREFIX + pass.bookingId, pass.toJson().toString())
+        commitOfflineString(store, KEY_PREFIX + pass.bookingId, pass.toJson().toString(), plainPrefs ?: return@runCatching false)
     }.getOrDefault(false)
 
     /** Прочитать паспорт (синхронно, из локального хранилища) — доступно без сети. */
@@ -314,15 +314,22 @@ object Outbox {
         return !OfflineMigration.resetUnconfirmed(plain)
     }
 
-    private fun readAll(context: Context): MutableList<OutboxAction> {
-        val raw = runCatching { sp(context); migration?.read(KEY) }.getOrNull() ?: return mutableListOf()
+    /** null means unreadable data; only an absent key represents an empty queue. */
+    private fun readAll(context: Context): MutableList<OutboxAction>? {
+        val read = runCatching {
+            sp(context)
+            if (migration?.readable != true) return null
+            migration?.read(KEY)
+        }
+        if (read.isFailure) return null
+        val raw = read.getOrNull() ?: return mutableListOf()
         return runCatching {
             val arr = JSONArray(raw)
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 OutboxAction(o.optLong("id"), o.optInt("booking_id"), o.optString("kind"), o.optString("payload"), o.optLong("created_at"), o.optString("request_key"))
             }.toMutableList()
-        }.getOrDefault(mutableListOf())
+        }.getOrNull()
     }
 
     private fun writeAll(context: Context, list: List<OutboxAction>): Boolean {
@@ -332,21 +339,21 @@ object Outbox {
         list.forEach { a ->
             arr.put(JSONObject().put("id", a.id).put("booking_id", a.bookingId).put("kind", a.kind).put("payload", a.payload).put("created_at", a.createdAt).put("request_key", a.requestKey))
         }
-        val saved = runCatching { commitOfflineString(sp(context), KEY, arr.toString()) }.getOrDefault(false)
+        val saved = runCatching { commitOfflineString(sp(context), KEY, arr.toString(), plainPrefs ?: return false) }.getOrDefault(false)
         if (saved) version.value = version.value + 1
         return saved
     }
 
     /** Сколько действий в очереди по конкретной брони (для плашки «N в очереди»). */
     @Synchronized fun count(context: Context, bookingId: Int): Int =
-        readAll(context).count { it.bookingId == bookingId }
+        readAll(context)?.count { it.bookingId == bookingId } ?: 0
 
     /** Есть ли вообще что отправлять (любая бронь) — чтобы не дёргать flush на пустой очереди при старте (M4). */
-    @Synchronized fun hasPending(context: Context): Boolean = readAll(context).isNotEmpty()
+    @Synchronized fun hasPending(context: Context): Boolean = readAll(context)?.isNotEmpty() == true
 
     @Synchronized fun enqueue(context: Context, action: OutboxAction, expectedGeneration: Long? = null): Boolean {
         if (expectedGeneration != null && ApiClient.queueSessionGeneration() != expectedGeneration) return false
-        val list = readAll(context)
+        val list = readAll(context) ?: return false
         list.add(action)
         return writeAll(context, list)
     }
@@ -401,6 +408,8 @@ object Outbox {
         var changed = false
         val generation = synchronized(this) {
             sp(context)
+            val plain = plainPrefs ?: return@withLock false
+            if (!recoverOfflineWrites(plain, securePrefs)) return@withLock false
             if (migration?.writable == false) return@withLock false
             queueGeneration
         }
@@ -422,7 +431,7 @@ object Outbox {
         while (true) {
             val action = synchronized(this) {
                 if (generation != queueGeneration || session != ApiClient.queueSessionGeneration()) return@withLock changed
-                val current = readAll(context)
+                val current = readAll(context) ?: return@withLock changed
                 val now = System.currentTimeMillis()
                 val fresh = current.filter { it.kind == "message" || now - it.createdAt <= STATUS_MAX_AGE_MS }
                 if (fresh.size != current.size) {
@@ -438,7 +447,7 @@ object Outbox {
             synchronized(this) {
                 if (generation != queueGeneration || session != ApiClient.queueSessionGeneration()) return@withLock changed
                 // Merge with the live queue: messages added during HTTP must not be overwritten.
-                val current = readAll(context)
+                val current = readAll(context) ?: return@withLock changed
                 val remaining = current.filterNot { it.id == action.id }
                 if (!writeAll(context, remaining)) return@withLock changed
                 changed = true

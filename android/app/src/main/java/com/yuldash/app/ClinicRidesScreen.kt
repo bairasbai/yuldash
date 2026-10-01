@@ -1,4 +1,8 @@
 package com.yuldash.app
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
@@ -241,7 +245,8 @@ private fun ClinicChip(partner: MedicalPartnerDto, selected: Boolean, onClick: (
         color = if (selected) CanonGreen2 else CanonSurface,
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, if (selected) CanonGreen2 else CanonBorder),
-        modifier = Modifier.bounceClick(onClick),
+        modifier = Modifier.bounceClick(onClick)
+            .semantics(mergeDescendants = true) { this.selected = selected; role = Role.RadioButton },
     ) {
         Row(
             Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -249,18 +254,18 @@ private fun ClinicChip(partner: MedicalPartnerDto, selected: Boolean, onClick: (
         ) {
             Icon(
                 Icons.Default.LocalHospital, contentDescription = null,
-                tint = if (selected) androidx.compose.ui.graphics.Color.White else CanonGreen2,
+                tint = if (selected) CanonOnFilled else CanonGreen2,
                 modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.width(8.dp))
             Column {
                 Text(
-                    partner.name, color = if (selected) androidx.compose.ui.graphics.Color.White else CanonText,
+                    partner.name, color = if (selected) CanonOnFilled else CanonText,
                     fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     partner.city,
-                    color = if (selected) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f) else CanonMuted,
+                    color = if (selected) CanonOnFilled else CanonMuted,
                     fontSize = 14.sp,
                 )
             }

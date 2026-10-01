@@ -1088,14 +1088,16 @@ def declare_paid(session: Session, driver_id: int) -> int:
     return total
 
 
-def mark_all_paid(session: Session, driver_id: int, up_to: Optional[datetime] = None) -> int:
+def mark_all_paid(session: Session, driver_id: int, up_to: Optional[datetime] = None, *,
+                  commit: bool = True) -> int:
     """Погасить долг водителя (unpaid + pending) → paid. Используется при оплате картой
     (ЮKassa): подтверждение приходит вебхуком, деньги уже у платформы, админ не нужен.
     Идемпотентно (уже paid не трогаем). Возврат: погашенная сумма (копейки).
 
     up_to (граница снапшота): гасим только долг, начисленный ДО момента создания платежа
     (created_at <= up_to). Иначе долг, накопленный в окне между «жму оплатить» и подтверждением,
-    погасился бы бесплатно. None → без границы (весь долг)."""
+    погасился бы бесплатно. None → без границы (весь долг).
+    commit=False: вызывающий сохраняет погашение и Payment в общей транзакции."""
     now = utcnow()
     conds = [
         CommissionDebt.driver_id == driver_id,
@@ -1110,7 +1112,7 @@ def mark_all_paid(session: Session, driver_id: int, up_to: Optional[datetime] = 
         d.confirmed_at = now
         session.add(d)
         total += d.amount_kop
-    if rows:
+    if rows and commit:
         session.commit()
     return total
 

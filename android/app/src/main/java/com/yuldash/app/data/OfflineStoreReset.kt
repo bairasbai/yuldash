@@ -31,6 +31,7 @@ internal object OfflineStoreReset {
         OfflineMigration.quarantine(plain)
         // Plain data is erased together with the marker; future plain data belongs to the new session.
         if (!plain.edit().clear().putBoolean(PENDING, true).commit()) return@runCatching false
+        discardOfflineWriteRecovery(plain)
         OfflineMigration.resetCommitted(plain)
         TripPassDeletion.resetCommitted(plain)
         secure != null && finish(plain, secure)

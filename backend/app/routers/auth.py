@@ -3,18 +3,19 @@
 from datetime import timedelta
 from typing import Optional
 import hmac
+import hashlib
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, or_
+from sqlalchemy import delete, func, or_, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..account import delete_user_account, guard_can_delete
 from ..antifraud import (MESSAGE_FLAG_CONTACT, guard_device_not_banned, moderate_open_text,
                          normalize_device_id, phone_looks_recycled, release_phone,
-                         remember_login_device)
+                         remember_login_device, notify_login_device, notify_phone_release)
 from ..config import _phone_key, settings
 from ..db import engine, get_session
 from ..errors import herr
@@ -43,7 +44,22 @@ router = APIRouter(tags=["auth"])
 MAX_OTP_ATTEMPTS_PER_PHONE = 15
 
 
-def _maybe_promote_admin(session: Session, user: User) -> None:
+def _lock_otp_phone(session: Session, phone: str) -> None:
+    """Serialize SMS issuance/verification, including a phone with no OTP/User yet."""
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        # Stable across workers; the phone is never sent to logs/lock metadata.
+        key = int.from_bytes(hashlib.sha256(b"yuldash-otp-phone\0" + phone.encode()).digest()[:8],
+                             "big", signed=True)
+        session.execute(text("SELECT pg_advisory_xact_lock(CAST(:key AS bigint))"), {"key": key})
+    elif dialect == "sqlite":
+        # Even a zero-row UPDATE obtains SQLite's transaction writer lock.
+        session.execute(update(OtpCode).where(OtpCode.phone == phone).values(attempts=OtpCode.attempts))
+    else:
+        raise RuntimeError("OTP phone locking requires PostgreSQL or SQLite")
+
+
+def _maybe_promote_admin(session: Session, user: User, *, log_action: bool = True):
     """Автоадмин: вход с Telegram-id владельца ИЛИ с админ-телефона (config) → роль admin.
     Реюз admin_telegram_chat_id + список admin_phones. Кабинет админа появляется сам.
 
@@ -57,14 +73,14 @@ def _maybe_promote_admin(session: Session, user: User) -> None:
     by_tg = bool(settings.admin_telegram_chat_id) and user.telegram_id == settings.admin_telegram_chat_id
     by_phone = bool(user.phone) and _phone_key(user.phone) in admin_keys
     заслужил = by_tg or by_phone
+    event = None
     if заслужил and user.role != UserRole.admin:
         user.role = UserRole.admin
         session.add(user)
         # Выдача прав администратора — самое чувствительное событие в системе: этот человек
         # увидит сигналы SOS с координатами, паспорта водителей, переписку с поддержкой
         # и все телефоны. В журнал это не писалось вовсе (аудит 2026-08-08, волна 150).
-        admin_action(user.id, "role.promote", target_user=user.id,
-                     by="telegram" if by_tg else "phone")
+        event = ("role.promote", {"target_user": user.id, "by": "telegram" if by_tg else "phone"})
     elif user.role == UserRole.admin and not заслужил and admin_keys:
         # Обратная сторона, которой не было: права НЕЛЬЗЯ было отобрать. Убрать номер
         # из настроек недостаточно — роль уже записана в базу и живёт вечно. Когда появится
@@ -77,7 +93,10 @@ def _maybe_promote_admin(session: Session, user: User) -> None:
         # прочитанный .env оставит сервис без администратора вообще.
         user.role = UserRole.passenger
         session.add(user)
-        admin_action(user.id, "role.revoke", target_user=user.id, reason="нет в ADMIN_PHONES")
+        event = ("role.revoke", {"target_user": user.id, "reason": "нет в ADMIN_PHONES"})
+    if event and log_action:
+        admin_action(user.id, event[0], **event[1])
+    return event
 
 
 def _is_owner_telegram(frm: dict) -> bool:
@@ -179,7 +198,7 @@ def _review_login_active(phone: str) -> bool:
                 and normalize_phone(phone) == normalize_phone(settings.review_phone))
 
 
-def _set_user_phone(session: Session, user: User, phone: str) -> None:
+def _set_user_phone(session: Session, user: User, phone: str, *, commit: bool = True) -> None:
     """Сохранить реальный номер юзеру. Не перезаписываем, если номер уже занят
     другим юзером (User.phone unique) — тогда тихо оставляем как есть.
 
@@ -192,12 +211,43 @@ def _set_user_phone(session: Session, user: User, phone: str) -> None:
     phone = normalize_phone(phone)
     if not phone or user.phone == phone:
         return
-    clash = find_user_by_phone(session, phone)
+    clash = find_user_by_phone(session, phone, commit=commit)
     if clash is not None and clash.id != user.id:
         return
     user.phone = phone
     session.add(user)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
+
+
+def _complete_login(session: Session, user: User, device_id: str, *,
+                    promote_admin: bool = True, released_user_id: int | None = None,
+                    review_session: bool = False):
+    """Одна запись аккаунта, кода и ключей; вторичные сигналы после commit."""
+    user = lock_refresh_user(session, user.id)
+    event = _maybe_promote_admin(session, user, log_action=False) if promote_admin else None
+    new_device = remember_login_device(session, user, device_id, commit=False, notify=False)
+    record_login_consents(session, user.id, commit=False)
+    uid, phone = user.id, user.phone
+    tokens = issue_tokens(session, uid, review_session=review_session)
+    session.refresh(user)
+    response_user = user.model_dump()
+    secondary = []
+    if event:
+        secondary.append(lambda: admin_action(uid, event[0], **event[1]))
+    if released_user_id is not None:
+        secondary.append(lambda: notify_phone_release(session, released_user_id))
+    if new_device:
+        secondary.append(lambda: notify_login_device(session, uid, phone))
+    for notify in secondary:
+        try:
+            notify()
+        except Exception as exc:
+            session.rollback()
+            log.warning("[AUTH] post-commit signal failed: %s", type(exc).__name__)
+    return {**tokens, "user": response_user}
 
 
 # ----------------------------- Телефон + OTP -----------------------------
@@ -224,6 +274,7 @@ def request_code(body: PhoneIn, session: Session = Depends(get_session),
     # verify примет ТОЛЬКО фикс-код из env. Ответ обычный (dev_code не утекает).
     if _review_login_active(body.phone):
         return {"sent": True}
+    _lock_otp_phone(session, body.phone)
     # Throttle: ≤3 кода в минуту на номер (анти-флуд: расходы на SMS + защита от забивания OtpCode).
     recent = session.exec(
         select(OtpCode).where(
@@ -249,6 +300,14 @@ def request_code(body: PhoneIn, session: Session = Depends(get_session),
 @router.post("/auth/verify")
 def verify(body: VerifyIn, session: Session = Depends(get_session),
            x_device_id: str = Header(default="", alias="X-Device-Id")):
+    try:
+        return _verify_sms_login(body, session, x_device_id)
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _verify_sms_login(body: VerifyIn, session: Session, x_device_id: str):
     # Анти-фрод (B8-1): забаненное устройство → 403. Барьер от «нового номера на том же
     # телефоне»; заголовок клиентский, целевой обход сменой X-Device-Id возможен (Play Integrity — бэклог).
     guard_device_not_banned(session, x_device_id)
@@ -257,23 +316,27 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
     # из env (даже случайно созданные OTP этого номера игнорируются). Ошибка — тот же текст,
     # что у обычного кода (не раскрываем существование режима). Код не логируем.
     if _review_login_active(body.phone):
-        if not hmac.compare_digest(settings.review_code, body.code or ""):
+        submitted_code = body.code or ""
+        if (not settings.review_code.isascii() or not submitted_code.isascii()
+                or not hmac.compare_digest(settings.review_code, submitted_code)):
             raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
-        user = find_user_by_phone(session, body.phone)
+        user = find_user_by_phone(session, body.phone, commit=False)
+        if user:
+            user = lock_refresh_user(session, user.id)
+            # Фикс-код стора не подтверждает владение привилегированным аккаунтом.
+            # Не меняем его роль или данные; проверка выполняется под блокировкой строки.
+            if not user or user.role != UserRole.passenger:
+                raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
         if not user:
             user = User(phone=body.phone, name=body.name or "Проверка стора",
                         is_reviewer=True)   # B1: ревьюер = L0, verified только через модерацию
         user.is_reviewer = True
         session.add(user)
-        session.commit()
-        session.refresh(user)
+        session.flush()
         # НЕ вызываем _maybe_promote_admin: ревьюер — всегда обычный пассажир без прав,
         # даже если этот номер случайно совпал со списком админов.
-        remember_login_device(session, user, x_device_id)
-        record_login_consents(session, user.id)   # 152-ФЗ: оферта/политика/18+ с датой
-        tokens = issue_tokens(session, user.id)
-        session.refresh(user)
-        return {**tokens, "user": user}
+        return _complete_login(session, user, x_device_id, promote_admin=False, review_session=True)
+    _lock_otp_phone(session, body.phone)
     live_otps = session.exec(
         select(OtpCode).where(OtpCode.phone == body.phone, OtpCode.expires_at > utcnow())
     ).all()
@@ -291,37 +354,60 @@ def verify(body: VerifyIn, session: Session = Depends(get_session),
         raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
     if otp.attempts >= 5:                       # защита от перебора 6-значного кода
         raise herr(429, "Слишком много попыток. Запроси новый код.", "Артыҡ күп талап. Яңы код һора.")
-    # constant-time сравнение — не даём измерить код по времени ответа (перебор и так лимитирован 5 попытками).
-    if not hmac.compare_digest(otp.code, body.code or ""):
-        otp.attempts += 1
-        session.add(otp)
+    otp_id, verified_code = otp.id, otp.code
+    submitted_code = body.code or ""
+    # compare_digest со строками принимает только ASCII; другой ввод — обычная неверная попытка.
+    # Счётчик меняет сама БД: параллельные запросы не перезаписывают прочитанное значение.
+    if not submitted_code.isascii() or not hmac.compare_digest(verified_code, submitted_code):
+        counted = session.execute(update(OtpCode).where(
+            OtpCode.id == otp_id, OtpCode.phone == body.phone,
+            OtpCode.code == verified_code, OtpCode.attempts < 5,
+            OtpCode.expires_at > utcnow(),
+        ).values(attempts=OtpCode.attempts + 1))
         session.commit()
+        if counted.rowcount != 1:
+            current = session.get(OtpCode, otp_id, populate_existing=True)
+            if (current and current.code == verified_code and current.expires_at > utcnow()
+                    and current.attempts >= 5):
+                raise herr(429, "Слишком много попыток. Запроси новый код.", "Артыҡ күп талап. Яңы код һора.")
         raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
-    # Код одноразовый: гасим сразу после успеха, иначе перехваченный код реюзабелен все 5 минут TTL.
-    session.delete(otp)
-    session.commit()
-    user = find_user_by_phone(session, body.phone)
+    # Keep the issuance timestamp for the existing SMS throttle after use.
+    # Clear the secret and expire it in the same transaction as session issuance.
+    consumed = session.execute(update(OtpCode).where(
+        OtpCode.id == otp_id, OtpCode.phone == body.phone,
+        OtpCode.code == verified_code, OtpCode.attempts < 5,
+        OtpCode.expires_at > utcnow(),
+    ).values(code="", expires_at=utcnow()))
+    if consumed.rowcount != 1:
+        raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
+    user = find_user_by_phone(session, body.phone, commit=False)
+    if user:
+        user = lock_refresh_user(session, user.id)
+    released_user_id = None
     # Номер мог перейти к ДРУГОМУ человеку: оператор забирает неиспользуемый номер и через
     # полгода-год продаёт (волна 139). Тогда аккаунт прежнего хозяина отвязываем от номера,
     # и дальше по коду заводится чистый новый — вошедший не получает чужую историю, переписку
     # и доверенные контакты. Данные прежнего владельца целы, доступ вернёт поддержка.
     if user and phone_looks_recycled(user, x_device_id):
-        release_phone(session, user)
+        released_user_id = user.id
+        release_phone(session, user, commit=False, notify=False)
         user = None
     if not user:
         # Имя при регистрации — то же публичное поле, что и в /me/update: проверяем так же,
         # иначе телефон в имени просто въезжает через вход вместо правки профиля.
         user = User(phone=body.phone, name=_guard_display_name(body.name) or "Пользователь")   # B1: verified только через модерацию
-        session.add(user)
-        session.commit()
+        try:
+            with session.begin_nested():
+                session.add(user)
+                session.flush()
+        except IntegrityError:
+            # Одновременный вход уже создал человека с этим подтверждённым
+            # номером. Продолжаем с ним; победителя определит consumption кода.
+            user = find_user_by_phone(session, body.phone, commit=False)
+            if user is None:
+                raise
         session.refresh(user)
-    _maybe_promote_admin(session, user)   # автоадмин по телефону (SMS-вход)
-    # Анти-фрод (B8-1/2): фиксируем устройство; вход с нового → push+SMS-сигнал (не блокируем).
-    remember_login_device(session, user, x_device_id)
-    record_login_consents(session, user.id)   # 152-ФЗ: оферта/политика/18+ с датой
-    tokens = issue_tokens(session, user.id)   # commit внутри → user протухает
-    session.refresh(user)                     # перечитываем, чтобы сериализовать в ответ
-    return {**tokens, "user": user}
+    return _complete_login(session, user, x_device_id, released_user_id=released_user_id)
 
 
 # ==================== TELEGRAM-ВХОД (бот, код подтверждения) ====================
@@ -362,13 +448,13 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         raise HTTPException(403, "bad secret")
     # Битый JSON НЕ роняем в 500: иначе Telegram ретраит «ядовитый» апдейт по расписанию (шум/дубли).
     try:
-        update = await request.json()
+        telegram_update = await request.json()
     except Exception:  # noqa: BLE001
         return {"ok": True}
-    callback = update.get("callback_query") or {}
+    callback = telegram_update.get("callback_query") or {}
     if callback:
         return _handle_admin_callback(callback)
-    msg = update.get("message") or {}
+    msg = telegram_update.get("message") or {}
     text = msg.get("text") or ""
     frm = msg.get("from") or {}
     chat = msg.get("chat") or {}
@@ -406,14 +492,15 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         req = parts[1].strip() if len(parts) > 1 else ""
         with Session(engine) as s:
             row = s.exec(select(TgAuth).where(TgAuth.request_id == req)).first() if req else None
-            if row and row.status in ("waiting", "sent") and row.expires_at > utcnow():
+            if (row and row.status in ("waiting", "sent") and row.expires_at > utcnow()
+                    and row.telegram_id in (None, str(frm["id"]))):
                 code = gen_otp()
-                row.telegram_id = str(frm["id"])
-                row.username = frm.get("username", "") or ""
-                row.first_name = frm.get("first_name", "") or ""
-                row.code = code
-                row.status = "sent"
-                s.add(row)
+                claimed = s.execute(update(TgAuth).where(
+                    TgAuth.id == row.id, TgAuth.status.in_(("waiting", "sent")),
+                    TgAuth.expires_at > utcnow(),
+                    or_(TgAuth.telegram_id.is_(None), TgAuth.telegram_id == str(frm["id"])),
+                ).values(telegram_id=str(frm["id"]), username=frm.get("username", "") or "",
+                         first_name=frm.get("first_name", "") or "", code=code, status="sent"))
                 s.commit()
                 reply = (
                     f"Твой код для входа в Юлдаш: {code}\n"
@@ -425,13 +512,18 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
                     "keyboard": [[{"text": "📱 Поделиться номером", "request_contact": True}]],
                     "resize_keyboard": True, "one_time_keyboard": True,
                 }
+                if claimed.rowcount != 1:
+                    reply = "Открой приложение Юлдаш и нажми «Вход через Telegram» — я пришлю код."
+                    reply_markup = None
             else:
                 reply = "Открой приложение Юлдаш и нажми «Вход через Telegram» — я пришлю код."
             # Гигиена: чистим просроченные строки входа (TgAuth/OtpCode растут на каждую попытку).
             # Делаем здесь — частоту вебхука Telegram сам ограничивает (~30/с), клиентский спайк не грузим.
             now = utcnow()
             s.execute(delete(TgAuth).where(TgAuth.expires_at < now))
-            s.execute(delete(OtpCode).where(OtpCode.expires_at < now))
+            # A used/expired code still records an SMS in the 60s throttle window.
+            s.execute(delete(OtpCode).where(
+                OtpCode.expires_at < now, OtpCode.created_at <= now - timedelta(seconds=60)))
             s.commit()
     if reply is not None:
         out = {"method": "sendMessage", "chat_id": chat.get("id"), "text": reply}
@@ -601,6 +693,14 @@ class TgVerifyIn(BaseModel):
 @router.post("/auth/tg/verify")
 def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
               x_device_id: str = Header(default="", alias="X-Device-Id")):
+    try:
+        return _verify_telegram_login(body, session, x_device_id)
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _verify_telegram_login(body: TgVerifyIn, session: Session, x_device_id: str):
     # Анти-фрод (B8-1): забаненное устройство → 403 (обход бана через Telegram-вход закрыт).
     guard_device_not_banned(session, x_device_id)
     # Статусы различимы клиентом для разных сообщений: 409 ещё не получен, 410 истёк,
@@ -612,58 +712,79 @@ def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
         raise herr(410, "Код истёк. Получи новый.", "Код ваҡыты үтте. Яңыһын ал.")
     if row.attempts >= TG_MAX_ATTEMPTS:
         raise herr(429, "Слишком много попыток. Получи новый код.", "Артыҡ күп талап. Яңы код ал.")
-    if not hmac.compare_digest(body.code.strip(), row.code):   # constant-time (перебор лимитирован TG_MAX_ATTEMPTS)
-        row.attempts += 1
-        session.add(row)
+    request_row_id, verified_code, verified_telegram_id = row.id, row.code, row.telegram_id
+    submitted_code = body.code.strip()
+    if not submitted_code.isascii() or not hmac.compare_digest(submitted_code, verified_code):
+        counted = session.execute(update(TgAuth).where(
+            TgAuth.id == request_row_id, TgAuth.status == "sent",
+            TgAuth.code == verified_code, TgAuth.telegram_id == verified_telegram_id,
+            TgAuth.attempts < TG_MAX_ATTEMPTS, TgAuth.expires_at >= utcnow(),
+        ).values(attempts=TgAuth.attempts + 1))
         session.commit()
+        if counted.rowcount != 1:
+            current = session.get(TgAuth, request_row_id, populate_existing=True)
+            if not current or current.status != "sent" or not current.telegram_id or not current.code:
+                raise herr(409, "Сначала получи код в Telegram", "Башта Telegram-да код ал")
+            if current.expires_at < utcnow():
+                raise herr(410, "Код истёк. Получи новый.", "Код ваҡыты үтте. Яңыһын ал.")
+            if current.attempts >= TG_MAX_ATTEMPTS:
+                raise herr(429, "Слишком много попыток. Получи новый код.", "Артыҡ күп талап. Яңы код ал.")
         raise herr(400, "Неверный код", "Код дөрөҫ түгел")
-    user = session.exec(select(User).where(User.telegram_id == row.telegram_id)).first()
-    if not user and row.shared_phone:
+    verified_phone, verified_name = row.shared_phone, row.first_name or row.username
+    consumed = session.execute(update(TgAuth).where(
+        TgAuth.id == request_row_id, TgAuth.status == "sent",
+        TgAuth.code == verified_code, TgAuth.telegram_id == verified_telegram_id,
+        TgAuth.attempts < TG_MAX_ATTEMPTS, TgAuth.expires_at >= utcnow(),
+    ).values(status="used"))
+    if consumed.rowcount != 1:
+        raise herr(409, "Сначала получи код в Telegram", "Башта Telegram-да код ал")
+    user = session.exec(select(User).where(User.telegram_id == verified_telegram_id)).first()
+    if user:
+        user = lock_refresh_user(session, user.id)
+    if not user and verified_phone:
         # Через дверь: номер из Telegram приходит в своём написании («79991234567»), а в базе
         # тот же человек мог быть заведён как «+79991234567». Прямое сравнение их не склеивало,
         # и Telegram-вход заводил ВТОРОЙ аккаунт тому же человеку.
-        existing_by_phone = find_user_by_phone(session, row.shared_phone)
+        existing_by_phone = find_user_by_phone(session, verified_phone, commit=False)
+        if existing_by_phone:
+            existing_by_phone = lock_refresh_user(session, existing_by_phone.id)
         if existing_by_phone and not existing_by_phone.telegram_id:
-            existing_by_phone.telegram_id = row.telegram_id
+            existing_by_phone.telegram_id = verified_telegram_id
             # B1: НЕ выставляем verified при входе — это только результат модерации документов.
             if not existing_by_phone.name:
                 # Имя из профиля Telegram человек ставит себе сам — туда так же помещается
                 # телефон. Отказать нельзя (сломает вход), поэтому помеченное просто не берём.
-                existing_by_phone.name = _safe_display_name(row.first_name or row.username) or "Telegram"
+                existing_by_phone.name = _safe_display_name(verified_name) or "Telegram"
             session.add(existing_by_phone)
-            session.commit()
+            session.flush()
             session.refresh(existing_by_phone)
             user = existing_by_phone
     if not user:
         user = User(
-            phone=f"tg{row.telegram_id}",   # плейсхолдер, пока юзер не поделился реальным номером
-            name=_safe_display_name(row.first_name or row.username) or "Telegram",
-            telegram_id=row.telegram_id,
+            phone=f"tg{verified_telegram_id}",   # плейсхолдер, пока юзер не поделился реальным номером
+            name=_safe_display_name(verified_name) or "Telegram",
+            telegram_id=verified_telegram_id,
             # B1: verified только через модерацию документов (не при входе)
         )
-        session.add(user)
-        session.commit()
+        try:
+            with session.begin_nested():
+                session.add(user)
+                session.flush()
+        except IntegrityError:
+            user = session.exec(select(User).where(User.telegram_id == verified_telegram_id)).first()
+            if user is None:
+                raise
         session.refresh(user)
     # Реальный номер из бота (кнопка «Поделиться номером») — подставляем, если есть.
-    if row.shared_phone:
-        _set_user_phone(session, user, row.shared_phone)
+    if verified_phone:
+        _set_user_phone(session, user, verified_phone, commit=False)
         session.refresh(user)
     # ⛔ Номер ОБЯЗАТЕЛЕН (безопасность / защита от мошенников). Без реального номера вход
     # не завершаем: код НЕ помечаем used (status='sent') → юзер делится номером в боте и
     # повторяет ввод того же кода. Клиент по 403 phone_required показывает экран-подсказку.
     if is_placeholder_phone(user.phone):
         raise HTTPException(403, "phone_required")
-    _maybe_promote_admin(session, user)   # автоадмин по telegram_id или телефону
-    row.status = "used"
-    session.add(row)
-    session.commit()
-    session.refresh(user)
-    # Анти-фрод (B8-1/2): фиксируем устройство; вход с нового → push+SMS-сигнал (не блокируем).
-    remember_login_device(session, user, x_device_id)
-    record_login_consents(session, user.id)   # 152-ФЗ: оферта/политика/18+ с датой
-    tokens = issue_tokens(session, user.id)   # commit внутри → user протухает
-    session.refresh(user)
-    return {**tokens, "user": user}
+    return _complete_login(session, user, x_device_id)
 
 
 class RefreshIn(BaseModel):

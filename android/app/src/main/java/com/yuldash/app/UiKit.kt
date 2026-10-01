@@ -48,6 +48,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -159,6 +161,7 @@ internal fun AppButton(
     val base = modifier
         .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
         .heightIn(min = height)   // тач-цель ≥ 48dp (доступность)
+        .semantics { if (loading) contentDescription = text }
     val container = when (style) {
         AppButtonStyle.Primary -> CanonGreen2
         AppButtonStyle.Accent -> CanonGold

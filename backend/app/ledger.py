@@ -359,11 +359,13 @@ def _post_earn_and_fee(session: Session, driver_id: int, amount_kop: int, *,
         ))
 
 
-def settle_instant_order(session: Session, order_id: int, method: str, amount_kop: int) -> str:
+def settle_instant_order(session: Session, order_id: int, method: str, amount_kop: int, *,
+                         commit: bool = True) -> str:
     """Провести оплату завершённого быстрого заказа. Идемпотентно, под row-lock.
 
     Возврат: "settled" (только что провели), "already" (было оплачено), "skip" (нельзя).
-    Наличные → помечаем paid, ledger НЕ трогаем. Безнал → paid + earn/fee водителю."""
+    Наличные → помечаем paid, ledger НЕ трогаем. Безнал → paid + earn/fee водителю.
+    commit=False: вызывающий сохраняет эффект и Payment в общей транзакции."""
     order = session.exec(
         select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
     ).first()
@@ -397,12 +399,15 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
         # note важен: комиссию тут ВЗЯЛИ (записью fee), поэтому в расшифровке заработка она
         # обязана остаться — в отличие от долга, снятого по разбору жалобы.
         _debt.void_debt_for_order(session, order.id, note="Комиссия удержана при онлайн-оплате")
-    session.commit()
+    if commit:
+        session.commit()
     return "settled"
 
 
-def settle_booking(session: Session, booking_id: int, method: str, amount_kop: int) -> str:
-    """Провести оплату завершённой брони плановой поездки. Идемпотентно, под row-lock."""
+def settle_booking(session: Session, booking_id: int, method: str, amount_kop: int, *,
+                   commit: bool = True) -> str:
+    """Провести оплату брони идемпотентно, под row-lock.
+    commit=False: вызывающий сохраняет эффект и Payment в общей транзакции."""
     booking = session.exec(
         select(Booking).where(Booking.id == booking_id).with_for_update()
     ).first()
@@ -425,7 +430,8 @@ def settle_booking(session: Session, booking_id: int, method: str, amount_kop: i
         _post_earn_and_fee(session, ride.driver_id, amount_kop,
                            booking_id=booking.id, note=f"Бронь #{booking.id}",
                            percent=settings.ride_service_fee_percent)
-    session.commit()
+    if commit:
+        session.commit()
     return "settled"
 
 

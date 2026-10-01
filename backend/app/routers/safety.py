@@ -410,12 +410,18 @@ class CallbackIn(BaseModel):
 def request_callback(body: CallbackIn, user: User = Depends(current_user)):
     """Запрос «перезвоните мне» (помощь пожилым/без интернета). Уведомляет админа в Telegram
     с телефоном пользователя, чтобы реально перезвонили. Запись не храним — это поддержка."""
-    notify_admin_telegram(
+    delivered = notify_admin_telegram(
         f"📞 Запрос звонка (Юлдаш)\n"
         f"От: {user.name or '—'}\n"
         f"Тел: {user.phone}\n"
         f"Сообщение: {body.note or '—'}"
     )
+    if not delivered:
+        raise herr(
+            503,
+            "Не удалось отправить просьбу. Повтори позже или напиши в поддержку.",
+            "Үтенесте ебәреп булманы. Һуңыраҡ ҡабатла йәки ярҙамға яҙ.",
+        )
     return {"ok": True}
 
 

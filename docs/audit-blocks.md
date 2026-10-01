@@ -899,3 +899,209 @@ behavior P004; CSS и полная сборка ждут следующего п
 Границы: synthetic ответы, Chrome на Windows, без телефона, настоящего Telegram и установки PWA.
 Открыто в P004: CSS/движение по плану п.7 (радиус логотипа, вуаль, каскад появления, раскрытие баннеров,
 спиннер в кнопке, размер подсказки кода, иконки Info/Refresh), сохранение шага после reload (п.8).
+
+## Восстановление полного аудита — 30.09.2026
+
+Очередь B01–B11 и PATH сохранена. Текущая ветка audit/full-technical-20260930, HEAD 6fa0595d; исходные локальные изменения не присваиваются аудиту. Журнал/передача — [audit-journal.md](audit-journal.md), независимый дизайн — [audit-design-review.md](audit-design-review.md). Root единолично ведёт реестр и общую сборку; дизайн-агент пишет только свой документ, без устройства/сборки.
+
+Сверка ENV-20260930-01: 2 добавленных, 16 изменённых, 0 удалённых; пути/зависимости — test-results/audit-inventory-initial-20260930.json, предыдущий снимок — audit-inventory-baseline-20260930.json. Изменённые LoginScreen, automatch/config, CI/requirements и тесты требуют пересмотра применимости соответствующих исторических доказательств; исторические результаты сохраняются. Общий граф отмечает B01–B11 как требующие рассмотрения влияния, а не автоматического полного повтора каждого теста.
+
+Первый доступный незакрытый критерий: PATH-01 — настоящее действие гостя → форма входа → возврат, отдельно от QA-B01-008 (настоящий провайдер/устройство). Статус: Частично, выполняется. GeneralLinkLoginTest напрямую подставляет токен/экран и не доказывает форму входа. adb devices пуст; QA-B01-008 и обязательные проверки физического телефона остаются открыты. Gradle пока не прошёл старт из-за sandbox-сети; это ограничение окружения, не пройденная сборка.
+
+### QA-B01-011 / PATH-01 — возврат к выбранному экрану, 30.09.2026
+
+Исправлено и проверено локально в исходном SavedPlaces-пути: два RED (успешный вход и неверный код→повтор) подтверждают потерю выбранного экрана. Первый green: 13/13 в четырёх классах + assembleDebug1м17с. Тест проходит настоящую форму/ApiClient/HTTP, но стартует из восстановленного кабинета; Telegram/backend заменены MockWebServer. Журнал QA-B01-011 содержит команды/хэши/ошибку теста/ограничения. Независимый review расширил фикс на SimpleMode и Instant; актуальность после этого diff требует целевого повтора. Полный PATH-01 и QA-B01-008 не закрыты.
+
+### QA-B01-012 — однократность кода и атомарность входа, 30.09.2026
+
+Исправлено и проверено локально для группы одноразового SMS/TG и связанных побочных записей. Исходные RED сохраняются. Финальная стабильная группа: SQLite 77/77, PostgreSQL 16.15 — 88/88 (перекрываются, не 165 уникальных тестов); ещё два настоящих SQL-отказа внутри SAVEPOINT проверены отдельно на обеих БД. В изолированной мутационной копии удаление rowcount-защиты вызвало 4 ожидаемых падения. Снимок версий/хэшей, команды и XML: test-results/auth-atomicity-20260930-checkpoint.json; подробности QA-B01-012 в журнале. Независимый review исходников и 77/88 принят; дополнение SQL/мутации передано на приёмку. Нет production/настоящих SMS/Telegram; потерянный ответ после успешного commit и конкурентные неверные попытки не закрыты этим результатом. Новая правка auth.py требует соответствующего повторного доказательства. Весь B01 остаётся частичным.
+
+### QA-B01-013 — конкурентные неверные попытки кода, 30.09.2026
+
+Исправлено и проверено локально, независимый review принят на auth.py SHA256 LF 5037b949e8a55acfe323b97fdbb2e528efd5fa76ca71d313dbeba02e3c833a22. RED 10/10 на SQLite и PostgreSQL подтвердил потерянные инкременты, поздний 500 и Unicode 500; отдельно воспроизведена review-ветка/не-ASCII конфигурация. БД теперь увеличивает attempts условным SQL attempts+1; лимит/статус/срок/код/владелец проверяются в записи. GREEN 91/91 SQLite и 35/35 PostgreSQL, перекрываются, 12 новых случаев. Мутационная копия с attempts=1 дала 4 ожидаемых падения. Checkpoint/команды/хэши: test-results/auth-attempts-20260930-reviewed-checkpoint.json; journal QA-B01-013. Общий бюджет15 на телефон при нескольких кодах, issuance/resend races и потерянный ответ после commit остаются открыты; весь B01 частичен. Более поздний auth.py diff требует своей проверки.
+
+### QA-B01-014 — права существующего аккаунта в режиме проверки стора
+
+Исправлено и проверено локально; независимая приёмка ограничения до выдачи токена принята: `test-results/audit-b01-review-login-permissions-independent-20260930.json`. RED на SQLite и PostgreSQL подтвердил admin-доступ запросом `/admin/bans` и сохранение driver-роли по фикс-коду. После ранней блокировки/повторного чтения User допускается только passenger; прежние данные/роль/сессии не понижаются и не стираются. Исторический GREEN 103/103 SQLite и 43/43 PostgreSQL; 8 новых случаев, профили перекрываются. Две изолированные мутации дали 3 ожидаемых падения. Версия/команды/хэши: `test-results/auth-review-permissions-20260930-checkpoint.json`; auth.py SHA LF `3486ffd0dce031ebc435b9cf4db7a8cc107c0e2e3ba49481d5acb327fcece1bc`. Позднее auth.py изменён в QA-B01-016; его профиль 117 на каждой БД включает 8 защитных случаев QA-B01-014. Настоящие настройки/сервер не открывались.
+
+### QA-B01-015 — отказ записи отметки выхода и восстановление аккаунта
+
+Исправлено и проверено локально; независимый auth review принят. AuthLogoutMarkerFailureTest RED 1/2: после logout и незавершённого apply свежий init восстанавливал аккаунт A. AuthStorePolicy.logout теперь пробует синхронную очистку доступных хранилищ и при отказе marker; false сохраняет отсутствие гарантии записи. GREEN: 21/21 storage в группе 29/29 вместе с accessibility, отдельные personal-reset 5/5; assembleDebug 1 м 14 с. Логи/counts/JUnit: `audit-b01-logout-nav-green-20260930-*`, `audit-b01-logout-personal-green-20260930-*`. Настоящий kill/force-stop/Keystore проверен отдельно DEVICE-20260930-02. Отказ marker — JVM-модель; полный отказ записи, secondary role/tracking apply и серверный отзыв сессии этим не закрыты.
+
+### QA-B01-016 — права ранее выданной store-сессии после повышения роли
+
+Исправлено и проверено локально для новых маркированных сессий; независимая приёмка принята: `test-results/audit-review-session-independent-20261001.json`. RED 7 failed/1 passed на каждой БД подтвердил повышение старого store access/refresh/recovery до admin после настоящего TG verify, а также возврат driver/admin через optional/WS gates. Теперь signed claim в JWT и полный хэш непрозрачного scoped refresh сохраняют пассажирское ограничение во всех ветках выдачи/ротации/восстановления; роль и данные пользователя не понижаются. GREEN 117/117 SQLite и 117/117 свежая PostgreSQL-БД (13 новых + 104 соседних, профили перекрываются); 2 копии-мутации дали 2 ожидаемых падения. Checkpoint/команды/хэши/diff: `test-results/audit-review-session-checkpoint-20261001.json`. Сбой reused-PG 17 failures/21 errors сохранён и отделён от финального fresh green; фикс тестовых входных условий не ослаблял проверки. Старые немаркированные review-сессии требуют отдельного отзыва перед выпуском; production не трогался. Живое закрытие существующего WS и B01 целиком не закрыты.
+
+### QA-B01-017 — общий бюджет OTP и одновременная выдача кодов
+
+Исправлено и проверено локально в concurrent-группе; независимая приёмка принята: test-results/audit-otp-phone-independent-20261001.json. Эта версия историческая после QA-B01-018, его итоговый профиль включает 126 предшествующих случаев. RED на SQLite и свежем PostgreSQL: 4 failed / 2 passed; attempts=[5,5,4,0] дали SUM 16/19 вместо 15, а пустой номер — 4/8 строк и синтетических SMS вместо трёх. Транзакционный normalized-phone lock теперь предшествует чтению бюджета/throttle, SQL faults не подавляются. Финальный GREEN 126/126 на каждой БД: 8 новых + 117 соседних + 1 усиленный существующий тест. Три изолированные мутации пойманы (lock: 4 failures на каждой БД; SUM: 3 failures SQLite), первоначальный сборочный сбой мутационного стенда сохранён отдельно. Checkpoint/хэши/ограниченный diff: `test-results/audit-otp-phone-checkpoint-20261001.json`; подробности в журнале. Throttle по оставшимся OtpCode после успешного verify — отдельный незакрытый кандидат, произвольная смесь выдач/входов и настоящие SMS этим не доказаны. Весь B01 частичен.
+
+### QA-B01-018 — SMS throttle после успешного входа
+
+Исправлено и проверено локально; независимая приёмка принята: test-results/audit-otp-history-independent-20261001.json. Финальная версия: 147/147 каждой БД, две мутации пойманы, hashes совпали. Исходный RED 2/2 на SQLite и свежей PostgreSQL: три request-code→verify удаляли историю, четвёртая выдача за минуту возвращала200 и четвёртую синтетическую SMS; настоящий webhook cleanup включён в отдельный вариант. Root меняет claim на условный UPDATE (пустой code/expiry сейчас, created_at сохраняется) в прежней login-транзакции; cleanup сохраняет последние60с. Первые128/128 и соседние19/19 исторические; после исправления shared-clock/empty-code доказательства итоговый147/147 выполнен на каждой БД. Сбои стенда и первоначальные результаты сохранены в журнале. Логи/XML `audit-otp-history-*20261001.*`; настоящие SMS не отправлялись. Account deletion по-прежнему удаляет OTP согласно прежней политике и не закрыт как защита от повторной регистрации.
+
+### QA-B01-020 — отказ записи и отдельный отказ отката
+
+Частично: подтверждённые transient rollback отказы и изоляция неподтверждённой записи в текущем процессе исправлены локально и [независимо приняты](../test-results/audit-offline-rollback-independent-20261001.json). Расширенный RED:14 тестов,9 failures/5 controls; итог139/139 в24классах,0 failures/errors/skips, assembleDebug+AndroidTest1м22с успешны. Пять source-файлов сохраняют confirmed previous (включая null), блокируют новые writes/HTTP до подтверждённого recovery, не возвращают удалённые/старые данные после успешных deletion/reset. Две отдельные мутации: read-ignore1failure/2controls, discard-noop3failures/2controls; root source не менялся. Device5/5 за1.726с: реальный plain file/Keystore/новый encrypted wrapper в одном PID; отдельный interrupted plain commit наAPI35 вернулfalse, но значение найдено непосредственно в собственном XML на диске. Rollback faults injected; устройство не доказывает отсутствие HTTP, это JVM MockWebServer. Обязательный cold-process критерий при продолжающемся отказе всех recovery writes **открыт**: RAM guard не защищает новый процесс, отвергнутое B может оставаться на диске. Полный B01 не закрыт. [Checkpoint](../test-results/audit-offline-rollback-checkpoint-20261001.json), ограниченный diff/read-map/логи в журнале;35source/29XML/16artifacts/2APK сверены root и reviewer. Прежние7/14/49/32 профили перекрываются, не суммировать.
+
+### QA-B01-021 — экспорт личных данных и смена аккаунта
+
+Частично; перечисленные обычные локальные и emulator критерии подтверждены. После двух настоящих device RED и postHTTP IO RED исправлены retention/grant alias и позднее создание A-копии после logout/B. Текущие source: PersonalDataExports UUID paths/displayName/session guards, MyDataScreen captured-generation/короткая publication gate/finally, ApiClient cleanup legacy+UUID. GREEN62/12classes/0fail-error-skip (2 late/race +2 cleanup +58 neighbors), mandatory assembleDebug2м19с. Финальная интеграция на emulator5580/API35:5 actual screen→synthetic loopback HTTP→UTF8 file→реальный FileProvider/displayName/read→записанный Intent +3 реальных внешних shellUID2000 grant/revoke, всего8/8 за30.455с/PID3510; debug/testAPK25с, после исправления stand command27с. Query URI grant отзывается на API35. Две selective mutations в отдельной copy дали каждая1 expected failure/1control, root source unchanged/copy restored. [Checkpoint](../test-results/audit-mydata-export-checkpoint-20261001.json), [журнал](audit-journal.md), [финальный device log](../test-results/audit-mydata-export-current-device-final-20261001.log). Source10/artifacts100/41XML/2APK сверены root и независимым design_resume; storage_review final scoped acceptance принят: audit-mydata-export-independent-20261001.json SHA16d923…99d8. Raw source snapshots сохранены. Inventory1754,5added/3changed/0removed, check без дрейфа; нормализация прежняя.
+
+Первый combineddevice8 имел3 failures ДО logout из-за кавычек в UiAutomation Runtime.exec, не дефекта cleanup. Факт сохранён с логом/stderr calibration: quotedURI не найден, unquoted before-read=true; повтор обоснован исправлением stand и финальной интеграцией, не новым числом уникальных сценариев. Windows JVM provider ограничения также сохранены, провайдер не подменён/skip не добавлен. Граница: screen mounted напрямую, server синтетический без FastAPI/БД, externalchooser dispatch перехвачен; отдельный grant explicit и actualexternal read. Полная navigation/login-restoration, cold process death во время IO, physical delete/revoke failure, внешние copies/openFD и телефон открыты. MyStats personalPNG — следующий отдельный B01 privacy критерий. Независимая font2 BA проверка выявила DESIGN-018 DataRow, wholeScreen/B09 не принят; отдельный layout RED готовит rollback_probe. Владельцы: root production/shared docs/Gradle/5580, rollback_probe только MyDataFontScaleLayoutTest, storage_review own acceptance, design_resume только design-review.
+
+### B09 / DESIGN-R4-A/B — имя загружаемой кнопки и обязательное обновление
+
+Исправлено и проверено локально для DESIGN-010/011; независимо принято design_continue R10 в audit-design-review.md. AppButton терял action name во всех4стилях/RU/BA (8/8RED); loading-only semantics сохраняет имя и disabled/progress/spinner. Финальный тест проходит idle→реальный click→loading→запрет повторного click→idle без дублирования имени→следующий click. ForceUpdate320×568/font2 терял высоту body/CTA; scroll с minHeight viewport сохраняет центр короткого контента.32/32 JVM/4класса, debug+testAPK1м6с успешны; device8/8 за32.69с,8 final PNG просмотрены независимо/root. Baseline6/4fail содержал2ошибочныхnormalwidth assertions: критерий исправлен до available constraint width, прежний сбой сохранён; большие height нарушения подтверждены отдельно. Checkpoint audit-update-loading-checkpoint-20261001.json:9source/91artifact entries сверены при приёмке, APK затем перестроены QA020 и являются историческими;32 UI повторены в актуальном139 профиле из-за изменения общей storage-зависимости. Весь B09 частичен: TalkBack/полный путь/servergate/store/телефон/полная матрица открыты; новые замечания DESIGN-006…009/012/013 находятся в независимом документе и ещё не исправлены.
+
+### QA-B01-019 — повреждённая офлайн-очередь
+
+Исправлено и проверено локально; независимо принято в test-results/audit-outbox-corrupt-independent-20261001.json. Root дополнительно сверил16/16 source,20/20 XML и2/2 APK SHA. Подтверждены перезапись queue после ошибки JSON/чтения и потеря оставшихся действий после HTTP при повреждении snapshot. TripPass.kt теперь отличает null/неизвестное содержимое от отсутствующего ключа; enqueue/обе точки flush прекращают изменение неизвестного snapshot. RED2 failed/2 passed; финальный49/49 в9 JVM-классах, assembleDebug1м26с успешен. Device2/2 на API35 удержали настоящие plain/Encrypted preferences/Keystore в одном PID; process death этим не доказан. Мутация старого readAll:3 ожидаемых failures/2 controls. Первые48/48 исторические, не суммировать. count/hasPending, schema/recovery и физический отказ диска остаются открытыми; весь B01 частичен. Checkpoint/журнал содержат команды/хэши/границы.
+
+### B10 / INV-20261001-01 — собственные текстовые конфиги в области
+
+Проверено локально для классификации: 19 файлов .pro/.mako/.service/.timer/.example раньше ошибочно считались бинарными. Независимая сверка назначений/ссылок — `test-results/audit-scope-exclusions-20260930.json`; root прочитал эти 19 файлов. После исправления tools/audit_inventory.py CLI-регрессия 3/3 проверяет включение, секретные/legacy/generated исключения, SHA при CRLF/CR/LF, изменение настоящего текста, дельту и отсутствие самоссылки. RED/green — `audit-inventory-scope-{red,green}-20261001.log`; предыдущий снимок/delta/check сохранены, --check exit 0. 1739 файлов — сумма counts_by_kind, не покрытие. Функциональные проверки R8/nginx/systemd/миграций остаются критериями B10.
+
+### B11 / SCOPE-PROMO-CONFLICT-02 — конфликт в действующем входе promo
+
+Частично: независимым чтением подтверждены merge markers в tracked promo/src/Root.tsx:8,15,24; index.ts импортирует Root, render scripts используют PromoPortrait/PromoWide. Исходник в HEAD, локальный diff пуст. Доказательство/хэш — `test-results/audit-scope-exclusions-20260930.json`. Компиляция, выбор обеих рабочих композиций и исправление ещё не выполнены; полноценный B11 остаётся незакрытым.
+
+### B09 / DESIGN-005 — обрезание нижнего меню при большом шрифте
+
+Исправлено и подтверждено устройством в перечисленных двух случаях; независимая R3 принята в `audit-design-review.md`. Исходные два API35 PNG при font_scale 2.0 и RED 2/2 на 320dp подтвердили обрезание. Теперь минимальная высота, CanonMicro, две строки/центрирование/ширина ячейки и выровненный верх. Финальные 8 JVM accessibility вошли в 29/29 + assembleDebug; device 2/2, 7.791 с. Все пять текстов без overflow, тач-цели ≥48dp; метрики/PNG `audit-b01-final-controls-{light-ru,dark-ba}-20260930.*`. Устройство 1080×2340/440dpi — около 392.73dp ширины; 320dp — отдельный JVM-стенд. Более ранние кадры/сбои сохранены. Полный HomeShell, нормальный шрифт на устройстве и визуальная матрица не закрыты.
+
+### B09 / DESIGN-001–004 — первичный независимый разбор, 30.09.2026
+
+Статус Частично: независимый дизайн-агент сохранил перечень96 Screen и существенные состояния/отпечатки в audit-design-review.md. Индексация978 @Composable в97файлах не считается полным семантическим чтением каждого файла. Root воспроизвёл5нарушений реальным Compose GetTextLayoutResult/semantic-tree; red XML/log audit-design-controls-red-20260930. После фикса выбранные25тестов в6классах/assembleDebug1м33с зелёные, counts/XML/hashes audit-b01-design-green-20260930. Цвета CanonOnFilled/CanonGoldInk, selected semantics/roles; описание остановки голоса исправлено. Голос/прочие частные компоненты не получили полного runtime proof; независимая повторная проверка и визуальная матрица остаются открыты. Полная передача — audit-journal.md.
+
+
+### B09 / DESIGN-018 — переносы внутри башкирских слов на экране личных данных
+
+Проверено локально в области DataRow, независимо принято R23. Исправленный oracle170 дофикса дал2fail/6controls (intraword); исходный1595fail/3controls включал3ложныхhasVisualOverflow, историяdiagnostic/RED сохранена. Текущий1718layout+2late-export JVM0fail/error/skip/debug50с; actualRU/BA PNG/API35/font2 подтверждают целые слова/title/value/CTA. МинимальноеизменениеTop/общийweightedColumn. Новыйsharedhelper дополнительно прошёл70JVM и8MyData actual вфинальном14export integration. checkpoint-layout-v2 иQA022-v2/sourceхэши/limitations вжурнале. Полнаяmatrix96screen/driver_docs/dark/320dp/TalkBack/телефон/B09 остаётсяЧастично.
+
+### QA-B01-022 — личная PNG-открытка и отмена передачи
+
+Проверено локально в указанной области; scoped independent acceptance a4897cfd29ec8fba323fa778a09cc1ececed5ddef6499a013d4840812d49a17a. Baseline465combined11:8textpass/2productfail/1fixturetimeout; corrected4763/3productRED/15.555с безtimeout. Fixedpath/grant alias A→B, late IO и cancellationfallback подтверждены реальнымAndroid, историясохранена.
+
+Fix: уникальныйUUIDPNG/displayNameпрежний, ownergenerationmount/IO/publication guards, Cancellationrethrow/discard/Bitmaprecycle/busybutton; ownlegacy+UUIDcleanup/revoke. GREEN70JVM/13classes0fail/error/skip, debug/testAPK1м1с, latestAPK32с; финальные14actual/14/51.723с/PID6879 наAPI35/font2/light,8text+6PNG. ActualexternalUID2000 oldgrant=-1/Areadfalse/Bviaoldfalse, neutralgrant0/readtrue; Back/lateIO0SEND/unchangedfiles, writeerrorcurrenttext, duplicate tapsoneoperation, loadedAunderBwithoutsremountnoexport. Три mutations дали4expectedfailures/2controls, root/copysources/APKs restored. Exactcommands/proofs checkpoint-v2 raw e47c8bee…/LF b8abc37c9b675c2775b94332f67f2342dfa62e7404e67ab905ad14725fd14d77;105independentlymatchedentries=14current+14snapshots+62artifact+13XML+2APK. Metadata/logcat/WindowsLFerrata сохраненывжурнале,14неповторялииз-заmetadata.
+
+B01 остаётсяЧастично: actualscreensmounted directly, deviceServerSocketsyntheticHTTP/noDB, JVM MockWebServer; chooserdispatchintercepted, OSexplicitgrantsreal. FullProfile/loginrestoration/FastAPI+DB/E2E/physicalphone/TalkBack/coldIOprocessdeath/faileddelete-revoke/externalcopies/openFD/wholeUI/theme/matrix/release/perf открыты. Rootsourceowner/Gradle/5580; reviewread-map/scopedacceptance вtest-results.
+
+### QA-B07-002 / DESIGN-022 — сумма оплаты согласованной брони
+
+Проверено локально для нового согласованного amount, независимо принято R25/R27. RED14/5fail/9controls4.29с: invoice/Payment/earn100000коп вместо40000/120000 иpositivecharge приzero. Minimalpay_amount ifnotNone elseprice/×100/прежний<=0guard; SQLite14+54/freshPG68/68, двеmutationprice/truthinessпойманы. Originalwallet343/42adc9e31a223e974abc0a5f5f7beb10b5a1dc972ad729736b25f562ca48f225 иtest246/c0c22e81… сохраняютсяhistoricalmanifest audit-booking-pay-amount-20261001.json.
+
+ПослеQA003 этиsourceверсии исторические; тотже14amountcriteria cactualcard/sbpHTTP/zero/None/roles/states/repeat повторилсявfinalPG85. Capturedstored_method теперьпроверяетdurableyookassatag, не доказываетrealprovider card/SBPwire. ОбщийB07/QA-B07-001realprovider/AndroidCTA/nonzerofee/всяmoneyобласть остаютсяоткрыты. Историческинесогласованныеpending/paidrows автоматическимремонтомэтогофиксанеисправляются.
+
+### Дополнительные критерии независимого дизайна — 01.10.2026
+
+- DESIGN-019 / B06: Android Notifications оптимистически меняет read/unread до ответа, failure POST не откатывает; source-confirmed, actual UI500/retry ещё не проверены. Источники/места в R21 design-review, root fixes не выполнял.
+- DESIGN-020 / B07: PayOnlineCard failure браузерного startActivity игнорируется, UI Waiting обещает открытое окно; source-confirmed, launcher failure runtime RED нужен.
+- DESIGN-021 / B07: health payments=sbp_manual трактуется клиентом как enabled, production wallet принимает cashless только yookassa; source-confirmed capability mismatch, controlled health/UI503 нужен. Настоящий provider не запускался.
+- DESIGN-023 / B06: MapScreen фильтрует только первые5 near rides после server limit, при непустом prefFilter убрана pagination CTA; подходящий шестой может давать ложное empty. Source-confirmed, actual MapScreen/GET page/filter runtime RED ещё не выполнен.
+
+Эти критерии дополняют принятую область обнаруженных действующих функций; не увеличивают13роль-путей и не являются вторым списком очереди. Независимые source evidence находятся в audit-design-review.md, актуальный статус здесь.
+
+
+### QA-B07-003 — изменение суммы после выставления счёта или оплаты
+
+Проверено локально в указанных критериях, независимо принято design_resume R32. Приёмка: test-results/audit-booking-pay-amount-independent-design-after-charge-final-20261001.json, LF bf05bef6c52adc62391ec6aabf0b03bc4651f3aca227750203e46e320feaf8b0. Сверены 14 текущих +14 raw снимков +42 артефакта, финальный PG85/XML/11.383с и финансовые наблюдения всех выбранных сценариев. B07 остаётся Частично. Original221line testb58bd9af… SQLite6/4fail/2controls9.90с: обе стороны400→1200 приpending/paid, invoice/Payment/earn/balance400, receipts1200. Rootfix guardchanged effectiveamount доwrites приpaid/pending/succeeded; sameamount/methodonly/Nonelegacy preserved. BookingFORUPDATE/populate_existing связываетagreement/newinvoice; releaseBooking transaction beforeHTTP/sync сохраняет Payment→Booking activation; canceledsync freshlock/state/amount/commondedup; durabletagпервыйinsert.
+
+Финальные79/79SQLite и79/79freshPG;6/6PGraces сactualSQLlocks/pg_blocking_pids/Events безsleep; итоговыйmergedPG85/85/11.39pytest/14.469wall/PID24620. Формула14amount+11aftercharge+54neighbors+6race=85;74/79/6 — overlappingprofiles,несуммановыхtests. Четыреisolatedmutations: guard11/7fail4controls; actualPGdeadlock1fail; firststoredtag1fail (неdupclaim); canceleddedup1fail/PaymentIDs2!=3. Copyrestored/rootunchanged; harnesscp1251readfailureпослеfirstexpectedresultсохранён, v2continuedбезповтора.
+
+Checkpoint audit-after-charge-checkpoint-20261001.json LF1af49f24e7fb8e0fa7a8ccaad3f07710ef91f68631ef5da8bdf063966eb25c08:14currentsources/raw14snapshots/42artifacts, exactrunners/XML/syntheticobservations иreadextents. Windows11/Python3.12/PG16.15/55431/isolatedsyntheticDB/actualFastAPIHTTP/realSQL&ledger, outboundcreate/fetchonlyreplacement, raceconfigyookassa/noactualkeys. WholeB07/AndroidCTA/realprovider/historyrepair/nonzerofee/load/crashes/release остаютсяOPEN. Rootownwallet/bookings/tests/shared docs/PG; design_resumeindependentreviewer.
+
+QA004 изменил общие payments/ledger/debt после этой историческойзаморозки. Актуальнаяперепроверка выбранныхQA003критериев/14amount/11aftercharge/6PG иобщихcash/refund — final158 QA004; новыехэши в егоcheckpoint. Старые85/raw/мутации сохраняются как исторические.
+
+### Дополнение критериев DESIGN-028–031
+
+Новые обязательные source критерии независимого Android-аудита: DESIGN-028 adminpaymentsreload debt/summary failure скрывается за empty/oldsuccess; DESIGN-029 forgive draft теряется приfailure; DESIGN-030 grouped SUM debts вUI, forgive меняетоднустроку; DESIGN-031 rejected(canceled)manualpayment confirm отвечаетsucceeded безactivation. R31/source ranges в design-review; DESIGN028–030 runtime/fix ещё открыты, DESIGN031 подтверждён/исправлен в QA-B07-004 ниже. B07/B08 открыты.
+
+
+
+### QA-B07-004 / DESIGN-031 — подтверждение ранее отклонённого ручного платежа
+
+Частично: canceledconfirm/paidreject ложные2xx и ранний commit денежного эффекта подтверждены actualSQLite/PG. Fresh Payment FOR UPDATE/terminal guards и общая transaction effects+Payment.succeeded исправлены (3helpers optional commit=True, activation commit=False). RED исходный17/4fail; SQL-fault на каждойБД6/4fail/2controls; PG353 первый5 содержал1 fixtureDecimalJSONfailure+1productfailure, corrected356 PG5/2productfail/3controls. Все исторические версии/сбои сохранены. Итог142SQLite/158PG/0fail-error-skip=142common+5manualPG+6QA003PG+5existingPG. Самостоятельныеcash/defaultcommit/earn/fee/refund/debt/snapshots/receipts/QA002/003 включены. [Подробности/provenance/команды](audit-journal.md), rawbeforeatomic и test-results/audit-manual-terminal-*. Узкие критерии проверены локально: независимая приёмка [QA004 v2](../test-results/audit-manual-terminal-independent-20261001-v2.json) принята; root сверил её checkpoint и3 supplementary artifacts. Мутации3→4 предметных падения, inventory1762/check0; wholeB07/B08 не закрыты. Реальные provider/переводы/Android путь/прекращение процесса/load не выполнялись. Root source/shared docs/currenttests/onlyPG55431; agent mutation толькоowncopy. Суммы/права/provider политика не менялись.
+
+### DESIGN-032–039 — дополнительные обязательные критерии B02/B08/B09
+
+Частично: независимый design_resume R33/R34 разобрал связанные Android/server/web функции и дополнил accepted scope. Это source доказательства, actual RED/fix/GREEN ещё открыты; подробные условия/точные source hashes/влияние — [независимый дизайн](audit-design-review.md).
+
+| ID | Критерий и область |
+|---|---|
+| DESIGN-032 | AdminResponses показывает historical price, accept после торга использует current price; Android/web/server совпадение видимой цены и итоговой брони. |
+| DESIGN-033 | Late search A/B и ошибкаB не должны выдавать старыеA-карточки/подменятьB; Android navigation/API actual journey. |
+| DESIGN-034 | AdminResponses доступность принятия должна соответствовать статусу/ходу/role правилу; blanket canAccept нельзя (admin имеет отдельное право). |
+| DESIGN-035 | AdminRequest→create success→AdminResponses: возвращённый requestID должен сохраняться в UI/навигации, Android Unit/Toast/Back сейчас его теряет. |
+| DESIGN-036 | Blocklist getReportableUsers failure нельзя показывать пустым успешным списком; loading/error/retry/401/Back. |
+| DESIGN-037 | Report/Blocklist picker должен включать предусмотренных контрагентов taxi/parcel/response, сохраняя privacy; сейчас GET собирает только Booking↔Ride. |
+| DESIGN-038 | ReportCategoryDialog четырёхпотребителей сохраняет target/category/details до confirmedPOSTsuccess; servererror/retry/lostresponse/дваучастника. |
+| DESIGN-039 | Web complaint200+alsoBlock500 должен честно сообщать частичный успех и повторять толькоBlock, сохраняя однуReport. |
+
+Соседние source probes ещё не runtime proof: normalization adminphone; parallelBlock SELECT/INSERT без видимогоunique pair/fresh migration и дубли Compose keys; duplicateReport serialization; list_blocks have_met N+1. Право блокировать незнакомого и приватность имени не менять без договорного основания. Никаких production/личныхданных/денежных действий reviewer не выполнял. Порядок/статусы ведутся только здесь.
+
+### DESIGN-040–043 — помощь и внешний переход, B08/B09
+
+Частично: независимый design_resume R35 разобрал Help и связанные callback/SOS Android/server/web handlers. Это исходные подтверждения, actual RED/fix/GREEN ещё открыты.
+
+- DESIGN-040: /callback не сохраняет заявку и игнорирует False от notify_admin_telegram; успешный ответ должен означать принятое уведомление либо сохранённую предусмотренную заявку. Обрабатывается далее QA-B08-001, без настоящего Telegram.
+- DESIGN-041: Help ACTION_VIEW failure скрыт; нужен понятный результат/возможность повтора. Старый «не упало» тест результата не доказывает.
+- DESIGN-042: ExpandableHelpRow role/expanded-state semantics; точная source проверка/TalkBack и RU/BA/screen matrix остаются.
+- DESIGN-043: FAQ обещает звонок+SMS при SOS tap, фактически dial иsendSignal отдельные действия с условиями входа/контактов/канала; исправить только после сопоставления настоящего пути, новыеBA как draft.
+
+Точные места/условия/границы — [design-review R35](audit-design-review.md). Реальных звонков/SMS/TG reviewer не делал, wholeB08/B09 не закрыт.
+
+### QA-B08-001 / DESIGN-040 — честный результат просьбы перезвонить
+
+Частично: по source /callback требует current_user, берёт phone/name только из его аккаунта, но игнорирует actual notifier False; permanent ticket не предусмотрен. Первый локальный воспроизводимый criterion: missingconfig/controlledFalse не дают false HTTPokTrue; acceptedTrue положительный контроль/валидация/Auth/Unicode/BA/maxlen/retry. Исследование доставки/таймаут/lostresponse/idempotency не равны фактическому звонку. Backend safety.py/currenttests — root; rollback_probe толькоnewtest_callback_delivery_result.py/prepared/evidence безexecution. Реальные Telegram/SMS/usercalls/production запрещены. Actual RED18/3fail/15controls подтвердил false200 для2 отказов и actual missingconfig. Root safety.py проверяет bool доставки и возвращает bilingual503 до ok; GREEN18/18 и final24/24=18new+6existing safety neighbors,0fail/error/skip. Положительный старый notifier fixture теперь честно возвращает True. PostgreSQL повтор не нужен для bool guard без измененийDB/locks; SOS persistence проверен SQLite/FK. Узкий backend criterion независимо принят correctedv2 (actual POST /callback), root hashes проверены; mutation18/3privacytruthfail/15controls,220root/copycomparisons. Android первый запрос fixed/actual JVM41 и device2PASS, checkpoint/supplement; falsecard доHTTP/doublepointer/503draftretry закрыты в указанной локальной среде. Визуальная карточка/BAfont2/IME DESIGN056, lateaccount/Back/previousaccepted/newrequest/processdeath/provider/idempotency открыты; web source only. Current53 revalidates backend24 после loggingdependencydrift. ПолныеB08/B09 не закрыты.
+
+### DESIGN-044–049 — проверка водителя, B03/B09
+
+Частично: независимое чтение R37, actual UI/RED/fix/GREEN ещё открыты; [места, hashes и условия](audit-design-review.md).
+
+- DESIGN-044: POSTverify response rejected/verified/pending должен определять статус Android/web; profile edit может сбросить verified.
+- DESIGN-045: первоначальный GET/loading/error не показывать как успешную «не пройдена».
+- DESIGN-046: поздний GET не перезаписывает изменённую форму, удалённые URL не остаются.
+- DESIGN-047: запрет отправки старой пары фото во время загрузки нового; соседние Android/web upload.
+- DESIGN-048: web profile400/500 не должен проглатываться перед POSTverify/success.
+- DESIGN-049: synchronous decodeToJpeg на Main требует измерения, чтение не доказывает lag/ANR.
+
+### QA-B08-002 — приватность локального журнала admin Telegram
+
+Частично: source services.py notify_admin_telegram exception→str(e)→logs.py без scrub, отдельный synthetic RequestError/ReadTimeout URLkey probe144/7 подготовлен и прочитан. Наличие реальной утечки/типичная форма transport error не подтверждены. Root запускает только actualfunction+HTTPX MockTransport без socket/realkeys; RED7/2privacyfail/5controls подтверждён actual MockTransport с synthetic URLkey, rootwarning теперь сохраняет лишь exception class; GREEN7/final48=7+18callback+6safety+5SOS-hints+12reminder,0fail/error/skip. Selectivecopy mutation7/2originalprivacyfail/5controls,218root/copycomparisons0drift. Sharedscrub не менялся, providerbool/payload сохранены; [checkpoint](../test-results/audit-admin-tg-log-checkpoint-20261001.json), узкий localwarning criterion независимо принят, root hash/provenance verified. Current53 повторяет7tests после logs.py QA003 dependencychange; oldcheckpoint hashes сохранены исторически. UI/device отдельный QA001; productionexposure/disk/Sentry/общаяprivacy не приняты.
+
+### DESIGN-050–060 — новые критерии независимого дизайна
+
+Частично: замечания R38–R40/Booking внесены через существующий механизм, root воспроизведение/исправление по указанным критериям ещё открыто; [точные связи/версии/условия](audit-design-review.md). Никаких реальных платежей/FCM/уведомлений не было.
+
+- DESIGN050: SupportScreen provider pending/succeeded/URL/amount contract, вместо этого ручной СБП0/резервные реквизиты.
+- DESIGN051: late manual boost statusA не присваивает succeeded текущемуB.
+- DESIGN052: BA названия тарифа не остаются русским servertitle.
+- DESIGN053: bonus/carry GETerror не показывать как успешный0.
+- DESIGN054: Android manualboost наблюдает admin succeeded/canceled как предусмотрено контрактом.
+- DESIGN055: support reply push→ticketID→правильный тикет после входа, сейчас pendingSupport ведёт к донату.
+- DESIGN056: BA callback title clipping font2/IME в реальном ComponentActivityPNG; полноэкранный/MainActivity/insets/keyboard контекст требует отдельного воспроизведения; scoped singleflight этого не закрывает.
+- DESIGN057–060: Booking seats/totalprice подписи, отозванный verified, явная согласованная0 и свежийGETstatus/действия двухучастников. Это source критерии reviewer, текущий экран/двааккаунта runtime ещё открыты.
+
+### QA-B08-003 — отдельный HTTPX INFO канал bot URL
+
+Частично: узкий HTTPX INFO criterion исправлен permanent per-record filter в logs.py, original request/payload/levels/nonTelegram logging сохранены. Actual RED5/4fullINFO privacyfail/1control→GREEN5→stronger current165 final53/53;5new+48neighbors. Mutation filterbody returnTrue дала5/4structuredargs privacyfail/1control,218root/restoredcopycomparisons0drift; RED и mutant падают на разных содержательныхasserts техжеcaseIDs. [Frozencheckpoint](../test-results/audit-admin-tg-httpx-checkpoint-20261001.json), inventory1767/check0. Независимая узкаяприёмка принята: [independent](../test-results/audit-admin-tg-httpx-independent-20261001.json) LF861162ad8098b4c555789ed890285f9c20e386674e05391c5e6c730c0a68365c,54path/218mutationcopycomparisons0drift; root checkpoint/current12hashes verified. Production loglevel/фактическуюутечку Я не могу подтвердить; disk/stderr/Sentry/history/preimport/otherproviders/release и wholeB08 остаются открыты.
+
+### DESIGN-061–069 — независимая заморозка R43–R45, B02/B05/B09
+
+Частично: [точные source/ranges/hashes/условия и критерии](audit-design-review.md). DESIGN061–068 подтверждены исходниками, actual RED/fix/GREEN ещё отсутствуют;069 кандидат до controlled restoration, не объявлять подтверждённым runtime defect. Очередь остаётся в этом реестре, инструкция передачи её не заменяет.
+
+- DESIGN061: peer same-text WS event не заменяет own pending echo, проверить author/id/order у обоих участников и Outbox.
+- DESIGN062: passenger status после отказа403/409/503 не остаётся optimistic новым.
+- DESIGN063: edit draft/id сохраняются при отказе HTTP и повторяют тот же target.
+- DESIGN064: shares GET503 не скрывается как empty; saved-before-SMS429 требует reconcile/revoke/dedup/PG, без реальныхSMS.
+- DESIGN065: passport durable agreedamount/cash/zero/None/owner не меняет сумму/способ на original/SBP.
+- DESIGN066: boardingcode503/403/blank отображает error/retry, не вечныйloading; actual currentHero, а не старые unusedCards.
+- DESIGN067: типизированные system/voice/deleted/empty previews локализованыRU/BA, реальныйusertext не переводится по совпадениюстроки.
+- DESIGN068: done/cancelledInbox→history и lost-item grant→достижимый editor у обеихсторон с expiry/privacy, booking сохраняетdone.
+- DESIGN069: кандидат saveablebusy без coroutine послеrestore; controlled heldrating/thanks/lostitem→restore→свободный/reconciledCTA, processdeath отдельно.
+- DESIGN059 расширен currentCompleted receipt.amount0/fallback0/None; backendpayment GREEN не доказывает Android правильнуюzero label.
+
+### ENV-B10-20261001-FINAL — итоговый backend integration fixture
+
+Частично: fullv2 сохранился4935pass/1fixturefail/39skip; существующий test_storage automaticmode зависелот ambientlocalsafeENV. Productionconfig unchanged; current194 сохранил5asserts, explicitauto/incomplete secret и3ambientcases,15storage+53neighbors=68PASS. SelectivemutationautoFalse дала3assertfail/212matchingfilecomparisons. [Checkpoint](../test-results/audit-handoff-storage-env-checkpoint-20261001.json), независимаяузкаяприёмка принята LF53ecf7df7012477177c44e1b4e8503d8abc29f75a24e0968d5ac0ea7d5830f19,32paths/212comparisons0drift,rootverified. Fullsuiteпослеfixture-onlychange не повторялся, fullgreenне заявлен;39skips/deprecations/неработающиеtimeoutmarks иwholeB10/release/CI/нагрузка открыты. Coverage92.513%=20414/22066statements в102appfiles (coverage7.14.3,lineonly), это не процентисправности. Дляточныхкоманд/границсмjournal.

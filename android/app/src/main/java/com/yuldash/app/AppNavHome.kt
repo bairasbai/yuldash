@@ -32,6 +32,7 @@ internal fun HomeRoute(
     requestsError: Boolean,
     payMethod: String,
     onRetryRequests: () -> Unit,
+    onLoginRequired: (Screen) -> Unit,
     /** Статус брони, которую открываем следующей: его читает экран брони. */
     onBookingStatus: (String) -> Unit,
     /** Заготовка «следить за маршрутом»: откуда и куда. */
@@ -141,10 +142,10 @@ internal fun HomeRoute(
             onVerifyDriver = { screen = Screen.VerifyDriver },
             onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
             onOpenScheduled = { screen = Screen.ScheduledOrders },
-            onSavedPlaces = { if (ApiClient.isLoggedIn()) screen = Screen.SavedPlaces else screen = Screen.Login },
+            onSavedPlaces = { onLoginRequired(Screen.SavedPlaces) },
             payMethod = payMethod,
             onOpenPayments = { screen = Screen.PaymentMethods },
-            onCourierMode = { if (ApiClient.isLoggedIn()) screen = Screen.Courier else screen = Screen.Login },
+            onCourierMode = { onLoginRequired(Screen.Courier) },
             onNotifications = { screen = Screen.Notifications },
             onRouteWatch = { from, to ->
                 onRouteWatchPrefill(from, to)
@@ -192,9 +193,9 @@ internal fun HomeRoute(
             onSafety = { screen = Screen.Safety },
             onSettings = { screen = Screen.Settings },
             onPrivacy = { screen = Screen.Privacy },
-            onTrust = { if (ApiClient.isLoggedIn()) screen = Screen.Trust else screen = Screen.Login },
-            onFairness = { if (ApiClient.isLoggedIn()) screen = Screen.FairnessCenter else screen = Screen.Login },
-            onConsents = { if (ApiClient.isLoggedIn()) screen = Screen.Consents else screen = Screen.Login },
+            onTrust = { onLoginRequired(Screen.Trust) },
+            onFairness = { onLoginRequired(Screen.FairnessCenter) },
+            onConsents = { onLoginRequired(Screen.Consents) },
             onHelp = { screen = Screen.Help },
             onPassengerCabinet = { prefs.edit().putString("preferred_role", RideRole.Passenger.name).apply(); screen = Screen.PassengerCabinet },
             onDriverCabinet = { prefs.edit().putString("preferred_role", RideRole.Driver.name).apply(); screen = Screen.DriverCabinet },
@@ -212,6 +213,6 @@ internal fun HomeRoute(
                 startHomeTab = HomeTab.Map
                 screen = Screen.Login
             },
-            onInstantLogin = { screen = Screen.Login }   // такси требует входа → на экран входа
+            onInstantLogin = { startHomeTab = HomeTab.Map; onLoginRequired(Screen.Home) }
         )
 }

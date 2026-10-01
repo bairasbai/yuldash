@@ -93,6 +93,11 @@ object ApiClient {
     private fun requestSession() = synchronized(sessionLock) { RequestSession(sessionGeneration, token) }
     internal fun queueSessionGeneration(): Long = sessionGeneration
     private fun sameSession(generation: Long) = sessionGeneration == generation
+    internal fun isCurrentSession(generation: Long): Boolean = sameSession(generation) && !token.isNullOrBlank()
+    /** Only short publication actions; never put the export file I/O under this monitor. */
+    internal fun runIfCurrentSession(generation: Long, action: () -> Unit): Boolean = synchronized(sessionLock) {
+        if (!isCurrentSession(generation)) false else { action(); true }
+    }
     private class SessionChangedException : IllegalStateException("Session changed")
     private fun <T> staleSession(): Result<T> = Result.failure(SessionChangedException())
     private fun expireSession(generation: Long) = synchronized(sessionLock) {
@@ -502,6 +507,7 @@ object ApiClient {
             }
             // Шторка тоже содержит данные прежнего аккаунта; каналы и их настройки сохраняем.
             runCatching { ctx.getSystemService(android.app.NotificationManager::class.java)?.cancelAll() }
+            runCatching { PersonalDataExports.clear(ctx) }
         }
         TripPassStore.clearAll()
         Outbox.clearAll()

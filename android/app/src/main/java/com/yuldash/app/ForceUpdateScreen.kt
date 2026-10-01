@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +23,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
@@ -55,7 +58,7 @@ internal fun ForceUpdateScreen(storeUrl: String) {
     val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(CanonMotion.ENTRY), label = "fuAlpha")
     val lift by animateFloatAsState(if (shown) 0f else 24f, tween(CanonMotion.ENTRY), label = "fuLift")
 
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .background(CanonBg)
@@ -65,8 +68,11 @@ internal fun ForceUpdateScreen(storeUrl: String) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 32.dp)
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = maxHeight)
+                .padding(horizontal = 32.dp, vertical = 24.dp)
                 .graphicsLayer { this.alpha = alpha; translationY = lift },
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Surface(shape = CircleShape, color = CanonMint) {

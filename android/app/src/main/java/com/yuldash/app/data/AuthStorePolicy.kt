@@ -117,8 +117,9 @@ internal object AuthStorePolicy {
     }
 
     fun logout(plain: SharedPreferences, secure: SharedPreferences?, current: SharedPreferences?): Boolean {
-        if (!state(plain, "logout")) return false
-        var success = true
+        // A marker failure must not skip synchronous erasure of the stores that remain writable.
+        // The false result still reports that durable logout was not fully confirmed.
+        var success = state(plain, "logout")
         listOfNotNull(plain, secure, current).distinct().forEach { if (!clear(it)) success = false }
         return success
     }

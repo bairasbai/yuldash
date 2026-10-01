@@ -2020,7 +2020,7 @@ private fun repeatRouteTitleRu(count: Int): String {
 }
 
 @Composable
-internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onRequest: (String) -> Unit) {
+internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onRequest: (String) -> Unit, loading: Boolean = false) {
     val defaultReason = appText("Помоги создать заявку", "Заявка булдырырға ярҙам ит")
     var reason by remember { mutableStateOf(defaultReason) }
     val context = LocalContext.current
@@ -2029,6 +2029,7 @@ internal fun CallbackHelpScreen(requested: Boolean, onBack: () -> Unit, onReques
         CallbackHelpContent(
             reason = reason,
             requested = requested,
+            loading = loading,
             hasSupportPhone = supportPhone.isNotBlank(),
             onReasonChange = { reason = it },
             onPrimaryAction = {
@@ -2056,6 +2057,7 @@ internal fun CallbackHelpContent(
     onReasonChange: (String) -> Unit,
     onPrimaryAction: () -> Unit,
     modifier: Modifier = Modifier,
+    loading: Boolean = false,
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -2080,21 +2082,14 @@ internal fun CallbackHelpContent(
             }
         }
         item {
-            Button(
+            AppButton(
+                text = if (hasSupportPhone) appText("Позвонить в поддержку", "Ярҙамға шылтыратыу") else appText("Попросить звонок", "Шылтыратыу һорау"),
                 onClick = onPrimaryAction,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp).testTag("callback_btn"),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
-            ) {
-                if (hasSupportPhone) {
-                    Icon(Icons.Default.HeadsetMic, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(
-                    if (hasSupportPhone) appText("Позвонить в поддержку", "Ярҙамға шылтыратыу") else appText("Попросить звонок", "Шылтыратыу һорау"),
-                    fontWeight = FontWeight.Bold, fontSize = 16.sp
-                )
-            }
+                modifier = Modifier.testTag("callback_btn"),
+                icon = if (hasSupportPhone) Icons.Default.HeadsetMic else null,
+                loading = loading,
+                height = 58.dp,
+            )
         }
     }
 }

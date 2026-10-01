@@ -3513,7 +3513,7 @@ internal fun VoiceMessageCard(message: LocalVoiceMessage) {
                 ) {
                     Icon(
                         if (playing) Icons.Default.Close else if (message.audioPath != null) Icons.Default.PlayArrow else Icons.Default.VolumeUp,
-                        contentDescription = appText("Воспроизвести", "Уйнатыу"),
+                        contentDescription = if (playing) appText("Остановить", "Туҡтатыу") else appText("Воспроизвести", "Уйнатыу"),
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )

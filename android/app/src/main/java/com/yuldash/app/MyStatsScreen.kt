@@ -9,7 +9,6 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
-import androidx.core.content.FileProvider
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -66,11 +65,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MyStatsDto
+import com.yuldash.app.data.PersonalDataExports
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
 
 // Фикс-палитра шеринг-открытки (StatsShareCard) — независима от темы: карточка уходит картинкой в
 // мессенджеры «как есть», у получателя может быть любая тема. Поэтому цвета жёстко зашиты, а НЕ берутся
@@ -87,7 +88,7 @@ private val StatsGlassSoft = Color(0x1FFFFFFF)    // «стеклянный» ф
  * F18 «Мой Юлдаш» — личная статистика попутчика.
  * Км вместе · число поездок · сэкономлено ₽ (vs такси) · CO₂ · звание.
  * Шеринг: карточка статистики рисуется в Bitmap (Android Canvas) и уходит картинкой в share-sheet;
- * при любой ошибке рендера/записи — фолбэк на текстовый шеринг.
+ * при ошибке рендера/записи — фолбэк на текстовый шеринг; отмена прекращает передачу.
  * Состояния: загрузка / ошибка (повтор) / данные (нули для новичка — валидны, с тёплым пояснением).
  */
 @Composable
@@ -95,6 +96,8 @@ internal fun MyStatsScreen(onBack: () -> Unit) {
     val language = LocalAppLanguage.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val generation = remember { ApiClient.queueSessionGeneration() }
+    var sharing by remember { mutableStateOf(false) }
 
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
@@ -191,18 +194,40 @@ internal fun MyStatsScreen(onBack: () -> Unit) {
                         AppButton(
                             text = appText("Поделиться", "Уртаҡлашыу"),
                             onClick = {
+                                if (sharing || !ApiClient.isCurrentSession(generation)) return@AppButton
+                                sharing = true
                                 scope.launch {
-                                    val caption = shareCaption(s, language)
-                                    val uri = runCatching {
-                                        withContext(Dispatchers.IO) {
-                                            val bmp = drawStatsBitmap(s, name, language)
-                                            saveSharePng(context, bmp)
+                                    var prepared: PersonalDataExports.Prepared? = null
+                                    var shared = false
+                                    try {
+                                        val caption = shareCaption(s, language)
+                                        try {
+                                            withContext(Dispatchers.IO) {
+                                                currentCoroutineContext().ensureActive()
+                                                val bmp = drawStatsBitmap(s, name, language)
+                                                try {
+                                                    prepared = PersonalDataExports.preparePng(context, bmp, generation)
+                                                } finally { bmp.recycle() }
+                                            }
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (_: Throwable) {
+                                            // Preserve text fallback for a real render/write failure.
                                         }
-                                    }.getOrNull()
-                                    if (uri != null) shareImage(context, uri, caption)
-                                    else shareText(context, caption)   // фолбэк: текстом
+                                        currentCoroutineContext().ensureActive()
+                                        ApiClient.runIfCurrentSession(generation) {
+                                            val uri = prepared?.uri
+                                            if (uri != null) shareImage(context, uri, caption)
+                                            else shareText(context, caption)
+                                            shared = true
+                                        }
+                                    } finally {
+                                        if (!shared || !ApiClient.isCurrentSession(generation)) prepared?.discard()
+                                        sharing = false
+                                    }
                                 }
                             },
+                            loading = sharing,
                             style = AppButtonStyle.Primary,
                             icon = Icons.Default.IosShare,
                         )
@@ -473,13 +498,6 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     )
     text("yulbash.ru", pad, h - 95f, 34f, mint, regular)
     return bmp
-}
-
-private fun saveSharePng(context: Context, bitmap: Bitmap): android.net.Uri {
-    val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-    val file = File(dir, "my_yuldash.png")
-    FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 }
 
 private fun shareImage(context: Context, uri: android.net.Uri, caption: String) {

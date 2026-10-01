@@ -534,9 +534,9 @@ internal fun SosContent(
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonRed)
                 ) {
-                    Icon(Icons.Default.Call, contentDescription = null, tint = Color.White)
+                    Icon(Icons.Default.Call, contentDescription = null, tint = CanonOnFilled)
                     Spacer(Modifier.width(8.dp))
-                    Text(appText("Позвонить 112", "112 — шылтыратыу"), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                    Text(appText("Позвонить 112", "112 — шылтыратыу"), color = CanonOnFilled, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                 }
             }
             item {

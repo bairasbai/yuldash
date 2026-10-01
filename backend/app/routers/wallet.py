@@ -82,7 +82,11 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
     )
     dq = dq.where(Payment.order_id == order_id) if order_id is not None else dq.where(Payment.booking_id == booking_id)
     existing = session.exec(dq.order_by(Payment.id.desc())).first()
-    if existing and (existing.provider_id or existing.method == "yookassa"):
+    if existing and (booking_id is not None or existing.provider_id or existing.method == "yookassa"):
+        if booking_id is not None:
+            # Счёт уже фиксирует сумму. Освобождаем Booking перед внешним HTTP
+            # и Payment → Booking activation, иначе возможен deadlock с webhook.
+            session.commit()
         if existing.provider_id:
             existing, info = _sync_provider_status(session, existing)
             if existing.status == "succeeded":
@@ -103,8 +107,24 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
                 return {"status": "succeeded", "method": "yookassa", "payment_id": existing.id}
             return {"status": "pending", "method": "yookassa", "payment_id": existing.id,
                     "confirmation_url": res["confirmation_url"]}
+        if booking_id is not None:
+            # Провайдер закрыл старый счёт; за время sync договорённость могла
+            # измениться. Новый счёт создаём по свежей сумме под тем же lock.
+            booking = session.get(Booking, booking_id, with_for_update=True, populate_existing=True)
+            if not booking:
+                raise herr(404, "Бронь не найдена", "Бронь табылманы")
+            if booking.paid:
+                return {"status": "already_paid", "method": booking.payment_method}
+            if booking.status != BookingStatus.done:
+                raise herr(409, "Оплатить можно только завершённую поездку", "Тик тамамланған сәфәр өсөн түләп була")
+            amount_kop = _booking_amount_kop(booking)
+            # Другой повтор мог уже создать новый pending, пока sync был снаружи.
+            # Повторяем дедуп под вновь полученным Booking lock вместо второго INSERT.
+            return _pay_cashless(session, payer, purpose=purpose, amount_kop=amount_kop,
+                                 method=method, description=description, booking_id=booking_id)
     payment = Payment(
-        user_id=payer.id, purpose=purpose, amount_kop=amount_kop, method=method,
+        user_id=payer.id, purpose=purpose, amount_kop=amount_kop,
+        method=("yookassa" if booking_id is not None else method),
         order_id=order_id, booking_id=booking_id,
     )
     session.add(payment)
@@ -152,11 +172,19 @@ def pay_instant_order(order_id: int, body: PayIn, user: User = Depends(current_u
 
 
 # ------------------------------ оплата брони плановой поездки ------------------------------
+def _booking_amount_kop(booking: Booking) -> int:
+    amount_rub = booking.pay_amount if booking.pay_amount is not None else booking.price
+    amount_kop = int(amount_rub) * 100  # договорённость в ₽ → копейки; None — старая бронь
+    if amount_kop <= 0:
+        raise herr(409, "У брони нет суммы к оплате", "Брондә түләргә сумма юҡ")
+    return amount_kop
+
+
 @router.post("/bookings/{booking_id}/pay")
 def pay_booking(booking_id: int, body: PayIn, user: User = Depends(current_user),
                 session: Session = Depends(get_session)):
     """Пассажир оплачивает ЗАВЕРШЁННУЮ бронь плановой поездки. Только владелец, только done."""
-    booking = session.get(Booking, booking_id)
+    booking = session.get(Booking, booking_id, with_for_update=True, populate_existing=True)
     if not booking:
         raise herr(404, "Бронь не найдена", "Бронь табылманы")
     if booking.passenger_id != user.id:                   # анти-IDOR
@@ -166,9 +194,7 @@ def pay_booking(booking_id: int, body: PayIn, user: User = Depends(current_user)
     if booking.paid:
         return {"status": "already_paid", "method": booking.payment_method}
     _guard_method(body.method)
-    amount_kop = int(booking.price) * 100                 # цена брони в ₽ → копейки
-    if amount_kop <= 0:
-        raise herr(409, "У брони нет суммы к оплате", "Брондә түләргә сумма юҡ")
+    amount_kop = _booking_amount_kop(booking)
     if body.method == "cash":
         from .. import ledger
         ledger.settle_booking(session, booking.id, "cash", amount_kop)

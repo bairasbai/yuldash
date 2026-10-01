@@ -78,30 +78,30 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 129,
+    "android_main": 130,
     "backend_main": 103,
-    "infra_resource_config": 295,
+    "infra_resource_config": 322,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 814
+    "test_support": 843
   },
   "counts_by_block": {
-    "B01": 108,
-    "B02": 160,
-    "B03": 100,
+    "B01": 120,
+    "B02": 162,
+    "B03": 101,
     "B04": 75,
     "B05": 29,
     "B06": 75,
-    "B07": 100,
-    "B08": 162,
-    "B09": 516,
-    "B10": 295,
+    "B07": 105,
+    "B08": 164,
+    "B09": 524,
+    "B10": 322,
     "B11": 90
   },
   "excluded_counts": {
-    "binary_asset_or_non_source": 116,
+    "binary_asset_or_non_source": 97,
     "documentation": 14,
-    "documentation_artifacts_or_private_material": 245,
+    "documentation_artifacts_or_private_material": 249,
     "experimental_not_current_product": 21,
     "legacy_flutter_do_not_modify": 22,
     "secret_or_local_settings_not_read": 2
@@ -118,8 +118,8 @@
       "path": ".github/workflows/ci.yml",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "27c0d4b1f1751f9211d1cb89f76801774a2905041a9d8c68470cc25fd3206769",
-      "lines": 264
+      "sha256": "81d1e7ebff54b4c7cd93066a816f51aef8e64c0e40164ebe24498f4ac24d2335",
+      "lines": 281
     },
     {
       "path": ".gitignore",
@@ -143,6 +143,13 @@
       "lines": 435
     },
     {
+      "path": "android/app/proguard-rules.pro",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "2f906ff52e2e442c33d6d6a5be7ea82765fa117c314144d1e152b14dced3ac88",
+      "lines": 38
+    },
+    {
       "path": "android/app/src/androidTest/java/com/yuldash/app/BilingualComposeTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -155,6 +162,13 @@
       "block": "B10",
       "sha256": "336467b6e995f4d48ba5fc18707ed4b227e4a466cfac76dee1c6aa6666c8a432",
       "lines": 79
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/CallbackHelpJourneyInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "c67905c9c9a726cfc919f5829b118f10e08bbff6909d63bafc9e22e846904c9f",
+      "lines": 216
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/LiveFcmProviderInstrumentedTest.kt",
@@ -176,6 +190,20 @@
       "block": "B10",
       "sha256": "a4b467876e3a324091fb011ca41a2dcdd72620a29a5ae34e2b518829811e2d94",
       "lines": 160
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/MyDataExportJourneyInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "06e29bcf8d753b148ae59fd33e6dda88add5764a607459b675e21169543bce7f",
+      "lines": 380
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/MyStatsExportSessionInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "0e2f06118cc08aa08c4fc7be49c7ae8f5b45a9090d5c00de9528f6a89526e69d",
+      "lines": 582
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/ParcelHandoverDialogInstrumentedTest.kt",
@@ -241,10 +269,17 @@
       "lines": 50
     },
     {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/SelectedControlsInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "2c69f75a1ad5b5bbd45955576eab02c3af18a83b6ca5be189d7dbef8cf76f015",
+      "lines": 111
+    },
+    {
       "path": "android/app/src/androidTest/java/com/yuldash/app/StorageAuditRunner.kt",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "84062f43dc76d01610094cc9d558291fecd0fd5e20aefd3e3363f97dd418440a",
+      "sha256": "27a6114a00137b79f5458c2ec4da98c349599e782fa415567697f9a41ef770e8",
       "lines": 14
     },
     {
@@ -290,6 +325,13 @@
       "lines": 194
     },
     {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/UpdateAndLoadingInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "af011e35b58d05b4664f228ddd97941d554e748f841cc8e03175eeb1516efa6c",
+      "lines": 152
+    },
+    {
       "path": "android/app/src/androidTest/java/com/yuldash/app/YuldashViewModelInstrumentedTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -311,11 +353,32 @@
       "lines": 71
     },
     {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/data/MyDataExportPrivacyInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "dc3c22e33669439cf6bb164a41ea139f234f34e665554b682a1d4b67a6c6e9ea",
+      "lines": 140
+    },
+    {
       "path": "android/app/src/androidTest/java/com/yuldash/app/data/OfflineMigrationProcessInstrumentedTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
       "sha256": "f711fee61d8ab80b77623085c950cc37412b4dbb5576a6e06eb1cfba6232e9ea",
       "lines": 94
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/data/OfflineRollbackInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "9136d2e8b3d0114418a8f92b7e060777984725146b9a832dca5974bd14782225",
+      "lines": 123
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/data/OutboxCorruptStorageInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "c31c4bdade331b3488fbe3779541fc5f38ad37db8ad1d60aa72b59f3796d1080",
+      "lines": 53
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/data/TripPassDeletionProcessInstrumentedTest.kt",
@@ -349,8 +412,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/AccessibilityScreens.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "669ce8af81574590660a23600d9add5f82d8cb9a0839ba8049cc7e34e4931684",
-      "lines": 2125
+      "sha256": "b70d3cdf5cace46a66c7e33c584eeb62d2e3890c8f89a9ff3ba5e1cc30fd7f78",
+      "lines": 2120
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AdminAdsScreen.kt",
@@ -468,8 +531,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/AppNavHome.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "5db45864b267437310c2fb448136b55eef1e7eb423fb90c1eed31ccf65ca6cd4",
-      "lines": 217
+      "sha256": "9e07c79e432cd83a1a304772f3b05073c5f048edce044629e495b0c33d6e128f",
+      "lines": 218
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AppNavOrders.kt",
@@ -503,8 +566,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "7d166373444d9d61549b44b32fc4056bcd54f19a64ce8bf468868fb80614d294",
-      "lines": 3815
+      "sha256": "b161ac19ca66a198f60c8cbcb4abee9f8722e3d9a0d90938d559978ff545d31f",
+      "lines": 3817
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -524,8 +587,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ClinicRidesScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "cff844bb549f7128d1ae229abfdfc6259f7146d5967493a4272d8a290bb94738",
-      "lines": 307
+      "sha256": "6b82b6e53f132499715d6eb806b1f0e88423bbf65d6aec870d2741e83ff41ba3",
+      "lines": 312
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CouponsScreen.kt",
@@ -559,7 +622,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/CourierScreen.kt",
       "kind": "android_main",
       "block": "B04",
-      "sha256": "74b3071e600c870b79fd18060e3df93d5b204ec59c71db2537dc8bf559b10f13",
+      "sha256": "0d7a8ef194138ea4854048857c4cbfc8ec1ccb141448b487d466e1fbe4ea8f6f",
       "lines": 2546
     },
     {
@@ -594,8 +657,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/DriverEarningsScreen.kt",
       "kind": "android_main",
       "block": "B07",
-      "sha256": "750b5a2dea9dfa0c8fedd3d0ad77ce1199eb37f01c9033b0d472778236f5f629",
-      "lines": 250
+      "sha256": "0e16d832eb8167ea902475298ba8b286e01140956e911061ce1335ed74f04a55",
+      "lines": 256
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/DriverProfileScreen.kt",
@@ -636,8 +699,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ForceUpdateScreen.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "2a1683611d9931bc2f5de8fe0f645b990fe6ef3aa2c1cdc74591698c73da581d",
-      "lines": 128
+      "sha256": "544b33fbb62dcc1415aff502a19f673b21e0eabd56dfa958f1943fb0d844a1e7",
+      "lines": 134
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/GeoUi.kt",
@@ -685,8 +748,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/LoginScreen.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "c5a618a85238099b401f93c66edf8e0712f1b530af260e66a77639d091908a4b",
-      "lines": 1291
+      "sha256": "9c25953bea9aa4e22adc6fdd4b87790504d8d8294d663e87651c059368460f26",
+      "lines": 1307
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MainActivity.kt",
@@ -748,15 +811,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/MyDataScreen.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "86105cbaedc9b07e12bd44adeb9bc72a38466014d5532bb8f00b36079d27de47",
-      "lines": 633
+      "sha256": "191f70d185c06448c823c538e3b954d8852521457ebc55282041a36ca3167eba",
+      "lines": 641
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MyStatsScreen.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "7d92ca2f615e05e8fdd1e4400c0e6780f521f76761a2414c67a3fc9f24d8ef99",
-      "lines": 569
+      "sha256": "a3da2bf2a44280d21e1148500f4fc2410d7fd4e69152ef513729173b6a26adbc",
+      "lines": 587
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MyTaxiTripsScreen.kt",
@@ -839,7 +902,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "686b73b7f9cf9dc0eea15ddbbdd808fe8311aa7397f976fed3e44574cfc0717c",
+      "sha256": "f44e2d651bcc5927699f98c7e9eee6a0eade34ec8c394544211de1ac3bd6f9ea",
       "lines": 3535
     },
     {
@@ -909,7 +972,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/SosVerifyScreens.kt",
       "kind": "android_main",
       "block": "B08",
-      "sha256": "a0f6897f0b07adb786dae84107063f6865e0ee23dac8e10bf14f55af7df0e7b0",
+      "sha256": "5171d7484dfa75d2feb2dc39aa290633ffd02144a59cdbfcdde3ac41a5449906",
       "lines": 1188
     },
     {
@@ -1063,8 +1126,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/UiKit.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "359bb425b3e1bd9f1ed7cd35bcd06a1d60036327c233f27ae1985ec0a0c278c4",
-      "lines": 574
+      "sha256": "741ae5f8287c9e03801ba6ccc0ab1ae6a270f1e0a35480cfd6bb61228bb1b7aa",
+      "lines": 577
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/UpdateBanner.kt",
@@ -1098,8 +1161,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "60c589bfc8b84e54c822e1a4e9c7f92b3ce76e7d1ff37b566f72a82d4961592a",
-      "lines": 2591
+      "sha256": "01ca3d4cb3a78a9f8171a728dbbcb77eaa4cc0f76cdcfa1ccfc1cfd54ed72a0c",
+      "lines": 2630
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1126,15 +1189,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "79c4767f7200dc227c82d234bf95682362ecf6c54308331a335d525812100e5a",
-      "lines": 7940
+      "sha256": "b3d3b34665d5cf339eecabef5a7b27ddd6bab01ea7567fac9b8b1d45bc3e0c70",
+      "lines": 7946
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "4a6d69bb7217306aa999d606ada992dc8476619e60c960d3ab6d5a55cf2c96f1",
-      "lines": 125
+      "sha256": "26a6759061f0b685c5b92867f3cedd238ad0b8b3147b225bb61a253272b7eb91",
+      "lines": 126
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/ChatSocket.kt",
@@ -1196,22 +1259,29 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/OfflineMigration.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "3f385d1a04cfbd0664a8673d041e088ce3ad18f95262ce64535839f348f66769",
-      "lines": 74
+      "sha256": "d38b56039138265363a624aaba0364ef2fcb286dcbb87a4b7f81f86be7fd4223",
+      "lines": 79
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/OfflineStoreReset.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "3fb6d7b470fcefaf093b418a54f66802119b216736be91f9685c1efdf988587f",
-      "lines": 38
+      "sha256": "19e586b6c5f957bcb8093fe34d75fead2a884ebc25f0d0a6b414bb893a7654fa",
+      "lines": 39
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/OfflineWrites.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "3cc7e7f32419b182d570a27bb2d9927b1ad7725b1d571f77381b58f9dd72f060",
-      "lines": 14
+      "sha256": "899dc355a2e114049c8c4490dff3210359da15e7b2009c1a6fcc5f90b630bda1",
+      "lines": 76
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/PersonalDataExports.kt",
+      "kind": "android_main",
+      "block": "B01",
+      "sha256": "b0cd8f2ab1cdf23acbdab60c0c53e027ef6887c49f5dfe8e644b84395f1ba78e",
+      "lines": 67
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt",
@@ -1231,15 +1301,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "704f2e230d003b67c9741ac67241366453ee074d59a2011a54c679e924bab2db",
-      "lines": 449
+      "sha256": "395e84264f83e09dd34942479271c724f6646b2ba6a87aedf6129df2c7064b37",
+      "lines": 458
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPassDeletion.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "4c5b48dd282d883ce4a1fbb4539d13b98b5f0747fa59976cf3d4ccedf7690878",
-      "lines": 59
+      "sha256": "e658c649a26978e62a8095131db78eb737880e212ef8e9b05d4ee08ef3cc51c2",
+      "lines": 60
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/ui/theme/Theme.kt",
@@ -1777,15 +1847,15 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingCompletionDestinationTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "03d5bdba18f6c3955373b6946eda7a63d8c1cd15ed7b23fb78a9127e32408554",
-      "lines": 217
+      "sha256": "2d1ec5c8315d39736eecbbafe3ae8362e003deaadc26d9a824692da975a17e3c",
+      "lines": 225
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingConfirmationJourneyTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "94b579527719395e3132505d1e92fd0e153d365b1a55b6ce02d874840a00fa3e",
-      "lines": 288
+      "sha256": "179cf2d7f7a5b2def81154cd1b329d934a9dc0777e1ece1f39e100a5c863698c",
+      "lines": 312
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingHistoryCleanupTest.kt",
@@ -1821,6 +1891,13 @@
       "block": "B07",
       "sha256": "dfa0396fe6e7dbe1c5e0715481f9c3399a04297c5787da93e52e7d9ba5545c02",
       "lines": 41
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/CallbackRequestJourneyTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "8a8dafdefc79bedd83acb3fcfb57b9cc0cb8cdce8bfaaa2c46fadb2fd6d6bbf7",
+      "lines": 307
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CanonScaleTest.kt",
@@ -1903,8 +1980,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CreateRidePublishJourneyTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "d42706451691235ea87dc2a499b5731e95bb33f7af170e318911054b82018243",
-      "lines": 201
+      "sha256": "62226a1ee86ae1aa5f43007e6751d18828df48b25387d771ff1d72949038ab4d",
+      "lines": 212
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/DemoRidesNeverBookableTest.kt",
@@ -1963,6 +2040,13 @@
       "lines": 133
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/ForceUpdateAccessibilityTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "c275b91067502e0fdc36a29d62dfa50380918b89bb49ed5fc81130826c8b7f4a",
+      "lines": 80
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/FormSurvivesKillGuardTest.kt",
       "kind": "test_support",
       "block": "B09",
@@ -2012,6 +2096,13 @@
       "lines": 114
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/LoadingButtonAccessibilityTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "a9ece48b013c9e11c2d1e728442a57ada793d00789db291c8a4e9629d59ce90f",
+      "lines": 74
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/LocationServicesTest.kt",
       "kind": "test_support",
       "block": "B06",
@@ -2036,8 +2127,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/LoginFailureRecoveryTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "62b2dbc5b36af52d7f91dcd2fdbb68240d330fc1624ea469e61d27833abcf9bf",
-      "lines": 204
+      "sha256": "be6b0f1ef6118545684009501892efd690af208fccd6f4e4b52a8a5bf8ea404f",
+      "lines": 208
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/LoginFormContentTest.kt",
@@ -2124,6 +2215,20 @@
       "lines": 77
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/MyDataExportSessionTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "82613db6782351a2791afd5a2b28dc26f1c614ba53049838071c18fe649d8ffd",
+      "lines": 222
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/MyDataFontScaleLayoutTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "50b18757e408831b81df06f1b2085061e0077a4384b6408200897a2a6e3677a7",
+      "lines": 171
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/NavSignalLoginTest.kt",
       "kind": "test_support",
       "block": "B01",
@@ -2155,8 +2260,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ParcelCreationDeliveryJourneyTest.kt",
       "kind": "test_support",
       "block": "B04",
-      "sha256": "8c3206f8937afc102e5e2535429b1279a9dbdd0859e52c2037ed6c82ce4b65c7",
-      "lines": 249
+      "sha256": "4d6463786bec291eca334298179b1cd4003b0e43e9deb54ae5b64c92d7ddef34",
+      "lines": 258
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ParcelPushColdStartTest.kt",
@@ -2255,6 +2360,13 @@
       "block": "B09",
       "sha256": "aa746b463e02a6aa10ccc6077b8aa3cb902d0653be46fa9a3da7d7b3aecd93c6",
       "lines": 142
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/ProtectedActionLoginJourneyTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "7336cd7a5667b198b7d6ecab69ba02dae01878a4c530eca69331c78fbebd16dd",
+      "lines": 166
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/PushLogoutPrivacyTest.kt",
@@ -2460,6 +2572,13 @@
       "lines": 83
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/SelectedControlsAccessibilityTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "8faa14335c3254e880898d84be637888e99d167fddaf23ddc07a2f193a0b1aac",
+      "lines": 179
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/SensitiveClipboardGuardTest.kt",
       "kind": "test_support",
       "block": "B01",
@@ -2596,8 +2715,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/TaxiDocumentsRaceTest.kt",
       "kind": "test_support",
       "block": "B03",
-      "sha256": "021caefe377e48f8e58f9fb678d8d67b1c17e83432479444e5a3925791b0a378",
-      "lines": 100
+      "sha256": "b140557109f9fbfa3a2023cf6a6d3217061a4a45115192c7972252097520d3e1",
+      "lines": 109
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/TaxiDriverCancelledGuardTest.kt",
@@ -2673,8 +2792,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/TaxiReceiptNavigationTest.kt",
       "kind": "test_support",
       "block": "B03",
-      "sha256": "bf028b57876c46db4ddcfdc491ed47fd3ae410d0cda506dc2b7bf50c9189d372",
-      "lines": 157
+      "sha256": "44e64dafb9a69f5339a0dbf61b0b1163347a30ee812af1e26d3ccd153e5a6d74",
+      "lines": 180
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/TaxiTripAdaptiveGuardTest.kt",
@@ -2852,6 +2971,13 @@
       "lines": 209
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientCarPhotoTest.kt",
+      "kind": "test_support",
+      "block": "B03",
+      "sha256": "c82ce512f8303c5b8cf242e62f6208d23bcdafbfa51e40c500f8e9e0b302635e",
+      "lines": 228
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientCriticalBadPathTest.kt",
       "kind": "test_support",
       "block": "B09",
@@ -2969,6 +3095,13 @@
       "block": "B09",
       "sha256": "4e3b7db561f23783df653274bdf3871d1aa951caa4be488d64c2259f7a8376bc",
       "lines": 83
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/AuthLogoutMarkerFailureTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "dfdba28d3ccc7ff7286c27b39a87a65e325360103409b7a400fae1a40225d906",
+      "lines": 114
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/AuthResetPersonalDataTest.kt",
@@ -3090,11 +3223,25 @@
       "lines": 111
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/data/OfflineWriteRollbackFailureTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "c4ed227a44d42001eb8aea39d8805795dd9aa4d79d3d5887c8f88d5983273277",
+      "lines": 444
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/data/OutboxConcurrencyTest.kt",
       "kind": "test_support",
       "block": "B01",
       "sha256": "534a952f21e071137bbf34eda5cb51e01c32a17e8f2009da353004ac64de7410",
       "lines": 143
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/OutboxCorruptStorageTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "1632f47dbdbe14979d43fa1d41051720f90b35966613047c5df4b4e91d13be51",
+      "lines": 132
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/OutboxHttpFailureTest.kt",
@@ -3116,6 +3263,13 @@
       "block": "B01",
       "sha256": "52bdd8571df5ddb6d02166f2e299129360d8e703c47d21371accec88669ee9de",
       "lines": 161
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/PersonalDataExportCleanupTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "9b1c111017b9cf7c5813dd9144a1b99fd6e84154d45feff6780e7834ca7b9e17",
+      "lines": 79
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/PushNotificationTest.kt",
@@ -3277,6 +3431,13 @@
       "block": "B10",
       "sha256": "9d491a47267e6d60873535cb8d79ab021503b2f00613b04c78fb4188f3b2f0cd",
       "lines": 75
+    },
+    {
+      "path": "backend/alembic/script.py.mako",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "4449c77f352403ef93eb7ddf64b85bcc141fb956a4fe9761a71f5e5242dc322d",
+      "lines": 29
     },
     {
       "path": "backend/alembic/versions/0001_baseline_schema.py",
@@ -4213,15 +4374,15 @@
       "path": "backend/app/antifraud.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "0f6541462f8c7eebe7f4baed08ddbf1b1d611ce88081f9222cf25e319fee8056",
-      "lines": 557
+      "sha256": "fecb46794fc3f2a9a0f3b6363c6f52571d4cd39a0d57f64686bd1ba5b860fb91",
+      "lines": 576
     },
     {
       "path": "backend/app/automatch.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "9aeda6c778b6c8dc80a82fc84e0f79b79ba72a8c1a811bad02cec9db58cd5964",
-      "lines": 134
+      "sha256": "14cef02a5efd703583389c65d865d8c76722c8c1b935f4b1372da1cbd3972a23",
+      "lines": 154
     },
     {
       "path": "backend/app/bodyguard.py",
@@ -4283,8 +4444,8 @@
       "path": "backend/app/config.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "0c6e4492b3431dcf6d2bbede954bc54c25b22d498c2e8483e1a9488bcf67095f",
-      "lines": 1152
+      "sha256": "5ca09de8521c471cd0e63bf92985ea81bb91b90aca7bdfce4e070d14dfa6411a",
+      "lines": 1158
     },
     {
       "path": "backend/app/data/city_districts.json",
@@ -4318,8 +4479,8 @@
       "path": "backend/app/debt.py",
       "kind": "backend_main",
       "block": "B07",
-      "sha256": "93654b47d00504978a8b3fc414c5809a04e2fe6801499cb73d1d08fd102adfb4",
-      "lines": 1205
+      "sha256": "199f08ef2153c274b814d18e3e10a7eb256b9c3cef64f2cde031e9d65446ac4a",
+      "lines": 1207
     },
     {
       "path": "backend/app/declare_remind.py",
@@ -4409,8 +4570,8 @@
       "path": "backend/app/ledger.py",
       "kind": "backend_main",
       "block": "B07",
-      "sha256": "5e1767484bc208217b18c2ae6a5edeb7e5119f90efca0bc15ed8c3ef1e5ae02f",
-      "lines": 525
+      "sha256": "d99cd54f55c93ae52aa85c6a886a3d6de830efacd9b9af6eb0dea90e82ee44a1",
+      "lines": 531
     },
     {
       "path": "backend/app/livepos.py",
@@ -4423,8 +4584,8 @@
       "path": "backend/app/logs.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "e8b9f829ea11f8c103873774beee0fb22062e7851ac11e7c30e3e6594b73f6d9",
-      "lines": 46
+      "sha256": "ed7762c6aa96f60dbe05d4d9830477635b1fdaa1b10c8563cc70f057a0465b41",
+      "lines": 68
     },
     {
       "path": "backend/app/main.py",
@@ -4542,15 +4703,15 @@
       "path": "backend/app/routers/auth.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "4400a73b0c38b96e5b2238a6f8a042db92ba1d4538ba9511b3b5760f1a8cb155",
-      "lines": 1215
+      "sha256": "aeb91716151fa1207dee29497538ad3d6646359da73ff93098ed9ffe23e6ccdb",
+      "lines": 1336
     },
     {
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "29ba92c7f7e6fd8a2e702f978e8233cc6485c1807d7930cb9b4fb8aa06eb2d3a",
-      "lines": 895
+      "sha256": "8e36a71eb07d7fed744def2d434702c08a8a78cb0561fb01bfe91333a2f7cca2",
+      "lines": 910
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -4675,8 +4836,8 @@
       "path": "backend/app/routers/payments.py",
       "kind": "backend_main",
       "block": "B07",
-      "sha256": "ff43f24ec5720487807b550bbe3a174942b9e6f707144aa81bbe24ffa053a670",
-      "lines": 814
+      "sha256": "bf2315c1cb76da34820c11f6f6061f3d34ce5dd55345604795b269bcc2ad23d8",
+      "lines": 825
     },
     {
       "path": "backend/app/routers/pickup.py",
@@ -4738,8 +4899,8 @@
       "path": "backend/app/routers/safety.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "d85ab8ad178d4561d255b86ed827113670f7ec3239c145013869373eb2814507",
-      "lines": 1433
+      "sha256": "f6c772b7c5d1f4804bd2c1c907f31148e5cdc86188acf7007612e4a69adae891",
+      "lines": 1439
     },
     {
       "path": "backend/app/routers/seasonal.py",
@@ -4808,8 +4969,8 @@
       "path": "backend/app/routers/wallet.py",
       "kind": "backend_main",
       "block": "B07",
-      "sha256": "fde65b2b7b18e69cd01e29dd49968b7c39903761732f5ce939384fabc63478bb",
-      "lines": 342
+      "sha256": "f603cfc900d54ff0cce7601f6488ca4a3831207356d0c9469b900424d47a1e75",
+      "lines": 368
     },
     {
       "path": "backend/app/routers/weather.py",
@@ -4836,15 +4997,15 @@
       "path": "backend/app/security.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "6b68987d6f85fef15c44fec3718a3fac6c1f9c77cb016b076a900b666368c764",
-      "lines": 326
+      "sha256": "423fe46a26d32150ef4f58e7aa347cd2596d4a59f8e56a3264259d604cd35ceb",
+      "lines": 343
     },
     {
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "e94486c6c57818ea2e641d588c658248235f748b320ad4e0fdff6db97c799df3",
-      "lines": 2107
+      "sha256": "8cdb950846dbcd3b22d949478813a7931d5fd98f953e2467d4c72d8957474aa9",
+      "lines": 2111
     },
     {
       "path": "backend/app/sos_escalate.py",
@@ -4885,8 +5046,8 @@
       "path": "backend/app/trust_service.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "8b348c10f61d5b53afd2a9f173f8f512b55ba3ad8597ec3bbb70798fd844ab30",
-      "lines": 206
+      "sha256": "c48cf8fca29bfc14b909ab6a8585488d7f823a3017d9771524d3c9388bf6f84c",
+      "lines": 218
     },
     {
       "path": "backend/app/visibility.py",
@@ -5113,6 +5274,104 @@
       "lines": 53
     },
     {
+      "path": "backend/deploy/nginx-yuldash-scale.conf.example",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "c26e87ea54a0555965f588491fa918927c9436e06b05a115375b21177352aea2",
+      "lines": 58
+    },
+    {
+      "path": "backend/deploy/pgbouncer.ini.example",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "c7ce8f9797a2af05c751575584fd23e7d3bc4fe0695acde5fb9f1d55a36247ee",
+      "lines": 58
+    },
+    {
+      "path": "backend/deploy/redis.conf.example",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "a0084eab29f06e4599840f0ea3ba6c8163994f87252e964c7c019e41650b106c",
+      "lines": 47
+    },
+    {
+      "path": "backend/deploy/yuldash-api.service.example",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "d9d490f1954a684198e824b9cc614c35ed1415109ee16053dc2a2afd909bd9ce",
+      "lines": 43
+    },
+    {
+      "path": "backend/deploy/yuldash-automatch.service",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "41eaa72033ce7c6d6c2be2bc46c56d4d5556768cc834abec14a4ed7cea68a35a",
+      "lines": 26
+    },
+    {
+      "path": "backend/deploy/yuldash-automatch.timer",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "1e9bad35e57d9904323154786630ef4420606bef01e37b315b6530310673c3a5",
+      "lines": 9
+    },
+    {
+      "path": "backend/deploy/yuldash-cleanup.service",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "f07299b363482afaec4c42f161b5c1666e33150de90413e4bdb2be61932b7e84",
+      "lines": 26
+    },
+    {
+      "path": "backend/deploy/yuldash-cleanup.timer",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "ebb2e3dbe970a52257265b7b469a9ea51b72190b75ecea031f8293a955da872e",
+      "lines": 10
+    },
+    {
+      "path": "backend/deploy/yuldash-doc-check.service",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "5e27acf6c98c718831d43a6d4c64f019dcabedcdaa6f4ddb7df1f470cd6d26cb",
+      "lines": 29
+    },
+    {
+      "path": "backend/deploy/yuldash-doc-check.timer",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "5c0b9edea82981428884810f6aeed3d1ba63d8e7dc6e6a246afa16022dac2eb8",
+      "lines": 12
+    },
+    {
+      "path": "backend/deploy/yuldash-rate-reminder.service",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "3adeed3ca991eca51b3aa3f15952a9ca9f338dcfd1494e24ab0dd10297dfc385",
+      "lines": 29
+    },
+    {
+      "path": "backend/deploy/yuldash-rate-reminder.timer",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "480433e756d2a1bd6e02115083211cb1c2d76cfb616ebcb4cb9046d830b23cae",
+      "lines": 9
+    },
+    {
+      "path": "backend/deploy/yuldash-taxi-worker.service",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "3dd1b76da0d39ea3be8bd79f6ff39c878816a959454dbb51d73c014bab205a3c",
+      "lines": 39
+    },
+    {
+      "path": "backend/deploy/yuldash-taxi-worker.timer",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "5554fa0d4f2347e65f1a0d9f6c10309f4c450a8c4552f4c1b19b7281fc97fda8",
+      "lines": 11
+    },
+    {
       "path": "backend/docker-compose.yml",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -5155,6 +5414,13 @@
       "lines": 155
     },
     {
+      "path": "backend/ops/crontab.example",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "c3ce48ceb571de9617c22f2589b9f066233b29533ab668f5f25063b59310529a",
+      "lines": 22
+    },
+    {
       "path": "backend/ops/deploy.sh",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -5176,6 +5442,13 @@
       "lines": 142
     },
     {
+      "path": "backend/ops/systemd.example",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "b5205e92d3d0c43cbd58ff43e8079e6b412306c10538e13f8781d20e8fe98e2e",
+      "lines": 62
+    },
+    {
       "path": "backend/pytest.ini",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -5193,8 +5466,8 @@
       "path": "backend/requirements.txt",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "12321b266a1096d473455e1e41893b9ea487da7fb4ce951dfd8f575f4bcde5d9",
-      "lines": 32
+      "sha256": "14269ae8467496e8f0bb8523ec16f5dbd7c84c9a33e25d96ed83e21973cdb3a1",
+      "lines": 36
     },
     {
       "path": "backend/scripts/import_villages.py",
@@ -5263,8 +5536,8 @@
       "path": "backend/tests/test_a_recycled_number_is_a_new_person.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "76579b039d8218ebff0a54b6e49a15cef3cf46c3bd2fcf60848a8b0803678f86",
-      "lines": 242
+      "sha256": "5d4d0e3b58fcc55f6100b8578865cf29c8fd2982199e0b6568a98fe06efda1be",
+      "lines": 251
     },
     {
       "path": "backend/tests/test_a_renewed_document_needs_paper.py",
@@ -5335,6 +5608,20 @@
       "block": "B09",
       "sha256": "4db639bdd999fab690217be3de5ec1506b8e6364408daf2c1707ace7516a1bfe",
       "lines": 86
+    },
+    {
+      "path": "backend/tests/test_admin_telegram_httpx_log_privacy.py",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "6410d4a166ee0137292db1a6eae829be944a41ab47b9a44795b3a74b8995eac0",
+      "lines": 165
+    },
+    {
+      "path": "backend/tests/test_admin_telegram_log_privacy.py",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "f7d8d90a79c1a110ceef366533d74c0da074430f728c23ce1101b73534ba323d",
+      "lines": 145
     },
     {
       "path": "backend/tests/test_ads_edges.py",
@@ -5410,8 +5697,8 @@
       "path": "backend/tests/test_audit_20260808.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "6e2f04522ffd9463227f675a940c43248226961f3a420ff757d5ea54a392b694",
-      "lines": 975
+      "sha256": "68da2f82d67a83c2e0f185dbbaf7573d8033beac7b52db2678641245a4bba590",
+      "lines": 974
     },
     {
       "path": "backend/tests/test_audit_fix_be01.py",
@@ -5519,6 +5806,20 @@
       "lines": 490
     },
     {
+      "path": "backend/tests/test_auth_attempt_concurrency.py",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "483693e174d6392e638792c6ca26ec21f25030dd944172c98dd6de7557b7bd6b",
+      "lines": 184
+    },
+    {
+      "path": "backend/tests/test_auth_consumption_atomicity.py",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "06d5c7a79c7de368a29c9a13477d869d39a48fb85828ab7cd3f4e9ef79040a49",
+      "lines": 411
+    },
+    {
       "path": "backend/tests/test_auth_edges.py",
       "kind": "test_support",
       "block": "B01",
@@ -5545,6 +5846,13 @@
       "block": "B02",
       "sha256": "e0fafcb6e9d9c692ea1588e66ea633e6dda0426ad9924dcd59eef22be3ef4470",
       "lines": 153
+    },
+    {
+      "path": "backend/tests/test_automatch_prefers_proven_driver.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "5dfd5cb32d3a3c957dfea6dd989fb4674813cbb2392c82bc759c14e9fde85c9e",
+      "lines": 171
     },
     {
       "path": "backend/tests/test_automatch_wont_seat_a_banned_driver.py",
@@ -5652,6 +5960,13 @@
       "lines": 51
     },
     {
+      "path": "backend/tests/test_booking_payment_agreement_amount.py",
+      "kind": "test_support",
+      "block": "B07",
+      "sha256": "7de1261b44b8de453173cdb19bb90d3409da9207829b347fe4c95ade027eadee",
+      "lines": 248
+    },
+    {
       "path": "backend/tests/test_boost_carries_over.py",
       "kind": "test_support",
       "block": "B07",
@@ -5692,6 +6007,13 @@
       "block": "B09",
       "sha256": "f910e0448656945e695717e04509fbf9c5ee1d6ff661c9a34f2a8a15137ec194",
       "lines": 176
+    },
+    {
+      "path": "backend/tests/test_callback_delivery_result.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "f1ca65d8f6a9342328ec7c887af8ae3c324f8d0768f31431f1274cadeb4f6d2b",
+      "lines": 199
     },
     {
       "path": "backend/tests/test_cancel_reason.py",
@@ -6033,8 +6355,8 @@
       "path": "backend/tests/test_dependencies_do_not_surprise.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "3fcc369fe78288de6ee0ea87eb2d71c58b8890a057f1b100bff237c694f59619",
-      "lines": 122
+      "sha256": "869de17636d0cd3986d8be94596a51e09e4fae85282aa52a704040749252957d",
+      "lines": 124
     },
     {
       "path": "backend/tests/test_destination_api.py",
@@ -6299,8 +6621,8 @@
       "path": "backend/tests/test_feeds_do_not_ask_the_db_per_row.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "826de16e10a9b91139bede22033be1086bb3bc63b077f93daa90050937b8a0c1",
-      "lines": 144
+      "sha256": "ca651ace47f3141fdf443d9e4df5e86f8265f2947f1db2d0ebb81626c70c216b",
+      "lines": 151
     },
     {
       "path": "backend/tests/test_first_launch.py",
@@ -6572,8 +6894,8 @@
       "path": "backend/tests/test_legacy_completion_notification.py",
       "kind": "test_support",
       "block": "B06",
-      "sha256": "78ef7dd0c4b61bae1ff7116b2b3c978c203203d26686f6555961cc4dac9e9141",
-      "lines": 139
+      "sha256": "14de328fa9e82ebe5095771ce303b811f3c9e67b3d6dc2b3fa268cb9c60aae43",
+      "lines": 149
     },
     {
       "path": "backend/tests/test_legal_docs_match.py",
@@ -6658,6 +6980,27 @@
       "block": "B09",
       "sha256": "b76242952648fc395d17183dfbcbd08cd0232d144106e6755135b5a718bc0f5c",
       "lines": 109
+    },
+    {
+      "path": "backend/tests/test_manual_payment_atomicity.py",
+      "kind": "test_support",
+      "block": "B07",
+      "sha256": "066f8e87c3af79099bae481ee59fdf925c90e7af929c6196c4ec3649090a5906",
+      "lines": 159
+    },
+    {
+      "path": "backend/tests/test_manual_payment_terminal_concurrency.py",
+      "kind": "test_support",
+      "block": "B07",
+      "sha256": "eebbed03fb351d8733cf2dd50220e360ddff001106973c890da65d9090dc69cc",
+      "lines": 356
+    },
+    {
+      "path": "backend/tests/test_manual_payment_terminal_confirmation.py",
+      "kind": "test_support",
+      "block": "B07",
+      "sha256": "7124f0d135c69e57e8fe9bf00fec27d9b95ee1dcd110d2671da9f3e5b7c7cb29",
+      "lines": 280
     },
     {
       "path": "backend/tests/test_matched_request_is_not_a_dead_end.py",
@@ -6947,6 +7290,20 @@
       "lines": 206
     },
     {
+      "path": "backend/tests/test_otp_issuance_history.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "21d7b75679865d31541fbbeef3c15747620e4d68af0c633d7032a218729f6247",
+      "lines": 91
+    },
+    {
+      "path": "backend/tests/test_otp_phone_concurrency.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "008b243a092d6a083c9c3f1c874cf6348f46a6b2688f963bddf8bbd34c2a86ef",
+      "lines": 161
+    },
+    {
       "path": "backend/tests/test_paid_ad_owner_hears_about_pause.py",
       "kind": "test_support",
       "block": "B09",
@@ -7127,6 +7484,20 @@
       "block": "B09",
       "sha256": "f416d85336c1ad724cdfa170aa75c2e0ec3c68ac4beb99e79967e21396a9293a",
       "lines": 100
+    },
+    {
+      "path": "backend/tests/test_pay_agreement_after_charge.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "56c067184f098e7108bebebccd6ac02ad5bbfc103c3883a50006c4e175b049de",
+      "lines": 285
+    },
+    {
+      "path": "backend/tests/test_pay_agreement_payment_concurrency.py",
+      "kind": "test_support",
+      "block": "B07",
+      "sha256": "b36a8dc98fb14bec6e6896ea7b577be69b77e125bad76a18ab930abee0ccd47c",
+      "lines": 420
     },
     {
       "path": "backend/tests/test_paying_more_never_gives_you_less.py",
@@ -7696,6 +8067,20 @@
       "lines": 53
     },
     {
+      "path": "backend/tests/test_review_login_permissions.py",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "5adb37482f2b3dbab5aa04f15599b1d2d9afb4ae08bda3d376ca96b8793effbd",
+      "lines": 187
+    },
+    {
+      "path": "backend/tests/test_review_session_scope.py",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "bed0a5c758c3285b25c7a6003948440551abf65baba62e8db5c8b5b37a13c19a",
+      "lines": 168
+    },
+    {
       "path": "backend/tests/test_reviews_driver_profile.py",
       "kind": "test_support",
       "block": "B08",
@@ -7818,8 +8203,8 @@
       "path": "backend/tests/test_safety_edges.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "97cd1af10879feef15e3a21fe7c1578e638e9fe6bd25f2af59400beb469f4dcd",
-      "lines": 121
+      "sha256": "ecda9f0485b4abbc54cd3a929dcb580df4391dcee1264c88b7756ed22406b321",
+      "lines": 125
     },
     {
       "path": "backend/tests/test_safety_runs_before_the_housekeeping.py",
@@ -8049,8 +8434,8 @@
       "path": "backend/tests/test_storage.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "da0e7d82428b69df32aabb1782910658e5bbb23ca33be82c49136be41c4382e5",
-      "lines": 192
+      "sha256": "2d0602ce2203134e86f25ea0e48ddd713234c04ed3c332ef5df3576f9da68432",
+      "lines": 194
     },
     {
       "path": "backend/tests/test_storefront_remoderation.py",
@@ -8910,8 +9295,8 @@
       "path": "tools/audit_inventory.py",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "bec81a29adabe13511e154cde5cbd6d0ef021c3e3197adc4a3fbbda011956d15",
-      "lines": 169
+      "sha256": "ed32a229224608336b175c4bc0d257d088e61c0e11ceb1975a2121754a21ce77",
+      "lines": 172
     },
     {
       "path": "tools/compile-data-layer.sh",
@@ -8996,6 +9381,13 @@
       "block": "B10",
       "sha256": "e19b21a0b380805ccdc8644c8950197a9223d381267589534f4c29d396235725",
       "lines": 191
+    },
+    {
+      "path": "tools/tests/test_audit_inventory.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "9b617f93c918ede5c0b8e530f73ae4699efeb3150a4b5507585677e9c321a008",
+      "lines": 116
     },
     {
       "path": "web/.gitignore",
@@ -9584,6 +9976,13 @@
       "block": "B10",
       "sha256": "5917aeeef64205f39b9ae5fd3ba90a9673382c3bf5fffcf10358c6053473bc0a",
       "lines": 35
+    },
+    {
+      "path": "webapp/nginx.conf.example",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "2272b2a92b1a151229cac2fab5049d6ff10aac6a790a3a697c7c071532e12fe0",
+      "lines": 97
     },
     {
       "path": "webapp/package-lock.json",
@@ -12424,10 +12823,6 @@
       "reason": "documentation"
     },
     {
-      "path": "android/app/proguard-rules.pro",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
       "path": "android/app/src/main/res/drawable-nodpi/login_car_hero_square.webp",
       "reason": "binary_asset_or_non_source"
     },
@@ -12624,68 +13019,8 @@
       "reason": "binary_asset_or_non_source"
     },
     {
-      "path": "backend/alembic/script.py.mako",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
       "path": "backend/archive/README.md",
       "reason": "documentation"
-    },
-    {
-      "path": "backend/deploy/nginx-yuldash-scale.conf.example",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/pgbouncer.ini.example",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/redis.conf.example",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/yuldash-api.service.example",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/yuldash-automatch.service",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/yuldash-automatch.timer",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/yuldash-cleanup.service",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/yuldash-cleanup.timer",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/yuldash-doc-check.service",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/yuldash-doc-check.timer",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/yuldash-rate-reminder.service",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/yuldash-rate-reminder.timer",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/yuldash-taxi-worker.service",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/deploy/yuldash-taxi-worker.timer",
-      "reason": "binary_asset_or_non_source"
     },
     {
       "path": "backend/loadtest/README.md",
@@ -12694,14 +13029,6 @@
     {
       "path": "backend/ops/README.md",
       "reason": "documentation"
-    },
-    {
-      "path": "backend/ops/crontab.example",
-      "reason": "binary_asset_or_non_source"
-    },
-    {
-      "path": "backend/ops/systemd.example",
-      "reason": "binary_asset_or_non_source"
     },
     {
       "path": "docs/.obsidian/app.json",
@@ -12880,6 +13207,10 @@
       "reason": "documentation_artifacts_or_private_material"
     },
     {
+      "path": "docs/audit-design-review.md",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
       "path": "docs/audit-driver-readiness-2026-09-20.md",
       "reason": "documentation_artifacts_or_private_material"
     },
@@ -12892,7 +13223,15 @@
       "reason": "documentation_artifacts_or_private_material"
     },
     {
+      "path": "docs/audit-handoff-claude-20261001.md",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
       "path": "docs/audit-integration-check.md",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
+      "path": "docs/audit-journal.md",
       "reason": "documentation_artifacts_or_private_material"
     },
     {
@@ -13336,6 +13675,10 @@
       "reason": "documentation_artifacts_or_private_material"
     },
     {
+      "path": "docs/tz/TZ-dispatch-2026-09.md",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
       "path": "docs/unit-economics-2026-08-23.md",
       "reason": "documentation_artifacts_or_private_material"
     },
@@ -13650,10 +13993,6 @@
     {
       "path": "webapp/README.md",
       "reason": "documentation"
-    },
-    {
-      "path": "webapp/nginx.conf.example",
-      "reason": "binary_asset_or_non_source"
     },
     {
       "path": "webapp/public/apple-touch-icon.png",

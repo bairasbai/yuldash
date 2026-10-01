@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import itertools
 
 import pytest
 from sqlmodel import Session, select
@@ -38,12 +39,19 @@ from app.timeutil import utcnow
 
 from test_api import _ride
 
-НОМЕР = "+79995550139"
+_phone_seq = itertools.count(1)
+
+
+@pytest.fixture
+def phone():
+    # Each scenario owns its issuance history; the session DB spans all tests.
+    return f"+799655{next(_phone_seq):05d}"
 
 
 def _войти(client, phone: str, device: str, name: str = ""):
     """Настоящий путь входа: запросить код по SMS и подтвердить его с телефона."""
-    client.post("/auth/request-code", json={"phone": phone})
+    issued = client.post("/auth/request-code", json={"phone": phone})
+    assert issued.status_code == 200, issued.text
     with Session(engine) as s:
         otp = s.exec(select(OtpCode).where(OtpCode.phone == phone)
                      .order_by(OtpCode.id.desc())).first()
@@ -63,10 +71,10 @@ def _молчал(user_id: int, дней: int) -> None:
 
 
 @pytest.fixture
-def прежняя_хозяйка(client, user_factory):
+def прежняя_хозяйка(client, user_factory, phone):
     """Гульнара: год назад ездила, копила историю и вписала маму как доверенный контакт."""
     водитель = user_factory("НомерВодитель", role=UserRole.driver)
-    вход = _войти(client, НОМЕР, "device-gulnara", name="Гульнара")
+    вход = _войти(client, phone, "device-gulnara", name="Гульнара")
     токен = {"Authorization": f"Bearer {вход['access_token']}"}
     uid = вход["user"]["id"]
 
@@ -80,12 +88,12 @@ def прежняя_хозяйка(client, user_factory):
     return uid, bid, токен
 
 
-def test_новый_владелец_номера_получает_чистый_аккаунт(client, прежняя_хозяйка):
+def test_новый_владелец_номера_получает_чистый_аккаунт(client, прежняя_хозяйка, phone):
     """Главное: посторонний не должен войти в чужую жизнь по купленной симке."""
     uid, _, _ = прежняя_хозяйка
     _молчал(uid, PHONE_RECYCLE_DAYS + 30)
 
-    вошёл = _войти(client, НОМЕР, "device-airat", name="Айрат")
+    вошёл = _войти(client, phone, "device-airat", name="Айрат")
 
     assert вошёл["user"]["id"] != uid, (
         "новый владелец номера вошёл в аккаунт прежней хозяйки: ему достались её имя, "
@@ -96,11 +104,11 @@ def test_новый_владелец_номера_получает_чистый_
     )
 
 
-def test_чужая_переписка_и_история_недоступны(client, прежняя_хозяйка):
+def test_чужая_переписка_и_история_недоступны(client, прежняя_хозяйка, phone):
     """Даже если знать номер поездки — по прямой ссылке тоже не пустят."""
     uid, bid, _ = прежняя_хозяйка
     _молчал(uid, PHONE_RECYCLE_DAYS + 30)
-    новый = _войти(client, НОМЕР, "device-airat2", name="Айрат")
+    новый = _войти(client, phone, "device-airat2", name="Айрат")
     хедеры = {"Authorization": f"Bearer {новый['access_token']}"}
 
     переписка = client.get(f"/bookings/{bid}/messages", headers=хедеры)
@@ -112,11 +120,11 @@ def test_чужая_переписка_и_история_недоступны(cl
     assert свои == [], f"в «моих поездках» чужая история: {свои}"
 
 
-def test_мамин_номер_не_достаётся_постороннему(client, прежняя_хозяйка):
+def test_мамин_номер_не_достаётся_постороннему(client, прежняя_хозяйка, phone):
     """Самое опасное: SOS нового человека ушёл бы маме прежней хозяйки."""
     uid, _, _ = прежняя_хозяйка
     _молчал(uid, PHONE_RECYCLE_DAYS + 30)
-    новый = _войти(client, НОМЕР, "device-airat3", name="Айрат")
+    новый = _войти(client, phone, "device-airat3", name="Айрат")
 
     близкие = client.get("/trusted-contacts",
                          headers={"Authorization": f"Bearer {новый['access_token']}"}).json()
@@ -130,13 +138,13 @@ def test_мамин_номер_не_достаётся_постороннему(
     assert len(у_прежней) == 1, "контакты прежней хозяйки удалены — а они её, не его"
 
 
-def test_прежней_хозяйке_объяснили_что_случилось(client, прежняя_хозяйка):
+def test_прежней_хозяйке_объяснили_что_случилось(client, прежняя_хозяйка, phone):
     """Иначе для неё это выглядит как «приложение сломалось» — и она просто уйдёт."""
     uid, _, _ = прежняя_хозяйка
     _молчал(uid, PHONE_RECYCLE_DAYS + 30)
     было = _уведомлений(uid)
 
-    _войти(client, НОМЕР, "device-airat4", name="Айрат")
+    _войти(client, phone, "device-airat4", name="Айрат")
 
     assert _уведомлений(uid) > было, "прежней хозяйке не сказали, почему она больше не входит"
     with Session(engine) as s:
@@ -148,39 +156,40 @@ def test_прежней_хозяйке_объяснили_что_случило�
     )
 
 
-def test_смена_телефона_у_активного_ничего_не_ломает(client, прежняя_хозяйка):
+def test_смена_телефона_у_активного_ничего_не_ломает(client, прежняя_хозяйка, phone):
     """Обратная сторона: телефоны меняют все, и это не повод отбирать аккаунт."""
     uid, _, _ = прежняя_хозяйка
 
-    вошёл = _войти(client, НОМЕР, "device-new-phone")
+    вошёл = _войти(client, phone, "device-new-phone")
 
     assert вошёл["user"]["id"] == uid, (
         "человек просто купил новый телефон — и потерял все свои поездки, отзывы и историю"
     )
 
 
-def test_долгий_перерыв_на_том_же_телефоне_не_страшен(client, прежняя_хозяйка):
+def test_долгий_перерыв_на_том_же_телефоне_не_страшен(client, прежняя_хозяйка, phone):
     """Сезонный пассажир: ездил прошлым летом, вернулся этим — телефон тот же."""
     uid, _, _ = прежняя_хозяйка
     _молчал(uid, PHONE_RECYCLE_DAYS + 200)
 
-    вошёл = _войти(client, НОМЕР, "device-gulnara")     # то же устройство
+    вошёл = _войти(client, phone, "device-gulnara")     # то же устройство
 
     assert вошёл["user"]["id"] == uid, (
         "человек вернулся через год на своём же телефоне и обнаружил пустой аккаунт"
     )
 
 
-def test_старый_клиент_без_отметки_устройства_не_наказан(client, прежняя_хозяйка):
+def test_старый_клиент_без_отметки_устройства_не_наказан(client, прежняя_хозяйка, phone):
     """Устройство не назвали — значит судить не по чему. Цена ошибки слишком велика."""
     uid, _, _ = прежняя_хозяйка
     _молчал(uid, PHONE_RECYCLE_DAYS + 30)
-    client.post("/auth/request-code", json={"phone": НОМЕР})
+    issued = client.post("/auth/request-code", json={"phone": phone})
+    assert issued.status_code == 200, issued.text
     with Session(engine) as s:
-        код = s.exec(select(OtpCode).where(OtpCode.phone == НОМЕР)
+        код = s.exec(select(OtpCode).where(OtpCode.phone == phone)
                      .order_by(OtpCode.id.desc())).first().code
 
-    r = client.post("/auth/verify", json={"phone": НОМЕР, "code": код})   # без X-Device-Id
+    r = client.post("/auth/verify", json={"phone": phone, "code": код})   # без X-Device-Id
 
     assert r.status_code == 200, r.text
     assert r.json()["user"]["id"] == uid, (
@@ -189,12 +198,12 @@ def test_старый_клиент_без_отметки_устройства_н
     )
 
 
-def test_короткий_перерыв_не_считается_сменой_владельца(client, прежняя_хозяйка):
+def test_короткий_перерыв_не_считается_сменой_владельца(client, прежняя_хозяйка, phone):
     """Полгода — это граница, за которой оператор передаёт номер. Месяц — нет."""
     uid, _, _ = прежняя_хозяйка
     _молчал(uid, 30)
 
-    вошёл = _войти(client, НОМЕР, "device-another")
+    вошёл = _войти(client, phone, "device-another")
 
     assert вошёл["user"]["id"] == uid, (
         "месяц без приложения и новый телефон — обычное дело, а аккаунт уже отобрали"

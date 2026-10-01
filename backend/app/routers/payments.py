@@ -169,10 +169,10 @@ def _activate_payment(session: Session, payment: Payment) -> None:
 
     M3: блокируем строку платежа (FOR UPDATE) — webhook/поллинг/админ могут прийти параллельно.
     C1: для ДЕНЕЖНЫХ/идемпотентных эффектов (начисление водителю, гашение комиссии/долга)
-    сначала выполняем ЭФФЕКТ, потом ставим succeeded. Иначе краш между commit(succeeded) и
-    начислением оставил бы водителя недоплаченным навсегда (ретрай упёрся бы в guard succeeded).
-    Для АДДИТИВНЫХ эффектов (boost/ad/подписка) наоборот — succeeded первым (защита от двойного
-    применения при повторном/параллельном webhook)."""
+    эффект и succeeded сохраняются одной транзакцией. Внутренний commit эффекта снял бы
+    Payment lock раньше статуса и позволил бы отклонить уже применённый платёж.
+    Для АДДИТИВНЫХ эффектов (boost/ad/подписка) succeeded задаётся первым в памяти;
+    эффект и статус также сохраняются под тем же lock одним commit."""
     locked = session.exec(
         select(Payment).where(Payment.id == payment.id).with_for_update()
         .execution_options(populate_existing=True)
@@ -188,15 +188,17 @@ def _activate_payment(session: Session, payment: Payment) -> None:
     # Тот же путь у админа: /admin/payments/{id}/reject, а потом /confirm.
     if payment.status != "pending":
         return
-    # --- Идемпотентные эффекты: ЭФФЕКТ → потом succeeded (settle сам идемпотентен под FOR UPDATE+paid) ---
+    # Эффект и статус — одна транзакция; Payment → заказ/бронь — общий порядок lock.
     if payment.purpose == "ride" and payment.order_id is not None:
         from .. import ledger
-        ledger.settle_instant_order(session, payment.order_id, payment.method or "yookassa", payment.amount_kop)
+        ledger.settle_instant_order(session, payment.order_id, payment.method or "yookassa", payment.amount_kop,
+                                   commit=False)
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     if payment.purpose == "booking" and payment.booking_id is not None:
         from .. import ledger
-        ledger.settle_booking(session, payment.booking_id, payment.method or "yookassa", payment.amount_kop)
+        ledger.settle_booking(session, payment.booking_id, payment.method or "yookassa", payment.amount_kop,
+                             commit=False)
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     if payment.purpose == "courier_commission":
@@ -239,7 +241,7 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         # вошёл в снапшот суммы (created_at <= момент создания платежа). Долг, накопленный в окне до
         # подтверждения, останется к оплате следующим платежом (иначе гасился бы бесплатно). Идемпотентно.
         from .. import debt as debt_mod
-        debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at)
+        debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at, commit=False)
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     # --- Аддитивные / прочие эффекты: succeeded ПЕРВЫМ (под тем же row-lock), потом эффект ---
@@ -741,16 +743,22 @@ def admin_pending_payments(user: User = Depends(current_user), session: Session 
 def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Подтвердить получение СБП-перевода → активировать (boost). Для админа."""
     _require_admin(user)
-    payment = session.get(Payment, payment_id)
+    payment = session.get(Payment, payment_id, with_for_update=True, populate_existing=True)
     if not payment:
         raise herr(404, "Платёж не найден", "Түләү табылманы")
     if payment.status == "succeeded":
         return {"payment_id": payment.id, "status": "succeeded"}
+    if payment.status != "pending":
+        raise herr(409, "Этот платёж уже закрыт. Обнови список.",
+                   "Был түләү инде ябылған. Исемлекте яңырт.")
     # Карточный платёж (создан у провайдера) вручную не подтверждаем — его подтверждает вебхук
     # после реального списания. Ручной confirm здесь = начисление без денег (фантом в ledger).
     if payment.provider_id or payment.method == "yookassa":
         raise herr(409, "Платёж у провайдера — подтвердится автоматически после оплаты", "Түләү провайдерҙа — түләгәс үҙе раҫлана")
     _activate_payment(session, payment)
+    if payment.status != "succeeded":
+        raise herr(409, "Не удалось подтвердить платёж. Обнови список.",
+                   "Түләүҙе раҫлап булманы. Исемлекте яңырт.")
     admin_action(user.id, "payment.confirm", payment_id=payment.id, user=payment.user_id,
                  amount_kop=getattr(payment, "amount_kop", None))
     return {"payment_id": payment.id, "status": "succeeded"}
@@ -760,9 +768,12 @@ def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), s
 def admin_reject_payment(payment_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Отклонить платёж (деньги не пришли). Для админа."""
     _require_admin(user)
-    payment = session.get(Payment, payment_id)
+    payment = session.get(Payment, payment_id, with_for_update=True, populate_existing=True)
     if not payment:
         raise herr(404, "Платёж не найден", "Түләү табылманы")
+    if payment.status not in ("pending", "canceled"):
+        raise herr(409, "Этот платёж уже закрыт. Обнови список.",
+                   "Был түләү инде ябылған. Исемлекте яңырт.")
     if payment.status == "pending":
         payment.status = "canceled"
         session.add(payment)

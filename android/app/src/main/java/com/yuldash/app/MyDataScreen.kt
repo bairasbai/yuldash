@@ -49,13 +49,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MyDataDto
+import com.yuldash.app.data.PersonalDataExports
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * «Мои данные» — выписка о том, что Юлдаш хранит о человеке.
@@ -259,21 +260,35 @@ internal fun MyDataScreen(onBack: () -> Unit) {
                                         onClick = {
                                             scope.launch {
                                                 exporting = true; exportError = null
+                                                val generation = ApiClient.queueSessionGeneration()
                                                 val code = if (language == AppLanguage.Ba) "ba" else "ru"
                                                 ApiClient.exportMyData(code)
                                                     .onSuccess { dump ->
-                                                        val uri = withContext(Dispatchers.IO) {
-                                                            runCatching { writeMyDataFile(context, dump.filename, dump.text) }.getOrNull()
-                                                        }
-                                                        exporting = false
-                                                        if (uri != null) {
-                                                            shareMyDataFile(context, uri, dump.filename)
-                                                        } else {
-                                                            exportError = appTextFor(
-                                                                language,
-                                                                "Не получилось сохранить файл.",
-                                                                "Файлды һаҡлап булманы.",
-                                                            )
+                                                        var prepared: PersonalDataExports.Prepared? = null
+                                                        var shared = false
+                                                        try {
+                                                            withContext(Dispatchers.IO) {
+                                                                prepared = runCatching {
+                                                                    PersonalDataExports.prepare(context, dump.filename, dump.text, generation)
+                                                                }.getOrNull()
+                                                            }
+                                                            exporting = false
+                                                            if (!ApiClient.isCurrentSession(generation)) return@onSuccess
+                                                            val export = prepared
+                                                            if (export != null) {
+                                                                shared = ApiClient.runIfCurrentSession(generation) {
+                                                                    shareMyDataFile(context, export.uri, dump.filename)
+                                                                }
+                                                            } else {
+                                                                exportError = appTextFor(
+                                                                    language,
+                                                                    "Не получилось сохранить файл.",
+                                                                    "Файлды һаҡлап булманы.",
+                                                                )
+                                                            }
+                                                        } finally {
+                                                            if (!shared || !currentCoroutineContext().isActive || !ApiClient.isCurrentSession(generation))
+                                                                prepared?.discard()
                                                         }
                                                     }
                                                     .onFailure {
@@ -388,20 +403,19 @@ internal fun MyDataScreen(onBack: () -> Unit) {
 private fun DataRow(icon: ImageVector, title: String, value: String, note: String) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         Surface(color = CanonMint, shape = CanonTinyShape) {
             Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp))
         }
         Spacer(Modifier.width(12.dp))
-        // weight(1f) обязателен: башкирский почти всегда длиннее русского,
-        // без него подпись уезжала бы за край карточки.
+        // Как у LocationDataRow: значение и пояснение получают всю доступную ширину.
+        // Длинное башкирское значение справа сжимало заголовок и разбивало слова.
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 23.sp)
+            Text(value, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp)
             Text(note, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
         }
-        Spacer(Modifier.width(12.dp))
-        Text(value, color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp)
     }
 }
 
@@ -614,15 +628,9 @@ private fun selfDeleteText(days: Int): String =
  * Почему не «сохранить в Загрузки». Прямая запись в общую папку требует разрешения или
  * диалога выбора места — лишний шаг там, где человек уже нажал «Скачать». Системный лист
  * даёт всё сразу: сохранить в файлы, отправить себе в мессенджер, положить на диск.
- * Кеш система чистит сама — копия личных данных не оседает на телефоне навсегда.
+ * Выход из аккаунта удаляет эту локальную копию и отзывает доступ к её FileProvider URI.
+ * Файл, уже сохранённый получателем за пределами приложения, остаётся у получателя.
  */
-private fun writeMyDataFile(context: Context, filename: String, text: String): android.net.Uri {
-    val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-    val file = File(dir, filename)
-    file.writeText(text)
-    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-}
-
 private fun shareMyDataFile(context: Context, uri: android.net.Uri, filename: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"

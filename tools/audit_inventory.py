@@ -29,7 +29,10 @@ for b in ("B02", "B03", "B04"):
 TEXT_EXT = {".kt", ".kts", ".java", ".py", ".ts", ".tsx", ".js", ".jsx",
             ".mjs", ".cjs", ".css", ".scss", ".html", ".xml", ".json",
             ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".properties",
-            ".sql", ".sh", ".ps1", ".bat", ".cmd", ".txt", ".svg", ".webmanifest"}
+            ".sql", ".sh", ".ps1", ".bat", ".cmd", ".txt", ".svg", ".webmanifest",
+            # Own R8 rules, migration templates and deployment units/examples.
+            # Secret/local-setting exclusions are evaluated before this allowlist.
+            ".pro", ".mako", ".service", ".timer", ".example"}
 
 
 def exclusion(path):

@@ -28,7 +28,7 @@ INVITE_CODE_USES = 1
 CONSENT_KINDS = {"offer", "privacy", "geo", "age18"}
 
 
-def record_login_consents(session: Session, user_id: int) -> None:
+def record_login_consents(session: Session, user_id: int, *, commit: bool = True) -> None:
     """Согласия, которые человек даёт САМИМ ФАКТОМ входа (разбор №2, 2026-08-03).
 
     На экране входа написано «Входя, ты подтверждаешь, что тебе есть 18 лет, и принимаешь
@@ -42,6 +42,15 @@ def record_login_consents(session: Session, user_id: int) -> None:
     ознакомления с текстом, который на экране виден рядом с кнопкой.
     """
     for kind in ("offer", "privacy", "age18"):
+        if not commit:
+            # Ошибка вторичной записи откатывает только её SAVEPOINT, а не
+            # внешний claim кода/аккаунт/ключи входа. User уже flush вызывающим.
+            try:
+                with session.begin_nested():
+                    record_consent(session, user_id, kind, commit=False)
+            except Exception:
+                pass
+            continue
         try:
             record_consent(session, user_id, kind)
         except Exception:  # noqa: BLE001
@@ -187,7 +196,7 @@ def trust_summary(session: Session, user: User) -> dict:
 
 # ---- Реестр согласий (152-ФЗ) ----
 
-def record_consent(session: Session, user_id: int, kind: str) -> Consent:
+def record_consent(session: Session, user_id: int, kind: str, *, commit: bool = True) -> Consent:
     """Зафиксировать согласие (идемпотентно: время ПЕРВОГО согласия не перезаписываем —
     это доказательство). Повторный вызов возвращает уже сохранённую запись."""
     existing = session.exec(
@@ -197,7 +206,10 @@ def record_consent(session: Session, user_id: int, kind: str) -> Consent:
         return existing
     c = Consent(user_id=user_id, kind=kind)
     session.add(c)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     session.refresh(c)
     return c
 

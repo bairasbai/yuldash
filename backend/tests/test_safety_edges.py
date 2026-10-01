@@ -61,7 +61,11 @@ def test_sos_booking_access_is_limited_to_trip_participants(client, user_factory
 
 def test_callback_and_admin_reports(client, user_factory, monkeypatch):
     admin_messages = []
-    monkeypatch.setattr("app.routers.safety.notify_admin_telegram", lambda text: admin_messages.append(text))
+    def accepted_admin_message(text):
+        admin_messages.append(text)
+        return True
+
+    monkeypatch.setattr("app.routers.safety.notify_admin_telegram", accepted_admin_message)
 
     reporter = user_factory("ReportReporter")
     target = user_factory("ReportTarget")

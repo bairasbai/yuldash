@@ -1,4 +1,8 @@
 package com.yuldash.app
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -12,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -147,16 +152,17 @@ internal fun DriverEarningsScreen(onBack: () -> Unit) {
 @Composable
 private fun EarnPeriodChip(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
     Surface(
-        modifier = Modifier.bounceClick(onClick),
+        modifier = Modifier.bounceClick(onClick).heightIn(min = 48.dp)
+            .semantics(mergeDescendants = true) { selected = active; role = Role.RadioButton },
         color = if (active) CanonGreen2 else CanonSurface,
         shape = RoundedCornerShape(999.dp),
         border = BorderStroke(1.dp, if (active) Color.Transparent else CanonBorder),
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = if (active) Color.White else CanonGreen2, modifier = Modifier.size(16.dp))
+            Icon(icon, contentDescription = null, tint = if (active) CanonOnFilled else CanonGreen2, modifier = Modifier.size(16.dp))
             Spacer(Modifier.size(6.dp))
             Text(
-                label, color = if (active) Color.White else CanonText, fontWeight = FontWeight.Bold,
+                label, color = if (active) CanonOnFilled else CanonText, fontWeight = FontWeight.Bold,
                 fontSize = MoneyType.Body, lineHeight = MoneyType.BodyLine, maxLines = 1,
             )
         }

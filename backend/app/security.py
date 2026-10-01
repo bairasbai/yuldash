@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from .config import settings
 from .db import get_session
 from .errors import herr
-from .models import RefreshToken, User
+from .models import RefreshToken, User, UserRole
 from .timeutil import utcnow
 
 bearer = HTTPBearer(auto_error=True)
@@ -64,7 +64,7 @@ def normalize_phone(raw) -> str:
     return ("+" if plus else "") + digits
 
 
-def make_token(user_id: int, *, issued_after=None) -> str:
+def make_token(user_id: int, *, issued_after=None, review_session: bool = False) -> str:
     """Короткоживущий access-токен (JWT)."""
     now = utcnow()
     if issued_after is not None and now <= issued_after:
@@ -76,23 +76,28 @@ def make_token(user_id: int, *, issued_after=None) -> str:
     # ≤ tokens_valid_from (logout). От гонки login→logout→login в одной миллисекунде
     # (часы Windows дают одинаковое значение соседним вызовам) защищает явная выдача
     # строго после сохранённой границы + нестрогое сравнение в _token_revoked.
-    return jwt.encode(
-        {"sub": str(user_id), "iat": now.timestamp(), "exp": exp},
-        settings.jwt_secret, algorithm="HS256",
-    )
+    payload = {"sub": str(user_id), "iat": now.timestamp(), "exp": exp}
+    if review_session:
+        # Фикс-код стора подтверждает только пассажирскую сессию, не будущую роль.
+        payload["review_session"] = True
+    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
 def _hash_refresh(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] = None) -> dict:
+_REVIEW_REFRESH_PREFIX = "review."
+
+
+def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] = None,
+                 review_session: bool = False) -> dict:
     """Выдать пару access+refresh. Refresh — непрозрачный, в БД лежит ХЕШ.
 
     Граница последнего logout остаётся навсегда: иначе новый вход оживит все старые
     access-токены. Новую пару выпускаем строго после этой границы."""
     user = lock_refresh_user(session, user_id)
-    if user is None:
+    if user is None or (review_session and user.role != UserRole.passenger):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
     issued_after = user.tokens_valid_from if user else None
     if user:
@@ -102,12 +107,16 @@ def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] =
         user.last_seen_at = utcnow()
         session.add(user)
     raw = refresh_raw if refresh_raw is not None else secrets.token_urlsafe(48)
+    if review_session and not raw.startswith(_REVIEW_REFRESH_PREFIX):
+        # Полный непрозрачный raw, включая scope, хэшируется ниже. Удаление/добавление
+        # префикса клиентом не найдёт исходную запись; отдельная колонка не нужна.
+        raw = _REVIEW_REFRESH_PREFIX + raw
     session.add(RefreshToken(
         user_id=user_id, token_hash=_hash_refresh(raw),
         expires_at=utcnow() + timedelta(days=settings.refresh_expire_days),
     ))
     pair = {
-        "access_token": make_token(user_id, issued_after=issued_after),
+        "access_token": make_token(user_id, issued_after=issued_after, review_session=review_session),
         "refresh_token": raw,
         "token_type": "bearer",
     }
@@ -132,7 +141,8 @@ def lock_refresh_user(session: Session, user_id: int) -> Optional[User]:
 
 def _recovery_token(raw: str, rotation_id: str) -> str:
     message = b'refresh-recovery-v1\0' + raw.encode() + b'\0' + rotation_id.encode()
-    return hmac.new(settings.jwt_secret.encode(), message, hashlib.sha256).hexdigest()
+    child = hmac.new(settings.jwt_secret.encode(), message, hashlib.sha256).hexdigest()
+    return _REVIEW_REFRESH_PREFIX + child if raw.startswith(_REVIEW_REFRESH_PREFIX) else child
 
 
 def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None) -> dict:
@@ -152,7 +162,10 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
         .execution_options(populate_existing=True)
     ).first()
     now = utcnow()
-    if not owner or not rt or rt.expires_at <= now:
+    # Scope берём только после поиска по хэшу ПОЛНОГО предъявленного токена.
+    review_session = raw.startswith(_REVIEW_REFRESH_PREFIX)
+    if (not owner or not rt or rt.expires_at <= now
+            or (review_session and owner.role != UserRole.passenger)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
     # Бан устройства — вторая половина проверки (волна 204). Первая стоит в роутере и читает
     # заголовок `X-Device-Id`; но заголовок шлёт КЛИЕНТ, и забаненному достаточно перестать
@@ -178,7 +191,8 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
         # No new row, no change to either expiry or recovery window. The User
         # lock stays held until this request's session closes, excluding logout.
-        return {'access_token': make_token(owner.id, issued_after=owner.tokens_valid_from),
+        return {'access_token': make_token(owner.id, issued_after=owner.tokens_valid_from,
+                                          review_session=review_session),
                 'refresh_token': child_raw, 'token_type': 'bearer'}
     # Гасим токен АТОМАРНО: условие «он ещё не погашен» живёт внутри UPDATE.
     #
@@ -202,8 +216,9 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
     try:
         # Отзыв и новая пара фиксируются вместе, после успешной подписи JWT.
         if rotation_id is not None:
-            return issue_tokens(session, rt.user_id, refresh_raw=_recovery_token(raw, rotation_id))
-        return issue_tokens(session, rt.user_id)
+            return issue_tokens(session, rt.user_id, refresh_raw=_recovery_token(raw, rotation_id),
+                                review_session=review_session)
+        return issue_tokens(session, rt.user_id, review_session=review_session)
     except Exception:
         session.rollback()
         raise
@@ -266,6 +281,8 @@ def _token_revoked(payload: dict, user: User) -> bool:
     тоже гасится. Свежий вход выпускает токен строго после сохранённой границы.
     Старый токен без `iat` после появления границы нельзя безопасно отнести к новой
     сессии, поэтому он тоже считается отозванным."""
+    if payload.get("review_session") and user.role != UserRole.passenger:
+        return True
     if not user.tokens_valid_from:
         return False
     iat = payload.get("iat")

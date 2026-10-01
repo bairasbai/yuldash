@@ -3645,7 +3645,7 @@ private fun ForeignMediaBubble(link: String, mine: Boolean) {
     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
         Text(
             link,
-            color = if (mine) Color.White else CanonText,
+            color = if (mine) CanonOnFilled else CanonText,
             fontSize = 16.sp,
             maxLines = 3,                 // «адресом» может прийти простыня в 4000 знаков
             overflow = TextOverflow.Ellipsis,
@@ -3655,7 +3655,7 @@ private fun ForeignMediaBubble(link: String, mine: Boolean) {
                 "Ссылка ведёт на чужой сайт — не открываем",
                 "Һылтанма ят сайтҡа илтә — асмайбыҙ",
             ),
-            color = if (mine) Color.White else CanonWarn,
+            color = if (mine) CanonOnFilled else CanonWarn,
             fontSize = 12.sp, lineHeight = 17.sp,
             modifier = Modifier.padding(top = 4.dp),
         )
@@ -3730,10 +3730,12 @@ internal fun MessageBubble(
                         },
                         modifier = Modifier.size(48.dp)
                     ) {
-                        Icon(if (playing) Icons.Default.Close else Icons.Default.PlayArrow, contentDescription = appText("Воспроизвести", "Уйнатыу"), tint = if (mine) Color.White else CanonGreen2)
+                        Icon(if (playing) Icons.Default.Close else Icons.Default.PlayArrow,
+                            contentDescription = if (playing) appText("Остановить", "Туҡтатыу") else appText("Воспроизвести", "Уйнатыу"),
+                            tint = if (mine) CanonOnFilled else CanonGreen2)
                     }
                     Spacer(Modifier.width(4.dp))
-                    Text(appText("Голосовое", "Тауыш"), modifier = Modifier.padding(end = 8.dp), color = if (mine) Color.White else CanonText, fontSize = 14.sp)
+                    Text(appText("Голосовое", "Тауыш"), modifier = Modifier.padding(end = 8.dp), color = if (mine) CanonOnFilled else CanonText, fontSize = 14.sp)
                 }
             } else if (ownPhoto != null) {
                 AsyncImage(
@@ -3751,7 +3753,7 @@ internal fun MessageBubble(
                 Text(
                     text,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    color = if (mine) Color.White else CanonText,
+                    color = if (mine) CanonOnFilled else CanonText,
                     fontSize = 16.sp
                 )
             }

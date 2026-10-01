@@ -108,7 +108,8 @@ def phone_looks_recycled(user: User, device_id: Optional[str], now=None) -> bool
     return (now or utcnow()) - молчал_с >= timedelta(days=PHONE_RECYCLE_DAYS)
 
 
-def release_phone(session: Session, user: User, now=None) -> None:
+def release_phone(session: Session, user: User, now=None, *, commit: bool = True,
+                  notify: bool = True) -> None:
     """Отвязать номер от аккаунта: он перешёл к другому человеку.
 
     Данные НЕ удаляем. Если это всё-таки был прежний владелец (уехал на год, сменил телефон),
@@ -123,10 +124,19 @@ def release_phone(session: Session, user: User, now=None) -> None:
     user.phone_released_at = now
     user.last_device_id = None      # чужое устройство на этом аккаунте не оставляем
     session.add(user)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
+    if notify:
+        notify_phone_release(session, user.id)
+
+
+def notify_phone_release(session: Session, user_id: int) -> None:
+    """Сообщение об откреплении номера — только после подтверждённой записи."""
     # Телефон в лог не пишем (правило модуля) — только факт и номер аккаунта.
     log.info("[ANTIFRAUD] номер отвязан от аккаунта user_id=%s: молчал > %s дней, вход с другого "
-             "устройства", user.id, PHONE_RECYCLE_DAYS)
+             "устройства", user_id, PHONE_RECYCLE_DAYS)
     # Прежнему владельцу — объяснение в Центре уведомлений. Если это всё-таки был он (уехал
     # на год, сменил телефон), он откроет приложение на старом устройстве и поймёт, почему
     # больше не входит по номеру, — вместо молчаливого «ничего не работает».
@@ -135,7 +145,7 @@ def release_phone(session: Session, user: User, now=None) -> None:
     # пришло бы постороннему — вместе с намёком, чей это был аккаунт.
     from .services import push_notification
     push_notification(
-        session, user.id, "safety",
+        session, user_id, "safety",
         "Номер откреплён от аккаунта", "Номер иҫәптән айырылды",
         "По этому номеру давно не заходили, и с него вошли с другого телефона. Твои поездки "
         "и отзывы целы — напиши в поддержку, вернём доступ.",
@@ -146,21 +156,30 @@ def release_phone(session: Session, user: User, now=None) -> None:
 
 
 # ------------------------------ вход: фиксация устройства + сигнал (B8-1/B8-2) ------------------------------
-def remember_login_device(session: Session, user: User, device_id: Optional[str]) -> None:
+def remember_login_device(session: Session, user: User, device_id: Optional[str], *,
+                          commit: bool = True, notify: bool = True) -> bool:
     """После успешного входа: фиксируем устройство на юзере. Вход с НОВОГО устройства
     (device_id ≠ последнего) → push + SMS «это не ты — смени номер / напиши в поддержку».
     Не блокируем — только сигнал (честный пользователь мог сменить телефон)."""
     did = normalize_device_id(device_id)
     if not did:
-        return                          # старый клиент без заголовка — фиксировать нечего
+        return False                    # старый клиент без заголовка — фиксировать нечего
     if user.last_device_id == did:
-        return                          # то же устройство — тишина
+        return False                    # то же устройство — тишина
     is_new_device = bool(user.last_device_id)   # первый вход (None/пусто) сигналом не считаем
     user.last_device_id = did
     session.add(user)
-    session.commit()
-    if not is_new_device:
-        return
+    if commit:
+        session.commit()
+    else:
+        session.flush()
+    if is_new_device and notify:
+        notify_login_device(session, user.id, user.phone)
+    return is_new_device
+
+
+def notify_login_device(session: Session, user_id: int, phone: str) -> None:
+    """Вторичный сигнал успешного входа, отдельно от транзакции авторизации."""
     # Сигнал (пункт 2): запись в Центре уведомлений + SMS. Локальный импорт — тесты патчат
     # app.services.
     #
@@ -173,10 +192,10 @@ def remember_login_device(session: Session, user: User, device_id: Optional[str]
     ru = ("Вход в Юлдаш с нового устройства. Это не ты — смени номер и напиши в поддержку.")
     ba = ("Юлдашҡа яңы ҡоролмандан инеү. Был һин түгел икән — номерҙы алмаштыр һәм "
           "ярҙам хеҙмәтенә яҙ.")
-    push_notification(session, user.id, "safety",
+    push_notification(session, user_id, "safety",
                       "Вход с нового устройства", "Яңы ҡоролмандан инеү", ru, ba)
-    if user.phone and not user.phone.startswith("tg"):
-        send_text(user.phone, f"Юлдаш: {ru} · {ba}")
+    if phone and not phone.startswith("tg"):
+        send_text(phone, f"Юлдаш: {ru} · {ba}")
 
 
 # ------------------------------ GPS: анти-телепорт (B8-3) ------------------------------
