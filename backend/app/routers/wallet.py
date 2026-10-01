@@ -82,7 +82,18 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
     )
     dq = dq.where(Payment.order_id == order_id) if order_id is not None else dq.where(Payment.booking_id == booking_id)
     existing = session.exec(dq.order_by(Payment.id.desc())).first()
-    if existing and (booking_id is not None or existing.provider_id or existing.method == "yookassa"):
+    #
+    # Любая строка, которую нашёл этот запрос (user+purpose+заказ/бронь, статус pending), — это
+    # уже идущая попытка оплаты, и её надо ИСПОЛЬЗОВАТЬ, а не завести вторую. Раньше для заказов
+    # (booking_id нет) тут стояло доп.условие «только если у строки уже есть provider_id или
+    # method=='yookassa'» — то есть ровно в первые мгновения после создания строки (между тем,
+    # как _pay_cashless её вставил, и тем, как _start_yookassa пометил method='yookassa') дедуп
+    # её не узнавал. Два «одновременных» POST /instant/orders/{id}/pay (двойной тап, ретрай сети)
+    # попадали в это окно — второй заводил СВОЙ Payment с ДРУГИМ Idempotence-Key, а на настоящей
+    # ЮKassa это два реальных списания за одну поездку. У брони такого окна не было (там method
+    # сразу 'yookassa'), поэтому поломка не задевала её — но по той же причине доп.условие для
+    # брони всегда было true, и её уберение ничего не меняет в её поведении.
+    if existing:
         if booking_id is not None:
             # Счёт уже фиксирует сумму. Освобождаем Booking перед внешним HTTP
             # и Payment → Booking activation, иначе возможен deadlock с webhook.
