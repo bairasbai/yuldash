@@ -194,8 +194,13 @@ def consume(session: Session, user_id: int, order: InstantOrder) -> int:
     Захват ресурса — под row-lock И атомарным CAS-UPDATE: Postgres в проде держит строку
     (`with_for_update`), SQLite её игнорирует, поэтому условие «скидка всё ещё свободна»
     встроено в WHERE и решается rowcount — проигравший гонку просто едет без скидки.
-    Идемпотентно: заказ, на который скидка уже списана, второй раз её не тратит."""
-    if order is None or order.id is None:
+    Идемпотентно: заказ, на который скидка уже списана, второй раз её не тратит.
+
+    Сверка владельца — не формальность: без неё функция списала бы скидку ЛЮБОГО переданного
+    user_id на ЛЮБОЙ переданный заказ, доверяя это вызывающему коду. Сегодняшние два вызова
+    (routers/instant.py) безопасны, потому что сами создают заказ с passenger_id=user.id
+    непосредственно перед вызовом — но сама функция этого не требовала (аудит leaf-1.3)."""
+    if order is None or order.id is None or order.passenger_id != user_id:
         return 0
     held = _redemption(session, user_id, lock=True)
     if held is not None and held.used_order_id == order.id:
