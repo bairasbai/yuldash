@@ -26,22 +26,54 @@
        строку (независимое ревью круга 4, N-1);
   R10 — «Мои купоны» отдают статус expired для забытой истёкшей брони, не сырым reserved —
        иначе приложение рисует «Покажи код в заведении» на код, который касса откажется
-       гасить 409'ом (независимое ревью круга 4, N-2).
+       гасить 409'ом (независимое ревью круга 4, N-2);
+  R11 — лимит «один купон на человека» считает НОМЕР ТЕЛЕФОНА через `CouponClaimLog`, не
+       только текущий аккаунт — иначе удаление аккаунта и регистрация заново с тем же
+       номером обнуляли лимит (была открытая ошибка листа 1.3, статус `bug`; закрыта
+       листом 1.3b). Журнал пишется при НАСТОЯЩЕМ погашении (`coupon_redeem`), не при
+       брони — забытая истёкшая бронь удалённого аккаунта лимит не занимает.
 """
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import func, text
 from sqlmodel import Session, select
 
+from app.config import DEFAULT_JWT_SECRET, settings
 from app.db import engine
-from app.models import Coupon, CouponRedemption, Partner, User, UserRole
+from app.models import Coupon, CouponClaimLog, CouponRedemption, Partner, User, UserRole
 from app.routers import coupons as coupons_router
 from app.routers.coupons import RedeemIn
+from app.routers.promo import _phone_claim_key
 from app.timeutil import client_dt_to_utc
+
+_STRONG_TEST_SECRET = "x" * 40  # >=16 символов, не dev-дефолт — проходит предохранитель миграции
+_MIGRATION_PATH = Path(__file__).parents[3] / "alembic" / "versions" / "coupon_claim_log_20261003.py"
+
+
+def _load_coupon_claim_log_migration(tag: str):
+    """Грузит файл миграции как обычный модуль (тот же приём, что у test_l1_3_promo_money.py)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(tag, _MIGRATION_PATH)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    return migration
+
+
+def _pax_with_phone(user_factory, имя: str, номер: str):
+    """Обычный пассажир, у которого в аккаунте настоящий телефонный номер (а не синтетический
+    tg-test-N от user_factory) — нужен, чтобы симулировать «тот же номер, другой аккаунт»."""
+    ч = user_factory(имя)
+    with Session(engine) as s:
+        u = s.get(User, ч["id"])
+        u.phone = номер
+        s.add(u)
+        s.commit()
+    return ч
 
 
 def _past():
@@ -529,3 +561,185 @@ def test_my_coupons_reports_expired_status_for_stale_reservation(client, user_fa
         f"истёкшая бронь показана как {row['status']!r} — приложение нарисует «Покажи код в "
         "заведении» на код, который касса уже откажется гасить"
     )
+
+
+# ============================ R11: лимит на человека переживает удаление аккаунта ============================
+def test_claim_log_blocks_reapply_after_account_deletion(client, user_factory):
+    """limit_per_user=1: погасил → удалил аккаунт настоящей функцией удаления (account.py,
+    только чтение — журнал пишется заранее, при самом погашении) → зарегистрировался тем же
+    номером → «получить код» обязан отказать (была открытая ошибка листа 1.3)."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "ЖурналУдаление")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=1)
+    НОМЕР = "+79995551234"
+    первый = _pax_with_phone(user_factory, "ЖурналУдалениеПас1", НОМЕР)
+
+    act = client.post(f"/coupons/{cid}/activate", headers=первый["auth"])
+    assert act.status_code == 200, act.text
+    r = client.post("/coupons/redeem", headers=owner["auth"], json={"code": act.json()["code"]})
+    assert r.status_code == 200, r.text
+
+    assert client.post("/me/delete", headers=первый["auth"]).status_code == 200
+
+    второй = _pax_with_phone(user_factory, "ЖурналУдалениеПас2", НОМЕР)
+    act2 = client.post(f"/coupons/{cid}/activate", headers=второй["auth"])
+    assert act2.status_code == 409, f"лимит обнулился удалением аккаунта: {act2.status_code} {act2.text}"
+
+
+def test_claim_log_allows_exactly_one_more_after_one_past_redemption(client, user_factory):
+    """limit_per_user=2: одно прошлое погашение (удалённый аккаунт) + одно новое — можно,
+    третье (тем же живым аккаунтом) — уже нет."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "ЖурналДва")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=2)
+    НОМЕР = "+79995552234"
+    первый = _pax_with_phone(user_factory, "ЖурналДваПас1", НОМЕР)
+    act1 = client.post(f"/coupons/{cid}/activate", headers=первый["auth"])
+    assert act1.status_code == 200, act1.text
+    assert client.post("/coupons/redeem", headers=owner["auth"],
+                       json={"code": act1.json()["code"]}).status_code == 200
+    assert client.post("/me/delete", headers=первый["auth"]).status_code == 200
+
+    второй = _pax_with_phone(user_factory, "ЖурналДваПас2", НОМЕР)
+    act2 = client.post(f"/coupons/{cid}/activate", headers=второй["auth"])
+    assert act2.status_code == 200, f"второй (из двух на номер) должен пройти: {act2.text}"
+    assert client.post("/coupons/redeem", headers=owner["auth"],
+                       json={"code": act2.json()["code"]}).status_code == 200
+
+    act3 = client.post(f"/coupons/{cid}/activate", headers=второй["auth"])
+    assert act3.status_code == 409, f"третий (сверх лимита 2 на номер) должен быть отказан: {act3.text}"
+
+
+def test_claim_log_ignores_expired_reservation_of_deleted_account(client, user_factory):
+    """Бронь (НЕ погашение) удалённого аккаунта, истёкшая по RESERVATION_TTL_DAYS, не должна
+    занимать лимит нового аккаунта с тем же номером — в журнал пишется только НАСТОЯЩЕЕ
+    погашение на кассе, не бронь (согласуется с R8 — забытые брони не держат лимит вечно)."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "ЖурналБронь")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=1)
+    НОМЕР = "+79995553234"
+    первый = _pax_with_phone(user_factory, "ЖурналБроньПас1", НОМЕР)
+    act = client.post(f"/coupons/{cid}/activate", headers=первый["auth"])
+    assert act.status_code == 200, act.text
+    with Session(engine) as s:
+        red = s.exec(select(CouponRedemption).where(CouponRedemption.code == act.json()["code"])).one()
+        red.reserved_at = datetime.utcnow() - timedelta(days=coupons_router.RESERVATION_TTL_DAYS + 1)
+        s.add(red)
+        s.commit()
+    assert client.post("/me/delete", headers=первый["auth"]).status_code == 200
+
+    второй = _pax_with_phone(user_factory, "ЖурналБроньПас2", НОМЕР)
+    act2 = client.post(f"/coupons/{cid}/activate", headers=второй["auth"])
+    assert act2.status_code == 200, (
+        f"непогашенная (даже истёкшая) бронь удалённого аккаунта не должна занимать лимит: {act2.text}"
+    )
+
+
+def test_claim_log_does_not_double_count_live_accounts_own_redemption(client, user_factory):
+    """Живой (не удалённый) аккаунт, уже погасивший купон один раз, при limit_per_user=2
+    обязан суметь получить ВТОРОЙ код — если бы счёт задваивал (CouponClaimLog ПЛЮС то же
+    самое погашение ещё раз через CouponRedemption), лимит 2 пробивался бы уже первым же
+    погашением, и второй запрос получил бы 409 вместо 200."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "ЖурналДвойной")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=2)
+    pax = _pax_with_phone(user_factory, "ЖурналДвойнойПас", "+79995554234")
+
+    act1 = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act1.status_code == 200, act1.text
+    assert client.post("/coupons/redeem", headers=owner["auth"],
+                       json={"code": act1.json()["code"]}).status_code == 200
+
+    act2 = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act2.status_code == 200, (
+        f"второй (из двух) своим же живым аккаунтом должен пройти, а не задвоить счёт: {act2.text}"
+    )
+    assert act2.json()["code"] != act1.json()["code"]
+    assert client.post("/coupons/redeem", headers=owner["auth"],
+                       json={"code": act2.json()["code"]}).status_code == 200
+
+    act3 = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act3.status_code == 409, f"третий (сверх лимита 2) должен быть отказан: {act3.text}"
+
+
+def test_claim_log_does_not_affect_different_phone_number(client, user_factory):
+    """Чужое погашение чужим номером не должно задевать лимит другого человека."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "ЖурналДругойНомер")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=1)
+    первый = _pax_with_phone(user_factory, "ЖурналДругойНомерПас1", "+79995555234")
+    act1 = client.post(f"/coupons/{cid}/activate", headers=первый["auth"])
+    assert act1.status_code == 200, act1.text
+    assert client.post("/coupons/redeem", headers=owner["auth"],
+                       json={"code": act1.json()["code"]}).status_code == 200
+
+    другой = _pax_with_phone(user_factory, "ЖурналДругойНомерПас2", "+79995555999")
+    act2 = client.post(f"/coupons/{cid}/activate", headers=другой["auth"])
+    assert act2.status_code == 200, f"другой номер не должен быть задет чужим погашением: {act2.text}"
+
+
+# ============================ R11: миграция переносит старые погашения ============================
+def test_coupon_claim_log_migration_backfills_live_redemptions_and_is_idempotent(client, user_factory, monkeypatch):
+    """Погашения, случившиеся ДО выкладки этого листа (CouponRedemption есть, CouponClaimLog
+    ещё нет — симулируем прямой записью в БД, в обход coupon_redeem), миграция обязана
+    перенести в журнал по HMAC телефона держателя — ДВА отдельных погашения тем же номером
+    того же купона (limit_per_user=2, законно) обязаны остаться ДВУМЯ записями, не схлопнуться
+    в одну (лимит на человека — COUNT, не EXISTS) — и не задвоиться при повторном прогоне."""
+    monkeypatch.setattr(settings, "jwt_secret", _STRONG_TEST_SECRET)
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "МиграцияПеренос")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=2)
+    pax = user_factory("МиграцияПереносПас")
+    НОМЕР = "+79995556234"
+    with Session(engine) as s:
+        u = s.get(User, pax["id"])
+        u.phone = НОМЕР
+        s.add(u)
+        # ДВА «исторических» погашения — напрямую в БД, в обход coupon_redeem (значит, БЕЗ
+        # соответствующих записей в CouponClaimLog, как будто случились ДО выкладки листа 1.3b).
+        s.add(CouponRedemption(coupon_id=cid, user_id=pax["id"], code="HIST01", status="redeemed", redeemed_at=datetime.utcnow()))
+        s.add(CouponRedemption(coupon_id=cid, user_id=pax["id"], code="HIST01B", status="redeemed", redeemed_at=datetime.utcnow()))
+        s.commit()
+
+    migration = _load_coupon_claim_log_migration("coupon_claim_log_migration_unit")
+    expected_key = _phone_claim_key(НОМЕР)
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    with engine.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+            rows = connection.execute(
+                text("SELECT phone_key FROM couponclaimlog WHERE coupon_id = :cid"), {"cid": cid}
+            ).all()
+            assert [r[0] for r in rows] == [expected_key, expected_key], (
+                f"два законных исторических погашения не должны схлопнуться в одну запись: {rows}"
+            )
+
+            migration.upgrade()   # второй прогон подряд — идемпотентность, не задваивает
+            rows_again = connection.execute(
+                text("SELECT phone_key FROM couponclaimlog WHERE coupon_id = :cid"), {"cid": cid}
+            ).all()
+            assert rows_again == rows, "повторный прогон миграции задвоил перенесённую запись"
+
+
+def test_coupon_claim_log_migration_refuses_weak_secret_when_rows_need_backfill(client, user_factory, monkeypatch):
+    """Перенос необратим — прогон без настоящего прод-секрета навсегда стёр бы исходные
+    цифры номера под HMAC от dev-секрета. Обязана падать ДО единой записи, если секрет
+    слабый И есть что переносить (тот же предохранитель, что у promo_claim_hmac, N-3)."""
+    monkeypatch.setattr(settings, "jwt_secret", DEFAULT_JWT_SECRET)
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "МиграцияСлабый")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=1)
+    pax = user_factory("МиграцияСлабыйПас")
+    НОМЕР = "+79995557234"
+    with Session(engine) as s:
+        u = s.get(User, pax["id"])
+        u.phone = НОМЕР
+        s.add(u)
+        s.add(CouponRedemption(coupon_id=cid, user_id=pax["id"], code="HIST02", status="redeemed", redeemed_at=datetime.utcnow()))
+        s.commit()
+
+    migration = _load_coupon_claim_log_migration("coupon_claim_log_migration_weak_secret")
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    with engine.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            with pytest.raises(RuntimeError, match="слаб"):
+                migration.upgrade()
+            count = connection.execute(
+                text("SELECT COUNT(*) FROM couponclaimlog WHERE coupon_id = :cid"), {"cid": cid}
+            ).scalar_one()
+            assert count == 0, "миграция успела что-то записать до отказа"

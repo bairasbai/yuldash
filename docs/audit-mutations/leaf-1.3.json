@@ -561,6 +561,62 @@
         "tests/walk/l1_3/test_l1_3_coupons_money.py::test_my_coupons_reports_expired_status_for_stale_reservation"
       ],
       "db": "postgres"
+    },
+    {
+      "id": "M41",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R11",
+      "description": "coupon_activate: лимит на человека снова считает только текущий аккаунт (claimed_by_phone убран) — обнуляется удалением аккаунта",
+      "find": "    if claimed_by_phone + mine_unredeemed >= max(1, coupon.limit_per_user):",
+      "replace": "    if mine_unredeemed >= max(1, coupon.limit_per_user):",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_claim_log_blocks_reapply_after_account_deletion"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M42",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R11",
+      "description": "coupon_redeem: запись в CouponClaimLog при погашении убрана — журнал остаётся пустым, лимит на номер нечем защищать",
+      "find": "    holder = session.get(User, red.user_id)\n    if holder and holder.phone:\n        session.add(CouponClaimLog(coupon_id=coupon.id, phone_key=_phone_claim_key(holder.phone)))\n    session.commit()",
+      "replace": "    holder = session.get(User, red.user_id)\n    session.commit()",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_claim_log_blocks_reapply_after_account_deletion"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M43",
+      "file": "backend/alembic/versions/coupon_claim_log_20261003.py",
+      "rule": "R11",
+      "description": "upgrade(): per_pair снова схлопывает несколько исторических погашений одной пары (coupon,номер) в одну запись — занижает счёт при limit_per_user>1",
+      "find": "        per_pair.setdefault((coupon_id, key), []).append(redeemed_at or dt.datetime.utcnow())",
+      "replace": "        per_pair[(coupon_id, key)] = [redeemed_at or dt.datetime.utcnow()]",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_coupon_claim_log_migration_backfills_live_redemptions_and_is_idempotent"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M44",
+      "file": "backend/alembic/versions/coupon_claim_log_20261003.py",
+      "rule": "R11",
+      "description": "upgrade(): предохранитель от слабого секрета отключён (if False and weak) — перенос молча пишет HMAC от dev-секрета",
+      "find": "        if weak:",
+      "replace": "        if False and weak:  # регрессия: предохранитель отключён",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_coupon_claim_log_migration_refuses_weak_secret_when_rows_need_backfill"
+      ],
+      "db": "sqlite"
     }
   ]
 }

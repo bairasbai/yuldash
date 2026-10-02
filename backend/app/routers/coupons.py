@@ -27,11 +27,12 @@ from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action
 from ..middleware import user_over_limit
-from ..models import Coupon, CouponReport, CouponRedemption, Partner, Payment, User, UserRole
+from ..models import Coupon, CouponClaimLog, CouponReport, CouponRedemption, Partner, Payment, User, UserRole
 from ..safety_logic import ensure_active
 from ..security import current_user
 from ..services import notify_admin_telegram, push_notification
 from ..timeutil import client_dt_to_utc, utcnow
+from .promo import _phone_claim_key  # переиспользуем HMAC телефона — не копируем формулу (leaf-1.3b)
 
 router = APIRouter(tags=["coupons"])
 
@@ -418,9 +419,15 @@ def coupon_redeem(body: RedeemIn, user: User = Depends(current_user), session: S
     # разных кодов (счётчик — основа statement'а партнёру по 10 ₽/погашение).
     session.execute(sa_update(Coupon).where(Coupon.id == coupon.id)
                     .values(redeemed_count=Coupon.redeemed_count + 1))
+    # След «этот номер гасил этот купон» (leaf-1.3b) — переживает удаление аккаунта держателя.
+    # Пишем ЗДЕСЬ, при НАСТОЯЩЕМ погашении, не при брони/активации: забытая истёкшая бронь
+    # (R8) не должна застревать в счётчике лимита навсегда — только реальное использование
+    # скидки. В ОДНОЙ транзакции с самим погашением — не отдельным коммитом.
+    holder = session.get(User, red.user_id)
+    if holder and holder.phone:
+        session.add(CouponClaimLog(coupon_id=coupon.id, phone_key=_phone_claim_key(holder.phone)))
     session.commit()
     session.refresh(red)     # объект в памяти помнит прежний статус — перечитываем
-    holder = session.get(User, red.user_id)
     return {
         "ok": True,
         "coupon_title": coupon.title,
@@ -520,9 +527,26 @@ def coupon_activate(coupon_id: int, user: User = Depends(current_user), session:
     if coupon.limit_total > 0 and len(active_rows) >= coupon.limit_total:
         raise herr(409, "Купоны закончились", "Купондар бөттө")
 
-    # Лимит на пользователя.
-    mine = sum(1 for r in active_rows if r.user_id == user.id)
-    if mine >= max(1, coupon.limit_per_user):
+    # Лимит на пользователя — считает НОМЕР ТЕЛЕФОНА, не только текущий аккаунт (leaf-1.3b):
+    # удаление аккаунта (`account.py`, остаётся только для чтения) стирает его CouponRedemption,
+    # а номер остаётся тем же — без этого человек гасил бы купон, удалял аккаунт и возвращался
+    # за новой скидкой с тем же номером сколько угодно раз (открытая ошибка листа 1.3).
+    #
+    # `CouponClaimLog` пишется при НАСТОЯЩЕМ погашении (`coupon_redeem`), не при брони —
+    # забытая истёкшая бронь (R8) не должна застревать в счётчике навсегда. Значит: уже
+    # ПОГАШЕННЫЕ (этим или удалённым аккаунтом) — только из журнала; ещё НЕ погашенные
+    # (reserved) брони ТЕКУЩЕГО аккаунта — отдельно, иначе задвоим уже погашенные (они есть
+    # и в `active_rows` этого юзера, и в журнале — считать и там, и там нельзя).
+    phone_key = _phone_claim_key(user.phone) if user.phone else ""
+    claimed_by_phone = 0
+    if phone_key:
+        claimed_by_phone = session.exec(
+            select(func.count()).select_from(CouponClaimLog).where(
+                CouponClaimLog.coupon_id == coupon.id, CouponClaimLog.phone_key == phone_key,
+            )
+        ).one()
+    mine_unredeemed = sum(1 for r in active_rows if r.user_id == user.id and r.status == "reserved")
+    if claimed_by_phone + mine_unredeemed >= max(1, coupon.limit_per_user):
         raise herr(409, "Ты уже воспользовался этим купоном", "Һин был купондан файҙаландың инде")
 
     red = CouponRedemption(coupon_id=coupon.id, user_id=user.id, code=_gen_code(session), status="reserved")

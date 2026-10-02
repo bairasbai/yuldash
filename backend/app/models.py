@@ -1759,6 +1759,30 @@ class CouponRedemption(SQLModel, table=True):
     redeemed_by: Optional[int] = Field(default=None, foreign_key="user.id")  # сотрудник партнёра, подтвердивший
 
 
+class CouponClaimLog(SQLModel, table=True):
+    """След «этот номер гасил этот купон» — переживает удаление аккаунта (leaf-1.3b).
+
+    Та же защита, что у `PromoClaimLog` (волна 149) для промокодов, и по той же причине:
+    без этого следа лимит «один купон на человека» (`limit_per_user`) обнуляется удалением
+    аккаунта и регистрацией заново с тем же номером (открытая ошибка листа 1.3, закрыта в 1.3b).
+
+    Пишется при НАСТОЯЩЕМ погашении на кассе (`coupon_redeem`), не при брони/активации —
+    забытая истёкшая бронь (R8, `RESERVATION_TTL_DAYS`) не должна застревать в журнале
+    навсегда, только реальное использование скидки.
+
+    Ключ телефона — HMAC (`_phone_claim_key` из `routers/promo.py`, переиспользуем импортом,
+    не копируем формулу второй раз); самого номера здесь нет — по ключу человека не найти,
+    не зная номер заранее (152-ФЗ — то же основание, что у `PromoClaimLog`).
+
+    БЕЗ внешнего ключа на `user.id` — НАРОЧНО: удаление аккаунта (`account.py`, одобренный
+    лист 2.1, остаётся только для чтения) не должно требовать ни единой правки, запись и так
+    ни на что не ссылается и переживает удаление сама по себе."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    coupon_id: int = Field(index=True, foreign_key="coupon.id")
+    phone_key: str = Field(default="", index=True)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
 # ---- M2 (монетизация): промокоды и кампании (рычаг роста) ----
 
 class PromoCode(SQLModel, table=True):
