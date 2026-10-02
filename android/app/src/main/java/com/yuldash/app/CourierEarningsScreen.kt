@@ -162,59 +162,72 @@ internal fun CourierEarningsScreen(onBack: () -> Unit) {
                         }
                     }
                 }
-                error && d == null -> item(key = "error") { AppErrorState(onRetry = { reload++ }) }
-                d == null || d.deliveries == 0 -> item(key = "empty") {
-                    // Пусто бывает двух видов: новичок вообще без доставок и опытный курьер
-                    // с тихой неделей. Говорить второму «пока нет доставок» — врать ему в глаза.
-                    AppEmptyState(
-                        title = when (period) {
-                            "week" -> appText("За эту неделю доставок нет", "Был аҙнала илтеү юҡ")
-                            "month" -> appText("За этот месяц доставок нет", "Был айҙа илтеү юҡ")
-                            else -> appText("Пока нет доставок", "Әлегә илтеү юҡ")
-                        },
-                        // Текст указывал дорогу, но идти по ней человек должен был сам, а этот
-                        // экран отдельный — вкладку «Заказы» он сам не переключит. Сигнал просит
-                        // «Режим курьера» открыть её: заглушка теперь ведёт, а не подсказывает.
-                        actionLabel = appText("Смотреть заказы", "Заказдарҙы ҡарау"),
-                        onAction = { NavSignals.openCourierOrders.value = true; onBack() },
-                        text = appText(
-                            "Возьми заказ во вкладке «Заказы» — здесь появится, сколько ты заработал.",
-                            "«Заказдар» бүлегендә заказ ал — бында күпме эшләгәнең күренәсәк.",
-                        ),
-                        icon = Icons.Default.DeliveryDining,
-                    )
-                }
+                // d?.period != period — то же, что у водителя: смена вкладки сорвалась, а d
+                // ещё держит данные ДРУГОГО периода. Раньше это тихо проезжало в "else" или
+                // даже в "empty" (если у старого периода доставок было 0) — курьер видел чужую
+                // сумму или ложное «нет доставок» вместо честной ошибки (ревью Opus).
+                error && (d == null || d.period != period) -> item(key = "error") { AppErrorState(onRetry = { reload++ }) }
                 else -> {
-                    // Данные есть, но последнее обновление не прошло — говорим прямо.
+                    // d!! тут был бы НЕ ДОКАЗАН: в этой ветке мы допускаем d==null (например,
+                    // error=false, но сеть ещё не ответила в самый первый кадр под тестовым
+                    // диспетчером) — тот же безопасный паттерн, что у водителя (DriverEarningsScreen.kt).
+                    val cd = d ?: return@LazyColumn
+                    // Данные есть и per период совпадает, но ПОСЛЕДНЕЕ обновление не прошло —
+                    // говорим прямо. Показываем strip ДАЖЕ если ниже будет пустой экран: ноль
+                    // доставок мог обновиться и перестать быть нулём, а мы это не узнали.
                     if (error) item(key = "stale") { MoneyStaleStrip(onRetry = { reload++ }) }
-                    item(key = "totals") { CourierTotalsCard(d, enter) }
-                    if (d.byDay.isNotEmpty()) {
-                        item(key = "days-header") {
-                            MoneySectionHeader(
-                                title = appText("По дням", "Көндәр буйынса"),
-                                caption = appText(
-                                    "Сколько осталось на руках за каждый день.",
-                                    "Һәр көн өсөн ҡулда күпме ҡалғаны.",
+                    if (cd.deliveries == 0) {
+                        // Пусто бывает двух видов: новичок вообще без доставок и опытный курьер
+                        // с тихой неделей. Говорить второму «пока нет доставок» — врать ему в глаза.
+                        item(key = "empty") {
+                            AppEmptyState(
+                                title = when (period) {
+                                    "week" -> appText("За эту неделю доставок нет", "Был аҙнала илтеү юҡ")
+                                    "month" -> appText("За этот месяц доставок нет", "Был айҙа илтеү юҡ")
+                                    else -> appText("Пока нет доставок", "Әлегә илтеү юҡ")
+                                },
+                                // Текст указывал дорогу, но идти по ней человек должен был сам, а этот
+                                // экран отдельный — вкладку «Заказы» он сам не переключит. Сигнал просит
+                                // «Режим курьера» открыть её: заглушка теперь ведёт, а не подсказывает.
+                                actionLabel = appText("Смотреть заказы", "Заказдарҙы ҡарау"),
+                                onAction = { NavSignals.openCourierOrders.value = true; onBack() },
+                                text = appText(
+                                    "Возьми заказ во вкладке «Заказы» — здесь появится, сколько ты заработал.",
+                                    "«Заказдар» бүлегендә заказ ал — бында күпме эшләгәнең күренәсәк.",
                                 ),
-                                modifier = enter,
+                                icon = Icons.Default.DeliveryDining,
                             )
                         }
-                        val maxNet = d.byDay.maxOfOrNull { it.netKop }?.coerceAtLeast(1) ?: 1
-                        itemsIndexed(d.byDay, key = { _, day: CourierEarningsDayDto -> day.date }) { i, day ->
-                            CourierDayRow(day, maxNet, i, enter)
+                    } else {
+                        item(key = "totals") { CourierTotalsCard(cd, enter) }
+                        if (cd.byDay.isNotEmpty()) {
+                            item(key = "days-header") {
+                                MoneySectionHeader(
+                                    title = appText("По дням", "Көндәр буйынса"),
+                                    caption = appText(
+                                        "Сколько осталось на руках за каждый день.",
+                                        "Һәр көн өсөн ҡулда күпме ҡалғаны.",
+                                    ),
+                                    modifier = enter,
+                                )
+                            }
+                            val maxNet = cd.byDay.maxOfOrNull { it.netKop }?.coerceAtLeast(1) ?: 1
+                            itemsIndexed(cd.byDay, key = { _, day: CourierEarningsDayDto -> day.date }) { i, day ->
+                                CourierDayRow(day, maxNet, i, enter)
+                            }
                         }
-                    }
-                    item(key = "note") {
-                        Text(
-                            appText(
-                                "Деньги за доставку получаешь напрямую — Юлдаш их не держит. Комиссия копится отдельно и платится в кабинете.",
-                                "Илтеү аҡсаһын туранан-тура алаһың — Юлдаш уны тотмай. Комиссия айырым йыйыла һәм кабинетта түләнә.",
-                            ),
-                            color = CanonMuted,
-                            fontSize = MoneyType.Caption,
-                            lineHeight = MoneyType.CaptionLine,
-                            modifier = enter.padding(top = 4.dp),
-                        )
+                        item(key = "note") {
+                            Text(
+                                appText(
+                                    "Деньги за доставку получаешь напрямую — Юлдаш их не держит. Комиссия копится отдельно и платится в кабинете.",
+                                    "Илтеү аҡсаһын туранан-тура алаһың — Юлдаш уны тотмай. Комиссия айырым йыйыла һәм кабинетта түләнә.",
+                                ),
+                                color = CanonMuted,
+                                fontSize = MoneyType.Caption,
+                                lineHeight = MoneyType.CaptionLine,
+                                modifier = enter.padding(top = 4.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -329,8 +342,46 @@ private fun CourierTotalsCard(d: CourierEarningsDto, modifier: Modifier = Modifi
                     CanonWarn,
                 )
             }
+            // Разбор жалобы подтвердил: за эти доставки курьеру не заплатили (unpaid_*,
+            // волна 191). В net/deliveries выше их нет — молчать нельзя: доставка была,
+            // курьер её помнит, а пропавшая без объяснения сумма читается как недосчёт
+            // Юлдаша (ревью Opus).
+            if (d.unpaidDeliveries > 0) {
+                Surface(color = CanonWarnBg, shape = CanonItemShape) {
+                    Text(
+                        appText(
+                            "Ещё ${d.unpaidDeliveries} ${deliveriesWordCourier(d.unpaidDeliveries)} на " +
+                                "${kopToRub(d.unpaidNetKop)} ${notPaidAgreeFemCourier(d.unpaidDeliveries)} — " +
+                                "деньги не пришли, в заработок выше не включены.",
+                            "Тағы ${d.unpaidDeliveries} илтеү ${kopToRub(d.unpaidNetKop)}-гә түләнмәгән — " +
+                                "аҡса килмәгән, өҫтәге табышҡа инмәй.",
+                        ),
+                        color = CanonWarn, fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
         }
     }
+}
+
+/** Русский плюрал «доставок» (локально — тот же приём, что tripsWordEarn у водителя). */
+private fun deliveriesWordCourier(n: Int): String {
+    val m10 = n % 10
+    val m100 = n % 100
+    return when {
+        m10 == 1 && m100 != 11 -> "доставка"
+        m10 in 2..4 && m100 !in 12..14 -> "доставки"
+        else -> "доставок"
+    }
+}
+
+/** Согласование с «доставка» (жен. род, ед.ч.): «1 доставка не оплачена», но «2 доставки
+ *  не оплачены» (локально — тот же приём, что у водителя в DriverEarningsScreen.kt). */
+private fun notPaidAgreeFemCourier(n: Int): String {
+    val m10 = n % 10
+    val m100 = n % 100
+    return if (m10 == 1 && m100 != 11) "не оплачена" else "не оплачены"
 }
 
 // ─────────────────── День ───────────────────

@@ -2,7 +2,7 @@
 
 - Статус: verified
 - Лист: leaf-1.4
-- Проверял: Sonnet 5 (leaf-1.4); принимал: Opus 5.5 (ревью денег)
+- Проверял: Sonnet 5 (leaf-1.4); принимал: ожидает ревью
 
 ## Назначение
 
@@ -14,13 +14,13 @@
 
 | Функция / участок | Строки | Что делает | Условия, входы, ошибки | Вердикт |
 |---|---|---|---|---|
-| `WalletScreen` / `load()` | 66–190 | Грузит баланс+историю+статус выплат, рисует состояния | `error` только если ОБА (баланс И история) упали; `stale` — хоть один упал, но данные уже были; payout грузится и падает НЕЗАВИСИМО (не роняет весь экран) | ок |
-| `WalletBalanceCard` | 196–246 | Крупная сумма баланса + подпись про доступность вывода | `kopToRub` — копейки не теряются; подпись зависит от `payoutEnabled` (null/true/false — три разных честных текста) | ок |
-| `WalletLedgerRow` | 249–283 | Строка истории: направление, сумма со знаком и цветом | `amountKop>=0` → зелёный «приход», иначе приглушённый; `note.ifBlank{fallback}` — пустую подпись сервера не показываем как есть | ок |
-| `PayoutSoonCard` | 288–317 | Честная заглушка, пока `enabled=false` | Без кнопок-обманок | ок |
-| `PayoutCard` | 324–515 | Живой вывод: карта, сумма, границы с сервера, двойное подтверждение | См. R2–R4 ниже | ок, R2–R4 |
-| `PayoutCardDialog` | 521–589 | Диалог «Карта для выплат» | Полный номер НЕ логируется и НЕ уходит на сервер — только последние 4 цифры, посчитанные локально (`digits.takeLast(4)`) | ок, приватность |
-| `fmtRub` | 611 | Целые рубли с разрядом-пробелом | Единственный денежный форматтер приложения (рубли); `kopToRub` (CouponsScreen.kt, вне зоны) — для копеек | ок, R1 |
+| `WalletScreen` / `load()` | 88–112 | Грузит баланс+историю+статус выплат, рисует состояния | П1+П2 (ревью Opus) ИСПРАВЛЕНО: `balanceFailed`/`ledgerFailed` — НЕЗАВИСИМЫЕ флаги (раньше общий `error` требовал падения ОБОИХ сразу, и частичный сбой на первом открытии не показывался никак); `stale` — ТОЛЬКО если ДО этого вызова уже было что показать именно по этой части (раньше считал «есть ли сейчас хоть что-то», и пустая история на фоне свежего баланса тоже засчитывалась как «устарело»); payout грузится и падает НЕЗАВИСИМО | ок (после правки), R5, R6 |
+| `WalletBalanceCard` | ~224–297 | Крупная сумма баланса + честная ошибка + подпись про доступность/долг | П1 (ревью Opus) ИСПРАВЛЕНО: при `failed && balance==null` показывает «Баланс не узнали» + «Повторить», раньше молча рисовала `kopToRub(0)`; подпись про долг — «ВНЕ ЗОНЫ» леада, исполнено: `owedKop = balanceKop - payableKop`, при `owedKop>0` текст честно называет, сколько уходит на долг, вместо «Доступно к выводу» под ПОЛНЫМ балансом | ок (после правки), R5, R8 |
+| `WalletLedgerRow` | ~314–350 | Строка истории: направление, сумма со знаком и цветом | `amountKop>=0` → «+» и зелёный «приход», иначе приглушённый минус через `kopToRub` (типографский «−», не ASCII); `note.ifBlank{fallback}` | ок, R7 |
+| `PayoutSoonCard` | ~355–384 | Честная заглушка, пока `enabled=false` | Без кнопок-обманок | ок |
+| `PayoutCard` | ~391–600 | Живой вывод: карта, сумма, границы с сервера, объяснение долга, двойное подтверждение | См. R2–R4, R8 ниже | ок, R2–R4, R8 |
+| `PayoutCardDialog` | ~613–683 | Диалог «Карта для выплат» | Полный номер НЕ логируется и НЕ уходит на сервер — только последние 4 цифры, посчитанные локально (`digits.takeLast(4)`) | ок, приватность |
+| `fmtRub` | ~699 | Целые рубли с разрядом-пробелом | Единственный денежный форматтер приложения (рубли); `kopToRub` (CouponsScreen.kt, вне зоны) — для копеек | ок, R1 |
 
 ## Связи
 
@@ -40,40 +40,52 @@
 | R2 | Сумма вывода вне границ (мин/макс/баланс) — кнопка выключена, причина объяснена человеку | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::amount_belowMinimum_disablesButtonAndExplainsWhy`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::amount_aboveBalance_disablesButtonAndShowsBalance`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::allButton_fillsWholeAvailableBalance` | да — M2 |
 | R3 | Ключ идемпотентности: неоднозначный отказ (`provider_unclear`) переживает повтор С ТЕМ ЖЕ ключом; явный отказ — со СВЕЖИМ | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::ambiguousFailure_providerUnclear_keepsSameIdempotencyKeyOnRetry`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::definiteFailure_min_usesFreshIdempotencyKeyOnRetry` | да — M3 |
 | R4 | Двойное нажатие «Да, вывести» не отправляет второй вывод (кнопки видимо выключены + состояние `busy`, от которого зависят обе защиты) | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::doubleConfirm_whileFirstRequestInFlight_sendsExactlyOnePayout` | да — M4, M5 |
-| R5 | Экран «Кошелёк»: пусто / ошибка+повтор / устаревшие-данные-не-ошибка / честный обрыв списка / честная заглушка выплат | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::emptyLedger_showsFriendlyEmptyState`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::bothFail_showsFullScreenErrorWithWorkingRetry`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::dataAlreadyShown_refreshFails_showsStaleStripNotError`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::ledgerAtLimit_showsHonestCutoffNotice`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::payoutsDisabled_showsHonestSoonCard_noFakeButtons`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::payoutsEnabled_noCardYet_offersToAddCard` | косвенно — подтверждает состояния, отдельной денежной мутации не заводил (не про суммы, про UI-состояния) |
+| R5 | Экран «Кошелёк»: честная ошибка баланса (не «0 ₽») / честная ошибка истории (не «Пока операций нет» при чужом сбое) / устаревшие-данные-не-ошибка (строго по признаку «было раньше») / честный обрыв списка / честная заглушка выплат | `WalletScreenStatesTestandroid/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::emptyLedger_showsFriendlyEmptyState`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::bothFail_showsFullScreenErrorWithWorkingRetry`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::balanceFailsAlone_ledgerSucceeds_showsHonestBalanceErrorNotStaleOrZero`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::ledgerFailsAlone_balanceSucceeds_showsHonestLedgerErrorNotFalseEmpty`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::dataAlreadyShown_refreshFails_showsStaleStripNotError`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::ledgerAtLimit_showsHonestCutoffNotice`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::payoutsDisabled_showsHonestSoonCard_noFakeButtons`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::payoutsEnabled_noCardYet_offersToAddCard` | да — M26, M27 |
+| R6 | «Протухло» (`stale`) — ТОЛЬКО если ДО этого запроса уже было что показать именно по этой части, не на первом открытии | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::balanceFailsAlone_ledgerSucceeds_showsHonestBalanceErrorNotStaleOrZero`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::ledgerFailsAlone_balanceSucceeds_showsHonestLedgerErrorNotFalseEmpty` | да — то же M26/M27 (один код, одна причина) |
+| R7 | Знак в истории: приход — «+» и зелёный; списание — приглушённый типографский минус (не ASCII) | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::ledgerRow_signsIncomeWithPlus_debitWithTypographicMinus` | да — M28 |
+| R8 (ВНЕ ЗОНЫ леада — исполнено) | Вывод («Всё», границы, подпись под балансом) считается от ДОСТУПНОГО остатка (`payableKop`), не от сырого баланса; при долге — честное объяснение «X доступно, Y уходит на долг» | `WalletPayoutFlowTestandroid/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::driverWithDebt_payoutBoundsComeFromPayableNotRawBalance`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::noDebt_payableEqualsBalance_noDebtBannerShown`, `WalletScreenStatesTestandroid/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::balanceCard_withDebt_explainsPayableVsOwed_notFullBalanceCaption`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::amount_aboveMaximum_disablesButtonAndExplainsWhy` | да — M29, M30, M31, M32 |
 
 ## Найденные ошибки
 
 | ID | Что было (по-человечески) | Как воспроизвести | Исправление | Тест: до → после |
 |---|---|---|---|---|
-| E2 | Кнопка «Отмена» и «Да, вывести» в диалоге подтверждения во время отправки ПРОДОЛЖАЛИ выглядеть и объявляться экранным диктором как обычные нажимаемые кнопки — защита от второго клика была только ВНУТРИ обработчика (`if (busy) return`), а не видна человеку/вспомогательным технологиям. Функционально повторный клик был безопасен (второй запрос не уходил), но это везение программиста, а не гарантия интерфейса — то же самое упущение, которое уже один раз стоило переделки в этом же файле (идемпотентность, волна 219 в соседнем комментарии). | Открыть диалог вывода, нажать «Да, вывести» — кнопки диалога остаются `enabled` (видно в дереве семантики: `assertIsNotEnabled()` падал) | Добавлен `enabled = !busy` обеим кнопкам диалога (были только внутренние guard'ы) | `WalletPayoutFlowTest::doubleConfirm_whileFirstRequestInFlight_sendsExactlyOnePayout` — до правки `assertIsNotEnabled()` на `payout_confirm` падал (кнопка оставалась `enabled`), после — проходит; мутация M4 (снять `enabled=!busy`) подтверждает, что тест действительно это проверяет |
+| E2 | Кнопка «Отмена» и «Да, вывести» в диалоге подтверждения во время отправки ПРОДОЛЖАЛИ выглядеть и объявляться экранным диктором как обычные нажимаемые кнопки — защита от второго клика была только ВНУТРИ обработчика. | Открыть диалог вывода, нажать «Да, вывести» — кнопки остаются `enabled` | Добавлен `enabled = !busy` обеим кнопкам диалога | `WalletPayoutFlowTestandroid/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::doubleConfirm_whileFirstRequestInFlight_sendsExactlyOnePayout` — до правки `assertIsNotEnabled()` падал, после — проходит |
+| E11 (P1, ревью Opus) | При сбое `/wallet/balance` карточка молча показывала `kopToRub(0)` — «Баланс кошелька 0 ₽». Выглядит как «деньги пропали», хотя на деле просто сеть подвела. Если история при этом пришла — внизу список операций, а наверху выдуманный ноль; если статус выплат пришёл — `PayoutCard` снизу писал «на балансе 600 ₽», т.е. на одном экране ДВЕ разные суммы. | Баланс отвечает 500, история — 200 | `balanceFailed = balRes.isFailure && balance == null`; при `true` карточка показывает «Баланс не узнали» + «Повторить» вместо суммы | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::bothFail_showsFullScreenErrorWithWorkingRetry` (дополнен), `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::balanceFailsAlone_ledgerSucceeds_showsHonestBalanceErrorNotStaleOrZero` (новый) — до правки оба показали бы «0 ₽», после — честная ошибка |
+| E12 (P2, ревью Opus) | `stale` вычислялся ПОСЛЕ того, как частичный ответ уже записан — при первом открытии (баланс пришёл, история нет) получалось `error=false, stale=true`, и история вместо честной ошибки показывала «Пока операций нет», хотя на деле просто неизвестно, есть операции или нет. | Баланс отвечает 200, история — 500, оба — ПЕРВЫЙ запрос за сессию | `ledgerFailed`/`balanceFailed` — отдельные флаги; `stale` считается от `hadBalance`/`hadLedger`, снятых ДО запроса | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::ledgerFailsAlone_balanceSucceeds_showsHonestLedgerErrorNotFalseEmpty` (новый) — до правки «Пока операций нет», после — «Что-то пошло не так» |
+| E13 (ВНЕ ЗОНЫ леада, раздел 3 отчёта — исполнено) | Вывод («Всё», границы, подпись «Доступно к выводу через СБП») считался от СЫРОГО `balanceKop`, хотя сервер (`wallet.py`) уже отдаёт `payable_kop`/`owed_kop` — сколько реально свободно за вычетом долга платформе. Водитель с долгом видел рабочую кнопку «Вывести 600 ₽» на деньги, которые ему не принадлежат, и получал отказ ТОЛЬКО ПОСЛЕ подтверждения. | Баланс 600 ₽, из них 400 ₽ — долг (`payable_kop: 20000`) | `WalletBalanceDto`/`PayoutStatusDto` (ApiClient.kt, зона расширена ведущим) получили `payableKop`/`owedKop`; `PayoutCard`/`WalletBalanceCard` считают от них | `WalletPayoutFlowTestandroid/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::driverWithDebt_payoutBoundsComeFromPayableNotRawBalance` — до правки «Всё» подставило бы 600 и пропустило бы 300 как валидные; после — 200 и честный отказ на 300 |
 
 ## Проверка нарочной поломкой
 
 | ID | Что сломали | Тест | Результат |
 |---|---|---|---|
-| M1 | `fmtRub` перестаёт разбивать разряды пробелом | `WalletMoneyFormatTest::fmtRub_groupsThousandsWithSpace` и др. | KILLED: тест упал |
-| M2 | `canPayout` игнорирует `amountError` (`== null` → `true`) | `WalletPayoutFlowTest::amount_belowMinimum_disablesButtonAndExplainsWhy` (и ещё 1 тест ловит ту же мутацию) | KILLED: тест упал |
-| M3 | Условие провайдера инвертировано (`!=` → `==` "provider_unclear") | `WalletPayoutFlowTest::ambiguousFailure_providerUnclear_keepsSameIdempotencyKeyOnRetry` | KILLED: тест упал |
-| M4 | Снят `enabled = !busy` у кнопки «Да, вывести» | `WalletPayoutFlowTest::doubleConfirm_whileFirstRequestInFlight_sendsExactlyOnePayout` | KILLED: тест упал |
-| M5 | `busy` никогда не ставится в `true` при подтверждении — видимая и внутренняя защита от повтора обесточены разом | `WalletPayoutFlowTest::doubleConfirm_whileFirstRequestInFlight_sendsExactlyOnePayout` | KILLED: тест упал |
+| M1 | `fmtRub` перестаёт разбивать разряды пробелом | `WalletMoneyFormatTest::fmtRub_groupsThousandsWithSpace` и др. | KILLED |
+| M2 | `canPayout` игнорирует `amountError` | `WalletPayoutFlowTestandroid/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::amount_belowMinimum_disablesButtonAndExplainsWhy` | KILLED |
+| M3 | Условие провайдера инвертировано | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::ambiguousFailure_providerUnclear_keepsSameIdempotencyKeyOnRetry` | KILLED |
+| M4 | Снят `enabled = !busy` у кнопки «Да, вывести» | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::doubleConfirm_whileFirstRequestInFlight_sendsExactlyOnePayout` | KILLED |
+| M5 | `busy` никогда не ставится в `true` при подтверждении | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::doubleConfirm_whileFirstRequestInFlight_sendsExactlyOnePayout` | KILLED |
+| M26 | Честная ошибка баланса отключена — снова «0 ₽» | `WalletScreenStatesTestandroid/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::bothFail_showsFullScreenErrorWithWorkingRetry` | KILLED |
+| M27 | Частичный сбой истории больше не считается ошибкой | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::ledgerFailsAlone_balanceSucceeds_showsHonestLedgerErrorNotFalseEmpty` | KILLED |
+| M28 | Знак прихода («+») пропадает | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::ledgerRow_signsIncomeWithPlus_debitWithTypographicMinus` | KILLED |
+| M29 | Ветка «максимум за раз» никогда не срабатывает | `WalletPayoutFlowTestandroid/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::amount_aboveMaximum_disablesButtonAndExplainsWhy` | KILLED |
+| M30 | «Всё» снова считает от сырого баланса | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::driverWithDebt_payoutBoundsComeFromPayableNotRawBalance` | KILLED |
+| M31 | Граница «выше доступного» снова проверяется по сырому балансу | `android/app/src/test/java/com/yuldash/app/walk/l1_4/WalletPayoutFlowTest.kt::driverWithDebt_payoutBoundsComeFromPayableNotRawBalance` | KILLED |
+| M32 | Подпись под балансом снова обещает полный вывод при долге | `WalletScreenStatesTestandroid/app/src/test/java/com/yuldash/app/walk/l1_4/WalletScreenStatesTest.kt::balanceCard_withDebt_explainsPayableVsOwed_notFullBalanceCaption` | KILLED |
 
 ## Остаток и ограничения
 
-**ВНЕ ЗОНЫ (см. отчёт ведущему, раздел «ВНЕ ЗОНЫ» — подробности и точная правка там):**
-сервер (`backend/app/routers/wallet.py`, `GET /wallet/balance` и `GET /wallet/payout/status`)
-уже считает и отдаёт `payable_kop`/`owed_kop`/`reserved_kop` — сколько из баланса реально
-можно вывести за вычетом долга платформе по комиссии (с объяснением — «Доступно к выводу
-X ₽: Y ₽ на балансе зарезервировано под неоплаченную комиссию»). Но `WalletBalanceDto` и
-`PayoutStatusDto` в `ApiClient.kt` (не в зоне этого листа) эти поля НЕ читают, поэтому
-`PayoutCard` в этом файле проверяет границы и считает «Всё» от СЫРОГО баланса, а не от
-доступного остатка. У водителя с долгом по комиссии это выглядит как рабочая кнопка
-«Вывести 600 ₽», которая после confirm вернёт отказ с кодом `debt` — человеческий текст
-ошибки от сервера пользователь всё же увидит (Toast), но это происходит ПОСЛЕ лишнего шага
-подтверждения, а не ДО него, как могло бы, покажи экран остаток честно сразу. Без правки
-`ApiClient.kt` исправить в этом файле нельзя (там живут обе DTO и их парсинг) — поэтому
-только задокументировано, не исправлено.
+Пул-ту-рефреш (настоящий жест пальцем) не эмулировался — состояние «жду обновления» проверено
+через ровно тот же код (`load()`), который вызывает и кнопка «Повторить». Реальная ЮKassa/
+SMS/эмулятор — не в доступе на этой машине.
 
-Пул-ту-рефреш (настоящий жест пальцем) не эмулировался — состояние "жду обновления" же
-проверено через ровно тот же код (`load()`), который вызывает и кнопка «Повторить» на
-полосках ошибок. Реальная ЮKassa/SMS/эмулятор — не в доступе на этой машине.
+**P3, не блокирует (из отчёта ведущему):**
+- «Отмена» в `PayoutCardDialog` — без `enabled=!busy` (сама отправка карты защищена только
+  внутренним guard'ом, как было раньше у кнопок вывода).
+- Явные цвета текста (`CanonGreen2`/`CanonMuted`) на кнопках диалога перекрывают визуальное
+  затемнение disabled-состояния — на вид кнопка не меняется, хотя TalkBack теперь объявляет
+  её правильно (см. правку E2/M4 — это была её единственная заявленная цель).
+- Ключ идемпотентности — в `remember`, не `rememberSaveable`: пересоздание Activity посреди
+  отправки (смена темы/языка системы/нехватка памяти — поворот не страшен, ориентация
+  портретная) теряет ключ, повтор уйдёт с НОВЫМ ключом.
+- Параллельные `load()` (жест + смена периода у водителя/курьера) не отменяют друг друга.
+- Разряд-пробел — обычный, не неразрывный: теоретическая угроза переноса суммы на крупном
+  шрифте.

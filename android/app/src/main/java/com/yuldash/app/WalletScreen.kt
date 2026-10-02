@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -69,10 +70,19 @@ internal fun WalletScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf(false) }
     // Обновление не удалось, но цифры на экране уже есть — это НЕ то же самое, что ошибка
     // на пустом экране, и молчанием быть не должно (см. AppStaleStrip).
     var stale by remember { mutableStateOf(false) }
+    // P1 (ревью Opus): баланс не ответил — раньше карточка молча показывала «0 ₽», и это
+    // читалось как «деньги исчезли», а не как «сеть подвела». Баланса НИКОГДА не было (не
+    // путать со stale, где старое число уже на экране) → честная ошибка + «Повторить».
+    var balanceFailed by remember { mutableStateOf(false) }
+    // То же для истории: раньше общий `error` требовал, чтобы ОБА запроса (баланс И история)
+    // упали одновременно. Если при первом открытии баланс пришёл, а история — нет, общий
+    // флаг молчал, а `stale` включался «по балансу» — и история вместо честной ошибки
+    // показывала «Пока операций нет», хотя на деле мы просто не знаем, есть операции или
+    // нет (ревью Opus).
+    var ledgerFailed by remember { mutableStateOf(false) }
     var balance by remember { mutableStateOf<WalletBalanceDto?>(null) }
     var ledger by remember { mutableStateOf<List<WalletLedgerEntryDto>>(emptyList()) }
     // Вывод на карту (Модель Б, за флагом): статус грузим отдельно — его сбой не роняет весь кошелёк.
@@ -81,18 +91,28 @@ internal fun WalletScreen(onBack: () -> Unit) {
     var payoutError by remember { mutableStateOf(false) }
 
     suspend fun load() {
-        loading = true; error = false
+        // ДО запроса: было ли что показать раньше. Нужно отдельно от balance/ledger ниже —
+        // их onSuccess перезапишет ДО того, как считать stale, и «было» с «стало» смешаются.
+        val hadBalance = balance != null
+        val hadLedger = ledger.isNotEmpty()
+        loading = true
         payoutLoading = true; payoutError = false
         val balRes = ApiClient.getWalletBalance()
         val ledRes = ApiClient.getWalletLedger(LEDGER_LIMIT)
-        // Баланс — обязателен для «шапки»; если и он, и история упали → это ошибка. Иначе показываем что есть.
+        // Баланс и история — НЕЗАВИСИМЫЕ сбои: упал один, другой мог прийти нормально.
+        // Раньше общий `error` требовал падения ОБОИХ сразу, и частичный сбой на первом
+        // открытии никак не показывался (ревью Opus) — ниже каждому своя честная проверка.
         balRes.onSuccess { balance = it }
         ledRes.onSuccess { ledger = it }
-        error = balRes.isFailure && ledRes.isFailure
+        balanceFailed = balRes.isFailure && balance == null
+        ledgerFailed = ledRes.isFailure && ledger.isEmpty()
         // Жест «потянуть вниз» отрабатывал вхолостую: индикатор крутился, пропадал, баланс не
         // менялся — и водитель читал старую цифру как свежую («начисление не пришло»).
-        // Ошибку показывали только при пустой истории, то есть только новичку.
-        stale = (balRes.isFailure || ledRes.isFailure) && (balance != null || ledger.isNotEmpty())
+        // «Протухло» — только если ДО этого вызова уже было что показать И именно эта часть
+        // сейчас не обновилась; первое открытие сталью быть не может (раньше смотрели только
+        // на «есть ли сейчас хоть что-то», и пустая история на фоне свежего баланса тоже
+        // засчитывалась как stale, см. правку `ledgerFailed` выше).
+        stale = (balRes.isFailure && hadBalance) || (ledRes.isFailure && hadLedger)
         loading = false
         ApiClient.getPayoutStatus()
             .onSuccess { payout = it; payoutError = false }
@@ -122,7 +142,13 @@ internal fun WalletScreen(onBack: () -> Unit) {
             // Подпись под балансом зависит от того, включены ли выплаты. В Модели А деньги идут
             // мимо платформы, и обещание «доступно к выводу» под нулевым балансом читалось как
             // «мои деньги куда-то делись» (аудит 2026-07-26).
-            item { WalletBalanceCard(balance, loading, payoutEnabled = payout?.enabled) }
+            item {
+                WalletBalanceCard(
+                    balance, loading, failed = balanceFailed,
+                    onRetry = { scope.launch { load() } },
+                    payoutEnabled = payout?.enabled,
+                )
+            }
 
             // Вывод на карту (Модель Б). enabled решает СЕРВЕР: false → честная заглушка «скоро»,
             // true → карта + сумма + «Вывести». Клиент оживёт сам, когда включат флаг — без обновления.
@@ -154,9 +180,9 @@ internal fun WalletScreen(onBack: () -> Unit) {
                 loading && ledger.isEmpty() -> item {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(4) { SkeletonCard(lines = 2) } }
                 }
-                // `&& !stale` — про сбой уже сказала полоска сверху; повторять то же самое
-                // второй раз на одном экране незачем.
-                error && ledger.isEmpty() && !stale -> item { AppErrorState(onRetry = { scope.launch { load() } }) }
+                // ledgerFailed уже учитывает «пришла ли история» сама по себе — баланс
+                // на этот вердикт не влияет (частичный сбой на первом открытии, ревью Opus).
+                ledgerFailed -> item { AppErrorState(onRetry = { scope.launch { load() } }) }
                 ledger.isEmpty() -> item {
                     AppEmptyState(
                         title = appText("Пока операций нет", "Операциялар әлегә юҡ"),
@@ -195,7 +221,13 @@ private const val LEDGER_LIMIT = 50
 
 /** Крупная карточка баланса. Фиксированный ink-зелёный градиент (белый текст читаем в обеих темах). */
 @Composable
-private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean, payoutEnabled: Boolean? = null) {
+private fun WalletBalanceCard(
+    balance: WalletBalanceDto?,
+    loading: Boolean,
+    failed: Boolean = false,
+    onRetry: () -> Unit = {},
+    payoutEnabled: Boolean? = null,
+) {
     Card(
         modifier = Modifier.fillMaxWidth().appearIn(0),
         shape = CanonCardShape,
@@ -222,6 +254,23 @@ private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean, payo
                     color = CanonOnAccent.copy(alpha = 0.9f), fontSize = 14.sp, fontWeight = FontWeight.Medium,
                 )
             }
+            // P1 (ревью Opus): баланс не пришёл НИ РАЗУ — раньше тут молча рисовали kopToRub(0),
+            // то есть «0 ₽», и это выглядело как «деньги пропали», а не как сбой сети. Честная
+            // ошибка + «Повторить» прямо тут, без похода вниз экрана.
+            if (failed && balance == null) {
+                Text(
+                    appText("Баланс не узнали", "Баланс белә алманыҡ"),
+                    color = CanonOnAccent, fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    appText("Проверь интернет и повтори.", "Интернетты тикшереп ҡабатла."),
+                    color = CanonOnAccent.copy(alpha = 0.82f), fontSize = 14.sp, lineHeight = 20.sp,
+                )
+                TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp).testTag("wallet_balance_retry")) {
+                    Text(appText("Повторить", "Ҡабатла"), color = CanonOnAccent, fontWeight = FontWeight.Bold)
+                }
+                return@Column
+            }
             Text(
                 // Копейки показываем: баланс приходит в копейках, а поле balanceRub — это kop//100
                 // с сервера. По нему 1 250,50 ₽ выглядели как «1 250 ₽», и сумма операций ниже
@@ -229,12 +278,19 @@ private fun WalletBalanceCard(balance: WalletBalanceDto?, loading: Boolean, payo
                 if (loading && balance == null) "…" else kopToRub(balance?.balanceKop ?: 0),
                 color = CanonOnAccent, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold,
             )
+            // Долг платформе съедает часть баланса — «доступно к выводу» под ПОЛНОЙ суммой
+            // читалось бы как обещание, которое вывод тут же отклонит (ревью Opus).
+            val owedKop = (balance?.balanceKop ?: 0) - (balance?.payableKop ?: balance?.balanceKop ?: 0)
             Text(
-                when (payoutEnabled) {
-                    true -> appText("Доступно к выводу через СБП", "СБП аша сығарырға мөмкин")
+                when {
+                    payoutEnabled == true && balance != null && owedKop > 0 -> appText(
+                        "Доступно к выводу ${kopToRub(balance.payableKop)} — ${kopToRub(owedKop)} уходит на долг платформе",
+                        "Сығарырға була ${kopToRub(balance.payableKop)} — ${kopToRub(owedKop)} платформа бурысына китә",
+                    )
+                    payoutEnabled == true -> appText("Доступно к выводу через СБП", "СБП аша сығарырға мөмкин")
                     // Выплаты выключены (Модель А): за поездки платят напрямую тебе, здесь —
                     // только бонусы и возвраты. Так честнее, чем обещать вывод, которого нет.
-                    false -> appText(
+                    payoutEnabled == false -> appText(
                         "Здесь бонусы и возвраты. За поездки платят тебе напрямую.",
                         "Бында бонустар һәм ҡайтарыуҙар. Сәфәрҙәр өсөн һиңә туранан-тура түләйҙәр.",
                     )
@@ -339,9 +395,15 @@ private fun PayoutCard(
 
     val minRub = status.minKop / 100
     val maxRub = status.maxKop / 100
-    // Границы вывода сервер держит круглыми, а вот баланс — нет: его показываем с копейками,
-    // иначе «на балансе 10 ₽» под реальными 10,96 ₽ читается как «часть денег пропала».
-    val balanceLabel = kopToRub(status.balanceKop)
+    // Границы вывода сервер держит круглыми, а вот остаток — нет: его показываем с копейками,
+    // иначе «доступно 10 ₽» под реальными 10,96 ₽ читается как «часть денег пропала».
+    //
+    // ВАЖНО: границы и «Всё» — от payableKop (баланс МИНУС долг платформе), а не от сырого
+    // balanceKop. Раньше считали от баланса целиком: водитель с долгом по комиссии видел
+    // рабочую кнопку «Вывести 600 ₽» на деньги, которые ему не принадлежат, и получал отказ
+    // только ПОСЛЕ подтверждения — сервер его всё равно не пропускал, просто на шаг позже
+    // (ревью Opus по leaf-1.4).
+    val payableLabel = kopToRub(status.payableKop)
     val amountRub = amountText.toIntOrNull() ?: 0
     val amountKop = amountRub * 100
 
@@ -349,7 +411,7 @@ private fun PayoutCard(
         amountText.isBlank() -> null
         amountKop < status.minKop -> appText("Минимум ${fmtRub(minRub)} ₽", "Кәм тигәндә ${fmtRub(minRub)} ₽")
         amountKop > status.maxKop -> appText("Максимум ${fmtRub(maxRub)} ₽ за раз", "Бер юлы иң күбе ${fmtRub(maxRub)} ₽")
-        amountKop > status.balanceKop -> appText("На балансе только $balanceLabel", "Баланста $balanceLabel ғына")
+        amountKop > status.payableKop -> appText("Доступно только $payableLabel", "Сығарырға $payableLabel ғына була")
         else -> null
     }
     val canPayout = status.hasRequisite && amountText.isNotBlank() && amountError == null && !busy
@@ -383,6 +445,20 @@ private fun PayoutCard(
                     }
                 }
             }
+            // Долг платформе — не абстрактная цифра, а причина, по которой вывести можно МЕНЬШЕ,
+            // чем лежит на балансе. Без этой строки отказ после ввода суммы выглядит как баг.
+            if (status.owedKop > 0) {
+                Surface(color = CanonWarnBg, shape = CanonItemShape) {
+                    Text(
+                        appText(
+                            "На балансе ${kopToRub(status.balanceKop)}, из них ${kopToRub(status.owedKop)} уходит на долг платформе — доступно ${payableLabel}.",
+                            "Баланста ${kopToRub(status.balanceKop)}, шуларҙан ${kopToRub(status.owedKop)} платформа бурысына китә — сығарырға $payableLabel була.",
+                        ),
+                        color = CanonWarn, fontSize = 13.sp, lineHeight = 18.sp,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
             if (!status.hasRequisite) {
                 AppButton(
                     text = appText("Добавить карту", "Карта өҫтәү"),
@@ -400,8 +476,8 @@ private fun PayoutCard(
                     supportingText = {
                         Text(
                             amountError ?: appText(
-                                "От ${fmtRub(minRub)} до ${fmtRub(maxRub)} ₽ · на балансе $balanceLabel",
-                                "${fmtRub(minRub)} — ${fmtRub(maxRub)} ₽ · баланста $balanceLabel",
+                                "От ${fmtRub(minRub)} до ${fmtRub(maxRub)} ₽ · доступно $payableLabel",
+                                "${fmtRub(minRub)} — ${fmtRub(maxRub)} ₽ · сығарырға $payableLabel була",
                             ),
                             color = if (amountError != null) CanonRed else CanonMuted, fontSize = 12.sp,
                         )
@@ -411,10 +487,11 @@ private fun PayoutCard(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     shape = CanonItemShape,
                     trailingIcon = {
-                        // «Всё» — подставить весь доступный баланс (обрезаем по максимуму за раз).
-                        if (status.balanceKop >= status.minKop) {
+                        // «Всё» — подставить весь ДОСТУПНЫЙ остаток (не баланс целиком, если есть
+                        // долг), обрезая по максимуму за раз.
+                        if (status.payableKop >= status.minKop) {
                             TextButton(onClick = {
-                                amountText = (minOf(status.balanceKop, status.maxKop) / 100).toString()
+                                amountText = (minOf(status.payableKop, status.maxKop) / 100).toString()
                                 idemKey = null
                             }) {
                                 Text(appText("Всё", "Барыһы"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
