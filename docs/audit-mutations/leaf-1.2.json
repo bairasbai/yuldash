@@ -94,7 +94,7 @@
       "id": "M9",
       "file": "backend/app/price_freeze.py",
       "rule": "R4",
-      "description": "Без Redis apply() падает вместо честного фолбэка на новую цену (AND вместо OR в гейте)",
+      "description": "Выключенный рубильник price_freeze_sec игнорируется при живом Redis и уже лежащем в памяти снимке — AND вместо OR пропускает apply() к r.get() вместо честного фолбэка на новую цену (с r=None эта же мутация ничего не ломает: AttributeError гасится в except Exception, см. test_no_redis_no_freeze_but_no_crash — поэтому отдельный тест ниже засевает живой Redis со старым снимком)",
       "find": "    if r is None or lock_seconds() <= 0 or not est:\n        return est",
       "replace": "    if r is None and lock_seconds() <= 0 and not est:\n        return est",
       "runner": "pytest",
@@ -238,8 +238,8 @@
       "file": "backend/app/routers/payments.py",
       "rule": "R7",
       "description": "Начисление за поездку коммитится ДО финального статуса платежа — сбой на записи статуса оставляет фантомное начисление",
-      "find": "    if payment.purpose == \"ride\" and payment.order_id is not None:\n        from .. import ledger\n        ledger.settle_instant_order(session, payment.order_id, payment.method or \"yookassa\", payment.amount_kop,\n                                   commit=False)",
-      "replace": "    if payment.purpose == \"ride\" and payment.order_id is not None:\n        from .. import ledger\n        ledger.settle_instant_order(session, payment.order_id, payment.method or \"yookassa\", payment.amount_kop,\n                                   commit=True)",
+      "find": "        result = ledger.settle_instant_order(session, payment.order_id, payment.method or \"yookassa\", payment.amount_kop,\n                                            commit=False)",
+      "replace": "        result = ledger.settle_instant_order(session, payment.order_id, payment.method or \"yookassa\", payment.amount_kop,\n                                            commit=True)",
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/test_manual_payment_atomicity.py::test_failed_status_sql_rolls_back_effect_and_retry_applies_once"]
@@ -248,9 +248,9 @@
       "id": "M23",
       "file": "backend/app/routers/payments.py",
       "rule": "R8",
-      "description": "Вебхук с незнакомым provider_id всё равно уходит на перепроверку к ЮKassa — амплификация/DoS",
-      "find": "    payment = session.exec(select(Payment).where(Payment.provider_id == provider_id)).first()\n    if not payment or payment.status in (\"succeeded\", REFUND_DUE):\n        return {\"ok\": True}",
-      "replace": "    payment = session.exec(select(Payment).where(Payment.provider_id == provider_id)).first()\n    if payment and payment.status in (\"succeeded\", REFUND_DUE):\n        return {\"ok\": True}",
+      "description": "Вебхук ходит к ЮKassa ДО поиска своей строки — перепроверяет статус ЛЮБОГО чужого id (амплификация/DoS). Поведенческая версия (независимое ревью, Opus 5.5, 2026-10-02): прежняя мутация «убивалась» падением на None.status внутри _sync_provider_status раньше, чем доходила до fetch_payment, а не проверкой поведения",
+      "find": "    payment = session.exec(select(Payment).where(Payment.provider_id == provider_id)).first()",
+      "replace": "    fetch_payment(provider_id)  # ПОЛОМКА: перепроверка ДО поиска своей строки — ходит наружу за чужим id\n    payment = session.exec(select(Payment).where(Payment.provider_id == provider_id)).first()",
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/walk/l1_2/test_l1_2_webhook_amplification.py::test_unknown_provider_id_never_triggers_outbound_fetch"]
@@ -282,12 +282,12 @@
       "id": "M26",
       "file": "backend/app/routers/wallet.py",
       "rule": "R3",
-      "description": "Повторная оплата уже оплаченного быстрого заказа больше не идемпотентна — платёж/начисление задваиваются",
+      "description": "Повторная оплата уже оплаченного быстрого заказа больше не идемпотентна на верхнем гейте — доходит до повторного Payment вместо немедленного already_paid",
       "find": "    if order.paid:                                        # идемпотентно: повторная оплата не начисляет второй раз\n        return {\"status\": \"already_paid\", \"method\": order.payment_method}",
       "replace": "    if order.paid and False:                                        # идемпотентно: повторная оплата не начисляет второй раз\n        return {\"status\": \"already_paid\", \"method\": order.payment_method}",
       "runner": "pytest",
       "cwd": "backend",
-      "args": ["tests/test_ledger.py::test_pay_twice_returns_already_paid"]
+      "args": ["tests/walk/l1_2/test_l1_2_wallet_race.py::test_paying_an_already_paid_order_again_does_not_touch_anything"]
     },
     {
       "id": "M27",
@@ -332,6 +332,161 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/test_payouts.py::test_requisite_stores_only_last4"]
+    },
+    {
+      "id": "M31",
+      "file": "backend/app/routers/wallet.py",
+      "rule": "R8",
+      "description": "ОСТАТОЧНАЯ ГОНКА (независимое ревью Opus 5.5, 2026-10-02), исправлено в этом коммите: заказ читался БЕЗ блокировки — два по-настоящему параллельных запроса на оплату проходят дедуп ДО вставки любого из них и заводят два разных счёта/Idempotence-Key",
+      "find": "    в _pay_cashless), и заново проходит этот код, уже видя её платёж — не заводит второй.\"\"\"\n    order = session.get(InstantOrder, order_id, with_for_update=True, populate_existing=True)",
+      "replace": "    в _pay_cashless), и заново проходит этот код, уже видя её платёж — не заводит второй.\"\"\"\n    order = session.get(InstantOrder, order_id)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2_wallet_race_pg.py::test_pg_two_concurrent_pay_requests_before_either_insert_share_one_invoice"],
+      "db": "postgres"
+    },
+    {
+      "id": "M32",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R9",
+      "description": "F1 (независимое ревью Opus 5.5, 2026-10-02): _activate_payment игнорирует результат settle_instant_order — второй succeeded-платёж по уже оплаченному заказу молча становится succeeded вместо refund_due",
+      "find": "        result = ledger.settle_instant_order(session, payment.order_id, payment.method or \"yookassa\", payment.amount_kop,\n                                            commit=False)\n        if result != \"settled\":",
+      "replace": "        result = ledger.settle_instant_order(session, payment.order_id, payment.method or \"yookassa\", payment.amount_kop,\n                                            commit=False)\n        if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2_second_payment_refund_due.py::test_second_succeeded_payment_on_an_already_paid_order_becomes_refund_due"]
+    },
+    {
+      "id": "M33",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R9",
+      "description": "F1 — та же защита для брони: _activate_payment игнорирует результат settle_booking",
+      "find": "        result = ledger.settle_booking(session, payment.booking_id, payment.method or \"yookassa\", payment.amount_kop,\n                                      commit=False)\n        if result != \"settled\":\n            _handle_unclaimed_payment(session, payment)\n            return",
+      "replace": "        result = ledger.settle_booking(session, payment.booking_id, payment.method or \"yookassa\", payment.amount_kop,\n                                      commit=False)\n        if False:\n            _handle_unclaimed_payment(session, payment)\n            return",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2_second_payment_refund_due.py::test_second_succeeded_payment_on_an_already_paid_booking_becomes_refund_due"]
+    },
+    {
+      "id": "M34",
+      "file": "backend/app/routers/wallet.py",
+      "rule": "R9",
+      "description": "F1b: путь «наличными» игнорирует результат settle_instant_order — отвечает «оплачено налом» поверх заказа, уже оплаченного картой",
+      "find": "        result = ledger.settle_instant_order(session, order.id, \"cash\", amount_kop)\n        if result != \"settled\":",
+      "replace": "        result = ledger.settle_instant_order(session, order.id, \"cash\", amount_kop)\n        if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2_second_payment_refund_due.py::test_cash_branch_itself_checks_the_settle_result_not_just_the_outer_paid_flag"]
+    },
+    {
+      "id": "M35",
+      "file": "backend/app/routers/wallet.py",
+      "rule": "R10",
+      "description": "F3 (независимое ревью Opus 5.5, 2026-10-02): заказ с суммой 0 (100% промо-скидка) снова уходит в оплату — на ЮKassa «0.00» зависает в pending навсегда, в mock earn=0 молча проводится",
+      "find": "    if amount_kop <= 0:\n        # Полная промо-скидка (или нулевая цена) обнуляет сумму к оплате. У брони этот же",
+      "replace": "    if False:\n        # Полная промо-скидка (или нулевая цена) обнуляет сумму к оплате. У брони этот же",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2_zero_amount_order.py::test_card_payment_on_a_fully_discounted_order_is_rejected_not_sent_as_zero"]
+    },
+    {
+      "id": "M36",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R11",
+      "description": "F5 (независимое ревью Opus 5.5, 2026-10-02): boost_create зовёт fetch_payment без try/except — сетевая ошибка при повторном тапе роняет запрос в 500",
+      "find": "        try:\n            existing = fetch_payment(payment.provider_id)\n        except Exception:  # noqa: BLE001\n            existing = None",
+      "replace": "        existing = fetch_payment(payment.provider_id)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2_boost_reuse_fetch_failure.py::test_boost_create_retry_survives_fetch_payment_network_error"]
+    },
+    {
+      "id": "M37",
+      "file": "backend/app/routers/wallet.py",
+      "rule": "R12",
+      "description": "F6 (независимое ревью Opus 5.5, 2026-10-02; версия 2 — первая слепо исключала purpose in (ride,booking) и ЛОМАЛА намеренно поддерживаемые исторические ручные строки за бронь, см. test_manual_payment_terminal_confirmation.py::legacy_booking; настоящий корень — переходное состояние method при создании строки заказа): строка заказа снова на миг создаётся с method клиента вместо 'yookassa' — окно, в которое «сирота» после сбоя попадает в ручную СБП-очередь",
+      "find": "    payment = Payment(\n        user_id=payer.id, purpose=purpose, amount_kop=amount_kop,\n        method=\"yookassa\",\n        order_id=order_id, booking_id=booking_id,\n    )",
+      "replace": "    payment = Payment(\n        user_id=payer.id, purpose=purpose, amount_kop=amount_kop,\n        method=(\"yookassa\" if booking_id is not None else method),\n        order_id=order_id, booking_id=booking_id,\n    )",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2_manual_queue_excludes_ride_booking.py::test_fresh_order_payment_is_tagged_yookassa_before_any_external_call"]
+    },
+    {
+      "id": "M39",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R13",
+      "description": "F7 (независимое ревью Opus 5.5, 2026-10-02): вебхук с валидным JSON неожиданной формы ([], число, object не словарь) снова падает 500 вместо no-op",
+      "find": "    object_ = body.get(\"object\") if isinstance(body, dict) else None\n    provider_id = object_.get(\"id\") if isinstance(object_, dict) else None\n    if not isinstance(provider_id, str) or not provider_id:\n        return {\"ok\": True}",
+      "replace": "    provider_id = ((body.get(\"object\") or {}).get(\"id\")) or \"\"\n    if not provider_id:\n        return {\"ok\": True}",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2_webhook_malformed_shapes.py::test_malformed_but_valid_json_shapes_are_a_noop"]
+    },
+    {
+      "id": "M40",
+      "file": "backend/app/pricing.py",
+      "rule": "R6",
+      "description": "F4 (независимое ревью Opus 5.5, 2026-10-02): NaN/Infinity от маршрутизатора снова проходят проверку (<=0 не ловит ни то, ни другое) и отравляют цену/кэш",
+      "find": "    if (distance_m <= 0 or duration_sec <= 0\n            or not math.isfinite(distance_m) or not math.isfinite(duration_sec)):\n        raise ValueError(\"route metrics are empty\")",
+      "replace": "    if distance_m <= 0 or duration_sec <= 0:\n        raise ValueError(\"route metrics are empty\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2_pricing_nan_infinity.py::test_infinite_or_nan_distance_falls_back_instead_of_poisoning_the_price"]
+    },
+    {
+      "id": "M41",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R14",
+      "description": "Пробел покрытия (п.3 ревью, уже были тесты-убийцы): _start_yookassa теряет ключ, привязанный к Payment.id — ядро защиты от двойного списания при ретрае",
+      "find": "            idempotence_key=f\"yuldash-payment-{payment.id}\",",
+      "replace": "            idempotence_key=f\"yuldash-{payment.id}\",",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_double_tap_does_not_pay_twice.py::test_yookassa_gets_a_key_tied_to_the_payment_row"]
+    },
+    {
+      "id": "M42",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R15",
+      "description": "Пробел покрытия: гейт провайдера в вебхуке снят — поддельный POST активирует чужой pending при mock/sbp_manual",
+      "find": "    if settings.payments_provider != \"yookassa\":\n        return {\"ok\": True}",
+      "replace": "    if False:\n        return {\"ok\": True}",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_flows.py::test_yookassa_webhook_only_known_payment"]
+    },
+    {
+      "id": "M43",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R16",
+      "description": "Пробел покрытия: payment_status теряет проверку владельца — чужой payment_id отдаёт статус",
+      "find": "    if not payment or payment.user_id != user.id:",
+      "replace": "    if not payment:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_boost_yookassa.py::test_boost_status_poll_is_owner_only"]
+    },
+    {
+      "id": "M44",
+      "file": "backend/app/routers/wallet.py",
+      "rule": "R17",
+      "description": "Пробел покрытия: оплата налом перестаёт закрывать свой висящий безнал — живая ссылка ЮKassa переживает нал, пассажир может заплатить дважды",
+      "find": "            p.status = \"canceled\"",
+      "replace": "            p.status = p.status",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_late_payment_is_not_lost.py::test_оплата_по_старой_ссылке_не_растворяется"]
+    },
+    {
+      "id": "M45",
+      "file": "backend/app/routers/wallet.py",
+      "rule": "R18",
+      "description": "Пробел покрытия: прод-гейт _pay_cashless снят — mock/sbp_manual в проде начисляет фантомные деньги за поездку",
+      "find": "    if settings.is_prod and settings.payments_provider != \"yookassa\":\n        raise herr(503, \"Оплата скоро будет доступна\", \"Түләү оҙаҡламай мөмкин буласаҡ\")",
+      "replace": "    if False:\n        raise herr(503, \"Оплата скоро будет доступна\", \"Түләү оҙаҡламай мөмкин буласаҡ\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_release_blockers.py::test_online_pay_blocked_in_sbp_manual_prod"]
     }
   ]
 }
