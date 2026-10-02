@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "leaf": "leaf-1.5",
+  "mutations": [
+    {
+      "id": "M1",
+      "file": "android/app/src/main/java/com/yuldash/app/CouponsScreen.kt",
+      "rule": "R2",
+      "description": "shortDate снова режет первые 10 символов UTC-строки вместо перевода в часы Уфы — срок купона у уфимской полуночи показывается на день раньше настоящего",
+      "find": "if (raw.length == 10) {",
+      "replace": "if (raw.length >= 10) {",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l1_5.ShortDateUfaTimezoneTest"]
+    },
+    {
+      "id": "M2",
+      "file": "android/app/src/main/java/com/yuldash/app/CouponsScreen.kt",
+      "rule": "R2b",
+      "description": "ufaIsoDate снова режет первые 10 символов UTC-строки вместо перевода в часы Уфы — редактируемое поле срока купона в кабинете партнёра теряет день при каждом открытии формы",
+      "find": "if (raw.length == 10) return raw.takeIf { it[4] == '-' && it[7] == '-' }",
+      "replace": "if (raw.length >= 10) return raw.take(10)",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l1_5.UfaIsoDateTest"]
+    },
+    {
+      "id": "M3",
+      "file": "android/app/src/main/java/com/yuldash/app/CouponsScreen.kt",
+      "rule": "R1",
+      "description": "Снята защита от двойного нажатия «Активировать скидку» — купон может погаситься дважды на двух быстрых тапах",
+      "find": "if (activating) return@AppButton",
+      "replace": "if (false) return@AppButton",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l1_5.CouponsScreenWalkTest"]
+    },
+    {
+      "id": "M4",
+      "file": "android/app/src/main/java/com/yuldash/app/CouponsScreen.kt",
+      "rule": "R3",
+      "description": "Ошибка загрузки витрины «Скидки рядом» проглатывается молча — экран показывает «скидок пока нет» вместо понятной ошибки и «Повторить»",
+      "find": "                .onSuccess { coupons = it }\n                .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }",
+      "replace": "                .onSuccess { coupons = it }\n                .onFailure { }",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l1_5.CouponsScreenWalkTest"]
+    },
+    {
+      "id": "M5",
+      "file": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
+      "rule": "R1",
+      "description": "Снята защита от двойного нажатия «Применить» — промокод может уйти на сервер два раза подряд",
+      "find": "if (busy || code.isBlank()) return@AppButton",
+      "replace": "if (false) return@AppButton",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l1_5.PromoCodeScreenWalkTest"]
+    },
+    {
+      "id": "M6",
+      "file": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
+      "rule": "R2",
+      "description": "Предел длины поля ввода промокода снят — вставленный длинный текст уходит на сервер гарантированным отказом вместо того, чтобы просто не поместиться",
+      "find": ".take(32)",
+      "replace": ".take(320)",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l1_5.PromoCodeInputNormalizationTest"]
+    },
+    {
+      "id": "M7",
+      "file": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
+      "rule": "R3",
+      "description": "Блок «скидка на такси» на экране успеха больше не прячется при нулевой скидке — человек видит «0 ₽ скидки» вместо честного отсутствия блока",
+      "find": "if (discountKop <= 0) return",
+      "replace": "if (discountKop < 0) return",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l1_5.PromoCodeScreenWalkTest"]
+    },
+    {
+      "id": "M8",
+      "file": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
+      "rule": "R4",
+      "description": "Ошибка первой загрузки «моего промокода» проглатывается молча — экран остаётся на скелетоне/пустом поле ввода вместо понятной ошибки и «Повторить»",
+      "find": "                .onSuccess { mine = it }\n                .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }",
+      "replace": "                .onSuccess { mine = it }\n                .onFailure { }",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l1_5.PromoCodeScreenWalkTest"]
+    },
+    {
+      "id": "M9",
+      "file": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
+      "rule": "R3",
+      "description": "Постоянный экран «промокод уже применён» больше не прячет судьбу скидки при нулевой скидке — та же поломка, что M7, на втором месте показа",
+      "find": "if (m.discountKop <= 0) return",
+      "replace": "if (m.discountKop < 0) return",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l1_5.PromoCodeScreenWalkTest"]
+    }
+  ]
+}

@@ -60,6 +60,23 @@ import com.yuldash.app.data.MyPromoDto
 import com.yuldash.app.data.PromoApplyResultDto
 import kotlinx.coroutines.launch
 
+/**
+ * Что вводит человек → что реально уйдёт на сервер. Три вещи разом:
+ *  - регистр: код всегда заглавными (их и показываем, и сравниваем без оглядки на регистр) —
+ *    `ApiClient.applyPromo` сам ещё раз делает `trim().uppercase()` перед отправкой, это просто
+ *    то же самое для поля ввода и для живого глаза на экране;
+ *  - пробелы: не только по краям — внутри тоже (вставленный «YUL DASH» не должен доехать до
+ *    сервера с пробелом посередине и молча не найтись);
+ *  - длина: сервер хранит код `max_length=32` (`PromoCode.code`, `backend/app/models.py`) и тем
+ *    же пределом режет тело запроса (`PromoApplyIn.code`, `backend/app/routers/promo.py`) — без
+ *    зеркального предела здесь вставленный длинный текст уходит в сеть гарантированным 422,
+ *    а поле просто не даёт набрать больше, чем сервер всё равно примет.
+ * Башкирские буквы не исключаем — `uppercase()` их понимает (Ҙ/Ғ/Ҡ/Ң/Ө/Ү/Һ/Ә), сужать алфавит
+ * не наша забота: решит сервер.
+ */
+internal fun normalizePromoCodeInput(raw: String): String =
+    raw.uppercase().filter { !it.isWhitespace() }.take(32)
+
 @Composable
 internal fun PromoCodeScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -141,7 +158,7 @@ private fun PromoInputCard(onApplied: (PromoApplyResultDto) -> Unit) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = code,
-                    onValueChange = { new -> code = new.uppercase().filter { !it.isWhitespace() }; err = null },
+                    onValueChange = { new -> code = normalizePromoCodeInput(new); err = null },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     label = { Text(appText("Промокод", "Промокод")) },
