@@ -18,7 +18,7 @@
 |---|---|---|---|---|
 | `_CASHLESS` | 31 | кортеж способов оплаты, идущих ЧЕРЕЗ платформу (`card`, `sbp`, `yookassa`) | `cash` сюда не входит — деньги мимо нас | ок |
 | `_PROMO_COMP_WHERE` + `Index(uq_ledgerentry_promo_comp, ...)` | 51–58 | ЧАСТИЧНЫЙ уникальный индекс БД: `ext_id` уникален только среди `kind=adj` записей с `ext_id` вида `promo:*` | работает и на SQLite (`sqlite_where`), и на Postgres (`postgresql_where`) — последняя линия обороны от двойной компенсации промокода при гонке двух «Завершил» | ок |
-| `_REFUND_WHERE` + `Index(uq_ledgerentry_refund, ...)` | добавлено в этом листе (F3) | ТОТ ЖЕ приём для `ext_id` вида `refund:*` — частичный уникальный индекс, последняя линия обороны от двойного возврата комиссии при гонке двух «подтвердить жалобу» (`debt.refund_commission_to_wallet`, этот же лист) | испр. (F3) — для прода нужна ОТДЕЛЬНАЯ миграция по образцу `money_holes_20260807`, я её не завожу (`backend/alembic/` вне OWNS), см. «Остаток» |
+| `_REFUND_WHERE` + `Index(uq_ledgerentry_refund, ...)` | добавлено в этом листе (F3) | ТОТ ЖЕ приём для `ext_id` вида `refund:*` — частичный уникальный индекс, последняя линия обороны от двойного возврата комиссии при гонке двух «подтвердить жалобу» (`debt.refund_commission_to_wallet`, этот же лист) | испр. (F3) — на прод доезжает отдельной alembic-ревизией `refund_unique_20261002`, см. «Остаток» |
 | `fee_kop_for(amount_kop, percent=None)` | 61–73 | комиссия в копейках, `Decimal` + `ROUND_HALF_UP`, никогда `float` | `amount_kop<=0` или `percent<=0` → 0; `percent=None` → берёт `settings.service_fee_percent` | ок |
 | `driver_balance(session, driver_id)` | 76–83 | баланс = `SUM(amount_kop)` по всем записям водителя, агрегатом SQL (не тянет историю в память) | нет записей → 0 (`coalesce`) | ок |
 | `owed_to_platform_kop(session, driver_id)` | 86–95 | весь непогашенный долг человека: такси (`debt.taxi_owed_kop`) + комиссия курьера (`courier._commission_owed_kop`) | два разных источника долга, один кошелёк — сложение, не выбор одного | ок |
@@ -57,6 +57,7 @@
 | R9 (права) | `/wallet/ledger`, `/wallet/balance`, сверка — только свои записи / только админ | backend/tests/test_ledger.py::test_wallet_ledger_only_own, backend/tests/test_ledger.py::test_reconcile_admin_only, backend/tests/test_ledger.py::test_cannot_pay_others_order | покрыто существующим набором (права — не в моём файле, в `routers/wallet.py`/`routers/payments.py`, вне OWNS; здесь только подтверждаю, что `ledger.py` сам не хранит состояние, которое эти проверки могли бы обойти) |
 | R10 | Комиссия безналичной оплаты (`settle_instant_order`) считается ОТ ТОЙ ЖЕ базы, что комиссия нала (`debt.order_commission_kop`) — цена минус компенсация, не вся цена | backend/tests/walk/l1_1/test_l1_1_ledger_gaps.py::test_r5_card_fee_excludes_compensation_like_cash_debt, test_r6_card_fee_with_promo_still_excludes_compensation, test_r5_cash_and_card_charge_the_same_commission_for_the_same_order | да — M55 (поломка «вернуть `price_kop`», заведена по прямому требованию независимого ревью Opus — моя более ранняя версия карточки сочла её избыточной при уже показанном до/после, ревью справедливо указало, что это требование обязательных правок, а не рекомендация) |
 | R11 | Нулевая/отрицательная сумма ИЛИ нулевой/отрицательный процент → комиссия 0, без исключений (`fee_kop_for`) | backend/tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r3_fee_kop_for_non_positive_amount_or_percent_is_zero | да — M45 (добавлено по замечанию ревью — было покрыто тестом, но без поломки) |
+| R-F3-migration | Барьер `uq_ledgerentry_refund` реально доезжает до прода alembic-ревизией `refund_unique_20261002` (не только моделью): создаёт индекс на прод-подобной схеме, снимается downgrade'ом, дубль на проде останавливает выкатку понятной ошибкой БЕЗ изменения денег и БЕЗ продвижения `alembic_version`, без дублей — идемпотентна при повторном вызове | backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r1_upgrade_to_head_creates_the_index_on_a_prod_like_schema, backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r2_downgrade_removes_the_index, backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r3_existing_duplicate_stops_the_upgrade_without_touching_money, backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r4_upgrade_without_duplicates_is_idempotent_when_called_twice | да — M56, M57 (на `backend/alembic/versions/refund_unique_20261002.py`, не на `ledger.py` — в таблице «Проверка нарочной поломкой» не числятся, см. примечание там) |
 
 ## Найденные ошибки
 
@@ -94,15 +95,30 @@ Opus нашло денежную ошибку P1 (F1), которую я про�
 
 Прогон: `python tools/audit_mutation.py replay --spec docs/audit-mutations/leaf-1.1.json --only M7,M8,M9,M10,M11,M12,M13,M14,M15,M16,M44,M45,M55` → `MUTATIONS KILLED 13/13`.
 
+М56/M57 — на `backend/alembic/versions/refund_unique_20261002.py` (не на этот файл, в таблицу
+выше не включены check-cards'ом; см. «Остаток» этой же карточки и сам файл спецификации),
+подтверждены отдельным прогоном `--only M56,M57` → `MUTATIONS KILLED 2/2`.
+
 ## Остаток и ограничения
 
-**F3 (частичный уникальный индекс `uq_ledgerentry_refund`, добавлен в этом листе) работает на
-SQLite и на свежей (create_all) Postgres-базе, но НЕ на уже существующей продакшен-базе** —
-туда его ставит только Alembic-миграция, а `backend/alembic/` вне OWNS этого листа. Точная
-правка (ВНЕ ЗОНЫ): новая миграция по образцу `money_holes_20260807` — частичный уникальный
-индекс на `ledgerentry.ext_id` с условием `kind='adj' AND substr(ext_id,1,7)='refund:'` (то же
-определение, что `_REFUND_WHERE` в `ledger.py`). Без неё на проде F3 не закрыта, хотя код уже
-готов.
+**F3, закрыто в круге 3.** Независимая проверка (ведущий) нашла блокирующий разрыв: частичный
+индекс `uq_ledgerentry_refund` был объявлен ТОЛЬКО на уровне модели — на свежей базе `create_all`
+берёт его сразу, но прод живёт исключительно через `alembic upgrade head`
+(`test_migrations_reach_production.py`), и до прода индекс не доехал бы никогда. OWNS листа
+расширен на `backend/alembic/versions/refund_unique_20261002.py` — ревизия по образцу
+`money_holes_20260807` (Revises: `bv_refresh_recovery`, текущий единственный head). В отличие от
+образца дубли НЕ расшиваются автоматически: дубль возврата — это уже отданные водителю живые
+деньги, а не лишняя компенсация, которую можно пометить и забыть. Если на проде уже есть дубли
+`refund:*`, миграция ОСТАНАВЛИВАЕТСЯ с точным списком (ext_id, сколько раз) и не меняет ни одной
+денежной записи — разбор (вернуть ли переплату) решает человек; без дублей — создаёт индекс
+(`CONCURRENTLY` на Postgres, тем же приёмом, что и в образце). 4 новых теста на изолированной
+PostgreSQL (`tests/walk/l1_1/test_l1_1_refund_migration.py`, createdb/dropdb на 127.0.0.1:55450):
+R1 — выкатка на прод-подобной схеме (индекс снят после подъёма до родителя — на свежей базе
+`0001_baseline`'s create_all иначе поставил бы его раньше времени) создаёт индекс; R2 — downgrade
+снимает; R3 — существующий дубль останавливает `upgrade head` понятной ошибкой, индекс не
+создаётся, `alembic_version` не продвигается, записи не трогаются; R4 — без дублей повторный
+вызов `upgrade()` идемпотентен. Поломки M56 (без проверки дублей) и M57 (без создания индекса) —
+обе KILLED.
 
 Права доступа (R9) защищены исключительно существующим (не моим) набором
 тестов — он настолько плотный и точный (например `test_ключ_читаем_с_начала_а_не_подстрокой`,

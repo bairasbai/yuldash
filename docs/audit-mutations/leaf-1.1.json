@@ -649,6 +649,30 @@
       "cwd": "backend",
       "args": ["tests/walk/l1_1/test_l1_1_ledger_gaps.py::test_r5_card_fee_excludes_compensation_like_cash_debt"],
       "db": "sqlite"
+    },
+    {
+      "id": "M56",
+      "file": "backend/alembic/versions/refund_unique_20261002.py",
+      "rule": "F3-migration",
+      "description": "проверка существующих дублей возврата комиссии перед созданием индекса отключена (круг 3, блокирующая находка ведущего) — на проде с дублями индекс попытался бы создаться прямо по испорченным данным вместо понятной остановки",
+      "find": "    dupes = _find_duplicates(bind)\n    if dupes:",
+      "replace": "    dupes = _find_duplicates(bind)\n    if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_refund_migration.py::test_r3_existing_duplicate_stops_the_upgrade_without_touching_money"],
+      "db": "postgres"
+    },
+    {
+      "id": "M57",
+      "file": "backend/alembic/versions/refund_unique_20261002.py",
+      "rule": "F3-migration",
+      "description": "создание самого барьера (UNIQUE-индекса) отключено — проверка дублей прошла бы, но на проде защита F3 так и не появилась бы",
+      "find": "    pg = bind.dialect.name.startswith(\"postgres\")\n    where = f\"kind = 'adj' AND {_PREFIX}\"\n    if pg:",
+      "replace": "    pg = bind.dialect.name.startswith(\"postgres\")\n    where = f\"kind = 'adj' AND {_PREFIX}\"\n    return\n    if pg:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_refund_migration.py::test_r1_upgrade_to_head_creates_the_index_on_a_prod_like_schema"],
+      "db": "postgres"
     }
   ]
 }
