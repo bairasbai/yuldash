@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -52,18 +53,22 @@ def _cancel_own_pending_cashless(session: Session, user_id: int, *, order_id=Non
     ссылка ЮKassa переживает нал: пассажир «передумал → нал → позже открыл старую ссылку» платит
     дважды (нал водителю + карта платформе), а settle_* отбивает вебхук как "already" без денег
     водителю. Локальный canceled убирает платёж из дедупа/поллинга; сама ссылка у провайдера
-    протухает по его TTL (API отмены неоплаченного pending у ЮKassa нет)."""
-    q = select(Payment).where(
+    протухает по его TTL (API отмены неоплаченного pending у ЮKassa нет).
+
+    Один атомарный UPDATE с условием `status == "pending"` В САМОМ запросе — не SELECT, потом
+    безусловная правка объектов в Python. Иначе в узком окне вебхук (держит lock Payment, ждёт
+    lock заказа, который на миг взяла эта же функция) успевает поставить `refund_due` уже ПОСЛЕ
+    нашего SELECT, но ДО нашего commit — и мы затираем его обратно в `canceled`, хотя тикет и
+    Telegram про возврат уже ушли (независимая проверка, Opus 5.5, 2026-10-02, N1). Условие в
+    UPDATE переоценивается СУБД на момент самого обновления, а не на момент более раннего
+    чтения — строка, которая успела стать не-pending, просто не попадёт под обновление."""
+    stmt = update(Payment).where(
         Payment.user_id == user_id, Payment.status == "pending",
         Payment.purpose == ("ride" if order_id is not None else "booking"),
     )
-    q = q.where(Payment.order_id == order_id) if order_id is not None else q.where(Payment.booking_id == booking_id)
-    rows = session.exec(q).all()
-    if rows:
-        for p in rows:
-            p.status = "canceled"
-            session.add(p)
-        session.commit()
+    stmt = stmt.where(Payment.order_id == order_id) if order_id is not None else stmt.where(Payment.booking_id == booking_id)
+    session.execute(stmt.values(status="canceled"))
+    session.commit()
 
 
 def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: int,

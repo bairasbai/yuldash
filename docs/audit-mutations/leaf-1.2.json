@@ -470,12 +470,12 @@
       "id": "M44",
       "file": "backend/app/routers/wallet.py",
       "rule": "R17",
-      "description": "Пробел покрытия: оплата налом перестаёт закрывать свой висящий безнал — живая ссылка ЮKassa переживает нал, пассажир может заплатить дважды",
-      "find": "            p.status = \"canceled\"",
-      "replace": "            p.status = p.status",
+      "description": "Пробел покрытия: оплата налом перестаёт закрывать свой висящий безнал — живая ссылка ЮKassa переживает нал, пассажир может заплатить дважды. (После N1-правки отмена стала одним atomic UPDATE — мутация теперь целится в его значение, а не в старый цикл по объектам.)",
+      "find": "    session.execute(stmt.values(status=\"canceled\"))",
+      "replace": "    session.execute(stmt.values(status=\"pending\"))",
       "runner": "pytest",
       "cwd": "backend",
-      "args": ["tests/test_late_payment_is_not_lost.py::test_оплата_по_старой_ссылке_не_растворяется"]
+      "args": ["tests/walk/l1_2/test_l1_2_cancel_pending_does_not_clobber_refund_due.py::test_cancel_own_pending_still_cancels_a_genuinely_pending_row"]
     },
     {
       "id": "M45",
@@ -487,6 +487,28 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/test_release_blockers.py::test_online_pay_blocked_in_sbp_manual_prod"]
+    },
+    {
+      "id": "M46",
+      "file": "backend/app/routers/payments.py",
+      "rule": "F2",
+      "description": "Повторное ревью Opus 5.5 (F2): синхронная часть вебхука (поиск платежа + _sync_provider_status) снова выполняется прямо в event loop вместо threadpool — с 2 воркерами и локом заказа это вешает процесс",
+      "find": "    await run_in_threadpool(_process_yookassa_webhook, session, provider_id)",
+      "replace": "    _process_yookassa_webhook(session, provider_id)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2_webhook_off_event_loop.py::test_webhook_body_runs_off_the_event_loop"]
+    },
+    {
+      "id": "M47",
+      "file": "backend/app/routers/wallet.py",
+      "rule": "N1",
+      "description": "Повторное ревью Opus 5.5 (N1): условный UPDATE отмены своего безнала теряет фильтр по статусу — снова может затереть уже поставленный refund_due",
+      "find": "    stmt = update(Payment).where(\n        Payment.user_id == user_id, Payment.status == \"pending\",\n        Payment.purpose == (\"ride\" if order_id is not None else \"booking\"),\n    )",
+      "replace": "    stmt = update(Payment).where(\n        Payment.user_id == user_id,\n        Payment.purpose == (\"ride\" if order_id is not None else \"booking\"),\n    )",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2_cancel_pending_does_not_clobber_refund_due.py::test_cancel_own_pending_does_not_touch_a_refund_due_row"]
     }
   ]
 }

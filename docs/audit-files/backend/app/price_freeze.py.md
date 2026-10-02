@@ -62,7 +62,7 @@ Redis и сторож полноты списка полей — всё уже �
 | M6 | `apply()`: `was >= now` → `was <= now` (берётся МАКСИМУМ вместо минимума) | test_price_that_grew_is_held | KILLED |
 | M7 | `apply_courier()`: `было >= стало` → `было <= стало` | test_frozen_price_keeps_its_own_breakdown | KILLED |
 | M8 | `_key()`: класс выпадает из подписи ключа | test_another_class_is_another_price | KILLED |
-| M9 | `apply()`: гейт `or` → `and` (без Redis падает вместо фолбэка) | test_switching_off_forgets_the_already_remembered_taxi_price | KILLED |
+| M9 | `apply()`: гейт `or` → `and` — рубильник выключен (`price_freeze_sec=0`), но Redis жив и под ключом уже лежит старый снимок: гейт должен отдать свежую цену, а с `and` код всё равно лезет в `r.get()` и мёржит устаревший замороженный снимок. (Исходная версия мутации — «без Redis падает» — не ловилась: `r=None` гасится в `except Exception` ниже по функции, см. R4/review-note; актуальный тест засевает живой Redis.) | test_switching_off_forgets_the_already_remembered_taxi_price | KILLED |
 | M10 | `FROZEN_COURIER_KEYS`: `"breakdown"` закомментирован | test_frozen_price_keeps_its_own_breakdown | KILLED |
 
 ## Остаток и ограничения

@@ -2,7 +2,7 @@
 
 - Статус: verified
 - Лист: leaf-1.2
-- Проверял: Sonnet 5 (leaf-1.2); принимал: Opus 5.5; независимое ревью: Opus 5.5 (2026-10-02, VERDICT: REQUEST_CHANGES — остаточная гонка и F1/F3/F6, все закрыты этим коммитом)
+- Проверял: Sonnet 5 (leaf-1.2); принимал: Opus 5.5; независимое ревью раунд 1: Opus 5.5 (2026-10-02, VERDICT: REQUEST_CHANGES — остаточная гонка и F1/F3/F6, закрыты); независимое ревью раунд 2: Opus 5.5 (2026-10-02, VERDICT: REQUEST_CHANGES — N1, закрыт этим коммитом)
 
 ## Назначение
 
@@ -45,7 +45,7 @@ PayOnlineCard.kt`; а обычный СЕТЕВОЙ РЕТРАЙ (клиент �
 | Функция / эндпоинт | Строки | Что делает | Условия, входы, ошибки | Вердикт |
 |---|---|---|---|---|
 | `_guard_method` | 45–47 | Способ оплаты — только `cash`/`card`/`sbp` | 400 на прочее | ок |
-| `_cancel_own_pending_cashless` | 50–66 | Оплата налом закрывает СВОЙ висящий безнал-платёж на тот же заказ/бронь | Иначе живая ссылка ЮKassa пережила бы нал — пассажир заплатил бы дважды (нал + поздняя карта) | ок |
+| `_cancel_own_pending_cashless` | 51–73 | Оплата налом закрывает СВОЙ висящий безнал-платёж на тот же заказ/бронь | Иначе живая ссылка ЮKassa пережила бы нал — пассажир заплатил бы дважды (нал + поздняя карта); отмена — ОДИН атомарный `UPDATE ... WHERE status='pending'` (не SELECT+правка объектов), поэтому не задевает строку, которую конкурентный вебхук уже перевёл в `refund_due` (N1, повторное ревью) | ок |
 | `_pay_cashless` | 69–193 | Общий безналичный поток (карта/СБП) через ЮKassa: dev/mock → succeeded сразу; yookassa → confirmation_url, начисление по webhook | Прод+не-yookassa → 503; дедуп pending ПО ЗАКАЗУ/БРОНИ, единым `session.commit()` ДО любого внешнего HTTP (освобождает lock заказа/брони — иначе deadlock с вебхуком, который берёт лок в обратном порядке); ветка «провайдер отменил» для ОБОИХ (заказ/бронь) перепроверяет `paid`/`done` под СВЕЖИМ lock и рекурсивно вызывает себя; `refund_due`/незнакомый статус строки НЕ создают третий счёт; после `_activate_payment` возвращает ФАКТИЧЕСКИЙ статус строки (F1, не жёсткий «succeeded») | исправлено (было ❌ в двух местах — см. «Найденные ошибки») |
 | `pay_instant_order` | 196–239 `POST /instant/orders/{id}/pay` | Пассажир платит за ЗАВЕРШЁННЫЙ быстрый заказ | Заказ блокируется (`with_for_update`+`populate_existing`) СРАЗУ при входе — как и бронь; только владелец (403), только `done` со статусом/водителем, идемпотентно (`already_paid`); явный 0 к оплате (100% промо-скидка) блокируется ДО выбора способа (F3); путь «нал» проверяет ФАКТИЧЕСКИЙ результат `settle_instant_order`, а не слепо отвечает «paid» (F1b) | исправлено (было ❌ — см. «Найденные ошибки») |
 | `_booking_amount_kop` | 241–246 | Сумма к оплате брони: `pay_amount` (если ЕСТЬ, в т.ч. явный 0) иначе `price` | `amount_kop<=0` → 409 «нет суммы к оплате» — явный 0 НЕ подменяется ценой (QA-B07-002) | ок |
@@ -87,8 +87,9 @@ PayOnlineCard.kt`; а обычный СЕТЕВОЙ РЕТРАЙ (клиент �
 | R9 | F1b: путь «наличными» проверяет ФАКТИЧЕСКИЙ результат settle_* — не отвечает «оплачено налом» поверх уже списанной карты | `backend/tests/walk/l1_2/test_l1_2_second_payment_refund_due.py::test_cash_after_card_already_settled_reports_already_paid_not_cash`, `::test_cash_branch_itself_checks_the_settle_result_not_just_the_outer_paid_flag` | да — M34 |
 | R10 | Заказ с суммой 0 (100% промо-скидка) не уходит в оплату ни картой/СБП, ни налом | `backend/tests/walk/l1_2/test_l1_2_zero_amount_order.py::test_card_payment_on_a_fully_discounted_order_is_rejected_not_sent_as_zero`, `::test_cash_payment_on_a_fully_discounted_order_is_also_rejected` | да — M35 |
 | R12 | Новая строка платежа ЗАКАЗА получает `method='yookassa'` СРАЗУ при создании (симметрично брони) — не бывает «сиротой» для ручной СБП-очереди | `backend/tests/walk/l1_2/test_l1_2_manual_queue_excludes_ride_booking.py::test_fresh_order_payment_is_tagged_yookassa_before_any_external_call`, `::test_legacy_manual_booking_payment_is_still_visible_and_confirmable` (контроль не-регресса — историческая ручная бронь ОБЯЗАНА остаться видна) | да — M37 |
-| R17 | Оплата налом отменяет СВОЙ висящий безналичный платёж (не даёт заплатить дважды) | `backend/tests/test_late_payment_is_not_lost.py::test_оплата_по_старой_ссылке_не_растворяется` | да — M44 |
+| R17 | Оплата налом отменяет СВОЙ висящий безналичный платёж (не даёт заплатить дважды) | `backend/tests/walk/l1_2/test_l1_2_cancel_pending_does_not_clobber_refund_due.py::test_cancel_own_pending_still_cancels_a_genuinely_pending_row` | да — M44 |
 | R18 | Прод-гейт: в проде без реального yookassa безнал отдаёт 503, а не фантомное начисление | `backend/tests/test_release_blockers.py::test_online_pay_blocked_in_sbp_manual_prod` | да — M45 |
+| N1 | Отмена своего безнала — ОДИН атомарный `UPDATE ... WHERE status='pending'`, а не SELECT+безусловная правка объектов: не может затереть `refund_due`, который конкурентный вебхук успел поставить между чтением и commit (найдено повторным независимым ревью, Opus 5.5, 2026-10-02) | `backend/tests/walk/l1_2/test_l1_2_cancel_pending_does_not_clobber_refund_due.py::test_cancel_own_pending_does_not_touch_a_refund_due_row` | да — M47 |
 
 ## Найденные ошибки
 
@@ -114,8 +115,9 @@ PayOnlineCard.kt`; а обычный СЕТЕВОЙ РЕТРАЙ (клиент �
 | M34 | Ветка «нал» заказа: проверка результата `settle_instant_order` отключена | test_cash_branch_itself_checks_the_settle_result_not_just_the_outer_paid_flag | KILLED |
 | M35 | Защита суммы 0 заказа снята | test_card_payment_on_a_fully_discounted_order_is_rejected_not_sent_as_zero | KILLED |
 | M37 | Новая строка заказа снова получает method клиента вместо 'yookassa' сразу | test_fresh_order_payment_is_tagged_yookassa_before_any_external_call | KILLED |
-| M44 | `_cancel_own_pending_cashless`: статус не меняется на canceled | test_оплата_по_старой_ссылке_не_растворяется | KILLED |
+| M44 | `_cancel_own_pending_cashless`: атомарный UPDATE пишет `status="pending"` вместо `"canceled"` (не отменяет) | test_cancel_own_pending_still_cancels_a_genuinely_pending_row | KILLED |
 | M45 | Прод-гейт `_pay_cashless` снят | test_online_pay_blocked_in_sbp_manual_prod | KILLED |
+| M47 | N1: фильтр `Payment.status == "pending"` убран из UPDATE отмены — снова может затереть `refund_due` | test_cancel_own_pending_does_not_touch_a_refund_due_row | KILLED |
 
 ## Остаток и ограничения
 
