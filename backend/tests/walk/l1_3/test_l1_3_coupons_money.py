@@ -15,7 +15,12 @@
        (найдено независимым ревью, п.4);
   R6 — «осталось N» на витрине не должно врать: незавершённые брони (взяты, но ещё не
        погашены) съедают общий лимит ТАК ЖЕ, как считает сама активация (найдено независимым
-       ревью, п.4 — «вечная бронь»).
+       ревью, п.4 — «вечная бронь»);
+  R7 — лимит 50 купонов на бизнес не пробивается даже под двумя одновременными «создать
+       купон» на границе лимита (PostgreSQL; найдено ревью круга 2, почина — круг 3);
+  R8 — забытая (reserved) бронь не держит лимит вечно: истекает вместе со сроком купона, а
+       для бессрочного купона — через RESERVATION_TTL_DAYS после самой брони (решение
+       ведущего, круг 3 — «вечная бронь»).
 """
 import threading
 import time
@@ -349,3 +354,103 @@ def test_storefront_remaining_counts_outstanding_reservations(client, user_facto
     listing2 = client.get("/coupons", params={"city": "Уфа"}).json()
     card2 = next(c for c in listing2 if c["id"] == cid)
     assert card2["remaining"] == 0, "обе брони заняты — свободных мест для витрины больше нет"
+
+
+# ============================ R7: лимит 50 купонов на бизнес (гонка, PostgreSQL) ============================
+@pytest.mark.skipif(engine.dialect.name != "postgresql", reason="requires isolated PostgreSQL")
+def test_concurrent_coupon_creation_respects_fifty_limit(client, user_factory, monkeypatch):
+    """Бизнес уже на 49 купонах из 50 — два одновременных «создать купон» должны дать ровно
+    один успех и один внятный отказ, а не 51–52 купона."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "Лимит50Гонка")
+    for i in range(coupons_router.MAX_COUPONS_PER_PARTNER - 1):
+        assert client.post("/partner/coupons", headers=owner["auth"],
+                           json={"title": f"К{i}"}).status_code == 200
+
+    original = coupons_router._apply_review
+
+    def delayed_apply_review(coupon, user_id):
+        time.sleep(0.2)   # между проверкой лимита и вставкой строки купона
+        return original(coupon, user_id)
+
+    monkeypatch.setattr(coupons_router, "_apply_review", delayed_apply_review)
+
+    barrier = threading.Barrier(2)
+
+    def create():
+        with _pg_session() as s:
+            user = s.exec(select(User).where(User.id == owner["id"])).one()
+            barrier.wait(timeout=10)
+            try:
+                return coupons_router.partner_coupon_create(
+                    coupons_router.CouponIn(title="Пограничный"), user=user, session=s,
+                )
+            except Exception as exc:
+                return exc
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        futures = [ex.submit(create) for _ in range(2)]
+        results = [f.result(timeout=20) for f in futures]
+
+    oks = [r for r in results if isinstance(r, dict)]
+    fails = [r for r in results if not isinstance(r, dict)]
+    assert len(oks) == 1, f"на границе лимита 50 должен пройти только один запрос: {results}"
+    assert len(fails) == 1
+    assert getattr(fails[0], "status_code", None) == 429
+
+    with Session(engine) as s:
+        pid = s.exec(select(Partner).where(Partner.owner_id == owner["id"])).one().id
+        count = s.exec(select(func.count()).select_from(Coupon).where(Coupon.partner_id == pid)).one()
+    assert count == coupons_router.MAX_COUPONS_PER_PARTNER, (
+        f"итог {count} вместо {coupons_router.MAX_COUPONS_PER_PARTNER} — лимит пробит гонкой"
+    )
+
+
+# ============================ R8: вечная бронь истекает ============================
+def test_expired_unbounded_reservation_frees_the_limit_slot(client, user_factory):
+    """Купон БЕЗ срока действия: забытая бронь старше RESERVATION_TTL_DAYS не должна держать
+    лимит вечно — другой человек обязан получить свободный слот."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "ВечнаяБронь")
+    cid = _make_active_coupon(client, owner, limit_total=1, limit_per_user=1)
+    old_pax = user_factory("ВечнаяБроньСтарый")
+    new_pax = user_factory("ВечнаяБроньНовый")
+
+    act = client.post(f"/coupons/{cid}/activate", headers=old_pax["auth"])
+    assert act.status_code == 200, act.text
+    with Session(engine) as s:
+        red = s.exec(select(CouponRedemption).where(CouponRedemption.code == act.json()["code"])).one()
+        red.reserved_at = datetime.utcnow() - timedelta(days=coupons_router.RESERVATION_TTL_DAYS + 1)
+        s.add(red)
+        s.commit()
+
+    # Слот теперь свободен — новый человек должен суметь активировать тот же купон.
+    act2 = client.post(f"/coupons/{cid}/activate", headers=new_pax["auth"])
+    assert act2.status_code == 200, act2.text
+    assert act2.json()["code"] != act.json()["code"]
+
+    detail = client.get(f"/coupons/{cid}").json()
+    assert detail["remaining"] == 0, "свежая бронь нового человека обязана занять единственный слот"
+
+
+def test_expired_reservation_cannot_be_redeemed(client, user_factory):
+    """Та же истёкшая (по 30-дневному правилу) бронь не должна гаситься у кассы — бизнесу
+    нельзя засчитать погашение по коду, который человек, скорее всего, давно потерял."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "ПросрочГашение")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=1)
+    pax = user_factory("ПросрочГашениеПас")
+    act = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act.status_code == 200, act.text
+    code = act.json()["code"]
+    with Session(engine) as s:
+        red = s.exec(select(CouponRedemption).where(CouponRedemption.code == code)).one()
+        red.reserved_at = datetime.utcnow() - timedelta(days=coupons_router.RESERVATION_TTL_DAYS + 1)
+        s.add(red)
+        s.commit()
+
+    r = client.post("/coupons/redeem", headers=owner["auth"], json={"code": code})
+    assert r.status_code == 409, r.text
+    detail = r.json()["detail"]
+    assert detail["ru"] and detail["ba"]
+
+    with Session(engine) as s:
+        coupon = s.get(Coupon, cid)
+        assert coupon.redeemed_count == 0, "просроченная бронь не должна была засчитаться бизнесу"

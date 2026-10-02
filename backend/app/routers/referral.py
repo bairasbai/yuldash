@@ -5,6 +5,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import func, update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -128,6 +129,16 @@ def _live_driver_trips(session: Session, driver_id: int) -> tuple[int, set]:
     return live, passengers
 
 
+def _driver_bonus_already_granted(session: Session, driver_id: int) -> bool:
+    """Уже есть водительский бонус за этого приглашённого? Отдельная функция (не инлайн) —
+    даёт тестам точку, где можно честно воспроизвести редкую гонку на UNIQUE(invited_user_id,
+    kind): между ЭТОЙ проверкой и записью в `reward_driver_referral` могла успеть вклиниться
+    чужая запись (leaf-1.3, круг 3)."""
+    return session.exec(select(ReferralBonus).where(
+        ReferralBonus.invited_user_id == driver_id, ReferralBonus.kind == "driver",
+    )).first() is not None
+
+
 def reward_driver_referral(session: Session, driver_id: int | None) -> bool:
     """Выдать пригласившему бонус за «раскатавшегося» приглашённого водителя (B8-4).
 
@@ -139,13 +150,17 @@ def reward_driver_referral(session: Session, driver_id: int | None) -> bool:
     driver = session.get(User, driver_id)
     if not driver or driver.referred_by is None:
         return False
-    referrer = session.get(User, driver.referred_by)
+    # Row-lock реферера: сериализует ДВУХ «раскатавшихся» одновременно приглашённых водителей
+    # одного и того же пригласившего. Без лока оба читают ОДИН И ТОТ ЖЕ месячный счётчик
+    # (`granted_driver_bonuses_this_month` — COUNT по строкам ReferralBonus, не колонка со
+    # своим атомарным UPDATE, как у `grant_referral_credit`) и оба проходят потолок — 6-й
+    # бонус за месяц вместо 5-го (найдено независимым ревью leaf-1.3, круг 2; почина — круг 3).
+    referrer = session.exec(
+        select(User).where(User.id == driver.referred_by).with_for_update()
+    ).first()
     if not referrer:
         return False
-    already = session.exec(select(ReferralBonus).where(
-        ReferralBonus.invited_user_id == driver_id, ReferralBonus.kind == "driver",
-    )).first()
-    if already:
+    if _driver_bonus_already_granted(session, driver_id):
         return False
     if granted_driver_bonuses_this_month(session, referrer.id) >= DRIVER_BONUS_MONTHLY_CAP:
         return False
@@ -155,7 +170,17 @@ def reward_driver_referral(session: Session, driver_id: int | None) -> bool:
     if not grant_referral_credit(session, referrer):
         return False          # пожизненный потолок выбран или кошелёк полон — молча не начисляем
     session.add(ReferralBonus(referrer_id=referrer.id, invited_user_id=driver_id, kind="driver"))
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        # Гонку по UNIQUE(invited_user_id, kind) выиграл параллельный вызов (та же пара хуков
+        # зовётся из такси/попутки/посылок независимо друг от друга) — бонус уже записан кем-то
+        # другим, деньги целы. Раньше это падало необработанным 500 ПОСЛЕ уже случившегося
+        # done-перехода чужой поездки: человек, завершивший СВОЮ поездку, видел чужую ошибку
+        # (найдено независимым ревью leaf-1.3, круг 2; почина — круг 3). Тихо откатываемся и
+        # отвечаем «бонус не начислен» — ровно так же, как любой другой проигрыш гонки выше.
+        session.rollback()
+        return False
     from ..services import push_notification   # локальный импорт: тесты патчат services
     # Бонус = бесплатное поднятие поездки, то есть деньги. Пуш живёт секунды и не доходит
     # при выключенном телефоне — начисление должно остаться записью, к которой можно

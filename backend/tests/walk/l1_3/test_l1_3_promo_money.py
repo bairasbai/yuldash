@@ -8,6 +8,11 @@
        (MAX_REFERRAL_CREDITS), даже если perk_value кампании больше остатка до потолка;
   R4 — срок кампании: дата без времени (форма админа шлёт именно так) = конец суток по Уфе,
        а не начало — та же дыра и то же исправление, что у купонов (B-3, найдено ревью).
+  R5 — начисление boost-бонуса не теряет параллельное реферальное начисление тому же
+       человеку (атомарный UPDATE вместо «прочитал-прибавил-записал», найдено ревью круга 2);
+  R6 — след «этот номер уже брал промокод» (PromoClaimLog) хранит HMAC номера, а не сам
+       номер цифрами (найдено независимым ревью leaf-1.3, круг 3 — docstring модели обещал
+       это и раньше, но хранил ровно обратное).
 """
 import threading
 import time
@@ -21,6 +26,7 @@ from sqlmodel import Session, select
 from app.db import engine
 from app.models import PromoCode, User, UserRole
 from app.routers import promo as promo_router
+from app.routers import referral as ref
 from app.routers.promo import MAX_REFERRAL_CREDITS, ApplyIn
 
 
@@ -166,3 +172,76 @@ def test_promo_deadline_survives_repeated_date_only_resaves(client, user_factory
     assert r2.status_code == 200, r2.text
     second = r2.json()["valid_until"]
     assert second == first, f"срок сдвинулся после повторного сохранения той же даты: {first} -> {second}"
+
+
+# ============================ R5: потерянное обновление boost-кредита ============================
+def test_boost_credit_survives_concurrent_referral_grant(user_factory):
+    """Два сеанса читают ОДНОГО И ТОГО ЖЕ человека ДО того, как любой из них запишет: один
+    вот-вот применит boost-промокод, другой вот-вот начислит реферальный бонус (как будто кто-то
+    только что ввёл его код). Старое «прочитал—прибавил—записал» считало новое число от
+    устаревшего прочитанного и молча стирало параллельное начисление (найдено независимым
+    ревью leaf-1.3, круг 2). Доказываем той же техникой «две сессии, оба читают до коммита
+    любой из них», что и существующий test_lifetime_cap_counts_every_grant — она не требует
+    настоящих потоков: дело не в блокировке строки, а в том, СЧИТАЕТ ли UPDATE новое значение
+    на сервере БД (атомарно) или присылает его уже готовым из устаревшего Python-объекта."""
+    admin = user_factory("ПотерянноеАдмин", role=UserRole.admin)
+    x = user_factory("ПотерянноеX")
+    with Session(engine) as s:
+        u = s.get(User, x["id"])
+        u.referral_credits = 5
+        s.add(u)
+        s.commit()
+
+    with Session(engine) as s:
+        admin_user = s.get(User, admin["id"])
+        created = promo_router.admin_promo_create(
+            promo_router.AdminPromoIn(code="LOSTUPDATE1", kind="boost", perk_value=3),
+            user=admin_user, session=s,
+        )
+        assert created["code"] == "LOSTUPDATE1"
+
+    # Оба сеанса читают "x" ДО того, как любой что-то запишет — ровно момент гонки.
+    with Session(engine) as s1, Session(engine) as s2:
+        x_for_promo = s1.exec(select(User).where(User.id == x["id"])).one()
+        x_for_referral = s2.exec(select(User).where(User.id == x["id"])).one()
+        assert x_for_promo.referral_credits == 5 and x_for_referral.referral_credits == 5
+
+        # 1) Параллельное реферальное начисление коммитится ПЕРВЫМ.
+        assert ref.grant_referral_credit(s2, x_for_referral) is True
+        s2.commit()
+
+        # 2) Промокод применяется ВТОРЫМ, но его сессия s1 прочитала x ДО этого начисления.
+        result = promo_router.promo_apply(
+            promo_router.ApplyIn(code="LOSTUPDATE1"), user=x_for_promo, session=s1, x_device_id="",
+        )
+        assert result["ok"] is True
+
+    with Session(engine) as s:
+        final = s.get(User, x["id"]).referral_credits
+    assert final == 5 + 1 + 3, (
+        f"итог {final} вместо 9 — промокод затёр параллельное реферальное начисление "
+        "устаревшим прочитанным числом"
+    )
+
+
+# ============================ R6: ключ телефона в PromoClaimLog — не сам номер ============================
+def test_phone_claim_key_is_not_reversible_to_the_number():
+    """`PromoClaimLog` обещает в docstring «по ключу человека не найти, если не знать номер
+    заранее» — раньше ключом был голый `_phone_key(phone)` (просто нормализованные цифры
+    номера, без всякого хэширования), то есть обещание было неправдой: у ключа в базе и
+    самого номера совпадали цифры (найдено независимым ревью leaf-1.3, круг 3)."""
+    phone = "+79991234567"
+    digits = "79991234567"
+    key = promo_router._phone_claim_key(phone)
+
+    assert digits not in key, f"ключ содержит цифры номера в явном виде: {key}"
+    assert key != digits
+    assert len(key) == 64 and all(c in "0123456789abcdef" for c in key), (
+        "ожидаем шестнадцатеричный HMAC-SHA256"
+    )
+    # Детерминированность: тот же номер → тот же ключ — иначе повтор тем же номером нечем ловить.
+    assert promo_router._phone_claim_key(phone) == key
+    # Разные написания одного российского номера сводятся к одному ключу (как и раньше).
+    assert promo_router._phone_claim_key("89991234567") == key
+    # Разные номера — разные ключи.
+    assert promo_router._phone_claim_key("+79997654321") != key
