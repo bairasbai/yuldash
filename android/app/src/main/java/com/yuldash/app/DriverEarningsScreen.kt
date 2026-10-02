@@ -191,7 +191,12 @@ private fun EarnTotalsCard(d: DriverEarningsDto) {
             MoneyLine(
                 Icons.Default.DirectionsCar, CanonMint, CanonGreen2,
                 appText("Поездок", "Сәфәр"),
-                fmtRub(d.trips),
+                // d.trips — ШТУКИ, не деньги: fmtRub здесь незаметно работал на малых числах
+                // (до 999 группировка разрядов не видна), но у опытного водителя за «всё время»
+                // поездок ≥ 1000, и счётчик вдруг обзаводился денежным пробелом-разрядом
+                // («1 234» вместо «1234») — тем самым визуальным языком, которым в этом же
+                // приложении помечены ИМЕННО суммы (ср. CourierEarningsScreen: d.deliveries.toString()).
+                d.trips.toString(),
                 CanonText,
             )
         }

@@ -36,17 +36,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 
-/** Формат рублей с пробелами: 45000 → «45 000 ₽». */
-private fun rub(v: Double): String {
-    val n = v.roundToInt()
-    val s = n.toString().reversed().chunked(3).joinToString(" ").reversed()
-    return "$s ₽"
-}
+/**
+ * Формат рублей с пробелами: 45000 → «45 000 ₽». Переиспользует единственный денежный
+ * форматтер приложения ([fmtRub] из WalletScreen.kt) вместо своей копии: самодельная версия
+ * собирала разряды реверсом строки и на отрицательных суммах, чья ЦЕЛАЯ часть ровно кратна
+ * трём цифрам (-100, -100 000, …), отрывала минус лишним пробелом — «- 100 000 ₽» вместо
+ * «-100 000 ₽». Сейчас ни один ползунок калькулятора не даёт отрицательный доход, но это
+ * ровно тот формат, которым подписаны деньги везде в приложении — ему нужно поведение,
+ * которое не сломается, если считать когда-нибудь начнут не только «сверху».
+ */
+internal fun rub(v: Double): String = "${fmtRub(v.roundToInt())} ₽"
 
 @Composable
 internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
@@ -118,7 +123,7 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                 }
             }
             // ── Ползунки ввода ──
-            item { CalcSlider(appText("Поездок в день (по маршруту)", "Көнөнә сәфәр (маршрут буйынса)"), ridesPerDay, 0f..300f, ridesPerDay.roundToInt().toString()) { ridesPerDay = it } }
+            item { CalcSlider(appText("Поездок в день (по маршруту)", "Көнөнә сәфәр (маршрут буйынса)"), ridesPerDay, 0f..300f, ridesPerDay.roundToInt().toString(), testTag = "calc_ridesPerDay") { ridesPerDay = it } }
             item { CalcSlider(appText("Бизнес-партнёров", "Бизнес-партнёрҙар"), partners, 0f..100f, partners.roundToInt().toString()) { partners = it } }
             item { CalcSlider(appText("Цена подписки партнёра, ₽/мес", "Партнёр яҙылыуы, ₽/ай"), subPrice, 500f..3000f, "${subPrice.roundToInt()} ₽") { subPrice = it } }
             item { CalcSlider(appText("Boost в день (подъёмов)", "Көнөнә Boost (күтәреү)"), boostsPerDay, 0f..50f, boostsPerDay.roundToInt().toString()) { boostsPerDay = it } }
@@ -135,12 +140,12 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                             Switch(checked = taxiOn, onCheckedChange = { taxiOn = it }, colors = SwitchDefaults.colors(checkedTrackColor = CanonGreen2))
                         }
                         if (taxiOn) {
-                            CalcSlider(appText("Средний чек места, ₽", "Урын уртаса хаҡы, ₽"), avgCheck, 200f..1500f, "${avgCheck.roundToInt()} ₽") { avgCheck = it }
-                            CalcSlider(appText("Комиссия, %", "Комиссия, %"), commissionPct, 0f..10f, "${commissionPct.roundToInt()} %") { commissionPct = it }
+                            CalcSlider(appText("Средний чек места, ₽", "Урын уртаса хаҡы, ₽"), avgCheck, 200f..1500f, "${avgCheck.roundToInt()} ₽", testTag = "calc_avgCheck") { avgCheck = it }
+                            CalcSlider(appText("Комиссия, %", "Комиссия, %"), commissionPct, 0f..10f, "${commissionPct.roundToInt()} %", testTag = "calc_commissionPct") { commissionPct = it }
                             // Бензин — вычитаем честно, иначе доход водителя завышен.
-                            CalcSlider(appText("Длина поездки, км", "Сәфәр оҙонлоғо, км"), kmPerRide, 5f..300f, "${kmPerRide.roundToInt()} км") { kmPerRide = it }
-                            CalcSlider(appText("Расход бензина, л/100 км", "Бензин сарыфы, л/100 км"), fuelPer100, 4f..15f, "${fuelPer100.roundToInt()} л") { fuelPer100 = it }
-                            CalcSlider(appText("Цена бензина, ₽/л", "Бензин хаҡы, ₽/л"), fuelPrice, 40f..80f, "${fuelPrice.roundToInt()} ₽") { fuelPrice = it }
+                            CalcSlider(appText("Длина поездки, км", "Сәфәр оҙонлоғо, км"), kmPerRide, 5f..300f, "${kmPerRide.roundToInt()} км", testTag = "calc_kmPerRide") { kmPerRide = it }
+                            CalcSlider(appText("Расход бензина, л/100 км", "Бензин сарыфы, л/100 км"), fuelPer100, 4f..15f, "${fuelPer100.roundToInt()} л", testTag = "calc_fuelPer100") { fuelPer100 = it }
+                            CalcSlider(appText("Цена бензина, ₽/л", "Бензин хаҡы, ₽/л"), fuelPrice, 40f..80f, "${fuelPrice.roundToInt()} ₽", testTag = "calc_fuelPrice") { fuelPrice = it }
                             // «Чистыми после бензина» рядом с валовым — прозрачно, что именно вычли.
                             Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -195,7 +200,17 @@ private fun BreakdownRow(label: String, value: String) {
 }
 
 @Composable
-private fun CalcSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, valueText: String, onChange: (Float) -> Unit) {
+private fun CalcSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    valueText: String,
+    // Пусто в продакшене ничего не меняет (testTag не рисуется); лист 1.4 проставляет его
+    // ползункам, чьё ровно заданное значение проверяет тест честной экономики водителя
+    // (gross − бензин − комиссия), не полагаясь на подбор координат жеста по пикселям.
+    testTag: String = "",
+    onChange: (Float) -> Unit,
+) {
     Surface(color = CanonSurface, shape = CanonItemShape) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -206,6 +221,7 @@ private fun CalcSlider(label: String, value: Float, range: ClosedFloatingPointRa
             }
             Slider(
                 value = value, onValueChange = onChange, valueRange = range,
+                modifier = if (testTag.isEmpty()) Modifier else Modifier.testTag(testTag),
                 colors = SliderDefaults.colors(thumbColor = CanonGreen2, activeTrackColor = CanonGreen2, inactiveTrackColor = CanonBorder),
             )
         }
