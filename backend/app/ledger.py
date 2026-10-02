@@ -57,6 +57,26 @@ Index(
     sqlite_where=_PROMO_COMP_WHERE, postgresql_where=_PROMO_COMP_WHERE,
 )
 
+# --- Барьер БД: один возврат комиссии на заказ/доставку (F3, аудит leaf-1.1 2026-10-02) ------
+# Та же дыра, что чинил индекс выше, но с другой стороны: `debt.refund_commission_to_wallet`
+# (и `void_debt_for_order`, который её зовёт) проверяли «уже возвращали?» тем же приёмом
+# «нашёл → не пишу», без барьера БД. Независимое ревью: два одновременных клика админа
+# «подтвердить жалобу» на поездку, комиссию за которую водитель уже перевёл, — обе сессии видят
+# «возврата нет» и обе его пишут, водителю возвращают комиссию дважды. Ключ — `refund:order:N`
+# / `refund:parcel:N` (см. debt.refund_ext_id), префикс 7 символов ("refund:").
+#
+# Частичный, а не сплошной UNIQUE(ext_id) — по той же причине, что у индекса выше: у payout/
+# promo/earn/fee свои значения ext_id, сплошная уникальность задела бы и их.
+# Для прода — отдельная миграция по образцу money_holes_20260807 (вне зоны этого листа, см. отчёт).
+_REFUND_WHERE = and_(
+    LedgerEntry.__table__.c.kind == LedgerKind.adj,
+    func.substr(LedgerEntry.__table__.c.ext_id, 1, 7) == "refund:",
+)
+Index(
+    "uq_ledgerentry_refund", LedgerEntry.__table__.c.ext_id, unique=True,
+    sqlite_where=_REFUND_WHERE, postgresql_where=_REFUND_WHERE,
+)
+
 
 def fee_kop_for(amount_kop: int, percent: Optional[float] = None) -> int:
     """Комиссия сервиса в копейках. Детерминированно, ROUND_HALF_UP, всегда int.
@@ -331,7 +351,7 @@ def post_promo_compensation(session: Session, driver_id: Optional[int], order_id
 def _post_earn_and_fee(session: Session, driver_id: int, amount_kop: int, *,
                        order_id: Optional[int] = None, booking_id: Optional[int] = None,
                        note: str = "", percent: Optional[float] = None,
-                       fee_kop: Optional[int] = None) -> None:
+                       fee_kop: Optional[int] = None, promo_reduced: bool = False) -> None:
     """Добавить в ledger начисление за поездку: earn (+вся сумма) и fee (−комиссия).
     Вызывать ТОЛЬКО под уже открытой транзакцией с залоченной строкой заказа/брони.
 
@@ -339,9 +359,15 @@ def _post_earn_and_fee(session: Session, driver_id: int, amount_kop: int, *,
     driver_fee_percent (лесенка 3/8/15 по поездкам + промо запуска 0%): иначе онлайн-оплата удержала бы
     8% в обход промо/лесенки, при этом Model-A долг с верной ставкой гасится → перебор + споры.
 
-    fee_kop — готовая сумма комиссии (перебивает расчёт по проценту). Нужна для промокода:
-    комиссия там уже уменьшена на скидку, и пересчёт по проценту от УРЕЗАННОЙ оплаты списал бы
-    с водителя лишнее."""
+    fee_kop — готовая сумма комиссии (перебивает расчёт по проценту). Нужна и для базы
+    «цена минус компенсация» (см. settle_instant_order — F1, аудит leaf-1.1 2026-10-02), и для
+    промокода: там комиссия уже уменьшена на скидку, и пересчёт по проценту от суммы ПЛАТЕЖА
+    списал бы с водителя лишнее (саму сумму платежа при этом никак не связать с «комиссия ли
+    это от полной цены или уже урезанная» — отсюда отдельный флаг ниже, а не вывод по fee_kop).
+
+    promo_reduced — ТОЛЬКО про текст в истории («уменьшена скидкой по промокоду»), не про саму
+    сумму: раньше подпись решалась по `fee_kop is None`, и любой вызов с готовой суммой (в т.ч.
+    без всякого промокода, после правки F1) молча получал бы промо-формулировку."""
     fee = fee_kop_for(amount_kop, percent) if fee_kop is None else max(int(fee_kop), 0)
     eff = percent if percent is not None else settings.service_fee_percent
     session.add(LedgerEntry(
@@ -351,8 +377,8 @@ def _post_earn_and_fee(session: Session, driver_id: int, amount_kop: int, *,
     if fee > 0:
         # Комиссия урезана скидкой пассажира → так и пишем, иначе процент в истории не сойдётся
         # с суммой и водитель решит, что его обсчитали.
-        label = (f"Комиссия сервиса {eff:g}%" if fee_kop is None
-                 else f"Комиссия сервиса {eff:g}% (уменьшена скидкой по промокоду)")
+        label = (f"Комиссия сервиса {eff:g}% (уменьшена скидкой по промокоду)" if promo_reduced
+                 else f"Комиссия сервиса {eff:g}%")
         session.add(LedgerEntry(
             driver_id=driver_id, order_id=order_id, booking_id=booking_id,
             kind=LedgerKind.fee, amount_kop=-fee, note=label,
@@ -386,14 +412,26 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
         # Фолбэк done_at/сейчас — для старых заказов без created_at.
         from . import debt as _debt
         pct = _debt.driver_fee_percent(session, order.driver_id, order.created_at or order.done_at)
+        # F1 (аудит leaf-1.1, 2026-10-02, независимое ревью Opus). База — РОВНО
+        # debt.order_commission_kop (цена МИНУС компенсация водителю: подача/кресло/зимняя
+        # дорога), а не вся цена. До правки здесь стояло
+        # `fee_kop_for(promo_ride.price_kop(order), pct)` — price_kop отдаёт ПОЛНУЮ цену (она
+        # сама уже включает компенсации, см. instant_service.price_fields), и при оплате картой
+        # с водителя удерживали комиссию и с его бензина — ровно то, против чего написан
+        # compensation.py («с компенсации комиссия не берётся», а по факту брали). Наличными
+        # (Модель А, accrue_for_order → order_commission_kop) всегда считали верно — расхождение
+        # жило только в безналичной оплате. Пример при 15%: цена 500 ₽ = поездка 400 + подача
+        # 100 — нал удерживал 60 ₽, карта удерживала 75 ₽ с той же поездки.
+        full_fee = _debt.order_commission_kop(order, pct)
+        has_promo = int(order.promo_discount_kop or 0) > 0
         # Скидка по промокоду уже вычтена из того, что заплатил пассажир (amount_kop). Комиссию
-        # считаем от ПОЛНОЙ цены и гасим её скидкой — ровно как в долге Модели А. Иначе водитель
+        # считаем от ПОЛНОЙ (без скидки) базы выше и гасим её скидкой — ровно как в долге Модели А
+        # (accrue_for_order зовёт тот же order_commission_kop → split_commission). Иначе водитель
         # заплатил бы процент с урезанной суммы, а платформа не оплатила бы обещанную скидку.
-        full_fee = fee_kop_for(promo_ride.price_kop(order), pct)
         fee_due, _comp = promo_ride.split_commission(full_fee, order.promo_discount_kop)
         _post_earn_and_fee(session, order.driver_id, amount_kop,
                            order_id=order.id, note=f"Быстрый заказ #{order.id}", percent=pct,
-                           fee_kop=(fee_due if int(order.promo_discount_kop or 0) > 0 else None))
+                           fee_kop=fee_due, promo_reduced=has_promo)
         # Комиссия удержана в ledger fee → снимаем долг Модели А по этому заказу, иначе
         # двойная комиссия + фантомный unpaid-долг заблокирует водителя на онлайн-оплате.
         # note важен: комиссию тут ВЗЯЛИ (записью fee), поэтому в расшифровке заработка она

@@ -12,7 +12,7 @@
 Права (анти-IDOR): свой долг водитель видит только по своему токену; админ-эндпоинты — только
 для роли admin. Блокируется ТОЛЬКО такси (instant); ПОПУТКА (Ride/Booking) не трогается.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -30,7 +30,11 @@ router = APIRouter(tags=["debt"])
 
 def _require_admin(user: User) -> None:
     if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
+        # Было: голый HTTPException с русским текстом (найдено независимым ревью Opus,
+        # 2026-10-02) — нарушение собственного правила проекта (двуязычный отказ везде вне
+        # /admin/*, а эта ручка и так админская; тем не менее herr — общий стандарт отказов).
+        # P3: сейчас админ один и русскоязычный, но карточка не должна выдавать это за «ок».
+        raise herr(403, "Только для админа", "Тик админ өсөн генә")  # BA — черновик, см. отчёт
 
 
 # ------------------------------ водитель ------------------------------
@@ -61,8 +65,10 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
     debt_mod.settle_debt_from_wallet(session, user.id)
 
     if settings.payments_provider == "yookassa":
-        summary = debt_mod.debt_summary(session, user.id)
-        owed_kop = int(summary["unpaid_kop"]) + int(summary["pending_kop"])   # всё, что ещё не paid
+        # F2 (аудит leaf-1.1 2026-10-02): сумма и СОСТАВ счёта — из ОДНОГО запроса
+        # (taxi_debt_snapshot), а не из debt_summary отдельно: иначе между подсчётом суммы
+        # и фиксацией состава мог начислиться новый долг, и снимок не совпал бы с owed_kop.
+        owed_kop, snapshot_ids = debt_mod.taxi_debt_snapshot(session, user.id)
         if owed_kop <= 0:
             return {"ok": True, "method": "yookassa", "status": "succeeded", "amount_kop": 0}
         # Дедуп: висящий pending-платёж долга — возвращаем его с актуальным confirmation_url.
@@ -92,7 +98,10 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
                     return {"ok": True, "method": "yookassa", "status": "succeeded", "payment_id": existing.id}
                 return {"ok": True, "method": "yookassa", "status": "pending", "payment_id": existing.id,
                         "amount_kop": existing.amount_kop, "confirmation_url": res["confirmation_url"]}
-        payment = Payment(user_id=user.id, purpose="taxi_debt", amount_kop=owed_kop, method="yookassa", status="pending")
+        # Снимок состава (F2) — чтобы settle_debt_from_wallet знал, какие ИМЕННО долги уже
+        # «в пути» картой, и не погасил их ещё раз из кошелька, пока счёт висит.
+        payment = Payment(user_id=user.id, purpose="taxi_debt", amount_kop=owed_kop, method="yookassa",
+                          status="pending", tier=debt_mod.make_taxi_debt_snapshot_tier(snapshot_ids))
         session.add(payment)
         session.commit()
         session.refresh(payment)
@@ -109,9 +118,13 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
     # СБП «на доверии» (по умолчанию): долг → pending, админ подтверждает.
     paid_kop = debt_mod.declare_paid(session, user.id)
     if paid_kop > 0:
+        # Телефон сюда не кладём (найдено независимым ревью Opus, 2026-10-02): Telegram —
+        # сторонний зарубежный сервис, а шапка модуля обещает «суммы не логируем с привязкой
+        # к персоне — только id» (debt.py:18). Для сверки перевода админу хватит id и имени —
+        # телефон он и так увидит в /admin/debts по тому же id.
         notify_admin_telegram(
             f"💸 Водитель заявил оплату долга по комиссии\n"
-            f"Кто: {user.name or '—'} ({user.phone or '—'})\n"
+            f"Кто: {user.name or '—'} (id {user.id})\n"
             f"Сумма: {paid_kop // 100} ₽\n"
             f"Подтвердить: /admin/debts"
         )
