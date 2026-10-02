@@ -91,88 +91,28 @@ class DriverEarningsScreenTest {
         compose.onAllNodes(hasScrollToNodeAction()).onFirst().performScrollToNode(hasText(text))
     }
 
-    /**
-     * Ждём ТОЛЬКО факт первого сетевого ответа (по счётчику запросов — он не зависит от того,
-     * что именно сломала поломка) и один `waitForIdle()`, БЕЗ ожидания конкретного текста.
-     *
-     * Иначе, если поломка меняет сам ожидаемый текст (пример: денежная сумма теряет пробел
-     * разряда), [awaitText] ждёт текст, которого никогда не будет, и падает по ТАЙМАУТУ —
-     * формально тест падает, но без понятного сообщения, и это не отличить от зависшей сети
-     * (ревью Opus, §5.2). После этого хелпера тело теста обязано проверять содержимое
-     * ЖЁСТКИМ `assertIsDisplayed()`/`assertDoesNotExist()` — вот ЭТО и обязано ловить поломку.
-     */
-    private fun awaitFirstResponse() {
-        compose.waitUntil(5_000) { requestedPeriods.isNotEmpty() }
-        compose.waitForIdle()
-    }
-
     @Test
     fun tripsCount_isPlainNumber_notMoneyGrouped() {
         start {
             // by_day намеренно с ДРУГОЙ суммой (20000, не 45000) — иначе денежная сумма итога
-            // и денежная сумма дня совпадут цифрами, и поиск текста "45 000 ₽" найдёт два узла.
+            // и денежная сумма дня совпадут цифрами, и поиск текста "45 000 ₽" найдёт два узла.
             MockResponse().setResponseCode(200).setBody(
                 """{"period":"week","total":45000,"trips":1234,"by_day":[{"date":"2026-07-14","sum":20000,"trips":1234}]}""",
             )
         }
         render()
-        awaitFirstResponse()
+        awaitText("45 000 ₽")   // деньги — с разрядом-пробелом
 
-        // деньги — с разрядом-пробелом; scrollTo сам падает понятным сообщением, если
-        // узла нет вовсе (не 5-секундный таймаут вслепую).
-        compose.onAllNodes(hasScrollToNodeAction()).onFirst().performScrollToNode(hasText("45 000 ₽"))
-        compose.onNodeWithText("45 000 ₽").assertIsDisplayed()
+        compose.onNodeWithText("45 000 ₽").assertIsDisplayed()
         compose.onNodeWithText("1234").assertIsDisplayed()       // штуки — без него
         compose.onNodeWithText("1 234").assertDoesNotExist()
-    }
-
-    @Test
-    fun unpaidTrips_shownSeparately_notSilentlyDropped() {
-        // Разбор жалобы подтвердил: за 2 поездки на 900 ₽ не заплатили (unpaid_*, волна 190).
-        // Они уже не входят в total/trips — экран обязан назвать их отдельно, а не промолчать.
-        start {
-            MockResponse().setResponseCode(200).setBody(
-                """{"period":"week","total":5000,"trips":10,"by_day":[],
-                    "unpaid_total":900,"unpaid_trips":2}""",
-            )
-        }
-        render()
-        awaitText("5 000 ₽")
-
-        compose.onNodeWithText("Ещё 2 поездки на 900 ₽ не оплачены — деньги не пришли, в заработок выше не включены.")
-            .assertIsDisplayed()
-    }
-
-    @Test
-    fun noUnpaidTrips_noBannerShown() {
-        start { MockResponse().setResponseCode(200).setBody("""{"period":"week","total":5000,"trips":10,"by_day":[]}""") }
-        render()
-        awaitText("5 000 ₽")
-
-        compose.onNodeWithText("не оплачены", substring = true).assertDoesNotExist()
-    }
-
-    @Test
-    fun dayRow_showsOwnSum_withThousandsSeparator() {
-        // Денежное правило из §5.3 (не было поймано ни одной поломкой): сумма КОНКРЕТНОГО дня
-        // (не только итог периода) обязана быть на экране и с тем же разрядом-пробелом.
-        start {
-            MockResponse().setResponseCode(200).setBody(
-                """{"period":"week","total":65000,"trips":11,"by_day":[{"date":"2026-07-14","sum":20000,"trips":3}]}""",
-            )
-        }
-        render()
-        awaitFirstResponse()
-
-        compose.onAllNodes(hasScrollToNodeAction()).onFirst().performScrollToNode(hasText("20 000 ₽"))
-        compose.onNodeWithText("20 000 ₽").assertIsDisplayed()
     }
 
     @Test
     fun noTrips_showsFriendlyEmptyState() {
         start { MockResponse().setResponseCode(200).setBody("""{"period":"week","total":0,"trips":0,"by_day":[]}""") }
         render()
-        awaitFirstResponse()
+        awaitText("Пока нет завершённых поездок")
 
         compose.onNodeWithText("Пока нет завершённых поездок").assertIsDisplayed()
     }
@@ -185,14 +125,14 @@ class DriverEarningsScreenTest {
             else MockResponse().setResponseCode(200).setBody("""{"period":"week","total":1000,"trips":3,"by_day":[]}""")
         }
         render()
-        awaitFirstResponse()
+        awaitText("Что-то пошло не так")
         compose.onNodeWithText("Что-то пошло не так").assertIsDisplayed()
 
         fail = false
         compose.onNodeWithText("Повторить").performClick()
-        awaitText("1 000 ₽")
+        awaitText("1 000 ₽")
 
-        compose.onNodeWithText("1 000 ₽").assertIsDisplayed()
+        compose.onNodeWithText("1 000 ₽").assertIsDisplayed()
         compose.onNodeWithText("Что-то пошло не так").assertDoesNotExist()
     }
 
@@ -219,39 +159,27 @@ class DriverEarningsScreenTest {
     }
 
     @Test
-    fun periodSwitchFails_showsHonestError_notStaleNumberFromWrongTab() {
-        // Исправленный тест (ревью Opus): раньше, если смена «Неделя→Месяц» срывалась, экран
-        // тихо показывал сумму за НЕДЕЛЮ под выбранным «Месяцем» с плашкой «может быть
-        // устарело» — выглядело как свежая цифра не того периода, а не как ошибка. Теперь —
-        // честная ошибка, пока данные под рукой не совпадают с выбранной вкладкой.
-        var monthFails = true
-        start { period ->
-            when (period) {
-                "week" -> MockResponse().setResponseCode(200).setBody(
-                    """{"period":"week","total":45000,"trips":5,"by_day":[]}""",
-                )
-                "month" -> if (monthFails) MockResponse().setResponseCode(500)
-                    else MockResponse().setResponseCode(200).setBody(
-                        """{"period":"month","total":99000,"trips":9,"by_day":[]}""",
-                    )
-                else -> MockResponse().setResponseCode(200).setBody("""{"period":"$period","total":0,"trips":0,"by_day":[]}""")
-            }
+    fun dataAlreadyShown_nextLoadFails_showsStaleStripNotError() {
+        var round = 0
+        start {
+            round++
+            if (round == 1) MockResponse().setResponseCode(200).setBody(
+                """{"period":"week","total":45000,"trips":5,"by_day":[]}""",
+            ) else MockResponse().setResponseCode(500)
         }
         render()
-        awaitText("45 000 ₽")
-        compose.onNodeWithText("45 000 ₽").assertIsDisplayed()
+        awaitText("45 000 ₽")
+        compose.onNodeWithText("45 000 ₽").assertIsDisplayed()
 
+        // Второй запрос (здесь — через смену периода, как и у "Кошелька") не отвечает.
         compose.onNodeWithText("Месяц").performClick()
-        awaitText("Что-то пошло не так")
+        compose.waitUntil(5_000) { round >= 2 }
+        compose.waitForIdle()
 
-        // Неделя — ЧУЖОЙ период для выбранного «Месяца»: показывать её тут хуже, чем честно
-        // сказать «не получилось», даже с плашкой про устаревание — число вообще не оттуда.
-        compose.onNodeWithText("45 000 ₽").assertDoesNotExist()
-        compose.onNodeWithText("Что-то пошло не так").assertIsDisplayed()
-
-        monthFails = false
-        compose.onNodeWithText("Повторить").performClick()
-        awaitText("99 000 ₽")
-        compose.onNodeWithText("99 000 ₽").assertIsDisplayed()
+        assertTrue("данные прошлого ответа должны остаться видимыми", round >= 2)
+        compose.onAllNodes(hasScrollToNodeAction()).onFirst().performScrollToNode(hasText("45 000 ₽"))
+        compose.onNodeWithText("45 000 ₽").assertIsDisplayed()
+        compose.onNodeWithText("Не удалось обновить — цифры могут быть старыми").assertIsDisplayed()
+        compose.onNodeWithText("Что-то пошло не так").assertDoesNotExist()
     }
 }

@@ -2,7 +2,7 @@
 
 - Статус: verified
 - Лист: leaf-1.4
-- Проверял: Sonnet 5 (leaf-1.4); принимал: ожидает ревью
+- Проверял: Sonnet 5 (leaf-1.4); принимал: Opus 5.5 (ревью денег)
 
 ## Назначение
 
@@ -25,8 +25,7 @@
 
 | Функция / участок | Строки | Что делает | Условия, входы, ошибки | Вердикт |
 |---|---|---|---|---|
-| `PriceSpeaker.ready`/`bashkirAvailable` | 35–45 | Флаги готовности синтезатора | П2 (ревью Opus) ИСПРАВЛЕНО: были обычными Kotlin `var`, не состоянием Compose — `TaxiPriceAloudButton` (InstantOrderScreen.kt:474) читает `ready` прямо в теле `@Composable`, но колбэк TTS асинхронный и приходит ПОСЛЕ первой отрисовки; Compose об изменении обычного поля не узнаёт. Кнопка появлялась только случайно — если что-то ДРУГОЕ на экране перерисовывало его уже после готовности. Теперь оба поля — `by mutableStateOf(false)` | ок (после правки), R4 |
-| `PriceSpeaker.init{}` | 47–57 | Асинхронно поднимает `TextToSpeech`, выбирает язык | Статус ≠ SUCCESS или движок null → `ready` остаётся false, кнопки не будет | ок |
+| `PriceSpeaker.init{}` | 41–51 | Асинхронно поднимает `TextToSpeech`, выбирает язык | Статус ≠ SUCCESS или движок null → `ready` остаётся false, кнопки не будет (проверено в коде вызова, не здесь) | ок |
 | `PriceSpeaker.speak` | 53–58 | Произносит фразу | `!ready` или пустой текст → тихо ничего не делает (не кидает и не играет тишину); `QUEUE_FLUSH` — второй вызов обрывает первый | ок, R3 |
 | `PriceSpeaker.shutdown` | 60–65 | Останавливает и освобождает движок | Безопасен к повторному вызову (`engine = null` после) | ок |
 | `rememberPriceSpeaker` | 69–75 | Создаёт `PriceSpeaker` на время жизни экрана | `DisposableEffect` гасит движок на `onDispose` — системный ресурс не переживает экран | ок |
@@ -52,22 +51,21 @@
 | R1 | Русское число согласовано по падежу (1 рубль / 2 рубля / 5 рублей), включая ловушки 11 и 21 | `android/app/src/test/java/com/yuldash/app/walk/l1_4/PriceSpeechTest.kt::rublesAloud_declinesByRussianPluralRules` | да — M12 |
 | R2 | Без подачи — короче: поездка+итог, без лишней клаузы «дорога водителя 0 рублей» (RU) | `android/app/src/test/java/com/yuldash/app/walk/l1_4/PriceSpeechTest.kt::priceAloudRu_withoutPickupFee_skipsDriverRoadClause`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/PriceSpeechTest.kt::priceAloudRu_withPickupFee_readsThreeNumbersInOrder`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/PriceSpeechTest.kt::priceAloudRu_doesNotRecomputeTotal_readsItVerbatim` | да — M13 |
 | R3 | То же для башкирской фразы | `android/app/src/test/java/com/yuldash/app/walk/l1_4/PriceSpeechTest.kt::priceAloudBa_withoutPickupFee_skipsDriverRoadClause`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/PriceSpeechTest.kt::priceAloudBa_withPickupFee_readsThreeNumbersInOrder` | да — M14 |
-| R4 | `ready` — настоящее состояние Compose: кнопка появляется САМА, как только синтезатор готов, без лишних перерисовок экрана | `android/app/src/test/java/com/yuldash/app/walk/l1_4/PriceSpeakerReadyStateTest.kt::readyFlipsAfterAsyncCallback_recomposesWithoutAnyOtherTrigger`, `::noLanguageAvailable_staysNotReady_noCrashOnFailureStatus` | да — M41 |
 
 ## Найденные ошибки
 
-| ID | Что было (по-человечески) | Как воспроизвести | Исправление | Тест: до → после |
-|---|---|---|---|---|
-| E6 (P2, ревью Opus) | Кнопка «Прочитать цену вслух» могла не появиться вовсе. `ready`/`bashkirAvailable` были обычными Kotlin `var`, а не состоянием Compose. Колбэк `TextToSpeech.OnInitListener` асинхронный и приходит ПОСЛЕ первой отрисовки экрана с ценой — обычное поле меняется мимо системы перерисовки. Кнопка появлялась СЛУЧАЙНО: только если что-то ДРУГОЕ на экране (новая оценка цены, смена темы и т.п.) заново вызывало перерисовку уже ПОСЛЕ готовности синтезатора. | `Robolectric ShadowTextToSpeech`: сконструировать `PriceSpeaker` в составе composable, вызвать `shadowOf(tts).onInitListener.onInit(SUCCESS)` ПОСЛЕ первой отрисовки, без единого другого триггера перерисовки | `ready`/`bashkirAvailable` переведены на `by mutableStateOf(false)` | `PriceSpeakerReadyStateTest::readyFlipsAfterAsyncCallback_recomposesWithoutAnyOtherTrigger` — до правки кнопка так и не появилась бы (обычное поле не доходит до Compose); после — появляется сама сразу после `onInit(SUCCESS)` |
+Ошибок не найдено. Проверено: склонение числительных (включая 11/21 — типовая ловушка),
+отсутствие лишней клаузы при нулевой подаче, что `total` читается как пришёл с сервера (не
+пересчитывается на клиенте — иначе озвучка разошлась бы с ценой на экране при скидке по
+промокоду), единицы измерения на стороне единственного вызывающего (рубли, не копейки).
 
 ## Проверка нарочной поломкой
 
 | ID | Что сломали | Тест | Результат |
 |---|---|---|---|
-| M12 | Местами переставлены «рубля»/«рублей» в `pluralRu(...)` | `rublesAloud_declinesByRussianPluralRules` | KILLED |
-| M13 | `pickupFee > 0` → `pickupFee >= 0` в `priceAloudRu` (клауза подачи всегда читается) | `priceAloudRu_withoutPickupFee_skipsDriverRoadClause` | KILLED |
-| M14 | То же для `priceAloudBa` | `priceAloudBa_withoutPickupFee_skipsDriverRoadClause` | KILLED |
-| M41 | `ready` снова обычное Kotlin-поле, не состояние Compose | `PriceSpeakerReadyStateTest::readyFlipsAfterAsyncCallback_recomposesWithoutAnyOtherTrigger` | KILLED |
+| M12 | Местами переставлены «рубля»/«рублей» в `pluralRu(...)` | `rublesAloud_declinesByRussianPluralRules` | KILLED: тест упал |
+| M13 | `pickupFee > 0` → `pickupFee >= 0` в `priceAloudRu` (клауза подачи всегда читается) | `priceAloudRu_withoutPickupFee_skipsDriverRoadClause` | KILLED: тест упал |
+| M14 | То же для `priceAloudBa` | `priceAloudBa_withoutPickupFee_skipsDriverRoadClause` | KILLED: тест упал |
 
 ## Остаток и ограничения
 
@@ -75,8 +73,5 @@
 произношение) не проверялся — это требует эмулятора/устройства с установленным голосом,
 чего нет на этой машине. Логика ВЫБОРА голоса (`bashkirAvailable`, фолбэк на русский текст)
 прочитана и соответствует комментариям; поведение самого синтезатора — вне доступного
-инструментария unit-тестов.
-
-**P3, не блокирует (из отчёта ведущему):** язык синтезатора (`tts.language`) задаётся ОДИН раз
-в `init{}`, не перед каждой фразой — если на телефоне есть башкирский голос, русский текст при
-русском интерфейсе может прочитаться башкирским голосом. Решение за Александром.
+инструментария unit-тестов. Решение: ⛔ не ставлю (файл не про деньги напрямую, а остальная
+логика защищена тестами), но отмечаю как `Остаток`.

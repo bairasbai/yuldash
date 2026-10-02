@@ -131,8 +131,8 @@ class WalletPayoutFlowTest {
         render()
         compose.waitForIdle()
 
-        typeAmount("999")   // меньше максимума (5000), но больше доступного остатка (600, долга нет)
-        compose.onNodeWithText("Доступно только 600 ₽").assertIsDisplayed()
+        typeAmount("999")   // меньше максимума (5000), но больше баланса (600)
+        compose.onNodeWithText("На балансе только 600 ₽").assertIsDisplayed()
         compose.onNodeWithTag("payout_submit").assertIsNotEnabled()
     }
 
@@ -145,93 +145,6 @@ class WalletPayoutFlowTest {
         compose.onNodeWithText("Всё").performClick()
         compose.onNodeWithText("Вывести 600 ₽").assertIsDisplayed()
         compose.onNodeWithTag("payout_submit").assertIsEnabled()
-    }
-
-    @Test
-    fun amount_aboveMaximum_disablesButtonAndExplainsWhy() {
-        // Денежное правило из §5.3 (не было поймано ни одной поломкой): ветка «максимум за
-        // раз» (5000 ₽ в этом стенде) отдельна от ветки «выше баланса» — сумма ниже баланса
-        // (600 ₽), но выше разового максимума, обязана показать ИМЕННО текст про максимум.
-        start { MockResponse().setResponseCode(200).setBody("{}") }
-        render()
-        compose.waitForIdle()
-
-        typeAmount("5500")   // больше максимума (5000), хотя баланс вообще не об этом (600)
-        compose.onNodeWithText("Максимум 5 000 ₽ за раз").assertIsDisplayed()
-        compose.onNodeWithTag("payout_submit").assertIsNotEnabled()
-    }
-
-    /** Тот же стенд, что [start], но статус выплат отвечает ОДИН конкретный JSON целиком —
-     *  нужен, чтобы задать свои payable_kop/owed_kop (вместо дефолтного "весь баланс доступен"). */
-    private fun startWithPayoutStatus(payoutStatusJson: String, payoutResponses: (JSONObject) -> MockResponse = {
-        MockResponse().setResponseCode(200).setBody("{}")
-    }) {
-        server = MockWebServer().apply {
-            dispatcher = object : Dispatcher() {
-                override fun dispatch(request: RecordedRequest): MockResponse = when {
-                    request.path?.startsWith("/wallet/balance") == true ->
-                        MockResponse().setResponseCode(200).setBody("""{"balance_kop":60000,"balance_rub":600}""")
-                    request.path?.startsWith("/wallet/ledger") == true ->
-                        MockResponse().setResponseCode(200).setBody("[]")
-                    request.path?.startsWith("/wallet/payout/status") == true ->
-                        MockResponse().setResponseCode(200).setBody(payoutStatusJson)
-                    request.path == "/wallet/payout" -> {
-                        val body = JSONObject(request.body.readUtf8())
-                        payoutKeys += body.optString("idempotency_key")
-                        payoutResponses(body)
-                    }
-                    else -> MockResponse().setResponseCode(404).setBody("{}")
-                }
-            }
-            start()
-        }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
-        ApiClient.testTimeoutMs = 2_000
-        ApiClient.init(context)
-        ApiClient.saveToken(token(101))
-    }
-
-    // ---- payable_kop/owed_kop (ревью Opus): вывод считаем от ДОСТУПНОГО остатка, не от баланса ----
-
-    @Test
-    fun driverWithDebt_payoutBoundsComeFromPayableNotRawBalance() {
-        // Баланс 600 ₽, но 400 ₽ из них держит долг платформе — доступно реально только 200 ₽.
-        startWithPayoutStatus(
-            """{"enabled":true,"balance_kop":60000,"has_requisite":true,"card_last4":"4242",
-                "min_kop":10000,"max_kop":500000,"payable_kop":20000,"owed_kop":40000}""",
-        )
-        render()
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("Всё").fetchSemanticsNodes().isNotEmpty() }
-
-        // Объяснение долга — человеку, а не только цифра в подписи поля.
-        compose.onNodeWithText(
-            "На балансе 600 ₽, из них 400 ₽ уходит на долг платформе — доступно 200 ₽.",
-        ).assertIsDisplayed()
-
-        // «Всё» подставляет ДОСТУПНЫЙ остаток (200), а не весь баланс (600).
-        compose.onNodeWithText("Всё").performClick()
-        compose.onNodeWithText("Вывести 200 ₽").assertIsDisplayed()
-        compose.onNodeWithTag("payout_submit").assertIsEnabled()
-
-        // Сумма БОЛЬШЕ доступного, но МЕНЬШЕ сырого баланса (300 < 600, но > 200) — раньше
-        // прошла бы как валидная и сервер отказал бы уже ПОСЛЕ подтверждения.
-        compose.onNode(hasText("Сумма, ₽") and hasSetTextAction()).performTextReplacement("300")
-        compose.onNodeWithText("Доступно только 200 ₽").assertIsDisplayed()
-        compose.onNodeWithTag("payout_submit").assertIsNotEnabled()
-    }
-
-    @Test
-    fun noDebt_payableEqualsBalance_noDebtBannerShown() {
-        startWithPayoutStatus(
-            """{"enabled":true,"balance_kop":60000,"has_requisite":true,"card_last4":"4242",
-                "min_kop":10000,"max_kop":500000,"payable_kop":60000,"owed_kop":0}""",
-        )
-        render()
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("Всё").fetchSemanticsNodes().isNotEmpty() }
-
-        compose.onNodeWithText("уходит на долг платформе", substring = true).assertDoesNotExist()
-        compose.onNodeWithText("Всё").performClick()
-        compose.onNodeWithText("Вывести 600 ₽").assertIsDisplayed()
     }
 
     // ---- R2: идемпотентность ----

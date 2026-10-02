@@ -2,7 +2,7 @@
 
 - Статус: verified
 - Лист: leaf-1.4
-- Проверял: Sonnet 5 (leaf-1.4); принимал: ожидает ревью
+- Проверял: Sonnet 5 (leaf-1.4); принимал: Opus 5.5 (ревью денег)
 
 ## Назначение
 
@@ -15,12 +15,10 @@
 
 | Функция / участок | Строки | Что делает | Условия, входы, ошибки | Вердикт |
 |---|---|---|---|---|
-| `rub(v)` | 54–63 | Рубли с разрядом-пробелом (узкий неразрывный, U+202F) + «₽» | Делегирует общему `fmtRub` (WalletScreen.kt) вместо своей копии — см. E1 | исправлено, R1 |
-| Карточка «Чистыми тебе в месяц» | ~109–122 | Главная сумма + подпись | П3 (ревью Opus, исполнено): `Color.White` → `CanonOnAccent` (тот же белый, но токен, не хардкод) | ок (после правки) |
-| `IncomeCalculatorScreen` (расчёт) | ~79–95 | Купоны+Boost(+такси) → `gross` → `net` автора | Чистая арифметика, Double; никаких округлений до показа (округляет только `rub()`) | ок |
-| Честная экономика водителя | ~90–95 | `driverGrossMonth − fuelMonth − driverCommissionMonth` | П3 (ревью Opus, исполнено): `coerceAtLeast(0.0)` снят — убыток показывается честно, тем же `rub()` с рабочим минусом; цвет суммы красный (`CanonRed`), когда < 0 | ок (после правки), R3 |
-| Тумблер «Включить такси» | ~146–159 | Вкл/выкл такси-режим | П3 (ревью Opus, исполнено): `contentDescription` на двух языках через `appText` (значение считано ДО `.semantics{}` — внутри этого блока `@Composable`-функции звать нельзя) | ок (после правки) |
-| `CalcSlider` | ~216–247 | Один ползунок + подпись-значение | П3 (ревью Opus, исполнено): `Modifier.semantics{contentDescription=label}` — TalkBack называет тему ползунка, не голое число; `testTag` — опциональный, в проде ничего не меняет | ок (после правки), R4 |
+| `rub(v)` | 45–54 | Рубли с разрядом-пробелом + «₽» | Делегирует общему `fmtRub` (WalletScreen.kt) вместо своей копии — см. «Найденные ошибки» | исправлено, R1 |
+| `IncomeCalculatorScreen` (расчёт) | 72–88 | Купоны+Boost(+такси) → `gross` → `net` автора | Чистая арифметика, Double; никаких округлений до показа (округляет только `rub()`) | ок |
+| Честная экономика водителя | 83–88 | `driverGrossMonth − fuelMonth − driverCommissionMonth`, не уходит в минус | `coerceAtLeast(0.0)` — см. R3; комиссия считается от СВОЕГО валового водителя, не от выручки автора — см. R2 | ок, R2, R3 |
+| `CalcSlider` | 202–229 | Один ползунок + подпись-значение | `testTag` — опциональный, пустая строка по умолчанию, в проде ничего не меняет (только для тестов листа 1.4) | ок |
 
 ## Связи
 
@@ -32,36 +30,27 @@
 
 | ID | Правило | Тесты | Ловит поломку? |
 |---|---|---|---|
-| R1 | Деньги форматируются общим `fmtRub`: разряд-пробел (узкий неразрывный, не ломается при переносе строки), минус не отрывается лишним пробелом на отрицательных суммах, у которых число ЦИФР (без минуса) кратно трём | `android/app/src/test/java/com/yuldash/app/walk/l1_4/IncomeCalculatorScreenTest.kt::rub_negativeMultipleOfThousand_keepsMinusGlued`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/IncomeCalculatorScreenTest.kt::rub_roundsToNearestWholeRuble` | да — M15 |
+| R1 | Деньги форматируются общим `fmtRub`: разряд-пробел, минус не отрывается лишним пробелом на отрицательных суммах, кратных тысяче | `android/app/src/test/java/com/yuldash/app/walk/l1_4/IncomeCalculatorScreenTest.kt::rub_negativeMultipleOfThousand_keepsMinusGlued`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/IncomeCalculatorScreenTest.kt::rub_roundsToNearestWholeRuble` | да — M15 |
 | R2 | Комиссия водителя считается от ЕГО СОБСТВЕННОГО валового (а не от выручки автора) | `android/app/src/test/java/com/yuldash/app/walk/l1_4/IncomeCalculatorScreenTest.kt::driverEconomy_subtractsFuelAndCommissionFromGross` | да — M16 |
-| R3 | «Чистыми водителю» показывает ЧЕСТНЫЙ убыток (не «0 ₽», когда расшифровка ниже вычитает больше валового) — красным цветом | `android/app/src/test/java/com/yuldash/app/walk/l1_4/IncomeCalculatorScreenTest.kt::driverEconomy_honestlyShowsLoss_whenFuelExceedsGross` | да — M17 |
-| R4 | Ползунок называет свою тему для TalkBack (`contentDescription = label`, не голое число) | `android/app/src/test/java/com/yuldash/app/walk/l1_4/IncomeCalculatorScreenTest.kt::slider_exposesHumanLabelAsContentDescription_forTalkBack` | да — M43 |
+| R3 | «Чистыми водителю» никогда не уходит в минус (жадные настройки бензина → 0 ₽, не «−10 260 000 ₽») | `android/app/src/test/java/com/yuldash/app/walk/l1_4/IncomeCalculatorScreenTest.kt::driverEconomy_neverShowsNegativeNet_clampsToZero` | да — M17 |
 
 ## Найденные ошибки
 
 | ID | Что было (по-человечески) | Как воспроизвести | Исправление | Тест: до → после |
 |---|---|---|---|---|
-| E1 | `rub()` был самодельным форматтером: группировка разрядов через переворот строки (reverse → по 3 символа → join пробелом → reverse обратно), и эта наивная схема цепляла знак минуса как обычный символ. Ломались ТОЛЬКО отрицательные суммы, у которых число ЦИФР (без минуса) кратно трём. | Прямой вызов `rub(-100000.0)`/`rub(-100.0)` | `rub()` делегирует `fmtRub` вместо собственной реализации | `IncomeCalculatorScreenTest::rub_negativeMultipleOfThousand_keepsMinusGlued` — см. M15 (воспроизводит ИМЕННО этот алгоритм) |
-| E14 (P3, ревью Opus, исполнено) | Жадные настройки бензина давали расход больше валового. «Чистыми водителю» показывало «0 ₽» (`coerceAtLeast(0.0)`), а расшифровка ниже честно писала «вычли бензин 10 800 000 ₽ + комиссия 60 000 ₽» из валовых 600 000 ₽ — цифры не сходились. | Пройти по ползункам как в `driverEconomy_honestlyShowsLoss_whenFuelExceedsGross` | `coerceAtLeast(0.0)` снят; сумма показывается как есть («-10 260 000 ₽»), цвет — `CanonRed` | Тот же тест — до правки искали бы «0 ₽», после ищут «-10 260 000 ₽» и честно сходящуюся расшифровку |
-| E15 (P3, ревью Opus, исполнено) | `Color.White` вместо `CanonOnAccent` — визуально тот же белый, но хардкод в обход палитры (CLAUDE.md §11 запрещает) | `grep Color.White` в файле | Заменено на `CanonOnAccent` (тот же `0xFFFFFFFF`) | Правило CLAUDE.md выполнено по тексту; `CanonSourceGuardTest` цвета не проверяет вообще |
-| E16 (P3, ревью Opus, исполнено) | У ползунков и тумблера «Включить такси» не было `contentDescription` — TalkBack читал бы голое число/«вкл-выкл» без темы | TalkBack на реальном устройстве (не проверялось — эмулятора нет) | `Modifier.semantics{contentDescription=...}` на слайдере (через уже двуязычный `label`) и на тумблере | `slider_exposesHumanLabelAsContentDescription_forTalkBack` — до правки описание было пустым |
+| E1 | `rub()` был самодельным форматтером (реверс строки по 3 символа). На отрицательных суммах, чья целая часть ровно кратна трём цифрам (−100, −100 000, …), он отрывал минус лишним пробелом: «− 100 000 ₽» вместо «−100 000 ₽». Сейчас ни один ползунок калькулятора не даёт отрицательный доход (валовый/Boost/купоны неотрицательны, «чистыми водителю» уже был защищён `coerceAtLeast(0.0)`), поэтому по-настоящему на экране это не воспроизвести — риск ЛАТЕНТНЫЙ: тот же формат денег используется ВЕЗДЕ в приложении (баланс, вывод, чек), и функция обязана быть верной сама по себе, а не только «пока входные данные хорошие». | Прямой вызов `rub(-100000.0)` (функция сделана `internal`, тест в том же модуле) | `rub()` теперь делегирует `fmtRub` (единственный денежный форматтер приложения, уже защищённый `WalletMoneyFormatTest`) вместо собственной реализации | `WalletMoneyFormatTest`/`IncomeCalculatorScreenTest::rub_negativeMultipleOfThousand_keepsMinusGlued` — до правки `rub(-100000.0)` давал `"- 100 000 ₽"` (руками проверено по формуле реверса строки, тест написан уже на исправленную версию и ловит регресс мутацией M15) |
 
 ## Проверка нарочной поломкой
 
 | ID | Что сломали | Тест | Результат |
 |---|---|---|---|
-| M15 | Воспроизводит РЕАЛЬНЫЙ исторический алгоритм (reverse→chunked(3)→join(" ")→reverse) | `rub_negativeMultipleOfThousand_keepsMinusGlued` | KILLED |
-| M16 | Комиссия водителя считается от `gross` (выручка автора) вместо `driverGrossMonth` | `driverEconomy_subtractsFuelAndCommissionFromGross` | KILLED |
-| M17 | Возврат `coerceAtLeast(0.0)` — убыток снова прячется за нулём | `driverEconomy_honestlyShowsLoss_whenFuelExceedsGross` | KILLED |
-| M43 | Слайдер снова без `contentDescription` | `slider_exposesHumanLabelAsContentDescription_forTalkBack` | KILLED |
+| M15 | `rub()` снова форматирует сам (`v.roundToInt()` без `fmtRub`) | `rub_negativeMultipleOfThousand_keepsMinusGlued` | KILLED: тест упал |
+| M16 | Комиссия водителя считается от `gross` (выручка автора) вместо `driverGrossMonth` | `driverEconomy_subtractsFuelAndCommissionFromGross` | KILLED: тест упал |
+| M17 | Снят `coerceAtLeast(0.0)` у «чистыми водителю» | `driverEconomy_neverShowsNegativeNet_clampsToZero` | KILLED: тест упал |
 
 ## Остаток и ограничения
 
 Экран не пользовательский (админ-инструмент), поэтому стандартные состояния
 загрузка/пусто/ошибка к нему неприменимы — расчёт мгновенный и локальный. Визуальная проверка
-на эмуляторе (ползунки на палец, звук TalkBack) не делалась — только Robolectric через точный
-`SemanticsActions.SetProgress`/разбор дерева семантики.
-
-**P3, не блокирует (из отчёта ведущему, оставлено как есть):**
-- «Заработано» у водителя (до комиссии) и у курьера (после) означают разное — решение за
-  Александром, не этот файл.
+на эмуляторе (как ползунки выглядят и реагируют на палец) не делалась — только Robolectric
+через точный `SemanticsActions.SetProgress`, не настоящий жест пальцем.

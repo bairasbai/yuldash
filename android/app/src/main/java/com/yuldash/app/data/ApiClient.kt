@@ -4329,8 +4329,6 @@ object ApiClient {
                         deliveries = d.optInt("deliveries"),
                     )
                 },
-                unpaidNetKop = o.optInt("unpaid_net_kop"),
-                unpaidDeliveries = o.optInt("unpaid_deliveries"),
             )
         }
 
@@ -4553,13 +4551,7 @@ object ApiClient {
     /** Баланс кошелька (сумма всех записей ledger). Копейки + рубли. */
     suspend fun getWalletBalance(): Result<WalletBalanceDto> =
         call("GET", "/wallet/balance", null, auth = true).map { o ->
-            WalletBalanceDto(
-                balanceKop = o.optInt("balance_kop"),
-                balanceRub = o.optInt("balance_rub"),
-                // Сервер уже вычёл резерв под комиссию; нет поля (старый бэкенд) — считаем,
-                // что свободно всё (как было раньше, до этого поля).
-                payableKop = if (o.has("payable_kop")) o.optInt("payable_kop") else o.optInt("balance_kop"),
-            )
+            WalletBalanceDto(balanceKop = o.optInt("balance_kop"), balanceRub = o.optInt("balance_rub"))
         }
 
     /** История операций кошелька (начисления/комиссии/выплаты). Ответ — массив (call() кладёт в "items"). */
@@ -4587,18 +4579,13 @@ object ApiClient {
     /** Статус выплат: включены ли, баланс, сохранённая карта, границы суммы. Всё — с сервера (не хардкод). */
     suspend fun getPayoutStatus(): Result<PayoutStatusDto> =
         call("GET", "/wallet/payout/status", null, auth = true).map { o ->
-            val balKop = o.optInt("balance_kop")
             PayoutStatusDto(
                 enabled = o.optBoolean("enabled"),
-                balanceKop = balKop,
+                balanceKop = o.optInt("balance_kop"),
                 hasRequisite = o.optBoolean("has_requisite"),
                 cardLast4 = o.optString("card_last4"),
                 minKop = o.optInt("min_kop"),
                 maxKop = o.optInt("max_kop"),
-                // Нет поля (старый бэкенд) — считаем, что свободно всё и долга нет (поведение
-                // ДО этих полей, чтобы старый сервер не выглядел как сплошной долг).
-                payableKop = if (o.has("payable_kop")) o.optInt("payable_kop") else balKop,
-                owedKop = o.optInt("owed_kop"),
             )
         }
 
@@ -4661,8 +4648,6 @@ object ApiClient {
                     val d = arr.getJSONObject(i)
                     DriverEarningsDayDto(date = d.optString("date"), sum = d.optInt("sum"), trips = d.optInt("trips"))
                 },
-                unpaidTotal = o.optInt("unpaid_total"),
-                unpaidTrips = o.optInt("unpaid_trips"),
             )
         }
 
@@ -7244,10 +7229,8 @@ data class AdminDebtDto(
     /** amount — рубли (совместимость), amountKop — точная сумма, её и показываем админу. */
     val amount: Int, val amountKop: Int, val weeks: List<String>,
 )
-/** Баланс кошелька водителя (GET /wallet/balance). rub = kop // 100 (считает сервер).
- *  payableKop — сколько из баланса реально свободно (без долга платформе); сервер уже вычел
- *  резерв под комиссию сам (wallet.py::wallet_balance) — клиент не пересчитывает. */
-data class WalletBalanceDto(val balanceKop: Int, val balanceRub: Int, val payableKop: Int = 0)
+/** Баланс кошелька водителя (GET /wallet/balance). rub = kop // 100 (считает сервер). */
+data class WalletBalanceDto(val balanceKop: Int, val balanceRub: Int)
 /** Запись истории кошелька (GET /wallet/ledger). amountKop: приход > 0, списание/комиссия < 0.
  *  kind: earn (начисление за поездку) / fee (комиссия сервиса) / payout … note — человекочитаемо. */
 data class WalletLedgerEntryDto(
@@ -7260,11 +7243,7 @@ data class WalletLedgerEntryDto(
     val createdAt: String,
 )
 /** Статус выплат на карту (GET /wallet/payout/status). enabled=false → честная заглушка «скоро».
- *  minKop/maxKop — границы одной выплаты (источник истины — сервер, клиент не хардкодит).
- *  payableKop/owedKop — сервер уже посчитал, сколько из баланса свободно и сколько держит
- *  долг платформе (wallet.py::wallet_payout_status); вывод и «Всё» считаем от payableKop,
- *  НЕ от balanceKop — иначе человек с долгом видит рабочую кнопку на деньги, которые уйдут
- *  не ему (ревью Opus по leaf-1.4). */
+ *  minKop/maxKop — границы одной выплаты (источник истины — сервер, клиент не хардкодит). */
 data class PayoutStatusDto(
     val enabled: Boolean,
     val balanceKop: Int,
@@ -7272,8 +7251,6 @@ data class PayoutStatusDto(
     val cardLast4: String,
     val minKop: Int,
     val maxKop: Int,
-    val payableKop: Int = balanceKop,
-    val owedKop: Int = 0,
 )
 /** Результат вывода (POST /wallet/payout). status: ok | already (идемпотентный повтор той же попытки). */
 data class PayoutResultDto(val status: String, val entryId: Int, val amountKop: Int, val balanceKop: Int)
@@ -7291,17 +7268,12 @@ data class PayTripResultDto(
 /** День в разбивке заработка (GET /driver/earnings). sum — в ₽ (не копейки). */
 data class DriverEarningsDayDto(val date: String, val sum: Int, val trips: Int)
 /** Заработок водителя за период (GET /driver/earnings?period=week|month|all).
- *  total/sum — в РУБЛЯХ (₽, целые): сумма цен завершённых такси-заказов.
- *  unpaidTotal/unpaidTrips — поездки, по которым разбор жалобы подтвердил: денег не было
- *  (debt.py::driver_earnings, волна 190). В total НЕ входят и молча не пропадают — работа
- *  была сделана, и это должно быть видно отдельной строкой, а не нулём. */
+ *  total/sum — в РУБЛЯХ (₽, целые): сумма цен завершённых такси-заказов. */
 data class DriverEarningsDto(
     val period: String,
     val total: Int,
     val trips: Int,
     val byDay: List<DriverEarningsDayDto>,
-    val unpaidTotal: Int = 0,
-    val unpaidTrips: Int = 0,
 )
 /** Сохранённый адрес (Дом/Работа/свой). kind: home|work|custom. */
 data class SavedPlaceDto(
@@ -7865,18 +7837,13 @@ data class ParcelSettlementDto(
 /** День заработка курьера (чистыми = цена доставки минус комиссия платформы). */
 data class CourierEarningsDayDto(val date: String, val netKop: Int, val deliveries: Int)
 
-/** Заработок курьера за период. Всё в КОПЕЙКАХ (у водителя аналогичный экран — в рублях).
- *  unpaidNetKop/unpaidDeliveries — доставки, по которым разбор жалобы подтвердил: курьеру не
- *  заплатили (courier.py::courier_earnings, волна 191, по образцу волны 190 у водителя).
- *  В net/deliveries НЕ входят и молча не пропадают. */
+/** Заработок курьера за период. Всё в КОПЕЙКАХ (у водителя аналогичный экран — в рублях). */
 data class CourierEarningsDto(
     val period: String,
     val netKop: Int,
     val commissionKop: Int,
     val deliveries: Int,
     val byDay: List<CourierEarningsDayDto>,
-    val unpaidNetKop: Int = 0,
-    val unpaidDeliveries: Int = 0,
 )
 
 data class CourierApplicationDto(

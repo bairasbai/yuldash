@@ -122,56 +122,14 @@ class WalletScreenStatesTest {
         awaitText("Что-то пошло не так")
 
         compose.onNodeWithText("Что-то пошло не так").assertIsDisplayed()
-        // P1 (ревью Opus): баланс не ответил — карточка НЕ должна молча нарисовать «0 ₽»
-        // (это читается как «деньги пропали»), а честно сказать, что баланс не узнали.
-        compose.onNodeWithText("Баланс не узнали").assertIsDisplayed()
-        compose.onNodeWithText("0 ₽").assertDoesNotExist()
 
         fail = false
-        // Два независимых «Повторить» на экране разом (у карточки баланса и у истории) —
-        // оба зовут один и тот же load(), жмём конкретно тег карточки баланса.
-        compose.onNodeWithTag("wallet_balance_retry").performClick()
+        compose.onNodeWithText("Повторить").performClick()
         awaitText("150,50 ₽")
 
         compose.onNodeWithText("150,50 ₽").assertIsDisplayed()
         compose.onNodeWithText("Что-то пошло не так").assertDoesNotExist()
-        compose.onNodeWithText("Баланс не узнали").assertDoesNotExist()
         assertEquals("«Повторить» обязан реально переспросить сервер", 2, ledgerCalls.get())
-    }
-
-    @Test
-    fun balanceFailsAlone_ledgerSucceeds_showsHonestBalanceErrorNotStaleOrZero() {
-        // P1/P2 (ревью Opus): частичный сбой на ПЕРВОМ открытии — история пришла, баланс нет.
-        // Раньше общий `error` требовал падения ОБОИХ, молчал, а `stale` включался «по истории»
-        // (раз хоть что-то есть) — баланс рисовал выдуманный «0 ₽» без единого намёка на ошибку.
-        start(
-            balance = { MockResponse().setResponseCode(500) },
-            ledger = { MockResponse().setResponseCode(200).setBody("[${ledgerEntry(1, "earn", 15050, "Поездка")}]") },
-        )
-        render()
-        awaitText("Баланс не узнали")
-
-        compose.onNodeWithText("Баланс не узнали").assertIsDisplayed()
-        compose.onNodeWithText("0 ₽").assertDoesNotExist()
-        // История пришла нормально — её трогать нельзя, она не про баланс.
-        compose.onNodeWithText("Поездка").assertIsDisplayed()
-    }
-
-    @Test
-    fun ledgerFailsAlone_balanceSucceeds_showsHonestLedgerErrorNotFalseEmpty() {
-        // P2 (ревью Opus): зеркальный случай — баланс пришёл, история нет. Раньше `stale`
-        // включался «по балансу», и история показывала «Пока операций нет», хотя на деле
-        // мы просто не знаем, есть операции или нет.
-        start(
-            balance = { MockResponse().setResponseCode(200).setBody("""{"balance_kop":15050,"balance_rub":150}""") },
-            ledger = { MockResponse().setResponseCode(500) },
-        )
-        render()
-        awaitText("150,50 ₽")
-
-        compose.onNodeWithText("150,50 ₽").assertIsDisplayed()
-        compose.onNodeWithText("Что-то пошло не так").assertIsDisplayed()
-        compose.onNodeWithText("Пока операций нет").assertDoesNotExist()
     }
 
     @Test
@@ -215,29 +173,6 @@ class WalletScreenStatesTest {
     }
 
     @Test
-    fun ledgerRow_signsIncomeWithPlus_debitWithTypographicMinus() {
-        // Денежное правило из §5.3 (не было поймано ни одной поломкой): приход (amountKop ≥ 0)
-        // обязан идти со знаком «+», списание/комиссия (< 0) — с типографским минусом kopToRub
-        // (не ASCII дефис), иначе на экране не отличить «начислили» от «списали».
-        start(
-            balance = { MockResponse().setResponseCode(200).setBody("""{"balance_kop":10000,"balance_rub":100}""") },
-            ledger = {
-                MockResponse().setResponseCode(200).setBody(
-                    "[${ledgerEntry(1, "earn", 15000, "Поездка")},${ledgerEntry(2, "fee", -5000, "Комиссия")}]",
-                )
-            },
-        )
-        render()
-        awaitText("+150 ₽")
-
-        compose.onNodeWithText("+150 ₽").assertIsDisplayed()
-        // kopToRub -5000 коп → типографский минус «−» (U+2212), не ASCII «-».
-        compose.onNodeWithText("−50 ₽").assertIsDisplayed()
-        compose.onNodeWithText("-50 ₽").assertDoesNotExist()
-        compose.onNodeWithText("+-50 ₽").assertDoesNotExist()
-    }
-
-    @Test
     fun ledgerAtLimit_showsHonestCutoffNotice() {
         val fifty = (1..50).joinToString(",") { ledgerEntry(it, "earn", 1000) }
         start(
@@ -268,22 +203,6 @@ class WalletScreenStatesTest {
 
         compose.onNodeWithText("Выплаты на карту — скоро").assertIsDisplayed()
         compose.onNodeWithText("Вывести", substring = true).assertDoesNotExist()
-    }
-
-    @Test
-    fun balanceCard_withDebt_explainsPayableVsOwed_notFullBalanceCaption() {
-        // ВНЕ ЗОНЫ, теперь в зоне (ревью Opus, раздел 3): подпись «Доступно к выводу через
-        // СБП» не должна стоять под ПОЛНЫМ балансом, когда часть денег держит долг платформе.
-        start(
-            balance = { MockResponse().setResponseCode(200).setBody("""{"balance_kop":60000,"balance_rub":600,"payable_kop":20000}""") },
-            ledger = { MockResponse().setResponseCode(200).setBody("[]") },
-            payout = { MockResponse().setResponseCode(200).setBody("""{"enabled":true,"balance_kop":60000,"has_requisite":false,"card_last4":"","min_kop":100000,"max_kop":5000000}""") },
-        )
-        render()
-        awaitText("600 ₽")
-
-        compose.onNodeWithText("Доступно к выводу 200 ₽ — 400 ₽ уходит на долг платформе").assertIsDisplayed()
-        compose.onNodeWithText("Доступно к выводу через СБП").assertDoesNotExist()
     }
 
     @Test

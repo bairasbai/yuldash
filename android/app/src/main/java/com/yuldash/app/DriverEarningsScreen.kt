@@ -108,16 +108,11 @@ internal fun DriverEarningsScreen(onBack: () -> Unit) {
                     item { SkeletonCard(lines = 2) }
                     item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(4) { SkeletonCard(lines = 1) } } }
                 }
-                // data?.period != period — смена вкладки «Неделя→Месяц» сорвалась: data ещё
-                // держит старый период. Раньше это считалось «протухло» и показывало сумму за
-                // неделю ПОД выбранным «Месяцем» — свежая по виду плашка, а число от чужой
-                // вкладки (ревью Opus). Честная ошибка — лучше, чем правдоподобное враньё.
-                error && (data == null || data?.period != period) ->
-                    item { AppErrorState(onRetry = { scope.launch { load(period) } }) }
+                error && data == null -> item { AppErrorState(onRetry = { scope.launch { load(period) } }) }
                 else -> {
                     val d = data ?: return@LazyColumn
-                    // Сюда попадаем, только если d.period == period — «протухло» честно про
-                    // ТЕКУЩУЮ вкладку: число старое, но хотя бы с неё же, не с соседней.
+                    // Обновление не удалось, а сумма на экране осталась прежней: без этой плашки
+                    // жест «потянуть вниз» выглядел успешным, и водитель считал старую цифру свежей.
                     if (error) item(key = "stale") { MoneyStaleStrip(onRetry = { scope.launch { load(period) } }) }
                     // Итог: сумма во всю ширину + строка «поездок». Раньше это были две половинные
                     // плитки, и у водителя с хорошим месяцем шестизначная сумма упиралась в край.
@@ -204,24 +199,6 @@ private fun EarnTotalsCard(d: DriverEarningsDto) {
                 d.trips.toString(),
                 CanonText,
             )
-            // Разбор жалобы подтвердил: по этим поездкам денег не было (unpaid_*, волна 190).
-            // Они и так не в total/trips выше — молчать совсем нельзя: работа была сделана,
-            // водитель её помнит, и пропавшая без объяснения сумма читается как недосчёт
-            // Юлдаша, а не как чужой долг (ревью Opus).
-            if (d.unpaidTrips > 0) {
-                Surface(color = CanonWarnBg, shape = CanonItemShape) {
-                    Text(
-                        appText(
-                            "Ещё ${d.unpaidTrips} ${tripsWordEarn(d.unpaidTrips)} на ${fmtRub(d.unpaidTotal)} ₽ " +
-                                "${notPaidAgreeFem(d.unpaidTrips)} — деньги не пришли, в заработок выше не включены.",
-                            "Тағы ${d.unpaidTrips} сәфәр ${fmtRub(d.unpaidTotal)} ₽-гә түләнмәгән — " +
-                                "аҡса килмәгән, өҫтәге табышҡа инмәй.",
-                        ),
-                        color = CanonWarn, fontSize = MoneyType.Caption, lineHeight = MoneyType.CaptionLine,
-                        modifier = Modifier.padding(12.dp),
-                    )
-                }
-            }
         }
     }
 }
@@ -281,13 +258,4 @@ private fun tripsWordEarn(n: Int): String {
         m10 in 2..4 && m100 !in 12..14 -> "поездки"
         else -> "поездок"
     }
-}
-
-/** Согласование с «поездка/доставка» (жен. род, ед.ч.): «1 поездка не оплачена», но
- *  «2 поездки не оплачены». Без этого при unpaidTrips=1 текст звучал бы «1 поездка не
- *  оплачены» — неверное число у сказуемого. */
-private fun notPaidAgreeFem(n: Int): String {
-    val m10 = n % 10
-    val m100 = n % 100
-    return if (m10 == 1 && m100 != 11) "не оплачена" else "не оплачены"
 }

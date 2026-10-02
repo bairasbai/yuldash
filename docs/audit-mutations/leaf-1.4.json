@@ -6,13 +6,11 @@
       "id": "M1",
       "file": "android/app/src/main/java/com/yuldash/app/WalletScreen.kt",
       "rule": "R1",
-      "description": "fmtRub перестаёт разбивать разряды узким неразрывным пробелом (U+202F) — 1250 показывалось бы как «1250» вместо «1 250»; обычный разрывной пробел уже один раз ломал перенос суммы на крупном шрифте",
-      "find": "internal fun fmtRub(n: Int): String = String.format(Locale.US, \"%,d\", n).replace(',', ' ')",
+      "description": "fmtRub перестаёт разбивать разряды пробелом — 1250 показывалось бы как «1250» вместо «1 250»",
+      "find": "internal fun fmtRub(n: Int): String = String.format(Locale.US, \"%,d\", n).replace(',', ' ')",
       "replace": "internal fun fmtRub(n: Int): String = String.format(Locale.US, \"%,d\", n).replace(',', '_')",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletMoneyFormatTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.WalletMoneyFormatTest"]
     },
     {
       "id": "M2",
@@ -22,9 +20,7 @@
       "find": "val canPayout = status.hasRequisite && amountText.isNotBlank() && amountError == null && !busy",
       "replace": "val canPayout = status.hasRequisite && amountText.isNotBlank() && true && !busy",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletPayoutFlowTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.WalletPayoutFlowTest"]
     },
     {
       "id": "M3",
@@ -34,21 +30,17 @@
       "find": "if (e is ApiException && код != \"provider_unclear\") idemKey = null",
       "replace": "if (e is ApiException && код == \"provider_unclear\") idemKey = null",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletPayoutFlowTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.WalletPayoutFlowTest"]
     },
     {
       "id": "M4",
       "file": "android/app/src/main/java/com/yuldash/app/WalletScreen.kt",
       "rule": "R4",
-      "description": "Кнопка «Да, вывести» теряет enabled=false во время отправки: на вид кнопка не меняется (явный цвет текста CanonGreen2 перекрывает disabled-затемнение), но TalkBack объявляет её доступной и нажимаемой, хотя нажатие уже ничего не делает",
+      "description": "Кнопка «Да, вывести» теряет видимо-отключённое состояние во время отправки",
       "find": "}, enabled = !busy, modifier = Modifier.testTag(\"payout_confirm\")) {",
       "replace": "}, modifier = Modifier.testTag(\"payout_confirm\")) {",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletPayoutFlowTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.WalletPayoutFlowTest"]
     },
     {
       "id": "M5",
@@ -58,9 +50,7 @@
       "find": "val key = idemKey ?: java.util.UUID.randomUUID().toString().also { idemKey = it }\n                    busy = true",
       "replace": "val key = idemKey ?: java.util.UUID.randomUUID().toString().also { idemKey = it }",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletPayoutFlowTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.WalletPayoutFlowTest"]
     },
     {
       "id": "M6",
@@ -70,9 +60,7 @@
       "find": "if (activeOrderId <= 0) {",
       "replace": "if (activeOrderId < 0) {",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PaymentMethodsScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.PaymentMethodsScreenTest"]
     },
     {
       "id": "M7",
@@ -82,9 +70,7 @@
       "find": "неДошло = null\n        летит = method",
       "replace": "неДошло = null",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PaymentMethodsScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.PaymentMethodsScreenTest"]
     },
     {
       "id": "M8",
@@ -94,9 +80,7 @@
       "find": "if (дошло) onPick(method) else неДошло = method",
       "replace": "onPick(method); if (!дошло) неДошло = method",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PaymentMethodsScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.PaymentMethodsScreenTest"]
     },
     {
       "id": "M9",
@@ -106,213 +90,17 @@
       "find": "appText(\"Оплатить ${kopToRub(amountKop)}\", \"${kopToRub(amountKop)} түләү\")",
       "replace": "appText(\"Оплатить ${amountKop/100} ₽\", \"${amountKop/100} ₽ түләү\")",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PayOnlineCardTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.PayOnlineCardTest"]
     },
     {
       "id": "M10",
       "file": "android/app/src/main/java/com/yuldash/app/PayOnlineCard.kt",
       "rule": "R2",
-      "description": "Возврат старого бага (ревью Opus, п.4): временный 503 именно на ПОПЫТКЕ оплаты снова прячет карточку навсегда, как будто health-check сказал «выключено» — одноразовый сбой провайдера выглядит как «фичи больше нет», честный повтор становится невозможен",
-      "find": "Toast.makeText(context, soonMsg, Toast.LENGTH_LONG).show()\n                    } else {",
-      "replace": "OnlinePayGate.unavailable = true\n                        Toast.makeText(context, soonMsg, Toast.LENGTH_LONG).show()\n                    } else {",
+      "description": "503 от сервера (оплата выключена) перестаёт прятать карточку — пассажир может снова нажать и снова получить отказ",
+      "find": "OnlinePayGate.unavailable = true",
+      "replace": "OnlinePayGate.unavailable = false",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PayOnlineCardTest"
-      ]
-    },
-    {
-      "id": "M26",
-      "file": "android/app/src/main/java/com/yuldash/app/WalletScreen.kt",
-      "rule": "R5",
-      "description": "P1 (ревью Opus): честная ошибка баланса отключена — при сбое сети карточка снова молча рисует выдуманный «0 ₽» вместо «Баланс не узнали» + «Повторить»",
-      "find": "if (failed && balance == null) {",
-      "replace": "if (false && balance == null) {",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletScreenStatesTest"
-      ]
-    },
-    {
-      "id": "M27",
-      "file": "android/app/src/main/java/com/yuldash/app/WalletScreen.kt",
-      "rule": "R6",
-      "description": "P2 (ревью Opus): частичный сбой истории операций больше не считается ошибкой истории — при упавшем /wallet/ledger (баланс пришёл) экран вместо честной ошибки молча показывает «Пока операций нет»",
-      "find": "ledgerFailed = ledRes.isFailure && ledger.isEmpty()",
-      "replace": "ledgerFailed = false",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletScreenStatesTest"
-      ]
-    },
-    {
-      "id": "M28",
-      "file": "android/app/src/main/java/com/yuldash/app/WalletScreen.kt",
-      "rule": "R7",
-      "description": "Знак в истории операций пропадает: приход перестаёт получать «+», и строки прихода/списания становится не отличить на глаз",
-      "find": "val amountText = if (income) \"+\" + kopToRub(e.amountKop) else kopToRub(e.amountKop)",
-      "replace": "val amountText = kopToRub(e.amountKop)",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletScreenStatesTest"
-      ]
-    },
-    {
-      "id": "M29",
-      "file": "android/app/src/main/java/com/yuldash/app/WalletScreen.kt",
-      "rule": "R2",
-      "description": "Ветка «максимум за раз» никогда не срабатывает — сумма выше разового лимита, но ниже баланса, проходит как валидная вместо честного отказа «Максимум X ₽ за раз»",
-      "find": "amountKop > status.maxKop -> appText(\"Максимум ${fmtRub(maxRub)} ₽ за раз\", \"Бер юлы иң күбе ${fmtRub(maxRub)} ₽\")",
-      "replace": "false -> appText(\"Максимум ${fmtRub(maxRub)} ₽ за раз\", \"Бер юлы иң күбе ${fmtRub(maxRub)} ₽\")",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletPayoutFlowTest"
-      ]
-    },
-    {
-      "id": "M30",
-      "file": "android/app/src/main/java/com/yuldash/app/WalletScreen.kt",
-      "rule": "R8",
-      "description": "ВНЕ ЗОНЫ исполнена (ревью Opus, раздел 3): «Всё» снова подставляет сырой баланс вместо доступного остатка — водитель с долгом видит рабочую кнопку на деньги, которые уйдут не ему",
-      "find": "amountText = (minOf(status.payableKop, status.maxKop) / 100).toString()",
-      "replace": "amountText = (minOf(status.balanceKop, status.maxKop) / 100).toString()",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletPayoutFlowTest"
-      ]
-    },
-    {
-      "id": "M31",
-      "file": "android/app/src/main/java/com/yuldash/app/WalletScreen.kt",
-      "rule": "R8",
-      "description": "ВНЕ ЗОНЫ исполнена: граница «выше доступного» снова проверяется по сырому балансу — сумма между payableKop и balanceKop (например 300 ₽ при доступных 200 из 600) проходит как валидная",
-      "find": "amountKop > status.payableKop -> appText(\"Доступно только $payableLabel\", \"Сығарырға $payableLabel ғына була\")",
-      "replace": "amountKop > status.balanceKop -> appText(\"Доступно только $payableLabel\", \"Сығарырға $payableLabel ғына была\")",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletPayoutFlowTest"
-      ]
-    },
-    {
-      "id": "M32",
-      "file": "android/app/src/main/java/com/yuldash/app/WalletScreen.kt",
-      "rule": "R8",
-      "description": "ВНЕ ЗОНЫ исполнена: подпись под балансом снова обещает «Доступно к выводу через СБП» под ПОЛНЫМ балансом даже при долге платформе, вместо честного «доступно X — Y уходит на долг»",
-      "find": "payoutEnabled == true && balance != null && owedKop > 0 -> appText(",
-      "replace": "payoutEnabled == true && balance != null && false -> appText(",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.WalletScreenStatesTest"
-      ]
-    },
-    {
-      "id": "M33",
-      "file": "android/app/src/main/java/com/yuldash/app/DriverEarningsScreen.kt",
-      "rule": "R5",
-      "description": "P2 (ревью Opus): после неудачной смены периода экран снова показывает сумму ЧУЖОГО периода (например, неделю под выбранным «Месяцем») вместо честной ошибки",
-      "find": "error && (data == null || data?.period != period) ->",
-      "replace": "error && (data == null) ->",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.DriverEarningsScreenTest"
-      ]
-    },
-    {
-      "id": "M34",
-      "file": "android/app/src/main/java/com/yuldash/app/DriverEarningsScreen.kt",
-      "rule": "R6",
-      "description": "Сумма конкретного дня теряет разряд-пробел (денежное правило из §5.3, прежде не проверялось ни одной поломкой)",
-      "find": "\"${fmtRub(day.sum)} ₽\", color = CanonGreen, fontWeight = FontWeight.Bold,",
-      "replace": "\"${day.sum} ₽\", color = CanonGreen, fontWeight = FontWeight.Bold,",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.DriverEarningsScreenTest"
-      ]
-    },
-    {
-      "id": "M35",
-      "file": "android/app/src/main/java/com/yuldash/app/DriverEarningsScreen.kt",
-      "rule": "R7",
-      "description": "Неоплаченные поездки (unpaid_*) перестают показываться — работа была, а строка о ней молча пропадает",
-      "find": "if (d.unpaidTrips > 0) {",
-      "replace": "if (false) {",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.DriverEarningsScreenTest"
-      ]
-    },
-    {
-      "id": "M36",
-      "file": "android/app/src/main/java/com/yuldash/app/CourierEarningsScreen.kt",
-      "rule": "R5",
-      "description": "P2 (ревью Opus): курьер, у которого смена периода сорвалась, снова видит ложное «Пока нет доставок» вместо честной ошибки с «Повторить»",
-      "find": "error && (d == null || d.period != period) -> item(key = \"error\") { AppErrorState(onRetry = { reload++ }) }",
-      "replace": "error && (d == null) -> item(key = \"error\") { AppErrorState(onRetry = { reload++ }) }",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"
-      ]
-    },
-    {
-      "id": "M37",
-      "file": "android/app/src/main/java/com/yuldash/app/CourierEarningsScreen.kt",
-      "rule": "R6",
-      "description": "Сумма конкретного дня курьера теряет kopToRub — копейки отваливаются (денежное правило из §5.3, прежде не проверялось: во всех тестах by_day был пустым)",
-      "find": "kopToRub(day.netKop),",
-      "replace": "\"${day.netKop} ₽\",",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"
-      ]
-    },
-    {
-      "id": "M38",
-      "file": "android/app/src/main/java/com/yuldash/app/CourierEarningsScreen.kt",
-      "rule": "R7",
-      "description": "Неоплаченные доставки (unpaid_*) перестают показываться — доставка была, а строка о ней молча пропадает",
-      "find": "if (d.unpaidDeliveries > 0) {",
-      "replace": "if (false) {",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"
-      ]
-    },
-    {
-      "id": "M39",
-      "file": "android/app/src/main/java/com/yuldash/app/PayOnlineCard.kt",
-      "rule": "R2",
-      "description": "P2 (ревью Opus): карточка снова рисуется ДО ответа health-check — на миг показывает рабочую кнопку оплаты ещё до того, как сервер сказал, включена ли оплата вообще",
-      "find": "if (!OnlinePayGate.checked || OnlinePayGate.unavailable) return",
-      "replace": "if (OnlinePayGate.unavailable) return",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PayOnlineCardTest"
-      ]
-    },
-    {
-      "id": "M40",
-      "file": "android/app/src/main/java/com/yuldash/app/PayOnlineCard.kt",
-      "rule": "R2",
-      "description": "health-check, явно ответивший «оплата выключена», перестаёт прятать карточку — пассажир видит кнопку оплаты, которой по правилам быть не должно",
-      "find": ".onSuccess { OnlinePayGate.unavailable = !it }",
-      "replace": ".onSuccess { OnlinePayGate.unavailable = false }",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PayOnlineCardTest"
-      ]
-    },
-    {
-      "id": "M41",
-      "file": "android/app/src/main/java/com/yuldash/app/PriceSpeech.kt",
-      "rule": "R4",
-      "description": "P2 (ревью Opus): ready снова обычное Kotlin-поле, не состояние Compose — кнопка «Прочитать цену вслух» появляется только случайно, если что-то ДРУГОЕ на экране перерисовалось уже после готовности синтезатора",
-      "find": "var ready: Boolean by mutableStateOf(false)",
-      "replace": "var ready: Boolean = false",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PriceSpeakerReadyStateTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.PayOnlineCardTest"]
     },
     {
       "id": "M11",
@@ -322,9 +110,7 @@
       "find": "fun startPay() {\n        if (busy) return\n        busy = true",
       "replace": "fun startPay() {\n        if (busy) return",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PayOnlineCardTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.PayOnlineCardTest"]
     },
     {
       "id": "M12",
@@ -334,9 +120,7 @@
       "find": "\"$amount \" + pluralRu(amount, \"рубль\", \"рубля\", \"рублей\")",
       "replace": "\"$amount \" + pluralRu(amount, \"рубль\", \"рублей\", \"рубля\")",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PriceSpeechTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.PriceSpeechTest"]
     },
     {
       "id": "M13",
@@ -346,9 +130,7 @@
       "find": "if (pickupFee > 0) append(\", дорога водителя \").append(rublesAloud(pickupFee))",
       "replace": "if (pickupFee >= 0) append(\", дорога водителя \").append(rublesAloud(pickupFee))",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PriceSpeechTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.PriceSpeechTest"]
     },
     {
       "id": "M14",
@@ -358,21 +140,17 @@
       "find": "if (pickupFee > 0) append(\", водитель юлы \").append(pickupFee).append(\" һум\")",
       "replace": "if (pickupFee >= 0) append(\", водитель юлы \").append(pickupFee).append(\" һум\")",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.PriceSpeechTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.PriceSpeechTest"]
     },
     {
       "id": "M15",
       "file": "android/app/src/main/java/com/yuldash/app/IncomeCalculatorScreen.kt",
       "rule": "R1",
-      "description": "Воспроизводит реальный исторический баг rub(): наивная группировка разрядов через переворот строки (reverse → chunked(3) → join(\" \") → reverse) цепляет знак минуса как обычный символ. Ломаются ТОЛЬКО отрицательные суммы, у которых число ЦИФР (без минуса) кратно трём — «-100»→«- 100», «-100000»→«- 100 000» (лишний пробел сразу после минуса); «-1000» (4 цифры, не кратно 3) печатается правильно, что и маскировало баг раньше",
+      "description": "rub() возвращается к самодельному форматированию вместо общего fmtRub — отрицательные суммы, кратные тысяче, снова ломаются лишним пробелом после минуса",
       "find": "internal fun rub(v: Double): String = \"${fmtRub(v.roundToInt())} ₽\"",
-      "replace": "internal fun rub(v: Double): String { val s = v.roundToInt().toString(); val grouped = s.reversed().chunked(3).joinToString(\" \").reversed(); return \"$grouped ₽\" }",
+      "replace": "internal fun rub(v: Double): String = \"${v.roundToInt()} ₽\"",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.IncomeCalculatorScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.IncomeCalculatorScreenTest"]
     },
     {
       "id": "M16",
@@ -382,21 +160,17 @@
       "find": "val driverCommissionMonth = driverGrossMonth * (commissionPct.toDouble() / 100.0)",
       "replace": "val driverCommissionMonth = gross * (commissionPct.toDouble() / 100.0)",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.IncomeCalculatorScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.IncomeCalculatorScreenTest"]
     },
     {
       "id": "M17",
       "file": "android/app/src/main/java/com/yuldash/app/IncomeCalculatorScreen.kt",
       "rule": "R3",
-      "description": "П3 (ревью Opus, исполнено): убыток водителя снова прячется за coerceAtLeast(0.0) — строка «вычли бензин+комиссия» перестаёт сходиться с показанными «чистыми 0 ₽»",
-      "find": "val driverNetMonth = driverGrossMonth - fuelMonth - driverCommissionMonth",
-      "replace": "val driverNetMonth = (driverGrossMonth - fuelMonth - driverCommissionMonth).coerceAtLeast(0.0)",
+      "description": "coerceAtLeast(0.0) снят — при жадных настройках бензина «чистыми водителю» уходит в минус",
+      "find": "(driverGrossMonth - fuelMonth - driverCommissionMonth).coerceAtLeast(0.0)",
+      "replace": "(driverGrossMonth - fuelMonth - driverCommissionMonth)",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.IncomeCalculatorScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.IncomeCalculatorScreenTest"]
     },
     {
       "id": "M18",
@@ -406,9 +180,7 @@
       "find": "d.trips.toString(),",
       "replace": "fmtRub(d.trips),",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.DriverEarningsScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.DriverEarningsScreenTest"]
     },
     {
       "id": "M19",
@@ -418,9 +190,7 @@
       "find": "\"${fmtRub(d.total)} ₽\",",
       "replace": "\"${d.total} ₽\",",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.DriverEarningsScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.DriverEarningsScreenTest"]
     },
     {
       "id": "M20",
@@ -430,9 +200,7 @@
       "find": "if (d.byDay.isEmpty()) {",
       "replace": "if (false) {",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.DriverEarningsScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.DriverEarningsScreenTest"]
     },
     {
       "id": "M21",
@@ -442,9 +210,7 @@
       "find": ".onFailure { error = true; loading = false }",
       "replace": ".onFailure { loading = false }",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.DriverEarningsScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.DriverEarningsScreenTest"]
     },
     {
       "id": "M22",
@@ -454,21 +220,17 @@
       "find": "kopToRub(net),",
       "replace": "\"$net ₽\",",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"]
     },
     {
       "id": "M23",
       "file": "android/app/src/main/java/com/yuldash/app/CourierEarningsScreen.kt",
       "rule": "R2",
-      "description": "Счётчик доставок снова форматируется как деньги (fmtRub) — та же реальная ошибка, что была и исправлена у водителя (E2): у курьера с ≥1000 доставками счётчик получает денежный пробел-разряд («1 234» вместо «1234»). Старая мутация (kopToRub) была надуманной — такую подмену типа компилятор бы не дал, да и на 3 доставках её не отличить от «0,03 ₽»",
+      "description": "Счётчик доставок форматируется как деньги (kopToRub) — «3 доставки» превращается в «0,03 ₽»",
       "find": "d.deliveries.toString(),",
-      "replace": "fmtRub(d.deliveries),",
+      "replace": "kopToRub(d.deliveries),",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"]
     },
     {
       "id": "M24",
@@ -478,9 +240,7 @@
       "find": "\"week\" -> appText(\"За эту неделю доставок нет\", \"Был аҙнала илтеү юҡ\")",
       "replace": "\"never\" -> appText(\"За эту неделю доставок нет\", \"Был аҙнала илтеү юҡ\")",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"]
     },
     {
       "id": "M25",
@@ -490,33 +250,7 @@
       "find": ".onFailure { error = true }",
       "replace": ".onFailure { }",
       "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"
-      ]
-    },
-    {
-      "id": "M42",
-      "file": "android/app/src/main/java/com/yuldash/app/CourierEarningsScreen.kt",
-      "rule": "R8",
-      "description": "П3 (ревью Opus, исполнено): role/selected у переключателя периода сняты — TalkBack снова не говорит, какой период выбран",
-      "find": ".semantics(mergeDescendants = true) { selected = active; role = Role.Tab },",
-      "replace": ",",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"
-      ]
-    },
-    {
-      "id": "M43",
-      "file": "android/app/src/main/java/com/yuldash/app/IncomeCalculatorScreen.kt",
-      "rule": "R4",
-      "description": "П3 (ревью Opus, исполнено): ползунок снова без contentDescription — TalkBack читает голое число вместо темы ползунка",
-      "find": ".semantics { contentDescription = label }",
-      "replace": ".semantics { }",
-      "runner": "gradle",
-      "tests": [
-        "com.yuldash.app.walk.l1_4.IncomeCalculatorScreenTest"
-      ]
+      "tests": ["com.yuldash.app.walk.l1_4.CourierEarningsScreenTest"]
     }
   ]
 }
