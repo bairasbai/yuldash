@@ -245,7 +245,21 @@ def cmd_recover(root, args):
     print(f"RECOVERY DONE {len(restored)}")
 
 
+def source_lock_name(root):
+    """One lock per checkout: a replay mutates sources in place, so no test run of the same
+    checkout may read them meanwhile (a parallel run once saw a breakage and failed for nothing)."""
+    return "source-" + hashlib.sha1(str(Path(root).resolve()).lower().encode("utf-8")).hexdigest()[:12]
+
+
 def cmd_replay(root, args):
+    held = acquire(source_lock_name(root), f"replay {Path(args.spec).name}", 4 * 3600)
+    try:
+        _replay(root, args)
+    finally:
+        release(held)
+
+
+def _replay(root, args):
     data, problems = load_spec(args.spec)
     if problems:
         raise SystemExit("спецификация неверна: " + "; ".join(problems))

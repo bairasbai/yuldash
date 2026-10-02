@@ -428,6 +428,15 @@ def kotlin_class(rel):
 def cmd_run_tests(root, args):
     """Run every test the given cards reference; prints LEAF TESTS GREEN only when all pass."""
     import audit_mutation
+    # Wait for any replay of this checkout: it mutates sources in place while it runs.
+    held = audit_mutation.acquire(audit_mutation.source_lock_name(root), f"run-tests {args.leaf}", 4 * 3600)
+    try:
+        _run_tests(root, args, audit_mutation)
+    finally:
+        audit_mutation.release(held)
+
+
+def _run_tests(root, args, audit_mutation):
     refs, statuses = set(), []
     for path in args.files:
         status, _, tests, _, _, problems = validate_card(root, path, args.leaf)

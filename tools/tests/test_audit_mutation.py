@@ -120,6 +120,17 @@ class MutationReplayTest(unittest.TestCase):
         self.assertEqual((self.root / SOURCE).read_bytes(), CODE)
         self.assertFalse((self.root / (SOURCE + ".audit-original")).exists())
 
+    def test_replay_holds_the_checkout_lock_and_releases_it(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("audit_mutation", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        name = mod.source_lock_name(self.root)
+        self.assertEqual(name, mod.source_lock_name(str(self.root).upper()))  # one checkout, one lock
+        proc = self.run_cli("replay", "--spec", self.spec({"find": "a + b", "replace": "a - b"}))
+        self.assertIn("MUTATIONS KILLED 1/1", proc.stdout, proc.stdout + proc.stderr)
+        self.assertFalse((self.locks / name).exists())
+
     def test_lock_run_returns_command_exit_and_releases_lock(self):
         proc = self.run_cli("lock-run", "--name", "demo", "--owner", "t", "--",
                             sys.executable, "-c", "import sys; sys.exit(3)")
