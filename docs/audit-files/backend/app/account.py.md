@@ -66,7 +66,7 @@
 | M19 | `delete(OtpCode).where(OtpCode.phone == phone)` убран, `WaitlistEntry` оставлен (независимое ревью: широкий тест его не ловил — заводил `WaitlistEntry`, но не `OtpCode`) | `test_delete_account_removes_otp_history_for_the_phone` | KILLED |
 
 Полный прогон: `python audit_mutation.py --root . replay --spec docs/audit-mutations/leaf-2.1.json`
-→ `MUTATIONS KILLED 28/28` (все поломки листа — см. также карточки `security.py` и `routers/auth.py`).
+→ `MUTATIONS KILLED 32/32` (все поломки листа — см. также карточки `security.py` и `routers/auth.py`).
 
 ## Остаток и ограничения
 

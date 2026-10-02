@@ -285,15 +285,48 @@
       "args": ["tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_daily_failure_budget_survives_code_expiry"]
     },
     {
+      "id": "M34",
+      "file": "backend/app/routers/auth.py",
+      "rule": "Н-2",
+      "description": "Повторное независимое ревью leaf-2.1: счётчик неудач кода стора снова живёт в ОДНОЙ живой строке с настоящим кодом «review-login-guard» — выключи режим стора при работающих SMS, и этим кодом снова можно войти; параллельные неудачи снова затирают друг друга вместо накопления.",
+      "find": "    session.add(OtpCode(phone=phone, code=\"\", attempts=1, expires_at=utcnow()))\n    session.commit()",
+      "replace": "    row = session.exec(\n        select(OtpCode).where(OtpCode.phone == phone, OtpCode.code == \"review-login-guard\")\n    ).first()\n    if row is None:\n        session.add(OtpCode(phone=phone, code=\"review-login-guard\", attempts=1,\n                            expires_at=utcnow() + timedelta(hours=24)))\n    else:\n        row.attempts += 1\n        session.add(row)\n    session.commit()",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_review_login_and_group_chat_guards.py::test_review_guard_history_can_never_log_in_through_the_normal_sms_door"]
+    },
+    {
       "id": "M23",
       "file": "backend/app/security.py",
       "rule": "Б-3",
       "description": "Независимое ревью leaf-2.1: отзыв всей семьи сессий при повторе сожжённого refresh-токена с неверным rotation_id вне окна восстановления отключён (RFC 9700 §4.14.2) — украденный токен-наследник снова жил бы до 90 дней, пока хозяин не выйдет вручную.",
-      "find": "if rotation_id is not None and outside_window:\n                _revoke_family_on_reuse(session, owner)",
+      "find": "if has_rotation_history and nonce_mismatch and outside_window and not already_alarmed:\n                _revoke_family_on_reuse(session, owner)",
       "replace": "if False:\n                _revoke_family_on_reuse(session, owner)",
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/walk/l2_1/test_l2_1_refresh_reuse_revokes_family.py::test_replay_with_a_wrong_rotation_id_outside_the_window_revokes_the_family"]
+    },
+    {
+      "id": "M32",
+      "file": "backend/app/security.py",
+      "rule": "Н-1b",
+      "description": "Повторное независимое ревью leaf-2.1: защита «не слать тревогу повторно на тот же украденный токен» снята — любой старый сожжённый токен снова становится бесплатным рубильником, которым можно раз за разом выкидывать человека отовсюду (DoS).",
+      "find": "if has_rotation_history and nonce_mismatch and outside_window and not already_alarmed:",
+      "replace": "if has_rotation_history and nonce_mismatch and outside_window:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_refresh_reuse_revokes_family.py::test_the_same_stolen_token_does_not_alarm_twice"]
+    },
+    {
+      "id": "M33",
+      "file": "backend/app/security.py",
+      "rule": "Н-1c",
+      "description": "Повторное независимое ревью leaf-2.1: требование «нонс именно НЕ совпал» снято из сигнала кражи — честный потерянный ответ (клиент повторяет ТОТ ЖЕ, верный нонс, просто поздно) снова гасит чужую сессию и шлёт тревогу.",
+      "find": "if has_rotation_history and nonce_mismatch and outside_window and not already_alarmed:",
+      "replace": "if has_rotation_history and outside_window and not already_alarmed:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_refresh_reuse_revokes_family.py::test_same_nonce_replayed_after_the_window_closes_does_not_alarm"]
     },
     {
       "id": "M24",
