@@ -3,8 +3,15 @@
 принявший первое, ещё час получает от эскалатора «⏰ SOS НЕ ПРИНЯТ» по второму — тому же
 самому случаю. Ложная тревога приучает не реагировать на настоящие повторы.
 
-Правка: `admin_sos_handle` («Принял») закрывает дубли ТОГО ЖЕ человека в окне
-±`SOS_DUPLICATE_WINDOW_MIN` минут вместе с основным событием.
+Правка: `admin_sos_handle` («Принял») закрывает дубли ТОГО ЖЕ человека вместе с основным
+событием — но ТОЛЬКО настоящие дубли: та же категория, тот же вид сигнала (SOS / «застрял» /
+зимняя тревога, по префиксу note — `_dup_kind`), и короткое окно (15 мин назад, 3 мин вперёд).
+
+Б3 (повторное ревью, регрессия первой версии N4). Окно ±15 минут БЕЗ учёта категории и вида
+само стало дырой: «Принял» по мягкому «застрял на трассе» в 21:00 закрывало НАСТОЯЩИЙ красный
+SOS той же категории «breakdown», пришедший в 21:10, — дежурный видел «закрыт вместе с #…», а
+страховочный повтор эскалации для него выключался. Та же беда — между зимней тревогой (её
+заводит робот, категория "other") и обычным SOS той же категории.
 
 Последний тест — настоящая гонка на PostgreSQL: два реальных одновременных POST /sos
 (два потока, два соединения) не должны видеть друг друга никаким «дедупом на входе» —
@@ -59,6 +66,31 @@ def test_дубль_другого_человека_не_закрывается(
         assert s.get(SosEvent, id2).status == "open", "чужой сигнал не должен закрываться заодно"
 
 
+def test_принял_позднее_событие_закрывает_более_раннее_в_окне_назад(client, user_factory, monkeypatch):
+    """Окно «назад» — 15 минут: дежурный мог открыть список не по порядку и принять ВТОРОЕ
+    (более позднее) из двух настоящих дублей — первое, ещё открытое, тоже должно закрыться."""
+    from datetime import timedelta
+    from app.timeutil import utcnow
+    monkeypatch.setattr("app.routers.safety.send_text", lambda *a, **k: None)
+    monkeypatch.setattr("app.routers.safety.notify_admin_telegram", lambda *a, **k: None)
+    u = user_factory("N4User8")
+    admin = user_factory("N4Admin7", role=UserRole.admin)
+
+    earlier_id = client.post("/sos", headers=u["auth"], json={"category": "other"}).json()["id"]
+    with Session(engine) as s:
+        earlier = s.get(SosEvent, earlier_id)
+        earlier.created_at = utcnow() - timedelta(minutes=10)
+        s.add(earlier)
+        s.commit()
+    later_id = client.post("/sos", headers=u["auth"], json={"category": "other"}).json()["id"]
+
+    h = client.post(f"/admin/sos/{later_id}/handle", headers=admin["auth"])
+    assert earlier_id in h.json().get("closed_with", []), (
+        "более ранний дубль (10 минут назад, тот же человек/категория/вид) не закрылся вместе "
+        "с принятым — окно «назад» должно быть 15 минут"
+    )
+
+
 def test_давний_сигнал_того_же_человека_не_закрывается(client, user_factory, monkeypatch):
     """Контроль: окно склейки ограничено — сигнал получасовой давности не считается тем же
     случаем, что сигнал только что принятый."""
@@ -83,6 +115,87 @@ def test_давний_сигнал_того_же_человека_не_закр�
     )
     with Session(engine) as s:
         assert s.get(SosEvent, old_id).status == "open"
+
+
+def test_застрял_потом_настоящий_sos_не_закрывается_вместе(client, user_factory, monkeypatch):
+    """Б3: «Принял» по мягкому «застрял на трассе» НЕ должно закрывать пришедший следом
+    красный SOS той же категории «breakdown» — это разные поводы, разный вид сигнала."""
+    from app.timeutil import utcnow
+    monkeypatch.setattr("app.routers.safety.send_text", lambda *a, **k: None)
+    monkeypatch.setattr("app.routers.safety.notify_admin_telegram", lambda *a, **k: None)
+    u = user_factory("N4User5")
+    admin = user_factory("N4Admin4", role=UserRole.admin)
+
+    stuck_resp = client.post("/bookings/999999999/stuck", headers=u["auth"], json={})
+    stuck_id = stuck_resp.json()["id"]
+    # «застрял» всегда пишется с category="breakdown" (_roadside) — бьём SOS той же
+    # категорией, чтобы разделяло их ИМЕННО по виду сигнала (note-префикс), а не по категории:
+    # иначе мутация, убивающая только проверку вида, прошла бы незамеченной.
+    sos_id = client.post("/sos", headers=u["auth"], json={"category": "breakdown"}).json()["id"]
+    with Session(engine) as s:
+        stuck_event = s.get(SosEvent, stuck_id)
+        sos_event = s.get(SosEvent, sos_id)
+        assert stuck_event.category == sos_event.category == "breakdown"  # контроль
+
+    h = client.post(f"/admin/sos/{stuck_id}/handle", headers=admin["auth"])
+    assert sos_id not in h.json().get("closed_with", []), (
+        "«Принял» по «застрял» закрыл пришедший следом настоящий SOS — дежурный больше не "
+        "получит по нему страховочный повтор эскалации"
+    )
+    with Session(engine) as s:
+        assert s.get(SosEvent, sos_id).status == "open"
+
+
+def test_sos_через_10_минут_вперёд_не_закрывается(client, user_factory, monkeypatch):
+    """Б3: окно «вперёд» — 3 минуты, не 15. Тот же человек, та же категория, тот же вид
+    сигнала (оба обычный SOS) — но пришёл через 10 минут, это уже другой повод."""
+    from datetime import timedelta
+    from app.timeutil import utcnow
+    monkeypatch.setattr("app.routers.safety.send_text", lambda *a, **k: None)
+    monkeypatch.setattr("app.routers.safety.notify_admin_telegram", lambda *a, **k: None)
+    u = user_factory("N4User7")
+    admin = user_factory("N4Admin6", role=UserRole.admin)
+
+    first_id = client.post("/sos", headers=u["auth"], json={"category": "other"}).json()["id"]
+    second_id = client.post("/sos", headers=u["auth"], json={"category": "other"}).json()["id"]
+    with Session(engine) as s:
+        second = s.get(SosEvent, second_id)
+        second.created_at = utcnow() + timedelta(minutes=10)
+        s.add(second)
+        s.commit()
+
+    h = client.post(f"/admin/sos/{first_id}/handle", headers=admin["auth"])
+    assert second_id not in h.json().get("closed_with", []), (
+        "сигнал, пришедший через 10 минут, закрыт вместе с принятым — окно «вперёд» должно "
+        "быть коротким (3 мин), а не 15"
+    )
+
+
+def test_зимняя_тревога_и_sos_не_закрывают_друг_друга(client, user_factory, monkeypatch):
+    """Б3: тревога зимнего протокола (заводит робот/ручка, категория "other") и обычный SOS
+    той же категории того же человека — разные поводы, «Принял» по одному не должен гасить
+    другой."""
+    from app.winter_escalate import _winter_note
+    monkeypatch.setattr("app.routers.safety.send_text", lambda *a, **k: None)
+    monkeypatch.setattr("app.routers.safety.notify_admin_telegram", lambda *a, **k: None)
+    u = user_factory("N4User6")
+    admin = user_factory("N4Admin5", role=UserRole.admin)
+
+    with Session(engine) as s:
+        winter = SosEvent(user_id=u["id"], category="other", note=_winter_note("booking", 1))
+        s.add(winter)
+        s.commit()
+        s.refresh(winter)
+        winter_id = winter.id
+
+    sos_id = client.post("/sos", headers=u["auth"], json={"category": "other"}).json()["id"]
+
+    h = client.post(f"/admin/sos/{winter_id}/handle", headers=admin["auth"])
+    assert sos_id not in h.json().get("closed_with", []), (
+        "«Принял» по зимней тревоге закрыл независимый красный SOS того же человека"
+    )
+    with Session(engine) as s:
+        assert s.get(SosEvent, sos_id).status == "open"
 
 
 @pytest.mark.skipif(not os.environ.get("DATABASE_URL", "").startswith("postgres"),

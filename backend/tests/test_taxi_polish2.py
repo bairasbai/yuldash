@@ -195,11 +195,13 @@ def test_sos_with_order_context(client, user_factory, fake_redis):
 
 
 def test_sos_order_context_rejects_outsider(client, user_factory, fake_redis):
-    """Чужой order_id в SOS — 403 (нельзя приклеить свой SOS к чужой поездке)."""
+    """Чужой order_id в SOS: сигнал постороннего всё равно пишется (N5, независимое ревью —
+    жизнь дороже проверки участия), но чужую поездку себе не приклеивает."""
     d, pax, order = _accepted_order(client, user_factory, fake_redis, "SosOutD", "SosOutP")
     outsider = user_factory("SosOutsider")
     r = client.post("/sos", headers=outsider["auth"], json={"category": "other", "order_id": order["id"]})
-    assert r.status_code == 403
+    assert r.status_code == 200, r.text
+    assert r.json()["order_id"] is None, "чужой заказ не должен попасть в событие как свой"
 
 
 # ============================ Шаринг такси-заказа (B7b-2) ============================

@@ -429,7 +429,27 @@ def admin_sos_list(status: str = "open", limit: int = 100,
 #: дежурный принимает первое, а второе час шлёт ему «SOS НЕ ПРИНЯТ» — ложная тревога по
 #: уже разобранному случаю (N4, независимое ревью). Окно — то же, что у winter-эскалации:
 #: «событие того же человека рядом по времени» = тот же случай, пока не доказано обратное.
-SOS_DUPLICATE_WINDOW_MIN = 15
+#: Назад (к более СТАРЫМ открытым сигналам) можно смотреть на все 15 минут — ровно это и есть
+#: окно эскалации (`sos_escalate.py`), и дубль двойного нажатия обычно лежит именно тут.
+SOS_DUPLICATE_WINDOW_BACK_MIN = 15
+#: Вперёд (к сигналам, пришедшим ПОСЛЕ принятого) — всего 3 минуты (Б3, повторное ревью).
+#: Было 15 в обе стороны без учёта категории/вида — и «Принял» по мягкому «застрял» успевал
+#: закрыть НАСТОЯЩИЙ красный SOS, который пришёл следом: дежурный видел «закрыт вместе с #…»,
+#: а страховочный повтор эскалации для него выключался. 3 минуты — это ещё «та же рука ещё раз
+#: жмёт кнопку», а не «через 10 минут что-то другое случилось».
+SOS_DUPLICATE_WINDOW_FORWARD_MIN = 3
+
+
+def _dup_kind(note: str) -> str:
+    """«Вид» сигнала для склейки дублей (Б3): зимняя тревога / «застрял на трассе» / обычный
+    SOS — три РАЗНЫХ повода, и закрывать их друг другом нельзя, даже если категория совпала
+    случайно (у «застрял» она тоже "breakdown", как и у обычного SOS с той же категорией)."""
+    n = note or ""
+    if n.startswith("Зимний протокол ("):
+        return "winter"
+    if n.startswith("Застрял на трассе"):
+        return "stuck"
+    return "sos"
 
 
 @router.post("/admin/sos/{event_id}/handle")
@@ -438,10 +458,10 @@ def admin_sos_handle(event_id: int, body: SosHandleIn | None = None,
     """«Принял» — сигнал взят в работу: кто, когда, что сделал. Без этой отметки нельзя было
     отличить разобранный SOS от потерянного, и авто-эскалация была невозможна.
 
-    Заодно закрывает ДУБЛИ того же человека в окне ±`SOS_DUPLICATE_WINDOW_MIN` минут (N4):
-    двойное нажатие или повтор после обрыва связи создают отдельные события, и без склейки
-    дежурный, уже принявший один сигнал, ещё час получает «SOS НЕ ПРИНЯТ» по второму —
-    тому же самому случаю."""
+    Заодно закрывает НАСТОЯЩИЕ дубли того же человека (N4, уточнено в Б3): та же категория,
+    тот же вид сигнала (`_dup_kind`), и только в коротком окне — иначе двойное нажатие или
+    повтор после обрыва связи создают отдельные события, и без склейки дежурный, уже принявший
+    один сигнал, ещё час получает «SOS НЕ ПРИНЯТ» по второму — тому же самому случаю."""
     if user.role != UserRole.admin:
         raise HTTPException(403, "Только для админа")
     e = session.get(SosEvent, event_id)
@@ -456,15 +476,18 @@ def admin_sos_handle(event_id: int, body: SosHandleIn | None = None,
     e.handled_note = note
     session.add(e)
     dup_ids: list[int] = []
-    window = timedelta(minutes=SOS_DUPLICATE_WINDOW_MIN)
-    dups = session.exec(select(SosEvent).where(
+    e_kind = _dup_kind(e.note)
+    candidates = session.exec(select(SosEvent).where(
         SosEvent.user_id == e.user_id,
         SosEvent.id != e.id,
         SosEvent.status == "open",
-        SosEvent.created_at >= e.created_at - window,
-        SosEvent.created_at <= e.created_at + window,
+        SosEvent.category == e.category,
+        SosEvent.created_at >= e.created_at - timedelta(minutes=SOS_DUPLICATE_WINDOW_BACK_MIN),
+        SosEvent.created_at <= e.created_at + timedelta(minutes=SOS_DUPLICATE_WINDOW_FORWARD_MIN),
     )).all()
-    for d in dups:
+    for d in candidates:
+        if _dup_kind(d.note) != e_kind:
+            continue   # тот же человек, та же категория, но другой ПОВОД — не дубль
         d.status = "handled"
         d.handled_at = e.handled_at
         d.handled_by = user.id
@@ -868,6 +891,39 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
     # «каждое админское действие оставляет след» видит её рядом с ручкой (волна 191).
     admin_action(user.id, "report.resolve", report_id=report_id,
                  target_user=r.target_user_id, category=r.category)
+    # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).
+    #
+    # Было (круг 1): лестница стояла ПОСЛЕ блока «оставить» ниже. На третьей подтверждённой
+    # жалобе за 30 дней (`quality_pause_reports`) она сама зовёт `pause_taxi(72ч,
+    # reason="reports")` своим, чуть более поздним `now` — `pause_taxi` видел это как «нужно
+    # удлинить» и заодно переписывал причину на "reports". Курьерская дверь
+    # (`under_severe_review`) смотрит только на reason=="review" — дверь открывалась в ТОМ ЖЕ
+    # запросе, где админ её только что закрыл.
+    #
+    # Было (круг 2, Б2 повторного ревью): звать лестницу раньше + восстанавливать "review" в
+    # блоке «оставить» помогало только когда лестницу толкает ЭТА ЖЕ (тяжёлая) жалоба. Лестница
+    # считает ЛЮБЫЕ resolved-жалобы за окно — она может перевести reason на "reports" и в
+    # СОВСЕМ ДРУГОМ, не тяжёлом запросе, если прежняя (уже укороченная до 72ч) review-пауза
+    # давно стоит, а лестничные «+72ч от сейчас» успели её перегнать. Блок «оставить» в такой
+    # запрос даже не заходит (категория не тяжёлая) — reason так и оставался "reports".
+    #
+    # Правка: reason="review" — залог того, что ТЕКУЩАЯ тяжёлая жалоба ещё разбирается или
+    # только что подтверждена с «оставить». Лестница не должна его трогать НИКОГДА, независимо
+    # от того, какую жалобу она считает и в каком запросе сработала — запоминаем reason ДО её
+    # вызова и, если был "review", возвращаем обратно после: более строгая причина не слабее от
+    # постороннего порога «3 жалобы за 30 дней».
+    if r.target_user_id is not None:      # аккаунт обвиняемого удалён — наказывать некого
+        prof_before = session.exec(select(DriverProfile).where(
+            DriverProfile.user_id == r.target_user_id)).first()
+        was_review = prof_before is not None and prof_before.taxi_pause_reason == quality.PAUSE_REASON_REVIEW
+        quality.apply_ladder_after_resolve(session, r.target_user_id)
+        if was_review:
+            prof_after = session.exec(select(DriverProfile).where(
+                DriverProfile.user_id == r.target_user_id)).first()
+            if prof_after is not None and prof_after.taxi_pause_reason != quality.PAUSE_REASON_REVIEW:
+                prof_after.taxi_pause_reason = quality.PAUSE_REASON_REVIEW
+                session.add(prof_after)
+                session.commit()
     if r.category in quality.SEVERE_CATEGORIES and r.target_user_id is not None:
         if body.keep_pause:
             # «Оставить»: подтверждённая тяжёлая жалоба не должна ОСЛАБИТЬ наказание (N1,
@@ -880,8 +936,10 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
             #      тяжёлая жалоба или более длинная ручная пауза админа слетали к 72 часам;
             #   3) unpause_taxi() сам шлёт «Такси снова доступно — пауза снята», хотя она
             #      остаётся — водитель читает «можно работать» и упирается в 403.
-            # Правка: причину НЕ меняем (дверь остаётся закрытой весь срок), трогаем только
-            # СВОЮ "review"-паузу, и только если других нерешённых тяжёлых жалоб на цель нет.
+            # Правка: причину не меняем (reason="review" уже защищён от лестницы выше), трогаем
+            # только СВОЮ "review"-паузу, и только если других нерешённых тяжёлых жалоб на цель
+            # нет. Ручную ПОСТОРОННЮЮ паузу админа (reason="admin") не трогаем — это не наша
+            # дверь.
             prof = session.exec(select(DriverProfile).where(
                 DriverProfile.user_id == r.target_user_id)).first()
             other_open_severe = session.exec(select(Report.id).where(
@@ -890,8 +948,8 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                 Report.status.in_(["new", "reviewing"]),
                 Report.category.in_(quality.SEVERE_CATEGORIES),
             )).first()
-            if (prof is not None and prof.taxi_pause_reason == quality.PAUSE_REASON_REVIEW
-                    and other_open_severe is None):
+            if (prof is not None and other_open_severe is None
+                    and prof.taxi_pause_reason == quality.PAUSE_REASON_REVIEW):
                 short_until = utcnow() + timedelta(hours=quality.settings.quality_pause_hours)
                 if prof.taxi_paused_until is None or prof.taxi_paused_until > short_until:
                     prof.taxi_paused_until = short_until
@@ -907,8 +965,8 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                         "Юлдаш ғәҙәттәгесә эшләй 💚",
                         ref_kind="debt", ref_id=r.target_user_id,
                     )
-            # Иначе: пауза не наша (admin/reports) или длиннее, или есть ещё одна открытая
-            # тяжёлая жалоба — «оставить» и значит ничего не трогать.
+            # Иначе: пауза не наша (admin) или есть ещё одна открытая тяжёлая жалоба —
+            # «оставить» и значит ничего не трогать.
         else:
             quality.maybe_release_review_pause(session, r.target_user_id)
     # 💸 «Пассажир не заплатил» подтверждена → снимаем с водителя комиссию за ЭТУ поездку.
@@ -989,8 +1047,6 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
         except Exception as e:  # noqa: BLE001 — разбор важнее побочки со списанием
             log.warning(f"[DEBT] списание комиссии по доставке {r.parcel_id}: {type(e).__name__}: {scrub_exc(e)}")
     # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).
-    if r.target_user_id is not None:      # аккаунт обвиняемого удалён — наказывать некого
-        quality.apply_ladder_after_resolve(session, r.target_user_id)
     quality.tell_report_decision(session, r, confirmed=True)   # автор узнаёт исход (волна 85)
     return _admin_report_out(session, r)
 

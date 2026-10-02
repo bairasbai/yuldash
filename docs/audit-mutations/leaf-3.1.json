@@ -106,8 +106,8 @@
       "file": "backend/app/routers/safety.py",
       "rule": "N1",
       "description": "«Подтвердить и оставить паузу» перестаёт учитывать ВТОРУЮ, ещё не разобранную тяжёлую жалобу на того же водителя — укорачивает общую паузу «до разбора» к 72 часам, хотя жалоба B всё ещё ждёт живого человека.",
-      "find": "                    and other_open_severe is None):",
-      "replace": "                    and True):",
+      "find": "            if (prof is not None and other_open_severe is None\n                    and prof.taxi_pause_reason == quality.PAUSE_REASON_REVIEW):",
+      "replace": "            if (prof is not None\n                    and prof.taxi_pause_reason == quality.PAUSE_REASON_REVIEW):",
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/walk/l3_1/test_l3_1_n1_keep_pause.py::test_другая_открытая_тяжёлая_жалоба_не_даёт_укоротить_паузу"]
@@ -138,12 +138,12 @@
       "id": "M13",
       "file": "backend/app/routers/safety.py",
       "rule": "N4",
-      "description": "Окно склейки дублей SOS того же человека обнуляется — «Принял» перестаёт закрывать второй сигнал от двойного нажатия, и дежурный продолжает получать по нему ложные «SOS НЕ ПРИНЯТ».",
-      "find": "SOS_DUPLICATE_WINDOW_MIN = 15",
-      "replace": "SOS_DUPLICATE_WINDOW_MIN = 0",
+      "description": "Окно склейки дублей SOS «назад» обнуляется — «Принял» по более позднему из двух настоящих дублей перестаёт закрывать более ранний, ещё открытый, и дежурный продолжает получать по нему ложные «SOS НЕ ПРИНЯТ».",
+      "find": "SOS_DUPLICATE_WINDOW_BACK_MIN = 15",
+      "replace": "SOS_DUPLICATE_WINDOW_BACK_MIN = 0",
       "runner": "pytest",
       "cwd": "backend",
-      "args": ["tests/walk/l3_1/test_l3_1_n4_sos_duplicate_handle.py::test_принял_закрывает_дубль_того_же_человека_рядом_по_времени"]
+      "args": ["tests/walk/l3_1/test_l3_1_n4_sos_duplicate_handle.py::test_принял_позднее_событие_закрывает_более_раннее_в_окне_назад"]
     },
     {
       "id": "M14",
@@ -298,6 +298,61 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/walk/l3_1/test_l3_1_coverage_gaps.py::test_доехал_может_отметить_только_пассажир_не_водитель"]
+    },
+    {
+      "id": "M29",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-SOS-OPEN-ON-PAUSE",
+      "description": "Кто-то по ошибке повесил на /sos общий гейт паузы §2 — человек на паузе больше не может нажать красную кнопку, хотя SOS обязан работать всегда, независимо от любых наказаний.",
+      "find": "def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):\n    # N5 (независимое ревью). Раньше проверка брони/заказа стояла ДО записи сигнала:",
+      "replace": "def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):\n    from ..safety_logic import ensure_active\n    ensure_active(session, user.id)\n    # N5 (независимое ревью). Раньше проверка брони/заказа стояла ДО записи сигнала:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_the_pause_does_not_take_away_defence.py::test_sos_на_паузе_работает"]
+    },
+    {
+      "id": "M30",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-SOS-DRIVER-PII",
+      "description": "Описание машины в SMS близким начинает нести ещё и телефон водителя — ровно те анкетные данные, которые решением 2026-08-06 идут только дежурному, а не близким нажавшего.",
+      "find": "    car = _car_of(session, ride.driver_id if ride is not None else (order.driver_id if order else None))",
+      "replace": "    car = _car_of(session, ride.driver_id if ride is not None else (order.driver_id if order else None)) + ((\" тел \" + (session.get(User, ride.driver_id).phone or \"\")) if ride is not None else \"\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_sos_tells_who.py::test_family_gets_the_car_but_not_the_driver_personally"]
+    },
+    {
+      "id": "M31",
+      "file": "backend/app/routers/safety.py",
+      "rule": "Б2",
+      "description": "Общая защита review-причины от лестницы (запомнить was_review ДО вызова apply_ladder_after_resolve, вернуть reason=review ПОСЛЕ, если лестница успела его перебить) отключена — лестница считает ЛЮБЫЕ resolved-жалобы за 30 дней, не только тяжёлые, и может переставить reason на reports в СОВСЕМ ДРУГОМ запросе (resolve обычной жалобы «rude», ставшей 3-й за окно), который даже не заходит в блок «оставить»: курьерская/посылочная дверь остаётся открытой самому проблемному водителю.",
+      "find": "        was_review = prof_before is not None and prof_before.taxi_pause_reason == quality.PAUSE_REASON_REVIEW\n        quality.apply_ladder_after_resolve(session, r.target_user_id)\n        if was_review:",
+      "replace": "        was_review = prof_before is not None and prof_before.taxi_pause_reason == quality.PAUSE_REASON_REVIEW\n        quality.apply_ladder_after_resolve(session, r.target_user_id)\n        if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_n1_keep_pause.py::test_лестница_в_чужом_запросе_не_ослабляет_уже_идущую_review_паузу"]
+    },
+    {
+      "id": "M32",
+      "file": "backend/app/routers/safety.py",
+      "rule": "Б3-kind",
+      "description": "Склейка дублей SOS снова перестаёт различать ВИД сигнала — «Принял» по мягкому «застрял на трассе» (категория breakdown) снова закрывает пришедший следом настоящий красный SOS той же категории, и зимнюю тревогу снова можно закрыть обычным SOS того же человека.",
+      "find": "        if _dup_kind(d.note) != e_kind:\n            continue   # тот же человек, та же категория, но другой ПОВОД — не дубль",
+      "replace": "        if False:\n            continue   # тот же человек, та же категория, но другой ПОВОД — не дубль",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_n4_sos_duplicate_handle.py::test_застрял_потом_настоящий_sos_не_закрывается_вместе"]
+    },
+    {
+      "id": "M33",
+      "file": "backend/app/routers/safety.py",
+      "rule": "Б3-window",
+      "description": "Окно склейки «вперёд» снова расширяется до 15 минут (было у первой версии N4) — сигнал, пришедший через 10 минут после принятого (уже другой повод, не повторное нажатие), снова закрывается заодно, и дежурный теряет страховочный повтор эскалации по нему.",
+      "find": "SOS_DUPLICATE_WINDOW_FORWARD_MIN = 3",
+      "replace": "SOS_DUPLICATE_WINDOW_FORWARD_MIN = 15",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_n4_sos_duplicate_handle.py::test_sos_через_10_минут_вперёд_не_закрывается"]
     }
   ]
 }
