@@ -6,19 +6,19 @@
 
 Легенда: ⬜ не прочитан · 🟨 прочитан · 🟩 проверен тестом · 🟥 открытая ошибка · ⛔ нужен внешний доступ · ⚪ не исполняется · 🔄 файл изменился после отметки — перепроверить.
 
-**Готово (🟩/⚪/⛔): 0 из 511** ░░░░░░░░░░░░░░░░░░░░
+**Готово (🟩/⚪/⛔): 5 из 511** ░░░░░░░░░░░░░░░░░░░░
 
 | Статус | Файлов |
 |---|---|
-| ⬜ не прочитан | 511 |
+| ⬜ не прочитан | 506 |
 | 🟨 прочитан | 0 |
-| 🟩 проверен тестом | 0 |
+| 🟩 проверен тестом | 5 |
 | 🟥 открытая ошибка | 0 |
 | ⛔ нужен внешний доступ | 0 |
 | ⚪ не исполняется | 0 |
 | 🔄 устарела отметка | 0 |
 
-## G1. Деньги — 0 из 23 ░░░░░░░░░░░░░░░░░░░░
+## G1. Деньги — 5 из 23 ████░░░░░░░░░░░░░░░░
 
 | Файл | Строк | Статус | Карточка | Лист |
 |---|---|---|---|---|
@@ -34,17 +34,17 @@
 | `backend/app/compensation.py` | 36 | ⬜ не прочитан | — | — |
 | `backend/app/debt.py` | 1207 | ⬜ не прочитан | — | — |
 | `backend/app/ledger.py` | 531 | ⬜ не прочитан | — | — |
-| `backend/app/payments.py` | 155 | ⬜ не прочитан | — | — |
-| `backend/app/price_freeze.py` | 158 | ⬜ не прочитан | — | — |
-| `backend/app/pricing.py` | 299 | ⬜ не прочитан | — | — |
+| `backend/app/payments.py` | 155 | 🟩 проверен тестом | [карточка](audit-files/backend/app/payments.py.md) | leaf-1.2 |
+| `backend/app/price_freeze.py` | 158 | 🟩 проверен тестом | [карточка](audit-files/backend/app/price_freeze.py.md) | leaf-1.2 |
+| `backend/app/pricing.py` | 299 | 🟩 проверен тестом | [карточка](audit-files/backend/app/pricing.py.md) | leaf-1.2 |
 | `backend/app/promo_ride.py` | 313 | ⬜ не прочитан | — | — |
 | `backend/app/routers/coupons.py` | 1189 | ⬜ не прочитан | — | — |
 | `backend/app/routers/debt.py` | 277 | ⬜ не прочитан | — | — |
-| `backend/app/routers/payments.py` | 825 | ⬜ не прочитан | — | — |
+| `backend/app/routers/payments.py` | 825 | 🟩 проверен тестом | [карточка](audit-files/backend/app/routers/payments.py.md) | leaf-1.2 |
 | `backend/app/routers/promo.py` | 460 | ⬜ не прочитан | — | — |
 | `backend/app/routers/referral.py` | 263 | ⬜ не прочитан | — | — |
 | `backend/app/routers/settlements.py` | 38 | ⬜ не прочитан | — | — |
-| `backend/app/routers/wallet.py` | 368 | ⬜ не прочитан | — | — |
+| `backend/app/routers/wallet.py` | 368 | 🟩 проверен тестом | [карточка](audit-files/backend/app/routers/wallet.py.md) | leaf-1.2 |
 
 ## G2. Вход и личные данные — 0 из 16 ░░░░░░░░░░░░░░░░░░░░
 
