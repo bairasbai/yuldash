@@ -1,0 +1,208 @@
+{
+  "schema": 1,
+  "leaf": "leaf-2.1",
+  "mutations": [
+    {
+      "id": "M1",
+      "file": "backend/app/security.py",
+      "rule": "S1",
+      "description": "Сожжённый refresh-токен мог бы снова стать годным: атомарный UPDATE в rotate_refresh сверяется с revoked==True вместо revoked==False, поэтому НИ ОДИН ещё живой токен не продлевает сессию.",
+      "find": "RefreshToken.id == rt.id, RefreshToken.revoked == False",
+      "replace": "RefreshToken.id == rt.id, RefreshToken.revoked == True",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_flows.py::test_refresh_rotation"]
+    },
+    {
+      "id": "M2",
+      "file": "backend/app/security.py",
+      "rule": "S2",
+      "description": "Окно восстановления ротации (120с) снято: перехваченный повторный запрос с чужим rotation_id мог бы воскресить уже сожжённый refresh-токен сколько угодно времени спустя.",
+      "find": "0 <= (now - rt.rotated_at).total_seconds() <= REFRESH_RECOVERY_SECONDS",
+      "replace": "0 <= (now - rt.rotated_at).total_seconds() <= 999999999",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_refresh_replay.py::test_recovery_window_boundary"]
+    },
+    {
+      "id": "M3",
+      "file": "backend/app/security.py",
+      "rule": "S3",
+      "description": "Проверочная (review) сессия стора — всегда пассажир. Отключили эту защиту в _token_revoked: фикс-код стора мог бы молча пользоваться правами, которые пользователь получил ПОЗЖЕ обычным входом (например admin).",
+      "find": "if payload.get(\"review_session\") and user.role != UserRole.passenger:",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_review_session_scope.py::test_store_session_cannot_gain_admin_after_verified_telegram_login"]
+    },
+    {
+      "id": "M4",
+      "file": "backend/app/security.py",
+      "rule": "S4",
+      "description": "Бан устройства снят со второй двери: /auth/refresh переставал бы проверять забаненный аппарат, и выход с линии переставал бы действовать, пока у человека жив access-токен.",
+      "find": "guard_device_not_banned(session, owner.last_device_id)",
+      "replace": "None  # mutated: device-ban gate removed from refresh",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_a_ban_that_ends_at_the_door.py::test_ban_works_even_if_the_app_stops_sending_the_header"]
+    },
+    {
+      "id": "M5",
+      "file": "backend/app/security.py",
+      "rule": "S5",
+      "description": "«Сессия завершена» снова уходит одноязычной строкой (вернули HTTPException напрямую, в обход herr) — находка этого листа: current_user/issue_tokens/rotate_refresh бросали голый русский текст на 401.",
+      "find": "raise herr(401, \"Сессия завершена. Войди заново.\", \"Сессия тамамланды. Яңынан ин.\")",
+      "replace": "raise HTTPException(status.HTTP_401_UNAUTHORIZED, \"Сессия завершена. Войди заново.\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_bilingual_401s.py::test_session_ended_by_logout_speaks_both_languages"]
+    },
+    {
+      "id": "M6",
+      "file": "backend/app/security.py",
+      "rule": "S6",
+      "description": "Сравнение границы logout сузили до строгого «<»: токен, выпущенный РОВНО в миг выхода (дешёвые часы Windows дают соседним вызовам одно и то же значение), снова считался бы живым.",
+      "find": "return float(iat) <= user.tokens_valid_from.timestamp()",
+      "replace": "return float(iat) < user.tokens_valid_from.timestamp()",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_token_logout_boundary.py::test_token_issued_exactly_at_the_boundary_is_revoked"]
+    },
+    {
+      "id": "M7",
+      "file": "backend/app/routers/auth.py",
+      "rule": "A1",
+      "description": "Общий бюджет неверных попыток на НОМЕР (а не на код) подняли в 100 раз — перебор шестизначного кода снова становится практичным: запросил новый код — обнулил себе счётчик попыток.",
+      "find": "MAX_OTP_ATTEMPTS_PER_PHONE = 15",
+      "replace": "MAX_OTP_ATTEMPTS_PER_PHONE = 1500",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_otp_phone_concurrency.py::test_parallel_wrong_codes_cannot_cross_phone_wide_budget"]
+    },
+    {
+      "id": "M8",
+      "file": "backend/app/routers/auth.py",
+      "rule": "A2",
+      "description": "Код входа после успеха не гасится (значение переписывается само на себя вместо очистки) — тот же код снова открывает сессию: и при обычном повторе, и при настоящей одновременной проверке на PostgreSQL.",
+      "find": ".values(code=\"\", expires_at=utcnow()))",
+      "replace": ".values(code=verified_code))",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_auth_consumption_atomicity.py::test_concurrent_verification_issues_only_one_token_pair",
+        "tests/walk/l2_1/test_l2_1_otp_replay.py::test_same_code_cannot_log_in_twice"
+      ],
+      "db": "postgres"
+    },
+    {
+      "id": "M9",
+      "file": "backend/app/routers/auth.py",
+      "rule": "A3",
+      "description": "Throttle выдачи SMS (≤3/мин на номер) ослаблен в 100 раз — расход на SMS и переполнение OtpCode снова ничем не ограничены.",
+      "find": "if len(recent) >= 3:",
+      "replace": "if len(recent) >= 300:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_otp_phone_concurrency.py::test_parallel_code_issuance_sends_at_most_three_sms_per_minute"]
+    },
+    {
+      "id": "M10",
+      "file": "backend/app/routers/auth.py",
+      "rule": "A4",
+      "description": "Проверку «номер похож на перешедший к другому человеку» отключили на входе по SMS — новый владелец номера снова получал бы чужой аккаунт целиком: историю поездок, переписку, доверенные контакты.",
+      "find": "if user and phone_looks_recycled(user, x_device_id):",
+      "replace": "if False and user and phone_looks_recycled(user, x_device_id):",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_a_recycled_number_is_a_new_person.py::test_новый_владелец_номера_получает_чистый_аккаунт"]
+    },
+    {
+      "id": "M11",
+      "file": "backend/app/routers/auth.py",
+      "rule": "A5",
+      "description": "Фикс-код стора снова открывал бы ЛЮБОЙ существующий аккаунт на review_phone, включая уже привилегированный (admin/driver), а не только пассажирский.",
+      "find": "if not user or user.role != UserRole.passenger:",
+      "replace": "if not user:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_review_login_permissions.py::test_fixed_review_login_rejects_existing_privileged_account_without_mutating_it"]
+    },
+    {
+      "id": "M12",
+      "file": "backend/app/routers/auth.py",
+      "rule": "A6",
+      "description": "Автовыдача прав администратора перестала сверяться с настройками вовсе — любой вошедший получал бы admin.",
+      "find": "заслужил = by_tg or by_phone",
+      "replace": "заслужил = True",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_audit_20260808.py::test_foreign_lookalike_number_does_not_get_admin"]
+    },
+    {
+      "id": "M13",
+      "file": "backend/app/routers/auth.py",
+      "rule": "A7",
+      "description": "Автоснятие прав администратора при входе отключено — убрать номер из ADMIN_PHONES больше не разжалует уже выданного admin.",
+      "find": "elif user.role == UserRole.admin and not заслужил and admin_keys:",
+      "replace": "elif False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_every_admin_action_leaves_a_trace.py::test_права_снимаются_когда_номер_убрали_из_настроек"]
+    },
+    {
+      "id": "M14",
+      "file": "backend/app/routers/auth.py",
+      "rule": "A8",
+      "description": "Logout перестал отвязывать FCM-токен устройства — на общем телефоне вышедший продолжал бы получать чужие пуши (брони/чат/SOS) после смены пользователя.",
+      "find": "    for строка in session.exec(select(DeviceToken).where(DeviceToken.user_id == user.id)).all():\n        session.delete(строка)",
+      "replace": "    pass  # mutated: device-token cleanup removed from logout",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_logout_clears_push_tokens.py::test_logout_removes_device_and_web_push_tokens"]
+    },
+    {
+      "id": "M15",
+      "file": "backend/app/account.py",
+      "rule": "D1",
+      "description": "Гейт удаления по комиссии такси инвертирован: считает долгом уже ОПЛАЧЕННЫЕ записи вместо неоплаченных — водитель с реальным долгом свободно удаляет аккаунт, и деньги исчезают вместе с ним.",
+      "find": "CommissionDebt.status != DebtStatus.paid,",
+      "replace": "CommissionDebt.status == DebtStatus.paid,",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_account_delete_gates.py::test_unpaid_taxi_commission_blocks_delete"]
+    },
+    {
+      "id": "M16",
+      "file": "backend/app/account.py",
+      "rule": "D2",
+      "description": "Финальное удаление строки User из delete_user_account убрано — аккаунт считается удалённым (ok:true), а запись и персональные данные физически остаются в базе (152-ФЗ: право на удаление не исполнено).",
+      "find": "session.execute(delete(User).where(User.id == uid))",
+      "replace": "pass  # mutated: user row survives deletion",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_account_deletion.py::test_delete_account_leaves_no_residual_anywhere"]
+    },
+    {
+      "id": "M17",
+      "file": "backend/app/account.py",
+      "rule": "D3",
+      "description": "Обезличивание спора задевает и сторону ЖЕРТВЫ: удаляя свой аккаунт как обвинённый, человек стирает заявление и улики второй, ещё живой стороны — ровно дыра, которую это место закрывало (аудит 2026-08-03).",
+      "find": ".values(respondent_id=None, respondent_statement=\"\",\n                            respondent_evidence_urls=\"\"))",
+      "replace": ".values(respondent_id=None, respondent_statement=\"\",\n                            respondent_evidence_urls=\"\", reporter_id=None, description=\"\"))",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_account_deletion.py::test_delete_account_leaves_no_residual_anywhere"]
+    },
+    {
+      "id": "M18",
+      "file": "backend/app/account.py",
+      "rule": "D4",
+      "description": "Гейт «посылка сейчас у тебя в руках» отключён — курьер мог бы удалить аккаунт, пока чужая посылка числится у него принятой, и она остаётся без курьера и без следа, кто её вёз.",
+      "find": "if live_parcel is not None:",
+      "replace": "if False and live_parcel is not None:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_account_delete_gates.py::test_carrying_parcel_blocks_courier_delete"]
+    }
+  ]
+}
