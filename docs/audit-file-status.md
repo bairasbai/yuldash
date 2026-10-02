@@ -6,19 +6,19 @@
 
 Легенда: ⬜ не прочитан · 🟨 прочитан · 🟩 проверен тестом · 🟥 открытая ошибка · ⛔ нужен внешний доступ · ⚪ не исполняется · 🔄 файл изменился после отметки — перепроверить.
 
-**Готово (🟩/⚪/⛔): 5 из 511** ░░░░░░░░░░░░░░░░░░░░
+**Готово (🟩/⚪/⛔): 11 из 511** ░░░░░░░░░░░░░░░░░░░░
 
 | Статус | Файлов |
 |---|---|
-| ⬜ не прочитан | 506 |
+| ⬜ не прочитан | 499 |
 | 🟨 прочитан | 0 |
-| 🟩 проверен тестом | 5 |
-| 🟥 открытая ошибка | 0 |
+| 🟩 проверен тестом | 11 |
+| 🟥 открытая ошибка | 1 |
 | ⛔ нужен внешний доступ | 0 |
 | ⚪ не исполняется | 0 |
 | 🔄 устарела отметка | 0 |
 
-## G1. Деньги — 5 из 23 ████░░░░░░░░░░░░░░░░
+## G1. Деньги — 8 из 23 ███████░░░░░░░░░░░░░
 
 | Файл | Строк | Статус | Карточка | Лист |
 |---|---|---|---|---|
@@ -37,16 +37,16 @@
 | `backend/app/payments.py` | 155 | 🟩 проверен тестом | [карточка](audit-files/backend/app/payments.py.md) | leaf-1.2 |
 | `backend/app/price_freeze.py` | 158 | 🟩 проверен тестом | [карточка](audit-files/backend/app/price_freeze.py.md) | leaf-1.2 |
 | `backend/app/pricing.py` | 299 | 🟩 проверен тестом | [карточка](audit-files/backend/app/pricing.py.md) | leaf-1.2 |
-| `backend/app/promo_ride.py` | 313 | ⬜ не прочитан | — | — |
-| `backend/app/routers/coupons.py` | 1189 | ⬜ не прочитан | — | — |
+| `backend/app/promo_ride.py` | 313 | 🟩 проверен тестом | [карточка](audit-files/backend/app/promo_ride.py.md) | leaf-1.3 |
+| `backend/app/routers/coupons.py` | 1189 | 🟥 открытая ошибка | [карточка](audit-files/backend/app/routers/coupons.py.md) | leaf-1.3 |
 | `backend/app/routers/debt.py` | 277 | ⬜ не прочитан | — | — |
 | `backend/app/routers/payments.py` | 825 | 🟩 проверен тестом | [карточка](audit-files/backend/app/routers/payments.py.md) | leaf-1.2 |
-| `backend/app/routers/promo.py` | 460 | ⬜ не прочитан | — | — |
-| `backend/app/routers/referral.py` | 263 | ⬜ не прочитан | — | — |
+| `backend/app/routers/promo.py` | 460 | 🟩 проверен тестом | [карточка](audit-files/backend/app/routers/promo.py.md) | leaf-1.3 |
+| `backend/app/routers/referral.py` | 263 | 🟩 проверен тестом | [карточка](audit-files/backend/app/routers/referral.py.md) | leaf-1.3 |
 | `backend/app/routers/settlements.py` | 38 | ⬜ не прочитан | — | — |
 | `backend/app/routers/wallet.py` | 368 | 🟩 проверен тестом | [карточка](audit-files/backend/app/routers/wallet.py.md) | leaf-1.2 |
 
-## G2. Вход и личные данные — 0 из 16 ░░░░░░░░░░░░░░░░░░░░
+## G2. Вход и личные данные — 3 из 16 ████░░░░░░░░░░░░░░░░
 
 | Файл | Строк | Статус | Карточка | Лист |
 |---|---|---|---|---|
@@ -63,9 +63,9 @@
 | `android/app/src/main/java/com/yuldash/app/data/PersonalDataExports.kt` | 67 | ⬜ не прочитан | — | — |
 | `android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt` | 87 | ⬜ не прочитан | — | — |
 | `android/app/src/main/java/com/yuldash/app/data/TripPass.kt` | 458 | ⬜ не прочитан | — | — |
-| `backend/app/account.py` | 623 | ⬜ не прочитан | — | — |
-| `backend/app/routers/auth.py` | 1336 | ⬜ не прочитан | — | — |
-| `backend/app/security.py` | 343 | ⬜ не прочитан | — | — |
+| `backend/app/account.py` | 623 | 🟩 проверен тестом | [карточка](audit-files/backend/app/account.py.md) | leaf-2.1 |
+| `backend/app/routers/auth.py` | 1336 | 🟩 проверен тестом | [карточка](audit-files/backend/app/routers/auth.py.md) | leaf-2.1 |
+| `backend/app/security.py` | 343 | 🟩 проверен тестом | [карточка](audit-files/backend/app/security.py.md) | leaf-2.1 |
 
 ## G3. Безопасность, поддержка, администрирование — 0 из 40 ░░░░░░░░░░░░░░░░░░░░
 
