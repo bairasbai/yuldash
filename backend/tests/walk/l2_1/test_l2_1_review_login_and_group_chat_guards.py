@@ -5,7 +5,8 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.db import engine
-from app.models import TgAuth
+from app.models import OtpCode, TgAuth, User
+from app.timeutil import utcnow
 
 
 def _activate_review_login(monkeypatch, phone: str) -> str:
@@ -38,6 +39,38 @@ def test_review_login_a_few_typos_do_not_trip_the_budget(client, monkeypatch):
         assert client.post("/auth/verify", json={"phone": phone, "code": "000000"}).status_code == 400
     r = client.post("/auth/verify", json={"phone": phone, "code": "135791"})
     assert r.status_code == 200, f"несколько опечаток не должны блокировать честный вход: {r.text}"
+
+
+def test_review_guard_history_can_never_log_in_through_the_normal_sms_door(client, monkeypatch):
+    """Н-2 (повторное независимое ревью): счётчик неудач фикс-кода стора раньше держал ОДНУ
+    живую строку с постоянным кодом ("review-login-guard") 24 часа. Если режим стора для этого
+    номера потом выключат (обычная SMS-дверь снова работает), а кто-то пришлёт этот известный
+    код обычным SMS-входом — `verify` нашёл бы эту "живую" строку и впустил бы без единой
+    настоящей SMS. Проверяем: после накопленных неудач и ВЫКЛЮЧЕННОГО режима стора ни этим,
+    ни любым другим кодом-подстрокой войти нельзя, и аккаунт не создаётся."""
+    phone = _activate_review_login(monkeypatch, "+79996660099")
+    for _ in range(5):
+        client.post("/auth/verify", json={"phone": phone, "code": "000000"})
+
+    # Режим стора для этого номера выключили — теперь это обычная SMS-дверь.
+    monkeypatch.setattr(settings, "review_phone", "", raising=False)
+    monkeypatch.setattr(settings, "review_code", "", raising=False)
+
+    r = client.post("/auth/verify", json={"phone": phone, "code": "review-login-guard"})
+    assert r.status_code == 400, (
+        f"служебная запись-счётчик review-входа впустила по обычной SMS-двери: "
+        f"{r.status_code} {r.text}"
+    )
+    with Session(engine) as s:
+        assert s.exec(select(User).where(User.phone == phone)).first() is None, (
+            "аккаунт создан по служебному коду-счётчику review-входа"
+        )
+        # Каждая неудача — своя, заведомо мёртвая строка; ни одна не должна быть «живой».
+        rows = s.exec(select(OtpCode).where(OtpCode.phone == phone)).all()
+        assert rows, "счётчик неудач review-входа не оставил следа для суточного бюджета"
+        assert all(row.code == "" and row.expires_at <= utcnow() for row in rows), (
+            f"запись счётчика review-входа живая/с непустым кодом: {rows}"
+        )
 
 
 def test_start_command_in_a_group_chat_does_not_deliver_a_code(client):
