@@ -186,7 +186,7 @@ def _activate_payment(session: Session, payment: Payment) -> None:
     # умеет). Оплата по старой ссылке приходила вебхуком, платёж становился succeeded, а
     # начисление уже не срабатывало (заказ оплачен налом) — деньги у платформы, водителю ноль.
     # Тот же путь у админа: /admin/payments/{id}/reject, а потом /confirm.
-    if payment.status == "pending":
+    if payment.status != "pending":
         return
     # Эффект и статус — одна транзакция; Payment → заказ/бронь — общий порядок lock.
     if payment.purpose == "ride" and payment.order_id is not None:
