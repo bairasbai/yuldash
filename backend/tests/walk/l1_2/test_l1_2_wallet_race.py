@@ -75,6 +75,28 @@ def test_second_pay_call_reuses_in_flight_invoice_not_a_new_one(client, user_fac
         assert order.paid is True
 
 
+def test_paying_an_already_paid_order_again_does_not_touch_anything(client, user_factory):
+    """Идемпотентность верхнего гейта `if order.paid:` отдельно от защиты F1 внутри
+    _activate_payment (test_l1_2_second_payment_refund_due.py): повторный вызов не должен
+    даже создавать вторую строку Payment — он обязан остановиться на самом первом чтении
+    заказа, не доходя ни до какого платежа вообще."""
+    driver = user_factory("L12RepeatDriver", role=UserRole.driver)
+    passenger = user_factory("L12RepeatPassenger")
+    order_id = _make_done_order(driver["id"], passenger["id"], price_rub=PRICE_RUB)
+
+    first = client.post(f"/instant/orders/{order_id}/pay", headers=passenger["auth"], json={"method": "card"})
+    assert first.status_code == 200 and first.json()["status"] == "succeeded", first.text
+
+    second = client.post(f"/instant/orders/{order_id}/pay", headers=passenger["auth"], json={"method": "card"})
+
+    assert second.status_code == 200 and second.json()["status"] == "already_paid", second.text
+    rows = _ride_payments(order_id)
+    assert len(rows) == 1, (
+        f"повторная оплата уже оплаченного заказа создала {len(rows)} строк Payment вместо одной — "
+        "гейт order.paid отключён, в дело вступает только более поздняя (и более дорогая) защита"
+    )
+
+
 def test_driver_is_credited_exactly_once_despite_the_race(client, user_factory):
     """Тот же сценарий, но смотрим на кошелёк водителя: гонка не должна начислить дважды.
 

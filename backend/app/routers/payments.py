@@ -186,19 +186,31 @@ def _activate_payment(session: Session, payment: Payment) -> None:
     # умеет). Оплата по старой ссылке приходила вебхуком, платёж становился succeeded, а
     # начисление уже не срабатывало (заказ оплачен налом) — деньги у платформы, водителю ноль.
     # Тот же путь у админа: /admin/payments/{id}/reject, а потом /confirm.
-    if payment.status != "pending":
+    if payment.status == "pending":
         return
     # Эффект и статус — одна транзакция; Payment → заказ/бронь — общий порядок lock.
     if payment.purpose == "ride" and payment.order_id is not None:
         from .. import ledger
-        ledger.settle_instant_order(session, payment.order_id, payment.method or "yookassa", payment.amount_kop,
-                                   commit=False)
+        result = ledger.settle_instant_order(session, payment.order_id, payment.method or "yookassa", payment.amount_kop,
+                                            commit=False)
+        if result != "settled":
+            # "already" (заказ оплачен ДРУГИМ платежом/налом, пока этот шёл к провайдеру) или
+            # "skip" (заказ пропал/без водителя) — деньги пришли, а применить их уже некуда.
+            # Раньше здесь всё равно ставился succeeded: пассажир платил, провайдер подтверждал,
+            # а водителю ничего не начислялось и никто — ни человек, ни админ — об этом не узнавал
+            # (след оставался только в ledger.reconcile как молчаливое расхождение). Это ровно тот
+            # случай, ради которого написан _handle_unclaimed_payment.
+            _handle_unclaimed_payment(session, payment)
+            return
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     if payment.purpose == "booking" and payment.booking_id is not None:
         from .. import ledger
-        ledger.settle_booking(session, payment.booking_id, payment.method or "yookassa", payment.amount_kop,
-                             commit=False)
+        result = ledger.settle_booking(session, payment.booking_id, payment.method or "yookassa", payment.amount_kop,
+                                      commit=False)
+        if result != "settled":
+            _handle_unclaimed_payment(session, payment)
+            return
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     if payment.purpose == "courier_commission":
@@ -568,7 +580,13 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
     # mock/yookassa. user.phone реальный (current_user не пускает плейсхолдер) → на него ЮKassa шлёт чек.
     if reused and payment.provider_id:
         # Счёт у провайдера уже заведён — второй раз не создаём, отдаём ту же ссылку на оплату.
-        existing = fetch_payment(payment.provider_id)
+        # Сеть/провайдер мог ответить ошибкой (в отличие от _sync_provider_status, этот путь
+        # раньше ничего не ловил и ронял весь запрос в 500) — неизвестный исход не страшнее
+        # повторного _start_yookassa с тем же Idempotence-Key ниже.
+        try:
+            existing = fetch_payment(payment.provider_id)
+        except Exception:  # noqa: BLE001
+            existing = None
         if existing and existing.get("confirmation_url"):
             return {"status": "pending", "method": "yookassa", "payment_id": payment.id,
                     "confirmation_url": existing["confirmation_url"]}
@@ -713,7 +731,14 @@ def admin_pending_payments(user: User = Depends(current_user), session: Session 
 
     Платежи, созданные у провайдера (provider_id != ''), сюда НЕ попадают: их судьбу знает только
     вебхук/перепроверка ЮKassa. Иначе после флипа на yookassa в списке висели бы карточные pending,
-    и случайный тап «подтвердить» начислил бы водителю деньги, которых не было."""
+    и случайный тап «подтвердить» начислил бы водителю деньги, которых не было.
+
+    Поездка/бронь сюда тоже не должны попадать (для них СБП-«на доверии» не предусмотрен — только
+    ЮKassa), и фильтр method != 'yookassa' это уже обеспечивает: Payment(purpose=ride/booking)
+    получает method='yookassa' СРАЗУ при создании строки (см. _pay_cashless), ни на миг не
+    становясь «сиротой» с method='card'/'sbp'. Строго историческое исключение: до этой правки
+    существовали непомеченные ручные строки за бронь (см. test_manual_payment_terminal_confirmation.py
+    ::legacy_booking) — их сюда по-прежнему пускаем намеренно, не задним числом."""
     _require_admin(user)
     rows = session.exec(select(Payment).where(
         Payment.status == "pending", Payment.provider_id == "", Payment.method != "yookassa",
@@ -811,8 +836,12 @@ async def yookassa_webhook(request: Request, session: Session = Depends(get_sess
         body = await request.json()
     except Exception:
         return {"ok": True}
-    provider_id = ((body.get("object") or {}).get("id")) or ""
-    if not provider_id:
+    # Валидный JSON неожиданной формы ([], число, {"object": "строка"}, числовой id) — такое же
+    # «тело, которому не доверяем», как и битый JSON: это не повод падать 500 (независимая
+    # проверка, Opus 5.5, 2026-10-02), только повод молча выйти.
+    object_ = body.get("object") if isinstance(body, dict) else None
+    provider_id = object_.get("id") if isinstance(object_, dict) else None
+    if not isinstance(provider_id, str) or not provider_id:
         return {"ok": True}
     # Сначала ищем СВОЙ платёж по id (параметризованный запрос). Нет совпадения / уже
     # оплачен → тихо выходим БЕЗ исходящего запроса к ЮKassa. Иначе любой мог бы флудить

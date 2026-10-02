@@ -12,6 +12,7 @@ precision and external API load.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from threading import Lock
 from time import monotonic
@@ -110,7 +111,12 @@ def _parse_route_payload(payload: dict[str, Any]) -> RouteMetrics:
             distance_m += max(float(step.get("length") or 0.0), 0.0)
             duration_sec += max(float(step.get("duration") or 0.0), 0.0)
 
-    if distance_m <= 0 or duration_sec <= 0:
+    # `<= 0` не ловит NaN/Infinity: NaN‑сравнения всегда False, а `inf <= 0` тоже False.
+    # Python's json.loads (а значит и response.json()) по умолчанию принимает нестандартные
+    # литералы Infinity/NaN/-Infinity — независимая проверка (Opus 5.5, 2026-10-02) нашла, что
+    # такой ответ проходил бы дальше и отравлял и цену, и короткий кэш координат.
+    if (distance_m <= 0 or duration_sec <= 0
+            or not math.isfinite(distance_m) or not math.isfinite(duration_sec)):
         raise ValueError("route metrics are empty")
 
     distance_km = distance_m / 1000.0
