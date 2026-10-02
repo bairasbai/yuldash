@@ -68,7 +68,7 @@ import kotlinx.coroutines.launch
  *  - пробелы: не только по краям — внутри тоже (вставленный «YUL DASH» не должен доехать до
  *    сервера с пробелом посередине и молча не найтись);
  *  - длина: сервер хранит код `max_length=32` (`PromoCode.code`, `backend/app/models.py`) и тем
- *    же пределом режет тело запроса (`PromoApplyIn.code`, `backend/app/routers/promo.py`) — без
+ *    же пределом режет тело запроса (`ApplyIn.code`, `backend/app/routers/promo.py`) — без
  *    зеркального предела здесь вставленный длинный текст уходит в сеть гарантированным 422,
  *    а поле просто не даёт набрать больше, чем сервер всё равно примет.
  * Башкирские буквы не исключаем — `uppercase()` их понимает (Ҙ/Ғ/Ҡ/Ң/Ө/Ү/Һ/Ә), сужать алфавит
@@ -121,6 +121,9 @@ internal fun PromoCodeScreen(onBack: () -> Unit) {
                             // Догружаем «мой промокод» — экран потом покажет постоянное состояние «применён».
                             scope.launch { ApiClient.getMyPromo().onSuccess { mine = it } }
                         },
+                        // Код мог УЖЕ примениться на сервере (ответ потерялся на таймауте), а
+                        // повтор упёрся в 409. Ведём сразу на «применён» — не на пустую форму.
+                        onAlreadyApplied = { promo -> mine = promo },
                     )
                 }
             }
@@ -135,7 +138,7 @@ internal fun PromoCodeScreen(onBack: () -> Unit) {
 // ─────────────────────────── Ввод кода ───────────────────────────
 
 @Composable
-private fun PromoInputCard(onApplied: (PromoApplyResultDto) -> Unit) {
+private fun PromoInputCard(onApplied: (PromoApplyResultDto) -> Unit, onAlreadyApplied: (MyPromoDto) -> Unit) {
     val scope = rememberCoroutineScope()
     var code by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -186,7 +189,22 @@ private fun PromoInputCard(onApplied: (PromoApplyResultDto) -> Unit) {
                         scope.launch {
                             ApiClient.applyPromo(code)
                                 .onSuccess { onApplied(it) }
-                                .onFailure { err = (it as? com.yuldash.app.data.ApiException)?.message ?: defaultErr }
+                                .onFailure { e ->
+                                    val apiEx = e as? com.yuldash.app.data.ApiException
+                                    if (apiEx?.status == 409) {
+                                        // Было: таймаут на самом ПЕРВОМ нажатии мог означать, что
+                                        // сервер код всё-таки принял, а ответ потерялся в пути.
+                                        // Повтор получал 409 «уже применил» и человек оставался на
+                                        // пустой форме ввода, не видя, что код на самом деле есть.
+                                        // 409 здесь ВСЕГДА означает «уже есть какой-то код» — сверяем
+                                        // реальное состояние вместо того, чтобы просто показать отказ.
+                                        ApiClient.getMyPromo()
+                                            .onSuccess { promo -> if (promo != null) onAlreadyApplied(promo) else err = apiEx.message }
+                                            .onFailure { err = apiEx.message }
+                                    } else {
+                                        err = apiEx?.message ?: defaultErr
+                                    }
+                                }
                             busy = false
                         }
                     },
@@ -327,21 +345,27 @@ private fun PromoAppliedCard(m: MyPromoDto) {
  * Что человек получил, одной строкой. Скидку на поездку определяем по САМОЙ скидке, а не по
  * названию вида кода: раньше любой не-boost код подписывался «Приветственный бонус», и человек
  * с кодом на 300 ₽ такси видел безликое «бонус» — то есть выгоды не видел вообще.
+ *
+ * Было (нашло независимое ревью): для `kind == "taxi_ride"` c `discountKop == 0` всё равно
+ * включалась ветка скидки и показывался `"$perkValue ₽"` — число, которого сервер в ЭТОМ ответе
+ * не подтверждал. Два реальных случая: сервер разрешает `perk_value = 0` (на значке «0 ₽ скидки
+ * на такси» — пустое обещание), и общий потолок `promo_ride_max_discount_rub` может быть снижен
+ * до 0 (на значке оставался старый `perkValue`, например «300 ₽», хотя реальная скидка — 0, и
+ * сам сервер в это же время пишет «добро пожаловать» welcome-сообщением). Показываем только то,
+ * что сервер ПОДТВЕРДИЛ суммой в этом же ответе; нулевая/отсутствующая скидка идёт в честный
+ * «Приветственный бонус», а не в придуманную цифру.
  */
 @Composable
 private fun PromoPerkChip(kind: String, perkValue: Int, discountKop: Int = 0) {
-    val isDiscount = discountKop > 0 || kind.equals("taxi_ride", ignoreCase = true)
-    val isBoost = kind.equals("boost", ignoreCase = true)
+    val isDiscount = discountKop > 0
+    val isBoost = !isDiscount && kind.equals("boost", ignoreCase = true)
     val icon = when {
         isDiscount -> Icons.Default.LocalTaxi
         isBoost -> Icons.Default.RocketLaunch
         else -> Icons.Default.CardGiftcard
     }
     val label = when {
-        isDiscount -> {
-            val sum = if (discountKop > 0) kopToRub(discountKop) else "$perkValue ₽"
-            appText("$sum скидки на такси", "Таксиға $sum ташлама")
-        }
+        isDiscount -> appText("${kopToRub(discountKop)} скидки на такси", "Таксиға ${kopToRub(discountKop)} ташлама")
         isBoost -> appText("$perkValue бесплатных поднятий", "$perkValue бушлай күтәреү")
         else -> appText("Приветственный бонус", "Сәләмләү бүләге")
     }

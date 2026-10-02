@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -69,6 +70,7 @@ import com.yuldash.app.data.ActivatedCouponDto
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.CouponDto
 import com.yuldash.app.data.MyCouponDto
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 // ─────────────────────────── Категории заведений (иконка + подпись) ───────────────────────────
@@ -112,29 +114,25 @@ internal fun kopToRub(kop: Int): String {
 }
 
 /**
- * ISO-момент с сервера → «ДД.ММ.ГГГГ» по часам ЧЕЛОВЕКА (для Юлдаша это Уфа, UTC+5).
- * Непонятный формат → null (подпись не показываем).
+ * ISO-момент с сервера → «ДД.ММ.ГГГГ» по часам ТЕЛЕФОНА. Непонятный формат → null (подпись не
+ * показываем). Для ОБЫЧНЫХ моментов-событий (что-то произошло: `createdAt`, `deliveredAt`,
+ * `lastPassedAt` в чужих экранах) — человек смотрит на свои часы, как и в [formatDepart] (тот же
+ * приём, тот же прецедент проекта).
  *
- * Было: первые 10 символов строки резались как готовая дата, БЕЗ перевода часового пояса.
- * Сервер шлёт `valid_until` наивным UTC (`backend/app/routers/coupons.py` + `client_dt_to_utc`
- * в `timeutil.py`, со значением по умолчанию «наивное время — это Уфа», см. `naive_means="local"`
- * там же): «2026-07-05T21:00:00» — это уже «06.07, 02:00» по Уфе. Старая резка показывала
- * «05.07.2026» — на день раньше настоящего срока действия купона. Тот же класс ошибки уже чинили
- * в [formatDepart] (разбор №2, 2026-08-03) и в серверной `local_date` (волна 79/203) — здесь он
- * просто не был замечен: из вида пропадает только ДЕНЬ, а не час, и расхождение не бросается
- * в глаза, пока не попадёшь на уфимскую полночь.
+ * Для СРОКА ДЕЙСТВИЯ купона/промокода (когда сервер перестанет его принимать) эта функция НЕ
+ * годится: там день решает не пояс телефона, а УФА (часовой пояс самого правила сервера) и
+ * ИСКЛЮЧАЮЩАЯ граница `valid_until`. Смотри [couponLastAcceptedDay] — независимое ревью листа
+ * поймало именно эту подмену (R2 здесь раньше ошибочно называл её «переводом в Уфу»).
  *
- * Чистую календарную дату без времени (ровно 10 символов — так её уже мог обрезать вызывающий
- * код, напр. `CarPhotoScreen.dueAt?.take(10)`) переводить некуда: часа в ней нет, берём как есть —
- * это сохраняет обратную совместимость с чужими вызовами той же функции.
+ * Было: первые 10 символов строки резались как готовая дата, БЕЗ перевода часового пояса вообще
+ * — отсюда чистая дата из 10 символов (её мог обрезать вызывающий код, напр.
+ * `CarPhotoScreen.dueAt?.take(10)`) идёт как есть: часа в ней нет, переводить некуда.
  *
  * Одна на всё приложение — переиспользуется партнёром/админом/документами (`shortDate` вызывают
  * `AdminParcelsScreen`, `AdminPromoScreen`, `CarPhotoScreen`, `DriverProfileScreen`,
- * `PartnerCabinetScreen`, `TaxiDocsScreens` — этот фикс чинит тот же класс ошибки и там, не трогая
- * ни одного из этих файлов). Копий было две с ОДНИМ именем: здесь и в профиле водителя — и они
- * расходились на битой дате. Третья функция с тем же именем (в баннере событий) давала другой
- * формат — «дд.мм», без года; она переименована в `shortDayMonth`, чтобы одно имя не значило
- * двух разных вещей.
+ * `PartnerCabinetScreen`, `TaxiDocsScreens`). Копий было две с ОДНИМ именем: здесь и в профиле
+ * водителя — и они расходились на битой дате. Третья функция с тем же именем (в баннере событий)
+ * давала другой формат — «дд.мм», без года; она переименована в `shortDayMonth`.
  */
 internal fun shortDate(iso: String?): String? {
     val raw = (iso ?: "").trim()
@@ -151,28 +149,83 @@ internal fun shortDate(iso: String?): String? {
     )
 }
 
+/** Часовой пояс самого бизнес-правила сервера (когда касса перестанет принимать купон/код) —
+ *  Уфа всегда, независимо от того, где стоит телефон смотрящего на экран. */
+private val UFA_TZ: java.util.TimeZone = java.util.TimeZone.getTimeZone("Asia/Yekaterinburg")
+
+/** Календарь Уфы на момент (valid_until − 1 секунда) — общая часть [couponLastAcceptedDay] и
+ *  [ufaIsoDate]. `null`, если `iso` короче полного момента или не разбирается. Зачем минус
+ *  секунда — см. docs у [couponLastAcceptedDay]. */
+private fun ufaMomentJustBeforeExpiry(iso: String): java.util.Calendar? {
+    val ms = parseIsoUtcMillis(iso) ?: return null
+    return java.util.Calendar.getInstance(UFA_TZ).apply { timeInMillis = ms - 1000L }
+}
+
 /**
- * То же самое преобразование, что в [shortDate] (UTC-момент с сервера → календарь Уфы), но
- * форматом «ГГГГ-ММ-ДД» — для РЕДАКТИРУЕМЫХ полей срока, а не для показа человеку. [shortDate]
- * для этого не годится: его «ДД.ММ.ГГГГ» не распарсить обратно без лишнего шва.
+ * «Действует до» для СРОКА купона/промокода — последний КАЛЕНДАРНЫЙ ДЕНЬ по Уфе
+ * (Asia/Yekaterinburg, UTC+5 — ИМЕННО Уфа, а не часы телефона смотрящего), когда код ещё примут.
+ *
+ * `valid_until` — ИСКЛЮЧАЮЩАЯ граница: купон/промокод истёк, если `valid_until <= now`
+ * (`backend/app/routers/coupons.py::_in_window`, `backend/app/promo_ride.py::in_window`). Значит
+ * последний момент, когда код ещё действует, — `valid_until − 1 секунда`; показывать нужно
+ * календарный день ИМЕННО этого момента (по Уфе), а не момента `valid_until` как есть.
+ *
+ * Почему это не то же самое, что [shortDate]. В проде форма партнёра и админ шлют ОБЫЧНУЮ дату
+ * без времени («2026-10-31» — «действует по 31 октября»), и `client_dt_to_utc` кладёт её как
+ * 00:00 ЭТОГО дня по Уфе — в базе лежит момент НАЧАЛА дня, а не его конец:
+ * `"2026-10-31"` (форма) → `valid_until = "2026-10-30T19:00:00"` (UTC, это и есть 00:00 31.10 Уфа).
+ * Показать этот момент как есть (`shortDate`-стиль) даёт «31.10» — но из-за исключающей границы
+ * касса откажет УЖЕ в начале 31 октября: реальный последний принятый день — 30.10. Отнимаем
+ * секунду ДО перевода в Уфу — получаем «30.10, 23:59:59», то есть верный ответ.
+ *
+ * После правки сервера (лист 1.3, `_coupon_valid_until`) НОВЫЕ записи хранят КОНЕЦ дня по Уфе
+ * (23:59:59) — тогда минус секунда остаётся в том же календарном дне и ничего не меняет. Одно
+ * правило верно для ОБОИХ видов строк, старых и новых:
+ *
+ * ```
+ * "2026-10-30T19:00:00" (старая запись, форма просила «до 31.10») → 30.10.2026
+ * "2026-10-31T18:59:59" (новая запись, после правки сервера)      → 31.10.2026
+ * ```
+ *
+ * Старые записи (созданные до правки сервера) миграцией на этой ветке не затронуты — функция
+ * лечит ПОКАЗ, не саму запись в базе; так и задумано (см. карточку, «Остаток»).
+ */
+internal fun couponLastAcceptedDay(iso: String?): String? {
+    val raw = (iso ?: "").trim()
+    if (raw.length == 10) {
+        // Чистая дата без времени — отнимать нечего, часа тут нет (как и в shortDate).
+        if (raw[4] != '-' || raw[7] != '-') return null
+        return "${raw.substring(8, 10)}.${raw.substring(5, 7)}.${raw.substring(0, 4)}"
+    }
+    if (raw.length < 10) return null
+    val c = ufaMomentJustBeforeExpiry(raw) ?: return null
+    return String.format(
+        java.util.Locale.US, "%02d.%02d.%04d",
+        c.get(java.util.Calendar.DAY_OF_MONTH), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.YEAR),
+    )
+}
+
+/**
+ * То же правило, что в [couponLastAcceptedDay] (последний день по Уфе с учётом исключающей
+ * границы `valid_until`), но форматом «ГГГГ-ММ-ДД» — для РЕДАКТИРУЕМЫХ полей срока, а не для
+ * показа человеку.
  *
  * Зачем нужна именно здесь. Форма купона в кабинете партнёра (`PartnerCabinetScreen.kt::CouponForm`,
  * поле «Действует до (ГГГГ-ММ-ДД)») сейчас читает `initial.validUntil` в это поле через голый
- * `.take(10)` — БЕЗ перевода часового пояса. Тот же класс ошибки, что чинит [shortDate], здесь
- * ещё опаснее: человек открывает купон, видит дату на день раньше настоящей, жмёт «Сохранить»
- * НИЧЕГО не меняя — и резаная дата уходит на сервер как обычная правка. При следующем открытии
- * формы она снова резана по новой (уже сдвинутой) UTC-отметке и сдвигается ЕЩЁ на день назад —
- * с каждым открытием-сохранением купон стареет на сутки без единого осознанного изменения.
+ * `.take(10)` — без учёта исключающей границы и часового пояса. На старой записи
+ * («2026-10-30T19:00:00», форма просила «до 31.10») это покажет «2026-10-31», и если партнёр
+ * нажмёт «Сохранить» НИЧЕГО не меняя, купон молча продлится на лишние сутки — бизнес платит
+ * комиссию за каждое погашение, лишний день не бесплатен. С этой функцией чтение даёт «2026-10-30»
+ * — то, что форма и просила изначально, — и сохранение «как есть» ничего не продлевает.
  * Эта функция ломает цепочку на чтении: `initial.validUntil?.let(::ufaIsoDate) ?: ""` вместо
- * `initial?.validUntil?.take(10) ?: ""` — показ станет верным, и сохранение «как есть» перестанет
- * сдвигать дату. Файл кабинета партнёра вне зоны этого листа — правку не делаю, см. отчёт.
+ * `initial?.validUntil?.take(10) ?: ""`. Файл кабинета партнёра вне зоны этого листа — правку не
+ * делаю, см. отчёт.
  */
 internal fun ufaIsoDate(iso: String?): String? {
     val raw = (iso ?: "").trim()
     if (raw.length == 10) return raw.takeIf { it[4] == '-' && it[7] == '-' }
     if (raw.length < 10) return null
-    val ms = parseIsoUtcMillis(raw) ?: return null
-    val c = java.util.Calendar.getInstance().apply { timeInMillis = ms }
+    val c = ufaMomentJustBeforeExpiry(raw) ?: return null
     return String.format(
         java.util.Locale.US, "%04d-%02d-%02d",
         c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.DAY_OF_MONTH),
@@ -233,10 +286,14 @@ private fun CouponTab(label: String, active: Boolean, modifier: Modifier = Modif
     Surface(
         onClick = onClick, color = bg, shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, if (active) CanonGreen2 else CanonBorder),
-        modifier = modifier.height(48.dp),
+        // Было height(48.dp) — жёсткая высота резала башкирскую подпись («Яҡындағы ташламалар»
+        // на половине ширины экрана) на крупном системном шрифте: текст переносился на вторую
+        // строку, а вторая строка не помещалась и обрезалась. heightIn(min=…) держит тач-цель
+        // ≥48dp, но даёт вкладке вырасти, если подписи нужно две строки.
+        modifier = modifier.heightIn(min = 48.dp),
     ) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+            Text(label, color = if (active) CanonGreen2 else CanonMuted, fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = TextAlign.Center)
         }
     }
 }
@@ -258,9 +315,16 @@ private fun NearbyCouponsTab(onOpen: (CouponDto) -> Unit) {
         ApiClient.me().onSuccess { o -> o.optString("city").takeIf { it.isNotBlank() }?.let { cityFilter = it } }
     }
 
+    // Было: два запроса гонялись за одним и тем же состоянием. При входе сразу уходил запрос
+    // «все города», а следом (когда подтягивался кешированный профиль) — второй, уже по городу.
+    // Чей ответ прилетит ПОСЛЕДНИМ, тот и побеждал: иногда это был первый («все города»), и
+    // список не совпадал с подсвеченным чипом города. Держим Job последнего запроса и отменяем
+    // предыдущий перед стартом нового — устаревший ответ больше не может переписать свежий.
+    var loadJob by remember { mutableStateOf<Job?>(null) }
     fun reload() {
+        loadJob?.cancel()
         loading = true; error = null
-        scope.launch {
+        loadJob = scope.launch {
             ApiClient.getCoupons(city = cityFilter.takeIf { it.isNotBlank() })
                 .onSuccess { coupons = it }
                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }
@@ -370,7 +434,7 @@ private fun CouponCard(c: CouponDto, onClick: () -> Unit) {
                     Text(appText("осталось ${c.remaining}", "${c.remaining} ҡалды"), color = CanonMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
-            shortDate(c.validUntil)?.let { until ->
+            couponLastAcceptedDay(c.validUntil)?.let { until ->
                 Text(appText("Действует до $until", "$until тиклем ғәмәлдә"), color = CanonMuted, fontSize = 12.sp)
             }
         }
@@ -463,6 +527,14 @@ private fun MyCouponsTab(onGoNearby: () -> Unit = {}) {
 private fun MyCouponCard(m: MyCouponDto) {
     val clipboard = LocalClipboardManager.current
     val c = m.coupon
+    // Сервер никогда не проставляет статус "expired" у брони купона (leaf-1.3, «вечные брони» —
+    // известное ограничение) — только "reserved"/"redeemed"/"canceled". Истёкший купон молча
+    // оставался «Ждёт показа» вместе с живым кодом, хотя касса его уже не примет. Граница та же,
+    // что на сервере (`backend/app/routers/coupons.py::_in_window`): valid_until ИСКЛЮЧАЮЩАЯ —
+    // истёк, если valid_until <= сейчас.
+    val expiredByDate = m.status == "reserved" && c.validUntil?.let(::parseIsoUtcMillis)
+        ?.let { it <= System.currentTimeMillis() } == true
+    val effectiveStatus = if (expiredByDate) "expired" else m.status
     AppCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -470,11 +542,12 @@ private fun MyCouponCard(m: MyCouponDto) {
                     Text(c.partner.name.ifBlank { c.title }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text(c.title, color = CanonMuted, fontSize = 14.sp)
                 }
-                CouponStatusChip(m.status)
+                CouponStatusChip(effectiveStatus)
             }
             DiscountBadge(c.discountText)
-            // Код — крупно, моноширинно, легко продиктовать
-            if (m.status == "reserved") {
+            // Код — крупно, моноширинно, легко продиктовать. Истёкший прячем: показывать код
+            // рядом с «Истёк» выглядело бы так, будто им ещё можно воспользоваться в заведении.
+            if (m.status == "reserved" && !expiredByDate) {
                 Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(m.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 24.sp, modifier = Modifier.weight(1f))
@@ -485,7 +558,7 @@ private fun MyCouponCard(m: MyCouponDto) {
                 }
                 Text(appText("Покажи код в заведении. Скидку даёт заведение.", "Кодты урында күрһәт. Ташламаны урын бирә."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
             }
-            shortDate(c.validUntil)?.let { until ->
+            couponLastAcceptedDay(c.validUntil)?.let { until ->
                 Text(appText("Действует до $until", "$until тиклем ғәмәлдә"), color = CanonMuted, fontSize = 12.sp)
             }
         }
@@ -517,7 +590,12 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
     var activating by remember { mutableStateOf(false) }
     var actError by remember { mutableStateOf<String?>(null) }
     var reporting by remember { mutableStateOf(false) }
+    var reportSending by remember { mutableStateOf(false) }
+    var reportError by remember { mutableStateOf<String?>(null) }
     val actErrDefault = appText("Не получилось активировать. Повтори.", "Активлаштырып булманы. Ҡабатла.")
+    // Было: при неудачной отправке жалобы человек видел «Не получилось АКТИВИРОВАТЬ» — текст про
+    // чужое действие, к жалобе отношения не имеющий. Отдельная строка под своё действие.
+    val reportErrDefault = appText("Не получилось отправить. Повтори.", "Ебәреп булманы. Ҡабатла.")
     val reportThanks = appText("Спасибо, посмотрим", "Рәхмәт, ҡарарбыҙ")
 
     // Догружаем свежий купон (актуальный remaining/срок), но UI сразу показывает preview.
@@ -562,7 +640,7 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
                                     Text(coupon.partner.address, color = CanonText, fontSize = 14.sp)
                                 }
                             }
-                            shortDate(coupon.validUntil)?.let { until ->
+                            couponLastAcceptedDay(coupon.validUntil)?.let { until ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.Schedule, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(8.dp))
@@ -659,21 +737,26 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
 
     if (reporting) {
         ReportCouponDialog(
-            onDismiss = { reporting = false },
+            sending = reportSending,
+            error = reportError,
+            onDismiss = { if (!reportSending) { reporting = false; reportError = null } },
             onSend = { reason ->
-                reporting = false
+                // Двойной тап по «Отправить» — та же защита, что у «Активировать скидку» выше.
+                if (reportSending) return@ReportCouponDialog
+                reportSending = true; reportError = null
                 scope.launch {
                     ApiClient.reportCoupon(coupon.id, reason)
                         .onSuccess {
+                            reporting = false
                             Toast.makeText(ctx, reportThanks, Toast.LENGTH_SHORT).show()
                         }
+                        // Было: диалог закрывался ДО ответа сервера, поэтому при неудаче человек
+                        // уже не видел ни диалога, ни своего текста — писать жалобу заново от руки.
+                        // Теперь диалог остаётся открытым, текст не теряется, ошибка — своя.
                         .onFailure {
-                            Toast.makeText(
-                                ctx,
-                                (it as? com.yuldash.app.data.ApiException)?.message ?: actErrDefault,
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            reportError = (it as? com.yuldash.app.data.ApiException)?.message ?: reportErrDefault
                         }
+                    reportSending = false
                 }
             },
         )
@@ -682,7 +765,7 @@ private fun CouponDetailView(couponId: Int, preview: CouponDto, onBack: () -> Un
 
 /** Жалоба на купон: коротко и без обвинений — человек просто говорит, что не сошлось. */
 @Composable
-private fun ReportCouponDialog(onDismiss: () -> Unit, onSend: (String) -> Unit) {
+private fun ReportCouponDialog(sending: Boolean, error: String?, onDismiss: () -> Unit, onSend: (String) -> Unit) {
     var reason by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -705,16 +788,20 @@ private fun ReportCouponDialog(onDismiss: () -> Unit, onSend: (String) -> Unit) 
                         Text(appText("Например: скидку не дали", "Мәҫәлән: ташлама бирмәнеләр"))
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !sending,
                 )
+                if (error != null) {
+                    Text(error, color = CanonRed, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSend(reason.trim()) }, enabled = reason.isNotBlank()) {
+            TextButton(onClick = { onSend(reason.trim()) }, enabled = reason.isNotBlank() && !sending) {
                 Text(appText("Отправить", "Ебәреү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !sending) {
                 Text(appText("Отмена", "Кире ҡағыу"), color = CanonMuted)
             }
         },
@@ -764,7 +851,7 @@ private fun ActivatedCodeView(a: ActivatedCouponDto, onDone: () -> Unit) {
             item {
                 Text(c.partner.name.ifBlank { c.title }, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center)
             }
-            shortDate(c.validUntil)?.let { until ->
+            couponLastAcceptedDay(c.validUntil)?.let { until ->
                 item { Text(appText("Действует до $until", "$until тиклем ғәмәлдә"), color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center) }
             }
             item {
