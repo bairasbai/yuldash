@@ -102,6 +102,24 @@ class MutationReplayTest(unittest.TestCase):
                               capture_output=True, text=True)
         self.assertEqual(left.stdout.strip(), "0", left.stderr)
 
+    def test_breakage_left_by_a_killed_run_is_put_back(self):
+        # A replay killed mid-mutation leaves the broken source and the saved original side by side.
+        self.put(SOURCE, CODE.replace(b"a + b", b"a - b"))
+        self.put(SOURCE + ".audit-original", CODE)
+        proc = self.run_cli("recover")
+        self.assertIn("RECOVERY DONE 1", proc.stdout, proc.stdout + proc.stderr)
+        self.assertEqual((self.root / SOURCE).read_bytes(), CODE)
+        self.assertFalse((self.root / (SOURCE + ".audit-original")).exists())
+
+    def test_replay_repairs_a_killed_run_before_it_starts(self):
+        self.put(SOURCE, CODE.replace(b"a + b", b"a - b"))
+        self.put(SOURCE + ".audit-original", CODE)
+        proc = self.run_cli("replay", "--spec", self.spec({"find": "a + b", "replace": "a - b"}))
+        self.assertIn("RECOVERED backend/app/calc.py", proc.stdout, proc.stdout + proc.stderr)
+        self.assertIn("MUTATIONS KILLED 1/1", proc.stdout)
+        self.assertEqual((self.root / SOURCE).read_bytes(), CODE)
+        self.assertFalse((self.root / (SOURCE + ".audit-original")).exists())
+
     def test_lock_run_returns_command_exit_and_releases_lock(self):
         proc = self.run_cli("lock-run", "--name", "demo", "--owner", "t", "--",
                             sys.executable, "-c", "import sys; sys.exit(3)")

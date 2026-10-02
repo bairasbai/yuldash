@@ -216,10 +216,40 @@ def cmd_validate(root, args):
     print(f"SPEC OK {len(data['mutations'])}")
 
 
+BACKUP_SUFFIX = ".audit-original"
+SKIP_DIRS = {".git", "node_modules", "build", ".gradle", ".venv", "venv", "__pycache__", ".unlazy"}
+
+
+def pending_backups(root):
+    """Originals saved next to a mutated file. One left behind means a replay was killed mid-mutation."""
+    found = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        found += [Path(dirpath) / f for f in filenames if f.endswith(BACKUP_SUFFIX)]
+    return sorted(found)
+
+
+def recover(root):
+    restored = []
+    for backup in pending_backups(root):
+        target = backup.with_name(backup.name[:-len(BACKUP_SUFFIX)])
+        target.write_bytes(backup.read_bytes())
+        backup.unlink()
+        restored.append(target.relative_to(root).as_posix())
+        print(f"RECOVERED {target.relative_to(root).as_posix()} — исходник возвращён после прерванной поломки", flush=True)
+    return restored
+
+
+def cmd_recover(root, args):
+    restored = recover(root)
+    print(f"RECOVERY DONE {len(restored)}")
+
+
 def cmd_replay(root, args):
     data, problems = load_spec(args.spec)
     if problems:
         raise SystemExit("спецификация неверна: " + "; ".join(problems))
+    recover(root)  # a killed earlier run must never leave its breakage in the source
     selected = data["mutations"]
     if args.only:
         wanted = set(args.only.split(","))
@@ -247,6 +277,8 @@ def cmd_replay(root, args):
         digest = hashlib.sha256(original).hexdigest()
         mutated = original.replace(localized(m["find"], original).encode("utf-8"),
                                    localized(m["replace"], original).encode("utf-8"), 1)
+        backup = target.with_name(target.name + BACKUP_SUFFIX)
+        backup.write_bytes(original)  # survives a killed process; recover() puts it back
         try:
             target.write_bytes(mutated)
             code, out = run_case(root, m, args.timeout)
@@ -254,6 +286,7 @@ def cmd_replay(root, args):
             target.write_bytes(original)
         if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
             raise SystemExit(f"{m['id']}: файл {m['file']} не восстановлен — остановка")
+        backup.unlink()
         if caught(m, code, out):
             killed += 1
             names = re.findall(r"FAILED (\S+)|(\S+) > .* FAILED", out)
@@ -294,6 +327,7 @@ def main():
     p.add_argument("--sample", type=int, help="Replay only N random mutations (parent spot check)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--timeout", type=int, default=1800)
+    sub.add_parser("recover", help="Put back sources left mutated by a killed replay (prints RECOVERY DONE n)")
     p = sub.add_parser("lock-run", help="Run a command while holding a named machine-wide lock")
     p.add_argument("--name", default="gradle")
     p.add_argument("--owner", default="unknown")
@@ -304,7 +338,8 @@ def main():
     if getattr(args, "cmd", None) and args.cmd[0] == "--":
         args.cmd = args.cmd[1:]
     root = args.root.resolve()
-    {"validate": cmd_validate, "replay": cmd_replay, "lock-run": cmd_lock_run}[args.command](root, args)
+    {"validate": cmd_validate, "replay": cmd_replay, "lock-run": cmd_lock_run,
+     "recover": cmd_recover}[args.command](root, args)
 
 
 if __name__ == "__main__":

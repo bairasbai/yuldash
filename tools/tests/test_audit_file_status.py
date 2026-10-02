@@ -98,6 +98,15 @@ class FileStatusCliTest(unittest.TestCase):
         good = self.run_cli("check-cards", "--files", PY, "--leaf", "leaf-1.1")
         self.assertIn("CARDS OK 1", good.stdout)
 
+    def test_card_is_refused_while_a_breakage_is_still_in_the_source(self):
+        self.run_cli("init")
+        self.spec()
+        self.put(f"docs/audit-files/{PY}.md", card(PY).encode("utf-8"))
+        self.put(PY + ".audit-original", b"def total(a, b):\n    return a + b\n")
+        proc = self.run_cli("check-cards", "--files", PY, ok=False)
+        self.assertIn("незавершённая нарочная поломка", proc.stdout)
+        self.assertNotIn("CARDS OK", proc.stdout)
+
     def test_reference_to_missing_test_function_is_rejected(self):
         self.run_cli("init")
         self.spec()

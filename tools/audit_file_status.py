@@ -166,6 +166,9 @@ def load_mutations(root, leaf):
 def validate_card(root, path, leaf_hint=None):
     """Return (status, leaf, tests, mutation_ids, reason, problems) for one source file's card."""
     problems = []
+    if (root / (path + ".audit-original")).exists():
+        problems.append("в исходнике осталась незавершённая нарочная поломка — выполни "
+                        "`python tools/audit_mutation.py recover`")
     card = root / card_path(path)
     if not card.exists():
         return None, None, [], [], None, [f"нет карточки {card_path(path)}"]
