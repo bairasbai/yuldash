@@ -15,9 +15,9 @@ class WalletMoneyFormatTest {
 
     @Test
     fun fmtRub_groupsThousandsWithSpace() {
-        assertEquals("1 250", fmtRub(1250))
-        assertEquals("45 000", fmtRub(45000))
-        assertEquals("1 234 567", fmtRub(1234567))
+        assertEquals("1 250", fmtRub(1250))
+        assertEquals("45 000", fmtRub(45000))
+        assertEquals("1 234 567", fmtRub(1234567))
     }
 
     @Test
@@ -32,7 +32,7 @@ class WalletMoneyFormatTest {
         // Любая ловушка вида "- 100 000" (пробел после минуса) читается как опечатка,
         // а не как отрицательная сумма — глаз цепляется за пробел, а не за знак.
         assertEquals("-100", fmtRub(-100))
-        assertEquals("-100 000", fmtRub(-100000))
-        assertEquals("-1 234", fmtRub(-1234))
+        assertEquals("-100 000", fmtRub(-100000))
+        assertEquals("-1 234", fmtRub(-1234))
     }
 }

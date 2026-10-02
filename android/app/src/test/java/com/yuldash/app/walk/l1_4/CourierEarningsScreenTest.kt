@@ -3,6 +3,9 @@ package com.yuldash.app.walk.l1_4
 import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
@@ -281,5 +284,21 @@ class CourierEarningsScreenTest {
         compose.waitForIdle()
 
         assertEquals(listOf("week", "month", "all"), requestedPeriods)
+    }
+
+    @Test
+    fun periodSwitch_exposesTabRoleAndSelectedState_forTalkBack() {
+        // П3 (ревью Opus, исполнено): без role/selected TalkBack не говорил, какой период
+        // выбран сейчас — у водителя (EarnPeriodChip) это уже было сделано.
+        start { period -> MockResponse().setResponseCode(200).setBody("""{"period":"$period","net_kop":0,"commission_kop":0,"deliveries":0,"by_day":[]}""") }
+        render()
+        compose.waitUntil(5_000) { requestedPeriods.isNotEmpty() }
+        compose.waitForIdle()
+
+        val hasTabRole = SemanticsMatcher("имеет роль Tab") { node ->
+            node.config.getOrNull(SemanticsProperties.Role) == Role.Tab
+        }
+        compose.onNodeWithText("Неделя").assert(hasTabRole).assertIsSelected()
+        compose.onNodeWithText("Месяц").assert(hasTabRole).assertIsNotSelected()
     }
 }

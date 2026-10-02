@@ -47,6 +47,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -279,7 +283,12 @@ private fun MoneyPeriodSegment(
         color = bg,
         shape = RoundedCornerShape(999.dp),
         border = BorderStroke(1.dp, edge),
-        modifier = modifier.bounceClick(onSelect),
+        // П3 (ревью Opus, исполнено): без role/selected TalkBack не говорил, какой период
+        // выбран сейчас — у водителя (EarnPeriodChip, DriverEarningsScreen.kt) это уже было
+        // сделано через Role.RadioButton; здесь — три равных сегмента одной пилюли, ближе по
+        // смыслу к вкладкам, поэтому Role.Tab (по решению ведущего).
+        modifier = modifier.bounceClick(onSelect)
+            .semantics(mergeDescendants = true) { selected = active; role = Role.Tab },
     ) {
         Box(
             Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp),
@@ -289,7 +298,7 @@ private fun MoneyPeriodSegment(
                 label,
                 color = fg,
                 fontSize = MoneyType.Body,
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Bold,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,

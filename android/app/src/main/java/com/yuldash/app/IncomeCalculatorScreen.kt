@@ -35,8 +35,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -85,7 +86,12 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
     val fuelMonth = fuelPerRide * ridesPerDay.toDouble() * 30 * routes.toDouble()
     val driverGrossMonth = ridesPerDay.toDouble() * avgCheck.toDouble() * 30 * routes.toDouble()
     val driverCommissionMonth = driverGrossMonth * (commissionPct.toDouble() / 100.0)
-    val driverNetMonth = (driverGrossMonth - fuelMonth - driverCommissionMonth).coerceAtLeast(0.0)
+    // БЕЗ coerceAtLeast(0.0) (P3, решение Александра): при жадных настройках бензина строка
+    // ниже честно вычитает бензин+комиссию из валового — если спрятать результат за нулём,
+    // «вычли X + Y» перестаёт сходиться с «чистыми 0 ₽», и цифры в карточке противоречат
+    // друг другу. Показываем убыток как есть — он с тем же знаком минус, что и везде в
+    // приложении (rub() → fmtRub, минус не отрывается).
+    val driverNetMonth = driverGrossMonth - fuelMonth - driverCommissionMonth
 
     Scaffold(
         containerColor = CanonBg,
@@ -100,13 +106,13 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
             item {
                 Surface(color = CanonGreenInk, shape = RoundedCornerShape(22.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(appText("Чистыми тебе в месяц", "Айына таҙа килем"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        Text(rub(animatedNet.toDouble()), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 34.sp)
+                        Text(appText("Чистыми тебе в месяц", "Айына таҙа килем"), color = CanonOnAccent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text(rub(animatedNet.toDouble()), color = CanonOnAccent, fontWeight = FontWeight.Bold, fontSize = 34.sp)
                         Spacer(Modifier.height(4.dp))
                         Text(
                             appText("Выручка ${rub(gross)} − расходы ~${costsPct.roundToInt()}% (серверы, налог, платёжка)",
                                     "Килем ${rub(gross)} − сығымдар ~${costsPct.roundToInt()}% (серверҙар, һалым, түләү)"),
-                            color = Color.White, fontSize = 12.sp,
+                            color = CanonOnAccent, fontSize = 12.sp,
                         )
                     }
                 }
@@ -137,7 +143,16 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                             Icon(Icons.Default.LocalTaxi, contentDescription = null, tint = CanonTaxi, modifier = Modifier.height(22.dp))
                             Spacer(Modifier.height(0.dp))
                             Text(appText("  Включить такси (комиссия)", "  Таксины ҡабыҙыу (комиссия)"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                            Switch(checked = taxiOn, onCheckedChange = { taxiOn = it }, colors = SwitchDefaults.colors(checkedTrackColor = CanonGreen2))
+                            // appText — @Composable, внутри .semantics{} (обычная лямбда) звать
+                            // его нельзя: значение берём ЗАРАНЕЕ, снаружи.
+                            val taxiSwitchLabel = appText("Включить такси", "Таксины ҡабыҙыу")
+                            Switch(
+                                checked = taxiOn, onCheckedChange = { taxiOn = it },
+                                colors = SwitchDefaults.colors(checkedTrackColor = CanonGreen2),
+                                // Без этого TalkBack читает голый «включено/выключено» без темы —
+                                // человек не понимает, какой именно переключатель перед ним.
+                                modifier = Modifier.semantics { contentDescription = taxiSwitchLabel },
+                            )
                         }
                         if (taxiOn) {
                             CalcSlider(appText("Средний чек места, ₽", "Урын уртаса хаҡы, ₽"), avgCheck, 200f..1500f, "${avgCheck.roundToInt()} ₽", testTag = "calc_avgCheck") { avgCheck = it }
@@ -157,7 +172,13 @@ internal fun IncomeCalculatorScreen(onBack: () -> Unit) {
                                         }
                                         Column(Modifier.weight(1f)) {
                                             Text(appText("Чистыми после бензина", "Бензиндан һуң таҙа"), color = CanonMuted, fontSize = 12.sp)
-                                            Text(rub(driverNetMonth), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                                            // Убыток — тем же красным, что и ошибки ввода по всему приложению:
+                                            // «0 ₽» при реальном минусе выглядело бы как «всё в порядке».
+                                            Text(
+                                                rub(driverNetMonth),
+                                                color = if (driverNetMonth < 0) CanonRed else CanonGreen2,
+                                                fontWeight = FontWeight.Bold, fontSize = 19.sp,
+                                            )
                                         }
                                     }
                                     Text(
@@ -221,7 +242,11 @@ private fun CalcSlider(
             }
             Slider(
                 value = value, onValueChange = onChange, valueRange = range,
-                modifier = if (testTag.isEmpty()) Modifier else Modifier.testTag(testTag),
+                // Без contentDescription TalkBack читал голое число/проценты со шкалы —
+                // «80» вместо «Поездок в день (по маршруту)»; label уже двуязычный (appText).
+                modifier = Modifier
+                    .semantics { contentDescription = label }
+                    .let { if (testTag.isEmpty()) it else it.testTag(testTag) },
                 colors = SliderDefaults.colors(thumbColor = CanonGreen2, activeTrackColor = CanonGreen2, inactiveTrackColor = CanonBorder),
             )
         }

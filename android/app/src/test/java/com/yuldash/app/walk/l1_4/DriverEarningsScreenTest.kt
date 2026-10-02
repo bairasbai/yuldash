@@ -110,7 +110,7 @@ class DriverEarningsScreenTest {
     fun tripsCount_isPlainNumber_notMoneyGrouped() {
         start {
             // by_day намеренно с ДРУГОЙ суммой (20000, не 45000) — иначе денежная сумма итога
-            // и денежная сумма дня совпадут цифрами, и поиск текста "45 000 ₽" найдёт два узла.
+            // и денежная сумма дня совпадут цифрами, и поиск текста "45 000 ₽" найдёт два узла.
             MockResponse().setResponseCode(200).setBody(
                 """{"period":"week","total":45000,"trips":1234,"by_day":[{"date":"2026-07-14","sum":20000,"trips":1234}]}""",
             )
@@ -120,8 +120,8 @@ class DriverEarningsScreenTest {
 
         // деньги — с разрядом-пробелом; scrollTo сам падает понятным сообщением, если
         // узла нет вовсе (не 5-секундный таймаут вслепую).
-        compose.onAllNodes(hasScrollToNodeAction()).onFirst().performScrollToNode(hasText("45 000 ₽"))
-        compose.onNodeWithText("45 000 ₽").assertIsDisplayed()
+        compose.onAllNodes(hasScrollToNodeAction()).onFirst().performScrollToNode(hasText("45 000 ₽"))
+        compose.onNodeWithText("45 000 ₽").assertIsDisplayed()
         compose.onNodeWithText("1234").assertIsDisplayed()       // штуки — без него
         compose.onNodeWithText("1 234").assertDoesNotExist()
     }
@@ -137,7 +137,7 @@ class DriverEarningsScreenTest {
             )
         }
         render()
-        awaitText("5 000 ₽")
+        awaitText("5 000 ₽")
 
         compose.onNodeWithText("Ещё 2 поездки на 900 ₽ не оплачены — деньги не пришли, в заработок выше не включены.")
             .assertIsDisplayed()
@@ -147,7 +147,7 @@ class DriverEarningsScreenTest {
     fun noUnpaidTrips_noBannerShown() {
         start { MockResponse().setResponseCode(200).setBody("""{"period":"week","total":5000,"trips":10,"by_day":[]}""") }
         render()
-        awaitText("5 000 ₽")
+        awaitText("5 000 ₽")
 
         compose.onNodeWithText("не оплачены", substring = true).assertDoesNotExist()
     }
@@ -164,8 +164,8 @@ class DriverEarningsScreenTest {
         render()
         awaitFirstResponse()
 
-        compose.onAllNodes(hasScrollToNodeAction()).onFirst().performScrollToNode(hasText("20 000 ₽"))
-        compose.onNodeWithText("20 000 ₽").assertIsDisplayed()
+        compose.onAllNodes(hasScrollToNodeAction()).onFirst().performScrollToNode(hasText("20 000 ₽"))
+        compose.onNodeWithText("20 000 ₽").assertIsDisplayed()
     }
 
     @Test
@@ -190,9 +190,9 @@ class DriverEarningsScreenTest {
 
         fail = false
         compose.onNodeWithText("Повторить").performClick()
-        awaitText("1 000 ₽")
+        awaitText("1 000 ₽")
 
-        compose.onNodeWithText("1 000 ₽").assertIsDisplayed()
+        compose.onNodeWithText("1 000 ₽").assertIsDisplayed()
         compose.onNodeWithText("Что-то пошло не так").assertDoesNotExist()
     }
 
@@ -238,20 +238,20 @@ class DriverEarningsScreenTest {
             }
         }
         render()
-        awaitText("45 000 ₽")
-        compose.onNodeWithText("45 000 ₽").assertIsDisplayed()
+        awaitText("45 000 ₽")
+        compose.onNodeWithText("45 000 ₽").assertIsDisplayed()
 
         compose.onNodeWithText("Месяц").performClick()
         awaitText("Что-то пошло не так")
 
         // Неделя — ЧУЖОЙ период для выбранного «Месяца»: показывать её тут хуже, чем честно
         // сказать «не получилось», даже с плашкой про устаревание — число вообще не оттуда.
-        compose.onNodeWithText("45 000 ₽").assertDoesNotExist()
+        compose.onNodeWithText("45 000 ₽").assertDoesNotExist()
         compose.onNodeWithText("Что-то пошло не так").assertIsDisplayed()
 
         monthFails = false
         compose.onNodeWithText("Повторить").performClick()
-        awaitText("99 000 ₽")
-        compose.onNodeWithText("99 000 ₽").assertIsDisplayed()
+        awaitText("99 000 ₽")
+        compose.onNodeWithText("99 000 ₽").assertIsDisplayed()
     }
 }

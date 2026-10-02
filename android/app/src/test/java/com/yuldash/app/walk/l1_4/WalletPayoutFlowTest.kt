@@ -157,7 +157,7 @@ class WalletPayoutFlowTest {
         compose.waitForIdle()
 
         typeAmount("5500")   // больше максимума (5000), хотя баланс вообще не об этом (600)
-        compose.onNodeWithText("Максимум 5 000 ₽ за раз").assertIsDisplayed()
+        compose.onNodeWithText("Максимум 5 000 ₽ за раз").assertIsDisplayed()
         compose.onNodeWithTag("payout_submit").assertIsNotEnabled()
     }
 

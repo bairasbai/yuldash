@@ -22,6 +22,7 @@
 | `CourierDayRow` | 340–394 | Строка дня: дата, бар, сумма, доставки | `maxNet.coerceAtLeast(1)` — без деления на 0 | ок |
 | `MoneyLine`/`MoneySectionHeader`/`MoneyStaleStrip` | 404–455 | Общие кирпичи денежных экранов | `MoneyLine` не добавляет «₽» сама — валюту решает вызывающий (копейки vs штуки видно по тому, что именно передано) | ок |
 | `courierDayLabel` | 458–463 | ISO-дата → «дд.мм» | Неожиданный формат → как есть, без выдумывания | ок |
+| `MoneyPeriodSegment` | ~265–301 | Один сегмент переключателя периода | П3 (ревью Opus, исполнено): `.semantics(mergeDescendants=true){selected=active; role=Role.Tab}` — TalkBack теперь говорит, какой период выбран (у водителя `EarnPeriodChip` это уже было, через `Role.RadioButton`) | ок (после правки), R8 |
 
 ## Связи
 
@@ -46,6 +47,7 @@
 | R5 | Смена периода уходит правильным параметром | `android/app/src/test/java/com/yuldash/app/walk/l1_4/CourierEarningsScreenTest.kt::periodSwitch_requestsCorrectPeriod_eachTime` | подтверждает корректность запроса |
 | R6 | Сумма КОНКРЕТНОГО дня — через `kopToRub`, копейки не теряются | `android/app/src/test/java/com/yuldash/app/walk/l1_4/CourierEarningsScreenTest.kt::dayRow_showsOwnNetSum_keepingKopecks` | да — M37 |
 | R7 | Неоплаченные доставки (`unpaid_*`) показываются отдельной строкой, не пропадают молча | `android/app/src/test/java/com/yuldash/app/walk/l1_4/CourierEarningsScreenTest.kt::unpaidDeliveries_shownSeparately_notSilentlyDropped`, `android/app/src/test/java/com/yuldash/app/walk/l1_4/CourierEarningsScreenTest.kt::noUnpaidDeliveries_noBannerShown` | да — M38 |
+| R8 | Переключатель периода называет роль (Tab) и состояние выбора для TalkBack | `android/app/src/test/java/com/yuldash/app/walk/l1_4/CourierEarningsScreenTest.kt::periodSwitch_exposesTabRoleAndSelectedState_forTalkBack` | да — M42 |
 
 ## Найденные ошибки
 
@@ -54,6 +56,7 @@
 | E7-к (P2, ревью Opus) | Та же ошибка, что у водителя (E7): смена «Неделя→Месяц», сорвавшаяся на сети, либо подставляла сумму ЧУЖОГО периода со stale-плашкой, либо — если у СТАРОГО периода было 0 доставок — рисовала ЛОЖНОЕ «Пока нет доставок» СОВСЕМ без ошибки (курьер с сотней доставок видел «пока нет»). | Переключиться на «Месяц», когда запрос за месяц отвечает 500, при наличии успешно загруженной «Недели» | `error && (d == null || d.period != period)` — отдельная проверка периода | `android/app/src/test/java/com/yuldash/app/walk/l1_4/CourierEarningsScreenTest.kt::periodSwitchFails_showsHonestError_notStaleOrFalseEmptyFromWrongTab` (новый) — до правки виднелась бы чужая сумма/ложная пустота; после — честная ошибка |
 | E9 (найдено при написании тестов к этой же правке) | Безопасный паттерн курьера (`val cd = d!!`, написанный при первой версии правки периода) падал `NullPointerException` в Robolectric-тестах при ПЕРВОЙ отрисовке экрана — `d` ещё не гарантирован ненулевым в этой ветке в самый первый кадр под тестовым диспетчером. | `./gradlew testDebugUnitTest` на любом тесте экрана — крашился уже на `setContent{}` | `d!!` → `d ?: return@LazyColumn`, тот же безопасный паттерн, что уже был у водителя | Все тесты файла — до правки минимум 3 падали с `NullPointerException`/`CoroutinesInternalError`, после — зелёные |
 | E10 (P2, ревью Opus, из «ВНЕ ЗОНЫ» леада — исполнено) | Доставки, по которым разбор жалобы подтвердил «курьеру не заплатили» (`unpaid_net_kop`/`unpaid_deliveries`), не читались и не показывались. | Ответ сервера с `unpaid_deliveries: 1, unpaid_net_kop: 30000` | `CourierEarningsDto` получил поля `unpaidNetKop`/`unpaidDeliveries`; `CourierTotalsCard` показывает их отдельной строкой | `android/app/src/test/java/com/yuldash/app/walk/l1_4/CourierEarningsScreenTest.kt::unpaidDeliveries_shownSeparately_notSilentlyDropped` — до правки строки не было; после — «Ещё 1 доставка на 300 ₽ не оплачена…» |
+| E17 (P3, ревью Opus, исполнено) | Переключатель периода (три сегмента одной пилюли) не имел `role`/`selected` — TalkBack не мог сказать, какой период выбран сейчас (у водителя аналогичный `EarnPeriodChip` это уже умел). | TalkBack на реальном устройстве (не проверялось — эмулятора нет) | `.semantics(mergeDescendants=true){selected=active; role=Role.Tab}` на `Surface` сегмента | `periodSwitch_exposesTabRoleAndSelectedState_forTalkBack` — до правки роли не было вовсе |
 
 ## Проверка нарочной поломкой
 
@@ -66,6 +69,7 @@
 | M36 | Сравнение периода снято — ложная пустота/чужой период возвращаются | `periodSwitchFails_showsHonestError_notStaleOrFalseEmptyFromWrongTab` | KILLED |
 | M37 | Сумма дня без `kopToRub` | `dayRow_showsOwnNetSum_keepingKopecks` | KILLED |
 | M38 | Неоплаченные доставки перестают показываться | `unpaidDeliveries_shownSeparately_notSilentlyDropped` | KILLED |
+| M42 | `role`/`selected` сняты с переключателя периода | `periodSwitch_exposesTabRoleAndSelectedState_forTalkBack` | KILLED |
 
 ## Остаток и ограничения
 
