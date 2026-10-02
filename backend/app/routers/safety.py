@@ -11,6 +11,7 @@ from ..errors import herr
 from ..config import settings
 from ..logs import admin_action, log
 from ..middleware import user_over_limit
+from ..observability import scrub_exc
 from ..models import (
     Block, Booking, BookingStatus, DriverProfile, InstantOrder, Report, Ride, SosEvent,
     TripShare, TrustedContact, User, UserRole,
@@ -676,7 +677,10 @@ def _maybe_ask_for_salon_photo(session: Session, report: Report) -> None:
         mode = cp.COURIER if report.parcel_id else cp.TAXI
         cp.open_complaint(session, report, mode)
     except Exception as e:  # noqa: BLE001 — жалоба важнее нашего требования
-        log.warning(f"[carphoto] требование по жалобе {report.id}: {type(e).__name__}: {e}")
+        # Текст исключения — через scrub_exc (§8/152-ФЗ): carphoto читает Booking/Order/User,
+        # и сырой текст SQLAlchemy-ошибки может нести телефон человека (та же беда, что
+        # middleware.py уже лечит для общего обработчика — здесь исключение ловится раньше).
+        log.warning(f"[carphoto] требование по жалобе {report.id}: {type(e).__name__}: {scrub_exc(e)}")
 
 
 @router.post("/reports", response_model=ReportCreatedOut)
@@ -800,7 +804,7 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                             ref_kind="debt", ref_id=order.driver_id,
                         )
         except Exception as e:  # noqa: BLE001 — разбор жалобы важнее, чем побочка со списанием
-            log.warning(f"[DEBT] списание долга по заказу {r.order_id}: {type(e).__name__}: {e}")
+            log.warning(f"[DEBT] списание долга по заказу {r.order_id}: {type(e).__name__}: {scrub_exc(e)}")
     # 💸 То же для доставки (волна 191): подтвердили «не заплатили» → снимаем с курьера
     # комиссию за эту доставку и снимаем отметку «получатель рассчитался». Отметку ставит
     # вручение, а вручение — это код от получателя, а не деньги в руке.
@@ -841,7 +845,7 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                         ref_kind="parcel", ref_id=parcel.id,
                     )
         except Exception as e:  # noqa: BLE001 — разбор важнее побочки со списанием
-            log.warning(f"[DEBT] списание комиссии по доставке {r.parcel_id}: {type(e).__name__}: {e}")
+            log.warning(f"[DEBT] списание комиссии по доставке {r.parcel_id}: {type(e).__name__}: {scrub_exc(e)}")
     # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).
     if r.target_user_id is not None:      # аккаунт обвиняемого удалён — наказывать некого
         quality.apply_ladder_after_resolve(session, r.target_user_id)

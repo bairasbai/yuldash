@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "leaf": "leaf-3.1",
+  "mutations": [
+    {
+      "id": "M1",
+      "file": "backend/app/safety_logic.py",
+      "rule": "R-TRH-PARCEL",
+      "description": "trip_really_happened(parcel_id=...) перестаёт требовать, чтобы курьер реально принял посылку: достаточно самого факта заявки на доставку. Непринятая заявка на доставку снова считалась бы «встречей» — её можно использовать для авто-наказания/авто-требования фото по жалобе на человека, с которым курьер не пересекался.",
+      "find": "return bool(p and p.courier_id)",
+      "replace": "return bool(p)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_trip_really_happened_parcel.py::test_посылку_без_курьера_встречей_не_считаем"]
+    },
+    {
+      "id": "M2",
+      "file": "backend/app/safety_logic.py",
+      "rule": "R-EVIDENCE-OWNER",
+      "description": "guard_own_evidence перестаёт проверять владельца приватного файла-доказательства (лица, травмы, номера машин) — чужое фото можно приложить к своему спору/доставке как улику.",
+      "find": "if name and not is_own_evidence_name(name, user_id):",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_audit_20260808.py::test_stranger_cannot_attach_and_read_someone_elses_photo"]
+    },
+    {
+      "id": "M3",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-SOS-HANDLE-IDEMPOTENT",
+      "description": "Повторный «Принял» по уже обработанному SOS перестаёт быть идемпотентным: второй дежурный, кликнувший по старому сигналу, молча переписывает handled_by/handled_at/handled_note первого — двойное админское действие стирает след о том, кто и когда реально принял сигнал.",
+      "find": "    if e.status == \"handled\":\n        return {\"ok\": True, \"already\": True, \"status\": e.status}",
+      "replace": "    if False:\n        return {\"ok\": True, \"already\": True, \"status\": e.status}",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_audit_hardening.py::test_admin_sos_feed_and_handle"]
+    },
+    {
+      "id": "M4",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-CALLBACK-HONEST",
+      "description": "/callback перестаёт проверять, реально ли дошло уведомление дежурному: пожилой человек без интернета получает «ok=True», хотя Telegram не настроен и никто не перезвонит.",
+      "find": "    if not delivered:",
+      "replace": "    if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_callback_delivery_result.py::test_real_missing_telegram_configuration_cannot_report_callback_accepted"]
+    },
+    {
+      "id": "M5",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-BLOCK-NAME-PRIVACY",
+      "description": "Список «кого я заблокировал» снова показывает имя ЛЮБОГО, а не только тех, с кем была настоящая поездка/заказ/отклик — переборщик `/blocks` по номерам снова собирает справочник «номер → имя» всех жителей района (волна 120).",
+      "find": "        знакомы = u is not None and have_met(session, user.id, b.blocked_user_id)",
+      "replace": "        знакомы = u is not None",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_blocklist_is_not_a_phonebook.py::test_перебор_не_выгружает_имена"]
+    },
+    {
+      "id": "M6",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-LOG-NO-PHONE-CARPHOTO",
+      "description": "Сбой требования фото по жалобе «грязная машина» снова пишет в лог сервера сырой текст исключения вместо scrub_exc — телефон человека из чужой (carphoto) ошибки попадает на диск в обход §8/152-ФЗ.",
+      "find": "        log.warning(f\"[carphoto] требование по жалобе {report.id}: {type(e).__name__}: {scrub_exc(e)}\")",
+      "replace": "        log.warning(f\"[carphoto] требование по жалобе {report.id}: {type(e).__name__}: {e}\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_log_privacy.py::test_сбой_требования_фото_по_жалобе_не_пишет_телефон_в_лог"]
+    },
+    {
+      "id": "M7",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-LOG-NO-COORDS",
+      "description": "Строка лога по /sos начинает нести координаты человека (как в SMS/Telegram) — лог сервера, в отличие от сигнала близким, не место для точного местоположения (§8/152-ФЗ).",
+      "find": "    log.info(f\"[SOS] user={user.id} category={body.category} contacts_notified={notified}\")",
+      "replace": "    log.info(f\"[SOS] user={user.id} category={body.category} contacts_notified={notified}{where}\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_log_privacy.py::test_координаты_sos_не_попадают_в_лог_сервера"]
+    },
+    {
+      "id": "M8",
+      "file": "backend/app/sos_escalate.py",
+      "rule": "R-ESCALATE-DELIVERY-HONEST",
+      "description": "Эскалация непринятого SOS снова помечает сигнал «напомнили» даже когда ни Telegram, ни SMS не доставили сообщение дежурному (оба канала настроены, но отправка упала) — человек на трассе ждёт помощи, а повтора больше не будет никогда.",
+      "find": "                log.warning(\"[SOS-ESCALATE] сигнал #%s не доставлен ни одним каналом — \"\n                            \"повторим в следующий прогон\", event.id)\n                continue",
+      "replace": "                log.warning(\"[SOS-ESCALATE] сигнал #%s не доставлен ни одним каналом — \"\n                            \"повторим в следующий прогон\", event.id)\n                pass",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_sos_reminder_is_not_a_report.py::test_недоставленное_напоминание_не_считается_отправленным"]
+    },
+    {
+      "id": "M9",
+      "file": "backend/app/sos_escalate.py",
+      "rule": "R-ESCALATE-REPEAT-WINDOW",
+      "description": "Повторные напоминания по непринятому SOS перестают останавливаться через час — заевшая кнопка или забытый открытый сигнал пилит телефон дежурного бесконечно, и настоящий новый SOS тонет в привычном шуме.",
+      "find": "SOS_REPEAT_WINDOW_MIN = 60",
+      "replace": "SOS_REPEAT_WINDOW_MIN = 999999",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_sos_reminder_is_not_a_report.py::test_через_час_напоминания_прекращаются"]
+    }
+  ]
+}
