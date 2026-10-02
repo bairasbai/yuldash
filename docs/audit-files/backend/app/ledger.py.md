@@ -57,7 +57,7 @@
 | R9 (права) | `/wallet/ledger`, `/wallet/balance`, сверка — только свои записи / только админ | backend/tests/test_ledger.py::test_wallet_ledger_only_own, backend/tests/test_ledger.py::test_reconcile_admin_only, backend/tests/test_ledger.py::test_cannot_pay_others_order | покрыто существующим набором (права — не в моём файле, в `routers/wallet.py`/`routers/payments.py`, вне OWNS; здесь только подтверждаю, что `ledger.py` сам не хранит состояние, которое эти проверки могли бы обойти) |
 | R10 | Комиссия безналичной оплаты (`settle_instant_order`) считается ОТ ТОЙ ЖЕ базы, что комиссия нала (`debt.order_commission_kop`) — цена минус компенсация, не вся цена | backend/tests/walk/l1_1/test_l1_1_ledger_gaps.py::test_r5_card_fee_excludes_compensation_like_cash_debt, test_r6_card_fee_with_promo_still_excludes_compensation, test_r5_cash_and_card_charge_the_same_commission_for_the_same_order | да — M55 (поломка «вернуть `price_kop`», заведена по прямому требованию независимого ревью Opus — моя более ранняя версия карточки сочла её избыточной при уже показанном до/после, ревью справедливо указало, что это требование обязательных правок, а не рекомендация) |
 | R11 | Нулевая/отрицательная сумма ИЛИ нулевой/отрицательный процент → комиссия 0, без исключений (`fee_kop_for`) | backend/tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r3_fee_kop_for_non_positive_amount_or_percent_is_zero | да — M45 (добавлено по замечанию ревью — было покрыто тестом, но без поломки) |
-| R-F3-migration | Барьер `uq_ledgerentry_refund` реально доезжает до прода alembic-ревизией `refund_unique_20261002` (не только моделью): создаёт индекс на прод-подобной схеме, снимается downgrade'ом, дубль на проде останавливает выкатку понятной ошибкой БЕЗ изменения денег и БЕЗ продвижения `alembic_version`, без дублей — идемпотентна при повторном вызове | backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r1_upgrade_to_head_creates_the_index_on_a_prod_like_schema, backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r2_downgrade_removes_the_index, backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r3_existing_duplicate_stops_the_upgrade_without_touching_money, backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r4_upgrade_without_duplicates_is_idempotent_when_called_twice | да — M56, M57 (на `backend/alembic/versions/refund_unique_20261002.py`, не на `ledger.py` — в таблице «Проверка нарочной поломкой» не числятся, см. примечание там) |
+| R-F3-migration | Барьер `uq_ledgerentry_refund` реально доезжает до прода alembic-ревизией `refund_unique_20261002` (не только моделью): создаёт индекс на прод-подобной схеме, снимается downgrade'ом, дубль на проде останавливает выкатку понятной ошибкой БЕЗ изменения денег и БЕЗ продвижения `alembic_version`, без дублей — идемпотентна при повторном вызове, НЕДОСТРОЕННЫЙ (`indisvalid=false`) индекс после прерванного деплоя сама замечает и перестраивает | backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r1_upgrade_to_head_creates_the_index_on_a_prod_like_schema, backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r2_downgrade_removes_the_index, backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r3_existing_duplicate_stops_the_upgrade_without_touching_money, backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r4_upgrade_without_duplicates_is_idempotent_when_called_twice, backend/tests/walk/l1_1/test_l1_1_refund_migration.py::test_r5_invalid_index_from_an_interrupted_deploy_is_rebuilt | да — M56, M57, M59 (на `backend/alembic/versions/refund_unique_20261002.py`, не на `ledger.py` — в таблице «Проверка нарочной поломкой» не числятся, см. примечание там) |
 
 ## Найденные ошибки
 
@@ -95,9 +95,9 @@ Opus нашло денежную ошибку P1 (F1), которую я про�
 
 Прогон: `python tools/audit_mutation.py replay --spec docs/audit-mutations/leaf-1.1.json --only M7,M8,M9,M10,M11,M12,M13,M14,M15,M16,M44,M45,M55` → `MUTATIONS KILLED 13/13`.
 
-М56/M57 — на `backend/alembic/versions/refund_unique_20261002.py` (не на этот файл, в таблицу
+М56/M57/M59 — на `backend/alembic/versions/refund_unique_20261002.py` (не на этот файл, в таблицу
 выше не включены check-cards'ом; см. «Остаток» этой же карточки и сам файл спецификации),
-подтверждены отдельным прогоном `--only M56,M57` → `MUTATIONS KILLED 2/2`.
+подтверждены отдельным прогоном `--only M56,M57,M59` → `MUTATIONS KILLED 3/3`.
 
 ## Остаток и ограничения
 
@@ -119,6 +119,29 @@ R1 — выкатка на прод-подобной схеме (индекс с
 создаётся, `alembic_version` не продвигается, записи не трогаются; R4 — без дублей повторный
 вызов `upgrade()` идемпотентен. Поломки M56 (без проверки дублей) и M57 (без создания индекса) —
 обе KILLED.
+
+**Н2, закрыто в круге 4 (повторное ревью, P2, обязательно).** `CREATE UNIQUE INDEX CONCURRENTLY`
+не атомарна: если процесс убьют СНАРУЖИ посреди постройки (оборвался ssh в деплой-скрипте,
+Ctrl+C на «зависшем» деплое — CONCURRENTLY ждёт окончания ВСЕХ старых транзакций, включая ночной
+`pg_dump`), в каталоге остаётся индекс с ИМЕНЕМ, но `pg_index.indisvalid=false`. Старая проверка
+по имени (`inspect().get_indexes()`) и `IF NOT EXISTS` такой индекс не отличали от готового —
+SQLAlchemy 2.0.49 отражает INVALID-индексы наравне с рабочими (ревью проверило по исходнику).
+Следующий `upgrade head` молча отметил бы ревизию применённой, а барьера F3 на проде так и не
+было бы — ни одного сигнала об этом. Добавлена `_index_state(bind)`: на Postgres явно читает
+`pg_index.indisvalid`; `invalid` → `DROP INDEX CONCURRENTLY` и построение заново тем же прогоном.
+Заодно сообщение об остановке на дублях (M56) расширено: вместо голого счётчика — ID КАЖДОЙ
+строки-дубля (нужны, чтобы вести разбор) и пошаговая инструкция в докстринге миграции — что
+проверить, как переименовать `ext_id` по образцу `money_holes`, когда повторять `upgrade head`.
+Тест R5 (`test_r5_invalid_index_from_an_interrupted_deploy_is_rebuilt`): построить индекс по-
+настоящему, пометить `indisvalid=false` напрямую (суперпользователь `audit_user` на изолированном
+кластере — тот же приём, что предложило ревью), повторный `upgrade` обязан перестроить его
+валидным. Поломка M59 (проверка `indisvalid` отключена) — KILLED.
+
+**Н1, закрыто в круге 4 (P3, обязательно).** Снимок долгов (F2) — см. карточку `debt.py.md`,
+строка R-H1 и поломка M58: запись отдавала ID в порядке `created_at`, а разбор маркера требовал
+строго возрастающих ID; при расхождении порядка (два начисления вперемешку) маркер читался как
+повреждённый и fail-closed блокировал зачёт ЛЮБОГО долга водителя. Правка (одна строка,
+`sorted(debt_ids)`) и тест — в `debt.py`/`debt.py.md`, не в этом файле.
 
 Права доступа (R9) защищены исключительно существующим (не моим) набором
 тестов — он настолько плотный и точный (например `test_ключ_читаем_с_начала_а_не_подстрокой`,

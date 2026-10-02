@@ -673,6 +673,30 @@
       "cwd": "backend",
       "args": ["tests/walk/l1_1/test_l1_1_refund_migration.py::test_r1_upgrade_to_head_creates_the_index_on_a_prod_like_schema"],
       "db": "postgres"
+    },
+    {
+      "id": "M58",
+      "file": "backend/app/debt.py",
+      "rule": "H1-snapshot-order",
+      "description": "снимок долгов (F2) снова пишется НЕ отсортированным по ID (повторный круг ревью, Н1) — при расхождении порядка created_at/ID маркер читается как повреждённый, и кошелёк перестаёт гасить вообще любые долги, пока висит счёт",
+      "find": "    marker = TAXI_DEBT_SNAPSHOT_PREFIX + \",\".join(str(i) for i in sorted(debt_ids))",
+      "replace": "    marker = TAXI_DEBT_SNAPSHOT_PREFIX + \",\".join(str(i) for i in debt_ids)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_debt_card_vs_wallet.py::test_r6_snapshot_survives_when_created_at_and_id_disagree_in_order"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M59",
+      "file": "backend/alembic/versions/refund_unique_20261002.py",
+      "rule": "H2-indisvalid",
+      "description": "проверка pg_index.indisvalid отключена (повторный круг ревью, Н2) — недостроенный индекс после прерванного деплоя (ssh оборвался, Ctrl+C) навсегда считался бы готовым барьером",
+      "find": "    if state == \"invalid\":",
+      "replace": "    if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_refund_migration.py::test_r5_invalid_index_from_an_interrupted_deploy_is_rebuilt"],
+      "db": "postgres"
     }
   ]
 }

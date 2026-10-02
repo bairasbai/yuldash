@@ -109,6 +109,23 @@ def _index_names(engine) -> set[str]:
     return {ix["name"] for ix in sa.inspect(engine).get_indexes("ledgerentry")}
 
 
+def _invoke_upgrade_directly(engine, migration) -> None:
+    """Вызвать migration.upgrade() напрямую, в обход версии alembic_version — нужно, когда
+    хотим войти в ТЕЛО функции повторно (идемпотентность, перестройка INVALID-индекса), а не
+    положиться на то, что alembic сам пропустит уже применённую ревизию.
+
+    `op.get_context().autocommit_block()` внутри upgrade() (CONCURRENTLY) требует, чтобы alembic
+    САМ открыл транзакцию через begin_transaction() — ровно так, как это делает
+    alembic/env.py::run_migrations_online. Без этого шага внутренний assert в autocommit_block()
+    падает (self._transaction is None), даже если соединение само по себе в порядке.
+    """
+    with engine.connect() as conn:
+        ctx = MigrationContext.configure(conn)
+        with Operations.context(ctx):
+            with ctx.begin_transaction():
+                migration.upgrade()
+
+
 def _reach_prod_like_state(fresh_db: str) -> None:
     """Поднять схему до родителя этой ревизии и снять барьер F3, который на СВЕЖЕЙ базе только
     что создал `0001_baseline`'s create_all заодно со всем остальным (см. докстринг модуля) —
@@ -122,8 +139,9 @@ def _reach_prod_like_state(fresh_db: str) -> None:
         engine.dispose()
 
 
-def _seed_duplicate_refund(engine, ext_id: str = "refund:order:999") -> None:
+def _seed_duplicate_refund(engine, ext_id: str = "refund:order:999") -> list[int]:
     """Два возврата одной и той же комиссии — ровно то, что гонка до правки F3 могла оставить.
+    Возвращает ID обеих записей (нужны тесту — сообщение об остановке называет их поимённо).
 
     Через ORM (SQLModel), не raw SQL: модели знают свои Python-дефолты (`name=""` и т.п.),
     которых нет на уровне колонки (NOT NULL без server_default) — raw INSERT пришлось бы
@@ -135,10 +153,14 @@ def _seed_duplicate_refund(engine, ext_id: str = "refund:order:999") -> None:
         user = User(phone="+70000000999")
         s.add(user)
         s.flush()
+        entries = []
         for _ in range(2):
-            s.add(LedgerEntry(driver_id=user.id, kind=LedgerKind.adj, amount_kop=15000,
-                              note="тест: дубль возврата", ext_id=ext_id))
+            e = LedgerEntry(driver_id=user.id, kind=LedgerKind.adj, amount_kop=15000,
+                            note="тест: дубль возврата", ext_id=ext_id)
+            s.add(e)
+            entries.append(e)
         s.commit()
+        return [e.id for e in entries]
 
 
 # ==================== R1: выкатка на прод-подобной базе создаёт индекс ====================
@@ -172,7 +194,7 @@ def test_r3_existing_duplicate_stops_the_upgrade_without_touching_money(fresh_db
     _reach_prod_like_state(fresh_db)
     engine = sa.create_engine(fresh_db)
     try:
-        _seed_duplicate_refund(engine, "refund:order:999")
+        ids = _seed_duplicate_refund(engine, "refund:order:999")
 
         # RuntimeError, не конкретный подкласс: alembic грузит файл ревизии своим загрузчиком,
         # отдельным от нашего _load_migration() в R4 — классы из двух загрузок не считаются
@@ -180,9 +202,9 @@ def test_r3_existing_duplicate_stops_the_upgrade_without_touching_money(fresh_db
         with pytest.raises(RuntimeError) as excinfo:
             command.upgrade(_cfg(), "head")
         message = str(excinfo.value)
-        assert "refund:order:999" in message and "2" in message, (
-            "сообщение об остановке должно называть КОНКРЕТНЫЙ ext_id и сколько раз он "
-            f"повторился, иначе разбирать дубль на проде не по чему: {message!r}"
+        assert "refund:order:999" in message and all(str(i) in message for i in ids), (
+            "сообщение об остановке должно называть КОНКРЕТНЫЙ ext_id и ID КАЖДОЙ строки, "
+            f"иначе разбирать дубль на проде не по чему (ожидали id {ids}): {message!r}"
         )
 
         assert INDEX not in _index_names(engine), "индекс не должен создаваться, пока есть дубли"
@@ -209,18 +231,48 @@ def test_r4_upgrade_without_duplicates_is_idempotent_when_called_twice(fresh_db)
     engine = sa.create_engine(fresh_db)
     try:
         migration = _load_migration()
-        # `op.get_context().autocommit_block()` внутри upgrade() (CONCURRENTLY) требует, чтобы
-        # alembic САМ открыл транзакцию через begin_transaction() — ровно так, как это делает
-        # alembic/env.py::run_migrations_online. Без этого шага внутренний assert в
-        # autocommit_block() падает (self._transaction is None), даже если соединение само
-        # по себе в порядке.
-        with engine.connect() as conn:
-            ctx = MigrationContext.configure(conn)
-            with Operations.context(ctx):
-                with ctx.begin_transaction():
-                    migration.upgrade()
-                with ctx.begin_transaction():
-                    migration.upgrade()      # второй вызов — не должен падать и не дублирует
+        _invoke_upgrade_directly(engine, migration)
+        _invoke_upgrade_directly(engine, migration)   # второй вызов — не падает и не дублирует
         assert INDEX in _index_names(engine)
+    finally:
+        engine.dispose()
+
+
+# ==================== R5: недостроенный (INVALID) индекс после прерванного деплоя ==========
+def test_r5_invalid_index_from_an_interrupted_deploy_is_rebuilt(fresh_db):
+    """Независимое ревью Opus (Н2, повторный круг 2026-10-02): `CREATE UNIQUE INDEX
+    CONCURRENTLY` не атомарна — если процесс убьют снаружи посреди постройки (оборвался ssh,
+    Ctrl+C на «зависшем» деплое), в каталоге остаётся индекс с ИМЕНЕМ, но помеченный
+    `pg_index.indisvalid = false`. Старая проверка «есть имя → выход» и `IF NOT EXISTS` его не
+    отличали от готового барьера — повторный `upgrade head` молча считал бы ревизию применённой,
+    а F3 на проде так и не заработала бы. Симулируем снаружи ровно то же самое: создаём индекс
+    по-настоящему, затем напрямую (как суперпользователь — audit_user на изолированном кластере)
+    помечаем его невалидным через `pg_index`, не трогая остальной процесс."""
+    _reach_prod_like_state(fresh_db)
+    engine = sa.create_engine(fresh_db)
+    try:
+        migration = _load_migration()
+        _invoke_upgrade_directly(engine, migration)          # индекс построен и валиден
+        assert INDEX in _index_names(engine)
+
+        with engine.begin() as conn:
+            conn.execute(sa.text(
+                "UPDATE pg_index SET indisvalid = false WHERE indexrelid = CAST(:n AS regclass)"
+            ), {"n": INDEX})
+            still_valid = conn.execute(sa.text(
+                "SELECT indisvalid FROM pg_index WHERE indexrelid = CAST(:n AS regclass)"
+            ), {"n": INDEX}).scalar_one()
+        assert still_valid is False, "не удалось смоделировать недостроенный индекс для теста"
+
+        _invoke_upgrade_directly(engine, migration)          # должна заметить и перестроить
+
+        with engine.begin() as conn:
+            valid = conn.execute(sa.text(
+                "SELECT indisvalid FROM pg_index WHERE indexrelid = CAST(:n AS regclass)"
+            ), {"n": INDEX}).scalar_one()
+        assert valid is True, (
+            "после повторного upgrade индекс должен быть ВАЛИДНЫМ — иначе прерванный деплой "
+            "навсегда оставляет барьер F3 выключенным без единого сигнала об этом"
+        )
     finally:
         engine.dispose()

@@ -801,10 +801,20 @@ def taxi_debt_snapshot(session: Session, driver_id: int) -> tuple[int, tuple[int
 
 def make_taxi_debt_snapshot_tier(debt_ids: tuple[int, ...]) -> str:
     """Собрать маркер снимка для Payment.tier. Пустой состав сюда не передавать — счёт на 0
-    не выставляется (см. вызов в routers/debt.py)."""
+    не выставляется (см. вызов в routers/debt.py).
+
+    ID сортируем явно (Н1, независимое ревью Opus, повторный круг 2026-10-02): запись
+    (`taxi_debt_snapshot`) отдаёт их в порядке `created_at`, а разбор маркера обратно
+    (`taxi_debt_snapshot_ids`) требует строго возрастающих ID — при `accrue_for_order`
+    `created_at` фиксируется ДО коммита, а ID назначается только при коммите, так что два
+    начисления одного водителя вперемешку (ночная чистка + «Завершил») могут дать `created_at`
+    и ID в РАЗНОМ порядке. Несортированный маркер читался бы как повреждённый →
+    `CommissionDebt.id < 0` (fail-closed) → пока висит счёт, кошелёк не гасит НИ ОДНОГО долга
+    этого водителя, включая начисленные уже после счёта. Денег это не теряет, но водителя с
+    деньгами в кошельке может напрасно заблокировать от такси."""
     if not debt_ids or len(debt_ids) > _TAXI_SNAPSHOT_MAX_IDS:
         raise ValueError("invalid taxi debt snapshot size")
-    marker = TAXI_DEBT_SNAPSHOT_PREFIX + ",".join(str(i) for i in debt_ids)
+    marker = TAXI_DEBT_SNAPSHOT_PREFIX + ",".join(str(i) for i in sorted(debt_ids))
     if len(marker) > _TAXI_SNAPSHOT_MAX_CHARS:
         raise ValueError("taxi debt snapshot marker is too long")
     return marker
