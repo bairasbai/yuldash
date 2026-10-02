@@ -219,12 +219,15 @@
       "id": "M20",
       "file": "backend/app/routers/auth.py",
       "rule": "Б-1a",
-      "description": "Независимое ревью leaf-2.1, блокер: нейтрализация кода при сбое отправки убрана — send_sms бросает исключение, а строка в базе остаётся с живым, настоящим кодом (как до правки).",
-      "find": "    try:\n        send_sms(body.phone, code)\n    except Exception:\n        otp.code = \"\"\n        otp.expires_at = utcnow()\n        session.add(otp)\n        session.commit()\n        raise",
-      "replace": "    try:\n        send_sms(body.phone, code)\n    except Exception:\n        raise",
+      "description": "Правка ведущего поверх Б-1: код снова коммитится ДО send_sms (flush→commit). Пока провайдер отвечает (до 10с у sms.ru), код уже живой и доступен ДРУГОМУ соединению, а лок номера уже снят этим commit'ом; если процесс упадёт между этим commit и нейтрализацией в except — живой код остаётся на все 5 минут.",
+      "find": "    session.flush()\n    try:\n        send_sms(body.phone, code)",
+      "replace": "    session.commit()\n    try:\n        send_sms(body.phone, code)",
       "runner": "pytest",
       "cwd": "backend",
-      "args": ["tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_request_code_does_not_leave_a_live_code_when_the_channel_is_frozen"]
+      "args": [
+        "tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_request_code_does_not_leave_a_live_code_when_the_channel_is_frozen",
+        "tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_no_live_code_is_visible_to_other_connections_while_send_sms_is_in_flight"
+      ]
     },
     {
       "id": "M27",
@@ -247,6 +250,17 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_admin_phone_has_a_lower_daily_failure_budget"]
+    },
+    {
+      "id": "M30",
+      "file": "backend/app/routers/auth.py",
+      "rule": "Б-1g",
+      "description": "Правка ведущего: мёртвая запись-учётчик попытки при сбое отправки убрана (остаётся только rollback) — throttle «3/мин» и суточный бюджет перестают видеть неудачные попытки вовсе, запрос кода при замороженном канале снова ничем не ограничен.",
+      "find": "        session.rollback()\n        session.add(OtpCode(phone=body.phone, code=\"\", expires_at=utcnow()))\n        session.commit()\n        raise",
+      "replace": "        session.rollback()\n        raise",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_failed_send_leaves_only_a_dead_record_for_throttle_accounting"]
     },
     {
       "id": "M21",

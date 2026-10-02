@@ -25,6 +25,7 @@ from sqlmodel import Session, select
 from app.config import settings
 from app.db import engine
 from app.models import OtpCode
+from app.routers import auth
 from app.timeutil import utcnow
 
 
@@ -183,3 +184,45 @@ def test_a_non_admin_phone_keeps_the_general_budget(client, monkeypatch):
     assert r.status_code == 200, (
         f"обычный номер получил пониженный (админский) суточный порог: {r.status_code} {r.text}"
     )
+
+
+def test_no_live_code_is_visible_to_other_connections_while_send_sms_is_in_flight(client, monkeypatch):
+    """Правка ведущего: раньше код коммитился ДО send_sms — пока sms.ru отвечает (до 10с у
+    реального провайдера), код уже лежал в базе ЖИВЫМ и доступным для чужого соединения
+    (а лок номера уже снят тем же commit'ом). Проверяем ровно это: пока send_sms выполняется,
+    ДРУГОЕ соединение не должно видеть код этой попытки вовсе — он должен быть виден только
+    после commit, который наступает ПОСЛЕ успешной отправки."""
+    phone = "+79995550012"
+    seen = {}
+
+    def fake_send_sms(p, code):
+        with Session(engine) as other_connection:
+            seen["live_during_send"] = other_connection.exec(select(OtpCode).where(
+                OtpCode.phone == p, OtpCode.code != "", OtpCode.expires_at > utcnow(),
+            )).all()
+        # Отправку не рвём — проверяем срез СРЕДИ выполнения, а не факт сбоя.
+
+    monkeypatch.setattr(auth, "send_sms", fake_send_sms)
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 200, r.text
+    assert "live_during_send" in seen, "подменённый send_sms не был вызван — тест ничего не проверил"
+    assert seen["live_during_send"] == [], (
+        f"код был виден ДРУГОМУ соединению ещё ДО подтверждения отправки: {seen['live_during_send']}"
+    )
+
+
+def test_failed_send_leaves_only_a_dead_record_for_throttle_accounting(client, monkeypatch):
+    """Правка ведущего: после отката несостоявшегося кода throttle/суточный бюджет не должны
+    ослепнуть — остаётся ОТДЕЛЬНАЯ, заведомо мёртвая запись (пустой код, уже истёкшая), а не
+    часть исходной (живой) строки."""
+    phone = "+79995550013"
+    _freeze_prod_sms(monkeypatch)
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 503, r.text
+    with Session(engine) as s:
+        rows = s.exec(select(OtpCode).where(OtpCode.phone == phone)).all()
+        assert len(rows) == 1, f"ожидали ровно одну (мёртвую) запись-учётчик попытки: {rows}"
+        row = rows[0]
+        assert row.code == "" and row.expires_at <= utcnow(), (
+            f"запись после сбоя отправки не мертва: code={row.code!r}, expires_at={row.expires_at}"
+        )
