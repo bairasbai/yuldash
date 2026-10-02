@@ -10,15 +10,21 @@ import java.util.TimeZone
 
 /**
  * leaf-1.5 R2b (CouponsScreen.kt::ufaIsoDate): круговой путь «сервер → форма правки → сервер»
- * не должен терять сутки.
+ * не должен ни терять, ни ДОБАВЛЯТЬ сутки.
  *
- * Найдено по дополнению ведущего (независимый обзор серверной части купонов): кабинет партнёра
- * показывает и пересылает срок купона как ГГГГ-ММ-ДД без перевода из UTC, поэтому «до 31.10»
- * после открытия и сохранения формы без изменений превращается в «до 30.10», а при следующем
- * открытии — в «до 29.10» и так далее. Форма живёт в `PartnerCabinetScreen.kt` (вне зоны этого
- * листа — не правлю), но хелпер для правильного чтения даты в поле добавлен сюда же, рядом с
- * [com.yuldash.app.shortDate]: `initial.validUntil?.let(::ufaIsoDate) ?: ""` вместо
- * `initial?.validUntil?.take(10) ?: ""` останавливает сдвиг на чтении.
+ * Было (моя первая версия, поймана независимым ревью): функция просто переводила UTC-момент в
+ * календарь Уфы БЕЗ учёта того, что `valid_until` — ИСКЛЮЧАЮЩАЯ граница (сервер отказывает, если
+ * `valid_until <= now`). Для реальной записи вида `"2026-10-30T19:00:00"` (форма партнёра
+ * попросила «до 31.10», `client_dt_to_utc` положил это как 00:00 31.10 по Уфе) старая версия
+ * возвращала `"2026-10-31"` — и если партнёр открывал купон и жал «Сохранить» НИЧЕГО не меняя,
+ * купон молча продлевался на лишние сутки (бизнес платит комиссию за каждое погашение).
+ *
+ * Верно — минус секунда ДО перевода в Уфу (тот же момент, что касса реально ещё примет):
+ * `"2026-10-30T19:00:00"` → `"2026-10-30"` (форма и просила именно это число).
+ *
+ * Форма купона живёт в `PartnerCabinetScreen.kt` (вне зоны этого листа — не правлю), хелпер
+ * подготовлен здесь же, рядом с [com.yuldash.app.couponLastAcceptedDay], которым пользуется
+ * показ срока на 4 экранах этого листа.
  */
 class UfaIsoDateTest {
     private var savedTz: TimeZone? = null
@@ -26,7 +32,8 @@ class UfaIsoDateTest {
     @Before
     fun fixTimeZone() {
         savedTz = TimeZone.getDefault()
-        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Yekaterinburg"))   // Уфа, UTC+5
+        // Намеренно НЕ Уфа — функция обязана сама считать по Уфе, а не по умолчанию JVM/телефона.
+        TimeZone.setDefault(TimeZone.getTimeZone("America/New_York"))
     }
 
     @After
@@ -35,28 +42,41 @@ class UfaIsoDateTest {
     }
 
     @Test
-    fun convertsUtcMomentThatIsAlreadyNextDayInUfa() {
-        // 19:00 UTC = 00:00 СЛЕДУЮЩЕГО дня в Уфе — ровно граница, где голый take(10) теряет сутки.
-        assertEquals("2026-10-31", ufaIsoDate("2026-10-30T19:00:00"))
+    fun oldStyleStartOfDayRecordKeepsTheDayTheFormAskedFor() {
+        // Старая запись: форма просила «до 31.10», client_dt_to_utc положил 00:00 31.10 по Уфе.
+        // Исключающая граница делает реальным последним днём 30.10, а не 31.10.
+        assertEquals("2026-10-30", ufaIsoDate("2026-10-30T19:00:00"))
     }
 
     @Test
-    fun roundTripReadThenSaveUnchangedDoesNotDriftBackwards() {
-        // Сервер вернул купон, созданный «до конца 31.10 по Уфе»: это 2026-10-31T18:59:59 UTC.
-        val fromServer = "2026-10-31T18:59:59"
+    fun wellPastUfaMidnight_naiveUtcTruncationWouldUnderstateByOneDay() {
+        // Та же проверка, что в CouponLastAcceptedDayTest: наивная резка первых 10 символов дала
+        // бы «2026-10-30», а верный ответ (перевод в Уфу, с учётом исключающей границы) — 31-е.
+        // Без этого примера мутация «вернуть резку строки» могла бы случайно пройти мимо соседних
+        // тестов, где наивный и верный ответ совпадают.
+        assertEquals("2026-10-31", ufaIsoDate("2026-10-30T20:30:00"))
+    }
+
+    @Test
+    fun newStyleEndOfDayRecordStaysOnTheSameDay() {
+        // Новая запись (после правки сервера, лист 1.3): конец дня по Уфе — минус секунда
+        // остаётся в том же календарном дне.
+        assertEquals("2026-10-31", ufaIsoDate("2026-10-31T18:59:59"))
+    }
+
+    @Test
+    fun roundTripReadThenSaveUnchangedDoesNotDriftEitherWay() {
+        val fromServer = "2026-10-30T19:00:00"
         val shownInField = ufaIsoDate(fromServer)
-        assertEquals("2026-10-31", shownInField)
-        // Партнёр жмёт «Сохранить» ничего не поменяв — поле снова чистая дата, читается как есть.
+        assertEquals("2026-10-30", shownInField)
+        // Партнёр жмёт «Сохранить» ничего не поменяв — поле снова чистая дата, читается как есть,
+        // повторное применение функции не сдвигает её ещё раз.
         assertEquals(shownInField, ufaIsoDate(shownInField))
     }
 
     @Test
-    fun staysOnSameUfaDayWellBeforeMidnight() {
-        assertEquals("2026-10-31", ufaIsoDate("2026-10-31T05:00:00"))
-    }
-
-    @Test
     fun plainIsoDateIsKeptAsIs() {
+        // Уже обрезанная чистая дата — часа в ней нет, минус секунда не из чего брать.
         assertEquals("2026-10-31", ufaIsoDate("2026-10-31"))
     }
 
