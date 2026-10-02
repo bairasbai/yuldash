@@ -31,11 +31,18 @@ import java.util.Locale
  */
 internal class PriceSpeaker(context: Context) {
     private var engine: TextToSpeech? = null
-    /** Синтезатор готов и хотя бы один из наших языков ему знаком. */
-    var ready: Boolean = false
+    /**
+     * Синтезатор готов и хотя бы один из наших языков ему знаком.
+     *
+     * Через `mutableStateOf`, а не простое поле: инициализация TTS асинхронная, колбэк
+     * приходит позже первой отрисовки экрана. Обычный `var` молча меняет значение мимо
+     * Compose — кнопка «Прочитать вслух» либо не появлялась вовсе, либо появлялась
+     * случайно, только если что-то ДРУГОЕ на экране вызывало перерисовку в нужный момент.
+     */
+    var ready: Boolean by mutableStateOf(false)
         private set
     /** Башкирский голос реально есть. Почти всегда false — и это нормально. */
-    var bashkirAvailable: Boolean = false
+    var bashkirAvailable: Boolean by mutableStateOf(false)
         private set
 
     init {

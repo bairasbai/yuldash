@@ -36,9 +36,11 @@ import java.util.Base64
  * R1 — сумма в шапке и на кнопке — ОДНА и та же строка (kopToRub от тех же копеек). Исторический
  * баг файла: кнопка обещала рубли, посчитанные делением `kop / 100`, а чек показывал точную
  * сумму — на любых копейках расхождение подрывало доверие ко всему платежу.
- * R2 — сервер ответил 503 (оплата выключена) → карточка пропадает НАВСЕГДА в рамках сессии
- * ([OnlinePayGate]), а не до следующей перерисовки: пассажир не должен снова увидеть кнопку,
- * нажать и получить тот же отказ второй раз.
+ * R2 — показ карточки решает ТОЛЬКО health-check ([OnlinePayGate]): до его ответа карточки
+ * нет вовсе (не «выключено», а честно «ещё не узнали»), после «выключено» — нет до конца
+ * сессии. 503 именно на ПОПЫТКЕ оплаты — другое дело: одноразовый сбой провайдера, карточка
+ * остаётся и позволяет повторить (ревью Opus: раньше любой 503 на оплате прятал кнопку
+ * навсегда, и временный сбой выглядел как «фичи больше нет»).
  * R3 — двойное нажатие «Оплатить» не шлёт второй платёж: пока первый ответ летит, кнопка
  * выключена, и `pay()` вызывается ровно один раз на одно нажатие.
  * R4 — успех с `confirmationUrl` ведёт в «Ждём подтверждения», успех со статусом paid/succeeded
@@ -76,9 +78,12 @@ class PayOnlineCardTest {
     @Before fun prepare() {
         ApiClient.resetForTest()
         // Синглтон-гейт переживает композиции внутри процесса — обнуляем перед КАЖДЫМ тестом,
-        // иначе один тест "портит" следующий.
+        // иначе один тест "портит" следующий. `checked` забыли сбрасывать при первой версии
+        // этого теста — после первого же теста он навсегда оставался true, и проверка «карточка
+        // не рисуется ДО ответа health-check» молчала бы во всех остальных тестах файла.
         OnlinePayGate.asked = false
         OnlinePayGate.unavailable = false
+        OnlinePayGate.checked = false
     }
 
     @After fun cleanup() {
@@ -86,6 +91,7 @@ class PayOnlineCardTest {
         ApiClient.testTimeoutMs = null
         OnlinePayGate.asked = false
         OnlinePayGate.unavailable = false
+        OnlinePayGate.checked = false
         if (::server.isInitialized) server.shutdown()
     }
 
@@ -97,11 +103,23 @@ class PayOnlineCardTest {
         }
     }
 
+    /**
+     * Ждём, пока появится кнопка «Оплатить» — ПОСЛЕ правки R2 карточка решает, показываться ли,
+     * только когда придёт ответ настоящего (пусть и локального) health-check запроса. Это
+     * РЕАЛЬНЫЙ сетевой круг через MockWebServer на отдельном потоке — `compose.setContent`/
+     * `waitForIdle()` синхронизируют композицию Compose, но не обязаны дожидаться стороннего
+     * фонового ввода-вывода. Без явного ожидания здесь каждый тест этого файла, кликающий по
+     * кнопке сразу после рендера, стал бы гонкой (иногда проходит, иногда «узел не найден»).
+     */
+    private fun awaitSubmitButton() {
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("pay_online_submit").fetchSemanticsNodes().isNotEmpty() }
+    }
+
     @Test
     fun headerAndButton_showExactlySameAmount() {
         startServerGateOpen()
         render(amountKop = 18_850) { Result.success(PayTripResultDto("paid", it, null, null)) }
-        compose.waitForIdle()
+        awaitSubmitButton()
 
         // 18 850 копеек = 188,50 ₽ — ОБЕ надписи обязаны содержать именно эту строку,
         // не "188 ₽" (кнопка) рядом со "188,50 ₽" (чек).
@@ -110,26 +128,125 @@ class PayOnlineCardTest {
     }
 
     @Test
-    fun serverSays503_hidesCardForTheRestOfTheSession() {
+    fun paySays503_doesNotHideCardForever_retryAfterTransientOutageSucceeds() {
+        // Переписанный тест (ревью Opus): раньше 503 именно на ПОПЫТКЕ оплаты прятал карточку
+        // навсегда в рамках сессии — временный сбой провайдера выглядел как «фичи больше нет»,
+        // и честный повторный клик был физически невозможен (кнопки просто больше нет). Теперь
+        // 503 на оплате — одноразовое сообщение, карточка остаётся, повтор работает.
         startServerGateOpen()
-        // Сумма — mutableState ВНУТРИ одной композиции (не второй setContent): реальный экран
-        // тоже не пересоздаёт PayOnlineCard с нуля, он просто перерисовывает её с новым amountKop
-        // (например, после перерасчёта чека), и именно это "навсегда в рамках сессии" обязано
-        // пережить.
-        val amountKop = androidx.compose.runtime.mutableStateOf<Int?>(100_00)
-        compose.setContent {
-            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                PayOnlineCard(amountKop = amountKop.value, pay = { Result.failure(ApiException(503, "Оплата скоро", "")) })
-            }
+        var attempts = 0
+        var shouldFail503 = true
+        render(amountKop = 100_00) {
+            attempts++
+            if (shouldFail503) Result.failure(ApiException(503, "Оплата скоро", ""))
+            else Result.success(PayTripResultDto("paid", it, null, null))
         }
+        awaitSubmitButton()
 
         compose.onNodeWithTag("pay_online_submit").performClick()
+        compose.waitUntil(5_000) { attempts >= 1 }
         compose.waitForIdle()
 
+        compose.onNodeWithTag("pay_online_submit").assertExists()
+        compose.onNodeWithTag("pay_online_submit").assertIsEnabled()
+
+        shouldFail503 = false
+        compose.onNodeWithTag("pay_online_submit").performClick()
+        compose.waitUntil(5_000) { attempts >= 2 }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Оплачено — спасибо!").assertIsDisplayed()
+    }
+
+    @Test
+    fun cardStaysHidden_untilHealthCheckResponds_thenAppearsByItself() {
+        // P5/2 (ревью Opus): раньше карточка рисовалась с первого кадра — `unavailable` стартовал
+        // как false, и «выключено» выглядело так же, как «ещё не спросили». На медленной сети
+        // пассажир мог увидеть и даже нажать рабочую с виду кнопку ДО того, как сервер вообще
+        // ответил про /health.
+        val latch = java.util.concurrent.CountDownLatch(1)
+        server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.path == "/health") {
+                        latch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                        return MockResponse().setResponseCode(200).setBody("{\"payments\":\"on\"}")
+                    }
+                    return MockResponse().setResponseCode(404).setBody("{}")
+                }
+            }
+            start()
+        }
+        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        ApiClient.testTimeoutMs = 10_000
+        ApiClient.init(context)
+        ApiClient.saveToken(token(101))
+
+        render(amountKop = 100_00) { Result.success(PayTripResultDto("paid", it, null, null)) }
+        compose.waitForIdle()
+
+        // /health ещё не ответил — рисовать нечего: ни кнопки, ни намёка на оплату.
+        compose.onNodeWithTag("pay_online_submit").assertDoesNotExist()
         compose.onNodeWithText("Оплатить", substring = true).assertDoesNotExist()
 
-        amountKop.value = 500_00
+        latch.countDown()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("pay_online_submit").fetchSemanticsNodes().isNotEmpty() }
+
+        compose.onNodeWithTag("pay_online_submit").assertIsDisplayed()
+    }
+
+    @Test
+    fun healthCheckNetworkFailure_stillShowsCard_notPermanentlyBlank() {
+        // Если /health сам не ответил (не 200 с payments:off, а сетевой сбой) — это НЕ повод
+        // прятать карточку навсегда: показываем как доступную, а настоящий 503 (если он есть)
+        // поймает обработчик оплаты при реальной попытке.
+        server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse =
+                    MockResponse().setResponseCode(500)
+            }
+            start()
+        }
+        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        ApiClient.testTimeoutMs = 1_000
+        ApiClient.init(context)
+        ApiClient.saveToken(token(101))
+
+        render(amountKop = 100_00) { Result.success(PayTripResultDto("paid", it, null, null)) }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("pay_online_submit").fetchSemanticsNodes().isNotEmpty() }
+
+        compose.onNodeWithTag("pay_online_submit").assertIsDisplayed()
+    }
+
+    @Test
+    fun healthSaysOff_cardNeverAppears_notEvenForAMoment() {
+        // Денежное правило из §5.3 (не было поймано ни одной поломкой: во всех прежних тестах
+        // онлайн-оплата включена) — /health, явно ответивший «выключено», не должен дать
+        // карточке показаться ХОТЬ НА МИГ: удали эту строку обработки ответа — и ни один
+        // прежний тест этого бы не заметил.
+        server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when {
+                    request.path == "/health" -> MockResponse().setResponseCode(200).setBody("{\"payments\":\"off\"}")
+                    else -> MockResponse().setResponseCode(404).setBody("{}")
+                }
+            }
+            start()
+        }
+        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        ApiClient.testTimeoutMs = 1_000
+        ApiClient.init(context)
+        ApiClient.saveToken(token(101))
+
+        render(amountKop = 100_00) { Result.success(PayTripResultDto("paid", it, null, null)) }
+        // ВАЖНО: ждём, что health-check РЕАЛЬНО завершился (checked=true), а не просто
+        // compose.waitForIdle() — иначе «кнопки нет» могло бы означать и «ещё не узнали»,
+        // и «узнали и выключено», тест бы не отличил одно от другого и не поймал бы поломку,
+        // которая выключает именно ВТОРОЕ (сервер явно сказал «off», а клиент забыл спрятать).
+        compose.waitUntil(5_000) { OnlinePayGate.checked }
         compose.waitForIdle()
+
+        compose.onNodeWithTag("pay_online_submit").assertDoesNotExist()
         compose.onNodeWithText("Оплатить", substring = true).assertDoesNotExist()
     }
 
@@ -141,6 +258,7 @@ class PayOnlineCardTest {
             attempts++
             Result.failure(ApiException(400, "Банк отклонил операцию", ""))
         }
+        awaitSubmitButton()
 
         compose.onNodeWithTag("pay_online_submit").performClick()
         compose.waitUntil(5_000) { attempts >= 1 }
@@ -164,6 +282,7 @@ class PayOnlineCardTest {
             gate.await()
             Result.success(PayTripResultDto("paid", method, null, null))
         }
+        awaitSubmitButton()
 
         compose.onNodeWithTag("pay_online_submit").performClick()
         // Ждём, пока pay() реально стартует (не гадаем числом кадров) — он сам зависнет на gate.
@@ -187,6 +306,7 @@ class PayOnlineCardTest {
         render(amountKop = 100_00) {
             Result.success(PayTripResultDto("pending", it, 77, "https://example.invalid/confirm"))
         }
+        awaitSubmitButton()
 
         compose.onNodeWithTag("pay_online_submit").performClick()
         compose.waitForIdle()
@@ -201,6 +321,7 @@ class PayOnlineCardTest {
         render(amountKop = 100_00) {
             Result.success(PayTripResultDto("already_paid", it, null, null))
         }
+        awaitSubmitButton()
 
         compose.onNodeWithTag("pay_online_submit").performClick()
         compose.waitForIdle()
@@ -215,6 +336,7 @@ class PayOnlineCardTest {
         render(amountKop = 100_00) {
             Result.success(PayTripResultDto("pending", it, 77, "https://example.invalid/confirm"))
         }
+        awaitSubmitButton()
         compose.onNodeWithTag("pay_online_submit").performClick()
         compose.waitForIdle()
         compose.onNodeWithText("Ждём подтверждения оплаты").assertIsDisplayed()

@@ -59,8 +59,16 @@ import kotlinx.coroutines.launch
  * Онлайн-оплата ДОПОЛНЯЕТ «договорённость об оплате» (PayAgreementBlock), не заменяет её.
  */
 internal object OnlinePayGate {
-    /** true после первого 503 от /pay — онлайн-оплата ещё не включена (до перезапуска приложения). */
+    /** true, когда health-check сервера явно ответил «онлайн-оплата выключена». */
     var unavailable by mutableStateOf(false)
+    /**
+     * Пришёл ли уже ответ health-check (успешный или нет). Пока false — мы ЕЩЁ НЕ СПРОСИЛИ
+     * сервер, и карточка не должна ничего показывать: раньше она рисовалась с первого кадра,
+     * потому что `unavailable` стартовал как false — «выключено» и «ещё не узнали» выглядели
+     * одинаково, и на медленной сети человек видел на миг рабочую кнопку оплаты до того, как
+     * сервер вообще ответил (ревью Opus).
+     */
+    var checked by mutableStateOf(false)
     /** Спрашивали ли уже сервер, включена ли онлайн-оплата (один раз на сессию). */
     var asked by mutableStateOf(false)
 }
@@ -84,10 +92,18 @@ internal fun PayOnlineCard(
     LaunchedEffect(Unit) {
         if (!OnlinePayGate.asked) {
             OnlinePayGate.asked = true
-            ApiClient.paymentsOnlineEnabled().onSuccess { OnlinePayGate.unavailable = !it }
+            ApiClient.paymentsOnlineEnabled()
+                .onSuccess { OnlinePayGate.unavailable = !it }
+                // Сеть/сервер промолчали — это НЕ «выключено навсегда», это «не узнали в этот
+                // раз». Карточку всё равно рисуем (как раньше, до этой правки): настоящий 503
+                // при ПОПЫТКЕ оплаты уже ловит обработчик ниже, через человеческое сообщение,
+                // а не через вечное исчезновение.
+                .onFailure { OnlinePayGate.unavailable = false }
+            OnlinePayGate.checked = true
         }
     }
-    if (OnlinePayGate.unavailable) return
+    // checked=false — ответа ещё нет, рисовать нечего (и нечего прятать «на всякий случай»).
+    if (!OnlinePayGate.checked || OnlinePayGate.unavailable) return
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -126,8 +142,12 @@ internal fun PayOnlineCard(
                 .onFailure { e ->
                     busy = false
                     if (e is ApiException && e.status == 503) {
-                        // Сервер честно сказал «ещё нельзя» → прячем карточку на всю сессию.
-                        OnlinePayGate.unavailable = true
+                        // НЕ прячем карточку навсегда: 503 именно на ПОПЫТКЕ оплаты может быть
+                        // одноразовым сбоем провайдера, а не выключенным флагом (та проверка —
+                        // отдельный health-check выше, он решает про показ карточки). Раньше
+                        // единственный неудачный платёж навсегда прятал кнопку — временный сбой
+                        // выглядел как «фичи больше нет» (ревью Opus). Человек может просто
+                        // нажать «Оплатить» ещё раз — карточка остаётся на месте.
                         Toast.makeText(context, soonMsg, Toast.LENGTH_LONG).show()
                     } else {
                         val msg = if (e is ApiException) (e.message ?: errMsg) else errMsg

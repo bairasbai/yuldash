@@ -6,30 +6,30 @@
 
 Легенда: ⬜ не прочитан · 🟨 прочитан · 🟩 проверен тестом · 🟥 открытая ошибка · ⛔ нужен внешний доступ · ⚪ не исполняется · 🔄 файл изменился после отметки — перепроверить.
 
-**Готово (🟩/⚪/⛔): 16 из 511** █░░░░░░░░░░░░░░░░░░░
+**Готово (🟩/⚪/⛔): 18 из 511** █░░░░░░░░░░░░░░░░░░░
 
 | Статус | Файлов |
 |---|---|
-| ⬜ не прочитан | 494 |
+| ⬜ не прочитан | 492 |
 | 🟨 прочитан | 0 |
-| 🟩 проверен тестом | 16 |
+| 🟩 проверен тестом | 18 |
 | 🟥 открытая ошибка | 1 |
 | ⛔ нужен внешний доступ | 0 |
 | ⚪ не исполняется | 0 |
 | 🔄 устарела отметка | 0 |
 
-## G1. Деньги — 13 из 23 ███████████░░░░░░░░░
+## G1. Деньги — 15 из 23 █████████████░░░░░░░
 
 | Файл | Строк | Статус | Карточка | Лист |
 |---|---|---|---|---|
-| `android/app/src/main/java/com/yuldash/app/CouponsScreen.kt` | 728 | ⬜ не прочитан | — | — |
+| `android/app/src/main/java/com/yuldash/app/CouponsScreen.kt` | 728 | 🟩 проверен тестом | [карточка](audit-files/android/app/src/main/java/com/yuldash/app/CouponsScreen.kt.md) | leaf-1.5 |
 | `android/app/src/main/java/com/yuldash/app/CourierEarningsScreen.kt` | 463 | ⬜ не прочитан | — | — |
 | `android/app/src/main/java/com/yuldash/app/DriverEarningsScreen.kt` | 256 | ⬜ не прочитан | — | — |
 | `android/app/src/main/java/com/yuldash/app/IncomeCalculatorScreen.kt` | 213 | ⬜ не прочитан | — | — |
 | `android/app/src/main/java/com/yuldash/app/PayOnlineCard.kt` | 257 | ⬜ не прочитан | — | — |
 | `android/app/src/main/java/com/yuldash/app/PaymentMethodsScreen.kt` | 458 | ⬜ не прочитан | — | — |
 | `android/app/src/main/java/com/yuldash/app/PriceSpeech.kt` | 99 | ⬜ не прочитан | — | — |
-| `android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt` | 413 | ⬜ не прочитан | — | — |
+| `android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt` | 413 | 🟩 проверен тестом | [карточка](audit-files/android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt.md) | leaf-1.5 |
 | `android/app/src/main/java/com/yuldash/app/WalletScreen.kt` | 611 | ⬜ не прочитан | — | — |
 | `backend/app/compensation.py` | 36 | 🟩 проверен тестом | [карточка](audit-files/backend/app/compensation.py.md) | leaf-1.1 |
 | `backend/app/debt.py` | 1207 | 🟩 проверен тестом | [карточка](audit-files/backend/app/debt.py.md) | leaf-1.1 |
