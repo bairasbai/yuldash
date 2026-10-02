@@ -121,7 +121,9 @@ class FreshPostgres:
 
 
 def gradle_command(tests):
-    script = "gradlew.bat" if os.name == "nt" else "./gradlew"
+    # Explicit ".\\" path: Claude Code sets NoDefaultCurrentDirectoryInExePath=1, so a bare
+    # "gradlew.bat" is not found in the working directory on Windows.
+    script = ".\\gradlew.bat" if os.name == "nt" else "./gradlew"
     cmd = [script, ":app:testDebugUnitTest", "--console=plain"]
     for t in tests:
         cmd += ["--tests", t]
