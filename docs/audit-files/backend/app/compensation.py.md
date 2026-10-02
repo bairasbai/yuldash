@@ -41,7 +41,7 @@
 - `backend/app/debt.py::order_commission_kop` (этот же лист) — зовёт `compensation_rub`, вычитает из базы комиссии наличной оплаты.
 - `backend/app/ledger.py::settle_instant_order` (этот же лист) — после правки F1 зовёт `debt.order_commission_kop` (значит, транзитивно — эту же функцию) для базы комиссии безналичной оплаты.
 - `backend/app/promo_ride.py::discountable_rub` (вне листа, строка 108) — зовёт `compensation_rub`, вычитает из базы потолка скидки промокода.
-- Сторож согласованности: `backend/tests/test_price_honesty.py::test_money_paths_use_the_single_source` (читает исходники и проверяет, что они зовут именно эту функцию, а не считают сами) — **проверяет только 3 из 4 потребителей** (`debt.py`, `promo_ride.py`, `instant_service.py`; независимое ревью Opus это отметило). `ledger.py` в сторож НЕ входит — я его туда не добавил: это существующий тест вне моего OWNS (правка «вне зоны», см. карточку `ledger.py.md` и отчёт ведущему). Докстринг модуля раньше ссылался на несуществующий `test_compensation_single_source.py` — поправлено на реальный путь (косметика, без влияния на поведение).
+- Сторож согласованности: `backend/tests/test_price_honesty.py::test_money_paths_use_the_single_source` (читает исходники и проверяет, что они зовут именно эту функцию, а не считают сами) — **закрыто в круге 3**: OWNS листа расширен на `test_price_honesty.py`, `ledger.py` добавлен в проверяемый кортеж (был только `debt.py`, `promo_ride.py`, `instant_service.py` — независимое ревью Opus это отметило), тест остался зелёным. Докстринг модуля раньше ссылался на несуществующий `test_compensation_single_source.py` — поправлено на реальный путь (косметика, без влияния на поведение).
 
 ## Важные правила и тесты
 
@@ -51,7 +51,7 @@
 | R2 | Сумма — ровно три поля в копейках, посторонние денежные поля заказа не попадают | backend/tests/walk/l1_1/test_l1_1_compensation.py::test_r2_sums_exactly_the_three_fields_in_kopecks, backend/tests/walk/l1_1/test_l1_1_compensation.py::test_r2_missing_fields_default_to_zero_not_crash | косвенно (нет отдельной поломки — логика линейна, покрыта R1/R3/R4) |
 | R3 | Одно отрицательное/испорченное поле не утягивает ОБЩУЮ сумму ниже честной | backend/tests/walk/l1_1/test_l1_1_compensation.py::test_r3_a_single_negative_field_cannot_drag_the_total_below_zero | да — M1 |
 | R4 | Рубли — пол от копеек (`// 100`), без округления и без смены масштаба | backend/tests/walk/l1_1/test_l1_1_compensation.py::test_r4_rubles_floor_not_round_or_rescale, backend/tests/walk/l1_1/test_l1_1_compensation.py::test_r4_exact_hundred_kopecks_is_one_ruble_no_drift | да — M3 |
-| R5 (связь) | Чек, комиссия (нал) и потолок промокода действительно зовут ЭТУ функцию, а не свою копию | backend/tests/test_price_honesty.py::test_money_paths_use_the_single_source | сторож на уровне исходников, не мутация этого листа; **НЕ проверяет 4-й путь** (ledger.py, комиссия картой) — см. «Остаток» |
+| R5 (связь) | Чек, комиссия (нал И карта) и потолок промокода действительно зовут ЭТУ функцию, а не свою копию | backend/tests/test_price_honesty.py::test_money_paths_use_the_single_source | сторож на уровне исходников, не мутация этого листа; закрыто в круге 3 — `ledger.py` (4-й путь, комиссия картой) добавлен в проверяемый кортеж |
 
 ## Найденные ошибки
 
@@ -86,10 +86,8 @@ Opus проверило ВСЕ места записи трёх полей (`ins
 CHECK-ограничение `>= 0` на каждое поле — это миграция (`backend/alembic/`), вне OWNS этого
 листа. Оба — рекомендация ведущему, не блокирующая находка.
 
-**ВНЕ ЗОНЫ.** `backend/tests/test_price_honesty.py` (существующий тест, не мой файл) — функция
-`test_money_paths_use_the_single_source` читает исходники трёх потребителей, но не `ledger.py`.
-Точная правка: добавить `"backend/app/ledger.py"` в список файлов, которые эта функция грепает
-на вызов `compensation_rub`/`compensation_kop` (или на вызов `debt.order_commission_kop`, раз
-ledger.py теперь ходит транзитивно). Тест для проверки — тот же `test_money_paths_use_the_single_source`
-после правки; без нее возврат F1 (кто-то снова подставит `price_kop` вместо `order_commission_kop`
-в `ledger.py`) сторож не заметит.
+**Закрыто в круге 3.** `backend/tests/test_price_honesty.py` был вне OWNS в первых двух кругах;
+OWNS расширен, `"ledger.py"` добавлен в кортеж `test_money_paths_use_the_single_source`
+(`~строка 77`) — тест остался зелёным (ledger.py давно не считает компенсации своим списком,
+со времён F1 ходит в `debt.order_commission_kop` транзитивно). Возврат F1 (`price_kop` вместо
+`order_commission_kop` в `ledger.py`) теперь поймал бы и этот сторож, а не только M55.

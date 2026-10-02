@@ -74,7 +74,7 @@ def test_money_paths_use_the_single_source(client):
     """
     import pathlib
     root = pathlib.Path(__file__).resolve().parents[1] / "app"
-    for name in ("debt.py", "promo_ride.py", "instant_service.py"):
+    for name in ("debt.py", "promo_ride.py", "instant_service.py", "ledger.py"):
         src = (root / name).read_text(encoding="utf-8")
         # Складывать pickup_fee_kop с options_fee_kop вручную больше нельзя нигде.
         bad = 'getattr(order, "pickup_fee_kop", 0) or 0)\n' in src and "comp_mod" not in src

@@ -15,6 +15,8 @@ R3 — как только счёт ушёл из pending (отменён/не �
 R4 — повторное нажатие «оплатить» с висящим счётом отдаёт ТУ ЖЕ сумму (не протухает), потому
      что кошелёк больше не может тронуть снимок, пока счёт жив.
 """
+from datetime import timedelta
+
 from sqlmodel import Session, select
 
 from app import debt as debt_mod
@@ -214,3 +216,71 @@ def test_r5_wallet_never_settles_a_debt_on_an_unpaid_order(client, user_factory)
     assert списано_после == 3_000
     with Session(engine) as s:
         assert s.get(CommissionDebt, did).status == DebtStatus.paid
+
+
+def test_r6_snapshot_survives_when_created_at_and_id_disagree_in_order(
+        client, user_factory, monkeypatch):
+    """Независимое ревью Opus, повторный круг (Н1, P3): `taxi_debt_snapshot` отдаёт ID долгов в
+    порядке `created_at`, а `taxi_debt_snapshot_ids` при разборе маркера требует строго
+    ВОЗРАСТАЮЩИХ ID. `accrue_for_order` фиксирует `created_at` ДО коммита, а ID назначается
+    только коммитом — двух начислений одного водителя вперемешку (ночная чистка + «Завершил»)
+    достаточно, чтобы порядки разошлись. До фикса (сортировка ID при записи маркера) это читалось
+    бы как ПОВРЕЖДЁННЫЙ маркер → `CommissionDebt.id < 0` (fail-closed) → пока висит счёт, кошелёк
+    не гасит НИ ОДНОГО долга этого водителя, включая начисленные уже после счёта (ломает R2).
+    """
+    _pending_provider(monkeypatch)
+    drv, (d_меньше_id, d_больше_id) = _водитель_с_двумя_долгами(user_factory, "F2Порядок")
+    # d_меньше_id создан первым (меньший ID), d_больше_id — вторым (больший ID), оба с
+    # created_at=utcnow() в момент создания — то есть по времени тоже в порядке ID. Разворачиваем
+    # время искусственно: у долга с БОЛЬШИМ ID created_at становится РАНЬШЕ, чем у долга с
+    # меньшим — ровно сценарий «ночная чистка позже коммитится, но начата раньше».
+    with Session(engine) as s:
+        поздний_по_id = s.get(CommissionDebt, d_больше_id)
+        поздний_по_id.created_at = utcnow() - timedelta(hours=1)
+        s.add(поздний_по_id)
+        s.commit()
+
+    счёт = client.post("/driver/debt/paid", headers=drv["auth"]).json()
+    assert счёт["amount_kop"] == 20_000
+
+    with Session(engine) as s:
+        маркер = s.exec(select(Payment).where(
+            Payment.user_id == drv["id"], Payment.purpose == "taxi_debt")).one()
+        ids_из_маркера = debt_mod.taxi_debt_snapshot_ids(маркер)
+    assert ids_из_маркера == (d_меньше_id, d_больше_id), (
+        "снимок прочитался как повреждённый (пустой кортеж) из-за несовпадения порядка "
+        f"created_at и ID — получили {ids_из_маркера!r}, ожидали оба ID водителя"
+    )
+
+    # Деньги в кошельке — оба долга из счёта НЕ должны уйти, а вот НОВЫЙ (после счёта) обязан
+    # погаситься как обычно (R2): до фикса fail-closed блокировал бы и его тоже.
+    with Session(engine) as s:
+        pax = user_factory("F2ПорядокПас2")
+        o = InstantOrder(passenger_id=pax["id"], driver_id=drv["id"],
+                         from_lat=52.5, from_lng=58.3, to_lat=52.7, to_lng=58.6,
+                         status=InstantOrderStatus.done, price_estimate=200, price_final=200,
+                         paid=True, done_at=utcnow())
+        s.add(o)
+        s.commit()
+        s.refresh(o)
+        новый_долг = CommissionDebt(driver_id=drv["id"], order_id=o.id, amount_kop=5_000,
+                                    week="2026-W40", status=DebtStatus.unpaid, created_at=utcnow())
+        s.add(новый_долг)
+        s.commit()
+        s.refresh(новый_долг)
+        new_id = новый_долг.id
+        s.add(LedgerEntry(driver_id=drv["id"], kind=LedgerKind.adj, amount_kop=25_000,
+                          note="тест: хватило бы и на счёт, и на новый долг"))
+        s.commit()
+
+    with Session(engine) as s:
+        списано = debt_mod.settle_debt_from_wallet(s, drv["id"])
+
+    assert списано == 5_000, (
+        f"ожидали погашение ровно нового долга (5000), получили {списано} — fail-closed "
+        "из-за повреждённого маркера заблокировал бы ВСЕ долги водителя"
+    )
+    with Session(engine) as s:
+        assert s.get(CommissionDebt, new_id).status == DebtStatus.paid
+        assert s.get(CommissionDebt, d_меньше_id).status == DebtStatus.unpaid
+        assert s.get(CommissionDebt, d_больше_id).status == DebtStatus.unpaid
