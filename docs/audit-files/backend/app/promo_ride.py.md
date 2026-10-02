@@ -2,7 +2,7 @@
 
 - Статус: verified
 - Лист: leaf-1.3
-- Проверял: Sonnet 5 (leaf-1.3); принимал: Opus 5.5
+- Проверял: Sonnet 5 (leaf-1.3); принимал: Opus 5.5 (REQUEST_CHANGES на первом круге — см. «Остаток»)
 
 ## Назначение
 
@@ -14,10 +14,11 @@
 
 Вызывается из `routers/promo.py` (окно действия, предпросмотр, карточка «мой промокод»),
 `routers/instant.py` (списание при создании заказа/предзаказа), `instant_service.py`
-(пересчёт потолка при активации предзаказа, возврат при отмене из `safety`-потока),
-`taxi_worker.py`/`cleanup.py` (возврат скидки при системном закрытии зависших заказов),
-`debt.py`/`ledger.py` (разбивка комиссии на «к оплате водителем» и «компенсация из кошелька»),
-`compensation.py` (общий список компенсаций водителю, которые не считаются скидываемой базой).
+(пересчёт потолка при АКТИВАЦИИ предзаказа и теперь — при КАЖДОМ пересчёте цены уже идущей
+поездки: смена адреса, остановки, смена класса, досрочное завершение; возврат при отмене из
+`safety`-потока), `taxi_worker.py`/`cleanup.py` (возврат скидки при системном закрытии
+зависших заказов), `debt.py`/`ledger.py` (разбивка комиссии), `compensation.py` (список
+компенсаций водителю, которые не считаются скидываемой базой).
 
 ## Функции и разбор
 
@@ -25,70 +26,103 @@
 |---|---|---|---|---|
 | `in_window` | 47–54 | Промокод сейчас в силе по датам | `valid_from ≤ now < valid_until`, пустые границы = без них | ок |
 | `granted_kop` | 59–68 | Скидка при АКТИВАЦИИ кода, копейки | `perk_value` (₽) × 100, обрезано потолком `promo_ride_max_discount_rub`; не-`taxi_ride` → 0 | ок |
-| `cap_for_price` | 71–83 | Скидка, применимая к конкретной цене | доля `promo_ride_max_price_share` от цены, Decimal, округление ВНИЗ; `min(discount, доля)` | ок (R3 — защищено, была дыра: `int(Decimal*Decimal)` заменили бы на `round` — ловится) |
-| `price_kop` | 86–91 | Полная цена поездки, копейки | `price_final` или `price_estimate`, `max(…,0)*100` | ок |
-| `discountable_rub` | 94–108 | С какой суммы вправе давать скидку | цена МИНУС компенсации водителю (бензин/допопции/зимняя дорога из `compensation.py`) | ок |
-| `payable_kop` | 111–115 | Сколько пассажир реально платит | `price − discount`, `max(…,0)` — не уходит в минус | ок (R2) |
-| `split_commission` | 118–126 | Как платформа оплачивает скидку | `(max(C−D,0), max(D−C,0))` — комиссия и компенсация водителю никогда не отрицательны | ок (R6) |
-| `_redemption` | 131–135 | Достать свою PromoRedemption, опц. row-lock | — | ок |
-| `available` | 138–162 | Есть ли непотраченная скидка у юзера | kind=taxi_ride, кампания активна и в окне, сумма>0, не занята живым заказом | ок |
-| `note` | 165–173 | Честное RU/BA объяснение скидки | `discount_kop≤0` → None | ок |
-| `preview` | 176–186 | Блок скидки для оценки цены | честные нули, если скидки нет | ок |
-| `consume` | 191–238 | Списать скидку на заказ, зафиксировать | row-lock + атомарный CAS; идемпотентно; **сверяет `order.passenger_id == user_id`** | ок (R1, R4 — была найдена и исправлена ошибка B1, см. ниже) |
-| `release` | 244–273 | Вернуть скидку, если поездка не состоялась | только для `cancelled`/`expired`, атомарный UPDATE по статусу+сумме>0 | ок (R5) |
-| `release_ids` | 279–297 | Пакетный `release` по списку заказов (своя сессия) | идемпотентно, для системных закрытий (cleanup/taxi_worker) | ок |
-| `reclamp` | 300–318 | Ужать скидку под новый потолок доли | только УМЕНЬШАЕТ, после пересчёта цены предзаказа | ок |
+| `cap_for_price` | 71–83 | Скидка, применимая к конкретной цене | доля `promo_ride_max_price_share` от цены, Decimal, округление ВНИЗ; `min(discount, доля)` | ок (R3) |
+| `price_kop` | 86–91 | Полная цена поездки в копейках | `price_final` или `price_estimate`, `max(…,0)*100` | ок |
+| `discountable_rub` | 94–108 | С какой суммы промокод вправе давать скидку (заказ) | цена МИНУС компенсации водителю (бензин/допопции/зимняя дорога из `compensation.py`) | ок |
+| `discountable_rub_from_estimate` 🆕 | 111–126 | То же самое, но ДО заказа — по словарю оценки цены | та же тройка полей (`pickup_fee`/`options_fee`/`weather_fee`), что и `compensation.py` | ок (R7, B-1) |
+| `payable_kop` | 129–133 | Сколько пассажир реально платит | `price − discount`, `max(…,0)` — не уходит в минус | ок (R2) |
+| `split_commission` | 136–144 | Как платформа оплачивает скидку | `(max(C−D,0), max(D−C,0))` — ни комиссия, ни компенсация не отрицательны | ок (R6) |
+| `_redemption` | 149–153 | Достать свою PromoRedemption, опц. row-lock | — | ок |
+| `available` | 156–180 | Есть ли непотраченная скидка у юзера | kind=taxi_ride, кампания активна и в окне, сумма>0, не занята живым заказом | ок |
+| `note` | 183–191 | Честное RU/BA объяснение скидки | `discount_kop≤0` → None | ок |
+| `preview` ✏️ | 194–210 | Блок скидки для ОЦЕНКИ цены (до заказа) | теперь принимает ОТДЕЛЬНО `discountable_rub` (база для потолка доли) и `price_rub` (база для «к оплате») — раньше потолок доли считался от ПОЛНОЙ цены, расходясь с заказом (B-1, исправлено) | ок (R7) |
+| `consume` | 215–265 | Списать скидку на заказ, зафиксировать | row-lock + атомарный CAS; идемпотентно; сверяет `order.passenger_id == user_id` (найденная и исправленная в этом листе ошибка, см. «Найденные ошибки») | ок (R1, R4) |
+| `release` | 268–297 | Вернуть скидку, если поездка не состоялась | только для `cancelled`/`expired`, атомарный UPDATE по статусу+сумме>0 | ок (R5) |
+| `release_ids` | 300–321 | Пакетный `release` по списку заказов (своя сессия) | идемпотентно, для системных закрытий (cleanup/taxi_worker) | ок |
+| `reclamp` | 324–342 | Ужать скидку под новый потолок доли | только УМЕНЬШАЕТ; теперь зовётся не только при активации предзаказа, но и после КАЖДОГО пересчёта цены уже идущего заказа (B-2, см. ниже) | ок (R8) |
 
 ## Связи
 
-Экраны: `PromoCodeScreen.kt` (`/promo/apply`, `/promo/mine`) — скидка видна по полю
-`discount_kop`/`discount_available`. Эндпоинты: `routers/promo.py::promo_apply/promo_mine`,
-`routers/instant.py` (`/instant/orders`, `/instant/schedule`, оценка, `/pay`, чек). Таблицы:
-`PromoRedemption` (сумма и `used_order_id`), `InstantOrder.promo_discount_kop`, `LedgerEntry`
-(kind=adj — компенсация), `CommissionDebt`. Фоновые задачи: `taxi_worker.close_stuck_orders`,
-`cleanup.close_stale_orders` → `release_ids`.
+Экраны: `PromoCodeScreen.kt` (`/promo/apply`, `/promo/mine`). Эндпоинты: `routers/promo.py`,
+`routers/instant.py` (`/instant/orders`, `/instant/schedule`, оценка, `/pay`, чек, смена
+адреса/остановок/класса, досрочное завершение). Таблицы: `PromoRedemption`, `InstantOrder.
+promo_discount_kop`, `LedgerEntry` (kind=adj), `CommissionDebt`. Фоновые задачи: `taxi_worker.
+close_stuck_orders`, `cleanup.close_stale_orders` → `release_ids`.
+
+**Файлы ВНЕ зоны листа, тронутые ради B-2** (зона временно расширена ведущим только для этого
+пункта): `backend/app/instant_service.py` — добавлен вызов `promo_ride.reclamp(session, order)`
+в четырёх местах (`apply_destination`, `apply_waypoints`, `finish_early`,
+`add_fallback_category`, все — сразу после `session.refresh(order)`, которым заканчивается
+каждая из них); `backend/app/routers/instant.py` — вызов `promo_ride.preview(...)` в эндпоинте
+`/instant/estimate` передаёт новый параметр `discountable_rub`. Карточек для этих двух файлов
+у листа 1.3 нет (не в его FILES_LIST) — правки описаны здесь и защищены мутациями M25–M28
+(см. ниже), которые проверяются напрямую через `audit_mutation.py replay`, но не привязаны ни
+к одной карточке листа (инструмент это не требует — привязка к карточке нужна только для
+статуса самой карточки `instant_service.py`, которой не существует).
 
 ## Важные правила и тесты
 
 | ID | Правило | Тесты | Ловит поломку? |
 |---|---|---|---|
-| R1 | Скидку нельзя применить к чужой поездке (`consume` сверяет владельца заказа) | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_consume_refuses_foreign_order, ::test_consume_still_works_for_own_order | да — M8 |
-| R2 | Оплата пассажира никогда не уходит в минус | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_payable_never_negative | да — M9 |
-| R3 | Потолок «доля от цены» — целые рубли, округление ВНИЗ (в пользу платформы) | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_share_cap_rounds_down_in_favor_of_platform | да — M10 |
-| R4 | Скидка не списывается дважды даже под реальной гонкой на PostgreSQL | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_concurrent_consume_only_one_order_gets_discount | да — M11 |
-| R5 | Отменённая/просроченная поездка возвращает скидку, а не сжигает её | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_release_returns_discount_on_cancel | да — M12 |
-| R6 | Комиссия водителя никогда не уходит в минус (остаток — компенсацией) | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_split_commission_never_goes_negative | да — M13 |
+| R1 | Скидку нельзя применить к чужой поездке (`consume` сверяет владельца заказа) | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_consume_refuses_foreign_order, ::test_consume_still_works_for_own_order | да — M13 |
+| R2 | Оплата пассажира никогда не уходит в минус | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_payable_never_negative | да — M14 |
+| R3 | Потолок «доля от цены» — целые рубли, округление ВНИЗ (в пользу платформы) | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_share_cap_rounds_down_in_favor_of_platform | да — M15 |
+| R4 | Скидка не списывается дважды даже под реальной гонкой на PostgreSQL | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_concurrent_consume_only_one_order_gets_discount | да — M16 |
+| R5 | Отменённая/просроченная поездка возвращает скидку, а не сжигает её | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_release_returns_discount_on_cancel | да — M17 |
+| R6 | Комиссия водителя никогда не уходит в минус (остаток — компенсацией) | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_split_commission_never_goes_negative | да — M18 |
+| R7 (B-1) | Оценка цены ДО заказа обещает ТУ ЖЕ скидку, что потом спишет сам заказ (база «цена минус компенсации» едина) | backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_preview_matches_order_discount_with_compensation | да — M19 |
+| R8 (B-2) | `reclamp` только УМЕНЬШАЕТ скидку, никогда не поднимает её, и не трогает нулевую | backend/tests/walk/l1_3/test_l1_3_reclamp_money.py::test_reclamp_shrinks_discount_when_price_drops, ::test_reclamp_never_increases_discount, ::test_reclamp_noop_without_discount | да — M20 |
 
-Дополнительно (без отдельной мутации, проверено существующим сюитом `tests/test_promo_taxi.py`,
-68 тестов, все зелёные и на SQLite, и на PostgreSQL): полный денежный инвариант «водитель
-получает ровно столько же, как без промокода» (`test_driver_gets_exactly_same_money_as_without_promo`,
-`test_card_payment_keeps_driver_whole` — оба случая: скидка меньше и больше комиссии).
+Каждый из четырёх ПУТЕЙ пересчёта цены (вне файлов листа, см. «Связи») защищён СВОИМ тестом
+и СВОЕЙ мутацией (M25–M28, файл `backend/app/instant_service.py`), не привязанными к этой
+карточке формально, но входящими в общий `leaf-1.3.json` и прогнанными: `apply_destination` —
+`test_apply_destination_shrinks_discount_on_cheaper_address`; `apply_waypoints` —
+`test_apply_waypoints_shrinks_discount_on_cheaper_route`; `finish_early` —
+`test_finish_early_shrinks_discount_on_actual_price`; `add_fallback_category` —
+`test_add_fallback_category_shrinks_discount_on_cheaper_class` (все — `backend/tests/walk/l1_3/test_l1_3_reclamp_money.py`).
 
 ## Найденные ошибки
 
 | ID | Что было (по-человечески) | Как воспроизвести | Исправление | Тест: до → после |
 |---|---|---|---|---|
-| B1 | `consume(session, user_id, order)` не проверял, что переданный `order` ПРИНАДЛЕЖИТ `user_id`. Сегодня оба вызова (`routers/instant.py`, создание обычного заказа и предзаказа) безопасны — они сами создают заказ с `passenger_id=user.id` прямо перед вызовом. Но сама функция ничего не гарантировала: случайная будущая правка (например, списание скидки на заказ по id из другого источника) молча подарила бы чужую скидку чужому заказу — скидку одного пассажира «съел» бы заказ постороннего, который её не заслужил и не просил | `backend/tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_consume_refuses_foreign_order` — создать пассажиру А скидку, вызвать `consume(session, owner_id, order_постороннего)` | Добавлена сверка `order.passenger_id != user_id` в начале `consume` (1 строка + расширенный докстринг) | тест падал: `assert 10000 == 0` (скидка ушла на чужой заказ) → после правки весь файл (6 тестов) и весь существующий `test_promo_taxi.py` (68 тестов, SQLite+PostgreSQL) зелёные |
+| B-исходная | `consume(session, user_id, order)` не проверял, что переданный `order` ПРИНАДЛЕЖИТ `user_id`. Сегодняшние вызовы (`routers/instant.py`, создание заказа и предзаказа) безопасны сами по себе, но функция ничего не гарантировала — случайная будущая правка подарила бы чужую скидку чужому заказу. *Независимое ревью подтвердило: правка верна и минимальна, но из HTTP дефект сегодня недостижим — формулировка «починен чужой заказ» в первом коммите была преувеличением; по факту это защита на будущее.* | `test_consume_refuses_foreign_order` — создать пассажиру А скидку, вызвать `consume(session, owner_id, order_постороннего)` | Добавлена сверка `order.passenger_id != user_id` в начале `consume` | тест падал (`assert 10000 == 0`) → после правки весь файл и весь `test_promo_taxi.py` (22 теста, SQLite+PostgreSQL) зелёные |
+| B-1 | `preview()` (оценка цены ДО «Заказать») считал потолок доли скидки от ПОЛНОЙ цены поездки (с учётом подачи издалека, детского кресла, зимней дороги), а `consume()` (сам заказ) — от цены БЕЗ этих надбавок. На любой недорогой поездке, где решает именно потолок ДОЛИ, человек видел одну сумму скидки на экране оценки и другую (меньшую) в уже оформленном заказе — ровно то, против чего сделана заморозка цены. Найдено независимым ревью (Opus), не мной. | `test_preview_matches_order_discount_with_compensation` — короткая поездка (минимальный тариф) с детским креслом (150 ₽): без правки оценка обещала скидку от 250 ₽ базы, заказ списывал от 100 ₽ | `preview()` принимает отдельный параметр `discountable_rub` (новая функция `discountable_rub_from_estimate`), вызывающий код в `routers/instant.py::estimate` передаёт его | тест падал бы на несовпадении сумм → после правки `preview_discount == order_discount` при любой компенсации, весь `test_promo_taxi.py` зелёный |
+| B-2 | Потолок «скидка не больше доли цены» и инвариант «водитель получает price−C» проверялись только в момент ЗАКАЗА и при активации предзаказа. Цена заказа может УПАСТЬ ещё в четырёх местах (смена адреса, остановки, смена класса, досрочное завершение) — скидку там никто не ужимал. Пример из ревью: заказ 600 ₽ → скидка 300 ₽ → пассажир меняет адрес на поездку за 150 ₽ → к оплате 0 ₽, а водителю в кошелёк ушло бы ≈295 ₽ вместо положенных ≈70 ₽ — платформа переплачивает за счёт собственного промокода. Найдено независимым ревью (Opus), не мной. **Правка сделана в `instant_service.py`, вне файлов листа — зона расширена ведущим именно под этот пункт.** | `test_l1_3_reclamp_money.py` (4 теста на пути пересчёта + 3 на сам `reclamp`) — без правки все 4 падают с точными числами (напр. `assert 30000 == 7500`), подтверждено запуском на снятой правке (см. процедуру ниже) | `promo_ride.reclamp(session, order)` + повторный `session.refresh(order)` добавлены в конец `apply_destination`, `apply_waypoints`, `finish_early` (до расчёта долга по комиссии — порядок важен), `add_fallback_category` | все 4 целевых теста падали с точными числами → после правки проходят; попутно прогнан весь денежный регресс (`test_a_longer_ride_never_costs_less.py`, `test_car_classes.py`, `test_destination_*.py`, `test_waypoints.py`, `test_no_ride_ends_in_silence.py`, `test_pickup_fee.py`, `test_promo_taxi.py`, `test_price_honesty.py` — 182 теста, все зелёные) |
+
+Процедура подтверждения B-2 «до→после»: `git stash push -u` только `instant_service.py` →
+4 теста падают с точными ожидаемыми числами → `git stash apply` (восстановление) → те же
+4 теста проходят. Выполнено и записано в истории работы над листом.
 
 ## Проверка нарочной поломкой
 
 | ID | Что сломали | Тест | Результат |
 |---|---|---|---|
-| M8 | Из `consume` снята сверка владельца заказа (регрессия к B1) | test_consume_refuses_foreign_order | KILLED |
-| M9 | В `payable_kop` снят нижний предел `max(…,0)` | test_payable_never_negative | KILLED |
-| M10 | В `cap_for_price` округление вниз (`int(Decimal*Decimal)`) заменено на `round()` | test_share_cap_rounds_down_in_favor_of_platform | KILLED |
-| M11 | В `consume` сняты ОБЕ блокировки строк (`lock=True→False`) И условие «скидка ещё свободна» в атомарном захвате | test_concurrent_consume_only_one_order_gets_discount (PostgreSQL, с принудительной задержкой перед захватом для надёжного окна гонки) | KILLED |
-| M12 | В `release` условие «заказ действительно не состоялся» (`status.in_(_DEAD)`) заменено на заведомо пустое | test_release_returns_discount_on_cancel | KILLED |
-| M13 | В `split_commission` снят нижний предел комиссии водителя (`max(c-d,0)` → `c-d`) | test_split_commission_never_goes_negative | KILLED |
+| M13 | Из `consume` снята сверка владельца заказа | test_consume_refuses_foreign_order | KILLED |
+| M14 | В `payable_kop` снят нижний предел `max(…,0)` | test_payable_never_negative | KILLED |
+| M15 | В `cap_for_price` округление вниз заменено на `round()` | test_share_cap_rounds_down_in_favor_of_platform | KILLED |
+| M16 | В `consume` сняты ОБЕ блокировки строк И условие «скидка ещё свободна» в атомарном захвате | test_concurrent_consume_only_one_order_gets_discount (PostgreSQL, с принудительной задержкой перед захватом) | KILLED |
+| M17 | В `release` условие «заказ действительно не состоялся» заменено на заведомо пустое | test_release_returns_discount_on_cancel | KILLED |
+| M18 | В `split_commission` снят нижний предел комиссии водителя | test_split_commission_never_goes_negative | KILLED |
+| M19 | `preview` игнорирует переданную базу «цена минус компенсации» (регрессия к B-1) | test_preview_matches_order_discount_with_compensation | KILLED |
+| M20 | `reclamp` считает потолок доли напрямую, без `min()` относительно уже обещанной суммы | test_reclamp_never_increases_discount | KILLED |
+| M25–M28 (файл `instant_service.py`, вне карточек листа) | Из каждого из 4 путей пересчёта цены убран вызов `reclamp` (регрессия к B-2) | соответствующий тест `test_l1_3_reclamp_money.py` | KILLED ×4 |
 
 `python tools/audit_mutation.py replay --spec docs/audit-mutations/leaf-1.3.json` →
-`MUTATIONS KILLED 17/17` (весь лист, включая эти 6).
+`MUTATIONS KILLED 28/28` (весь лист).
 
 ## Остаток и ограничения
 
-Все денежные правила файла защищены тестами и нарочными поломками (включая PostgreSQL для
-гонки двойного списания). Дополнительно прогнан весь существующий денежный сюит файла
-(`test_promo_taxi.py`, 68 тестов) на SQLite и на изолированном PostgreSQL — зелёный.
+Карточка переписана после первого круга независимого ревью (Opus, VERDICT: REQUEST_CHANGES).
+Что изменилось по существу: найдены и исправлены B-1 (несовпадение базы скидки оценка/заказ)
+и B-2 (скидка не ужималась при падении цены уже идущего заказа — 4 пути в `instant_service.py`,
+правка вне файлов листа); уточнена формулировка про «починенный чужой заказ» — дефект был
+защитой на будущее, а не живой дырой, достижимой из HTTP.
 
-Подозрений, требующих отдельной проверки, не осталось: единственная найденная дыра (B1)
-исправлена и защищена тестом.
+Все восемь денежных правил защищены тестами и нарочными поломками, включая реальную проверку
+гонки на PostgreSQL (R4). Полный существующий денежный сюит файла (`test_promo_taxi.py`, 22
+тест-функции, часть параметризована) и широкий регресс по изменённым путям
+`instant_service.py` (182 теста) прогнаны и зелёные на SQLite и на изолированном PostgreSQL.
+
+Не проверено специально (не входило в денежный фокус листа, не всплыло при чтении): пути
+пересчёта цены ПОПУТКИ (Ride/Booking) — у них нет промокода на такси в принципе (`kind=
+"taxi_ride"` относится только к `InstantOrder`), поэтому B-2 их не касается.

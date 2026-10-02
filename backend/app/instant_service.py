@@ -1876,6 +1876,12 @@ def apply_destination(session: Session, order: InstantOrder, new_to: tuple, to_t
     session.add(order)
     session.commit()
     session.refresh(order)
+    # Цена упала (или выросла) — потолок скидки «не больше доли цены» мог стать меньше
+    # уже зафиксированной суммы. Только УМЕНЬШАЕМ (аудит leaf-1.3, B-2): иначе на подешевевшей
+    # поездке скидка осталась бы от старой, более высокой цены, и остаток сверх комиссии
+    # платформа доплатила бы водителю из своего кармана — больше, чем без промокода вообще.
+    promo_ride.reclamp(session, order)
+    session.refresh(order)
     return order
 
 
@@ -1892,6 +1898,9 @@ def apply_waypoints(session: Session, order: InstantOrder, points: list[dict],
     order.destination_ack_at = None
     session.add(order)
     session.commit()
+    session.refresh(order)
+    # См. apply_destination — тот же потолок скидки после той же смены цены (B-2).
+    promo_ride.reclamp(session, order)
     session.refresh(order)
     return order
 
@@ -2094,6 +2103,11 @@ def finish_early(session: Session, order: InstantOrder, reason: str = "other",
     session.add(order)
     session.commit()
     session.refresh(order)
+    # Цена по факту может оказаться ниже обещанной — потолок скидки по промокоду чиним ТОЛЬКО
+    # вниз ДО расчёта долга по комиссии (аудит leaf-1.3, B-2): вызывающий эндпоинт зовёт
+    # `debt.accrue_for_order` сразу следующей строкой, и там считает именно это поле.
+    promo_ride.reclamp(session, order)
+    session.refresh(order)
 
     ru, ba = EARLY_FINISH_TEXT[reason]
     if order.passenger_id:
@@ -2246,6 +2260,10 @@ def add_fallback_category(session: Session, order: InstantOrder, category: str) 
         order.offer_expires_at = None
     session.add(order)
     session.commit()
+    session.refresh(order)
+    # См. apply_destination — цена могла упасть (поиск в более дешёвом классе), потолок
+    # скидки по промокоду чиним вслед за ней, только вниз (аудит leaf-1.3, B-2).
+    promo_ride.reclamp(session, order)
     session.refresh(order)
     return {"price": order.price_estimate,
             "categories": sorted(order_categories(order))}

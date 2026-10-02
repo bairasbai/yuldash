@@ -14,7 +14,7 @@
 admin через _require_admin (обычный HTTPException-строка). Бонус boost начисляем через ту же логику,
 что reward_driver_referral: user.referral_credits += perk_value с кэпом MAX_REFERRAL_CREDITS.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -85,6 +85,17 @@ class StatusIn(BaseModel):
 # Окно действия кампании — общий хелпер из promo_ride: тем же правилом проверяется и скидка
 # на такси (выключили/просрочили кампанию — гаснет и ещё не потраченная скидка).
 _in_window = promo_ride.in_window
+
+
+def _promo_valid_until(dt: Optional[datetime]) -> Optional[datetime]:
+    """Срок кампании → UTC. Дата БЕЗ времени (форма админа шлёт именно так, `AdminPromoScreen.kt`)
+    означает КОНЕЦ этих суток по Уфе, а не начало — та же дыра и то же исправление, что у
+    купонов (независимое ревью leaf-1.3, B-3): см. `routers/coupons.py::_coupon_valid_until`."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None and dt.time() == time(0, 0):
+        dt = dt.replace(hour=23, minute=59, second=59, microsecond=0)
+    return client_dt_to_utc(dt)
 
 
 def _user_is_live(session: Session, user_id: int) -> bool:
@@ -398,7 +409,7 @@ def admin_promo_create(body: AdminPromoIn, user: User = Depends(current_user), s
         # (аудит 2026-08-12, волна 27 — «мёртвая настройка выглядит работающей»).
         limit_per_user=1,
         valid_from=client_dt_to_utc(body.valid_from),
-        valid_until=client_dt_to_utc(body.valid_until),
+        valid_until=_promo_valid_until(body.valid_until),
         active=True,
     )
     session.add(promo)
@@ -452,7 +463,7 @@ def admin_promo_update(promo_id: int, body: AdminPromoEditIn, user: User = Depen
     if body.valid_from is not None:
         promo.valid_from = client_dt_to_utc(body.valid_from)
     if body.valid_until is not None:
-        promo.valid_until = client_dt_to_utc(body.valid_until)
+        promo.valid_until = _promo_valid_until(body.valid_until)
     session.add(promo)
     session.commit()
     session.refresh(promo)

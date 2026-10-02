@@ -12,7 +12,7 @@ _activate_payment продлевает subscription_until. Витрина пок
 с оплаченной подпиской (гейт как у платной рекламы).
 """
 import secrets
-from datetime import datetime
+from datetime import datetime, time
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -197,6 +197,25 @@ def _in_window(coupon: Coupon, now: datetime) -> bool:
     return True
 
 
+def _coupon_valid_until(dt: Optional[datetime]) -> Optional[datetime]:
+    """Срок действия купона → UTC. Дата БЕЗ времени (приложение сейчас шлёт именно так —
+    поле «Действует до» без часов, `PartnerCabinetScreen.kt`) означает КОНЕЦ этих суток по
+    Уфе, а не начало (независимое ревью leaf-1.3, B-3).
+
+    Иначе «до 31.10» закрывается в полночь — то есть весь день 31-го купон уже не действует.
+    Хуже другое: форма правки подставляет обратно только дату (`validUntil.take(10)` в
+    приложении) — КАЖДОЕ повторное сохранение, даже правка одного поля заголовка, сдвигало бы
+    срок ещё на сутки назад. Сдвиг на 23:59:59 ДО перевода в UTC держит календарную дату
+    устойчивой: 23:59:59 Уфы в тот же день — это 18:59:59 UTC ТОГО ЖЕ числа, а не предыдущего.
+    Время С явным поясом или ненулевыми часами трактуем точно, без подмены — человек тогда
+    просил именно этот момент, а не выбирал дату в календаре."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None and dt.time() == time(0, 0):
+        dt = dt.replace(hour=23, minute=59, second=59, microsecond=0)
+    return client_dt_to_utc(dt)
+
+
 def _total_exhausted(coupon: Coupon) -> bool:
     return coupon.limit_total > 0 and coupon.redeemed_count >= coupon.limit_total
 
@@ -234,10 +253,20 @@ def _partner_public(partner: Partner) -> dict:
     }
 
 
-def _coupon_public(coupon: Coupon, partner: Optional[Partner]) -> dict:
+def _coupon_public(coupon: Coupon, partner: Optional[Partner], active_count: Optional[int] = None) -> dict:
+    """`active_count` — сколько брони сейчас занимают общий лимит (reserved+redeemed), ТО ЖЕ
+    число, которым реально считает лимит `coupon_activate`. Не передали → откатываемся на
+    `redeemed_count` (старое поведение): он честен, только пока нет ни одной непогашенной
+    брони.
+
+    Раньше «остаток» на витрине считался ТОЛЬКО по факту ПОГАШЕНИЯ, а сама активация держит
+    лимит по reserved+redeemed. Человек видел «осталось 95», хотя из-за розданных, но ещё не
+    погашенных кодов свободных мест могло не быть вовсе — активация честно отвечала «Купоны
+    закончились», а витрина перед этим соврала (независимое ревью leaf-1.3, п.4)."""
     remaining = None
     if coupon.limit_total > 0:
-        remaining = max(0, coupon.limit_total - coupon.redeemed_count)
+        taken = coupon.redeemed_count if active_count is None else active_count
+        remaining = max(0, coupon.limit_total - taken)
     return {
         "id": coupon.id,
         "partner": _partner_public(partner) if partner else None,
@@ -282,7 +311,19 @@ def coupons_list(
         live = [c for c in live if rl in [x.lower() for x in _csv(c.route_hint)] or (c.city and c.city.strip().lower() == rl)]
     # premium выше; внутри — свежие сверху
     live.sort(key=lambda c: (1 if c.premium else 0, c.created_at or now), reverse=True)
-    return [_coupon_public(c, partners.get(c.partner_id)) for c in live]
+    # «Остаток» на витрине — тем же числом, каким реально считает лимит coupon_activate
+    # (reserved+redeemed), а не только фактом погашения. Один запрос на всю выдачу.
+    taken_by_coupon: dict = {}
+    coupon_ids = [c.id for c in live]
+    if coupon_ids:
+        rows = session.exec(
+            select(CouponRedemption.coupon_id, func.count()).where(
+                CouponRedemption.coupon_id.in_(coupon_ids),
+                CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
+            ).group_by(CouponRedemption.coupon_id)
+        ).all()
+        taken_by_coupon = dict(rows)
+    return [_coupon_public(c, partners.get(c.partner_id), taken_by_coupon.get(c.id, 0)) for c in live]
 
 
 @router.post("/coupons/redeem")
@@ -302,6 +343,17 @@ def coupon_redeem(body: RedeemIn, user: User = Depends(current_user), session: S
     # Право гасить — только владелец бизнеса. Чужому отдаём тот же 404 (не раскрываем код).
     if not partner or partner.owner_id != user.id:
         raise herr(404, "Код не найден", "Код табылманы")
+    # Акция закончилась или администратор снял купон с публикации (review=="blocked") — касса
+    # не должна молча отвечать «ok» на уже недействующий купон: бизнес получал бы +10 ₽ за
+    # скидку, которой по правилам уже нет (независимое ревью leaf-1.3: «снять с витрины должно
+    # означать не работает» — волна 145 закрыла только ВЫДАЧУ новых кодов, не их ПОГАШЕНИЕ).
+    # Статус самой брони (red) не трогаем — отказ временный, историю держателя не портим.
+    if not _in_window(coupon, utcnow()):
+        raise herr(422, "Срок купона истёк — бизнес уже не обязан его принимать",
+                   "Купон ваҡыты үтте — бизнес уны ҡабул итергә бурыслы түгел")
+    if getattr(coupon, "review", "approved") == "blocked":
+        raise herr(409, "Купон снят администратором — обратись в поддержку",
+                   "Купон администратор тарафынан алынды — ярҙам хеҙмәтенә мөрәжәғәт ит")
     if red.status == "redeemed":
         raise herr(409, "Код уже погашён", "Код инде ҡулланылған")
     if red.status in ("canceled", "expired"):
@@ -351,7 +403,13 @@ def coupon_detail(coupon_id: int, session: Session = Depends(get_session)):
     partner = session.get(Partner, coupon.partner_id) if coupon else None
     if not coupon or not _coupon_visible(coupon, partner, utcnow()):
         raise herr(404, "Купон не найден", "Купон табылманы")
-    return _coupon_public(coupon, partner)
+    taken = session.exec(
+        select(func.count()).select_from(CouponRedemption).where(
+            CouponRedemption.coupon_id == coupon.id,
+            CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
+        )
+    ).one()
+    return _coupon_public(coupon, partner, int(taken))
 
 
 @router.post("/coupons/{coupon_id}/activate")
@@ -699,7 +757,7 @@ def partner_coupon_create(body: CouponIn, user: User = Depends(current_user), se
         discount_text=body.discount_text.strip(),
         city=(body.city.strip() or partner.city), route_hint=body.route_hint.strip(),
         valid_from=client_dt_to_utc(body.valid_from),
-        valid_until=client_dt_to_utc(body.valid_until),
+        valid_until=_coupon_valid_until(body.valid_until),
         limit_total=max(0, body.limit_total), limit_per_user=max(1, body.limit_per_user),
         premium=bool(body.premium) and _partner_has_premium(partner),   # premium-метка только на premium-подписке
         status="draft",
@@ -785,7 +843,7 @@ def partner_coupon_update(coupon_id: int, body: CouponIn, user: User = Depends(c
         coupon.city = body.city.strip()
     coupon.route_hint = body.route_hint.strip()
     coupon.valid_from = client_dt_to_utc(body.valid_from)
-    coupon.valid_until = client_dt_to_utc(body.valid_until)
+    coupon.valid_until = _coupon_valid_until(body.valid_until)
     coupon.limit_total = max(0, body.limit_total)
     coupon.limit_per_user = max(1, body.limit_per_user)
     coupon.premium = bool(body.premium) and _partner_has_premium(partner)

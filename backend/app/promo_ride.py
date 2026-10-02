@@ -108,6 +108,24 @@ def discountable_rub(order: InstantOrder) -> int:
     return max(int(rub or 0) - comp_mod.compensation_rub(order), 0)
 
 
+def discountable_rub_from_estimate(est: dict) -> int:
+    """То же самое (цена минус компенсации водителю), но ДО того, как завёлся заказ —
+    по словарю оценки цены (`instant_service.estimate()`), тем же тройкой полей, что
+    `app/compensation.py` (аудит leaf-1.3, B-1).
+
+    Раньше `preview()` (оценка ДО «Заказать») считал потолок доли от ПОЛНОЙ цены (с подачей,
+    креслом, зимней дорогой), а `consume()` (сам заказ) — уже отсюда, от цены БЕЗ них. На
+    любой поездке с компенсацией и сработавшим потолком доли человек видел одну скидку на
+    экране оценки и другую, меньшую, в заказе — ровно то, против чего сделана заморозка цены.
+    """
+    if not est:
+        return 0
+    price = int(est.get("price", 0) or 0)
+    comp = (int(est.get("pickup_fee", 0) or 0) + int(est.get("options_fee", 0) or 0)
+            + int(est.get("weather_fee", 0) or 0))
+    return max(price - comp, 0)
+
+
 def payable_kop(order: InstantOrder) -> int:
     """Сколько пассажир реально платит за поездку: цена минус зафиксированная скидка."""
     if order is None:
@@ -173,11 +191,17 @@ def note(discount_kop: int) -> Optional[dict]:
     }
 
 
-def preview(session: Session, user_id: int, price_rub: int) -> dict:
+def preview(session: Session, user_id: int, price_rub: int, discountable_rub: Optional[int] = None) -> dict:
     """Блок скидки для ответа оценки цены. Скидки нет → честные нули (поле всегда на месте,
-    чтобы клиенту не приходилось гадать, «не пришло» это или «не положено»)."""
+    чтобы клиенту не приходилось гадать, «не пришло» это или «не положено»).
+
+    `price_rub` — ПОЛНАЯ цена (ею же показываем «к оплате со скидкой» — компенсации человек
+    всё равно платит). `discountable_rub` — база ДЛЯ ПОТОЛКА ДОЛИ, та же, что считает `consume()`
+    (цена минус компенсации водителю, см. `discountable_rub_from_estimate`); не передан →
+    совпадает с `price_rub` (старое поведение, только для вызовов без компенсаций в цене)."""
+    base = price_rub if discountable_rub is None else discountable_rub
     red, promo = available(session, user_id)
-    disc = cap_for_price(red.discount_kop, price_rub) if red is not None else 0
+    disc = cap_for_price(red.discount_kop, base) if red is not None else 0
     return {
         "promo_code": (promo.code if (promo is not None and disc > 0) else ""),
         "promo_discount_kop": disc,

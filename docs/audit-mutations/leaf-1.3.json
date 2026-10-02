@@ -6,9 +6,9 @@
       "id": "M1",
       "file": "backend/app/routers/coupons.py",
       "rule": "R1",
-      "description": "coupon_redeem: снята блокировка строки кода И условие «ещё reserved» в атомарном UPDATE — оба защитных слоя разом, иначе один из них в одиночку всё равно спасает (двойная защита кода)",
-      "find": "        red = session.exec(select(CouponRedemption).where(CouponRedemption.code == code).with_for_update()).first()\n    if not red:\n        raise herr(404, \"Код не найден\", \"Код табылманы\")\n    coupon = session.get(Coupon, red.coupon_id)\n    partner = session.get(Partner, coupon.partner_id) if coupon else None\n    # Право гасить — только владелец бизнеса. Чужому отдаём тот же 404 (не раскрываем код).\n    if not partner or partner.owner_id != user.id:\n        raise herr(404, \"Код не найден\", \"Код табылманы\")\n    if red.status == \"redeemed\":\n        raise herr(409, \"Код уже погашён\", \"Код инде ҡулланылған\")\n    if red.status in (\"canceled\", \"expired\"):\n        raise herr(409, \"Код больше не действует\", \"Код артыҡ ғәмәлдә түгел\")\n    # Гасим АТОМАРНО: условие «код всё ещё свободен» живёт внутри самого UPDATE.\n    #\n    # Проверка `red.status == \"redeemed\"` выше осталась — она даёт человеку точную причину.\n    # Но защитой от ДВУХ ОДНОВРЕМЕННЫХ кассиров она быть не может: между чтением статуса\n    # и записью помещается чужой запрос. Раньше от этого спасала только блокировка строки\n    # (`with_for_update` выше), а её понимает Postgres и ИГНОРИРУЕТ SQLite — на котором\n    # живут все тесты, локальная разработка и демо-база эмулятора. Значит правило не\n    # проверял никто: удали блокировку при рефакторинге — всё осталось бы зелёным\n    # (аудит 2026-08-08, волна 201).\n    #\n    # Проба показала цену: второй кассир получал 200 и «ok», клиенту давали скидку дважды,\n    # а счётчик погашений — основа счёта партнёру по 10 ₽ за погашение — рос на два.\n    #\n    # Условие внутри UPDATE работает на ОБЕИХ базах: ноль изменённых строк = код уже погасили.\n    # Тот же приём, что при бронировании места (`routers/bookings.py`).\n    погашено = session.execute(\n        sa_update(CouponRedemption)\n        .where(CouponRedemption.id == red.id, CouponRedemption.status == \"reserved\")\n        .values(status=\"redeemed\", redeemed_at=utcnow(), redeemed_by=user.id)\n    )\n",
-      "replace": "        red = session.exec(select(CouponRedemption).where(CouponRedemption.code == code)).first()\n    if not red:\n        raise herr(404, \"Код не найден\", \"Код табылманы\")\n    coupon = session.get(Coupon, red.coupon_id)\n    partner = session.get(Partner, coupon.partner_id) if coupon else None\n    # Право гасить — только владелец бизнеса. Чужому отдаём тот же 404 (не раскрываем код).\n    if not partner or partner.owner_id != user.id:\n        raise herr(404, \"Код не найден\", \"Код табылманы\")\n    if red.status == \"redeemed\":\n        raise herr(409, \"Код уже погашён\", \"Код инде ҡулланылған\")\n    if red.status in (\"canceled\", \"expired\"):\n        raise herr(409, \"Код больше не действует\", \"Код артыҡ ғәмәлдә түгел\")\n    # Гасим АТОМАРНО: условие «код всё ещё свободен» живёт внутри самого UPDATE.\n    #\n    # Проверка `red.status == \"redeemed\"` выше осталась — она даёт человеку точную причину.\n    # Но защитой от ДВУХ ОДНОВРЕМЕННЫХ кассиров она быть не может: между чтением статуса\n    # и записью помещается чужой запрос. Раньше от этого спасала только блокировка строки\n    # (`with_for_update` выше), а её понимает Postgres и ИГНОРИРУЕТ SQLite — на котором\n    # живут все тесты, локальная разработка и демо-база эмулятора. Значит правило не\n    # проверял никто: удали блокировку при рефакторинге — всё осталось бы зелёным\n    # (аудит 2026-08-08, волна 201).\n    #\n    # Проба показала цену: второй кассир получал 200 и «ok», клиенту давали скидку дважды,\n    # а счётчик погашений — основа счёта партнёру по 10 ₽ за погашение — рос на два.\n    #\n    # Условие внутри UPDATE работает на ОБЕИХ базах: ноль изменённых строк = код уже погасили.\n    # Тот же приём, что при бронировании места (`routers/bookings.py`).\n    погашено = session.execute(\n        sa_update(CouponRedemption)\n        .where(CouponRedemption.id == red.id)\n        .values(status=\"redeemed\", redeemed_at=utcnow(), redeemed_by=user.id)\n    )\n",
+      "description": "coupon_redeem: снята блокировка строки кода И условие «ещё reserved» в атомарном UPDATE — оба защитных слоя разом (поодиночке каждый ещё спасает благодаря другому)",
+      "find": "        red = session.exec(select(CouponRedemption).where(CouponRedemption.code == code).with_for_update()).first()\n    if not red:\n        raise herr(404, \"Код не найден\", \"Код табылманы\")\n    coupon = session.get(Coupon, red.coupon_id)\n    partner = session.get(Partner, coupon.partner_id) if coupon else None\n    # Право гасить — только владелец бизнеса. Чужому отдаём тот же 404 (не раскрываем код).\n    if not partner or partner.owner_id != user.id:\n        raise herr(404, \"Код не найден\", \"Код табылманы\")\n    # Акция закончилась или администратор снял купон с публикации (review==\"blocked\") — касса\n    # не должна молча отвечать «ok» на уже недействующий купон: бизнес получал бы +10 ₽ за\n    # скидку, которой по правилам уже нет (независимое ревью leaf-1.3: «снять с витрины должно\n    # означать не работает» — волна 145 закрыла только ВЫДАЧУ новых кодов, не их ПОГАШЕНИЕ).\n    # Статус самой брони (red) не трогаем — отказ временный, историю держателя не портим.\n    if not _in_window(coupon, utcnow()):\n        raise herr(422, \"Срок купона истёк — бизнес уже не обязан его принимать\",\n                   \"Купон ваҡыты үтте — бизнес уны ҡабул итергә бурыслы түгел\")\n    if getattr(coupon, \"review\", \"approved\") == \"blocked\":\n        raise herr(409, \"Купон снят администратором — обратись в поддержку\",\n                   \"Купон администратор тарафынан алынды — ярҙам хеҙмәтенә мөрәжәғәт ит\")\n    if red.status == \"redeemed\":\n        raise herr(409, \"Код уже погашён\", \"Код инде ҡулланылған\")\n    if red.status in (\"canceled\", \"expired\"):\n        raise herr(409, \"Код больше не действует\", \"Код артыҡ ғәмәлдә түгел\")\n    # Гасим АТОМАРНО: условие «код всё ещё свободен» живёт внутри самого UPDATE.\n    #\n    # Проверка `red.status == \"redeemed\"` выше осталась — она даёт человеку точную причину.\n    # Но защитой от ДВУХ ОДНОВРЕМЕННЫХ кассиров она быть не может: между чтением статуса\n    # и записью помещается чужой запрос. Раньше от этого спасала только блокировка строки\n    # (`with_for_update` выше), а её понимает Postgres и ИГНОРИРУЕТ SQLite — на котором\n    # живут все тесты, локальная разработка и демо-база эмулятора. Значит правило не\n    # проверял никто: удали блокировку при рефакторинге — всё осталось бы зелёным\n    # (аудит 2026-08-08, волна 201).\n    #\n    # Проба показала цену: второй кассир получал 200 и «ok», клиенту давали скидку дважды,\n    # а счётчик погашений — основа счёта партнёру по 10 ₽ за погашение — рос на два.\n    #\n    # Условие внутри UPDATE работает на ОБЕИХ базах: ноль изменённых строк = код уже погасили.\n    # Тот же приём, что при бронировании места (`routers/bookings.py`).\n    погашено = session.execute(\n        sa_update(CouponRedemption)\n        .where(CouponRedemption.id == red.id, CouponRedemption.status == \"reserved\")",
+      "replace": "        red = session.exec(select(CouponRedemption).where(CouponRedemption.code == code)).first()\n    if not red:\n        raise herr(404, \"Код не найден\", \"Код табылманы\")\n    coupon = session.get(Coupon, red.coupon_id)\n    partner = session.get(Partner, coupon.partner_id) if coupon else None\n    # Право гасить — только владелец бизнеса. Чужому отдаём тот же 404 (не раскрываем код).\n    if not partner or partner.owner_id != user.id:\n        raise herr(404, \"Код не найден\", \"Код табылманы\")\n    # Акция закончилась или администратор снял купон с публикации (review==\"blocked\") — касса\n    # не должна молча отвечать «ok» на уже недействующий купон: бизнес получал бы +10 ₽ за\n    # скидку, которой по правилам уже нет (независимое ревью leaf-1.3: «снять с витрины должно\n    # означать не работает» — волна 145 закрыла только ВЫДАЧУ новых кодов, не их ПОГАШЕНИЕ).\n    # Статус самой брони (red) не трогаем — отказ временный, историю держателя не портим.\n    if not _in_window(coupon, utcnow()):\n        raise herr(422, \"Срок купона истёк — бизнес уже не обязан его принимать\",\n                   \"Купон ваҡыты үтте — бизнес уны ҡабул итергә бурыслы түгел\")\n    if getattr(coupon, \"review\", \"approved\") == \"blocked\":\n        raise herr(409, \"Купон снят администратором — обратись в поддержку\",\n                   \"Купон администратор тарафынан алынды — ярҙам хеҙмәтенә мөрәжәғәт ит\")\n    if red.status == \"redeemed\":\n        raise herr(409, \"Код уже погашён\", \"Код инде ҡулланылған\")\n    if red.status in (\"canceled\", \"expired\"):\n        raise herr(409, \"Код больше не действует\", \"Код артыҡ ғәмәлдә түгел\")\n    # Гасим АТОМАРНО: условие «код всё ещё свободен» живёт внутри самого UPDATE.\n    #\n    # Проверка `red.status == \"redeemed\"` выше осталась — она даёт человеку точную причину.\n    # Но защитой от ДВУХ ОДНОВРЕМЕННЫХ кассиров она быть не может: между чтением статуса\n    # и записью помещается чужой запрос. Раньше от этого спасала только блокировка строки\n    # (`with_for_update` выше), а её понимает Postgres и ИГНОРИРУЕТ SQLite — на котором\n    # живут все тесты, локальная разработка и демо-база эмулятора. Значит правило не\n    # проверял никто: удали блокировку при рефакторинге — всё осталось бы зелёным\n    # (аудит 2026-08-08, волна 201).\n    #\n    # Проба показала цену: второй кассир получал 200 и «ok», клиенту давали скидку дважды,\n    # а счётчик погашений — основа счёта партнёру по 10 ₽ за погашение — рос на два.\n    #\n    # Условие внутри UPDATE работает на ОБЕИХ базах: ноль изменённых строк = код уже погасили.\n    # Тот же приём, что при бронировании места (`routers/bookings.py`).\n    погашено = session.execute(\n        sa_update(CouponRedemption)\n        .where(CouponRedemption.id == red.id)",
       "runner": "pytest",
       "cwd": "backend",
       "args": [
@@ -33,6 +33,34 @@
     {
       "id": "M3",
       "file": "backend/app/routers/coupons.py",
+      "rule": "R5",
+      "description": "coupon_redeem: проверка срока действия купона отключена — просроченный код всё ещё гасится",
+      "find": "    if not _in_window(coupon, utcnow()):\n        raise herr(422, \"Срок купона истёк — бизнес уже не обязан его принимать\",\n                   \"Купон ваҡыты үтте — бизнес уны ҡабул итергә бурыслы түгел\")",
+      "replace": "    if False and not _in_window(coupon, utcnow()):\n        raise herr(422, \"Срок купона истёк — бизнес уже не обязан его принимать\",\n                   \"Купон ваҡыты үтте — бизнес уны ҡабул итергә бурыслы түгел\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_redeem_rejects_expired_coupon"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M4",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R5",
+      "description": "coupon_redeem: проверка review=='blocked' отключена — снятый администратором купон всё ещё гасится",
+      "find": "    if getattr(coupon, \"review\", \"approved\") == \"blocked\":\n        raise herr(409, \"Купон снят администратором — обратись в поддержку\",\n                   \"Купон администратор тарафынан алынды — ярҙам хеҙмәтенә мөрәжәғәт ит\")",
+      "replace": "    if False and getattr(coupon, \"review\", \"approved\") == \"blocked\":\n        raise herr(409, \"Купон снят администратором — обратись в поддержку\",\n                   \"Купон администратор тарафынан алынды — ярҙам хеҙмәтенә мөрәжәғәт ит\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_redeem_rejects_blocked_coupon"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M5",
+      "file": "backend/app/routers/coupons.py",
       "rule": "R3",
       "description": "coupon_activate: снята блокировка строки купона — под настоящей гонкой на Postgres лимит «один купон на человека» перестаёт проверяться атомарно",
       "find": "    coupon = session.exec(select(Coupon).where(Coupon.id == coupon_id).with_for_update()).one_or_none()",
@@ -45,10 +73,10 @@
       "db": "postgres"
     },
     {
-      "id": "M4",
+      "id": "M6",
       "file": "backend/app/routers/coupons.py",
       "rule": "R4",
-      "description": "_in_window: сравнение со сроком действия купона перевёрнуто — купон закрывается в произвольный момент вместо срока по Уфе",
+      "description": "_in_window: сравнение со сроком действия купона перевёрнуто (<= -> >=) — граница окна действия считается неверно (это про саму границу сравнения, не про часовой пояс)",
       "find": "    if coupon.valid_until and coupon.valid_until <= now:",
       "replace": "    if coupon.valid_until and coupon.valid_until >= now:",
       "runner": "pytest",
@@ -59,12 +87,40 @@
       "db": "sqlite"
     },
     {
-      "id": "M5",
+      "id": "M7",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R4",
+      "description": "_coupon_valid_until: снят сдвиг «дата без времени = конец суток» — регрессия к найденной ошибке B-3 (срок съезжает на сутки назад при каждом повторном сохранении даты)",
+      "find": "    if dt is None:\n        return None\n    if dt.tzinfo is None and dt.time() == time(0, 0):\n        dt = dt.replace(hour=23, minute=59, second=59, microsecond=0)\n    return client_dt_to_utc(dt)",
+      "replace": "    if dt is None:\n        return None\n    return client_dt_to_utc(dt)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_coupon_valid_until_treats_date_only_midnight_as_end_of_day"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M8",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R6",
+      "description": "_coupon_public: «остаток» снова считается только по факту погашения — витрина обещает свободные места, которых по факту брони уже нет",
+      "find": "    remaining = None\n    if coupon.limit_total > 0:\n        taken = coupon.redeemed_count if active_count is None else active_count\n        remaining = max(0, coupon.limit_total - taken)",
+      "replace": "    remaining = None\n    if coupon.limit_total > 0:\n        remaining = max(0, coupon.limit_total - coupon.redeemed_count)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_storefront_remaining_counts_outstanding_reservations"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M9",
       "file": "backend/app/routers/promo.py",
       "rule": "R1",
-      "description": "promo_apply: снята блокировка строки промокода И условие лимита в атомарном UPDATE счётчика — оба защитных слоя разом (та же двойная защита, что у купонов)",
-      "find": "        promo = session.exec(select(PromoCode).where(PromoCode.code == code).with_for_update()).first()\n    # Существование и активность кампании — не раскрываем детали, общий 404.\n    if not promo or not promo.active:\n        raise herr(404, \"Промокод не найден\", \"Промокод табылманы\")\n    # Окно дат: истёк / ещё не начался → 422 (код есть, но не в силе).\n    if not _in_window(promo, now):\n        raise herr(422, \"Срок промокода истёк\", \"Промокод ваҡыты үтте\")\n    # Один код на всю жизнь аккаунта.\n    already = session.exec(select(PromoRedemption).where(PromoRedemption.user_id == user.id)).first()\n    if already:\n        raise herr(409, \"Ты уже активировал промокод\", \"Һин промокодты активлаштырҙың инде\")\n    # ...и по НОМЕРУ ТЕЛЕФОНА тоже — этот след переживает удаление аккаунта (волна 149).\n    #\n    # «Один код на жизнь аккаунта» держал уникальный индекс по человеку, но удаление аккаунта\n    # уносило запись вместе с ним. Проверено пробой: применил код на 300 ₽, съездил, удалил\n    # аккаунт, вошёл с ТЕМ ЖЕ номером и с того же телефона — код принялся заново. Три круга.\n    #\n    # Каждый круг — прямые деньги: скидку оплачивает платформа, водитель получает своё\n    # полностью. С водителем-сообщником это канал обналички с одного номера.\n    ключ = _phone_key(user.phone) if user.phone else \"\"\n    did = normalize_device_id(x_device_id)\n    условия = [PromoClaimLog.phone_key == ключ] if ключ else []\n    if did:\n        условия.append(PromoClaimLog.device_id == did)\n    if условия:\n        брал = session.exec(select(PromoClaimLog).where(\n            PromoClaimLog.promo_id == promo.id, or_(*условия))).first()\n        if брал:\n            raise herr(409, \"Этот промокод уже использовали с твоего номера\",\n                       \"Был промокод һинең номерың менән ҡулланылған инде\")\n    # Нельзя активировать свой же код.\n    if promo.owner_id is not None and promo.owner_id == user.id:\n        raise herr(409, \"Свой код активировать нельзя\", \"Үҙ кодыңды активлаштырып булмай\")\n    # Быстрый понятный отказ; настоящий барьер по лимиту — атомарный счётчик ниже.\n    if promo.limit_total > 0 and promo.redeemed_count >= promo.limit_total:\n        raise herr(409, \"Промокод исчерпан\", \"Промокод бөттө\")\n\n    # Начисление бонуса. boost → бесплатные поднятия (referral_credits) с общим кэпом;\n    # taxi_ride → скидка на поездку в такси (сумма фиксируется здесь и живёт на PromoRedemption,\n    # чтобы правка кампании задним числом не меняла уже данное человеку обещание);\n    # welcome → чистая атрибуция.\n    начислено = None\n    if promo.kind == \"boost\" and promo.perk_value > 0:\n        было = user.referral_credits\n        user.referral_credits = min(user.referral_credits + promo.perk_value, MAX_REFERRAL_CREDITS)\n        начислено = user.referral_credits - было      # сколько реально влезло под потолок\n        session.add(user)\n    discount_kop = promo_ride.granted_kop(promo)\n    # Счётчик кампании увеличиваем АТОМАРНО: условие «лимит ещё не выбран» живёт внутри UPDATE.\n    #\n    # «Один код на человека» защищено уникальным индексом (см. IntegrityError ниже) — а вот\n    # общий лимит кампании проверялся отдельно от записи. Блокировка строки выше закрывает это\n    # на PostgreSQL, но SQLite её игнорирует, и там ДВА РАЗНЫХ человека, активирующих последний\n    # купон одновременно, оба проходили проверку и оба получали скидку.\n    #\n    # Это прямые деньги Александра: скидку по промокоду оплачивает платформа, водитель получает\n    # своё полностью (см. promo_ride.note). Кампания на 100 активаций тихо раздавала больше.\n    # И, как везде, саму защиту не проверял ни один тест — на SQLite блокировка пустая.\n    claimed = session.execute(\n        update(PromoCode)\n        .where(\n            PromoCode.id == promo.id,\n            or_(PromoCode.limit_total <= 0, PromoCode.redeemed_count < PromoCode.limit_total),\n        )\n        .values(redeemed_count=PromoCode.redeemed_count + 1)\n    )\n",
-      "replace": "        promo = session.exec(select(PromoCode).where(PromoCode.code == code)).first()\n    # Существование и активность кампании — не раскрываем детали, общий 404.\n    if not promo or not promo.active:\n        raise herr(404, \"Промокод не найден\", \"Промокод табылманы\")\n    # Окно дат: истёк / ещё не начался → 422 (код есть, но не в силе).\n    if not _in_window(promo, now):\n        raise herr(422, \"Срок промокода истёк\", \"Промокод ваҡыты үтте\")\n    # Один код на всю жизнь аккаунта.\n    already = session.exec(select(PromoRedemption).where(PromoRedemption.user_id == user.id)).first()\n    if already:\n        raise herr(409, \"Ты уже активировал промокод\", \"Һин промокодты активлаштырҙың инде\")\n    # ...и по НОМЕРУ ТЕЛЕФОНА тоже — этот след переживает удаление аккаунта (волна 149).\n    #\n    # «Один код на жизнь аккаунта» держал уникальный индекс по человеку, но удаление аккаунта\n    # уносило запись вместе с ним. Проверено пробой: применил код на 300 ₽, съездил, удалил\n    # аккаунт, вошёл с ТЕМ ЖЕ номером и с того же телефона — код принялся заново. Три круга.\n    #\n    # Каждый круг — прямые деньги: скидку оплачивает платформа, водитель получает своё\n    # полностью. С водителем-сообщником это канал обналички с одного номера.\n    ключ = _phone_key(user.phone) if user.phone else \"\"\n    did = normalize_device_id(x_device_id)\n    условия = [PromoClaimLog.phone_key == ключ] if ключ else []\n    if did:\n        условия.append(PromoClaimLog.device_id == did)\n    if условия:\n        брал = session.exec(select(PromoClaimLog).where(\n            PromoClaimLog.promo_id == promo.id, or_(*условия))).first()\n        if брал:\n            raise herr(409, \"Этот промокод уже использовали с твоего номера\",\n                       \"Был промокод һинең номерың менән ҡулланылған инде\")\n    # Нельзя активировать свой же код.\n    if promo.owner_id is not None and promo.owner_id == user.id:\n        raise herr(409, \"Свой код активировать нельзя\", \"Үҙ кодыңды активлаштырып булмай\")\n    # Быстрый понятный отказ; настоящий барьер по лимиту — атомарный счётчик ниже.\n    if promo.limit_total > 0 and promo.redeemed_count >= promo.limit_total:\n        raise herr(409, \"Промокод исчерпан\", \"Промокод бөттө\")\n\n    # Начисление бонуса. boost → бесплатные поднятия (referral_credits) с общим кэпом;\n    # taxi_ride → скидка на поездку в такси (сумма фиксируется здесь и живёт на PromoRedemption,\n    # чтобы правка кампании задним числом не меняла уже данное человеку обещание);\n    # welcome → чистая атрибуция.\n    начислено = None\n    if promo.kind == \"boost\" and promo.perk_value > 0:\n        было = user.referral_credits\n        user.referral_credits = min(user.referral_credits + promo.perk_value, MAX_REFERRAL_CREDITS)\n        начислено = user.referral_credits - было      # сколько реально влезло под потолок\n        session.add(user)\n    discount_kop = promo_ride.granted_kop(promo)\n    # Счётчик кампании увеличиваем АТОМАРНО: условие «лимит ещё не выбран» живёт внутри UPDATE.\n    #\n    # «Один код на человека» защищено уникальным индексом (см. IntegrityError ниже) — а вот\n    # общий лимит кампании проверялся отдельно от записи. Блокировка строки выше закрывает это\n    # на PostgreSQL, но SQLite её игнорирует, и там ДВА РАЗНЫХ человека, активирующих последний\n    # купон одновременно, оба проходили проверку и оба получали скидку.\n    #\n    # Это прямые деньги Александра: скидку по промокоду оплачивает платформа, водитель получает\n    # своё полностью (см. promo_ride.note). Кампания на 100 активаций тихо раздавала больше.\n    # И, как везде, саму защиту не проверял ни один тест — на SQLite блокировка пустая.\n    claimed = session.execute(\n        update(PromoCode)\n        .where(\n            PromoCode.id == promo.id,\n        )\n        .values(redeemed_count=PromoCode.redeemed_count + 1)\n    )\n",
+      "description": "promo_apply: снята блокировка строки промокода И условие лимита в атомарном UPDATE счётчика — оба защитных слоя разом",
+      "find": "        promo = session.exec(select(PromoCode).where(PromoCode.code == code).with_for_update()).first()\n    # Существование и активность кампании — не раскрываем детали, общий 404.\n    if not promo or not promo.active:\n        raise herr(404, \"Промокод не найден\", \"Промокод табылманы\")\n    # Окно дат: истёк / ещё не начался → 422 (код есть, но не в силе).\n    if not _in_window(promo, now):\n        raise herr(422, \"Срок промокода истёк\", \"Промокод ваҡыты үтте\")\n    # Один код на всю жизнь аккаунта.\n    already = session.exec(select(PromoRedemption).where(PromoRedemption.user_id == user.id)).first()\n    if already:\n        raise herr(409, \"Ты уже активировал промокод\", \"Һин промокодты активлаштырҙың инде\")\n    # ...и по НОМЕРУ ТЕЛЕФОНА тоже — этот след переживает удаление аккаунта (волна 149).\n    #\n    # «Один код на жизнь аккаунта» держал уникальный индекс по человеку, но удаление аккаунта\n    # уносило запись вместе с ним. Проверено пробой: применил код на 300 ₽, съездил, удалил\n    # аккаунт, вошёл с ТЕМ ЖЕ номером и с того же телефона — код принялся заново. Три круга.\n    #\n    # Каждый круг — прямые деньги: скидку оплачивает платформа, водитель получает своё\n    # полностью. С водителем-сообщником это канал обналички с одного номера.\n    ключ = _phone_key(user.phone) if user.phone else \"\"\n    did = normalize_device_id(x_device_id)\n    условия = [PromoClaimLog.phone_key == ключ] if ключ else []\n    if did:\n        условия.append(PromoClaimLog.device_id == did)\n    if условия:\n        брал = session.exec(select(PromoClaimLog).where(\n            PromoClaimLog.promo_id == promo.id, or_(*условия))).first()\n        if брал:\n            raise herr(409, \"Этот промокод уже использовали с твоего номера\",\n                       \"Был промокод һинең номерың менән ҡулланылған инде\")\n    # Нельзя активировать свой же код.\n    if promo.owner_id is not None and promo.owner_id == user.id:\n        raise herr(409, \"Свой код активировать нельзя\", \"Үҙ кодыңды активлаштырып булмай\")\n    # Быстрый понятный отказ; настоящий барьер по лимиту — атомарный счётчик ниже.\n    if promo.limit_total > 0 and promo.redeemed_count >= promo.limit_total:\n        raise herr(409, \"Промокод исчерпан\", \"Промокод бөттө\")\n\n    # Начисление бонуса. boost → бесплатные поднятия (referral_credits) с общим кэпом;\n    # taxi_ride → скидка на поездку в такси (сумма фиксируется здесь и живёт на PromoRedemption,\n    # чтобы правка кампании задним числом не меняла уже данное человеку обещание);\n    # welcome → чистая атрибуция.\n    начислено = None\n    if promo.kind == \"boost\" and promo.perk_value > 0:\n        было = user.referral_credits\n        user.referral_credits = min(user.referral_credits + promo.perk_value, MAX_REFERRAL_CREDITS)\n        начислено = user.referral_credits - было      # сколько реально влезло под потолок\n        session.add(user)\n    discount_kop = promo_ride.granted_kop(promo)\n    # Счётчик кампании увеличиваем АТОМАРНО: условие «лимит ещё не выбран» живёт внутри UPDATE.\n    #\n    # «Один код на человека» защищено уникальным индексом (см. IntegrityError ниже) — а вот\n    # общий лимит кампании проверялся отдельно от записи. Блокировка строки выше закрывает это\n    # на PostgreSQL, но SQLite её игнорирует, и там ДВА РАЗНЫХ человека, активирующих последний\n    # купон одновременно, оба проходили проверку и оба получали скидку.\n    #\n    # Это прямые деньги Александра: скидку по промокоду оплачивает платформа, водитель получает\n    # своё полностью (см. promo_ride.note). Кампания на 100 активаций тихо раздавала больше.\n    # И, как везде, саму защиту не проверял ни один тест — на SQLite блокировка пустая.\n    claimed = session.execute(\n        update(PromoCode)\n        .where(\n            PromoCode.id == promo.id,\n            or_(PromoCode.limit_total <= 0, PromoCode.redeemed_count < PromoCode.limit_total),\n        )\n        .values(redeemed_count=PromoCode.redeemed_count + 1)\n    )",
+      "replace": "        promo = session.exec(select(PromoCode).where(PromoCode.code == code)).first()\n    # Существование и активность кампании — не раскрываем детали, общий 404.\n    if not promo or not promo.active:\n        raise herr(404, \"Промокод не найден\", \"Промокод табылманы\")\n    # Окно дат: истёк / ещё не начался → 422 (код есть, но не в силе).\n    if not _in_window(promo, now):\n        raise herr(422, \"Срок промокода истёк\", \"Промокод ваҡыты үтте\")\n    # Один код на всю жизнь аккаунта.\n    already = session.exec(select(PromoRedemption).where(PromoRedemption.user_id == user.id)).first()\n    if already:\n        raise herr(409, \"Ты уже активировал промокод\", \"Һин промокодты активлаштырҙың инде\")\n    # ...и по НОМЕРУ ТЕЛЕФОНА тоже — этот след переживает удаление аккаунта (волна 149).\n    #\n    # «Один код на жизнь аккаунта» держал уникальный индекс по человеку, но удаление аккаунта\n    # уносило запись вместе с ним. Проверено пробой: применил код на 300 ₽, съездил, удалил\n    # аккаунт, вошёл с ТЕМ ЖЕ номером и с того же телефона — код принялся заново. Три круга.\n    #\n    # Каждый круг — прямые деньги: скидку оплачивает платформа, водитель получает своё\n    # полностью. С водителем-сообщником это канал обналички с одного номера.\n    ключ = _phone_key(user.phone) if user.phone else \"\"\n    did = normalize_device_id(x_device_id)\n    условия = [PromoClaimLog.phone_key == ключ] if ключ else []\n    if did:\n        условия.append(PromoClaimLog.device_id == did)\n    if условия:\n        брал = session.exec(select(PromoClaimLog).where(\n            PromoClaimLog.promo_id == promo.id, or_(*условия))).first()\n        if брал:\n            raise herr(409, \"Этот промокод уже использовали с твоего номера\",\n                       \"Был промокод һинең номерың менән ҡулланылған инде\")\n    # Нельзя активировать свой же код.\n    if promo.owner_id is not None and promo.owner_id == user.id:\n        raise herr(409, \"Свой код активировать нельзя\", \"Үҙ кодыңды активлаштырып булмай\")\n    # Быстрый понятный отказ; настоящий барьер по лимиту — атомарный счётчик ниже.\n    if promo.limit_total > 0 and promo.redeemed_count >= promo.limit_total:\n        raise herr(409, \"Промокод исчерпан\", \"Промокод бөттө\")\n\n    # Начисление бонуса. boost → бесплатные поднятия (referral_credits) с общим кэпом;\n    # taxi_ride → скидка на поездку в такси (сумма фиксируется здесь и живёт на PromoRedemption,\n    # чтобы правка кампании задним числом не меняла уже данное человеку обещание);\n    # welcome → чистая атрибуция.\n    начислено = None\n    if promo.kind == \"boost\" and promo.perk_value > 0:\n        было = user.referral_credits\n        user.referral_credits = min(user.referral_credits + promo.perk_value, MAX_REFERRAL_CREDITS)\n        начислено = user.referral_credits - было      # сколько реально влезло под потолок\n        session.add(user)\n    discount_kop = promo_ride.granted_kop(promo)\n    # Счётчик кампании увеличиваем АТОМАРНО: условие «лимит ещё не выбран» живёт внутри UPDATE.\n    #\n    # «Один код на человека» защищено уникальным индексом (см. IntegrityError ниже) — а вот\n    # общий лимит кампании проверялся отдельно от записи. Блокировка строки выше закрывает это\n    # на PostgreSQL, но SQLite её игнорирует, и там ДВА РАЗНЫХ человека, активирующих последний\n    # купон одновременно, оба проходили проверку и оба получали скидку.\n    #\n    # Это прямые деньги Александра: скидку по промокоду оплачивает платформа, водитель получает\n    # своё полностью (см. promo_ride.note). Кампания на 100 активаций тихо раздавала больше.\n    # И, как везде, саму защиту не проверял ни один тест — на SQLite блокировка пустая.\n    claimed = session.execute(\n        update(PromoCode)\n        .where(\n            PromoCode.id == promo.id,\n        )\n        .values(redeemed_count=PromoCode.redeemed_count + 1)\n    )",
       "runner": "pytest",
       "cwd": "backend",
       "args": [
@@ -73,7 +129,7 @@
       "db": "postgres"
     },
     {
-      "id": "M6",
+      "id": "M10",
       "file": "backend/app/routers/promo.py",
       "rule": "R2",
       "description": "promo_apply: проверка «свой код» отключена — владелец кампании активирует собственный код",
@@ -87,7 +143,7 @@
       "db": "sqlite"
     },
     {
-      "id": "M7",
+      "id": "M11",
       "file": "backend/app/routers/promo.py",
       "rule": "R3",
       "description": "promo_apply: снят потолок MAX_REFERRAL_CREDITS при начислении boost-бонуса",
@@ -101,10 +157,24 @@
       "db": "sqlite"
     },
     {
-      "id": "M8",
+      "id": "M12",
+      "file": "backend/app/routers/promo.py",
+      "rule": "R4",
+      "description": "_promo_valid_until: снят сдвиг «дата без времени = конец суток» — та же регрессия к B-3, что у купонов",
+      "find": "    if dt.tzinfo is None and dt.time() == time(0, 0):\n        dt = dt.replace(hour=23, minute=59, second=59, microsecond=0)\n    return client_dt_to_utc(dt)",
+      "replace": "    return client_dt_to_utc(dt)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_promo_money.py::test_promo_valid_until_treats_date_only_midnight_as_end_of_day"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M13",
       "file": "backend/app/promo_ride.py",
       "rule": "R1",
-      "description": "consume: снята сверка владельца заказа — скидку одного пассажира можно списать на чужую поездку (регрессия к найденной и исправленной в leaf-1.3 ошибке)",
+      "description": "consume: снята сверка владельца заказа — скидку одного пассажира можно списать на чужую поездку",
       "find": "    if order is None or order.id is None or order.passenger_id != user_id:",
       "replace": "    if order is None or order.id is None:",
       "runner": "pytest",
@@ -115,7 +185,7 @@
       "db": "sqlite"
     },
     {
-      "id": "M9",
+      "id": "M14",
       "file": "backend/app/promo_ride.py",
       "rule": "R2",
       "description": "payable_kop: снят нижний предел — платёж пассажира может уйти в минус",
@@ -129,7 +199,7 @@
       "db": "sqlite"
     },
     {
-      "id": "M10",
+      "id": "M15",
       "file": "backend/app/promo_ride.py",
       "rule": "R3",
       "description": "cap_for_price: округление вниз (в пользу платформы) заменено на обычное round()",
@@ -143,12 +213,12 @@
       "db": "sqlite"
     },
     {
-      "id": "M11",
+      "id": "M16",
       "file": "backend/app/promo_ride.py",
       "rule": "R4",
       "description": "consume: сняты блокировки строк И условие «скидка ещё свободна» в атомарном захвате — оба защитных слоя разом; под настоящей гонкой на Postgres скидка списывается на два заказа сразу",
-      "find": "    held = _redemption(session, user_id, lock=True)\n    if held is not None and held.used_order_id == order.id:\n        return max(int(order.promo_discount_kop or 0), 0)      # уже списана на ЭТОТ заказ\n    red, _promo = available(session, user_id, lock=True)\n    if red is None:\n        return 0\n    disc = cap_for_price(red.discount_kop, discountable_rub(order))\n    if disc <= 0:\n        return 0\n    stale_id = red.used_order_id\n    if stale_id is not None:\n        # Скидка висит на не состоявшемся заказе — снимаем её оттуда. Условие по статусу\n        # обязательно: пассажир мог нажать «подожду», и «мёртвый» заказ ожил бы (expired →\n        # searching → done). Тогда скидка занята, и второй раз её тратить нельзя.\n        freed = session.execute(\n            update(InstantOrder)\n            .where(InstantOrder.id == stale_id, InstantOrder.status.in_(_DEAD))\n            .values(promo_discount_kop=0)\n        )\n        if freed.rowcount == 0:\n            session.rollback()\n            return 0\n    still_free = (PromoRedemption.used_order_id.is_(None) if stale_id is None\n                  else PromoRedemption.used_order_id == stale_id)\n    taken = session.execute(\n        update(PromoRedemption)\n        .where(PromoRedemption.id == red.id, still_free)\n        .values(used_order_id=order.id, used_at=utcnow())\n",
-      "replace": "    held = _redemption(session, user_id, lock=False)\n    if held is not None and held.used_order_id == order.id:\n        return max(int(order.promo_discount_kop or 0), 0)      # уже списана на ЭТОТ заказ\n    red, _promo = available(session, user_id, lock=False)\n    if red is None:\n        return 0\n    disc = cap_for_price(red.discount_kop, discountable_rub(order))\n    if disc <= 0:\n        return 0\n    stale_id = red.used_order_id\n    if stale_id is not None:\n        # Скидка висит на не состоявшемся заказе — снимаем её оттуда. Условие по статусу\n        # обязательно: пассажир мог нажать «подожду», и «мёртвый» заказ ожил бы (expired →\n        # searching → done). Тогда скидка занята, и второй раз её тратить нельзя.\n        freed = session.execute(\n            update(InstantOrder)\n            .where(InstantOrder.id == stale_id, InstantOrder.status.in_(_DEAD))\n            .values(promo_discount_kop=0)\n        )\n        if freed.rowcount == 0:\n            session.rollback()\n            return 0\n    still_free = (PromoRedemption.id == red.id)\n    taken = session.execute(\n        update(PromoRedemption)\n        .where(PromoRedemption.id == red.id, still_free)\n        .values(used_order_id=order.id, used_at=utcnow())\n",
+      "find": "    held = _redemption(session, user_id, lock=True)\n    if held is not None and held.used_order_id == order.id:\n        return max(int(order.promo_discount_kop or 0), 0)      # уже списана на ЭТОТ заказ\n    red, _promo = available(session, user_id, lock=True)\n    if red is None:\n        return 0\n    disc = cap_for_price(red.discount_kop, discountable_rub(order))\n    if disc <= 0:\n        return 0\n    stale_id = red.used_order_id\n    if stale_id is not None:\n        # Скидка висит на не состоявшемся заказе — снимаем её оттуда. Условие по статусу\n        # обязательно: пассажир мог нажать «подожду», и «мёртвый» заказ ожил бы (expired →\n        # searching → done). Тогда скидка занята, и второй раз её тратить нельзя.\n        freed = session.execute(\n            update(InstantOrder)\n            .where(InstantOrder.id == stale_id, InstantOrder.status.in_(_DEAD))\n            .values(promo_discount_kop=0)\n        )\n        if freed.rowcount == 0:\n            session.rollback()\n            return 0\n    still_free = (PromoRedemption.used_order_id.is_(None) if stale_id is None\n                  else PromoRedemption.used_order_id == stale_id)\n    taken = session.execute(\n        update(PromoRedemption)\n        .where(PromoRedemption.id == red.id, still_free)\n        .values(used_order_id=order.id, used_at=utcnow())\n    )",
+      "replace": "    held = _redemption(session, user_id, lock=False)\n    if held is not None and held.used_order_id == order.id:\n        return max(int(order.promo_discount_kop or 0), 0)      # уже списана на ЭТОТ заказ\n    red, _promo = available(session, user_id, lock=False)\n    if red is None:\n        return 0\n    disc = cap_for_price(red.discount_kop, discountable_rub(order))\n    if disc <= 0:\n        return 0\n    stale_id = red.used_order_id\n    if stale_id is not None:\n        # Скидка висит на не состоявшемся заказе — снимаем её оттуда. Условие по статусу\n        # обязательно: пассажир мог нажать «подожду», и «мёртвый» заказ ожил бы (expired →\n        # searching → done). Тогда скидка занята, и второй раз её тратить нельзя.\n        freed = session.execute(\n            update(InstantOrder)\n            .where(InstantOrder.id == stale_id, InstantOrder.status.in_(_DEAD))\n            .values(promo_discount_kop=0)\n        )\n        if freed.rowcount == 0:\n            session.rollback()\n            return 0\n    still_free = (PromoRedemption.id == red.id)\n    taken = session.execute(\n        update(PromoRedemption)\n        .where(PromoRedemption.id == red.id, still_free)\n        .values(used_order_id=order.id, used_at=utcnow())\n    )",
       "runner": "pytest",
       "cwd": "backend",
       "args": [
@@ -157,7 +227,7 @@
       "db": "postgres"
     },
     {
-      "id": "M12",
+      "id": "M17",
       "file": "backend/app/promo_ride.py",
       "rule": "R5",
       "description": "release: условие «заказ действительно не состоялся» никогда не выполняется — отменённая поездка не возвращает скидку",
@@ -171,7 +241,7 @@
       "db": "sqlite"
     },
     {
-      "id": "M13",
+      "id": "M18",
       "file": "backend/app/promo_ride.py",
       "rule": "R6",
       "description": "split_commission: снят нижний предел комиссии водителя — при скидке больше комиссии долг водителя уходит в минус вместо компенсации из кошелька платформы",
@@ -185,7 +255,35 @@
       "db": "sqlite"
     },
     {
-      "id": "M14",
+      "id": "M19",
+      "file": "backend/app/promo_ride.py",
+      "rule": "R7",
+      "description": "preview: игнорирует переданную базу «цена минус компенсации» — регрессия к найденной ошибке B-1 (оценка ДО заказа обещает скидку больше, чем спишет сам заказ)",
+      "find": "    base = price_rub if discountable_rub is None else discountable_rub",
+      "replace": "    base = price_rub",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_preview_matches_order_discount_with_compensation"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M20",
+      "file": "backend/app/promo_ride.py",
+      "rule": "R8",
+      "description": "reclamp: потолок доли считается напрямую, без min() относительно уже обещанной суммы — подорожавшая поездка могла бы задним числом ПОДНЯТЬ скидку",
+      "find": "    capped = cap_for_price(disc, discountable_rub(order))",
+      "replace": "    capped = int(discountable_rub(order) * settings.promo_ride_max_price_share) * 100",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_reclamp_money.py::test_reclamp_never_increases_discount"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M21",
       "file": "backend/app/routers/referral.py",
       "rule": "R1",
       "description": "referral_redeem: проверка «свой код» отключена — человек вводит собственный реферальный код",
@@ -199,12 +297,12 @@
       "db": "sqlite"
     },
     {
-      "id": "M15",
+      "id": "M22",
       "file": "backend/app/routers/referral.py",
       "rule": "R2",
       "description": "referral_redeem: снята блокировка строки пользователя И условие «код ещё не введён» в атомарном захвате — оба защитных слоя разом; два кода одновременно оба засчитываются",
-      "find": "    user = session.exec(select(User).where(User.id == user.id).with_for_update()).one()\n    if user.referred_by is not None:\n        raise herr(400, \"Код уже введён\", \"Код индерелгән инде\")\n    code = body.code.strip().upper()\n    if not code:\n        raise herr(400, \"Нужен код\", \"Код кәрәк\")\n    referrer = session.exec(select(User).where(User.referral_code == code).with_for_update()).first()\n    if not referrer or referrer.id == user.id:\n        raise herr(400, \"Код не найден\", \"Код табылманы\")\n    # Кольцо из двоих (аудит 2026-08-08, волна 165). Проба: двое обменялись кодами — и каждый\n    # получил ПО ДВА бонуса, один как приглашённый, второй как пригласивший. Новых людей\n    # в сервисе при этом не прибавилось ни одного, а платформа раздала четыре бесплатных\n    # поднятия (по прайсу 200 ₽) за пустое место.\n    #\n    # Свой код себе уже запрещён строкой выше, а вот «ты ввёл мой — я введу твой» проверки\n    # не имел. Программа приглашений платит за НОВОГО человека, а не за обмен кодами между\n    # теми, кто уже здесь.\n    if referrer.referred_by == user.id:\n        raise herr(400,\n                   \"Этот человек уже ввёл твой код — обменяться приглашениями нельзя\",\n                   \"Был кеше һинең кодты индергән инде — саҡырыуҙар менән алмашып булмай\")\n    # Награда обоим: по 1 бонусу (бесплатное поднятие поездки), но с потолком на пользователя\n    # (анти-накрутка взаимными редимами через новые аккаунты).\n    # Пригласившему — через общую точку с пожизненным потолком. Приглашение засчитывается\n    # ВСЕГДА (захват ниже): человек привёл друга, и статистика это видит, даже если бонусов\n    # ему больше не положено.\n    grant_referral_credit(session, referrer)\n    # Захватываем приглашение АТОМАРНО: условие «код ещё не введён» живёт внутри UPDATE.\n    #\n    # Проверка `user.referred_by is not None` в начале осталась — она даёт быстрый понятный\n    # отказ. Но защитой от ДВУХ ОДНОВРЕМЕННЫХ запросов быть не может: между чтением и записью\n    # помещается второй. Раньше от этого спасала только блокировка строки, а SQLite её\n    # игнорирует (волна 202). Проба: человек отправил два РАЗНЫХ кода одновременно — оба\n    # пригласивших получили по бонусу, платформа заплатила 400 ₽ за одно приглашение.\n    #\n    # Ноль изменённых строк = кто-то успел раньше. Откат снимает и начисление пригласившему:\n    # приглашения не было — значит и платить не за что.\n    захвачено = session.execute(\n        update(User)\n        .where(User.id == user.id, User.referred_by.is_(None))\n        .values(referred_by=referrer.id,\n                referral_credits=func.coalesce(User.referral_credits, 0) + 1)\n    )\n",
-      "replace": "    user = session.exec(select(User).where(User.id == user.id)).one()\n    if user.referred_by is not None:\n        raise herr(400, \"Код уже введён\", \"Код индерелгән инде\")\n    code = body.code.strip().upper()\n    if not code:\n        raise herr(400, \"Нужен код\", \"Код кәрәк\")\n    referrer = session.exec(select(User).where(User.referral_code == code).with_for_update()).first()\n    if not referrer or referrer.id == user.id:\n        raise herr(400, \"Код не найден\", \"Код табылманы\")\n    # Кольцо из двоих (аудит 2026-08-08, волна 165). Проба: двое обменялись кодами — и каждый\n    # получил ПО ДВА бонуса, один как приглашённый, второй как пригласивший. Новых людей\n    # в сервисе при этом не прибавилось ни одного, а платформа раздала четыре бесплатных\n    # поднятия (по прайсу 200 ₽) за пустое место.\n    #\n    # Свой код себе уже запрещён строкой выше, а вот «ты ввёл мой — я введу твой» проверки\n    # не имел. Программа приглашений платит за НОВОГО человека, а не за обмен кодами между\n    # теми, кто уже здесь.\n    if referrer.referred_by == user.id:\n        raise herr(400,\n                   \"Этот человек уже ввёл твой код — обменяться приглашениями нельзя\",\n                   \"Был кеше һинең кодты индергән инде — саҡырыуҙар менән алмашып булмай\")\n    # Награда обоим: по 1 бонусу (бесплатное поднятие поездки), но с потолком на пользователя\n    # (анти-накрутка взаимными редимами через новые аккаунты).\n    # Пригласившему — через общую точку с пожизненным потолком. Приглашение засчитывается\n    # ВСЕГДА (захват ниже): человек привёл друга, и статистика это видит, даже если бонусов\n    # ему больше не положено.\n    grant_referral_credit(session, referrer)\n    # Захватываем приглашение АТОМАРНО: условие «код ещё не введён» живёт внутри UPDATE.\n    #\n    # Проверка `user.referred_by is not None` в начале осталась — она даёт быстрый понятный\n    # отказ. Но защитой от ДВУХ ОДНОВРЕМЕННЫХ запросов быть не может: между чтением и записью\n    # помещается второй. Раньше от этого спасала только блокировка строки, а SQLite её\n    # игнорирует (волна 202). Проба: человек отправил два РАЗНЫХ кода одновременно — оба\n    # пригласивших получили по бонусу, платформа заплатила 400 ₽ за одно приглашение.\n    #\n    # Ноль изменённых строк = кто-то успел раньше. Откат снимает и начисление пригласившему:\n    # приглашения не было — значит и платить не за что.\n    захвачено = session.execute(\n        update(User)\n        .where(User.id == user.id)\n        .values(referred_by=referrer.id,\n                referral_credits=func.coalesce(User.referral_credits, 0) + 1)\n    )\n",
+      "find": "    user = session.exec(select(User).where(User.id == user.id).with_for_update()).one()\n    if user.referred_by is not None:\n        raise herr(400, \"Код уже введён\", \"Код индерелгән инде\")\n    code = body.code.strip().upper()\n    if not code:\n        raise herr(400, \"Нужен код\", \"Код кәрәк\")\n    referrer = session.exec(select(User).where(User.referral_code == code).with_for_update()).first()\n    if not referrer or referrer.id == user.id:\n        raise herr(400, \"Код не найден\", \"Код табылманы\")\n    # Кольцо из двоих (аудит 2026-08-08, волна 165). Проба: двое обменялись кодами — и каждый\n    # получил ПО ДВА бонуса, один как приглашённый, второй как пригласивший. Новых людей\n    # в сервисе при этом не прибавилось ни одного, а платформа раздала четыре бесплатных\n    # поднятия (по прайсу 200 ₽) за пустое место.\n    #\n    # Свой код себе уже запрещён строкой выше, а вот «ты ввёл мой — я введу твой» проверки\n    # не имел. Программа приглашений платит за НОВОГО человека, а не за обмен кодами между\n    # теми, кто уже здесь.\n    if referrer.referred_by == user.id:\n        raise herr(400,\n                   \"Этот человек уже ввёл твой код — обменяться приглашениями нельзя\",\n                   \"Был кеше һинең кодты индергән инде — саҡырыуҙар менән алмашып булмай\")\n    # Награда обоим: по 1 бонусу (бесплатное поднятие поездки), но с потолком на пользователя\n    # (анти-накрутка взаимными редимами через новые аккаунты).\n    # Пригласившему — через общую точку с пожизненным потолком. Приглашение засчитывается\n    # ВСЕГДА (захват ниже): человек привёл друга, и статистика это видит, даже если бонусов\n    # ему больше не положено.\n    grant_referral_credit(session, referrer)\n    # Захватываем приглашение АТОМАРНО: условие «код ещё не введён» живёт внутри UPDATE.\n    #\n    # Проверка `user.referred_by is not None` в начале осталась — она даёт быстрый понятный\n    # отказ. Но защитой от ДВУХ ОДНОВРЕМЕННЫХ запросов быть не может: между чтением и записью\n    # помещается второй. Раньше от этого спасала только блокировка строки, а SQLite её\n    # игнорирует (волна 202). Проба: человек отправил два РАЗНЫХ кода одновременно — оба\n    # пригласивших получили по бонусу, платформа заплатила 400 ₽ за одно приглашение.\n    #\n    # Ноль изменённых строк = кто-то успел раньше. Откат снимает и начисление пригласившему:\n    # приглашения не было — значит и платить не за что.\n    захвачено = session.execute(\n        update(User)\n        .where(User.id == user.id, User.referred_by.is_(None))",
+      "replace": "    user = session.exec(select(User).where(User.id == user.id)).one()\n    if user.referred_by is not None:\n        raise herr(400, \"Код уже введён\", \"Код индерелгән инде\")\n    code = body.code.strip().upper()\n    if not code:\n        raise herr(400, \"Нужен код\", \"Код кәрәк\")\n    referrer = session.exec(select(User).where(User.referral_code == code).with_for_update()).first()\n    if not referrer or referrer.id == user.id:\n        raise herr(400, \"Код не найден\", \"Код табылманы\")\n    # Кольцо из двоих (аудит 2026-08-08, волна 165). Проба: двое обменялись кодами — и каждый\n    # получил ПО ДВА бонуса, один как приглашённый, второй как пригласивший. Новых людей\n    # в сервисе при этом не прибавилось ни одного, а платформа раздала четыре бесплатных\n    # поднятия (по прайсу 200 ₽) за пустое место.\n    #\n    # Свой код себе уже запрещён строкой выше, а вот «ты ввёл мой — я введу твой» проверки\n    # не имел. Программа приглашений платит за НОВОГО человека, а не за обмен кодами между\n    # теми, кто уже здесь.\n    if referrer.referred_by == user.id:\n        raise herr(400,\n                   \"Этот человек уже ввёл твой код — обменяться приглашениями нельзя\",\n                   \"Был кеше һинең кодты индергән инде — саҡырыуҙар менән алмашып булмай\")\n    # Награда обоим: по 1 бонусу (бесплатное поднятие поездки), но с потолком на пользователя\n    # (анти-накрутка взаимными редимами через новые аккаунты).\n    # Пригласившему — через общую точку с пожизненным потолком. Приглашение засчитывается\n    # ВСЕГДА (захват ниже): человек привёл друга, и статистика это видит, даже если бонусов\n    # ему больше не положено.\n    grant_referral_credit(session, referrer)\n    # Захватываем приглашение АТОМАРНО: условие «код ещё не введён» живёт внутри UPDATE.\n    #\n    # Проверка `user.referred_by is not None` в начале осталась — она даёт быстрый понятный\n    # отказ. Но защитой от ДВУХ ОДНОВРЕМЕННЫХ запросов быть не может: между чтением и записью\n    # помещается второй. Раньше от этого спасала только блокировка строки, а SQLite её\n    # игнорирует (волна 202). Проба: человек отправил два РАЗНЫХ кода одновременно — оба\n    # пригласивших получили по бонусу, платформа заплатила 400 ₽ за одно приглашение.\n    #\n    # Ноль изменённых строк = кто-то успел раньше. Откат снимает и начисление пригласившему:\n    # приглашения не было — значит и платить не за что.\n    захвачено = session.execute(\n        update(User)\n        .where(User.id == user.id)",
       "runner": "pytest",
       "cwd": "backend",
       "args": [
@@ -213,12 +311,12 @@
       "db": "postgres"
     },
     {
-      "id": "M16",
+      "id": "M23",
       "file": "backend/app/routers/referral.py",
       "rule": "R3",
-      "description": "grant_referral_credit: сняты оба потолка (на руках и пожизненный) из атомарного UPDATE — под гонкой двух одновременных начислений пожизненный потолок фермы пробивается",
-      "find": "    начислено = session.execute(\n        update(User)\n        .where(\n            User.id == referrer.id,\n            func.coalesce(User.referral_bonus_lifetime, 0) < MAX_REFERRAL_BONUS_LIFETIME,\n            func.coalesce(User.referral_credits, 0) < MAX_REFERRAL_CREDITS,\n        )",
-      "replace": "    начислено = session.execute(\n        update(User)\n        .where(\n            User.id == referrer.id,\n        )",
+      "description": "grant_referral_credit: атомарный UPDATE заменён на наивное «прочитал-прибавил-записал» — под настоящей гонкой двух одновременных начислений пожизненный потолок фермы пробивается (последовательный вызов эту поломку НЕ ловит — ловит только реальное пересечение потоков)",
+      "find": "    начислено = session.execute(\n        update(User)\n        .where(\n            User.id == referrer.id,\n            func.coalesce(User.referral_bonus_lifetime, 0) < MAX_REFERRAL_BONUS_LIFETIME,\n            func.coalesce(User.referral_credits, 0) < MAX_REFERRAL_CREDITS,\n        )\n        .values(\n            referral_credits=func.coalesce(User.referral_credits, 0) + 1,\n            referral_bonus_lifetime=func.coalesce(User.referral_bonus_lifetime, 0) + 1,\n        )\n    )\n    if начислено.rowcount == 0:\n        return False          # потолок выбран или кошелёк полон: слот не тратим впустую\n    session.refresh(referrer)  # объект в памяти помнит прежние счётчики — перечитываем\n    return True",
+      "replace": "    # НАИВНАЯ пара «прочитал — прибавил — записал» (ровно то, от чего предостерегают\n    # комментарии выше) — под настоящей гонкой оба потока читают ОДНО И ТО ЖЕ состояние\n    # до того, как любой из них запишет.\n    session.refresh(referrer)\n    if (referrer.referral_bonus_lifetime or 0) >= MAX_REFERRAL_BONUS_LIFETIME:\n        return False\n    if (referrer.referral_credits or 0) >= MAX_REFERRAL_CREDITS:\n        return False\n    referrer.referral_credits = (referrer.referral_credits or 0) + 1\n    referrer.referral_bonus_lifetime = (referrer.referral_bonus_lifetime or 0) + 1\n    session.add(referrer)\n    session.commit()\n    return True",
       "runner": "pytest",
       "cwd": "backend",
       "args": [
@@ -227,7 +325,7 @@
       "db": "postgres"
     },
     {
-      "id": "M17",
+      "id": "M24",
       "file": "backend/app/routers/referral.py",
       "rule": "R4",
       "description": "granted_driver_bonuses_this_month: календарь месяца взят у сервера (UTC) напрямую, в обход local_month_start — потолок снова отсчитывается от серверной полуночи, а не от уфимской",
@@ -237,6 +335,62 @@
       "cwd": "backend",
       "args": [
         "tests/test_the_calendar_is_the_humans_not_the_servers.py::test_last_months_bonuses_do_not_count_against_this_month"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M25",
+      "file": "backend/app/instant_service.py",
+      "rule": "B-2",
+      "description": "apply_destination: не зовёт reclamp после смены адреса — скидка не ужимается вслед за подешевевшей поездкой (найдено независимым ревью leaf-1.3; файл вне карточек листа, мутация проверяется напрямую через replay)",
+      "find": "    # Цена упала (или выросла) — потолок скидки «не больше доли цены» мог стать меньше\n    # уже зафиксированной суммы. Только УМЕНЬШАЕМ (аудит leaf-1.3, B-2): иначе на подешевевшей\n    # поездке скидка осталась бы от старой, более высокой цены, и остаток сверх комиссии\n    # платформа доплатила бы водителю из своего кармана — больше, чем без промокода вообще.\n    promo_ride.reclamp(session, order)\n    session.refresh(order)\n    return order",
+      "replace": "    return order",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_reclamp_money.py::test_apply_destination_shrinks_discount_on_cheaper_address"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M26",
+      "file": "backend/app/instant_service.py",
+      "rule": "B-2",
+      "description": "apply_waypoints: не зовёт reclamp после смены остановок — та же дыра B-2",
+      "find": "    # См. apply_destination — тот же потолок скидки после той же смены цены (B-2).\n    promo_ride.reclamp(session, order)\n    session.refresh(order)\n    return order",
+      "replace": "    return order",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_reclamp_money.py::test_apply_waypoints_shrinks_discount_on_cheaper_route"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M27",
+      "file": "backend/app/instant_service.py",
+      "rule": "B-2",
+      "description": "finish_early: не зовёт reclamp после досрочного завершения — долг по комиссии считается со старой скидкой, которая больше нового потолка доли (B-2)",
+      "find": "    # Цена по факту может оказаться ниже обещанной — потолок скидки по промокоду чиним ТОЛЬКО\n    # вниз ДО расчёта долга по комиссии (аудит leaf-1.3, B-2): вызывающий эндпоинт зовёт\n    # `debt.accrue_for_order` сразу следующей строкой, и там считает именно это поле.\n    promo_ride.reclamp(session, order)\n    session.refresh(order)\n\n    ru, ba = EARLY_FINISH_TEXT[reason]",
+      "replace": "\n    ru, ba = EARLY_FINISH_TEXT[reason]",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_reclamp_money.py::test_finish_early_shrinks_discount_on_actual_price"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M28",
+      "file": "backend/app/instant_service.py",
+      "rule": "B-2",
+      "description": "add_fallback_category: не зовёт reclamp после перехода в более дешёвый класс — та же дыра B-2",
+      "find": "    # См. apply_destination — цена могла упасть (поиск в более дешёвом классе), потолок\n    # скидки по промокоду чиним вслед за ней, только вниз (аудит leaf-1.3, B-2).\n    promo_ride.reclamp(session, order)\n    session.refresh(order)\n    return {\"price\": order.price_estimate,",
+      "replace": "    return {\"price\": order.price_estimate,",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_reclamp_money.py::test_add_fallback_category_shrinks_discount_on_cheaper_class"
       ],
       "db": "sqlite"
     }
