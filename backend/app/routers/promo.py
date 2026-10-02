@@ -14,18 +14,20 @@
 admin через _require_admin (обычный HTTPException-строка). Бонус boost начисляем через ту же логику,
 что reward_driver_referral: user.referral_credits += perk_value с кэпом MAX_REFERRAL_CREDITS.
 """
+import hashlib
+import hmac
 from datetime import datetime, time, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, update
+from sqlalchemy import case, func, or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .. import promo_ride
 from ..antifraud import normalize_device_id
-from ..config import _phone_key
+from ..config import _phone_key, settings
 from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action
@@ -85,6 +87,45 @@ class StatusIn(BaseModel):
 # Окно действия кампании — общий хелпер из promo_ride: тем же правилом проверяется и скидка
 # на такси (выключили/просрочили кампанию — гаснет и ещё не потраченная скидка).
 _in_window = promo_ride.in_window
+
+
+# Доменный префикс для HMAC ниже: `jwt_secret` — ОБЩИЙ секрет приложения (тот же, что подписывает
+# JWT). Без префикса HMAC(jwt_secret, X) для разных X — это, по сути, один общий «оракул» на
+# одном ключе: доказать, что два разных назначения (подпись токена и ключ телефона в этой
+# таблице) не сталкиваются и не подсказывают друг другу, сложнее, чем просто развести их на
+# входе. Префикс = разные входы → разные, несвязанные результаты, даже при одном секрете
+# (решение ведущего, leaf-1.3 круг 4). Это ТЕКСТ, а не версия алгоритма: смена требует ревизии
+# данных (см. миграцию `promo_claim_hmac`), поэтому число в хвосте не «текущая версия», а метка
+# конкретной схемы — меняется только вместе с новой миграцией, никогда молча.
+_PHONE_CLAIM_HMAC_DOMAIN = "promo-claim-v1:"
+
+
+def _phone_claim_key(phone: str) -> str:
+    """Ключ телефона для PromoClaimLog — HMAC-SHA256, а не сам номер.
+
+    Раньше здесь лежал голый `_phone_key(phone)` — он только НОРМАЛИЗУЕТ запись номера (снимает
+    код страны/форматирование), но результат остаётся цифрами САМОГО номера. Docstring
+    `PromoClaimLog` обещает «по ключу человека не найти, если не знать номер заранее» — а
+    хранил ровно обратное: у российских номеров фиксированный диапазон (~10 млрд комбинаций
+    с учётом кода оператора — на любом ноутбуке перебирается за разумное время), то есть
+    простой SHA256 тоже подбирался бы перебором «в лоб» по всем номерам. Нашло независимое
+    ревью leaf-1.3, круг 3.
+
+    HMAC с секретом приложения (`settings.jwt_secret`, уже общий секрет для JWT) закрывает
+    именно это: результат по-прежнему ОДИНАКОВ для одного и того же номера (иначе «тот же
+    номер снова» было бы нечем ловить), но без секрета его нельзя ни перебором по справочнику
+    номеров сопоставить с конкретным человеком, ни узнать номер по хэшу напрямую.
+
+    Круг 4: сообщение HMAC — с доменным префиксом `_PHONE_CLAIM_HMAC_DOMAIN`, не голые цифры
+    (см. комментарий у константы — отдельное назначение секрета, не версия формата). ВАЖНО:
+    смена `jwt_secret` делает ВСЕ уже сохранённые ключи в `PromoClaimLog` непроверяемыми заново
+    (это и есть смысл секрета) — старые строки придётся пересчитать той же миграцией
+    (`promo_claim_hmac`), иначе лимит «один код на номер» для них молча обнулится."""
+    digits = _phone_key(phone) if phone else ""
+    if not digits:
+        return ""
+    message = (_PHONE_CLAIM_HMAC_DOMAIN + digits).encode("utf-8")
+    return hmac.new(settings.jwt_secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
 def _promo_valid_until(dt: Optional[datetime]) -> Optional[datetime]:
@@ -205,9 +246,16 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user),
     #
     # Каждый круг — прямые деньги: скидку оплачивает платформа, водитель получает своё
     # полностью. С водителем-сообщником это канал обналички с одного номера.
-    ключ = _phone_key(user.phone) if user.phone else ""
+    ключ = _phone_claim_key(user.phone)
+    # Переходный период (leaf-1.3, круг 4): на проде ещё могут быть строки со СТАРЫМ открытым
+    # ключом (`_phone_key` без HMAC, до круга 3) — миграция `promo_claim_hmac` их пересчитывает,
+    # но пока она не прогналась ВЕЗДЕ (или на случай, если какая-то строка по любой причине
+    # проскочила), ищем совпадение ПО ОБОИМ видам ключа. Без этого человек, бравший промокод ДО
+    # круга 3, после обновления кода (но до миграции данных) брал бы его снова — лимит «один
+    # код на номер» молча обнулился бы для каждого, кто уже им пользовался.
+    legacy_ключ = _phone_key(user.phone) if user.phone else ""
     did = normalize_device_id(x_device_id)
-    условия = [PromoClaimLog.phone_key == ключ] if ключ else []
+    условия = [PromoClaimLog.phone_key == k for k in {ключ, legacy_ключ} if k]
     if did:
         условия.append(PromoClaimLog.device_id == did)
     if условия:
@@ -229,10 +277,28 @@ def promo_apply(body: ApplyIn, user: User = Depends(current_user),
     # welcome → чистая атрибуция.
     начислено = None
     if promo.kind == "boost" and promo.perk_value > 0:
-        было = user.referral_credits
-        user.referral_credits = min(user.referral_credits + promo.perk_value, MAX_REFERRAL_CREDITS)
-        начислено = user.referral_credits - было      # сколько реально влезло под потолок
-        session.add(user)
+        # Атомарный UPDATE вместо «прочитал—прибавил—записал»: старая версия считала новое
+        # значение от `user.referral_credits`, прочитанного ещё в начале запроса (через
+        # current_user). Параллельное начисление реферального бонуса ЭТОМУ ЖЕ человеку
+        # (как рефереру — `grant_referral_credit`) успевало записать своё +1 между чтением
+        # и записью здесь, и эта запись молча СТИРАЛА его устаревшим числом — классическая
+        # потеря обновления (найдено независимым ревью leaf-1.3, круг 2; почина — круг 3).
+        # `before` — только для честного сообщения человеку, саму арифметику потолка считает
+        # БД по актуальному значению в момент UPDATE.
+        before = session.exec(
+            select(func.coalesce(User.referral_credits, 0)).where(User.id == user.id)
+        ).one()
+        session.execute(
+            update(User).where(User.id == user.id).values(
+                referral_credits=case(
+                    (func.coalesce(User.referral_credits, 0) + promo.perk_value > MAX_REFERRAL_CREDITS,
+                     MAX_REFERRAL_CREDITS),
+                    else_=func.coalesce(User.referral_credits, 0) + promo.perk_value,
+                )
+            )
+        )
+        session.refresh(user)
+        начислено = user.referral_credits - before      # сколько реально влезло под потолок
     discount_kop = promo_ride.granted_kop(promo)
     # Счётчик кампании увеличиваем АТОМАРНО: условие «лимит ещё не выбран» живёт внутри UPDATE.
     #

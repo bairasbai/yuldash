@@ -12,7 +12,7 @@ _activate_payment продлевает subscription_until. Витрина пок
 с оплаченной подпиской (гейт как у платной рекламы).
 """
 import secrets
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -70,6 +70,27 @@ _CODE_LEN = 6
 
 # Статусы, при которых бронь «занимает» лимит (общий и на пользователя).
 _ACTIVE_REDEMPTION_STATUSES = ("reserved", "redeemed")
+
+# Бронь (reserved), которую никто не погасил, не должна занимать лимит вечно (решение
+# ведущего, leaf-1.3 круг 3): если у купона есть срок действия — бронь истекает ВМЕСТЕ с
+# ним (тем же моментом); если купон бессрочный — через столько дней после самой брони.
+# Погашённая (redeemed) бронь не истекает никогда — это уже случившийся факт, история
+# погашения не стирается временем. Статус строки в БД не меняем (историю не правим) —
+# истечение считается «на лету», везде, где бронь мешала бы лимиту или погашению.
+RESERVATION_TTL_DAYS = 30
+
+
+def _reservation_active(red: CouponRedemption, coupon: Coupon, now: datetime) -> bool:
+    """Занимает ли эта бронь лимит ПРЯМО СЕЙЧАС. `redeemed` — всегда (факт уже случился).
+    `reserved` — пока не истекла: по сроку купона, если он есть, иначе по `RESERVATION_TTL_DAYS`
+    после `reserved_at`. `canceled`/`expired` — никогда (эти статусы и так не входят в
+    `_ACTIVE_REDEMPTION_STATUSES`, но функция честна и для них)."""
+    if red.status == "redeemed":
+        return True
+    if red.status != "reserved":
+        return False
+    deadline = coupon.valid_until or (red.reserved_at + timedelta(days=RESERVATION_TTL_DAYS))
+    return now < deadline
 
 
 # ---------- Тела запросов ----------
@@ -312,17 +333,22 @@ def coupons_list(
     # premium выше; внутри — свежие сверху
     live.sort(key=lambda c: (1 if c.premium else 0, c.created_at or now), reverse=True)
     # «Остаток» на витрине — тем же числом, каким реально считает лимит coupon_activate
-    # (reserved+redeemed), а не только фактом погашения. Один запрос на всю выдачу.
+    # (brони, которые СЕЙЧАС занимают слот — `_reservation_active`, не вечно и не только
+    # по факту погашения). Один запрос на всю выдачу, фильтр по истечению — в Python:
+    # даты считаются по-разному в SQLite/Postgres, а строк на одну витрину немного.
     taken_by_coupon: dict = {}
-    coupon_ids = [c.id for c in live]
+    coupon_by_id = {c.id: c for c in live}
+    coupon_ids = list(coupon_by_id)
     if coupon_ids:
         rows = session.exec(
-            select(CouponRedemption.coupon_id, func.count()).where(
+            select(CouponRedemption).where(
                 CouponRedemption.coupon_id.in_(coupon_ids),
                 CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
-            ).group_by(CouponRedemption.coupon_id)
+            )
         ).all()
-        taken_by_coupon = dict(rows)
+        for r in rows:
+            if _reservation_active(r, coupon_by_id[r.coupon_id], now):
+                taken_by_coupon[r.coupon_id] = taken_by_coupon.get(r.coupon_id, 0) + 1
     return [_coupon_public(c, partners.get(c.partner_id), taken_by_coupon.get(c.id, 0)) for c in live]
 
 
@@ -358,6 +384,13 @@ def coupon_redeem(body: RedeemIn, user: User = Depends(current_user), session: S
         raise herr(409, "Код уже погашён", "Код инде ҡулланылған")
     if red.status in ("canceled", "expired"):
         raise herr(409, "Код больше не действует", "Код артыҡ ғәмәлдә түгел")
+    # Бронь без срока купона истекает через RESERVATION_TTL_DAYS после выдачи (решение
+    # ведущего, leaf-1.3 круг 3 — «вечная бронь»): купон без valid_until живёт бессрочно,
+    # а забытый код не должен гаситься хоть годы спустя. Купон СО сроком уже отсечён
+    # проверкой _in_window выше — эта проверка добавляет только бессрочный случай.
+    if not _reservation_active(red, coupon, utcnow()):
+        raise herr(409, "Код устарел — бронь просрочена, попроси оформить новую",
+                   "Код иҫкерҙе — бронь ваҡыты үтте, яңыһын алырға һора")
     # Гасим АТОМАРНО: условие «код всё ещё свободен» живёт внутри самого UPDATE.
     #
     # Проверка `red.status == "redeemed"` выше осталась — она даёт человеку точную причину.
@@ -403,13 +436,15 @@ def coupon_detail(coupon_id: int, session: Session = Depends(get_session)):
     partner = session.get(Partner, coupon.partner_id) if coupon else None
     if not coupon or not _coupon_visible(coupon, partner, utcnow()):
         raise herr(404, "Купон не найден", "Купон табылманы")
-    taken = session.exec(
-        select(func.count()).select_from(CouponRedemption).where(
+    rows = session.exec(
+        select(CouponRedemption).where(
             CouponRedemption.coupon_id == coupon.id,
             CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
         )
-    ).one()
-    return _coupon_public(coupon, partner, int(taken))
+    ).all()
+    now = utcnow()
+    taken = sum(1 for r in rows if _reservation_active(r, coupon, now))
+    return _coupon_public(coupon, partner, taken)
 
 
 @router.post("/coupons/{coupon_id}/activate")
@@ -442,7 +477,9 @@ def coupon_activate(coupon_id: int, user: User = Depends(current_user), session:
     if not available:
         raise herr(404, "Купон не найден", "Купон табылманы")
 
-    # Идемпотентность: уже есть активная бронь → возвращаем её же (тот же код), не плодим.
+    # Идемпотентность: уже есть активная И НЕ ИСТЁКШАЯ бронь → возвращаем её же (тот же код),
+    # не плодим. Истёкшую (см. `_reservation_active`, RESERVATION_TTL_DAYS) не воскрешаем —
+    # человеку, забывшему погасить код месяц назад, выдаём НОВЫЙ, а не мёртвый старый.
     existing = session.exec(
         select(CouponRedemption).where(
             CouponRedemption.coupon_id == coupon.id,
@@ -450,31 +487,29 @@ def coupon_activate(coupon_id: int, user: User = Depends(current_user), session:
             CouponRedemption.status == "reserved",
         )
     ).first()
-    if existing:
+    if existing and _reservation_active(existing, coupon, now):
         return _activation_out(existing, coupon, partner)
 
     if not _in_window(coupon, now):
         raise herr(422, "Срок купона истёк", "Купон ваҡыты үтте")
 
-    # Общий лимит: считаем занятые брони (reserved+redeemed) против limit_total.
-    if coupon.limit_total > 0:
-        taken = session.exec(
-            select(func.count()).select_from(CouponRedemption).where(
-                CouponRedemption.coupon_id == coupon.id,
-                CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
-            )
-        ).one()
-        if taken >= coupon.limit_total:
-            raise herr(409, "Купоны закончились", "Купондар бөттө")
-
-    # Лимит на пользователя.
-    mine = session.exec(
-        select(func.count()).select_from(CouponRedemption).where(
+    # Лимиты считаем по БРОНЯМ, которые СЕЙЧАС занимают слот (`_reservation_active`) — не по
+    # сырому статусу: забытая reserved-бронь старше RESERVATION_TTL_DAYS (или старше срока
+    # купона) слот больше не держит (решение ведущего, leaf-1.3 круг 3 — «вечная бронь»).
+    rows = session.exec(
+        select(CouponRedemption).where(
             CouponRedemption.coupon_id == coupon.id,
-            CouponRedemption.user_id == user.id,
             CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
         )
-    ).one()
+    ).all()
+    active_rows = [r for r in rows if _reservation_active(r, coupon, now)]
+
+    # Общий лимит: занятые (и ещё не истёкшие) брони против limit_total.
+    if coupon.limit_total > 0 and len(active_rows) >= coupon.limit_total:
+        raise herr(409, "Купоны закончились", "Купондар бөттө")
+
+    # Лимит на пользователя.
+    mine = sum(1 for r in active_rows if r.user_id == user.id)
     if mine >= max(1, coupon.limit_per_user):
         raise herr(409, "Ты уже воспользовался этим купоном", "Һин был купондан файҙаландың инде")
 
@@ -746,6 +781,11 @@ def partner_coupons(user: User = Depends(current_user), session: Session = Depen
 def partner_coupon_create(body: CouponIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Создать купон (draft). Бизнес должен быть active. Анти-спам: лимит купонов на бизнес."""
     partner = _my_active_partner(user, session)
+    # Row-lock партнёра: сериализует параллельные «создать купон» у ОДНОГО бизнеса. Без лока
+    # на границе лимита (49-й/50-й уже есть) два запроса оба проходят COUNT ДО того, как любой
+    # вставит свою строку — лимит пробивается на 1–2 купона (найдено независимым ревью
+    # leaf-1.3, круг 2; серьёзность низкая — не денежное правило, анти-спам; почина — круг 3).
+    session.exec(select(Partner).where(Partner.id == partner.id).with_for_update()).one()
     count = session.exec(select(func.count()).select_from(Coupon).where(Coupon.partner_id == partner.id)).one()
     if count >= MAX_COUPONS_PER_PARTNER:
         raise herr(429, "Слишком много купонов — удали лишние", "Купондар артыҡ күп — артыҡтарын бетер")
