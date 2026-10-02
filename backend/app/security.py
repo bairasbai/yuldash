@@ -98,7 +98,7 @@ def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] =
     access-токены. Новую пару выпускаем строго после этой границы."""
     user = lock_refresh_user(session, user_id)
     if user is None or (review_session and user.role != UserRole.passenger):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
+        raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
     issued_after = user.tokens_valid_from if user else None
     if user:
         # Отметка «человек жив»: пишется при каждой выдаче пары ключей, то есть у активного —
@@ -155,7 +155,7 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
     owner_id = session.exec(select(RefreshToken.user_id).where(
         RefreshToken.token_hash == _hash_refresh(raw))).first()
     if owner_id is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
+        raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
     owner = lock_refresh_user(session, owner_id)
     rt = session.exec(
         select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(raw)).with_for_update()
@@ -166,7 +166,7 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
     review_session = raw.startswith(_REVIEW_REFRESH_PREFIX)
     if (not owner or not rt or rt.expires_at <= now
             or (review_session and owner.role != UserRole.passenger)):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
+        raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
     # Бан устройства — вторая половина проверки (волна 204). Первая стоит в роутере и читает
     # заголовок `X-Device-Id`; но заголовок шлёт КЛИЕНТ, и забаненному достаточно перестать
     # его слать. Поэтому смотрим ещё и на аппарат, который сервер запомнил сам при входе
@@ -181,14 +181,14 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
         if (rotation_id is None or rt.rotation_id_hash is None or rt.rotated_at is None
                 or not hmac.compare_digest(rt.rotation_id_hash, _hash_refresh(rotation_id))
                 or not 0 <= (now - rt.rotated_at).total_seconds() <= REFRESH_RECOVERY_SECONDS):
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
+            raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
         child_raw = _recovery_token(raw, rotation_id)
         child = session.exec(select(RefreshToken).where(
             RefreshToken.token_hash == _hash_refresh(child_raw)).with_for_update()
             .execution_options(populate_existing=True)).first()
         if (not child or child.user_id != owner.id or child.revoked or child.expires_at <= now
                 or (owner.tokens_valid_from is not None and rt.rotated_at <= owner.tokens_valid_from)):
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
+            raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
         # No new row, no change to either expiry or recovery window. The User
         # lock stays held until this request's session closes, excluding logout.
         return {'access_token': make_token(owner.id, issued_after=owner.tokens_valid_from,
@@ -212,7 +212,7 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
     )
     if burned.rowcount == 0:
         session.rollback()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh-токен недействителен")
+        raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
     try:
         # Отзыв и новая пара фиксируются вместе, после успешной подписи JWT.
         if rotation_id is not None:
@@ -312,12 +312,12 @@ def current_user(
         payload = _decode(cred.credentials)
         user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный токен")
+        raise herr(401, "Неверный токен", "Токен дөрөҫ түгел")
     user = session.get(User, user_id)
     if not user:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден")
+        raise herr(401, "Пользователь не найден", "Ҡулланыусы табылманы")
     if _token_revoked(payload, user):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Сессия завершена. Войди заново.")
+        raise herr(401, "Сессия завершена. Войди заново.", "Сессия тамамланды. Яңынан ин.")
     # Номер обязателен: без реального номера приложение не работает (защита от мошенников).
     if is_placeholder_phone(user.phone):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "phone_required")
