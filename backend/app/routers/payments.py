@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlmodel import Session, select
+from starlette.concurrency import run_in_threadpool
 
 from ..config import settings
 from ..db import get_session
@@ -252,6 +253,16 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         # Таксист оплатил недельную комиссию картой → гасим долг (unpaid+pending), но только тот, что
         # вошёл в снапшот суммы (created_at <= момент создания платежа). Долг, накопленный в окне до
         # подтверждения, останется к оплате следующим платежом (иначе гасился бы бесплатно). Идемпотентно.
+        #
+        # Известный остаток (найдено кругом 3, на стыке с листом 1.1, 2026-10-02): это гашение —
+        # по ВРЕМЕНИ, а НЕ по причинному ID-снимку состава счёта, который лист 1.1 в этом же
+        # раунде начал писать в Payment.tier (taxi_debt_snapshot_ids, его F2, см. debt.py.md).
+        # Если админ простит один из долгов снимка (`/admin/debts/{id}/forgive`), пока счёт ещё
+        # висит у банка, время-граница этого не заметит и молча «погасит» уже прощённый долг —
+        # разница, реально списанная с карты, в кошелёк не вернётся. НЕ исправлено в этом
+        # коммите намеренно: ведущий ведёт этот ID-снимок отдельной небольшой задачей сразу
+        # после слияния круга 3, чтобы не тащить чужие файлы (debt.py/ledger.py/routers/debt.py)
+        # в историю этого листа.
         from .. import debt as debt_mod
         debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at, commit=False)
         _mark_succeeded(payment); session.add(payment); session.commit()
@@ -843,12 +854,26 @@ async def yookassa_webhook(request: Request, session: Session = Depends(get_sess
     provider_id = object_.get("id") if isinstance(object_, dict) else None
     if not isinstance(provider_id, str) or not provider_id:
         return {"ok": True}
+    # Поиск своей строки и возможная сверка (_sync_provider_status) — синхронные БД-запросы и,
+    # внутри нашего `fetch_payment`, синхронный HTTP к ЮKassa (httpx.get, до 15 с) — переносим
+    # в threadpool. async def тут только ради await request.json() (битый JSON — всё ещё 200,
+    # не 422, в отличие от объявления тела через Body). Без переноса этот код выполнялся бы
+    # ПРЯМО на потоке event loop: на --workers 2 один медленный ответ ЮKassa держит весь воркер,
+    # а с блокировкой заказа (with_for_update в pay_instant_order/pay_booking) другой запрос на
+    # ТОМ ЖЕ воркере может ждать снятия этой блокировки прямо в loop — взаимное зависание без
+    # таймаута (lock_timeout в db.py не задан). Независимая проверка, Opus 5.5, 2026-10-02.
+    await run_in_threadpool(_process_yookassa_webhook, session, provider_id)
+    return {"ok": True}
+
+
+def _process_yookassa_webhook(session: Session, provider_id: str) -> None:
+    """Синхронная часть вебхука: поиск СВОЕЙ строки и сверка статуса. Вызывается через
+    run_in_threadpool из yookassa_webhook — не исполняется на потоке event loop (см. выше)."""
     # Сначала ищем СВОЙ платёж по id (параметризованный запрос). Нет совпадения / уже
     # оплачен → тихо выходим БЕЗ исходящего запроса к ЮKassa. Иначе любой мог бы флудить
     # вебхук случайными id и заставлять сервер ходить наружу (амплификация/DoS), а чужой id
     # уходил бы в URL-путь ЮKassa. Наружу ходим только за id, что сами выпустили.
     payment = session.exec(select(Payment).where(Payment.provider_id == provider_id)).first()
     if not payment or payment.status in ("succeeded", REFUND_DUE):
-        return {"ok": True}
+        return
     _sync_provider_status(session, payment)
-    return {"ok": True}
