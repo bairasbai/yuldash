@@ -43,9 +43,9 @@
 | `coupons_list` | 312–353 | Витрина: активные видимые купоны | один батч-запрос + фильтр `_reservation_active` на выдачу | ок (R6, R8) |
 | `coupon_redeem` | 355–430 | Бизнес гасит код у себя | чужой→404; срок истёк→422; снят админом→409; **бронь истекла (30 дней, бессрочный купон)→409** (R8); уже погашён/не действует→409; row-lock+атомарный CAS | ок (R1, R2, R5, R8) |
 | `coupon_detail` | 432–448 | Деталь купона | честный `remaining` с учётом истечения | ок (R6, R8) |
-| `coupon_activate` | 450–521 | Пассажир бронирует погашение → код | идемпотентность ИГНОРИРУЕТ истёкшую старую бронь (выдаёт новую); лимиты — по `_reservation_active`; row-lock купона | ок (R3, R8) |
+| `coupon_activate` | 451–533 | Пассажир бронирует погашение → код | идемпотентность берёт САМУЮ СВЕЖУЮ АКТИВНУЮ бронь, игнорируя истёкшую старую (исправленная ошибка R9, круг 5); лимиты — по `_reservation_active`; row-lock купона | ок (R3, R8, R9, исправленная ошибка) |
 | `_activation_out` | 523–530 | Сериализация брони | — | ок |
-| `my_coupons` | 532–557 | Мои брони (активные + история) | — | ок |
+| `my_coupons` | 545–578 | Мои брони (активные + история) | забытая истёкшая reserved-бронь отдаётся статусом `expired`, не сырым `reserved` (исправленная ошибка R10, круг 5) | ок (R10, исправленная ошибка) |
 | `partner_plans` | 559–567 | Тарифы подписки | без авторизации | ок |
 | `_partner_mine` | 569–590 | Сериализация СВОЕГО бизнеса | — | ок |
 | `partner_register` | 592–626 | Зарегистрировать бизнес | дубль→409; пустое имя/город→422 | ок |
@@ -94,6 +94,8 @@
 | R6 | «Осталось N» учитывает незавершённые брони | backend/tests/walk/l1_3/test_l1_3_coupons_money.py::test_storefront_remaining_counts_outstanding_reservations | да — M8 |
 | R7 | Лимит 50 купонов/бизнес не пробивается под гонкой (PostgreSQL) | backend/tests/walk/l1_3/test_l1_3_coupons_money.py::test_concurrent_coupon_creation_respects_fifty_limit | да — M29 |
 | R8 | Забытая бронь истекает (срок купона либо `RESERVATION_TTL_DAYS`) и перестаёт держать лимит/гаситься | backend/tests/walk/l1_3/test_l1_3_coupons_money.py::test_expired_unbounded_reservation_frees_the_limit_slot, ::test_expired_reservation_cannot_be_redeemed | да — M30, M31 |
+| R9 | Идемпотентность `coupon_activate` берёт самую свежую АКТИВНУЮ бронь, не любую (не спотыкается о забытую истёкшую) | backend/tests/walk/l1_3/test_l1_3_coupons_money.py::test_activate_idempotency_returns_active_code_not_stale_expired_one | да — M39 |
+| R10 | «Мои купоны» отдают статус `expired` для забытой истёкшей брони, не сырой `reserved` | backend/tests/walk/l1_3/test_l1_3_coupons_money.py::test_my_coupons_reports_expired_status_for_stale_reservation | да — M40 |
 
 Понятный ответ человеку (бильингвальность `herr`) проверен точечно в R1/R2/R5/R8 и в целом
 репо-вайд сторожем `backend/tests/test_bilingual_errors_guard.py`.
@@ -107,6 +109,8 @@
 | B-3 | Дата купона без времени трактовалась как полночь UTC−5 — срок съезжал на сутки и дрейфовал при каждом сохранении | test_coupon_valid_until_treats_date_only_midnight_as_end_of_day, круговой тест | `_coupon_valid_until`: полночь без пояса → конец суток ДО перевода в UTC | падали бы → проходят |
 | R7 (круг 2→3) | 50 купонов/бизнес считались `count-then-insert` без лока — граница лимита пробивалась на 1–2 под гонкой | test_concurrent_coupon_creation_respects_fifty_limit (PostgreSQL) | row-lock на Partner перед COUNT | падал бы (51–52 вместо 50) → проходит, 429 на втором |
 | R8 (круг 2→3, «вечная бронь») | Забытая `reserved`-бронь держала лимит НАВСЕГДА — ни один код/воркер её не истекал | test_expired_unbounded_reservation_frees_the_limit_slot, test_expired_reservation_cannot_be_redeemed | `_reservation_active`: бронь истекает со сроком купона или через `RESERVATION_TTL_DAYS=30` после `reserved_at` (решение ведущего, круг 3); истёкшая не держит лимит и не гасится | падали бы (чужой слот навсегда занят / код гасится спустя годы) → проходят |
+| R9 (независимое ревью круга 4, N-1 — R8 задним числом добавил эту ошибку) | `coupon_activate` искал идемпотентную бронь БЕЗ сортировки — у человека с забытой истёкшей (R8) и новой активной бронью `.first()` обычно возвращал СТАРУЮ: 409 «уже воспользовался» при `limit_per_user=1`, лишний код при `limit_per_user≥2` | test_activate_idempotency_returns_active_code_not_stale_expired_one | Берём самую свежую (`order_by(id.desc())`) бронь, прошедшую `_reservation_active` | тест падал бы (409 или лишний код вместо действующего) → проходит |
+| R10 (независимое ревью круга 4, N-2 — тоже задним числом от R8) | `my_coupons` отдавал сырой `status="reserved"` для забытой истёкшей брони — приложение рисовало код и «Покажи код в заведении», касса отвечала 409 | test_my_coupons_reports_expired_status_for_stale_reservation | Статус `expired`, когда `_reservation_active(...)` ложно | тест падал бы (`reserved` вместо `expired`) → проходит |
 
 ### Открытая ошибка (НЕ исправлена в этом листе — статус `bug`)
 
@@ -131,7 +135,14 @@
   (`hmac.new(settings.jwt_secret, digits, sha256)`), **НЕ** голый `_phone_key()` — ровно та
   же ошибка, что чинилась в `promo.py` этим же кругом (см. `promo.py.md`, R6), не стоит
   повторять её во второй таблице. Проверять в `coupon_activate` наравне с лимитом на
-  текущего пользователя.
+  текущего пользователя. **Две вещи, которые придётся сделать ТОГДА же, не потом (независимое
+  ревью круга 4):** (1) миграция, переводящая уже накопленные строки с открытым ключом в
+  HMAC задним числом, ОБЯЗАНА отказываться запускаться при слабом/дефолтном/коротком
+  секрете — см. предохранитель в `promo_claim_hmac_20261002.py` как образец, не изобретать
+  заново; (2) смена `JWT_SECRET` после этого делает старые ключи `CouponClaimLog`
+  несопоставимыми НАВСЕГДА (HMAC необратим — пересчитать нечем, исходных цифр номера нигде
+  больше нет) — решать ДО первого прогона в проде, отдельный секрет не вводим (решение
+  ведущего для `PromoClaimLog`, см. `promo.py.md`), держим в голове при проектировании.
 - **Серьёзность: средняя.** Цена одного обхода — цена ОДНОЙ скидки у ОДНОГО бизнеса (не
   деньги платформы напрямую — комиссия берётся с партнёра за ПОГАШЕНИЕ, которое всё равно
   происходит честно), а трение (удалить аккаунт, завести новый с тем же номером) отсекает
@@ -156,6 +167,8 @@
 | M29 | В `partner_coupon_create` снята блокировка строки партнёра | test_concurrent_coupon_creation_respects_fifty_limit (PostgreSQL) | KILLED |
 | M30 | В `_reservation_active` снято истечение по умолчанию (бессрочный купон = бронь никогда не истекает) | test_expired_unbounded_reservation_frees_the_limit_slot | KILLED |
 | M31 | В `coupon_redeem` снята проверка истечения брони | test_expired_reservation_cannot_be_redeemed | KILLED |
+| M39 | В `coupon_activate` идемпотентность снова без сортировки/фильтра активности | test_activate_idempotency_returns_active_code_not_stale_expired_one (PostgreSQL) | KILLED |
+| M40 | В `my_coupons` снята подмена статуса на `expired` | test_my_coupons_reports_expired_status_for_stale_reservation (PostgreSQL) | KILLED |
 
 `python tools/audit_mutation.py replay --spec docs/audit-mutations/leaf-1.3.json` →
 все мутации этого файла KILLED (общий счёт листа — в отчёте ведущему).

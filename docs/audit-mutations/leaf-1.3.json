@@ -510,13 +510,55 @@
       "id": "M37",
       "file": "backend/alembic/versions/promo_claim_hmac_20261002.py",
       "rule": "R7",
-      "description": "upgrade(): снята проверка «уже HMAC» — повторный прогон миграции пересчитывает (портит) уже сконвертированные строки",
-      "find": "        if not old_key or _HEX64.match(old_key):\n            continue      # пусто или уже HMAC — идемпотентность",
-      "replace": "        if not old_key:\n            continue",
+      "description": "to_convert больше не исключает уже-HMAC (64-hex) строки — повторный прогон миграции пересчитывает (портит) уже сконвертированные строки",
+      "find": "    to_convert = [(row_id, old_key) for row_id, old_key in rows if old_key and not _HEX64.match(old_key)]",
+      "replace": "    to_convert = [(row_id, old_key) for row_id, old_key in rows if old_key]",
       "runner": "pytest",
       "cwd": "backend",
       "args": [
         "tests/walk/l1_3/test_l1_3_promo_money.py::test_hmac_migration_converts_legacy_keys_and_is_idempotent"
+      ],
+      "db": "postgres"
+    },
+    {
+      "id": "M38",
+      "file": "backend/alembic/versions/promo_claim_hmac_20261002.py",
+      "rule": "R9",
+      "description": "upgrade(): предохранитель от слабого секрета отключён (if False and weak) — миграция молча переводит строки HMAC-ом от dev-секрета",
+      "find": "        if weak:",
+      "replace": "        if False and weak:  # регрессия: предохранитель отключён",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_promo_money.py::test_hmac_migration_refuses_weak_secret_when_rows_need_conversion"
+      ],
+      "db": "postgres"
+    },
+    {
+      "id": "M39",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R9",
+      "description": "coupon_activate: идемпотентность снова берёт любую (неотсортированную, без фильтра активности) reserved-бронь — может вернуть забытую истёкшую вместо действующей",
+      "find": "    existing = None\n    for row in session.exec(\n        select(CouponRedemption).where(\n            CouponRedemption.coupon_id == coupon.id,\n            CouponRedemption.user_id == user.id,\n            CouponRedemption.status == \"reserved\",\n        ).order_by(CouponRedemption.id.desc())\n    ).all():\n        if _reservation_active(row, coupon, now):\n            existing = row\n            break\n    if existing:",
+      "replace": "    existing = session.exec(\n        select(CouponRedemption).where(\n            CouponRedemption.coupon_id == coupon.id,\n            CouponRedemption.user_id == user.id,\n            CouponRedemption.status == \"reserved\",\n        )\n    ).first()\n    if existing and _reservation_active(existing, coupon, now):",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_activate_idempotency_returns_active_code_not_stale_expired_one"
+      ],
+      "db": "postgres"
+    },
+    {
+      "id": "M40",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R10",
+      "description": "my_coupons: истёкшая reserved-бронь снова отдаётся сырым статусом reserved, не expired",
+      "find": "        status = r.status\n        if status == \"reserved\" and c and not _reservation_active(r, c, now):\n            status = \"expired\"",
+      "replace": "        status = r.status",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_my_coupons_reports_expired_status_for_stale_reservation"
       ],
       "db": "postgres"
     }

@@ -18,7 +18,10 @@
   R8 — пока не все окружения прогнали эту миграцию (или на случай одной проскочившей
        строки), `promo_apply` обязан ловить повтор И по старому открытому, И по новому
        HMAC-ключу — иначе для всех, кто брал код ДО круга 3, лимит «один код на номер»
-       молча обнулился бы (найдено ведущим при ревью круга 3, почина — круг 4).
+       молча обнулился бы (найдено ведущим при ревью круга 3, почина — круг 4);
+  R9 — миграция `promo_claim_hmac` отказывается запускаться, если секрет слабый/дефолтный
+       И есть строки к переводу — иначе прогон без прод-секрета навсегда стёр бы исходные
+       цифры номера под HMAC от dev-секрета (независимое ревью круга 4, N-3).
 """
 import re
 import threading
@@ -31,7 +34,9 @@ import pytest
 from sqlalchemy import text
 from sqlmodel import Session, select
 
-from app.config import _phone_key
+from app.config import DEFAULT_JWT_SECRET, _phone_key, settings
+
+_STRONG_TEST_SECRET = "x" * 40  # >=32 символов, не dev-дефолт — проходит предохранитель N-3
 from app.db import engine
 from app.models import PromoClaimLog, PromoCode, User, UserRole
 from app.routers import promo as promo_router
@@ -271,10 +276,13 @@ def test_phone_claim_key_is_not_reversible_to_the_number():
 
 # ============================ R7: миграция переводит старые открытые ключи в HMAC ============================
 @pytest.mark.skipif(engine.dialect.name != "postgresql", reason="requires isolated PostgreSQL")
-def test_hmac_migration_converts_legacy_keys_and_is_idempotent():
+def test_hmac_migration_converts_legacy_keys_and_is_idempotent(monkeypatch):
     """Старая (до круга 3) строка хранила голые цифры номера как есть — миграция обязана
     перевести их в HMAC, не трогая уже-HMAC строки, и не портить данные при повторном
     прогоне или откате (идемпотентность; HMAC необратим — downgrade честный no-op)."""
+    # Предохранитель N-3 требует настоящий (не dev/короткий) секрет, раз в таблице есть строки
+    # к переводу — иначе эта же миграция сама откажется работать (см. тест N-3 ниже).
+    monkeypatch.setattr(settings, "jwt_secret", _STRONG_TEST_SECRET)
     migration = _load_hmac_migration("pg_promo_claim_hmac_migration_unit")
     legacy_digits = "79995550199"
     already_hmac = promo_router._phone_claim_key("+79995550299")
@@ -312,11 +320,15 @@ def test_hmac_migration_converts_legacy_keys_and_is_idempotent():
 
 # ============================ R8: переходный период — ловим повтор по ОБОИМ видам ключа ============================
 @pytest.mark.skipif(engine.dialect.name != "postgresql", reason="requires isolated PostgreSQL")
-def test_legacy_plaintext_claim_still_blocks_reapply_before_and_after_migration(client, user_factory):
+def test_legacy_plaintext_claim_still_blocks_reapply_before_and_after_migration(client, user_factory, monkeypatch):
     """Строка с ключом ДО круга 3 (голые цифры номера, как могло лежать на проде) обязана
     продолжать ловить «тот же номер снова» — и пока миграция `promo_claim_hmac` ещё не
     прогналась на этом окружении (проверка в `promo_apply` ищет оба вида ключа), и после
     (ключ уже HMAC, ищется как обычно)."""
+    # Предохранитель N-3 требует настоящий секрет для прогона миграции ниже (в таблице будет
+    # строка к переводу) — `promo_apply` тем же секретом считает HMAC что при записи, что при
+    # сравнении, так что подмена не ломает сам тест.
+    monkeypatch.setattr(settings, "jwt_secret", _STRONG_TEST_SECRET)
     НОМЕР = "+79995559911"
     admin = user_factory("HmacГраницаАдмин", role=UserRole.admin)
     r = client.post("/admin/promo", headers=admin["auth"], json={"code": "HMACBORDER", "kind": "welcome"})
@@ -369,3 +381,43 @@ def test_legacy_plaintext_claim_still_blocks_reapply_before_and_after_migration(
     with engine.begin() as connection:
         with Operations.context(MigrationContext.configure(connection)):
             migration.upgrade()
+
+
+# ============================ R9: миграция отказывается запускаться со слабым секретом ============================
+@pytest.mark.skipif(engine.dialect.name != "postgresql", reason="requires isolated PostgreSQL")
+def test_hmac_migration_refuses_weak_secret_when_rows_need_conversion(monkeypatch):
+    """Миграция необратима — прогон без настоящего прод-секрета (другой рабочий каталог,
+    переменная окружения не доехала) навсегда стёр бы исходные цифры номера под HMAC от
+    dev-секрета, и защита «номер уже брал код» бесследно исчезла бы для каждого, кто уже
+    когда-либо брал промокод (независимое ревью круга 4, N-3). Обязана падать ДО единой записи,
+    если секрет слабый И есть что переводить; слабый секрет над уже-HMAC/пустой таблицей —
+    не повод падать, переводить там нечего."""
+    monkeypatch.setattr(settings, "jwt_secret", DEFAULT_JWT_SECRET)
+    migration = _load_hmac_migration("pg_promo_claim_hmac_migration_weak_secret")
+    legacy_digits = "79995550399"
+
+    with engine.begin() as connection:
+        connection.execute(text(
+            "CREATE TEMP TABLE promoclaimlog (id INTEGER PRIMARY KEY, promo_id INTEGER NOT NULL, "
+            "phone_key VARCHAR NOT NULL, device_id VARCHAR NOT NULL) ON COMMIT DROP"
+        ))
+        connection.execute(text(
+            "INSERT INTO promoclaimlog (id, promo_id, phone_key, device_id) VALUES (1, 1, :legacy, '')"
+        ), {"legacy": legacy_digits})
+
+        from alembic.migration import MigrationContext
+        from alembic.operations import Operations
+        with Operations.context(MigrationContext.configure(connection)):
+            with pytest.raises(RuntimeError, match="слаб"):
+                migration.upgrade()
+            untouched = connection.execute(
+                text("SELECT phone_key FROM promoclaimlog WHERE id = 1")
+            ).scalar_one()
+            assert untouched == legacy_digits, "миграция успела что-то записать до отказа"
+
+            # Тот же слабый секрет, но переводить уже нечего (строка уже HMAC) — не должен мешать.
+            connection.execute(
+                text("UPDATE promoclaimlog SET phone_key = :k WHERE id = 1"),
+                {"k": promo_router._phone_claim_key("+79995550499")},
+            )
+            migration.upgrade()   # не падает — секрет слабый, но строк к переводу нет
