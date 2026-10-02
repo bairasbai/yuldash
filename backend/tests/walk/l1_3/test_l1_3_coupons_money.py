@@ -20,7 +20,13 @@
        купон» на границе лимита (PostgreSQL; найдено ревью круга 2, почина — круг 3);
   R8 — забытая (reserved) бронь не держит лимит вечно: истекает вместе со сроком купона, а
        для бессрочного купона — через RESERVATION_TTL_DAYS после самой брони (решение
-       ведущего, круг 3 — «вечная бронь»).
+       ведущего, круг 3 — «вечная бронь»);
+  R9 — идемпотентность `coupon_activate` берёт САМУЮ СВЕЖУЮ АКТИВНУЮ бронь, не любую (в т.ч.
+       забытую истёкшую) — иначе человек с рабочим новым кодом спотыкался о старую истёкшую
+       строку (независимое ревью круга 4, N-1);
+  R10 — «Мои купоны» отдают статус expired для забытой истёкшей брони, не сырым reserved —
+       иначе приложение рисует «Покажи код в заведении» на код, который касса откажется
+       гасить 409'ом (независимое ревью круга 4, N-2).
 """
 import threading
 import time
@@ -454,3 +460,72 @@ def test_expired_reservation_cannot_be_redeemed(client, user_factory):
     with Session(engine) as s:
         coupon = s.get(Coupon, cid)
         assert coupon.redeemed_count == 0, "просроченная бронь не должна была засчитаться бизнесу"
+
+
+# ============================ R9: идемпотентность берёт АКТИВНУЮ бронь, не истёкшую ============================
+def test_activate_idempotency_returns_active_code_not_stale_expired_one(client, user_factory):
+    """Бессрочный купон — у человека была ЗАБЫТАЯ бронь, истёкшая по RESERVATION_TTL_DAYS, он
+    получил НОВУЮ (поведение R8). Повторное нажатие «получить код» обязано вернуть ДЕЙСТВУЮЩИЙ
+    (новый) код, а не споткнуться о старую истёкшую строку — иначе человек с рабочим кодом
+    получает 409 «уже воспользовался» (limit_per_user=1) или лишний третий код
+    (limit_per_user≥2), занимающий слот общего лимита (независимое ревью круга 4, N-1)."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "ИдемпотентностьАктив")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=2)
+    pax = user_factory("ИдемпотентностьАктивПас")
+
+    act1 = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act1.status_code == 200, act1.text
+    old_code = act1.json()["code"]
+    with Session(engine) as s:
+        red = s.exec(select(CouponRedemption).where(CouponRedemption.code == old_code)).one()
+        red.reserved_at = datetime.utcnow() - timedelta(days=coupons_router.RESERVATION_TTL_DAYS + 1)
+        s.add(red)
+        s.commit()
+
+    # Старая истекла — повторное нажатие выдаёт НОВУЮ (поведение R8, проверено отдельным тестом).
+    act2 = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act2.status_code == 200, act2.text
+    new_code = act2.json()["code"]
+    assert new_code != old_code
+
+    # ТРЕТЬЕ нажатие — идемпотентность обязана вернуть НОВЫЙ (действующий) код, не упасть на
+    # старую истёкшую строку (была бы 409 при limit_per_user=1, или лишний третий код здесь).
+    act3 = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act3.status_code == 200, act3.text
+    assert act3.json()["code"] == new_code, (
+        f"идемпотентность вернула не действующий код: {act3.json()['code']} вместо {new_code}"
+    )
+
+    with Session(engine) as s:
+        count = s.exec(select(func.count()).select_from(CouponRedemption).where(
+            CouponRedemption.coupon_id == cid, CouponRedemption.user_id == pax["id"],
+        )).one()
+    assert count == 2, f"третье нажатие создало лишнюю бронь: всего строк {count} вместо 2"
+
+
+# ============================ R10: «Мои купоны» не выдают истёкший код за живой ============================
+def test_my_coupons_reports_expired_status_for_stale_reservation(client, user_factory):
+    """Забытая (истёкшая по RESERVATION_TTL_DAYS) reserved-бронь обязана отдаваться в «Мои
+    купоны» статусом expired, не сырым reserved — иначе приложение рисует крупный код и
+    «Покажи код в заведении» на код, который касса уже откажется гасить 409'ом (независимое
+    ревью круга 4, N-2)."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "МоиКупоныПросрочен")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=1)
+    pax = user_factory("МоиКупоныПросроченПас")
+
+    act = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act.status_code == 200, act.text
+    code = act.json()["code"]
+    with Session(engine) as s:
+        red = s.exec(select(CouponRedemption).where(CouponRedemption.code == code)).one()
+        red.reserved_at = datetime.utcnow() - timedelta(days=coupons_router.RESERVATION_TTL_DAYS + 1)
+        s.add(red)
+        s.commit()
+
+    mine = client.get("/my/coupons", headers=pax["auth"])
+    assert mine.status_code == 200, mine.text
+    row = next(r for r in mine.json() if r["code"] == code)
+    assert row["status"] == "expired", (
+        f"истёкшая бронь показана как {row['status']!r} — приложение нарисует «Покажи код в "
+        "заведении» на код, который касса уже откажется гасить"
+    )

@@ -480,14 +480,26 @@ def coupon_activate(coupon_id: int, user: User = Depends(current_user), session:
     # Идемпотентность: уже есть активная И НЕ ИСТЁКШАЯ бронь → возвращаем её же (тот же код),
     # не плодим. Истёкшую (см. `_reservation_active`, RESERVATION_TTL_DAYS) не воскрешаем —
     # человеку, забывшему погасить код месяц назад, выдаём НОВЫЙ, а не мёртвый старый.
-    existing = session.exec(
+    #
+    # ВАЖНО: у бессрочного купона (это вариант ПО УМОЛЧАНИЮ — пустой срок в форме) на одного
+    # человека со временем копятся НЕСКОЛЬКО `reserved`-строк: старая истекла по
+    # RESERVATION_TTL_DAYS, а код выдавался заново. Без ORDER BY `.first()` мог вернуть ЛЮБУЮ
+    # из них, в т.ч. старую истёкшую — человек с рабочим новым кодом на повторном нажатии
+    # «получить код» получал 409 «уже воспользовался» (при limit_per_user=1) или лишний третий
+    # код, занимающий слот общего лимита (при limit_per_user≥2) — независимое ревью круга 4.
+    # Берём САМУЮ СВЕЖУЮ АКТИВНУЮ бронь (order by id desc, первая прошедшая `_reservation_active`).
+    existing = None
+    for row in session.exec(
         select(CouponRedemption).where(
             CouponRedemption.coupon_id == coupon.id,
             CouponRedemption.user_id == user.id,
             CouponRedemption.status == "reserved",
-        )
-    ).first()
-    if existing and _reservation_active(existing, coupon, now):
+        ).order_by(CouponRedemption.id.desc())
+    ).all():
+        if _reservation_active(row, coupon, now):
+            existing = row
+            break
+    if existing:
         return _activation_out(existing, coupon, partner)
 
     if not _in_window(coupon, now):
@@ -541,12 +553,21 @@ def my_coupons(user: User = Depends(current_user), session: Session = Depends(ge
     coupons = {c.id: c for c in session.exec(select(Coupon).where(Coupon.id.in_(coupon_ids))).all()}
     partner_ids = list({c.partner_id for c in coupons.values()})
     partners = {p.id: p for p in session.exec(select(Partner).where(Partner.id.in_(partner_ids))).all()} if partner_ids else {}
+    now = utcnow()
     out = []
     for r in rows:
         c = coupons.get(r.coupon_id)
+        # Забытая (истёкшая по RESERVATION_TTL_DAYS/сроку купона) reserved-бронь честно
+        # отдаётся как "expired", не сырым "reserved" — иначе приложение рисует крупный код
+        # и «Покажи код в заведении» (CouponsScreen.kt) на код, который касса уже откажется
+        # гасить 409'ом. Приложение уже умеет рисовать "expired" ("Истёк") — независимое
+        # ревью круга 4.
+        status = r.status
+        if status == "reserved" and c and not _reservation_active(r, c, now):
+            status = "expired"
         out.append({
             "code": r.code,
-            "status": r.status,
+            "status": status,
             "reserved_at": r.reserved_at.isoformat() if r.reserved_at else None,
             "redeemed_at": r.redeemed_at.isoformat() if r.redeemed_at else None,
             "coupon": _coupon_public(c, partners.get(c.partner_id)) if c else None,
