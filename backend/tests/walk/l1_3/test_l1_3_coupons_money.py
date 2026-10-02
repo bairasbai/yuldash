@@ -20,21 +20,26 @@
        купон» на границе лимита (PostgreSQL; найдено ревью круга 2, почина — круг 3);
   R8 — забытая (reserved) бронь не держит лимит вечно: истекает вместе со сроком купона, а
        для бессрочного купона — через RESERVATION_TTL_DAYS после самой брони (решение
-       ведущего, круг 3 — «вечная бронь»);
+       ведущего, круг 3 — «вечная бронь»); подсчёт занятых слотов в базе совпадает с
+       `_reservation_active` по каждой строке, включая бронь ровно на границе;
   R9 — идемпотентность `coupon_activate` берёт САМУЮ СВЕЖУЮ АКТИВНУЮ бронь, не любую (в т.ч.
        забытую истёкшую) — иначе человек с рабочим новым кодом спотыкался о старую истёкшую
        строку (независимое ревью круга 4, N-1);
   R10 — «Мои купоны» отдают статус expired для забытой истёкшей брони, не сырым reserved —
        иначе приложение рисует «Покажи код в заведении» на код, который касса откажется
-       гасить 409'ом (независимое ревью круга 4, N-2).
+       гасить 409'ом (независимое ревью круга 4, N-2);
+  R11 — цена витрины, детали купона и активации не растёт с историей погашений: занятые
+       слоты считает база, ни одна бронь не загружается в Python (независимое ревью leaf-1.3,
+       отложено из кругов 4–5).
 """
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import func, text
+from sqlalchemy import event, func, text
 from sqlmodel import Session, select
 
 from app.db import engine
@@ -76,6 +81,14 @@ def _make_active_coupon(client, owner, **overrides):
     assert client.post(f"/partner/coupons/{cid}/status", headers=owner["auth"],
                        json={"status": "active"}).status_code == 200
     return cid
+
+
+def _approve_coupon(client, admin, cid):
+    """Админ посмотрел купон — он уходит из общей очереди модерации. База у тестов одна на весь
+    прогон, а очередь отдаёт только 100 самых старых непросмотренных купонов; на Postgres тест
+    лимита-50 уже оставляет там 50. Ещё четыре непросмотренных купона от тестов R8/R11
+    выталкивали за первую сотню купоны тестов жалоб из test_storefront_remoderation.py."""
+    assert client.post(f"/admin/coupons/{cid}/approve", headers=admin["auth"]).status_code == 200
 
 
 def _pg_session():
@@ -462,6 +475,66 @@ def test_expired_reservation_cannot_be_redeemed(client, user_factory):
         assert coupon.redeemed_count == 0, "просроченная бронь не должна была засчитаться бизнесу"
 
 
+def test_slot_count_in_db_matches_reservation_rule_row_by_row(client, user_factory):
+    """Занятые слоты считает база (`_slots_taken`), а отдельную бронь — `_reservation_active`
+    (погашение, «Мои купоны», идемпотентность). Это ОДНО правило в двух местах, и расходиться
+    они не имеют права ни на одной строке: иначе витрина пообещает место, которого активация
+    не даст, или наоборот. Проверяем все три вида купона (срок ещё идёт / срок прошёл /
+    бессрочный) на всех видах брони, включая бронь РОВНО на границе RESERVATION_TTL_DAYS.
+    Ожидания вписаны руками — одинаково сломанные половины тест тоже не пропустит."""
+    owner, admin, _pid = _register_active_partner(client, user_factory, "СчётВБазе")
+    ids = {kind: _make_active_coupon(client, owner, title=f"Счёт: {kind}")
+           for kind in ("open", "closed", "unbounded")}
+    for cid in ids.values():
+        _approve_coupon(client, admin, cid)
+    alice = user_factory("СчётВБазеАлия")
+    bob = user_factory("СчётВБазеБулат")
+    now = datetime.utcnow().replace(microsecond=0)
+    ttl = timedelta(days=coupons_router.RESERVATION_TTL_DAYS)
+    # Пометки «держит / нет» — про бессрочный купон; у купона со сроком любая reserved держит
+    # до его срока, а после срока — ни одна (см. expected ниже).
+    rows = [  # (статус, давность брони, чья)
+        ("redeemed", timedelta(days=400), alice),       # погашена год назад — держит всегда
+        ("reserved", timedelta(days=1), alice),         # свежая — держит
+        ("reserved", ttl + timedelta(days=1), bob),     # забытая — нет
+        ("reserved", ttl - timedelta(hours=1), bob),    # за час ДО границы — ещё держит
+        ("reserved", ttl + timedelta(hours=1), alice),  # через час ПОСЛЕ границы — нет
+        ("reserved", ttl, alice),                       # РОВНО на границе — нет (now < граница — строго)
+        ("canceled", timedelta(days=1), alice),         # отменена — не держит никогда
+        ("expired", timedelta(days=1), bob),            # истекла — не держит никогда
+    ]
+    deadline = {"open": now + timedelta(days=60), "closed": now - timedelta(hours=1), "unbounded": None}
+    with Session(engine) as s:
+        for kind, cid in ids.items():
+            coupon = s.get(Coupon, cid)
+            coupon.valid_until = deadline[kind]
+            s.add(coupon)
+            for n, (status, age, who) in enumerate(rows):
+                # «0» в коде: генератор кодов его не использует — с настоящим кодом не совпадёт.
+                s.add(CouponRedemption(coupon_id=cid, user_id=who["id"], code=f"0{kind[0].upper()}{n:04d}",
+                                       status=status, reserved_at=now - age))
+        s.commit()
+
+    expected = {  # (всего, у Алии, у Булата)
+        "open": (6, 4, 2),       # срок общий и ещё идёт: держат все reserved и погашённая
+        "closed": (1, 1, 0),     # срок прошёл: reserved истекли вместе с купоном, держит погашённая
+        "unbounded": (3, 2, 1),  # у каждой брони свои 30 дней: погашённая, свежая, «за час до»
+    }
+    with Session(engine) as s:
+        coupons = {kind: s.get(Coupon, cid) for kind, cid in ids.items()}
+        everyone = coupons_router._slots_taken(s, list(coupons.values()), now)
+        alices = coupons_router._slots_taken(s, list(coupons.values()), now, user_id=alice["id"])
+        bobs = coupons_router._slots_taken(s, list(coupons.values()), now, user_id=bob["id"])
+        for kind, coupon in coupons.items():
+            reds = s.exec(select(CouponRedemption).where(CouponRedemption.coupon_id == coupon.id)).all()
+            held = [r for r in reds if coupons_router._reservation_active(r, coupon, now)]
+            by_rule = (len(held), sum(r.user_id == alice["id"] for r in held),
+                       sum(r.user_id == bob["id"] for r in held))
+            in_db = (everyone.get(coupon.id, 0), alices.get(coupon.id, 0), bobs.get(coupon.id, 0))
+            assert by_rule == expected[kind], f"{kind}: _reservation_active насчитал {by_rule}, ждали {expected[kind]}"
+            assert in_db == expected[kind], f"{kind}: подсчёт в базе дал {in_db}, ждали {expected[kind]}"
+
+
 # ============================ R9: идемпотентность берёт АКТИВНУЮ бронь, не истёкшую ============================
 def test_activate_idempotency_returns_active_code_not_stale_expired_one(client, user_factory):
     """Бессрочный купон — у человека была ЗАБЫТАЯ бронь, истёкшая по RESERVATION_TTL_DAYS, он
@@ -528,4 +601,77 @@ def test_my_coupons_reports_expired_status_for_stale_reservation(client, user_fa
     assert row["status"] == "expired", (
         f"истёкшая бронь показана как {row['status']!r} — приложение нарисует «Покажи код в "
         "заведении» на код, который касса уже откажется гасить"
+    )
+
+
+# ============================ R11: цена витрины не растёт с историей погашений ============================
+@contextmanager
+def _redemptions_loaded_into_python():
+    """Сколько броней (строк CouponRedemption) сервер превратил в объекты Python, пока открыт
+    блок. Событие `load` срабатывает на каждую такую строку в любой сессии процесса — в том
+    числе внутри запроса через TestClient. Подсчёт `COUNT` в базе строк не загружает вовсе."""
+    loaded = {"rows": 0}
+
+    def on_load(_target, _context):
+        loaded["rows"] += 1
+
+    event.listen(CouponRedemption, "load", on_load)
+    try:
+        yield loaded
+    finally:
+        event.remove(CouponRedemption, "load", on_load)
+
+
+def test_many_old_redemptions_change_query_cost_not_behavior(client, user_factory):
+    """Популярный бессрочный купон: 200 погашений за прошлый год, одна забытая бронь (старше
+    RESERVATION_TTL_DAYS) и одна свежая. Витрина и деталь купона открыты БЕЗ входа — раньше
+    каждая из них, как и активация, грузила в Python все 202 брони купона, и цена такого
+    запроса росла с историей без потолка (независимое ревью leaf-1.3).
+
+    Поведение обязано остаться прежним — тот же остаток, те же лимиты, забытая бронь слот не
+    держит, — а броней в Python не должно приходить ни одной: считает база."""
+    owner, admin, _pid = _register_active_partner(client, user_factory, "МногоПогашений")
+    cid = _make_active_coupon(client, owner, limit_total=203, limit_per_user=1)
+    _approve_coupon(client, admin, cid)
+    history = user_factory("МногоПогашенийИстория")
+    pax = [user_factory(f"МногоПогашенийПас{i}") for i in range(3)]
+    now = datetime.utcnow()
+    with Session(engine) as s:
+        # «0» в коде: генератор кодов его не использует — с настоящим кодом не совпадёт.
+        s.add_all([
+            CouponRedemption(coupon_id=cid, user_id=history["id"], code=f"0H{i:04d}", status="redeemed",
+                             reserved_at=now - timedelta(days=400, minutes=i),
+                             redeemed_at=now - timedelta(days=399, minutes=i))
+            for i in range(200)
+        ])
+        s.add(CouponRedemption(coupon_id=cid, user_id=history["id"], code="0STALE", status="reserved",
+                               reserved_at=now - timedelta(days=coupons_router.RESERVATION_TTL_DAYS + 1)))
+        s.add(CouponRedemption(coupon_id=cid, user_id=history["id"], code="0FRESH", status="reserved",
+                               reserved_at=now - timedelta(hours=1)))
+        coupon = s.get(Coupon, cid)
+        coupon.redeemed_count = 200   # счётчик погашений сходится с историей, как в жизни
+        s.add(coupon)
+        s.commit()
+
+    with _redemptions_loaded_into_python() as loaded:
+        listing = client.get("/coupons", params={"city": "Уфа"})
+        assert listing.status_code == 200, listing.text
+        card = next(c for c in listing.json() if c["id"] == cid)
+        detail = client.get(f"/coupons/{cid}")
+        assert detail.status_code == 200, detail.text
+        # 200 погашений + свежая бронь = 201 слот из 203; забытая бронь слот не держит.
+        assert card["remaining"] == 2, card
+        assert detail.json()["remaining"] == 2, detail.json()
+
+        for p in pax[:2]:
+            r = client.post(f"/coupons/{cid}/activate", headers=p["auth"])
+            assert r.status_code == 200, r.text
+        assert client.get(f"/coupons/{cid}").json()["remaining"] == 0
+        last = client.post(f"/coupons/{cid}/activate", headers=pax[2]["auth"])
+        assert last.status_code == 409, last.text
+        assert "закончились" in last.json()["detail"]["ru"] and last.json()["detail"]["ba"]
+
+    assert loaded["rows"] == 0, (
+        f"сервер загрузил в Python {loaded['rows']} броней — занятые слоты снова считаются "
+        "перебором всех броней купона, и цена открытой витрины растёт с каждым погашением"
     )

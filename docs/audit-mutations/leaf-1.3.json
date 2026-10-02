@@ -418,7 +418,7 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": [
-        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_expired_unbounded_reservation_frees_the_limit_slot"
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_expired_reservation_cannot_be_redeemed"
       ],
       "db": "sqlite"
     },
@@ -561,6 +561,104 @@
         "tests/walk/l1_3/test_l1_3_coupons_money.py::test_my_coupons_reports_expired_status_for_stale_reservation"
       ],
       "db": "postgres"
+    },
+    {
+      "id": "M41",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R8",
+      "description": "_slot_held_sql: у бессрочного купона снята граница RESERVATION_TTL_DAYS — в подсчёте слотов базой забытая бронь снова держит слот вечно",
+      "find": "        and_(CouponRedemption.coupon_id.in_(unbounded_ids), CouponRedemption.reserved_at > fresh_since),",
+      "replace": "        CouponRedemption.coupon_id.in_(unbounded_ids),   # регрессия: бронь бессрочного купона держит слот вечно",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_expired_unbounded_reservation_frees_the_limit_slot"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M42",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R8",
+      "description": "_slot_held_sql: забыт общий срок купона — бронь купона СО сроком считается по 30 дням, как у бессрочного, и перестаёт держать слот раньше срока купона",
+      "find": "    open_ids = [c.id for c in coupons if c.valid_until is not None and now < c.valid_until]\n    unbounded_ids = [c.id for c in coupons if c.valid_until is None]",
+      "replace": "    open_ids = []   # регрессия: общий срок купона забыт\n    unbounded_ids = [c.id for c in coupons if c.valid_until is None or now < c.valid_until]",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_slot_count_in_db_matches_reservation_rule_row_by_row"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M43",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R8",
+      "description": "_slot_held_sql: граница нестрогая (>=) — бронь ровно на отметке RESERVATION_TTL_DAYS база считает живой, а _reservation_active уже нет (подсчёт и погашение расходятся)",
+      "find": "CouponRedemption.reserved_at > fresh_since",
+      "replace": "CouponRedemption.reserved_at >= fresh_since",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_slot_count_in_db_matches_reservation_rule_row_by_row"
+      ],
+      "db": "postgres"
+    },
+    {
+      "id": "M44",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R11",
+      "description": "coupons_list: открытая витрина снова грузит в Python все брони купонов и фильтрует их _reservation_active — цена запроса растёт с историей погашений",
+      "find": "    taken_by_coupon = _slots_taken(session, live, now)",
+      "replace": "    taken_by_coupon: dict = {}   # регрессия: все брони всех купонов витрины — в Python\n    coupon_by_id = {c.id: c for c in live}\n    if coupon_by_id:\n        for r in session.exec(select(CouponRedemption).where(CouponRedemption.coupon_id.in_(list(coupon_by_id)))).all():\n            if _reservation_active(r, coupon_by_id[r.coupon_id], now):\n                taken_by_coupon[r.coupon_id] = taken_by_coupon.get(r.coupon_id, 0) + 1",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_many_old_redemptions_change_query_cost_not_behavior"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M45",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R11",
+      "description": "coupon_detail: открытая деталь купона снова грузит в Python все его брони — цена запроса растёт с историей погашений",
+      "find": "    taken = _slots_taken(session, [coupon], now).get(coupon.id, 0)",
+      "replace": "    rows = session.exec(select(CouponRedemption).where(CouponRedemption.coupon_id == coupon.id)).all()\n    taken = sum(1 for r in rows if _reservation_active(r, coupon, now))   # регрессия: все брони — в Python",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_many_old_redemptions_change_query_cost_not_behavior"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M46",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R11",
+      "description": "coupon_activate: общий лимит снова считается загрузкой в Python всех броней купона",
+      "find": "    if coupon.limit_total > 0 and _slots_taken(session, [coupon], now).get(coupon.id, 0) >= coupon.limit_total:",
+      "replace": "    rows = session.exec(select(CouponRedemption).where(CouponRedemption.coupon_id == coupon.id)).all()\n    if coupon.limit_total > 0 and sum(1 for r in rows if _reservation_active(r, coupon, now)) >= coupon.limit_total:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_many_old_redemptions_change_query_cost_not_behavior"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M47",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R11",
+      "description": "_slots_taken: личный счёт без фильтра по человеку — чужие брони засчитываются ему, и после первой же чужой брони каждый слышит «ты уже воспользовался»",
+      "find": "        query = query.where(CouponRedemption.user_id == user_id)",
+      "replace": "        pass   # регрессия: личный счёт = общий",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_slot_count_in_db_matches_reservation_rule_row_by_row"
+      ],
+      "db": "sqlite"
     }
   ]
 }
