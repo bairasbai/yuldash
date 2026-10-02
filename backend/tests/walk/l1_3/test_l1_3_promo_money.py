@@ -5,11 +5,14 @@
        одновременно применяют последний доступный код (PostgreSQL);
   R2 — владелец кампании не может активировать свой же код (бесплатный бонус самому себе);
   R3 — бонус-«поднятия» (kind=boost) не выдаётся сверх общего потолка бонусов на руках
-       (MAX_REFERRAL_CREDITS), даже если perk_value кампании больше остатка до потолка.
+       (MAX_REFERRAL_CREDITS), даже если perk_value кампании больше остатка до потолка;
+  R4 — срок кампании: дата без времени (форма админа шлёт именно так) = конец суток по Уфе,
+       а не начало — та же дыра и то же исправление, что у купонов (B-3, найдено ревью).
 """
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 import pytest
 from sqlalchemy import text
@@ -22,9 +25,11 @@ from app.routers.promo import MAX_REFERRAL_CREDITS, ApplyIn
 
 
 def _pg_session():
+    # SET LOCAL — без LOCAL настройка осталась бы на соединении и после commit внутри
+    # вызванной функции утекла бы в СЛЕДУЮЩИЙ тест, взявший то же соединение из пула.
     s = Session(engine)
-    s.execute(text("SET lock_timeout = '4s'"))
-    s.execute(text("SET statement_timeout = '8s'"))
+    s.execute(text("SET LOCAL lock_timeout = '4s'"))
+    s.execute(text("SET LOCAL statement_timeout = '8s'"))
     return s
 
 
@@ -131,3 +136,33 @@ def test_boost_grant_capped_at_wallet_limit(client, user_factory):
         u = s.get(User, pax["id"])
         assert u.referral_credits == MAX_REFERRAL_CREDITS, \
             "бонус boost не должен перелиться через общий потолок бонусов на руках"
+
+
+# ============================ R4 (B-3): дата без времени = конец суток по Уфе ============================
+def test_promo_valid_until_treats_date_only_midnight_as_end_of_day():
+    naive_midnight = datetime(2026, 10, 31, 0, 0, 0)
+    stored = promo_router._promo_valid_until(naive_midnight)
+    assert stored == datetime(2026, 10, 31, 18, 59, 59)
+
+
+def test_promo_valid_until_leaves_explicit_time_alone():
+    naive_evening = datetime(2026, 10, 31, 20, 0, 0)
+    stored = promo_router._promo_valid_until(naive_evening)
+    assert stored == datetime(2026, 10, 31, 15, 0, 0)
+
+
+def test_promo_deadline_survives_repeated_date_only_resaves(client, user_factory):
+    """Тот же круговой путь, что у купонов: форма админа при правке подставляет в поле только
+    дату — повторное сохранение той же даты не должно сдвигать срок кампании."""
+    admin = user_factory("СрокПромоАдмин", role=UserRole.admin)
+    r = client.post("/admin/promo", headers=admin["auth"],
+                    json={"code": "DEADLINE1", "kind": "welcome", "valid_until": "2026-10-31"})
+    assert r.status_code == 200, r.text
+    first = r.json()["valid_until"]
+    assert first[:10] == "2026-10-31", f"дата уже съехала на первом сохранении: {first}"
+
+    r2 = client.post(f"/admin/promo/{r.json()['id']}", headers=admin["auth"],
+                     json={"valid_until": first[:10]})
+    assert r2.status_code == 200, r2.text
+    second = r2.json()["valid_until"]
+    assert second == first, f"срок сдвинулся после повторного сохранения той же даты: {first} -> {second}"

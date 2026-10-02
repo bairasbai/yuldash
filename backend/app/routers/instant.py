@@ -406,7 +406,11 @@ def estimate(body: EstimateIn, user: User = Depends(current_user), session: Sess
     est["price_locked_sec"] = 0 if когда is not None else price_freeze.remember(
         isv._redis(), user.id, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
         body.category, car_class.dump_options(body.options), bool(body.round_trip), est)
-    est.update(promo_ride.preview(session, user.id, est["price"]))
+    # Потолок доли скидки — от той же базы, что спишет сам заказ (цена МИНУС компенсации
+    # водителю: подача издалека, кресло, зимняя дорога), иначе оценка ДО «Заказать» обещает
+    # скидку больше, чем потом спишется (аудит leaf-1.3, B-1).
+    est.update(promo_ride.preview(session, user.id, est["price"],
+                                  discountable_rub=promo_ride.discountable_rub_from_estimate(est)))
     # Воронка «посмотрел цену → заказал»: без неё падение заказов после правки цены выглядит
     # как «людей мало». Внутри — склейка бурста: пока человек двигает пин по тому же маршруту,
     # это один просмотр, а не двадцать. Сбой Redis метрику гасит, но не трогает ответ.

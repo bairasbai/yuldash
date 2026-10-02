@@ -1,12 +1,20 @@
 """leaf-1.3 — деньги: скидка по промокоду на поездку в такси (app/promo_ride.py).
 
 Фокус группы «Деньги» применительно к этому модулю:
+  R7  — оценка цены ДО заказа обещает ТУ ЖЕ скидку, что спишет сам заказ (B-1, найдена при ревью);
   R8  — скидку нельзя применить к ЧУЖОЙ поездке (consume() обязан сверять владельца заказа);
   R9  — оплата пассажира никогда не уходит в минус, даже если скидка больше цены;
   R10 — потолок «доля от цены» считается в целых рублях и округляется ВНИЗ (в пользу платформы);
   R11 — скидка не списывается дважды даже под реальной гонкой на PostgreSQL;
   R12 — отменённая/просроченная поездка возвращает скидку, а не сжигает её;
   R13 — водитель никогда не получает «отрицательную» комиссию (остаток уходит компенсацией).
+
+R7 (B-1) — НАЙДЕННАЯ при независимом ревью ошибка: `preview()` (оценка ДО «Заказать») считал
+потолок доли от ПОЛНОЙ цены (с подачей, креслом, зимней дорогой), а `consume()` (сам заказ) —
+от цены БЕЗ них (`discountable_rub`). На поездке с компенсацией и сработавшим потолком доли
+человек видел одну скидку на экране оценки и другую, меньшую, в заказе. Исправление — общая
+база через новую `discountable_rub_from_estimate(est)`, которую `preview()` принимает отдельным
+параметром, а `routers/instant.py::estimate` теперь передаёт.
 
 R8 — это НАЙДЕННАЯ ошибка этого листа: `promo_ride.consume(session, user_id, order)` принимал
 ЛЮБОЙ `order`, не проверяя, что `order.passenger_id == user_id`. Оба текущих вызова (создание
@@ -20,17 +28,40 @@ import threading
 import time
 from datetime import timedelta
 
+import fakeredis
 import pytest
 from sqlalchemy import text
 from sqlmodel import Session, select
 
+from app import instant_service as isv
 from app import promo_ride
 from app.config import settings
 from app.db import engine
-from app.models import InstantOrder, InstantOrderStatus as S, PromoCode, PromoRedemption
+from app.models import InstantOrder, InstantOrderStatus as S, PromoCode, PromoRedemption, UserRole
 
 ORIG = (52.591, 58.317)
 DEST = (52.716, 58.664)
+
+
+@pytest.fixture
+def fake_redis():
+    r = fakeredis.FakeStrictRedis(decode_responses=True)
+    isv._redis_override = r
+    yield r
+    isv._redis_override = None
+
+
+def _order_body(**extra):
+    return {"from_lat": ORIG[0], "from_lng": ORIG[1], "to_lat": DEST[0], "to_lng": DEST[1],
+            "from_text": "Баймак", "to_text": "Сибай", **extra}
+
+
+def _driver_online(client, user_factory, name):
+    d = user_factory(name, role=UserRole.driver)
+    assert client.post("/driver/online", headers=d["auth"], json={"online": True}).status_code == 200
+    assert client.post("/instant/presence", headers=d["auth"],
+                       json={"lat": ORIG[0], "lng": ORIG[1]}).status_code == 200
+    return d
 
 
 def _order(**kw):
@@ -87,6 +118,52 @@ def test_consume_still_works_for_own_order(user_factory):
 
         got = promo_ride.consume(s, pax["id"], own_order)
         assert got == 10000
+
+
+# ============================ R7 (B-1): оценка == заказ, с компенсацией ============================
+def test_preview_matches_order_discount_with_compensation(client, user_factory, fake_redis):
+    """Детское кресло (150 ₽) — компенсация водителю, не выручка. Скидка, которую человек
+    видит в оценке ДО «Заказать», обязана совпасть с тем, что спишется в САМОМ заказе.
+
+    До правки B-1 оценка считала потолок доли от цены С креслом, а заказ — без него: на
+    любой недорогой поездке (где именно доля цены, а не абсолютный потолок в рублях,
+    определяет размер скидки) человек видел на экране одну сумму, а в заказе — другую,
+    меньшую. Опорные проверки ниже (`options_fee == 150`, потолок доли ниже абсолютного)
+    гарантируют, что пример действительно показателен — иначе можно было бы «починить»
+    тест, не чиня код (оба потолка молча совпали бы при других числах)."""
+    admin = user_factory("B1Админ", role=UserRole.admin)
+    pax = user_factory("B1Пассажир")
+    _driver_online(client, user_factory, "B1Водитель")
+
+    assert client.post("/admin/promo", headers=admin["auth"],
+                       json={"code": "B1SEAT", "kind": "taxi_ride", "perk_value": 300}).status_code == 200
+    assert client.post("/promo/apply", headers=pax["auth"], json={"code": "B1SEAT"}).status_code == 200
+
+    # Короткая поездка почти в точке подачи водителя: цена садится на минимальный тариф
+    # (100 ₽) + кресло (150 ₽) = 250 ₽ — дешёвая поездка, где решает именно потолок ДОЛИ,
+    # а не абсолютный потолок в рублях (см. опору ниже).
+    body = _order_body(from_lat=ORIG[0], from_lng=ORIG[1],
+                       to_lat=ORIG[0] + 0.002, to_lng=ORIG[1] + 0.002,
+                       options=["seat_1_4"])
+    est = client.post("/instant/estimate", headers=pax["auth"], json=body).json()
+    assert est["options_fee"] == 150, "опора: кресло должно стоить 150 ₽ — иначе пример не показателен"
+    assert int(est["price"] * settings.promo_ride_max_price_share) < settings.promo_ride_max_discount_rub, (
+        "опора: должен давить потолок ДОЛИ, а не абсолютный потолок в рублях — иначе оба пути "
+        "молча совпадут по другой причине"
+    )
+    preview_discount = est["promo_discount_kop"]
+    assert preview_discount > 0
+
+    order = client.post("/instant/orders", headers=pax["auth"], json=body).json()
+    order_discount = order["promo_discount_kop"]
+
+    assert preview_discount == order_discount, (
+        f"скидка в оценке ({preview_discount} коп.) разошлась со скидкой в заказе "
+        f"({order_discount} коп.) — человек видел одну сумму до «Заказать» и другую после"
+    )
+    discountable = est["price"] - est["options_fee"]
+    expected = int(discountable * settings.promo_ride_max_price_share) * 100
+    assert order_discount == expected, "скидка должна считаться от цены БЕЗ компенсации водителю"
 
 
 # ============================ R9: оплата никогда не уходит в минус ============================

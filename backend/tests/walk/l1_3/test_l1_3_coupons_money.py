@@ -9,7 +9,13 @@
        ТОЛЬКО на настоящем Postgres: на SQLite её не ловит никто (FOR UPDATE — no-op);
   R4 — срок действия купона считается в едином времени: уфимское время из анкеты бизнеса
        (без явного пояса) конвертируется в UTC со сдвигом −5ч, и сравнение с «сейчас» идёт
-       уже в UTC с обеих сторон.
+       уже в UTC с обеих сторон; дата БЕЗ времени (как шлёт приложение) = конец суток по Уфе,
+       а не начало (B-3, найдено независимым ревью);
+  R5 — просроченный или снятый админом купон не гасится, даже если код уже выдан на руки
+       (найдено независимым ревью, п.4);
+  R6 — «осталось N» на витрине не должно врать: незавершённые брони (взяты, но ещё не
+       погашены) съедают общий лимит ТАК ЖЕ, как считает сама активация (найдено независимым
+       ревью, п.4 — «вечная бронь»).
 """
 import threading
 import time
@@ -62,23 +68,40 @@ def _make_active_coupon(client, owner, **overrides):
 
 
 def _pg_session():
+    # SET LOCAL — не просто SET: без LOCAL настройка осталась бы на соединении и после commit
+    # внутри вызванной функции утекла бы в СЛЕДУЮЩИЙ тест, который возьмёт это же соединение
+    # из пула (независимое ревью leaf-1.3).
     s = Session(engine)
-    s.execute(text("SET lock_timeout = '4s'"))
-    s.execute(text("SET statement_timeout = '8s'"))
+    s.execute(text("SET LOCAL lock_timeout = '4s'"))
+    s.execute(text("SET LOCAL statement_timeout = '8s'"))
     return s
 
 
 # ============================ R1: не погашается дважды (гонка, PostgreSQL) ============================
 @pytest.mark.skipif(engine.dialect.name != "postgresql", reason="requires isolated PostgreSQL")
-def test_concurrent_redeem_only_one_wins(client, user_factory):
+def test_concurrent_redeem_only_one_wins(client, user_factory, monkeypatch):
     """Два кассира одного бизнеса нажимают «погасить» на один и тот же код одновременно —
-    должен пройти РОВНО один, счётчик погашений вырасти РОВНО на 1."""
+    должен пройти РОВНО один, счётчик погашений вырасти РОВНО на 1.
+
+    Без притормаживания гонка ловится лишь С ВЫСОКОЙ ВЕРОЯТНОСТЬЮ: второму потоку хватает
+    одного SELECT, чтобы прочитать код, а первому нужно больше шагов и commit — иногда ОС
+    успевает прогнать первый поток целиком раньше, чем второй вообще стартует (независимое
+    ревью leaf-1.3). Задержка ПРЯМО ПЕРЕД атомарным UPDATE гарантирует окно гонки каждый раз,
+    а правильный код всё равно спасает только блокировка/условный UPDATE, а не удачный момент."""
     owner, _admin, _pid = _register_active_partner(client, user_factory, "ГонкаПогашения")
     cid = _make_active_coupon(client, owner, limit_per_user=1)
     pax = user_factory("ГонкаПогашенияПас")
     act = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
     assert act.status_code == 200, act.text
     code = act.json()["code"]
+
+    original_utcnow = coupons_router.utcnow
+
+    def delayed_utcnow():
+        time.sleep(0.2)   # зовётся ПРЯМО В МОМЕНТ сборки CAS-UPDATE (redeemed_at=utcnow())
+        return original_utcnow()
+
+    monkeypatch.setattr(coupons_router, "utcnow", delayed_utcnow)
 
     barrier = threading.Barrier(2)
 
@@ -132,6 +155,60 @@ def test_business_cannot_redeem_foreign_coupon(client, user_factory):
     with Session(engine) as s:
         coupon = s.get(Coupon, cid)
         assert coupon.redeemed_count == 1, "чужая попытка не должна была засчитаться"
+
+
+# ============================ R5: просроченный/снятый купон не гасится ============================
+# Найдено независимым ревью leaf-1.3 (п.4): `coupon_redeem` проверял только СТАТУС БРОНИ
+# (red.status), но не срок и не "снятие" самого купона. Человек бронирует код, пока акция ещё
+# идёт, акция заканчивается или админ снимает купон за жалобу — а касса продолжает отвечать
+# «ok» и бизнес получает +10 ₽ за каждое такое погашение купона, которого по правилам уже нет.
+def test_redeem_rejects_expired_coupon(client, user_factory):
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "СрокПогашения")
+    cid = _make_active_coupon(client, owner, limit_per_user=1)
+    pax = user_factory("СрокПогашенияПас")
+    act = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act.status_code == 200, act.text
+    code = act.json()["code"]
+
+    # Акция закончилась ПОСЛЕ того, как код уже был выдан на руки.
+    with Session(engine) as s:
+        coupon = s.get(Coupon, cid)
+        coupon.valid_until = datetime.utcnow() - timedelta(hours=1)
+        s.add(coupon)
+        s.commit()
+
+    r = client.post("/coupons/redeem", headers=owner["auth"], json={"code": code})
+    assert r.status_code == 422, r.text
+    detail = r.json()["detail"]
+    assert detail["ru"] and detail["ba"], "отказ должен быть понятным человеку на двух языках"
+
+    with Session(engine) as s:
+        coupon = s.get(Coupon, cid)
+        assert coupon.redeemed_count == 0, "просроченный купон не должен был засчитаться бизнесу"
+        red = s.exec(select(CouponRedemption).where(CouponRedemption.code == code)).first()
+        assert red.status == "reserved", "статус брони трогать не должны — отказ временный"
+
+
+def test_redeem_rejects_blocked_coupon(client, user_factory):
+    owner, admin, _pid = _register_active_partner(client, user_factory, "СнятПогашения")
+    cid = _make_active_coupon(client, owner, limit_per_user=1)
+    pax = user_factory("СнятПогашенияПас")
+    act = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act.status_code == 200, act.text
+    code = act.json()["code"]
+
+    # Админ снимает купон с публикации уже ПОСЛЕ того, как код выдан на руки.
+    r_block = client.post(f"/admin/coupons/{cid}/block", headers=admin["auth"], json={"reason": "жалоба"})
+    assert r_block.status_code == 200, r_block.text
+
+    r = client.post("/coupons/redeem", headers=owner["auth"], json={"code": code})
+    assert r.status_code == 409, r.text
+    detail = r.json()["detail"]
+    assert detail["ru"] and detail["ba"]
+
+    with Session(engine) as s:
+        coupon = s.get(Coupon, cid)
+        assert coupon.redeemed_count == 0, "снятый админом купон не должен был засчитаться бизнесу"
 
 
 # ============================ R3: лимит на человека (гонка, PostgreSQL) ============================
@@ -196,3 +273,79 @@ def test_window_respects_ufa_timezone():
     # сравнивал уфимское время напрямую с UTC (забыв про сдвиг), купон здесь ещё казался бы
     # действующим (20:00 < 23:59) — а на самом деле уфимский дедлайн уже прошёл.
     assert coupons_router._in_window(coupon, datetime(2026, 6, 15, 20, 0, 0)) is False
+
+
+# ============================ R4b (B-3): дата без времени = конец суток по Уфе ============================
+# Найдено независимым ревью leaf-1.3. Приложение шлёт срок купона ДАТОЙ без времени
+# («Действует до: 2026-10-31») — pydantic превращает её в полночь. Полночь — это НАЧАЛО
+# суток, а бизнес имел в виду «весь день 31-е ещё должен действовать». Старое поведение
+# (голый client_dt_to_utc) понимало полночь как точный момент, сдвигало на −5ч и получало
+# 2026-10-30 19:00 UTC — купон закрывался на весь день раньше. Хуже: форма правки
+# подставляет в поле только ДАТУ (первые 10 символов), и КАЖДОЕ повторное сохранение
+# (даже правка заголовка) двигало срок ещё на сутки назад.
+def test_coupon_valid_until_treats_date_only_midnight_as_end_of_day():
+    naive_midnight = datetime(2026, 10, 31, 0, 0, 0)
+    stored = coupons_router._coupon_valid_until(naive_midnight)
+    # 23:59:59 по Уфе = 18:59:59 UTC ТОГО ЖЕ календарного дня — не 30-го числа.
+    assert stored == datetime(2026, 10, 31, 18, 59, 59)
+
+
+def test_coupon_valid_until_leaves_explicit_time_alone():
+    """Время с явными часами (не полночь) — человек просил именно этот момент, подмены нет."""
+    naive_evening = datetime(2026, 10, 31, 20, 0, 0)
+    stored = coupons_router._coupon_valid_until(naive_evening)
+    assert stored == datetime(2026, 10, 31, 15, 0, 0)   # просто −5ч, без сдвига на конец суток
+
+
+def test_coupon_deadline_survives_repeated_date_only_resaves(client, user_factory):
+    """Круговой путь «сохранил → прочитал → сохранил ТО ЖЕ САМОЕ ещё раз» не должен сдвигать
+    срок. Приложение на правке подставляет в поле только дату (`validUntil.take(10)`) — ровно
+    это и воспроизводим: шлём туда же то, что сервер только что вернул, дважды подряд."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "СрокНеПлывёт")
+    r = client.post("/partner/coupons", headers=owner["auth"],
+                    json={"title": "Срок", "valid_until": "2026-10-31", "limit_per_user": 1})
+    assert r.status_code == 200, r.text
+    cid = r.json()["id"]
+    first = r.json()["valid_until"]
+    assert first[:10] == "2026-10-31", f"дата уже съехала на первом сохранении: {first}"
+
+    date_only = first[:10]
+    r2 = client.post(f"/partner/coupons/{cid}", headers=owner["auth"],
+                     json={"title": "Срок (поправили заголовок)", "valid_until": date_only,
+                           "limit_per_user": 1})
+    assert r2.status_code == 200, r2.text
+    second = r2.json()["valid_until"]
+    assert second == first, f"срок сдвинулся после повторного сохранения той же даты: {first} -> {second}"
+
+    r3 = client.post(f"/partner/coupons/{cid}", headers=owner["auth"],
+                     json={"title": "Срок (и ещё раз)", "valid_until": second[:10],
+                           "limit_per_user": 1})
+    assert r3.status_code == 200, r3.text
+    assert r3.json()["valid_until"] == first, "и на третьем круге срок обязан остаться тем же"
+
+
+# ============================ R6: «осталось N» не врёт про занятые брони ============================
+def test_storefront_remaining_counts_outstanding_reservations(client, user_factory):
+    """Пассажир забронировал код, но ещё не погасил его — это МЕСТО занято, и витрина обязана
+    показать на один слот меньше, а не только после реального погашения."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "ОстатокЧестный")
+    cid = _make_active_coupon(client, owner, limit_total=2, limit_per_user=1)
+    pax1 = user_factory("ОстатокПас1")
+    pax2 = user_factory("ОстатокПас2")
+
+    listing0 = client.get("/coupons", params={"city": "Уфа"}).json()
+    card0 = next(c for c in listing0 if c["id"] == cid)
+    assert card0["remaining"] == 2
+
+    assert client.post(f"/coupons/{cid}/activate", headers=pax1["auth"]).status_code == 200
+
+    listing1 = client.get("/coupons", params={"city": "Уфа"}).json()
+    card1 = next(c for c in listing1 if c["id"] == cid)
+    assert card1["remaining"] == 1, "бронь ещё не погашена, но слот уже должен считаться занятым"
+    detail1 = client.get(f"/coupons/{cid}").json()
+    assert detail1["remaining"] == 1, "деталь купона должна считать так же, как список"
+
+    assert client.post(f"/coupons/{cid}/activate", headers=pax2["auth"]).status_code == 200
+    listing2 = client.get("/coupons", params={"city": "Уфа"}).json()
+    card2 = next(c for c in listing2 if c["id"] == cid)
+    assert card2["remaining"] == 0, "обе брони заняты — свободных мест для витрины больше нет"
