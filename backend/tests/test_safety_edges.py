@@ -37,26 +37,46 @@ def test_sos_rejects_unknown_category(client, user_factory):
 
 
 def test_sos_booking_access_is_limited_to_trip_participants(client, user_factory, monkeypatch):
+    """N5 (независимое ревью): чужая/несуществующая бронь НЕ топит сигнал SOS.
+
+    Было: 403/404 ДО записи SosEvent — сигнал терялся вообще, Telegram/SMS не уходили,
+    эскалатору нечего было повторять. Стало: событие пишется всегда (200), а привязку
+    и контекст чужой/несуществующей брони в событие и SMS/Telegram не берём."""
+    from app.db import engine
+    from app.models import SosEvent
+    from sqlmodel import Session, select
+
     monkeypatch.setattr("app.routers.safety.send_text", lambda _phone, _text: None)
     monkeypatch.setattr("app.routers.safety.notify_admin_telegram", lambda _text: None)
-    _driver, passenger, _ride, booking = _trip(client, user_factory)
+    _driver, passenger, ride, booking = _trip(client, user_factory)
     outsider = user_factory("SosOutsider")
 
-    assert client.post(
+    r = client.post(
         "/sos",
         headers=outsider["auth"],
         json={"category": "medical", "booking_id": booking["id"]},
-    ).status_code == 403
+    )
+    assert r.status_code == 200, "чужая бронь не должна стоить человеку сигнала"
+    with Session(engine) as s:
+        event = s.exec(select(SosEvent).where(SosEvent.id == r.json()["id"])).first()
+        assert event.booking_id is None, "чужая бронь не должна попасть в событие как своя"
+        assert ride["from_city"] not in (event.note or ""), "чужой маршрут утёк в сигнал постороннего"
+
     assert client.post(
         "/sos",
         headers=passenger["auth"],
         json={"category": "medical", "booking_id": booking["id"]},
     ).status_code == 200
-    assert client.post(
+
+    r2 = client.post(
         "/sos",
         headers=passenger["auth"],
         json={"category": "medical", "booking_id": 99999999},
-    ).status_code == 404
+    )
+    assert r2.status_code == 200, "несуществующая бронь тоже не должна топить сигнал"
+    with Session(engine) as s:
+        event2 = s.exec(select(SosEvent).where(SosEvent.id == r2.json()["id"])).first()
+        assert event2.booking_id is None
 
 
 def test_callback_and_admin_reports(client, user_factory, monkeypatch):

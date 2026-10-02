@@ -2,7 +2,7 @@
 
 - Статус: verified
 - Лист: leaf-3.1
-- Проверял: Sonnet 5 (leaf-3.1); принимал: Opus 5.5
+- Проверял: Sonnet 5 (leaf-3.1); принимал: Opus 5.5 (REQUEST_CHANGES по листу → добавлены поломки M22/M24/M25, сам файл логических замечаний не получил)
 
 ## Назначение
 
@@ -80,9 +80,10 @@
 | R-TRH-PARCEL | `trip_really_happened(parcel_id=...)` требует НАЗНАЧЕННОГО курьера, не просто заявку | `backend/tests/walk/l3_1/test_l3_1_trip_really_happened_parcel.py::test_посылку_без_курьера_встречей_не_считаем`, `::test_курьер_принял_посылку_встреча_засчитана`, `::test_несуществующая_посылка_не_встреча`, `::test_пустой_вызов_без_какой_либо_привязки_не_встреча` | да — M1 |
 | R-EVIDENCE-OWNER | `guard_own_evidence` не даёт приложить ЧУЖОЕ приватное фото-доказательство (лицо/травма/номер) к своему спору/доставке | `backend/tests/test_audit_20260808.py::test_stranger_cannot_attach_and_read_someone_elses_photo`, `::test_evidence_upload_is_bound_to_the_uploader`, `::test_own_photo_still_works_end_to_end`, `::test_courier_cannot_pass_off_a_foreign_photo_as_proof` | да — M2 |
 | R-BLOCK-NAME-PRIVACY | `have_met` — единственное условие раскрытия настоящего имени в чёрном списке | `backend/tests/test_blocklist_is_not_a_phonebook.py::test_перебор_не_выгружает_имена`, `::test_имя_попутчика_в_списке_видно`, `backend/tests/test_block_stays_a_secret.py` | да — M5 (мутация и тест живут в `routers/safety.py::list_blocks`, см. его карточку) |
-| R-TRIP-BOOKING/ORDER | `trip_really_happened` для попутки требует подтверждения водителем, для такси — назначения; голый номер брони/заказа без встречного шага не считается | `backend/tests/test_the_punishment_reaches_the_right_person.py::test_встреча_засчитывается_по_встречному_шагу`, `::test_заказ_такси_без_водителя_не_встреча`, `::test_отменённая_после_подтверждения_остаётся_встречей`, `backend/tests/test_report_cannot_pause_a_stranger.py` (3 теста) | покрыто существующим набором, отдельной новой поломки не заводил (риск уже закрыт) |
-| R-APPEAL-NO-DOUBLE-PUNISH | `apply_incident_resolution` при пересмотре после апелляции откатывает СВОЙ прошлый вклад перед повторным наложением — «оставлено в силе» не удваивает страйк, «отменено» снимает паузу полностью | `backend/tests/test_audit_hardening.py::test_appeal_upheld_does_not_double_punish`, `::test_appeal_overturned_removes_strike`, `backend/tests/test_pause_reaches_tomorrows_ride.py` (апелляция возвращает `suspended_until=None`) | покрыто существующим набором |
-| R-SOS-OPEN-ON-PAUSE | `ensure_active`/`account_paused` НЕ закрывают SOS и завершение начатой поездки | `backend/tests/test_the_pause_does_not_take_away_defence.py::test_sos_на_паузе_работает`, `backend/tests/test_suspension_reaches_everywhere.py` (строка 372: `/sos` на паузе отвечает 200) | покрыто существующим набором |
+| R-TRIP-BOOKING/ORDER | `trip_really_happened` для попутки требует подтверждения водителем, для такси — назначения; голый номер брони/заказа без встречного шага не считается | `backend/tests/test_the_punishment_reaches_the_right_person.py::test_встреча_засчитывается_по_встречному_шагу`, `::test_заказ_такси_без_водителя_не_встреча`, `::test_отменённая_после_подтверждения_остаётся_встречей`, `backend/tests/test_report_cannot_pause_a_stranger.py` (3 теста) | да — M24 |
+| R-REPORT-NO-STRANGER-PAUSE | Без ЛЮБОЙ привязки (booking/order/parcel все `None`) — заведомо не встреча, авто-наказание/авто-требование фото без доказательства встречи невозможно | `backend/tests/test_report_cannot_pause_a_stranger.py::test_stranger_report_does_not_pause_the_driver`, `::test_stranger_report_is_still_recorded` | да — M22 |
+| R-APPEAL-NO-DOUBLE-PUNISH | `apply_incident_resolution` при пересмотре после апелляции откатывает СВОЙ прошлый вклад перед повторным наложением — «оставлено в силе» не удваивает страйк, «отменено» снимает паузу полностью | `backend/tests/test_audit_hardening.py::test_appeal_upheld_does_not_double_punish`, `::test_appeal_overturned_removes_strike`, `backend/tests/test_pause_reaches_tomorrows_ride.py` (апелляция возвращает `suspended_until=None`) | да — M25 |
+| R-SOS-OPEN-ON-PAUSE | `ensure_active`/`account_paused` НЕ закрывают SOS и завершение начатой поездки | `backend/tests/test_the_pause_does_not_take_away_defence.py::test_sos_на_паузе_работает`, `backend/tests/test_suspension_reaches_everywhere.py` (строка 372: `/sos` на паузе отвечает 200) | покрыто существующим набором; см. `routers/safety.py.md` — поломка потребовала бы ДОБАВИТЬ вызов `ensure_active`, которого там нет |
 
 ## Найденные ошибки
 
@@ -92,17 +93,25 @@
 `courier_id`, как и задумано). Доказательство: `backend/tests/walk/l3_1/test_l3_1_trip_really_happened_parcel.py`
 проходит на НЕИЗМЕНЁННОМ коде; мутация M1 (снять проверку `courier_id`) — KILLED.
 
+Независимое ревью подтвердило, что сам файл логически корректен (раздел 5.3 ревью: «совпадает
+с кодом, верно»); все находки N1–N8 лежат в `routers/safety.py`/`quality.py`. По итогам ревью
+добавлены только мутации на правила, которые ПОКРЫТЫ тестами, но раньше не были защищены
+нарочной поломкой (M22, M24, M25 — см. ниже).
+
 ## Проверка нарочной поломкой
 
 | ID | Что сломали | Тест | Результат |
 |---|---|---|---|
 | M1 | `trip_really_happened`: `return bool(p and p.courier_id)` → `return bool(p)` (доставка без курьера тоже считается встречей) | `test_l3_1_trip_really_happened_parcel.py::test_посылку_без_курьера_встречей_не_считаем` | KILLED |
 | M2 | `guard_own_evidence`: `if name and not is_own_evidence_name(...)​:` → `if False:` (проверка владения приватным фото отключена) | `test_audit_20260808.py::test_stranger_cannot_attach_and_read_someone_elses_photo` | KILLED |
+| M22 | `trip_really_happened`: финальный `return False` (без какой-либо привязки) → `return True` | `test_report_cannot_pause_a_stranger.py::test_stranger_report_does_not_pause_the_driver` | KILLED |
+| M24 | `trip_really_happened`: ветка брони — `return bool(b.confirmed_at) or ...` → `return True` (неподтверждённая бронь тоже встреча) | `test_the_punishment_reaches_the_right_person.py::test_встреча_засчитывается_по_встречному_шагу` | KILLED |
+| M25 | `apply_incident_resolution`: `prof.strikes = max(0, prof.strikes - 1)` → no-op (откат страйка при пересмотре отключён) | `test_audit_hardening.py::test_appeal_upheld_does_not_double_punish` | KILLED |
 
 (M5, тоже проверяющая экспорт `have_met` этого файла, числится в `routers/safety.py` — там же
 находится изменённая строка `знакомы = ...`.) Полный прогон:
-`python tools/audit_mutation.py replay --spec docs/audit-mutations/leaf-3.1.json` (из корня) —
-сводный итог в карточке `routers/safety.py`.
+`python tools/audit_mutation.py --root . replay --spec docs/audit-mutations/leaf-3.1.json`
+(из корня MAIN) → сводный итог в карточке `routers/safety.py`.
 
 ## Остаток и ограничения
 

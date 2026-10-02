@@ -109,18 +109,31 @@ def _order_for_participant(session: Session, order_id: int, user: User) -> Insta
     return order
 
 
+def _нажал_заказчик(order, нажал_id: int) -> bool:
+    """«Для другого» значит ТОЛЬКО когда сигнал подал тот, кто заказывал поездку для мамы/бабушки.
+
+    N2 (независимое ревью). Такси может вызвать себе и сам водитель — у него тоже есть кнопка
+    SOS в активном заказе. Поля `for_name`/`for_phone` при этом всё ещё заполнены (это данные
+    заказа, а не того, кто сейчас жмёт кнопку). Без этой проверки сигнал бедствия ВОДИТЕЛЯ
+    подменялся сигналом «за маму»: его близким уходили чужие имя и телефон пассажирки, а
+    место брали с трека машины вместо GPS самого водителя — ровно наоборот тому, что нужно."""
+    return bool(order) and order.passenger_id == нажал_id
+
+
 def _кто_в_беде(order, нажал: User) -> str:
-    """Чьё имя уйдёт близким. Обычно — того, кто нажал; в заказе «для другого» — того, кого везут.
+    """Чьё имя уйдёт близким. Обычно — того, кто нажал; в заказе «для другого» — того, кого везут,
+    но ТОЛЬКО если нажал сам заказчик (см. `_нажал_заказчик`, N2).
 
     Сын из Уфы вызывает такси маме в Баймаке — это рабочий сценарий, поле `for_name` для него
     и заведено. Мама звонит: «везут не туда», сын жмёт SOS. Близкие получали «СЫН просит
     срочной помощи», хотя сын дома и в безопасности, а в машине мама (волна 192).
     """
-    если_везут_другого = (getattr(order, "for_name", "") or "").strip() if order else ""
+    если_везут_другого = ((getattr(order, "for_name", "") or "").strip()
+                          if _нажал_заказчик(order, нажал.id) else "")
     return если_везут_другого or (нажал.name or нажал.phone or "")
 
 
-def _место_беды(order, booking_id, нажал_lat, нажал_lng) -> tuple:
+def _место_беды(order, booking_id, нажал_lat, нажал_lng, нажал_id: "int | None" = None) -> tuple:
     """Где человек, которому нужна помощь. Возврат: (lat, lng) или (None, None).
 
     Раньше брали координаты ТОГО ТЕЛЕФОНА, ЧТО НАЖАЛ. Для обычной поездки это правильно —
@@ -128,11 +141,18 @@ def _место_беды(order, booking_id, нажал_lat, нажал_lng) -> t
     близкие получали ссылку на Уфу, пока мама ехала под Баймаком, и ехали за триста
     километров не туда (волна 192).
 
-    Место берём у МАШИНЫ (её позицию сервер знает по живому треку поездки). Нет свежей
-    позиции — не пишем НИЧЕГО: сигнал без места честнее сигнала с чужим местом.
+    Место берём у МАШИНЫ (её позицию сервер знает по живому треку поездки) — но ТОЛЬКО когда
+    нажал сам заказчик (N2, независимое ревью): если кнопку нажал ВОДИТЕЛЬ того же заказа,
+    место беды — это ОН, и брать нужно его собственный GPS, а не трек машины (это его же
+    трек, но подмена рушит саму логику «место беды = где человек, а не где телефон»).
+
+    Нет свежей позиции — не пишем НИЧЕГО: сигнал без места честнее сигнала с чужим местом.
     """
     from ..livepos import livepos_get
-    везут_другого = bool(order and ((order.for_name or "").strip() or (order.for_phone or "").strip()))
+    # Безопасный дефолт: без явного id нажавшего считаем, что «для другого» НЕ действует
+    # (берём GPS из тела запроса, не трек машины) — тихая подмена опаснее отсутствия адреса.
+    заказ_для_другого = bool(order and ((order.for_name or "").strip() or (order.for_phone or "").strip()))
+    везут_другого = заказ_для_другого and нажал_id is not None and order.passenger_id == нажал_id
     if везут_другого and order is not None:
         поз = livepos_get("order", order.id)
         return (поз.get("lat"), поз.get("lng")) if поз else (None, None)
@@ -151,13 +171,14 @@ def _место_беды(order, booking_id, нажал_lat, нажал_lng) -> t
 
 
 def _телефон_в_беде(order, нажал: User) -> str:
-    """Номер того, кому надо звонить, — ТОЛЬКО в заказе «для другого».
+    """Номер того, кому надо звонить, — ТОЛЬКО в заказе «для другого», и ТОЛЬКО когда нажал
+    сам заказчик (`_нажал_заказчик`, N2). Нажал водитель — чужой номер его близким не идёт.
 
     Свой номер близкие знают наизусть, писать его им незачем. А номер мамы, которую везут,
     они видят впервые: его вписал сын при заказе, и без него «свяжитесь скорее» — совет
     без адреса.
     """
-    if order is None:
+    if not _нажал_заказчик(order, нажал.id):
         return ""
     чужой = (getattr(order, "for_phone", "") or "").strip()
     return чужой if чужой and чужой != (нажал.phone or "") else ""
@@ -206,10 +227,25 @@ def _текст_сигнала(*, кто: str, время: str, телефон: 
 
 @router.post("/sos")
 def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    # N5 (независимое ревью). Раньше проверка брони/заказа стояла ДО записи сигнала: чужой
+    # или удалённый booking_id/order_id (403/404) означал, что SosEvent вообще не создавался —
+    # ни Telegram дежурному, ни SMS близким, эскалатору нечего повторять. Красная кнопка не
+    # имеет права отказывать из-за неверной привязки: пишем сигнал ВСЕГДА, а чужой контекст
+    # (не свою машину, не чужой маршрут) просто не берём и помечаем в событии.
     ride = None
+    отклонено: list[str] = []
     if body.booking_id is not None:
-        _, ride = booking_and_ride_for_user(session, body.booking_id, user)
-    order = _order_for_participant(session, body.order_id, user) if body.order_id is not None else None
+        try:
+            _, ride = booking_and_ride_for_user(session, body.booking_id, user)
+        except HTTPException:
+            отклонено.append(f"бронь #{body.booking_id} не подошла")
+    order = None
+    if body.order_id is not None:
+        try:
+            order = _order_for_participant(session, body.order_id, user)
+        except HTTPException:
+            отклонено.append(f"заказ #{body.order_id} не подошёл")
+    эфф_booking_id = body.booking_id if ride is not None else None
     # Сколько SOS уже было за последний час (ДО записи нового) — для кепа SMS.
     recent = session.exec(
         select(SosEvent).where(
@@ -218,11 +254,18 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     ).all()
     # Место кладём в ТЕКСТ события (как у «застрял»): отдельной колонки под координаты нет,
     # а заводить её ради ссылки — миграция ради ссылки. В stdout координаты НЕ пишем (152-ФЗ).
-    место_lat, место_lng = _место_беды(order, body.booking_id, body.lat, body.lng)
+    место_lat, место_lng = _место_беды(order, эфф_booking_id, body.lat, body.lng, user.id)
     link = _maps_link(место_lat, место_lng)
     where = f" Место: {link}" if link else ""
     fields = body.model_dump(exclude={"lat", "lng"})
-    fields["note"] = (fields.get("note") or "").strip() + where
+    # Чужая/несуществующая привязка не идёт в событие как своя (не угнать чужую машину/
+    # маршрут в SMS), но сам факт попытки остаётся в note — для админа.
+    fields["booking_id"] = эфф_booking_id
+    fields["order_id"] = order.id if order is not None else None
+    note = (fields.get("note") or "").strip()
+    if отклонено:
+        note = (note + " [" + "; ".join(отклонено) + "]").strip()
+    fields["note"] = note + where
     event = SosEvent(user_id=user.id, **fields)
     session.add(event)
     session.commit()                 # событие фиксируем СИНХРОННО (жизнь дороже) — данные не теряются
@@ -285,7 +328,7 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
         f"{ride_line}"
         f"Контактов уведомлено (SMS): {notified}"
         f"{' — канал SMS молчит, близким никто не написал' if (notified == 0 and phones_all) else ''}\n"
-        f"Детали: {body.note or '—'}{where}"
+        f"Детали: {note or '—'}{where}"
     )
     # 🌙 SMS админу вдобавок к Telegram. Раньше весь ночной контур безопасности сводился к
     # ОДНОМУ сообщению в Telegram: админ спит — никто не узнает, что сигнал вообще был
@@ -381,11 +424,24 @@ def admin_sos_list(status: str = "open", limit: int = 100,
     return out
 
 
+#: Двойное нажатие красной кнопки (или повтор после обрыва связи) пишет ДВА независимых
+#: события — и это правильно (жизнь дороже дедупа на входе). Но без склейки на выходе
+#: дежурный принимает первое, а второе час шлёт ему «SOS НЕ ПРИНЯТ» — ложная тревога по
+#: уже разобранному случаю (N4, независимое ревью). Окно — то же, что у winter-эскалации:
+#: «событие того же человека рядом по времени» = тот же случай, пока не доказано обратное.
+SOS_DUPLICATE_WINDOW_MIN = 15
+
+
 @router.post("/admin/sos/{event_id}/handle")
 def admin_sos_handle(event_id: int, body: SosHandleIn | None = None,
                      user: User = Depends(current_user), session: Session = Depends(get_session)):
     """«Принял» — сигнал взят в работу: кто, когда, что сделал. Без этой отметки нельзя было
-    отличить разобранный SOS от потерянного, и авто-эскалация была невозможна."""
+    отличить разобранный SOS от потерянного, и авто-эскалация была невозможна.
+
+    Заодно закрывает ДУБЛИ того же человека в окне ±`SOS_DUPLICATE_WINDOW_MIN` минут (N4):
+    двойное нажатие или повтор после обрыва связи создают отдельные события, и без склейки
+    дежурный, уже принявший один сигнал, ещё час получает «SOS НЕ ПРИНЯТ» по второму —
+    тому же самому случаю."""
     if user.role != UserRole.admin:
         raise HTTPException(403, "Только для админа")
     e = session.get(SosEvent, event_id)
@@ -393,14 +449,32 @@ def admin_sos_handle(event_id: int, body: SosHandleIn | None = None,
         raise herr(404, "Событие не найдено", "Ваҡиға табылманы")
     if e.status == "handled":
         return {"ok": True, "already": True, "status": e.status}
+    note = ((body.note if body else "") or "").strip()[:500]
     e.status = "handled"
     e.handled_at = utcnow()
     e.handled_by = user.id
-    e.handled_note = ((body.note if body else "") or "").strip()[:500]
+    e.handled_note = note
     session.add(e)
+    dup_ids: list[int] = []
+    window = timedelta(minutes=SOS_DUPLICATE_WINDOW_MIN)
+    dups = session.exec(select(SosEvent).where(
+        SosEvent.user_id == e.user_id,
+        SosEvent.id != e.id,
+        SosEvent.status == "open",
+        SosEvent.created_at >= e.created_at - window,
+        SosEvent.created_at <= e.created_at + window,
+    )).all()
+    for d in dups:
+        d.status = "handled"
+        d.handled_at = e.handled_at
+        d.handled_by = user.id
+        d.handled_note = (note + f" (закрыт вместе с #{e.id})").strip()
+        session.add(d)
+        dup_ids.append(d.id)
     session.commit()
-    admin_action(user.id, "sos.handle", event_id=event_id, target_user=e.user_id)
-    return {"ok": True, "status": e.status, "handled_at": e.handled_at}
+    admin_action(user.id, "sos.handle", event_id=event_id, target_user=e.user_id,
+                closed_duplicates=len(dup_ids) or None)
+    return {"ok": True, "status": e.status, "handled_at": e.handled_at, "closed_with": dup_ids}
 
 
 class CallbackIn(BaseModel):
@@ -478,6 +552,23 @@ class ReportOut(BaseModel):
     booking_id: Optional[int] = None
     parcel_id: Optional[int] = None   # C2: спор по доставке (category=parcel_dispute)
     target_user_id: Optional[int] = None
+
+
+def _guard_single_link(body: ReportIn) -> None:
+    """Ровно ОДНА привязка к поездке/заказу/доставке — не несколько сразу (N7, независимое
+    ревью).
+
+    `ReportIn` принимает `order_id`, `booking_id` и `parcel_id` одновременно, и раньше все три
+    сохранялись в саму жалобу. Но четыре функции, которые их потом читают (вторая сторона,
+    «не заплатил», дедуп, «была ли встреча»), разбирают привязки в РАЗНОМ порядке и проверяют
+    участие только для ПЕРВОЙ попавшейся — вторая и третья остаются непроверенными и потом
+    используются побочками разбора (списание/возврат комиссии, страйк пассажиру) там, где
+    стороны никогда не пересекались. Как у `TripShare` — ровно один из трёх, иначе понятный
+    отказ сразу, а не тихая порча чужих данных позже."""
+    links = [x for x in (body.order_id, body.booking_id, body.parcel_id) if x is not None]
+    if len(links) > 1:
+        raise herr(400, "Жалоба может ссылаться только на ОДНУ поездку, заказ или доставку — не на несколько сразу",
+                   "Ялыу тик БЕР сәфәргә, заказҡа йәки илтеүгә генә һылтана ала — бер нисәүһенә түгел")
 
 
 def _report_counterparty(session: Session, user: User, body: ReportIn) -> int:
@@ -650,6 +741,13 @@ def _dedup_report(session: Session, user: User, body: ReportIn, target_id: int) 
         conds.append(Report.order_id == body.order_id)
     elif body.booking_id is not None:
         conds.append(Report.booking_id == body.booking_id)
+    elif body.parcel_id is not None:
+        # N6 (независимое ревью): без этой ветки доставка проваливалась в «без привязки,
+        # окно суток» — курьер, которому не заплатили по ДВУМ разным посылкам одного
+        # отправителя в один день, получал за вторую жалобу идемпотентный возврат ПЕРВОЙ:
+        # комиссия за вторую посылку оставалась списанной, а «получатель рассчитался» —
+        # не снималось. Вопреки собственному докстрингу функции («по разным поездкам можно»).
+        conds.append(Report.parcel_id == body.parcel_id)
     else:
         conds.append(Report.created_at >= utcnow() - timedelta(days=1))
     return session.exec(select(Report).where(*conds).order_by(Report.id.desc())).first()
@@ -691,6 +789,7 @@ def create_report(body: ReportIn,
     категорией БЕЗ автора; тяжёлая категория → мгновенно админу + пауза такси до разбора.
     B8-7: category=unpaid с привязкой — кнопка «Пассажир не заплатил» (только водитель,
     только done, дедуп на заказ/бронь; страйк пассажиру через механику B3/B5)."""
+    _guard_single_link(body)
     target_id = _report_counterparty(session, user, body)
     if body.target_user_id is not None and body.target_user_id != target_id:
         raise herr(400, "Цель жалобы не совпадает со второй стороной поездки", "Ялыу кемгә тигәне сәфәрҙең икенсе яғы менән тап килмәй")
@@ -746,9 +845,18 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
     True — оставляет (таймерная пауза quality_pause_hours)."""
     if user.role != UserRole.admin:
         raise HTTPException(403, "Только для админа")
-    r = session.get(Report, report_id)
+    # N8 (независимое ревью): блокируем строку ДО проверки статуса — на PostgreSQL второй
+    # одновременный клик дождётся commit первого и увидит уже terminal-статус, а не повторит
+    # побочки (повторный пуш, повторная пауза, повторный возврат комиссии). На SQLite
+    # `with_for_update` — no-op, но последовательную идемпотентность это не портит.
+    r = session.exec(select(Report).where(Report.id == report_id).with_for_update()).first()
     if not r:
         raise herr(404, "Жалоба не найдена", "Ялыу табылманы")
+    if r.status in ("resolved", "rejected"):
+        # Повторное «подтвердить/отклонить» — идемпотентно: решение уже принято, побочки
+        # (пуши, паузы, списания/возвраты комиссии) не повторяем. Сменить resolved↔rejected
+        # эта ручка больше не умеет — это отдельное осознанное действие, не повторный клик.
+        return _admin_report_out(session, r)
     r.status = "resolved"
     r.resolution = body.resolution or r.resolution
     r.resolved_at = utcnow()
@@ -762,11 +870,45 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                  target_user=r.target_user_id, category=r.category)
     if r.category in quality.SEVERE_CATEGORIES and r.target_user_id is not None:
         if body.keep_pause:
-            # Оставить: «до разбора» → честная таймерная пауза (не вечная).
-            quality.unpause_taxi(session, r.target_user_id)
-            quality.pause_taxi(session, r.target_user_id,
-                               hours=quality.settings.quality_pause_hours,
-                               reason=quality.PAUSE_REASON_REPORTS)
+            # «Оставить»: подтверждённая тяжёлая жалоба не должна ОСЛАБИТЬ наказание (N1,
+            # независимое ревью). Старый код звал unpause_taxi() + pause_taxi(72ч,
+            # reason="reports") — тройная дыра:
+            #   1) курьерская дверь (`quality.under_severe_review`) смотрит ТОЛЬКО на
+            #      reason=="review" — смена причины на "reports" открывала платную доставку
+            #      в ту же минуту, хотя опасное вождение только что подтвердили;
+            #   2) unpause_taxi() стирает ЛЮБУЮ паузу безусловно — вторая, ещё не разобранная
+            #      тяжёлая жалоба или более длинная ручная пауза админа слетали к 72 часам;
+            #   3) unpause_taxi() сам шлёт «Такси снова доступно — пауза снята», хотя она
+            #      остаётся — водитель читает «можно работать» и упирается в 403.
+            # Правка: причину НЕ меняем (дверь остаётся закрытой весь срок), трогаем только
+            # СВОЮ "review"-паузу, и только если других нерешённых тяжёлых жалоб на цель нет.
+            prof = session.exec(select(DriverProfile).where(
+                DriverProfile.user_id == r.target_user_id)).first()
+            other_open_severe = session.exec(select(Report.id).where(
+                Report.target_user_id == r.target_user_id,
+                Report.id != r.id,
+                Report.status.in_(["new", "reviewing"]),
+                Report.category.in_(quality.SEVERE_CATEGORIES),
+            )).first()
+            if (prof is not None and prof.taxi_pause_reason == quality.PAUSE_REASON_REVIEW
+                    and other_open_severe is None):
+                short_until = utcnow() + timedelta(hours=quality.settings.quality_pause_hours)
+                if prof.taxi_paused_until is None or prof.taxi_paused_until > short_until:
+                    prof.taxi_paused_until = short_until
+                    session.add(prof)
+                    session.commit()
+                    h = quality.settings.quality_pause_hours
+                    push_notification(
+                        session, r.target_user_id, "safety",
+                        "Такси на паузе", "Такси паузала",
+                        f"Жалоба подтверждена. Такси на паузе ещё {h} ч. "
+                        "Попутка работает как обычно 💚",
+                        f"Ялыу раҫланды. Такси тағы {h} сәғәт паузала. "
+                        "Юлдаш ғәҙәттәгесә эшләй 💚",
+                        ref_kind="debt", ref_id=r.target_user_id,
+                    )
+            # Иначе: пауза не наша (admin/reports) или длиннее, или есть ещё одна открытая
+            # тяжёлая жалоба — «оставить» и значит ничего не трогать.
         else:
             quality.maybe_release_review_pause(session, r.target_user_id)
     # 💸 «Пассажир не заплатил» подтверждена → снимаем с водителя комиссию за ЭТУ поездку.
@@ -860,9 +1002,13 @@ def admin_reject_report(report_id: int, body: ResolveIn | None = None,
     нет — пауза разбора снимается (отклонили → не наказываем)."""
     if user.role != UserRole.admin:
         raise HTTPException(403, "Только для админа")
-    r = session.get(Report, report_id)
+    # N8: тот же замок и та же идемпотентность, что у resolve — повторный «отклонить»
+    # (включая отклонение уже подтверждённой жалобы) не повторяет побочки.
+    r = session.exec(select(Report).where(Report.id == report_id).with_for_update()).first()
     if not r:
         raise herr(404, "Жалоба не найдена", "Ялыу табылманы")
+    if r.status in ("resolved", "rejected"):
+        return _admin_report_out(session, r)
     r.status = "rejected"
     if body is not None and body.resolution:
         r.resolution = body.resolution
@@ -1056,8 +1202,15 @@ def roadside_help(
 ):
     """«Я застрял / нужна помощь на трассе» — уровень мягче паники SOS, но реальный: координаты
     уходят доверенным контактам, событие пишется в SOS-ленту админа. Доступно только участнику поездки."""
-    booking_and_ride_for_user(session, booking_id, user)   # 403/404 если чужой/нет брони
-    return _roadside(session, background, user, body, booking_id=booking_id)
+    эфф_booking_id = booking_id
+    try:
+        booking_and_ride_for_user(session, booking_id, user)   # 403/404 если чужой/нет брони
+    except HTTPException:
+        # N5 (независимое ревью): чужая/несуществующая бронь не должна стоить человеку
+        # сигнала «нужна помощь» — пишем его без привязки, а не молчим вовсе.
+        эфф_booking_id = None
+        body.note = (body.note + f" [бронь #{booking_id} не подошла]").strip()
+    return _roadside(session, background, user, body, booking_id=эфф_booking_id)
 
 
 @router.post("/instant/orders/{order_id}/stuck")
@@ -1071,8 +1224,13 @@ def roadside_help_order(
     """То же для ТАКСИ-заказа. Зимний протокол работал только для попуток, хотя именно в такси
     зимой четыре часа трассы Сибай–Уфа: застрявшему в такси идти было некуда, кроме красной
     кнопки SOS (аудит 2026-07-26). Доступно обеим сторонам заказа."""
-    _order_for_participant(session, order_id, user)   # общий гейт участия (404/403), не дублируем
-    return _roadside(session, background, user, body, order_id=order_id)
+    эфф_order_id = order_id
+    try:
+        _order_for_participant(session, order_id, user)   # общий гейт участия (404/403), не дублируем
+    except HTTPException:
+        эфф_order_id = None   # N5: чужой/несуществующий заказ не топит сигнал
+        body.note = (body.note + f" [заказ #{order_id} не подошёл]").strip()
+    return _roadside(session, background, user, body, order_id=эфф_order_id)
 
 
 @router.post("/parcels/{parcel_id}/stuck")
@@ -1092,13 +1250,13 @@ def roadside_help_parcel(
     от нас, а не через неделю от получателя."""
     from ..models import ParcelDelivery
     parcel = session.get(ParcelDelivery, parcel_id)
-    if not parcel:
-        raise herr(404, "Посылка не найдена", "Бандероль табылманы")
-    is_sender = user.id == parcel.sender_id
-    is_courier = parcel.courier_id is not None and user.id == parcel.courier_id
+    is_sender = bool(parcel) and user.id == parcel.sender_id
+    is_courier = bool(parcel) and parcel.courier_id is not None and user.id == parcel.courier_id
     if not (is_sender or is_courier):
-        raise herr(403, "Ты не участник этой доставки",
-                   "Һин был доставканың ҡатнашыусыһы түгел")
+        # N5 (независимое ревью): чужая/несуществующая доставка не должна стоить человеку
+        # сигнала. Раньше 403/404 здесь означали, что SosEvent вообще не создавался.
+        body.note = (body.note + f" [доставка #{parcel_id} не подошла]").strip()
+        return _roadside(session, background, user, body, parcel_id=None)
 
     event = _roadside(session, background, user, body, parcel_id=parcel_id)
 
@@ -1287,11 +1445,30 @@ def _winter_run(
     )
 
 
-def _winter_ack(session: Session, obj) -> dict:
-    """«Я доехал» — гасит эскалацию. Идемпотентно: повторный тап ничего не портит."""
+def _winter_ack(session: Session, obj, *, kind: str, obj_id: int, watch_user_id: int) -> dict:
+    """«Я доехал» — гасит эскалацию. Идемпотентно: повторный тап ничего не портит.
+
+    N3 (независимое ревью). Тревога зимнего протокола — это тоже `SosEvent` (ставит
+    `winter_escalate.escalate_now`), и этот метод раньше её не закрывал: человек отмечался
+    сам через 5 минут после того, как близким уже ушла SMS, а дежурному в Telegram ещё час
+    шёл повтор «SOS НЕ ПРИНЯТ» по случаю, который уже решился. В админке при этом не было
+    видно, что человек на связи. Теперь «доехал(а)» закрывает именно ЭТО событие — по тому
+    же префиксу note, которым `escalate_now` защищается от повторной отправки."""
     if obj.winter_check_ack_at is None:
         obj.winter_check_ack_at = utcnow()
         session.add(obj)
+        session.commit()
+    from ..winter_escalate import _winter_identity_pattern
+    alarm = session.exec(select(SosEvent).where(
+        SosEvent.user_id == watch_user_id,
+        SosEvent.status == "open",
+        SosEvent.note.like(_winter_identity_pattern(kind, obj_id)),
+    ).limit(1)).first()
+    if alarm is not None:
+        alarm.status = "handled"
+        alarm.handled_at = utcnow()
+        alarm.handled_note = "Человек отметился сам («доехал(а)») — тревога больше не актуальна."
+        session.add(alarm)
         session.commit()
     return {"ok": True}
 
@@ -1340,7 +1517,8 @@ def winter_check_ack(
     if user.id != booking.passenger_id:
         raise herr(403, "Отметить «я доехала» может только пассажир",
                    "«Мин барып еттем» тип тик юлсы ғына билдәләй ала")
-    return _winter_ack(session, booking)
+    return _winter_ack(session, booking, kind="booking", obj_id=booking_id,
+                       watch_user_id=booking.passenger_id)
 
 
 @router.post("/instant/orders/{order_id}/winter-check")
@@ -1387,7 +1565,8 @@ def winter_check_order_ack(
     if user.id != order.passenger_id:
         raise herr(403, "Отметить «я доехал» может только пассажир",
                    "«Мин барып еттем» тип тик юлсы ғына билдәләй ала")
-    return _winter_ack(session, order)
+    return _winter_ack(session, order, kind="order", obj_id=order_id,
+                       watch_user_id=order.passenger_id)
 
 
 @router.post("/parcels/{parcel_id}/winter-check")
@@ -1440,4 +1619,5 @@ def winter_check_parcel_ack(
     if parcel.courier_id is None or user.id != parcel.courier_id:
         raise herr(403, "Отметить может только курьер этой доставки",
                    "Тик был доставканың курьеры ғына билдәләй ала")
-    return _winter_ack(session, parcel)
+    return _winter_ack(session, parcel, kind="parcel", obj_id=parcel_id,
+                       watch_user_id=parcel.courier_id)

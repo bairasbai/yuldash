@@ -100,6 +100,204 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/test_sos_reminder_is_not_a_report.py::test_через_час_напоминания_прекращаются"]
+    },
+    {
+      "id": "M10",
+      "file": "backend/app/routers/safety.py",
+      "rule": "N1",
+      "description": "«Подтвердить и оставить паузу» перестаёт учитывать ВТОРУЮ, ещё не разобранную тяжёлую жалобу на того же водителя — укорачивает общую паузу «до разбора» к 72 часам, хотя жалоба B всё ещё ждёт живого человека.",
+      "find": "                    and other_open_severe is None):",
+      "replace": "                    and True):",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_n1_keep_pause.py::test_другая_открытая_тяжёлая_жалоба_не_даёт_укоротить_паузу"]
+    },
+    {
+      "id": "M11",
+      "file": "backend/app/routers/safety.py",
+      "rule": "N2",
+      "description": "«Для другого» в SOS снова включается для ЛЮБОГО участника заказа, не только для заказчика — водитель, нажавший SOS, снова отдаёт близким чужие имя и телефон пассажирки вместо своих.",
+      "find": "    return bool(order) and order.passenger_id == нажал_id",
+      "replace": "    return bool(order)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_n2_driver_presses_for_another.py::test_водитель_жмёт_sos_близким_уходит_его_имя_не_пассажирки"]
+    },
+    {
+      "id": "M12",
+      "file": "backend/app/routers/safety.py",
+      "rule": "N3",
+      "description": "«Я доехал(а)» перестаёт закрывать открытую тревогу зимнего протокола — дежурный ещё час после того, как человек сам отметился, получает «SOS НЕ ПРИНЯТ» по уже решённому случаю.",
+      "find": "    if alarm is not None:",
+      "replace": "    if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_n3_winter_ack_closes_alarm.py::test_доехал_закрывает_открытую_зимнюю_тревогу"]
+    },
+    {
+      "id": "M13",
+      "file": "backend/app/routers/safety.py",
+      "rule": "N4",
+      "description": "Окно склейки дублей SOS того же человека обнуляется — «Принял» перестаёт закрывать второй сигнал от двойного нажатия, и дежурный продолжает получать по нему ложные «SOS НЕ ПРИНЯТ».",
+      "find": "SOS_DUPLICATE_WINDOW_MIN = 15",
+      "replace": "SOS_DUPLICATE_WINDOW_MIN = 0",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_n4_sos_duplicate_handle.py::test_принял_закрывает_дубль_того_же_человека_рядом_по_времени"]
+    },
+    {
+      "id": "M14",
+      "file": "backend/app/routers/safety.py",
+      "rule": "N5",
+      "description": "/sos снова теряет сигнал при чужой/несуществующей брони: отказ участия пробрасывается наружу (403/404) ДО записи события — SosEvent не создаётся вовсе, Telegram и SMS не уходят.",
+      "find": "        except HTTPException:\n            отклонено.append(f\"бронь #{body.booking_id} не подошла\")",
+      "replace": "        except HTTPException:\n            raise",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_safety_edges.py::test_sos_booking_access_is_limited_to_trip_participants"]
+    },
+    {
+      "id": "M15",
+      "file": "backend/app/routers/safety.py",
+      "rule": "N6",
+      "description": "Дедуп жалобы снова не учитывает parcel_id — вторая жалоба «не заплатили» по ДРУГОЙ посылке того же отправителя в тот же день молча склеивается с первой, курьер теряет возврат комиссии за вторую доставку.",
+      "find": "        conds.append(Report.parcel_id == body.parcel_id)",
+      "replace": "        pass",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_n6_n7_report_single_link.py::test_две_разные_посылки_в_день_дают_две_жалобы_и_два_возврата"]
+    },
+    {
+      "id": "M16",
+      "file": "backend/app/routers/safety.py",
+      "rule": "N7",
+      "description": "Жалоба снова принимает НЕСКОЛЬКО привязок сразу (order_id+booking_id+parcel_id) — проверяется участие только для первой по порядку, вторая/третья остаются непроверенными и используются побочками разбора против чужой доставки/брони.",
+      "find": "    if len(links) > 1:",
+      "replace": "    if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_n6_n7_report_single_link.py::test_заказ_плюс_чужая_доставка_отклоняется_400"]
+    },
+    {
+      "id": "M18",
+      "file": "backend/app/routers/safety.py",
+      "rule": "N8-idempotent",
+      "description": "/admin/reports/{id}/reject перестаёт быть идемпотентным на уже решённой жалобе — повторный клик (или reject после resolve) заново шлёт пуши и трогает паузу/комиссию, а не возвращает текущее состояние.",
+      "find": "    if r.status in (\"resolved\", \"rejected\"):\n        return _admin_report_out(session, r)",
+      "replace": "    if False:\n        return _admin_report_out(session, r)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_n8_resolve_idempotent.py::test_отклонить_после_подтвердить_не_отменяет_возврат"]
+    },
+    {
+      "id": "M19",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-SOS-UFA-TIME",
+      "description": "SMS близким снова считает время как сырой UTC сервера вместо местного (Уфа, UTC+5) — ночной сигнал промаркирован временем на 5 часов в будущем относительно часов получателя.",
+      "find": "        местное = (utcnow() + timedelta(hours=settings.local_tz_offset_hours)).strftime(\"%H:%M\")",
+      "replace": "        местное = (utcnow() + timedelta(hours=0)).strftime(\"%H:%M\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_ufa_time.py::test_sos_family_sms_also_states_ufa_time_not_utc"]
+    },
+    {
+      "id": "M20",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-SOS-WHERE",
+      "description": "Ссылка на место в SOS перестаёт строиться вовсе — близкие знают, что беда, но не знают, куда ехать.",
+      "find": "    link = _maps_link(место_lat, место_lng)",
+      "replace": "    link = \"\"",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_sos_tells_where.py::test_sos_sms_to_family_carries_map_link"]
+    },
+    {
+      "id": "M21",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-SOS-HONEST-COUNT",
+      "description": "contacts_notified снова считается длиной списка контактов, а не тем, скольким реально дойдёт SMS — человек в беде читает «двоим отправлено», хотя канал SMS молчит и не дошло никому (волна 184).",
+      "find": "        notified = sms_will_reach(phones)",
+      "replace": "        notified = len(phones)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_sos_tells_the_truth_about_contacts.py::test_sos_counts_only_what_the_channel_will_deliver"]
+    },
+    {
+      "id": "M22",
+      "file": "backend/app/safety_logic.py",
+      "rule": "R-REPORT-NO-STRANGER-PAUSE",
+      "description": "trip_really_happened без какой-либо привязки (booking/order/parcel все None) начинает считать «встречу состоявшейся» — тяжёлая жалоба без поездки снова ставит авто-паузу такси постороннему водителю.",
+      "find": "        return bool(p and p.courier_id)\n    return False",
+      "replace": "        return bool(p and p.courier_id)\n    return True",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_report_cannot_pause_a_stranger.py::test_stranger_report_does_not_pause_the_driver"]
+    },
+    {
+      "id": "M23",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-REPORT-RATE",
+      "description": "Потолок новых жалоб в час практически снимается — один вошедший снова может завалить незнакомцев десятками жалоб и шумом админу.",
+      "find": "MAX_REPORTS_PER_HOUR = 10",
+      "replace": "MAX_REPORTS_PER_HOUR = 10000",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_audit_20260808.py::test_reports_have_a_ceiling_per_person"]
+    },
+    {
+      "id": "M24",
+      "file": "backend/app/safety_logic.py",
+      "rule": "R-TRIP-BOOKING/ORDER",
+      "description": "trip_really_happened(booking_id=...) перестаёт требовать подтверждение водителем — одностороннего тапа «Забронировать» (без confirmed_at) снова достаточно для авто-наказания постороннего.",
+      "find": "        return bool(b.confirmed_at) or b.status in (\n            BookingStatus.confirmed, BookingStatus.onboard, BookingStatus.done)",
+      "replace": "        return True",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_the_punishment_reaches_the_right_person.py::test_встреча_засчитывается_по_встречному_шагу"]
+    },
+    {
+      "id": "M25",
+      "file": "backend/app/safety_logic.py",
+      "rule": "R-APPEAL-NO-DOUBLE-PUNISH",
+      "description": "Пересмотр спора после апелляции перестаёт откатывать СВОЙ прошлый страйк перед повторным наложением — «оставлено в силе» задваивает наказание за один и тот же спор.",
+      "find": "        prof.strikes = max(0, prof.strikes - 1)",
+      "replace": "        prof.strikes = prof.strikes",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_audit_hardening.py::test_appeal_upheld_does_not_double_punish"]
+    },
+    {
+      "id": "M26",
+      "file": "backend/app/sos_escalate.py",
+      "rule": "R4",
+      "description": "Повторные напоминания перестают выдерживать интервал между собой — снимается 10-минутное окно между повторами, и дежурный может получать напоминание по тому же сигналу на каждом тике воркера подряд.",
+      "find": "                and_(SosEvent.escalated_at <= edge,",
+      "replace": "                and_(SosEvent.escalated_at.is_not(None),",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_unanswered_sos_calls_again.py::test_повтор_ровно_один"]
+    },
+    {
+      "id": "M27",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-WINTER-SHARE-ONLY",
+      "description": "Зимний протокол по попутке начинает звать ВСЕ доверенные контакты пассажира, а не только тех, кому он расшарил именно эту поездку — шаринг переставал бы быть сигналом «меня ждут», звоним кому попало из адресной книги.",
+      "find": "    shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id)).all()\n    contact_ids = [sh.contact_id for sh in shares if sh.contact_id]",
+      "replace": "    shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id)).all()\n    contact_ids = [c.id for c in session.exec(select(TrustedContact).where(TrustedContact.user_id == booking.passenger_id)).all()]",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_coverage_gaps.py::test_зимний_протокол_не_зовёт_контакт_которому_не_расшарили"]
+    },
+    {
+      "id": "M28",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-WINTER-ACK-OWNER",
+      "description": "«Я доехала» по попутке снова может подтвердить любой участник (включая водителя), не только пассажир — ровно тот человек, от которого эта защита и стоит, может погасить тревогу за пассажирку.",
+      "find": "    if user.id != booking.passenger_id:",
+      "replace": "    if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_coverage_gaps.py::test_доехал_может_отметить_только_пассажир_не_водитель"]
     }
   ]
 }
