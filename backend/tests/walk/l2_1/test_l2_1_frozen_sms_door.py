@@ -1,0 +1,228 @@
+"""Лист 2.1, Б-1 (независимое ревью, блокер — живёт на боевом сервере).
+
+В проде `sms_provider=mock` по умолчанию (`config.py`) — реальных SMS никто не шлёт, вход идёт
+через мессенджер. Раньше `request_code` писал код в базу и коммитил его ДО звонка `send_sms`:
+человеку канал отвечал 503, а код на 5 минут уже лежал в базе, и `/auth/verify` его честно
+принимал. Бюджет попыток считал только ЖИВЫЕ коды — истекли за 5 минут, счётчик обнулился,
+дальше ограничивала только выдача новых кодов (3/минуту на номер) — то есть ~15 попыток/5мин
+и ~4300 попыток в сутки на номер. Шанс подобрать шестизначный код конкретному номеру — заметный
+за месяц. Худший случай — номер из `ADMIN_PHONES`: угаданный код сразу даёт права администратора
+(видит сигналы SOS с координатами, документы водителей, все телефоны).
+
+Три независимые проверки:
+1. Код не остаётся в базе живым, если SMS объективно не могла уйти (прод + канал заморожен).
+2. `/auth/verify` отказывает по SMS-коду, пока канал заморожен, — даже если код всё же лежит
+   в базе (старая версия, сбойный фон, окно между выдачей и обрывом канала).
+3. Долгая (24-часовая) память не даёт обойти защиту, просто дождавшись, пока старые коды истекут,
+   и запросив новый.
+"""
+from __future__ import annotations
+
+from datetime import timedelta
+
+from sqlmodel import Session, select
+
+from app.config import settings
+from app.db import engine
+from app.models import OtpCode
+from app.routers import auth
+from app.timeutil import utcnow
+
+
+def _freeze_prod_sms(monkeypatch) -> None:
+    """Прод + провайдер по умолчанию (mock) — канал объективно не может доставить SMS."""
+    monkeypatch.setattr(settings, "env", "prod", raising=False)
+    monkeypatch.setattr(settings, "sms_provider", "mock", raising=False)
+
+
+def test_request_code_does_not_leave_a_live_code_when_the_channel_is_frozen(client, monkeypatch):
+    phone = "+79995550001"
+    _freeze_prod_sms(monkeypatch)
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 503, r.text
+    detail = r.json()["detail"]
+    assert detail.get("ru") and detail.get("ba"), f"отказ не на двух языках: {detail}"
+    with Session(engine) as s:
+        live = s.exec(select(OtpCode).where(
+            OtpCode.phone == phone, OtpCode.expires_at > utcnow(),
+        )).all()
+        assert live == [], (
+            f"код остался в базе живым, хотя человеку он не ушёл — его можно угадать: {live}"
+        )
+
+
+def test_verify_refuses_an_sms_code_while_the_channel_is_frozen_even_if_one_exists(client, monkeypatch):
+    phone = "+79995550002"
+    # Код мог оказаться в базе не через запрос-ручку (старая версия сервера, ручная вставка,
+    # сбойный фон) — защита обязана смотреть на ТЕКУЩЕЕ состояние канала, а не доверять тому,
+    # что раз код лежит в базе, значит он кому-то ушёл.
+    with Session(engine) as s:
+        s.add(OtpCode(phone=phone, code="135790", expires_at=utcnow() + timedelta(minutes=5)))
+        s.commit()
+    _freeze_prod_sms(monkeypatch)
+    r = client.post("/auth/verify", json={"phone": phone, "code": "135790"})
+    assert r.status_code == 503, (
+        f"код приняли при замороженном SMS-канале: {r.status_code} {r.text}"
+    )
+    detail = r.json()["detail"]
+    assert detail.get("ru") and detail.get("ba"), f"отказ не на двух языках: {detail}"
+    with Session(engine) as s:
+        # Отказ не должен тратить/гасить код: канал оживят — настоящий хозяин войдёт тем же кодом.
+        row = s.exec(select(OtpCode).where(OtpCode.phone == phone)).one()
+        assert row.code == "135790" and row.attempts == 0
+
+
+def test_daily_failure_budget_survives_code_expiry(client, monkeypatch):
+    """Короткий лимит (15 попыток за время жизни кодов — 5 минут) не единственная защита:
+    истощив много кодов подряд, подбирающий не обязан получить свежий бюджет вместе с новым
+    кодом. Сеем 100 уже исчерпанных попыток по ИСТЁКШИМ за последние сутки кодам — ровно то,
+    что реально осталось бы в базе от перебора (окно очистки веб-хука теперь переживает сутки,
+    см. правку `telegram_webhook`) — и проверяем, что verify отклоняет СВЕЖИЙ настоящий код,
+    заведённый напрямую в базе (request_code теперь и сам отказал бы раньше — см. отдельный
+    тест `test_request_code_itself_is_blocked_once_the_daily_budget_is_spent` — здесь же
+    проверяется САМОСТОЯТЕЛЬНАЯ защита verify, а не то, что срабатывает первым)."""
+    phone = "+79995550003"
+    now = utcnow()
+    with Session(engine) as s:
+        for i in range(20):
+            created = now - timedelta(hours=2, seconds=i)
+            s.add(OtpCode(phone=phone, code=f"{i:06d}", attempts=5,
+                          created_at=created, expires_at=created + timedelta(minutes=5)))
+        s.add(OtpCode(phone=phone, code="246801", expires_at=now + timedelta(minutes=5)))
+        s.commit()
+    r = client.post("/auth/verify", json={"phone": phone, "code": "246801"})
+    assert r.status_code == 429, (
+        f"суточный бюджет не держит после истечения старых кодов: {r.status_code} {r.text}"
+    )
+
+
+def test_daily_failure_budget_does_not_trip_for_an_ordinary_day(client):
+    """Сторож придирчивого сторожа: обычный человек, пару раз ошибившийся за день,
+    не должен упираться в суточный потолок — порог щедрый (100), а не «с первой ошибки»."""
+    phone = "+79995550004"
+    now = utcnow()
+    with Session(engine) as s:
+        # Три прошлых кода с одной неудачной попыткой каждый — обычная жизнь, не перебор.
+        for i in range(3):
+            created = now - timedelta(hours=1, minutes=i)
+            s.add(OtpCode(phone=phone, code=f"{i:06d}", attempts=1,
+                          created_at=created, expires_at=created + timedelta(minutes=5)))
+        s.commit()
+    issued = client.post("/auth/request-code", json={"phone": phone})
+    assert issued.status_code == 200, issued.text
+    code = issued.json()["dev_code"]
+    r = client.post("/auth/verify", json={"phone": phone, "code": code})
+    assert r.status_code == 200, (
+        f"честного человека заблокировали за чужую/старую историю: {r.status_code} {r.text}"
+    )
+
+
+def test_request_code_itself_is_blocked_once_the_daily_budget_is_spent(client):
+    """Срочная правка P2: раньше суточный бюджет проверяла только verify — номер, уже
+    исчерпавший его на угадывании, продолжал бы получать НОВЫЕ коды без конца."""
+    phone = "+79995550005"
+    now = utcnow()
+    with Session(engine) as s:
+        for i in range(20):
+            created = now - timedelta(hours=2, seconds=i)
+            s.add(OtpCode(phone=phone, code=f"r{i:05d}", attempts=5,
+                          created_at=created, expires_at=created + timedelta(minutes=5)))
+        s.commit()
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 429, (
+        f"новый код выдан, хотя суточный бюджет уже исчерпан: {r.status_code} {r.text}"
+    )
+
+
+def test_failed_sends_still_count_toward_the_per_minute_issuance_throttle(client, monkeypatch):
+    """Срочная правка P2: пока канал заморожен, каждая неудачная отправка раньше НЕ попадала
+    в throttle «≤3 кода в минуту» (строка целиком откатывалась) — запрос кода можно было
+    слать сколько угодно раз подряд, не встречая throttle вовсе."""
+    phone = "+79995550007"
+    _freeze_prod_sms(monkeypatch)
+    for _ in range(3):
+        r = client.post("/auth/request-code", json={"phone": phone})
+        assert r.status_code == 503, r.text
+    fourth = client.post("/auth/request-code", json={"phone": phone})
+    assert fourth.status_code == 429, (
+        f"неудачные отправки не считаются в throttle «3 кода в минуту»: "
+        f"{fourth.status_code} {fourth.text}"
+    )
+
+
+def test_admin_phone_has_a_lower_daily_failure_budget(client, monkeypatch):
+    """Срочная правка P2: номер из ADMIN_PHONES — цель дороже обычной (угаданный код сразу
+    даёт права администратора), суточный порог для него ниже общего (20 вместо 100)."""
+    phone = "+79995550008"
+    monkeypatch.setattr(settings, "admin_phones", phone, raising=False)
+    now = utcnow()
+    with Session(engine) as s:
+        for i in range(4):
+            created = now - timedelta(hours=1, seconds=i)
+            s.add(OtpCode(phone=phone, code=f"a{i:05d}", attempts=5,
+                          created_at=created, expires_at=created + timedelta(minutes=5)))
+        s.commit()
+    # 4×5 = 20 неудач уже накоплено: админский порог (20) исчерпан, хотя общий (100) далёк.
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 429, (
+        f"номер из ADMIN_PHONES не получил пониженный суточный порог: {r.status_code} {r.text}"
+    )
+
+
+def test_a_non_admin_phone_keeps_the_general_budget(client, monkeypatch):
+    """Сторож придирчивого сторожа: пониженный порог не должен задевать обычные номера."""
+    phone = "+79995550009"
+    monkeypatch.setattr(settings, "admin_phones", "+79990000000", raising=False)
+    now = utcnow()
+    with Session(engine) as s:
+        for i in range(4):
+            created = now - timedelta(hours=1, seconds=i)
+            s.add(OtpCode(phone=phone, code=f"b{i:05d}", attempts=5,
+                          created_at=created, expires_at=created + timedelta(minutes=5)))
+        s.commit()
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 200, (
+        f"обычный номер получил пониженный (админский) суточный порог: {r.status_code} {r.text}"
+    )
+
+
+def test_no_live_code_is_visible_to_other_connections_while_send_sms_is_in_flight(client, monkeypatch):
+    """Правка ведущего: раньше код коммитился ДО send_sms — пока sms.ru отвечает (до 10с у
+    реального провайдера), код уже лежал в базе ЖИВЫМ и доступным для чужого соединения
+    (а лок номера уже снят тем же commit'ом). Проверяем ровно это: пока send_sms выполняется,
+    ДРУГОЕ соединение не должно видеть код этой попытки вовсе — он должен быть виден только
+    после commit, который наступает ПОСЛЕ успешной отправки."""
+    phone = "+79995550012"
+    seen = {}
+
+    def fake_send_sms(p, code):
+        with Session(engine) as other_connection:
+            seen["live_during_send"] = other_connection.exec(select(OtpCode).where(
+                OtpCode.phone == p, OtpCode.code != "", OtpCode.expires_at > utcnow(),
+            )).all()
+        # Отправку не рвём — проверяем срез СРЕДИ выполнения, а не факт сбоя.
+
+    monkeypatch.setattr(auth, "send_sms", fake_send_sms)
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 200, r.text
+    assert "live_during_send" in seen, "подменённый send_sms не был вызван — тест ничего не проверил"
+    assert seen["live_during_send"] == [], (
+        f"код был виден ДРУГОМУ соединению ещё ДО подтверждения отправки: {seen['live_during_send']}"
+    )
+
+
+def test_failed_send_leaves_only_a_dead_record_for_throttle_accounting(client, monkeypatch):
+    """Правка ведущего: после отката несостоявшегося кода throttle/суточный бюджет не должны
+    ослепнуть — остаётся ОТДЕЛЬНАЯ, заведомо мёртвая запись (пустой код, уже истёкшая), а не
+    часть исходной (живой) строки."""
+    phone = "+79995550013"
+    _freeze_prod_sms(monkeypatch)
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 503, r.text
+    with Session(engine) as s:
+        rows = s.exec(select(OtpCode).where(OtpCode.phone == phone)).all()
+        assert len(rows) == 1, f"ожидали ровно одну (мёртвую) запись-учётчик попытки: {rows}"
+        row = rows[0]
+        assert row.code == "" and row.expires_at <= utcnow(), (
+            f"запись после сбоя отправки не мертва: code={row.code!r}, expires_at={row.expires_at}"
+        )

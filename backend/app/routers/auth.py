@@ -31,7 +31,7 @@ from ..security import (
 )
 from ..services import (
     find_user_by_phone, guard_own_media_url, send_sms, set_driver_docs_verdict,
-    set_user_gender, user_rating,
+    set_user_gender, sms_channel_live, user_rating,
 )
 from ..safety_logic import GENDERS
 from ..trust_service import record_login_consents
@@ -42,6 +42,70 @@ router = APIRouter(tags=["auth"])
 # Сколько неудачных попыток кода допускаем НА ОДИН НОМЕР за время жизни кодов (5 минут).
 # Считается по всем живым кодам номера сразу — см. комментарий в `verify`.
 MAX_OTP_ATTEMPTS_PER_PHONE = 15
+
+# Б-1 (независимое ревью leaf-2.1): короткий бюджет выше забывает ошибки старше 5 минут —
+# запросил новый код, и счётчик для перебора начался заново. Это давало ~15 попыток/5мин,
+# то есть ~4300 попыток/сутки на номер (throttle выдачи ограничивает только НОВЫЕ коды,
+# не попытки). Долгая память поверх короткой: NIST 800-63B §5.1.1.2 — не больше 100 неудачных
+# попыток подряд на идентификатор. Считаем по ВСЕМ кодам номера за 24 часа, а не только живым,
+# поэтому `OtpCode` для SMS-двери должен переживать свои 5 минут жизни хотя бы сутки — см. правку
+# окна очистки в `telegram_webhook` ниже.
+MAX_OTP_FAILURES_PER_PHONE_PER_DAY = 100
+# Срочная правка P2 (ревью Б-1): номер из ADMIN_PHONES — цель дороже обычной (угаданный код
+# сразу даёт права администратора: сигналы SOS с координатами, документы водителей, все
+# телефоны) — порог для него ниже, чем общий суточный бюджет.
+ADMIN_PHONE_MAX_OTP_FAILURES_PER_DAY = 20
+OTP_FAILURE_WINDOW = timedelta(hours=24)
+
+
+def _otp_failures_today(session: Session, phone: str) -> int:
+    """Сколько неверных попыток кода накопилось на этот номер за последние 24 часа —
+    по ВСЕМ кодам (живым и уже истёкшим), а не только по текущему. Закрывает дыру короткого
+    `MAX_OTP_ATTEMPTS_PER_PHONE`: тот обнуляется каждым новым кодом, этот — нет."""
+    return int(session.exec(
+        select(func.coalesce(func.sum(OtpCode.attempts), 0)).where(
+            OtpCode.phone == phone, OtpCode.created_at > utcnow() - OTP_FAILURE_WINDOW,
+        )
+    ).one() or 0)
+
+
+def _max_otp_failures_for(phone: str) -> int:
+    admin_keys = {_phone_key(p) for p in (settings.admin_phones or "").split(",") if p.strip()}
+    if admin_keys and _phone_key(phone) in admin_keys:
+        return ADMIN_PHONE_MAX_OTP_FAILURES_PER_DAY
+    return MAX_OTP_FAILURES_PER_PHONE_PER_DAY
+
+
+_OTP_TOO_MANY_RU = "Слишком много попыток. Подожди немного и запроси новый код."
+_OTP_TOO_MANY_BA = "Артыҡ күп талап. Бер аҙ көт тә яңы код һора."
+
+
+def _guard_otp_daily_budget(session: Session, phone: str) -> None:
+    if _otp_failures_today(session, phone) >= _max_otp_failures_for(phone):
+        raise herr(429, _OTP_TOO_MANY_RU, _OTP_TOO_MANY_BA)
+
+
+# Б-4 (независимое ревью leaf-2.1): фикс-код проверочного аккаунта стора сверяется с
+# settings.review_code напрямую и не создаёт свой `OtpCode` — без счётчика его можно перебирать
+# без ограничений (общий лимит по IP, 20/мин, этого мало — требований к длине кода в
+# `validate_production` тоже нет, это отдельная задача вне файлов этого листа). Заводим ОДНУ
+# служебную строку на номер и считаем неудачи в ней тем же способом, что и обычный SMS-код, —
+# общий суточный бюджет выше работает без копии логики. Код строки не похож на реальный ввод
+# (длиннее, с дефисами) и обычной SMS-двери не касается — у неё отдельная ветка, проверяется раньше.
+_REVIEW_LOGIN_GUARD_CODE = "review-login-guard"
+
+
+def _bump_review_login_failure(session: Session, phone: str) -> None:
+    row = session.exec(
+        select(OtpCode).where(OtpCode.phone == phone, OtpCode.code == _REVIEW_LOGIN_GUARD_CODE)
+    ).first()
+    if row is None:
+        session.add(OtpCode(phone=phone, code=_REVIEW_LOGIN_GUARD_CODE, attempts=1,
+                            expires_at=utcnow() + OTP_FAILURE_WINDOW))
+    else:
+        row.attempts += 1
+        session.add(row)
+    session.commit()
 
 
 def _lock_otp_phone(session: Session, phone: str) -> None:
@@ -264,6 +328,14 @@ class VerifyIn(BaseModel):
 @router.post("/auth/request-code")
 def request_code(body: PhoneIn, session: Session = Depends(get_session),
                  x_device_id: str = Header(default="", alias="X-Device-Id")):
+    try:
+        return _request_code(body, session, x_device_id)
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _request_code(body: PhoneIn, session: Session, x_device_id: str):
     # Анти-фрод (B8-1): забаненное устройство не регистрируется даже новым номером
     # (гейт до отправки SMS — не тратим деньги на код мошеннику).
     guard_device_not_banned(session, x_device_id)
@@ -275,6 +347,9 @@ def request_code(body: PhoneIn, session: Session = Depends(get_session),
     if _review_login_active(body.phone):
         return {"sent": True}
     _lock_otp_phone(session, body.phone)
+    # Срочная правка P2 (ревью Б-1): суточный бюджет раньше проверялся только в verify — номер
+    # мог ловить 429 на угадывании, но НОВЫЕ коды ему продолжали бы сыпаться сколько угодно.
+    _guard_otp_daily_budget(session, body.phone)
     # Throttle: ≤3 кода в минуту на номер (анти-флуд: расходы на SMS + защита от забивания OtpCode).
     recent = session.exec(
         select(OtpCode).where(
@@ -285,12 +360,36 @@ def request_code(body: PhoneIn, session: Session = Depends(get_session),
     if len(recent) >= 3:
         raise herr(429, "Слишком часто. Подожди минуту и попробуй снова.", "Артыҡ йыш. Бер минут көт тә ҡабатла.")
     code = gen_otp()
-    session.add(OtpCode(
+    otp = OtpCode(
         phone=body.phone, code=code,
         expires_at=utcnow() + timedelta(seconds=settings.otp_ttl_sec),
-    ))
+    )
+    session.add(otp)
+    # Б-1 (независимое ревью leaf-2.1, блокер): раньше код коммитился, а send_sms звался ПОСЛЕ —
+    # если канал заморожен (прод, sms_provider=mock по умолчанию) или провайдер упал, send_sms
+    # бросает 503/502 уже ПОСТФАКТУМ: живой код на 5 минут остаётся в базе, а verify его честно
+    # принимает — человек, которому ничего не пришло, никогда не узнал бы код, но подборщик
+    # (или просто сосед, видевший, что номер «висит в ожидании») мог. Короткий бюджет попыток
+    # забывает ошибки старше 5 минут → ~4300 угадываний/сутки на номер. Худший случай — номер
+    # из ADMIN_PHONES: угаданный код даёт права администратора.
+    #
+    # Правка после ведущего (P2-довесок сначала коммитил строку ДО send_sms — то же самое
+    # семейство дыры: пока sms.ru отвечает (до 10с), код уже живой в базе, а лок номера снят
+    # коммитом; если процесс убьют между этим commit и нейтрализацией в except — живой код
+    # остаётся на все 5 минут). Фикс: НИКОГДА не коммитим код раньше подтверждённой отправки —
+    # flush (виден этой же транзакции, не на диске постоянно) → send_sms → commit. Сбой
+    # ПОЛНОСТЬЮ откатывает код (rollback — не частичная правка строки), а throttle/суточный
+    # бюджет всё равно видят попытку через отдельную, намеренно мёртвую запись (code="",
+    # уже истёкшую), которую коммитим уже ПОСЛЕ отката.
+    session.flush()
+    try:
+        send_sms(body.phone, code)
+    except Exception:
+        session.rollback()
+        session.add(OtpCode(phone=body.phone, code="", expires_at=utcnow()))
+        session.commit()
+        raise
     session.commit()
-    send_sms(body.phone, code)
     resp = {"sent": True}
     if settings.env == "dev":
         resp["dev_code"] = code  # в dev возвращаем код, чтобы тестировать без SMS
@@ -316,9 +415,18 @@ def _verify_sms_login(body: VerifyIn, session: Session, x_device_id: str):
     # из env (даже случайно созданные OTP этого номера игнорируются). Ошибка — тот же текст,
     # что у обычного кода (не раскрываем существование режима). Код не логируем.
     if _review_login_active(body.phone):
+        # Б-4 (независимое ревью leaf-2.1): суточный бюджет — общий счётчик
+        # (`_guard_otp_daily_budget`), накормленный служебной строкой вместо настоящего OtpCode
+        # (см. `_bump_review_login_failure`). Без `_lock_otp_phone`: номер стора один на весь
+        # проект, настоящей гонки на запись здесь не защищаем (это не единственное/не денежное
+        # действие — просто счётчик неудач), а блокировка всей БД на SQLite (её writer-lock —
+        # не построчный, как на Postgres) мешает другому коду промотировать этот же аккаунт
+        # администратором, пока идёт проверка кода (живой сценарий в тестах).
+        _guard_otp_daily_budget(session, body.phone)
         submitted_code = body.code or ""
         if (not settings.review_code.isascii() or not submitted_code.isascii()
                 or not hmac.compare_digest(settings.review_code, submitted_code)):
+            _bump_review_login_failure(session, body.phone)
             raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
         user = find_user_by_phone(session, body.phone, commit=False)
         if user:
@@ -337,6 +445,17 @@ def _verify_sms_login(body: VerifyIn, session: Session, x_device_id: str):
         # даже если этот номер случайно совпал со списком админов.
         return _complete_login(session, user, x_device_id, promote_admin=False, review_session=True)
     _lock_otp_phone(session, body.phone)
+    # Б-1 (независимое ревью leaf-2.1, блокер), вторая половина защиты. `request_code` теперь
+    # не коммитит код без успешной отправки, но это не единственная дверь к живому `OtpCode`:
+    # строка могла остаться от версии до правки, от сбойного прогона фоновой задачи или просто
+    # от момента, когда канал был жив при выдаче и замёрз к моменту ввода. Раз SMS физически
+    # не может дойти — отказываем по SMS-коду прямо здесь, тем же текстом, что видит
+    # `request_code` при сбое (`services.send_sms`). Проверочный вход стора (ветка выше) уже
+    # обработан и сюда не попадает — у него свой канал (Telegram не нужен вовсе).
+    if settings.is_prod and not sms_channel_live():
+        raise herr(503, "Вход по SMS временно не работает. Зайди через мессенджер 💚",
+                   "SMS аша инеү ваҡытлыса эшләмәй. Мессенджер аша кер 💚")
+    _guard_otp_daily_budget(session, body.phone)
     live_otps = session.exec(
         select(OtpCode).where(OtpCode.phone == body.phone, OtpCode.expires_at > utcnow())
     ).all()
@@ -487,7 +606,14 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
 
     reply = None
     reply_markup = None
-    if text.startswith("/start") and frm.get("id"):
+    # Б-5 (независимое ревью leaf-2.1): `/start@bot <id>` работал в ЛЮБОМ чате, а ответ уходит
+    # в тот же chat.id — написав это в группе, код входа увидели бы ВСЕ участники. Для аккаунта,
+    # уже привязанного к Telegram, одного кода достаточно, чтобы войти вместо хозяина. Диалог
+    # входа бот ведёт только в личных сообщениях. Настоящий Telegram всегда шлёт `chat.type`;
+    # отсутствие поля (не настоящий апдейт) не повод отказывать — явно НЕгрупповой вид (group/
+    # supergroup/channel) и есть точный признак, который нужно закрыть.
+    is_group_chat = chat.get("type") in ("group", "supergroup", "channel")
+    if text.startswith("/start") and frm.get("id") and not is_group_chat:
         parts = text.split(maxsplit=1)
         req = parts[1].strip() if len(parts) > 1 else ""
         with Session(engine) as s:
@@ -521,9 +647,20 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
             # Делаем здесь — частоту вебхука Telegram сам ограничивает (~30/с), клиентский спайк не грузим.
             now = utcnow()
             s.execute(delete(TgAuth).where(TgAuth.expires_at < now))
-            # A used/expired code still records an SMS in the 60s throttle window.
+            # A used/expired code still records an SMS in the 60s throttle window — sweep a
+            # CLEAN row (no wrong guesses recorded) as soon as that window closes, same as before.
             s.execute(delete(OtpCode).where(
-                OtpCode.expires_at < now, OtpCode.created_at <= now - timedelta(seconds=60)))
+                OtpCode.expires_at < now, OtpCode.created_at <= now - timedelta(seconds=60),
+                OtpCode.attempts == 0))
+            # Б-1 (независимое ревью leaf-2.1): a row that DID record a wrong guess is also the
+            # only history the 24-hour per-phone failure budget has (`_otp_failures_today`) —
+            # sweeping it at 60s past expiry, like a clean row, erased that history long before
+            # the day is up and let `MAX_OTP_FAILURES_PER_PHONE_PER_DAY` effectively never trip.
+            # Keep it for the full failure window (+ margin for how rarely this webhook-triggered
+            # sweep actually runs), then drop it like anything else.
+            s.execute(delete(OtpCode).where(
+                OtpCode.expires_at < now,
+                OtpCode.created_at <= now - OTP_FAILURE_WINDOW - timedelta(hours=1)))
             s.commit()
     if reply is not None:
         out = {"method": "sendMessage", "chat_id": chat.get("id"), "text": reply}

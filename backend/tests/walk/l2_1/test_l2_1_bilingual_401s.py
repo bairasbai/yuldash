@@ -15,9 +15,18 @@
 листа.
 
 Исправление — все четыре сообщения переведены на `herr(...)`, который всегда отдаёт
-detail={"ru": ..., "ba": ...}. Башкирский текст — черновой перевод модели (кроме части
-«Ҡулланыусы табылманы», уже используемой в app/routers/antifraud.py), отмечен в отчёте
-на проверку Александру как носителю.
+detail={"ru": ..., "ba": ...}. Жаргон «Refresh-токен» независимое ревью попросило убрать
+(правило тона §9): шесть мест в `rotate_refresh`/`issue_tokens` теперь используют уже
+существующую в этом же файле человеческую пару «Не получилось продлить вход. Войди заново.» /
+«Инеүҙе оҙайтып булманы. Яңынан ин.» — это не новый черновик, фраза уже была в коде. «Неверный
+токен» заменён на новую пару «Сессия устарела. Войди заново.» / «Сессия иҫкергән. Яңынан ин.»
+(`_SESSION_STALE_RU/BA`) — черновой башкирский перевод, на проверку Александру как носителю.
+
+Отдельно (пункт «в» независимого ревью): когда заголовка Authorization нет вообще, библиотечный
+`HTTPBearer(auto_error=True)` сам бросает исключение ДО входа в `current_user` — на одних версиях
+FastAPI 401 "Not authenticated" по-английски, на других 403. `_BilingualBearer` (подкласс в этом
+же файле) ловит это и отвечает 401 с тем же `_SESSION_STALE_RU/BA` и заголовком
+`WWW-Authenticate: Bearer` (RFC 7235) независимо от версии пакета.
 """
 from __future__ import annotations
 
@@ -56,3 +65,15 @@ def test_dead_refresh_token_speaks_both_languages(client):
     r = client.post("/auth/refresh", json={"refresh_token": "nothing-like-a-real-token"})
     assert r.status_code == 401, r.text
     _bilingual(r.json()["detail"])
+
+
+def test_missing_authorization_header_speaks_both_languages_and_names_the_scheme(client):
+    """Пункт «в» независимого ревью: без заголовка Authorization вовсе библиотечный
+    HTTPBearer(auto_error=True) раньше отвечал сам, в обход herr (401 "Not authenticated"
+    на новых FastAPI, 403 на старых — всегда по-английски)."""
+    r = client.get("/me")  # заголовка Authorization нет совсем
+    assert r.status_code == 401, r.text
+    _bilingual(r.json()["detail"])
+    assert r.headers.get("www-authenticate") == "Bearer", (
+        f"нет стандартного заголовка WWW-Authenticate: {dict(r.headers)}"
+    )
