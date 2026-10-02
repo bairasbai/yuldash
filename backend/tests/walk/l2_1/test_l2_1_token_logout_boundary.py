@@ -27,7 +27,12 @@ def _decode_iat(token: str) -> float:
 
 
 def test_new_token_is_issued_strictly_after_the_logout_boundary():
-    boundary = utcnow()
+    # Независимое ревью leaf-2.1: граница РОВНО «сейчас» почти всегда проходит и БЕЗ сдвига —
+    # между вызовом utcnow() здесь и внутри make_token успевает пройти больше микросекунды
+    # просто из-за хода часов, и тест не ловит удаление сдвига. Граница в БУДУЩЕМ заставляет
+    # сам make_token либо явно подвинуть iat вперёд, либо честно выдать iat МЕНЬШЕ boundary —
+    # и тогда проверка `> boundary` падает по-настоящему.
+    boundary = utcnow() + timedelta(seconds=5)
     token = make_token(1, issued_after=boundary)
     assert _decode_iat(token) > boundary.timestamp(), (
         "новый токен выпущен в тот же момент (или раньше), что и граница выхода — "

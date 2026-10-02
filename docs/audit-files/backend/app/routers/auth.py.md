@@ -2,55 +2,65 @@
 
 - Статус: verified
 - Лист: leaf-2.1
-- Проверял: Sonnet 5 (leaf-2.1); принимал: Opus 5.5
+- Проверял: Sonnet 5 (leaf-2.1); принимал: Opus 5.5; независимое ревью: Opus (REQUEST_CHANGES → доработано)
 
 ## Назначение
 
-Главный роутер входа: телефон+SMS-OTP, Telegram-вход через бота (запрос кода → код в чат → проверка),
-профиль `/me` (чтение/правка/экспорт/удаление данных), logout, регистрация push-токенов (FCM и
-Web Push). Здесь же живёт автоматическое назначение/снятие роли admin по настройкам
-(`ADMIN_TELEGRAM_CHAT_ID`/`ADMIN_PHONES`) и обработка inline-кнопок админа в Telegram (модерация
-водителей/рекламы/платежей/откликов). VK/WhatsApp — заглушки-501 (сознательно отключены до
-безопасной реализации, см. комментарий в коде). Самый крупный и самый часто вызываемый файл листа:
-почти каждый защищённый эндпоинт проекта начинается с токена, выданного отсюда.
+Главный роутер входа: телефон+SMS-OTP, Telegram-вход через бота (запрос кода → код в чат →
+проверка), профиль `/me` (чтение/правка/экспорт/удаление данных), logout, регистрация push-токенов
+(FCM и Web Push). Здесь же живёт автоматическое назначение/снятие роли admin по настройкам
+(`ADMIN_TELEGRAM_CHAT_ID`/`ADMIN_PHONES`) и обработка inline-кнопок админа в Telegram. VK/WhatsApp —
+заглушки-501 (сознательно отключены). Самый крупный и часто вызываемый файл листа: почти каждый
+защищённый эндпоинт проекта начинается с токена, выданного отсюда.
+
+**После независимого ревью (REQUEST_CHANGES) сюда добавлена существенная новая логика:**
+долгая (24ч) память неудачных попыток кода сверх короткого 5-минутного бюджета, с пониженным
+порогом для номеров из `ADMIN_PHONES`; отказ `request_code`/`verify` по SMS-коду, пока канал
+объективно заморожен, без потери живого кода при сбое отправки; счётчик неудач для фикс-кода
+проверочного аккаунта стора; бот отвечает на `/start` только в личных чатах.
 
 ## Функции и разбор
 
 | Функция / участок | Строки | Что делает | Условия, входы, ошибки | Вердикт |
 |---|---|---|---|---|
-| `MAX_OTP_ATTEMPTS_PER_PHONE` | 42–44 | Потолок неверных попыток кода — 15, считается НА НОМЕР по всем живым кодам сразу | Запрос нового кода не обнуляет счётчик (иначе 15 попыток/код × 3 кода/мин = перебор) | ок, тест R1/M7 |
-| `_lock_otp_phone` | 47–59 | Сериализует выдачу/проверку OTP по номеру: Postgres — `pg_advisory_xact_lock` по хешу номера, SQLite — нулевой `UPDATE` ради writer-lock | Номер никогда не уходит в лог/метаданные блокировки; падает `RuntimeError` на незнакомом диалекте | ок |
-| `_maybe_promote_admin` | 62–99 | Автовход в admin по точному совпадению Telegram-id ИЛИ телефона (через `_phone_key`); обратная сторона — автоснятие, если номер убрали из настроек | Снятие — ТОЛЬКО когда `admin_phones` непусто (иначе один неверно прочитанный `.env` обнулил бы всех админов); каждое решение пишется в `admin_action` | ок, тесты R6/R7 |
-| `_is_owner_telegram` | 102–116 | «Это владелец пишет боту?» — для инлайн-кнопок админа и текстовых команд | Пустой `ADMIN_TELEGRAM_CHAT_ID` не пускает НИКОГО (историческая дыра волны 2026-08-07) | ок (тест в чужом файле `test_telegram_owner_gate.py`, вне листа) |
-| `_norm_phone` | 119–131 | Телефон из Telegram-контакта → `normalize_phone` (общее правило, не своя копия) | Третья копия нормализации номера раньше ошибалась (`+89991234567`) — теперь одна точка | ок |
-| `_name_flag` / `_guard_display_name` / `_safe_display_name` | 134–178 | Модерация отображаемого имени: явная правка профиля — честный отказ 422 (телефон/ссылка/мат в имени); имя из внешнего профиля Telegram — тихая замена на пусто (не ломаем вход) | Телефон в имени — это объявление в обход комиссии такси/курьера | ок |
-| `_clean_avatar_url` | 181–189 | Аватар — только ссылкой на своё хранилище (`guard_own_media_url`) | Чужая ссылка в карточке палит IP/город смотрящего хозяину внешнего сервера | ок |
-| `_review_login_active` | 192–198 | Тестовый аккаунт модерации сторов активен ТОЛЬКО когда в `.env` заданы ОБА `review_phone`+`review_code` | Сравнение телефонов — через `normalize_phone` с обеих сторон | ок |
-| `_set_user_phone` | 201–222 | Сохранить реальный номер; если номер уже занят ДРУГИМ юзером — тихо не перезаписывает | Вторая дверь к тому же полю, что и вход — без `normalize_phone` тут была бы та же дыра задвоения аккаунтов | ок |
-| `_complete_login` | 225–250 | Одна транзакция: блокировка юзера → автоадмин → запоминание устройства → согласия 152-ФЗ (без коммита) → выдача токенов → коммит; вторичные сигналы (лог админ-действия, уведомление о новом устройстве/освобождении номера) — ПОСЛЕ коммита, ошибка одного не рушит вход | Единая точка завершения входа для SMS/Telegram/review — согласия и устройство не теряются при откате | ок |
-| `request_code` (`POST /auth/request-code`) | 264–297 | Бан устройства → нормализация номера → (review-номер: ответ без реальной отправки) → лок номера → throttle ≤3 кода/60с → генерация+сохранение OTP → отправка SMS | `dev_code` в ответе — ТОЛЬКО `env=dev` | ок, тест R4/M9 |
-| `verify` / `_verify_sms_login` (`POST /auth/verify`) | 300–410 | Бан устройства → review-ветка (фикс-код только для `role=passenger`, см. ниже) → лок номера → бюджет попыток на номер (15) И на код (5) → `compare_digest` → атомарное потребление кода (`code=""`, `expires_at=now`) → поиск/заведение юзера → проверка «номер похож на перешедший другому» → завершение входа | Повторная проверка после `IntegrityError` (параллельная регистрация тем же номером) подхватывает уже созданного юзера, не падает | ок, тесты R1/R2/R3/R5 |
-| `TgStartOut` / `tg_start` (`POST /auth/tg/start`) | 427–439 | Заводит `TgAuth(status="waiting")` со случайным `request_id` (UUID, не угадать) | — | ок |
-| `telegram_webhook` (`POST /telegram/webhook`) | 442–544 | Секретный заголовок от Telegram (`compare_digest`); битый JSON — не 500, а `{"ok":true}` (без ретраев от Telegram); контакт из кнопки — принимается ТОЛЬКО свой (`contact.user_id==from.id`); `/start <request_id>` → код + `reply_markup` «Поделиться номером»; чистка просроченных `TgAuth`/`OtpCode` | Самозваный контакт (пересланный чужой) не принимается | ок |
-| `_telegram_api` | 547–554 | HTTP-вызов Telegram Bot API, молча глотает исключения | Не про вход/личные данные напрямую | ок |
-| `_handle_admin_callback` | 557–685 | Inline-кнопки админа: только владелец (`_is_owner_telegram`), каждое решение — `admin_action` в журнал; ветки `drv`/`ad`/`resp`/оплата используют ОБЩИЕ активаторы (`set_driver_docs_verdict`, `_activate_payment`), а не свою логику | Карточный платёж НЕ активируется кнопкой — ждёт вебхук провайдера (иначе «подтверждение» без реальных денег) | ок |
-| `TgVerifyIn` / `tg_verify` / `_verify_telegram_login` (`POST /auth/tg/verify`) | 688–787 | Бан устройства → статусы 409/410/429/400 по порядку → атомарное потребление кода → поиск юзера по `telegram_id`, затем по телефону (дедуп через `normalize_phone`) → подстановка реального номера из бота → **телефон обязателен**: без него код НЕ помечается `used`, логин не завершается (403 `phone_required`) | Код можно предъявить повторно ПОСЛЕ «поделиться номером», не теряя попытку | ок, тест R2 (общий с SMS-веткой через `_verify_sms_login`-подобный паттерн) |
-| `RefreshIn` / `refresh` (`POST /auth/refresh`) | 790–812 | Пустой токен — честный 400; бан устройства (по заголовку, первая половина) → `rotate_refresh` (вторая половина — по памяти сервера, см. карточку `security.py`) | Формат `rotation_id` — `[0-9a-f]{64}` | ок (глубокая логика — в `security.py`) |
-| `vk_callback` / `whatsapp_callback` | 820–829 | Заглушки 501 — вход через VK/WhatsApp сознательно отключён (прежние версии принимали непроверенный id/номер — угон аккаунта) | — | ок, намеренно не реализовано |
-| `me` (`GET /me`) | 832–835 | Профиль + живой рейтинг | — | ок |
-| `MeUpdateIn` | 838–845 | Модель правки профиля: имя/аватар/город/язык/пол | — | ок |
-| `_location_summary` | 851–897 | Честный счётчик «сколько точных точек реально лежит в БД» для `/me/data`/`/me/export` — поездки (попутка+такси), SOS с точкой на карте | Технический `(0,0)` в `InstantOrder` не считается «реальной точкой» | ок |
-| `my_data` (`GET /me/data`) | 900–940 | «Что мы знаем» живыми числами и сроками ретеншена (из `cleanup.py`, не продублировано вручную) | — | ок |
-| `export_my_data` (`GET /me/export`) | 943–1078 | «Скачать мои данные» читаемым текстом на RU/BA; ТОЛЬКО свои данные (чужие сообщения/телефоны/координаты не попадают); объём обрезан (300 записей на раздел) с явной пометкой об этом | Сообщения — только отправленные мной | ок |
-| `update_me` (`POST /me/update`) | 1081–1111 | Правка имени (модерация)/аватара (свой хостинг)/города/языка (только ru/ba)/пола (через `set_user_gender` — гасит подтверждение «женщина за рулём» при смене) | Телефон НЕ меняется этой ручкой | ок |
-| `delete_me` (`POST /me/delete`) | 1114–1123 | `guard_can_delete` (честные гейты, см. карточку `account.py`) → `delete_user_account` | Необратимо; 152-ФЗ | ок, глубокая логика в `account.py` |
-| `logout` (`POST /auth/logout`) | 1126–1152 | Гасит `tokens_valid_from`, отзывает ВСЕ refresh-токены, удаляет ВСЕ `DeviceToken`/`WebPushSubscription` юзера — «выйти со всех устройств» буквально | Сценарий «общий телефон в семье»: следующий вошедший не получает чужие пуши | ок, тест R8/M14 |
-| `PushTokenIn` / `_guard_push_token_owner` | 1155–1173 | Перепривязка FCM-токена к новому юзеру разрешена ТОЛЬКО если устройство совпадает (или у старой записи устройство не отмечено ВМЕСТЕ с иным владельцем — тогда 409) | Лог предупреждения при попытке забрать чужую запись (без утечки токена) | ок |
-| `push_register` (`POST /push/register`) | 1176–1210 | Регистрация/перепривязка FCM-токена; гонка двух одновременных вставок одного токена — `IntegrityError` → перепривязка, не падение | — | ок |
-| `WebPushKeysIn` / `WebPushSubIn` | 1213–1229 | Модели подписки браузера (RFC 8291) | — | ок |
-| `push_web_subscribe` (`POST /push/web/subscribe`) | 1231–1296 | Подписка браузера: обязательные ключи шифрования, `endpoint` только `https://`; идемпотентно, гонка двух вкладок — так же через `IntegrityError` | — | ок |
-| `push_web_unsubscribe` (`POST /push/web/unsubscribe`) | 1299–1318 | Отписка — только СВОЯ подписка по `user_id` | Идемпотентно (нечего удалять → `ok:true`) | ок |
-| `push_unregister` (`POST /push/unregister`) | 1321–1336 | Отвязка FCM-токена — только СВОЙ | Идемпотентно | ок |
+| `MAX_OTP_ATTEMPTS_PER_PHONE` | 44 | Потолок неверных попыток кода за время жизни кодов (5 минут) — 15, по всем живым кодам сразу | Короткий бюджет — обнуляется с каждым новым кодом | ок, тест R1/M7 |
+| `MAX_OTP_FAILURES_PER_PHONE_PER_DAY`, `ADMIN_PHONE_MAX_OTP_FAILURES_PER_DAY`, `OTP_FAILURE_WINDOW` | 53–58 | Б-1 (независимое ревью): долгая память — 100 неудач/24ч на обычный номер, 20/24ч на номер из `ADMIN_PHONES` (дороже цель — угаданный код даёт права администратора) | NIST 800-63B §5.1.1.2 | ок, тесты R9/M22, R13/M29 |
+| `_otp_failures_today` | 61–66 | Сумма `attempts` по ВСЕМ (не только живым) кодам номера за 24 часа | Требует, чтобы строки `OtpCode` переживали свои 5 минут жизни — см. правку окна очистки в `telegram_webhook` | ок |
+| `_max_otp_failures_for` | 72–76 | Выбирает порог: 20 для номера из `ADMIN_PHONES` (через `_phone_key`), иначе 100 | Пустой `ADMIN_PHONES` → общий порог для всех | ок, тест R13/M29 |
+| `_guard_otp_daily_budget` | 83–85 | 429, если суточные неудачи ≥ порога | Вызывается и в `verify` (R9), и в `request_code` (R11 — срочная правка P2) | ок |
+| `_REVIEW_LOGIN_GUARD_CODE`, `_bump_review_login_failure` | 95–108 | Б-4: служебная строка-страж в `OtpCode` считает неудачи фикс-кода стора тем же механизмом, что обычный SMS-код (без лока на номер — см. «Остаток», живой сценарий гонки в тестах) | Код строки не похож на реальный ввод (с дефисами) | ок, тест R14/M24 |
+| `_lock_otp_phone` | 111–123 | Сериализует выдачу/проверку OTP по номеру: Postgres — `pg_advisory_xact_lock`, SQLite — нулевой `UPDATE` ради writer-lock | Номер не уходит в лог/метаданные блокировки | ок |
+| `_maybe_promote_admin` | 126–163 | Автовход в admin по точному совпадению Telegram-id ИЛИ телефона; обратная сторона — автоснятие, если номер убрали из настроек (ТОЛЬКО когда `admin_phones` непусто) | Каждое решение пишется в `admin_action` | ок, тесты R6/R7 |
+| `_is_owner_telegram` | 166–180 | «Это владелец пишет боту?» — для инлайн-кнопок админа и текстовых команд | Пустой `ADMIN_TELEGRAM_CHAT_ID` не пускает НИКОГО | ок (тест вне листа, `test_telegram_owner_gate.py`) |
+| `_norm_phone` | 183–195 | Телефон из Telegram-контакта → общая `normalize_phone` | — | ок |
+| `_name_flag` / `_guard_display_name` / `_safe_display_name` | 198–244 | Модерация отображаемого имени: явная правка — честный отказ 422; имя из внешнего профиля Telegram — тихая замена на пусто | Телефон в имени — обход комиссии | ок |
+| `_clean_avatar_url` | 245–254 | Аватар — только ссылкой на своё хранилище | — | ок |
+| `_review_login_active` | 256–263 | Тестовый аккаунт модерации сторов активен ТОЛЬКО когда в `.env` заданы ОБА `review_phone`+`review_code` | Сравнение — через `normalize_phone` | ок |
+| `_set_user_phone` | 265–287 | Сохранить реальный номер; если занят ДРУГИМ юзером — тихо не перезаписывает | Вторая дверь к тому же полю, что и вход | ок |
+| `_complete_login` | 289–317 | Одна транзакция: блокировка юзера → автоадмин → запоминание устройства → согласия 152-ФЗ → выдача токенов → коммит; вторичные сигналы — ПОСЛЕ коммита | Единая точка завершения входа для SMS/Telegram/review | ок |
+| `request_code`/`_request_code` (`POST /auth/request-code`) | 329–396 | Бан устройства → нормализация → (review: без реальной отправки) → лок номера → **суточный бюджет (R11)** → throttle ≤3/60с → генерация кода → **commit СРАЗУ** (R12: попытка видна throttle'у даже при сбое) → `send_sms`; при исключении — код НЕМЕДЛЕННО гасится отдельным коммитом (пустая строка, `expires_at` в прошлом) и ошибка пробрасывается | `dev_code` в ответе — ТОЛЬКО `env=dev` | исправлено, тесты R10/M20, R11/M27 |
+| `verify`/`_verify_sms_login` (`POST /auth/verify`) | 398–537 | Бан устройства → review-ветка (суточный бюджет + счётчик неудач, см. Б-4) → лок номера → **канал жив? (R10)** → суточный бюджет (R9) → бюджет на номер (15/5мин) И на код (5) → `compare_digest` → атомарное потребление → поиск/заведение юзера → «номер похож на перешедший другому» → завершение входа | Повторная проверка после `IntegrityError` подхватывает уже созданного юзера | исправлено, тесты R1/R2/R3/R5/R9/R10/R14 |
+| `TgStartOut`/`tg_start` (`POST /auth/tg/start`) | 544–553 | `TgAuth(status="waiting")` со случайным `request_id` (UUID) | — | ок |
+| `telegram_webhook` (`POST /telegram/webhook`) | 560–680 | Секретный заголовок; битый JSON → `{"ok":true}`; контакт — только свой; **`/start` отвечает ТОЛЬКО в личных чатах (Б-5)**; чистка просроченных `TgAuth` сразу, `OtpCode` БЕЗ неудачных попыток — через 60с, С неудачными попытками — только через сутки+запас (нужно суточному бюджету выше) | Самозваный контакт не принимается | исправлено, тест R15/M25 |
+| `_telegram_api` | 682–689 | HTTP-вызов Telegram Bot API, молча глотает исключения | — | ок |
+| `_handle_admin_callback` | 692–820 | Inline-кнопки админа: только владелец, каждое решение — `admin_action`; общие активаторы (`set_driver_docs_verdict`, `_activate_payment`) | Карточный платёж НЕ активируется кнопкой | ок |
+| `TgVerifyIn`/`tg_verify`/`_verify_telegram_login` (`POST /auth/tg/verify`) | 823–922 | Бан устройства → статусы 409/410/429/400 → атомарное потребление → поиск по `telegram_id`, затем по телефону → подстановка номера из бота → телефон обязателен | **Не проверяет «номер похож на перешедший другому» — см. найденную ошибку Б-2** | найдена ошибка (не чинил, см. ниже) |
+| `RefreshIn`/`refresh` (`POST /auth/refresh`) | 925–947 | Пустой токен — честный 400; бан устройства (заголовок) → `rotate_refresh` | Формат `rotation_id` — `[0-9a-f]{64}` | ок (логика — в `security.py`) |
+| `vk_callback`/`whatsapp_callback` | 956–966 | Заглушки 501 — вход через VK/WhatsApp сознательно отключён | — | ок, намеренно |
+| `me` (`GET /me`) | 968–971 | Профиль + живой рейтинг | — | ок |
+| `MeUpdateIn` | 973–983 | Модель правки профиля | — | ок |
+| `_location_summary` | 986–1034 | Счётчик «сколько точных точек реально лежит в БД» для `/me/data`/`/me/export` | — | ок |
+| `my_data` (`GET /me/data`) | 1036–1077 | «Что мы знаем» живыми числами и сроками ретеншена | — | ок |
+| `export_my_data` (`GET /me/export`) | 1079–1215 | «Скачать мои данные» на RU/BA; ТОЛЬКО свои данные; объём обрезан с пометкой | — | ок |
+| `update_me` (`POST /me/update`) | 1217–1248 | Правка имени/аватара/города/языка/пола | Телефон НЕ меняется | ок |
+| `delete_me` (`POST /me/delete`) | 1250–1260 | `guard_can_delete` → `delete_user_account` | Необратимо; логика — в `account.py` | ок |
+| `logout` (`POST /auth/logout`) | 1262–1288 | Гасит `tokens_valid_from`, отзывает ВСЕ refresh-токены, удаляет ВСЕ `DeviceToken`/`WebPushSubscription` юзера | — | ок, тест R8/M14 |
+| `PushTokenIn`/`_guard_push_token_owner` | 1290–1310 | Перепривязка FCM-токена разрешена только при совпадении устройства | — | ок |
+| `push_register` (`POST /push/register`) | 1312–1346 | Регистрация/перепривязка FCM-токена; гонка вставки — через `IntegrityError` | — | ок |
+| `WebPushKeysIn`/`WebPushSubIn` | 1348–1365 | Модели подписки браузера | — | ок |
+| `push_web_subscribe` (`POST /push/web/subscribe`) | 1367–1433 | Подписка браузера: обязательные ключи, `endpoint` только `https://` | — | ок |
+| `push_web_unsubscribe` (`POST /push/web/unsubscribe`) | 1435–1455 | Отписка — только СВОЯ подписка | — | ок |
+| `push_unregister` (`POST /push/unregister`) | 1457–1471 | Отвязка FCM-токена — только СВОЙ | — | ок |
 
 ## Связи
 
@@ -58,64 +68,84 @@ Web Push). Здесь же живёт автоматическое назнач�
   `revoke_all_refresh`, `gen_otp`, `normalize_phone`, `is_placeholder_phone`.
 - `app/antifraud.py`: `guard_device_not_banned`, `phone_looks_recycled`, `release_phone`,
   `remember_login_device`, `notify_login_device`, `notify_phone_release`, `normalize_device_id`.
-- `app/account.py`: `guard_can_delete`, `delete_user_account` (вызываются из `delete_me`).
-- `app/trust_service.py::record_login_consents` — согласия 152-ФЗ при каждом входе.
+- `app/account.py`: `guard_can_delete`, `delete_user_account`.
 - `app/services.py`: `find_user_by_phone`, `guard_own_media_url`, `set_driver_docs_verdict`,
-  `set_user_gender`, `user_rating`, `send_sms`, `pick_lang`.
+  `set_user_gender`, `user_rating`, `send_sms`, `sms_channel_live` (новый импорт, Б-1), `pick_lang`.
+- `app/trust_service.py::record_login_consents` — согласия 152-ФЗ при каждом входе.
 - Таблицы: `User`, `OtpCode`, `TgAuth`, `RefreshToken` (через `security.py`), `DeviceToken`,
-  `WebPushSubscription`, `Consent` (через `trust_service`).
-- Вызывается Android/веб-клиентом на каждом экране входа; Telegram — реальным ботом (вебхук).
+  `WebPushSubscription`, `Consent`.
 
 ## Важные правила и тесты
 
 | ID | Правило | Тесты | Ловит поломку? |
 |---|---|---|---|
 | R1 | Бюджет неверных попыток кода общий НА НОМЕР по всем живым кодам, атомарный под конкурентной проверкой | `backend/tests/test_otp_phone_concurrency.py::test_parallel_wrong_codes_cannot_cross_phone_wide_budget` | да — M7 |
-| R2 | Код входа одноразовый: после успеха не принимается повторно — ни при обычном повторе, ни при настоящей одновременной проверке на PostgreSQL | `backend/tests/walk/l2_1/test_l2_1_otp_replay.py::test_same_code_cannot_log_in_twice`, `backend/tests/test_auth_consumption_atomicity.py::test_concurrent_verification_issues_only_one_token_pair` | да — M8 (реальная гонка на изолированном PostgreSQL) |
+| R2 | Код входа одноразовый: не принимается повторно — ни при обычном повторе, ни при настоящей одновременной проверке на PostgreSQL | `backend/tests/walk/l2_1/test_l2_1_otp_replay.py::test_same_code_cannot_log_in_twice`, `backend/tests/test_auth_consumption_atomicity.py::test_concurrent_verification_issues_only_one_token_pair` | да — M8 (реальная гонка на изолированном PostgreSQL) |
 | R3 | Throttle выдачи SMS: ≤3 кода в минуту на номер | `backend/tests/test_otp_phone_concurrency.py::test_parallel_code_issuance_sends_at_most_three_sms_per_minute` | да — M9 |
-| R4 | Номер, похожий на перешедший к другому человеку (молчал долго + новое устройство), получает НОВЫЙ аккаунт, а не чужую историю | `backend/tests/test_a_recycled_number_is_a_new_person.py::test_новый_владелец_номера_получает_чистый_аккаунт` | да — M10 |
-| R5 | Фикс-код стора никогда не открывает и не меняет уже существующий ПРИВИЛЕГИРОВАННЫЙ (не-пассажирский) аккаунт | `backend/tests/test_review_login_permissions.py::test_fixed_review_login_rejects_existing_privileged_account_without_mutating_it` | да — M11 |
+| R4 | Номер, похожий на перешедший к другому человеку, получает НОВЫЙ аккаунт — **только на SMS-двери** (см. найденную ошибку Б-2: Telegram-дверь этой проверки не делает) | `backend/tests/test_a_recycled_number_is_a_new_person.py::test_новый_владелец_номера_получает_чистый_аккаунт` | да — M10 (SMS-дверь) |
+| R5 | Фикс-код стора никогда не открывает/не меняет уже существующий ПРИВИЛЕГИРОВАННЫЙ аккаунт | `backend/tests/test_review_login_permissions.py::test_fixed_review_login_rejects_existing_privileged_account_without_mutating_it` | да — M11 |
 | R6 | Автовыдача роли admin — только по ТОЧНОМУ совпадению настроенного Telegram-id или телефона | `backend/tests/test_audit_20260808.py::test_foreign_lookalike_number_does_not_get_admin` | да — M12 |
-| R7 | Автоснятие роли admin при входе, если человек больше не значится в настройках (роль не вечна) | `backend/tests/test_every_admin_action_leaves_a_trace.py::test_права_снимаются_когда_номер_убрали_из_настроек` | да — M13 |
-| R8 | Logout отвязывает FCM/Web-Push регистрации устройства, а не только ключи входа | `backend/tests/walk/l2_1/test_l2_1_logout_clears_push_tokens.py::test_logout_removes_device_and_web_push_tokens` | да — M14 |
+| R7 | Автоснятие роли admin при входе, если человек больше не значится в настройках | `backend/tests/test_every_admin_action_leaves_a_trace.py::test_права_снимаются_когда_номер_убрали_из_настроек` | да — M13 |
+| R8 | Logout отвязывает FCM/Web-Push регистрации устройства | `backend/tests/walk/l2_1/test_l2_1_logout_clears_push_tokens.py::test_logout_removes_device_and_web_push_tokens` | да — M14 |
+| R9 | Долгая (24ч/100) память неудач SMS-кода поверх короткого 5-минутного бюджета | `backend/tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_daily_failure_budget_survives_code_expiry`, `backend/tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_daily_failure_budget_does_not_trip_for_an_ordinary_day` | да — M22 |
+| R10 | `request_code`/`verify` не оставляют и не принимают живой SMS-код, если канал объективно заморожен (Б-1, блокер) | `backend/tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_request_code_does_not_leave_a_live_code_when_the_channel_is_frozen`, `backend/tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_verify_refuses_an_sms_code_while_the_channel_is_frozen_even_if_one_exists` | да — M20, M21 |
+| R11 | `request_code` сам проверяет суточный бюджет, не только `verify` | `backend/tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_request_code_itself_is_blocked_once_the_daily_budget_is_spent` | да — M27 |
+| R12 | Неудачная отправка кода всё равно считается попыткой для throttle «3/мин» (строка коммитится СРАЗУ, а не теряется при откате) | `backend/tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_failed_sends_still_count_toward_the_per_minute_issuance_throttle` | тест проходит, но см. «Остаток» — отдельная изолирующая поломка не найдена (два коммита в функции подстраховывают друг друга) |
+| R13 | Номер из `ADMIN_PHONES` — пониженный суточный порог (20 вместо 100) | `backend/tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_admin_phone_has_a_lower_daily_failure_budget`, `backend/tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_a_non_admin_phone_keeps_the_general_budget` | да — M29 |
+| R14 | Фикс-код стора считает неудачи и упирается в суточный бюджет | `backend/tests/walk/l2_1/test_l2_1_review_login_and_group_chat_guards.py::test_review_login_brute_force_hits_the_daily_budget`, `backend/tests/walk/l2_1/test_l2_1_review_login_and_group_chat_guards.py::test_review_login_a_few_typos_do_not_trip_the_budget` | да — M24 |
+| R15 | Бот отвечает на `/start` только в личных чатах — код входа не попадает в группу | `backend/tests/walk/l2_1/test_l2_1_review_login_and_group_chat_guards.py::test_start_command_in_a_group_chat_does_not_deliver_a_code`, `backend/tests/walk/l2_1/test_l2_1_review_login_and_group_chat_guards.py::test_start_command_in_a_private_chat_still_works` | да — M25 |
 
 ## Найденные ошибки
 
-Ошибок не найдено. Отдельно проверено и подтверждено НЕ ошибкой (разобрано нарочной поломкой,
-действующий код ловит): R1–R8 выше — каждое правило воспроизведено и защищено. Предыдущие
-исправления сессии Codex 01.10 (QA-B01-012..018 — атомарный вход, бюджет попыток, проверочный
-аккаунт стора, выдача OTP) живы и работают: прогнал их собственные тесты
-(`test_auth_attempt_concurrency.py`, `test_otp_phone_concurrency.py`,
-`test_auth_consumption_atomicity.py`, `test_otp_issuance_history.py`, `test_refresh_replay.py`,
-`test_refresh_rotation_failure.py`) — 119 тестов зелёные на SQLite, 11 — на изолированном
-PostgreSQL (`test_refresh_postgres_concurrency.py`, `test_refresh_replay_postgres.py`), без
-единого изменения в самих тестах.
+| ID | Что было (по-человечески) | Как воспроизвести | Исправление | Тест: до → после |
+|---|---|---|---|---|
+| Б-1 | В проде `sms_provider=mock` по умолчанию — SMS не уходят. Код сохранялся и коммитился ДО вызова отправки: человеку канал отвечал 503, а живой код 5 минут лежал в базе, и `verify` его принимал. Короткий бюджет попыток забывал ошибки старше 5 минут → ~15 попыток/5мин, ~4300/сутки на номер — заметный шанс подобрать код за месяц. Номер из `ADMIN_PHONES` при угадывании сразу давал права администратора | `client.post("/auth/request-code", ...)` при `env=prod, sms_provider=mock` → раньше 503 + живой `OtpCode` в базе | 1) commit только после успешной отправки, при сбое — немедленная нейтрализация кода; 2) `verify` отдельно отказывает по SMS-коду, пока канал заморожен; 3) суточный бюджет 100(/20 для ADMIN_PHONES) неудач за 24ч поверх короткого; 4) `request_code` тоже проверяет суточный бюджет; 5) неудачная попытка всё равно коммитится — throttle «3/мин» её видит | `test_l2_1_frozen_sms_door.py` (8 тестов): RED → GREEN; M20/M21/M22/M27/M29 KILLED |
+| Б-2 | **Не исправлено — решение за Александром.** Вход через Telegram может открыть ЧУЖОЙ SMS-аккаунт по номеру, которым человек когда-то (возможно, год назад) поделился в боте, — в обход правила R4 («перешедший номер получает новый аккаунт»): проверка `phone_looks_recycled` стоит ТОЛЬКО на SMS-двери (`_verify_sms_login`), а `_verify_telegram_login` её не делает вовсе. Telegram подтверждает номер один раз, при регистрации, и больше не перепроверяет | U (номер X, `telegram_id=None`, `last_device_id="old"`, не заходил 200 дней) → `tg/start` → вебхук `/start <id>` → вебхук `contact` (от самого отправителя, номер X) → `tg/verify` с `X-Device-Id="new"` → 200, `user.id == U.id` (должен был получиться НОВЫЙ аккаунт по правилу R4) | Не чинил: решение не только техническое (варианты ниже меняют UX входа через Telegram), а с правовыми/продуктовыми последствиями. **Варианты для Александра** (из независимого ревью): (1) не привязывать молча аккаунт без `telegram_id`, если его `last_device_id` отличается от текущего устройства, — отправлять в поддержку; (2) поставить ту же проверку `phone_looks_recycled`, что на SMS-двери; (3) привязывать Telegram только из уже вошедшего аккаунта | — |
+| Б-4 | Фикс-код проверочного аккаунта стора не считал неудачные попытки вовсе — только общий лимит по IP (20/мин) стоял между перебором и пассажирским входом без SMS | 100+ запросов `/auth/verify` с неверным фикс-кодом на `review_phone` — раньше ни разу не 429 | Служебная строка-счётчик в `OtpCode`, суточный бюджет (общий механизм) | `test_l2_1_review_login_and_group_chat_guards.py` (4 теста): RED → GREEN; M24 KILLED |
+| Б-5 | `/start@bot <id>`, написанный в ЛЮБОМ чате (включая группу), отвечал в тот же чат — код входа видели ВСЕ участники группы. Для аккаунта, уже привязанного к Telegram, одного кода достаточно, чтобы войти вместо хозяина | POST на `/telegram/webhook` с `chat.type="group"` и текстом `/start <id>` → раньше код уходил в группу | Бот отвечает на `/start` только когда `chat.type` явно НЕ group/supergroup/channel (отсутствие поля — как у упрощённых тестовых payload — считается личным чатом: настоящий Telegram это поле шлёт всегда) | `test_l2_1_review_login_and_group_chat_guards.py` (2 теста): RED → GREEN; M25 KILLED |
 
 ## Проверка нарочной поломкой
 
 | ID | Что сломали | Тест | Результат |
 |---|---|---|---|
 | M7 | `MAX_OTP_ATTEMPTS_PER_PHONE = 15` → `1500` | `test_parallel_wrong_codes_cannot_cross_phone_wide_budget` | KILLED |
-| M8 | Потребление кода `.values(code="", expires_at=utcnow())` → `.values(code=verified_code)` (код не гасится) | `test_concurrent_verification_issues_only_one_token_pair` (реальная гонка на PostgreSQL) | KILLED |
+| M8 | Потребление кода `.values(code="", expires_at=utcnow())` → `.values(code=verified_code)` | `test_concurrent_verification_issues_only_one_token_pair` (реальная гонка на PostgreSQL) | KILLED |
 | M9 | Throttle `len(recent) >= 3` → `>= 300` | `test_parallel_code_issuance_sends_at_most_three_sms_per_minute` | KILLED |
-| M10 | `if user and phone_looks_recycled(...)` → `if False and …` (проверка отключена) | `test_новый_владелец_номера_получает_чистый_аккаунт` | KILLED |
-| M11 | `if not user or user.role != UserRole.passenger:` → `if not user:` (роль больше не проверяется) | `test_fixed_review_login_rejects_existing_privileged_account_without_mutating_it` | KILLED |
-| M12 | `заслужил = by_tg or by_phone` → `заслужил = True` (admin всем подряд) | `test_foreign_lookalike_number_does_not_get_admin` | KILLED |
-| M13 | `elif user.role == UserRole.admin and not заслужил and admin_keys:` → `elif False:` (снятие роли отключено) | `test_права_снимаются_когда_номер_убрали_из_настроек` | KILLED |
+| M10 | `if user and phone_looks_recycled(...)` → `if False and …` | `test_новый_владелец_номера_получает_чистый_аккаунт` | KILLED |
+| M11 | `if not user or user.role != UserRole.passenger:` → `if not user:` | `test_fixed_review_login_rejects_existing_privileged_account_without_mutating_it` | KILLED |
+| M12 | `заслужил = by_tg or by_phone` → `заслужил = True` | `test_foreign_lookalike_number_does_not_get_admin` | KILLED |
+| M13 | `elif user.role == UserRole.admin and not заслужил and admin_keys:` → `elif False:` | `test_права_снимаются_когда_номер_убрали_из_настроек` | KILLED |
 | M14 | Цикл удаления `DeviceToken` в `logout` заменён на `pass` | `test_logout_removes_device_and_web_push_tokens` | KILLED |
+| M20 | Нейтрализация кода при сбое отправки убрана (`except Exception: raise` без очистки) | `test_request_code_does_not_leave_a_live_code_when_the_channel_is_frozen` | KILLED |
+| M21 | Проверка «канал жив» убрана из `verify` | `test_verify_refuses_an_sms_code_while_the_channel_is_frozen_even_if_one_exists` | KILLED |
+| M22 | Суточный бюджет в `verify` убран | `test_daily_failure_budget_survives_code_expiry` | KILLED |
+| M24 | Суточный бюджет для review-кода убран | `test_review_login_brute_force_hits_the_daily_budget` | KILLED |
+| M25 | Гейт «только личный чат» отключён (`is_group_chat = False`) | `test_start_command_in_a_group_chat_does_not_deliver_a_code` | KILLED |
+| M27 | Суточный бюджет в `request_code` убран | `test_request_code_itself_is_blocked_once_the_daily_budget_is_spent` | KILLED |
+| M29 | Пониженный порог для ADMIN_PHONES поднят до 100000 | `test_admin_phone_has_a_lower_daily_failure_budget` | KILLED |
 
-Полный прогон: `MUTATIONS KILLED 18/18` (см. карточку `security.py` — там же общая команда).
+Полный прогон: `python audit_mutation.py --root . replay --spec docs/audit-mutations/leaf-2.1.json`
+→ `MUTATIONS KILLED 28/28` (см. также карточки `security.py` и `account.py`).
 
 ## Остаток и ограничения
 
-- **Чужие коды верификации (`verify_code`-подобное) НЕ в этом файле.** Проверочные коды посадки в
-  попутке/такси — отдельная механика в других роутерах, вне этого листа; здесь проверен только код
-  ВХОДА (SMS и Telegram).
-- Полный обход `_handle_admin_callback` на реальном Telegram (не заглушке `httpx`) не делал —
-  секреты и реальные боты не трогаю по условиям листа; проверено по коду и существующим тестам
-  (`test_telegram_owner_gate.py`, `test_every_admin_action_leaves_a_trace.py`).
-- `_is_owner_telegram`/`_phone_key` (из `config.py`) сами по себе вне OWNS этого листа (не
-  `auth.py`/`security.py`/`account.py`) — проверил их ИСПОЛЬЗОВАНИЕ в `auth.py`, не их собственный
-  код построчно.
-- Башкирский текст в этом файле не менялся (правок кода не потребовалось за пределами уже
-  переведённых сообщений `herr`) — черновиков на проверку из этого файла нет.
+- **R12 (неудача всё равно считается попыткой) без изолирующей поломки.** В `_request_code`
+  строка коммитится ОДИН раз СРАЗУ (до отправки), а на сбой реагирует отдельный коммит-нейтрализация
+  в `except`. Экспериментально проверил: ослабление ПЕРВОГО коммита (`commit→flush`) не ломает
+  наблюдаемое поведение теста `test_failed_sends_still_count_toward_the_per_minute_issuance_throttle`
+  — второй коммит (в `except`) всё равно сохраняет (уже нейтрализованную) строку, и throttle её
+  по-прежнему видит. Это ЗАЩИТА, не пробел: убрать «лишний» коммит из `except` отдельно ломает
+  ДРУГОЕ свойство (R10, пойман M20). Две поломки по ОДНОМУ правилу подряд не нашёл — честно
+  оставляю тест без M-поломки, аналогично R1 в карточке `security.py`.
+- **Б-2 блокирует карточку, не статус.** Правило README для 🟩 требует воспроизведённую и
+  либо исправленную, либо осознанно принятую ошибку; Б-2 — именно такой случай (решение вне
+  компетенции этого листа). Статус файла остаётся `verified`, потому что подтверждённая ошибка
+  задокументирована с репродукцией и вариантами, а не скрыта; `--require-status` самопроверки
+  листа не допускает статус `bug` для этого инструмента приёмки (только verified/inactive/blocked).
+- `_is_owner_telegram`/`_phone_key` (из `config.py`) вне OWNS этого листа — проверил их
+  ИСПОЛЬЗОВАНИЕ в `auth.py`, не их собственный код.
+- Полный обход `_handle_admin_callback` и `_bump_review_login_failure` при настоящем IP-лимите
+  на реальном Telegram не делал — секреты и реальные боты не трогаю по условиям листа.
+- Башкирские черновики этого файла: фраза для Б-3/Б-1 уведомлений человеку указана в карточке
+  `security.py` (там же функция `_revoke_family_on_reuse`); отдельных новых строк в `auth.py`,
+  видимых пользователю, в этой правке не добавлялось (все отказы — уже существующие `herr`-пары).

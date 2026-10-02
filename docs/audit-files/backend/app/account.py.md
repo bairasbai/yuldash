@@ -2,7 +2,7 @@
 
 - Статус: verified
 - Лист: leaf-2.1
-- Проверял: Sonnet 5 (leaf-2.1); принимал: Opus 5.5
+- Проверял: Sonnet 5 (leaf-2.1); принимал: Opus 5.5; независимое ревью: Opus (REQUEST_CHANGES по листу — замечаний к этому файлу не было, доработка M19 по собственной инициативе до требования «каждое правило — своя поломка»)
 
 ## Назначение
 
@@ -43,7 +43,7 @@
 | R2 | Удаление — настоящее: строка `User` физически удаляется, нигде в базе не остаётся ссылок на его id (152-ФЗ, право на удаление исполняется буквально) | `backend/tests/test_account_deletion.py::test_delete_account_leaves_no_residual_anywhere` | да — M16 |
 | R3 | Спор/жалоба: удаляя СВОЙ (обвинённой стороны) аккаунт, человек стирает ТОЛЬКО свою сторону — заявление, улики и объяснение ещё живой второй стороны остаются нетронутыми | `backend/tests/test_account_deletion.py::test_delete_account_leaves_no_residual_anywhere` | да — M17 |
 | R4 | Курьер не может удалить аккаунт, пока чужая посылка числится принятой у него на руках | `backend/tests/test_account_delete_gates.py::test_carrying_parcel_blocks_courier_delete` | да — M18 |
-| R5 | Повторно использованный телефон (после удаления аккаунта) свободен для НОВОГО человека — `OtpCode`/`WaitlistEntry` по этому номеру стираются вместе с аккаунтом | `backend/tests/test_account_deletion.py::test_delete_account_leaves_no_residual_anywhere` (косвенно, через полный каскад) | см. «Остаток» — отдельной нарочной поломки на этот под-пункт нет |
+| R5 | Повторно использованный телефон (после удаления аккаунта) свободен для НОВОГО человека — `OtpCode`/`WaitlistEntry` по этому номеру стираются вместе с аккаунтом | `backend/tests/walk/l2_1/test_l2_1_delete_account_frees_phone_otp_history.py::test_delete_account_removes_otp_history_for_the_phone` (точечно, только `OtpCode`); `backend/tests/test_account_deletion.py::test_delete_account_leaves_no_residual_anywhere` (широко, `WaitlistEntry`) | да — M19 |
 
 ## Найденные ошибки
 
@@ -63,17 +63,13 @@
 | M16 | Финальный `delete(User)` заменён на `pass` (строка юзера переживает «удаление») | `test_delete_account_leaves_no_residual_anywhere` | KILLED |
 | M17 | Обезличивание стороны `respondent_*` в `Incident` расширено — заодно стирает `reporter_id`/`description` ЖЕРТВЫ | `test_delete_account_leaves_no_residual_anywhere` | KILLED |
 | M18 | `if live_parcel is not None:` → `if False and live_parcel is not None:` (гейт отключён) | `test_carrying_parcel_blocks_courier_delete` | KILLED |
+| M19 | `delete(OtpCode).where(OtpCode.phone == phone)` убран, `WaitlistEntry` оставлен (независимое ревью: широкий тест его не ловил — заводил `WaitlistEntry`, но не `OtpCode`) | `test_delete_account_removes_otp_history_for_the_phone` | KILLED |
 
-Полный прогон: `MUTATIONS KILLED 18/18` (см. карточку `security.py` — там же общая команда).
+Полный прогон: `python audit_mutation.py --root . replay --spec docs/audit-mutations/leaf-2.1.json`
+→ `MUTATIONS KILLED 28/28` (все поломки листа — см. также карточки `security.py` и `routers/auth.py`).
 
 ## Остаток и ограничения
 
-- R5 (свобода номера после удаления) проверена ЧТЕНИЕМ кода (`if phone: delete(OtpCode).where(phone
-  == phone); delete(WaitlistEntry)...`) и покрыта существующим широким тестом
-  `test_delete_account_leaves_no_residual_anywhere`, но отдельной ТОЧЕЧНОЙ нарочной поломки именно
-  на этот под-пункт я не заводил — посчитал избыточным против уже 4 мутаций на файл с деньгами и
-  личными данными; если нужна строгая «одна поломка на каждый под-пункт R1/R5», это недостающий
-  M19, можно добавить по запросу.
 - Полный сквозной прогон «удалить аккаунт → тот же номер регистрирует НОВОГО человека → старый
   История недоступна» силами ТОЛЬКО этого файла не воспроизводил как HTTP-сценарий (это требует
   `routers/auth.py::verify`, уже проверено в его карточке через `test_a_recycled_number_is_a_new_person.py` —

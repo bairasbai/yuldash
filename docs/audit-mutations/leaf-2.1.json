@@ -6,7 +6,7 @@
       "id": "M1",
       "file": "backend/app/security.py",
       "rule": "S1",
-      "description": "Сожжённый refresh-токен мог бы снова стать годным: атомарный UPDATE в rotate_refresh сверяется с revoked==True вместо revoked==False, поэтому НИ ОДИН ещё живой токен не продлевает сессию.",
+      "description": "Инверсия условия в финальном UPDATE ротации (revoked==False → revoked==True) ломает завершение ЛЮБОГО refresh, не только повторного: ни один, даже первый раз предъявленный, живой токен не проходит дальше атомарного шага. Честно: это НЕ тест защиты от параллельного повторного использования — та тройная (лок User + лок RefreshToken + это же условие) и одной мутацией не вскрывается, см. карточку, раздел «Остаток».",
       "find": "RefreshToken.id == rt.id, RefreshToken.revoked == False",
       "replace": "RefreshToken.id == rt.id, RefreshToken.revoked == True",
       "runner": "pytest",
@@ -203,6 +203,116 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/test_account_delete_gates.py::test_carrying_parcel_blocks_courier_delete"]
+    },
+    {
+      "id": "M19",
+      "file": "backend/app/account.py",
+      "rule": "D5",
+      "description": "Независимое ревью leaf-2.1 (R5): удаление номера из OtpCode при удалении аккаунта убрано — освобождённый номер достаётся новому человеку вместе с чужой историей кодов/попыток.",
+      "find": "if phone:\n        session.execute(delete(OtpCode).where(OtpCode.phone == phone))\n        session.execute(delete(WaitlistEntry).where(WaitlistEntry.phone == phone))",
+      "replace": "if phone:\n        session.execute(delete(WaitlistEntry).where(WaitlistEntry.phone == phone))",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_delete_account_frees_phone_otp_history.py::test_delete_account_removes_otp_history_for_the_phone"]
+    },
+    {
+      "id": "M20",
+      "file": "backend/app/routers/auth.py",
+      "rule": "Б-1a",
+      "description": "Независимое ревью leaf-2.1, блокер: нейтрализация кода при сбое отправки убрана — send_sms бросает исключение, а строка в базе остаётся с живым, настоящим кодом (как до правки).",
+      "find": "    try:\n        send_sms(body.phone, code)\n    except Exception:\n        otp.code = \"\"\n        otp.expires_at = utcnow()\n        session.add(otp)\n        session.commit()\n        raise",
+      "replace": "    try:\n        send_sms(body.phone, code)\n    except Exception:\n        raise",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_request_code_does_not_leave_a_live_code_when_the_channel_is_frozen"]
+    },
+    {
+      "id": "M27",
+      "file": "backend/app/routers/auth.py",
+      "rule": "Б-1d",
+      "description": "Срочная правка P2: request_code больше не проверяет суточный бюджет — номер, уже исчерпавший его на угадывании кода, продолжал бы получать новые коды без конца.",
+      "find": "# мог ловить 429 на угадывании, но НОВЫЕ коды ему продолжали бы сыпаться сколько угодно.\n    _guard_otp_daily_budget(session, body.phone)",
+      "replace": "# мог ловить 429 на угадывании, но НОВЫЕ коды ему продолжали бы сыпаться сколько угодно.",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_request_code_itself_is_blocked_once_the_daily_budget_is_spent"]
+    },
+    {
+      "id": "M29",
+      "file": "backend/app/routers/auth.py",
+      "rule": "Б-1f",
+      "description": "Срочная правка P2: пониженный суточный порог для номеров из ADMIN_PHONES снят (поднят до общего) — угадывание кода на самом дорогом номере снова ограничено только общим порогом в 100.",
+      "find": "ADMIN_PHONE_MAX_OTP_FAILURES_PER_DAY = 20",
+      "replace": "ADMIN_PHONE_MAX_OTP_FAILURES_PER_DAY = 100000",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_admin_phone_has_a_lower_daily_failure_budget"]
+    },
+    {
+      "id": "M21",
+      "file": "backend/app/routers/auth.py",
+      "rule": "Б-1b",
+      "description": "Независимое ревью leaf-2.1, блокер: проверка «канал жив» убрана из verify — SMS-код, оставшийся в базе от старой версии/сбойного фона, снова принимается, пока канал объективно заморожен.",
+      "find": "    if settings.is_prod and not sms_channel_live():\n        raise herr(503, \"Вход по SMS временно не работает. Зайди через мессенджер 💚\",\n                   \"SMS аша инеү ваҡытлыса эшләмәй. Мессенджер аша кер 💚\")\n    _guard_otp_daily_budget(session, body.phone)",
+      "replace": "    _guard_otp_daily_budget(session, body.phone)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_verify_refuses_an_sms_code_while_the_channel_is_frozen_even_if_one_exists"]
+    },
+    {
+      "id": "M22",
+      "file": "backend/app/routers/auth.py",
+      "rule": "Б-1c",
+      "description": "Независимое ревью leaf-2.1, блокер: суточный (24ч/100) бюджет неудач для SMS-входа отключён — короткий 15-за-5-минут бюджет снова единственная защита, и он забывает ошибки, как только истекают коды.",
+      "find": "                   \"SMS аша инеү ваҡытлыса эшләмәй. Мессенджер аша кер 💚\")\n    _guard_otp_daily_budget(session, body.phone)",
+      "replace": "                   \"SMS аша инеү ваҡытлыса эшләмәй. Мессенджер аша кер 💚\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_frozen_sms_door.py::test_daily_failure_budget_survives_code_expiry"]
+    },
+    {
+      "id": "M23",
+      "file": "backend/app/security.py",
+      "rule": "Б-3",
+      "description": "Независимое ревью leaf-2.1: отзыв всей семьи сессий при повторе сожжённого refresh-токена с неверным rotation_id вне окна восстановления отключён (RFC 9700 §4.14.2) — украденный токен-наследник снова жил бы до 90 дней, пока хозяин не выйдет вручную.",
+      "find": "if rotation_id is not None and outside_window:\n                _revoke_family_on_reuse(session, owner)",
+      "replace": "if False:\n                _revoke_family_on_reuse(session, owner)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_refresh_reuse_revokes_family.py::test_replay_with_a_wrong_rotation_id_outside_the_window_revokes_the_family"]
+    },
+    {
+      "id": "M24",
+      "file": "backend/app/routers/auth.py",
+      "rule": "Б-4",
+      "description": "Независимое ревью leaf-2.1: суточный счётчик неудач фикс-кода стора отключён — код снова перебирается без ограничений, кроме общего лимита по IP (20/мин).",
+      "find": "        # администратором, пока идёт проверка кода (живой сценарий в тестах).\n        _guard_otp_daily_budget(session, body.phone)",
+      "replace": "        # администратором, пока идёт проверка кода (живой сценарий в тестах).",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_review_login_and_group_chat_guards.py::test_review_login_brute_force_hits_the_daily_budget"]
+    },
+    {
+      "id": "M25",
+      "file": "backend/app/routers/auth.py",
+      "rule": "Б-5",
+      "description": "Независимое ревью leaf-2.1: гейт «бот отвечает на /start только в личных чатах» отключён — код входа снова уходит в групповой чат, где его видят все участники.",
+      "find": "is_group_chat = chat.get(\"type\") in (\"group\", \"supergroup\", \"channel\")",
+      "replace": "is_group_chat = False  # mutated",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_review_login_and_group_chat_guards.py::test_start_command_in_a_group_chat_does_not_deliver_a_code"]
+    },
+    {
+      "id": "M26",
+      "file": "backend/app/security.py",
+      "rule": "В",
+      "description": "Независимое ревью leaf-2.1, пункт «в»: двуязычный перехват отсутствующего заголовка Authorization убран — ответ снова отдаёт библиотека FastAPI напрямую (401/403 \"Not authenticated\" по-английски, без WWW-Authenticate от нас).",
+      "find": "bearer = _BilingualBearer(auto_error=True)",
+      "replace": "bearer = HTTPBearer(auto_error=True)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l2_1/test_l2_1_bilingual_401s.py::test_missing_authorization_header_speaks_both_languages_and_names_the_scheme"]
     }
   ]
 }

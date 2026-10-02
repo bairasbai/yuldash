@@ -76,7 +76,10 @@ def test_daily_failure_budget_survives_code_expiry(client, monkeypatch):
     истощив много кодов подряд, подбирающий не обязан получить свежий бюджет вместе с новым
     кодом. Сеем 100 уже исчерпанных попыток по ИСТЁКШИМ за последние сутки кодам — ровно то,
     что реально осталось бы в базе от перебора (окно очистки веб-хука теперь переживает сутки,
-    см. правку `telegram_webhook`) — и проверяем, что СВЕЖИЙ настоящий код всё равно отклонён."""
+    см. правку `telegram_webhook`) — и проверяем, что verify отклоняет СВЕЖИЙ настоящий код,
+    заведённый напрямую в базе (request_code теперь и сам отказал бы раньше — см. отдельный
+    тест `test_request_code_itself_is_blocked_once_the_daily_budget_is_spent` — здесь же
+    проверяется САМОСТОЯТЕЛЬНАЯ защита verify, а не то, что срабатывает первым)."""
     phone = "+79995550003"
     now = utcnow()
     with Session(engine) as s:
@@ -84,11 +87,9 @@ def test_daily_failure_budget_survives_code_expiry(client, monkeypatch):
             created = now - timedelta(hours=2, seconds=i)
             s.add(OtpCode(phone=phone, code=f"{i:06d}", attempts=5,
                           created_at=created, expires_at=created + timedelta(minutes=5)))
+        s.add(OtpCode(phone=phone, code="246801", expires_at=now + timedelta(minutes=5)))
         s.commit()
-    issued = client.post("/auth/request-code", json={"phone": phone})
-    assert issued.status_code == 200, issued.text
-    code = issued.json()["dev_code"]
-    r = client.post("/auth/verify", json={"phone": phone, "code": code})
+    r = client.post("/auth/verify", json={"phone": phone, "code": "246801"})
     assert r.status_code == 429, (
         f"суточный бюджет не держит после истечения старых кодов: {r.status_code} {r.text}"
     )
@@ -112,4 +113,73 @@ def test_daily_failure_budget_does_not_trip_for_an_ordinary_day(client):
     r = client.post("/auth/verify", json={"phone": phone, "code": code})
     assert r.status_code == 200, (
         f"честного человека заблокировали за чужую/старую историю: {r.status_code} {r.text}"
+    )
+
+
+def test_request_code_itself_is_blocked_once_the_daily_budget_is_spent(client):
+    """Срочная правка P2: раньше суточный бюджет проверяла только verify — номер, уже
+    исчерпавший его на угадывании, продолжал бы получать НОВЫЕ коды без конца."""
+    phone = "+79995550005"
+    now = utcnow()
+    with Session(engine) as s:
+        for i in range(20):
+            created = now - timedelta(hours=2, seconds=i)
+            s.add(OtpCode(phone=phone, code=f"r{i:05d}", attempts=5,
+                          created_at=created, expires_at=created + timedelta(minutes=5)))
+        s.commit()
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 429, (
+        f"новый код выдан, хотя суточный бюджет уже исчерпан: {r.status_code} {r.text}"
+    )
+
+
+def test_failed_sends_still_count_toward_the_per_minute_issuance_throttle(client, monkeypatch):
+    """Срочная правка P2: пока канал заморожен, каждая неудачная отправка раньше НЕ попадала
+    в throttle «≤3 кода в минуту» (строка целиком откатывалась) — запрос кода можно было
+    слать сколько угодно раз подряд, не встречая throttle вовсе."""
+    phone = "+79995550007"
+    _freeze_prod_sms(monkeypatch)
+    for _ in range(3):
+        r = client.post("/auth/request-code", json={"phone": phone})
+        assert r.status_code == 503, r.text
+    fourth = client.post("/auth/request-code", json={"phone": phone})
+    assert fourth.status_code == 429, (
+        f"неудачные отправки не считаются в throttle «3 кода в минуту»: "
+        f"{fourth.status_code} {fourth.text}"
+    )
+
+
+def test_admin_phone_has_a_lower_daily_failure_budget(client, monkeypatch):
+    """Срочная правка P2: номер из ADMIN_PHONES — цель дороже обычной (угаданный код сразу
+    даёт права администратора), суточный порог для него ниже общего (20 вместо 100)."""
+    phone = "+79995550008"
+    monkeypatch.setattr(settings, "admin_phones", phone, raising=False)
+    now = utcnow()
+    with Session(engine) as s:
+        for i in range(4):
+            created = now - timedelta(hours=1, seconds=i)
+            s.add(OtpCode(phone=phone, code=f"a{i:05d}", attempts=5,
+                          created_at=created, expires_at=created + timedelta(minutes=5)))
+        s.commit()
+    # 4×5 = 20 неудач уже накоплено: админский порог (20) исчерпан, хотя общий (100) далёк.
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 429, (
+        f"номер из ADMIN_PHONES не получил пониженный суточный порог: {r.status_code} {r.text}"
+    )
+
+
+def test_a_non_admin_phone_keeps_the_general_budget(client, monkeypatch):
+    """Сторож придирчивого сторожа: пониженный порог не должен задевать обычные номера."""
+    phone = "+79995550009"
+    monkeypatch.setattr(settings, "admin_phones", "+79990000000", raising=False)
+    now = utcnow()
+    with Session(engine) as s:
+        for i in range(4):
+            created = now - timedelta(hours=1, seconds=i)
+            s.add(OtpCode(phone=phone, code=f"b{i:05d}", attempts=5,
+                          created_at=created, expires_at=created + timedelta(minutes=5)))
+        s.commit()
+    r = client.post("/auth/request-code", json={"phone": phone})
+    assert r.status_code == 200, (
+        f"обычный номер получил пониженный (админский) суточный порог: {r.status_code} {r.text}"
     )

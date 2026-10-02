@@ -6,7 +6,7 @@ import string
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from sqlalchemy import update
@@ -15,10 +15,44 @@ from sqlmodel import Session, select
 from .config import settings
 from .db import get_session
 from .errors import herr
+from .logs import log
 from .models import RefreshToken, User, UserRole
 from .timeutil import utcnow
 
-bearer = HTTPBearer(auto_error=True)
+# Человеку всё равно, какое именно поле протухло, — результат один: «войди заново». Один текст
+# на разные внутренние причины экономит черновые башкирские переводы и не плодит жаргон вроде
+# «Refresh-токен» на экране (независимое ревью leaf-2.1, правило тона §9 CLAUDE.md: человеческий
+# язык, не термины реализации).
+_SESSION_STALE_RU = "Сессия устарела. Войди заново."
+_SESSION_STALE_BA = "Сессия иҫкергән. Яңынан ин."
+
+
+class _BilingualBearer(HTTPBearer):
+    """401 с двуязычным detail и `WWW-Authenticate: Bearer` НЕЗАВИСИМО от версии FastAPI.
+
+    Независимое ревью (пункт «в», leaf-2.1): установленный `HTTPBearer(auto_error=True)` сам
+    бросает исключение, когда заголовка нет или схема не Bearer, — на одних версиях FastAPI это
+    401 "Not authenticated" (англ., без `herr`), на старых 403. `bearer` объявлен здесь же, в
+    зоне этого листа, — чинить можно и нужно тут, а не заводить задачу «на потом».
+
+    Для клиентов (Android/PWA) ничего не меняется по смыслу: оба решают, что делать, по КОДУ
+    ответа и при 401 не читают `detail` (см. карточку) — 401 для них уже значит «нет сессии».
+    Фиксируем именно 401 и добавляем стандартный заголовок (RFC 7235), чтобы это не зависело
+    от установленной на сервере версии пакета.
+    """
+
+    async def __call__(self, request: Request) -> Optional[HTTPAuthorizationCredentials]:
+        try:
+            return await super().__call__(request)
+        except HTTPException:
+            raise HTTPException(
+                status_code=401,
+                detail={"ru": _SESSION_STALE_RU, "ba": _SESSION_STALE_BA},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+
+bearer = _BilingualBearer(auto_error=True)
 bearer_optional = HTTPBearer(auto_error=False)   # для публичных списков: токен есть → знаем юзера, нет → аноним
 
 # Telegram-плейсхолдер tg<id>: ставится при входе, пока юзер не поделился реальным
@@ -98,7 +132,8 @@ def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] =
     access-токены. Новую пару выпускаем строго после этой границы."""
     user = lock_refresh_user(session, user_id)
     if user is None or (review_session and user.role != UserRole.passenger):
-        raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
+        raise herr(401, "Не получилось продлить вход. Войди заново.",
+                   "Инеүҙе оҙайтып булманы. Яңынан ин.")
     issued_after = user.tokens_valid_from if user else None
     if user:
         # Отметка «человек жив»: пишется при каждой выдаче пары ключей, то есть у активного —
@@ -155,7 +190,8 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
     owner_id = session.exec(select(RefreshToken.user_id).where(
         RefreshToken.token_hash == _hash_refresh(raw))).first()
     if owner_id is None:
-        raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
+        raise herr(401, "Не получилось продлить вход. Войди заново.",
+                   "Инеүҙе оҙайтып булманы. Яңынан ин.")
     owner = lock_refresh_user(session, owner_id)
     rt = session.exec(
         select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(raw)).with_for_update()
@@ -166,7 +202,8 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
     review_session = raw.startswith(_REVIEW_REFRESH_PREFIX)
     if (not owner or not rt or rt.expires_at <= now
             or (review_session and owner.role != UserRole.passenger)):
-        raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
+        raise herr(401, "Не получилось продлить вход. Войди заново.",
+                   "Инеүҙе оҙайтып булманы. Яңынан ин.")
     # Бан устройства — вторая половина проверки (волна 204). Первая стоит в роутере и читает
     # заголовок `X-Device-Id`; но заголовок шлёт КЛИЕНТ, и забаненному достаточно перестать
     # его слать. Поэтому смотрим ещё и на аппарат, который сервер запомнил сам при входе
@@ -178,17 +215,43 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
     from .antifraud import guard_device_not_banned   # локальный импорт: без цикла на старте
     guard_device_not_banned(session, owner.last_device_id)
     if rt.revoked:
-        if (rotation_id is None or rt.rotation_id_hash is None or rt.rotated_at is None
-                or not hmac.compare_digest(rt.rotation_id_hash, _hash_refresh(rotation_id))
-                or not 0 <= (now - rt.rotated_at).total_seconds() <= REFRESH_RECOVERY_SECONDS):
-            raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
+        # outside_window отдельно от «нонс не подошёл»: два ЧЕСТНЫХ одновременных запроса одним
+        # токеном (двойная вкладка, авто-ретрай) каждый приходят со СВОИМ случайным rotation_id —
+        # проигравший получит «нонс не подошёл» в первую же миллисекунду после победителя, это
+        # не кража, а гонка (см. `test_parallel_recovery_intents_have_one_child[False]`).
+        # «Окно закрылось» же означает, что с момента ротации прошло заметно больше 120с —
+        # это за пределами ЛЮБОЙ настоящей гонки двух запросов одного честного клиента.
+        outside_window = (rt.rotated_at is None
+                          or not 0 <= (now - rt.rotated_at).total_seconds() <= REFRESH_RECOVERY_SECONDS)
+        nonce_mismatch = (rotation_id is None or rt.rotation_id_hash is None
+                          or not hmac.compare_digest(rt.rotation_id_hash, _hash_refresh(rotation_id)))
+        if nonce_mismatch or outside_window:
+            # Б-3 (независимое ревью leaf-2.1): предъявили rotation_id (клиент явно пытался
+            # восстановить СВОЮ конкретную попытку) заметно позже 120-секундного окна — по
+            # RFC 9700 §4.14.2 это и есть сигнал кражи refresh-токена: окно уже закрыто, значит
+            # это НЕ гонка двух почти одновременных запросов (см. выше), а отдельное, более
+            # позднее предъявление токена, который уже был сожжён. Раньше это просто отвечало
+            # 401 — а украденный токен-наследник, если вор продлил его раньше хозяина, жил
+            # дальше все REFRESH_EXPIRE_DAYS (90 дней), продлеваясь каждым обновлением. Гасим
+            # ВСЮ семью сессий этого человека, как при обычном выходе.
+            #
+            # НЕ ловим этим: простой повтор без rotation_id («потерян ответ», старый клиент —
+            # тесты `test_refresh_rotation`, `test_lost_committed_rotation_response_is_not_recoverable_with_old_token`)
+            # и честную гонку двух запросов ОДНОГО клиента внутри окна (см. комментарий выше) —
+            # у обоих нет своего доказательства «чья это попытка», а семья новой (уже выданной!)
+            # сессии слишком ценна, чтобы гасить её по рядовому совпадению по времени.
+            if rotation_id is not None and outside_window:
+                _revoke_family_on_reuse(session, owner)
+            raise herr(401, "Не получилось продлить вход. Войди заново.",
+                   "Инеүҙе оҙайтып булманы. Яңынан ин.")
         child_raw = _recovery_token(raw, rotation_id)
         child = session.exec(select(RefreshToken).where(
             RefreshToken.token_hash == _hash_refresh(child_raw)).with_for_update()
             .execution_options(populate_existing=True)).first()
         if (not child or child.user_id != owner.id or child.revoked or child.expires_at <= now
                 or (owner.tokens_valid_from is not None and rt.rotated_at <= owner.tokens_valid_from)):
-            raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
+            raise herr(401, "Не получилось продлить вход. Войди заново.",
+                   "Инеүҙе оҙайтып булманы. Яңынан ин.")
         # No new row, no change to either expiry or recovery window. The User
         # lock stays held until this request's session closes, excluding logout.
         return {'access_token': make_token(owner.id, issued_after=owner.tokens_valid_from,
@@ -212,7 +275,8 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
     )
     if burned.rowcount == 0:
         session.rollback()
-        raise herr(401, "Refresh-токен недействителен", "Refresh-токен дөрөҫ түгел")
+        raise herr(401, "Не получилось продлить вход. Войди заново.",
+                   "Инеүҙе оҙайтып булманы. Яңынан ин.")
     try:
         # Отзыв и новая пара фиксируются вместе, после успешной подписи JWT.
         if rotation_id is not None:
@@ -233,6 +297,30 @@ def revoke_all_refresh(session: Session, user_id: int, *, commit: bool = True) -
         session.add(rt)
     if commit:
         session.commit()
+
+
+def _revoke_family_on_reuse(session: Session, owner: User) -> None:
+    """Б-3 (независимое ревью leaf-2.1): повтор уже сожжённого refresh-токена вне окна
+    восстановления гасит ВСЮ семью сессий этого человека — как обычный logout, — а не только
+    отвечает 401 текущей попытке. Коммитит сам, до вызывающего `raise`: отказ этого запроса
+    не должен зависеть от того, дойдёт ли побочное уведомление."""
+    owner.tokens_valid_from = utcnow()
+    session.add(owner)
+    revoke_all_refresh(session, owner.id, commit=False)
+    session.commit()
+    log.warning("[AUTH] refresh reuse: сессии user_id=%s отозваны целиком", owner.id)
+    try:
+        from .services import push_notification, send_text
+        ru = ("Заметили подозрительную попытку продлить твой вход. Для безопасности вышли "
+              "тебя со всех устройств — зайди заново, это недолго.")
+        ba = ("Һиңә ингәндә шикле һынау күрҙек. Иҫәнлек өсөн барлыҡ ҡоролмаларҙан сығарҙыҡ — "
+              "яңынан инегеҙ, был оҙаҡ бармай.")
+        push_notification(session, owner.id, "safety",
+                          "Подозрительная попытка входа", "Шикле инеү һынауы", ru, ba)
+        if owner.phone and not is_placeholder_phone(owner.phone):
+            send_text(owner.phone, f"Юлдаш: {ru} · {ba}")
+    except Exception as exc:  # noqa: BLE001 — уведомление вторично, отказ текущей сессии важнее
+        log.warning("[AUTH] refresh reuse notify failed: %s", type(exc).__name__)
 
 
 # Требования к КАЖДОМУ входящему токену. Одна точка на все четыре двери: REST (`current_user`,
@@ -312,7 +400,7 @@ def current_user(
         payload = _decode(cred.credentials)
         user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError):
-        raise herr(401, "Неверный токен", "Токен дөрөҫ түгел")
+        raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
     user = session.get(User, user_id)
     if not user:
         raise herr(401, "Пользователь не найден", "Ҡулланыусы табылманы")
