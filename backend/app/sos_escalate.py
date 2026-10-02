@@ -31,6 +31,7 @@ from .config import settings
 from .db import engine
 from .logs import log
 from .models import SosEvent, User
+from .observability import scrub_exc
 from .services import notify_admin_telegram, send_text
 from .timeutil import utcnow
 
@@ -95,7 +96,9 @@ def escalate_unhandled(session: Session, dry_run: bool = False) -> list[int]:
         try:
             доставлено += bool(notify_admin_telegram(text))
         except Exception as e:  # noqa: BLE001 — один сбой не должен рвать прогон
-            log.warning(f"[SOS-ESCALATE] telegram #{event.id}: {type(e).__name__}: {e}")
+            # §8/152-ФЗ: notify_admin_telegram сегодня сама гасит исключение и не отдаёт его
+            # сюда, но лишней защиты для будущего это не портит — scrub_exc как у middleware.py.
+            log.warning(f"[SOS-ESCALATE] telegram #{event.id}: {type(e).__name__}: {scrub_exc(e)}")
         if settings.sos_sms_to_admin:
             for phone in _admin_phones():
                 try:
@@ -103,7 +106,7 @@ def escalate_unhandled(session: Session, dry_run: bool = False) -> list[int]:
                         phone,
                         f"SOS Юлдаш не принят {waiting_min} мин. Сигнал #{event.id}. Открой админку."))
                 except Exception as e:  # noqa: BLE001
-                    log.warning(f"[SOS-ESCALATE] sms #{event.id}: {type(e).__name__}: {e}")
+                    log.warning(f"[SOS-ESCALATE] sms #{event.id}: {type(e).__name__}: {scrub_exc(e)}")
 
         # Метку ставим, только если сообщение РЕАЛЬНО дошло хотя бы одним каналом.
         #
