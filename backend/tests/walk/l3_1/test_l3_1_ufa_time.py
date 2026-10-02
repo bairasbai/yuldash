@@ -45,3 +45,33 @@ def test_sos_admin_message_states_ufa_time_not_utc(client, user_factory, monkeyp
     assert сырой_utc not in msgs[0].split("\n")[0], (
         f"в заголовке сигнала сырой UTC вместо местного: {msgs[0]!r}"
     )
+
+
+def test_sos_family_sms_also_states_ufa_time_not_utc(client, user_factory, monkeypatch):
+    """То же правило, но для SMS БЛИЗКИМ (своё, отдельное выражение в коде — routers/safety.py,
+    переменная `местное`) — ревью отдельно отметило, что это место нигде не проверялось."""
+    assert settings.local_tz_offset_hours == 5
+
+    fixed_utc = datetime(2026, 6, 10, 2, 15, tzinfo=timezone.utc)   # 02:15 UTC = 07:15 по Уфе
+    monkeypatch.setattr(safety, "utcnow", lambda: fixed_utc)
+    monkeypatch.setattr(safety, "notify_admin_telegram", lambda *a, **k: True)
+    sent = []
+    monkeypatch.setattr(safety, "_send_sos_sms", lambda phones, text: sent.append((list(phones), text)))
+
+    u = user_factory("UfaTimeFamily")
+    client.post("/trusted-contacts", headers=u["auth"],
+                json={"name": "Сестра", "relation": "сестра", "phone": "+79170003344"})
+    r = client.post("/sos", headers=u["auth"], json={"category": "medical"})
+    assert r.status_code == 200, r.text
+
+    to_family = [t for phones, t in sent if "+79170003344" in phones]
+    assert to_family, "близким SMS не ушло"
+    ожидаемое_местное = (fixed_utc + timedelta(hours=settings.local_tz_offset_hours)).strftime("%H:%M")
+    assert ожидаемое_местное == "07:15"
+    assert ожидаемое_местное in to_family[0], (
+        f"SMS близким называет не местное (Уфа) время: ожидали {ожидаемое_местное!r} в {to_family[0]!r}"
+    )
+    сырой_utc = fixed_utc.strftime("%H:%M")
+    assert сырой_utc not in to_family[0].split("\n")[0], (
+        f"в заголовке SMS близким сырой UTC вместо местного: {to_family[0]!r}"
+    )

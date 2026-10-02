@@ -103,6 +103,10 @@ def test_сбой_списания_комиссии_по_доставке_не_�
 
     leaked = [rec.getMessage() for rec in caplog.records if FAKE_PHONE in rec.getMessage()]
     assert not leaked, f"телефон утёк в лог сервера при сбое возврата комиссии: {leaked}"
+    assert any("[DEBT]" in rec.getMessage() for rec in caplog.records), (
+        "сам факт сбоя должен остаться виден в логе — иначе тест пройдёт вхолостую, даже "
+        "если путь кода поменяется и исключение перестанет попадать в этот except вообще"
+    )
 
 
 def _live_booking(pax_id: int, drv_id: int) -> int:
@@ -140,6 +144,10 @@ def test_сбой_требования_фото_по_жалобе_не_пише�
 
     leaked = [rec.getMessage() for rec in caplog.records if FAKE_PHONE in rec.getMessage()]
     assert not leaked, f"телефон утёк в лог сервера при сбое требования фото: {leaked}"
+    assert any("[carphoto]" in rec.getMessage() for rec in caplog.records), (
+        "сам факт сбоя должен остаться виден в логе — иначе тест пройдёт вхолостую, даже "
+        "если путь кода поменяется и исключение перестанет попадать в этот except вообще"
+    )
 
 
 def test_координаты_sos_не_попадают_в_лог_сервера(client, user_factory, monkeypatch, caplog):

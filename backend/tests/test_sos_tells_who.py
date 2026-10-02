@@ -119,16 +119,24 @@ def test_sos_without_a_trip_still_goes_out(client, user_factory, monkeypatch):
 
 
 def test_sos_context_is_only_for_my_own_trip(client, user_factory, monkeypatch):
-    """Чужой номер брони не должен вытаскивать чужого водителя и его телефон."""
+    """Чужой номер брони не должен вытаскивать чужого водителя и его телефон.
+
+    N5 (независимое ревью): раньше чужая бронь отвечала 403/404 ДО записи сигнала — сигнал
+    терялся вообще. Теперь сигнал пишется всегда (200), а чужой контекст (водитель, машина,
+    маршрут) в него просто не попадает — проверяем это, а не отказ."""
     drv = user_factory("SosWhoDrv2", role=UserRole.driver)
     pax = user_factory("SosWhoPax2")
     stranger = user_factory("SosWhoStranger")
     _ride, b = _live_trip(drv["id"], pax["id"])
-    _capture_tg(monkeypatch)
+    msgs = _capture_tg(monkeypatch)
 
     r = client.post("/sos", headers=stranger["auth"],
                     json={"category": "other", "note": "", "booking_id": b.id})
-    assert r.status_code in (403, 404), f"чужая бронь отдалась постороннему: {r.status_code}"
+    assert r.status_code == 200, "чужая бронь не должна топить сигнал постороннего"
+    assert r.json()["booking_id"] is None, "чужая бронь не должна попасть в событие как своя"
+    assert msgs, "сигнал постороннего всё равно должен дойти до дежурного"
+    assert "SosWhoDrv2" not in msgs[0], f"чужой водитель утёк в сигнал постороннего: {msgs[0]}"
+    assert "Баймак" not in msgs[0], f"чужой маршрут утёк в сигнал постороннего: {msgs[0]}"
 
 
 def test_driver_can_press_sos_from_the_same_trip(client, user_factory, monkeypatch):
