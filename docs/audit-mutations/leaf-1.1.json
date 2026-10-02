@@ -59,7 +59,7 @@
       "replace": "    return {\"items\": rows[:limit]}",
       "runner": "pytest",
       "cwd": "backend",
-      "args": ["tests/walk/l1_1/test_l1_1_settlements_router.py::test_r4_districts_limit_clamped_for_zero_negative_and_huge"],
+      "args": ["tests/walk/l1_1/test_l1_1_settlements_router.py::test_r4_districts_limit_clamps_zero_and_negative_to_exactly_one"],
       "db": "sqlite"
     },
     {
@@ -355,8 +355,8 @@
       "file": "backend/app/routers/debt.py",
       "rule": "R-access-1",
       "description": "все /admin/debts* ручки обязаны требовать роль admin",
-      "find": "    if user.role != UserRole.admin:\n        raise HTTPException(403, \"Только для админа\")",
-      "replace": "    if False:\n        raise HTTPException(403, \"Только для админа\")",
+      "find": "def _require_admin(user: User) -> None:\n    if user.role != UserRole.admin:",
+      "replace": "def _require_admin(user: User) -> None:\n    if False:",
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/test_debt.py::test_admin_debts_requires_admin"],
@@ -396,6 +396,258 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/test_the_wallet_works_and_the_ride_is_free.py::test_кошелёк_гасит_долг_по_комиссии"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M35",
+      "file": "backend/app/debt.py",
+      "rule": "R-F2-1",
+      "description": "зачёт кошельком трогает ТОЛЬКО долги по оплаченным (order.paid=True) заказам — способ оплаты ещё не известен для неоплаченных",
+      "find": "        InstantOrder.paid == True,          # noqa: E712 — способ оплаты уже известен",
+      "replace": "        InstantOrder.paid.in_([True, False]),  # mutated: фильтр снят",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_debt_card_vs_wallet.py::test_r5_wallet_never_settles_a_debt_on_an_unpaid_order"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M36",
+      "file": "backend/app/debt.py",
+      "rule": "R-mark-all-paid",
+      "description": "mark_all_paid(up_to=...) гасит только долг, начисленный ДО границы снапшота платежа — не позже",
+      "find": "        conds.append(CommissionDebt.created_at <= up_to)",
+      "replace": "        conds.append(CommissionDebt.created_at >= up_to)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_release_hardening.py::test_taxi_debt_window_not_forgiven"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M37",
+      "file": "backend/app/debt.py",
+      "rule": "R6-boundary",
+      "description": "declare_abuse — строго БОЛЬШЕ лимита обещаний, не «не меньше» (и abuse обязан победить stale, когда оба истинны)",
+      "find": "    abused = [d for d in pending if (d.declare_count or 0) > settings.debt_max_declares]",
+      "replace": "    abused = [d for d in pending if (d.declare_count or 0) >= settings.debt_max_declares]",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r6_declare_abuse_boundary_is_strictly_greater_not_greater_or_equal",
+        "tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r4_priority_abuse_outranks_stale_even_when_both_are_true"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M38",
+      "file": "backend/app/debt.py",
+      "rule": "R7-boundary",
+      "description": "протухание «слова» — строго СТАРШЕ срока доверия, не «от срока и старше» (и stale обязан победить overdue, когда оба истинны)",
+      "find": "    return [d for d in pending if (d.paid_declared_at or d.created_at) < edge]",
+      "replace": "    return [d for d in pending if (d.paid_declared_at or d.created_at) <= edge]",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r7_declare_stale_boundary_is_strictly_less_not_less_or_equal",
+        "tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r4_priority_stale_outranks_overdue_even_when_both_are_true"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M39",
+      "file": "backend/app/debt.py",
+      "rule": "R8-boundary",
+      "description": "over_threshold — сумма долга строго БОЛЬШЕ порога, не «не меньше» (и overdue обязан победить over_threshold, когда оба истинны)",
+      "find": "    if sum(d.amount_kop for d in unpaid) > settings.debt_block_threshold_kop:",
+      "replace": "    if sum(d.amount_kop for d in unpaid) >= settings.debt_block_threshold_kop:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r8_over_threshold_boundary_is_strictly_greater_not_greater_or_equal",
+        "tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r4_priority_overdue_outranks_over_threshold_even_when_both_are_true"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M41",
+      "file": "backend/app/debt.py",
+      "rule": "R10-online-note",
+      "description": "void_debt_for_order сохраняет note онлайн-оплаты ДОСЛОВНО — не подменяет его служебной пометкой «Списан»",
+      "find": "    elif not debt.note:",
+      "replace": "    elif False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r10_online_payment_note_is_preserved_not_overwritten_as_written_off"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M42",
+      "file": "backend/app/debt.py",
+      "rule": "R11-declare-count",
+      "description": "declare_paid увеличивает declare_count на КАЖДОЕ заявление — иначе защита от бесконечного «Я оплатил» (declare_abuse) никогда не сработает",
+      "find": "        d.declare_count = (d.declare_count or 0) + 1",
+      "replace": "        d.declare_count = (d.declare_count or 0)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r11_declare_count_increments_on_each_declare_paid_call"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M43",
+      "file": "backend/app/debt.py",
+      "rule": "R12-reject-resets",
+      "description": "admin_reject сбрасывает paid_declared_at — иначе протухание следующего «слова» считалось бы от СТАРОГО, уже отклонённого заявления",
+      "find": "        d.paid_declared_at = None",
+      "replace": "        pass  # mutated: paid_declared_at не сброшен",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r12_admin_reject_clears_paid_declared_at"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M44",
+      "file": "backend/app/ledger.py",
+      "rule": "R8-reconcile",
+      "description": "platform_net_kop = доход минус ВСЕ три расхода (промо/возврат/ручная доплата) — перепутанный знак завышает доход платформы",
+      "find": "        \"platform_net_kop\": fee_kop - promo_comp_kop - refund_kop - adj_other_kop,",
+      "replace": "        \"platform_net_kop\": fee_kop - promo_comp_kop + refund_kop - adj_other_kop,",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_ledger_gaps.py::test_reconcile_platform_net_formula_is_fee_minus_three_expenses"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M45",
+      "file": "backend/app/ledger.py",
+      "rule": "R3-guard",
+      "description": "fee_kop_for: нулевая/отрицательная сумма ИЛИ нулевой/отрицательный процент → 0, без исключений",
+      "find": "    if amount_kop <= 0 or percent <= 0:\n        return 0",
+      "replace": "    if False:\n        return 0",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r3_fee_kop_for_non_positive_amount_or_percent_is_zero"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M46",
+      "file": "backend/app/debt.py",
+      "rule": "R13-net-rides",
+      "description": "driver_rides: net_kop = цена − скидка промокода − комиссия + компенсация промокода (каждый знак по отдельности)",
+      "find": "        net_kop = price_rub * 100 - disc_kop - fee_kop + comp_kop",
+      "replace": "        net_kop = price_rub * 100 - disc_kop + fee_kop + comp_kop",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r13_driver_rides_net_kop_formula_is_price_minus_discount_minus_fee_plus_comp"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M47",
+      "file": "backend/app/debt.py",
+      "rule": "R14-net-dashboard",
+      "description": "driver_dashboard «сегодня» считает net_today_kop ТОЙ ЖЕ формулой, что driver_rides — иначе два экрана показывают разные деньги за один день",
+      "find": "    net_today_kop = max(gross_today_kop - promo_disc_kop - fee_today_kop + promo_comp_kop, 0)",
+      "replace": "    net_today_kop = max(gross_today_kop - promo_disc_kop + fee_today_kop + promo_comp_kop, 0)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r14_driver_dashboard_net_today_formula_matches_driver_rides"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M48",
+      "file": "backend/app/debt.py",
+      "rule": "R15-pay-now-threshold",
+      "description": "крупная комиссия идёт в «оплатить сразу» при amount_kop РОВНО НА пороге и выше (>=, не строго >)",
+      "find": "    if not (pay_now_allowed and amount_kop >= settings.debt_now_threshold_kop):",
+      "replace": "    if not (pay_now_allowed and amount_kop > settings.debt_now_threshold_kop):",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r15_pay_now_threshold_boundary_is_not_greater_or_equal"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M49",
+      "file": "backend/app/debt.py",
+      "rule": "R16-pay-now-window",
+      "description": "is_pay_now: окно записи РОВНО сутки — уже не срочный долг (строго <, не <=)",
+      "find": "    return timedelta(0) <= (d.due_at - d.created_at) < timedelta(days=1)",
+      "replace": "    return timedelta(0) <= (d.due_at - d.created_at) <= timedelta(days=1)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r16_is_pay_now_window_boundary_is_strictly_less_than_a_day"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M50",
+      "file": "backend/app/debt.py",
+      "rule": "R17-idor",
+      "description": "_unpaid фильтрует СТРОГО по своему driver_id — иначе чужой долг виден/блокирует чужим зачётом",
+      "find": "def _unpaid(session: Session, driver_id: int) -> list[CommissionDebt]:\n    return session.exec(\n        select(CommissionDebt).where(\n            CommissionDebt.driver_id == driver_id,\n            CommissionDebt.status == DebtStatus.unpaid,\n        )\n    ).all()",
+      "replace": "def _unpaid(session: Session, driver_id: int) -> list[CommissionDebt]:\n    return session.exec(\n        select(CommissionDebt).where(\n            CommissionDebt.status == DebtStatus.unpaid,\n        )\n    ).all()",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_1/test_l1_1_debt_pure_rules.py::test_r17_unpaid_never_returns_another_drivers_debt",
+        "tests/test_debt.py::test_debt_is_per_token_no_idor"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M51",
+      "file": "backend/app/routers/debt.py",
+      "rule": "R-privacy-1",
+      "description": "отказ «Только для админа» — на ДВУХ языках (herr), а не только по-русски",
+      "find": "        raise herr(403, \"Только для админа\", \"Тик админ өсөн генә\")  # BA — черновик, см. отчёт",
+      "replace": "        raise herr(403, \"Только для админа\", \"\")  # mutated: пустой BA",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_privacy_and_bilingual.py::test_r1_admin_only_refusal_is_bilingual"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M52",
+      "file": "backend/app/routers/debt.py",
+      "rule": "R-privacy-2",
+      "description": "уведомление админу о «Я оплатил» (СБП) не содержит телефон водителя — Telegram сторонний зарубежный сервис",
+      "find": "            f\"Кто: {user.name or '—'} (id {user.id})\\n\"",
+      "replace": "            f\"Кто: {user.name or '—'} ({user.phone or '—'})\\n\"",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_privacy_and_bilingual.py::test_r2_declare_paid_telegram_message_has_no_phone"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M53",
+      "file": "backend/app/debt.py",
+      "rule": "R9-lock-two-debts",
+      "description": "то же снятие блокировки строки водителя (что и M23), но под НАСТОЯЩЕЙ поведенческой проверкой на PostgreSQL с ДВУМЯ долгами — одного долга для доказательства мало (см. docs/audit-files/backend/app/debt.py.md, «Остаток»)",
+      "find": "    session.exec(select(User).where(User.id == driver_id).with_for_update(key_share=True)).one_or_none()\n    balance = driver_balance(session, driver_id)",
+      "replace": "    balance = driver_balance(session, driver_id)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_wallet_lock_two_debts.py::test_r1_lock_prevents_overdraw_when_two_debts_fit_a_stale_balance"],
+      "db": "postgres"
+    },
+    {
+      "id": "M54",
+      "file": "backend/app/debt.py",
+      "rule": "F2",
+      "description": "снимок висящего счёта ЮKassa (F2, независимое ревью Opus 2026-10-02) — инверсия проверки включает исключение ИМЕННО когда счёта нет, и выключает его, когда счёт висит; без неё кошелёк снова гасит те же долги, что уже выставлены картой",
+      "find": "    if в_оплате is not None:",
+      "replace": "    if в_оплате is None:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_debt_card_vs_wallet.py::test_r1_wallet_does_not_touch_debts_billed_by_a_pending_card_invoice"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M55",
+      "file": "backend/app/ledger.py",
+      "rule": "F1",
+      "description": "база комиссии безналичной оплаты (F1, независимое ревью Opus 2026-10-02) — вернуть ПОЛНУЮ цену (price_kop, с компенсациями) вместо debt.order_commission_kop (цена минус компенсация); водитель снова платит комиссию с бензина/кресла/зимней дороги",
+      "find": "        full_fee = _debt.order_commission_kop(order, pct)",
+      "replace": "        full_fee = fee_kop_for(promo_ride.price_kop(order), pct)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_1/test_l1_1_ledger_gaps.py::test_r5_card_fee_excludes_compensation_like_cash_debt"],
       "db": "sqlite"
     }
   ]

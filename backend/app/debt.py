@@ -656,8 +656,14 @@ def refund_commission_to_wallet(session: Session, driver_id: Optional[int], amou
     будущий долг (`settle_debt_from_wallet`, волна 154). Тот же путь и здесь.
 
     Append-запись kind=adj (+сумма) — историю денег не правим. Идемпотентно по ext_id:
-    повторный разбор той же жалобы второй раз не начислит. НЕ коммитит — зовут внутри
-    чужой транзакции, коммитит вызывающий.
+    повторный разбор той же жалобы второй раз не начислит — и под НАСТОЯЩЕЙ гонкой тоже
+    (F3, аудит leaf-1.1 2026-10-02): проверка «уже возвращали?» в коде её одну не ловит (два
+    одновременных клика админа «подтвердить» видят «возврата нет» оба), последнее слово — за
+    частичным UNIQUE-индексом `uq_ledgerentry_refund` (ledger.py), тем же приёмом, что у
+    компенсации промокода. НЕ коммитит — зовут внутри чужой транзакции, коммитит вызывающий;
+    поэтому гонку ловим SAVEPOINT’ом (`session.begin_nested`), а не внешним commit — проигравшая
+    сторона откатывает ТОЛЬКО свою вставку, не трогая остальные изменения чужой транзакции
+    (например, уже выставленный `Report.status="resolved"` в routers/safety.py).
     """
     if driver_id is None or amount_kop <= 0:
         return None
@@ -671,7 +677,14 @@ def refund_commission_to_wallet(session: Session, driver_id: Optional[int], amou
         return None
     entry = LedgerEntry(driver_id=driver_id, order_id=order_id, kind=LedgerKind.adj,
                         amount_kop=int(amount_kop), ext_id=ext, note=note)
-    session.add(entry)
+    try:
+        with session.begin_nested():   # SAVEPOINT: откат при проигранной гонке — локальный
+            session.add(entry)
+            session.flush()
+    except IntegrityError:
+        # Гонку выиграла параллельная сессия — она уже вернула эту же комиссию (uq_ledgerentry_refund).
+        # ROLLBACK TO SAVEPOINT уже отцепил entry от сессии — повторно expunge не нужен (и упадёт).
+        return None
     return entry
 
 
@@ -755,6 +768,69 @@ def taxi_owed_kop(session: Session, driver_id: Optional[int]) -> int:
     return max(int(total or 0), 0)
 
 
+# --- Снимок состава долга под висящим счётом ЮKassa (F2, аудит leaf-1.1 2026-10-02) -------
+#
+# Зеркало courier._courier_snapshot_ids (routers/courier.py, волна 218): пока у человека висит
+# СОЗДАННЫЙ счёт на оплату долга картой, зачёт кошельком не должен трогать долги ИЗ ЭТОГО СЧЁТА —
+# иначе окно между «счёт выставлен» и «банк подтвердил» позволяет погасить те же долги дважды
+# (кошельком, если в него в этот момент пришла чужая компенсация, и картой, когда банк ответит).
+# У курьера эта дверь была закрыта волной 218, у такси — нет: `settle_debt_from_wallet` ничего
+# не знал о `Payment(purpose="taxi_debt")`.
+#
+# Маркер хранится в Payment.tier (то же поле, тем же приёмом, что и у курьера) — отдельной
+# таблицы-снимка для этого не заводим, поле уже существует и больше ни для чего в purpose=
+# taxi_debt не используется.
+TAXI_DEBT_SNAPSHOT_NAMESPACE = "taxi_debt_snapshot:"
+TAXI_DEBT_SNAPSHOT_PREFIX = TAXI_DEBT_SNAPSHOT_NAMESPACE + "ids:v1:"
+_TAXI_SNAPSHOT_MAX_IDS = 10_000
+_TAXI_SNAPSHOT_MAX_CHARS = 220_000
+
+
+def taxi_debt_snapshot(session: Session, driver_id: int) -> tuple[int, tuple[int, ...]]:
+    """Сумма и точный состав НЕ оплаченного долга (unpaid+pending) одним запросом — старшинство
+    по `created_at`. Единая формула для суммы счёта ЮKassa и для его состава: разными запросами
+    они могли бы разъехаться на миллисекунду (новый долг начислился между ними)."""
+    rows = session.exec(
+        select(CommissionDebt.id, CommissionDebt.amount_kop).where(
+            CommissionDebt.driver_id == driver_id,
+            CommissionDebt.status != DebtStatus.paid,
+        ).order_by(CommissionDebt.created_at, CommissionDebt.id)
+    ).all()
+    return sum(int(r[1] or 0) for r in rows), tuple(int(r[0]) for r in rows)
+
+
+def make_taxi_debt_snapshot_tier(debt_ids: tuple[int, ...]) -> str:
+    """Собрать маркер снимка для Payment.tier. Пустой состав сюда не передавать — счёт на 0
+    не выставляется (см. вызов в routers/debt.py)."""
+    if not debt_ids or len(debt_ids) > _TAXI_SNAPSHOT_MAX_IDS:
+        raise ValueError("invalid taxi debt snapshot size")
+    marker = TAXI_DEBT_SNAPSHOT_PREFIX + ",".join(str(i) for i in debt_ids)
+    if len(marker) > _TAXI_SNAPSHOT_MAX_CHARS:
+        raise ValueError("taxi debt snapshot marker is too long")
+    return marker
+
+
+def taxi_debt_snapshot_ids(payment) -> Optional[tuple[int, ...]]:
+    """Точные ID долгов из Payment.tier. `None` — это не наш маркер (платёж без снимка — либо
+    старый, созданный до этой правки, либо чужой purpose). Пустой `tuple` — маркер НАШЕГО формата,
+    но повреждён: fail-closed, вызывающий код должен тогда не трогать НИЧЕГО, а не всё подряд."""
+    tier = (getattr(payment, "tier", "") or "")
+    if not tier.startswith(TAXI_DEBT_SNAPSHOT_NAMESPACE):
+        return None
+    if not tier.startswith(TAXI_DEBT_SNAPSHOT_PREFIX) or len(tier) > _TAXI_SNAPSHOT_MAX_CHARS:
+        return ()
+    raw = tier[len(TAXI_DEBT_SNAPSHOT_PREFIX):]
+    parts = raw.split(",") if raw else []
+    if not parts or len(parts) > _TAXI_SNAPSHOT_MAX_IDS:
+        return ()
+    if any(not p.isascii() or not p.isdecimal() or p.startswith("0") for p in parts):
+        return ()
+    values = tuple(int(p) for p in parts)
+    if any(v <= 0 for v in values) or values != tuple(sorted(set(values))):
+        return ()
+    return values
+
+
 def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
                             now: Optional[datetime] = None) -> int:
     """Погасить долг по комиссии тем, что уже лежит у водителя в кошельке. Возврат — копейки.
@@ -804,25 +880,45 @@ def settle_debt_from_wallet(session: Session, driver_id: Optional[int],
     balance = driver_balance(session, driver_id)
     if balance <= 0:
         return 0
+    условия = [
+        CommissionDebt.driver_id == driver_id,
+        # Только `unpaid`. `pending` — это «Я оплатил»: деньги уже в пути, Александр
+        # подтвердит их вечером или завтра. Закрыть такой долг кошельком значит забрать
+        # с человека дважды — перевод придёт всё равно, а подтверждать будет уже нечего
+        # (волна 218). Отклонит админ заявку (деньги не пришли) — долг вернётся в `unpaid`,
+        # и кошелёк заберёт его следующим же проходом.
+        #
+        # Мутация этой строки в одиночку тестом НЕ ловится: её подстраховывает такое же
+        # условие внутри UPDATE ниже. Обе оставлены осознанно и делают разное — эта бережёт
+        # работу (незачем тянуть то, что трогать нельзя), та спасает, когда выборка успела
+        # устареть (`test_такси_заявка_подана_между_чтением_и_записью`). Разбор мутаций
+        # волны 218, правило волны 208.
+        CommissionDebt.status == DebtStatus.unpaid,
+        InstantOrder.paid == True,          # noqa: E712 — способ оплаты уже известен
+    ]
+    # F2 (аудит leaf-1.1 2026-10-02): пока висит СОЗДАННЫЙ счёт ЮKassa на оплату долга картой,
+    # не трогаем долги из ЕГО снимка — иначе кошелёк и карта могут погасить одну и ту же
+    # комиссию дважды (см. docstring выше и taxi_debt_snapshot_ids). Долги, начисленные уже
+    # ПОСЛЕ выставления счёта, в снимок не входят — их кошелёк по-прежнему гасит как обычно.
+    from .models import Payment
+    в_оплате = session.exec(
+        select(Payment).where(
+            Payment.user_id == driver_id, Payment.purpose == "taxi_debt",
+            Payment.status == "pending",
+        ).order_by(Payment.created_at.desc(), Payment.id.desc())
+    ).first()
+    if в_оплате is not None:
+        snapshot_ids = taxi_debt_snapshot_ids(в_оплате)
+        if snapshot_ids:
+            условия.append(CommissionDebt.id.not_in(snapshot_ids))
+        elif snapshot_ids == ():
+            условия.append(CommissionDebt.id < 0)   # fail closed: состав счёта неизвестен
+        # snapshot_ids is None → платёж без маркера (создан до этой правки или чужой формат):
+        # окно F2 для него не закрыто — честно записано в отчёте и в карточке, не выдаю за «ок».
     rows = session.exec(
         select(CommissionDebt).join(
             InstantOrder, InstantOrder.id == CommissionDebt.order_id
-        ).where(
-            CommissionDebt.driver_id == driver_id,
-            # Только `unpaid`. `pending` — это «Я оплатил»: деньги уже в пути, Александр
-            # подтвердит их вечером или завтра. Закрыть такой долг кошельком значит забрать
-            # с человека дважды — перевод придёт всё равно, а подтверждать будет уже нечего
-            # (волна 218). Отклонит админ заявку (деньги не пришли) — долг вернётся в `unpaid`,
-            # и кошелёк заберёт его следующим же проходом.
-            #
-            # Мутация этой строки в одиночку тестом НЕ ловится: её подстраховывает такое же
-            # условие внутри UPDATE ниже. Обе оставлены осознанно и делают разное — эта бережёт
-            # работу (незачем тянуть то, что трогать нельзя), та спасает, когда выборка успела
-            # устареть (`test_такси_заявка_подана_между_чтением_и_записью`). Разбор мутаций
-            # волны 218, правило волны 208.
-            CommissionDebt.status == DebtStatus.unpaid,
-            InstantOrder.paid == True,          # noqa: E712 — способ оплаты уже известен
-        ).order_by(CommissionDebt.created_at, CommissionDebt.id)
+        ).where(*условия).order_by(CommissionDebt.created_at, CommissionDebt.id)
     ).all()
     now = now or utcnow()
     total = 0

@@ -15,10 +15,10 @@ HTTP-фасад над `backend/app/debt.py` (вся логика — там, з
 
 | Функция / эндпоинт | Строки | Что делает | Входы, условия, ошибки, побочные действия | Вердикт |
 |---|---|---|---|---|
-| `_require_admin(user)` | 31–33 | гейт роли admin, общий для всех админских ручек | не admin → `403 "Только для админа"` | ок |
-| `GET /driver/debt` → `my_debt` | 37–44 | сводка долга водителя | по СВОЕМУ токену (`current_user`); СНАЧАЛА гасит долг деньгами из кошелька (`settle_debt_from_wallet`), ПОТОМ отдаёт сводку — иначе экран соврал бы «должен», уже имея покрытие в кошельке | ок |
-| `POST /driver/debt/paid` → `declare_paid` | 47–118 | оплата долга: картой (ЮKassa) или «Я оплатил» по СБП | прод + `payments_provider=mock` → `503`; сначала гасит из кошелька; `yookassa` → дедуп висящего `pending`-платежа (переиспользует Payment-строку и её `provider_id`, не плодит новые на каждый ретрай), `owed<=0`→`succeeded` без похода к банку; иначе (по умолчанию) → `declare_paid` в debt.py, Telegram админу при сумме>0 | ок |
-| `GET /admin/debts` → `admin_debts` | 122–150 | очередь pending-долгов, сгруппированная по водителю | только admin; `representative debt_id` на группу — по нему работают confirm/reject | ок |
+| `_require_admin(user)` | 31–37 | гейт роли admin, общий для всех админских ручек | не admin → `403`, **двуязычный** (`herr`, исправлено в этом раунде — было `HTTPException` только по-русски, см. «Найденные ошибки») | испр. (P3) |
+| `GET /driver/debt` → `my_debt` | сдвинулось | сводка долга водителя | по СВОЕМУ токену (`current_user`); СНАЧАЛА гасит долг деньгами из кошелька (`settle_debt_from_wallet` — теперь с учётом F2-снимка, см. `debt.py.md`), ПОТОМ отдаёт сводку | ок |
+| `POST /driver/debt/paid` → `declare_paid` | сдвинулось | оплата долга: картой (ЮKassa) или «Я оплатил» по СБП | прод + `payments_provider=mock` → `503`; сначала гасит из кошелька; `yookassa` → сумма и ID снимка теперь ОДНИМ запросом (`debt.taxi_debt_snapshot`, правка F2 — раньше `debt_summary` отдельно, риск разъехаться с новым начисленным долгом), снимок пишется в `Payment.tier` при создании СЧЁТА; дедуп висящего `pending`-платежа переиспользует Payment-строку; `owed<=0`→`succeeded` без похода к банку; иначе (по умолчанию) → `declare_paid` в debt.py, Telegram админу при сумме>0 **БЕЗ ТЕЛЕФОНА** (исправлено в этом раунде, см. «Найденные ошибки») | испр. (F2, P3) |
+| `GET /admin/debts` → `admin_debts` | сдвинулось | очередь pending-долгов, сгруппированная по водителю | только admin; `representative debt_id` на группу — по нему работают confirm/reject; `driver_phone` в ответе — это НЕ утечка (ответ только админу, авторизованному видеть телефон для сверки СБП-перевода) | ок |
 | `DebtActionIn` | 153–155 | тело запроса confirm/reject: опциональная `amount_kop` — то, что админ ВИДИТ на экране | — | ок |
 | `_debt_changed(e)` | 158–164 | оформляет `409` с человеческим (двуязычным) текстом по `DebtChanged` | не тупиковая ошибка — «обнови список и сверь» | ок |
 | `POST /admin/debts/{id}/confirm` → `admin_confirm` | 167–197 | подтвердить перевод: весь pending водителя → paid | только admin; долг не найден → `404`; `DebtChanged` → `409`, НИЧЕГО не меняется; при реальном погашении — `admin_action` в журнал + пуш «Долг подтверждён» | ок |
@@ -49,12 +49,24 @@ HTTP-фасад над `backend/app/debt.py` (вся логика — там, з
 | R-money-2 | Повтор оплаты картой при зависшем платеже переиспользует ту же строку `Payment` (тот же idempotence-key к ЮKassa), не плодит новые на каждый ретрай | backend/tests/test_audit_fix_be06_retries.py::test_debt_timeout_retries_the_same_payment | да — M33 |
 | R-money-3 | Просмотр своего долга сначала гасит его деньгами из кошелька, и только потом показывает сводку | backend/tests/test_the_wallet_works_and_the_ride_is_free.py::test_кошелёк_гасит_долг_по_комиссии | да — M34 |
 | R-money-4 | Сумма изменилась между «админ увидел» и «нажал confirm/reject» → `409`, ничего не меняется | backend/tests/test_the_admin_confirms_what_he_saw.py::test_the_admin_sees_the_declared_sum, backend/tests/test_the_admin_confirms_what_he_saw.py::test_confirming_a_stale_row_does_not_forgive_new_debt, backend/tests/test_the_admin_confirms_what_he_saw.py::test_rejecting_a_stale_row_is_guarded_too | покрыто мутацией M27 в `debt.py` (логика сверки живёт в `_batch_admin_saw`, роутер лишь транслирует исключение в HTTP-ответ) |
+| R-privacy-1 | Отказ «Только для админа» — на ДВУХ языках | backend/tests/walk/l1_1/test_l1_1_privacy_and_bilingual.py::test_r1_admin_only_refusal_is_bilingual | да — M51 |
+| R-privacy-2 | Уведомление админу о «Я оплатил» (СБП) НЕ содержит телефон водителя (Telegram — сторонний зарубежный сервис; шапка `debt.py` обещает «суммы не логируем с привязкой к персоне — только id») | backend/tests/walk/l1_1/test_l1_1_privacy_and_bilingual.py::test_r2_declare_paid_telegram_message_has_no_phone | да — M52 |
 
 ## Найденные ошибки
 
-Ошибок не найдено. Файл — тонкий фасад (277 строк), вся арифметика живёт в `debt.py` (уже
-проверен отдельно). Проверил именно HTTP-специфичные вещи: права, идемпотентность на уровне
-роутера (дедуп платежа), честные ответы на `404`/`409`/`503`, двуязычие текстов ошибок.
+**Первая сдача этого листа сказала «ошибок не найдено» и даже «двуязычие текстов ошибок
+проверено» — второе было прямой ошибкой карточки, не только кода.** Независимое ревью Opus
+нашло обе проблемы ниже (P3, не блокируют, но карточка не должна была писать «проверено»,
+когда не проверяла).
+
+| ID | Что было (по-человечески) | Как воспроизвести | Исправление | Тест: до → после |
+|---|---|---|---|---|
+| E-ba | `_require_admin` бросал голый `HTTPException(403, "Только для админа")` — без башкирского текста, в отличие от ВСЕХ остальных отказов в этом же файле (`herr(ru, ba)`). Башкироязычный не-админ (гипотетически) увидел бы отказ без перевода. Сейчас админ один и русскоязычный — цена ошибки низкая, но карточка первой сдачи заявляла «двуязычие проверено», хотя эту конкретную ручку не проверяла. | `tests/walk/l1_1/test_l1_1_privacy_and_bilingual.py::test_r1_admin_only_refusal_is_bilingual` — дернуть `/admin/debts` чужим токеном, ожидать `detail` словарём с непустыми `ru`/`ba` | `raise HTTPException(403, "Только для админа")` → `raise herr(403, "Только для админа", "Тик админ өсөн генә")` (BA — черновик модели, см. отчёт ведущему) | до правки `detail` был голой строкой (`isinstance(body, dict)` падал), после — словарь с обоими языками |
+| E-phone | «Я оплатил» по СБП слал в Telegram ИМЯ, ТЕЛЕФОН и сумму. Telegram — сторонний зарубежный сервис; шапки `debt.py`/`ledger.py` прямо обещают «суммы не логируем с привязкой к персоне — только id». Для сверки перевода админу хватает id (телефон он и так видит в `/admin/debts` по тому же id). | `tests/walk/l1_1/test_l1_1_privacy_and_bilingual.py::test_r2_declare_paid_telegram_message_has_no_phone` — подменить `notify_admin_telegram`, проверить текст сообщения | `f"Кто: {user.name} ({user.phone})"` → `f"Кто: {user.name} (id {user.id})"` | до правки телефон (`tg-test-N`) был в тексте сообщения, после — только имя и id |
+
+Кроме этих двух P3-находок, ошибок не нашёл. Файл — тонкий фасад (291 строка после правок F2),
+вся арифметика живёт в `debt.py` (проверен отдельно). Проверил HTTP-специфичные вещи: права,
+идемпотентность на уровне роутера (дедуп платежа), честные ответы на `404`/`409`/`503`.
 
 ## Проверка нарочной поломкой
 
@@ -64,8 +76,10 @@ HTTP-фасад над `backend/app/debt.py` (вся логика — там, з
 | M32 | Гейт «уже paid → already» в `admin_forgive` отключён | test_admin_can_forgive_debt | KILLED |
 | M33 | Дедуп висящего yookassa-платежа отключён | test_debt_timeout_retries_the_same_payment | KILLED |
 | M34 | `my_debt` не гасит кошелёк перед показом сводки | test_кошелёк_гасит_долг_по_комиссии | KILLED |
+| M51 | Башкирский текст отказа «Только для админа» заменён на пустую строку | test_r1_admin_only_refusal_is_bilingual | KILLED |
+| M52 | Телефон водителя возвращён в текст Telegram-уведомления | test_r2_declare_paid_telegram_message_has_no_phone | KILLED |
 
-Прогон: `python tools/audit_mutation.py replay --spec docs/audit-mutations/leaf-1.1.json --only M31,M32,M33,M34` → `MUTATIONS KILLED 4/4`.
+Прогон: `python tools/audit_mutation.py replay --spec docs/audit-mutations/leaf-1.1.json --only M31,M32,M33,M34,M51,M52` → `MUTATIONS KILLED 6/6`.
 
 ## Остаток и ограничения
 
