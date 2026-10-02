@@ -6,14 +6,14 @@
 
 Легенда: ⬜ не прочитан · 🟨 прочитан · 🟩 проверен тестом · 🟥 открытая ошибка · ⛔ нужен внешний доступ · ⚪ не исполняется · 🔄 файл изменился после отметки — перепроверить.
 
-**Готово (🟩/⚪/⛔): 18 из 511** █░░░░░░░░░░░░░░░░░░░
+**Готово (🟩/⚪/⛔): 17 из 511** █░░░░░░░░░░░░░░░░░░░
 
 | Статус | Файлов |
 |---|---|
 | ⬜ не прочитан | 492 |
 | 🟨 прочитан | 0 |
-| 🟩 проверен тестом | 18 |
-| 🟥 открытая ошибка | 1 |
+| 🟩 проверен тестом | 17 |
+| 🟥 открытая ошибка | 2 |
 | ⛔ нужен внешний доступ | 0 |
 | ⚪ не исполняется | 0 |
 | 🔄 устарела отметка | 0 |
@@ -46,7 +46,7 @@
 | `backend/app/routers/settlements.py` | 38 | 🟩 проверен тестом | [карточка](audit-files/backend/app/routers/settlements.py.md) | leaf-1.1 |
 | `backend/app/routers/wallet.py` | 368 | 🟩 проверен тестом | [карточка](audit-files/backend/app/routers/wallet.py.md) | leaf-1.2 |
 
-## G2. Вход и личные данные — 3 из 16 ████░░░░░░░░░░░░░░░░
+## G2. Вход и личные данные — 2 из 16 ██░░░░░░░░░░░░░░░░░░
 
 | Файл | Строк | Статус | Карточка | Лист |
 |---|---|---|---|---|
@@ -64,7 +64,7 @@
 | `android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt` | 87 | ⬜ не прочитан | — | — |
 | `android/app/src/main/java/com/yuldash/app/data/TripPass.kt` | 458 | ⬜ не прочитан | — | — |
 | `backend/app/account.py` | 623 | 🟩 проверен тестом | [карточка](audit-files/backend/app/account.py.md) | leaf-2.1 |
-| `backend/app/routers/auth.py` | 1336 | 🟩 проверен тестом | [карточка](audit-files/backend/app/routers/auth.py.md) | leaf-2.1 |
+| `backend/app/routers/auth.py` | 1336 | 🟥 открытая ошибка | [карточка](audit-files/backend/app/routers/auth.py.md) | leaf-2.1 |
 | `backend/app/security.py` | 343 | 🟩 проверен тестом | [карточка](audit-files/backend/app/security.py.md) | leaf-2.1 |
 
 ## G3. Безопасность, поддержка, администрирование — 0 из 40 ░░░░░░░░░░░░░░░░░░░░
