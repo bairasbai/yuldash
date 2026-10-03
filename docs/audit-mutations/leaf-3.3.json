@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "leaf": "leaf-3.3",
+  "mutations": [
+    {
+      "id": "M1",
+      "file": "backend/app/routers/incidents.py",
+      "rule": "R1",
+      "description": "resolve_incident: with_for_update() снят с фетча спора — два одновременных «Подтвердить» снова накручивают лестницу наказаний дважды",
+      "find": "select(Incident).where(Incident.id == incident_id).with_for_update()",
+      "replace": "select(Incident).where(Incident.id == incident_id)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_resolve_incident_race.py::test_гонка_два_одновременных_resolve_дают_одно_предупреждение"],
+      "db": "postgres"
+    },
+    {
+      "id": "M5",
+      "file": "backend/app/routers/incidents.py",
+      "rule": "R2",
+      "description": "get_incident: проверка доступа отключена — посторонний человек получает чужой спор",
+      "find": "if user.id not in (inc.reporter_id, inc.respondent_id) and user.role != UserRole.admin:",
+      "replace": "if False and user.role != UserRole.admin:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_incident_rights.py::test_посторонний_не_видит_чужой_спор"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M2",
+      "file": "backend/app/routers/support.py",
+      "rule": "R1",
+      "description": "create_ticket: проверка дубликата отключена — двойной тап снова заводит два тикета",
+      "find": "existing = _duplicate_open_ticket(session, user.id, subject, first_body)",
+      "replace": "existing = None",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_support_double_tap.py::test_двойной_тап_не_плодит_два_тикета"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M3",
+      "file": "backend/app/winter_escalate.py",
+      "rule": "R1",
+      "description": "escalate_now: язык SMS близким снова всегда ru — игнорирует язык того, кто завёл контакт",
+      "find": "lang = sms_lang_of(session, watch_user_id)",
+      "replace": "lang = \"ru\"",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_winter_sms_bilingual.py::test_башкироязычному_уходит_башкирский_текст"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M4",
+      "file": "backend/app/incident_escalate.py",
+      "rule": "R1",
+      "description": "escalate_silent_incidents: scrub_exc(e) снова заменён на сырой e — телефон из текста исключения снова может попасть в лог",
+      "find": "log.warning(f\"[incident_escalate] push failed inc={inc.id}: {scrub_exc(e)}\")",
+      "replace": "log.warning(f\"[incident_escalate] push failed inc={inc.id}: {e}\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_log_privacy.py::test_сбой_push_при_эскалации_не_пишет_телефон_в_лог"],
+      "db": "sqlite"
+    }
+  ]
+}
