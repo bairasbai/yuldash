@@ -52,4 +52,30 @@ class OfflineWritesRollbackTest {
             recoverOfflineWrites(plain, null))
         assertNull(readOfflineString(plain, plain, "k"))
     }
+
+    // R11w: a CONFIRMED absence (the key never existed before the failed write) must be
+    // served from the tracked rollback map, not from whatever happens to be on disk right
+    // now. This matters because the key's rollback (a removal) can itself keep failing while
+    // something else — a stale value written before this guard existed, a differently-scoped
+    // writer — leaves unrelated content physically sitting under the same key.
+    @Test fun confirmedAbsenceIsNotHiddenByLeftoverDiskContent() {
+        val plain = MemoryDiskPreferences()
+        plain.failWriteOf = "k"
+        plain.failRemovalOf = "k"
+        assertFalse(commitOfflineString(plain, "k", "new-value"))
+        // The rollback (a removal, since "k" never existed) is still unresolved: failRemovalOf
+        // keeps failing it. Confirm that setup before touching the disk out of band.
+        assertFalse("recovery must still be unresolved for this setup to be meaningful",
+            recoverOfflineWrites(plain, null))
+
+        // Simulate disk content arriving through a path that does not go through this guard
+        // at all (direct SharedPreferences write), while the confirmed-absent rollback for
+        // "k" is still pending in memory.
+        plain.failWriteOf = null
+        plain.failRemovalOf = null
+        assertTrue(plain.edit().putString("k", "leftover-unrelated-value").commit())
+
+        assertNull("a still-pending confirmed absence must win over leftover disk content",
+            readOfflineString(plain, plain, "k"))
+    }
 }

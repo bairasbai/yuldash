@@ -61,4 +61,26 @@ class OfflineStoreResetFinishOrderTest {
         assertTrue("an honestly-failed wipe must keep the quarantine so load()/save() keep refusing",
             com.yuldash.app.data.OfflineMigration.resetUnconfirmed(plain))
     }
+
+    // R8b: `availableSecure` reads PENDING with `runCatching {...}.getOrDefault(true)` — an
+    // unreadable flag must be treated as "cleanup still owed", not as "nothing to do". Simulate
+    // an unreadable flag the same way a real corrupted preferences file would surface: the stored
+    // value has the wrong type, so the typed getter throws instead of returning a boolean.
+    @Test fun unreadablePendingFlagIsTreatedAsADebtNotAsAlreadyClean() {
+        val plain = MemoryDiskPreferences()
+        val secure = MemoryDiskPreferences()
+        secure.edit().putString("pass_7", "stale-previous-account-data").commit()
+        // Wrong type under the PENDING key: reading it as a Boolean throws a ClassCastException,
+        // exactly the kind of failure `runCatching` is there to catch.
+        plain.edit().putString(OfflineStoreReset.PENDING, "not-a-boolean").commit()
+
+        val available = OfflineStoreReset.availableSecure(plain, secure)
+
+        // An unreadable flag must be treated as a debt: finish() must run, and since secure is
+        // actually reachable here, the previous account's leftover data must end up erased
+        // instead of being silently handed out as "already clean".
+        assertNotNull("secure must still be usable once finish() actually succeeds", available)
+        assertFalse("treating an unreadable flag as 'no debt' would leak the previous account's data",
+            secure.restarted().contains("pass_7"))
+    }
 }

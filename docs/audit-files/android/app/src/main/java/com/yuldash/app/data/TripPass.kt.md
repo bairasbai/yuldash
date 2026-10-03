@@ -57,10 +57,11 @@ plain↔secure переезда и durable-очистки при выходе.
 | R3 | Паспорт поездки сохраняется/читается строго по ID брони — чужая бронь не может получить чужой паспорт | `android/app/src/test/java/com/yuldash/app/TripPassTest.kt::"чужой номер брони не отдаёт паспорт"` | да — M3 |
 | R4 | `load()` обязан скрывать удалённую бронь даже тогда, когда снимок/физическая копия ещё физически не зачищены (deferred-удаление при незавершённой миграции) | `android/app/src/test/java/com/yuldash/app/data/OfflineMigrationCleanupTest.kt::repeatedInitKeepsSnapshotReadableAndBlocksDeleteUntilRecovery` | да — M4 (первая попытка сослаться на `TripPassDeletionTest` НЕ ловила поломку — см. «Найденные ошибки»/«Остаток»: та проверка каждый раз переинициализирует хранилища через `.restarted()`, а это сбрасывает инъекцию отказа и заодно доводит `reconcile()` до конца ДО вызова `load()`, так что чтение в любом случае не достаёт до помеченной записи) |
 | R21 | Выход из аккаунта стирает ОБА хранилища паспорта — следующий человек на этом телефоне не видит имя/телефон предыдущего пассажира/водителя | `android/app/src/test/java/com/yuldash/app/TripPassTest.kt::"удаление стирает паспорт — телефон не остаётся на устройстве"` и `android/app/src/test/java/com/yuldash/app/data/LegacyOfflineOwnerTest.kt::logoutClearsLegacyAndActiveStores` | да (существующие тесты; механизм очистки отдельно замутирован в карточке `OfflineStoreReset.kt`, M7/M8) |
-| R22 | Выход из аккаунта выбрасывает ВСЮ очередь исходящих — неотправленное сообщение прошлого человека не может уйти от имени следующего | `android/app/src/test/java/com/yuldash/app/data/OutboxConcurrencyTest.kt::logoutDuringHttpPreservesNextAccountsQueue` | да (существующие тесты) |
+| R22 | Выход из аккаунта выбрасывает ВСЮ очередь исходящих — неотправленное сообщение прошлого человека не может уйти от имени следующего | `android/app/src/test/java/com/yuldash/app/data/OutboxConcurrencyTest.kt::logoutDuringHttpPreservesNextAccountsQueue` и `android/app/src/test/java/com/yuldash/app/data/OutboxTest.kt::"выход из аккаунта выбрасывает чужое неотправленное"` | да — M17 |
 | R23 | Устаревшее поколение сессии не может ни добавить действие в очередь, ни начать его отправку | `android/app/src/test/java/com/yuldash/app/data/OutboxConcurrencyTest.kt::staleSessionCannotEnqueueAfterNewLogin` | да (существующие тесты) |
 | R24 | Повреждённая/нечитаемая запись на диске не подменяется пустой очередью (ни на `enqueue`, ни на `flush`), переживает перезапуск процесса | `android/app/src/test/java/com/yuldash/app/data/OutboxCorruptStorageTest.kt::malformedQueueDoesNotPermitReplacementOrHttp` | да (существующие тесты прошлого раунда QA-B01-019) |
 | R25 | Параллельные `flush()` не дублируют отправку; добавление/очистка/замена хранилища ПОКА идёт HTTP не ломают очередь следующего владельца | `android/app/src/test/java/com/yuldash/app/data/OutboxConcurrencyTest.kt::simultaneousFlushesDoNotDuplicateMessages` | да (существующие тесты) |
+| R31 | Ни паспорт поездки (телефон/координаты водителя), ни очередь исходящих (текст переписки) не попадают в лог/консоль | новый `android/app/src/test/java/com/yuldash/app/walk/l2_3/NoPersonalDataLoggingTest.kt::"ни один файл листа не пишет в лог или на консоль"` — сторож того же вида, что `MoneySourceGuardTest`, читает все 7 файлов листа и падает на самом факте `Log.`/`println(` | да — M21 |
 
 ## Найденные ошибки
 
@@ -70,8 +71,8 @@ plain↔secure переезда и durable-очистки при выходе.
 `TripPassTest`, `TripPassDeletionTest`/`TripPassDeletionFailuresTest`, `TripPassRemovalSessionTest`,
 `TripPassSaveRetryTest`, `LegacyOfflineOwnerTest`). Я прочитал файл целиком, прошёл руками через
 КАЖДУЮ функцию и сверился с этим тест-сьютом — новых расхождений с задокументированным поведением
-не нашёл. Четыре новые мутации (M1–M4) целят в правила, которые раньше не были защищены НАРОЧНОЙ
-поломкой именно в этом месте (хотя и покрыты тестами по итоговому поведению).
+не нашёл. Шесть новых мутаций (M1–M4, M17, M21) целят в правила, которые раньше не были защищены
+НАРОЧНОЙ поломкой именно в этом месте (хотя часть и была покрыта тестами по итоговому поведению).
 
 **Методическая находка при проверке M4 (не баг продукта, а урок для тестов этого и соседних листов).**
 Первая версия M4 (снять проверку `TripPassDeletion.blocks` в `load()`) ссылалась на
@@ -99,6 +100,8 @@ plain↔secure переезда и durable-очистки при выходе.
 | M2 | Сообщения ТОЖЕ начинают протухать по возрасту (убрано исключение `it.kind == "message" \|\|`) | `com.yuldash.app.OutboxStaleStatusTest` | KILLED |
 | M3 | Паспорт пишется под общим ключом `KEY_PREFIX` без `pass.bookingId` | `com.yuldash.app.TripPassTest` | KILLED |
 | M4 | `load()` не проверяет `TripPassDeletion.blocks` | `com.yuldash.app.data.OfflineMigrationCleanupTest` | KILLED (первая попытка — `TripPassDeletionTest` — была SURVIVED, см. «Найденные ошибки») |
+| M17 | `Outbox.clearAll()` при выходе больше не стирает диск физически, только бампает счётчик версии | `com.yuldash.app.data.OutboxTest` | KILLED |
+| M21 | В `save()` добавлена отладочная строка `Log.d("TripPass", "saving pass for ${pass.driverPhone}")` | `com.yuldash.app.walk.l2_3.NoPersonalDataLoggingTest` | KILLED |
 
 ## Остаток и ограничения
 

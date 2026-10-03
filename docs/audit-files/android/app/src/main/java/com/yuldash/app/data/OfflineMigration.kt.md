@@ -50,7 +50,7 @@ Redo-журнал «открытое → шифрованное» для раз�
 | R5 | Перенос в `secure` не может считаться завершённым (`copied=true`), если сама запись в `secure` не подтверждена commit'ом — иначе следующий шаг безопасно удалит исходник из `plain`, и данные исчезнут из ОБОИХ хранилищ | `android/app/src/test/java/com/yuldash/app/data/OfflineMigrationCleanupTest.kt::failedPreparationDoesNotCopyAndFailedSecureWriteCanResume` | да — M5 |
 | R6 | Повреждённый/нечитаемый журнал (`JSONException`, `require` не прошёл) обязан вернуть `writable=false` — новые данные нельзя писать, пока неясно, что на самом деле случилось со старым снимком | `android/app/src/test/java/com/yuldash/app/data/OfflineMigrationCleanupTest.kt::malformedJournalBlocksMutationsAndDoesNotOverwriteSecure` | да — M6 |
 | R17 | Снимок строится ТОЛЬКО из ключей, прошедших `accepts` — очередь не может случайно утащить в себя паспорт поездки и наоборот (общий журнал/карантин — один на объект `OfflineMigration`, разные `plain`-инстансы у `TripPassStore` и `Outbox`) | `android/app/src/test/java/com/yuldash/app/data/OfflineMigrationWriteTest.kt::failedQueueCopyPreservesSourceAndDefersNewWrites` (оба сценария — паспорт и очередь — проверены параллельно, не смешиваются) | да (существующий тест) |
-| R18 | Незакрытый откат записи (`OfflineWriteRecovery`) блокирует ЛЮБОЕ движение миграции, а не только конкретный ключ | `android/app/src/test/java/com/yuldash/app/data/OfflineMigrationCleanupTest.kt::pendingQueueWithUnavailableSecureCannotAppendOrSendAfterRestart` (косвенно; отдельной точечной поломки именно строки 41 в этом листе не заводил) | не перепроверял поломкой в этом листе |
+| R18 | Незакрытый откат записи (`OfflineWriteRecovery`) блокирует ЛЮБОЕ движение миграции, а не только конкретный ключ | новый `android/app/src/test/java/com/yuldash/app/walk/l2_3/OfflineMigrationGuardsTest.kt::unresolvedRollbackOfAnUnrelatedKeyBlocksSavingAnyBooking` (ключ с незакрытым откатом НЕ связан с бронью, которую пытаются сохранить, — показывает, что блокируется весь `open()`, а не точечный ключ) | да — M19 |
 | R19 | Повторный запуск миграции безопасен (идемпотентен): если журнал уже скопирован, но исходник не стёрт — повтор `open()` довершает удаление, не копируя повторно и не теряя записи | `android/app/src/test/java/com/yuldash/app/data/OfflineMigrationCleanupTest.kt::repeatedInitKeepsSnapshotReadableAndBlocksDeleteUntilRecovery` | да (существующий тест, многократно вызывает `initStores` подряд) |
 
 ## Найденные ошибки
@@ -59,7 +59,9 @@ Redo-журнал «открытое → шифрованное» для раз�
 (`audit-offline-migration-journal-2026-09-20.md`, `audit-offline-migration-open-cases-2026-09-20.md`).
 Я прочитал файл целиком, прошёл руками через каждую ветку (включая взаимодействие с
 `TripPassDeletion.reconcile` и `OfflineStoreReset`) и не нашёл новых расхождений с комментариями
-в коде — логика соответствует описанному поведению.
+в коде — логика соответствует описанному поведению. По итогам независимого ревью R18 из
+«подтверждено косвенно» стал полноценной строкой с M19 (новый тест ловит ключ, НЕ относящийся
+к сохраняемой брони, чтобы доказать, что блокируется весь `open()`, а не точечный ключ).
 
 ## Проверка нарочной поломкой
 
@@ -67,13 +69,10 @@ Redo-журнал «открытое → шифрованное» для раз�
 |---|---|---|---|
 | M5 | Перенос в secure помечается `copied=true` БЕЗ проверки, что commit записи в secure реально прошёл | `com.yuldash.app.data.OfflineMigrationCleanupTest` | KILLED |
 | M6 | Поломанный журнал в catch-ветке получает `writable=true` вместо `false` | `com.yuldash.app.data.OfflineMigrationCleanupTest` | KILLED |
+| M19 | Снята проверка `if (!recoverOfflineWrites(...)) return select(...)` целиком | `com.yuldash.app.walk.l2_3.OfflineMigrationGuardsTest` | KILLED |
 
 ## Остаток и ограничения
 
-- R18 (незакрытый откат блокирует миграцию) логически прослежен и подтверждён КОСВЕННО существующими
-  тестами `OfflineMigrationCleanupTest`/`TripPassSaveRetryTest`, но отдельной точечной нарочной поломки
-  именно строки `if (!recoverOfflineWrites(...)) return select(...)` в этом листе не заводил — честно
-  отмечаю как пробел, не как «защищено».
 - Холодный обрыв ровно между двумя `commit()` внутри одного вызова `open()` (строки 66–70) — защищён
   атомарностью `@Synchronized`, но реальный `process death` между этими двумя системными вызовами
   (не между вызовами функции) не воспроизводился и невоспроизводим на JVM-уровне; это общая для всего

@@ -193,6 +193,66 @@
       "tests": [
         "com.yuldash.app.walk.l2_3.MyDataScreenStatesTest"
       ]
+    },
+    {
+      "id": "M17",
+      "file": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
+      "rule": "R22",
+      "description": "Outbox.clearAll() при выходе из аккаунта перестаёт физически стирать очередь — UI думает, что очередь пуста (счётчик обновился), а неотправленные сообщения прошлого человека остаются на диске и уйдут от имени следующего",
+      "find": "    @Synchronized fun clearAll() {\n        queueGeneration++\n        plainPrefs?.let { plain ->\n            if (!OfflineStoreReset.clear(plain, securePrefs)) {\n                securePrefs = null\n                prefs = plain\n            }\n            migration = OfflineMigration.open(plain, securePrefs) { it == KEY }\n            prefs = migration!!.storage\n        }\n        version.value = version.value + 1\n    }",
+      "replace": "    @Synchronized fun clearAll() {\n        queueGeneration++\n        version.value = version.value + 1\n    }",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.data.OutboxTest"
+      ]
+    },
+    {
+      "id": "M18",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineWrites.kt",
+      "rule": "R11w",
+      "description": "Подтверждённое отсутствие значения (null в откате) перестаёт различаться от «в карте ничего нет» — чтение проваливается в дисковое значение, даже когда откат уже честно сказал «тут должно быть пусто»",
+      "find": "if (previous?.containsKey(key) == true) return previous[key]",
+      "replace": "if (previous?.get(key) != null) return previous[key]",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.OfflineWritesRollbackTest"
+      ]
+    },
+    {
+      "id": "M19",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineMigration.kt",
+      "rule": "R18",
+      "description": "Незакрытый откат записи по ОДНОМУ ключу больше не блокирует миграцию целиком — сохранение совершенно другой брони может проскочить, пока где-то рядом тихо висит неподтверждённая запись",
+      "find": "if (!recoverOfflineWrites(plain, secure)) return select(secure ?: plain, false)",
+      "replace": "if (false) return select(secure ?: plain, false)",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.OfflineMigrationGuardsTest"
+      ]
+    },
+    {
+      "id": "M20",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineStoreReset.kt",
+      "rule": "R8b",
+      "description": "Нечитаемый флаг secure_clear_pending трактуется как «долга нет» вместо «долг есть по умолчанию» — повреждённая отметка молча отдаёт secure-хранилище с недостёртыми данными предыдущего аккаунта как будто оно уже чистое",
+      "find": "val pending = incomplete.containsKey(plain) || runCatching { plain.getBoolean(PENDING, false) }.getOrDefault(true)",
+      "replace": "val pending = incomplete.containsKey(plain) || runCatching { plain.getBoolean(PENDING, false) }.getOrDefault(false)",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.OfflineStoreResetFinishOrderTest"
+      ]
+    },
+    {
+      "id": "M21",
+      "file": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
+      "rule": "R31",
+      "description": "В save() добавлена отладочная строка, печатающая в лог телефон водителя (pass.driverPhone) — ровно то, что 152-ФЗ запрещает оставлять в logcat",
+      "find": "    ): Boolean = runCatching {\n        if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) return@runCatching false\n        sp(context)",
+      "replace": "    ): Boolean = runCatching {\n        android.util.Log.d(\"TripPass\", \"saving pass for ${pass.driverPhone}\")\n        if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) return@runCatching false\n        sp(context)",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.NoPersonalDataLoggingTest"
+      ]
     }
   ]
 }

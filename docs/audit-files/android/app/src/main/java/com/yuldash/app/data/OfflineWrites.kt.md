@@ -43,15 +43,17 @@ was scheduled» — то есть везде используется `commit()`
 |---|---|---|---|
 | R9 | Неудачная запись обязана запомнить прежнее значение ключа для отката — иначе следующее чтение может вернуть «грязное» (наполовину записанное) значение | Новый `android/app/src/test/java/com/yuldash/app/walk/l2_3/OfflineWritesRollbackTest.kt::failedWriteRestoresThePreviousValueNotJustAbsence` | да — M9 |
 | R10 | `recoverOfflineWrites`/`recover()` обязаны честно докладывать об отказе, пока откат реально не подтверждён на диске — ложный «успех» разрешил бы писать/отправлять поверх неподтверждённого состояния | Новый `android/app/src/test/java/com/yuldash/app/walk/l2_3/OfflineWritesRollbackTest.kt::whenRollbackAlsoFailsRecoveryHonestlyReportsItUntilItReallySucceeds` | да — M10 |
-| R11w | Подтверждённое отсутствие ключа (`null` в откате) не проваливается в чтение диска — `containsKey`, а не просто truthy-проверка значения | `android/app/src/test/java/com/yuldash/app/data/TripPassSaveRetryTest.kt::explicitRetryResumesMigrationAndSurvivesDiskRestart` (косвенно, через `TripPassStore`); отдельной точечной поломки именно этой строки в этом листе не заводил | не перепроверял поломкой в этом листе (см. «Остаток») |
-| R12w | Откат одного хранилища (plain) не может случайно примениться не к тому физическому хранилищу (secure vs plain) — проверка `entry.encrypted != (prefs !== scope)` | `android/app/src/test/java/com/yuldash/app/data/OfflineMigrationWriteTest.kt::failedPassportCopyPreservesSourceAndDefersNewWrites` | да (существующий тест; не мутировал отдельно) |
+| R11w | Подтверждённое отсутствие ключа (`null` в откате) не проваливается в чтение диска — `containsKey`, а не просто truthy-проверка значения | новый `android/app/src/test/java/com/yuldash/app/walk/l2_3/OfflineWritesRollbackTest.kt::confirmedAbsenceIsNotHiddenByLeftoverDiskContent` | да — M18 |
+| R12w | Откат одного хранилища (plain) не может случайно примениться не к тому физическому хранилищу (secure vs plain) — проверка `entry.encrypted != (prefs !== scope)` | `android/app/src/test/java/com/yuldash/app/data/OfflineMigrationWriteTest.kt::failedPassportCopyPreservesSourceAndDefersNewWrites` | защищено косвенно, см. «Остаток» — аргумент, почему это не поломка «на каждое правило» |
 
 ## Найденные ошибки
 
 Ошибок не найдено. Механизм отката уже прошёл независимую проверку в прошлом раунде (QA-B01-020,
 `audit-journal.md`: «Two limited recovery attempts не заменяют проверку результата commit»). В этом
-листе добавлены ДВЕ прямые unit-проверки самого `OfflineWriteRecovery` (минуя `TripPassStore`/`Outbox`),
-которых раньше не было — раньше контракт проверялся только косвенно.
+листе добавлены ТРИ прямые unit-проверки самого `OfflineWriteRecovery` (минуя `TripPassStore`/`Outbox`),
+которых раньше не было — раньше контракт проверялся только косвенно. По итогам независимого ревью
+R11w из «подозрения по прочтению» стал полноценной строкой с M18 (ключ — подтвердить, что подвисший
+откат **выигрывает** у постороннего значения, появившегося на диске В ОБХОД этого механизма).
 
 ## Проверка нарочной поломкой
 
@@ -59,14 +61,18 @@ was scheduled» — то есть везде используется `commit()`
 |---|---|---|---|
 | M9 | `commit()` перестаёт запоминать откат при неудачной записи (`if (!saved) {...}` удалён) | `com.yuldash.app.walk.l2_3.OfflineWritesRollbackTest` | KILLED |
 | M10 | `recover()` всегда возвращает `true`, даже если сам откат не прошёл | `com.yuldash.app.walk.l2_3.OfflineWritesRollbackTest` | KILLED |
+| M18 | `read()` меняет `containsKey` на truthy-проверку значения (`previous?.get(key) != null`) | `com.yuldash.app.walk.l2_3.OfflineWritesRollbackTest` | KILLED |
 
 ## Остаток и ограничения
 
-- Правило R11w (`containsKey` вместо truthy) не получило СОБСТВЕННОЙ нарочной поломки в этом листе —
-  воспроизвести именно эту строку как самостоятельный тест не успел (мешает побочный эффект фейковой
-  `MemoryDiskPreferences`: любая попытка «испортить» эту строку в моих экспериментах либо не компилировалась,
-  либо ловилась ДРУГИМИ, более ранними проверками раньше, чем доходило до этой строки). Правило верно
-  по прочтению кода и комментария автора; честно помечаю как непроверенное поломкой.
+- R12w (откат не может примениться не к тому хранилищу, `entry.encrypted != (prefs !== scope)`) —
+  это защита от ВНУТРЕННЕГО рассогласования вызывающего кода, а не от внешнего отказа диска:
+  `commit`/`recover` всегда сами строят пару `(prefs, scope)`/`target` СОГласованно с `entry.encrypted`
+  — публичного пути позвать `restore` с умышленно перепутанной парой нет. В отличие от R9/R10/R11w
+  (где отказ диска — реалистичный, воспроизводимый через `MemoryDiskPreferences`), здесь пришлось бы
+  либо лезть в `private`-состояние через рефлексию, либо писать новый публичный API специально ради
+  теста — оба пути хуже самой защиты. Оставляю как задокументированное исключение (две защиты
+  подстраховывают друг друга: сами вызовы + эта внутренняя проверка), а не как недоделанный пробел.
 - Холодный `process death` между `pending[scope] = Pending(...)` (в памяти) и следующим запуском —
   открытый случай, как и в карточке `OfflineStoreReset.kt`: это НЕ durable-журнал, а RAM-защита
   текущего процесса (сказано в комментарии файла явно).

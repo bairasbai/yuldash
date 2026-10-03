@@ -40,17 +40,19 @@ from memory while it remains on disk»).
 |---|---|---|---|
 | R7 | Отказ физической очистки **plain** не может доложить об успехе и обязан оставить карантин (иначе `save()`/`load()` снова доверяют хранилищу, которое не стёрто) | `android/app/src/test/java/com/yuldash/app/data/TripPassSaveRetryTest.kt::saveRetryCannotReleaseUnconfirmedLogoutQuarantine` и новый `android/app/src/test/java/com/yuldash/app/walk/l2_3/OfflineStoreResetFinishOrderTest.kt::clearFailureOnPlainNeverReportsSuccessOrLiftsQuarantine` | да — M7 |
 | R8 | Метка `secure_clear_pending` не может сняться раньше, чем **secure** реально стёрт — иначе данные предыдущего аккаунта остаются физически на диске, а приложение считает уборку законченной | новый `android/app/src/test/java/com/yuldash/app/walk/l2_3/OfflineStoreResetFinishOrderTest.kt::secureClearFailureKeepsPendingFlagSoNextAttemptRetries` | да — M8 |
-| R8b | Отказ чтения флага `PENDING` трактуется как «долг есть» (дефолт `true`), а не «долга нет» | `android/app/src/test/java/com/yuldash/app/walk/l2_3/OfflineStoreResetFinishOrderTest.kt::secureClearFailureKeepsPendingFlagSoNextAttemptRetries` (косвенно; `availableSecure`'s `runCatching {...}.getOrDefault(true)` — отдельной новой поломки именно на этот дефолт не заводил) | не перепроверял поломкой в этом листе |
+| R8b | Отказ чтения флага `PENDING` трактуется как «долг есть» (дефолт `true`), а не «долга нет» | новый `android/app/src/test/java/com/yuldash/app/walk/l2_3/OfflineStoreResetFinishOrderTest.kt::unreadablePendingFlagIsTreatedAsADebtNotAsAlreadyClean` | да — M20 |
 | R8c | Долг может быть погашен только для ТОЙ ЖЕ пары `plain`/`secure`, что и значился в карантине; `clear()` ставит карантин ДО попытки стереть, чтобы отказ ранней стадии не давал ложного «чисто» | `android/app/src/test/java/com/yuldash/app/data/TripPassDeletionFailuresTest.kt::logoutDuringPendingMigrationAndDeletionPreservesNewAccountWhenSecureReturns` | да (существующий тест; см. также карточку `TripPass.kt`) |
 
 ## Найденные ошибки
 
 Ошибок не найдено. Логика `finish`/`availableSecure`/`clear` — корректная и была уже проверена
 косвенно (через `TripPassStore`/`Outbox`) в прежних раундах (QA-B01-015/020, `audit-offline-migration-journal-2026-09-20.md`).
-В этом листе добавлены ДВЕ новые прямые проверки (`OfflineStoreResetFinishOrderTest`), подтвердившие,
-что `finish()` действительно соблюдает порядок «стереть → снять флаг», а `clear()` действительно не
-докладывает успех при отказе commit — раньше это не было протестировано НАПРЯМУЮ (только как побочный
-эффект сценариев `TripPassStore`).
+В этом листе добавлены ТРИ новые прямые проверки (`OfflineStoreResetFinishOrderTest`), подтвердившие,
+что `finish()` действительно соблюдает порядок «стереть → снять флаг», `clear()` действительно не
+докладывает успех при отказе commit, и нечитаемый `PENDING` действительно трактуется как «долг
+есть» — раньше это не было протестировано НАПРЯМУЮ (только как побочный эффект сценариев
+`TripPassStore`). По итогам независимого ревью (просьба «поломка на каждое правило личных данных»)
+R8b из «подозрения, защищённого по прочтению» стал полноценной строкой с M20.
 
 ## Проверка нарочной поломкой
 
@@ -58,8 +60,9 @@ from memory while it remains on disk»).
 |---|---|---|---|
 | M7 | `clear()` игнорирует отказ commit очистки plain (`if (!...) return false` → безусловный вызов без проверки результата) | `com.yuldash.app.data.TripPassSaveRetryTest` | KILLED |
 | M8 | `finish()` игнорирует отказ физической очистки secure и всё равно пытается снять `PENDING` | `com.yuldash.app.walk.l2_3.OfflineStoreResetFinishOrderTest` | KILLED |
+| M20 | `availableSecure` считает нечитаемый `PENDING` отсутствием долга (`getOrDefault(true)` → `getOrDefault(false)`) | `com.yuldash.app.walk.l2_3.OfflineStoreResetFinishOrderTest` | KILLED |
 
-(Оба подтверждены прогоном `audit_mutation.py replay --spec docs/audit-mutations/leaf-2.3.json` в этой копии.)
+(Все три подтверждены прогоном `audit_mutation.py replay --spec docs/audit-mutations/leaf-2.3.json` в этой копии.)
 
 ## Остаток и ограничения
 
