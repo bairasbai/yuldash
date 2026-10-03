@@ -285,6 +285,29 @@ internal fun isLoginPhoneValid(phone: String): Boolean = phone.trim().length >= 
 /** Код (SMS/Telegram) валиден: ровно 6 цифр (как было: `code.length < 6`). Ввод и так фильтрует нецифры. */
 internal fun isLoginCodeValid(code: String): Boolean = code.trim().length == 6
 
+/**
+ * Фильтр поля кода: оставляет только цифры и режет до 6 знаков.
+ *
+ * Зачем отдельная функция (а не инлайн в `onCodeChange`, как было). SMS-автозаполнение и вставка
+ * из Telegram несут код внутри постороннего текста («Ваш код: 123456», скопированное сообщение
+ * целиком, случайный пробел между тройками цифр). Правило всегда одно — цифры есть, остального
+ * нет, — но раньше его некому было протестировать: тело жило внутри `onCodeChange` приватного
+ * `LoginFormCard`, недоступного тестам (вставка в код — п.4а брифа). Вынесено 1:1, поведение то же.
+ */
+internal fun sanitizeLoginCodeInput(raw: String): String = raw.filter { it.isDigit() }.take(6)
+
+/**
+ * Текст ошибки сетевого действия входа: если сервер успел ответить (ApiException) — его
+ * сообщение уже готово и двуязычно (см. `ApiClient.errorMessage`/`genericByStatus`), включая
+ * бизнес-отказы вроде «Вход по SMS временно не работает. Зайди через мессенджер» (503, канал
+ * заморожен, `routers/auth.py`/`services.send_sms`). Показывать вместо него свой обобщённый
+ * текст — значит советовать «проверь интернет» человеку, которому интернет не поможет: сервер
+ * уже сказал, что делать, а клиент это выбрасывал. Без ответа сервера (запрос не дошёл вовсе —
+ * не ApiException) остаётся свой текст: тут «проверь интернет» как раз верно.
+ */
+internal fun loginRequestErrorText(e: Throwable, fallback: String): String =
+    (e as? ApiException)?.message ?: fallback
+
 // testTag'и кнопок входа: при loading текст скрывается спиннером, поэтому в тестах целимся в кнопку
 // по тегу (проверить disabled/двойной тап). На вид/поведение не влияют.
 internal const val TAG_LOGIN_TELEGRAM_BTN = "login_telegram_btn"   // экран выбора: «Войти через Telegram»
@@ -429,7 +452,7 @@ private fun LoginFormCard(
         tgMode = tgMode,
         showPhone = showPhone,
         onPhoneChange = { phone = it; error = null },
-        onCodeChange = { code = it.filter { c -> c.isDigit() }.take(6); error = null },
+        onCodeChange = { code = sanitizeLoginCodeInput(it); error = null },
         onNameChange = { nameInput = it.take(120) },
         // Главный вход через Telegram (экран выбора). Гард двойного тапа: `if (loading) return`.
         onTelegramStart = {
@@ -517,7 +540,7 @@ private fun LoginFormCard(
                         scope.launch {
                             ApiClient.requestCode(phone.trim())
                                 .onSuccess { loading = false; step = 1 }
-                                .onFailure { loading = false; error = errSendFail }
+                                .onFailure { loading = false; error = loginRequestErrorText(it, errSendFail) }
                         }
                     }
                 } else {

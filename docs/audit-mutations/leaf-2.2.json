@@ -1,0 +1,106 @@
+{
+  "schema": 1,
+  "leaf": "leaf-2.2",
+  "mutations": [
+    {
+      "id": "M1",
+      "file": "android/app/src/main/java/com/yuldash/app/LoginScreen.kt",
+      "rule": "R2",
+      "description": "sanitizeLoginCodeInput перестаёт фильтровать нецифры из вставленного кода",
+      "find": "raw.filter { it.isDigit() }.take(6)",
+      "replace": "raw.take(6)",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l2_2.LoginScreenPureHelpersTest"]
+    },
+    {
+      "id": "M2",
+      "file": "android/app/src/main/java/com/yuldash/app/LoginScreen.kt",
+      "rule": "R3",
+      "description": "кнопка «Войти через Telegram» перестаёт блокироваться на время запроса (двойной тап шлёт второй tgStart)",
+      "find": "enabled = !loading,   // гард двойного тапа\n                interactionSource = tgPress,",
+      "replace": "enabled = true,   // гард двойного тапа\n                interactionSource = tgPress,",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.LoginFormContentTest"]
+    },
+    {
+      "id": "M3",
+      "file": "android/app/src/main/java/com/yuldash/app/LoginScreen.kt",
+      "rule": "R6",
+      "description": "loginRequestErrorText перестаёт использовать готовый текст сервера (503 «SMS временно не работает» снова тонет в «проверь интернет»)",
+      "find": "(e as? ApiException)?.message ?: fallback",
+      "replace": "fallback",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l2_2.LoginScreenPureHelpersTest"]
+    },
+    {
+      "id": "M4",
+      "file": "android/app/src/main/java/com/yuldash/app/SecureImageRequest.kt",
+      "rule": "R3",
+      "description": "isOwnMediaHost перестаёт сравнивать схему — http-понижение того же хоста принимается как свой адрес",
+      "find": "host == own.host?.lowercase() && scheme == own.scheme?.lowercase() && uri.port == own.port",
+      "replace": "host == own.host?.lowercase() && uri.port == own.port",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l2_2.SecureImageRequestSchemeTest"]
+    },
+    {
+      "id": "M5",
+      "file": "android/app/src/main/java/com/yuldash/app/SecureWindow.kt",
+      "rule": "R2",
+      "description": "SecureWindow перестаёт снимать FLAG_SECURE при выходе с экрана — защита залипает на всё приложение",
+      "find": "activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)",
+      "replace": "Unit",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.SecureWindowGuardTest"]
+    },
+    {
+      "id": "M6",
+      "file": "android/app/src/main/java/com/yuldash/app/SensitiveClipboard.kt",
+      "rule": "R3",
+      "description": "copySensitive перестаёт ставить EXTRA_IS_SENSITIVE — системный предпросмотр снова показывает чужой номер/код",
+      "find": "putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)",
+      "replace": "putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false)",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.walk.l2_2.SensitiveClipboardBehaviorTest"]
+    },
+    {
+      "id": "M7",
+      "file": "android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt",
+      "rule": "R3",
+      "description": "CLEARED_BY_FILE теряет номер брони — выход перестаёт стирать ключ, по которому фоновый сервис воскресает",
+      "find": "\"trip_location_svc\" to listOf(\"last_booking\", \"last_lang\"),",
+      "replace": "\"trip_location_svc\" to listOf(\"last_lang\"),",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.LogoutLeavesNothingTest"]
+    },
+    {
+      "id": "M8",
+      "file": "android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt",
+      "rule": "R4",
+      "description": "SURVIVES_LOGOUT теряет запись app_language целиком — ключ выпадает из обоих списков (ни стирается, ни объявлен настройкой телефона)",
+      "find": "\"app_language\" to \"язык интерфейса — настройка телефона; сбросить значит встретить нового человека чужим языком\",\n",
+      "replace": " ",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.SessionKeysGuardTest"]
+    },
+    {
+      "id": "M9",
+      "file": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
+      "rule": "R1",
+      "description": "resolveSource перестаёт замечать расходящиеся plain/secure-аккаунты (разный токен ИЛИ разный refresh) — secure побеждает молча вместо полного logout",
+      "find": "if (plainToken != secureToken || read(plain, \"refresh_token\") != read(existingSecure, \"refresh_token\")) {",
+      "replace": "if (false) {",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.data.AuthStorePolicyTest"]
+    },
+    {
+      "id": "M10",
+      "file": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
+      "rule": "R4",
+      "description": "writeSession перестаёт проверять результат commit — отказ записи токена больше не оставляет pending, марка финализируется как после удачной записи",
+      "find": "if (!commit(selected.prefs, write)) return false",
+      "replace": "commit(selected.prefs, write)",
+      "runner": "gradle",
+      "tests": ["com.yuldash.app.data.AuthStorePolicyTest"]
+    }
+  ]
+}
