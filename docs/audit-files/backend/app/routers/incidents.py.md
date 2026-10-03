@@ -55,8 +55,9 @@
 |---|---|---|---|
 | R1 🆕 | `resolve_incident` блокирует строку спора (`with_for_update`) ДО проверки статуса — два одновременных «Подтвердить» не накручивают лестницу дважды | `backend/tests/walk/l3_3/test_l3_3_resolve_incident_race.py::test_последовательные_вызовы_не_гонка_и_не_удваивают`, `::test_гонка_два_одновременных_resolve_дают_одно_предупреждение` (pg-only) | да — M1 (pg) |
 | R2 | Чужой спор — 403 (не раскрывает чужие данные); стороны и админ видят карточку | `backend/tests/walk/l3_3/test_l3_3_incident_rights.py::test_посторонний_не_видит_чужой_спор`, `::test_стороны_спора_видят_карточку`, `::test_админ_видит_любой_спор` | да — M5 🆕 |
-| R3 | `withdraw` не перетирает уже вынесенный вердикт (409, не 200 с тихой перезаписью) | `backend/tests/test_audit_hardening.py::test_withdraw_only_before_verdict` | покрыто существующим набором |
-| R-ADMIN-RU | `_require_admin` намеренно без `herr` — см. «Остаток» | `backend/tests/test_every_refusal_speaks_both_languages.py::test_сторож_отличает_админскую_ручку_от_обычной` | существующий сторож, не моя поломка |
+| R3 | `withdraw` не перетирает уже вынесенный вердикт (409, не 200 с тихой перезаписью) | `backend/tests/test_audit_hardening.py::test_withdraw_only_before_verdict` | да — M7 🆕 |
+| R4 🆕 | Только админ решает спор (`_require_admin` перед побочками `resolve_incident`) | `backend/tests/test_incidents.py::test_resolve_admin_only` | да — M11 🆕 |
+| R-ADMIN-RU | `_require_admin` намеренно без `herr` (только сам ТЕКСТ отказа, не доступ — доступ см. R4) — см. «Остаток» | `backend/tests/test_every_refusal_speaks_both_languages.py::test_сторож_отличает_админскую_ручку_от_обычной` | существующий сторож, не моя поломка |
 
 ## Найденные ошибки
 
@@ -74,8 +75,10 @@
 |---|---|---|---|
 | M1 | `with_for_update()` снят с фетча `Incident` в `resolve_incident` (возврат к `session.get`) | `test_l3_3_resolve_incident_race.py::test_гонка_два_одновременных_resolve_дают_одно_предупреждение` (postgres) | KILLED |
 | M5 | Проверка доступа в `get_incident` отключена (`if False and user.role != UserRole.admin`) | `test_l3_3_incident_rights.py::test_посторонний_не_видит_чужой_спор` | KILLED |
+| M7 🆕 | `withdraw_incident`: проверка статуса отключена (`if False` вместо проверки `inc.status`) | `tests/test_audit_hardening.py::test_withdraw_only_before_verdict` | KILLED |
+| M11 🆕 | `_require_admin`: проверка роли отключена (`if user.role != UserRole.admin` → `if False`) | `tests/test_incidents.py::test_resolve_admin_only` | KILLED |
 
-Прогон инструментом (из корня MAIN): `python tools/audit_mutation.py --root . replay --spec docs/audit-mutations/leaf-3.3.json --only M1,M5` → `MUTATIONS KILLED 2/2`. Полный спек листа (все 5 мутаций, 4 файла) — `MUTATIONS KILLED 5/5`.
+Прогон инструментом (из корня MAIN): `python tools/audit_mutation.py --root . replay --spec docs/audit-mutations/leaf-3.3.json --only M1,M5,M7,M11` → `MUTATIONS KILLED 4/4`. Полный спек листа (12 мутаций, 4 файла) — `MUTATIONS KILLED 12/12`.
 
 ## Остаток и ограничения
 
@@ -85,8 +88,10 @@
   `guard_own_evidence`, за количество/длину ссылки — `csv_from_urls` (max 10, max 500 символов),
   за path traversal при отдаче — `os.path.basename` в `secure_evidence`. Сам тип файла/размер на
   диске/MIME проверяет endpoint загрузки — его не читал (вне зоны).
-- **`_require_admin` (195–198) намеренно НЕ билингвальный** — проверил специально, чтобы не
-  наделать лишних правок: `test_every_refusal_speaks_both_languages.py` (строки 16–20)
+- **`_require_admin` (195–198): ТЕКСТ отказа намеренно НЕ билингвальный, но САМА проверка роли
+  (R4) защищена мутацией M11.** Доступ (кто проходит воротами) — проверено и ловится тестом;
+  перевод конкретно строки «Только для админа» — осознанно не трогал. Проверил специально,
+  чтобы не наделать лишних правок: `test_every_refusal_speaks_both_languages.py` (строки 16–20)
   документирует это как СОЗНАТЕЛЬНОЕ решение проекта («Админские отказы оставлены по-русски
   сознательно... переводить их значило бы делать работу ради галочки») и явно устроен так,
   чтобы распознавать «Только для админа» и адреса `/admin/...` как исключение. Та же логика —

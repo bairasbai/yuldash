@@ -79,6 +79,19 @@ def test_после_ответа_поддержки_новое_такое_же_�
     )
 
 
+def test_админ_ручки_требуют_роли(client, user_factory):
+    """`_guard_admin` — ворота на все /admin/support/* ручки: обычный человек не читает и не
+    отвечает в чужих обращениях, даже зная id тикета."""
+    from app.models import UserRole
+    u = user_factory("СаппортНеАдмин")
+    t = _create(client, u, body="Личный вопрос").json()
+    assert client.get("/admin/support/tickets", headers=u["auth"]).status_code == 403
+    assert client.get(f"/admin/support/tickets/{t['id']}", headers=u["auth"]).status_code == 403
+    assert client.post(f"/admin/support/tickets/{t['id']}/reply", headers=u["auth"],
+                       json={"body": "x"}).status_code == 403
+    assert client.post(f"/admin/support/tickets/{t['id']}/close", headers=u["auth"]).status_code == 403
+
+
 def test_закрытый_тикет_с_тем_же_текстом_заводит_новый(client, user_factory):
     """Если прежний тикет ЗАКРЫТ — это уже история, а не тот же разговор: новая жалоба
     с тем же текстом месяц спустя должна дойти до поддержки заново, а не молча исчезнуть

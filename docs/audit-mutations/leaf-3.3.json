@@ -61,6 +61,90 @@
       "cwd": "backend",
       "args": ["tests/walk/l3_3/test_l3_3_log_privacy.py::test_сбой_push_при_эскалации_не_пишет_телефон_в_лог"],
       "db": "sqlite"
+    },
+    {
+      "id": "M6",
+      "file": "backend/app/routers/support.py",
+      "rule": "R2",
+      "description": "_own_ticket: проверка владельца отключена — посторонний получает доступ к чужому тикету поддержки",
+      "find": "if not t or t.user_id != user_id:",
+      "replace": "if not t:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_support.py::test_foreign_ticket_is_404"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M7",
+      "file": "backend/app/routers/incidents.py",
+      "rule": "R3",
+      "description": "withdraw_incident: проверка статуса отключена — withdraw снова перетирает уже вынесенный вердикт",
+      "find": "if inc.status not in (\"open\", \"awaiting_response\", \"under_review\"):",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_audit_hardening.py::test_withdraw_only_before_verdict"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M8",
+      "file": "backend/app/winter_escalate.py",
+      "rule": "R3",
+      "description": "escalate_now: проверка «уже эскалировано» отключена — повторный вызов для того же дела снова шлёт SMS и заводит второе событие",
+      "find": "    if already:\n        return {\"state\": \"escalated\", \"already\": True, \"sos_event_id\": already.id}",
+      "replace": "    if False:\n        return {\"state\": \"escalated\", \"already\": True, \"sos_event_id\": already.id}",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_winter_sms_bilingual.py::test_повторная_эскалация_не_шлёт_второе_sms"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M9",
+      "file": "backend/app/incident_escalate.py",
+      "rule": "R3",
+      "description": "escalate_silent_incidents: фильтр по статусу снят — повторный прогон задачи снова уведомляет по уже переведённому в разбор делу",
+      "find": "Incident.status == \"awaiting_response\",",
+      "replace": "True,",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_log_privacy.py::test_повторный_прогон_эскалации_не_дублирует_уведомления"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M10",
+      "file": "backend/app/winter_escalate.py",
+      "rule": "R2",
+      "description": "_winter_identity_pattern: закрывающий разделитель после номера снят — order#1 снова путается с order#10/order#100 (исторический баг из комментария в коде)",
+      "find": "return f\"Зимний протокол ({kind}#{obj_id}):%\"",
+      "replace": "return f\"Зимний протокол ({kind}#{obj_id}%\"",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_winter_sms_bilingual.py::test_identity_pattern_не_путает_order_1_и_order_10"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M11",
+      "file": "backend/app/routers/incidents.py",
+      "rule": "R4",
+      "description": "_require_admin: проверка роли отключена — не-админ решает чужие споры",
+      "find": "    if user.role != UserRole.admin:\n        raise HTTPException(403, \"Только для админа\")",
+      "replace": "    if False:\n        raise HTTPException(403, \"Только для админа\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_incidents.py::test_resolve_admin_only"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M12",
+      "file": "backend/app/routers/support.py",
+      "rule": "R4",
+      "description": "_guard_admin: проверка роли отключена — обычный пользователь попадает в админ-очередь поддержки",
+      "find": "    if user.role != UserRole.admin:\n        raise HTTPException(403, \"Только для админа\")",
+      "replace": "    if False:\n        raise HTTPException(403, \"Только для админа\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_support.py::test_admin_only_guard"],
+      "db": "sqlite"
     }
   ]
 }

@@ -49,8 +49,8 @@
 | ID | Правило | Тесты | Ловит поломку? |
 |---|---|---|---|
 | R1 🆕 | Двойное нажатие «Отправить» на `/support/tickets` не плодит два тикета и не шлёт два сигнала в Telegram; разные вопросы по-прежнему заводят разные тикеты; закрытый тикет с тем же текстом месяц спустя — новое обращение | `backend/tests/walk/l3_3/test_l3_3_support_double_tap.py::test_двойной_тап_не_плодит_два_тикета`, `::test_двойной_тап_не_дублирует_сигнал_админу`, `::test_разный_текст_заводит_отдельный_тикет`, `::test_после_ответа_поддержки_новое_такое_же_сообщение_не_склеивается`, `::test_закрытый_тикет_с_тем_же_текстом_заводит_новый` | да — M2 |
-| R2 | Чужой тикет — 404 (и для чтения, и для messages/close) | `backend/tests/test_support.py::test_foreign_ticket_is_404` (существующий) | покрыто существующим набором |
-| R3 | Админ-only ручки закрыты от обычных пользователей | `backend/tests/test_support.py::test_admin_only_guard` (существующий) | покрыто существующим набором |
+| R2 | Чужой тикет — 404 (и для чтения, и для messages/close) | `backend/tests/test_support.py::test_foreign_ticket_is_404`, `backend/tests/walk/l3_3/test_l3_3_support_double_tap.py::test_админ_ручки_требуют_роли` | да — M6 🆕 |
+| R3 | Админ-only ручки (все 4: список, тред, ответ, закрытие) закрыты от обычных пользователей | `backend/tests/test_support.py::test_admin_only_guard`, `::test_l3_3_support_double_tap.py::test_админ_ручки_требуют_роли` | да — M12 🆕 |
 
 ## Найденные ошибки
 
@@ -63,14 +63,18 @@
 | ID | Что сломали | Тест | Результат |
 |---|---|---|---|
 | M2 | `_duplicate_open_ticket` в `create_ticket` отключена (`existing = None`) | `test_l3_3_support_double_tap.py::test_двойной_тап_не_плодит_два_тикета` | KILLED |
+| M6 🆕 | `_own_ticket`: проверка владельца отключена (`if not t or t.user_id != user_id` → `if not t`) | `tests/test_support.py::test_foreign_ticket_is_404` | KILLED |
+| M12 🆕 | `_guard_admin`: проверка роли отключена (`if user.role != UserRole.admin` → `if False`) | `tests/test_support.py::test_admin_only_guard` | KILLED |
 
-Прогон инструментом: `python tools/audit_mutation.py --root . replay --spec docs/audit-mutations/leaf-3.3.json --only M2` → `MUTATIONS KILLED 1/1`.
+Прогон инструментом: `python tools/audit_mutation.py --root . replay --spec docs/audit-mutations/leaf-3.3.json --only M2,M6,M12` → `MUTATIONS KILLED 3/3`. Полный спек листа (12 мутаций, 4 файла) — `MUTATIONS KILLED 12/12`.
 
 ## Остаток и ограничения
 
-- **`_guard_admin` (287–289) намеренно НЕ билингвальный** — тот же осознанный паттерн проекта,
+- **`_guard_admin` (287–289): ТЕКСТ отказа намеренно НЕ билингвальный, но САМА проверка роли
+  (R3) защищена мутацией M12.** Разница важна: доступ (кто проходит) — проверено и защищено,
+  перевод конкретно строки «Только для админа» — осознанно не трогал, тот же паттерн проекта,
   что разобран в карточке `routers/incidents.py` (см. её «Остаток»): `test_every_refusal_speaks_both_languages.py`
-  документирует это явно. Не исправлял по той же причине — не ошибка, а задокументированное решение.
+  документирует это явно.
 - **`_notify_admin_new_ticket`'s кулдаун (10 мин) ключуется по `ticket.id`, не по пользователю.**
   Это НЕ баг моей зоны (так было и так осталось), но стоит зафиксировать как наблюдение: после
   моей правки (R1) это стало ещё согласованнее — раз тикет теперь дедуплицируется по (тема,

@@ -43,3 +43,12 @@ def test_админ_видит_любой_спор(client, user_factory):
     _, _, _, iid = _чужой_спор(client, user_factory)
     админ = user_factory("ПраваАдмин", role=UserRole.admin)
     assert client.get(f"/incidents/{iid}", headers=админ["auth"]).status_code == 200
+
+
+def test_разбор_доступен_только_админу(client, user_factory):
+    """`_require_admin` — ворота на ВСЕ /admin/incidents/* ручки: не-админ не решает чужие
+    споры, даже зная id (сама роль REST, а не просто маскировка в UI)."""
+    водитель, пассажирка, _, iid = _чужой_спор(client, user_factory)
+    r = client.post(f"/admin/incidents/{iid}/resolve", headers=пассажирка["auth"],
+                    json={"resolution": "strike", "fault": "respondent"})
+    assert r.status_code == 403, f"не-админ смог решить чужой спор: {r.status_code} {r.text[:150]}"

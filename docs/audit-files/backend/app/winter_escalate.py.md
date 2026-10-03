@@ -45,8 +45,8 @@
 | ID | Правило | Тесты | Ловит поломку? |
 |---|---|---|---|
 | R1 🆕 | SMS близким о зимней тревоге — на языке того, кто завёл контакт (не всегда RU) | `backend/tests/walk/l3_3/test_l3_3_winter_sms_bilingual.py::test_русскоязычному_уходит_русский_текст`, `::test_башкироязычному_уходит_башкирский_текст` | да — M3 |
-| R2 | «Доехал(а)» закрывает именно эту тревогу (по идентификатору `kind#obj_id`), не путает `order#1`/`order#10` | `backend/tests/walk/l3_1/test_l3_1_n3_winter_ack_closes_alarm.py::test_доехал_закрывает_открытую_зимнюю_тревогу`, `::test_закрытая_тревога_эскалатору_больше_не_попадается` (чужой лист, проверено чтением — та же механика, не трогал) | покрыто существующим набором (leaf-3.1) |
-| R3 | `order#1` не путается с `order#10`; два последовательных вызова (и два одновременных на PostgreSQL) не шлют двойное SMS | `backend/tests/test_audit_fix_be30.py::test_order_10_does_not_suppress_order_1`, `::test_same_kind_and_id_is_idempotent`, `::test_postgresql_serializes_winter_event_creation_by_existing_user_row` | покрыто существующим набором |
+| R2 🆕 | Контракт закрытия: `_winter_note`/`_winter_identity_pattern` держат один и тот же префикс (на нём стоит и идемпотентность здесь, и закрытие по «доехал(а)» в `routers/safety.py::_winter_ack`, N3 leaf-3.1) — `order#1` не путается с `order#10`/`order#100` | `backend/tests/walk/l3_3/test_l3_3_winter_sms_bilingual.py::test_note_совпадает_со_своим_же_identity_pattern`, `::test_identity_pattern_не_путает_order_1_и_order_10` (+ чтением сверено с `test_l3_1_n3_winter_ack_closes_alarm.py`, чужой лист) | да — M10 🆕 |
+| R3 🆕 | Повторный вызов `escalate_now` для ТОГО ЖЕ дела (два воркера, повторный запуск задачи) не шлёт второе SMS и не заводит второе событие | `backend/tests/walk/l3_3/test_l3_3_winter_sms_bilingual.py::test_повторная_эскалация_не_шлёт_второе_sms` (+ существующие `test_audit_fix_be30.py::test_order_10_does_not_suppress_order_1`, `::test_same_kind_and_id_is_idempotent`, `::test_postgresql_serializes_winter_event_creation_by_existing_user_row`) | да — M8 🆕 |
 
 ## Найденные ошибки
 
@@ -59,8 +59,10 @@
 | ID | Что сломали | Тест | Результат |
 |---|---|---|---|
 | M3 | `lang = sms_lang_of(...)` → `lang = "ru"` (язык получателя игнорируется) | `test_l3_3_winter_sms_bilingual.py::test_башкироязычному_уходит_башкирский_текст` | KILLED |
+| M8 🆕 | `escalate_now`: проверка «уже эскалировано» отключена (`if already` → `if False`) | `test_l3_3_winter_sms_bilingual.py::test_повторная_эскалация_не_шлёт_второе_sms` | KILLED |
+| M10 🆕 | `_winter_identity_pattern`: закрывающий разделитель `):`после номера снят — реинкарнация исторического бага (комментарий в коде про старый LIKE) | `test_l3_3_winter_sms_bilingual.py::test_identity_pattern_не_путает_order_1_и_order_10` | KILLED |
 
-Прогон инструментом: `python tools/audit_mutation.py --root . replay --spec docs/audit-mutations/leaf-3.3.json --only M3` → `MUTATIONS KILLED 1/1`.
+Прогон инструментом: `python tools/audit_mutation.py --root . replay --spec docs/audit-mutations/leaf-3.3.json --only M3,M8,M10` → `MUTATIONS KILLED 3/3`. Полный спек листа (12 мутаций, 4 файла) — `MUTATIONS KILLED 12/12`.
 
 ## Остаток и ограничения
 
