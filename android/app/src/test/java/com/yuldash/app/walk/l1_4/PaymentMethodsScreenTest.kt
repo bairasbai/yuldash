@@ -118,7 +118,11 @@ class PaymentMethodsScreenTest {
         assertEquals("onPick не должен звать раньше ответа сервера", null, picked)
 
         latch.countDown()
-        compose.waitForIdle()
+        // Было waitForIdle() — синхронизирует UI-поток, но не гарантирует, что корутина на
+        // ФОНОВОМ потоке уже дождалась ответа и вызвала onPick: под нагрузкой полного прогона
+        // (2078 тестов, GC, другие потоки) это гонка — ровно тот же приём, что уже работает
+        // ниже в этом файле (activeOrder_secondTapDuringFlight…): ждём САМО событие.
+        compose.waitUntil(5_000) { picked != null }
         assertEquals(PayMethods.SBP, picked)
     }
 

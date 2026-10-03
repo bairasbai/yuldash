@@ -260,7 +260,9 @@ private fun WalletBalanceCard(
             if (failed && balance == null) {
                 Text(
                     appText("Баланс не узнали", "Баланс белә алманыҡ"),
-                    color = CanonOnAccent, fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold,
+                    // Кегль только со шкалы Canon* (CanonSourceGuardTest): было 20sp/26sp вне
+                    // шкалы — ближайшая ступень CanonHeading (19sp/25sp).
+                    style = CanonHeading, color = CanonOnAccent,
                 )
                 Text(
                     appText("Проверь интернет и повтори.", "Интернетты тикшереп ҡабатла."),
@@ -454,7 +456,9 @@ private fun PayoutCard(
                             "На балансе ${kopToRub(status.balanceKop)}, из них ${kopToRub(status.owedKop)} уходит на долг платформе — доступно ${payableLabel}.",
                             "Баланста ${kopToRub(status.balanceKop)}, шуларҙан ${kopToRub(status.owedKop)} платформа бурысына китә — сығарырға $payableLabel була.",
                         ),
-                        color = CanonWarn, fontSize = 13.sp, lineHeight = 18.sp,
+                        // Кегль только со шкалы Canon* (CanonSourceGuardTest): было 13sp/18sp
+                        // вне шкалы — ближайшая ступень CanonMicro (12sp/17sp).
+                        style = CanonMicro, color = CanonWarn,
                         modifier = Modifier.padding(12.dp),
                     )
                 }
