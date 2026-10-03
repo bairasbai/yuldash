@@ -189,7 +189,12 @@ def trust_summary(session: Session, user: User) -> dict:
         "benefits": cur["benefits"],
         "is_insider": level >= INSIDER_LEVEL,
         "invited_by": (row.invited_by if row else None),
-        "can_invite": level >= MIN_INVITER_LEVEL,   # L2+ может звать своих
+        # Витрина обязана отвечать то же, что настоящий гейт `POST /invites` (`can_invite()`
+        # ниже) — а не повторять его условие по памяти. Было именно так: тут стояло
+        # `level >= MIN_INVITER_LEVEL` БЕЗ проверки паузы, и человек на паузе видел в профиле
+        # «можешь позвать своего», а при нажатии получал 403 — витрина и гейт противоречили
+        # друг другу (аудит leaf-3.2, см. test_l3_2_trust_pause_invite.py).
+        "can_invite": can_invite(session, user),
         "next": nxt,
     }
 
