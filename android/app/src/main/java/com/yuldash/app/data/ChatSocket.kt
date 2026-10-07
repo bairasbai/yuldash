@@ -31,6 +31,7 @@ class ChatSocket(
     // Без этого сигнала сообщение висело бы на экране как отправленное: эхо не придёт никогда,
     // и человек узнал бы об отказе только когда сообщение пропадёт при обновлении истории.
     private val onRejected: (tempId: Int, reason: String) -> Unit = { _, _ -> },
+    expectedGeneration: Long = ApiClient.queueSessionGeneration(),
 ) {
     data class Incoming(
         val id: Int, val senderId: Int, val text: String, val timestamp: String,
@@ -41,6 +42,8 @@ class ChatSocket(
     private var ws: WebSocket? = null
     @Volatile private var closed = false   // выставлен из UI-потока в close(), читается из ws-потока
     @Volatile private var attempt = 0
+    private val ownerSession = expectedGeneration
+    private var connection = 0L // guarded by this monitor; callbacks from replaced sockets are stale
 
     // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:
     // NetworkMonitor хранит слушателей через WeakReference, ссылку не даём собрать GC.
@@ -89,7 +92,8 @@ class ChatSocket(
         }
     }
 
-    fun connect() {
+    @Synchronized fun connect() {
+        if (!ApiClient.isCurrentSession(ownerSession)) return
         closed = false
         attempt = 0
         NetworkMonitor.subscribe(netListener)
@@ -98,8 +102,9 @@ class ChatSocket(
 
     @Synchronized
     private fun openSocket() {
-        if (closed) return
+        if (closed || !ApiClient.isCurrentSession(ownerSession)) return
         val token = ApiClient.currentToken() ?: return
+        val currentConnection = ++connection
         // Закрываем предыдущий сокет ПЕРЕД созданием нового: при гонке reconnect↔connect иначе оставались
         // бы два живых WS на один канал → дубли сообщений. Код 4999 (терминальный диапазон) → его onClosed
         // НЕ запустит реконнект (без churn). @Synchronized сериализует параллельные openSocket.
@@ -109,29 +114,31 @@ class ChatSocket(
             Request.Builder().url(url).build(),
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
-                    attempt = 0                 // успешное соединение → сбрасываем backoff
-                    onConnected(true)
+                    synchronized(this@ChatSocket) {
+                        if (closed || connection != currentConnection || !ApiClient.runIfCurrentSession(ownerSession) {
+                            webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
+                            attempt = 0
+                            onConnected(true)
+                        }) webSocket.close(1000, null)
+                    }
                 }
                 override fun onMessage(webSocket: WebSocket, text: String) {
-                    runCatching {
-                        val o = JSONObject(text)
-                        if (o.optString("type") == "message") {
-                            onMessage(
-                                Incoming(
-                                    id = o.optInt("id"),
-                                    senderId = o.optInt("sender_id"),
-                                    text = o.optString("text"),
-                                    timestamp = o.optString("timestamp"),
-                                    flag = o.optString("flag"),
-                                    fromAdmin = o.optBoolean("from_admin"),
-                                )
-                            )
-                        } else if (o.optString("type") == "rejected") {
-                            // Сообщение не принято. temp_id — то, что мы приложили при отправке:
-                            // по нему экран находит своё «оптимистичное» сообщение и честно
-                            // помечает его недоставленным.
-                            onRejected(o.optInt("temp_id"), o.optString("reason"))
+                    synchronized(this@ChatSocket) {
+                        if (closed || connection != currentConnection) return
+                        ApiClient.runIfCurrentSession(ownerSession) {
+                            runCatching {
+                                val o = JSONObject(text)
+                                if (o.optString("type") == "message") {
+                                    onMessage(Incoming(
+                                        id = o.optInt("id"), senderId = o.optInt("sender_id"),
+                                        text = o.optString("text"), timestamp = o.optString("timestamp"),
+                                        flag = o.optString("flag"), fromAdmin = o.optBoolean("from_admin"),
+                                    ))
+                                } else if (o.optString("type") == "rejected") {
+                                    // Rejection belongs only to this connection and login.
+                                    onRejected(o.optInt("temp_id"), o.optString("reason"))
+                                }
+                            }
                         }
                     }
                 }
@@ -141,28 +148,40 @@ class ChatSocket(
                     webSocket.close(code, null)
                 }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    onConnected(false)
-                    // 1008 (policy/нарушение) и кастомные 4xxx = терминальный отказ (напр. не участник брони,
-                    // протухший токен) → НЕ долбимся в цикл. Прочее (рестарт/разрыв) → реконнект.
-                    if (code != 1008 && code !in 4000..4999) scheduleReconnect()
+                    synchronized(this@ChatSocket) {
+                        if (closed || connection != currentConnection) return
+                        ws = null
+                        if (!ApiClient.isCurrentSession(ownerSession)) { close(); return }
+                        ApiClient.runIfCurrentSession(ownerSession) { onConnected(false) }
+                        // Policy/custom failures are terminal; other closures retry with backoff.
+                        if (code != 1008 && code !in 4000..4999) scheduleReconnect()
+                    }
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    onConnected(false)
-                    scheduleReconnect()         // сетевой сбой — всегда пробуем снова (с backoff)
+                    synchronized(this@ChatSocket) {
+                        if (closed || connection != currentConnection) return
+                        ws = null
+                        if (!ApiClient.isCurrentSession(ownerSession)) { close(); return }
+                        ApiClient.runIfCurrentSession(ownerSession) { onConnected(false) }
+                        scheduleReconnect()
+                    }
                 }
             },
         )
     }
 
-    private fun scheduleReconnect() {
+    @Synchronized private fun scheduleReconnect() {
         // M3: пока экран чата открыт (владелец не звал close() → closed=false) — НЕ сдаёмся.
         // Раньше после ~10 попыток (≈3 мин) живой приём вставал до перезахода на экран; на трассе без связи это часто.
         // close() (onDispose экрана) ставит closed=true → бесконечного цикла нет. Backoff с 30с-cap сохранён.
-        if (closed) return
+        if (closed || !ApiClient.isCurrentSession(ownerSession)) return
         attempt++
         // 1,2,4,8,16,30,30… секунд (cap 30) — не флудим сервер при долгом обрыве.
         val delay = minOf(MAX_DELAY_SEC, 1L shl minOf(attempt - 1, 5))
-        scheduler.schedule({ openSocket() }, delay, TimeUnit.SECONDS)
+        val scheduledConnection = connection
+        scheduler.schedule({ synchronized(this) {
+            if (!closed && connection == scheduledConnection) openSocket()
+        } }, delay, TimeUnit.SECONDS)
     }
 
     /** Отправить текст. Сервер сохранит и разошлёт (вернётся и нам). true — ушло. */
@@ -170,13 +189,18 @@ class ChatSocket(
      * Отправить сообщение. `tempId` — номер «оптимистичного» сообщения на экране: сервер вернёт
      * его обратно, если откажется принять (см. onRejected). Сервер поле игнорирует, если не знает.
      */
-    fun send(text: String, tempId: Int = 0): Boolean =
-        ws?.send(
-            JSONObject().put("type", "message").put("text", text).put("temp_id", tempId).toString()
-        ) ?: false
+    @Synchronized fun send(text: String, tempId: Int = 0): Boolean {
+        if (closed) return false
+        var sent = false
+        ApiClient.runIfCurrentSession(ownerSession) {
+            sent = ws?.send(JSONObject().put("type", "message").put("text", text).put("temp_id", tempId).toString()) ?: false
+        }
+        return sent
+    }
 
-    fun close() {
+    @Synchronized fun close() {
         closed = true   // глушит запланированные и будущие реконнекты
+        connection++
         NetworkMonitor.unsubscribe(netListener)   // отписка обязательна — не будим мёртвый канал, не течём
         ws?.close(1000, null)
         ws = null
