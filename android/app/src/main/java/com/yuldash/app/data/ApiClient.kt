@@ -102,6 +102,10 @@ object ApiClient {
     internal fun runIfCurrentSession(generation: Long, action: () -> Unit): Boolean = synchronized(sessionLock) {
         if (!isCurrentSession(generation)) false else { action(); true }
     }
+    /** Navigation may be saved before login; generation must still be unchanged. */
+    internal fun runIfUnchangedSession(generation: Long, action: () -> Unit): Boolean = synchronized(sessionLock) {
+        if (!sameSession(generation)) false else { action(); true }
+    }
     private class SessionChangedException : IllegalStateException("Session changed")
     private fun <T> staleSession(): Result<T> = Result.failure(SessionChangedException())
     private fun expireSession(generation: Long) = synchronized(sessionLock) {

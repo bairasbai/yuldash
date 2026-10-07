@@ -50,12 +50,85 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     // Совместимость с уже сохранёнными booking_done task и прежними внутренними callers.
     val pendingCompletedNavigation = derivedStateOf { pendingBookingNavigation.value?.takeIf { it.completed } }
     val hasHandledBookingIntent: Boolean get() = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) > 0L
+    val privateNavigationRevision: Long get() = saved.get<Long>(KEY_PENDING_REVISION) ?: 0L
+
+    data class PendingScreenNavigation(val destination: Screen, val targetId: Int, val ownerId: Int?, val revision: Long)
+    val pendingScreenNavigation = mutableStateOf(
+        saved.get<String>(KEY_PENDING_SCREEN)?.let { runCatching { Screen.valueOf(it) }.getOrNull() }
+            ?.takeIf { it in PRIVATE_SCREENS }?.let { destination ->
+                saved.get<Long>(KEY_PENDING_REVISION)?.takeIf { it > 0 }?.let { revision ->
+                    PendingScreenNavigation(destination, saved.get<Int>(KEY_PENDING_TARGET) ?: 0,
+                        saved.get<Int>(KEY_SCREEN_OWNER)?.takeIf { it > 0 }, revision)
+                }
+            }
+    )
+    val instantChatOrderId = mutableStateOf(saved.get<Int>(KEY_TAXI_CHAT) ?: 0)
+    val supportTicketId = mutableStateOf(saved.get<Int>(KEY_SUPPORT_TICKET) ?: 0)
+
+    fun requestScreenDestination(destination: Screen, ownerId: Int?, targetId: Int = 0) {
+        if (destination !in PRIVATE_SCREENS || (destination in ID_SCREENS && targetId <= 0)) return
+        pendingBookingNavigation.value?.let(::clearPendingBooking)
+        clearScreenBridges()
+        val revision = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) + 1L
+        saved[KEY_PENDING_REVISION] = revision
+        saved[KEY_PENDING_SCREEN] = destination.name
+        saved[KEY_PENDING_TARGET] = targetId
+        saved[KEY_SCREEN_OWNER] = ownerId ?: -1
+        pendingScreenNavigation.value = PendingScreenNavigation(destination, targetId, ownerId, revision)
+        publishPendingScreen(pendingScreenNavigation.value!!)
+    }
+
+    fun pendingScreenForOwner(ownerId: Int?): PendingScreenNavigation? {
+        val pending = pendingScreenNavigation.value ?: return null
+        if (pending.ownerId != null && pending.ownerId != ownerId) {
+            clearPendingScreen(pending)
+            return null
+        }
+        val bound = if (pending.ownerId == null && ownerId != null) pending.copy(ownerId = ownerId) else pending
+        if (bound != pending) { saved[KEY_SCREEN_OWNER] = ownerId; pendingScreenNavigation.value = bound }
+        publishPendingScreen(bound)
+        return bound
+    }
+
+    fun consumePendingScreen(expected: PendingScreenNavigation, applyRoute: () -> Unit): Boolean {
+        if (pendingScreenNavigation.value != expected) return false
+        applyRoute()
+        recordNavigationChange()
+        persistNav()
+        clearPendingScreen(expected)
+        return true
+    }
+
+    private fun clearScreenBridges() {
+        NavSignals.openInstantOrder.value = false
+        NavSignals.openInstantChat.value = 0
+        NavSignals.openDriverCabinet.value = false
+        DeepLink.pendingParcels.value = false
+        DeepLink.pendingSupport.value = false
+    }
+    private fun publishPendingScreen(pending: PendingScreenNavigation) {
+        NavSignals.openInstantOrder.value = pending.destination == Screen.InstantOrder
+        NavSignals.openInstantChat.value = if (pending.destination == Screen.InstantChat) pending.targetId else 0
+        NavSignals.openDriverCabinet.value = pending.destination == Screen.DriverCabinet
+        DeepLink.pendingParcels.value = pending.destination == Screen.Parcels
+        DeepLink.pendingSupport.value = pending.destination == Screen.SupportTickets
+    }
+    private fun clearPendingScreen(expected: PendingScreenNavigation) {
+        if (pendingScreenNavigation.value != expected) return
+        pendingScreenNavigation.value = null
+        saved.remove<String>(KEY_PENDING_SCREEN)
+        saved.remove<Int>(KEY_PENDING_TARGET)
+        saved.remove<Int>(KEY_SCREEN_OWNER)
+        clearScreenBridges()
+    }
 
     /** Записываем до HTTP/перекомпозиции: новое уведомление должно пережить saved task. */
     fun requestCompletedBooking(bookingId: Int, ownerId: Int?) = requestBookingDestination(bookingId, ownerId, completed = true)
 
     fun requestBookingDestination(bookingId: Int, ownerId: Int?, completed: Boolean) {
         if (bookingId <= 0) return
+        pendingScreenNavigation.value?.let(::clearPendingScreen)
+        clearScreenBridges()
         val revision = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) + 1L
         saved[KEY_PENDING_REVISION] = revision
         saved[KEY_PENDING_COMPLETED] = bookingId
@@ -132,6 +205,8 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         saved[KEY_LANG] = language.value.name
         saved[KEY_TAB] = startHomeTab.value.name
         saved[KEY_ACTIVE_BID] = activeBookingId.value ?: -1   // -1 = нет активной брони (null не храним примитивом)
+        saved[KEY_TAXI_CHAT] = instantChatOrderId.value
+        saved[KEY_SUPPORT_TICKET] = supportTicketId.value
         saved[KEY_NAV_HISTORY] = ArrayList(navHistory.map { it.name })
     }
 
@@ -187,6 +262,12 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
      * (имена+телефоны) и заявки прошлого пользователя. Реклама (partnerAds/adStats) — публичная, не PII.
      */
     fun clearUserData() {
+        pendingScreenNavigation.value?.let(::clearPendingScreen)
+        clearScreenBridges()
+        instantChatOrderId.value = 0
+        supportTicketId.value = 0
+        saved.remove<Int>(KEY_TAXI_CHAT)
+        saved.remove<Int>(KEY_SUPPORT_TICKET)
         pendingBookingNavigation.value?.let(::clearPendingBooking)
         DeepLink.pendingCompletedBookingId.value = null
         DeepLink.pendingBookingChatId.value = null
@@ -215,5 +296,12 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         const val KEY_PENDING_REVISION = "yuldash_pending_completed_revision"
         // Старые ключи сохраняем; отсутствие kind означает ранее сохранённый booking_done.
         const val KEY_PENDING_KIND = "yuldash_pending_booking_completed"
+        const val KEY_PENDING_SCREEN = "yuldash_pending_private_screen"
+        const val KEY_PENDING_TARGET = "yuldash_pending_private_target"
+        const val KEY_SCREEN_OWNER = "yuldash_pending_private_owner"
+        const val KEY_TAXI_CHAT = "yuldash_taxi_chat_id"
+        const val KEY_SUPPORT_TICKET = "yuldash_support_ticket_id"
+        val ID_SCREENS = setOf(Screen.InstantChat, Screen.SupportTicket)
+        val PRIVATE_SCREENS = ID_SCREENS + setOf(Screen.InstantOrder, Screen.DriverCabinet, Screen.Parcels, Screen.SupportTickets)
     }
 }

@@ -415,7 +415,7 @@ internal fun YuldashApp() {
     var trustedContactsReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Profile) }
     var selectedBookingStatus by rememberSaveable { mutableStateOf("") }
     var instantTripOrderId by rememberSaveable { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
-    var instantChatOrderId by rememberSaveable { mutableStateOf(0) }   // чат такси-заказа (B7b-1): id заказа
+    var instantChatOrderId by vm.instantChatOrderId   // ID чата сохраняется вместе с маршрутом.
     var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
     var sosBookingId by rememberSaveable { mutableStateOf(0) }         // SOS с контекстом попутки; 0 = без поездки
     var sosContextNote by rememberSaveable { mutableStateOf("") }      // подпись дежурному (курьер: маршрут доставки)
@@ -441,7 +441,7 @@ internal fun YuldashApp() {
     // Режим фотоконтроля машины: такси или курьер. Экран один, кадры разные — и человек,
     // который возит и людей, и посылки, показывает машину дважды, по разу за роль.
     var carPhotoMode by rememberSaveable { mutableStateOf("taxi") }
-    var supportTicketId by rememberSaveable { mutableStateOf(0) }      // Поддержка: id открытого обращения (deep-link/список)
+    var supportTicketId by vm.supportTicketId
     // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
     var routeWatchPrefillFrom by rememberSaveable { mutableStateOf("") }
     var routeWatchPrefillTo by rememberSaveable { mutableStateOf("") }
@@ -473,13 +473,36 @@ internal fun YuldashApp() {
     // Полноэкранный оффер такси (B7a-2): тап/фуллскрин уведомления «Новый заказ» → MainActivity
     // ставит NavSignals → открываем кабинет водителя (там InstantOfferOverlay). Ждём, пока сплэш
     // отработает (он перезаписал бы screen), и не дёргаем навигацию на входе/онбординге.
-    val wantDriverCabinet by NavSignals.openDriverCabinet
-    LaunchedEffect(wantDriverCabinet, screen) {
-        if (!wantDriverCabinet) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+    // Старые внутренние кнопки пишут bridge; private уведомления уже сохранены Activity.
+    LaunchedEffect(NavSignals.openDriverCabinet.value, NavSignals.openInstantOrder.value,
+        NavSignals.openInstantChat.value, DeepLink.pendingParcels.value, DeepLink.pendingSupport.value, navigationSession) {
+        val previous = vm.pendingScreenNavigation.value
+        val bridge = when {
+            NavSignals.openInstantChat.value > 0 -> Screen.InstantChat to NavSignals.openInstantChat.value
+            NavSignals.openInstantOrder.value -> Screen.InstantOrder to 0
+            NavSignals.openDriverCabinet.value -> Screen.DriverCabinet to 0
+            DeepLink.pendingParcels.value -> Screen.Parcels to 0
+            DeepLink.pendingSupport.value -> Screen.SupportTickets to 0
+            else -> null
+        }
+        vm.pendingScreenForOwner(ApiClient.myUserId())
+        if (bridge != null && (previous?.destination != bridge.first ||
+                (bridge.first == Screen.InstantChat && previous.targetId != bridge.second))) {
+            vm.requestScreenDestination(bridge.first, ApiClient.myUserId(), bridge.second)
+        }
+    }
+    LaunchedEffect(vm.pendingScreenNavigation.value, screen, navigationSession) {
+        val destination = vm.pendingScreenForOwner(ApiClient.myUserId()) ?: return@LaunchedEffect
+        if (screen in setOf(Screen.Splash, Screen.Intro, Screen.Onboarding)) return@LaunchedEffect
         if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        NavSignals.openDriverCabinet.value = false
-        if (screen != Screen.InstantDriverTrip) screen = Screen.DriverCabinet
+        ApiClient.runIfCurrentSession(navigationSession) {
+            vm.consumePendingScreen(destination) {
+                if (destination.destination == Screen.InstantChat) instantChatOrderId = destination.targetId
+                if (destination.destination == Screen.SupportTicket) supportTicketId = destination.targetId
+                // Оффер не выводит водителя из уже исполняемого заказа.
+                if (destination.destination != Screen.DriverCabinet || screen != Screen.InstantDriverTrip) screen = destination.destination
+            }
+        }
     }
     // Тап по пушу про рекламу или партнёрство — тем же путём, что кабинет водителя выше.
     // Раньше эти два вида открывались только из ленты внутри приложения, а из шторки вели
@@ -502,18 +525,6 @@ internal fun YuldashApp() {
     }
     // Кнопки «Написать»/SOS живут глубоко в экранах такси (в т.ч. встроенных в главную) —
     // навигация через NavSignals (паттерн openDriverCabinet), без колбэков через все слои.
-    val wantInstantChat by NavSignals.openInstantChat
-    LaunchedEffect(wantInstantChat, screen) {
-        if (wantInstantChat <= 0) return@LaunchedEffect
-        // P3: ждём, пока сплэш/интро/онбординг отработают — иначе они перезапишут screen, а сигнал
-        // уже погашен (value=0) и тап по пушу «Написать» на холодном старте потерялся бы.
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (ApiClient.isLoggedIn()) {
-            instantChatOrderId = wantInstantChat
-            NavSignals.openInstantChat.value = 0
-            screen = Screen.InstantChat
-        }
-    }
     // Чек за такси-поездку: кнопка в финальной карточке заказа (и у пассажира, и у водителя).
     val wantTaxiReceipt by NavSignals.openTaxiReceipt
     LaunchedEffect(wantTaxiReceipt, screen) {
@@ -552,14 +563,6 @@ internal fun YuldashApp() {
     }
     // Пуш о ходе такси-заказа (B9b-2): тап по «Водитель найден / Машина на месте / …» →
     // экран заказа пассажира (сам подхватывает активный заказ). Ждём, пока сплэш отработает.
-    val wantInstantOrder by NavSignals.openInstantOrder
-    LaunchedEffect(wantInstantOrder, screen) {
-        if (!wantInstantOrder) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        NavSignals.openInstantOrder.value = false
-        screen = Screen.InstantOrder
-    }
     // Force-update (B9b-1): при старте ПАРАЛЛЕЛЬНО обычному запуску спрашиваем /version/min.
     // versionCode < min с сервера → блокирующий экран «Обнови Юлдаш» (ниже, поверх всего).
     // Офлайн / ошибка ручки / min=0 → НИЧЕГО не блокируем, приложение стартует как обычно.
@@ -625,6 +628,12 @@ internal fun YuldashApp() {
     var failedCompletedOwner by rememberSaveable { mutableStateOf<Int?>(null) }
     var failedCompletedRevision by rememberSaveable { mutableStateOf<Long?>(null) }
     var bookingLinkAttempt by remember { mutableIntStateOf(0) }
+    LaunchedEffect(vm.privateNavigationRevision) {
+        if (failedBookingDestination != null && failedCompletedRevision != vm.privateNavigationRevision) {
+            failedRideLink = null
+            failedBookingDestination = null
+        }
+    }
     // Старые внутренние producer/test bridge тоже принимаются, но HTTP читает durable record.
     LaunchedEffect(DeepLink.pendingCompletedBookingId.value, DeepLink.pendingBookingChatId.value, navigationSession) {
         val owner = ApiClient.myUserId()
@@ -702,6 +711,7 @@ internal fun YuldashApp() {
                                 // Refresh того же владельца допускает осознанный ручной повтор.
                                 if (failedOwner != null && ApiClient.myUserId() != failedOwner) return@runIfCurrentSession
                                 if (failedOwner == null && currentSession != failedSession) return@runIfCurrentSession
+                                if (vm.privateNavigationRevision != failedRevision || vm.pendingScreenNavigation.value != null) return@runIfCurrentSession
                                 if (vm.pendingBookingNavigation.value == null) vm.requestBookingDestination(rideId, failedOwner, failedKind)
                                 failedRideLink = null
                             }
@@ -733,21 +743,7 @@ internal fun YuldashApp() {
     // Пуш о ходе посылки → открываем «Посылки». Отправитель не должен догадываться, что для
     // проверки статуса надо самому зайти в приложение и переключить вкладку: тап по уведомлению
     // ведёт прямо туда, где видно, где его посылка. Не вошёл — сначала вход.
-    LaunchedEffect(DeepLink.pendingParcels.value, screen) {
-        if (!DeepLink.pendingParcels.value) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingParcels.value = false   // одноразово — не переоткрываем при рекомпозиции
-        screen = Screen.Parcels
-    }
-    // Пуши поддержки, споров и заявок: ждём запуска и входа, затем гасим сигнал.
-    LaunchedEffect(DeepLink.pendingSupport.value, screen) {
-        if (!DeepLink.pendingSupport.value) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingSupport.value = false
-        screen = Screen.Support
-    }
+    // Посылки/поддержка потребляются общей saved записью выше; прочие виды пока отдельные.
     LaunchedEffect(DeepLink.pendingApplicationScreen.value, screen) {
         val destination = DeepLink.pendingApplicationScreen.value ?: return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
@@ -1408,10 +1404,10 @@ internal fun YuldashApp() {
                 onOpenRequestsFeed = { screen = Screen.RequestsFeed },
                 onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches },
                 // Тап по уведомлению поддержки → тред обращения (ref_id = id тикета).
-                onOpenSupport = { tid -> supportTicketId = tid; screen = Screen.SupportTicket },
+                onOpenSupport = { tid -> vm.requestScreenDestination(Screen.SupportTicket, ApiClient.myUserId(), tid) },
                 // Доставка и такси (аудит 2026-08-06): раньше эти карточки не открывались вовсе.
-                onOpenParcels = { screen = Screen.Parcels },
-                onOpenInstantOrder = { NavSignals.openInstantOrder.value = true },
+                onOpenParcels = { vm.requestScreenDestination(Screen.Parcels, ApiClient.myUserId()) },
+                onOpenInstantOrder = { vm.requestScreenDestination(Screen.InstantOrder, ApiClient.myUserId()) },
                 // «Появилась поездка» / «Поездка завершена, оцени» → карточка поездки
                 // (тем же путём, что ссылка yulbash.ru/r/{id}).
                 onOpenRide = { rid -> DeepLink.pendingRideId.value = rid },

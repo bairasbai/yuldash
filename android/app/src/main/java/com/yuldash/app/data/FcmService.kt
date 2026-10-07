@@ -45,17 +45,18 @@ class FcmService : FirebaseMessagingService() {
                 priceRub = msg.data["price"]?.toIntOrNull() ?: 0,
                 lang = AppPrefs.language(this),
                 ttlSec = msg.data["ttl_sec"]?.toIntOrNull() ?: 20,
+                recipientUserId = recipient,
             )
             return
         }
         val n = msg.notification
         val title = n?.title ?: msg.data["title"] ?: "Юлдаш"
         val body = n?.body ?: msg.data["body"] ?: ""
-        showNotification(title, body, msg.data["type"], msg.data["id"], msg.data["private"] == "1")
+        showNotification(title, body, msg.data["type"], msg.data["id"], recipient, msg.data["private"] == "1")
     }
 
     private fun showNotification(
-        title: String, body: String, type: String?, refId: String?, privateText: Boolean = false,
+        title: String, body: String, type: String?, refId: String?, recipientUserId: Int, privateText: Boolean = false,
     ) {
         val mgr = getSystemService(NotificationManager::class.java) ?: return
         val silent = !AppPrefs.sounds(this)   // тумблер «Звуки» выключен → беззвучно
@@ -75,6 +76,7 @@ class FcmService : FirebaseMessagingService() {
         val openParcels = type != null && type.startsWith("parcel")
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("recipient_user_id", recipientUserId.toString())
             if (openInstantOrder) putExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, true)
             if (openParcels) putExtra(EXTRA_OPEN_PARCELS, true)
             // Общий deep-link: тип+id → MainActivity открывает нужный экран (чат брони, чат

@@ -285,10 +285,14 @@ class MainActivity : ComponentActivity() {
         val restoredNavigation = if (savedInstanceState != null) {
             ViewModelProvider(this)[YuldashViewModel::class.java]
         } else null
-        val hadSavedPending = restoredNavigation?.pendingBookingNavigation?.value != null
+        val hadSavedPending = restoredNavigation?.pendingBookingNavigation?.value != null || restoredNavigation?.pendingScreenNavigation?.value != null
         restoredNavigation?.pendingBookingForOwner(ApiClient.myUserId())
-        val copiedBookingIntent = (intent?.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: intent?.getStringExtra("type")) in
-            setOf("booking", "chat", "booking_done") && restoredNavigation?.hasHandledBookingIntent == true
+        restoredNavigation?.pendingScreenForOwner(ApiClient.myUserId())
+        val restoredType = intent?.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: intent?.getStringExtra("type")
+        val copiedBookingIntent = restoredNavigation?.hasHandledBookingIntent == true &&
+            (restoredType in setOf("booking", "chat", "booking_done", "order_chat", "instant", "instant_status", "instant_payment", "instant_im_coming", "support", "debt") ||
+                restoredType?.startsWith("parcel") == true || intent?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) == true ||
+                intent?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) == true || intent?.getBooleanExtra(FcmService.EXTRA_OPEN_PARCELS, false) == true)
         val hasRestoredBooking = restoredNavigation != null &&
             (restoredNavigation.activeBookingId.value ?: 0) > 0 &&
             restoredNavigation.screen.value !in setOf(Screen.Splash, Screen.Intro, Screen.Onboarding, Screen.Login)
@@ -323,37 +327,36 @@ class MainActivity : ComponentActivity() {
     private fun handleNavIntent(i: Intent?) = handleNavIntent(i, skipBookingIntent = false)
 
     private fun handleNavIntent(i: Intent?, skipBookingIntent: Boolean) {
-        if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) == true) {
-            i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER)   // не сработать повторно при пересоздании
-            NavSignals.openDriverCabinet.value = true
+        val requestedSession = ApiClient.queueSessionGeneration()
+        ApiClient.runIfUnchangedSession(requestedSession) { dispatchNavIntent(i, skipBookingIntent) }
+    }
+
+    private fun dispatchNavIntent(i: Intent?, skipBookingIntent: Boolean) {
+        if (i == null) return
+        if (i.hasExtra("recipient_user_id")) {
+            val recipient = i.getStringExtra("recipient_user_id")?.toIntOrNull()
+            if (recipient == null || recipient <= 0 || recipient != ApiClient.myUserId()) return
         }
-        // Пуш о ходе такси-заказа (B9b-2). Два пути: наше уведомление из FcmService (extra
-        // EXTRA_OPEN_ORDER) ИЛИ системный трей FCM в фоне (data-ключи приходят как extras интента).
-        // «instant_payment» — пассажир сменил способ расчёта на ходу. Ведём туда же, куда
-        // и остальные новости о заказе: водитель должен увидеть новую строку «Оплата:»
-        // в своей карточке, а не гадать, что изменилось.
-        if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) == true ||
-            i?.getStringExtra("type") == "instant_status" ||
-            i?.getStringExtra("type") == "instant_payment" ||
-            // «Пассажир выходит» — та же новость о ходе заказа, и вести должна туда же.
-            // Без этой строки водитель читал пуш «уже спускается», жал по нему и оставался
-            // на месте: для него это выглядит как поломка приложения.
-            i?.getStringExtra("type") == "instant_im_coming"
-        ) {
+        val type = i.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: i.getStringExtra("type")
+        val privateScreen = when {
+            i.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) || type == "debt" -> Screen.DriverCabinet
+            i.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) || type in setOf("instant", "instant_status", "instant_payment", "instant_im_coming") -> Screen.InstantOrder
+            i.getBooleanExtra(FcmService.EXTRA_OPEN_PARCELS, false) || type?.startsWith("parcel") == true -> Screen.Parcels
+            type == "order_chat" -> Screen.InstantChat
+            type == "support" -> Screen.SupportTickets
+            else -> null
+        }
+        if (privateScreen != null) {
+            if (skipBookingIntent) return
+            val id = (i.getStringExtra(FcmService.EXTRA_PUSH_ID) ?: i.getStringExtra("id"))?.toIntOrNull() ?: 0
+            if (privateScreen in setOf(Screen.InstantChat, Screen.SupportTickets) && id <= 0) return
+            ViewModelProvider(this)[YuldashViewModel::class.java].requestScreenDestination(privateScreen, ApiClient.myUserId(), id)
             i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER)
-            i.removeExtra("type")
-            NavSignals.openInstantOrder.value = true
-        }
-        // Пуш о ходе посылки. Те же два пути, что у такси: наше уведомление (extra) либо системный
-        // трей FCM в фоне (data-ключи приходят как extras). Без этого отправитель узнавал, что
-        // курьер взял посылку, только если сам заходил в приложение и переключал вкладку.
-        val parcelType = i?.getStringExtra("type")
-        if (i?.getBooleanExtra(FcmService.EXTRA_OPEN_PARCELS, false) == true ||
-            (parcelType != null && parcelType.startsWith("parcel"))
-        ) {
+            i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER)
             i.removeExtra(FcmService.EXTRA_OPEN_PARCELS)
-            i.removeExtra("type")
-            DeepLink.pendingParcels.value = true
+            i.removeExtra(FcmService.EXTRA_PUSH_TYPE); i.removeExtra(FcmService.EXTRA_PUSH_ID)
+            i.removeExtra("type"); i.removeExtra("id")
+            return
         }
         if (!skipBookingIntent) openChatFromPush(i)
     }
@@ -376,25 +379,20 @@ class MainActivity : ComponentActivity() {
         when (type) {
             "chat" -> ViewModelProvider(this)[YuldashViewModel::class.java]
                 .requestBookingDestination(id, ApiClient.myUserId(), completed = false)
-            "order_chat" -> NavSignals.openInstantChat.value = id     // чат такси-заказа
             // Сервер теперь кладёт адрес в КАЖДОЕ уведомление, у которого он есть
             // (см. services.push_notification). Разбираем то, что умеем открыть точно:
             "booking" -> ViewModelProvider(this)[YuldashViewModel::class.java]
                 .requestBookingDestination(id, ApiClient.myUserId(), completed = false)
             "booking_done" -> ViewModelProvider(this)[YuldashViewModel::class.java]
                 .requestCompletedBooking(id, ApiClient.myUserId())
-            "support" -> DeepLink.pendingSupport.value = true         // ответ поддержки → «Поддержка»
             "incident" -> DeepLink.pendingFairness.value = true       // решение по спору
             // Лента уведомлений внутри приложения разбирает ДЕСЯТЬ видов, а тап по пушу —
             // разбирал пять. Одно и то же событие вело в разные места в зависимости от того,
             // прочитал человек его в шторке или в ленте. Достраиваем до того же списка;
             // назначения уже есть, новых экранов не нужно.
             "ride" -> DeepLink.pendingRideId.value = id               // событие по моему рейсу
-            "parcel" -> DeepLink.pendingParcels.value = true          // ход посылки → «Посылки»
-            "debt" -> NavSignals.openDriverCabinet.value = true       // долг по комиссии виден в кабинете
             "ad" -> NavSignals.openAdsCabinet.value = true            // решение по рекламе → кабинет рекламы
             "partner" -> NavSignals.openPartnerCabinet.value = true   // оплата/статус подписки → кабинет партнёра
-            "instant" -> NavSignals.openInstantOrder.value = true     // заказ такси
             "request" -> DeepLink.pendingRequestResponsesId.value = id  // отклики на мою заявку
             "request_watch" -> DeepLink.pendingRequestsFeed.value = true
             "taxi_apply" -> DeepLink.pendingApplicationScreen.value = Screen.TaxiOnboarding

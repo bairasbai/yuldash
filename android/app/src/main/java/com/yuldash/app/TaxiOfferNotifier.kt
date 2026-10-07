@@ -79,6 +79,7 @@ internal object TaxiOfferNotifier {
         priceRub: Int,
         lang: AppLanguage,
         ttlSec: Int = 20,
+        recipientUserId: Int? = com.yuldash.app.data.ApiClient.myUserId(),
     ) {
         // Тумблер приложения и системное разрешение — обе причины внутри notificationsAllowed
         // (волна 117): раньше тумблер проверялся здесь отдельно, и экран линии про него не знал.
@@ -92,6 +93,7 @@ internal object TaxiOfferNotifier {
         val open = Intent(ctx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_OPEN_OFFER, true)
+            recipientUserId?.let { putExtra("recipient_user_id", it.toString()) }
         }
         val pi = PendingIntent.getActivity(
             ctx, orderId, open,

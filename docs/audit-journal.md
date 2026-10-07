@@ -600,3 +600,7 @@ Root sole writer/Gradle/adb/GitHub; b02_socket_review readonly. RED8/5 behaviorf
 ### 07.10.2026 — QA-B02-003 booking/chat/session-bound Notifications
 
 [Реестр](audit-blocks.md#b02--личные-уведомления-брони-и-чата-07102026). Valid RED11/8,13/7,retainedFeed46/1,anonymous1/1;final219/219=35new+184existing/23classes/обаAPK. Отдельно2 внешних savedTask/SIGKILL/newPID UI cases: RU booking и BA chat;1provisionJUnit×2setup,6PNG. Повторы/неверный предварительный anonymous label не прибавлены к уникальным случаям. Inventory1817/check0; собственные root33520/20836/25672 закрыты,sharedadb сохранён.16own paths/39foreign; публикация/independent фиксируются по текущим receipts. Внешний релиз частичен.
+
+## 08.10.2026 — QA-B02-003 private destinations
+
+От1249595c, codex/b02-private-destinations-20261008: durable taxi/parcels/support records/общий booking revision/saved detail IDs; FCM retained PendingIntent recipient A→B; actual support push→tickets; retained booking Retry после нового screen. Final-v2 282+push/session31=313unique/34classes=51new+219previous+43existing,обаAPK. Native2 внешних savedTask/SIGKILL/newPID/plainlauncher случаев RUtaxi43/BAsupportlist,GET1→2/privatewrites0; root6PNG,provision отдельно. Inventory1821,own19/foreign39. Исторические fixture/guest failures классифицированы, повторы не суммируются. [Единый пункт и точные остатки](audit-blocks.md#b02--такси-посылки-и-обращения-поддержки-08102026); B02 partial. Доставка подтверждается git-publication/delivery receipts после действий.

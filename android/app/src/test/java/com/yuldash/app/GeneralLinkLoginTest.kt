@@ -124,7 +124,7 @@ class GeneralLinkLoginTest {
     )
 
     @Test fun supportLinkSurvivesLoginAndIsConsumedOnce() = loginJourney(
-        Screen.Support, { DeepLink.pendingSupport.value = true }, { DeepLink.pendingSupport.value },
+        Screen.SupportTickets, { DeepLink.pendingSupport.value = true }, { DeepLink.pendingSupport.value },
     )
 
     @Test fun fairnessLinkSurvivesLoginAndIsConsumedOnce() = loginJourney(

@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 131,
     "backend_main": 103,
-    "infra_resource_config": 341,
+    "infra_resource_config": 342,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 873
+    "test_support": 876
   },
   "counts_by_block": {
     "B01": 125,
@@ -91,11 +91,11 @@
     "B03": 101,
     "B04": 75,
     "B05": 36,
-    "B06": 80,
+    "B06": 81,
     "B07": 106,
     "B08": 164,
-    "B09": 528,
-    "B10": 341,
+    "B09": 530,
+    "B10": 342,
     "B11": 90
   },
   "excluded_counts": {
@@ -860,8 +860,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/MainActivity.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "4d14a84d58817aeb81e1c79956fd9f9f1f0ee9b844758d392af707bee63ed2ad",
-      "lines": 1000
+      "sha256": "cc0b33bc79cd44d4290b5830e8e3030f28f11214bf5c074cf135d4b6b49dfc2a",
+      "lines": 998
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MapCluster.kt",
@@ -1161,8 +1161,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/TaxiOfferNotifier.kt",
       "kind": "android_main",
       "block": "B06",
-      "sha256": "78329b1f2480997f8914886d3cd425c57ff96e5d6bff7acd2a5f89d8e755f478",
-      "lines": 180
+      "sha256": "0ed42501b699a4ffae3047a36309540504090c09b13fd6472c790b73d877a557",
+      "lines": 182
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/TaxiOnboardingScreen.kt",
@@ -1273,8 +1273,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "1b210e206367a84de232844b23f2b6a7ba7d9dcefa76da90f2ee96fa9e341169",
-      "lines": 2664
+      "sha256": "26481fe6a1aef3378fa79d729d25efaa2c7d324526db2a86de0d256fb5fdee57",
+      "lines": 2660
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1287,8 +1287,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashViewModel.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "01ff83f1a794d78454fda4739e417ea3175ae4d15f04c11e4cc114e4ba7d5f7f",
-      "lines": 219
+      "sha256": "5da973cac0b9c2b2333ae35095e6920544da8036323e3f63c70809938ef92ed6",
+      "lines": 307
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/Analytics.kt",
@@ -1301,8 +1301,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "2c121d94d784a38a4f3564d6de2b57bca6d787e3c2bdf33ccb061d929ef7019f",
-      "lines": 7954
+      "sha256": "63a54ef8f91f4cbdc80ffc8a5f56aff1bb45e4e91a5ca26dc5c4760c90a61920",
+      "lines": 7958
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -1322,8 +1322,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/FcmService.kt",
       "kind": "android_main",
       "block": "B06",
-      "sha256": "0e00a602f5befa6d36b446d7f0e8c8f0098d54ce7ac21558b4feaba8f0d20005",
-      "lines": 167
+      "sha256": "8b1e425214a639f1d9fe29e38199a77300beab7d270e0d252f88d8f24160199c",
+      "lines": 169
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/GeocoderClient.kt",
@@ -2260,7 +2260,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/GeneralLinkLoginTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "b15ddc110d0b530059159df2437678d2ec4316aaf1a321e1c52bdb21ed772e94",
+      "sha256": "577df17f6cf5a75501c16e819fc88d01ed5d70b3ca6892a46e305f87a67881d8",
       "lines": 152
     },
     {
@@ -2549,6 +2549,27 @@
       "block": "B09",
       "sha256": "0e7b341079858d2ab586152c4ec5c6e8e3d589ff00f9af597550b6a471819d45",
       "lines": 123
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/PrivateDestinationFlowTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "1925d2248bbf66400c562ca78a725ceb7bd6492d0affa3742869594202f61c8f",
+      "lines": 153
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/PrivateDestinationRestorationTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "9657d0ba1ba49046f40a140832bd7987aebd9f20f26d4a55cbc68f10cf7cdd5d",
+      "lines": 126
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/PrivateNotificationOwnerTest.kt",
+      "kind": "test_support",
+      "block": "B06",
+      "sha256": "2fad08046a7d6421c0974a59385882b4d2979250b55178743d13470131017060",
+      "lines": 50
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ProfileDeep2ContentTest.kt",
@@ -9640,6 +9661,13 @@
       "block": "B10",
       "sha256": "30d790f5688ca03786b56e9c6e75c4c63b87cf543139c8c4090641cd91bda17a",
       "lines": 160
+    },
+    {
+      "path": "tools/audit_private_destination.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "8ddd0e7074d5311e968968e6442b94c0d5dd925d41c995bb8057c4e33b00e53a",
+      "lines": 96
     },
     {
       "path": "tools/compile-data-layer.sh",

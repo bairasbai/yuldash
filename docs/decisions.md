@@ -5876,3 +5876,9 @@ pendingRideId сохраняется в состоянии ошибки для �
 Причина подтверждена RED11/8fail и13/7fail: два process-local назначения не дают корректного saved restore/latest/owner behavior. Выбрана одна запись с kind вместо двух независимых запросов; прежние Completed keys/wrappers сохраняют совместимость. Revision не удаляется при clear, чтобы исходный private intent не воскресал после consume/logout. Fresh private create(nonnullBundle) без delivery identity не закрыт.
 
 RED46/1fail retained actual Notifications row показал необходимость guard у самого caller, а не только у HTTP destination. Список и callbacks привязаны к captured session; anonymous short circuit исправляет проверенное отсутствие empty state. [Доказательства](audit-blocks.md#b02--личные-уведомления-брони-и-чата-07102026). Новых библиотек/версий/экранов/строк не вводили.
+
+## 08.10.2026 — один порядок private booking/screen назначений
+
+Подтверждённая потеря taxi/parcels/support intent через Bundle и сохранённая кнопка Retry требуют общего revision с двумя взаимоисключающими typed pending records. Не сохраняем разрозненные boolean flags как источник истины; они совместимые проекции. Сохраняем detail ID вместе с screen/Back trail. MainActivity проверяет recipient и записывает назначение в одном generation monitor; guest запись разрешена, bearer-required сетевой monitor не меняется.
+
+Actual App RED установил: Support — экран пожертвований. Поэтому существующий support push ведём в SupportTickets, Notifications support row — в SupportTicket ID. FCM PendingIntent получает исходного recipient; удержанная A копия не принимается B. Legacy без recipient остаётся совместимым, owner для него не доказан; old rememberSaveable→SavedStateHandle Bundle migration отдельно открыта. [Доказательства/варианты/остатки](audit-blocks.md#b02--такси-посылки-и-обращения-поддержки-08102026). Новых UI строк/SDK/зависимостей нет.
