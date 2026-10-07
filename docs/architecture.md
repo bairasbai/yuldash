@@ -4372,3 +4372,8 @@ Actual SQL fault before Payment UPDATE доказал отсутствие ос�
 01.10.2026 — notify_admin_telegram при exception сохраняет localwarning только classname; boolFalse/status/payload остаютсяпрежними. QA00248/7profile, HTTPXINFO отдельныйopenканал. CallbackAndroid singleflight/success-afterHTTP использует AppButton loading и existinggeneration; устройство/полныйscreenmatrix отдельны.
 
 01.10.2026 — QA-B08-003: logs.py устанавливает постоянный filter именованного httpx logger доhandlers; matching Telegramcredential заменяется в record.msg/args без изменения Request/JSON/loggerlevels. Реальная productionlevel/exposure не измерена.
+## Редактирование и медиа активной поездки (07.10.2026, QA-B02-003)
+
+`BookingActiveTripScreen.kt`: `isTripChatActive` включает живость `voiceScope`, прежнее поколение входа и динамический done/cancelled. Edit/delete/voice/photo проверяют это на входе, в запущенной задаче, после ответов и перед следующим запросом; поздняя история и Toast не публикуются. Черновик и выбор редактирования также защищены. Уже принятый HTTP этим не отменяется. Общие ApiClient/backend правила чтения и чата после поездки не изменены.
+
+Голос читается через `withContext(Dispatchers.IO)`. Неактивный callback очищает переданный файл сразу, активный прикрепляет `dropVoiceFile` к `Job.invokeOnCompletion`: очистка работает и при отменённой задаче, которая не начала тело. Сам helper ApiClient не менялся. Это относится к завершённой записи, переданной экрану; освобождение ещё записывающего микрофона при disposal требует отдельной проверки. Точные runtime-профили/версии/ограничения — [реестр](audit-blocks.md#b02--редактирование-и-медиа-07102026).

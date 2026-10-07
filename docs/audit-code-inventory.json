@@ -80,22 +80,22 @@
   "counts_by_kind": {
     "android_main": 130,
     "backend_main": 103,
-    "infra_resource_config": 330,
+    "infra_resource_config": 331,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 858
+    "test_support": 859
   },
   "counts_by_block": {
     "B01": 125,
     "B02": 166,
     "B03": 101,
     "B04": 75,
-    "B05": 32,
+    "B05": 33,
     "B06": 75,
     "B07": 106,
     "B08": 164,
     "B09": 526,
-    "B10": 330,
+    "B10": 331,
     "B11": 90
   },
   "excluded_counts": {
@@ -155,6 +155,13 @@
       "block": "B10",
       "sha256": "c6a2fd7cd46604ca43e5af0f0b323b14f82222f9a0bc6f090542aa1dc23bb3b5",
       "lines": 198
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/ActiveTripChatActionsInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "ea4b5932bfc448112cc1662a98cf6ceaf8f00ab20f95b138417b08edb0286d9f",
+      "lines": 241
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/ActiveTripChatTerminalInstrumentedTest.kt",
@@ -615,8 +622,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "18909e92cf5df6f7c25f9ff613979bf9fb89b3ee9f402b6351f71bbf0c0d8782",
-      "lines": 3911
+      "sha256": "dd2f209392f418e60efbbfd2d56966c6f0924afb4039dc02a023adf45c7defdd",
+      "lines": 3924
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -1723,6 +1730,13 @@
       "block": "B02",
       "sha256": "7396c482d7cd49e46933dc2ee54810598a5f9841073bbdb177c6b552d0f64923",
       "lines": 183
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/ActiveTripChatActionsBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "03484699865d3ae9829b7bac70a07937facd19bc86dd81bee33d0088802eaa12",
+      "lines": 538
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripChatTerminalHttpTest.kt",

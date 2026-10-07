@@ -283,6 +283,7 @@ import com.yuldash.app.data.Outbox
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -1486,7 +1487,7 @@ private fun ActiveTripContent(
     // F11: офлайн-паспорт брони. Читаем СРАЗУ из локального (secure) хранилища — данные видны без сети.
     var tripPass by remember(bookingId) { mutableStateOf(bookingId?.let { TripPassStore.load(context, it) }) }
     fun isTripSessionCurrent() = tripSession == ApiClient.queueSessionGeneration()
-    fun isTripChatActive() = isTripSessionCurrent() && bookingStatus != "done" && bookingStatus != "cancelled"
+    fun isTripChatActive() = voiceScope.isActive && isTripSessionCurrent() && bookingStatus != "done" && bookingStatus != "cancelled"
     var removalFailed by remember(bookingId) { mutableStateOf(false) }
     var removalBusy by remember(bookingId) { mutableStateOf(false) }
     var removalRetry by remember(bookingId) { mutableStateOf(0) }
@@ -2535,12 +2536,14 @@ private fun ActiveTripContent(
                     canDeleteAll = saved && m.senderId == myId && !m.deleted,
                     canDeleteMine = saved && !m.deleted,
                     onRetry = { retry(m.id, m.text) },
-                    onEdit = { editingId = m.id; draft = m.text },
+                    onEdit = { if (isTripChatActive()) { editingId = m.id; draft = m.text } },
                     onDelete = { scope ->
-                        if (bookingId != null) voiceScope.launch {
-                            ApiClient.deleteMessage(bookingId, m.id, scope)
-                                .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                .onFailure { Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
+                        if (bookingId != null && isTripChatActive()) voiceScope.launch {
+                            if (!isTripChatActive()) return@launch
+                            val result = ApiClient.deleteMessage(bookingId, m.id, scope)
+                            if (!isTripChatActive()) return@launch
+                            result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
+                                .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
                         }
                     },
                 )
@@ -2565,16 +2568,18 @@ private fun ActiveTripContent(
                 }
                 ChatComposer(
                     draft = draft,
-                    onDraftChange = { draft = it },
+                    onDraftChange = { if (isTripChatActive()) draft = it },
                     onSend = {
                         val t = draft.trim()
-                        if (t.isNotEmpty() && bookingId != null) {
+                        if (t.isNotEmpty() && bookingId != null && isTripChatActive()) {
                             val eid = editingId
                             if (eid != null) {
                                 voiceScope.launch {
-                                    ApiClient.editMessage(bookingId, eid, t)
-                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
+                                    if (!isTripChatActive()) return@launch
+                                    val result = ApiClient.editMessage(bookingId, eid, t)
+                                    if (!isTripChatActive()) return@launch
+                                    result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
+                                        .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
                                 }
                                 editingId = null
                             } else {
@@ -2584,30 +2589,38 @@ private fun ActiveTripContent(
                         }
                     },
                     onVoiceRecorded = { path, _ ->
-                        Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show()
-                        if (bookingId != null) voiceScope.launch {
-                            val bytes = runCatching { File(path).readBytes() }.getOrNull()
-                            if (bytes != null) ApiClient.uploadVoice(bytes)
-                                .onSuccess { url ->
-                                    ApiClient.sendVoiceMessage(bookingId, url)   // результат больше НЕ выброшен: сбой = «не отправилось», не молчим
-                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                                }
-                                .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                            // Запись ушла (или не ушла) — на телефоне ей делать нечего: это голос
-                            // человека, и он не должен копиться в кеше до смены владельца (волна 75).
+                        if (bookingId == null || !isTripChatActive()) {
                             ApiClient.dropVoiceFile(path)
+                        } else {
+                            Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show()
+                            voiceScope.launch {
+                                if (!isTripChatActive()) return@launch
+                                val bytes = withContext(Dispatchers.IO) { runCatching { File(path).readBytes() }.getOrNull() }
+                                    ?: return@launch
+                                if (!isTripChatActive()) return@launch
+                                val upload = ApiClient.uploadVoice(bytes)
+                                if (!isTripChatActive()) return@launch
+                                upload.onSuccess { url ->
+                                    val result = ApiClient.sendVoiceMessage(bookingId, url)
+                                    if (!isTripChatActive()) return@launch
+                                    result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
+                                        .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
+                                }.onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
+                            // Completion also runs for a launch cancelled before its body starts.
+                            }.invokeOnCompletion { ApiClient.dropVoiceFile(path) }
                         }
                     },
                     onPhotoPicked = { bytes ->
-                        if (bookingId != null) voiceScope.launch {
-                            ApiClient.uploadChatPhoto(bytes)
-                                .onSuccess { url ->
-                                    ApiClient.sendPhotoMessage(bookingId, url)   // результат больше НЕ выброшен
-                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                                }
-                                .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
+                        if (bookingId != null && isTripChatActive()) voiceScope.launch {
+                            if (!isTripChatActive()) return@launch
+                            val upload = ApiClient.uploadChatPhoto(bytes)
+                            if (!isTripChatActive()) return@launch
+                            upload.onSuccess { url ->
+                                val result = ApiClient.sendPhotoMessage(bookingId, url)
+                                if (!isTripChatActive()) return@launch
+                                result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
+                                    .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
+                            }.onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
                         }
                     },
                     onQuickSend = { phrase -> sendText(phrase) }   // готовая фраза — тот же надёжный путь (WS→REST)
