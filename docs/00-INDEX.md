@@ -950,3 +950,5 @@ Android-хранилище (19.09.2026): [источник актуальног�
 - B02 sharing/completion, 07.10.2026: ownership листа и post-trip экрана; текущие доказательства/границы — [единый реестр](audit-blocks.md#b02--ссылки-и-действия-после-поездки-07102026).
 
 - B02 sharing list/loading/retry/reconciliation,07.10.2026: [актуальный QA-B02-003/остатки](audit-blocks.md#b02--загрузка-списка-ссылок-и-повторные-действия-07102026);123/123=23новых+100прежних, отдельно native RU/BA2/2. Следующий участок held receipt/tip/restoration, весьB02 частичен.
+
+- B02 receipt/tip loading/retry/reconcile,07.10.2026: [текущие результаты и остатки](audit-blocks.md#b02--загрузка-квитанции-и-статуса-благодарности-07102026),68/68=24новых+44прежних, native RU/BA2/2. Далее navigation/restoration; B02 частичен.

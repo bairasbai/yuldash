@@ -83,6 +83,7 @@ import com.yuldash.app.data.TripReceiptDto
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 
 /**
  * Отдельный экран после завершения попутки — утверждённый вариант B «Рәхмәт прежде всего».
@@ -151,6 +152,10 @@ private fun RideshareCompletedSession(
     var actionError by remember(bookingId) { mutableStateOf<String?>(null) }
     var thanked by rememberSaveable(bookingId) { mutableStateOf(false) }
     var thanksBusy by rememberSaveable(bookingId) { mutableStateOf(false) }
+    var thanksLoading by remember(bookingId) { mutableStateOf(true) }
+    var thanksError by remember(bookingId) { mutableStateOf<String?>(null) }
+    var thanksTick by remember(bookingId) { mutableIntStateOf(0) }
+    var thanksStatusKnown by remember(bookingId) { mutableStateOf(false) }
     var lostOpened by rememberSaveable(bookingId) { mutableStateOf(false) }
     var lostBusy by rememberSaveable(bookingId) { mutableStateOf(false) }
 
@@ -163,8 +168,12 @@ private fun RideshareCompletedSession(
         "Баһаны ебәреп булманы. Селтәрҙе тикшереп ҡабатла.",
     )
     val thanksFail = appText(
-        "Не получилось передать благодарность. Повтори ещё раз.",
-        "Рәхмәтте ебәреп булманы. Тағы бер тапҡыр ҡабатла.",
+        "Не получилось подтвердить благодарность. Обнови статус.",
+        "Рәхмәтте раҫлап булманы. Хәлде яңырт.",
+    )
+    val thanksLoadFail = appText(
+        "Не получилось проверить благодарность. Повтори ещё раз.",
+        "Рәхмәтте тикшереп булманы. Тағы бер тапҡыр ҡабатла.",
     )
     val lostFail = appText(
         "Не получилось открыть чат поездки. Проверь сеть и повтори.",
@@ -173,13 +182,14 @@ private fun RideshareCompletedSession(
 
     LaunchedEffect(bookingId, receiptTick) {
         if (!isCurrent()) return@LaunchedEffect
+        val requestTick = receiptTick
         receiptLoading = true
-        receiptError = null
         val result = loadReceipt(bookingId)
-        if (!isCurrent()) return@LaunchedEffect
+        if (!isCurrent() || !currentCoroutineContext().isActive || requestTick != receiptTick) return@LaunchedEffect
         result
             .onSuccess { value ->
                 receipt = value
+                receiptError = null
                 if (!ratingTouched) {
                     stars = value.myStars.coerceIn(0, 5)
                     selectedTags = value.myRatingTags.split(',').map(String::trim).filter(String::isNotBlank)
@@ -192,11 +202,25 @@ private fun RideshareCompletedSession(
 
     val effectiveRole = receipt?.role?.takeIf(String::isNotBlank) ?: fallbackRole
     val isDriver = effectiveRole == "driver"
-    LaunchedEffect(bookingId, isDriver) {
+    fun isPassengerNow() = (receipt?.role?.takeIf(String::isNotBlank) ?: fallbackRole) != "driver"
+    LaunchedEffect(bookingId, isDriver, thanksTick) {
         if (!isCurrent()) return@LaunchedEffect
+        val requestTick = thanksTick
         if (!isDriver) {
+            thanksStatusKnown = false
+            thanksLoading = true
             val result = loadThanks(bookingId)
-            if (isCurrent()) result.onSuccess { thanked = it.alreadyThanked }
+            if (!isCurrent() || !currentCoroutineContext().isActive || requestTick != thanksTick || !isPassengerNow()) return@LaunchedEffect
+            result.onSuccess {
+                thanked = it.alreadyThanked
+                thanksError = null
+                thanksStatusKnown = true
+            }.onFailure { thanksError = thanksLoadFail }
+            thanksLoading = false
+        } else {
+            thanksLoading = false
+            thanksError = null
+            thanksStatusKnown = false
         }
     }
 
@@ -225,7 +249,12 @@ private fun RideshareCompletedSession(
         paid = paid,
         receiptLoading = receiptLoading,
         receiptError = receiptError,
-        onRetryReceipt = { if (isCurrent()) receiptTick++ },
+        onRetryReceipt = {
+            if (isCurrent() && !receiptLoading && receiptError != null) {
+                receiptLoading = true
+                receiptTick++
+            }
+        },
         stars = stars,
         selectedTags = selectedTags,
         reviewText = reviewText,
@@ -234,6 +263,15 @@ private fun RideshareCompletedSession(
         ratingSent = ratingSent,
         thanked = thanked,
         thanksBusy = thanksBusy,
+        thanksLoading = thanksLoading,
+        thanksError = thanksError,
+        onRetryThanks = {
+            if (isCurrent() && isPassengerNow() && !thanksLoading && !thanksBusy && thanksError != null) {
+                thanksLoading = true
+                thanksStatusKnown = false
+                thanksTick++
+            }
+        },
         lostOpened = lostOpened,
         lostBusy = lostBusy,
         actionError = actionError,
@@ -286,16 +324,17 @@ private fun RideshareCompletedSession(
         },
         onSkip = { if (isCurrent()) onClose() },
         onThanks = {
-            if (isCurrent() && !thanked && !thanksBusy) {
+            if (isCurrent() && isPassengerNow() && thanksStatusKnown && !thanksLoading && thanksError == null && !thanked && !thanksBusy) {
                 thanksBusy = true
                 actionError = null
                 scope.launch {
-                    if (!isCurrent()) return@launch
+                    if (!isCurrent() || !isPassengerNow() || !thanksStatusKnown) return@launch
                     val result = sendThanks(bookingId)
-                    if (!isCurrent()) return@launch
+                    if (!isCurrent() || !isPassengerNow()) return@launch
                     result
                         .onSuccess { thanked = true }
-                        .onFailure { actionError = serverSaid(it, thanksFail) }
+                        // Commit/notification or transport may outlive the answer: settle with GET, not POST.
+                        .onFailure { thanksStatusKnown = false; thanksError = thanksFail }
                     thanksBusy = false
                 }
             }
@@ -368,6 +407,9 @@ internal fun RideshareCompletedContent(
     onLostItem: () -> Unit,
     onSupport: () -> Unit,
     showOnlinePay: Boolean = false,
+    thanksLoading: Boolean = false,
+    thanksError: String? = null,
+    onRetryThanks: () -> Unit = {},
     onlinePay: @Composable () -> Unit = {},
 ) {
     Scaffold(
@@ -435,6 +477,8 @@ internal fun RideshareCompletedContent(
                     isDriver = isDriver,
                     thanked = thanked,
                     thanksBusy = thanksBusy,
+                    thanksLoading = thanksLoading,
+                    thanksError = thanksError,
                     onThanks = onThanks,
                     onReceipt = onReceipt,
                     onSupport = onSupport,
@@ -456,6 +500,19 @@ internal fun RideshareCompletedContent(
                     text = receiptError.orEmpty(),
                     action = appText("Повторить", "Ҡабатлау"),
                     onAction = onRetryReceipt,
+                    modifier = Modifier.testTag("rideshareReceiptError"),
+                    actionTag = "rideshareReceiptRetry",
+                    loading = receiptLoading,
+                )
+            }
+            AnimatedVisibilityItem(visible = !isDriver && thanksError != null) {
+                CompletedInlineMessage(
+                    text = thanksError.orEmpty(),
+                    action = appText("Обновить", "Яңыртыу"),
+                    onAction = onRetryThanks,
+                    modifier = Modifier.testTag("rideshareThanksError"),
+                    actionTag = "rideshareThanksRetry",
+                    loading = thanksLoading,
                 )
             }
             AnimatedVisibilityItem(visible = actionError != null) {
@@ -766,6 +823,8 @@ private fun RideshareCompletedActionGrid(
     isDriver: Boolean,
     thanked: Boolean,
     thanksBusy: Boolean,
+    thanksLoading: Boolean,
+    thanksError: String?,
     onThanks: () -> Unit,
     onReceipt: () -> Unit,
     onSupport: () -> Unit,
@@ -778,12 +837,15 @@ private fun RideshareCompletedActionGrid(
             else if (thanked) appText("Рәхмәт передано", "Рәхмәт ебәрелде")
             else appText("Сказать «Рәхмәт»", "«Рәхмәт» әйтеү"),
             subtitle = if (isDriver) appText("Сумма и маршрут", "Сумма һәм юл")
-            else if (thanked) appText("Тёплые слова уже у водителя", "Йылы һүҙҙәр йөрөтөүсегә барып етте")
+            else if (thanked) appText("Благодарность сохранена", "Рәхмәт һаҡланды")
+            else if (thanksLoading) appText("Проверяем благодарность…", "Рәхмәтте тикшерәбеҙ…")
+            else if (thanksError != null) appText("Сначала обнови статус", "Башта хәлде яңырт")
             else appText("Тёплое спасибо водителю", "Йөрөтөүсегә йылы рәхмәт"),
-            loading = !isDriver && thanksBusy,
+            loading = !isDriver && (thanksBusy || thanksLoading),
+            enabled = isDriver || thanksError == null,
             active = !isDriver && thanked,
             onClick = if (isDriver) onReceipt else onThanks,
-            modifier = modifier,
+            modifier = if (!isDriver && thanksLoading) modifier.testTag("rideshareThanksLoading") else modifier,
         )
     }
     val second: @Composable (Modifier) -> Unit = { modifier ->
@@ -818,6 +880,7 @@ private fun CompletedActionCard(
     modifier: Modifier = Modifier,
     loading: Boolean = false,
     active: Boolean = false,
+    enabled: Boolean = true,
 ) {
     val background by animateColorAsState(
         if (active) CanonMint else CanonSurface,
@@ -826,7 +889,7 @@ private fun CompletedActionCard(
     )
     Surface(
         onClick = onClick,
-        enabled = !loading,
+        enabled = enabled && !loading,
         modifier = modifier.heightIn(min = 116.dp),
         color = background,
         shape = CanonItemShape,
@@ -918,15 +981,23 @@ private fun RideshareCompletedPayment(amount: Int?, method: String, paid: Boolea
 }
 
 @Composable
-private fun CompletedInlineMessage(text: String, action: String? = null, onAction: () -> Unit = {}) {
-    Surface(color = CanonDangerBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
+private fun CompletedInlineMessage(
+    text: String, action: String? = null, onAction: () -> Unit = {},
+    modifier: Modifier = Modifier, actionTag: String? = null, loading: Boolean = false,
+) {
+    Surface(color = CanonDangerBg, shape = CanonItemShape, modifier = modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().padding(CanonSpace.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(text, style = CanonCaption, color = CanonRed, modifier = Modifier.weight(1f))
             if (action != null) {
-                TextButton(onClick = onAction, modifier = Modifier.heightIn(min = 48.dp)) {
+                TextButton(onClick = onAction, enabled = !loading,
+                    modifier = Modifier.heightIn(min = 48.dp).then(if (actionTag != null) Modifier.testTag(actionTag) else Modifier)) {
+                    if (loading) {
+                        CircularProgressIndicator(Modifier.size(16.dp), color = CanonRed, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(CanonSpace.sm))
+                    }
                     Text(action, style = CanonBodyStrong, color = CanonRed)
                 }
             }

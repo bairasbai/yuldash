@@ -80,14 +80,14 @@
   "counts_by_kind": {
     "android_main": 131,
     "backend_main": 103,
-    "infra_resource_config": 334,
+    "infra_resource_config": 335,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 864
+    "test_support": 865
   },
   "counts_by_block": {
     "B01": 125,
-    "B02": 169,
+    "B02": 170,
     "B03": 101,
     "B04": 75,
     "B05": 36,
@@ -95,7 +95,7 @@
     "B07": 106,
     "B08": 164,
     "B09": 526,
-    "B10": 334,
+    "B10": 335,
     "B11": 90
   },
   "excluded_counts": {
@@ -211,6 +211,13 @@
       "block": "B10",
       "sha256": "4839302eb653a505a3218bef31eb52e623082910c6588f283f54416c2bfab31c",
       "lines": 131
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/CompletedLoadInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "99226f1c926b9d96bea7f812a137453988ef916a78f3271d87f266f849860ae8",
+      "lines": 186
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/LiveFcmProviderInstrumentedTest.kt",
@@ -986,8 +993,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCompletedScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "2f58eaecf1ee9076292834934b84b6e8f37121871bc6f7b20ef8df5b6d4a9128",
-      "lines": 992
+      "sha256": "339420e224e6d9aba464de36a5c4788f3f65f05578f4b07e9c46b8f9742a8e90",
+      "lines": 1063
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RoadsideHelp.kt",
@@ -2640,6 +2647,13 @@
       "block": "B02",
       "sha256": "da148a3409292ddbbbc63af8bec0c3c4e7acbb5554edbc59eca93a573a6c12df",
       "lines": 52
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/RideshareCompletedLoadTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "a45312e8db3eae422d71743e0cdf1da661271f0a18d1262214e5bcaa606278a2",
+      "lines": 242
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RideshareDriverExecutionJourneyTest.kt",

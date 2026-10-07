@@ -17523,3 +17523,26 @@ glossary и четыре связанных auth-набора, exit0. 🔒 Бр�
 | Обновить список | Исемлекте яңыртыу |
 | Не удалось открыть ссылки. Открой поездку заново. | Һылтанмаларҙы асып булманы. Сәфәрҙе яңынан ас. |
 | Закрыть | Ябыу |
+
+## B02 / QA-B02-003 — загрузка квитанции и статуса благодарности, 07.10.2026
+
+От f2751b72, ветка codex/b02-completed-load-20261007. План: (1) actual Completed/Compose/loopback HTTP controls, held receipt/tip, ошибка/повтор/старые callbacks/другая booking или login; (2) минимально исправить подтверждённые причины, добавить RU/BA загрузку/ошибку/повтор статуса благодарности, сохранить done-действия и ручной/неподключённый платёжный договор; (3) affected JVM/debug/testAPK, native RU/BA, независимая приёмка текущих версий; (4) существующий реестр/inventory и только свои main/push по прежнему разрешению. Restoration — отдельный следующий участок; проценты/весь релиз не подтверждать этим профилем.
+
+🔒 Root: RideshareCompletedScreen.kt loading/state/callbacks/связанные private helpers, конкретные новые load tests/native/docs/inventory; единственные Gradle/adb/GitHub. b02_socket_review только readonly Completed/API/backend договоры и затем exact acceptance. ActiveTrip/MainActivity/API/backend/mobile/версии/39foreign не менять. Inventory1801:0added/removed, толькоknownforeign.gitignore. При первичном чтении java/python/emulator не обнаружены. Любой pending action на сервере UI-закрытием не откатывается; реальный backend/телефон/провайдеры не выдавать за loopback результат.
+
+07.10.2026 — локальные completed-load критерии: final68/68=24new+44existing/7classes/debug+testAPK. Nativev1 0/2fixtureoffscreen→native-onlysync/rebuild→v2BApass/RUhealthfixturefailed→native-onlyhealth/rebuild→v3RU/BA2/2→BArawRUerror/productlocalization→fresh68+APKs/v4RU/BA2/2/4PNGrootviewed. Product/JVM были неизменны при native-only fix; локализация затем обосновала повтор. RED24=10behaviorfailure scenarios+1fixture+13pass; не11productбагов. Inventory1803/check0. [Результат и остаток](audit-blocks.md#b02--загрузка-квитанции-и-статуса-благодарности-07102026).
+
+🔓 Root product/tests/Gradle/adb сняты: own16652/26860/424 family stopped,5580/5581free/sharedadb retained. Root docs/inventory/GitHub до exactfreeze/independent/own11main+push по прежнему указанию. Reviewer только ignoredreceipt. ActiveTrip/API/backend/MainActivity/mobile/версии/39foreign сохранены. Далее navigation/restoration; B02 partial.
+
+### Переводы на проверку — Completed loading,07.10.2026
+
+Все следующие BA строки — черновики, Александр ещё не подтверждал.
+
+| Русский | Башкирский черновик |
+|---|---|
+| Не получилось подтвердить благодарность. Обнови статус. | Рәхмәтте раҫлап булманы. Хәлде яңырт. |
+| Не получилось проверить благодарность. Повтори ещё раз. | Рәхмәтте тикшереп булманы. Тағы бер тапҡыр ҡабатла. |
+| Благодарность сохранена | Рәхмәт һаҡланды |
+| Проверяем благодарность… | Рәхмәтте тикшерәбеҙ… |
+| Сначала обнови статус | Башта хәлде яңырт |
+| Обновить | Яңыртыу |

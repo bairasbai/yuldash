@@ -4392,3 +4392,7 @@ ChatComposer (`RidesRequestsChatScreens.kt`) и VoiceRequestScreen (`Accessibili
 ## Список sharing и неясный результат (07.10.2026, QA-B02-003)
 
 В scoped листе ActiveTrip: listLoading/listError/mutationUncertain/mutationBusy/listRequest; initial/retry GET заменяет весь список, включая пустой. Пока список не подтверждён или действие pending/uncertain, mutations запрещены. Busy ставится до launch и читается сохранённой кнопкой. POST/DELETE ошибка требует manualGET, успех revoke выбирает first remaining URL, create сообщает «Ссылка готова». Null booking имеет закрываемую unavailable ошибку. VerticalScroll/Canon/48dp/fade160. Existing sharingScope/session/terminal guards сохранены; shared API/backend не менялся. [Версии,123/native2 и точные пределы](audit-blocks.md#b02--загрузка-списка-ссылок-и-повторные-действия-07102026).
+
+## Completed: загрузка и сверка статуса (07.10.2026)
+
+RideshareCompletedScreen scoped по booking/session: receipt retry ставит loading до tick; GET проверяет текущий tick и active effect после suspend. Tip имеет thanksLoading/error/tick/statusKnown; отправка разрешена лишь после успешной сверки passenger статуса, динамическая роль проверяется перед/после POST. Неясный POST требует manualGET, без повторного POST. Private ActionCard/InlineMessage показывают RU/BA pending/error/retry и saved flag. Rating edit сохраняется после late receipt; платежи и restoration не расширялись. [68/native2, точные версии и ограничения](audit-blocks.md#b02--загрузка-квитанции-и-статуса-благодарности-07102026).
