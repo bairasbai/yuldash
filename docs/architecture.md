@@ -4396,3 +4396,7 @@ ChatComposer (`RidesRequestsChatScreens.kt`) и VoiceRequestScreen (`Accessibili
 ## Completed: загрузка и сверка статуса (07.10.2026)
 
 RideshareCompletedScreen scoped по booking/session: receipt retry ставит loading до tick; GET проверяет текущий tick и active effect после suspend. Tip имеет thanksLoading/error/tick/statusKnown; отправка разрешена лишь после успешной сверки passenger статуса, динамическая роль проверяется перед/после POST. Неясный POST требует manualGET, без повторного POST. Private ActionCard/InlineMessage показывают RU/BA pending/error/retry и saved flag. Rating edit сохраняется после late receipt; платежи и restoration не расширялись. [68/native2, точные версии и ограничения](audit-blocks.md#b02--загрузка-квитанции-и-статуса-благодарности-07102026).
+
+## Completed: восстановление состояния (07.10.2026)
+
+ratingBusy/thanksBusy/lostBusy — transient remember, живут вместе с coroutine scope одной composition. Saveable draft и подтверждённые ratingSent/thanked/lostOpened остаются. После restore квитанция и tip снова загружаются; автоматического replay POST нет, pending rating повторяется только явным кликом. [StateRestorationTester13/current81 и native Activity.recreate2](audit-blocks.md#b02--восстановление-экрана-после-поездки-07102026). Standalone native host не доказывает production YuldashApp/SaveableStateHolder или cold process.

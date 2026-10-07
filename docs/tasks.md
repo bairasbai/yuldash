@@ -17546,3 +17546,13 @@ glossary и четыре связанных auth-набора, exit0. 🔒 Бр�
 | Проверяем благодарность… | Рәхмәтте тикшерәбеҙ… |
 | Сначала обнови статус | Башта хәлде яңырт |
 | Обновить | Яңыртыу |
+
+## B02 / QA-B02-003 — восстановление Completed,07.10.2026
+
+От69b28b6a, ветка codex/b02-completed-restoration-20261007. План: (1) actual Compose StateRestorationTester controls и сохранение stars/tags/text, held rating/thanks/lost POST при save/dispose/restore; сверить server contracts; (2) минимально исправить подтверждённые причины transient busy/устаревших callbacks, без автоматического replay принятого POST; (3) affected JVM/debug/testAPK и native RU/BA Activity.recreate при доступном эмуляторе; (4) существующий реестр/inventory/exact independent/own main+push по прежнему разрешению. State restoration/Activity recreation/потеря процесса/fullnav/live backend отличать; late commit не отрицать успешным ранним GET.
+
+🔒 Root: только scoped RideshareCompletedScreen.kt/restoration helpers, конкретные новые tests/native/docs/inventory; единственные Gradle/adb/GitHub. b02_socket_review readonly contracts/review без сборки/adb/network/файловых правок. ActiveTrip/MainActivity/API/backend/mobile/версии/39foreign сохранить. На старте inventory1803:0added/removed, толькоknownforeign.gitignore; других java/python/emulator не обнаружено. Новый экран/маршрут не планируется; обязательная native проверка относится к standalone Completed, не всей навигации.
+
+07.10.2026 — локальный Completed restoration этап: controls4/4→RED13(9pass+4behaviorfailure scenarios)→3transientbusy fix→final81/81=13new+68existing/8classes/debug+testAPK. Nativev1BApass/RUdraftmissing→native-onlysameattach/rebuild→v2RU/BA2/2 distinctActivity/savedBundle/exactdraft,4PNGrootviewed. Product/JVM SHA unchanged после final,81 не повторялся. Inventory1805/check0. [Факты и остатки](audit-blocks.md#b02--восстановление-экрана-после-поездки-07102026).
+
+🔓 Root product/tests/Gradle/adb сняты: own20024/17032/21980 family stopped,5580/5581free/sharedadb retained. Root docs/inventory/GitHub до exactfreeze/independent/own11main+push по прежнему указанию. Reviewer пишет только ignored receipt. Далее production navigation/SaveableStateHolder и cold process; B02 partial. Новые видимые строки не добавлены; прежние BA drafts не подтверждены.

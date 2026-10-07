@@ -147,17 +147,17 @@ private fun RideshareCompletedSession(
     var selectedTags by rememberSaveable(bookingId) { mutableStateOf(emptyList<String>()) }
     var reviewText by rememberSaveable(bookingId) { mutableStateOf("") }
     var reviewExpanded by rememberSaveable(bookingId) { mutableStateOf(false) }
-    var ratingBusy by rememberSaveable(bookingId) { mutableStateOf(false) }
+    var ratingBusy by remember(bookingId) { mutableStateOf(false) }
     var ratingSent by rememberSaveable(bookingId) { mutableStateOf(false) }
     var actionError by remember(bookingId) { mutableStateOf<String?>(null) }
     var thanked by rememberSaveable(bookingId) { mutableStateOf(false) }
-    var thanksBusy by rememberSaveable(bookingId) { mutableStateOf(false) }
+    var thanksBusy by remember(bookingId) { mutableStateOf(false) }
     var thanksLoading by remember(bookingId) { mutableStateOf(true) }
     var thanksError by remember(bookingId) { mutableStateOf<String?>(null) }
     var thanksTick by remember(bookingId) { mutableIntStateOf(0) }
     var thanksStatusKnown by remember(bookingId) { mutableStateOf(false) }
     var lostOpened by rememberSaveable(bookingId) { mutableStateOf(false) }
-    var lostBusy by rememberSaveable(bookingId) { mutableStateOf(false) }
+    var lostBusy by remember(bookingId) { mutableStateOf(false) }
 
     val receiptFail = appText(
         "Не получилось загрузить детали. Основные данные поездки сохранены.",

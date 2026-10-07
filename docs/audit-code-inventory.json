@@ -80,14 +80,14 @@
   "counts_by_kind": {
     "android_main": 131,
     "backend_main": 103,
-    "infra_resource_config": 335,
+    "infra_resource_config": 336,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 865
+    "test_support": 866
   },
   "counts_by_block": {
     "B01": 125,
-    "B02": 170,
+    "B02": 171,
     "B03": 101,
     "B04": 75,
     "B05": 36,
@@ -95,7 +95,7 @@
     "B07": 106,
     "B08": 164,
     "B09": 526,
-    "B10": 335,
+    "B10": 336,
     "B11": 90
   },
   "excluded_counts": {
@@ -217,6 +217,13 @@
       "kind": "infra_resource_config",
       "block": "B10",
       "sha256": "99226f1c926b9d96bea7f812a137453988ef916a78f3271d87f266f849860ae8",
+      "lines": 186
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/CompletedRestorationInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "e00449137acd019ff4ca513de67f427e3268a9f29ba67a589666e8402c6aaf06",
       "lines": 186
     },
     {
@@ -993,7 +1000,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCompletedScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "339420e224e6d9aba464de36a5c4788f3f65f05578f4b07e9c46b8f9742a8e90",
+      "sha256": "cfa8ec06c18cc71b08484d19ee6de22c0d68438ea41b46e56a0f549382d6bd9e",
       "lines": 1063
     },
     {
@@ -2654,6 +2661,13 @@
       "block": "B02",
       "sha256": "a45312e8db3eae422d71743e0cdf1da661271f0a18d1262214e5bcaa606278a2",
       "lines": 242
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/RideshareCompletedRestorationTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "a8bd9f7ea2f8e4c9d9b70f81fc151d2d692fa6b1caee5502addf82aaf57d24af",
+      "lines": 209
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RideshareDriverExecutionJourneyTest.kt",
