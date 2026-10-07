@@ -3,6 +3,7 @@ package com.yuldash.app
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 
@@ -37,58 +38,77 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         saved.get<Int>(KEY_ACTIVE_BID)?.takeIf { it > 0 }
     )
 
-    data class PendingCompletedNavigation(val bookingId: Int, val ownerId: Int?, val revision: Long)
-    val pendingCompletedNavigation = mutableStateOf(
+    data class PendingBookingNavigation(val bookingId: Int, val ownerId: Int?, val revision: Long, val completed: Boolean)
+    val pendingBookingNavigation = mutableStateOf(
         saved.get<Int>(KEY_PENDING_COMPLETED)?.takeIf { it > 0 }?.let { bid ->
             saved.get<Long>(KEY_PENDING_REVISION)?.takeIf { it > 0 }?.let { revision ->
-                PendingCompletedNavigation(bid, saved.get<Int>(KEY_PENDING_OWNER)?.takeIf { it > 0 }, revision)
+                PendingBookingNavigation(bid, saved.get<Int>(KEY_PENDING_OWNER)?.takeIf { it > 0 }, revision,
+                    saved.get<Boolean>(KEY_PENDING_KIND) ?: true)
             }
         }
     )
+    // Совместимость с уже сохранёнными booking_done task и прежними внутренними callers.
+    val pendingCompletedNavigation = derivedStateOf { pendingBookingNavigation.value?.takeIf { it.completed } }
+    val hasHandledBookingIntent: Boolean get() = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) > 0L
 
     /** Записываем до HTTP/перекомпозиции: новое уведомление должно пережить saved task. */
-    fun requestCompletedBooking(bookingId: Int, ownerId: Int?) {
+    fun requestCompletedBooking(bookingId: Int, ownerId: Int?) = requestBookingDestination(bookingId, ownerId, completed = true)
+
+    fun requestBookingDestination(bookingId: Int, ownerId: Int?, completed: Boolean) {
         if (bookingId <= 0) return
         val revision = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) + 1L
         saved[KEY_PENDING_REVISION] = revision
         saved[KEY_PENDING_COMPLETED] = bookingId
         saved[KEY_PENDING_OWNER] = ownerId ?: -1
-        pendingCompletedNavigation.value = PendingCompletedNavigation(bookingId, ownerId, revision)
-        DeepLink.pendingCompletedBookingId.value = bookingId
+        saved[KEY_PENDING_KIND] = completed
+        pendingBookingNavigation.value = PendingBookingNavigation(bookingId, ownerId, revision, completed)
+        publishPendingBooking(pendingBookingNavigation.value!!)
     }
 
     /** Без владельца — назначение до входа; привязываем при первом известном аккаунте. */
-    fun pendingCompletedForOwner(ownerId: Int?): PendingCompletedNavigation? {
-        val pending = pendingCompletedNavigation.value ?: return null
+    fun pendingCompletedForOwner(ownerId: Int?): PendingBookingNavigation? = pendingBookingForOwner(ownerId)?.takeIf { it.completed }
+
+    fun pendingBookingForOwner(ownerId: Int?): PendingBookingNavigation? {
+        val pending = pendingBookingNavigation.value ?: return null
         if (pending.ownerId != null && pending.ownerId != ownerId) {
-            clearPendingCompleted(pending)
+            clearPendingBooking(pending)
             return null
         }
         val bound = if (pending.ownerId == null && ownerId != null) pending.copy(ownerId = ownerId) else pending
         if (bound != pending) {
             saved[KEY_PENDING_OWNER] = ownerId
-            pendingCompletedNavigation.value = bound
+            pendingBookingNavigation.value = bound
         }
-        DeepLink.pendingCompletedBookingId.value = bound.bookingId
+        publishPendingBooking(bound)
         return bound
     }
 
     /** Один main-thread участок без suspend: маршрут сохранён до удаления pending. */
-    fun consumePendingCompleted(expected: PendingCompletedNavigation, applyRoute: () -> Unit): Boolean {
-        if (pendingCompletedNavigation.value != expected) return false
+    fun consumePendingCompleted(expected: PendingBookingNavigation, applyRoute: () -> Unit): Boolean =
+        expected.completed && consumePendingBooking(expected, applyRoute)
+
+    fun consumePendingBooking(expected: PendingBookingNavigation, applyRoute: () -> Unit): Boolean {
+        if (pendingBookingNavigation.value != expected) return false
         applyRoute()
         recordNavigationChange()
         persistNav()
-        clearPendingCompleted(expected)
+        clearPendingBooking(expected)
         return true
     }
 
-    private fun clearPendingCompleted(expected: PendingCompletedNavigation) {
-        if (pendingCompletedNavigation.value != expected) return
-        pendingCompletedNavigation.value = null
+    private fun publishPendingBooking(pending: PendingBookingNavigation) {
+        DeepLink.pendingCompletedBookingId.value = pending.bookingId.takeIf { pending.completed }
+        DeepLink.pendingBookingChatId.value = pending.bookingId.takeIf { !pending.completed }
+    }
+
+    private fun clearPendingBooking(expected: PendingBookingNavigation) {
+        if (pendingBookingNavigation.value != expected) return
+        pendingBookingNavigation.value = null
         saved.remove<Int>(KEY_PENDING_COMPLETED)
         saved.remove<Int>(KEY_PENDING_OWNER)
+        saved.remove<Boolean>(KEY_PENDING_KIND)
         if (DeepLink.pendingCompletedBookingId.value == expected.bookingId) DeepLink.pendingCompletedBookingId.value = null
+        if (DeepLink.pendingBookingChatId.value == expected.bookingId) DeepLink.pendingBookingChatId.value = null
     }
 
     /**
@@ -167,8 +187,9 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
      * (имена+телефоны) и заявки прошлого пользователя. Реклама (partnerAds/adStats) — публичная, не PII.
      */
     fun clearUserData() {
-        pendingCompletedNavigation.value?.let(::clearPendingCompleted)
+        pendingBookingNavigation.value?.let(::clearPendingBooking)
         DeepLink.pendingCompletedBookingId.value = null
+        DeepLink.pendingBookingChatId.value = null
         selectedRide.value = null
         activeTrip.value = null
         activeBookingId.value = null
@@ -192,5 +213,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         const val KEY_PENDING_COMPLETED = "yuldash_pending_completed"
         const val KEY_PENDING_OWNER = "yuldash_pending_completed_owner"
         const val KEY_PENDING_REVISION = "yuldash_pending_completed_revision"
+        // Старые ключи сохраняем; отсутствие kind означает ранее сохранённый booking_done.
+        const val KEY_PENDING_KIND = "yuldash_pending_booking_completed"
     }
 }

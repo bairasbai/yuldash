@@ -285,13 +285,15 @@ class MainActivity : ComponentActivity() {
         val restoredNavigation = if (savedInstanceState != null) {
             ViewModelProvider(this)[YuldashViewModel::class.java]
         } else null
-        val hadSavedPending = restoredNavigation?.pendingCompletedNavigation?.value != null
-        restoredNavigation?.pendingCompletedForOwner(ApiClient.myUserId())
+        val hadSavedPending = restoredNavigation?.pendingBookingNavigation?.value != null
+        restoredNavigation?.pendingBookingForOwner(ApiClient.myUserId())
+        val copiedBookingIntent = (intent?.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: intent?.getStringExtra("type")) in
+            setOf("booking", "chat", "booking_done") && restoredNavigation?.hasHandledBookingIntent == true
         val hasRestoredBooking = restoredNavigation != null &&
             (restoredNavigation.activeBookingId.value ?: 0) > 0 &&
             restoredNavigation.screen.value !in setOf(Screen.Splash, Screen.Intro, Screen.Onboarding, Screen.Login)
         if (!hasRestoredBooking && !hadSavedPending) {
-            handleNavIntent(intent)   // холодный старт из полноэкранного оффера такси (B7a-2)
+            handleNavIntent(intent, skipBookingIntent = copiedBookingIntent)
             handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         }
         setContent {
@@ -318,7 +320,9 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Уведомление «Новый заказ 🚕» → сигнал YuldashApp открыть кабинет водителя (карточка оффера). */
-    private fun handleNavIntent(i: Intent?) {
+    private fun handleNavIntent(i: Intent?) = handleNavIntent(i, skipBookingIntent = false)
+
+    private fun handleNavIntent(i: Intent?, skipBookingIntent: Boolean) {
         if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) == true) {
             i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER)   // не сработать повторно при пересоздании
             NavSignals.openDriverCabinet.value = true
@@ -351,7 +355,7 @@ class MainActivity : ComponentActivity() {
             i.removeExtra("type")
             DeepLink.pendingParcels.value = true
         }
-        openChatFromPush(i)
+        if (!skipBookingIntent) openChatFromPush(i)
     }
 
     /**
@@ -370,11 +374,13 @@ class MainActivity : ComponentActivity() {
         val id = (i.getStringExtra(FcmService.EXTRA_PUSH_ID) ?: i.getStringExtra("id"))?.toIntOrNull()
         if (id == null || id <= 0) return
         when (type) {
-            "chat" -> DeepLink.pendingBookingChatId.value = id        // чат попутки → экран брони
+            "chat" -> ViewModelProvider(this)[YuldashViewModel::class.java]
+                .requestBookingDestination(id, ApiClient.myUserId(), completed = false)
             "order_chat" -> NavSignals.openInstantChat.value = id     // чат такси-заказа
             // Сервер теперь кладёт адрес в КАЖДОЕ уведомление, у которого он есть
             // (см. services.push_notification). Разбираем то, что умеем открыть точно:
-            "booking" -> DeepLink.pendingBookingChatId.value = id     // бронь попутки → её экран
+            "booking" -> ViewModelProvider(this)[YuldashViewModel::class.java]
+                .requestBookingDestination(id, ApiClient.myUserId(), completed = false)
             "booking_done" -> ViewModelProvider(this)[YuldashViewModel::class.java]
                 .requestCompletedBooking(id, ApiClient.myUserId())
             "support" -> DeepLink.pendingSupport.value = true         // ответ поддержки → «Поддержка»

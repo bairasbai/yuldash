@@ -183,6 +183,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -273,6 +274,7 @@ import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -313,64 +315,79 @@ internal fun NotificationsScreen(
         else -> allLabel
     }
 
-    var feed by remember { mutableStateOf(NotifFeed(0, emptyList())) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf(false) }
-    var reload by remember { mutableStateOf(0) }
-    LaunchedEffect(reload) {
+    val notificationSession = ApiClient.sessionChanges.collectAsState().value
+    var feed by remember(notificationSession) { mutableStateOf(NotifFeed(0, emptyList())) }
+    var loading by remember(notificationSession) { mutableStateOf(true) }
+    var error by remember(notificationSession) { mutableStateOf(false) }
+    var reload by remember(notificationSession) { mutableStateOf(0) }
+    LaunchedEffect(reload, notificationSession) {
+        if (!ApiClient.isLoggedIn()) {
+            feed = NotifFeed(0, emptyList())
+            error = false
+            loading = false
+            return@LaunchedEffect
+        }
         loading = true
-        ApiClient.getNotifications()
-            .onSuccess { feed = it; error = false }
-            // 401 / нет сессии — не сетевая ошибка: событий просто нет, показываем дружелюбное «пусто».
-            .onFailure { e -> error = (e as? ApiException)?.status != 401 }
-        loading = false
+        val result = ApiClient.getNotifications()
+        if (!isActive) return@LaunchedEffect
+        ApiClient.runIfCurrentSession(notificationSession) {
+            result.onSuccess { feed = it; error = false }
+                // 401 / нет сессии — не сетевая ошибка: событий просто нет.
+                .onFailure { e -> error = (e as? ApiException)?.status != 401 }
+            loading = false
+        }
     }
 
     // Локальная пометка прочитанным (мгновенно в UI) + запрос на сервер. Не блокирует навигацию.
     fun markRead(id: Int) {
+        if (!ApiClient.isCurrentSession(notificationSession)) return
         if (feed.items.none { it.id == id && !it.read }) return
         feed = feed.copy(
             unread = (feed.unread - 1).coerceAtLeast(0),
             items = feed.items.map { if (it.id == id) it.copy(read = true) else it },
         )
-        scope.launch { ApiClient.markNotificationsRead(id) }
+        scope.launch { if (ApiClient.isCurrentSession(notificationSession)) ApiClient.markNotificationsRead(id) }
     }
     fun markAll() {
+        if (!ApiClient.isCurrentSession(notificationSession)) return
         if (feed.unread == 0) return
         feed = feed.copy(unread = 0, items = feed.items.map { it.copy(read = true) })
-        scope.launch { ApiClient.markNotificationsRead(null) }
+        scope.launch { if (ApiClient.isCurrentSession(notificationSession)) ApiClient.markNotificationsRead(null) }
     }
     // Тап по карточке ведёт туда, где событие видно целиком.
     // Аудит 2026-08-06: раньше открывались только бронь, заявка и обращение, а доставка и такси —
     // самая большая группа событий — молчали. Карточка при этом пружинила под пальцем, то есть
     // обещала переход. Человек читал «Курьер забрал посылку», жал и оставался на том же месте.
     fun openDeepLink(n: NotifDto) {
-        markRead(n.id)
-        // Старые записи подписок сохранялись с refKind=request, но адресованы водителю.
-        if (n.type == "request_watch") { onOpenRequestsFeed(); return }
-        val ref = n.refId ?: return
-        when (n.refKind) {
-            "request_watch" -> onOpenRequestsFeed()
-            "booking" -> onOpenBooking(ref)
-            "booking_done" -> onOpenCompletedBooking(ref)
-            "request" -> onOpenResponses(ref)
-            "support" -> onOpenSupport(ref)
-            "parcel" -> onOpenParcels()          // «Посылки»: там карточка с ходом доставки
-            "instant" -> onOpenInstantOrder()    // экран такси-заказа (сам подхватывает активный)
-            "ride" -> onOpenRide(ref)            // моя поездка (событие по опубликованному рейсу)
-            // «Открыт разбор» / «Решение по спору» — самое тяжёлое, что бывает с аккаунтом:
-            // человеку надо видеть, за что именно и на какой срок (аудит 2026-08-08, волна 19).
-            "incident" -> onOpenIncident(ref)
-            // Деньги и допуск к работе (аудит 2026-08-08, волна 20): долг, списание комиссии,
-            // пауза такси — всё это видно в кабинете водителя; статус заявки — на её экране.
-            "debt" -> onOpenDriverCabinet()
-            "taxi_apply" -> onOpenTaxiApply()
-            "courier_apply" -> onOpenCourierApply()
-            // Деньги бизнеса (аудит 2026-08-12, волна 24): решение по бизнесу и по купону
-            // ведёт в «Мой бизнес», решение по рекламе — в кабинет объявлений. Человек
-            // заплатил и ждёт ответа: сказать «одобрено» и никуда не привести — половина дела.
-            "partner" -> onOpenPartnerCabinet()
-            "ad" -> onOpenAdsCabinet()
+        // Сохранённый callback старой строки не читает/открывает данные нового аккаунта.
+        ApiClient.runIfCurrentSession(notificationSession) {
+            markRead(n.id)
+            // Старые записи подписок сохранялись с refKind=request, но адресованы водителю.
+            if (n.type == "request_watch") { onOpenRequestsFeed(); return@runIfCurrentSession }
+            val ref = n.refId ?: return@runIfCurrentSession
+            when (n.refKind) {
+                "request_watch" -> onOpenRequestsFeed()
+                "booking" -> onOpenBooking(ref)
+                "booking_done" -> onOpenCompletedBooking(ref)
+                "request" -> onOpenResponses(ref)
+                "support" -> onOpenSupport(ref)
+                "parcel" -> onOpenParcels()          // «Посылки»: там карточка с ходом доставки
+                "instant" -> onOpenInstantOrder()    // экран такси-заказа (сам подхватывает активный)
+                "ride" -> onOpenRide(ref)            // моя поездка (событие по опубликованному рейсу)
+                // «Открыт разбор» / «Решение по спору» — самое тяжёлое, что бывает с аккаунтом:
+                // человеку надо видеть, за что именно и на какой срок (аудит 2026-08-08, волна 19).
+                "incident" -> onOpenIncident(ref)
+                // Деньги и допуск к работе (аудит 2026-08-08, волна 20): долг, списание комиссии,
+                // пауза такси — всё это видно в кабинете водителя; статус заявки — на её экране.
+                "debt" -> onOpenDriverCabinet()
+                "taxi_apply" -> onOpenTaxiApply()
+                "courier_apply" -> onOpenCourierApply()
+                // Деньги бизнеса (аудит 2026-08-12, волна 24): решение по бизнесу и по купону
+                // ведёт в «Мой бизнес», решение по рекламе — в кабинет объявлений. Человек
+                // заплатил и ждёт ответа: сказать «одобрено» и никуда не привести — половина дела.
+                "partner" -> onOpenPartnerCabinet()
+                "ad" -> onOpenAdsCabinet()
+            }
         }
     }
 

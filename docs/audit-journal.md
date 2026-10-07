@@ -596,3 +596,7 @@ Root sole writer/Gradle/adb/GitHub; reviewer readonly current contract/source/pr
 ## B02 pending notification,07.10.2026
 
 Root sole writer/Gradle/adb/GitHub; b02_socket_review readonly. RED8/5 behaviorfail; native baseline pending43 lost после actual system delivery/savedtask/SIGKILL/newPID. Historical GREEN30; firstintegration174/9 fixturefail; refinedRED24/5 (3behavior+2role counters); v2compile0tests; currentfinal-v3178/178=32new+146existing/20classes/обаAPK. Nativev2 RU/BA2 внешних process UI случая, provision1JUnit×2setup,8PNGrootviewed,0bookingwrites. Inventory1814/check0/resourcesfree. [Текущий реестр](audit-blocks.md#b02--новое-уведомление-во-время-смерти-процесса-07102026); точные версии/independent/ownmain+push. Повторы отдельно, scope durablebooking_done; прочие private intents/live/FCM/LMKD/phone/финансы открыты.
+
+### 07.10.2026 — QA-B02-003 booking/chat/session-bound Notifications
+
+[Реестр](audit-blocks.md#b02--личные-уведомления-брони-и-чата-07102026). Valid RED11/8,13/7,retainedFeed46/1,anonymous1/1;final219/219=35new+184existing/23classes/обаAPK. Отдельно2 внешних savedTask/SIGKILL/newPID UI cases: RU booking и BA chat;1provisionJUnit×2setup,6PNG. Повторы/неверный предварительный anonymous label не прибавлены к уникальным случаям. Inventory1817/check0; собственные root33520/20836/25672 закрыты,sharedadb сохранён.16own paths/39foreign; публикация/independent фиксируются по текущим receipts. Внешний релиз частичен.

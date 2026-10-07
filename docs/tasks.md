@@ -17590,3 +17590,17 @@ glossary и четыре связанных auth-набора, exit0. 🔒 Бр�
 07.10.2026 — pending booking_done local criterion закрыт в указанной среде: saved owner/revision/consume Back trail/current manualretry, final178/178=32new+146existing/20classes/обаAPK; native RU/BA2 внешних process UI cases/SINGLE_TOP43overReceipt42/heldrole/SIGKILL/newPID/plainlauncher→Receipt43, provision1×2setup и8PNG отдельно. Inventory1814/check0. [Доказательства/остатки](audit-blocks.md#b02--новое-уведомление-во-время-смерти-процесса-07102026).
 
 🔓 Root MainActivity/App/VM/product/tests/Gradle/adb сняты: own29772/28904/8368 stopped,5580/5581free/sharedadb retained,fixture/reverseoff. Root docs/inventory/GitHub до exactfreeze/independent/17own main+push по прежнему указанию. Reviewer only ignored receipt. Следующий пункт: durability остальных личных notification/deep-link типов и login/logout boundary; full Home/role-language-frame/live/FCM/LMKD/phone/payment открыты. Новых переводов нет.
+
+## B02 / QA-B02-003 — личные уведомления брони и чата,07.10.2026
+
+От438a8d20, codex/b02-booking-notifications-20261007. План: (1) реальные MainActivity/onNewIntent booking/chat, наблюдаемый savedBundle/новый Activity и App: поздний ответ, последнее назначение между chat/booking_done, вход/выход/смена владельца, старый manual retry; (2) минимальная общая saved запись личного назначения с владельцем/версией, только после воспроизведения; (3) затронутые JVM/обаAPK и actual system intent/held HTTP/saved task/SIGKILL/plainlauncher на owned API35 RU/BA при доступности; (4) текущий реестр/inventory, независимая проверка, только свои main+push по прежнему разрешению. URI проверяем только существующие, не придумываем закрытые ссылки. Такси/посылки/поддержка/публичные ride links и настоящие провайдеры остаются в очереди своих блоков.
+
+🔒 Root MainActivity routing/YuldashViewModel pending/YuldashApp private booking loader и конкретные tests/tools/docs/inventory; единственные Gradle/adb/GitHub. b02_socket_review readonly B02 routing/login contracts и итоговое ревью, без writes/tests/adb/network. Inventory1814: added0/removed0, только известный foreign.gitignore;39foreign сохранить. На старте иных java/python/emulator не обнаружено (python inventory — собственная текущая проверка). Новых экранов/строк/версий не планируется.
+
+Дополнение по воспроизведению: readonly review выявил сохранённую строку Notifications; actual Semantics.OnClick A→B дал RED46/1fail. Root расширяет свою область только на session guards списка в SecondaryScreens.kt: старый список/ответ/callback и markRead не должны переходить к новому аккаунту. Новых строк/дизайна нет; остаются прежние внешние остатки.
+
+## B02 / QA-B02-003 — результат booking/chat,07.10.2026
+
+219/219=35 новых+178 прежних+6 существующих login/23класса/обаAPK.2 внешних process UI cases RU booking/BA chat и6 PNG отдельно. Закрыт локальный scoped criterion saved private id/kind/owner/revision/latest/retained retry/Notifications row+late feed/anonymous empty. [Доказательства и остатки](audit-blocks.md#b02--личные-уведомления-брони-и-чата-07102026).
+
+🔓 Root MainActivity/App/VM/Secondary/product/tests/Gradle/adb освобождены:33520/20836/25672 stopped,5580/5581free,fixture/reverseoff/sharedadb retained. Root docs/inventory/GitHub до exact freeze/independent/16own main+push. Reviewer readonly пишет only ignored receipt. Следующие критерии: другие private notification назначения и полный Home путь; fresh private create(nonnullBundle)/phone/live FCM/JWT/provider/payment/matrix отдельно. Новых переводов нет.

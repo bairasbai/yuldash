@@ -960,3 +960,7 @@ Android-хранилище (19.09.2026): [источник актуальног�
 07.10.2026 — [B02: восстановление квитанции после смерти процесса](audit-blocks.md#b02--смерть-процесса-и-восстановление-квитанции-07102026): old launch intent guard,146/146 JVM=13new+133existing, отдельно2 реальных UI process cases на API35 с новымPID/тем же task/7PNG. B02 частичен; далее durable pending43.
 
 07.10.2026 — [B02: новое уведомление при смерти процесса](audit-blocks.md#b02--новое-уведомление-во-время-смерти-процесса-07102026): durable booking_done owner/revision, retained retry и atomic Back trail;178/178=32new+146existing, отдельно2 actual process RU/BA UI cases/8PNG. B02 частичен; дальше другие личные назначения/login boundary.
+
+### B02: личные booking/chat уведомления,07.10.2026
+
+[Текущий критерий и остатки](audit-blocks.md#b02--личные-уведомления-брони-и-чата-07102026):219/219=35new+178previous+6existing login/23classes/обаAPK; отдельно2 OS process UI cases RU booking/BA chat и6 root-viewed PNG. Общий durable kind/owner/revision и session-bound Notifications. Реестр — источник очереди; B02 частичен.

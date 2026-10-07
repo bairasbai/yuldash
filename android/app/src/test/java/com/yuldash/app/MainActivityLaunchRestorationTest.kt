@@ -58,7 +58,7 @@ class MainActivityLaunchRestorationTest {
     @Test fun savedLoginKeepsPendingOriginalNotification() {val state=saved(Screen.Login);create(notification(),state);assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
     @Test fun savedIntroKeepsPendingOriginalNotification() {val state=saved(Screen.Intro);create(notification(),state);assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
     @Test fun savedOnboardingKeepsPendingOriginalNotification() {val state=saved(Screen.Onboarding);create(notification(),state);assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
-    @Test fun savedHomeWithoutBookingKeepsInitialDestination() {val state=saved(Screen.Home,bookingId=null);create(notification(),state);assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
+    @Test fun savedHomeWithoutBookingKeepsInitialDestination() {val state=saved(Screen.Home,intent=Intent(context,MainActivity::class.java),bookingId=null);create(notification(),state);assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
     @Test fun savedHomeWithBookingDoesNotReplayOldDestination() {val state=saved(Screen.Home);create(notification(),state);assertNull(DeepLink.pendingCompletedBookingId.value)}
     @Test fun restoredReceiptDoesNotReplayCopiedOriginalNotification() {
         val original=notification();val state=saved(Screen.TripReceipt,Intent(original));val c=create(Intent(original),state)

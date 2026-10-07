@@ -626,16 +626,21 @@ internal fun YuldashApp() {
     var failedCompletedRevision by rememberSaveable { mutableStateOf<Long?>(null) }
     var bookingLinkAttempt by remember { mutableIntStateOf(0) }
     // Старые внутренние producer/test bridge тоже принимаются, но HTTP читает durable record.
-    LaunchedEffect(DeepLink.pendingCompletedBookingId.value, navigationSession) {
+    LaunchedEffect(DeepLink.pendingCompletedBookingId.value, DeepLink.pendingBookingChatId.value, navigationSession) {
         val owner = ApiClient.myUserId()
-        val previous = vm.pendingCompletedNavigation.value
-        val bridged = DeepLink.pendingCompletedBookingId.value
-        vm.pendingCompletedForOwner(owner)
-        if (failedBookingDestination == true && failedCompletedOwner != null && failedCompletedOwner != owner) {
+        val previous = vm.pendingBookingNavigation.value
+        val completedBridge = DeepLink.pendingCompletedBookingId.value
+        val chatBridge = DeepLink.pendingBookingChatId.value
+        vm.pendingBookingForOwner(owner)
+        if (failedBookingDestination != null && failedCompletedOwner != null && failedCompletedOwner != owner) {
             failedRideLink = null
         }
-        if (bridged != null && previous?.bookingId != bridged && (previous?.ownerId == null || previous.ownerId == owner)) {
-            vm.requestCompletedBooking(bridged, owner)
+        if (previous?.ownerId == null || previous.ownerId == owner) {
+            if (completedBridge != null && (previous?.bookingId != completedBridge || !previous.completed)) {
+                vm.requestCompletedBooking(completedBridge, owner)
+            } else if (chatBridge != null && (previous?.bookingId != chatBridge || previous.completed)) {
+                vm.requestBookingDestination(chatBridge, owner, completed = false)
+            }
         }
     }
     // Публичная ссылка: ошибка не должна молча терять назначение, повтор использует тот же id.
@@ -689,25 +694,20 @@ internal fun YuldashApp() {
                 } else {
                     TextButton(modifier = Modifier.testTag("${tagPrefix}Retry"), onClick = retry@{
                         if (failedRideLink != rideId || failedBookingDestination != failedKind ||
-                            (failedKind == true && failedCompletedRevision != failedRevision)) return@retry
-                        if (failedKind == true) {
+                            (failedKind != null && failedCompletedRevision != failedRevision)) return@retry
+                        if (failedKind != null) {
                             val currentSession = ApiClient.queueSessionGeneration()
                             ApiClient.runIfCurrentSession(currentSession) {
                                 // Старый callback не привязывает поездку к другому аккаунту.
                                 // Refresh того же владельца допускает осознанный ручной повтор.
                                 if (failedOwner != null && ApiClient.myUserId() != failedOwner) return@runIfCurrentSession
                                 if (failedOwner == null && currentSession != failedSession) return@runIfCurrentSession
-                                if (DeepLink.pendingCompletedBookingId.value == null) vm.requestCompletedBooking(rideId, failedOwner)
+                                if (vm.pendingBookingNavigation.value == null) vm.requestBookingDestination(rideId, failedOwner, failedKind)
                                 failedRideLink = null
                             }
                             return@retry
                         }
-                        val pending = when (failedKind) {
-                            true -> DeepLink.pendingCompletedBookingId
-                            false -> DeepLink.pendingBookingChatId
-                            null -> DeepLink.pendingRideId
-                        }
-                        if (pending.value == null) pending.value = rideId
+                        if (DeepLink.pendingRideId.value == null) DeepLink.pendingRideId.value = rideId
                         failedRideLink = null
                     }) { Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2) }
                 }
@@ -781,11 +781,11 @@ internal fun YuldashApp() {
     // Личное назначение сохраняем до входа. Не устанавливаем бронь до проверки участника.
     listOf(false, true).forEach { completed ->
         val pending = if (completed) DeepLink.pendingCompletedBookingId else DeepLink.pendingBookingChatId
-        val revision = if (completed) vm.pendingCompletedNavigation.value?.revision else null
-        LaunchedEffect(pending.value, revision, screen, bookingLinkAttempt, if (completed) navigationSession else 0L) {
-            val destination = if (completed) vm.pendingCompletedForOwner(ApiClient.myUserId()) else null
-            if (completed && destination?.revision != revision) return@LaunchedEffect
-            val bid = if (completed) destination?.bookingId ?: return@LaunchedEffect else pending.value ?: return@LaunchedEffect
+        val revision = vm.pendingBookingNavigation.value?.takeIf { it.completed == completed }?.revision
+        LaunchedEffect(pending.value, revision, screen, bookingLinkAttempt, navigationSession) {
+            val destination = vm.pendingBookingForOwner(ApiClient.myUserId())?.takeIf { it.completed == completed } ?: return@LaunchedEffect
+            if (destination.revision != revision) return@LaunchedEffect
+            val bid = destination.bookingId
             if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
             failedRideLink = null
             val sessionToken = ApiClient.currentToken()
@@ -793,7 +793,7 @@ internal fun YuldashApp() {
             if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
             val result = ApiClient.getTripState(bid)
             if (!isActive || pending.value != bid) return@LaunchedEffect
-            if (completed && (vm.pendingCompletedNavigation.value != destination || !ApiClient.isCurrentSession(requestedSession))) return@LaunchedEffect
+            if (vm.pendingBookingNavigation.value != destination || !ApiClient.isCurrentSession(requestedSession)) return@LaunchedEffect
             // В том числе после обновления токена: новый запрос проверит текущую сессию.
             if (sessionToken != ApiClient.currentToken()) {
                 if (ApiClient.isLoggedIn()) bookingLinkAttempt++ else screen = Screen.Login
@@ -811,19 +811,12 @@ internal fun YuldashApp() {
                 } else {
                     rideLinkUnavailable = (result.exceptionOrNull() as? ApiException)?.status in listOf(403, 404, 410)
                     failedBookingDestination = completed
-                    if (completed) {
-                        failedCompletedOwner = destination?.ownerId
-                        failedCompletedRevision = destination?.revision
-                    }
+                    failedCompletedOwner = destination.ownerId
+                    failedCompletedRevision = destination.revision
                     failedRideLink = bid
                 }
             }
-            if (completed) {
-                ApiClient.runIfCurrentSession(requestedSession) { vm.consumePendingCompleted(destination!!, applyResult) }
-            } else {
-                pending.value = null
-                applyResult()
-            }
+            ApiClient.runIfCurrentSession(requestedSession) { vm.consumePendingBooking(destination, applyResult) }
         }
     }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
@@ -1407,10 +1400,7 @@ internal fun YuldashApp() {
                 onSelectTab = { tab -> openHome(tab) },
                 // Deep-link: тап по брони/поездке/сообщению → детали брони (BookingScreen сам грузит их по id).
                 onOpenBooking = { bid ->
-                    selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
-                    activeBookingId = bid
-                    selectedBookingStatus = ""
-                    screen = Screen.Booking
+                    vm.requestBookingDestination(bid, ApiClient.myUserId(), completed = false)
                 },
                 // Тап по «отклик на заявку» → экран откликов этой заявки.
                 onOpenResponses = { rid -> responsesRequestId = rid; screen = Screen.RequestResponses },
