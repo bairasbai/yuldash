@@ -195,10 +195,6 @@ import android.app.Activity
 import android.speech.RecognizerIntent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
-import android.media.MediaRecorder
-import android.os.Build
-import android.os.SystemClock
-import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -783,31 +779,7 @@ internal fun apiCategoryToUiFor(language: AppLanguage, category: String, withKid
 // Доменные UI-модели (Ride, PopularRoute, TrustedContact, FrequentTrip, LocalRequest,
 // LocalVoiceMessage) вынесены в Domain.kt (Фаза 0).
 
-// Запись голоса с микрофона: MediaRecorder → m4a в кэше приложения.
-internal class VoiceRecorder(private val context: Context) {
-    private var recorder: MediaRecorder? = null
-    private var path: String? = null
-    fun start(): Boolean = try {
-        val f = File(context.cacheDir, "voice_${SystemClock.elapsedRealtime()}.m4a")
-        path = f.absolutePath
-        recorder = (if (Build.VERSION.SDK_INT >= 31) MediaRecorder(context) else @Suppress("DEPRECATION") MediaRecorder()).apply {
-            setAudioSource(MediaRecorder.AudioSource.MIC)
-            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            setOutputFile(path)
-            prepare()
-            start()
-        }
-        true
-    } catch (e: Exception) {
-        recorder?.release(); recorder = null; false
-    }
-    fun stop(): String? = try {
-        recorder?.stop(); recorder?.release(); recorder = null; path
-    } catch (e: Exception) {
-        recorder?.release(); recorder = null; null
-    }
-}
+// Запись голоса вынесена в VoiceRecorder.kt: владение устройством и временным файлом.
 
 // Русский плюрал: 1 поездка / 2 поездки / 5 поездок.
 private fun plRu(n: Int, one: String, few: String, many: String): String {

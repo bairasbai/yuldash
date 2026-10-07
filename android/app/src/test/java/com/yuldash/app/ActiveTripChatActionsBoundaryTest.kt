@@ -450,13 +450,18 @@ class ActiveTripChatActionsBoundaryTest {
         compose.onNodeWithContentDescription("Записать голос").performClick()
         waitFor { compose.onAllNodesWithContentDescription("Отправить запись").fetchSemanticsNodes().isNotEmpty() }
         val finish = compose.onNodeWithContentDescription("Отправить запись").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
-        val path = VoiceRecorder::class.java.getDeclaredField("path").apply { isAccessible = true }.get(recorder) as String
-        changeBoundary(boundary)
+        @Suppress("UNCHECKED_CAST")
+        val completed = captures(finish, Function2::class.java).single {
+            captures(it, CoroutineScope::class.java).contains(composerScope)
+        } as (String, Int) -> Unit
+        // Transfer the completed file before the boundary. Disposal must not own this file anymore.
+        val path = requireNotNull(recorder.stop())
         val voice = File(path).also { it.writeBytes(byteArrayOf(1, 2, 3, 4)) }; files += voice
         val adjacent = File(context.cacheDir, "keep_chat_action.jpg").also { it.writeText("keep") }; files += adjacent
+        changeBoundary(boundary)
         ShadowToast.reset(); val before = requests.size
-        // Retained click is invoked deliberately after disposal/terminal, not a real tap on a hidden screen.
-        compose.runOnIdle { finish(); if (boundary == "cancel-launch") composerScope.cancel() }; pump(1000)
+        // Deliberate retained completed callback injection, not a hidden-screen tap or resurrected file.
+        compose.runOnIdle { completed(path, 1); if (boundary == "cancel-launch") composerScope.cancel() }; pump(1000)
         assertFalse("Late retained voice callback left its own recording", voice.exists())
         assertTrue("Voice cleanup removed an unrelated file", adjacent.exists())
         if (boundary == "cancel-launch") assertEquals("Голос записан", ShadowToast.getTextOfLatestToast())
@@ -487,6 +492,44 @@ class ActiveTripChatActionsBoundaryTest {
     @Test fun retainedEditSendAtCancelled() = savedEditSend("cancelled")
     @Test fun retainedEditSendAtSwitch() = savedEditSend("switch")
     @Test fun retainedEditSendAtBack() = savedEditSend("back")
+
+    private fun recordingBoundary(boundary: String) {
+        mount(); tripList().performScrollToNode(hasContentDescription("Записать голос"))
+        Shadows.shadowOf(context as Application).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        val mic = compose.onNodeWithContentDescription("Записать голос").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
+        val recorder = captures(mic, VoiceRecorder::class.java).single()
+        compose.onNodeWithContentDescription("Записать голос").performClick()
+        waitFor { compose.onAllNodesWithContentDescription("Отправить запись").fetchSemanticsNodes().isNotEmpty() }
+        val native = VoiceRecorder::class.java.getDeclaredField("recorder").apply { isAccessible = true }.get(recorder) as android.media.MediaRecorder
+        val voice = File(VoiceRecorder::class.java.getDeclaredField("path").apply { isAccessible = true }.get(recorder) as String)
+            .also { it.writeBytes(byteArrayOf(1, 2, 3)) }; files += voice
+        val sibling = File.createTempFile("voice_sibling_", ".m4a", context.cacheDir).also { it.writeText("keep") }; files += sibling
+        val before = requests.size
+        if (boundary == "done" || boundary == "cancelled") {
+            remoteStatus = boundary
+            // Real scheduled role GET while RESUMED: no lifecycle pause that could hide terminal cleanup.
+            waitFor { TripPassStore.load(context, 42) == null && (boundary != "cancelled" || finished == 1) }
+            assertEquals(Lifecycle.State.RESUMED, owner.lifecycle.currentState)
+        } else changeBoundary(boundary)
+        pump(300)
+        assertEquals(org.robolectric.shadows.ShadowMediaRecorder.STATE_RELEASED, Shadows.shadowOf(native).state)
+        assertFalse("Recording survived $boundary", voice.exists())
+        assertTrue(sibling.exists())
+        assertFalse(requests.drop(before).any { it.first == "POST /voice" || it.first == "POST /bookings/42/messages" })
+        if (boundary == "cancelled") {
+            // LazyColumn may dispose the old offscreen item. A remounted terminal composer must stay disabled too.
+            tripList().performScrollToNode(hasContentDescription("Записать голос"))
+            val newMic = compose.onNodeWithContentDescription("Записать голос").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
+            val newRecorder = captures(newMic, VoiceRecorder::class.java).single()
+            compose.onNodeWithContentDescription("Записать голос").performSemanticsAction(SemanticsActions.OnClick) { it() }
+            pump(300)
+            assertNull("Cancelled retained route started a new recording", VoiceRecorder::class.java.getDeclaredField("recorder").apply { isAccessible = true }.get(newRecorder))
+        }
+    }
+    @Test fun recordingInProgressAtDoneWithoutPauseIsReleased() = recordingBoundary("done")
+    @Test fun recordingInProgressAtCancelledRetainedRouteIsReleased() = recordingBoundary("cancelled")
+    @Test fun recordingInProgressAtOwnerSwitchIsReleased() = recordingBoundary("switch")
+    @Test fun recordingInProgressAtParentUnmountIsReleased() = recordingBoundary("back")
     @Test fun editHeld200AtDone() = heldMutation("edit", "done", 200)
     @Test fun editHeld503AtDone() = heldMutation("edit", "done", 503)
     @Test fun editLateHistoryAtDone() = heldHistory("edit", "done")

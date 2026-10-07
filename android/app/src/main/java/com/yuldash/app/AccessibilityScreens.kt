@@ -229,6 +229,9 @@ import android.view.MotionEvent
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yandex.mapkit.MapKitFactory
@@ -540,11 +543,12 @@ internal fun VoiceRequestScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val recorder = remember { VoiceRecorder(context) }
-    var recording by remember { mutableStateOf(false) }
-    var startMs by remember { mutableStateOf(0L) }
-    var recordedPath by remember { mutableStateOf<String?>(null) }
-    var recordedDur by remember { mutableStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val recorder = remember(context, lifecycleOwner) { VoiceRecorder(context) }
+    var recording by remember(recorder) { mutableStateOf(false) }
+    var startMs by remember(recorder) { mutableStateOf(0L) }
+    var recordedPath by remember(recorder) { mutableStateOf<String?>(null) }
+    var recordedDur by remember(recorder) { mutableStateOf(0) }
     var uploading by remember { mutableStateOf(false) }
     var submittingText by remember { mutableStateOf(false) }
     val trusted = contacts.firstOrNull()
@@ -556,7 +560,23 @@ internal fun VoiceRequestScreen(
     val vrNoStt = appText("Распознавание недоступно на устройстве", "Таныу ҡорамалда юҡ")
     val vrSendError = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Интернетте тикшереп ҡабатла.")
     val vrUploadError = appText("Не удалось загрузить запись. Проверь сеть и повтори.", "Яҙманы тейәп булманы. Интернетте тикшереп ҡабатла.")
-    fun begin() { if (recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
+    DisposableEffect(recorder, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                recorder.cancel()
+                recording = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            recorder.close()
+            recordedPath?.let { ApiClient.dropVoiceFile(it) }
+            recordedPath = null
+        }
+    }
+    fun canRecord() = !recorder.isClosed && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+    fun begin() { if (canRecord() && recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
     fun finish() {
         recordedPath = recorder.stop()
         recordedDur = ((SystemClock.elapsedRealtime() - startMs) / 1000).toInt().coerceAtLeast(1)
@@ -575,7 +595,7 @@ internal fun VoiceRequestScreen(
         whyRu = "Микрофон нужен, чтобы записать заявку голосом — не придётся набирать текст.",
         whyBa = "Заявканы тауыш менән яҙыр өсөн микрофон кәрәк — текст яҙырға тура килмәй.",
         onGranted = { begin() },
-        onDenied = { Toast.makeText(context, deniedMicText, Toast.LENGTH_LONG).show() },
+        onDenied = { if (canRecord()) Toast.makeText(context, deniedMicText, Toast.LENGTH_LONG).show() },
     )
     var recognizedText by remember { mutableStateOf<String?>(null) }
     val sttLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->

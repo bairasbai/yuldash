@@ -2568,6 +2568,7 @@ private fun ActiveTripContent(
                 }
                 ChatComposer(
                     draft = draft,
+                    recordingAllowed = isTripChatActive(),
                     onDraftChange = { if (isTripChatActive()) draft = it },
                     onSend = {
                         val t = draft.trim()
