@@ -80,22 +80,22 @@
   "counts_by_kind": {
     "android_main": 130,
     "backend_main": 103,
-    "infra_resource_config": 329,
+    "infra_resource_config": 330,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 856
+    "test_support": 858
   },
   "counts_by_block": {
-    "B01": 124,
+    "B01": 125,
     "B02": 166,
     "B03": 101,
     "B04": 75,
-    "B05": 31,
+    "B05": 32,
     "B06": 75,
     "B07": 106,
     "B08": 164,
     "B09": 526,
-    "B10": 329,
+    "B10": 330,
     "B11": 90
   },
   "excluded_counts": {
@@ -155,6 +155,13 @@
       "block": "B10",
       "sha256": "c6a2fd7cd46604ca43e5af0f0b323b14f82222f9a0bc6f090542aa1dc23bb3b5",
       "lines": 198
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/ActiveTripChatTerminalInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "fd47fc70365e5ec2f1e1aedccf384260b401e3d0579ba5da4e96879812491a33",
+      "lines": 243
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/ActiveTripChatUiInstrumentedTest.kt",
@@ -608,8 +615,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "2ead6eef490d26d59368d287e3707f7d6759ea0d404373d39f52db1a31ab3bac",
-      "lines": 3910
+      "sha256": "18909e92cf5df6f7c25f9ff613979bf9fb89b3ee9f402b6351f71bbf0c0d8782",
+      "lines": 3911
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -1343,8 +1350,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "62f31d5d33e2ec19b9ad83deb7eda8abbb0e775c40a372e1b7a56769e982d51d",
-      "lines": 469
+      "sha256": "79943a048c026fe039f75c9026e2f8e9cc14c69aab17e17c4ad02401b2af87e7",
+      "lines": 477
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPassDeletion.kt",
@@ -1718,6 +1725,13 @@
       "lines": 183
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/ActiveTripChatTerminalHttpTest.kt",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "a9e5fb62e01f1be1592533153066ff988f11ef563d8d9dba029edee2370a6916",
+      "lines": 394
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripChatUiBoundaryTest.kt",
       "kind": "test_support",
       "block": "B05",
@@ -1735,8 +1749,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripLateTerminalTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "112729d748ab315eeaeb570616e895e4f118a35e7a5d7b0806da6c2568c3bef6",
-      "lines": 153
+      "sha256": "9ee73051e95511c326837521f16b3ae9aee2f9d36c6a9808afe9031d33957e27",
+      "lines": 156
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerStatusFailureTest.kt",
@@ -3333,6 +3347,13 @@
       "block": "B01",
       "sha256": "c4ed227a44d42001eb8aea39d8805795dd9aa4d79d3d5887c8f88d5983273277",
       "lines": 444
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/OutboxCallerBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "0656f9f2659131a4163c11c803b1e3f463811f53f0e283efe229d35b2c592c3b",
+      "lines": 138
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/OutboxConcurrencyTest.kt",

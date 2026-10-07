@@ -1655,18 +1655,18 @@ private fun ActiveTripContent(
     // История — по REST (один раз, + повтор по кнопке). + код посадки брони.
     LaunchedEffect(bookingId, historyTick) {
         val id = bookingId ?: run { historyLoading = false; return@LaunchedEffect }
-        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        if (!isTripChatActive()) return@LaunchedEffect
         historyLoading = true
         historyError = false
         val historyResult = ApiClient.getMessages(id)
         // Каждый запрос защищён отдельно, но следующий иначе захватит уже новый аккаунт.
-        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        if (!isTripChatActive()) return@LaunchedEffect
         historyResult
             .onSuccess { messages = it }
             .onFailure { historyError = true }
         historyLoading = false
         val codeResult = ApiClient.getBoardingCode(id)
-        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        if (!isTripChatActive()) return@LaunchedEffect
         if (bookingStatus != "done" && bookingStatus != "cancelled") {
             codeLoadFailed = codeResult.getOrNull().isNullOrBlank()
         }
@@ -1675,7 +1675,7 @@ private fun ActiveTripContent(
             if (code.isNotBlank()) boardingCode = code
         }
         val detailsResult = ApiClient.getBookingDetails(id)
-        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        if (!isTripChatActive()) return@LaunchedEffect
         detailsResult.onSuccess { d ->
             payMethod = d.payMethod
             payAmount = d.payAmount
@@ -1756,17 +1756,17 @@ private fun ActiveTripContent(
     // разгружаем очередь (сообщения/статусы), затем подтягиваем авторитетную историю и состояние.
     fun flushOutbox() {
         val id = bookingId ?: return
-        if (!isTripSessionCurrent()) return
+        if (!isTripChatActive()) return
         voiceScope.launch {
-            if (!isTripSessionCurrent()) return@launch
-            val changed = Outbox.flush(context, expectedGeneration = tripSession)
-            if (!isTripSessionCurrent()) return@launch
+            if (!isTripChatActive()) return@launch
+            val changed = Outbox.flush(context, expectedGeneration = tripSession, shouldContinue = ::isTripChatActive)
+            if (!isTripChatActive()) return@launch
             if (changed) {
                 queuedIds = emptySet()
-                ApiClient.getMessages(id).onSuccess { if (isTripSessionCurrent()) messages = it }
-                if (!isTripSessionCurrent()) return@launch
+                ApiClient.getMessages(id).onSuccess { if (isTripChatActive()) messages = it }
+                if (!isTripChatActive()) return@launch
                 ApiClient.getTripState(id).onSuccess { st ->
-                    if (!isTripSessionCurrent()) return@onSuccess
+                    if (!isTripChatActive()) return@onSuccess
                     role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified
                     aloneWithDriver = st.aloneWithDriver; acceptBookingStatus(st.status); offline = false
                 }
@@ -1794,7 +1794,7 @@ private fun ActiveTripContent(
     // - ошибка сервера → «Не доставлено · Повторить» (ручной повтор, как прежде).
     fun deliver(tempId: Int, text: String) {
         val bid = bookingId ?: return
-        if (!isTripSessionCurrent()) return
+        if (!isTripChatActive()) return
         val queueSession = tripSession
         val ws = chatSocket
         // tempId уходит на сервер: если он откажется принять сообщение, вернёт этот же номер,
@@ -1803,12 +1803,13 @@ private fun ActiveTripContent(
         if (sentViaWs) return   // эхо WS заменит оптимистичное сообщение настоящим
         val action = restAttempts.getOrPut(tempId) { Outbox.newMessage(bid, text) }
         voiceScope.launch {
-            if (!isTripSessionCurrent()) return@launch
+            if (!isTripChatActive()) return@launch
             ApiClient.sendMessage(bid, action.payload, Outbox.messageRequestKey(action))
-                .onSuccess { if (isTripSessionCurrent()) ApiClient.getMessages(bid).onSuccess { if (isTripSessionCurrent()) messages = it } }
+                .onSuccess { if (isTripChatActive()) ApiClient.getMessages(bid).onSuccess { if (isTripChatActive()) messages = it } }
                 .onFailure { e ->
                     if (!isTripSessionCurrent()) return@onFailure
                     if (e is ApiException) {
+                        if (!isTripChatActive()) return@onFailure
                         failedIds = failedIds + tempId
                         // Сервер знает причину: чат закрылся после поездки, собеседник в блокировке.
                         // «Не отправилось» об этом молчало, и человек писал в пустоту.
@@ -1816,7 +1817,7 @@ private fun ActiveTripContent(
                     } else {
                         // Нет сети → в очередь на авто-ретрай. Сообщение остаётся на экране с меткой «в очереди».
                         val saved = withContext(Dispatchers.IO) { Outbox.enqueue(context, action, queueSession) }
-                        if (!isTripSessionCurrent()) return@onFailure
+                        if (!isTripChatActive()) return@onFailure
                         if (saved) queuedIds = queuedIds + tempId else failedIds = failedIds + tempId
                         Toast.makeText(context, if (saved) queuedMsg else queueSaveFailMsg, Toast.LENGTH_SHORT).show()
                     }
@@ -1826,7 +1827,7 @@ private fun ActiveTripContent(
 
     fun sendText(text: String) {
         val t = text.trim()
-        if (t.isEmpty() || bookingId == null || !isTripSessionCurrent()) return
+        if (t.isEmpty() || bookingId == null || !isTripChatActive()) return
         val tempId = tempSeq
         tempSeq -= 1
         messages = messages + MessageDto(tempId, t, myId)   // показываем сразу (оптимистично)
@@ -1834,7 +1835,7 @@ private fun ActiveTripContent(
     }
 
     fun retry(tempId: Int, text: String) {
-        if (!isTripSessionCurrent()) return
+        if (!isTripChatActive()) return
         failedIds = failedIds - tempId
         deliver(tempId, text)
     }

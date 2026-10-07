@@ -1,6 +1,16 @@
 # Журнал технического аудита Юлдаш
 
-## Текущее продолжение B02 / QA-B02-003 прежний UI — 07.10.2026
+## Текущее продолжение B02 / QA-B02-003 terminal HTTP — 07.10.2026
+
+База98f297f9, codex/b02-chat-terminal-http-20261007. Root one-writer BookingActiveTrip/TripPass/tests/docs/Gradle/adb/GitHub; b02_socket_review bounded read-only source/contracts/финальные proofs. [Текущий реестр](audit-blocks.md#b02--terminal-http-и-очередь-сообщений-07102026). Backend chat terminal write-window и history/read-only, global startup flush прочитаны до RED; общую очередь не удалять. First RED14/10behaviorfail/4controls/0fixture,56.171с: initial stale success/failure chain, terminal waiting/active UI flush и late Toast. Product2sources: active HTTP guards; optionalpure caller predicate не меняет global default; ackfirstaction.id сохранён; late same-owner networkfailure.enqueue сохранён.
+
+GREEN22/22,91.922с. Затем data inactive-case усилен20hstatus/native добавлен; финал178/178/29freshXML/190.266с/debug+testAPK. Уникально21new(16UI+5data)+157old=178; никакие RED/GREEN/repeated не складывать. Data5 awaited actualjobs; UI bounded virtual pump,5manual systemNetworkCallback; no synthetic WS callback injection. UpdatedLateTerminal отрицательное окно/no-details слабее прежнего next-details causal witness. Исходные базовые SHA/RED fixture сохранены до patch.
+
+Reader заранее заметил native10s<held25s; до первого запуска толькоnative timeout60/hold45 и INITIALIZED cleanupguard, native-build33.062с/обаAPK;178JVM не повторяли, их source/deps unchanged. Native first runtime2/2 RU/BA done/API35/PID3052/JUnit8.805с/instrument12.156с,4originalPNG просмотрены root. Actual encrypted queue reopen в sameprocess сохраняет pending42/99 keys; controlled lifecycle/parentkeptmounted/HTTP-only404WS. Нет nativecancelled/waiting/send/WS/полной навигации/phone/coldprocess/liveFastAPI proof.
+
+Inventory1787backup→1790/check0,3added/3own changed+knownforeign.gitignore. Emulator11532family gracefully stopped,ports5580/5581 free,adbпуст,sharedadbretained. Freeze/source receipt/independent final отдельно. Только13own files черезcleanmainworktree: guard→onefetch→commit→ff-onlymain→ordinarypush→onelsremote, deliveryreceiptпоследействий. Foreign38files+directory сохранены, production не разворачивается. Следующийлокальныйпункт late edit/delete/voice/photo; весьB02 partial.
+
+## Историческое продолжение B02 / QA-B02-003 прежний UI — 07.10.2026
 
 От a3825e1c, codex/b02-chat-ui-boundaries-20261007. Root единственный product/tests/docs/Gradle/adb/GitHub writer; b02_socket_review независимый читатель текущих версий. [Реестр и следующие критерии](audit-blocks.md#b02--поздние-события-и-закрытие-прежнего-экрана-07102026). Первичная fixture9/9fail:8reflection lookup и1BA mount-timeout; сохранена до product patch; valid red-v2 9/7fail, из них6behavior и1BA matcher,2controls. Правки двух продуктовых файлов: опубликованная смена auth owner удаляет child UI; late main callbacks проверяют terminal, terminal закрывает socket. Три старых Realtime assertions обновлены под исчезновение данных; две новых test suites.
 

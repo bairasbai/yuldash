@@ -1,3 +1,9 @@
+## 07.10.2026 — жизненный цикл отправителя и сохранность очереди (QA-B02-003)
+
+Terminal экрана не обязательно закрывает серверный чат: сверять after-trip/lost-item policy прежде, чем удалять очередь или запрещать API. Caller predicate с defaulttrue позволяет остановить только UI flush; проверять его после mutex и перед следующим HTTP, не брать sessionLock под Outbox monitor. Пришедшее200 подтверждает конкретный action.id даже после закрытия отправителя; merge должен сохранить другие queued actions и stable keys. Сетевой отказ начатой ещё активной REST-отправки сохраняет same-owner слово/key до подавления поздних Toast, иначе guard сам создаёт потерю сообщения.
+
+Join suspend jobs и bounded Compose virtual pump — разные доказательства. Если новый terminal guard убирает «следующий HTTP» как причинный свидетель старого теста, честно обозначить более слабое отрицательное окно. Native held-response fixture требует readTimeout больше собственного latch deadline и времени UI/снимка; исправлять такое окружение до runtime, не называть ошибкой продукта. Реальный encrypted reopen в одном процессе не заменяет cold process, controlled LocalLifecycleOwner не заменяет всю навигацию приложения.
+
 ## 07.10.2026 — поколение входа и границы main-thread проверки (QA-B02-003)
 
 Смена token сама не очищает remembered Compose UI. Публиковать завершённую смену владельца и удалять child composition до навигации; исходного owner брать из того же опубликованного значения, чтобы не смешать raw generation с ещё прежним Flow. Внутри доставленного на main callback повторно проверять не только вход, но и terminal статус. Refresh того же входа должен сохранить экран; positive control обязателен.

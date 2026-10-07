@@ -1,5 +1,11 @@
 # 🗺️ Карта кода Юлдаш
 
+## Terminal HTTP и отправитель очереди (07.10.2026, QA-B02-003)
+
+`ActiveTripContent` использует `isTripChatActive` перед/после initial history/code/details, flush follow-up и REST send success. Начатый same-owner send при сетевой ошибке всё ещё сохраняет Outbox action/key; terminal блокирует только поздние UI/Toast. `Outbox.flush(context, expectedGeneration, shouldContinue={true})` сохраняет global default и проверяет динамический caller predicate после mutex и перед новым действием. Predicate выполняется вне монитора Outbox; не брать sessionLock из него. Ответ уже отправленного действия подтверждается merge по action.id/owner generation, остальные действия сохраняются; затем predicate останавливает следующие POST. Terminal не является глобальной политикой удаления очереди или запрета history: backend сохраняет after-trip/lost-item окно, YuldashApp startup flush независим.
+
+[RED/GREEN178/native2/версии и пределы](audit-blocks.md#b02--terminal-http-и-очередь-сообщений-07102026). Data5 join jobs, UI16 bounded virtual scheduling,5manual system callback cases; native RU/BA done с HTTP-only/controlled lifecycle и actual encrypted queue reopen в том же процессе. LateTerminalTest после code теперь negative bounded/no-details, прежний next-request causal witness удалён. UI/style/text/navigation enum/версии не менялись.
+
 ## Прежний экран и события чата (07.10.2026, QA-B02-003)
 
 `ApiClient.sessionChanges` — read-only StateFlow поколения входа, публикация после завершения init/saveToken/clearLocalSession/commitAuth. Refresh его не меняет. `ActiveTripScreen` фиксирует опубликованного владельца и удаляет keyed `ActiveTripContent` при смене поколения перед onBack. Дочерний content хранит прежние состояния и Compose scopes; сохранённый маршрут не подхватывает B автоматически. `isTripChatActive` проверяет поколение и актуальный bookingStatus внутри каждого message/connected/rejected main callback; `DisposableEffect(bookingId, terminalBooking)` закрывает terminal socket. Догрузка истории reconnect проверяет активность с обеих сторон HTTP. Прочие terminal операции не объявлены полностью покрытыми.

@@ -413,9 +413,13 @@ object Outbox {
      * Окончательный отказ (например, бронь закрыта) → снимаем действие, чтобы очередь
      * не «отравилась» вечным повтором. Ничего не роняем.
      */
-    suspend fun flush(context: Context, expectedGeneration: Long = ApiClient.queueSessionGeneration()): Boolean = flushMutex.withLock {
+    suspend fun flush(
+        context: Context,
+        expectedGeneration: Long = ApiClient.queueSessionGeneration(),
+        shouldContinue: () -> Boolean = { true },
+    ): Boolean = flushMutex.withLock {
         // Capture the caller's login before waiting for another flush; never adopt its successor.
-        if (expectedGeneration != ApiClient.queueSessionGeneration()) return@withLock false
+        if (expectedGeneration != ApiClient.queueSessionGeneration() || !shouldContinue()) return@withLock false
         var changed = false
         val generation = synchronized(this) {
             sp(context)
@@ -440,6 +444,8 @@ object Outbox {
         // Шесть часов, а не двадцать минут: связь в дороге пропадает надолго, и статус,
         // отправленный через час, всё ещё про эту поездку.
         while (true) {
+            // Only this caller stops; pending actions and the global startup flush remain intact.
+            if (!shouldContinue()) return@withLock changed
             val action = synchronized(this) {
                 if (generation != queueGeneration || session != ApiClient.queueSessionGeneration()) return@withLock changed
                 val current = readAll(context) ?: return@withLock changed
@@ -451,6 +457,7 @@ object Outbox {
                 }
                 fresh.firstOrNull()
             } ?: break
+            if (!shouldContinue()) return@withLock changed
             val result = ApiClient.sendQueuedAction(action, session)
             val failure = result.exceptionOrNull()
             if (failure != null && (failure !is ApiException ||
@@ -460,6 +467,7 @@ object Outbox {
                 // Merge with the live queue: messages added during HTTP must not be overwritten.
                 val current = readAll(context) ?: return@withLock changed
                 val remaining = current.filterNot { it.id == action.id }
+                // Acknowledge this completed request even if its UI closed during HTTP.
                 if (!writeAll(context, remaining)) return@withLock changed
                 changed = true
             }
