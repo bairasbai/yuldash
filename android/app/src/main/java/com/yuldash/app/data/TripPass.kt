@@ -44,7 +44,12 @@ data class TripPass(
     val seats: Int,
     val paymentNote: String,   // договорённость об оплате (если есть), иначе пусто
     val savedAt: Long,
+    // Nullable defaults keep old snapshots honest: their payment method was never saved.
+    val payMethod: String? = null,
+    val payAmount: Int? = null,
 ) {
+    val effectivePayAmount: Int get() = payAmount ?: price
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("booking_id", bookingId)
         put("from_city", fromCity)
@@ -62,6 +67,8 @@ data class TripPass(
         put("seats", seats)
         put("payment_note", paymentNote)
         put("saved_at", savedAt)
+        put("pay_method", payMethod ?: JSONObject.NULL)
+        put("pay_amount", payAmount ?: JSONObject.NULL)
     }
 
     companion object {
@@ -82,6 +89,8 @@ data class TripPass(
             seats = o.optInt("seats", 1),
             paymentNote = o.optString("payment_note"),
             savedAt = o.optLong("saved_at"),
+            payMethod = if (o.isNull("pay_method")) null else o.optString("pay_method"),
+            payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
         )
     }
 }

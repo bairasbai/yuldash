@@ -80,22 +80,22 @@
   "counts_by_kind": {
     "android_main": 130,
     "backend_main": 103,
-    "infra_resource_config": 324,
+    "infra_resource_config": 325,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 851
+    "test_support": 853
   },
   "counts_by_block": {
-    "B01": 123,
+    "B01": 124,
     "B02": 165,
     "B03": 101,
     "B04": 75,
     "B05": 29,
     "B06": 75,
-    "B07": 105,
+    "B07": 106,
     "B08": 164,
     "B09": 526,
-    "B10": 324,
+    "B10": 325,
     "B11": 90
   },
   "excluded_counts": {
@@ -211,6 +211,13 @@
       "block": "B10",
       "sha256": "0e2f06118cc08aa08c4fc7be49c7ae8f5b45a9090d5c00de9528f6a89526e69d",
       "lines": 582
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/OfflineTripPaymentInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "de4e5165a23c7608f564c078307cde405e281f62d7e3a39bbeafa53a027199b4",
+      "lines": 117
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/ParcelHandoverDialogInstrumentedTest.kt",
@@ -580,8 +587,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "e0fea778e9f5b78987e611b37882e54493d8e612d356731fbcdae089d1fc6e33",
-      "lines": 3883
+      "sha256": "96d312f6cde49a728c613cda12dff758add4fdc4c1bd9d5c2eea0a685fa4c62f",
+      "lines": 3887
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -1315,8 +1322,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "2aacc6660b9a58dc7b6a592551ffd426677b86c4959a87eb961ba110bc65000a",
-      "lines": 460
+      "sha256": "62f31d5d33e2ec19b9ad83deb7eda8abbb0e775c40a372e1b7a56769e982d51d",
+      "lines": 469
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPassDeletion.kt",
@@ -1905,6 +1912,13 @@
       "block": "B01",
       "sha256": "617c25b6029de71f54de4c715ea526c14e76f80f4eb51efb973ab176c94be297",
       "lines": 246
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/BookingOfflinePaymentJourneyTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "82f95a153d80af840e43cffa73874f738c969d5ccba93fcc55174bea7652db46",
+      "lines": 275
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingOfflineSaveTest.kt",
@@ -3347,6 +3361,13 @@
       "block": "B02",
       "sha256": "5896c07560b68be6f9b631165395c39876b508e6f60e8e58925ae1acbfa7fbaf",
       "lines": 71
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/TripPassPaymentPersistenceTest.kt",
+      "kind": "test_support",
+      "block": "B07",
+      "sha256": "a85ed40dd3727b3973e4cc76cc1b2ea1ca62c04fc7e77ba822443189e653e9bc",
+      "lines": 96
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/TripPassRemovalSessionTest.kt",

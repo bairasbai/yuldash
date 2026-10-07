@@ -313,8 +313,10 @@ private suspend fun saveTripPass(
             pickupLng = d.pickupLng,
             price = d.price,
             seats = d.seats,
-            paymentNote = "",   // явной договорённости от бэка нет — оплату показываем из price (двуязычно на экране)
+            paymentNote = "",
             savedAt = System.currentTimeMillis(),
+            payMethod = d.payMethod,
+            payAmount = d.payAmount,
         ),
         retryMigration = retryMigration,
         expectedGeneration = expectedGeneration,
@@ -1130,7 +1132,7 @@ internal fun PayAgreementBlock(
                         Text(payMethodLabel(method), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
-                if (summaryAmount != null && summaryAmount > 0) {
+                if (summaryAmount != null) {
                     Text("$summaryAmount ₽", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
@@ -2092,14 +2094,14 @@ internal fun ActiveTripScreen(
                     AlonePassengerHint(onShare = { showShare = true }, modifier = Modifier.appearIn(1))
                 }
             }
-            if (bookingId != null) {
+            if (bookingId != null && (!offline || tripPass?.payMethod in payMethodKeys)) {
                 item {
                     Box(Modifier.appearIn(1)) {
                         PayAgreementBlock(
                             editable = false,
-                            method = payMethod,
+                            method = if (offline) tripPass!!.payMethod!! else payMethod,
                             amountText = "",
-                            summaryAmount = payAmount,
+                            summaryAmount = if (offline) tripPass!!.effectivePayAmount else payAmount,
                             onMethod = {},
                             onAmount = {}
                         )
@@ -3497,10 +3499,12 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
             }
             if (pass.pickup.isNotBlank()) TripPassRow(Icons.Default.LocationOn, appText("Точка сбора", "Йыйылыу урыны"), pass.pickup)
             if (pass.boardingCode.isNotBlank()) TripPassRow(Icons.Default.Pin, appText("Код посадки", "Ултырыу коды"), pass.boardingCode)
-            if (pass.price > 0) TripPassRow(
-                Icons.Default.Payments, appText("Оплата", "Түләү"),
-                appText("${pass.price} ₽ · перевод по СБП", "${pass.price} ₽ · СБП аша күсереү")
-            )
+            if (pass.payAmount != null || pass.price > 0 || pass.payMethod != null) {
+                val method = pass.payMethod?.takeIf { it in payMethodKeys }?.let { payMethodLabel(it) }
+                    ?: appText("Способ оплаты не сохранён", "Түләү ысулы һаҡланмаған")
+                TripPassRow(Icons.Default.Payments, appText("Оплата", "Түләү"),
+                    "${pass.effectivePayAmount} ₽ · $method")
+            }
         }
     }
 }
