@@ -80,22 +80,22 @@
   "counts_by_kind": {
     "android_main": 130,
     "backend_main": 103,
-    "infra_resource_config": 326,
+    "infra_resource_config": 328,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 854
+    "test_support": 855
   },
   "counts_by_block": {
     "B01": 124,
     "B02": 166,
     "B03": 101,
     "B04": 75,
-    "B05": 29,
+    "B05": 30,
     "B06": 75,
     "B07": 106,
     "B08": 164,
     "B09": 526,
-    "B10": 326,
+    "B10": 328,
     "B11": 90
   },
   "excluded_counts": {
@@ -183,6 +183,13 @@
       "block": "B10",
       "sha256": "c67905c9c9a726cfc919f5829b118f10e08bbff6909d63bafc9e22e846904c9f",
       "lines": 216
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/ChatSocketRefreshInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "4839302eb653a505a3218bef31eb52e623082910c6588f283f54416c2bfab31c",
+      "lines": 131
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/LiveFcmProviderInstrumentedTest.kt",
@@ -1231,8 +1238,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ChatSocket.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "49abacabaa628324511137ed5a2e06bb7f174793d1cbd0ec169ac2bcd5ee0781",
-      "lines": 209
+      "sha256": "6df0967280ea1ecac75a284de7276374694186fd484c791907d84068d1913546",
+      "lines": 218
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/FcmService.kt",
@@ -3214,6 +3221,13 @@
       "block": "B05",
       "sha256": "25889702e36199dda9cc1d74d8028f0307d77d8ff062e91276458f2b3067b476",
       "lines": 71
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/ChatSocketHandshakeRefreshTest.kt",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "4a7b875edeca920ef30883c110ff143913abdd58f802826ed86a414f7cdc138f",
+      "lines": 333
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/ChatSocketSessionBoundaryTest.kt",
@@ -9388,6 +9402,13 @@
       "block": "B10",
       "sha256": "81a1d2a5ba4af479948eb052a55b4f658b0580a059f14c26a3bbb7115ed44bbc",
       "lines": 409
+    },
+    {
+      "path": "tools/audit_chat_refresh_loopback.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "42627e48f7fa8014de87b5e19e637f6cac36e474530f4e757fc8e0ca1edcf404",
+      "lines": 82
     },
     {
       "path": "tools/audit_inventory.py",

@@ -103,8 +103,8 @@ class ChatSocket(
     @Synchronized
     private fun openSocket() {
         if (closed || !ApiClient.isCurrentSession(ownerSession)) return
-        val token = ApiClient.currentToken() ?: return
         val currentConnection = ++connection
+        var authenticatedToken: String? = null // guarded by this monitor; the token actually sent on this connection
         // Закрываем предыдущий сокет ПЕРЕД созданием нового: при гонке reconnect↔connect иначе оставались
         // бы два живых WS на один канал → дубли сообщений. Код 4999 (терминальный диапазон) → его onClosed
         // НЕ запустит реконнект (без churn). @Synchronized сериализует параллельные openSocket.
@@ -116,7 +116,10 @@ class ChatSocket(
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     synchronized(this@ChatSocket) {
                         if (closed || connection != currentConnection || !ApiClient.runIfCurrentSession(ownerSession) {
+                            // Refresh keeps the owner generation but can replace the token during HTTP upgrade.
+                            val token = requireNotNull(ApiClient.currentToken())
                             webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
+                            authenticatedToken = token
                             attempt = 0
                             onConnected(true)
                         }) webSocket.close(1000, null)
@@ -153,8 +156,13 @@ class ChatSocket(
                         ws = null
                         if (!ApiClient.isCurrentSession(ownerSession)) { close(); return }
                         ApiClient.runIfCurrentSession(ownerSession) { onConnected(false) }
+                        // The callback may synchronously open a replacement connection.
+                        if (closed || connection != currentConnection) return
                         // Policy/custom failures are terminal; other closures retry with backoff.
-                        if (code != 1008 && code !in 4000..4999) scheduleReconnect()
+                        // A refused older token can recover once with credentials already refreshed by REST.
+                        val refreshedCredentials = code == 1008 && authenticatedToken != null &&
+                            ApiClient.currentToken() != authenticatedToken
+                        if (refreshedCredentials || (code != 1008 && code !in 4000..4999)) scheduleReconnect()
                     }
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -163,6 +171,7 @@ class ChatSocket(
                         ws = null
                         if (!ApiClient.isCurrentSession(ownerSession)) { close(); return }
                         ApiClient.runIfCurrentSession(ownerSession) { onConnected(false) }
+                        if (closed || connection != currentConnection) return
                         scheduleReconnect()
                     }
                 }

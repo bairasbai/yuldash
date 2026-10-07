@@ -2,7 +2,18 @@
 
 Текущие статусы и очередь находятся только в [audit-blocks.md](audit-blocks.md). Состав и нормализованные SHA256 — в [audit-code-inventory.json](audit-code-inventory.json). Независимый дизайн — [audit-design-review.md](audit-design-review.md). Этот журнал хранит действия, доказательства и ограничения, не заменяет реестр.
 
-## Текущее продолжение B02 / QA-B02-011 — 07.10.2026
+## Текущее продолжение B02 / QA-B02-003 handshake/refresh — 07.10.2026
+
+«Идем дальше»: d287ce4a→codex/b02-chat-handshake-refresh-20261007. Root один product/tests/docs/Gradle/adb/GitHub writer; b02_socket_review независимый bounded читатель. [Текущий реестр](audit-blocks.md#b02--подключение-чата-и-обновление-входа-07102026). Runtime RED11/4fail,48.281с: две oldA вместоA2 auth assertions, старый1008 не восстановился, reentrant onClosedfalsecallback создал actual третийupgrade. Остальные7 controls прошли, error/skip0; before source/test SHA записаны до patch. Product onlyChatSocket: actualfresh token under ownerlock atonOpen; actualauthenticatedToken vs refreshedcredentials при1008; postfalsecallback connection/closed guards. ApiClient/NetworkMonitor/UI/backend/версии не менялись.
+
+GREEN24/24,64.141с; интеграция85/85/10freshXML,113.422с с debug/testAPK. Reader отметил current-onFailure reentrancy ещё не проверенной; добавлен actualclientcancel с positive replacement conversation/no third timer. Finalaffected12/12/debug/testAPK,55.719с; unchanged74neighbors не повторялись. Уникально12+74=86, не85+12; native3 отдельно. Три12case содержат oldlistenerinjection,9без; RED4actualtransport. Добавленный12-й не выдавать за отдельный RED. Предыдущие code/payment fullprofiles не повторялись без изменения их source.
+
+Nativefirstattempt3/3,6.875с instrumentation/JUnit4.085с. API35/currentAPK/testAPK, airplane/defaultnone, ownhostaiohttp3.13.5/19079 черезadbreverse. HeldHTTPupgrade+actual401/refresh сохраняетgeneration/authA2/receive/send; old1008 reconnectA2 работает; currentA2 policy1008 no loop в1.6с window. Authinitassert Keystoreavailable — не diskreopen/fullcrypto/processdeath доказательство. Native неUI/noPNG/noRU-BA matrix/неA→B. Pythonwebsockets15 draft был отвергнут локальнымчтениемпарсера до запуска: онтолькоGET/bodyunsupported; actual fixture переписан наустановленныйaiohttp без изменения зависимостейAndroid. Repro helper сохранён tools/audit_chat_refresh_loopback.py, его fingerprint/includeinventory обязателен. Nativeactuallogs/markers/checkpoint primary, no livebackend/JWT/production/phone.
+
+Inventory1785 (3added/1ownchanged/0removed+foreigngitignore), старый1782backup/writecheck0. Source/tests/helper frozen послеfinalnative; отдельный independentreceipt и finalcheckpoint. Своиemulator7184/children,host2348 stopped,5580/5581/19079 absent/reverseabsent/adbпуст;unknownpython624/sharedadb/чужиеworktrees не targeted. Публикация11own путей через cleanmainworktree, guard→fetch→commit→ff-onlymain→push→singlelsremote; точная доставка b02-chat-handshake-git-publication-20261007.json после выполнения. Открыты main-thread queuedcallbacks/oldUIclear/nativeA→B/terminal/coldprocess/realprovider иполныйB02. НовыхBAстрокнет, релизнеобъявлен.
+
+
+## Историческое продолжение B02 / QA-B02-011 — 07.10.2026
 
 «Продолжай»: от опубликованногоf04b10c0, codex/b02-code-retry-boundaries-20261007. Root пишет только2новых tests и7docs, единственный Gradle/adb/GitHub; b02_socket_review независимо читает текущие tests/3product и primaryoutputs, пишет свой receipt. [Текущий результат и очередь](audit-blocks.md#b02--повтор-кода-поздние-ответы-и-устройство-07102026). Существующие owner/terminal/store guards прошли новые boundaries, продуктовый diff пустой; не объявлять это новым исправлением безопасности. Новых UI строк/переводов нет.
 

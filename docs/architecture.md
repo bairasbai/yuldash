@@ -1,5 +1,11 @@
 # 🗺️ Карта кода Юлдаш
 
+## Подключение чата и refresh (07.10.2026, QA-B02-003)
+
+`ChatSocket.openSocket` хранит номер соединения, а актуальный token читает только при `onOpen` внутри `ApiClient.runIfCurrentSession`. `authenticatedToken` принадлежит этому соединению и отражает фактически отправленную авторизацию. Если старое соединение закрыто1008 после уже выполненного RESTrefresh в том же поколении входа, возможен reconnect с новым token;1008 текущему ключу остаётся terminal. Собственный refresh из сокета не добавлен. После `onConnected(false)` в onClosed/onFailure снова проверяются closed/connection, поскольку callback может синхронно вызвать connect/close. Прежние owner guards, query-free auth frame и backoff остаются.
+
+12 новых JVM +74 неизменённых соседа и3actual Android-transport cases; native использует воспроизводимый host fixture `tools/audit_chat_refresh_loopback.py` через adb reverse. Он не входит в продукт и не меняет зависимости Android. [Фактические RED/GREEN, версии и границы](audit-blocks.md#b02--подключение-чата-и-обновление-входа-07102026). Late listener injection обозначена отдельно, UI disappearance/main-thread callbacks и реальные сервисы ещё открыты.
+
 ## Повтор кода: проверенные границы (07.10.2026, QA-B02-011 / DESIGN066)
 
 Существующий `ActiveTripScreen` повторяет код отдельным `LaunchedEffect(codeLoadRetry)`: проверяет захваченное поколение входа и done/cancelled до запроса и после ответа. Сохранение в IO повторно проверяет владельца/terminal и передаёт expectedGeneration в `TripPassStore.updateBoardingCode`; `.copy` сохраняет договор оплаты. Никакой новый product guard в этом этапе не добавлен. Удержанный retry при A→B, terminal polling и реальной кнопке Назад проверен actual Compose/ApiClient с независимым диском модели. Негативное окно2с после ответа, не join; два pointer click проверены в одном event batch, не общий single-flight.
