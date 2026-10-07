@@ -2,7 +2,18 @@
 
 Текущие статусы и очередь находятся только в [audit-blocks.md](audit-blocks.md). Состав и нормализованные SHA256 — в [audit-code-inventory.json](audit-code-inventory.json). Независимый дизайн — [audit-design-review.md](audit-design-review.md). Этот журнал хранит действия, доказательства и ограничения, не заменяет реестр.
 
-## Текущее продолжение B02 / DESIGN065 — 07.10.2026
+## Текущее продолжение B02 / QA-B02-011 — 07.10.2026
+
+«Продолжай»: от опубликованногоf04b10c0, codex/b02-code-retry-boundaries-20261007. Root пишет только2новых tests и7docs, единственный Gradle/adb/GitHub; b02_socket_review независимо читает текущие tests/3product и primaryoutputs, пишет свой receipt. [Текущий результат и очередь](audit-blocks.md#b02--повтор-кода-поздние-ответы-и-устройство-07102026). Существующие owner/terminal/store guards прошли новые boundaries, продуктовый diff пустой; не объявлять это новым исправлением безопасности. Новых UI строк/переводов нет.
+
+Baseline8/1fail за53.75с: cancelled disk deletion завершилось прежде maincallback; стенд стал ждать также ended==1. Первичная интеграция41/41 за137.188с/debug+testAPK,9XML. После неё добавлена проверка exactly-once callback после позднего ответа и уточнён native screenshot; последний affected run8/8 за63.187с снова собирает оба APK.33 соседних source/dependencies неизменны, не повторялись. Уникально8new+33old=41; повторные8 не складываются. Native2 отдельно, предыдущие135/121 не перепроверялись целиком без причины.
+
+Nativefirst2/2/JUnit7.908с, instrumentation14.344с, но Ba-error кадр слишком ранний/карточки не видны; визуально не принят. Fixture ожидает PixelCopy отрисованного зелёного фона рядом с label, затем сохраняет оригинальный полный UiAutomation PNG; timeout client45с/held30с. Native-v2 OK2/2/JUnit6.89с/instrument9.562с; все6PNG просмотрены root, ошибка/loading/5678 читаются RU/BA. API35/1080×2340/defaultfont/theme, airplaneenabled/defaultnetworknone, actual encrypted v2/Keystore reopen и loopback503/held200; не физическийтелефон/liveHTTP/coldprocess/nativeA→B. Logcat содержит historicalPID2973 и current3315; текущие2JUnitcase/PID3315, не4marker проверки. DebugAPK hash совпадает paymentcheckpoint, testAPK hash новый.
+
+Смена входа: logout/saveToken и отличающиеся B snapshot на независимом диске; late200/503 не меняют их. Done/cancelled проверены после actual lifecyclepoll, callbackcancelled1 до/послеrelease. Назад — actual ScreenTopBar/unmount. Negative assertions используют bounded2с mainpump после serverrelease, не coroutinejoin; rapid2pointertap — один batch50мс, не все inter-frame taps. У initial code save/details и historyTick/codeLoadRetry остаются отдельные необследованные orderingварианты. Инвентаризация1782:2added/0ownchanged/0removed иforeign.gitignore; прежний1780backup, write/check0. Own emulator launcher16280/children остановлен,5580/5581не слушают,adbпуст,sharedadb сохранён. Source/test больше не меняются, docs/hash checkpoint затем frozen. Публикация только9своих путей с чистым candidateinventory через guard→одинfetch→commit→ff-onlymain→обычныйpush→однаremoteSHAсверка; точная доставка в b02-code-retry-git-publication-20261007.json после выполнения. Production не входит; B02/релиз не закрыты.
+
+
+## Историческое продолжение B02 / DESIGN065 — 07.10.2026
 
 «Продолжай»: старт опубликованный edcbc592, codex/b02-offline-payment-20261007. Root единственный product/test/docs/build/adb writer, b02_socket_review только независимо читает5source/test files и доказательства; пишет один собственный receipt. Локальный результат и очередь — [QA-B02-013](audit-blocks.md#b02--договорённость-оплаты-офлайн-07102026). Изменены только TripPass.kt и BookingActiveTripScreen.kt: nullable typed method/amount отдельно от price, saveDTO, честный legacy, effective0/None, согласованное read-only отображение. mobile/версии/backend/production не менялись.
 

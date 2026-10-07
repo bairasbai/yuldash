@@ -1,5 +1,11 @@
 # 🗺️ Карта кода Юлдаш
 
+## Повтор кода: проверенные границы (07.10.2026, QA-B02-011 / DESIGN066)
+
+Существующий `ActiveTripScreen` повторяет код отдельным `LaunchedEffect(codeLoadRetry)`: проверяет захваченное поколение входа и done/cancelled до запроса и после ответа. Сохранение в IO повторно проверяет владельца/terminal и передаёт expectedGeneration в `TripPassStore.updateBoardingCode`; `.copy` сохраняет договор оплаты. Никакой новый product guard в этом этапе не добавлен. Удержанный retry при A→B, terminal polling и реальной кнопке Назад проверен actual Compose/ApiClient с независимым диском модели. Негативное окно2с после ответа, не join; два pointer click проверены в одном event batch, не общий single-flight.
+
+Новые `ActiveTripBoardingCodeRetryBoundaryTest` (8JVM) и `ActiveTripBoardingCodeRetryInstrumentedTest` (2native RU/BA) покрывают указанные границы. Native использует реальное encrypted reopen и ждёт отрисованный кадр перед screenshot; не cold process/телефон/нативные гонки. [Результаты, версия и точные остатки](audit-blocks.md#b02--повтор-кода-поздние-ответы-и-устройство-07102026). Параллельный history/code и WebSocket handshake/refresh ещё открыты.
+
 ## Оплата в офлайн-паспорте (07.10.2026, QA-B02-013 / DESIGN065)
 
 `TripPass.kt`: `payMethod:String?` и `payAmount:Int?` добавлены в конец модели с nullable defaults. JSON сохраняет отдельные `pay_method`/`pay_amount` и исходный `price`; `effectivePayAmount=payAmount?:price`, поэтому0 не теряется. Старые missing/null поля означают неизвестный метод; свободный paymentNote не используется для угадывания. Поколение владельца, миграция, rollback, код и terminal deletion остаются прежними, `.copy(boardingCode)` сохраняет новые поля.
