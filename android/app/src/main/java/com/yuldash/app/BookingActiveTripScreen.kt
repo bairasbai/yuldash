@@ -2658,8 +2658,11 @@ private fun ActiveTripContent(
         if (bid != null) voiceScope.launch { ApiClient.winterCheckOk(bid) }
     }
 
-    if (showShare) {
-        ModalBottomSheet(onDismissRequest = { showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
+    if (showShare && isTripChatActive()) {
+        // A fresh scope for each opening rejects its predecessor's results and retained callbacks.
+        val sharingScope = rememberCoroutineScope()
+        fun isShareCurrent() = sharingScope.isActive && showShare && isTripChatActive()
+        ModalBottomSheet(onDismissRequest = { if (isShareCurrent()) showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
             // Ссылка live-поездки (B7c): после выбора близкого показываем её тут же —
             // скопировать или отправить самому через системный share-sheet.
             var liveLink by remember { mutableStateOf<String?>(null) }
@@ -2673,7 +2676,9 @@ private fun ActiveTripContent(
             // сервер без этой ручки просто вернёт ошибку — поведение как раньше, ничего не ломаем.
             LaunchedEffect(bookingId) {
                 val bid = bookingId ?: return@LaunchedEffect
+                if (!isShareCurrent()) return@LaunchedEffect
                 ApiClient.getBookingShares(bid).onSuccess { srv ->
+                    if (!isShareCurrent()) return@onSuccess
                     if (srv.isEmpty()) return@onSuccess
                     activeShares = srv.map { s ->
                         s to (contacts.firstOrNull { it.id == s.contactId }?.name ?: "")
@@ -2689,23 +2694,25 @@ private fun ActiveTripContent(
                     if (!link.isNullOrBlank()) LiveLinkCard(link)
                     ActiveSharesList(activeShares) { share ->
                         val bid = bookingId
-                        if (bid != null) voiceScope.launch {
+                        if (bid != null && isShareCurrent()) sharingScope.launch {
+                            if (!isShareCurrent()) return@launch
                             ApiClient.revokeBookingShare(bid, share.id)
                                 .onSuccess {
+                                    if (!isShareCurrent()) return@onSuccess
                                     activeShares = activeShares.filterNot { it.first.id == share.id }
                                     if (activeShares.none { !it.first.link.isNullOrBlank() }) liveLink = null
                                     if (activeShares.isEmpty()) showContacts = true
                                     Toast.makeText(context, shareRevokedMsg, Toast.LENGTH_SHORT).show()
                                 }
-                                .onFailure { Toast.makeText(context, serverSaid(it, shareErrMsg), Toast.LENGTH_LONG).show() }
+                                .onFailure { if (isShareCurrent()) Toast.makeText(context, serverSaid(it, shareErrMsg), Toast.LENGTH_LONG).show() }
                         }
                     }
                     Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton(onClick = { showContacts = true }) {
+                        TextButton(onClick = { if (isShareCurrent()) showContacts = true }) {
                             Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                         }
-                        TextButton(onClick = { showShare = false }) {
+                        TextButton(onClick = { if (isShareCurrent()) showShare = false }) {
                             Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                         }
                     }
@@ -2718,9 +2725,11 @@ private fun ActiveTripContent(
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             val bid = bookingId
-                            if (bid != null) voiceScope.launch {
+                            if (bid != null && isShareCurrent()) sharingScope.launch {
+                                if (!isShareCurrent()) return@launch
                                 ApiClient.shareTrip(bid, c.id)
                                     .onSuccess { share ->
+                                        if (!isShareCurrent()) return@onSuccess
                                         Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
                                         if (share != null) {
                                             activeShares = activeShares.filterNot { it.first.id == share.id } + (share to c.name)
@@ -2729,10 +2738,11 @@ private fun ActiveTripContent(
                                         } else showShare = false
                                     }
                                     .onFailure {
+                                        if (!isShareCurrent()) return@onFailure
                                         showShare = false
                                         Toast.makeText(context, serverSaid(it, shareErrMsg), Toast.LENGTH_LONG).show()
                                     }
-                            } else showShare = false
+                            } else if (isShareCurrent()) showShare = false
                         }.padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -3921,5 +3931,4 @@ internal fun MessageBubble(
         }
     }
 }
-
 

@@ -9018,3 +9018,7 @@ Payment был залочен, но вызываемый settlement helper са�
 - Cleanup старого recorder в cancelled LazyColumn ещё не доказывает запрет нового. Скролл/remount+micclick воспроизвёл новый старт; ActiveTrip recordingAllowed должен ограничивать также вход в запись.
 
 XML/история/пределы: [реестр](audit-blocks.md#b02--запись-голоса-при-уходе-07102026). Не обобщать успешно освобождённый emulator recorder на hardware release exception, реальные permission-диалоги или физический телефон.
+
+07.10.2026 — B02 sharing/completion: `remember(bookingId)` сбрасывает отдельные значения, но не прекращает coroutineScope и external callbacks старой брони. Keyed child + проверка generation/scope нужны вместе. Sheet jobs нельзя запускать в parent scope: done ранний return может сохранить родителя, а закрытый лист продолжит показывать Toast. Dismiss тоже callback: без собственной scope-проверки старый лист может закрыть повторно открытый.
+
+Новые Compose-тесты: сначала обычный control. Невидимый LazyColumn item искать через list.performScrollToNode; fixed footer не имеет scroll ancestor и не допускает performScrollTo. Ошибки подписи/поиска/Dismiss в fixture не считать дефектами продукта. Результат patch/команды проверять до зависимого runner: в этом этапе unpatched green был запущен преждевременно и остановлен строго по подтверждённому дереву собственных процессов; это не успешный прогон. Независимое source-замечание до итоговой приёмки может потребовать остановки ещё собирающего APK runner; причину повтора записывать.

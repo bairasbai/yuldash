@@ -50,6 +50,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -78,6 +81,8 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.TipInfoDto
 import com.yuldash.app.data.TripReceiptDto
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.CancellationException
 
 /**
  * Отдельный экран после завершения попутки — утверждённый вариант B «Рәхмәт прежде всего».
@@ -104,8 +109,33 @@ internal fun RideshareCompletedScreen(
     sendThanks: suspend (Int) -> Result<Unit> = { ApiClient.sayBookingThanks(it) },
     openLostItem: suspend (Int) -> Result<Unit> = { ApiClient.bookingLostItem(it).map { Unit } },
 ) {
-    BackHandler(onBack = onClose)
+    val currentSession by ApiClient.sessionChanges.collectAsState()
+    val completedSession = remember(bookingId) { currentSession }
+    val leave by rememberUpdatedState(onClose)
+    if (currentSession != completedSession) {
+        LaunchedEffect(completedSession) { leave() }
+        return
+    }
+    key(bookingId, completedSession) {
+        RideshareCompletedSession(bookingId, ride, fallbackRole, fallbackPayMethod, fallbackPayAmount,
+            onClose, onOpenReceipt, onSupport, loadReceipt, rateBooking, loadThanks, sendThanks,
+            openLostItem, completedSession)
+    }
+}
+
+@Composable
+private fun RideshareCompletedSession(
+    bookingId: Int, ride: Ride?, fallbackRole: String, fallbackPayMethod: String,
+    fallbackPayAmount: Int?, onClose: () -> Unit, onOpenReceipt: () -> Unit, onSupport: () -> Unit,
+    loadReceipt: suspend (Int) -> Result<TripReceiptDto>,
+    rateBooking: suspend (Int, Int, String, List<String>) -> Result<Unit>,
+    loadThanks: suspend (Int) -> Result<TipInfoDto>, sendThanks: suspend (Int) -> Result<Unit>,
+    openLostItem: suspend (Int) -> Result<Unit>, completedSession: Long,
+) {
     val scope = rememberCoroutineScope()
+    // Done permits these actions; disposal, another booking or another login invalidates them.
+    fun isCurrent() = scope.isActive && completedSession == ApiClient.queueSessionGeneration()
+    BackHandler { if (isCurrent()) onClose() }
     val context = LocalContext.current
     var receipt by remember(bookingId) { mutableStateOf<TripReceiptDto?>(null) }
     var receiptLoading by remember(bookingId) { mutableStateOf(true) }
@@ -142,9 +172,12 @@ internal fun RideshareCompletedScreen(
     )
 
     LaunchedEffect(bookingId, receiptTick) {
+        if (!isCurrent()) return@LaunchedEffect
         receiptLoading = true
         receiptError = null
-        loadReceipt(bookingId)
+        val result = loadReceipt(bookingId)
+        if (!isCurrent()) return@LaunchedEffect
+        result
             .onSuccess { value ->
                 receipt = value
                 if (!ratingTouched) {
@@ -160,8 +193,10 @@ internal fun RideshareCompletedScreen(
     val effectiveRole = receipt?.role?.takeIf(String::isNotBlank) ?: fallbackRole
     val isDriver = effectiveRole == "driver"
     LaunchedEffect(bookingId, isDriver) {
+        if (!isCurrent()) return@LaunchedEffect
         if (!isDriver) {
-            loadThanks(bookingId).onSuccess { thanked = it.alreadyThanked }
+            val result = loadThanks(bookingId)
+            if (isCurrent()) result.onSuccess { thanked = it.alreadyThanked }
         }
     }
 
@@ -190,7 +225,7 @@ internal fun RideshareCompletedScreen(
         paid = paid,
         receiptLoading = receiptLoading,
         receiptError = receiptError,
-        onRetryReceipt = { receiptTick++ },
+        onRetryReceipt = { if (isCurrent()) receiptTick++ },
         stars = stars,
         selectedTags = selectedTags,
         reviewText = reviewText,
@@ -203,33 +238,43 @@ internal fun RideshareCompletedScreen(
         lostBusy = lostBusy,
         actionError = actionError,
         onStar = { value ->
-            ratingTouched = true
-            stars = value
-            selectedTags = emptyList()
-            ratingSent = false
-            actionError = null
+            if (isCurrent() && !ratingBusy) {
+                ratingTouched = true
+                stars = value
+                selectedTags = emptyList()
+                ratingSent = false
+                actionError = null
+            }
         },
         onTag = { code ->
-            ratingTouched = true
-            selectedTags = if (code in selectedTags) selectedTags - code else selectedTags + code
-            ratingSent = false
-            actionError = null
+            if (isCurrent() && !ratingBusy) {
+                ratingTouched = true
+                selectedTags = if (code in selectedTags) selectedTags - code else selectedTags + code
+                ratingSent = false
+                actionError = null
+            }
         },
-        onReviewExpanded = { reviewExpanded = !reviewExpanded },
+        onReviewExpanded = { if (isCurrent() && !ratingBusy) reviewExpanded = !reviewExpanded },
         onReviewText = {
-            reviewText = it.take(500)
-            ratingTouched = true
-            ratingSent = false
-            actionError = null
+            if (isCurrent() && !ratingBusy) {
+                reviewText = it.take(500)
+                ratingTouched = true
+                ratingSent = false
+                actionError = null
+            }
         },
         onSubmit = {
-            if (ratingSent) {
+            if (!isCurrent()) Unit
+            else if (ratingSent) {
                 onClose()
             } else if (stars > 0 && !ratingBusy) {
                 ratingBusy = true
                 actionError = null
                 scope.launch {
-                    rateBooking(bookingId, stars, reviewText, selectedTags)
+                    if (!isCurrent()) return@launch
+                    val result = rateBooking(bookingId, stars, reviewText, selectedTags)
+                    if (!isCurrent()) return@launch
+                    result
                         .onSuccess {
                             ratingSent = true
                             if (stars == 5 && !isDriver) maybeRequestStoreReview(context)
@@ -239,38 +284,47 @@ internal fun RideshareCompletedScreen(
                 }
             }
         },
-        onSkip = onClose,
+        onSkip = { if (isCurrent()) onClose() },
         onThanks = {
-            if (!thanked && !thanksBusy) {
+            if (isCurrent() && !thanked && !thanksBusy) {
                 thanksBusy = true
                 actionError = null
                 scope.launch {
-                    sendThanks(bookingId)
+                    if (!isCurrent()) return@launch
+                    val result = sendThanks(bookingId)
+                    if (!isCurrent()) return@launch
+                    result
                         .onSuccess { thanked = true }
                         .onFailure { actionError = serverSaid(it, thanksFail) }
                     thanksBusy = false
                 }
             }
         },
-        onReceipt = onOpenReceipt,
+        onReceipt = { if (isCurrent()) onOpenReceipt() },
         onLostItem = {
-            if (!lostOpened && !lostBusy) {
+            if (isCurrent() && !lostOpened && !lostBusy) {
                 lostBusy = true
                 actionError = null
                 scope.launch {
-                    openLostItem(bookingId)
+                    if (!isCurrent()) return@launch
+                    val result = openLostItem(bookingId)
+                    if (!isCurrent()) return@launch
+                    result
                         .onSuccess { lostOpened = true }
                         .onFailure { actionError = serverSaid(it, lostFail) }
                     lostBusy = false
                 }
             }
         },
-        onSupport = onSupport,
+        onSupport = { if (isCurrent()) onSupport() },
         showOnlinePay = !isDriver && !paid,
         onlinePay = {
             PayOnlineCard(
                 amountKop = amount?.times(100),
-                pay = { method -> ApiClient.payBooking(bookingId, method) },
+                pay = { method ->
+                    if (!isCurrent()) throw CancellationException("Completed screen disposed")
+                    ApiClient.payBooking(bookingId, method)
+                },
             )
         },
     )
