@@ -37,6 +37,60 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         saved.get<Int>(KEY_ACTIVE_BID)?.takeIf { it > 0 }
     )
 
+    data class PendingCompletedNavigation(val bookingId: Int, val ownerId: Int?, val revision: Long)
+    val pendingCompletedNavigation = mutableStateOf(
+        saved.get<Int>(KEY_PENDING_COMPLETED)?.takeIf { it > 0 }?.let { bid ->
+            saved.get<Long>(KEY_PENDING_REVISION)?.takeIf { it > 0 }?.let { revision ->
+                PendingCompletedNavigation(bid, saved.get<Int>(KEY_PENDING_OWNER)?.takeIf { it > 0 }, revision)
+            }
+        }
+    )
+
+    /** Записываем до HTTP/перекомпозиции: новое уведомление должно пережить saved task. */
+    fun requestCompletedBooking(bookingId: Int, ownerId: Int?) {
+        if (bookingId <= 0) return
+        val revision = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) + 1L
+        saved[KEY_PENDING_REVISION] = revision
+        saved[KEY_PENDING_COMPLETED] = bookingId
+        saved[KEY_PENDING_OWNER] = ownerId ?: -1
+        pendingCompletedNavigation.value = PendingCompletedNavigation(bookingId, ownerId, revision)
+        DeepLink.pendingCompletedBookingId.value = bookingId
+    }
+
+    /** Без владельца — назначение до входа; привязываем при первом известном аккаунте. */
+    fun pendingCompletedForOwner(ownerId: Int?): PendingCompletedNavigation? {
+        val pending = pendingCompletedNavigation.value ?: return null
+        if (pending.ownerId != null && pending.ownerId != ownerId) {
+            clearPendingCompleted(pending)
+            return null
+        }
+        val bound = if (pending.ownerId == null && ownerId != null) pending.copy(ownerId = ownerId) else pending
+        if (bound != pending) {
+            saved[KEY_PENDING_OWNER] = ownerId
+            pendingCompletedNavigation.value = bound
+        }
+        DeepLink.pendingCompletedBookingId.value = bound.bookingId
+        return bound
+    }
+
+    /** Один main-thread участок без suspend: маршрут сохранён до удаления pending. */
+    fun consumePendingCompleted(expected: PendingCompletedNavigation, applyRoute: () -> Unit): Boolean {
+        if (pendingCompletedNavigation.value != expected) return false
+        applyRoute()
+        recordNavigationChange()
+        persistNav()
+        clearPendingCompleted(expected)
+        return true
+    }
+
+    private fun clearPendingCompleted(expected: PendingCompletedNavigation) {
+        if (pendingCompletedNavigation.value != expected) return
+        pendingCompletedNavigation.value = null
+        saved.remove<Int>(KEY_PENDING_COMPLETED)
+        saved.remove<Int>(KEY_PENDING_OWNER)
+        if (DeepLink.pendingCompletedBookingId.value == expected.bookingId) DeepLink.pendingCompletedBookingId.value = null
+    }
+
     /**
      * Восстанавливает язык из постоянных настроек только когда SavedState не содержит
      * валидного значения. Так поворот экрана сохраняет самое свежее состояние, а настоящий
@@ -59,6 +113,17 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         saved[KEY_TAB] = startHomeTab.value.name
         saved[KEY_ACTIVE_BID] = activeBookingId.value ?: -1   // -1 = нет активной брони (null не храним примитивом)
         saved[KEY_NAV_HISTORY] = ArrayList(navHistory.map { it.name })
+    }
+
+    /** Тот же tracker для обычного эффекта и синхронного consume до saved task. */
+    fun recordNavigationChange() {
+        val previous = navPrev.value
+        val current = screen.value
+        val transient = previous in listOf(Screen.Splash, Screen.Login, Screen.Onboarding, Screen.Intro)
+        if (current == Screen.Login) navHistory.clear()
+        else if (!navPopping.value && current != previous && !transient) navHistory.add(previous)
+        navPopping.value = false
+        navPrev.value = current
     }
 
     // --- Транзитные/бизнес: переживают поворот, не переживают kill (как и было) ---
@@ -102,6 +167,8 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
      * (имена+телефоны) и заявки прошлого пользователя. Реклама (partnerAds/adStats) — публичная, не PII.
      */
     fun clearUserData() {
+        pendingCompletedNavigation.value?.let(::clearPendingCompleted)
+        DeepLink.pendingCompletedBookingId.value = null
         selectedRide.value = null
         activeTrip.value = null
         activeBookingId.value = null
@@ -122,5 +189,8 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         const val KEY_TAB = "yuldash_tab"
         const val KEY_ACTIVE_BID = "yuldash_active_bid"
         const val KEY_NAV_HISTORY = "yuldash_nav_history"
+        const val KEY_PENDING_COMPLETED = "yuldash_pending_completed"
+        const val KEY_PENDING_OWNER = "yuldash_pending_completed_owner"
+        const val KEY_PENDING_REVISION = "yuldash_pending_completed_revision"
     }
 }

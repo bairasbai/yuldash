@@ -39,6 +39,10 @@ class MainActivityLaunchRestorationTest {
     private fun vm(c:ActivityController<MainActivity>)=ViewModelProvider(c.get())[YuldashViewModel::class.java]
     private fun saved(screen:Screen,intent:Intent=notification(),bookingId:Int?=42):Bundle {
         val c=create(intent);val model=vm(c)
+        // Fixture seeds an already consumed booking route; dispatch now has durable pending.
+        if(screen !in setOf(Screen.Splash,Screen.Intro,Screen.Onboarding,Screen.Login)) {
+            model.pendingCompletedNavigation.value?.let { model.consumePendingCompleted(it) {} }
+        }
         model.screen.value=screen;model.activeBookingId.value=bookingId;model.startHomeTab.value=HomeTab.Profile
         if(screen==Screen.TripReceipt || screen==Screen.Support) model.navHistory.add(Screen.ActiveTrip)
         model.persistNav();clearSignals()

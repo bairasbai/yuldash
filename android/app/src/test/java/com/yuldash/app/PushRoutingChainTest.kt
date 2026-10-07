@@ -37,10 +37,12 @@ class PushRoutingChainTest {
     }
 
     private fun dispatch(intent: Intent) {
-        val activity = Robolectric.buildActivity(MainActivity::class.java).get()
+        val controller = Robolectric.buildActivity(MainActivity::class.java).create()
+        val activity = controller.get()
         MainActivity::class.java.getDeclaredMethod("handleNavIntent", Intent::class.java).apply {
             isAccessible = true
         }.invoke(activity, intent)
+        controller.destroy()
     }
 
     private fun checkLocalNotification(type: String, idField: String = "id") {

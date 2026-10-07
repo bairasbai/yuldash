@@ -622,7 +622,22 @@ internal fun YuldashApp() {
     var rideLinkUnavailable by rememberSaveable { mutableStateOf(false) }
     // null: публичная поездка; false: чат брони; true: завершённая бронь.
     var failedBookingDestination by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    var failedCompletedOwner by rememberSaveable { mutableStateOf<Int?>(null) }
+    var failedCompletedRevision by rememberSaveable { mutableStateOf<Long?>(null) }
     var bookingLinkAttempt by remember { mutableIntStateOf(0) }
+    // Старые внутренние producer/test bridge тоже принимаются, но HTTP читает durable record.
+    LaunchedEffect(DeepLink.pendingCompletedBookingId.value, navigationSession) {
+        val owner = ApiClient.myUserId()
+        val previous = vm.pendingCompletedNavigation.value
+        val bridged = DeepLink.pendingCompletedBookingId.value
+        vm.pendingCompletedForOwner(owner)
+        if (failedBookingDestination == true && failedCompletedOwner != null && failedCompletedOwner != owner) {
+            failedRideLink = null
+        }
+        if (bridged != null && previous?.bookingId != bridged && (previous?.ownerId == null || previous.ownerId == owner)) {
+            vm.requestCompletedBooking(bridged, owner)
+        }
+    }
     // Публичная ссылка: ошибка не должна молча терять назначение, повтор использует тот же id.
     LaunchedEffect(DeepLink.pendingRideId.value, screen) {
         val rideId = DeepLink.pendingRideId.value ?: return@LaunchedEffect
@@ -648,7 +663,11 @@ internal fun YuldashApp() {
         DeepLink.pendingRideId.value == null && DeepLink.pendingBookingChatId.value == null &&
             DeepLink.pendingCompletedBookingId.value == null
     }?.let { rideId ->
-        val tagPrefix = if (failedBookingDestination == null) "rideLink" else "bookingLink"
+        val failedKind = failedBookingDestination
+        val failedOwner = failedCompletedOwner
+        val failedRevision = failedCompletedRevision
+        val failedSession = ApiClient.queueSessionGeneration()
+        val tagPrefix = if (failedKind == null) "rideLink" else "bookingLink"
         AlertDialog(
             modifier = Modifier.testTag("${tagPrefix}Failure"),
             onDismissRequest = { failedRideLink = null },
@@ -668,8 +687,22 @@ internal fun YuldashApp() {
                         Text(appText("Закрыть", "Ябыу"), color = CanonGreen2)
                     }
                 } else {
-                    TextButton(modifier = Modifier.testTag("${tagPrefix}Retry"), onClick = {
-                        val pending = when (failedBookingDestination) {
+                    TextButton(modifier = Modifier.testTag("${tagPrefix}Retry"), onClick = retry@{
+                        if (failedRideLink != rideId || failedBookingDestination != failedKind ||
+                            (failedKind == true && failedCompletedRevision != failedRevision)) return@retry
+                        if (failedKind == true) {
+                            val currentSession = ApiClient.queueSessionGeneration()
+                            ApiClient.runIfCurrentSession(currentSession) {
+                                // Старый callback не привязывает поездку к другому аккаунту.
+                                // Refresh того же владельца допускает осознанный ручной повтор.
+                                if (failedOwner != null && ApiClient.myUserId() != failedOwner) return@runIfCurrentSession
+                                if (failedOwner == null && currentSession != failedSession) return@runIfCurrentSession
+                                if (DeepLink.pendingCompletedBookingId.value == null) vm.requestCompletedBooking(rideId, failedOwner)
+                                failedRideLink = null
+                            }
+                            return@retry
+                        }
+                        val pending = when (failedKind) {
                             true -> DeepLink.pendingCompletedBookingId
                             false -> DeepLink.pendingBookingChatId
                             null -> DeepLink.pendingRideId
@@ -748,32 +781,48 @@ internal fun YuldashApp() {
     // Личное назначение сохраняем до входа. Не устанавливаем бронь до проверки участника.
     listOf(false, true).forEach { completed ->
         val pending = if (completed) DeepLink.pendingCompletedBookingId else DeepLink.pendingBookingChatId
-        LaunchedEffect(pending.value, screen, bookingLinkAttempt) {
-            val bid = pending.value ?: return@LaunchedEffect
+        val revision = if (completed) vm.pendingCompletedNavigation.value?.revision else null
+        LaunchedEffect(pending.value, revision, screen, bookingLinkAttempt, if (completed) navigationSession else 0L) {
+            val destination = if (completed) vm.pendingCompletedForOwner(ApiClient.myUserId()) else null
+            if (completed && destination?.revision != revision) return@LaunchedEffect
+            val bid = if (completed) destination?.bookingId ?: return@LaunchedEffect else pending.value ?: return@LaunchedEffect
             if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
             failedRideLink = null
             val sessionToken = ApiClient.currentToken()
+            val requestedSession = navigationSession
             if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
             val result = ApiClient.getTripState(bid)
             if (!isActive || pending.value != bid) return@LaunchedEffect
+            if (completed && (vm.pendingCompletedNavigation.value != destination || !ApiClient.isCurrentSession(requestedSession))) return@LaunchedEffect
             // В том числе после обновления токена: новый запрос проверит текущую сессию.
             if (sessionToken != ApiClient.currentToken()) {
                 if (ApiClient.isLoggedIn()) bookingLinkAttempt++ else screen = Screen.Login
                 return@LaunchedEffect
             }
-            pending.value = null
             val state = result.getOrNull()
-            if (state != null && state.role in listOf("driver", "passenger")) {
-                selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "",
-                    price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
-                activeBookingId = bid
-                selectedBookingStatus = ""
-                if (completed) activeTrip = null
-                screen = if (completed) Screen.ActiveTrip else Screen.Booking
+            val applyResult = {
+                if (state != null && state.role in listOf("driver", "passenger")) {
+                    selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "",
+                        price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
+                    activeBookingId = bid
+                    selectedBookingStatus = ""
+                    if (completed) activeTrip = null
+                    screen = if (completed) Screen.ActiveTrip else Screen.Booking
+                } else {
+                    rideLinkUnavailable = (result.exceptionOrNull() as? ApiException)?.status in listOf(403, 404, 410)
+                    failedBookingDestination = completed
+                    if (completed) {
+                        failedCompletedOwner = destination?.ownerId
+                        failedCompletedRevision = destination?.revision
+                    }
+                    failedRideLink = bid
+                }
+            }
+            if (completed) {
+                ApiClient.runIfCurrentSession(requestedSession) { vm.consumePendingCompleted(destination!!, applyResult) }
             } else {
-                rideLinkUnavailable = (result.exceptionOrNull() as? ApiException)?.status in listOf(403, 404, 410)
-                failedBookingDestination = completed
-                failedRideLink = bid
+                pending.value = null
+                applyResult()
             }
         }
     }
@@ -822,17 +871,8 @@ internal fun YuldashApp() {
     // Лёгкий back-stack: трейл экранов, чтобы аппаратная «Назад» возвращалась по нему, а не прыгала на Home.
     val navHistory = vm.navHistory
     var navPopping by vm.navPopping
-    var navPrev by vm.navPrev
     LaunchedEffect(screen) {
-        // Intro тоже транзитный (брендовое интро первого запуска) — иначе «Назад» из кабинета водителя
-        // на first-run проваливал обратно на экран Intro (Intro→Onboarding пушил Intro в историю).
-        val transient = navPrev == Screen.Splash || navPrev == Screen.Login || navPrev == Screen.Onboarding || navPrev == Screen.Intro
-        // Вход — граница сессии. После clearUserData нельзя снова записать предыдущий
-        // личный экран: следующий водитель смог бы вернуться к нему кнопкой «Назад».
-        if (screen == Screen.Login) navHistory.clear()
-        else if (!navPopping && screen != navPrev && !transient) navHistory.add(navPrev)
-        navPopping = false
-        navPrev = screen
+        vm.recordNavigationChange()
     }
 
     // SavedStateHandle хранит навигацию, но не объекты Ride. При входе/возврате на бронь
@@ -1374,7 +1414,7 @@ internal fun YuldashApp() {
                 },
                 // Тап по «отклик на заявку» → экран откликов этой заявки.
                 onOpenResponses = { rid -> responsesRequestId = rid; screen = Screen.RequestResponses },
-                onOpenCompletedBooking = { bid -> DeepLink.pendingCompletedBookingId.value = bid },
+                onOpenCompletedBooking = { bid -> vm.requestCompletedBooking(bid, ApiClient.myUserId()) },
                 onOpenRequestsFeed = { screen = Screen.RequestsFeed },
                 onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches },
                 // Тап по уведомлению поддержки → тред обращения (ref_id = id тикета).

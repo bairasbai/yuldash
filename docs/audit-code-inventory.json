@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 131,
     "backend_main": 103,
-    "infra_resource_config": 339,
+    "infra_resource_config": 340,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 868
+    "test_support": 871
   },
   "counts_by_block": {
     "B01": 125,
@@ -91,11 +91,11 @@
     "B03": 101,
     "B04": 75,
     "B05": 36,
-    "B06": 75,
+    "B06": 78,
     "B07": 106,
     "B08": 164,
     "B09": 528,
-    "B10": 339,
+    "B10": 340,
     "B11": 90
   },
   "excluded_counts": {
@@ -860,8 +860,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/MainActivity.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "0c04fa2d148de3093614a78945d69caae5aa5c76e1ca060139cfb1bd1b5e8708",
-      "lines": 991
+      "sha256": "5afc77a03d398423c2ad74b6b5543b9236aafe161ae117d974f6c2fbe3bcc8be",
+      "lines": 994
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MapCluster.kt",
@@ -1273,8 +1273,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "aff1ba6a6dc08ff804271499ed6f1dd8fb3356dfcc7affca1680150e30a54af5",
-      "lines": 2634
+      "sha256": "0a03bd9480c8a954877fc42ac927b03385b41148d53a19bdda1a4dcb5729e332",
+      "lines": 2674
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1287,8 +1287,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashViewModel.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "ea1cb35165ab8982af1ff6da7eacba5485b645ccd878fa2a04fd91d549eb33a0",
-      "lines": 126
+      "sha256": "5072dcff33089e0f9afa76ea382130db19caa4beb4032853124fe680b5008ed6",
+      "lines": 196
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/Analytics.kt",
@@ -2351,8 +2351,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/MainActivityLaunchRestorationTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "06d319741085ec97cd707192a2cb01e07afcd64169428b671a0ac6d507e03ec1",
-      "lines": 76
+      "sha256": "739251e8c7ef890451778cf86b7ced44985b408da9cda5ffcc0cef1d77773b47",
+      "lines": 80
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/MapCarsGroupingTest.kt",
@@ -2488,6 +2488,27 @@
       "lines": 58
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/PendingNotificationFlowTest.kt",
+      "kind": "test_support",
+      "block": "B06",
+      "sha256": "9520b8a7a49774ee5fef7c5f12dc6eea83b8a232ce089f170c5fc8ebc16de819",
+      "lines": 175
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/PendingNotificationRestorationTest.kt",
+      "kind": "test_support",
+      "block": "B06",
+      "sha256": "61b0600e5bffc4c606722d2c3ba001df613f9358208189614c808eeef183c5da",
+      "lines": 97
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/PendingNotificationStateTest.kt",
+      "kind": "test_support",
+      "block": "B06",
+      "sha256": "49f2cf6927993384891eea7a364de756c5a37298f309d8646030a7a0c7432026",
+      "lines": 89
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/PermissionRefusalIsAnsweredTest.kt",
       "kind": "test_support",
       "block": "B09",
@@ -2582,8 +2603,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/PushRoutingChainTest.kt",
       "kind": "test_support",
       "block": "B06",
-      "sha256": "d13a70e75d13b5f18455f4ccafb140a41fd337b5a2bc4ce0c8ba7fcf69d1e040",
-      "lines": 118
+      "sha256": "23c108d96c36d7cacea2b97c72fc9c82340e3ea9dbe2964342f09135ad33f03a",
+      "lines": 120
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ReachableApiGuardTest.kt",
@@ -9591,6 +9612,13 @@
       "block": "B10",
       "sha256": "ed32a229224608336b175c4bc0d257d088e61c0e11ceb1975a2121754a21ce77",
       "lines": 172
+    },
+    {
+      "path": "tools/audit_pending_notification.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "30d790f5688ca03786b56e9c6e75c4c63b87cf543139c8c4090641cd91bda17a",
+      "lines": 160
     },
     {
       "path": "tools/compile-data-layer.sh",

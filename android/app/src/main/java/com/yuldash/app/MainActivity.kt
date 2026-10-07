@@ -285,10 +285,12 @@ class MainActivity : ComponentActivity() {
         val restoredNavigation = if (savedInstanceState != null) {
             ViewModelProvider(this)[YuldashViewModel::class.java]
         } else null
+        val hadSavedPending = restoredNavigation?.pendingCompletedNavigation?.value != null
+        restoredNavigation?.pendingCompletedForOwner(ApiClient.myUserId())
         val hasRestoredBooking = restoredNavigation != null &&
             (restoredNavigation.activeBookingId.value ?: 0) > 0 &&
             restoredNavigation.screen.value !in setOf(Screen.Splash, Screen.Intro, Screen.Onboarding, Screen.Login)
-        if (!hasRestoredBooking) {
+        if (!hasRestoredBooking && !hadSavedPending) {
             handleNavIntent(intent)   // холодный старт из полноэкранного оффера такси (B7a-2)
             handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         }
@@ -373,7 +375,8 @@ class MainActivity : ComponentActivity() {
             // Сервер теперь кладёт адрес в КАЖДОЕ уведомление, у которого он есть
             // (см. services.push_notification). Разбираем то, что умеем открыть точно:
             "booking" -> DeepLink.pendingBookingChatId.value = id     // бронь попутки → её экран
-            "booking_done" -> DeepLink.pendingCompletedBookingId.value = id
+            "booking_done" -> ViewModelProvider(this)[YuldashViewModel::class.java]
+                .requestCompletedBooking(id, ApiClient.myUserId())
             "support" -> DeepLink.pendingSupport.value = true         // ответ поддержки → «Поддержка»
             "incident" -> DeepLink.pendingFairness.value = true       // решение по спору
             // Лента уведомлений внутри приложения разбирает ДЕСЯТЬ видов, а тап по пушу —
