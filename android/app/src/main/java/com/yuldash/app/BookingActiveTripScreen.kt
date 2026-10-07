@@ -74,6 +74,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
@@ -209,6 +210,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.sizeIn
 import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -1465,7 +1467,6 @@ private fun ActiveTripContent(
     val voiceScope = rememberCoroutineScope()
     // Русский тут на «ты», башкирский был на «вы» (тикшерегеҙ) — тон обязан совпадать в обоих языках.
     val statusErrMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшер.")
-    val shareErrMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер.")
     val driverNotifiedMsg = appText("Пассажир уведомлён", "Пассажир хәбәрҙар ителде")
     val chatSendFailMsg = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла.")
     val chatActionFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
@@ -1596,7 +1597,7 @@ private fun ActiveTripContent(
     var showDriverFinishConfirmation by rememberSaveable(bookingId) { mutableStateOf(false) }
     var showShare by remember { mutableStateOf(false) }
     val shareSheet = rememberModalBottomSheetState()
-    val tripSharedPrefix = appText("Поездка отправлена", "Сәфәр ебәрелде")
+    val tripSharedPrefix = appText("Ссылка готова", "Һылтанма әҙер")
     val shareRevokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
 
     val myId = remember { ApiClient.myUserId() ?: -1 }
@@ -2668,48 +2669,87 @@ private fun ActiveTripContent(
             var liveLink by remember { mutableStateOf<String?>(null) }
             // Приватность: кому сейчас открыта поездка + возможность отозвать.
             var activeShares by remember { mutableStateOf<List<Pair<com.yuldash.app.data.TripShareDto, String>>>(emptyList()) }
-            // «Поделиться ещё» гасит вид ссылки, но список активных ссылок оставляем видимым.
             var showContacts by remember { mutableStateOf(true) }
-            // Спрашиваем сервер, кому уже открыто. Раньше список жил только в памяти экрана:
-            // человек делился, сворачивал приложение — и отзывать было нечего, хотя ссылка на
-            // его живое местоположение работала до конца поездки (аудит 2026-08-06). Старый
-            // сервер без этой ручки просто вернёт ошибку — поведение как раньше, ничего не ломаем.
-            LaunchedEffect(bookingId) {
-                val bid = bookingId ?: return@LaunchedEffect
+            var listLoading by remember { mutableStateOf(true) }
+            var listError by remember { mutableStateOf(false) }
+            var mutationUncertain by remember { mutableStateOf(false) }
+            var mutationBusy by remember { mutableStateOf(false) }
+            var listRequest by remember { mutableIntStateOf(0) }
+            fun canMutate() = isShareCurrent() && !listLoading && !listError && !mutationBusy
+            fun reloadShares() {
+                if (!isShareCurrent() || listLoading || mutationBusy) return
+                // Set before launch: retained callbacks in the same frame must see the lock.
+                listLoading = true
+                listError = false
+                listRequest++
+            }
+            fun reconcileShares() {
+                // A failed POST/DELETE can follow a committed server change. Only GET settles access.
+                mutationUncertain = true
+                listError = true
+            }
+            LaunchedEffect(bookingId, listRequest) {
                 if (!isShareCurrent()) return@LaunchedEffect
+                val bid = bookingId
+                if (bid == null) {
+                    listError = true
+                    listLoading = false
+                    return@LaunchedEffect
+                }
                 ApiClient.getBookingShares(bid).onSuccess { srv ->
                     if (!isShareCurrent()) return@onSuccess
-                    if (srv.isEmpty()) return@onSuccess
                     activeShares = srv.map { s ->
                         s to (contacts.firstOrNull { it.id == s.contactId }?.name ?: "")
                     }
                     liveLink = srv.firstNotNullOfOrNull { it.link?.takeIf(String::isNotBlank) }
-                    showContacts = false   // есть кому открыто → сразу показываем список, а не выбор контакта
+                    showContacts = srv.isEmpty()
+                    mutationUncertain = false
+                    listError = false
+                }.onFailure {
+                    if (isShareCurrent()) listError = true
                 }
+                if (isShareCurrent()) listLoading = false
             }
-            Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
                 val link = liveLink
-                if (activeShares.isNotEmpty() && !showContacts) {
+                if (listLoading) {
+                    Text(appText("Проверяем ссылки…", "Һылтанмаларҙы тикшерәбеҙ…"), color = CanonText, modifier = Modifier.padding(vertical = 16.dp))
+                    LinearProgressIndicator(Modifier.fillMaxWidth().testTag("tripSharesLoading"), color = CanonGreen2)
+                } else if (listError) {
+                    Text(
+                        if (bookingId == null) appText("Не удалось открыть ссылки. Открой поездку заново.", "Һылтанмаларҙы асып булманы. Сәфәрҙе яңынан ас.")
+                        else if (mutationUncertain) appText("Не получилось подтвердить результат. Обнови список ссылок.", "Һөҙөмтәне раҫлап булманы. Һылтанмалар исемлеген яңырт.")
+                        else appText("Не удалось загрузить ссылки. Проверь сеть и повтори.", "Һылтанмаларҙы йөкләп булманы. Селтәрҙе тикшереп ҡабатла."),
+                        color = CanonText, modifier = Modifier.padding(vertical = 16.dp).testTag("tripSharesError"),
+                    )
+                    TextButton(onClick = { if (bookingId == null) { if (isShareCurrent()) showShare = false } else reloadShares() }, modifier = Modifier.heightIn(min = 48.dp).testTag("tripSharesRetry")) {
+                        Text(if (bookingId == null) appText("Закрыть", "Ябыу") else if (mutationUncertain) appText("Обновить список", "Исемлекте яңыртыу") else appText("Повторить", "Ҡабатлау"), color = CanonGreen2)
+                    }
+                } else if (activeShares.isNotEmpty() && !showContacts) {
                     Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
                     if (!link.isNullOrBlank()) LiveLinkCard(link)
-                    ActiveSharesList(activeShares) { share ->
+                    ActiveSharesList(activeShares, enabled = !mutationBusy) { share ->
                         val bid = bookingId
-                        if (bid != null && isShareCurrent()) sharingScope.launch {
-                            if (!isShareCurrent()) return@launch
-                            ApiClient.revokeBookingShare(bid, share.id)
+                        if (bid != null && canMutate() && !showContacts && activeShares.any { it.first.id == share.id }) {
+                            mutationBusy = true
+                            sharingScope.launch {
+                                if (!isShareCurrent()) return@launch
+                                try { ApiClient.revokeBookingShare(bid, share.id)
                                 .onSuccess {
                                     if (!isShareCurrent()) return@onSuccess
                                     activeShares = activeShares.filterNot { it.first.id == share.id }
-                                    if (activeShares.none { !it.first.link.isNullOrBlank() }) liveLink = null
+                                    liveLink = activeShares.firstNotNullOfOrNull { it.first.link?.takeIf(String::isNotBlank) }
                                     if (activeShares.isEmpty()) showContacts = true
                                     Toast.makeText(context, shareRevokedMsg, Toast.LENGTH_SHORT).show()
                                 }
-                                .onFailure { if (isShareCurrent()) Toast.makeText(context, serverSaid(it, shareErrMsg), Toast.LENGTH_LONG).show() }
+                                .onFailure { if (isShareCurrent()) reconcileShares() }
+                                } finally { if (isShareCurrent()) mutationBusy = false }
+                            }
                         }
                     }
                     Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton(onClick = { if (isShareCurrent()) showContacts = true }) {
+                        TextButton(enabled = !mutationBusy, onClick = { if (canMutate()) showContacts = true }) {
                             Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                         }
                         TextButton(onClick = { if (isShareCurrent()) showShare = false }) {
@@ -2723,26 +2763,29 @@ private fun ActiveTripContent(
                 }
                 contacts.forEach { c ->
                     Row(
-                        Modifier.fillMaxWidth().clickable {
+                        Modifier.fillMaxWidth().clickable(enabled = !mutationBusy) {
                             val bid = bookingId
-                            if (bid != null && isShareCurrent()) sharingScope.launch {
-                                if (!isShareCurrent()) return@launch
-                                ApiClient.shareTrip(bid, c.id)
+                            if (bid != null && canMutate() && showContacts) {
+                                mutationBusy = true
+                                sharingScope.launch {
+                                    if (!isShareCurrent()) return@launch
+                                    try { ApiClient.shareTrip(bid, c.id)
                                     .onSuccess { share ->
                                         if (!isShareCurrent()) return@onSuccess
-                                        Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
                                         if (share != null) {
                                             activeShares = activeShares.filterNot { it.first.id == share.id } + (share to c.name)
-                                            if (!share.link.isNullOrBlank()) liveLink = share.link
+                                            liveLink = share.link?.takeIf(String::isNotBlank)
                                             showContacts = false
-                                        } else showShare = false
+                                            Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
+                                        } else reconcileShares()
                                     }
                                     .onFailure {
                                         if (!isShareCurrent()) return@onFailure
-                                        showShare = false
-                                        Toast.makeText(context, serverSaid(it, shareErrMsg), Toast.LENGTH_LONG).show()
+                                        reconcileShares()
                                     }
-                            } else if (isShareCurrent()) showShare = false
+                                    } finally { if (isShareCurrent()) mutationBusy = false }
+                                }
+                            }
                         }.padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -2757,6 +2800,9 @@ private fun ActiveTripContent(
                         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
                     }
                 }
+                }
+                AnimatedVisibility(visible = mutationBusy, enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = CanonGreen2)
                 }
             }
         }
@@ -3724,6 +3770,7 @@ internal fun ShareTripRow(
 @Composable
 private fun ActiveSharesList(
     shares: List<Pair<com.yuldash.app.data.TripShareDto, String>>,
+    enabled: Boolean = true,
     onRevoke: (com.yuldash.app.data.TripShareDto) -> Unit,
 ) {
     if (shares.isEmpty()) return
@@ -3743,7 +3790,8 @@ private fun ActiveSharesList(
             Text(name, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             TextButton(
                 onClick = { onRevoke(share) },
-                modifier = Modifier.heightIn(min = 44.dp),
+                enabled = enabled,
+                modifier = Modifier.heightIn(min = 48.dp),
             ) {
                 Icon(Icons.Default.Close, contentDescription = appText("Отозвать ссылку", "Һылтанманы кире алыу"), tint = CanonRed, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
@@ -3931,4 +3979,3 @@ internal fun MessageBubble(
         }
     }
 }
-

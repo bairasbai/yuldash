@@ -17499,3 +17499,27 @@ glossary и четыре связанных auth-набора, exit0. 🔒 Бр�
 07.10.2026 — sharing/completion локальные критерии этого этапа: valid RED42/31behavior failures+11pass→final132/132/11classes/debug+testAPK. Новые42=17sharing+25Completed,90existing; отдельно native2/2/API35/PID3159/RUshare→done→A→B ровно1exit+BAactualHTTPcompleted/oldreceipt guard,4phase-correct PNG root просмотрены. Native-only owner/INIT cleanup rebuild24.656с+24.125с, product/JVM SHA неизменны после132. Inventory1799/check0. Предыдущие fixture failures, premature unpatched green и прерванная ради source review сборка отдельно в run-analysis, не считаются успешными/новыми тестами. [Точный результат/остатки](audit-blocks.md#b02--ссылки-и-действия-после-поездки-07102026).
 
 🔓 Root product/tests/Gradle/adb сняты: own emulator10560/24676 stopped через emu kill, проверенный оставшийся own conhost3176 завершён отдельно;5580/5581 свободны/adbпуст,sharedadb сохранён. Root единственный writer docs/inventory/GitHub до freeze/independent/main/push13own paths по прежней инструкции. b02_socket_review только ignored independentreceipt. mobile/backend/API/MainActivity/voice/версии/39foreign сохранены. Доставка подтверждается отдельным git-publication/delivery receipt после действий. Следующая локальная очередь — initial sharing list/error/retry/loading/двойные mutations/close→reopen; held receipt/tip/restoration затем. QA-B02-003/B02 частичны; реальный сервер/доставка/телефон/coldprocess/fullnav/online-pay отдельно открыты. Новых переводов на проверку нет.
+
+## B02 / QA-B02-003 — загрузка списка ссылок и повторные действия, 07.10.2026
+
+От42540d26, codex/b02-sharing-load-20261007. План: (1) actual ActiveTrip/Compose/HTTP controls и RED для initial list loading/error/retry, list→mutation, double create/revoke и close→reopen; (2) минимальная scoped state/entry защита, inline RU/BA загрузка/ошибка/повтор без изменения серверного terminal договора; (3) affected JVM/assembleDebug/testAPK и native RU/BA, exact versions independent review; (4) реестр/inventory/собственные main+push по прежнему разрешению. Не суммировать повторные ID; held receipt/tip/финансы/fullnav/backend/live link/phone остаются отдельными.
+
+🔒 Root: только sharing участок BookingActiveTripScreen.kt/связанный ActiveSharesList, конкретные sharing tests/native/docs/inventory; sole Gradle/adb/GitHub. b02_socket_review — readonly contracts/tests review без сборок/adb/network. MainActivity/Completed/voice/API/backend/mobile/версии/39foreign не трогать. Старт inventory1799,0added/removed, толькоknownforeign.gitignore; другие java/python/emulator после проверки отсутствуют. Внешние ссылки/сообщения не отправлять.
+
+07.10.2026 — локальные критерии sharing-load завершены: controls3,RED20/15behavior scenario failures+5pass,nullRED1/1→final123/123(23new+100existing)/9classes/debug+testAPK. Nativev1 BA1pass/RU1fixture ожидание frame, native-only sync rebuild→v2 RU/BA2/2/4phase-correct PNG root просмотрены,product/JVM SHA unchanged. Inventory1801/check0. [Реестр/ограничения](audit-blocks.md#b02--загрузка-списка-ссылок-и-повторные-действия-07102026).
+
+🔓 Product/tests/Gradle/adb замки сняты; own31452/21844/17168 family stopped/ports5580-5581free,sharedadb retained. Root единственный docs/inventory/GitHub до exactfreeze/independent/main/push12ownpaths по прежнему разрешению. Reviewer только ignored receipt. 39foreign/Completed/API/backend/MainActivity/voice/mobile/версии не менялись. Дальше held receipt/tip/restoration; B02 partial.
+
+### Переводы на проверку — sharing list,07.10.2026
+
+Новые/изменённые BA строки ниже — черновики; Александр как носитель ещё не подтверждал:
+
+| Русский | Башкирский черновик |
+|---|---|
+| Ссылка готова | Һылтанма әҙер |
+| Проверяем ссылки… | Һылтанмаларҙы тикшерәбеҙ… |
+| Не удалось загрузить ссылки. Проверь сеть и повтори. | Һылтанмаларҙы йөкләп булманы. Селтәрҙе тикшереп ҡабатла. |
+| Не получилось подтвердить результат. Обнови список ссылок. | Һөҙөмтәне раҫлап булманы. Һылтанмалар исемлеген яңырт. |
+| Обновить список | Исемлекте яңыртыу |
+| Не удалось открыть ссылки. Открой поездку заново. | Һылтанмаларҙы асып булманы. Сәфәрҙе яңынан ас. |
+| Закрыть | Ябыу |

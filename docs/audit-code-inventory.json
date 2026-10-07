@@ -80,14 +80,14 @@
   "counts_by_kind": {
     "android_main": 131,
     "backend_main": 103,
-    "infra_resource_config": 333,
+    "infra_resource_config": 334,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 863
+    "test_support": 864
   },
   "counts_by_block": {
     "B01": 125,
-    "B02": 168,
+    "B02": 169,
     "B03": 101,
     "B04": 75,
     "B05": 36,
@@ -95,7 +95,7 @@
     "B07": 106,
     "B08": 164,
     "B09": 526,
-    "B10": 333,
+    "B10": 334,
     "B11": 90
   },
   "excluded_counts": {
@@ -330,6 +330,13 @@
       "block": "B10",
       "sha256": "a7adbabf57ee691d0fad362eeaec557f21a718f257643f484ce0d50d43b18b52",
       "lines": 192
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/SharingLoadInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "bb6ce2e71bed2ac845089d0b8b4899a0d5d8449d34030bf55ea0cfad7bead1de",
+      "lines": 217
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/StorageAuditRunner.kt",
@@ -636,8 +643,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "f31801adf612fbd588633aab45440f15aea90bd9895e5d8c703b11ee772aa1ae",
-      "lines": 3934
+      "sha256": "339f15b91e7c7f38380ffd09ad0353d1eaccc653e1d7ad65b0c0b2f3426af8a7",
+      "lines": 3981
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -1819,8 +1826,15 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripSharingBoundaryTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "f04ba4e9668146fd85f03e8218933530b9d7563e40dc49effd826830ab46d2c8",
+      "sha256": "8ef51466a2ea9249e421589fcc1c9b3e557638dea2e3ffb5d0c1560fbb101b27",
       "lines": 211
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/ActiveTripSharingLoadTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "8d0eaef49ed7acb24967de175967c60f14ca31ee2046a2301c4d531d2e839dda",
+      "lines": 338
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/AdminAdsContentTest.kt",

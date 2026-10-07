@@ -186,7 +186,7 @@ class ActiveTripSharingBoundaryTest {
         waitFor { requests.any { it.first == path("create") } }; pump()
         compose.onNodeWithText("Активные ссылки").assertIsDisplayed()
         assertEquals(7, JSONObject(requests.single { it.first == path("create") }.third).getInt("contact_id"))
-        assertEquals("Поездка отправлена: Близкий", ShadowToast.getTextOfLatestToast())
+        assertEquals("Ссылка готова: Близкий", ShadowToast.getTextOfLatestToast())
         action("revoke").performClick(); waitFor { requests.any { it.first == path("revoke") } }; pump()
         compose.onNodeWithText("Кому отправить поездку").assertIsDisplayed()
         assertEquals("Ссылка отозвана", ShadowToast.getTextOfLatestToast())
