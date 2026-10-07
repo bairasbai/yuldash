@@ -198,6 +198,19 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         if (DeepLink.pendingBookingChatId.value == expected.bookingId) DeepLink.pendingBookingChatId.value = null
     }
 
+    /** Явный выбор внутри приложения отменяет прежнее ожидающее назначение, не серверную операцию. */
+    fun navigateLocally(applyRoute: () -> Unit) {
+        pendingBookingNavigation.value?.let(::clearPendingBooking)
+        pendingScreenNavigation.value?.let(::clearPendingScreen)
+        clearScreenBridges()
+        DeepLink.pendingCompletedBookingId.value = null
+        DeepLink.pendingBookingChatId.value = null
+        saved[KEY_PENDING_REVISION] = privateNavigationRevision + 1L
+        applyRoute()
+        recordNavigationChange()
+        persistNav()
+    }
+
     /**
      * Восстанавливает язык из постоянных настроек только когда SavedState не содержит
      * валидного значения. Так поворот экрана сохраняет самое свежее состояние, а настоящий

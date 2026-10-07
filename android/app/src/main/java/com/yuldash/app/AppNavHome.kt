@@ -61,6 +61,15 @@ internal fun HomeRoute(
     var isAdmin by vm.isAdmin
     var partnerAds by vm.partnerAds
 
+    val homeSession = ApiClient.queueSessionGeneration()
+    fun openHomeDestination(requireLogin: Boolean = true, applyRoute: () -> Unit) {
+        val applyIfHome = {
+            if (screen == Screen.Home) vm.navigateLocally(applyRoute)
+        }
+        if (requireLogin) ApiClient.runIfCurrentSession(homeSession, applyIfHome)
+        else ApiClient.runIfUnchangedSession(homeSession, applyIfHome)
+    }
+
     HomeScreen(
             rides = rides,
             activeTrip = activeTrip,
@@ -93,19 +102,24 @@ internal fun HomeRoute(
                 Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка баҫтырылды" else "Заявка опубликована", Toast.LENGTH_SHORT).show()
             },
             onBookRide = { ride ->
+                openHomeDestination(requireLogin = false) {
                 selectedRide = ride
                 activeBookingId = null
                 onBookingStatus("")
                 screen = Screen.Booking
+                }
             },
             onOpenBookingDetails = { ride, status ->
+                openHomeDestination {
                 selectedRide = ride
                 activeTrip = null
                 activeBookingId = ride.id.toIntOrNull()
                 onBookingStatus(status)
                 screen = Screen.Booking
+                }
             },
             onOpenActiveTrip = { ride, status ->
+                openHomeDestination {
                 selectedRide = ride
                 // Живое гео гейтится на activeTrip != null (см. эффект TripLocationService выше):
                 // для подтверждённой поездки, открытой из списка, ставим activeTrip = ride, иначе
@@ -115,6 +129,7 @@ internal fun HomeRoute(
                 activeBookingId = ride.id.toIntOrNull()
                 onBookingStatus(status)
                 screen = if (bookingStatusAllowsActiveTrip(status)) Screen.ActiveTrip else Screen.Booking
+                }
             },
             onShareRide = { ride ->
                 val rideTime = if (language == AppLanguage.Ba) ride.timeBa ?: ride.time else ride.time
@@ -152,13 +167,17 @@ internal fun HomeRoute(
                 screen = Screen.RouteWatches
             },
             onOpenChat = { bid, peer, route ->
+                openHomeDestination {
                 val parts = route.split("→").map { it.trim() }
                 selectedRide = Ride(id = bid.toString(), from = parts.getOrElse(0) { "" }, to = parts.getOrElse(1) { "" }, time = "", driver = peer, car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
                 activeBookingId = bid
                 onBookingStatus("")
                 screen = Screen.ActiveTrip
+                }
             },
-            onOpenResponses = { id -> responsesRequestId = id; screen = Screen.RequestResponses },
+            onOpenResponses = { id ->
+                if (id > 0) openHomeDestination { responsesRequestId = id; screen = Screen.RequestResponses }
+            },
             onCancelRequest = { id ->
                 // Отмена заявки: успех — по факту сервера (убираем из списка), при сбое — серверная причина
                 // (matched-заявку нельзя отменить тут → бэк вернёт понятный текст).

@@ -5886,3 +5886,8 @@ Actual App RED установил: Support — экран пожертвован
 ## 08.10.2026 — remaining private destinations в существующую запись
 
 RED ActivityBundle/App подтвердил потерю7назначений,повтор copied logout,old flags/latest и поздний booking над выбранным экраном. Расширяем existing saved record и атомарный consume,сохраняем request+incidentID; не вводим новые URI/экраны.8selectedfeed callbacks используют тот же revision. Сохраняем различие pushincident center/feedincident detail и request_watch водительскую ленту. FCM recipient/session monitor предыдущего этапа не меняется;9новых ownercontrols подтверждают прежнюю защиту. [Доказательства/остатки](audit-blocks.md#b02--остальные-личные-назначения-08102026); legacy simultaneousflags/old Bundle/fullHome отдельно.
+
+
+## 08.10.2026 — Home, поздняя бронь и новый выбор
+
+Явное открытие booking/chat/responses из Home считается новым private навигационным выбором и сохраняется синхронно. Поздний HTTP прежней брони не меняет новый экран и не откатывает уже принятую сервером операцию. Callback работает только для захваченных экрана/поездки/брони/статуса/поколения/revision; busy flag создания/отмены относится к конкретной сессии. Гость видит публичную карточку; подтверждение требует Login. При accept отклика старый Ride очищается до чтения нового booking ID. [Проверки и непроверенные границы](audit-blocks.md#b02--home-создание-и-отмена-брони-08102026).

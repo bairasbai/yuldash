@@ -9054,3 +9054,8 @@ Fixture должна вызвать recordNavigationChange перед persistNav
 ## 08.10.2026 — поле адреса события и честное объединение проверок
 
 Notification.type может быть ride,а FCMtype=request из ref_kind: route и ID сверять с producer/converter,не названиями. Notification.id901 не равно request/incident ref43. Центр споров native не доказывает detail ID: добавлена отдельная current-Bundle IncidentDetail43 regression. Final361 и последующий Restoration23 содержат22повторных ID; unique362,не384. Product/APK после final не менялись,повтор scoped suite обоснован новым тестом для gap ревью. Fixed legacy importer priority не выдавать за last-write timestamps. [Точные версии/пределы](audit-blocks.md#b02--остальные-личные-назначения-08102026).
+
+
+## 08.10.2026 — сохранённые Home действия и достоверное воспроизведение
+
+App-wide coroutine может завершить POST после Back: проверять исходный экран/ride/bid/revision и session до запроса и публикации. Private guard с bearer нельзя применять к публичной карточке гостя без отдельного контроля. Двойной semantic callback не называть pointer-тестом. Native loaded witness должен отличаться от заголовка спиннера. При тестировании отмены нужно подтвердить настоящий диалог; fixture timeout и compiler failure не являются поведенческими дефектами. При fresh Home учитывать реальную подсказку режимов, закрывая её через UI. [Журналы red/final/native](audit-blocks.md#b02--home-создание-и-отмена-брони-08102026).

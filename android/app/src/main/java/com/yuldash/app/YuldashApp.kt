@@ -344,7 +344,7 @@ internal fun YuldashApp() {
     val localRequests = vm.localRequests
     var requestsLoading by remember { mutableStateOf(true) }   // скелетон «Моих заявок» до первой загрузки
     var requestsError by remember { mutableStateOf(false) }   // обрыв связи ≠ «заявок нет» (аудит 2026-08-04)
-    var bookingInFlight by remember { mutableStateOf(false) }  // бронь уже уходит на сервер → второй тап игнорируем
+    var bookingInFlight by remember(navigationSession) { mutableStateOf(false) }  // создание/отмена; свой флаг для каждой сессии
     var callbackInFlight by remember { mutableStateOf(false) }
     var requestsReload by remember { mutableStateOf(0) }      // кнопка «Повторить» на экране заявок
     val appScope = rememberCoroutineScope()
@@ -1243,7 +1243,17 @@ internal fun YuldashApp() {
             )
             Screen.Support -> SupportScreen(onBack = { goBack() })
             Screen.Boost -> BoostScreen(onBack = { goBack() })
-            Screen.Booking -> BookingScreen(
+            Screen.Booking -> {
+                val displayedRide = selectedRide
+                val displayedBookingId = activeBookingId
+                val displayedStatus = selectedBookingStatus
+                val displayedSession = navigationSession
+                val displayedRevision = vm.privateNavigationRevision
+                fun isDisplayedBookingUnchanged() = screen == Screen.Booking && selectedRide == displayedRide &&
+                    activeBookingId == displayedBookingId && selectedBookingStatus == displayedStatus &&
+                    vm.privateNavigationRevision == displayedRevision && ApiClient.queueSessionGeneration() == displayedSession
+                fun isDisplayedBookingCurrent() = isDisplayedBookingUnchanged() && ApiClient.isCurrentSession(displayedSession)
+                BookingScreen(
                 // null = бронировать нечего (лента пуста и ничего не выбрано): экран сам вернёт
                 // назад. Раньше тут подставлялась демо-поездка «вместо краша на пустом списке» —
                 // человек видел карточку выдуманного водителя, а бронь не проходила (id не серверный).
@@ -1260,30 +1270,50 @@ internal fun YuldashApp() {
                 // Передумал, пока водитель молчит. Место возвращается в поездку, водителю
                 // уходит уведомление — этим занимается сервер.
                 onCancelBooking = {
-                    val id = activeBookingId
-                    if (id != null) appScope.launch {
-                        ApiClient.cancelBooking(id)
-                            .onSuccess {
-                                selectedBookingStatus = "cancelled"
-                                activeBookingId = null
-                                openHome(HomeTab.Rides)
-                            }
-                            .onFailure {
-                                val текст = if (language == AppLanguage.Ba)
-                                    "Кире алып булманы. Селтәрҙе тикшереп ҡабатла."
-                                else "Не получилось отменить. Проверь сеть и повтори."
-                                Toast.makeText(context, serverSaid(it, текст),
-                                               Toast.LENGTH_LONG).show()
-                            }
+                    if (displayedBookingId != null && isDisplayedBookingCurrent() && !bookingInFlight) {
+                        bookingInFlight = true
+                        appScope.launch {
+                            try {
+                                if (!isDisplayedBookingCurrent()) return@launch
+                                val result = ApiClient.cancelBooking(displayedBookingId)
+                                if (!isDisplayedBookingCurrent()) return@launch
+                                ApiClient.runIfCurrentSession(displayedSession) {
+                                    result.onSuccess {
+                                        vm.navigateLocally {
+                                            selectedBookingStatus = "cancelled"
+                                            activeBookingId = null
+                                            openHome(HomeTab.Rides)
+                                        }
+                                    }.onFailure {
+                                        val текст = if (language == AppLanguage.Ba)
+                                            "Кире алып булманы. Селтәрҙе тикшереп ҡабатла."
+                                        else "Не получилось отменить. Проверь сеть и повтори."
+                                        Toast.makeText(context, serverSaid(it, текст), Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            } finally { bookingInFlight = false }
+                        }
                     }
                 },
                 onFindAnotherRide = { openHome(HomeTab.Rides) },
                 onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
-                    if (activeBookingId != null) {
-                        activeTrip = selectedRide
-                        screen = Screen.ActiveTrip
+                    if (!isDisplayedBookingUnchanged()) return@BookingScreen
+                    if (!ApiClient.isLoggedIn()) {
+                        ApiClient.runIfUnchangedSession(displayedSession) {
+                            if (isDisplayedBookingUnchanged()) vm.navigateLocally { openProtectedScreen(Screen.Booking) }
+                        }
+                        return@BookingScreen
+                    }
+                    if (!isDisplayedBookingCurrent()) return@BookingScreen
+                    if (displayedBookingId != null) {
+                        ApiClient.runIfCurrentSession(displayedSession) {
+                            if (isDisplayedBookingCurrent()) vm.navigateLocally {
+                                activeTrip = displayedRide.takeIf { bookingStatusAllowsBoarding(displayedStatus) }
+                                screen = Screen.ActiveTrip
+                            }
+                        }
                     } else {
-                        val rid = selectedRide?.id?.toIntOrNull()
+                        val rid = displayedRide?.id?.toIntOrNull()
                         // Демо-поездка (id не число) сюда не доходит: бронировать пример нельзя,
                         // и молчать об этом тоже нельзя — иначе кнопка просто «не работает».
                         if (rid == null) {
@@ -1305,27 +1335,31 @@ internal fun YuldashApp() {
                         if (rid != null && !bookingInFlight) {
                             bookingInFlight = true
                             appScope.launch {
-                                ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone)
-                                    .onSuccess { booking ->
-                                        activeBookingId = booking.id
-                                        selectedBookingStatus = booking.status
-                                        activeTrip = selectedRide.takeIf { bookingStatusAllowsBoarding(booking.status) }
-                                        screen = if (bookingStatusAllowsActiveTrip(booking.status)) Screen.ActiveTrip else Screen.Booking
+                                try {
+                                    if (!isDisplayedBookingCurrent()) return@launch
+                                    val result = ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone)
+                                    if (!isDisplayedBookingCurrent()) return@launch
+                                    ApiClient.runIfCurrentSession(displayedSession) {
+                                        result.onSuccess { booking ->
+                                            vm.navigateLocally {
+                                                activeBookingId = booking.id
+                                                selectedBookingStatus = booking.status
+                                                activeTrip = displayedRide.takeIf { bookingStatusAllowsBoarding(booking.status) }
+                                                screen = if (bookingStatusAllowsActiveTrip(booking.status)) Screen.ActiveTrip else Screen.Booking
+                                            }
+                                        }.onFailure { e ->
+                                            val msg = (e as? ApiException)?.message?.takeIf { it.isNotBlank() }
+                                                ?: if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори."
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                        }
                                     }
-                                    // Сервер объясняет отказ по-человечески («укажите взрослого»,
-                                    // «водитель берёт только 18+»). Показываем его слова, а не
-                                    // общее «повтори»: иначе человек не поймёт, что чинить.
-                                    .onFailure { e ->
-                                        val msg = (e as? ApiException)?.message?.takeIf { it.isNotBlank() }
-                                            ?: if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори."
-                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                    }
-                                bookingInFlight = false
+                                } finally { bookingInFlight = false }
                             }
                         }
                     }
                 }
             )
+            }
             Screen.ActiveTrip -> ActiveTripScreen(
                 ride = selectedRide,
                 contacts = trustedContacts,
@@ -1497,11 +1531,26 @@ internal fun YuldashApp() {
                 // Согласился на встречную цену → сразу в поездку, как при обычном accept у пассажира.
                 onOpenTrip = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip },
             )
-            Screen.RequestResponses -> ResponsesScreen(
-                requestId = responsesRequestId,
+            Screen.RequestResponses -> {
+                val displayedRequestId = responsesRequestId
+                val responseSession = navigationSession
+                val responseRevision = vm.privateNavigationRevision
+                ResponsesScreen(
+                requestId = displayedRequestId,
                 onBack = { goBack() },
-                onAccepted = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip }
+                onAccepted = { bid ->
+                    ApiClient.runIfCurrentSession(responseSession) {
+                        if (bid > 0 && screen == Screen.RequestResponses && responsesRequestId == displayedRequestId &&
+                            vm.privateNavigationRevision == responseRevision) vm.navigateLocally {
+                            selectedRide = null
+                            activeBookingId = bid
+                            activeTrip = null
+                            screen = Screen.ActiveTrip
+                        }
+                    }
+                }
             )
+            }
             Screen.AdsCabinet -> AdsCabinetScreen(
                 onBack = { goBack() },
                 onCreateAd = { adEditorTarget = null; screen = Screen.AdEditor },
