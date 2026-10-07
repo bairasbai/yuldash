@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.lifecycle.ViewModelProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -278,8 +279,19 @@ class MainActivity : ComponentActivity() {
                 contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
             ) > 0f
         }.getOrDefault(true)
-        handleNavIntent(intent)   // холодный старт из полноэкранного оффера такси (B7a-2)
-        handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
+        // ActivityManager сохраняет исходный intent, даже если extras удалены из нашей копии.
+        // После смерти процесса он не должен перекрыть уже сохранённый экран поездки.
+        // Начальный переход до входа/выбора брони и новые onNewIntent обрабатываем как прежде.
+        val restoredNavigation = if (savedInstanceState != null) {
+            ViewModelProvider(this)[YuldashViewModel::class.java]
+        } else null
+        val hasRestoredBooking = restoredNavigation != null &&
+            (restoredNavigation.activeBookingId.value ?: 0) > 0 &&
+            restoredNavigation.screen.value !in setOf(Screen.Splash, Screen.Intro, Screen.Onboarding, Screen.Login)
+        if (!hasRestoredBooking) {
+            handleNavIntent(intent)   // холодный старт из полноэкранного оффера такси (B7a-2)
+            handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
+        }
         setContent {
             YuldashTheme(darkTheme = appIsDark()) {
                 // Крупный шрифт: множим системный fontScale на выбранный пользователем множитель —

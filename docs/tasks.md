@@ -17566,3 +17566,17 @@ glossary и четыре связанных auth-набора, exit0. 🔒 Бр�
 07.10.2026 — Completed navigation local stage: saved trail/fresh VM observed snapshot/actualYuldashApp Receipt/Support Back/draft isolation/current loader guards. Final123/123=11new+112existing/14classes/обаAPK; nativeRU/BA2/2 actual Activity.recreate distinctActivity/savedBundle/retainedVM,4PNGrootviewed. Inventory1807/check0. [Доказательства и остатки](audit-blocks.md#b02--навигация-квитанция-и-возврат-к-черновику-07102026).
 
 🔓 Root product/tests/Gradle/adb сняты: own28144/20324/12052 family stopped,5580/5581free/sharedadb retained. Root docs/inventory/GitHub до exactfreeze/independent/12ownmain+push по прежнему указанию. Reviewer пишет только ignored receipt. Следующий незакрытый критерий: настоящий kill процесса/cold start через MainActivity, не модель fresh VM. Runtime role/language/frame/live/backend/phone/финансы открыты. Видимые новые строки не добавлены; прежние BA drafts остаются на проверке.
+
+
+## B02 / QA-B02-003 — настоящий process kill,07.10.2026
+
+От126bb0f6, codex/b02-completed-process-20261007. План: (1) локальная fixture и debug API URL через существующую env-настройку, отдельный opt-in provision настоящей disk session/language без screen/id/draft/saved-state; (2) actual MainActivity launch через существующий booking_done intent, RU draft/BA thanks → Receipt → Home background/save → targeted OS SIGKILL → возврат в тот же task новым PID → Back; (3) UI/XML/PNG/HTTP/payload/task/PID свидетельства, минимальная правка только подтверждённой причины при сбое; (4) соответствующая сборка/соседние проверки, существующий реестр/inventory/independent/own main+push. Не называть force-stop, новое пустое окно или переданный snapshot восстановлением ActivityManager task. Физический телефон/live backend/push/финансы отдельно.
+
+🔒 Root newnative provision/ignored fixture-runner/docs/inventory и единственные Gradle/adb/GitHub. Existing product only ifconfirmedfailure, MainActivity/API/backend/mobile/версии/39foreign preserve. b02_socket_review readonly process protocol/source/contracts, no edits/build/adb/network. Startinventory1807: onlyforeign.gitignore. No java/python/emulator observed.
+
+
+🔒 Root MainActivity.kt — занят,07.10.2026: воспроизведён stale original launch intent при real task restore Receipt→Completed, before3345/new3753/task937/mHaveState Bundle11524. Новый MainActivityLaunchRestorationTest проверяет actual create/save(savedState)/newcreate и copied original Intent; newonNewIntent controls/earlySplash/Login/Home routing retained. Scoped fix после RED; единственный writer/build. Reviewer readonly.
+
+07.10.2026 — Controlled process restore local stage завершён: actual MainActivity guard/копия старого intent/observed savedBundle/newonNewIntent controls. Final146/146=13new+133existing/17classes/обаAPK;2 внешних RU/BA sameTask/SIGKILL/newPID UI cases,1provisionJUnit×2setup отдельно,7PNGrootviewed. Inventory1810/check0. [Доказательства/остатки](audit-blocks.md#b02--смерть-процесса-и-восстановление-квитанции-07102026).
+
+🔓 Root MainActivity/product/tests/Gradle/adb сняты: own28992/36788/11780 stopped,5580/5581free/sharedadb retained. Root docs/inventory/GitHub до exactfreeze/independent/12ownmain+push по прежнему указанию. Reviewer пишет только ignored independent receipt. Следующая локальная очередь: durable pending43 поверх Receipt42 при process death; full flow отHome/runtime matrix/phone/livebackend/FCM/финансы открыты. Новых переводов нет.

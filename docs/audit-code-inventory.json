@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 131,
     "backend_main": 103,
-    "infra_resource_config": 337,
+    "infra_resource_config": 339,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 867
+    "test_support": 868
   },
   "counts_by_block": {
     "B01": 125,
@@ -94,8 +94,8 @@
     "B06": 75,
     "B07": 106,
     "B08": 164,
-    "B09": 527,
-    "B10": 337,
+    "B09": 528,
+    "B10": 339,
     "B11": 90
   },
   "excluded_counts": {
@@ -225,6 +225,13 @@
       "block": "B10",
       "sha256": "1fd2e4917ffb42c759e508a0d3427126ace29f7c976d82062a3079ccaeac9a7a",
       "lines": 169
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/CompletedProcessProvisionInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "e12a4e627a43d65665810b761bc655a5938a23740f0e4d6d55d8fe891626d870",
+      "lines": 41
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/CompletedRestorationInstrumentedTest.kt",
@@ -853,8 +860,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/MainActivity.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "470278745906d901c0eecbfcb0f44dfc9769e603c97564d35a7f2511972c0c98",
-      "lines": 979
+      "sha256": "0c04fa2d148de3093614a78945d69caae5aa5c76e1ca060139cfb1bd1b5e8708",
+      "lines": 991
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MapCluster.kt",
@@ -2339,6 +2346,13 @@
       "block": "B09",
       "sha256": "e300e7d51955a9f21f91d7c7fe44bab572012725f3b074cfa2e054e0d344201b",
       "lines": 230
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/MainActivityLaunchRestorationTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "06d319741085ec97cd707192a2cb01e07afcd64169428b671a0ac6d507e03ec1",
+      "lines": 76
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/MapCarsGroupingTest.kt",
@@ -9563,6 +9577,13 @@
       "block": "B10",
       "sha256": "42627e48f7fa8014de87b5e19e637f6cac36e474530f4e757fc8e0ca1edcf404",
       "lines": 82
+    },
+    {
+      "path": "tools/audit_completed_process.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "212f7e012a2c2c2c2cc63dff25437daaa72e4ba9011e3be8c9d8749d60a7ee45",
+      "lines": 269
     },
     {
       "path": "tools/audit_inventory.py",
