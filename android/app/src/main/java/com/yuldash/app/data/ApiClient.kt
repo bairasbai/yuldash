@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -89,6 +90,9 @@ object ApiClient {
     // Меняется только на границе входа/выхода. Refresh сохраняет поколение.
     private val sessionLock = Any()
     @Volatile private var sessionGeneration = 0L
+    private val mutableSessionChanges = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    // Publish only after a complete login/logout mutation; refresh keeps the same owner.
+    internal val sessionChanges = mutableSessionChanges.asStateFlow()
     private data class RequestSession(val generation: Long, val bearer: String?)
     private fun requestSession() = synchronized(sessionLock) { RequestSession(sessionGeneration, token) }
     internal fun queueSessionGeneration(): Long = sessionGeneration
@@ -289,6 +293,7 @@ object ApiClient {
         // Startup can invalidate auth without going through logout (corruption,
         // interrupted login/logout). Do not hand the previous user's offline data to a guest.
         if (token.isNullOrBlank()) clearAssociatedPersonalData()
+        mutableSessionChanges.value = sessionGeneration
     }
 
     fun isLoggedIn(): Boolean = !token.isNullOrBlank()
@@ -429,6 +434,7 @@ object ApiClient {
         userName = null
         userRole = null
         sessionExpired.value = false
+        mutableSessionChanges.value = sessionGeneration
     }
 
     fun logout() = synchronized(sessionLock) {
@@ -489,6 +495,7 @@ object ApiClient {
             SessionKeys.CLEARED_ON_LOGOUT.forEach { remove(it) }
         }?.apply()
         clearAssociatedPersonalData()
+        mutableSessionChanges.value = sessionGeneration
     }
 
     /** Also used after a startup auth reset, once both offline stores have been initialized. */
@@ -695,6 +702,7 @@ object ApiClient {
             sessionExpired.value = false
             userName = name
             userRole = role
+            mutableSessionChanges.value = sessionGeneration
             Result.success(obj)
         }
     private fun persistNewSession(write: (android.content.SharedPreferences.Editor) -> Unit): Boolean {

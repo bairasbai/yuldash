@@ -1,5 +1,11 @@
 # 🗺️ Карта кода Юлдаш
 
+## Прежний экран и события чата (07.10.2026, QA-B02-003)
+
+`ApiClient.sessionChanges` — read-only StateFlow поколения входа, публикация после завершения init/saveToken/clearLocalSession/commitAuth. Refresh его не меняет. `ActiveTripScreen` фиксирует опубликованного владельца и удаляет keyed `ActiveTripContent` при смене поколения перед onBack. Дочерний content хранит прежние состояния и Compose scopes; сохранённый маршрут не подхватывает B автоматически. `isTripChatActive` проверяет поколение и актуальный bookingStatus внутри каждого message/connected/rejected main callback; `DisposableEffect(bookingId, terminalBooking)` закрывает terminal socket. Догрузка истории reconnect проверяет активность с обеих сторон HTTP. Прочие terminal операции не объявлены полностью покрытыми.
+
+[Точные версии/100 JVM/3 native и ограничения](audit-blocks.md#b02--поздние-события-и-закрытие-прежнего-экрана-07102026). JVM включает actual wire receive нового B; native HTTP-only проверяет RU выход, BA смену/повторное открытие и RU refresh, не realtime/terminal/cold process. MainActivity/enum/nav/стиль/строки/зависимости не менялись.
+
 ## Подключение чата и refresh (07.10.2026, QA-B02-003)
 
 `ChatSocket.openSocket` хранит номер соединения, а актуальный token читает только при `onOpen` внутри `ApiClient.runIfCurrentSession`. `authenticatedToken` принадлежит этому соединению и отражает фактически отправленную авторизацию. Если старое соединение закрыто1008 после уже выполненного RESTrefresh в том же поколении входа, возможен reconnect с новым token;1008 текущему ключу остаётся terminal. Собственный refresh из сокета не добавлен. После `onConnected(false)` в onClosed/onFailure снова проверяются closed/connection, поскольку callback может синхронно вызвать connect/close. Прежние owner guards, query-free auth frame и backoff остаются.

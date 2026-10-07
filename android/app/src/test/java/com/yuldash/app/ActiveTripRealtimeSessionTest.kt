@@ -169,9 +169,10 @@ class ActiveTripRealtimeSessionTest {
         waitFor { compose.onAllNodesWithText("before-switch").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("before-switch").assertIsDisplayed()
         switchAccount()
-        assertTrue(sockets.first().send("""{"type":"message","id":2,"sender_id":22,"text":"private-A-after-switch"}"""))
+        // Closing the old UI also closes its socket; send may already be refused locally.
+        sockets.first().send("""{"type":"message","id":2,"sender_id":22,"text":"private-A-after-switch"}""")
         pump(1500)
-        compose.onNodeWithText("before-switch").assertIsDisplayed()
+        compose.onAllNodesWithText("before-switch").assertCountEquals(0)
         compose.onAllNodesWithText("private-A-after-switch").assertCountEquals(0)
     }
 
@@ -226,11 +227,12 @@ class ActiveTripRealtimeSessionTest {
 
     @Test fun staleBoardingButtonDoesNotWriteAsNewAccount() {
         mount()
+        val oldClick = compose.onNodeWithText("Я сел").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!
         switchAccount()
-        compose.onNodeWithText("Я сел").performClick()
+        compose.runOnIdle { oldClick() }
         pump(1500)
         assertNoOldBookingRequestAsB()
-        compose.onNodeWithText("Я сел").assertIsDisplayed()
+        compose.onAllNodesWithText("Я сел").assertCountEquals(0)
     }
 
     @Test fun lateReconnectHistoryIsIgnoredAfterAccountSwitch() {
@@ -246,7 +248,7 @@ class ActiveTripRealtimeSessionTest {
         switchAccount()
         releaseHistory.countDown()
         pump(2000)
-        compose.onNodeWithText("visible-reconnect-marker").assertIsDisplayed()
+        compose.onAllNodesWithText("visible-reconnect-marker").assertCountEquals(0)
         compose.onAllNodesWithText("late-reconnect-A").assertCountEquals(0)
         assertNoOldBookingRequestAsB()
     }

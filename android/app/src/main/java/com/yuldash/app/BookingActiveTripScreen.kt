@@ -180,6 +180,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -1437,6 +1439,26 @@ internal fun ActiveTripScreen(
     onSupport: () -> Unit = {},
     onOpenReceipt: (Int) -> Unit = {}
 ) {
+    val currentSession by ApiClient.sessionChanges.collectAsState()
+    val tripSession = remember(bookingId) { currentSession }
+    val leave by rememberUpdatedState(onBack)
+    if (currentSession != tripSession) {
+        // Remove all remembered state, sheets, coroutine scopes and subscriptions before navigation.
+        LaunchedEffect(tripSession) { leave() }
+        return
+    }
+    key(bookingId, tripSession) {
+        ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession)
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun ActiveTripContent(
+    ride: Ride?, contacts: List<TrustedContact>, bookingId: Int?,
+    onBack: () -> Unit, onTripEnd: () -> Unit, onSos: () -> Unit,
+    onSupport: () -> Unit, onOpenReceipt: (Int) -> Unit, tripSession: Long,
+) {
     val context = LocalContext.current
     var messages by remember(bookingId) { mutableStateOf<List<MessageDto>>(emptyList()) }
     val voiceScope = rememberCoroutineScope()
@@ -1463,8 +1485,8 @@ internal fun ActiveTripScreen(
     }
     // F11: офлайн-паспорт брони. Читаем СРАЗУ из локального (secure) хранилища — данные видны без сети.
     var tripPass by remember(bookingId) { mutableStateOf(bookingId?.let { TripPassStore.load(context, it) }) }
-    val tripSession = remember(bookingId) { ApiClient.queueSessionGeneration() }
     fun isTripSessionCurrent() = tripSession == ApiClient.queueSessionGeneration()
+    fun isTripChatActive() = isTripSessionCurrent() && bookingStatus != "done" && bookingStatus != "cancelled"
     var removalFailed by remember(bookingId) { mutableStateOf(false) }
     var removalBusy by remember(bookingId) { mutableStateOf(false) }
     var removalRetry by remember(bookingId) { mutableStateOf(0) }
@@ -1685,7 +1707,7 @@ internal fun ActiveTripScreen(
                     // WS-колбэк приходит с фонового потока OkHttp → правку Compose-state делаем на main
                     // (read-modify-write `messages` иначе может потерять обновление при гонке потоков).
                     voiceScope.launch {
-                        if (!isTripSessionCurrent()) return@launch
+                        if (!isTripChatActive()) return@launch
                         // оптимистичное = отрицательный id, не помеченное как «не доставлено», моё, тот же текст
                         val optIdx = messages.indexOfFirst { it.id < 0 && it.id !in failedIds && it.senderId == myId && it.text == inc.text }
                         val dto = MessageDto(inc.id, inc.text, inc.senderId, flag = inc.flag, fromAdmin = inc.fromAdmin)
@@ -1697,14 +1719,14 @@ internal fun ActiveTripScreen(
                     }
                 },
                 onConnected = { connected ->
-                    voiceScope.launch { if (isTripSessionCurrent()) wsConnected = connected }
+                    voiceScope.launch { if (isTripChatActive()) wsConnected = connected }
                 },
                 // Сервер не принял сообщение (слишком быстрый поток). Помечаем его
                 // «Не доставлено · Повторить» — тем же способом, что и отказ по обычному
                 // запросу. Молча оставить нельзя: оно висело бы как отправленное.
                 onRejected = { tempId, _ ->
                     voiceScope.launch {
-                        if (!isTripSessionCurrent()) return@launch
+                        if (!isTripChatActive()) return@launch
                         failedIds = failedIds + tempId
                         Toast.makeText(context, tooFastMsg, Toast.LENGTH_SHORT).show()
                     }
@@ -1712,18 +1734,19 @@ internal fun ActiveTripScreen(
             )
         }
     }
-    DisposableEffect(bookingId) {
-        chatSocket?.connect()
+    DisposableEffect(bookingId, terminalBooking) {
+        if (terminalBooking == null) chatSocket?.connect()
+        else { wsConnected = false; chatSocket?.close() }
         onDispose { chatSocket?.close() }
     }
     // После авто-реконнекта WS (был обрыв → связь вернулась) дотягиваем пропущенные сообщения по REST:
     // живой приём мог простоять, пока сокет был мёртв. Первый коннект не трогаем — историю уже грузит эффект выше.
     var wasEverConnected by remember(bookingId) { mutableStateOf(false) }
     LaunchedEffect(wsConnected) {
-        if (!isTripSessionCurrent()) return@LaunchedEffect
+        if (!isTripChatActive()) return@LaunchedEffect
         if (wsConnected) {
             if (wasEverConnected) {
-                bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { if (isTripSessionCurrent()) messages = it } }
+                bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { if (isTripChatActive()) messages = it } }
             }
             wasEverConnected = true
         }

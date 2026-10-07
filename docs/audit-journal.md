@@ -1,8 +1,16 @@
 # Журнал технического аудита Юлдаш
 
+## Текущее продолжение B02 / QA-B02-003 прежний UI — 07.10.2026
+
+От a3825e1c, codex/b02-chat-ui-boundaries-20261007. Root единственный product/tests/docs/Gradle/adb/GitHub writer; b02_socket_review независимый читатель текущих версий. [Реестр и следующие критерии](audit-blocks.md#b02--поздние-события-и-закрытие-прежнего-экрана-07102026). Первичная fixture9/9fail:8reflection lookup и1BA mount-timeout; сохранена до product patch; valid red-v2 9/7fail, из них6behavior и1BA matcher,2controls. Правки двух продуктовых файлов: опубликованная смена auth owner удаляет child UI; late main callbacks проверяют terminal, terminal закрывает socket. Три старых Realtime assertions обновлены под исчезновение данных; две новых test suites.
+
+Ранние попытки сохранены: green compile0executed (moved OptIn), green-v2 16/1BAfail, green-v3 12/12fixturefail (11scroll ambiguity+1BA timeout), green-v4 12/2fixturefail; integration100/1BAfail. Финал33/33UI,6freshXML,132.329с/debug+testAPK; unchangeddata67/67 из integration190.203с переиспользованы по SHA и неизменённым зависимостям. Уникально100=33+67=12new+88old, не133. Six new cases используют saved UI callback injection, bounded virtual main pump явно описан. Native3/3 API35/PID3094/instrument16.016с/6originalPNG, HTTP-only embedded server/Keystore availability. Native не доказывает WS/terminal/все auth interleavings/полную secure persistence/настоящий YuldashApp navigation/providers/phone/cold process. Root просмотрел шесть PNG.
+
+Inventory1785backup→1787/check0;2added/3own changed+foreign.gitignore. Own emulator21968 family gracefully stopped,5580/5581 clear,adbdevices пуст,sharedadb retained; receipt resources-final. Sources/tests frozen после финального native; independentreceipt отдельно. Только12 собственных путей передаются через чистый main worktree; guard→one fetch→commit→ff-only main→ordinary push→one ls-remote; фактические SHA после действий в b02-chat-ui-git-publication-20261007.json. Чужие38files+directory сохранены вне package; production не разворачивается. Очередь — held terminal HTTP/очередь, B02 остаётся partial.
+
 Текущие статусы и очередь находятся только в [audit-blocks.md](audit-blocks.md). Состав и нормализованные SHA256 — в [audit-code-inventory.json](audit-code-inventory.json). Независимый дизайн — [audit-design-review.md](audit-design-review.md). Этот журнал хранит действия, доказательства и ограничения, не заменяет реестр.
 
-## Текущее продолжение B02 / QA-B02-003 handshake/refresh — 07.10.2026
+## Историческое продолжение B02 / QA-B02-003 handshake/refresh — 07.10.2026
 
 «Идем дальше»: d287ce4a→codex/b02-chat-handshake-refresh-20261007. Root один product/tests/docs/Gradle/adb/GitHub writer; b02_socket_review независимый bounded читатель. [Текущий реестр](audit-blocks.md#b02--подключение-чата-и-обновление-входа-07102026). Runtime RED11/4fail,48.281с: две oldA вместоA2 auth assertions, старый1008 не восстановился, reentrant onClosedfalsecallback создал actual третийupgrade. Остальные7 controls прошли, error/skip0; before source/test SHA записаны до patch. Product onlyChatSocket: actualfresh token under ownerlock atonOpen; actualauthenticatedToken vs refreshedcredentials при1008; postfalsecallback connection/closed guards. ApiClient/NetworkMonitor/UI/backend/версии не менялись.
 
