@@ -437,7 +437,7 @@ internal fun YuldashApp() {
     var parcelChatId by rememberSaveable { mutableStateOf(0) }
     var parcelChatPeerIsCourier by rememberSaveable { mutableStateOf(true) }
     var parcelChatStatus by rememberSaveable { mutableStateOf("") }
-    var incidentId by rememberSaveable { mutableStateOf(0) }           // «Справедливость»: id открытого спора
+    var incidentId by vm.incidentId           // «Справедливость»: id открытого спора
     // Режим фотоконтроля машины: такси или курьер. Экран один, кадры разные — и человек,
     // который возит и людей, и посылки, показывает машину дважды, по разу за роль.
     var carPhotoMode by rememberSaveable { mutableStateOf("taxi") }
@@ -475,7 +475,9 @@ internal fun YuldashApp() {
     // отработает (он перезаписал бы screen), и не дёргаем навигацию на входе/онбординге.
     // Старые внутренние кнопки пишут bridge; private уведомления уже сохранены Activity.
     LaunchedEffect(NavSignals.openDriverCabinet.value, NavSignals.openInstantOrder.value,
-        NavSignals.openInstantChat.value, DeepLink.pendingParcels.value, DeepLink.pendingSupport.value, navigationSession) {
+        NavSignals.openInstantChat.value, DeepLink.pendingParcels.value, DeepLink.pendingSupport.value,
+        NavSignals.openAdsCabinet.value, NavSignals.openPartnerCabinet.value, DeepLink.pendingFairness.value,
+        DeepLink.pendingRequestResponsesId.value, DeepLink.pendingRequestsFeed.value, DeepLink.pendingApplicationScreen.value, navigationSession) {
         val previous = vm.pendingScreenNavigation.value
         val bridge = when {
             NavSignals.openInstantChat.value > 0 -> Screen.InstantChat to NavSignals.openInstantChat.value
@@ -483,11 +485,17 @@ internal fun YuldashApp() {
             NavSignals.openDriverCabinet.value -> Screen.DriverCabinet to 0
             DeepLink.pendingParcels.value -> Screen.Parcels to 0
             DeepLink.pendingSupport.value -> Screen.SupportTickets to 0
+            NavSignals.openAdsCabinet.value -> Screen.AdsCabinet to 0
+            NavSignals.openPartnerCabinet.value -> Screen.PartnerCabinet to 0
+            DeepLink.pendingFairness.value -> Screen.FairnessCenter to 0
+            (DeepLink.pendingRequestResponsesId.value ?: 0) > 0 -> Screen.RequestResponses to DeepLink.pendingRequestResponsesId.value!!
+            DeepLink.pendingRequestsFeed.value -> Screen.RequestsFeed to 0
+            DeepLink.pendingApplicationScreen.value != null -> DeepLink.pendingApplicationScreen.value!! to 0
             else -> null
         }
         vm.pendingScreenForOwner(ApiClient.myUserId())
         if (bridge != null && (previous?.destination != bridge.first ||
-                (bridge.first == Screen.InstantChat && previous.targetId != bridge.second))) {
+                (bridge.first in setOf(Screen.InstantChat, Screen.RequestResponses) && previous.targetId != bridge.second))) {
             vm.requestScreenDestination(bridge.first, ApiClient.myUserId(), bridge.second)
         }
     }
@@ -499,29 +507,12 @@ internal fun YuldashApp() {
             vm.consumePendingScreen(destination) {
                 if (destination.destination == Screen.InstantChat) instantChatOrderId = destination.targetId
                 if (destination.destination == Screen.SupportTicket) supportTicketId = destination.targetId
+                if (destination.destination == Screen.RequestResponses) responsesRequestId = destination.targetId
+                if (destination.destination == Screen.IncidentDetail) incidentId = destination.targetId
                 // Оффер не выводит водителя из уже исполняемого заказа.
                 if (destination.destination != Screen.DriverCabinet || screen != Screen.InstantDriverTrip) screen = destination.destination
             }
         }
-    }
-    // Тап по пушу про рекламу или партнёрство — тем же путём, что кабинет водителя выше.
-    // Раньше эти два вида открывались только из ленты внутри приложения, а из шторки вели
-    // просто «в приложение»: человек видел, что одно и то же событие ведёт по-разному.
-    val wantAds by NavSignals.openAdsCabinet
-    LaunchedEffect(wantAds, screen) {
-        if (!wantAds) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        NavSignals.openAdsCabinet.value = false
-        screen = Screen.AdsCabinet
-    }
-    val wantPartner by NavSignals.openPartnerCabinet
-    LaunchedEffect(wantPartner, screen) {
-        if (!wantPartner) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        NavSignals.openPartnerCabinet.value = false
-        screen = Screen.PartnerCabinet
     }
     // Кнопки «Написать»/SOS живут глубоко в экранах такси (в т.ч. встроенных в главную) —
     // навигация через NavSignals (паттерн openDriverCabinet), без колбэков через все слои.
@@ -739,40 +730,6 @@ internal fun YuldashApp() {
         parcelChatPeerIsCourier = target.peerIsCourier
         parcelChatStatus = target.status
         screen = Screen.ParcelChat
-    }
-    // Пуш о ходе посылки → открываем «Посылки». Отправитель не должен догадываться, что для
-    // проверки статуса надо самому зайти в приложение и переключить вкладку: тап по уведомлению
-    // ведёт прямо туда, где видно, где его посылка. Не вошёл — сначала вход.
-    // Посылки/поддержка потребляются общей saved записью выше; прочие виды пока отдельные.
-    LaunchedEffect(DeepLink.pendingApplicationScreen.value, screen) {
-        val destination = DeepLink.pendingApplicationScreen.value ?: return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingApplicationScreen.value = null
-        screen = destination
-    }
-    LaunchedEffect(DeepLink.pendingFairness.value, screen) {
-        if (!DeepLink.pendingFairness.value) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingFairness.value = false
-        screen = Screen.FairnessCenter
-    }
-    // «Водитель откликнулся на твою заявку» — открываем отклики именно этой заявки.
-    LaunchedEffect(DeepLink.pendingRequestResponsesId.value, screen) {
-        val rid = DeepLink.pendingRequestResponsesId.value ?: return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingRequestResponsesId.value = null
-        responsesRequestId = rid
-        screen = Screen.RequestResponses
-    }
-    LaunchedEffect(DeepLink.pendingRequestsFeed.value, screen) {
-        if (!DeepLink.pendingRequestsFeed.value) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingRequestsFeed.value = false
-        screen = Screen.RequestsFeed
     }
     // Личное назначение сохраняем до входа. Не устанавливаем бронь до проверки участника.
     listOf(false, true).forEach { completed ->
@@ -1399,9 +1356,9 @@ internal fun YuldashApp() {
                     vm.requestBookingDestination(bid, ApiClient.myUserId(), completed = false)
                 },
                 // Тап по «отклик на заявку» → экран откликов этой заявки.
-                onOpenResponses = { rid -> responsesRequestId = rid; screen = Screen.RequestResponses },
+                onOpenResponses = { rid -> vm.requestScreenDestination(Screen.RequestResponses, ApiClient.myUserId(), rid) },
                 onOpenCompletedBooking = { bid -> vm.requestCompletedBooking(bid, ApiClient.myUserId()) },
-                onOpenRequestsFeed = { screen = Screen.RequestsFeed },
+                onOpenRequestsFeed = { vm.requestScreenDestination(Screen.RequestsFeed, ApiClient.myUserId()) },
                 onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches },
                 // Тап по уведомлению поддержки → тред обращения (ref_id = id тикета).
                 onOpenSupport = { tid -> vm.requestScreenDestination(Screen.SupportTicket, ApiClient.myUserId(), tid) },
@@ -1412,16 +1369,16 @@ internal fun YuldashApp() {
                 // (тем же путём, что ссылка yulbash.ru/r/{id}).
                 onOpenRide = { rid -> DeepLink.pendingRideId.value = rid },
                 // «Открыт разбор» / «Решение по спору» → карточка разбора: там причина и срок.
-                onOpenIncident = { id -> incidentId = id; screen = Screen.IncidentDetail },
+                onOpenIncident = { id -> vm.requestScreenDestination(Screen.IncidentDetail, ApiClient.myUserId(), id) },
                 // Долг, списанная комиссия, пауза такси → кабинет водителя: там это всё видно.
-                onOpenDriverCabinet = { screen = Screen.DriverCabinet },
+                onOpenDriverCabinet = { vm.requestScreenDestination(Screen.DriverCabinet, ApiClient.myUserId()) },
                 // Решение по заявке → её экран со статусом проверки.
-                onOpenTaxiApply = { screen = Screen.TaxiOnboarding },
-                onOpenCourierApply = { screen = Screen.CourierOnboarding },
+                onOpenTaxiApply = { vm.requestScreenDestination(Screen.TaxiOnboarding, ApiClient.myUserId()) },
+                onOpenCourierApply = { vm.requestScreenDestination(Screen.CourierOnboarding, ApiClient.myUserId()) },
                 // Решение по бизнесу или купону → «Мой бизнес»; по рекламе → мои объявления.
                 // За то и другое человек заплатил, поэтому сообщение обязано вести к делу.
-                onOpenPartnerCabinet = { screen = Screen.PartnerCabinet },
-                onOpenAdsCabinet = { screen = Screen.AdsCabinet },
+                onOpenPartnerCabinet = { vm.requestScreenDestination(Screen.PartnerCabinet, ApiClient.myUserId()) },
+                onOpenAdsCabinet = { vm.requestScreenDestination(Screen.AdsCabinet, ApiClient.myUserId()) },
             )
             Screen.RouteWatches -> RouteWatchesScreen(
                 onBack = { goBack() },

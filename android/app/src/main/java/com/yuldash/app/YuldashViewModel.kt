@@ -64,6 +64,8 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     )
     val instantChatOrderId = mutableStateOf(saved.get<Int>(KEY_TAXI_CHAT) ?: 0)
     val supportTicketId = mutableStateOf(saved.get<Int>(KEY_SUPPORT_TICKET) ?: 0)
+    val responsesRequestId = mutableStateOf(saved.get<Int>(KEY_REQUEST_RESPONSES) ?: 0)
+    val incidentId = mutableStateOf(saved.get<Int>(KEY_INCIDENT) ?: 0)
 
     fun requestScreenDestination(destination: Screen, ownerId: Int?, targetId: Int = 0) {
         if (destination !in PRIVATE_SCREENS || (destination in ID_SCREENS && targetId <= 0)) return
@@ -105,6 +107,12 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         NavSignals.openDriverCabinet.value = false
         DeepLink.pendingParcels.value = false
         DeepLink.pendingSupport.value = false
+        NavSignals.openAdsCabinet.value = false
+        NavSignals.openPartnerCabinet.value = false
+        DeepLink.pendingFairness.value = false
+        DeepLink.pendingRequestResponsesId.value = null
+        DeepLink.pendingRequestsFeed.value = false
+        DeepLink.pendingApplicationScreen.value = null
     }
     private fun publishPendingScreen(pending: PendingScreenNavigation) {
         NavSignals.openInstantOrder.value = pending.destination == Screen.InstantOrder
@@ -112,6 +120,12 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         NavSignals.openDriverCabinet.value = pending.destination == Screen.DriverCabinet
         DeepLink.pendingParcels.value = pending.destination == Screen.Parcels
         DeepLink.pendingSupport.value = pending.destination == Screen.SupportTickets
+        NavSignals.openAdsCabinet.value = pending.destination == Screen.AdsCabinet
+        NavSignals.openPartnerCabinet.value = pending.destination == Screen.PartnerCabinet
+        DeepLink.pendingFairness.value = pending.destination == Screen.FairnessCenter
+        DeepLink.pendingRequestResponsesId.value = pending.targetId.takeIf { pending.destination == Screen.RequestResponses }
+        DeepLink.pendingRequestsFeed.value = pending.destination == Screen.RequestsFeed
+        DeepLink.pendingApplicationScreen.value = pending.destination.takeIf { it in setOf(Screen.TaxiOnboarding, Screen.CourierOnboarding) }
     }
     private fun clearPendingScreen(expected: PendingScreenNavigation) {
         if (pendingScreenNavigation.value != expected) return
@@ -207,6 +221,8 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         saved[KEY_ACTIVE_BID] = activeBookingId.value ?: -1   // -1 = нет активной брони (null не храним примитивом)
         saved[KEY_TAXI_CHAT] = instantChatOrderId.value
         saved[KEY_SUPPORT_TICKET] = supportTicketId.value
+        saved[KEY_REQUEST_RESPONSES] = responsesRequestId.value
+        saved[KEY_INCIDENT] = incidentId.value
         saved[KEY_NAV_HISTORY] = ArrayList(navHistory.map { it.name })
     }
 
@@ -225,7 +241,6 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     val selectedRide = mutableStateOf<Ride?>(null)
     val activeTrip = mutableStateOf<Ride?>(null)
     val callbackRequested = mutableStateOf(false)
-    val responsesRequestId = mutableStateOf(0)
     val isAdmin = mutableStateOf(false)
     // Реклама начинается ПУСТОЙ, а не с демо-партнёров. Раньше стартовым значением стоял
     // `demoPartnerAds`, и при обрыве связи (сервер не ответил) человек видел карточку
@@ -277,6 +292,9 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         isAdmin.value = false
         callbackRequested.value = false
         responsesRequestId.value = 0
+        incidentId.value = 0
+        saved.remove<Int>(KEY_REQUEST_RESPONSES)
+        saved.remove<Int>(KEY_INCIDENT)
         trustedContacts.clear()
         localRequests.clear()
         voiceMessages.clear()
@@ -301,7 +319,10 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         const val KEY_SCREEN_OWNER = "yuldash_pending_private_owner"
         const val KEY_TAXI_CHAT = "yuldash_taxi_chat_id"
         const val KEY_SUPPORT_TICKET = "yuldash_support_ticket_id"
-        val ID_SCREENS = setOf(Screen.InstantChat, Screen.SupportTicket)
-        val PRIVATE_SCREENS = ID_SCREENS + setOf(Screen.InstantOrder, Screen.DriverCabinet, Screen.Parcels, Screen.SupportTickets)
+        const val KEY_REQUEST_RESPONSES = "yuldash_request_responses_id"
+        const val KEY_INCIDENT = "yuldash_incident_id"
+        val ID_SCREENS = setOf(Screen.InstantChat, Screen.SupportTicket, Screen.RequestResponses, Screen.IncidentDetail)
+        val PRIVATE_SCREENS = ID_SCREENS + setOf(Screen.InstantOrder, Screen.DriverCabinet, Screen.Parcels, Screen.SupportTickets,
+            Screen.AdsCabinet, Screen.PartnerCabinet, Screen.FairnessCenter, Screen.RequestsFeed, Screen.TaxiOnboarding, Screen.CourierOnboarding)
     }
 }

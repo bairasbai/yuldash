@@ -4420,3 +4420,9 @@ YuldashViewModel хранит два взаимоисключающих типа
 MainActivity dispatch/явный recipient/save — короткий runIfUnchangedSession generation monitor, допускающий anonymous pre-login; runIfCurrentSession остаётся bearer-required. FcmService/TaxiOfferNotifier включают recipient_user_id в content/fullscreen intent. YuldashApp импортирует legacy bridge с проверкой предыдущей записи, ждёт login/onboarding, применяет record под session guard; active InstantDriverTrip не вытесняется driver offer. Notification row support→конкретный SupportTicket, push support→SupportTickets. Screen.Support — отдельные пожертвования.
 
 [313 JVM/обаAPK/native2/точные версии и границы](audit-blocks.md#b02--такси-посылки-и-обращения-поддержки-08102026). Current Bundle restoration принят, old Bundle migration/legacy recipient/full Home/all child screen privacy не принят.
+
+## Остальные private назначения (08.10.2026, QA-B02-003)
+
+Existing PendingScreenNavigation охватывает ещё AdsCabinet/PartnerCabinet/FairnessCenter/RequestResponses/RequestsFeed/TaxiOnboarding/CourierOnboarding/IncidentDetail. Positive target IDs требуются для RequestResponses и IncidentDetail; responsesRequestId/incidentId читаются из SavedStateHandle и persistNav.11старых bridge states — проекции одной записи, clearUserData их очищает. Fixed legacy importer priority не является временем последнего независимого legacy writer.
+
+Main copied private types включает7новых существующих FCM назначений; raw positive ID gates сохранены. Pushincident→FairnessCenter,feedincident→IncidentDetail(refId); request refId — ID заявки,не Notification.id; legacy request_watch/refkindrequest→RequestsFeed.8 Notifications callbacks используют saved record/sharedrevision, прежний owner callback guard сохраняется. [362unique/обаAPK/native2/Bundle ID и пределы](audit-blocks.md#b02--остальные-личные-назначения-08102026). FullHome/old-version Bundle migration/all childprivacy остаются открыты.

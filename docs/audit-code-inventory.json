@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 131,
     "backend_main": 103,
-    "infra_resource_config": 342,
+    "infra_resource_config": 343,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 876
+    "test_support": 879
   },
   "counts_by_block": {
     "B01": 125,
@@ -94,8 +94,8 @@
     "B06": 81,
     "B07": 106,
     "B08": 164,
-    "B09": 530,
-    "B10": 342,
+    "B09": 533,
+    "B10": 343,
     "B11": 90
   },
   "excluded_counts": {
@@ -860,8 +860,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/MainActivity.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "cc0b33bc79cd44d4290b5830e8e3030f28f11214bf5c074cf135d4b6b49dfc2a",
-      "lines": 998
+      "sha256": "4232e9a712975d152ba07de5683f3e4b4a40f6279f5039357c991be845ed9c6a",
+      "lines": 999
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MapCluster.kt",
@@ -1273,8 +1273,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "26481fe6a1aef3378fa79d729d25efaa2c7d324526db2a86de0d256fb5fdee57",
-      "lines": 2660
+      "sha256": "e23266e3981745234ab37589e5709f1133dc30cfdf44c79bf3a5e546f409e244",
+      "lines": 2617
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1287,8 +1287,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashViewModel.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "5da973cac0b9c2b2333ae35095e6920544da8036323e3f63c70809938ef92ed6",
-      "lines": 307
+      "sha256": "991ea60491e66b4b8b95b55a5198c3fb4e3f0d27917a3d37c707d52818622db7",
+      "lines": 328
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/Analytics.kt",
@@ -2654,6 +2654,27 @@
       "block": "B09",
       "sha256": "cb936eebf68e9fae0376c8bd86d8655dec8166c6ed86f56711f587bb38f960a6",
       "lines": 108
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/RemainingPrivateFlowTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "bfb6b23ba115b6ba0aa749e66c54a81ee440f8a3ef7c2fb65a21652d510f1a49",
+      "lines": 147
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/RemainingPrivateOwnerTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "5b76a061534fb574946a3f1c3df5dde53450546765e38c1109b2cd8da2379e31",
+      "lines": 46
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/RemainingPrivateRestorationTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "6227eca1ce1ffaf3f0ad2cf7d3ab2dcb5f6fe3880a46b3003b9dfd02d3a0339b",
+      "lines": 101
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RequestResponsesGuardTest.kt",
@@ -9667,6 +9688,13 @@
       "kind": "infra_resource_config",
       "block": "B10",
       "sha256": "8ddd0e7074d5311e968968e6442b94c0d5dd925d41c995bb8057c4e33b00e53a",
+      "lines": 96
+    },
+    {
+      "path": "tools/audit_remaining_private_destination.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "1cfd045a9206274fca9358d87b47ca8e74b885d9d431a800492eed7999f9ed25",
       "lines": 96
     },
     {

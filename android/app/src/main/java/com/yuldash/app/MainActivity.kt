@@ -290,7 +290,8 @@ class MainActivity : ComponentActivity() {
         restoredNavigation?.pendingScreenForOwner(ApiClient.myUserId())
         val restoredType = intent?.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: intent?.getStringExtra("type")
         val copiedBookingIntent = restoredNavigation?.hasHandledBookingIntent == true &&
-            (restoredType in setOf("booking", "chat", "booking_done", "order_chat", "instant", "instant_status", "instant_payment", "instant_im_coming", "support", "debt") ||
+            (restoredType in setOf("booking", "chat", "booking_done", "order_chat", "instant", "instant_status", "instant_payment", "instant_im_coming", "support", "debt",
+                "ad", "partner", "incident", "request", "request_watch", "taxi_apply", "courier_apply") ||
                 restoredType?.startsWith("parcel") == true || intent?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) == true ||
                 intent?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) == true || intent?.getBooleanExtra(FcmService.EXTRA_OPEN_PARCELS, false) == true)
         val hasRestoredBooking = restoredNavigation != null &&
@@ -344,12 +345,19 @@ class MainActivity : ComponentActivity() {
             i.getBooleanExtra(FcmService.EXTRA_OPEN_PARCELS, false) || type?.startsWith("parcel") == true -> Screen.Parcels
             type == "order_chat" -> Screen.InstantChat
             type == "support" -> Screen.SupportTickets
+            type == "ad" -> Screen.AdsCabinet
+            type == "partner" -> Screen.PartnerCabinet
+            type == "incident" -> Screen.FairnessCenter
+            type == "request" -> Screen.RequestResponses
+            type == "request_watch" -> Screen.RequestsFeed
+            type == "taxi_apply" -> Screen.TaxiOnboarding
+            type == "courier_apply" -> Screen.CourierOnboarding
             else -> null
         }
         if (privateScreen != null) {
             if (skipBookingIntent) return
             val id = (i.getStringExtra(FcmService.EXTRA_PUSH_ID) ?: i.getStringExtra("id"))?.toIntOrNull() ?: 0
-            if (privateScreen in setOf(Screen.InstantChat, Screen.SupportTickets) && id <= 0) return
+            if (id <= 0 && (privateScreen == Screen.InstantChat || type in setOf("support", "ad", "partner", "incident", "request", "request_watch", "taxi_apply", "courier_apply"))) return
             ViewModelProvider(this)[YuldashViewModel::class.java].requestScreenDestination(privateScreen, ApiClient.myUserId(), id)
             i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER)
             i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER)
@@ -385,18 +393,11 @@ class MainActivity : ComponentActivity() {
                 .requestBookingDestination(id, ApiClient.myUserId(), completed = false)
             "booking_done" -> ViewModelProvider(this)[YuldashViewModel::class.java]
                 .requestCompletedBooking(id, ApiClient.myUserId())
-            "incident" -> DeepLink.pendingFairness.value = true       // решение по спору
             // Лента уведомлений внутри приложения разбирает ДЕСЯТЬ видов, а тап по пушу —
             // разбирал пять. Одно и то же событие вело в разные места в зависимости от того,
             // прочитал человек его в шторке или в ленте. Достраиваем до того же списка;
             // назначения уже есть, новых экранов не нужно.
             "ride" -> DeepLink.pendingRideId.value = id               // событие по моему рейсу
-            "ad" -> NavSignals.openAdsCabinet.value = true            // решение по рекламе → кабинет рекламы
-            "partner" -> NavSignals.openPartnerCabinet.value = true   // оплата/статус подписки → кабинет партнёра
-            "request" -> DeepLink.pendingRequestResponsesId.value = id  // отклики на мою заявку
-            "request_watch" -> DeepLink.pendingRequestsFeed.value = true
-            "taxi_apply" -> DeepLink.pendingApplicationScreen.value = Screen.TaxiOnboarding
-            "courier_apply" -> DeepLink.pendingApplicationScreen.value = Screen.CourierOnboarding
             else -> return
         }
         i.removeExtra(FcmService.EXTRA_PUSH_TYPE)   // не сработать повторно при пересоздании
