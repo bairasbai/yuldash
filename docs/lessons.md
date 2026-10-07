@@ -1,3 +1,11 @@
+## 07.10.2026 — границы доказательств при продолжении блоков
+
+Contract-check обязан завершаться ошибкой, если ожидаемый серверный models.py отсутствует; строка «пропуск» с exit0 скрывала неправильный путь. Проверять положительную пару и действительное расхождение обязательных/nullable полей, не только наличие файла.
+
+После ошибки компиляции общий Gradle output может сохранять XML предыдущего теста. Старый XML не является новым результатом; сверять mtime/первичный task log и сохранять отдельную папку каждого запуска. Новый helper исключает stale XML. В пассажирском и водительском обработчиках соседние одинаковые комментарии не заменяют чтение окружающей ветки — первая правка root попала в driver и не скомпилировалась, исправленный diff касается только passenger.
+
+Windows os.environ нормализует ключи: allowlist для стенда сравнивать через upper(). У первого стенда отсутствовали SYSTEMROOT и другие Windows variables, initdb дал PANIC «could not generate secret authorization token»; после исправления allowlist прошёл. Конкретную ответственную переменную отдельно не выделяли. Запуск фонового pg_ctl с capture_output может ждать унаследованные daemon pipe handles; вывод направлять в файл, проверять реальный data_directory перед остановкой. SQL со строковыми литералами передавать через stdin/heredoc, не вкладывать кавычки в shell-аргумент. Ошибки стенда хранить отдельно от product RED.
+
 ## 01.10.2026 — spinner и большие тексты проверяются через настоящий компонент (DESIGN-R4)
 
 Проверять idle→click→loading→idle, имя/роль/disabled/progress/callback отдельно. Исчезновение Text во времяspinner не доказывает сохранениеaccessible name. Для mandatoryupdate320×568/font2 нужна прокрутка к ПОЛНОЙ кнопке: unclippedbounds и PNG послеmergedButton scroll, а не screenshot послеunmergedText. Width-флаг TextLayoutResult дляcenteredparagraph не всегда означает видимое обрезание; сверятьconstraints/ink/height и настоящее PNG, сохранять исходный falsepositive. PNGcomponentwhitebackground вdarkcase не считать дефектом продукта, если стенд сам не задалCanonBg.

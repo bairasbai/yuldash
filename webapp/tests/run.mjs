@@ -79,6 +79,7 @@ const SUITES = [
   { test: "budget-test", src: null, out: null, bundle: false },
   // Сверка описаний ответа с моделями сервера (если сервер лежит рядом).
   { test: "contract-test", src: null, out: null, bundle: false },
+  { test: "contract-root-regression-test", src: null, out: null, bundle: false },
   // Сторож трёх поломок, которые уже случались и легко возвращаются.
   { test: "guard-test", src: null, out: null, bundle: false },
   // Правила, защищающие человека: чистка при выходе, уход на оплату, отказы.

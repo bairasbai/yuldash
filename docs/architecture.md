@@ -1,5 +1,9 @@
 # 🗺️ Карта кода Юлдаш
 
+## Отклонённый пассажирский статус (07.10.2026, QA-B02-010 / DESIGN-062)
+
+ActiveTripScreen в BookingActiveTripScreen.kt возвращает previousStatus при ApiException пассажирского POST /trip-status, если локальный status ещё равен этой попытке. Кнопка повторяет «Я сел» после403/409/503; серверный отказ не кладётся в Outbox. Успех200 переводит к следующему действию. Транспортная ошибка сохраняет прежний отдельный путь очереди. Проверены фактический экран/управляемый HTTP; гонки/чужая сессия/прочие действия отдельно открыты. [Реестр и доказательства](audit-blocks.md#этапы-продолжения--07102026).
+
 ## Общая кнопка и обязательное обновление (01.10.2026, DESIGN-R4)
 
 UiKit.AppButton сохраняет action name в semantics только приloading; idle имеет прежний Text, progress/disabled остаются Material. ForceUpdateScreen использует ограниченный viewport со scroll/minHeight и Arrangement.Center: короткий контент по центру, крупный шрифт читает полный текст/CTA прокруткой. Существующие RU/BA/Canon/insets/анимация/URL ветки сохранены. Component32JVM/8device и ограничения — [журнал](audit-journal.md); это не проверка всего version/min пути.

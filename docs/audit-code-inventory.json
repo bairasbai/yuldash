@@ -80,22 +80,22 @@
   "counts_by_kind": {
     "android_main": 130,
     "backend_main": 103,
-    "infra_resource_config": 322,
+    "infra_resource_config": 323,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 843
+    "test_support": 846
   },
   "counts_by_block": {
     "B01": 120,
-    "B02": 162,
+    "B02": 163,
     "B03": 101,
     "B04": 75,
     "B05": 29,
     "B06": 75,
     "B07": 105,
     "B08": 164,
-    "B09": 524,
-    "B10": 322,
+    "B09": 526,
+    "B10": 323,
     "B11": 90
   },
   "excluded_counts": {
@@ -118,8 +118,8 @@
       "path": ".github/workflows/ci.yml",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "81d1e7ebff54b4c7cd93066a816f51aef8e64c0e40164ebe24498f4ac24d2335",
-      "lines": 281
+      "sha256": "29782a201e032d448968a4752253d5e9e022689c5733af77e54f9fcca76ad7a0",
+      "lines": 283
     },
     {
       "path": ".gitignore",
@@ -346,6 +346,13 @@
       "lines": 231
     },
     {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/data/LegacyOfflineUpgradeProcessInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "56594fd6389790b8ed1778494468e819960faad5c9d30f6d968953edabe23949",
+      "lines": 250
+    },
+    {
       "path": "android/app/src/androidTest/java/com/yuldash/app/data/MessageRetryProcessInstrumentedTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -566,8 +573,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "b161ac19ca66a198f60c8cbcb4abee9f8722e3d9a0d90938d559978ff545d31f",
-      "lines": 3817
+      "sha256": "a0c0db75dc8331ed07c681f49d6671d3c2bfc5e50cc95cee3823b73230843b3d",
+      "lines": 3820
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -1674,6 +1681,13 @@
       "block": "B02",
       "sha256": "112729d748ab315eeaeb570616e895e4f118a35e7a5d7b0806da6c2568c3bef6",
       "lines": 153
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerStatusFailureTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "2d470e9669014ff5b74f6f5675c41df894bc6456dae46cd336330e01664c01c1",
+      "lines": 126
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPollingSessionTest.kt",
@@ -5438,8 +5452,8 @@
       "path": "backend/ops/restore-verify.sh",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "7a6c7dc28f3be4ce34032bc935d76540bd4a205d9939b829da3f1f6d64078aef",
-      "lines": 142
+      "sha256": "794516f395aee84c66d234062bbaa9305fd14d13a98eec479d19e1d798a7a737",
+      "lines": 145
     },
     {
       "path": "backend/ops/systemd.example",
@@ -8039,6 +8053,13 @@
       "lines": 314
     },
     {
+      "path": "backend/tests/test_restore_verify_encrypted_backup.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "29e61b8bd19657497acfbc61f22b013370836c33b98e1702f37cd1a47b52d630",
+      "lines": 217
+    },
+    {
       "path": "backend/tests/test_return_pays_the_road.py",
       "kind": "test_support",
       "block": "B09",
@@ -9239,8 +9260,8 @@
       "path": "promo/src/Promo.tsx",
       "kind": "public_site_promo",
       "block": "B11",
-      "sha256": "7658f0f67cae17bb31313733d5c7a7e847ab5abbc2c1efa5096235c18a5577eb",
-      "lines": 230
+      "sha256": "0346226e4c9ccea8879a52f8f17e0358135bf628d850f4e8840b56683241a5d8",
+      "lines": 131
     },
     {
       "path": "promo/src/PromoWide.tsx",
@@ -9253,8 +9274,8 @@
       "path": "promo/src/Root.tsx",
       "kind": "public_site_promo",
       "block": "B11",
-      "sha256": "f3f9cf83de5142c58af2c570d8876e9e6975b58007fb180b441879cf2f2bab3c",
-      "lines": 26
+      "sha256": "ae68aaa3a981ad1cf931701c688b3cd067bbec37633e6c3d5b72c07ad7babc4b",
+      "lines": 15
     },
     {
       "path": "promo/src/index.ts",
@@ -12064,10 +12085,17 @@
       "lines": 181
     },
     {
+      "path": "webapp/tests/contract-root-regression-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "642b55136f91a609ed52caafefab2446ecd5b4e9104bf76f20086e94d403eb93",
+      "lines": 70
+    },
+    {
       "path": "webapp/tests/contract-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "1588feb320e69b56fcc13c9b18e6c25463204a787dfb36e4cff0fa2de684d406",
+      "sha256": "38626c89ca6a3bb19997d0dccaf82239ce9a3f90b527198a762ff9f430b938eb",
       "lines": 105
     },
     {
@@ -12347,8 +12375,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "26659091dada0730ac22a131fbb2cfddb2837b9d25f39c614f3b9dd299522444",
-      "lines": 177
+      "sha256": "485ac684ad3b7212fae9092009c8a263873d03a89a1297559a5918b111822e85",
+      "lines": 178
     },
     {
       "path": "webapp/tests/session-boundary-test.mjs",

@@ -1,20 +1,18 @@
 import React from 'react';
 import {
   AbsoluteFill,
-<<<<<<< Updated upstream
   Img,
   OffthreadVideo,
   Sequence,
-=======
-  Easing,
->>>>>>> Stashed changes
   interpolate,
+  spring,
+  staticFile,
   useCurrentFrame,
+  useVideoConfig,
 } from 'remotion';
 import { C, DISPLAY, BODY } from './theme';
 import { Kicker, ScreenMap, ScreenForm, ScreenRequest } from './screens';
 
-<<<<<<< Updated upstream
 // Плавное появление/уход сцены (frame внутри Sequence — относительный)
 const Fade: React.FC<{ dur: number; children: React.ReactNode }> = ({ dur, children }) => {
   const f = useCurrentFrame();
@@ -116,103 +114,11 @@ const SceneCTA: React.FC = () => {
         <div style={{ fontFamily: BODY, fontWeight: 700, fontSize: 40, color: C.gold, marginTop: 12, opacity: btn }}>yulbash.ru</div>
       </AbsoluteFill>
     </AbsoluteFill>
-=======
-const C = {
-  night: '#07100D',
-  deep: '#0D1718',
-  ivory: '#F5EFE3',
-  muted: 'rgba(245,239,227,0.68)',
-  brass: '#D58B26',
-  steel: '#7EA3B6',
-  green: '#176640',
-};
-
-const FONT = '"Segoe UI", Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
-const ease = Easing.bezier(0.16, 1, 0.3, 1);
-
-const clamp = {
-  extrapolateLeft: 'clamp' as const,
-  extrapolateRight: 'clamp' as const,
-};
-
-const rise = (frame: number, start: number, duration = 38) =>
-  interpolate(frame, [start, start + duration], [0, 1], { ...clamp, easing: ease });
-
-const RouteScene: React.FC = () => {
-  const frame = useCurrentFrame();
-  const primary = interpolate(frame, [22, 138], [0, 1], { ...clamp, easing: ease });
-  const secondary = interpolate(frame, [72, 184], [0, 1], { ...clamp, easing: ease });
-  const car = interpolate(frame, [64, 232], [0, 1], { ...clamp, easing: Easing.inOut(Easing.cubic) });
-
-  return (
-    <svg width="1920" height="1080" style={{ position: 'absolute', inset: 0 }}>
-      <defs>
-        <linearGradient id="bgRoute" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor={C.night} />
-          <stop offset="100%" stopColor={C.deep} />
-        </linearGradient>
-        <linearGradient id="mainRoute" x1="0" x2="1">
-          <stop offset="0%" stopColor={C.ivory} stopOpacity="0.12" />
-          <stop offset="52%" stopColor={C.brass} stopOpacity="0.86" />
-          <stop offset="100%" stopColor={C.steel} stopOpacity="0.64" />
-        </linearGradient>
-      </defs>
-      <rect width="1920" height="1080" fill="url(#bgRoute)" />
-      {Array.from({ length: 12 }).map((_, i) => (
-        <path
-          key={i}
-          d={`M${-160 + i * 210} 1120 C ${40 + i * 180} 820, ${300 + i * 90} 420, ${420 + i * 135} -90`}
-          fill="none"
-          stroke="rgba(245,239,227,0.045)"
-          strokeWidth="2"
-        />
-      ))}
-      <path d="M110 760 C 360 570, 575 670, 725 470 S 1088 210, 1770 294" fill="none" stroke="rgba(245,239,227,0.12)" strokeWidth="42" strokeLinecap="round" />
-      <path
-        d="M110 760 C 360 570, 575 670, 725 470 S 1088 210, 1770 294"
-        fill="none"
-        stroke="url(#mainRoute)"
-        strokeWidth="9"
-        strokeLinecap="round"
-        pathLength={1}
-        strokeDasharray={1}
-        strokeDashoffset={1 - primary}
-      />
-      <path
-        d="M260 850 C 470 725, 568 520, 780 560 S 1120 670, 1355 480"
-        fill="none"
-        stroke={C.steel}
-        strokeWidth="4"
-        strokeLinecap="round"
-        pathLength={1}
-        strokeDasharray={1}
-        strokeDashoffset={1 - secondary}
-        opacity="0.72"
-      />
-      {[{ x: 110, y: 760, label: 'Уфа' }, { x: 725, y: 470, label: 'Стерлитамак' }, { x: 1770, y: 294, label: 'Сибай' }].map((point, index) => (
-        <g key={point.label} opacity={rise(frame, 70 + index * 18)} transform={`translate(${point.x} ${point.y})`}>
-          <circle r="18" fill={index === 2 ? C.brass : C.green} />
-          <circle r="34" fill="none" stroke={index === 2 ? C.brass : C.green} strokeWidth="2" opacity="0.42" />
-          <text x="0" y="-48" textAnchor="middle" fill={C.ivory} fontFamily={FONT} fontSize="26" fontWeight="800">
-            {point.label}
-          </text>
-        </g>
-      ))}
-      <g transform={`translate(${interpolate(car, [0, 1], [110, 1770])} ${interpolate(car, [0, 1], [760, 294])})`}>
-        <circle r="24" fill={C.brass} />
-        <path d="M-9 3h18M-4-6h8M-14 3l5-10h18l5 10" stroke={C.night} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </g>
-    </svg>
->>>>>>> Stashed changes
   );
 };
 
 export const Promo: React.FC = () => {
-  const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [0, 20, 282, 300], [0, 1, 1, 0], clamp);
-
   return (
-<<<<<<< Updated upstream
     <AbsoluteFill style={{ background: C.night }}>
       <Sequence durationInFrames={92}><Fade dur={92}><SceneIntro /></Fade></Sequence>
       <Sequence from={92} durationInFrames={120}><Fade dur={120}><SceneRoad /></Fade></Sequence>
@@ -220,11 +126,6 @@ export const Promo: React.FC = () => {
       <Sequence from={332} durationInFrames={110}><Fade dur={110}><PhoneScene title="Заявка и условия" sub="Телефон скрыт · условия поездки"><ScreenForm /></PhoneScene></Fade></Sequence>
       <Sequence from={442} durationInFrames={110}><Fade dur={110}><PhoneScene title="Заявки и отклики" sub="Оставь заявку — свои откликнутся"><ScreenRequest /></PhoneScene></Fade></Sequence>
       <Sequence from={552} durationInFrames={96}><Fade dur={96}><SceneCTA /></Fade></Sequence>
-=======
-    <AbsoluteFill style={{ background: C.night, overflow: 'hidden', opacity }}>
-      <RouteScene />
-      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, rgba(7,16,13,0.58) 0%, rgba(7,16,13,0.22) 48%, rgba(7,16,13,0.08) 100%)' }} />
->>>>>>> Stashed changes
     </AbsoluteFill>
   );
 };

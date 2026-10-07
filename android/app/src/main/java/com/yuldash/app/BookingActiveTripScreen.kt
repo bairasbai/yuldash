@@ -1847,6 +1847,9 @@ internal fun ActiveTripScreen(
                             if (!saved && status == st) status = previousStatus
                             Toast.makeText(context, if (saved) queuedMsg else queueSaveFailMsg, Toast.LENGTH_SHORT).show()
                         } else {
+                            // A rejected server transition must leave the same passenger action retryable.
+                            // Do not undo a newer state if another operation already advanced it.
+                            if (status == st) status = previousStatus
                             // Сервер объясняет отказ подробно: «ты ещё далеко от места
                             // подачи (≈1.4 км)». Своё «проверь сеть» здесь неправда —
                             // сеть работает, а водитель жмёт кнопку снова и снова.
