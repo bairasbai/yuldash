@@ -954,3 +954,5 @@ Android-хранилище (19.09.2026): [источник актуальног�
 - B02 receipt/tip loading/retry/reconcile,07.10.2026: [текущие результаты и остатки](audit-blocks.md#b02--загрузка-квитанции-и-статуса-благодарности-07102026),68/68=24новых+44прежних, native RU/BA2/2. Далее navigation/restoration; B02 частичен.
 
 - B02 Completed restoration,07.10.2026: [current scope/остатки](audit-blocks.md#b02--восстановление-экрана-после-поездки-07102026),81/81=13новых+68прежних; native RU/BA2/2 actual standalone Activity.recreate. Далее production fullnav/cold process; B02 partial.
+
+07.10.2026 — [B02: квитанция и возврат к черновику](audit-blocks.md#b02--навигация-квитанция-и-возврат-к-черновику-07102026): saved nav trail/current loader guards;123/123 JVM=11new+112existing/nativeRU/BA2/2 actualYuldashApp retainedVM Activity.recreate. Настоящий process kill/full launch остаётся открытым.

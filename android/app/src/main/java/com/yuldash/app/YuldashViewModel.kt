@@ -58,6 +58,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         saved[KEY_LANG] = language.value.name
         saved[KEY_TAB] = startHomeTab.value.name
         saved[KEY_ACTIVE_BID] = activeBookingId.value ?: -1   // -1 = нет активной брони (null не храним примитивом)
+        saved[KEY_NAV_HISTORY] = ArrayList(navHistory.map { it.name })
     }
 
     // --- Транзитные/бизнес: переживают поворот, не переживают kill (как и было) ---
@@ -73,7 +74,11 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     val partnerAds = mutableStateOf(emptyList<PartnerAd>())
 
     // --- Back-stack (аппаратная «Назад» по трейлу экранов) ---
-    val navHistory = mutableStateListOf<Screen>()
+    val navHistory = mutableStateListOf<Screen>().apply {
+        addAll(saved.get<List<String>>(KEY_NAV_HISTORY).orEmpty().mapNotNull {
+            runCatching { Screen.valueOf(it) }.getOrNull()
+        })
+    }
     val navPopping = mutableStateOf(false)
     val navPrev = mutableStateOf(screen.value)
 
@@ -107,6 +112,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         localRequests.clear()
         voiceMessages.clear()
         navHistory.clear()
+        saved.remove<ArrayList<String>>(KEY_NAV_HISTORY)
         rides.clear()
     }
 
@@ -115,5 +121,6 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         const val KEY_LANG = "yuldash_lang"
         const val KEY_TAB = "yuldash_tab"
         const val KEY_ACTIVE_BID = "yuldash_active_bid"
+        const val KEY_NAV_HISTORY = "yuldash_nav_history"
     }
 }

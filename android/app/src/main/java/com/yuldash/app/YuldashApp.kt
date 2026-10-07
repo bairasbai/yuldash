@@ -328,6 +328,7 @@ internal fun YuldashApp() {
     // Память экранов: что было на экране, когда с него ушли (см. SaveableStateProvider ниже).
     // Черновики принадлежат аккаунту, а не устройству. Обновление токена того же
     // пользователя сохраняет их; выход или смена пользователя создаёт новое хранилище.
+    val navigationSession by ApiClient.sessionChanges.collectAsState()
     val screenStateOwner = ApiClient.myUserId()
     val screenStates = key(screenStateOwner) { rememberSaveableStateHolder() }
     // Чем человек рассчитывается с водителем. Помним между заказами: платят изо дня в день
@@ -814,7 +815,7 @@ internal fun YuldashApp() {
     val adStats = vm.adStats   // SnapshotStateMap: мутируем одну запись вместо копии всей карты на событие
     // Сохраняем survival-состояние в SavedStateHandle при изменении → переживает смерть процесса.
     // activeBookingId в ключах: смена активной брони тоже должна попасть в handle (H1).
-    LaunchedEffect(screen, language, startHomeTab, activeBookingId, languagePersistenceReady) {
+    LaunchedEffect(screen, language, startHomeTab, activeBookingId, languagePersistenceReady, vm.navHistory.toList()) {
         if (languagePersistenceReady) vm.persistNav()
     }
 
@@ -834,48 +835,52 @@ internal fun YuldashApp() {
         navPrev = screen
     }
 
-    // H1 — активная поездка выживает после kill процесса. screen и activeBookingId переживают смерть
-    // процесса (SavedStateHandle), но объекты Ride (selectedRide/activeTrip) — нет. Если восстановились
-    // на брони/активной поездке без объектов → по сохранённому activeBookingId дочитываем бронь с сервера
-    // и восстанавливаем поездку (маршрут на карте, гейт live-гео, back-навигацию). Экран ActiveTrip сам
-    // грузит код посадки/трекинг по bookingId, так что до ответа сервера он не пустует.
-    // Не нашлась активная бронь / нет сети → мягко уходим на Home (прежнее поведение, без краша).
-    LaunchedEffect(Unit) {
+    // SavedStateHandle хранит навигацию, но не объекты Ride. При входе/возврате на бронь
+    // дочитываем её по сохранённому id. Ответ применяется только к исходному экрану, брони
+    // и сессии; уход со страницы отменяет загрузчик. Live-гео включается лишь для активной поездки.
+    // Не нашлась текущая бронь / нет сети → Home (прежнее поведение).
+    LaunchedEffect(screen, activeBookingId, navigationSession) {
         if ((screen == Screen.Booking || screen == Screen.ActiveTrip) && selectedRide == null && activeTrip == null) {
             val bid = activeBookingId
+            val requestedScreen = screen
+            val requestedSession = navigationSession
+            val restoreScope = this
+            fun isCurrentRestore() = restoreScope.isActive && screen == requestedScreen &&
+                activeBookingId == bid && selectedRide == null && activeTrip == null &&
+                ApiClient.isCurrentSession(requestedSession)
             var restored = false
             if (bid != null) {
-                ApiClient.getMyBookingsDetailed().onSuccess { list ->
-                    val b = list.firstOrNull { it.id == bid }
-                    if (b != null) {
-                        // Сводку с сервера дополняем feed-поездкой по ride_id (как экран «Мои поездки»).
-                        val feed = rides.firstOrNull { it.id == b.rideId.toString() }
-                        val restoredRide = Ride(
-                            id = b.id.toString(),
-                            from = b.fromCity.ifBlank { feed?.from ?: "" },
-                            to = b.toCity.ifBlank { feed?.to ?: "" },
-                            time = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.time ?: ""),
-                            timeBa = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.timeBa ?: feed?.time ?: ""),
-                            driver = b.driverName.ifBlank { feed?.driver ?: "" },
-                            car = feed?.car ?: "",
-                            carBa = feed?.carBa ?: feed?.car ?: "",
-                            price = if (b.price > 0) b.price else (feed?.price ?: 0),
-                            seats = b.seats,
-                            rating = feed?.rating ?: 0.0,
-                            verified = b.driverVerified || (feed?.verified ?: false),
-                            boosted = false,
-                        )
-                        selectedRide = restoredRide
-                        selectedBookingStatus = b.status
-                        // Live-гео и карта гейтятся на activeTrip: ставим его только для активной поездки.
-                        activeTrip = if (bookingStatusAllowsBoarding(b.status)) restoredRide else null
-                        // Отменённая бронь → детали; done остаётся на экране завершения и оценки.
-                        if (screen == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status)) screen = Screen.Booking
-                        restored = true
-                    }
+                val list = ApiClient.getMyBookingsDetailed().getOrNull()
+                if (!isCurrentRestore()) return@LaunchedEffect
+                val b = list?.firstOrNull { it.id == bid }
+                if (b != null) {
+                    // Сводку с сервера дополняем feed-поездкой по ride_id (как экран «Мои поездки»).
+                    val feed = rides.firstOrNull { it.id == b.rideId.toString() }
+                    val restoredRide = Ride(
+                        id = b.id.toString(),
+                        from = b.fromCity.ifBlank { feed?.from ?: "" },
+                        to = b.toCity.ifBlank { feed?.to ?: "" },
+                        time = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.time ?: ""),
+                        timeBa = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.timeBa ?: feed?.time ?: ""),
+                        driver = b.driverName.ifBlank { feed?.driver ?: "" },
+                        car = feed?.car ?: "",
+                        carBa = feed?.carBa ?: feed?.car ?: "",
+                        price = if (b.price > 0) b.price else (feed?.price ?: 0),
+                        seats = b.seats,
+                        rating = feed?.rating ?: 0.0,
+                        verified = b.driverVerified || (feed?.verified ?: false),
+                        boosted = false,
+                    )
+                    selectedRide = restoredRide
+                    selectedBookingStatus = b.status
+                    // Live-гео и карта гейтятся на activeTrip: ставим его только для активной поездки.
+                    activeTrip = if (bookingStatusAllowsBoarding(b.status)) restoredRide else null
+                    // Отменённая бронь → детали; done остаётся на экране завершения и оценки.
+                    if (screen == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status)) screen = Screen.Booking
+                    restored = true
                 }
             }
-            if (!restored) screen = Screen.Home
+            if (!restored && isCurrentRestore()) screen = Screen.Home
         }
     }
 
@@ -2627,4 +2632,3 @@ private fun RowScope.YuldashBottomItem(
         )
     }
 }
-

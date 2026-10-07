@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 131,
     "backend_main": 103,
-    "infra_resource_config": 336,
+    "infra_resource_config": 337,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 866
+    "test_support": 867
   },
   "counts_by_block": {
     "B01": 125,
@@ -94,8 +94,8 @@
     "B06": 75,
     "B07": 106,
     "B08": 164,
-    "B09": 526,
-    "B10": 336,
+    "B09": 527,
+    "B10": 337,
     "B11": 90
   },
   "excluded_counts": {
@@ -218,6 +218,13 @@
       "block": "B10",
       "sha256": "99226f1c926b9d96bea7f812a137453988ef916a78f3271d87f266f849860ae8",
       "lines": 186
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/CompletedNavigationInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "1fd2e4917ffb42c759e508a0d3427126ace29f7c976d82062a3079ccaeac9a7a",
+      "lines": 169
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/CompletedRestorationInstrumentedTest.kt",
@@ -1259,8 +1266,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "01ca3d4cb3a78a9f8171a728dbbcb77eaa4cc0f76cdcfa1ccfc1cfd54ed72a0c",
-      "lines": 2630
+      "sha256": "aff1ba6a6dc08ff804271499ed6f1dd8fb3356dfcc7affca1680150e30a54af5",
+      "lines": 2634
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1273,8 +1280,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashViewModel.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "225f9c59aaa942b1d9bb0586a5c4aa1d077d0d8f7d88360fa1eb634e077cb469",
-      "lines": 119
+      "sha256": "ea1cb35165ab8982af1ff6da7eacba5485b645ccd878fa2a04fd91d549eb33a0",
+      "lines": 126
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/Analytics.kt",
@@ -2087,6 +2094,13 @@
       "block": "B05",
       "sha256": "546978170f0d7207b2b5a76986ea048cefdd225e64f2b1d25c575be0e0273c42",
       "lines": 185
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/CompletedNavigationRestorationTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "4abfbac0f94a4c80ed8902eb41d7c0ce5ee58dc492faf95496db7686087771b1",
+      "lines": 192
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ContrastGuardTest.kt",
