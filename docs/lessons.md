@@ -9073,3 +9073,8 @@ Windows Python helpers запускать с -X utf8 либо stdout.reconfigure
 ## 08.10.2026 — B02, старое сохранённое состояние
 
 Compose stateSaver restore=null внутри MutableState может оставить непустую state с null Boolean и NPE: отвергать весь MutableState. Собственный tagged Saver не защищает соседний permission launcher от old implicit slot — нужен namespace. SaveableRegistry может хранить много providers под одним ключом: менять только один индекс, не весь список. SideEffect ordering нельзя предполагать: первый race fixture calls0 не является product RED; DisposableEffect remembered earlier даёт конкретный воспроизводимый порядок. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).
+
+
+## 08.10.2026 — B02, старые уведомления без получателя и маркера
+
+При изменении external Intent contract проверять реальные исторические producers: wire receiver check не означает, что receiver попал в shown PendingIntent. Старые guest fixtures нельзя молча считать валидными: фиксированный recipient и явно заменённые ID/expectations, внутренние guest journeys отдельны. HTTP отрицательный критерий ограничивать предметом и временем: account logout POST не private navigation write. PowerShell не поддерживает Bash brace-list файлов; использовать rg по реальному каталогу с -g или массив путей. [Доказательства и пределы](audit-blocks.md#b02--старые-уведомления-без-получателя-и-маркера-08102026).

@@ -32,7 +32,7 @@ class MainActivityLaunchRestorationTest {
     private fun clearSignals() {
         DeepLink.pendingCompletedBookingId.value=null;DeepLink.pendingBookingChatId.value=null;DeepLink.pendingRideId.value=null
     }
-    private fun notification(id:Int=42)=Intent(context,MainActivity::class.java).putExtra("type","booking_done").putExtra("id",id.toString())
+    private fun notification(id:Int=42)=Intent(context,MainActivity::class.java).putExtra("type","booking_done").putExtra("id",id.toString()).putExtra("recipient_user_id", "11")
     private fun ride(id:Int=9)=Intent(Intent.ACTION_VIEW,Uri.parse("https://yulbash.ru/r/$id"),context,MainActivity::class.java)
     private fun create(intent:Intent,state:Bundle?=null):ActivityController<MainActivity> =
         Robolectric.buildActivity(MainActivity::class.java,intent).also {controllers+=it}.create(state)
@@ -58,7 +58,10 @@ class MainActivityLaunchRestorationTest {
     @Test fun savedLoginKeepsPendingOriginalNotification() {val state=saved(Screen.Login);create(notification(),state);assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
     @Test fun savedIntroKeepsPendingOriginalNotification() {val state=saved(Screen.Intro);create(notification(),state);assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
     @Test fun savedOnboardingKeepsPendingOriginalNotification() {val state=saved(Screen.Onboarding);create(notification(),state);assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
-    @Test fun savedHomeWithoutBookingKeepsInitialDestination() {val state=saved(Screen.Home,intent=Intent(context,MainActivity::class.java),bookingId=null);create(notification(),state);assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
+    @Test fun savedHomeWithoutBookingRejectsUnmarkedPrivateCopy() {
+        val state=saved(Screen.Home,intent=Intent(context,MainActivity::class.java),bookingId=null);val c=create(notification(),state)
+        assertEquals(Screen.Home,vm(c).screen.value);assertNull(vm(c).pendingBookingNavigation.value);assertNull(DeepLink.pendingCompletedBookingId.value)
+    }
     @Test fun savedHomeWithBookingDoesNotReplayOldDestination() {val state=saved(Screen.Home);create(notification(),state);assertNull(DeepLink.pendingCompletedBookingId.value)}
     @Test fun restoredReceiptDoesNotReplayCopiedOriginalNotification() {
         val original=notification();val state=saved(Screen.TripReceipt,Intent(original));val c=create(Intent(original),state)

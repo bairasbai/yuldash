@@ -30,7 +30,7 @@ class PrivateDestinationRestorationTest {
         DeepLink.pendingParcels.value = false; DeepLink.pendingSupport.value = false
         DeepLink.pendingBookingChatId.value = null; DeepLink.pendingCompletedBookingId.value = null; DeepLink.pendingRideId.value = null
     }
-    private fun intent(type: String, id: Int = 43) = Intent(context, MainActivity::class.java).putExtra("type", type).putExtra("id", id.toString())
+    private fun intent(type: String, id: Int = 43) = Intent(context, MainActivity::class.java).putExtra("type", type).putExtra("id", id.toString()).putExtra("recipient_user_id", "11")
     private fun create(i: Intent = Intent(context, MainActivity::class.java), state: Bundle? = null) =
         Robolectric.buildActivity(MainActivity::class.java, i).also { controllers += it }.create(state)
     private fun vm(c: ActivityController<MainActivity>) = ViewModelProvider(c.get())[YuldashViewModel::class.java]
@@ -85,9 +85,10 @@ class PrivateDestinationRestorationTest {
     @Test fun copiedSupportDoesNotReturnAfterLogout() = clearedCopied("support")
     @Test fun copiedTaxiChatDoesNotReturnAfterLogout() = clearedCopied("order_chat")
     @Test fun copiedParcelsDoNotReturnAfterLogout() = clearedCopied("parcel")
-    @Test fun unboundTaxiChatWaitsThroughSavedLogin() {
+    @Test fun loggedOutTaxiChatRejectedAcrossSaveAndNewAfterLoginAccepted() {
         ApiClient.logout(); val c = create(intent("order_chat")); vm(c).screen.value = Screen.Login; vm(c).persistNav()
-        val state = save(c); clear(); create(state = state); assertTrue(pending("order_chat"))
+        assertNull(vm(c).pendingScreenNavigation.value); val state = save(c); clear(); val next = create(state = state); assertFalse(pending("order_chat"))
+        ApiClient.saveToken(tokenA); deliver(next, intent("order_chat")); assertTrue(pending("order_chat"))
     }
     @Test fun sameOwnerTokenReplacementKeepsSupport() {
         val c = receipt(); deliver(c, intent("support")); val state = save(c); ApiClient.saveToken(tokenA + "new")

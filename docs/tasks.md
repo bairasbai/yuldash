@@ -17664,3 +17664,14 @@ glossary и четыре связанных auth-набора, exit0. 🔒 Бр�
 ## 08.10.2026 — B02, старое сохранённое состояние
 
 Результат: final-v2 456/456 (39legacy+1revised+416prior),42classes/обаAPK; исторический capture3 отдельно. Old root/permission/holder namespace reset, включая старые несохранённые drafts; current same-owner restore/Back/draft подтверждены integration controls. Next legacy private intent безrecipient/marker; realoldAPK/native unifiedBundle/preVM/childschema/all19ownerfields/fullB02 остаются открытыми. Новых product строк/переводов нет. 🔓 Root product/tests/Gradle после completed final; docs/inventory/publication до scoped review/FFmain/push по прежнему разрешению. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).
+
+## B02 / QA-B02-003 — старые уведомления без получателя/доставки, 08.10.2026
+
+База `655b597d`, ветка `codex/b02-legacy-intent-20261008`. План по ранее разрешённому продолжению: сверить реальные producer/caller contracts; воспроизвести missing-recipient и unmarked restored-screen случаи в actual MainActivity/default VM/наблюдаемом Bundle; ограниченно исправить входную навигацию; проверить допустимые старые same-recipient cold/newIntent и current marked/public пути; собрать оба APK и выполнить затронутую интеграцию; обновить реестр/инвентаризацию, получить scoped независимое ревью, затем commit/FF main/push. Без production deploy/реальных FCM/SMS/финансов.
+
+🔒 Root — единственный писатель MainActivity.kt, Android-тестов и docs/inventory; единственная сборка/GitHub. b02_socket_review — только read-only producer/history contracts и последующее independent review, без build/adb/network. Начальная inventory:1838, добавленных/удалённых/изменённых product источников нет; единственная известная дельта `.gitignore` чужая.39 чужих status entries сохраняются. Отсутствие recipient нельзя трактовать как доказанный текущий аккаунт; без delivery identity не обещать различение новой доставки и копии.
+
+
+## 08.10.2026 — B02, старые уведомления без получателя и маркера
+
+Final498/498=42new+15revised+441retained,44classes/обаAPK. Missing-recipient private отказ, unmarked restored meaningful route сохранён; current marked и known-recipient compatibility controls passed.15 прежних guest-private/Home-copy ID заменены явно. Old ownerless notification taps перестают открываться; current nullable TaxiOffer producer ещё требует отдельной проверки. New UI strings/BA drafts нет. 🔓 Root product/tests/Gradle после final; docs/inventory до freeze/scoped review и22own commit/FF main/push по persistent разрешению. Next public pendingRideId/held HTTP vs local Home; fullB02/release остаются частичными. [Доказательства и ограничения](audit-blocks.md#b02--старые-уведомления-без-получателя-и-маркера-08102026).

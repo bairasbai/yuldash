@@ -5901,3 +5901,8 @@ RED ActivityBundle/App подтвердил потерю7назначений,п
 ## 08.10.2026 — B02, старое сохранённое состояние
 
 Анонимные старые Int/String/Boolean значения не мигрировать по позиции: нельзя подтвердить назначение/владельца. Изолировать весь root namespace (включая framework launcher), принять однократную потерю несохранённых child drafts, сохранить отдельные VM/prefs данные. Неизвестный CarPhoto mode не угадывать как taxi. Fallback не может вытеснить уже появившийся положительный ID. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).
+
+
+## 08.10.2026 — B02, старые уведомления без получателя и маркера
+
+Нельзя восстановить recipient настоящего old PendingIntent из текущего аккаунта или ID объекта. Поэтому ownerless private click отвергать, включая до входа; old legitimate уведомления теряют переход. Без delivery marker не обещать различение fresh и saved copy: сохранять meaningful restored screen, explicit newIntent same recipient принимать без invented dedup. Recipient/UUID не являются auth внешнего отправителя. Nullable TaxiOffer producer отдельно. [Доказательства и пределы](audit-blocks.md#b02--старые-уведомления-без-получателя-и-маркера-08102026).

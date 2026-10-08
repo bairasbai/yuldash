@@ -83,7 +83,7 @@ class PushRoutingChainTest {
         DeepLink.pendingRequestsFeed.value = false
         dispatch(intent)
         assertFalse(DeepLink.pendingRequestsFeed.value)
-        dispatch(Intent().putExtra("type", "request").putExtra("id", "42"))
+        dispatch(Intent().putExtra("type", "request").putExtra("id", "42").putExtra("recipient_user_id", "2"))
         assertEquals(42, DeepLink.pendingRequestResponsesId.value)
         assertFalse(DeepLink.pendingRequestsFeed.value)
     }
@@ -113,7 +113,7 @@ class PushRoutingChainTest {
     @Test fun rawFcmExtrasOpenOrderForAllTaxiEvents() {
         for (type in listOf("instant_status", "instant_payment", "instant_im_coming")) {
             NavSignals.openInstantOrder.value = false
-            dispatch(Intent().putExtra("type", type).putExtra("id", "42"))
+            dispatch(Intent().putExtra("type", type).putExtra("id", "42").putExtra("recipient_user_id", "2"))
             assertTrue("Raw FCM $type must open the taxi order", NavSignals.openInstantOrder.value)
         }
     }

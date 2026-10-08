@@ -974,3 +974,6 @@ Android-хранилище (19.09.2026): [источник актуальног�
 ### B02: личные booking/chat уведомления,07.10.2026
 
 [Текущий критерий и остатки](audit-blocks.md#b02--личные-уведомления-брони-и-чата-07102026):219/219=35new+178previous+6existing login/23classes/обаAPK; отдельно2 OS process UI cases RU booking/BA chat и6 root-viewed PNG. Общий durable kind/owner/revision и session-bound Notifications. Реестр — источник очереди; B02 частичен.
+
+
+08.10.2026 — B02, старые уведомления без получателя и маркера: [реестр, версии и остатки](audit-blocks.md#b02--старые-уведомления-без-получателя-и-маркера-08102026).498 distinct JVM/44classes/обаAPK. Old ownerless private taps rejected; unmarked saved route protected.100%/realFCM/native upgrade не подтверждены; дальше public pendingRide/held HTTP vs localHome.

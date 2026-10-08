@@ -96,7 +96,7 @@ class BookingNotificationFlowTest {
         await { records.any { it.first == "/trips/42/receipt" } }; pump()
     }
     private fun deliver(id: Int, type: String = "chat") = compose.runOnIdle {
-        val intent = Intent(context, MainActivity::class.java).putExtra("type", type).putExtra("id", id.toString())
+        val intent = Intent(context, MainActivity::class.java).putExtra("type", type).putExtra("id", id.toString()).putExtra("recipient_user_id", "11")
         MainActivity::class.java.getDeclaredMethod("onNewIntent", Intent::class.java).apply { isAccessible = true }.invoke(actor.get(), intent)
     }
     private fun startHeld() { held = true; mount(); deliver(43); await { started.count == 0L } }

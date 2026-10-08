@@ -72,25 +72,31 @@ class PrivateDestinationFlowTest {
     private fun pump(ms:Long=500) { repeat((ms/100).toInt()) { compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100)); Thread.sleep(10) }; compose.waitForIdle() }
     private fun await(check:()->Boolean) = compose.waitUntil(12000) { compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idle(); check() }
     private fun mount() { compose.mainClock.autoAdvance=false; compose.setContent { if(mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides actor.get()) { YuldashTheme { YuldashApp() } } }; pump() }
-    private fun raw(type:String,id:Int=43) { MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply { isAccessible=true }.invoke(actor.get(),Intent(context,MainActivity::class.java).putExtra("type",type).putExtra("id",id.toString())) }
+    private fun raw(type:String,id:Int=43) { MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply { isAccessible=true }.invoke(actor.get(),Intent(context,MainActivity::class.java).putExtra("type",type).putExtra("id",id.toString()).putExtra("recipient_user_id", "11")) }
     private fun deliver(type:String,id:Int=43) = compose.runOnIdle { raw(type,id) }
     private fun reached(screen:Screen) { await { vm.screen.value==screen && vm.pendingScreenNavigation.value==null }; pump() }
     private fun hasGet(path:String,token:String=tokenA)=records.any { it.first=="GET" && it.second==path && it.third=="Bearer $token" }
     @After fun cleanup() { release.countDown(); compose.runOnIdle { mounted.value=false }; pump(300); actor.destroy(); clear(); ApiClient.resetForTest(); ApiClient.testTimeoutMs=null; server.shutdown() }
-    @Test fun taxiChatWaitsForLoginThenUsesItsOrderId() {
+    @Test fun loggedOutTaxiChatRejectedAndNewAfterLoginUsesItsOrderId() {
         ApiClient.logout(); vm.screen.value=Screen.Login; mount(); deliver("order_chat"); pump()
         assertEquals(Screen.Login,vm.screen.value); assertFalse(records.any { it.second=="/instant/orders/43/messages" })
-        compose.runOnIdle { ApiClient.saveToken(tokenA); vm.screen.value=Screen.Notifications }; reached(Screen.InstantChat)
+        assertNull(vm.pendingScreenNavigation.value)
+        compose.runOnIdle { ApiClient.saveToken(tokenA); vm.screen.value=Screen.Notifications }; pump(); assertEquals(Screen.Notifications,vm.screen.value)
+        deliver("order_chat"); reached(Screen.InstantChat)
         await { hasGet("/instant/orders/43/messages") }; compose.onNodeWithText("Чат с водителем").assertExists(); assertEquals(43,vm.instantChatOrderId.value)
     }
-    @Test fun parcelWaitsForLoginAndConsumesOnce() {
+    @Test fun loggedOutParcelRejectedAndNewAfterLoginConsumesOnce() {
         ApiClient.logout(); vm.screen.value=Screen.Login; mount(); deliver("parcel"); pump(); assertEquals(Screen.Login,vm.screen.value)
-        compose.runOnIdle { ApiClient.saveToken(tokenA); vm.screen.value=Screen.Notifications }; reached(Screen.Parcels)
+        assertNull(vm.pendingScreenNavigation.value)
+        compose.runOnIdle { ApiClient.saveToken(tokenA); vm.screen.value=Screen.Notifications }; pump(); assertEquals(Screen.Notifications,vm.screen.value)
+        deliver("parcel"); reached(Screen.Parcels)
         compose.runOnIdle { vm.screen.value=Screen.Notifications }; pump(); assertEquals(Screen.Notifications,vm.screen.value); assertFalse(DeepLink.pendingParcels.value)
     }
-    @Test fun supportWaitsForLoginAndConsumesOnce() {
+    @Test fun loggedOutSupportRejectedAndNewAfterLoginConsumesOnce() {
         ApiClient.logout(); vm.screen.value=Screen.Login; mount(); deliver("support"); pump(); assertEquals(Screen.Login,vm.screen.value)
-        compose.runOnIdle { ApiClient.saveToken(tokenA); vm.screen.value=Screen.Notifications }; reached(Screen.SupportTickets)
+        assertNull(vm.pendingScreenNavigation.value)
+        compose.runOnIdle { ApiClient.saveToken(tokenA); vm.screen.value=Screen.Notifications }; pump(); assertEquals(Screen.Notifications,vm.screen.value)
+        deliver("support"); reached(Screen.SupportTickets)
         compose.runOnIdle { vm.screen.value=Screen.Notifications }; pump(); assertEquals(Screen.Notifications,vm.screen.value)
     }
     @Test fun introDoesNotConsumePrivateDestination() {

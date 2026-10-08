@@ -107,7 +107,7 @@ class HomeBookingNavigationTest {
         assertEquals(42,vm.activeBookingId.value)
     }
     private fun back() { compose.onNodeWithContentDescription("Назад").performClick(); pump() }
-    private fun raw(type:String,id:Int=44) { MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply { isAccessible=true }.invoke(actor.get(),Intent(context,MainActivity::class.java).putExtra("type",type).putExtra("id",id.toString())) }
+    private fun raw(type:String,id:Int=44) { MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply { isAccessible=true }.invoke(actor.get(),Intent(context,MainActivity::class.java).putExtra("type",type).putExtra("id",id.toString()).putExtra("recipient_user_id", "11")) }
     private fun deliver(type:String) { compose.runOnIdle { raw(type) }; await { vm.pendingScreenNavigation.value==null }; pump() }
     private fun heldCreate() { heldPath="/bookings"; choosePublicRide(); click("Забронировать место"); await { started.count==0L } }
     private fun finishOld() { release.countDown(); assertTrue(dispatched.await(8,TimeUnit.SECONDS)); pump(1500) }

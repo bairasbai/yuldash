@@ -72,7 +72,7 @@ class RemainingPrivateFlowTest {
     private fun pump(ms:Long=500) { repeat((ms/100).toInt()) { compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100)); Thread.sleep(10) }; compose.waitForIdle() }
     private fun await(check:()->Boolean) = compose.waitUntil(12000) { compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idle(); check() }
     private fun mount() { compose.mainClock.autoAdvance=false; compose.setContent { if(mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides actor.get()) { YuldashTheme { YuldashApp() } } }; pump() }
-    private fun raw(type:String,id:Int=43) { MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply { isAccessible=true }.invoke(actor.get(),Intent(context,MainActivity::class.java).putExtra("type",type).putExtra("id",id.toString())) }
+    private fun raw(type:String,id:Int=43) { MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply { isAccessible=true }.invoke(actor.get(),Intent(context,MainActivity::class.java).putExtra("type",type).putExtra("id",id.toString()).putExtra("recipient_user_id", "11")) }
     private fun deliver(type:String,id:Int=43) = compose.runOnIdle { raw(type,id) }
     private fun reached(screen:Screen) { await { vm.screen.value==screen && vm.pendingScreenNavigation.value==null }; pump() }
     private fun hasGet(path:String,token:String=tokenA)=records.any { it.first=="GET" && it.second==path && it.third=="Bearer $token" }
@@ -81,17 +81,19 @@ class RemainingPrivateFlowTest {
         ApiClient.logout();vm.screen.value=Screen.Login;mount();deliver(type);pump()
         assertEquals(Screen.Login,vm.screen.value)
         if(type=="request") assertFalse(records.any { it.second=="/requests/43/responses" })
-        compose.runOnIdle { ApiClient.saveToken(tokenA);vm.screen.value=Screen.Notifications };reached(destination)
+        assertNull(vm.pendingScreenNavigation.value)
+        compose.runOnIdle { ApiClient.saveToken(tokenA);vm.screen.value=Screen.Notifications };pump();assertEquals(Screen.Notifications,vm.screen.value)
+        deliver(type);reached(destination)
         if(type=="request") { assertEquals(43,vm.responsesRequestId.value);await { hasGet("/requests/43/responses") };compose.onNodeWithText("Отклики на заявку").assertExists() }
         compose.runOnIdle { vm.screen.value=Screen.Notifications };pump();assertEquals(Screen.Notifications,vm.screen.value)
     }
-    @Test fun adWaitsForLoginAndConsumesOnce()=guest("ad",Screen.AdsCabinet)
-    @Test fun partnerWaitsForLoginAndConsumesOnce()=guest("partner",Screen.PartnerCabinet)
-    @Test fun fairnessWaitsForLoginAndConsumesOnce()=guest("incident",Screen.FairnessCenter)
-    @Test fun requestWaitsForLoginAndKeepsItsId()=guest("request",Screen.RequestResponses)
-    @Test fun requestWatchWaitsForLoginAndConsumesOnce()=guest("request_watch",Screen.RequestsFeed)
-    @Test fun taxiApplicationWaitsForLoginAndConsumesOnce()=guest("taxi_apply",Screen.TaxiOnboarding)
-    @Test fun courierApplicationWaitsForLoginAndConsumesOnce()=guest("courier_apply",Screen.CourierOnboarding)
+    @Test fun adRejectsLoggedOutAndNewAfterLoginConsumesOnce()=guest("ad",Screen.AdsCabinet)
+    @Test fun partnerRejectsLoggedOutAndNewAfterLoginConsumesOnce()=guest("partner",Screen.PartnerCabinet)
+    @Test fun fairnessRejectsLoggedOutAndNewAfterLoginConsumesOnce()=guest("incident",Screen.FairnessCenter)
+    @Test fun requestRejectsLoggedOutAndNewAfterLoginKeepsItsId()=guest("request",Screen.RequestResponses)
+    @Test fun requestWatchRejectsLoggedOutAndNewAfterLoginConsumesOnce()=guest("request_watch",Screen.RequestsFeed)
+    @Test fun taxiApplicationRejectsLoggedOutAndNewAfterLoginConsumesOnce()=guest("taxi_apply",Screen.TaxiOnboarding)
+    @Test fun courierApplicationRejectsLoggedOutAndNewAfterLoginConsumesOnce()=guest("courier_apply",Screen.CourierOnboarding)
     @Test fun pendingAdCannotRebindToNextAccountInSameFrame() {
         mount();compose.runOnIdle { raw("ad");ApiClient.saveToken(tokenB) };pump(1500)
         assertEquals(Screen.Notifications,vm.screen.value);assertNull(vm.pendingScreenNavigation.value)

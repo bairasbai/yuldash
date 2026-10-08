@@ -34,7 +34,7 @@ class PendingNotificationRestorationTest {
         DeepLink.pendingRideId.value = null
     }
     private fun notification(id: Int) = Intent(context, MainActivity::class.java)
-        .putExtra("type", "booking_done").putExtra("id", id.toString())
+        .putExtra("type", "booking_done").putExtra("id", id.toString()).putExtra("recipient_user_id", "11")
     private fun create(intent: Intent, state: Bundle? = null) =
         Robolectric.buildActivity(MainActivity::class.java, intent).also { controllers += it }.create(state)
     private fun vm(c: ActivityController<MainActivity>) = ViewModelProvider(c.get())[YuldashViewModel::class.java]
@@ -89,9 +89,13 @@ class PendingNotificationRestorationTest {
         val c = receipt(); deliver(c, 43); val second = restore(snapshot(c)); deliver(second, 44)
         assertEquals(44, DeepLink.pendingCompletedBookingId.value)
     }
-    @Test fun pendingNotificationSurvivesSaveWhileLoginRequired() {
-        val c = receipt(); ApiClient.logout(); vm(c).screen.value = Screen.Login; vm(c).activeBookingId.value = null
-        vm(c).persistNav(); deliver(c, 43); restore(snapshot(c))
-        assertEquals(43, DeepLink.pendingCompletedBookingId.value)
+    @Test fun loggedOutCompletedIsRejectedAcrossSaveAndNewAfterLoginAccepted() {
+        ApiClient.logout(); val c = create(Intent(context, MainActivity::class.java)); vm(c).screen.value = Screen.Login
+        vm(c).persistNav()
+        MainActivity::class.java.getDeclaredMethod("onNewIntent", Intent::class.java)
+            .apply { isAccessible = true }.invoke(c.get(), notification(43))
+        assertNull(vm(c).pendingBookingNavigation.value); assertEquals(0L, vm(c).privateNavigationRevision)
+        val next = restore(snapshot(c)); assertNull(DeepLink.pendingCompletedBookingId.value)
+        ApiClient.saveToken(token11); deliver(next, 43)
     }
 }

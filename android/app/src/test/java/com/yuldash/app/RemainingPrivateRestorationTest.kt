@@ -33,7 +33,7 @@ class RemainingPrivateRestorationTest {
         DeepLink.pendingParcels.value=false; DeepLink.pendingSupport.value=false
         DeepLink.pendingBookingChatId.value=null; DeepLink.pendingCompletedBookingId.value=null; DeepLink.pendingRideId.value=null
     }
-    private fun intent(type:String,id:Int=43) = Intent(context,MainActivity::class.java).putExtra("type",type).putExtra("id",id.toString())
+    private fun intent(type:String,id:Int=43) = Intent(context,MainActivity::class.java).putExtra("type",type).putExtra("id",id.toString()).putExtra("recipient_user_id", "11")
     private fun create(i:Intent=Intent(context,MainActivity::class.java),state:Bundle?=null) =
         Robolectric.buildActivity(MainActivity::class.java,i).also { controllers+=it }.create(state)
     private fun vm(c:ActivityController<MainActivity>)=ViewModelProvider(c.get())[YuldashViewModel::class.java]
@@ -76,7 +76,11 @@ class RemainingPrivateRestorationTest {
     @Test fun copiedAdDoesNotReturnAfterLogout()=copied("ad")
     @Test fun copiedRequestDoesNotReturnAfterLogout()=copied("request")
     @Test fun copiedApplicationDoesNotReturnAfterLogout()=copied("courier_apply")
-    @Test fun guestRequestSurvivesSavedLogin() { ApiClient.logout();val c=create(intent("request"));vm(c).screen.value=Screen.Login;vm(c).persistNav();val state=save(c);clear();create(state=state);assertTrue(bridge("request")) }
+    @Test fun loggedOutRequestRejectedAcrossSaveAndNewAfterLoginAccepted() {
+        ApiClient.logout();val c=create(intent("request"));vm(c).screen.value=Screen.Login;vm(c).persistNav()
+        assertNull(vm(c).pendingScreenNavigation.value);val state=save(c);clear();val next=create(state=state);assertFalse(bridge("request"))
+        ApiClient.saveToken(tokenA);deliver(next,intent("request"));assertTrue(bridge("request"))
+    }
     @Test fun sameOwnerTokenReplacementKeepsAd() { val c=receipt();deliver(c,intent("ad"));val state=save(c);ApiClient.saveToken(tokenA+"new");clear();create(state=state);assertTrue(bridge("ad")) }
     @Test fun savedRequestRejectsNextAccountAndCopiedBase() { val original=intent("request");val c=create(Intent(original));vm(c).screen.value=Screen.Login;vm(c).persistNav();val state=save(c);ApiClient.saveToken(tokenB);clear();create(Intent(original),state);assertFalse(bridge("request")) }
     @Test fun freshAdWithoutBundleStillAccepted() { create(intent("ad"));assertTrue(bridge("ad")) }

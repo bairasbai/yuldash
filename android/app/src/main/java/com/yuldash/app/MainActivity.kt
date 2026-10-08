@@ -296,10 +296,15 @@ class MainActivity : ComponentActivity() {
         val hasRestoredBooking = restoredNavigation != null &&
             (restoredNavigation.activeBookingId.value ?: 0) > 0 &&
             restoredNavigation.screen.value !in setOf(Screen.Splash, Screen.Intro, Screen.Onboarding, Screen.Login)
+        // Без маркера нельзя отличить новый показ от исходной копии сохранённой задачи.
+        // Сохраняем любой восстановленный рабочий экран; onNewIntent с известным получателем
+        // остаётся совместимым со старым форматом без маркера.
+        val unidentifiablePrivateRestore = privateIntent && deliveryId == null && restoredNavigation != null &&
+            restoredNavigation.screen.value !in setOf(Screen.Splash, Screen.Intro, Screen.Onboarding, Screen.Login)
         // Новый показ уведомления не равен копии base Intent из сохранённой задачи.
         if (freshPrivateDelivery) handleNavIntent(intent)
         if (!hasRestoredBooking && !hadSavedPending) {
-            if (!freshPrivateDelivery) handleNavIntent(intent, skipBookingIntent = copiedBookingIntent)
+            if (!freshPrivateDelivery && !unidentifiablePrivateRestore) handleNavIntent(intent, skipBookingIntent = copiedBookingIntent)
             handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         }
         setContent {
@@ -335,7 +340,9 @@ class MainActivity : ComponentActivity() {
 
     private fun dispatchNavIntent(i: Intent?, skipBookingIntent: Boolean) {
         if (i == null) return
-        if (i.hasExtra("recipient_user_id")) {
+        // Старые PendingIntent могли не содержать получателя. Привязывать их к аккаунту
+        // в момент нажатия небезопасно: аккаунт уже мог смениться. Отказываем до записи VM.
+        if (isPrivateNavigationIntent(i) || i.hasExtra("recipient_user_id")) {
             val recipient = i.getStringExtra("recipient_user_id")?.toIntOrNull()
             if (recipient == null || recipient <= 0 || recipient != ApiClient.myUserId()) return
         }

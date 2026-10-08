@@ -619,3 +619,8 @@ Root sole writer/Gradle/adb/GitHub; b02_socket_review readonly. RED8/5 behaviorf
 ## 08.10.2026 — B02, старое сохранённое состояние
 
 QA-B02-003 base9d: pinned126/capture3 separate components; rawtyped fixtures/provenance135. red-v2 24/17fail; intermediate null Saver/framework collision/lookup defects исправлены. full455/2 obsolete fixture contracts; bounded race-red-v2 подтверждён после невалидного SideEffect count0. Final-v2 456/456=39legacy+1revised+416prior/42classes/обаAPK, native upgrade0.19own/foreign39. Old anonymous root/child drafts reset once; otherold/fullB02/release partial. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).
+
+
+## 08.10.2026 — B02, старые уведомления без получателя и маркера
+
+QA-B02-003 база655b: exact old126/48 producer fields verified; mandatory recipient и conservative unmarked saved route в одном productMain. Red39/31assertfail;green42/1overbroad testassert;green-v242/42;final498/498=42new+15revised+441retained/44classes/обаAPK. No native/currentFCM/backend/deploy.22own/foreign39. [Версии и остатки](audit-blocks.md#b02--старые-уведомления-без-получателя-и-маркера-08102026).

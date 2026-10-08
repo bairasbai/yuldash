@@ -4441,3 +4441,8 @@ FcmService/TaxiOfferNotifier каждый показ помечают UUID `yuld
 ## 08.10.2026 — B02, старое сохранённое состояние
 
 VM восстанавливает четыре именованных положительных Int-ID и фильтрует историю. Whole root key yuldash-app-saveable-v1 изолирует старые implicit slots/launcher/holder;34 full-state Saver packets проверяют schema/field/owner/type,19 owner-scoped. Missing six root contexts скрыты до children/GET0; late fallback rechecks current IDs/session/revision. Old holder drafts reset once; current same-owner holder journeys retained. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).
+
+
+## 08.10.2026 — B02, старые уведомления без получателя и маркера
+
+MainActivity private dispatch требует matching positive String recipient_user_id до VM/mutation под session guard. Unmarked initial private Intent при meaningful saved screen не замещает маршрут; current marked проверяется прежним first/last delivery механизмом, known-recipient cold/newIntent legacy разрешён. Private guest external action не переносится в новую session; внутренние Home/feed пути прежние. [Контракты, версии и пределы](audit-blocks.md#b02--старые-уведомления-без-получателя-и-маркера-08102026).

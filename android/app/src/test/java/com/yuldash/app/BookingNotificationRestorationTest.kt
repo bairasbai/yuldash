@@ -25,7 +25,7 @@ class BookingNotificationRestorationTest {
     @Before fun setup() { ApiClient.resetForTest(); ApiClient.init(context); ApiClient.saveToken(a); clear() }
     @After fun cleanup() { controllers.reversed().forEach { it.destroy() }; clear(); ApiClient.resetForTest() }
     private fun clear() { DeepLink.pendingBookingChatId.value = null; DeepLink.pendingCompletedBookingId.value = null; DeepLink.pendingRideId.value = null }
-    private fun intent(type: String, id: Int) = Intent(context, MainActivity::class.java).putExtra("type", type).putExtra("id", id.toString())
+    private fun intent(type: String, id: Int) = Intent(context, MainActivity::class.java).putExtra("type", type).putExtra("id", id.toString()).putExtra("recipient_user_id", "11")
     private fun create(i: Intent = Intent(context, MainActivity::class.java), s: Bundle? = null) = Robolectric.buildActivity(MainActivity::class.java, i).also { controllers += it }.create(s)
     private fun vm(c: ActivityController<MainActivity>) = ViewModelProvider(c.get())[YuldashViewModel::class.java]
     private fun receipt(): ActivityController<MainActivity> = create().also {
@@ -65,9 +65,10 @@ class BookingNotificationRestorationTest {
         val c = receipt(); deliver(c, "chat", 43); val s = saved(c); ApiClient.saveToken(b)
         restore(s); assertNull(DeepLink.pendingBookingChatId.value); assertNull(DeepLink.pendingCompletedBookingId.value)
     }
-    @Test fun unboundBookingWaitsThroughSavedLogin() {
+    @Test fun loggedOutBookingIsRejectedAndNewAfterLoginAccepted() {
         ApiClient.logout(); val c = create(intent("booking", 43)); vm(c).screen.value = Screen.Login; vm(c).persistNav()
-        restore(saved(c)); assertEquals(43, DeepLink.pendingBookingChatId.value)
+        assertNull(vm(c).pendingBookingNavigation.value); val next = restore(saved(c)); assertNull(DeepLink.pendingBookingChatId.value)
+        ApiClient.saveToken(a); deliver(next, "booking", 43); assertEquals(43, DeepLink.pendingBookingChatId.value)
     }
     @Test fun clearUserDataImmediatelyRemovesChatBridge() {
         val c = receipt(); deliver(c, "chat", 43); vm(c).clearUserData(); assertNull(DeepLink.pendingBookingChatId.value)
