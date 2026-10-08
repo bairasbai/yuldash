@@ -627,8 +627,10 @@ private fun YuldashAppContent() {
     var failedCompletedOwner by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int?>("failedCompletedOwner", screenStateOwner)) { mutableStateOf<Int?>(null) }
     var failedCompletedRevision by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Long?>("failedCompletedRevision", screenStateOwner)) { mutableStateOf<Long?>(null) }
     var bookingLinkAttempt by remember { mutableIntStateOf(0) }
+    // Отличает два запроса того же public id: старый callback не управляет новой ошибкой.
+    var publicLinkAttempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(vm.privateNavigationRevision) {
-        if (failedBookingDestination != null && failedCompletedRevision != vm.privateNavigationRevision) {
+        if (failedRideLink != null && failedCompletedRevision != null && failedCompletedRevision != vm.privateNavigationRevision) {
             failedRideLink = null
             failedBookingDestination = null
         }
@@ -652,24 +654,34 @@ private fun YuldashAppContent() {
         }
     }
     // Публичная ссылка: ошибка не должна молча терять назначение, повтор использует тот же id.
-    LaunchedEffect(DeepLink.pendingRideId.value, screen) {
+    LaunchedEffect(DeepLink.pendingRideId.value, screen, vm.privateNavigationRevision, navigationSession) {
         val rideId = DeepLink.pendingRideId.value ?: return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        val requestedScreen = screen
+        val requestedRevision = vm.privateNavigationRevision
+        val requestedSession = ApiClient.queueSessionGeneration()
+        val requestedAttempt = ++publicLinkAttempt
         failedRideLink = null
         failedBookingDestination = null
         val result = ApiClient.getRide(rideId)
         // Не менять ключ LaunchedEffect до окончания запроса: это отменяло саму загрузку.
-        if (!isActive || DeepLink.pendingRideId.value != rideId) return@LaunchedEffect
-        DeepLink.pendingRideId.value = null
-        result.onSuccess { dto ->
-            selectedRide = dto.toUiRide()
-            activeBookingId = null
-            selectedBookingStatus = ""
-            screen = Screen.Booking
-        }.onFailure { error ->
-            rideLinkUnavailable = (error as? ApiException)?.status in listOf(403, 404, 410)
-            failedBookingDestination = null
-            failedRideLink = rideId
+        ApiClient.runIfUnchangedSession(requestedSession) {
+            if (!isActive || DeepLink.pendingRideId.value != rideId || vm.screen.value != requestedScreen ||
+                vm.privateNavigationRevision != requestedRevision || publicLinkAttempt != requestedAttempt) return@runIfUnchangedSession
+            DeepLink.pendingRideId.value = null
+            result.onSuccess { dto ->
+                vm.navigateLocally {
+                    selectedRide = dto.toUiRide()
+                    activeBookingId = null
+                    selectedBookingStatus = ""
+                    screen = Screen.Booking
+                }
+            }.onFailure { error ->
+                rideLinkUnavailable = (error as? ApiException)?.status in listOf(403, 404, 410)
+                failedBookingDestination = null
+                failedCompletedRevision = requestedRevision
+                failedRideLink = rideId
+            }
         }
     }
     failedRideLink?.takeIf {
@@ -678,12 +690,23 @@ private fun YuldashAppContent() {
     }?.let { rideId ->
         val failedKind = failedBookingDestination
         val failedOwner = failedCompletedOwner
-        val failedRevision = failedCompletedRevision
+        val failedRevision = if (failedKind == null) failedCompletedRevision ?: vm.privateNavigationRevision else failedCompletedRevision
         val failedSession = ApiClient.queueSessionGeneration()
+        val failedScreen = screen
+        val failedPublicAttempt = publicLinkAttempt
+        fun isDisplayedFailureCurrent() = appScope.isActive && failedRideLink == rideId && failedBookingDestination == failedKind &&
+            vm.screen.value == failedScreen && (if (failedKind == null)
+                vm.privateNavigationRevision == failedRevision && publicLinkAttempt == failedPublicAttempt
+            else failedCompletedRevision == failedRevision)
+        fun closeDisplayedFailure() {
+            ApiClient.runIfUnchangedSession(failedSession) {
+                if (isDisplayedFailureCurrent()) failedRideLink = null
+            }
+        }
         val tagPrefix = if (failedKind == null) "rideLink" else "bookingLink"
         AlertDialog(
             modifier = Modifier.testTag("${tagPrefix}Failure"),
-            onDismissRequest = { failedRideLink = null },
+            onDismissRequest = { closeDisplayedFailure() },
             shape = CanonCardShape,
             containerColor = CanonSurface,
             titleContentColor = CanonText,
@@ -696,7 +719,7 @@ private fun YuldashAppContent() {
             else appText("Проверь сеть и попробуй снова.", "Селтәрҙе тикшереп ҡабатла.")) },
             confirmButton = {
                 if (rideLinkUnavailable) {
-                    TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { failedRideLink = null }) {
+                    TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { closeDisplayedFailure() }) {
                         Text(appText("Закрыть", "Ябыу"), color = CanonGreen2)
                     }
                 } else {
@@ -716,14 +739,19 @@ private fun YuldashAppContent() {
                             }
                             return@retry
                         }
-                        if (DeepLink.pendingRideId.value == null) DeepLink.pendingRideId.value = rideId
-                        failedRideLink = null
+                        ApiClient.runIfUnchangedSession(failedSession) {
+                            if (!isDisplayedFailureCurrent() || DeepLink.pendingRideId.value != null ||
+                                vm.pendingBookingNavigation.value != null || vm.pendingScreenNavigation.value != null) return@runIfUnchangedSession
+                            publicLinkAttempt++
+                            DeepLink.pendingRideId.value = rideId
+                            failedRideLink = null
+                        }
                     }) { Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2) }
                 }
             },
             dismissButton = {
                 if (!rideLinkUnavailable) {
-                    TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { failedRideLink = null }) {
+                    TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { closeDisplayedFailure() }) {
                         Text(appText("Закрыть", "Ябыу"), color = CanonMuted)
                     }
                 }

@@ -89,6 +89,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
 
     fun requestScreenDestination(destination: Screen, ownerId: Int?, targetId: Int = 0) {
         if (destination !in PRIVATE_SCREENS || (destination in ID_SCREENS && targetId <= 0)) return
+        DeepLink.pendingRideId.value = null
         pendingBookingNavigation.value?.let(::clearPendingBooking)
         clearScreenBridges()
         val revision = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) + 1L
@@ -161,6 +162,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
 
     fun requestBookingDestination(bookingId: Int, ownerId: Int?, completed: Boolean) {
         if (bookingId <= 0) return
+        DeepLink.pendingRideId.value = null
         pendingScreenNavigation.value?.let(::clearPendingScreen)
         clearScreenBridges()
         val revision = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) + 1L
@@ -220,6 +222,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
 
     /** Явный выбор внутри приложения отменяет прежнее ожидающее назначение, не серверную операцию. */
     fun navigateLocally(applyRoute: () -> Unit) {
+        DeepLink.pendingRideId.value = null
         pendingBookingNavigation.value?.let(::clearPendingBooking)
         pendingScreenNavigation.value?.let(::clearPendingScreen)
         clearScreenBridges()

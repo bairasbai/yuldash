@@ -83,11 +83,11 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 891
+    "test_support": 892
   },
   "counts_by_block": {
     "B01": 126,
-    "B02": 172,
+    "B02": 173,
     "B03": 101,
     "B04": 75,
     "B05": 37,
@@ -1280,8 +1280,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "21f7df4fab7ede5552ed537e0d2e1f5e0631c90c051ac584ea1af52fab9ee2b5",
-      "lines": 2710
+      "sha256": "d909384c339fc83bc6f6501ed55b302a4a360c4baad2c53cecf2dbbbe14fd0b8",
+      "lines": 2738
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1294,8 +1294,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashViewModel.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "bd5cca8858d850429bad20dd7cbbd1d32bb980554e83a757d96bd16eb034189c",
-      "lines": 376
+      "sha256": "09a05273428447222cce57cfcd4ad61efa7f14be5088bc855ca2681d0eb14e7d",
+      "lines": 379
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/Analytics.kt",
@@ -2675,6 +2675,13 @@
       "block": "B01",
       "sha256": "7336cd7a5667b198b7d6ecab69ba02dae01878a4c530eca69331c78fbebd16dd",
       "lines": 166
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/PublicRideNavigationBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "28d046f59d435416deb718d97d95ec80975a9ccdcdf8c9b42d7cac8a9418141d",
+      "lines": 229
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/PushLogoutPrivacyTest.kt",
