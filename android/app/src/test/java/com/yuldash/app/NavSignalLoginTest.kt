@@ -5,6 +5,8 @@ import android.content.Context
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.LocalSaveableStateRegistry
+import androidx.compose.runtime.saveable.SaveableStateRegistry
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.lifecycle.SavedStateHandle
@@ -41,6 +43,8 @@ class NavSignalLoginTest {
     private val mounted = mutableStateOf(true)
     private lateinit var server: MockWebServer
     private lateinit var vm: YuldashViewModel
+    private val rootRegistry=mutableStateOf(SaveableStateRegistry(null) {true})
+    private val requestedPaths=java.util.concurrent.CopyOnWriteArrayList<String>()
 
     @Before fun prepare() {
         val context: Context = ApplicationProvider.getApplicationContext()
@@ -50,8 +54,10 @@ class NavSignalLoginTest {
         clearSignals()
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
-                override fun dispatch(request: RecordedRequest): MockResponse =
-                    MockResponse().setResponseCode(503).setBody("{}")
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    requestedPaths+=request.requestUrl!!.encodedPath
+                    return MockResponse().setResponseCode(503).setBody("{}")
+                }
             }
             start()
         }
@@ -85,7 +91,7 @@ class NavSignalLoginTest {
 
     private fun mount() {
         compose.setContent {
-            if (mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
+            if (mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides owner,LocalSaveableStateRegistry provides rootRegistry.value) {
                 YuldashTheme { YuldashApp() }
             }
         }
@@ -134,14 +140,26 @@ class NavSignalLoginTest {
 
     @Test fun driverCabinetSignalDoesNotInterruptAnOpenDriverTrip() {
         ApiClient.saveToken("local-driver-trip-guard")
-        vm.screen.value = Screen.InstantDriverTrip
+        vm.screen.value = Screen.Notifications
         mount()
+        // Use the observed production packet and owner, rather than an invalid ID-less route.
+        val saved=compose.runOnIdle {rootRegistry.value.performSave()}.toMutableMap()
+        val slot=saved.flatMap { (key,values) -> values.mapIndexedNotNull {index,value ->
+            val packet=value as? List<*>
+            if(packet?.getOrNull(1)=="instantTripOrderId") Triple(key,index,packet) else null
+        }}.single()
+        val packet=slot.third.toMutableList();packet[3]=42
+        val providers=saved.getValue(slot.first).toMutableList();providers[slot.second]=ArrayList(packet);saved[slot.first]=providers
+        compose.runOnIdle {mounted.value=false};compose.waitForIdle()
+        compose.runOnIdle {rootRegistry.value=SaveableStateRegistry(saved) {true};vm.screen.value=Screen.InstantDriverTrip;mounted.value=true}
+        awaitState {requestedPaths.any {it=="/instant/orders/42"}}
         compose.runOnIdle { NavSignals.openDriverCabinet.value = true }
         awaitState { !NavSignals.openDriverCabinet.value }
         compose.mainClock.advanceTimeBy(1_000)
         compose.onAllNodes(isRoot()).fetchSemanticsNodes()
         compose.runOnIdle {
             assertEquals("Cabinet notification must not replace the open driver trip", Screen.InstantDriverTrip, vm.screen.value)
+            assertFalse(requestedPaths.any {it.startsWith("/instant/orders/0")})
         }
     }
 }

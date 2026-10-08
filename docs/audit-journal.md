@@ -614,3 +614,8 @@ Root sole writer/Gradle/adb/GitHub; b02_socket_review readonly. RED8/5 behaviorf
 
 
 08.10.2026 — QA-B02-003 от98ee06b4: current actual Bundle/fresh identity, first/last duplicate/owner/target/session, shown local producer, UI pending status RU/BA. Red23/20assertfail, statusred2/2; interim415 и native compiler fixture ошибка отдельно. Final-v2 environment failed/0freshXML; final-v3 417/417=40new+377previous/40classes/обаAPK. Native v4 RU/BA2process +runtime-v2 PendingIntent1/1; setup1IDx2 отдельно. Root8currentPNG, noHTTP/Home неверный вывод исправлен по v3HTTP/XML. [Реестр/версии/остатки](audit-blocks.md#b02--новое-уведомление-поверх-сохранённой-задачи-08102026); nextold-version Bundle, B02/releasepartial;18own/foreign39, scoped приёмка и main/push по persistent разрешению.
+
+
+## 08.10.2026 — B02, старое сохранённое состояние
+
+QA-B02-003 base9d: pinned126/capture3 separate components; rawtyped fixtures/provenance135. red-v2 24/17fail; intermediate null Saver/framework collision/lookup defects исправлены. full455/2 obsolete fixture contracts; bounded race-red-v2 подтверждён после невалидного SideEffect count0. Final-v2 456/456=39legacy+1revised+416prior/42classes/обаAPK, native upgrade0.19own/foreign39. Old anonymous root/child drafts reset once; otherold/fullB02/release partial. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).

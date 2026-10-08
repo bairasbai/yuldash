@@ -173,9 +173,12 @@ class CompletedNavigationRestorationTest {
         await {vm.selectedRide.value?.id=="43"};releaseMine()
         assertEquals(43,vm.activeBookingId.value);assertEquals("43",vm.selectedRide.value!!.id);assertNull(vm.activeTrip.value);assertEquals(Screen.ActiveTrip,vm.screen.value)
     }
-    @Test fun heldRestoreFromPreviousLoginCannotReplaceCurrentReceiptRoute() {
+    @Test fun heldRestoreFromPreviousLoginCannotReopenPreviousReceiptContext() {
         heldMine=true;mount();await {started.count==0L};receipt();compose.runOnIdle {ApiClient.saveToken(tokenB)};pump();releaseMine()
-        assertEquals(Screen.TripReceipt,vm.screen.value);assertNull(vm.selectedRide.value);assertEquals(0,posts("rate"))
+        assertEquals(Screen.Notifications,vm.screen.value);compose.onNodeWithText("Уведомления").assertIsDisplayed()
+        assertNull(vm.selectedRide.value);assertEquals(0,posts("rate"))
+        assertFalse(records.any {it.first=="GET /trips/42/receipt" && it.second=="Bearer $tokenB"})
+        assertFalse(records.any {it.first=="GET /trips/0/receipt"})
     }
     @Test fun savedNavigationTrailReconstructsOrderWithoutRestoringBusinessObjects() {
         val saved=SavedStateHandle();val first=YuldashViewModel(saved)

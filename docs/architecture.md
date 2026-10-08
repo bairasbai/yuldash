@@ -4436,3 +4436,8 @@ Main copied private types включает7новых существующих F
 ## B02 fresh delivery, 08.10.2026
 
 FcmService/TaxiOfferNotifier каждый показ помечают UUID `yuldash_navigation_delivery_id`; MainActivity принимает валидный свежий private marker поверх current restored active/pending. VM SavedStateHandle хранит `yuldash_initial_notification_delivery`/`yuldash_last_notification_delivery`; consume/logout сохраняют marker. Recipient/target/session guard до commit. Первая/последняя копия блокируется; произвольная middle history/legacy/old Bundle остаются открытыми. YuldashApp успешный role ответ передаёт state.status в Booking кнопки. [417 JVM/2native process+1PendingIntent и границы](audit-blocks.md#b02--новое-уведомление-поверх-сохранённой-задачи-08102026).
+
+
+## 08.10.2026 — B02, старое сохранённое состояние
+
+VM восстанавливает четыре именованных положительных Int-ID и фильтрует историю. Whole root key yuldash-app-saveable-v1 изолирует старые implicit slots/launcher/holder;34 full-state Saver packets проверяют schema/field/owner/type,19 owner-scoped. Missing six root contexts скрыты до children/GET0; late fallback rechecks current IDs/session/revision. Old holder drafts reset once; current same-owner holder journeys retained. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).

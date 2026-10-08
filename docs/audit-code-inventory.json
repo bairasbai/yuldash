@@ -83,18 +83,18 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 882
+    "test_support": 889
   },
   "counts_by_block": {
     "B01": 125,
     "B02": 172,
     "B03": 101,
     "B04": 75,
-    "B05": 36,
+    "B05": 37,
     "B06": 83,
     "B07": 106,
-    "B08": 164,
-    "B09": 533,
+    "B08": 166,
+    "B09": 537,
     "B10": 346,
     "B11": 90
   },
@@ -1280,8 +1280,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "04520a40b922386fb1c1953d1be22c93b21b2b8c50bc330c3991f8e22ea8b711",
-      "lines": 2666
+      "sha256": "21f7df4fab7ede5552ed537e0d2e1f5e0631c90c051ac584ea1af52fab9ee2b5",
+      "lines": 2710
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1294,8 +1294,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashViewModel.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "5dfb1d5d16809f4b6c72b45561f6f9a9e145c33992a436fce8679f4ca3ff264c",
-      "lines": 352
+      "sha256": "bd5cca8858d850429bad20dd7cbbd1d32bb980554e83a757d96bd16eb034189c",
+      "lines": 376
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/Analytics.kt",
@@ -2127,8 +2127,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CompletedNavigationRestorationTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "4abfbac0f94a4c80ed8902eb41d7c0ce5ee58dc492faf95496db7686087771b1",
-      "lines": 192
+      "sha256": "d9d1589f95150f7792d7cc597ce7e897bf4431451d2ccb4755ebc31721415926",
+      "lines": 195
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ContrastGuardTest.kt",
@@ -2313,6 +2313,20 @@
       "lines": 104
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/LegacyNavigationStateTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "ed2ab550b8ed9bcf483b813c27ed488d24c4745eb7a25067e5699fa81b55cd4f",
+      "lines": 80
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/LegacySavedStateCompatibilityTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "7a90b892d439c199ebc62ab76568b48a6a93a59b7532d8c932898302b519388c",
+      "lines": 350
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/LinePromiseIsHonestTest.kt",
       "kind": "test_support",
       "block": "B09",
@@ -2463,8 +2477,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/NavSignalLoginTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "500be9ddd313d6329739dfa4f3d4574640a740b5b479e07db9a8ed56033a3d11",
-      "lines": 147
+      "sha256": "8388a1b5d905cae1b7c533fdd58e85b5b22738ccaa2f98281c52978376376338",
+      "lines": 165
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/NotifTypesGuardTest.kt",
@@ -3690,6 +3704,41 @@
       "block": "B09",
       "sha256": "16121173c6d791671404c6b07ed3a041300c222ad4582a1c024288d0ee8c2142",
       "lines": 417
+    },
+    {
+      "path": "android/app/src/test/resources/legacy-navigation/126-chat.json",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "224c61749fd58abcc03fd19393fae4672300c6e6e0583be83c5339de29a5d083",
+      "lines": 486
+    },
+    {
+      "path": "android/app/src/test/resources/legacy-navigation/126-incident.json",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "294f7fc8eb36012617a61ed95c6080f67988c8d57645ed574018d1aa940c97b9",
+      "lines": 492
+    },
+    {
+      "path": "android/app/src/test/resources/legacy-navigation/126-support.json",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "2436cb784fb3560cb80b745aa7f6805f6c38dc0258a8aa0d441a3198469cc4ed",
+      "lines": 486
+    },
+    {
+      "path": "android/app/src/test/resources/legacy-navigation/capture-harness.kt.txt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "e6816dd5dc80eee0bae9184727c5bcfed7ef70ff77471f62f7b249c2bb3ccb29",
+      "lines": 192
+    },
+    {
+      "path": "android/app/src/test/resources/legacy-navigation/provenance.json",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "70ebce23bd885e0109f3f63209bcd7b584d94c347e8f1e670aaf9606fc72502a",
+      "lines": 610
     },
     {
       "path": "android/build-debug.bat",

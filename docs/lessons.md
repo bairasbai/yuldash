@@ -9068,3 +9068,8 @@ Blanket restored-booking guard блокирует действительно н�
 Windows Python helpers запускать с -X utf8 либо stdout.reconfigure(encoding=utf-8). Ошибка console UnicodeEncodeError после успешной записи документов не требует повторять append: проверять уже записанные файлы, иначе раздел продублируется.
 
 Распределение новых файлов по категориям брать из фактического counts_by_kind инвентаризации: androidTest и audit helper классификатор относит к infrastructure; JVM тесты — к test_support. Сумма1831 сама по себе не проверяет распределение346/882.
+
+
+## 08.10.2026 — B02, старое сохранённое состояние
+
+Compose stateSaver restore=null внутри MutableState может оставить непустую state с null Boolean и NPE: отвергать весь MutableState. Собственный tagged Saver не защищает соседний permission launcher от old implicit slot — нужен namespace. SaveableRegistry может хранить много providers под одним ключом: менять только один индекс, не весь список. SideEffect ordering нельзя предполагать: первый race fixture calls0 не является product RED; DisposableEffect remembered earlier даёт конкретный воспроизводимый порядок. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).

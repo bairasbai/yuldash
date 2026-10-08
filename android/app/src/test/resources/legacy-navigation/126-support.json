@@ -1,0 +1,486 @@
+{
+  "source_commit": "126bb0f63b3369ac92a7f891762011bb7f0820b1",
+  "destination": "SupportTicket",
+  "synthetic_owner": 11,
+  "target": 45,
+  "activity_scope": "androidx.lifecycle.internal.SavedStateHandlesProvider",
+  "excluded_activity_keys": [
+    "android:fragments",
+    "android:lastAutofillId",
+    "android:viewHierarchyState"
+  ],
+  "excluded_provider_keys": [
+    "android:support:activity-result"
+  ],
+  "activity": {
+    "type": "bundle",
+    "value": {
+      "androidx.lifecycle.BundlableSavedStateRegistry.key": {
+        "type": "bundle",
+        "value": {
+          "androidx.lifecycle.internal.SavedStateHandlesProvider": {
+            "type": "bundle",
+            "value": {
+              "androidx.lifecycle.ViewModelProvider.DefaultKey:com.yuldash.app.YuldashViewModel": {
+                "type": "bundle",
+                "value": {
+                  "yuldash_active_bid": {
+                    "type": "int",
+                    "value": -1
+                  },
+                  "yuldash_lang": {
+                    "type": "string",
+                    "value": "Ru"
+                  },
+                  "yuldash_nav_history": {
+                    "type": "list",
+                    "value": [
+                      {
+                        "type": "string",
+                        "value": "Notifications"
+                      }
+                    ]
+                  },
+                  "yuldash_screen": {
+                    "type": "string",
+                    "value": "SupportTicket"
+                  },
+                  "yuldash_tab": {
+                    "type": "string",
+                    "value": "Map"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "compose": {
+    "type": "mapEntries",
+    "value": [
+      {
+        "key": {
+          "type": "string",
+          "value": "gg08dd097ems"
+        },
+        "value": {
+          "type": "list",
+          "value": [
+            {
+              "type": "mapEntries",
+              "value": [
+                {
+                  "key": {
+                    "type": "string",
+                    "value": "11:Notifications"
+                  },
+                  "value": {
+                    "type": "mapEntries",
+                    "value": [
+                      {
+                        "key": {
+                          "type": "string",
+                          "value": "-to7118lp51pr"
+                        },
+                        "value": {
+                          "type": "list",
+                          "value": [
+                            {
+                              "type": "mapEntries",
+                              "value": [
+                                {
+                                  "key": {
+                                    "type": "lazyKeyParcel",
+                                    "value": "rO0ABXcIAAAAAQAAAARzcgARamF2YS5sYW5nLkludGVnZXIS4qCk94GHOAIAAUkABXZhbHVleHIAEGphdmEubGFuZy5OdW1iZXKGrJUdC5TgiwIAAHhwAAAAAw=="
+                                  },
+                                  "value": {
+                                    "type": "mapEntries",
+                                    "value": [
+                                      {
+                                        "key": {
+                                          "type": "string",
+                                          "value": "1aipl44cyu7hd"
+                                        },
+                                        "value": {
+                                          "type": "list",
+                                          "value": [
+                                            {
+                                              "type": "list",
+                                              "value": [
+                                                {
+                                                  "type": "int",
+                                                  "value": 0
+                                                },
+                                                {
+                                                  "type": "int",
+                                                  "value": 0
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "type": "string",
+                          "value": "1oldcr95pavbo"
+                        },
+                        "value": {
+                          "type": "list",
+                          "value": [
+                            {
+                              "type": "list",
+                              "value": [
+                                {
+                                  "type": "int",
+                                  "value": 0
+                                },
+                                {
+                                  "type": "int",
+                                  "value": 0
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "key": {
+                    "type": "string",
+                    "value": "11:SupportTicket"
+                  },
+                  "value": {
+                    "type": "mapEntries",
+                    "value": [
+                      {
+                        "key": {
+                          "type": "string",
+                          "value": "41vp1afizxno"
+                        },
+                        "value": {
+                          "type": "list",
+                          "value": [
+                            {
+                              "type": "list",
+                              "value": [
+                                {
+                                  "type": "int",
+                                  "value": 0
+                                },
+                                {
+                                  "type": "int",
+                                  "value": 0
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "type": "string",
+                          "value": "-1u2aub0lk13f"
+                        },
+                        "value": {
+                          "type": "list",
+                          "value": [
+                            {
+                              "type": "list",
+                              "value": [
+                                {
+                                  "type": "floatBits",
+                                  "value": 0
+                                },
+                                {
+                                  "type": "boolean",
+                                  "value": true
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "key": {
+          "type": "string",
+          "value": "-m14ho18rqmlf"
+        },
+        "value": {
+          "type": "list",
+          "value": [
+            {
+              "type": "state",
+              "value": {
+                "type": "null",
+                "value": null
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "screen",
+                "value": "Home"
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "tab",
+                "value": "Request"
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "null",
+                "value": null
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "screen",
+                "value": "SimpleMode"
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "tab",
+                "value": "Profile"
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "string",
+                "value": ""
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "string",
+                "value": ""
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "boolean",
+                "value": false
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "boolean",
+                "value": true
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "string",
+                "value": ""
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "string",
+                "value": "taxi"
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "int",
+                "value": 45
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "string",
+                "value": ""
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "string",
+                "value": ""
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "boolean",
+                "value": false
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "string",
+                "value": ""
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "int",
+                "value": 0
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "string",
+                "value": ""
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "string",
+                "value": ""
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "string",
+                "value": ""
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "string",
+                "value": ""
+              }
+            },
+            {
+              "type": "string",
+              "value": "90ed6d83-2c26-40ab-95a7-232e40abad31"
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "boolean",
+                "value": false
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "null",
+                "value": null
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "boolean",
+                "value": false
+              }
+            },
+            {
+              "type": "state",
+              "value": {
+                "type": "null",
+                "value": null
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

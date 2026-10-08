@@ -17653,3 +17653,14 @@ glossary и четыре связанных auth-набора, exit0. 🔒 Бр�
 08.10.2026 — результат fresh-stage: final-v3 417/417=34Activity+4producer+2Compose status+377previous/40classes/обаAPK; final-v2 failed Windows WEPoll/0freshXML отдельно. Native v4 2RU/BA process UI +runtime-v2 1PendingIntent; root8currentPNG, fixture/reverse/forward и owned emulator закрыты/sharedadb retained. [Доказательства и остатки](audit-blocks.md#b02--новое-уведомление-поверх-сохранённой-задачи-08102026).
 
 🔓 Rootproduct/tests/Gradle/adb освобождены по receipts. Rootdocs/inventory/GitHub до freeze/read-only independent/18own FFmain+push по прежнему разрешению. Nextold-version rememberSaveable Bundle/IDs. First/last identity != full delivery history; legacy/no recipient, Home/fullB02/realservices ещё частичны. Новых строк/переводов нет; старые BA черновики не подтверждены.
+
+## B02 / QA-B02-003 — совместимость сохранённого состояния старой версии, 08.10.2026
+
+База `9d7547c3`, ветка `codex/b02-legacy-bundle-20261008`. План по продолжающемуся поручению: (1) найти точные исторические форматы root rememberSaveable и VM, получить наблюдаемый payload из исторического кода в изолированной локальной копии; (2) воспроизвести восстановление текущим приложением, исправить только подтверждённую потерю ID/смешение состояний; (3) новые и затронутые JVM, обязательный assembleDebug и тестовый APK; (4) обновить реестр/inventory/доказательства, независимое scoped ревью, свои commit/FF main/push по прежнему разрешению. Восстановление локального payload не выдавать за обновление APK на телефоне. Неподтверждённые старые форматы, legacy intent без recipient, live FCM/сервер/устройство остаются отдельно.
+
+🔒 Root: scoped YuldashApp.kt/YuldashViewModel.kt/MainActivity.kt только при воспроизведении, конкретные новые tests/fixtures/docs/inventory; единственный writer и владелец Gradle/adb/GitHub. b02_socket_review — read-only локальная история и затем scoped приёмка, без edits/tests/Gradle/adb/network. Старт inventory1831: 0 added/removed, только ранее известная чужая `.gitignore`; 39 чужих status entries сохраняем. Никаких изменений mobile/backend/версий/зависимостей/новых экранов.
+
+
+## 08.10.2026 — B02, старое сохранённое состояние
+
+Результат: final-v2 456/456 (39legacy+1revised+416prior),42classes/обаAPK; исторический capture3 отдельно. Old root/permission/holder namespace reset, включая старые несохранённые drafts; current same-owner restore/Back/draft подтверждены integration controls. Next legacy private intent безrecipient/marker; realoldAPK/native unifiedBundle/preVM/childschema/all19ownerfields/fullB02 остаются открытыми. Новых product строк/переводов нет. 🔓 Root product/tests/Gradle после completed final; docs/inventory/publication до scoped review/FFmain/push по прежнему разрешению. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).

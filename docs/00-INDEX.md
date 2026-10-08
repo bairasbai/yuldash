@@ -1,5 +1,7 @@
 # 🧠 Второй мозг Юлдаш — карта знаний
 
+**08.10.2026 — B02, старые сохранения:** [Наблюдаемые компоненты126 и безопасный сброс](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).456unique=39legacy+1revised+416prior/обаAPK. Однократно сбрасываются старые несохранённые черновики. Native oldAPK upgrade не проверен; B02 partial.
+
 **08.10.2026 — B02, новое уведомление и сохранённая задача:** [Fresh delivery/старый повтор/pending кнопка RU/BA](audit-blocks.md#b02--новое-уведомление-поверх-сохранённой-задачи-08102026).417unique=40new+377previous/обаAPK; native2process+1PendingIntent. Дальше old-version Bundle/ID migration; B02/релиз частичны.
 
 **08.10.2026 — B02, пути от главного экрана:** [Home → бронь/отклики, поздние ответы и сохранение](audit-blocks.md#b02--home-создание-и-отмена-брони-08102026). 377 уникальных JVM = 15 новых + 362 прежних; обаAPK, 2 native RU/BA Home/Rides→pending42→Назад→process restore. Дальше — fresh private create(nonnullBundle); весь Home/B02 ещё частичны.

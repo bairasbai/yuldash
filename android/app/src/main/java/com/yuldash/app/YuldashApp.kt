@@ -183,6 +183,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -321,6 +323,12 @@ internal fun endSession(context: android.content.Context, vm: YuldashViewModel) 
 
 @Composable
 internal fun YuldashApp() {
+    // При изменении positional Compose/launcher slots меняем namespace, не угадываем старые ключи.
+    key("yuldash-app-saveable-v1") { YuldashAppContent() }
+}
+
+@Composable
+private fun YuldashAppContent() {
     val context = LocalContext.current
     val prefs = remember {
         context.getSharedPreferences("yuldash_prefs", android.content.Context.MODE_PRIVATE)
@@ -375,7 +383,7 @@ internal fun YuldashApp() {
     var screen by vm.screen
     var language by vm.language
     // Сохраняем только запрошенный экран, без данных прежнего аккаунта или автодействия.
-    var destinationAfterLogin by rememberSaveable { mutableStateOf<Screen?>(null) }
+    var destinationAfterLogin by rememberSaveable(saver = rootNavigationStateSaver<Screen?>("destinationAfterLogin")) { mutableStateOf<Screen?>(null) }
     // SharedPreferences — источник языка для настоящего холодного старта, когда SavedStateHandle пуст.
     // Пока гидратация не закончилась, не пишем дефолтный RU обратно на диск и сервер.
     val persistedLanguage = remember(context) { AppPrefs.language(context) }
@@ -407,19 +415,19 @@ internal fun YuldashApp() {
     var startHomeTab by vm.startHomeTab
     var callbackRequested by vm.callbackRequested
     var responsesRequestId by vm.responsesRequestId   // какую заявку открыть в «Откликах»
-    var driverProfileId by rememberSaveable { mutableStateOf(0) }   // чей публичный профиль открыть (0 = никакой)
-    var createRideReturnScreen by rememberSaveable { mutableStateOf(Screen.Home) }
-    var createRideReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Request) }
-    var createRidePrefillDate by rememberSaveable { mutableStateOf<String?>(null) }   // F15: дата-шаблон праздника для формы поездки
-    var trustedContactsReturnScreen by rememberSaveable { mutableStateOf(Screen.SimpleMode) }
-    var trustedContactsReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Profile) }
-    var selectedBookingStatus by rememberSaveable { mutableStateOf("") }
-    var instantTripOrderId by rememberSaveable { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
+    var driverProfileId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("driverProfileId", screenStateOwner)) { mutableStateOf(0) }   // чей публичный профиль открыть (0 = никакой)
+    var createRideReturnScreen by rememberSaveable(saver = rootNavigationStateSaver<Screen>("createRideReturnScreen")) { mutableStateOf(Screen.Home) }
+    var createRideReturnHomeTab by rememberSaveable(saver = rootNavigationStateSaver<HomeTab>("createRideReturnHomeTab")) { mutableStateOf(HomeTab.Request) }
+    var createRidePrefillDate by rememberSaveable(saver = rootNavigationStateSaver<String?>("createRidePrefillDate")) { mutableStateOf<String?>(null) }   // F15: дата-шаблон праздника для формы поездки
+    var trustedContactsReturnScreen by rememberSaveable(saver = rootNavigationStateSaver<Screen>("trustedContactsReturnScreen")) { mutableStateOf(Screen.SimpleMode) }
+    var trustedContactsReturnHomeTab by rememberSaveable(saver = rootNavigationStateSaver<HomeTab>("trustedContactsReturnHomeTab")) { mutableStateOf(HomeTab.Profile) }
+    var selectedBookingStatus by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("selectedBookingStatus", screenStateOwner)) { mutableStateOf("") }
+    var instantTripOrderId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("instantTripOrderId", screenStateOwner)) { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
     var instantChatOrderId by vm.instantChatOrderId   // ID чата сохраняется вместе с маршрутом.
-    var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
-    var sosBookingId by rememberSaveable { mutableStateOf(0) }         // SOS с контекстом попутки; 0 = без поездки
-    var sosContextNote by rememberSaveable { mutableStateOf("") }      // подпись дежурному (курьер: маршрут доставки)
-    var returnToSosAfterLogin by rememberSaveable { mutableStateOf(false) }
+    var sosOrderId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("sosOrderId", screenStateOwner)) { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
+    var sosBookingId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("sosBookingId", screenStateOwner)) { mutableStateOf(0) }         // SOS с контекстом попутки; 0 = без поездки
+    var sosContextNote by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("sosContextNote", screenStateOwner)) { mutableStateOf("") }      // подпись дежурному (курьер: маршрут доставки)
+    var returnToSosAfterLogin by rememberSaveable(saver = rootNavigationStateSaver<Boolean>("returnToSosAfterLogin")) { mutableStateOf(false) }
     LaunchedEffect(returnToSosAfterLogin, screen) {
         if (!returnToSosAfterLogin || !ApiClient.isLoggedIn()) return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
@@ -431,20 +439,20 @@ internal fun YuldashApp() {
         returnToSosAfterLogin = false
         screen = Screen.Sos
     }
-    var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
-    var taxiReceiptOrderId by rememberSaveable { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
+    var receiptBookingId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("receiptBookingId", screenStateOwner)) { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
+    var taxiReceiptOrderId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("taxiReceiptOrderId", screenStateOwner)) { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
     // Чат по посылке: id + с кем говорим + статус (по нему чат уходит в read-only после закрытия).
-    var parcelChatId by rememberSaveable { mutableStateOf(0) }
-    var parcelChatPeerIsCourier by rememberSaveable { mutableStateOf(true) }
-    var parcelChatStatus by rememberSaveable { mutableStateOf("") }
+    var parcelChatId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("parcelChatId", screenStateOwner)) { mutableStateOf(0) }
+    var parcelChatPeerIsCourier by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Boolean>("parcelChatPeerIsCourier", screenStateOwner)) { mutableStateOf(true) }
+    var parcelChatStatus by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("parcelChatStatus", screenStateOwner)) { mutableStateOf("") }
     var incidentId by vm.incidentId           // «Справедливость»: id открытого спора
     // Режим фотоконтроля машины: такси или курьер. Экран один, кадры разные — и человек,
     // который возит и людей, и посылки, показывает машину дважды, по разу за роль.
-    var carPhotoMode by rememberSaveable { mutableStateOf("taxi") }
+    var carPhotoMode by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("carPhotoMode", screenStateOwner)) { mutableStateOf("") }
     var supportTicketId by vm.supportTicketId
     // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
-    var routeWatchPrefillFrom by rememberSaveable { mutableStateOf("") }
-    var routeWatchPrefillTo by rememberSaveable { mutableStateOf("") }
+    var routeWatchPrefillFrom by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("routeWatchPrefillFrom", screenStateOwner)) { mutableStateOf("") }
+    var routeWatchPrefillTo by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("routeWatchPrefillTo", screenStateOwner)) { mutableStateOf("") }
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
     var isAdmin by vm.isAdmin
     // Версия сессии: инкрементится при входе (onContinue), чтобы user-специфичные загрузки
@@ -557,16 +565,16 @@ internal fun YuldashApp() {
     // Force-update (B9b-1): при старте ПАРАЛЛЕЛЬНО обычному запуску спрашиваем /version/min.
     // versionCode < min с сервера → блокирующий экран «Обнови Юлдаш» (ниже, поверх всего).
     // Офлайн / ошибка ручки / min=0 → НИЧЕГО не блокируем, приложение стартует как обычно.
-    var forceUpdateRequired by rememberSaveable { mutableStateOf(false) }
-    var forceUpdateStoreUrl by rememberSaveable { mutableStateOf("") }
+    var forceUpdateRequired by rememberSaveable(saver = rootNavigationStateSaver<Boolean>("forceUpdateRequired")) { mutableStateOf(false) }
+    var forceUpdateStoreUrl by rememberSaveable(saver = rootNavigationStateSaver<String>("forceUpdateStoreUrl")) { mutableStateOf("") }
     // Мягкое обновление (B9b-1b): версия ещё поддерживается, но вышла свежее → плашка сверху.
     // Списки «что нового» держим строкой через \n, а не List: rememberSaveable переживает
     // поворот экрана только для простых типов, иначе плашка теряла бы содержимое.
-    var updateLatestCode by rememberSaveable { mutableIntStateOf(0) }
-    var updateVersionName by rememberSaveable { mutableStateOf("") }
-    var updateStoreUrl by rememberSaveable { mutableStateOf("") }
-    var updateWhatsNewRu by rememberSaveable { mutableStateOf("") }
-    var updateWhatsNewBa by rememberSaveable { mutableStateOf("") }
+    var updateLatestCode by rememberSaveable(saver = rootNavigationStateSaver<Int>("updateLatestCode")) { mutableIntStateOf(0) }
+    var updateVersionName by rememberSaveable(saver = rootNavigationStateSaver<String>("updateVersionName")) { mutableStateOf("") }
+    var updateStoreUrl by rememberSaveable(saver = rootNavigationStateSaver<String>("updateStoreUrl")) { mutableStateOf("") }
+    var updateWhatsNewRu by rememberSaveable(saver = rootNavigationStateSaver<String>("updateWhatsNewRu")) { mutableStateOf("") }
+    var updateWhatsNewBa by rememberSaveable(saver = rootNavigationStateSaver<String>("updateWhatsNewBa")) { mutableStateOf("") }
     // Какую версию человек уже отклонил. Живёт в настройках устройства, а не в памяти:
     // иначе плашка возвращалась бы при каждом запуске, и «позже» ничего не значило.
     var updateDismissedCode by remember { mutableIntStateOf(prefs.getInt(PREF_UPDATE_DISMISSED, 0)) }
@@ -602,7 +610,7 @@ internal fun YuldashApp() {
         }
     }
     val notifPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    var notifAsked by rememberSaveable { mutableStateOf(false) }
+    var notifAsked by rememberSaveable(saver = rootNavigationStateSaver<Boolean>("notifAsked")) { mutableStateOf(false) }
     LaunchedEffect(screen) {
         if (!notifAsked && (screen == Screen.Home || screen == Screen.DriverCabinet) &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -612,12 +620,12 @@ internal fun YuldashApp() {
             notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
-    var failedRideLink by rememberSaveable { mutableStateOf<Int?>(null) }
-    var rideLinkUnavailable by rememberSaveable { mutableStateOf(false) }
+    var failedRideLink by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int?>("failedRideLink", screenStateOwner)) { mutableStateOf<Int?>(null) }
+    var rideLinkUnavailable by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Boolean>("rideLinkUnavailable", screenStateOwner)) { mutableStateOf(false) }
     // null: публичная поездка; false: чат брони; true: завершённая бронь.
-    var failedBookingDestination by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    var failedCompletedOwner by rememberSaveable { mutableStateOf<Int?>(null) }
-    var failedCompletedRevision by rememberSaveable { mutableStateOf<Long?>(null) }
+    var failedBookingDestination by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Boolean?>("failedBookingDestination", screenStateOwner)) { mutableStateOf<Boolean?>(null) }
+    var failedCompletedOwner by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int?>("failedCompletedOwner", screenStateOwner)) { mutableStateOf<Int?>(null) }
+    var failedCompletedRevision by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Long?>("failedCompletedRevision", screenStateOwner)) { mutableStateOf<Long?>(null) }
     var bookingLinkAttempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(vm.privateNavigationRevision) {
         if (failedBookingDestination != null && failedCompletedRevision != vm.privateNavigationRevision) {
@@ -999,6 +1007,28 @@ internal fun YuldashApp() {
     // Синхронизируем язык сообщений об ошибке в слое данных (ApiClient — не Composable,
     // appText недоступен). Иначе башкир видел бы серверные/клиентские ошибки по-русски.
     LaunchedEffect(language) { ApiClient.setUiLanguageBashkir(language == AppLanguage.Ba) }
+    // Не монтируем экран с утраченным root-контекстом: его загрузчик успел бы отправить GET /0.
+    fun missingRootDestinations(): Set<Screen> = buildSet {
+        if (receiptBookingId <= 0) add(Screen.TripReceipt)
+        if (taxiReceiptOrderId <= 0) add(Screen.TaxiReceipt)
+        if (parcelChatId <= 0) add(Screen.ParcelChat)
+        if (instantTripOrderId <= 0) add(Screen.InstantDriverTrip)
+        if (driverProfileId <= 0) add(Screen.DriverProfile)
+        if (carPhotoMode !in setOf("taxi", "courier")) add(Screen.CarPhoto)
+    }
+    val unavailableRootDestinations = missingRootDestinations()
+    val rootDestination = screen
+    val rootRevision = vm.privateNavigationRevision
+    val missingRootDestination = rootDestination in unavailableRootDestinations
+    LaunchedEffect(rootDestination, unavailableRootDestinations, rootRevision, navigationSession) {
+        if (missingRootDestination && vm.screen.value == rootDestination && vm.privateNavigationRevision == rootRevision) {
+            ApiClient.runIfUnchangedSession(navigationSession) {
+                val currentMissing = missingRootDestinations()
+                if (rootDestination in currentMissing && vm.screen.value == rootDestination && vm.privateNavigationRevision == rootRevision)
+                    vm.recoverMissingRootDestination(rootDestination, currentMissing)
+            }
+        }
+    }
     CompositionLocalProvider(LocalAppLanguage provides language, LocalOpenDriverProfile provides openDriverProfile) {
         // Force-update (B9b-1): версия ниже минимальной → блокирующий экран вместо всего приложения.
         // Не экран навигации (enum Screen) намеренно: из него нельзя выйти «Назад» — только обновиться.
@@ -1084,7 +1114,7 @@ internal fun YuldashApp() {
             if (offlineNow || updateVisible) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier
         )) {
         AnimatedContent(
-            targetState = screen,
+            targetState = if (missingRootDestination) Screen.Notifications else screen,
             transitionSpec = {
                 (fadeIn(animationSpec = tween(CanonMotion.NORMAL)) +
                     slideInHorizontally(animationSpec = tween(CanonMotion.SLOW)) { it / 12 })
@@ -1095,6 +1125,7 @@ internal fun YuldashApp() {
             },
             label = "screen"
         ) { scr ->
+        if (scr in unavailableRootDestinations) return@AnimatedContent
         // Состояние экрана переживает уход с него: ушёл в «Способы оплаты» и вернулся —
         // маршрут, цена и введённый текст на месте. Обычный `when` уничтожает композицию
         // ушедшего экрана вместе с его состоянием, и человек вводил адрес заново.
@@ -1684,6 +1715,19 @@ internal fun YuldashApp() {
         }
     }
 }
+
+/** Field identity prevents same-type legacy ID collisions as well as invalid casts.
+ * Anonymous pre-schema root state is intentionally discarded; owner-scoped screen drafts are separate. */
+private inline fun <reified T> rootNavigationStateSaver(field: String, ownerId: Int? = null): Saver<MutableState<T>, Any> = Saver(
+    save = { arrayListOf("yuldash-root-navigation-v1", field, ownerId, it.value) },
+    restore = { stored ->
+        val record = stored as? List<*>
+        if (record?.size == 4 && record[0] == "yuldash-root-navigation-v1" && record[1] == field &&
+            record[2] == ownerId && record[3] is T)
+            mutableStateOf(record[3] as T)
+        else null
+    },
+)
 
 internal fun shareRide(context: android.content.Context, text: String, chooserTitle: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {

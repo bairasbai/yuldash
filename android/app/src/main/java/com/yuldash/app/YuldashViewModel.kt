@@ -22,8 +22,11 @@ import androidx.lifecycle.ViewModel
 internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel() {
 
     // --- Survival-критичные: переживают поворот И kill процесса (SavedStateHandle) ---
+    private val restoredScreen = saved.get<String>(KEY_SCREEN)
+        ?.let { runCatching { Screen.valueOf(it) }.getOrNull() } ?: Screen.Splash
     val screen = mutableStateOf(
-        saved.get<String>(KEY_SCREEN)?.let { runCatching { Screen.valueOf(it) }.getOrNull() } ?: Screen.Splash
+        restoredScreen.let { if (hasRestorableId(it)) it else Screen.Notifications }
+            .also { if (saved.contains(KEY_SCREEN)) saved[KEY_SCREEN] = it.name }
     )
     val language = mutableStateOf(
         saved.get<String>(KEY_LANG)?.let { runCatching { AppLanguage.valueOf(it) }.getOrNull() } ?: AppLanguage.Ru
@@ -71,10 +74,18 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
                 }
             }
     )
-    val instantChatOrderId = mutableStateOf(saved.get<Int>(KEY_TAXI_CHAT) ?: 0)
-    val supportTicketId = mutableStateOf(saved.get<Int>(KEY_SUPPORT_TICKET) ?: 0)
-    val responsesRequestId = mutableStateOf(saved.get<Int>(KEY_REQUEST_RESPONSES) ?: 0)
-    val incidentId = mutableStateOf(saved.get<Int>(KEY_INCIDENT) ?: 0)
+    private fun restoredId(key: String): Int = (saved.get<Any?>(key) as? Int)?.takeIf { it > 0 } ?: 0
+    private fun hasRestorableId(destination: Screen): Boolean = when (destination) {
+        Screen.InstantChat -> restoredId(KEY_TAXI_CHAT) > 0
+        Screen.SupportTicket -> restoredId(KEY_SUPPORT_TICKET) > 0
+        Screen.RequestResponses -> restoredId(KEY_REQUEST_RESPONSES) > 0
+        Screen.IncidentDetail -> restoredId(KEY_INCIDENT) > 0
+        else -> true
+    }
+    val instantChatOrderId = mutableStateOf(restoredId(KEY_TAXI_CHAT))
+    val supportTicketId = mutableStateOf(restoredId(KEY_SUPPORT_TICKET))
+    val responsesRequestId = mutableStateOf(restoredId(KEY_REQUEST_RESPONSES))
+    val incidentId = mutableStateOf(restoredId(KEY_INCIDENT))
 
     fun requestScreenDestination(destination: Screen, ownerId: Int?, targetId: Int = 0) {
         if (destination !in PRIVATE_SCREENS || (destination in ID_SCREENS && targetId <= 0)) return
@@ -274,10 +285,23 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     val navHistory = mutableStateListOf<Screen>().apply {
         addAll(saved.get<List<String>>(KEY_NAV_HISTORY).orEmpty().mapNotNull {
             runCatching { Screen.valueOf(it) }.getOrNull()
-        })
+        }.filter(::hasRestorableId))
+        while (screen.value != restoredScreen && lastOrNull() == screen.value) removeAt(lastIndex)
+        if (saved.contains(KEY_NAV_HISTORY)) saved[KEY_NAV_HISTORY] = ArrayList(map { it.name })
     }
     val navPopping = mutableStateOf(false)
     val navPrev = mutableStateOf(screen.value)
+
+    /** Старое анонимное Compose-поле нельзя считать доказанным ID другого назначения. */
+    fun recoverMissingRootDestination(expected: Screen, unavailable: Set<Screen> = setOf(expected)) {
+        if (screen.value != expected) return
+        navHistory.removeAll { it in unavailable }
+        while (navHistory.lastOrNull() == Screen.Notifications) navHistory.removeAt(navHistory.lastIndex)
+        screen.value = Screen.Notifications
+        navPrev.value = Screen.Notifications
+        navPopping.value = false
+        persistNav()
+    }
 
     // --- Коллекции данных ---
     // Лента поездок начинается ПУСТОЙ. Раньше сюда сразу клались `demoRides`, и до ответа
