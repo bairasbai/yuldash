@@ -76,6 +76,7 @@ class FcmService : FirebaseMessagingService() {
         val openParcels = type != null && type.startsWith("parcel")
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_NAVIGATION_DELIVERY_ID, java.util.UUID.randomUUID().toString())
             putExtra("recipient_user_id", recipientUserId.toString())
             if (openInstantOrder) putExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, true)
             if (openParcels) putExtra(EXTRA_OPEN_PARCELS, true)

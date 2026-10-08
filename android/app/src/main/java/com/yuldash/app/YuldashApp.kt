@@ -758,7 +758,7 @@ internal fun YuldashApp() {
                     selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "",
                         price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
                     activeBookingId = bid
-                    selectedBookingStatus = ""
+                    selectedBookingStatus = state.status
                     if (completed) activeTrip = null
                     screen = if (completed) Screen.ActiveTrip else Screen.Booking
                 } else {

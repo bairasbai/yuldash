@@ -92,6 +92,7 @@ internal object TaxiOfferNotifier {
         val mgr = ctx.getSystemService(NotificationManager::class.java) ?: return
         val open = Intent(ctx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_NAVIGATION_DELIVERY_ID, java.util.UUID.randomUUID().toString())
             putExtra(EXTRA_OPEN_OFFER, true)
             recipientUserId?.let { putExtra("recipient_user_id", it.toString()) }
         }

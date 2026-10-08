@@ -1,5 +1,7 @@
 # 🧠 Второй мозг Юлдаш — карта знаний
 
+**08.10.2026 — B02, новое уведомление и сохранённая задача:** [Fresh delivery/старый повтор/pending кнопка RU/BA](audit-blocks.md#b02--новое-уведомление-поверх-сохранённой-задачи-08102026).417unique=40new+377previous/обаAPK; native2process+1PendingIntent. Дальше old-version Bundle/ID migration; B02/релиз частичны.
+
 **08.10.2026 — B02, пути от главного экрана:** [Home → бронь/отклики, поздние ответы и сохранение](audit-blocks.md#b02--home-создание-и-отмена-брони-08102026). 377 уникальных JVM = 15 новых + 362 прежних; обаAPK, 2 native RU/BA Home/Rides→pending42→Назад→process restore. Дальше — fresh private create(nonnullBundle); весь Home/B02 ещё частичны.
 
 **08.10.2026 — B02, остальные личные переходы:** [QA-B02-003: реклама/партнёрство/споры/заявки/durable IDs](audit-blocks.md#b02--остальные-личные-назначения-08102026).362unique=49новых+313прежних,обаAPK;2 внешних process UI случая RUrequest43/BAцентр споров. Дальше — полный Home,old Bundle/реальные сервисы отдельно; B02 частичный.

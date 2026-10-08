@@ -4431,3 +4431,8 @@ Main copied private types включает7новых существующих F
 ## B02 Home: версия от 08.10.2026
 
 `YuldashViewModel.navigateLocally` снимает прежние private pending/bridges, увеличивает общую revision и синхронно вызывает tracker/persist. AppNavHome пять booking/chat/responses входов защищает поколением исходной сессии и Home; public onBookRide допускает гостя через runIfUnchangedSession, остальные требуют bearer. YuldashApp Booking захватывает отображённые ride/bid/status/session/revision; создание и отмена делят session-keyed busy flag, проверяют ответ перед публикацией. RequestResponses после принятия очищает прежний Ride, сохраняет новый booking ID и запускает обычную гидратацию. Новых экранов/ключей/dependencies нет. [Версии, 377 JVM и 2 native, границы](audit-blocks.md#b02--home-создание-и-отмена-брони-08102026).
+
+
+## B02 fresh delivery, 08.10.2026
+
+FcmService/TaxiOfferNotifier каждый показ помечают UUID `yuldash_navigation_delivery_id`; MainActivity принимает валидный свежий private marker поверх current restored active/pending. VM SavedStateHandle хранит `yuldash_initial_notification_delivery`/`yuldash_last_notification_delivery`; consume/logout сохраняют marker. Recipient/target/session guard до commit. Первая/последняя копия блокируется; произвольная middle history/legacy/old Bundle остаются открытыми. YuldashApp успешный role ответ передаёт state.status в Booking кнопки. [417 JVM/2native process+1PendingIntent и границы](audit-blocks.md#b02--новое-уведомление-поверх-сохранённой-задачи-08102026).

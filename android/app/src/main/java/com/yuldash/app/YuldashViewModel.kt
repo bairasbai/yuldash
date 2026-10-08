@@ -52,6 +52,15 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     val hasHandledBookingIntent: Boolean get() = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) > 0L
     val privateNavigationRevision: Long get() = saved.get<Long>(KEY_PENDING_REVISION) ?: 0L
 
+    // Первая и последняя принятые доставки переживают consume/logout и saved task.
+    fun hasHandledNotificationDelivery(deliveryId: String): Boolean =
+        saved.get<String>(KEY_INITIAL_DELIVERY) == deliveryId || saved.get<String>(KEY_LAST_DELIVERY) == deliveryId
+
+    fun recordHandledNotificationDelivery(deliveryId: String) {
+        if (saved.get<String>(KEY_INITIAL_DELIVERY) == null) saved[KEY_INITIAL_DELIVERY] = deliveryId
+        saved[KEY_LAST_DELIVERY] = deliveryId
+    }
+
     data class PendingScreenNavigation(val destination: Screen, val targetId: Int, val ownerId: Int?, val revision: Long)
     val pendingScreenNavigation = mutableStateOf(
         saved.get<String>(KEY_PENDING_SCREEN)?.let { runCatching { Screen.valueOf(it) }.getOrNull() }
@@ -325,6 +334,8 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         const val KEY_PENDING_COMPLETED = "yuldash_pending_completed"
         const val KEY_PENDING_OWNER = "yuldash_pending_completed_owner"
         const val KEY_PENDING_REVISION = "yuldash_pending_completed_revision"
+        const val KEY_INITIAL_DELIVERY = "yuldash_initial_notification_delivery"
+        const val KEY_LAST_DELIVERY = "yuldash_last_notification_delivery"
         // Старые ключи сохраняем; отсутствие kind означает ранее сохранённый booking_done.
         const val KEY_PENDING_KIND = "yuldash_pending_booking_completed"
         const val KEY_PENDING_SCREEN = "yuldash_pending_private_screen"

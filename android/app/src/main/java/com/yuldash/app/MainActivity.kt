@@ -288,17 +288,18 @@ class MainActivity : ComponentActivity() {
         val hadSavedPending = restoredNavigation?.pendingBookingNavigation?.value != null || restoredNavigation?.pendingScreenNavigation?.value != null
         restoredNavigation?.pendingBookingForOwner(ApiClient.myUserId())
         restoredNavigation?.pendingScreenForOwner(ApiClient.myUserId())
-        val restoredType = intent?.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: intent?.getStringExtra("type")
-        val copiedBookingIntent = restoredNavigation?.hasHandledBookingIntent == true &&
-            (restoredType in setOf("booking", "chat", "booking_done", "order_chat", "instant", "instant_status", "instant_payment", "instant_im_coming", "support", "debt",
-                "ad", "partner", "incident", "request", "request_watch", "taxi_apply", "courier_apply") ||
-                restoredType?.startsWith("parcel") == true || intent?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) == true ||
-                intent?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) == true || intent?.getBooleanExtra(FcmService.EXTRA_OPEN_PARCELS, false) == true)
+        val privateIntent = isPrivateNavigationIntent(intent)
+        val deliveryId = notificationDeliveryId(intent)
+        val freshPrivateDelivery = privateIntent && deliveryId != null &&
+            restoredNavigation?.hasHandledNotificationDelivery(deliveryId) != true
+        val copiedBookingIntent = restoredNavigation?.hasHandledBookingIntent == true && privateIntent
         val hasRestoredBooking = restoredNavigation != null &&
             (restoredNavigation.activeBookingId.value ?: 0) > 0 &&
             restoredNavigation.screen.value !in setOf(Screen.Splash, Screen.Intro, Screen.Onboarding, Screen.Login)
+        // Новый показ уведомления не равен копии base Intent из сохранённой задачи.
+        if (freshPrivateDelivery) handleNavIntent(intent)
         if (!hasRestoredBooking && !hadSavedPending) {
-            handleNavIntent(intent, skipBookingIntent = copiedBookingIntent)
+            if (!freshPrivateDelivery) handleNavIntent(intent, skipBookingIntent = copiedBookingIntent)
             handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         }
         setContent {
@@ -339,6 +340,10 @@ class MainActivity : ComponentActivity() {
             if (recipient == null || recipient <= 0 || recipient != ApiClient.myUserId()) return
         }
         val type = i.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: i.getStringExtra("type")
+        val deliveryId = notificationDeliveryId(i)
+        val navigation = ViewModelProvider(this)[YuldashViewModel::class.java]
+        if (isPrivateNavigationIntent(i) && i.hasExtra(EXTRA_NAVIGATION_DELIVERY_ID) &&
+            (deliveryId == null || navigation.hasHandledNotificationDelivery(deliveryId))) return
         val privateScreen = when {
             i.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) || type == "debt" -> Screen.DriverCabinet
             i.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) || type in setOf("instant", "instant_status", "instant_payment", "instant_im_coming") -> Screen.InstantOrder
@@ -358,7 +363,8 @@ class MainActivity : ComponentActivity() {
             if (skipBookingIntent) return
             val id = (i.getStringExtra(FcmService.EXTRA_PUSH_ID) ?: i.getStringExtra("id"))?.toIntOrNull() ?: 0
             if (id <= 0 && (privateScreen == Screen.InstantChat || type in setOf("support", "ad", "partner", "incident", "request", "request_watch", "taxi_apply", "courier_apply"))) return
-            ViewModelProvider(this)[YuldashViewModel::class.java].requestScreenDestination(privateScreen, ApiClient.myUserId(), id)
+            navigation.requestScreenDestination(privateScreen, ApiClient.myUserId(), id)
+            deliveryId?.let(navigation::recordHandledNotificationDelivery)
             i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER)
             i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER)
             i.removeExtra(FcmService.EXTRA_OPEN_PARCELS)
@@ -366,7 +372,25 @@ class MainActivity : ComponentActivity() {
             i.removeExtra("type"); i.removeExtra("id")
             return
         }
-        if (!skipBookingIntent) openChatFromPush(i)
+        if (!skipBookingIntent) {
+            if (type in setOf("booking", "chat", "booking_done")) {
+                val id = (i.getStringExtra(FcmService.EXTRA_PUSH_ID) ?: i.getStringExtra("id"))?.toIntOrNull() ?: 0
+                if (id <= 0) return
+                openChatFromPush(i)
+                deliveryId?.let(navigation::recordHandledNotificationDelivery)
+            } else openChatFromPush(i)
+        }
+    }
+
+    private fun notificationDeliveryId(i: Intent?) = i?.getStringExtra(EXTRA_NAVIGATION_DELIVERY_ID)
+        ?.takeIf { it.isNotBlank() && it.length <= 128 }
+
+    private fun isPrivateNavigationIntent(i: Intent?): Boolean {
+        if (i == null) return false
+        val type = i.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: i.getStringExtra("type")
+        return type in PRIVATE_PUSH_TYPES || type?.startsWith("parcel") == true ||
+            i.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) ||
+            i.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) || i.getBooleanExtra(FcmService.EXTRA_OPEN_PARCELS, false)
     }
 
     /**
@@ -416,6 +440,13 @@ class MainActivity : ComponentActivity() {
         val idx = segments.indexOf("r")
         val rideId = segments.getOrNull(idx + 1)?.toIntOrNull() ?: return
         DeepLink.pendingRideId.value = rideId
+    }
+
+    companion object {
+        const val EXTRA_NAVIGATION_DELIVERY_ID = "yuldash_navigation_delivery_id"
+        private val PRIVATE_PUSH_TYPES = setOf("booking", "chat", "booking_done", "order_chat", "instant", "instant_status",
+            "instant_payment", "instant_im_coming", "support", "debt", "ad", "partner", "incident", "request", "request_watch",
+            "taxi_apply", "courier_apply")
     }
 }
 

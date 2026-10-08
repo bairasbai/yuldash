@@ -9059,3 +9059,12 @@ Notification.type может быть ride,а FCMtype=request из ref_kind: rou
 ## 08.10.2026 — сохранённые Home действия и достоверное воспроизведение
 
 App-wide coroutine может завершить POST после Back: проверять исходный экран/ride/bid/revision и session до запроса и публикации. Private guard с bearer нельзя применять к публичной карточке гостя без отдельного контроля. Двойной semantic callback не называть pointer-тестом. Native loaded witness должен отличаться от заголовка спиннера. При тестировании отмены нужно подтвердить настоящий диалог; fixture timeout и compiler failure не являются поведенческими дефектами. При fresh Home учитывать реальную подсказку режимов, закрывая её через UI. [Журналы red/final/native](audit-blocks.md#b02--home-создание-и-отмена-брони-08102026).
+
+
+## 08.10.2026 — fresh Bundle и фактический loaded UI
+
+Blanket restored-booking guard блокирует действительно новое уведомление: отличать доставку от копии по сохранённой identity. При разборе failure читать текущие HTTP/XML лично: root неверно считал Home/noHTTP, когда v3 уже был loaded Booking42. Отсутствие cancel оказалось пустым UI-status после успешного role ответа; две actual Compose RU/BA проверки воспроизвели это. Pending VM != loaded UI; native callback create/newIntent без наблюдения не утверждать. Windows Gradle interprocess WEPoll error не считать зелёным отчётом: финальный прогон после закрытия эмулятора и локального selector override, без смены версий. [Журналы и границы](audit-blocks.md#b02--новое-уведомление-поверх-сохранённой-задачи-08102026).
+
+Windows Python helpers запускать с -X utf8 либо stdout.reconfigure(encoding=utf-8). Ошибка console UnicodeEncodeError после успешной записи документов не требует повторять append: проверять уже записанные файлы, иначе раздел продублируется.
+
+Распределение новых файлов по категориям брать из фактического counts_by_kind инвентаризации: androidTest и audit helper классификатор относит к infrastructure; JVM тесты — к test_support. Сумма1831 сама по себе не проверяет распределение346/882.

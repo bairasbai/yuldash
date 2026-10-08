@@ -157,4 +157,25 @@ class HomeBookingNavigationTest {
         ApiClient.logout();choosePublicRide();click("Забронировать место");pump(1000)
         assertEquals(Screen.Login,vm.screen.value);assertEquals(0,posts("/bookings"));assertNull(vm.activeBookingId.value)
     }
+    private fun markedPendingNotificationUsesServerStatus(language: AppLanguage) {
+        compose.runOnIdle { vm.language.value = language }
+        mount()
+        val notification = Intent(context, MainActivity::class.java)
+            .putExtra("type", "booking").putExtra("id", "42")
+            .putExtra("recipient_user_id", "11")
+            .putExtra(MainActivity.EXTRA_NAVIGATION_DELIVERY_ID, "pending-status-${language.name}")
+        compose.runOnIdle {
+            MainActivity::class.java.getDeclaredMethod("onNewIntent", Intent::class.java)
+                .apply { isAccessible = true }.invoke(actor.get(), notification)
+        }
+        await { vm.activeBookingId.value == 42 && vm.pendingBookingNavigation.value == null }
+        pump()
+        assertEquals(Screen.Booking, vm.screen.value)
+        assertTrue(records.any { it.second == "/bookings/42/role" && it.third == "Bearer $tokenA" })
+        compose.onNodeWithText(if (language == AppLanguage.Ru) "Отменить бронь" else "Бронде кире алыу")
+            .assertExists().assertIsEnabled()
+        assertEquals(0, posts("/bookings/42/cancel"))
+    }
+    @Test fun markedPendingNotificationShowsEnabledCancellationInRussian() = markedPendingNotificationUsesServerStatus(AppLanguage.Ru)
+    @Test fun markedPendingNotificationShowsEnabledCancellationInBashkir() = markedPendingNotificationUsesServerStatus(AppLanguage.Ba)
 }
