@@ -979,3 +979,5 @@ Android-хранилище (19.09.2026): [источник актуальног�
 08.10.2026 — B02, старые уведомления без получателя и маркера: [реестр, версии и остатки](audit-blocks.md#b02--старые-уведомления-без-получателя-и-маркера-08102026).498 distinct JVM/44classes/обаAPK. Old ownerless private taps rejected; unmarked saved route protected.100%/realFCM/native upgrade не подтверждены; дальше public pendingRide/held HTTP vs localHome.
 
 08.10.2026 — [B02: публичная ссылка и новый выбор](audit-blocks.md#b02--публичная-ссылка-и-более-новый-выбор-08102026):531/531=28new+498retained+5existing,46classes/обаAPK. Защищены held public HTTP и старые Retry/Close;28new=24actual App+4directVM. Следом прямые Home переходы вне navigateLocally; весь B02/реальные сервисы остаются частичными.
+
+08.10.2026 — [B02: остальные переходы Home](audit-blocks.md#b02--остальные-переходы-home-08102026):550/550=19new+531retained,47classes/обаAPK. Home-local scope/epoch/session и39 routing wrappers;19actualApp cases. Следом accountDeleted cleanup/A→B; tab/legacy flags/native/весь B02 остаются открытыми.

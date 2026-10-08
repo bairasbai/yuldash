@@ -3,12 +3,17 @@ package com.yuldash.app
 import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.yuldash.app.data.ApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 
 /**
  * Главный экран как отдельная «остановка» навигации.
@@ -61,14 +66,23 @@ internal fun HomeRoute(
     var isAdmin by vm.isAdmin
     var partnerAds by vm.partnerAds
 
-    val homeSession = ApiClient.queueSessionGeneration()
+    val homeSession = ApiClient.sessionChanges.collectAsState().value
+    val homeScope = rememberCoroutineScope()
+    var homeDestinationEpoch by remember { mutableIntStateOf(0) }
+    val callbackEpoch = homeDestinationEpoch
     fun openHomeDestination(requireLogin: Boolean = true, applyRoute: () -> Unit) {
         val applyIfHome = {
-            if (screen == Screen.Home) vm.navigateLocally(applyRoute)
+            if (homeScope.isActive && screen == Screen.Home && callbackEpoch == homeDestinationEpoch) {
+                vm.navigateLocally(applyRoute)
+                // Только принятый выбор Home отменяет прежние кнопки; входящее уведомление — нет.
+                if (screen != Screen.Home) homeDestinationEpoch++
+            }
         }
         if (requireLogin) ApiClient.runIfCurrentSession(homeSession, applyIfHome)
         else ApiClient.runIfUnchangedSession(homeSession, applyIfHome)
     }
+
+    fun openHomeScreen(applyRoute: () -> Unit) = openHomeDestination(requireLogin = false, applyRoute)
 
     HomeScreen(
             rides = rides,
@@ -82,21 +96,21 @@ internal fun HomeRoute(
             voiceMessages = voiceMessages,
             initialTab = startHomeTab,
             onTabChange = { startHomeTab = it },   // «Назад» с под-экранов вернётся на активную вкладку Home
-            onCreateRide = { onCreateRide(HomeTab.Request, null) },
-            onSeasonalPublish = { date -> onCreateRide(HomeTab.Request, date) },   // F15: дата праздника уже в форме
-            onCreateRequest = { screen = Screen.CreateRequest },
-            onSupport = { screen = Screen.Support },
-            onMyStats = { screen = Screen.MyStats },
-            onCoupons = { screen = Screen.Coupons },
-            onPromo = { screen = Screen.PromoCode },
-            onParcels = { screen = Screen.Parcels },
-            onCourier = { screen = Screen.Courier },
-            onPartnerCabinet = { screen = Screen.PartnerCabinet },
-            onMyData = { screen = Screen.MyData },
-            onReview = { screen = Screen.AppReview },
-            onAdminReviews = { screen = Screen.AdminReviews },
-            onAdminAds = { screen = Screen.AdminAds },
-            onBoost = { screen = Screen.Boost },
+            onCreateRide = { openHomeScreen { onCreateRide(HomeTab.Request, null) } },
+            onSeasonalPublish = { date -> openHomeScreen { onCreateRide(HomeTab.Request, date) } },   // F15: дата праздника уже в форме
+            onCreateRequest = { openHomeScreen { screen = Screen.CreateRequest } },
+            onSupport = { openHomeScreen { screen = Screen.Support } },
+            onMyStats = { openHomeScreen { screen = Screen.MyStats } },
+            onCoupons = { openHomeScreen { screen = Screen.Coupons } },
+            onPromo = { openHomeScreen { screen = Screen.PromoCode } },
+            onParcels = { openHomeScreen { screen = Screen.Parcels } },
+            onCourier = { openHomeScreen { screen = Screen.Courier } },
+            onPartnerCabinet = { openHomeScreen { screen = Screen.PartnerCabinet } },
+            onMyData = { openHomeScreen { screen = Screen.MyData } },
+            onReview = { openHomeScreen { screen = Screen.AppReview } },
+            onAdminReviews = { openHomeScreen { screen = Screen.AdminReviews } },
+            onAdminAds = { openHomeScreen { screen = Screen.AdminAds } },
+            onBoost = { openHomeScreen { screen = Screen.Boost } },
             onPublishRide = { ride ->
                 rides.add(0, ride)
                 Toast.makeText(context, if (language == AppLanguage.Ba) "Заявка баҫтырылды" else "Заявка опубликована", Toast.LENGTH_SHORT).show()
@@ -153,18 +167,20 @@ internal fun HomeRoute(
                 voiceMessages.add(0, message)
                 Toast.makeText(context, if (language == AppLanguage.Ba) "Тауыш хәбәре ебәрелде" else "Голосовое отправлено", Toast.LENGTH_SHORT).show()
             },
-            onSos = { onSos() },
-            onVerifyDriver = { screen = Screen.VerifyDriver },
-            onTaxiOnboarding = { screen = Screen.TaxiOnboarding },
-            onOpenScheduled = { screen = Screen.ScheduledOrders },
-            onSavedPlaces = { onLoginRequired(Screen.SavedPlaces) },
+            onSos = { openHomeScreen { onSos() } },
+            onVerifyDriver = { openHomeScreen { screen = Screen.VerifyDriver } },
+            onTaxiOnboarding = { openHomeScreen { screen = Screen.TaxiOnboarding } },
+            onOpenScheduled = { openHomeScreen { screen = Screen.ScheduledOrders } },
+            onSavedPlaces = { openHomeScreen { onLoginRequired(Screen.SavedPlaces) } },
             payMethod = payMethod,
-            onOpenPayments = { screen = Screen.PaymentMethods },
-            onCourierMode = { onLoginRequired(Screen.Courier) },
-            onNotifications = { screen = Screen.Notifications },
+            onOpenPayments = { openHomeScreen { screen = Screen.PaymentMethods } },
+            onCourierMode = { openHomeScreen { onLoginRequired(Screen.Courier) } },
+            onNotifications = { openHomeScreen { screen = Screen.Notifications } },
             onRouteWatch = { from, to ->
-                onRouteWatchPrefill(from, to)
-                screen = Screen.RouteWatches
+                openHomeScreen {
+                    onRouteWatchPrefill(from, to)
+                    screen = Screen.RouteWatches
+                }
             },
             onOpenChat = { bid, peer, route ->
                 openHomeDestination {
@@ -209,20 +225,20 @@ internal fun HomeRoute(
                         }
                 }
             },
-            onSafety = { screen = Screen.Safety },
-            onSettings = { screen = Screen.Settings },
-            onPrivacy = { screen = Screen.Privacy },
-            onTrust = { onLoginRequired(Screen.Trust) },
-            onFairness = { onLoginRequired(Screen.FairnessCenter) },
-            onConsents = { onLoginRequired(Screen.Consents) },
-            onHelp = { screen = Screen.Help },
-            onPassengerCabinet = { prefs.edit().putString("preferred_role", RideRole.Passenger.name).apply(); screen = Screen.PassengerCabinet },
-            onDriverCabinet = { prefs.edit().putString("preferred_role", RideRole.Driver.name).apply(); screen = Screen.DriverCabinet },
-            onClinicRides = { screen = Screen.ClinicRides },
-            onSimpleMode = { screen = Screen.SimpleMode },
-            onTrustedContacts = { onTrustedContacts() },
-            onCallbackHelp = { screen = Screen.CallbackHelp },
-            onAdsCabinet = { screen = Screen.AdsCabinet },
+            onSafety = { openHomeScreen { screen = Screen.Safety } },
+            onSettings = { openHomeScreen { screen = Screen.Settings } },
+            onPrivacy = { openHomeScreen { screen = Screen.Privacy } },
+            onTrust = { openHomeScreen { onLoginRequired(Screen.Trust) } },
+            onFairness = { openHomeScreen { onLoginRequired(Screen.FairnessCenter) } },
+            onConsents = { openHomeScreen { onLoginRequired(Screen.Consents) } },
+            onHelp = { openHomeScreen { screen = Screen.Help } },
+            onPassengerCabinet = { openHomeScreen { prefs.edit().putString("preferred_role", RideRole.Passenger.name).apply(); screen = Screen.PassengerCabinet } },
+            onDriverCabinet = { openHomeScreen { prefs.edit().putString("preferred_role", RideRole.Driver.name).apply(); screen = Screen.DriverCabinet } },
+            onClinicRides = { openHomeScreen { screen = Screen.ClinicRides } },
+            onSimpleMode = { openHomeScreen { screen = Screen.SimpleMode } },
+            onTrustedContacts = { openHomeScreen { onTrustedContacts() } },
+            onCallbackHelp = { openHomeScreen { screen = Screen.CallbackHelp } },
+            onAdsCabinet = { openHomeScreen { screen = Screen.AdsCabinet } },
             onToggleLanguage = {
                 language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
             },
@@ -232,6 +248,6 @@ internal fun HomeRoute(
                 startHomeTab = HomeTab.Map
                 screen = Screen.Login
             },
-            onInstantLogin = { startHomeTab = HomeTab.Map; onLoginRequired(Screen.Home) }
+            onInstantLogin = { openHomeScreen { startHomeTab = HomeTab.Map; onLoginRequired(Screen.Home) } }
         )
 }

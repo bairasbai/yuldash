@@ -17685,3 +17685,13 @@ Final498/498=42new+15revised+441retained,44classes/обаAPK. Missing-recipient 
 ## 08.10.2026 — B02, публичная ссылка и более новый выбор: локальный итог
 
 531/531=28new+498retained+5existing,46classes/обаAPK;28new=24App+4VM. Held success/failure против Home/private, sameID, retained Retry/Close, App disposal и audience A→B/logout проверены локально. Green-v2 fixture navPrev исправлен отдельно; lifetime-red intermediate подтверждён и закрыт appScope guard. UI строки/BA drafts не добавлены. 🔓 Product/tests/Gradle после final; root docs/inventory до freeze/readonly review/11own commit/FF main/push по продолжающемуся разрешению. Следом прямые Home callbacks вне navigateLocally/concurrent legacy flags. Public durable process/oldBundle, private Retry disposal, actual401 refresh/native/FCM/весьB02/релиз открыты. [Версии/доказательства/ограничения](audit-blocks.md#b02--публичная-ссылка-и-более-новый-выбор-08102026).
+
+## B02 / QA-B02-003 — остальные переходы Home, 08.10.2026
+
+База329e9d8d, ветка codex/b02-home-transitions-20261008. План по продолжающемуся поручению: targeted remaining Home callbacks/delegates contract → actual Home/App retained click+heldHTTP RED → минимальная общая защита актуального Home выбора с сохранением guest/protected/tab/Back/prefill/role поведения → regression/current callback controls и обе APK/integration → обновить этот реестр/inventory/scoped review →11+ собственных paths commit/FF main/push (точное число после diff). Без production/provider/FCM/SMS/send/share действий. Не расширять этап до request edit/cancel HTTP, private Retry disposal, URI parser или concurrent legacy flags.
+
+🔒 Root — единственный writer AppNavHome.kt/при доказанной необходимости root helper YuldashApp.kt/new tests/docs/inventory; одна Gradle сборка/Git. b02_socket_review — readonly targeted research/fresh acceptance без edits/build/adb/network. Inventory1841, дельта только прежняя чужая .gitignore;39 чужих status entries=38raw files+directory сохранны. Новые UI тексты/цвета/переводы/enum/версии/dependencies не планируются.
+
+## 08.10.2026 — B02, остальные переходы Home: локальный итог
+
+550/550=19new+531retained,47classes/обаAPK.19 actualApp cases;39 wrappers по source, не39runtime paths. Shared Home scope/epoch/immutable observed session; сохранён row42 при held notification44. Fixture Back/неверный Semantics assumption исправлены и исторически классифицированы; newUI/BA drafts нет. 🔓 Root product/tests/Gradle после final; docs/inventory до freeze/readonly acceptance/10own commit/FF main/push по продолжающемуся разрешению. Далее accountDeleted cleanup/A→B; tab/HomeShell/otherwriters/concurrentflags и остальные B02/релиз границы открыты. [Точные доказательства](audit-blocks.md#b02--остальные-переходы-home-08102026).
