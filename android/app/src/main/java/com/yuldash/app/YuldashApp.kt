@@ -2380,6 +2380,19 @@ internal fun ScreenTopBar(title: String, onBack: () -> Unit) {
     )
 }
 
+/** Each animated tab owns its actions even while its outgoing content recomposes. */
+internal class HomeTabActionGate(
+    private val accepts: () -> Boolean,
+    private val choose: (HomeTab, () -> Unit) -> Unit = { _, action -> action() },
+) {
+    fun select(tab: HomeTab, afterSelection: () -> Unit) { if (accepts()) choose(tab, afterSelection) }
+    fun guard(action: () -> Unit): () -> Unit = { if (accepts()) action() }
+    fun <A> guard(action: (A) -> Unit): (A) -> Unit = { a -> if (accepts()) action(a) }
+    fun <A, B> guard(action: (A, B) -> Unit): (A, B) -> Unit = { a, b -> if (accepts()) action(a, b) }
+    fun <A, B, C> guard(action: (A, B, C) -> Unit): (A, B, C) -> Unit = { a, b, c -> if (accepts()) action(a, b, c) }
+}
+private val LocalHomeTabActionGate = staticCompositionLocalOf { HomeTabActionGate(accepts = { true }) }
+
 @Composable
 internal fun HomeScreen(
     rides: List<Ride>,
@@ -2447,18 +2460,21 @@ internal fun HomeScreen(
     onOpenPayments: () -> Unit = {},
     onCourierMode: () -> Unit = {},      // из режима «Курьер» — к работе курьера (заказы, линия, заработок)
     onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → создать поездку с датой-шаблоном
-    onTabChange: (HomeTab) -> Unit = {}
+    onTabChange: (HomeTab) -> Unit = {},
+    onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() }
 ) {
     var ridesPresetTo by remember { mutableStateOf("") }
     var ridesPresetToday by remember { mutableStateOf(false) }
 
     // Шелл (таб-стейт + нижнее меню + смена вкладок) вынесен в чистый HomeShell — тестируется на JVM.
     // HomeScreen остаётся «умной» обёрткой: раздаёт данные/колбэки в тело конкретной вкладки.
-    HomeShell(initialTab = initialTab, onTabChange = onTabChange) { tab, selectTab ->
+    HomeShell(initialTab = initialTab, onTabChange = onTabChange, onSelectTab = onSelectTab) { tab, selectTab ->
+            val gate = LocalHomeTabActionGate.current
             fun openRides(to: String = "", today: Boolean = false) {
-                ridesPresetTo = to
-                ridesPresetToday = today
-                selectTab(HomeTab.Rides)
+                gate.select(HomeTab.Rides) {
+                    ridesPresetTo = to
+                    ridesPresetToday = today
+                }
             }
             when (tab) {
                 HomeTab.Map -> PassengerModeHome(
@@ -2466,24 +2482,24 @@ internal fun HomeScreen(
                     activeTrip = activeTrip,
                     ads = ads,
                     adStats = adStats,
-                    onBookRide = onBookRide,
+                    onBookRide = gate.guard(onBookRide),
                     onShareRide = onShareRide,
                     onAdImpression = onAdImpression,
                     onAdClick = onAdClick,
-                    onSos = onSos,
+                    onSos = gate.guard(onSos),
                     onOpenPopular = { route -> openRides(to = route.to, today = true) },
-                    onDriver = onCreateRide,
-                    onBoost = onBoost,
-                    onInstantLogin = onInstantLogin,
-                    onTaxiOnboarding = onTaxiOnboarding,
-                    onClinicRides = onClinicRides,
-                    onRouteWatch = onRouteWatch,
-                    onOpenScheduled = onOpenScheduled,
-                    onSavedPlaces = onSavedPlaces,
+                    onDriver = gate.guard(onCreateRide),
+                    onBoost = gate.guard(onBoost),
+                    onInstantLogin = gate.guard(onInstantLogin),
+                    onTaxiOnboarding = gate.guard(onTaxiOnboarding),
+                    onClinicRides = gate.guard(onClinicRides),
+                    onRouteWatch = gate.guard(onRouteWatch),
+                    onOpenScheduled = gate.guard(onOpenScheduled),
+                    onSavedPlaces = gate.guard(onSavedPlaces),
                     payMethod = payMethod,
-                    onOpenPayments = onOpenPayments,
-                    onCourierMode = onCourierMode,
-                    onSeasonalPublish = onSeasonalPublish,   // F15: баннер «на праздник» → создать поездку (с датой-шаблоном)
+                    onOpenPayments = gate.guard(onOpenPayments),
+                    onCourierMode = gate.guard(onCourierMode),
+                    onSeasonalPublish = gate.guard(onSeasonalPublish),   // F15: баннер «на праздник» → создать поездку (с датой-шаблоном)
                 )
                 HomeTab.Rides -> RidesScreen(
                     rides = rides,
@@ -2491,63 +2507,63 @@ internal fun HomeScreen(
                     adStats = adStats,
                     presetTo = ridesPresetTo,
                     presetToday = ridesPresetToday,
-                    onBookRide = onBookRide,
-                    onOpenBookingDetails = onOpenBookingDetails,
-                    onOpenActiveTrip = onOpenActiveTrip,
+                    onBookRide = gate.guard(onBookRide),
+                    onOpenBookingDetails = gate.guard(onOpenBookingDetails),
+                    onOpenActiveTrip = gate.guard(onOpenActiveTrip),
                     onMessage = { selectTab(HomeTab.Chat) },
                     onShareRide = onShareRide,
-                    onBoost = onBoost,
+                    onBoost = gate.guard(onBoost),
                     onCreateRequest = { selectTab(HomeTab.Request) },
                     onAdImpression = onAdImpression,
                     onAdClick = onAdClick,
-                    onDriverCabinet = onDriverCabinet,
+                    onDriverCabinet = gate.guard(onDriverCabinet),
                 )
                 HomeTab.Request -> MyRequestsScreen(
                     requests = requests,
-                    onCreateNew = onCreateRequest,
-                    onViewResponses = onOpenResponses,   // открыть отклики ИМЕННО этой заявки (раньше терялся id → кидало на вкладку Чат)
+                    onCreateNew = gate.guard(onCreateRequest),
+                    onViewResponses = gate.guard(onOpenResponses),   // открыть отклики ИМЕННО этой заявки (раньше терялся id → кидало на вкладку Чат)
                     onCancel = onCancelRequest,
                     loading = requestsLoading,
                     error = requestsError,
                     onRetry = onRetryRequests,
                     onEditRequest = onEditRequest,
-                    onOpenRide = { dto -> onBookRide(dto.toUiRide()) }   // авто-подбор → открыть бронь поездки
+                    onOpenRide = { dto -> gate.guard { onBookRide(dto.toUiRide()) }() }   // авто-подбор → открыть бронь поездки
                 )
                 HomeTab.Chat -> ChatScreen(
                     voiceMessages = voiceMessages,
                     onAddVoiceMessage = onAddVoiceMessage,
-                    onNotifications = onNotifications,
-                    onOpenChat = onOpenChat,
-                    onOpenResponses = onOpenResponses
+                    onNotifications = gate.guard(onNotifications),
+                    onOpenChat = gate.guard(onOpenChat),
+                    onOpenResponses = gate.guard(onOpenResponses)
                 )
                 HomeTab.Profile -> ProfileScreen(
                     ads = ads,
                     adStats = adStats,
-                    onSupport = onSupport,
-                    onVerifyDriver = onVerifyDriver,
-                    onSafety = onSafety,
-                    onSettings = onSettings,
-                    onPrivacy = onPrivacy,
-                    onTrust = onTrust,
-                    onConsents = onConsents,
-                    onHelp = onHelp,
-                    onReview = onReview,
-                    onAdminReviews = onAdminReviews,
-                    onAdminAds = onAdminAds,
-                    onPassengerCabinet = onPassengerCabinet,
-                    onDriverCabinet = onDriverCabinet,
-                    onSimpleMode = onSimpleMode,
-                    onTrustedContacts = onTrustedContacts,
-                    onCallbackHelp = onCallbackHelp,
-                    onAdsCabinet = onAdsCabinet,
-                    onFairness = onFairness,
-                    onMyStats = onMyStats,
-                    onCoupons = onCoupons,
-                    onPromo = onPromo,
-                    onParcels = onParcels,
-                    onCourier = onCourier,
-                    onPartnerCabinet = onPartnerCabinet,
-                    onMyData = onMyData,
+                    onSupport = gate.guard(onSupport),
+                    onVerifyDriver = gate.guard(onVerifyDriver),
+                    onSafety = gate.guard(onSafety),
+                    onSettings = gate.guard(onSettings),
+                    onPrivacy = gate.guard(onPrivacy),
+                    onTrust = gate.guard(onTrust),
+                    onConsents = gate.guard(onConsents),
+                    onHelp = gate.guard(onHelp),
+                    onReview = gate.guard(onReview),
+                    onAdminReviews = gate.guard(onAdminReviews),
+                    onAdminAds = gate.guard(onAdminAds),
+                    onPassengerCabinet = gate.guard(onPassengerCabinet),
+                    onDriverCabinet = gate.guard(onDriverCabinet),
+                    onSimpleMode = gate.guard(onSimpleMode),
+                    onTrustedContacts = gate.guard(onTrustedContacts),
+                    onCallbackHelp = gate.guard(onCallbackHelp),
+                    onAdsCabinet = gate.guard(onAdsCabinet),
+                    onFairness = gate.guard(onFairness),
+                    onMyStats = gate.guard(onMyStats),
+                    onCoupons = gate.guard(onCoupons),
+                    onPromo = gate.guard(onPromo),
+                    onParcels = gate.guard(onParcels),
+                    onCourier = gate.guard(onCourier),
+                    onPartnerCabinet = gate.guard(onPartnerCabinet),
+                    onMyData = gate.guard(onMyData),
                     onToggleLanguage = onToggleLanguage,
                     onAccountDeleted = onAccountDeleted,
                     onAdImpression = onAdImpression,
@@ -2568,13 +2584,26 @@ internal fun HomeScreen(
 internal fun HomeShell(
     initialTab: HomeTab,
     onTabChange: (HomeTab) -> Unit = {},
+    onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() },
     tabContent: @Composable (tab: HomeTab, selectTab: (HomeTab) -> Unit) -> Unit,
 ) {
     var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }   // вкладка переживает поворот
+    val shellScope = rememberCoroutineScope()
+    var selectionEpoch by remember { mutableIntStateOf(0) }
+    val callbackEpoch = selectionEpoch
+    fun selectTab(tab: HomeTab, afterSelection: () -> Unit = {}) {
+        if (shellScope.isActive && callbackEpoch == selectionEpoch) {
+            onSelectTab(tab) {
+                selectedTab = tab
+                selectionEpoch++
+                afterSelection()
+            }
+        }
+    }
     LaunchedEffect(selectedTab) { onTabChange(selectedTab) }
 
     BackHandler(enabled = selectedTab != HomeTab.Map) {
-        selectedTab = HomeTab.Map
+        selectTab(HomeTab.Map)
     }
 
     // Пока идёт поиск или сама поездка, нижнее меню прячется. Заказ уже живой: случайный
@@ -2590,7 +2619,7 @@ internal fun HomeShell(
             ) {
                 YuldashBottomBar(
                     selectedTab = selectedTab,
-                    onSelect = { selectedTab = it }
+                    onSelect = { selectTab(it) }
                 )
             }
         }
@@ -2598,9 +2627,12 @@ internal fun HomeShell(
         Column(Modifier.padding(padding)) {
             // Полоска стоит НАД содержимым, а не поверх него: наложенная, она закрывала
             // переключатель сервисов, и тот торчал из-под неё краями.
+            val renderedTripId = NavSignals.activeTaxiTrip.value
             ActiveTripBar(onOpen = {
-                selectedTab = HomeTab.Map
-                NavSignals.openInstantOrder.value = true
+                if (renderedTripId != 0 && renderedTripId == NavSignals.activeTaxiTrip.value &&
+                    !NavSignals.taxiTripOnScreen.value) {
+                    selectTab(HomeTab.Map) { NavSignals.openInstantOrder.value = true }
+                }
             })
             AnimatedContent(
                 targetState = selectedTab,
@@ -2611,7 +2643,14 @@ internal fun HomeShell(
                 },
                 label = "homeTab"
             ) { tab ->
-                tabContent(tab) { selectedTab = it }
+                val renderedEpoch = selectionEpoch
+                val gate = HomeTabActionGate(
+                    accepts = { shellScope.isActive && tab == selectedTab && renderedEpoch == selectionEpoch },
+                    choose = { target, after -> selectTab(target, after) },
+                )
+                CompositionLocalProvider(LocalHomeTabActionGate provides gate) {
+                    tabContent(tab) { target -> gate.guard { selectTab(target) }() }
+                }
             }
         }
     }

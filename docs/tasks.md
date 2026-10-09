@@ -17707,3 +17707,15 @@ Final498/498=42new+15revised+441retained,44classes/обаAPK. Missing-recipient 
 570distinct=18new(10actualApp/Profile+8joinedAPI/defaultVMreceipt)+550prior+2existing deletion IDs/authfixture;обаAPK. Captured generation до coroutine, API atomic post-delete guest generation, guest-only monitor и Home cleanup через navigateLocally.4behavior RED закрыты; initial0XML tree-print fixture stop отдельно. [Критерии, версии и границы](audit-blocks.md#b02--удаление-аккаунта-и-позднее-подтверждение-09102026). 🔓 Product/tests/Gradle после final; docs/inventory/Git до freeze/scoped acceptance/15own commit/FFmain/push. Замки предыдущего этапа завершены подтверждённой доставкой98ac740a. Nexttabs/HomeShell/otherwriters; не писать параллельно. Полные QA-B02-003 и релиз не закрыты.
 
 09.10.2026 — уточнение передачи этого этапа: после первого freeze независимый reviewer обнаружил новый чужой `.claude/agents/yuldash-bashkir-linguist.md` (содержимое не читали/не меняли). Прежние39 entries сохранны; теперь40=39raw-hashed файлов+1directory. Новая версия freeze сохраняет прежние brain snapshots/receipt aliases; product/test/APK bindings и570IDs не изменились, повтор тестов не требуется. Свои15 paths не включают этот файл. [Текущий foreign manifest](../test-results/b02-account-deletion-foreign-final-v2-20261009.json).
+
+
+## B02 / QA-B02-003 — явный выбор вкладки Home, 09.10.2026
+
+База483d2340, веткаcodex/b02-home-tabs-20261009. План по продолжающемуся поручению: actual App/Home local HTTP RED для явной вкладки при held public/private и старых Home callbacks; разделить initial sync и принятую synchronous tab action; минимальная защита HomeShell bottom/child/Back/ActiveTripBar и исходящей animated tab; current/guest/initial/сохранение controls, обаAPK и затронутая интеграция; обновить реестр/inventory/scoped independent review; свои commit/FF main/push. Без production/provider/настоящих аккаунтов/FCM/SMS/deploy. Другие route writers/external same-frame roundtrip/concurrent legacy flags и остальные B02 критерии отдельно.
+
+🔒 Root — единственный writer AppNavHome.kt/YuldashApp.kt/scoped new tests/docs/inventory, единственная сборка/Git. b02_delete_review — readonly scope/review без edits/build/adb/network. Inventory1844: единственная дельта чужая.gitignore;40foreign entries проверены по предыдущему publication manifest и сохраняются. Новые UI тексты/переводы/цвета/enum/версии/dependencies не планируются.
+
+
+## 10.10.2026 — B02, вкладки Home: локальный итог
+
+604=25new(20App+5Shell)+570prior+9existing/53classes/обаAPK.6behavior RED+1duplicate-label fixture; green compile/preflight/guest fixture уточнены вреестре. Новых строк/BA drafts нет. 🔓 Root product/tests/Gradle завершены после final; docs/inventory/Git до freeze/readonly acceptance/12own commit/FF main/push по прежнему разрешению.40foreign сохраняем. Дальше ActiveTripBar poll/sessionownership, otherwriters/external sameframe/concurrentflags; полный B02/релиз открыт. [Критерии/версии/остатки](audit-blocks.md#b02--явный-выбор-вкладки-home-09102026).

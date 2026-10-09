@@ -83,7 +83,7 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 895
+    "test_support": 897
   },
   "counts_by_block": {
     "B01": 128,
@@ -94,7 +94,7 @@
     "B06": 84,
     "B07": 106,
     "B08": 166,
-    "B09": 538,
+    "B09": 540,
     "B10": 346,
     "B11": 90
   },
@@ -643,8 +643,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/AppNavHome.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "436bde551165188a86a6c2bdd8d73fff07e9c2d2c0513c20e7b24cd5a4785b6f",
-      "lines": 260
+      "sha256": "ac00f58a3b42ca648c1b1302026c4afda6ee552202f8c0f535f33f841b1ea5ac",
+      "lines": 276
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AppNavOrders.kt",
@@ -1280,8 +1280,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "989856c39c52d5e4a6b1dae1cd42d5c1579ea1b60ef07f0a0eddc2b614081160",
-      "lines": 2738
+      "sha256": "a5f60da8ec01e477c58ed78f216e1218ccd93879866dba88fca390ea15a15ce0",
+      "lines": 2777
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -2311,6 +2311,20 @@
       "block": "B09",
       "sha256": "a118c0e2d2bb06a1adc608eb04e612bab904642bc6a10a9a6eda1b73e429d7f0",
       "lines": 213
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/HomeShellBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "910ee11d00369a576363cbd9ecad4fac766872cdb6ae12313c4c3bbc6b33134f",
+      "lines": 65
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/HomeTabBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "941158b0ec94d97e04b17b9c3ad66f2d096d732bc7579ebdd2e45ceb1637d855",
+      "lines": 204
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ImageWeightTest.kt",

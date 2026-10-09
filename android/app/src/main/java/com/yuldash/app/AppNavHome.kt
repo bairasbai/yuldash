@@ -105,7 +105,23 @@ internal fun HomeRoute(
             adStats = adStats,
             voiceMessages = voiceMessages,
             initialTab = startHomeTab,
-            onTabChange = { startHomeTab = it },   // «Назад» с под-экранов вернётся на активную вкладку Home
+            onTabChange = { tab ->
+                // Initial/restored synchronization is not a new user navigation choice.
+                ApiClient.runIfUnchangedSession(homeSession) {
+                    if (homeScope.isActive && screen == Screen.Home && callbackEpoch == homeDestinationEpoch) {
+                        startHomeTab = tab
+                        vm.persistNav()
+                    }
+                }
+            },
+            onSelectTab = { tab, commit ->
+                openHomeScreen {
+                    startHomeTab = tab
+                    homeDestinationEpoch++
+                    // Shell state, presets and order bridge commit under the same session monitor.
+                    commit()
+                }
+            },
             onCreateRide = { openHomeScreen { onCreateRide(HomeTab.Request, null) } },
             onSeasonalPublish = { date -> openHomeScreen { onCreateRide(HomeTab.Request, date) } },   // F15: дата праздника уже в форме
             onCreateRequest = { openHomeScreen { screen = Screen.CreateRequest } },
