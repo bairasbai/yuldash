@@ -981,3 +981,9 @@ Android-хранилище (19.09.2026): [источник актуальног�
 08.10.2026 — [B02: публичная ссылка и новый выбор](audit-blocks.md#b02--публичная-ссылка-и-более-новый-выбор-08102026):531/531=28new+498retained+5existing,46classes/обаAPK. Защищены held public HTTP и старые Retry/Close;28new=24actual App+4directVM. Следом прямые Home переходы вне navigateLocally; весь B02/реальные сервисы остаются частичными.
 
 08.10.2026 — [B02: остальные переходы Home](audit-blocks.md#b02--остальные-переходы-home-08102026):550/550=19new+531retained,47classes/обаAPK. Home-local scope/epoch/session и39 routing wrappers;19actualApp cases. Следом accountDeleted cleanup/A→B; tab/legacy flags/native/весь B02 остаются открытыми.
+
+## B02 — удаление аккаунта и позднее подтверждение, 09.10.2026
+
+570distinct=18new(10actualApp/Profile+8joinedAPI/defaultVMreceipt)+550prior+2existing deletion IDs/authfixture;обаAPK. Captured generation до coroutine, API atomic post-delete guest generation, guest-only monitor и Home cleanup через navigateLocally.4behavior RED закрыты; initial0XML tree-print fixture stop отдельно. [Критерии, версии и границы](audit-blocks.md#b02--удаление-аккаунта-и-позднее-подтверждение-09102026). B02/релиз частичны; далее tabs/HomeShell/otherwriters.
+
+09.10.2026 — уточнение передачи этого этапа: после первого freeze независимый reviewer обнаружил новый чужой `.claude/agents/yuldash-bashkir-linguist.md` (содержимое не читали/не меняли). Прежние39 entries сохранны; теперь40=39raw-hashed файлов+1directory. Новая версия freeze сохраняет прежние brain snapshots/receipt aliases; product/test/APK bindings и570IDs не изменились, повтор тестов не требуется. Свои15 paths не включают этот файл. [Текущий foreign manifest](../test-results/b02-account-deletion-foreign-final-v2-20261009.json).

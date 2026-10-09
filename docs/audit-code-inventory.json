@@ -83,10 +83,10 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 893
+    "test_support": 895
   },
   "counts_by_block": {
-    "B01": 126,
+    "B01": 128,
     "B02": 173,
     "B03": 101,
     "B04": 75,
@@ -643,8 +643,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/AppNavHome.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "036edd05ac33954bfcb31075e1519989a1f8a18aba7604fa6e75eada3ab28e9f",
-      "lines": 253
+      "sha256": "436bde551165188a86a6c2bdd8d73fff07e9c2d2c0513c20e7b24cd5a4785b6f",
+      "lines": 260
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AppNavOrders.kt",
@@ -1000,8 +1000,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "f2963adae108d2b0865ae7a7255a2c8f933a6aaaa324a820cb235dea82e95e4d",
-      "lines": 4819
+      "sha256": "dd2bd46b6164818952bec83b817f8c188e0645ba789aff06d87d864bac5c43e7",
+      "lines": 4834
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
@@ -1280,7 +1280,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "d909384c339fc83bc6f6501ed55b302a4a360c4baad2c53cecf2dbbbe14fd0b8",
+      "sha256": "989856c39c52d5e4a6b1dae1cd42d5c1579ea1b60ef07f0a0eddc2b614081160",
       "lines": 2738
     },
     {
@@ -1308,8 +1308,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "63a54ef8f91f4cbdc80ffc8a5f56aff1bb45e4e91a5ca26dc5c4760c90a61920",
-      "lines": 7958
+      "sha256": "fd27c63c91752cbd4b897fcedceb7727e8a28b5c1b7400b40eeb3193674fb06c",
+      "lines": 7965
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -1758,6 +1758,20 @@
       "block": "B09",
       "sha256": "bfbd01aea6e2c5e06434a5e42d0ebd0e043d4c00a49d65b6f8380d0e546236b3",
       "lines": 135
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/AccountDeletionBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "f87faba71510d95aa6cdd2e517e1f927632808897da355b887b4c2e910b72f83",
+      "lines": 210
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/AccountDeletionReceiptTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "d7285d8f3d14ef2405457d5afad8ee476c8586793faac884ac1c070bee8edd8a",
+      "lines": 100
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/AccountDraftIsolationTest.kt",
@@ -3310,8 +3324,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientAccountTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "1d8461df119fd0a200f5eb47095dc44b604e15f40fb935049e03a0c86febdd59",
-      "lines": 223
+      "sha256": "00f63c6c5dad096724116ccbfdc005d223ac35fbfaee6ed24086bd7ea76a4c15",
+      "lines": 237
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientActionsTest.kt",

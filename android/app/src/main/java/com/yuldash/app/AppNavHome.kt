@@ -15,6 +15,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 
+/** The API has already cleared login; reject an old receipt before touching another owner. */
+internal fun completeAccountDeletion(context: android.content.Context, vm: YuldashViewModel, deletedSession: Long): Boolean =
+    ApiClient.runIfLoggedOutSession(deletedSession) {
+        vm.navigateLocally {
+            endSession(context, vm)
+            vm.startHomeTab.value = HomeTab.Map
+            vm.screen.value = Screen.Login
+        }
+    }
+
 /**
  * Главный экран как отдельная «остановка» навигации.
  *
@@ -242,11 +252,8 @@ internal fun HomeRoute(
             onToggleLanguage = {
                 language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
             },
-            onAccountDeleted = {
-                endSession(context, vm)             // гасим весь live-GPS и чистим PII из памяти
-                isAdmin = false
-                startHomeTab = HomeTab.Map
-                screen = Screen.Login
+            onAccountDeleted = { deletedSession ->
+                if (appScope.isActive) completeAccountDeletion(context, vm, deletedSession)
             },
             onInstantLogin = { openHomeScreen { startHomeTab = HomeTab.Map; onLoginRequired(Screen.Home) } }
         )

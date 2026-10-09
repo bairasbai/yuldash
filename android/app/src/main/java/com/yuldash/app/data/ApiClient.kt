@@ -106,6 +106,10 @@ object ApiClient {
     internal fun runIfUnchangedSession(generation: Long, action: () -> Unit): Boolean = synchronized(sessionLock) {
         if (!sameSession(generation)) false else { action(); true }
     }
+    /** A deletion receipt authorizes cleanup only in its exact logged-out session. */
+    internal fun runIfLoggedOutSession(generation: Long, action: () -> Unit): Boolean = synchronized(sessionLock) {
+        if (!sameSession(generation) || !token.isNullOrBlank()) false else { action(); true }
+    }
     private class SessionChangedException : IllegalStateException("Session changed")
     private fun <T> staleSession(): Result<T> = Result.failure(SessionChangedException())
     private fun expireSession(generation: Long) = synchronized(sessionLock) {
@@ -550,12 +554,15 @@ object ApiClient {
 
     /** Необратимое удаление аккаунта и всех данных на сервере (POST /me/delete).
      *  При успехе локально очищаем сессию — как при выходе. Ошибку прокидываем наверх. */
-    suspend fun deleteAccount(): Result<Unit> {
-        val generation = requestSession().generation
-        val result = call("POST", "/me/delete", JSONObject(), auth = true, expectedGeneration = generation)
+    suspend fun deleteAccount(expectedGeneration: Long = queueSessionGeneration()): Result<Long> {
+        if (!isCurrentSession(expectedGeneration)) return staleSession()
+        val result = call("POST", "/me/delete", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
         return synchronized(sessionLock) {
-            if (!sameSession(generation)) staleSession()
-            else result.onSuccess { clearLocalSession() }.map { }
+            if (!sameSession(expectedGeneration)) staleSession()
+            else result.map {
+                clearLocalSession()
+                sessionGeneration // Exact post-delete receipt, captured before another login can intervene.
+            }
         }
     }
 

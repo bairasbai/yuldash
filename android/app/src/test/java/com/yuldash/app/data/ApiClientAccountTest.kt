@@ -42,7 +42,17 @@ class ApiClientAccountTest {
         // Часть методов трогает сессию (updateName → saveName, deleteAccount → clearLocalSession).
         // Чистим сессию, чтобы тесты не зависели от порядка. logout() шлёт фоновый POST в runCatching →
         // безопасен; локальную сессию чистит синхронно.
+        val signedIn = ApiClient.isLoggedIn()
+        if (signedIn) { server.enqueue(json("{}")); server.enqueue(json("{}")) }
         ApiClient.logout()
+        if (signedIn) {
+            var logoutSeen = false
+            repeat(4) {
+                if (!logoutSeen) logoutSeen = server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)?.path == "/auth/logout"
+            }
+            assertTrue("Fixture logout must reach the local server before removing its URL", logoutSeen)
+        }
+        ApiClient.resetForTest()
         ApiClient.testBaseUrl = null
         server.shutdown()
     }
@@ -107,6 +117,8 @@ class ApiClientAccountTest {
 
     @Test
     fun deleteAccount_postsEmptyBodyToMeDelete() = runBlocking {
+        ApiClient.init(androidx.test.core.app.ApplicationProvider.getApplicationContext())
+        ApiClient.saveToken("local-account-deletion-test")
         server.enqueue(json("{}"))
         val res = ApiClient.deleteAccount()
         assertTrue(res.isSuccess)
@@ -119,6 +131,8 @@ class ApiClientAccountTest {
 
     @Test
     fun deleteAccount_serverError500_returnsFailure() = runBlocking {
+        ApiClient.init(androidx.test.core.app.ApplicationProvider.getApplicationContext())
+        ApiClient.saveToken("local-account-deletion-test")
         server.enqueue(MockResponse().setResponseCode(500).setBody(""))
         val res = ApiClient.deleteAccount()
         assertTrue(res.isFailure)

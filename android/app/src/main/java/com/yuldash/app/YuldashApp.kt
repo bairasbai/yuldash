@@ -2437,7 +2437,7 @@ internal fun HomeScreen(
     onParcels: () -> Unit = {},
     onCourier: () -> Unit = {},
     onToggleLanguage: () -> Unit,
-    onAccountDeleted: () -> Unit = {},
+    onAccountDeleted: (Long) -> Unit = {},
     onInstantLogin: () -> Unit = {},
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» водитель уходит в онбординг
     onOpenScheduled: () -> Unit = {},    // «На время»: предзаказ создан из встроенного такси → «Мои предзаказы»

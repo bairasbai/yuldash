@@ -175,6 +175,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -285,6 +286,7 @@ import com.yuldash.app.data.NotifDto
 import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -332,11 +334,12 @@ internal fun ProfileScreen(
     onPartnerCabinet: () -> Unit = {},
     onMyData: () -> Unit = {},
     onToggleLanguage: () -> Unit,
-    onAccountDeleted: () -> Unit,
+    onAccountDeleted: (Long) -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit
 ) {
     val isBashkir = LocalAppLanguage.current == AppLanguage.Ba
+    val deletionSession = ApiClient.sessionChanges.collectAsState().value
     // Реклама профиля: у пользователя нет города в данных → не фильтруем по хардкод-городу
     // (иначе объявление показывалось лишь при совпадении с «Баймаҡ» — у всех остальных пусто). Берём любое.
     val profileAd = ads.forPlacement(AdPlacement.Profile).firstOrNull()
@@ -603,8 +606,8 @@ internal fun ProfileScreen(
         )
     }
     // Удаление аккаунта (необратимо): подтверждение + лоадер + ошибка. Стирает данные и на сервере.
-    var showDeleteAccount by remember { mutableStateOf(false) }
-    var deletingAccount by remember { mutableStateOf(false) }
+    var showDeleteAccount by remember(deletionSession) { mutableStateOf(false) }
+    var deletingAccount by remember(deletionSession) { mutableStateOf(false) }
     val deleteOkMsg = appText("Аккаунт удалён", "Иҫәп бөтөрөлдө")
     val deleteErrMsg = appText("Не удалось удалить. Проверь сеть и попробуй снова.", "Бөтөрөп булманы. Селтәрҙе тикшереп ҡабатла.")
     if (showDeleteAccount) {
@@ -635,19 +638,31 @@ internal fun ProfileScreen(
                 TextButton(
                     enabled = !deletingAccount,
                     onClick = {
-                        deletingAccount = true
-                        editScope.launch {
-                            ApiClient.deleteAccount()
-                                .onSuccess {
-                                    Toast.makeText(editCtx, deleteOkMsg, Toast.LENGTH_SHORT).show()
-                                    showDeleteAccount = false
-                                    deletingAccount = false
-                                    onAccountDeleted()
+                        ApiClient.runIfCurrentSession(deletionSession) {
+                            if (editScope.isActive) {
+                                deletingAccount = true
+                                editScope.launch {
+                                    ApiClient.deleteAccount(deletionSession)
+                                        .onSuccess { deletedSession ->
+                                            ApiClient.runIfLoggedOutSession(deletedSession) {
+                                                if (editScope.isActive) {
+                                                    showDeleteAccount = false
+                                                    deletingAccount = false
+                                                    onAccountDeleted(deletedSession)
+                                                    Toast.makeText(editCtx, deleteOkMsg, Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                        .onFailure { error ->
+                                            ApiClient.runIfCurrentSession(deletionSession) {
+                                                if (editScope.isActive) {
+                                                    deletingAccount = false
+                                                    Toast.makeText(editCtx, serverSaid(error, deleteErrMsg), Toast.LENGTH_LONG).show()
+                                                }
+                                            }
+                                        }
                                 }
-                                .onFailure {
-                                    deletingAccount = false
-                                    Toast.makeText(editCtx, serverSaid(it, deleteErrMsg), Toast.LENGTH_LONG).show()
-                                }
+                            }
                         }
                     },
                 ) {
@@ -935,7 +950,7 @@ internal fun ProfileScreen(
                         DangerActionCard(
                             title = appText("Удалить аккаунт", "Иҫәпте бөтөрөү"),
                             text = appText("Навсегда удалить профиль и все данные", "Профилде һәм бөтә мәғлүмәтте мәңгегә бөтөрөү"),
-                            onClick = { showDeleteAccount = true },
+                            onClick = { ApiClient.runIfCurrentSession(deletionSession) { if (editScope.isActive) showDeleteAccount = true } },
                         )
                     }
                 }
