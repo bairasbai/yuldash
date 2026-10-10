@@ -83,12 +83,12 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 911
+    "test_support": 912
   },
   "counts_by_block": {
     "B01": 128,
     "B02": 174,
-    "B03": 111,
+    "B03": 112,
     "B04": 75,
     "B05": 37,
     "B06": 84,
@@ -839,8 +839,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt",
       "kind": "android_main",
       "block": "B03",
-      "sha256": "2c1a61af2fa04aea557d00376a9fe1b132a87268d8e3c2f0544b9dc1d95d5765",
-      "lines": 8171
+      "sha256": "530dfda454c2c7c0394bc3564a866e56ff93756190b292f8dfa5170a85396d33",
+      "lines": 8183
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/IntroHero.kt",
@@ -2355,6 +2355,13 @@
       "lines": 190
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/InstantShareLateResponseTest.kt",
+      "kind": "test_support",
+      "block": "B03",
+      "sha256": "81425d41c7f5097aadb2bc3a9b16fab1af953a58042105385bb726fde81380ab",
+      "lines": 233
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/InstantShareOwnerBoundaryTest.kt",
       "kind": "test_support",
       "block": "B03",
@@ -2365,7 +2372,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/InstantShareReconciliationTest.kt",
       "kind": "test_support",
       "block": "B03",
-      "sha256": "931f535489faf7047b9bb852b5067b3f248c0b0e799132bb1f2b7cc50844cb26",
+      "sha256": "4c3d75f3e80898e90e061d3177a99655fb2e31fb80c67e3e22ba8de99b98bd09",
       "lines": 146
     },
     {

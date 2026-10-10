@@ -4612,12 +4612,15 @@ internal fun InstantShareDialog(
     orderId: Int, onDismiss: () -> Unit,
     ownerGeneration: Long? = null,
     isCurrentParent: () -> Boolean = { true },
+    readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>> = { id, generation ->
+        ApiClient.getInstantShares(id, expectedGeneration = generation)
+    },
 ) {
     val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
     val session by ApiClient.sessionChanges.collectAsState()
     if (session != generation || !ApiClient.isCurrentSession(generation) ||
         (ownerGeneration != null && ownerGeneration != generation)) return
-    key(orderId, generation) { InstantShareContent(orderId, onDismiss, generation, isCurrentParent) }
+    key(orderId, generation) { InstantShareContent(orderId, onDismiss, generation, isCurrentParent, readShares) }
 }
 
 private data class PendingInstantShareMutation(
@@ -4627,12 +4630,21 @@ private data class PendingInstantShareMutation(
 )
 
 @Composable
-private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation: Long, isCurrentParent: () -> Boolean) {
+private fun InstantShareContent(
+    orderId: Int,
+    onDismiss: () -> Unit,
+    generation: Long,
+    isCurrentParent: () -> Boolean,
+    readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>>,
+) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val parentState = remember { mutableStateOf(isCurrentParent, referentialEqualityPolicy()) }
     parentState.value = isCurrentParent
     val currentParent by parentState
+    val readerState = remember { mutableStateOf(readShares, referentialEqualityPolicy()) }
+    readerState.value = readShares
+    val currentReadShares by readerState
     val dismiss by rememberUpdatedState(onDismiss)
     var closed by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -4655,7 +4667,7 @@ private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation:
     // A failed mutation may already be committed. Read the full list before allowing another action.
     suspend fun recheck(attempt: PendingInstantShareMutation) {
         if (!isCurrent() || pending !== attempt) return
-        val fresh = ApiClient.getInstantShares(orderId, expectedGeneration = generation)
+        val fresh = currentReadShares(orderId, generation)
         commit {
             if (pending !== attempt) return@commit
             fresh.onSuccess { shares ->
@@ -4695,7 +4707,7 @@ private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation:
             commit { loadError = true; contacts = emptyList(); loading = false }
             return@LaunchedEffect
         }
-        val shares = ApiClient.getInstantShares(orderId, expectedGeneration = generation)
+        val shares = currentReadShares(orderId, generation)
         commit {
             contacts = loaded.getOrThrow()
             shares.onSuccess { activeShares = it }.onFailure { loadError = true }

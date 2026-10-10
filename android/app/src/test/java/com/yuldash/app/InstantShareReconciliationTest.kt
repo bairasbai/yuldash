@@ -115,7 +115,7 @@ class InstantShareReconciliationTest : ShareHelpBoundaryHarness() {
     @Test fun absentOldIdKeepsNewRecordForSameContactAndRetiresOldRevoke() {
         startExisting(); val old = text("Отозвать")
         listBody = """[{"id":502,"contact_id":7,"order_id":91,"token":"new-record"}]"""
-        compose.runOnIdle { dispatch(old) }; await { checks() == 2 && ShadowToast.getTextOfLatestToast() == "Ссылка отозвана" }
+        compose.runOnIdle { dispatch(old) }; await { checks() == 2 && ShadowToast.getTextOfLatestToast() == "Ссылка отозвана" && shown("Отозвать") }
         assertTrue(shown("Отозвать")); compose.runOnIdle { dispatch(old) }; pump(); assertEquals(1, count("DELETE", "/share/501"))
         mutationFails = false; click("Отозвать"); await { count("DELETE", "/share/502") == 1 }
     }

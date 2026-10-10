@@ -4512,3 +4512,8 @@ WinterProtocol: watcher latest params +captured owner/target/lifecycle; server-s
 ## B02 — сверка ссылки после потерянного ответа, 10.10.2026
 
 InstantShareDialog: pending failed mutation → full GET reconciliation; unknown state retires contact/revoke/clipboard/chooser actions; retry GET only. Captured generation/parent/child scope gate before and after request; queued early return clearsbusy infinally. ApiClient.getInstantShares validates full list/IDs/instant namespace; explicitfalse revoke ACK fails. [Версии/границы](audit-blocks.md#b02--сверка-ссылки-после-потерянного-ответа-10102026).
+
+
+## B02 — поздняя сверка ссылки и завершение клиента, 10.10.2026
+
+InstantShareDialog принимает необязательный suspend readShares; по умолчанию это прежний ApiClient.getInstantShares. Дочерний компонент хранит актуальный callback по ссылочному равенству; generation передаётся в initial/recheck. Дополнительных Job не создаётся; наблюдатель настоящего клиентского Job находится в тесте. Защиты и существующие вызывающие экраны прежние. [Доказательства и границы](audit-blocks.md#b02--поздняя-сверка-ссылки-и-завершение-клиента-10102026).
