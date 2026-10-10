@@ -4527,3 +4527,8 @@ InstantShareDialog принимает необязательный suspend readS
 ## B02 — возврат родителя до ответа сверки ссылки, 10.10.2026
 
 InstantShareContent читает currentParent() в composition и через SideEffect сохраняет lastParent/revision в remembered non-snapshot holder. Применённый true→false увеличивает revision; возврат true её не сбрасывает. recheck снимает revision перед readShares, publication требует её совпадения. Pending/key/closed/finally и API прежние; fresh retry возможен. Контекст применяется только к recheck, другие цепочки не объявлены защищёнными этим изменением. [Версии и границы](audit-blocks.md#b02--возврат-родителя-до-ответа-сверки-ссылки-10102026).
+
+
+## B02 — ссылка через экран поездки, 10.10.2026
+
+TaxiTripScreen принимает последним необязательный suspend readShares и передаёт через TaxiTripContent в настоящий InstantShareDialog. Default вызывает прежний ApiClient с поколением входа. Guards/key/showShare/API операций/UI прежние. Новый TaxiTripShareCallerTest открывает Safety→Share и наблюдает настоящий Job на реальном API; DTO transitions синтетические, Main InstantOrder publisher gate отдельно. [Доказательства](audit-blocks.md#b02--ссылка-через-экран-поездки-10102026).

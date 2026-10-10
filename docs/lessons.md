@@ -9166,3 +9166,8 @@ LaunchedEffect(key) сохраняет closures первого render. Local fun
 ## B02 — возврат родителя до ответа сверки ссылки, 10.10.2026
 
 Callback state, прочитанный только в coroutine/event, не гарантирует подписку composition на parent при pending. Читать его в composition, фиксировать применённый кадр SideEffect, сравнивать номер вокруг suspend GET. В тесте независимая sibling restart group подтверждает false/true кадры без чтения parent вызывающим кодом диалога. RED8 доказывает выбранное нарушение unknown/retry, не 8 независимых причин или все последующие effects. [Воспроизведение](audit-blocks.md#b02--возврат-родителя-до-ответа-сверки-ссылки-10102026).
+
+
+## B02 — ссылка через экран поездки, 10.10.2026
+
+Actual screen onDismiss меняет showShare и не связан с harness dismisses; проверять настоящее окно/heading/retry и новое окно после смены ID. Exact success Toast содержит имя контакта; pending create сохраняет исходный heading, revoke — heading ссылки. Первые 6 fixture failures сохранены, точные oracle исправлены, неизвестный результат дополнительно проверен через retry. [Исходники и XML](audit-blocks.md#b02--ссылка-через-экран-поездки-10102026).

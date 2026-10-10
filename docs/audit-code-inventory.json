@@ -83,12 +83,12 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 912
+    "test_support": 913
   },
   "counts_by_block": {
     "B01": 128,
     "B02": 174,
-    "B03": 112,
+    "B03": 113,
     "B04": 75,
     "B05": 37,
     "B06": 84,
@@ -1210,8 +1210,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/TaxiTripScreen.kt",
       "kind": "android_main",
       "block": "B03",
-      "sha256": "ae6f81fb5ecdaf68ac3a518ca0ad73b3f726d796cb4f14f1886f8580285bce2b",
-      "lines": 1622
+      "sha256": "ecede3af98b0838efbe25562476380bd71bb252f9f9781f70438b637b6898831",
+      "lines": 1626
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/TripLiveLink.kt",
@@ -3305,6 +3305,13 @@
       "block": "B03",
       "sha256": "17cbd6c57d1751e903a21ce0e834034c516fabc951ca84fb43f47a2156c27fe6",
       "lines": 120
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/TaxiTripShareCallerTest.kt",
+      "kind": "test_support",
+      "block": "B03",
+      "sha256": "dafba2218e503a9e2b0911445267b6131be55cf39494709cb4e921fe7c43b3e1",
+      "lines": 253
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ThemeTest.kt",
