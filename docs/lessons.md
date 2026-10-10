@@ -9171,3 +9171,8 @@ Callback state, прочитанный только в coroutine/event, не г�
 ## B02 — ссылка через экран поездки, 10.10.2026
 
 Actual screen onDismiss меняет showShare и не связан с harness dismisses; проверять настоящее окно/heading/retry и новое окно после смены ID. Exact success Toast содержит имя контакта; pending create сохраняет исходный heading, revoke — heading ссылки. Первые 6 fixture failures сохранены, точные oracle исправлены, неизвестный результат дополнительно проверен через retry. [Исходники и XML](audit-blocks.md#b02--ссылка-через-экран-поездки-10102026).
+
+
+## B02 — ссылка и владелец внешнего экрана заказа, 11.10.2026
+
+Новый owner экрана законно делает GETmine подB: проверка старого окна запрещает B на его share endpoints, а не любые запросы нового экрана. Revoke recheck отсутствие записи оставляет contacts dialog и Toast; автоматического close продукт не обещает. Первый24/3 — ошибки ожиданий теста, не product RED. Архивировать исходники/фактические XML перед исправлением; scoped diff и новые stronger assertions отдельно. Lifecycle CREATED/poll RESUMED, WS только explicit local synthetic; не выдавать disposal за late payload и source debug reachability за binary/runtime proof. [Доказательства](audit-blocks.md#b02--ссылка-и-владелец-внешнего-экрана-заказа-11102026).

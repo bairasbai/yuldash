@@ -4532,3 +4532,8 @@ InstantShareContent читает currentParent() в composition и через Si
 ## B02 — ссылка через экран поездки, 10.10.2026
 
 TaxiTripScreen принимает последним необязательный suspend readShares и передаёт через TaxiTripContent в настоящий InstantShareDialog. Default вызывает прежний ApiClient с поколением входа. Guards/key/showShare/API операций/UI прежние. Новый TaxiTripShareCallerTest открывает Safety→Share и наблюдает настоящий Job на реальном API; DTO transitions синтетические, Main InstantOrder publisher gate отдельно. [Доказательства](audit-blocks.md#b02--ссылка-через-экран-поездки-10102026).
+
+
+## B02 — ссылка и владелец внешнего экрана заказа, 11.10.2026
+
+InstantOrderScreen optional readShares default real ApiClient проходит через InstantOrderContent в настоящий TaxiTripScreen; production parent/lease/DTO/currentTrip gates прежние. Новый InstantOrderShareCallerTest24 открывает весь локальный caller из actual GETmine. Legacy debug148, main declaration/comment; source trace не execution release. 1009 различных ID = 985 сохранённых + 24 новых; 72 класса, 0 отказов/ошибок/пропусков/устаревших XML, 609.063 с, 96 отпечатков исходников. Собраны оба debug APK. Повторы не увеличивают число различных проверок. [Границы](audit-blocks.md#b02--ссылка-и-владелец-внешнего-экрана-заказа-11102026).

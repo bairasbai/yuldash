@@ -1484,12 +1484,15 @@ internal fun InstantOrderScreen(
     renderNativeMap: Boolean = true,
     // Configurable timer interval also lets local integration execute the actual parent without a two-hour wait.
     winterArmAfterMs: Long = WINTER_FALLBACK_MS,
+    readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>> = { id, generation ->
+        ApiClient.getInstantShares(id, expectedGeneration = generation)
+    },
 ) {
     val generation by ApiClient.sessionChanges.collectAsState()
     key(generation) {
         InstantOrderContent(
             generation, onBack, onLoginRequired, embedded, onTaxiOnboarding, onOpenScheduled,
-            onSavedPlaces, payMethod, onOpenPayments, renderNativeMap, winterArmAfterMs,
+            onSavedPlaces, payMethod, onOpenPayments, renderNativeMap, winterArmAfterMs, readShares,
         )
     }
 }
@@ -1507,6 +1510,7 @@ private fun InstantOrderContent(
     onOpenPayments: () -> Unit,
     renderNativeMap: Boolean,
     winterArmAfterMs: Long,
+    readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>>,
 ) {
     val publisher = remember { Any() }
     DisposableEffect(generation, publisher) {
@@ -1850,6 +1854,7 @@ private fun InstantOrderContent(
                                     } == true
                             },
                             mapContent = if (renderNativeMap) null else { modifier -> Box(modifier) },
+                            readShares = readShares,
                         )
                     }
                     "expired" -> current?.let { o ->
