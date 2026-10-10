@@ -166,11 +166,12 @@ class InstantShareLateResponseTest : ShareHelpBoundaryHarness() {
             assertEquals(!revoke, shown(copyLabel)); assertEquals(1, count("POST", "/share"))
         }
     }
-    private fun lateRetry(which: Retire) {
-        holdOrdinal = 3; listFails = true; val retained = create(); completed(read(2)); assertTrue(shown(retryLabel))
+    private fun lateRetry(which: Retire, revoke: Boolean = false) {
+        holdOrdinal = 3; listFails = true; val retained = if (revoke) existing() else create()
+        completed(read(2)); assertTrue(shown(retryLabel))
         listFails = false; val retry = text(retryLabel); click(retryLabel); val read = blocked(3)
         retire(which, retained); assertFalse(read.job.isCompleted); finish(read)
-        assertRetired(which, retained.copy(actions = retained.actions + retry), read, false)
+        assertRetired(which, retained.copy(actions = retained.actions + retry), read, revoke)
     }
     private fun currentRoutes(expectedToken: String) {
         assertTrue(shown(copyLabel)); click(copyLabel); click(sendLabel)
@@ -217,6 +218,12 @@ class InstantShareLateResponseTest : ShareHelpBoundaryHarness() {
     @Test fun heldRetryAfterTargetChange() = lateRetry(Retire.TARGET)
     @Test fun heldRetryAfterClose() = lateRetry(Retire.CLOSE)
     @Test fun heldRetryAfterDisposeAndRemount() = lateRetry(Retire.DISPOSE)
+    @Test fun heldRevokeRetryAfterOwnerChange() = lateRetry(Retire.OWNER, true)
+    @Test fun heldRevokeRetryAfterGuest() = lateRetry(Retire.GUEST, true)
+    @Test fun heldRevokeRetryAfterParentRetirement() = lateRetry(Retire.PARENT, true)
+    @Test fun heldRevokeRetryAfterTargetChange() = lateRetry(Retire.TARGET, true)
+    @Test fun heldRevokeRetryAfterClose() = lateRetry(Retire.CLOSE, true)
+    @Test fun heldRevokeRetryAfterDisposeAndRemount() = lateRetry(Retire.DISPOSE, true)
     @Test fun currentHeldCreateCompletesAndRoutes() { create(); val read = blocked(2); finish(read); assertFalse(read.job.isCancelled); assertNull(ShadowToast.getTextOfLatestToast()); currentRoutes("late-91") }
     @Test fun currentHeldRevokeCompletesAndRetiresLink() { val retained = existing(); val read = blocked(2); finish(read); assertFalse(read.job.isCancelled); assertFalse(shown(copyLabel)); assertFalse(shown(revokeLabel)); assertEquals("Ссылка отозвана", ShadowToast.getTextOfLatestToast()); compose.runOnIdle { retained.actions.take(3).forEach { dispatch(it) } }; pump(300); assertFalse(clipboard.hasPrimaryClip()); assertNull(Shadows.shadowOf(app).nextStartedActivity) }
     @Test fun currentHeldRetryCreateRecoversWithoutNewMutation() { holdOrdinal = 3; listFails = true; create(); completed(read(2)); listFails = false; click(retryLabel); val read = blocked(3); finish(read); currentRoutes("late-91"); assertEquals(1, count("POST", "/share")); assertEquals(3, count("GET", "/orders/91/shares")) }
@@ -225,6 +232,23 @@ class InstantShareLateResponseTest : ShareHelpBoundaryHarness() {
         listFails = false; click(retryLabel); val read = blocked(3); finish(read); assertFalse(read.job.isCancelled)
         currentRoutes("active-91"); commitDelete = true; deleteFails = false; click(revokeLabel)
         await { !shown(copyLabel) && !shown(revokeLabel) }; assertEquals(2, count("DELETE", "/share/501"))
+    }
+    @Test fun currentHeldRetryRevokeCommitRetiresLinkAndAllowsNewShare() {
+        holdOrdinal = 3; listFails = true; val retained = existing()
+        completed(read(2)); assertTrue(shown(retryLabel))
+        listFails = false; val retry = text(retryLabel); click(retryLabel)
+        val read = blocked(3); finish(read); assertFalse(read.job.isCancelled)
+        assertFalse(shown(copyLabel)); assertFalse(shown(revokeLabel)); assertFalse(shown(retryLabel))
+        assertEquals("Ссылка отозвана", ShadowToast.getTextOfLatestToast())
+        ShadowToast.reset()
+        compose.runOnIdle { (retained.actions + retry).forEach { dispatch(it) } }; pump(300)
+        assertFalse(clipboard.hasPrimaryClip()); assertNull(Shadows.shadowOf(app).nextStartedActivity)
+        assertNull(ShadowToast.getTextOfLatestToast()); assertEquals(0, dismisses)
+        assertEquals(1, count("POST", "/share")); assertEquals(1, count("DELETE", "/share/501"))
+        assertEquals(3, count("GET", "/orders/91/shares"))
+        click("Контакт А"); await { shown(copyLabel) }; currentRoutes("active-91")
+        assertEquals(2, count("POST", "/share")); assertEquals(1, count("DELETE", "/share/501"))
+        assertEquals(3, count("GET", "/orders/91/shares"))
     }
     @Test fun pendingHeldRoutesDoNotCopySendOrClearLink() = pendingRoutes(true)
     @Test fun pendingFailedReadRoutesDoNotCopySendOrClearLink() = pendingRoutes(false)

@@ -2358,8 +2358,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/InstantShareLateResponseTest.kt",
       "kind": "test_support",
       "block": "B03",
-      "sha256": "81425d41c7f5097aadb2bc3a9b16fab1af953a58042105385bb726fde81380ab",
-      "lines": 233
+      "sha256": "bef8a1ab091963cc2a4c3ebc08c1a3bf33a1ca84b02c23d15659070f5f59a1e1",
+      "lines": 257
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/InstantShareOwnerBoundaryTest.kt",
