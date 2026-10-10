@@ -1364,42 +1364,34 @@ private fun TripSafetySheet(
  */
 @Composable
 internal fun ActiveTripBar(onOpen: () -> Unit) {
-    val tripId = NavSignals.activeTaxiTrip.value
-    val onScreen = NavSignals.taxiTripOnScreen.value
     val generation by ApiClient.sessionChanges.collectAsState()
-    var order by remember(tripId, generation) { mutableStateOf<InstantOrderDto?>(null) }
+    val publication = TaxiNavigationState.currentTrip(generation)
+    val tripId = publication?.orderId ?: 0
+    val onScreen = TaxiNavigationState.tripOnScreen(generation)
+    var order by remember(publication) { mutableStateOf<InstantOrderDto?>(null) }
 
-    // Через RepeatWhileVisible, а не голым LaunchedEffect: цикл обязан засыпать вместе
-    // с приложением. Иначе телефон ходит в сеть каждые пятнадцать секунд у человека,
-    // который на экран не смотрит, — за этим следит PollingSourceGuardTest.
-    RepeatWhileVisible(tripId, generation) {
-        if (tripId == 0 || !ApiClient.isCurrentSession(generation)) {
-            order = null
-            return@RepeatWhileVisible
-        }
-        while (true) {
-            if (!ApiClient.isCurrentSession(generation) || NavSignals.activeTaxiTrip.value != tripId) return@RepeatWhileVisible
+    // A receipt also distinguishes 91 -> 0 -> 91 within the same session.
+    RepeatWhileVisible(publication, generation) {
+        val expected = publication ?: return@RepeatWhileVisible
+        while (TaxiNavigationState.currentTrip(generation) === expected) {
             val fresh = ApiClient.getInstantOrder(tripId, expectedGeneration = generation).getOrNull()
             var terminal = false
-            val current = ApiClient.runIfCurrentSession(generation) {
-                if (NavSignals.activeTaxiTrip.value == tripId && fresh?.id == tripId) {
+            val current = TaxiNavigationState.runIfCurrentTrip(expected) {
+                if (fresh?.id == tripId) {
                     order = fresh
-                    if (fresh.isTerminal) {
-                        NavSignals.activeTaxiTrip.value = 0
-                        terminal = true
-                    }
+                    if (fresh.isTerminal) terminal = TaxiNavigationState.finishTrip(expected)
                 }
             }
-            if (!current || terminal || NavSignals.activeTaxiTrip.value != tripId) return@RepeatWhileVisible
-            // Сервер не ответил — поездку по одной неудаче не гасим: человек в машине,
-            // а связь в дороге рвётся постоянно. Просто пробуем ещё раз.
+            if (!current || terminal) return@RepeatWhileVisible
+            // A temporary network failure keeps the trip and retries on the next visible tick.
             kotlinx.coroutines.delay(15_000)
         }
     }
 
     val o = order
     AnimatedVisibility(
-        visible = tripId != 0 && !onScreen && o != null && !o.isTerminal && ApiClient.isCurrentSession(generation),
+        visible = publication != null && !onScreen && o != null && !o.isTerminal &&
+            TaxiNavigationState.currentTrip(generation) === publication,
         enter = fadeIn(tween(CanonMotion.NORMAL)) + slideInVertically(tween(CanonMotion.NORMAL)) { -it },
         exit = fadeOut(tween(CanonMotion.QUICK)),
     ) {
@@ -1414,8 +1406,8 @@ internal fun ActiveTripBar(onOpen: () -> Unit) {
         val eta = if (o.etaMin > 0 && o.status != "onboard") "  ·  ${o.etaMin.toInt()} " + appText("мин", "мин") else ""
         Surface(
             onClick = {
-                ApiClient.runIfCurrentSession(generation) {
-                    if (NavSignals.activeTaxiTrip.value == tripId && !NavSignals.taxiTripOnScreen.value && !o.isTerminal) onOpen()
+                if (publication != null) TaxiNavigationState.runIfCurrentTrip(publication) {
+                    if (!TaxiNavigationState.tripOnScreen(generation) && !o.isTerminal) onOpen()
                 }
             },
             color = CanonGreen2,

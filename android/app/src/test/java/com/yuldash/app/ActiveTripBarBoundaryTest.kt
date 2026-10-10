@@ -116,7 +116,7 @@ class ActiveTripBarBoundaryTest {
     private fun finishHeld() { release.countDown(); assertTrue(dispatched.await(8, TimeUnit.SECONDS)); pump(1500) }
 
     @Test fun accountChangeDropsCachedRowAndImmediatelyPollsSameTripForNewSession() {
-        loaded(); compose.runOnIdle { ApiClient.saveToken(tokenB) }; pump()
+        loaded(); compose.runOnIdle { ApiClient.saveToken(tokenB); NavSignals.activeTaxiTrip.value = 91 }; pump()
         row("Водитель А").assertDoesNotExist(); row("Водитель Б").assertExists()
         assertTrue(records.any { it.first == "/instant/orders/91" && it.second == "Bearer $tokenB" })
         assertEquals(91, NavSignals.activeTaxiTrip.value)
@@ -133,7 +133,7 @@ class ActiveTripBarBoundaryTest {
     }
     @Test fun heldOldTerminalCannotRemoveSameIdTripInNewSession() {
         holdFirst = true; firstTerminal = true; mount(); assertTrue(started.await(8, TimeUnit.SECONDS))
-        compose.runOnIdle { ApiClient.saveToken(tokenB) }; pump(); finishHeld()
+        compose.runOnIdle { ApiClient.saveToken(tokenB); NavSignals.activeTaxiTrip.value = 91 }; pump(); finishHeld()
         assertEquals(91, NavSignals.activeTaxiTrip.value); row("Водитель Б").assertExists()
         row("Водитель А").assertDoesNotExist()
         assertTrue(records.any { it.first == "/instant/orders/91" && it.second == "Bearer $tokenB" })
@@ -190,6 +190,7 @@ class ActiveTripBarBoundaryTest {
     }
     @Test fun actualRefreshKeepsGenerationAndPollsWithRotatedToken() {
         runBlocking { assertTrue(ApiClient.verifyCode("70000000000", "0000", "Local bar user").isSuccess) }
+        NavSignals.activeTaxiTrip.value = 91
         val generation = ApiClient.queueSessionGeneration(); loaded(); refreshNext = true; pump(16000)
         await { records.any { it.first == "/instant/orders/91" && it.second == "Bearer $refreshed" } }; pump()
         assertEquals(generation, ApiClient.queueSessionGeneration()); assertEquals(generation, ApiClient.sessionChanges.value)

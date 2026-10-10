@@ -99,6 +99,9 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -1478,8 +1481,35 @@ internal fun InstantOrderScreen(
     // карту фоном; форма, её onClick и реальные вызовы ApiClient остаются теми же.
     renderNativeMap: Boolean = true,
 ) {
+    val generation by ApiClient.sessionChanges.collectAsState()
+    key(generation) {
+        InstantOrderContent(
+            generation, onBack, onLoginRequired, embedded, onTaxiOnboarding, onOpenScheduled,
+            onSavedPlaces, payMethod, onOpenPayments, renderNativeMap,
+        )
+    }
+}
+
+@Composable
+private fun InstantOrderContent(
+    generation: Long,
+    onBack: () -> Unit,
+    onLoginRequired: () -> Unit,
+    embedded: Boolean,
+    onTaxiOnboarding: () -> Unit,
+    onOpenScheduled: () -> Unit,
+    onSavedPlaces: () -> Unit,
+    payMethod: String,
+    onOpenPayments: () -> Unit,
+    renderNativeMap: Boolean,
+) {
+    val publisher = remember { Any() }
+    DisposableEffect(generation, publisher) {
+        TaxiNavigationState.claimScreen(generation, publisher)
+        onDispose { TaxiNavigationState.releaseScreen(generation, publisher) }
+    }
     val scope = rememberCoroutineScope()
-    val loggedIn = ApiClient.isLoggedIn()
+    val loggedIn = ApiClient.isCurrentSession(generation)
     var order by remember { mutableStateOf<InstantOrderDto?>(null) }
     // Предзаказ «на время» создан → сохраняем только поля подтверждения. DTO в Bundle
     // не кладём, а минимальный receipt переживает recreation и не допускает повторный заказ.
@@ -1551,8 +1581,8 @@ internal fun InstantOrderScreen(
     }
 
     // Восстановление активного заказа при входе на экран + проверка доступности такси в точке.
-    LaunchedEffect(restoreTick) {
-        if (!loggedIn) { checking = false; return@LaunchedEffect }
+    LaunchedEffect(generation, restoreTick) {
+        if (!loggedIn || !TaxiNavigationState.isScreenOwner(generation, publisher)) { checking = false; return@LaunchedEffect }
         checking = true
         restoreError = false
         val lat = LocationPrefs.lastLat ?: InstantDefaultPoint.latitude
@@ -1569,22 +1599,30 @@ internal fun InstantOrderScreen(
                 // Доступность: сеть упала → фолбэк «доступно» (сервер всё равно гейтит).
                 val availabilityJob = async { ApiClient.getTaxiAvailability(lat, lng) }
                 // А вот список заказов важен: не загрузился — НЕ роняем в пикер молча, вдруг есть живой заказ.
-                val ordersJob = async { ApiClient.getMyInstantOrders(limit = 5) }
-                availabilityJob.await().onSuccess { availability = it }
+                val ordersJob = async { ApiClient.getMyInstantOrders(limit = 5, expectedGeneration = generation) }
+                availabilityJob.await().onSuccess { fresh ->
+                    ApiClient.runIfCurrentSession(generation) {
+                        if (TaxiNavigationState.isScreenOwner(generation, publisher)) availability = fresh
+                    }
+                }
                 ordersJob.await()
             }
         }
-        when {
-            // Не уложились в бюджет — это тоже сбой связи, показываем ошибку с «Повторить».
-            restored == null -> restoreError = true
-            else -> restored
-                // Предзаказы (scheduled) сюда не тянем — они живут в «Моих предзаказах», а не как активный заказ.
-                // isWaitingQueue: заказ формально expired, но человек нажал «Подожду машину» —
-                // воркер ещё ищет, и такой заказ надо восстановить как живой.
-                .onSuccess { list -> order = list.firstOrNull { (!it.isTerminal || it.isWaitingQueue) && !it.isScheduled } }
-                .onFailure { restoreError = true }
+        ApiClient.runIfCurrentSession(generation) {
+            if (TaxiNavigationState.isScreenOwner(generation, publisher)) {
+                when {
+                    // Не уложились в бюджет — это тоже сбой связи, показываем ошибку с «Повторить».
+                    restored == null -> restoreError = true
+                    else -> restored
+                        // Предзаказы (scheduled) сюда не тянем — они живут в «Моих предзаказах», а не как активный заказ.
+                        // isWaitingQueue: заказ формально expired, но человек нажал «Подожду машину» —
+                        // воркер ещё ищет, и такой заказ надо восстановить как живой.
+                        .onSuccess { list -> order = list.firstOrNull { (!it.isTerminal || it.isWaitingQueue) && !it.isScheduled } }
+                        .onFailure { restoreError = true }
+                }
+                checking = false
+            }
         }
-        checking = false
     }
 
     // Поллинг статуса активного заказа (пока заказ есть и не терминальный или стоит в очереди ожидания).
@@ -1597,13 +1635,25 @@ internal fun InstantOrderScreen(
     // Запрос идёт ПЕРЕД паузой: вернулся на экран — данные свежие сразу, а не через три секунды.
     val activeId = order?.takeIf { !it.isTerminal || it.isWaitingQueue }?.id
     val pollLifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(activeId, pollLifecycleOwner) {
+    LaunchedEffect(generation, activeId, pollLifecycleOwner) {
         val id = activeId ?: return@LaunchedEffect
         pollLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (isActive) {
-                ApiClient.getInstantOrder(id)
-                    .onSuccess { order = it; pollOffline = false }
-                    .onFailure { pollOffline = true }   // связь потеряна — не глотаем, показываем баннер
+                if (!TaxiNavigationState.isScreenOwner(generation, publisher)) return@repeatOnLifecycle
+                ApiClient.getInstantOrder(id, expectedGeneration = generation)
+                    .onSuccess { fresh ->
+                        ApiClient.runIfCurrentSession(generation) {
+                            if (TaxiNavigationState.isScreenOwner(generation, publisher) && order?.id == id && fresh.id == id) {
+                                order = fresh
+                                pollOffline = false
+                            }
+                        }
+                    }
+                    .onFailure {
+                        ApiClient.runIfCurrentSession(generation) {
+                            if (TaxiNavigationState.isScreenOwner(generation, publisher)) pollOffline = true
+                        }
+                    }   // связь потеряна — не глотаем, показываем баннер
                 val o = order
                 if (o != null && o.isTerminal && !o.isWaitingQueue) break
                 delay(3_000)
@@ -1661,21 +1711,8 @@ internal fun InstantOrderScreen(
             // профиль, и поездка от этого не заканчивается: наоборот, именно тогда ему нужна
             // полоска «Ильдар едет · 3 мин» сверху. Гасит сигнал наблюдатель в HomeShell,
             // когда заказ действительно завершился.
-            LaunchedEffect(phase, current?.id) {
-                if (phase == "enroute") NavSignals.activeTaxiTrip.value = current?.id ?: 0
-                else if (current == null || current.isTerminal) NavSignals.activeTaxiTrip.value = 0
-            }
-            // Поиск и поездка занимают весь рабочий экран: переключатель сервисов и нижнее
-            // меню там только провоцируют случайно бросить живой заказ. Отдельный сигнал
-            // `taxiTripOnScreen` остаётся уже — он гасит полоску активной поездки только
-            // на самом экране поездки, а не во время поиска.
-            DisposableEffect(phase) {
-                NavSignals.taxiOrderOnScreen.value = phase == "searching" || phase == "enroute"
-                if (phase == "enroute") NavSignals.taxiTripOnScreen.value = true
-                onDispose {
-                    NavSignals.taxiOrderOnScreen.value = false
-                    NavSignals.taxiTripOnScreen.value = false
-                }
+            SideEffect {
+                TaxiNavigationState.publishScreen(generation, publisher, phase, current?.id)
             }
             AnimatedContent(
                 targetState = phase,

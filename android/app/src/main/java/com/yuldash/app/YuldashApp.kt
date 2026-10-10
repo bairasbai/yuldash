@@ -2587,6 +2587,7 @@ internal fun HomeShell(
     onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() },
     tabContent: @Composable (tab: HomeTab, selectTab: (HomeTab) -> Unit) -> Unit,
 ) {
+    val generation by ApiClient.sessionChanges.collectAsState()
     var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }   // вкладка переживает поворот
     val shellScope = rememberCoroutineScope()
     var selectionEpoch by remember { mutableIntStateOf(0) }
@@ -2608,7 +2609,7 @@ internal fun HomeShell(
 
     // Пока идёт поиск или сама поездка, нижнее меню прячется. Заказ уже живой: случайный
     // переход в другой раздел только теряет контекст, а освободившееся место нужно карте.
-    val taxiOrderOnScreen = NavSignals.taxiOrderOnScreen.value
+    val taxiOrderOnScreen = TaxiNavigationState.orderOnScreen(generation)
     Scaffold(
         containerColor = CanonBg,
         bottomBar = {
@@ -2627,11 +2628,12 @@ internal fun HomeShell(
         Column(Modifier.padding(padding)) {
             // Полоска стоит НАД содержимым, а не поверх него: наложенная, она закрывала
             // переключатель сервисов, и тот торчал из-под неё краями.
-            val renderedTripId = NavSignals.activeTaxiTrip.value
+            val renderedTrip = TaxiNavigationState.currentTrip(generation)
             ActiveTripBar(onOpen = {
-                if (renderedTripId != 0 && renderedTripId == NavSignals.activeTaxiTrip.value &&
-                    !NavSignals.taxiTripOnScreen.value) {
-                    selectTab(HomeTab.Map) { NavSignals.openInstantOrder.value = true }
+                if (renderedTrip != null) TaxiNavigationState.runIfCurrentTrip(renderedTrip) {
+                    if (!TaxiNavigationState.tripOnScreen(generation)) {
+                        selectTab(HomeTab.Map) { NavSignals.openInstantOrder.value = true }
+                    }
                 }
             })
             AnimatedContent(

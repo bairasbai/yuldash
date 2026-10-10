@@ -2887,8 +2887,8 @@ object ApiClient {
     }
 
     /** Мои быстрые заказы (свежие сверху) — восстановить активный заказ при возврате на экран. */
-    suspend fun getMyInstantOrders(limit: Int = 5): Result<List<InstantOrderDto>> =
-        call("GET", "/instant/orders/mine?limit=$limit", null, auth = true).map { obj ->
+    suspend fun getMyInstantOrders(limit: Int = 5, expectedGeneration: Long? = null): Result<List<InstantOrderDto>> =
+        call("GET", "/instant/orders/mine?limit=$limit", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { arr.getJSONObject(it).toInstantOrderDto() }
         }
