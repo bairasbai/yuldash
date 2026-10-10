@@ -35,7 +35,7 @@ class TaxiTripAdaptiveGuardTest {
         assertTrue(trip.contains("TripDriverAvatar(url = order.driverAvatar"))
         assertTrue(trip.contains("TripCompactAction("))
         assertTrue(trip.contains("TripCompactPaymentSafety("))
-        assertTrue(trip.contains("TripImComingButton(order.id)"))
+        assertTrue(trip.contains("TripImComingButton(order.id,"))
         assertTrue(trip.contains("AppButtonStyle.Primary"))
         assertTrue(trip.contains("TripMinimizeButton("))
         assertTrue(source("InstantOrderScreen.kt").contains("onMinimize = onBack"))

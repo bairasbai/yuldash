@@ -113,6 +113,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -1821,7 +1822,18 @@ private fun InstantOrderContent(
                             onCancel = { cancelReasonForId = o.id },
                             onMinimize = onBack,
                             onOpenPayments = onOpenPayments,
-                            onOrderUpdated = { order = it },
+                            onOrderUpdated = { fresh ->
+                                ApiClient.runIfCurrentSession(generation) {
+                                    if (isCurrentOrder(o.id) && fresh.id == o.id) order = fresh
+                                }
+                            },
+                            ownerGeneration = generation,
+                            isCurrentParent = {
+                                isCurrentOrder(o.id) && order == o &&
+                                    TaxiNavigationState.currentTrip(generation)?.let {
+                                        it.orderId == o.id && it.publisher === publisher
+                                    } == true
+                            },
                             mapContent = if (renderNativeMap) null else { modifier -> Box(modifier) },
                         )
                     }
@@ -7390,8 +7402,31 @@ internal fun ChangeDestinationSheet(
     order: InstantOrderDto,
     onDismiss: () -> Unit,
     onChanged: () -> Unit,
+    ownerGeneration: Long? = null,
+    isCurrentParent: () -> Boolean = { true },
+) {
+    val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != generation || !ApiClient.isCurrentSession(generation) ||
+        (ownerGeneration != null && ownerGeneration != generation)) return
+    key(order.id, generation) { ChangeDestinationContent(order, onDismiss, onChanged, generation, isCurrentParent) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChangeDestinationContent(
+    order: InstantOrderDto, onDismiss: () -> Unit, onChanged: () -> Unit,
+    generation: Long, isCurrentParent: () -> Boolean,
 ) {
     val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    val currentOrder by rememberUpdatedState(order)
+    val target = remember { order.id }
+    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) && currentParent() &&
+        currentOrder.id == target && currentOrder.status in setOf("accepted", "arriving", "onboard")
+    fun commit(action: () -> Unit) {
+        ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() }
+    }
     var query by remember { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<com.yuldash.app.data.GeoHit>>(emptyList()) }
     var picked by remember { mutableStateOf<com.yuldash.app.data.GeoHit?>(null) }
@@ -7409,24 +7444,28 @@ internal fun ChangeDestinationSheet(
     LaunchedEffect(query) {
         if (query.trim().length < 2) { suggestions = emptyList(); return@LaunchedEffect }
         delay(350)
-        GeocoderClient.suggestResult(query).onSuccess { suggestions = it.take(6) }
+        if (!isCurrent() || picked != null) return@LaunchedEffect
+        val input = query
+        val result = GeocoderClient.suggestResult(input, expectedGeneration = generation)
+        commit { if (query == input && picked == null) result.onSuccess { suggestions = it.take(6) } }
     }
 
     // Выбрали адрес — сразу считаем, во что это обойдётся. Ничего пока не меняя.
     LaunchedEffect(picked) {
         val place = picked ?: return@LaunchedEffect
-        busy = true; error = null
-        ApiClient.previewDestination(order.id, place.lat, place.lon, place.title)
-            .onSuccess { quote = it }
-            .onFailure {
-                quote = null
-                error = (it as? ApiException)?.message
-                    ?: failCount
+        if (!isCurrent()) return@LaunchedEffect
+        busy = true; error = null; quote = null
+        val result = ApiClient.previewDestination(target, place.lat, place.lon, place.title, expectedGeneration = generation)
+        commit {
+            if (picked == place) {
+                result.onSuccess { quote = it }
+                    .onFailure { quote = null; error = (it as? ApiException)?.message ?: failCount }
+                busy = false
             }
-        busy = false
+        }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
+    ModalBottomSheet(onDismissRequest = { commit { if (!busy) onDismiss() } }, containerColor = CanonSurface) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
@@ -7435,7 +7474,7 @@ internal fun ChangeDestinationSheet(
 
             OutlinedTextField(
                 value = query,
-                onValueChange = { query = it; picked = null; quote = null },
+                onValueChange = { value -> commit { if (!busy) { query = value; picked = null; quote = null; suggestions = emptyList() } } },
                 placeholder = { Text(appText("Новый адрес", "Яңы адрес"), color = CanonMuted) },
                 singleLine = true,
                 shape = CanonFieldShape,
@@ -7446,7 +7485,7 @@ internal fun ChangeDestinationSheet(
                 Surface(
                     color = CanonBg, shape = CanonItemShape,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        .clickable { picked = sug; query = sug.title; suggestions = emptyList() },
+                        .clickable { commit { if (!busy && sug in suggestions) { picked = sug; query = sug.title; suggestions = emptyList(); quote = null } } },
                 ) {
                     Box(Modifier.padding(horizontal = CanonSpace.md), contentAlignment = Alignment.CenterStart) {
                         Text(sug.title, style = CanonBody, color = CanonText, maxLines = 2)
@@ -7497,18 +7536,19 @@ internal fun ChangeDestinationSheet(
             Button(
                 onClick = {
                     val place = picked ?: return@Button
+                    if (!isCurrent() || busy || quote == null) return@Button
                     busy = true; error = null
                     scope.launch {
-                        ApiClient.changeDestination(order.id, place.lat, place.lon, place.title)
-                            .onSuccess { onChanged(); onDismiss() }
-                            .onFailure {
-                                error = (it as? ApiException)?.message
-                                    ?: failChange
-                            }
-                        busy = false
+                        if (!isCurrent() || picked != place) return@launch
+                        val result = ApiClient.changeDestination(target, place.lat, place.lon, place.title, expectedGeneration = generation)
+                        commit {
+                            result.onSuccess { onChanged(); onDismiss() }
+                                .onFailure { error = (it as? ApiException)?.message ?: failChange }
+                            busy = false
+                        }
                     }
                 },
-                enabled = picked != null && !busy,
+                enabled = picked != null && quote != null && !busy,
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             ) {
@@ -7538,24 +7578,49 @@ internal const val InstantStopsMax = 3
 internal fun PickStopSheet(
     onDismiss: () -> Unit,
     onPicked: (com.yuldash.app.data.GeoHit) -> Unit,
+    ownerGeneration: Long? = null,
+    isCurrentParent: () -> Boolean = { true },
 ) {
+    val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != generation || !ApiClient.isCurrentSession(generation) ||
+        (ownerGeneration != null && ownerGeneration != generation)) return
+    key(generation) { PickStopContent(onDismiss, onPicked, generation, isCurrentParent) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PickStopContent(
+    onDismiss: () -> Unit, onPicked: (com.yuldash.app.data.GeoHit) -> Unit,
+    generation: Long, isCurrentParent: () -> Boolean,
+) {
+    val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    var consumed by remember { mutableStateOf(false) }
+    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) && currentParent() && !consumed
+    fun commit(action: () -> Unit) {
+        ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() }
+    }
     var query by remember { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<com.yuldash.app.data.GeoHit>>(emptyList()) }
 
     LaunchedEffect(query) {
         if (query.trim().length < 2) { suggestions = emptyList(); return@LaunchedEffect }
         delay(350)   // та же пауза, что на экране заказа: запросы к карте платные
-        GeocoderClient.suggestResult(query).onSuccess { suggestions = it.take(6) }
+        if (!isCurrent()) return@LaunchedEffect
+        val input = query
+        val result = GeocoderClient.suggestResult(input, expectedGeneration = generation)
+        commit { if (query == input) result.onSuccess { suggestions = it.take(6) } }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
+    ModalBottomSheet(onDismissRequest = { commit { consumed = true; onDismiss() } }, containerColor = CanonSurface) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
         ) {
             Text(appText("Куда заехать?", "Ҡайҙа инеп сығырға?"), style = CanonTitle, color = CanonText)
             OutlinedTextField(
-                value = query, onValueChange = { query = it },
+                value = query, onValueChange = { value -> commit { query = value; suggestions = emptyList() } },
                 placeholder = { Text(appText("Адрес остановки", "Туҡталыш адресы"), color = CanonMuted) },
                 singleLine = true, shape = CanonFieldShape, modifier = Modifier.fillMaxWidth(),
             )
@@ -7563,7 +7628,7 @@ internal fun PickStopSheet(
                 Surface(
                     color = CanonBg, shape = CanonItemShape,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        .clickable { onPicked(hit) },
+                        .clickable { commit { if (hit in suggestions) { consumed = true; onPicked(hit) } } },
                 ) {
                     Box(Modifier.padding(horizontal = CanonSpace.md), contentAlignment = Alignment.CenterStart) {
                         Text(hit.title, style = CanonBody, color = CanonText, maxLines = 2)

@@ -9126,3 +9126,8 @@ LaunchedEffect не записывает переход в SavedStateHandle во
 Наличие кнопки в прежнем Compose кадре не означает право нажать её сейчас: owner/scope/phase проверяем внутри действия и перед публикацией результата. Busy защищает только незавершённый запрос; retained Idle action после Waiting требует отдельного stage guard. Поздний enabled-health не должен снимать подтверждённый503 текущего owner. В отрицательном recent assertion различаем GET нового аккаунта и запрещённый POST старого адреса; исходный ошибочный журнал сохраняем. Compiler0executed не GREEN/RED приложения. [Конкретные журналы](audit-blocks.md#b02--создание-предзаказ-отмена-и-онлайн-оплата-10102026).
 
 Даже после guards pay/check нужно отдельно проверять retained reset после Paid: иначе цепочка reset→старый pay повторяет POST. Expected1/actual2 воспроизведён до трёх stage guards; реальное повторное списание не проверялось.
+
+
+## B02 — active TaxiTrip callbacks, 10.10.2026
+
+Actual Compose fixture должна раскрыть TaxiSheet Full, поскольку extra в Half вообще отсутствует. Нельзя искать/ждать UI node внутри runOnIdle; retain выполняем заранее, на UI-потоке вызываем только сохранённое действие. Одноимённые route opener/modal confirm — разные узлы; подтверждение выбираем в modal. Иначе false timeout либо ложный успех при отсутствии нужного POST. Первичные результаты сохраняем, не выдаём fixture errors за product failures. Перед сборкой проверяем imports новых coroutine/runtime helpers; green-v1/v2:0executed. Для архивных доказательств используем плоские SHA имена: вложенный путь превысил Windows limit, completed483raw manifest проверен. [Первичные доказательства](audit-blocks.md#b02--active-taxitrip-callbacks-10102026).

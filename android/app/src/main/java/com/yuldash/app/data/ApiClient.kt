@@ -864,8 +864,8 @@ object ApiClient {
      * ни в посылках, ни в «моих адресах»; человек с правильным адресом видел «не нашли»
      * (аудит 2026-08-07). Разбор адресов и кеш остались в [GeocoderClient].
      */
-    internal suspend fun geocode(query: String): Result<JSONObject> =
-        call("GET", "/geocode?q=" + enc(query), null, auth = true)
+    internal suspend fun geocode(query: String, expectedGeneration: Long? = null): Result<JSONObject> =
+        call("GET", "/geocode?q=" + enc(query), null, auth = true, expectedGeneration = expectedGeneration)
 
     /**
      * Адрес по координатам (обратный геокодер).
@@ -2737,8 +2737,8 @@ object ApiClient {
     }
 
     /** Посчитать смену адреса, ничего не меняя. Человек должен увидеть цену ДО согласия. */
-    suspend fun previewDestination(orderId: Int, lat: Double, lng: Double, text: String = ""):
-        Result<DestinationQuoteDto> = changeDestination(orderId, lat, lng, text, preview = true)
+    suspend fun previewDestination(orderId: Int, lat: Double, lng: Double, text: String = "", expectedGeneration: Long? = null):
+        Result<DestinationQuoteDto> = changeDestination(orderId, lat, lng, text, preview = true, expectedGeneration = expectedGeneration)
 
     /** Сменить адрес назначения. Цену считает сервер — из клиента она не принимается.
      *
@@ -2746,13 +2746,13 @@ object ApiClient {
      *  «на потом» нельзя: человек будет уверен, что адрес сменился, а машина поедет по старому,
      *  и смена прилетит водителю через десять минут, когда он уже почти на месте. */
     suspend fun changeDestination(
-        orderId: Int, lat: Double, lng: Double, text: String = "", preview: Boolean = false,
+        orderId: Int, lat: Double, lng: Double, text: String = "", preview: Boolean = false, expectedGeneration: Long? = null,
     ): Result<DestinationQuoteDto> {
         val body = JSONObject()
             .put("to_lat", lat).put("to_lng", lng)
             .put("to_text", text.take(200))
             .put("preview", preview)
-        return call("POST", "/instant/orders/$orderId/destination", body, auth = true).map { o ->
+        return call("POST", "/instant/orders/$orderId/destination", body, auth = true, expectedGeneration = expectedGeneration).map { o ->
             DestinationQuoteDto(
                 price = o.optInt("price"),
                 oldPrice = o.optInt("old_price"),
@@ -2772,9 +2772,9 @@ object ApiClient {
      *  Проеденные сервер сохранит сам — их не передаём и убрать нельзя: уже проехали.
      *  Порядок задаём тем, в каком идут точки; переставлять на ходу нельзя (водитель уже
      *  едет к первой, и навигатор ведёт туда же). */
-    suspend fun setWaypoints(orderId: Int, stops: List<TaxiStop>): Result<DestinationQuoteDto> =
+    suspend fun setWaypoints(orderId: Int, stops: List<TaxiStop>, expectedGeneration: Long? = null): Result<DestinationQuoteDto> =
         call("POST", "/instant/orders/$orderId/waypoints",
-            JSONObject().put("waypoints", stopsArray(stops)), auth = true).map { o ->
+            JSONObject().put("waypoints", stopsArray(stops)), auth = true, expectedGeneration = expectedGeneration).map { o ->
             DestinationQuoteDto(
                 price = o.optInt("price"),
                 oldPrice = o.optInt("old_price"),
@@ -2950,15 +2950,15 @@ object ApiClient {
         call("POST", "/instant/orders/$id/done", JSONObject(), auth = true).map { it.toInstantOrderDto() }
 
     /** Пассажир отзывает свой вопрос про новый адрес: едем по старому. */
-    suspend fun withdrawDestination(id: Int): Result<Unit> =
-        call("POST", "/instant/orders/$id/destination/withdraw", JSONObject(), auth = true).map { }
+    suspend fun withdrawDestination(id: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/instant/orders/$id/destination/withdraw", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
 
     /**
      * «Поездка закончилась» — пассажир закрывает поездку, которую водитель не закрыл.
      * Сервер пускает только после расчётного времени поездки плюс запас.
      */
-    suspend fun instantPassengerDone(id: Int): Result<InstantOrderDto> =
-        call("POST", "/instant/orders/$id/passenger-done", JSONObject(), auth = true)
+    suspend fun instantPassengerDone(id: Int, expectedGeneration: Long? = null): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/passenger-done", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.toInstantOrderDto() }
             .onSuccess { Analytics.log("instant_passenger_done") }
 
@@ -4781,8 +4781,8 @@ object ApiClient {
      *  быть уже в лифте, а мог не выйти вовсе, и разницы на экране не было никакой. Одна
      *  кнопка снимает и лишний звонок, и половину поводов для спора о простое.
      */
-    suspend fun instantImComing(orderId: Int): Result<Boolean> =
-        call("POST", "/instant/orders/$orderId/im-coming", JSONObject(), auth = true)
+    suspend fun instantImComing(orderId: Int, expectedGeneration: Long? = null): Result<Boolean> =
+        call("POST", "/instant/orders/$orderId/im-coming", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optBoolean("ok", true) }
 
     // Тип результата пришёл из main (волна 19x): помощь на дороге теперь возвращает не число,

@@ -17787,3 +17787,22 @@ Final498/498=42new+15revised+441retained,44classes/обаAPK. Missing-recipient 
 689 различных ID = 659 сохранённых + 30 новых; 61 класс, 0 отказов/ошибок/пропусков/устаревших XML, 406.437 с, 78 отпечатков исходников и оба debug APK. Повторные прогоны не увеличивают число уникальных проверок. [Критерии, фактические версии, RED/fixture оговорки и остатки](audit-blocks.md#b02--создание-предзаказ-отмена-и-онлайн-оплата-10102026). Новых текстов/BA drafts нет. Root один writer docs/inventory/Git до независимой приёмки/own commit/FFmain/push по продолжающемуся поручению;40foreign сохраняются. Следующие независимые пункты: другие TaxiTrip/TaxiReceipt личные действия. B02/релиз не закрыты.
 
 10.10.2026 — final review finding Paid reset воспроизведён RED1/1 (expected1/actual2 POST); исправлены3stage predicates. GREEN30 и final689/обаAPK прошли, исходный test не менялся. Прежние194raw+own bytes сохранены203copies, checkpoint-v1 исторический. Замок реализации снят; root один docs/inventory/Git writer до приёмки checkpoint-v2 и собственной доставки. Own17, foreign40, следующий пункт other TaxiTrip/receipt actions; весьB02/релиз открыт.
+
+
+## B02 — действия активной пассажирской поездки (10.10.2026)
+
+План от опубликованного1cd57e9f; продолжаем разрешённые аудит, собственный коммит/main/push.
+1. Actual TaxiTrip controls: chat/dial/pay/SOS/cancel/minimize/открытие листов; im-coming, withdraw, passenger-done, waypoints и destination preview/confirm. Проверить captured session/parent lease/target/phase/disposal, дубли/late reply/wrong ID; отдельный payload control проеханная остановка+две активные. Исходный RED сохранить до product edits.
+2. Минимально связать экран/листы с owner/target/live parent predicate, expectedGeneration API и matching DTO; сохранять current successful paths, тексты/стиль/версии. Shared share/roadside internals, sockets/GPS, зимний протокол, legacy/driver и receipt actions — отдельные следующие критерии; открытие листа не доказывает его все действия.
+3. Затронутые GREEN, интеграция689retained+new при изменении общего ApiClient/родителя, оба debug APK, реестр/мозг/inventory, независимая scoped приёмка, только свои файлы с сохранением40foreign. Repeat не увеличиваетunique; реальный сервер/устройство/provider/CI/весьB02/релиз не принимаем этим этапом.
+
+Замок реализации снят после итоговой проверки. Root — единственный docs/inventory/Git writer до scoped review и собственной доставки. Область: TaxiTripScreen.kt, InstantOrderScreen.kt, data/ApiClient.kt, новый TaxiTripActionBoundaryTest.kt и docs; Gradle/emulator/Git только root. Read-only reviewer b02_trip_action_review без права на source/docs/build/network/Git. MainActivity/mobile/production не меняем.
+
+Уточнение области текущего шага: дополнительно GeocoderClient.kt (передача владельца запроса подсказок через IO) и TaxiTripAdaptiveGuardTest.kt (существующая проверка callsite после добавления параметров). Root единственный writer; всего14 своих путей. RED-v1 сохранён; RED-v2 раскрыл Full и убрал ожидания с UI-потока, адресный control дополнительно выбирает кнопку подтверждения sheet, а не одноимённую кнопку маршрута.
+
+
+## B02 — active TaxiTrip callbacks, 10.10.2026
+
+740 различных ID = 689 из предыдущего набора + 16 существующих проверок, дополнительно выбранных (4adaptive+12geocoder/network), + 35 новых. 64 класса; 0 отказов/ошибок/пропусков/устаревших XML; 461.218 с; 82 отпечатков исходников; оба debug APK. Повторы RED/GREEN не прибавляются к unique.
+
+План реализации/сборки выполнен; review/staged/main/remote подтверждаем отдельно перед сообщением о доставке. 14own/40foreign; новых строк/BA draft нет. [Критерии, версии и остатки](audit-blocks.md#b02--active-taxitrip-callbacks-10102026). Далее share/roadside/receipt callbacks и невыполненная trip UI матрица; B02/релиз открыты.

@@ -5947,3 +5947,8 @@ RED ActivityBundle/App подтвердил потерю7назначений,п
 Используем существующие session generation/screen lease/coroutine scope; не вводим новый слой и не меняем версии. Card не key(generation) с прежним pay lambda: старый mount скрывается, новый target сбрасывает child отдельно. В typed pay callback передаём owner в API, чтобы второй snapshot не мог выбрать другой аккаунт. Gate scoped по owner; поздний health=true не отменяет более новый503. DTO статуса считается подтверждением лишь для запрошенного paymentId. [RED, controls и пределы](audit-blocks.md#b02--создание-предзаказ-отмена-и-онлайн-оплата-10102026).
 
 После финального finding reset допускается лишь Waiting, а method chips лишь Idle. Подтверждённую оплату старое действие не возвращает в Idle; RED1→GREEN30 и общий689 привязаны к новой версии Card.
+
+
+## B02 — active TaxiTrip callbacks, 10.10.2026
+
+Номер кнопки остановки относится к исходному списку, включающему done. Фильтрацию done и выбранного original index выполняем вместе, иначе удаляем другую точку. Mount owner/order key+live parent publication защищают действия ещё до UI recomposition; expectedGeneration сохраняем и через geocoder IO. При новом query прежние suggestions очищаются сразу, перед новым поиском; это доказал отдельный RED expected0/actual1 preview. [Результат и остатки](audit-blocks.md#b02--active-taxitrip-callbacks-10102026).

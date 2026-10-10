@@ -65,6 +65,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -84,6 +86,7 @@ import com.yandex.mapkit.geometry.Point
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.InstantOrderDto
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -132,9 +135,56 @@ internal fun TaxiTripScreen(
     /** Открыть выбор способа расчёта. Про наличные человек вспоминает уже сидя в машине. */
     onOpenPayments: () -> Unit = {},
     mapContent: (@Composable (Modifier) -> Unit)? = null,
+    ownerGeneration: Long? = null,
+    isCurrentParent: () -> Boolean = { true },
+) {
+    val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != generation || !ApiClient.isCurrentSession(generation) ||
+        (ownerGeneration != null && ownerGeneration != generation)) return
+    key(order.id, generation) {
+        TaxiTripContent(order, onCancel, onOrderUpdated, onMinimize, enableLiveTracking,
+            onOpenPayments, mapContent, generation, isCurrentParent)
+    }
+}
+
+@Composable
+private fun TaxiTripContent(
+    order: InstantOrderDto,
+    onCancel: () -> Unit,
+    onOrderUpdated: (InstantOrderDto) -> Unit,
+    onMinimize: () -> Unit,
+    enableLiveTracking: Boolean,
+    onOpenPayments: () -> Unit,
+    mapContent: (@Composable (Modifier) -> Unit)?,
+    generation: Long,
+    isCurrentParent: () -> Boolean,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val target = remember { order.id }
+    val currentOrder by rememberUpdatedState(order)
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    fun isCurrentAction(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) &&
+        currentParent() && currentOrder.id == target &&
+        currentOrder.status in setOf("accepted", "arriving", "onboard")
+    fun commit(action: () -> Unit) {
+        ApiClient.runIfCurrentSession(generation) { if (isCurrentAction()) action() }
+    }
+    var routeBusy by remember { mutableStateOf(false) }
+    fun changeStops(stops: List<com.yuldash.app.data.TaxiStop>, expectedStops: List<com.yuldash.app.data.TaxiStop>) {
+        var accepted = false
+        commit {
+            if (!routeBusy && currentOrder.stops == expectedStops) { routeBusy = true; accepted = true }
+        }
+        if (!accepted) return
+        scope.launch {
+            try {
+                if (!isCurrentAction() || currentOrder.stops != expectedStops) return@launch
+                ApiClient.setWaypoints(target, stops, expectedGeneration = generation)
+            } finally { commit { routeBusy = false } }
+        }
+    }
 
     // Ночная поездка: после заката экран и карта приглушаются сами, даже если в телефоне
     // светлая тема. Такси нужнее всего ночью, и белый экран в лицо в половине первого —
@@ -183,12 +233,13 @@ internal fun TaxiTripScreen(
     var showShare by remember(order.id) { mutableStateOf(false) }
     var confirmPaidCancel by remember { mutableStateOf(false) }
 
-    val openChat = { NavSignals.openInstantChat.value = order.id }
+    val openChat = { commit { NavSignals.openInstantChat.value = target } }
     val callDriver = {
-        runCatching {
-            ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${order.driverPhone}")))
+        commit {
+            runCatching {
+                ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${currentOrder.driverPhone}")))
+            }
         }
-        Unit
     }
 
     // Живой трек машины: держим сокет заказа, пока экран на виду. Колбэк приходит с потока
@@ -244,7 +295,7 @@ internal fun TaxiTripScreen(
                             order = order,
                             onChat = openChat,
                             onCall = callDriver,
-                            onSafety = { showSafety = true },
+                            onSafety = { commit { showSafety = true } },
                         )
                     } else {
                         TripStatusHeader(order)
@@ -256,7 +307,7 @@ internal fun TaxiTripScreen(
                     order = order,
                     onChat = openChat,
                     onCall = callDriver,
-                    onSafety = { showSafety = true },
+                    onSafety = { commit { showSafety = true } },
                 )
                 if (order.status == "onboard") {
                     TripOnboardRouteSummary(order)
@@ -265,19 +316,16 @@ internal fun TaxiTripScreen(
                 if (order.status == "arriving") {
                     InstantWaitingRow(order)
                 }
-                TripPriceRow(order, onOpenPayments)
+                TripPriceRow(order) { commit(onOpenPayments) }
             },
             extra = {
                 TripRouteBlock(
                     order = order,
-                    onChangeDestination = { showChangeDestination = true },
-                    onAddStop = { addingStop = true },
+                    onChangeDestination = { commit { if (!routeBusy) showChangeDestination = true } },
+                    onAddStop = { commit { if (!routeBusy) addingStop = true } },
                     onRemoveStop = { i ->
-                        scope.launch {
-                            ApiClient.setWaypoints(
-                                order.id,
-                                order.stops.filter { !it.done }.filterIndexed { j, _ -> j != i },
-                            )
+                        if (order.stops.getOrNull(i)?.done == false) {
+                            changeStops(order.stops.filterIndexed { j, st -> !st.done && j != i }, order.stops)
                         }
                     },
                 )
@@ -289,18 +337,27 @@ internal fun TaxiTripScreen(
                     )
                 }
                 // Просил сменить адрес, водитель молчит — можно отозвать просьбу.
-                TripDestinationPending(order = order, onWithdrawn = onOrderUpdated)
+                key(order.pendingToText, order.pendingAskedAt) {
+                    TripDestinationPending(order, onOrderUpdated, generation) {
+                        isCurrentAction() && currentOrder.pendingToText == order.pendingToText &&
+                            currentOrder.pendingAskedAt == order.pendingAskedAt && order.pendingToText.isNotBlank()
+                    }
+                }
                 // Водитель забыл нажать «Завершить» — пассажир закрывает поездку сам.
-                TripFinishedPrompt(order = order, onClosed = onOrderUpdated)
+                TripFinishedPrompt(order, onOrderUpdated, generation) {
+                    isCurrentAction() && currentOrder.status == "onboard" && currentOrder.passengerCanClose
+                }
                 TripCancelButton(
                     order = order,
-                    onCancel = onCancel,
-                    onConfirmNeeded = { confirmPaidCancel = true },
+                    onCancel = { commit { if (currentOrder.status != "onboard") onCancel() } },
+                    onConfirmNeeded = { commit { if (currentOrder.status != "onboard") confirmPaidCancel = true } },
                 )
             },
             footer = {
                 if (order.status == "accepted" || order.status == "arriving") {
-                    TripImComingButton(order.id)
+                    TripImComingButton(order.id, generation) {
+                        isCurrentAction() && currentOrder.status in setOf("accepted", "arriving")
+                    }
                 }
             },
             hasFooter = order.status == "accepted" || order.status == "arriving",
@@ -315,7 +372,7 @@ internal fun TaxiTripScreen(
                     )
                 }
                 TripMinimizeButton(
-                    onClick = onMinimize,
+                    onClick = { commit(onMinimize) },
                     modifier = Modifier.align(Alignment.TopStart)
                         .statusBarsPadding()
                         .padding(CanonSpace.lg),
@@ -324,7 +381,7 @@ internal fun TaxiTripScreen(
                 // под «Безопасность»: у Яндекса до 112 два тапа, а это на один больше, чем есть
                 // у человека в беде.
                 TripSosButton(
-                    orderId = order.id,
+                    onClick = { commit { NavSignals.openSosForOrder.value = target } },
                     modifier = Modifier.align(Alignment.TopEnd)
                         .statusBarsPadding()
                         .padding(CanonSpace.lg),
@@ -347,7 +404,9 @@ internal fun TaxiTripScreen(
     if (showChangeDestination) {
         ChangeDestinationSheet(
             order = order,
-            onDismiss = { showChangeDestination = false },
+            onDismiss = { commit { showChangeDestination = false } },
+            ownerGeneration = generation,
+            isCurrentParent = { isCurrentAction() && showChangeDestination },
             // Экран сам переспросит сервер через пару секунд — новую цену и адрес возьмёт
             // оттуда, а не из нашего локального предположения.
             onChanged = {},
@@ -355,15 +414,16 @@ internal fun TaxiTripScreen(
     }
     if (addingStop) {
         PickStopSheet(
-            onDismiss = { addingStop = false },
+            onDismiss = { commit { addingStop = false } },
+            ownerGeneration = generation,
+            isCurrentParent = { isCurrentAction() && addingStop },
             onPicked = { hit ->
-                addingStop = false
-                scope.launch {
-                    ApiClient.setWaypoints(
-                        order.id,
-                        order.stops.filter { !it.done } +
-                            com.yuldash.app.data.TaxiStop(hit.lat, hit.lon, hit.title),
-                    )
+                commit {
+                    if (addingStop) {
+                        addingStop = false
+                        changeStops(order.stops.filter { !it.done } +
+                            com.yuldash.app.data.TaxiStop(hit.lat, hit.lon, hit.title), order.stops)
+                    }
                 }
             },
         )
@@ -371,8 +431,8 @@ internal fun TaxiTripScreen(
     if (showSafety) {
         TripSafetySheet(
             orderId = order.id,
-            onShare = { showSafety = false; showShare = true },
-            onDismiss = { showSafety = false },
+            onShare = { commit { if (showSafety) { showSafety = false; showShare = true } } },
+            onDismiss = { commit { showSafety = false } },
         )
     }
     if (showShare) {
@@ -381,8 +441,8 @@ internal fun TaxiTripScreen(
     if (confirmPaidCancel) {
         TripPaidCancelDialog(
             order = order,
-            onDismiss = { confirmPaidCancel = false },
-            onConfirm = { confirmPaidCancel = false; onCancel() },
+            onDismiss = { commit { confirmPaidCancel = false } },
+            onConfirm = { commit { if (confirmPaidCancel && currentOrder.status != "onboard") { confirmPaidCancel = false; onCancel() } } },
         )
     }
 }
@@ -925,9 +985,14 @@ private fun TripPriceRow(order: InstantOrderDto, onOpenPayments: () -> Unit = {}
 
 /** «Уже выхожу» — водитель узнаёт, что человек спускается, и не начинает считать простой зря. */
 @Composable
-private fun TripImComingButton(orderId: Int) {
+private fun TripImComingButton(orderId: Int, generation: Long, isCurrentParent: () -> Boolean) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) && currentParent()
+    fun commit(action: () -> Unit) {
+        ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() }
+    }
     var sent by remember(orderId) { mutableStateOf(false) }
     var sending by remember(orderId) { mutableStateOf(false) }
     val label = if (sent) appText("Водитель предупреждён", "Йөрөтөүсегә әйтелде")
@@ -936,15 +1001,16 @@ private fun TripImComingButton(orderId: Int) {
     AppButton(
         text = label,
         onClick = {
-            if (sent || sending) return@AppButton
+            if (!isCurrent() || sent || sending) return@AppButton
             sending = true
             scope.launch {
-                ApiClient.instantImComing(orderId)
-                    .onSuccess { sent = true }
-                    .onFailure {
-                        android.widget.Toast.makeText(ctx, serverSaid(it, failed), android.widget.Toast.LENGTH_LONG).show()
-                    }
-                sending = false
+                if (!isCurrent()) return@launch
+                val result = ApiClient.instantImComing(orderId, expectedGeneration = generation)
+                commit {
+                    result.onSuccess { sent = true }
+                        .onFailure { android.widget.Toast.makeText(ctx, serverSaid(it, failed), android.widget.Toast.LENGTH_LONG).show() }
+                    sending = false
+                }
             }
         },
         icon = Icons.AutoMirrored.Filled.DirectionsWalk,
@@ -1046,11 +1112,17 @@ private fun TripRouteBlock(
  * можем, водитель за рулём и смотрит на дорогу, а не в телефон.
  */
 @Composable
-private fun TripDestinationPending(order: InstantOrderDto, onWithdrawn: (InstantOrderDto) -> Unit) {
+private fun TripDestinationPending(order: InstantOrderDto, onWithdrawn: (InstantOrderDto) -> Unit, generation: Long, isCurrentParent: () -> Boolean) {
     if (order.pendingToText.isBlank()) return
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) && currentParent()
+    fun commit(action: () -> Unit) {
+        ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() }
+    }
     var busy by remember(order.id) { mutableStateOf(false) }
+    var withdrawn by remember { mutableStateOf(false) }
     val failMsg = appText("Не получилось снять вопрос. Проверь связь.",
                           "Һорауҙы алып ташлап булманы. Бәйләнеште тикшер.")
 
@@ -1098,16 +1170,20 @@ private fun TripDestinationPending(order: InstantOrderDto, onWithdrawn: (Instant
                 style = CanonCaption, color = CanonMuted,
             )
             TextButton(
-                enabled = !busy,
+                enabled = !busy && !withdrawn,
                 onClick = {
+                    if (!isCurrent() || busy || withdrawn) return@TextButton
                     busy = true
                     scope.launch {
-                        ApiClient.withdrawDestination(order.id)
-                            .onSuccess { ApiClient.getInstantOrder(order.id).onSuccess(onWithdrawn) }
-                            .onFailure {
-                                Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show()
-                            }
-                        busy = false
+                        if (!isCurrent()) return@launch
+                        val result = ApiClient.withdrawDestination(order.id, expectedGeneration = generation)
+                        if (!isCurrent()) return@launch
+                        val fresh = if (result.isSuccess) ApiClient.getInstantOrder(order.id, expectedGeneration = generation).getOrNull() else null
+                        commit {
+                            if (fresh?.id == order.id) { withdrawn = true; onWithdrawn(fresh) }
+                            result.onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
+                            busy = false
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
@@ -1131,10 +1207,15 @@ private fun TripDestinationPending(order: InstantOrderDto, onWithdrawn: (Instant
  * закрытие поездки необратимо и начисляет водителю комиссию.
  */
 @Composable
-private fun TripFinishedPrompt(order: InstantOrderDto, onClosed: (InstantOrderDto) -> Unit) {
+private fun TripFinishedPrompt(order: InstantOrderDto, onClosed: (InstantOrderDto) -> Unit, generation: Long, isCurrentParent: () -> Boolean) {
     if (!order.passengerCanClose) return
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) && currentParent()
+    fun commit(action: () -> Unit) {
+        ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() }
+    }
     var ask by remember(order.id) { mutableStateOf(false) }
     var busy by remember(order.id) { mutableStateOf(false) }
     val failMsg = appText("Не получилось закрыть поездку. Проверь связь.",
@@ -1159,7 +1240,7 @@ private fun TripFinishedPrompt(order: InstantOrderDto, onClosed: (InstantOrderDt
                 style = CanonCaption, color = CanonMuted,
             )
             TextButton(
-                onClick = { if (!busy) ask = true },
+                onClick = { commit { if (!busy) ask = true } },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             ) {
                 Text(
@@ -1172,7 +1253,7 @@ private fun TripFinishedPrompt(order: InstantOrderDto, onClosed: (InstantOrderDt
 
     if (ask) {
         AlertDialog(
-            onDismissRequest = { if (!busy) ask = false },
+            onDismissRequest = { commit { if (!busy) ask = false } },
             containerColor = CanonSurface,
             title = {
                 Text(appText("Закрыть поездку?", "Сәфәрҙе ябырғамы?"),
@@ -1193,15 +1274,16 @@ private fun TripFinishedPrompt(order: InstantOrderDto, onClosed: (InstantOrderDt
                 TextButton(
                     enabled = !busy,
                     onClick = {
+                        if (!isCurrent() || !ask || busy) return@TextButton
                         busy = true
                         scope.launch {
-                            ApiClient.instantPassengerDone(order.id)
-                                .onSuccess { ask = false; onClosed(it) }
-                                .onFailure {
-                                    Toast.makeText(ctx, serverSaid(it, failMsg),
-                                                   Toast.LENGTH_LONG).show()
-                                }
-                            busy = false
+                            if (!isCurrent()) return@launch
+                            val result = ApiClient.instantPassengerDone(order.id, expectedGeneration = generation)
+                            commit {
+                                result.onSuccess { if (it.id == order.id) { ask = false; onClosed(it) } }
+                                    .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
+                                busy = false
+                            }
                         }
                     },
                 ) {
@@ -1210,7 +1292,7 @@ private fun TripFinishedPrompt(order: InstantOrderDto, onClosed: (InstantOrderDt
                 }
             },
             dismissButton = {
-                TextButton(enabled = !busy, onClick = { ask = false }) {
+                TextButton(enabled = !busy, onClick = { commit { if (!busy) ask = false } }) {
                     Text(appText("Ещё едем", "Әле барабыҙ"), style = CanonButton, color = CanonMuted)
                 }
             },
@@ -1276,10 +1358,10 @@ private fun TripPaidCancelDialog(
 
 /** SOS поверх карты. Всегда на виду и всегда в одном месте — его ищут не глазами, а рукой. */
 @Composable
-private fun TripSosButton(orderId: Int, modifier: Modifier = Modifier) {
+private fun TripSosButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val label = appText("Экстренная помощь", "Ашығыс ярҙам")
     Surface(
-        onClick = { NavSignals.openSosForOrder.value = orderId },
+        onClick = onClick,
         shape = CircleShape,
         color = CanonSurface,
         shadowElevation = CanonDepth.raised,
