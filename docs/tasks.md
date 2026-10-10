@@ -17806,3 +17806,18 @@ Final498/498=42new+15revised+441retained,44classes/обаAPK. Missing-recipient 
 740 различных ID = 689 из предыдущего набора + 16 существующих проверок, дополнительно выбранных (4adaptive+12geocoder/network), + 35 новых. 64 класса; 0 отказов/ошибок/пропусков/устаревших XML; 461.218 с; 82 отпечатков исходников; оба debug APK. Повторы RED/GREEN не прибавляются к unique.
 
 План реализации/сборки выполнен; review/staged/main/remote подтверждаем отдельно перед сообщением о доставке. 14own/40foreign; новых строк/BA draft нет. [Критерии, версии и остатки](audit-blocks.md#b02--active-taxitrip-callbacks-10102026). Далее share/roadside/receipt callbacks и невыполненная trip UI матрица; B02/релиз открыты.
+
+
+## B02 — поделиться поездкой и помощь на дороге, 10.10.2026
+
+План от опубликованного7b7cb2fe; продолжающееся поручение включает собственный коммит/FFmain/push.
+1. Воспроизвести actual InstantShareDialog/LiveLinkCard/RoadsideHelpAction: смена входа/объекта/закрытие, повторы и удержанный ответ; текущие share/revoke/link и три HTTP-адаптера помощи. Все аккаунты и контакты синтетические, HTTP местный.
+2. Минимально связать состояние/корутины/кнопки с поколением входа, объектом и текущим родителем; передать captured generation через API, включая cache fast path контактов. Отзыв должен закрывать соответствующую локальную ссылку. Тексты/стиль/версии сохраняем.
+3. Затронутые GREEN и итоговая интеграция740 сохранённых ID + новые, обе debug-сборки; обновление реестра/мозга/inventory, независимое scoped чтение, доставка только своих файлов с сохранением40foreign. Повторы не увеличиваютunique.
+
+Замок реализации снят после итоговой проверки; root один docs/inventory/Git writer до независимой приёмки и доставки. Область: InstantOrderScreen.kt (shared share + roadside call), TaxiTripScreen.kt (safety/share bindings), RoadsideHelp.kt, TripLiveLink.kt, data/ApiClient.kt (contacts/share/stuck expectedGeneration), BookingActiveTripScreen.kt/CourierScreen.kt (stuck adapters), новые scoped tests, docs/inventory. Gradle/Git только root. b02_trip_action_review — read-only соответствующих тел/доказательств, без edit/build/network/device. MainActivity/mobile/production/настоящие SMS/устройство/провайдеры не затрагиваем. Receipt/winter/fulllegacy/driver/fullB02/релиз остаются открытыми. Новых переводов не планируется.
+
+
+## B02 — ссылки поездки и помощь на дороге, 10.10.2026
+
+787 различных ID = 740 сохранённых + 47 новых; 66 классов, 0 отказов/ошибок/пропусков/устаревших XML, 486.609 с, 87 отпечатков исходников, оба debug APK. Повторы не прибавляются к unique. План реализации/сборки выполнен; review/staged/main/remote проверяем отдельно. 17own/40foreign, новых BA drafts нет. [Критерии и остатки](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026). Следующий локальный пункт — TaxiReceipt действия; uncertain share reconciliation и full caller матрицы остаются в реестре.

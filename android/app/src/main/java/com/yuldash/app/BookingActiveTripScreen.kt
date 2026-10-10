@@ -2634,8 +2634,10 @@ private fun ActiveTripContent(
             if (bookingId != null && bookingStatusAllowsBoarding(bookingStatus)) {
                 item {
                     // Блок общий с такси и доставкой (RoadsideHelp.kt): копии разошлись текстами.
-                    RoadsideHelpAction(key = bookingId, modifier = Modifier.appearIn(5)) { lat, lng ->
-                        ApiClient.roadsideHelp(bookingId, lat, lng, "")
+                    RoadsideHelpAction(key = bookingId, modifier = Modifier.appearIn(5),
+                        ownerGeneration = tripSession,
+                        isCurrentParent = { isTripChatActive() && bookingStatusAllowsBoarding(bookingStatus) }) { lat, lng, generation ->
+                        ApiClient.roadsideHelp(bookingId, lat, lng, "", expectedGeneration = generation)
                     }
                 }
             }
@@ -2728,7 +2730,9 @@ private fun ActiveTripContent(
                     }
                 } else if (activeShares.isNotEmpty() && !showContacts) {
                     Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
-                    if (!link.isNullOrBlank()) LiveLinkCard(link)
+                    if (!link.isNullOrBlank()) LiveLinkCard(link, ownerGeneration = tripSession,
+                        isCurrentParent = { isShareCurrent() && !listLoading && !listError && !mutationBusy &&
+                            !showContacts && liveLink == link && activeShares.any { it.first.link == link } })
                     ActiveSharesList(activeShares, enabled = !mutationBusy) { share ->
                         val bid = bookingId
                         if (bid != null && canMutate() && !showContacts && activeShares.any { it.first.id == share.id }) {

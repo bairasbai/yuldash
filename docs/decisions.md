@@ -5952,3 +5952,8 @@ RED ActivityBundle/App подтвердил потерю7назначений,п
 ## B02 — active TaxiTrip callbacks, 10.10.2026
 
 Номер кнопки остановки относится к исходному списку, включающему done. Фильтрацию done и выбранного original index выполняем вместе, иначе удаляем другую точку. Mount owner/order key+live parent publication защищают действия ещё до UI recomposition; expectedGeneration сохраняем и через geocoder IO. При новом query прежние suggestions очищаются сразу, перед новым поиском; это доказал отдельный RED expected0/actual1 preview. [Результат и остатки](audit-blocks.md#b02--active-taxitrip-callbacks-10102026).
+
+
+## B02 — ссылки поездки и помощь на дороге, 10.10.2026
+
+Сохранённая кнопка должна принадлежать конкретному открытию: owner/target недостаточно для cancel→reopen в том же child. Roadside хранит номер открытия confirmation; share-more сравнивает показанную ссылку. В кеш личных контактов добавлен optional expectedGeneration до fast path, без смены поведения прежних default callers. [Проверки](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026).

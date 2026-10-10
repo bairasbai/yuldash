@@ -83,18 +83,18 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 906
+    "test_support": 908
   },
   "counts_by_block": {
     "B01": 128,
     "B02": 174,
-    "B03": 108,
+    "B03": 109,
     "B04": 75,
     "B05": 37,
     "B06": 84,
     "B07": 107,
     "B08": 167,
-    "B09": 540,
+    "B09": 541,
     "B10": 346,
     "B11": 90
   },
@@ -678,8 +678,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "060186e5a4922f44fb1b935466110074ad70cd96a7b977fe94eb6c1dd0a00b95",
-      "lines": 3982
+      "sha256": "e49863cea2b7c67ff04cbb9504d6ecdcc4145879c144bf8e6bbe4edd54eaba99",
+      "lines": 3986
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -734,7 +734,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/CourierScreen.kt",
       "kind": "android_main",
       "block": "B04",
-      "sha256": "0d7a8ef194138ea4854048857c4cbfc8ec1ccb141448b487d466e1fbe4ea8f6f",
+      "sha256": "99d6e0ae13fab31bf3edbb58d48d5a5ec5a47a0db8733ae15c2b18cefaf8fb21",
       "lines": 2546
     },
     {
@@ -839,8 +839,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt",
       "kind": "android_main",
       "block": "B03",
-      "sha256": "3e3257379aa7f5200b0aa5161bac034de3dc79a13db43466e96e9f6f9c064a9f",
-      "lines": 8051
+      "sha256": "a0ba4ad9d7c2055fb198ad8822a427bc5efc9b25b674cd362c3e684995d3bbf1",
+      "lines": 8102
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/IntroHero.kt",
@@ -1028,8 +1028,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RoadsideHelp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "0465e642ebdf03fbfa2665529a7aab1ece1a331f0cb7152fc1b3f51cfbdac7f8",
-      "lines": 182
+      "sha256": "c5a8098f728f587908d4e58112eb26830c63718ce32dd62bcd2da15de19a4b65",
+      "lines": 219
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/SavedPlacesScreen.kt",
@@ -1210,15 +1210,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/TaxiTripScreen.kt",
       "kind": "android_main",
       "block": "B03",
-      "sha256": "eec7c3129fa744d1ad89dacf375af8d90303e37810238cd4cbbf4d967173c339",
-      "lines": 1616
+      "sha256": "ae6f81fb5ecdaf68ac3a518ca0ad73b3f726d796cb4f14f1886f8580285bce2b",
+      "lines": 1622
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/TripLiveLink.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "dc41d95e270f1858558a863e35bf7f4f1b0e829e549b3feba5e5fe830f4e2e6e",
-      "lines": 97
+      "sha256": "b1babdd93a8a4fa07195645fdcb3b5c8a49574daa5fbbd6b39b1269ea620006a",
+      "lines": 119
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/TripLocationService.kt",
@@ -1315,8 +1315,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "fa96c03e19d5c8cf6ad83f4d62e0611e519f7e2ab00c64dc5747b7fd7b1454e3",
-      "lines": 7967
+      "sha256": "1af173360a1bdca47b25ec133cc936e2b27c28cd45c0b7ece501a692e68d764a",
+      "lines": 7969
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -2355,6 +2355,13 @@
       "lines": 190
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/InstantShareOwnerBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B03",
+      "sha256": "ae44d69cbcc6342a903c51aa5e936938442e333c1735c8525e0967b894e02d30",
+      "lines": 187
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/IntroScreenContentTest.kt",
       "kind": "test_support",
       "block": "B09",
@@ -2913,6 +2920,13 @@
       "block": "B08",
       "sha256": "ae0613d534c477e8469e172be998bc47970b5fcc1bf6e446605865c1eda421a7",
       "lines": 105
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/RoadsideHelpOwnerBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "97cdb855ebbd0a9f617c5d7011b5ed6b14cd204cc85d010c8b13c0923773fb67",
+      "lines": 58
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RobolectricSmokeTest.kt",

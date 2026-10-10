@@ -4492,3 +4492,8 @@ InstantOrderContent current picker predicate=screen lease+scope+пустой ord
 ## B02 — active TaxiTrip callbacks, 10.10.2026
 
 TaxiTripScreen → owner wrapper + key(order.id,generation) → private TaxiTripContent с latest order/current parent predicate. InstantOrderContent передаёт generation и predicate live order/currentTrip publisher, matching-ID callback. Private ImComing/Pending/Finished принимают current predicate+generation; waypoint update сохраняет исходный индекс. Shared ChangeDestination/PickStop получают optional ownerGeneration/current-parent; GeocoderClient.suggestResult и7API операций принимают optional expectedGeneration (defaults прежние). Сокеты/share/roadside/receipt/winter не закрыты этим шагом. [Доказательства](audit-blocks.md#b02--active-taxitrip-callbacks-10102026).
+
+
+## B02 — ссылки поездки и помощь на дороге, 10.10.2026
+
+Shared InstantShareDialog/LiveLinkCard/RoadsideHelpAction имеют owner wrapper и отдельный child key+scope. Contacts expectedGeneration проверяется до cache fast path; API share/list/revoke/three stuck adapters передают generation. Taxi safety/share и Booking shared-card/help связываются с live родителем; Courier/legacy пока default owner/dispose fence, full phase/target controls отдельны. [Доказательства и границы](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026).

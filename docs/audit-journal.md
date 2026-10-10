@@ -672,3 +672,8 @@ Base329e9d8d/codex-b02-home-transitions. Runner b02-home-transitions-run-2026100
 740 различных ID = 689 из предыдущего набора + 16 существующих проверок, дополнительно выбранных (4adaptive+12geocoder/network), + 35 новых. 64 класса; 0 отказов/ошибок/пропусков/устаревших XML; 461.218 с; 82 отпечатков исходников; оба debug APK. Повторы RED/GREEN не прибавляются к unique.
 
 RED34 корректно сведён из31v2+3v3;22productfailures. Независимое finding suggestions:RED1→тот жеGREEN testcase. GREEN51;14own/40foreign;483историческихraw сохранены. [Версии, критерии и остатки](audit-blocks.md#b02--active-taxitrip-callbacks-10102026). Повтор общего набора обоснован shared API/parent/sheets; source guards не означают выполненную полную UI матрицу. Следующие share/roadside/receipt actions, B02/релиз остаются открыты.
+
+
+## B02 — ссылки поездки и помощь на дороге, 10.10.2026
+
+787 различных ID = 740 сохранённых + 47 новых; 66 классов, 0 отказов/ошибок/пропусков/устаревших XML, 486.609 с, 87 отпечатков исходников, оба debug APK. Повторы не прибавляются к unique. 17own/40foreign; RED38 corrected25fail, review3RED→GREEN47. Previous430raw preserved. [Версии и остатки](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026). Shared link/help критерии локально выполнены; release/весьB02 открыты.

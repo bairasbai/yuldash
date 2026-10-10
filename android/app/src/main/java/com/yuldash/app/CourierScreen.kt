@@ -1410,8 +1410,8 @@ private fun CourierCarryingTab(
                         item(key = "ccar-roadside") {
                             val stuckParcel = activeParcels.firstOrNull { it.status == "in_transit" }
                                 ?: activeParcels.first()
-                            RoadsideHelpAction(key = stuckParcel.id) { lat, lng ->
-                                ApiClient.parcelRoadsideHelp(stuckParcel.id, lat, lng)
+                            RoadsideHelpAction(key = stuckParcel.id) { lat, lng, generation ->
+                                ApiClient.parcelRoadsideHelp(stuckParcel.id, lat, lng, expectedGeneration = generation)
                             }
                         }
                         // И красная кнопка рядом. Тот же довод, что и у мягкой, только сильнее:

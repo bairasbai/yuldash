@@ -383,9 +383,11 @@ object ApiClient {
         key: String,
         ttlMs: Long,
         onValue: (T) -> Unit = {},
+        expectedGeneration: Long? = null,
         fetch: suspend () -> Result<T>,
     ): Result<T> {
         val generation = synchronized(sessionLock) {
+            if (expectedGeneration != null && !sameSession(expectedGeneration)) return staleSession()
             respCache[key]?.let { c ->
                 if (c.generation == sessionGeneration && System.currentTimeMillis() - c.ts < ttlMs && c.value != null)
                     return Result.success(c.value as T)
@@ -1186,8 +1188,8 @@ object ApiClient {
         call("DELETE", "/trusted-contacts/$contactId", null, auth = true)
             .onSuccess { invalidate("contacts") }.map { }
 
-    suspend fun getContacts(): Result<List<ContactDto>> = cachedGet("contacts", TTL_PERSONAL) {
-        call("GET", "/trusted-contacts", null, auth = true).map { obj ->
+    suspend fun getContacts(expectedGeneration: Long? = null): Result<List<ContactDto>> = cachedGet("contacts", TTL_PERSONAL, expectedGeneration = expectedGeneration) {
+        call("GET", "/trusted-contacts", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
@@ -1215,8 +1217,8 @@ object ApiClient {
 
     /** «Поделиться поездкой» из такси-заказа (B7b-2): близкий получит SMS о маршруте и статусах.
      *  B7c: сервер возвращает token live-ссылки — отдаём готовый URL (null на старом сервере). */
-    suspend fun shareInstantTrip(orderId: Int, contactId: Int): Result<TripShareDto?> =
-        call("POST", "/instant/orders/$orderId/share", JSONObject().put("contact_id", contactId), auth = true)
+    suspend fun shareInstantTrip(orderId: Int, contactId: Int, expectedGeneration: Long? = null): Result<TripShareDto?> =
+        call("POST", "/instant/orders/$orderId/share", JSONObject().put("contact_id", contactId), auth = true, expectedGeneration = expectedGeneration)
             .map { parseTripShare(it) }
             .onSuccess { Analytics.log("instant_share_trip") }
 
@@ -1241,10 +1243,10 @@ object ApiClient {
      *  тому, кто доверенных контактов не заводил. Волна 184 добавила второе число — сколько
      *  доверенных вообще заведено: без него «ушло нулю» и «звать некого» выглядят одинаково,
      *  а человеку на трассе это разные новости и разные действия. */
-    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String): Result<RoadsideResult> {
+    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String, expectedGeneration: Long? = null): Result<RoadsideResult> {
         val body = JSONObject().put("note", note)
         if (lat != null && lng != null) body.put("lat", lat).put("lng", lng)
-        return call("POST", "/bookings/$bookingId/stuck", body, auth = true).map { roadsideResult(it) }.onSuccess { Analytics.log("roadside_help") }
+        return call("POST", "/bookings/$bookingId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }.onSuccess { Analytics.log("roadside_help") }
     }
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
@@ -2177,15 +2179,15 @@ object ApiClient {
             .onSuccess { Analytics.log("revoke_share") }
 
     /** Активные шаринги такси-заказа (пассажиру — «уже поделился с …» + отозвать). */
-    suspend fun getInstantShares(orderId: Int): Result<List<TripShareDto>> =
-        call("GET", "/instant/orders/$orderId/shares", null, auth = true).map { obj ->
+    suspend fun getInstantShares(orderId: Int, expectedGeneration: Long? = null): Result<List<TripShareDto>> =
+        call("GET", "/instant/orders/$orderId/shares", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).mapNotNull { parseTripShare(arr.getJSONObject(it)) }
         }
 
     /** Отозвать шаринг такси-заказа (B7c). */
-    suspend fun revokeInstantShare(orderId: Int, shareId: Int): Result<Unit> =
-        call("DELETE", "/instant/orders/$orderId/share/$shareId", null, auth = true).map { }
+    suspend fun revokeInstantShare(orderId: Int, shareId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("DELETE", "/instant/orders/$orderId/share/$shareId", null, auth = true, expectedGeneration = expectedGeneration).map { }
             .onSuccess { Analytics.log("revoke_share") }
 
     /** Разбор TripShare с сервера → id/contact_id/token + готовый live-URL (или null, старый сервер). */
@@ -4787,21 +4789,21 @@ object ApiClient {
 
     // Тип результата пришёл из main (волна 19x): помощь на дороге теперь возвращает не число,
     // а разбор ситуации. Мой метод «уже выхожу» рядом — они друг другу не мешают.
-    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = ""): Result<RoadsideResult> {
+    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = "", expectedGeneration: Long? = null): Result<RoadsideResult> {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true).map { roadsideResult(it) }
+        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }
     }
 
     /** «Застрял на трассе» в ДОСТАВКЕ. Курьер едет по той же зимней трассе и вдобавок один:
      *  рядом нет пассажира, который заметит беду. Сервер принимал сигнал с 2026-08-06,
      *  но в приложении нажать было негде (аудит 2026-08-06). */
-    suspend fun parcelRoadsideHelp(parcelId: Int, lat: Double?, lng: Double?, note: String = ""): Result<RoadsideResult> {
+    suspend fun parcelRoadsideHelp(parcelId: Int, lat: Double?, lng: Double?, note: String = "", expectedGeneration: Long? = null): Result<RoadsideResult> {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/parcels/$parcelId/stuck", body, auth = true).map { roadsideResult(it) }
+        return call("POST", "/parcels/$parcelId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }
             .onSuccess { Analytics.log("roadside_help_parcel") }
     }
 

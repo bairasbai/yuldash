@@ -4584,8 +4584,8 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
     // Зимний протокол для такси: мягче SOS, но реальный. Раньше работал только для попуток,
     // хотя четыре часа трассы Сибай–Уфа зимой — это как раз такси (аудит 2026-07-26).
     // Сам блок общий на три сценария (RoadsideHelp.kt): две копии уже разошлись текстами.
-    RoadsideHelpAction(key = orderId) { lat, lng ->
-        ApiClient.instantRoadsideHelp(orderId, lat, lng)
+    RoadsideHelpAction(key = orderId) { lat, lng, generation ->
+        ApiClient.instantRoadsideHelp(orderId, lat, lng, expectedGeneration = generation)
     }
 }
 
@@ -4593,9 +4593,30 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
  *  а пассажиру тут же показываем ссылку — скопировать или отправить самому (share-sheet).
  *  Состояния честные: загрузка / пусто (подсказка добавить контакт) / список / ошибка / ссылка. */
 @Composable
-internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
+internal fun InstantShareDialog(
+    orderId: Int, onDismiss: () -> Unit,
+    ownerGeneration: Long? = null,
+    isCurrentParent: () -> Boolean = { true },
+) {
+    val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != generation || !ApiClient.isCurrentSession(generation) ||
+        (ownerGeneration != null && ownerGeneration != generation)) return
+    key(orderId, generation) { InstantShareContent(orderId, onDismiss, generation, isCurrentParent) }
+}
+
+@Composable
+private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation: Long, isCurrentParent: () -> Boolean) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    val dismiss by rememberUpdatedState(onDismiss)
+    var closed by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(true) }
+    fun isCurrent() = scope.isActive && !closed && ApiClient.isCurrentSession(generation) && currentParent()
+    fun commit(action: () -> Unit) { ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() } }
+    fun close() { commit { closed = true; dismiss() } }
     var contacts by remember { mutableStateOf<List<com.yuldash.app.data.ContactDto>?>(null) }
     var loadError by remember { mutableStateOf(false) }
     // Это единственный путь дать близкому live-ссылку во время поездки: ошибка без «Повторить»
@@ -4608,14 +4629,24 @@ internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
     val shareFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
     val revokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
     LaunchedEffect(contactsTick) {
-        contacts = null; loadError = false   // повтор начинается с честной загрузки, а не с ошибки
-        ApiClient.getContacts()
-            .onSuccess { contacts = it }
-            .onFailure { loadError = true; contacts = emptyList() }
-        ApiClient.getInstantShares(orderId).onSuccess { activeShares = it }
+        if (!isCurrent()) return@LaunchedEffect
+        commit { loading = true; contacts = null; loadError = false }
+        val loaded = ApiClient.getContacts(expectedGeneration = generation)
+        if (!isCurrent()) return@LaunchedEffect
+        if (loaded.isFailure) {
+            commit { loadError = true; contacts = emptyList(); loading = false }
+            return@LaunchedEffect
+        }
+        val shares = ApiClient.getInstantShares(orderId, expectedGeneration = generation)
+        commit {
+            contacts = loaded.getOrThrow()
+            shares.onSuccess { activeShares = it }.onFailure { loadError = true }
+            loading = false
+        }
     }
+    val shownLink = liveLink
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::close,
         containerColor = CanonSurface,
         title = {
             Text(
@@ -4629,14 +4660,15 @@ internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
             val link = liveLink
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 when {
-                    link != null -> LiveLinkCard(link)
+                    link != null -> LiveLinkCard(link, ownerGeneration = generation,
+                        isCurrentParent = { isCurrent() && !busy && liveLink == link && activeShares.any { it.link == link } })
                     list == null -> Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
                         Spacer(Modifier.width(8.dp))
                         Text(appText("Загружаем близких…", "Яҡындарҙы йөкләйбеҙ…"), color = CanonMuted, fontSize = 14.sp)
                     }
                     loadError -> AppErrorState(
-                        onRetry = { contactsTick++ },
+                        onRetry = { commit { if (!loading && !busy && loadError) { loading = true; contactsTick++ } } },
                         title = appText("Не удалось загрузить близких", "Яҡындарҙы йөкләп булманы"),
                         text = appText(
                             "Проверь интернет и повтори — список никуда не пропал.",
@@ -4649,20 +4681,31 @@ internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                         list.forEach { c ->
                             Row(
                                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                                    .clickable {
-                                        scope.launch {
-                                            ApiClient.shareInstantTrip(orderId, c.id)
+                                    .clickable(enabled = !busy && !loading) {
+                                        var accepted = false
+                                        commit { if (!busy && !loading && liveLink == null && contacts?.contains(c) == true) { busy = true; accepted = true } }
+                                        if (accepted) scope.launch {
+                                            if (!isCurrent()) return@launch
+                                            try {
+                                            ApiClient.shareInstantTrip(orderId, c.id, expectedGeneration = generation)
                                                 .onSuccess { share ->
-                                                    Toast.makeText(ctx, "$sharedMsg: ${c.name}", Toast.LENGTH_SHORT).show()
-                                                    if (share != null) {
-                                                        activeShares = activeShares.filterNot { it.id == share.id } + share
-                                                        if (!share.link.isNullOrBlank()) liveLink = share.link
-                                                    } else onDismiss()
+                                                    commit {
+                                                        if (share == null || share.contactId == c.id) {
+                                                            Toast.makeText(ctx, "$sharedMsg: ${c.name}", Toast.LENGTH_SHORT).show()
+                                                            if (share != null) {
+                                                                activeShares = activeShares.filterNot { it.id == share.id } + share
+                                                                if (!share.link.isNullOrBlank()) liveLink = share.link
+                                                            } else close()
+                                                        }
+                                                    }
                                                 }
                                                 .onFailure {
-                                                    onDismiss()
-                                                    Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show()
+                                                    commit {
+                                                        Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show()
+                                                        close()
+                                                    }
                                                 }
+                                            } finally { commit { busy = false } }
                                         }
                                     }
                                     .padding(horizontal = 8.dp, vertical = 12.dp),
@@ -4689,16 +4732,24 @@ internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                             Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(name, color = CanonText, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                            TextButton(onClick = {
-                                scope.launch {
-                                    ApiClient.revokeInstantShare(orderId, share.id)
+                            TextButton(enabled = !busy && !loading, onClick = {
+                                var accepted = false
+                                commit { if (!busy && !loading && activeShares.contains(share)) { busy = true; accepted = true } }
+                                if (accepted) scope.launch {
+                                    if (!isCurrent()) return@launch
+                                    try {
+                                        ApiClient.revokeInstantShare(orderId, share.id, expectedGeneration = generation)
                                         .onSuccess {
-                                            activeShares = activeShares.filterNot { it.id == share.id }
-                                            Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
+                                            commit {
+                                                activeShares = activeShares.filterNot { it.id == share.id }
+                                                if (liveLink == share.link) liveLink = null
+                                                Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
+                                            }
                                         }
-                                        .onFailure { Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show() }
+                                        .onFailure { commit { Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show() } }
+                                    } finally { commit { busy = false } }
                                 }
-                            }, modifier = Modifier.heightIn(min = 44.dp)) {
+                            }, modifier = Modifier.heightIn(min = 48.dp)) {
                                 Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                         }
@@ -4707,12 +4758,12 @@ internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            if (liveLink != null) TextButton(onClick = { liveLink = null }) {
+            if (shownLink != null) TextButton(enabled = !busy, onClick = { commit { if (!busy && liveLink == shownLink) liveLink = null } }) {
                 Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(appText("Закрыть", "Ябыу"), color = CanonMuted) }
+            TextButton(onClick = ::close) { Text(appText("Закрыть", "Ябыу"), color = CanonMuted) }
         },
     )
 }

@@ -431,12 +431,15 @@ private fun TaxiTripContent(
     if (showSafety) {
         TripSafetySheet(
             orderId = order.id,
+            ownerGeneration = generation,
+            isCurrentParent = { isCurrentAction() && showSafety },
             onShare = { commit { if (showSafety) { showSafety = false; showShare = true } } },
             onDismiss = { commit { showSafety = false } },
         )
     }
     if (showShare) {
-        InstantShareDialog(orderId = order.id, onDismiss = { showShare = false })
+        InstantShareDialog(orderId = order.id, onDismiss = { commit { showShare = false } },
+            ownerGeneration = generation, isCurrentParent = { isCurrentAction() && showShare })
     }
     if (confirmPaidCancel) {
         TripPaidCancelDialog(
@@ -1384,6 +1387,8 @@ private fun TripSosButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 @Composable
 private fun TripSafetySheet(
     orderId: Int,
+    ownerGeneration: Long,
+    isCurrentParent: () -> Boolean,
     onShare: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1420,8 +1425,9 @@ private fun TripSafetySheet(
                 }
                 // Зимний протокол: мягче SOS, но настоящий. Четыре часа трассы Сибай–Уфа
                 // в метель — это как раз такси, а не попутка.
-                RoadsideHelpAction(key = orderId) { lat, lng ->
-                    ApiClient.instantRoadsideHelp(orderId, lat, lng)
+                RoadsideHelpAction(key = orderId, ownerGeneration = ownerGeneration,
+                    isCurrentParent = isCurrentParent) { lat, lng, generation ->
+                    ApiClient.instantRoadsideHelp(orderId, lat, lng, expectedGeneration = generation)
                 }
             }
         },

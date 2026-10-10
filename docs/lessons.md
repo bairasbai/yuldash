@@ -9131,3 +9131,8 @@ LaunchedEffect не записывает переход в SavedStateHandle во
 ## B02 — active TaxiTrip callbacks, 10.10.2026
 
 Actual Compose fixture должна раскрыть TaxiSheet Full, поскольку extra в Half вообще отсутствует. Нельзя искать/ждать UI node внутри runOnIdle; retain выполняем заранее, на UI-потоке вызываем только сохранённое действие. Одноимённые route opener/modal confirm — разные узлы; подтверждение выбираем в modal. Иначе false timeout либо ложный успех при отсутствии нужного POST. Первичные результаты сохраняем, не выдаём fixture errors за product failures. Перед сборкой проверяем imports новых coroutine/runtime helpers; green-v1/v2:0executed. Для архивных доказательств используем плоские SHA имена: вложенный путь превысил Windows limit, completed483raw manifest проверен. [Первичные доказательства](audit-blocks.md#b02--active-taxitrip-callbacks-10102026).
+
+
+## B02 — ссылки поездки и помощь на дороге, 10.10.2026
+
+В actual semantics кнопка может содержать только icon description, а видимый label — соседний Text без OnClick. Не считать такой timeout дефектом продукта. Адрес live URL в тесте следует брать из действующего local ApiClient.apiBase, error toast — из serverSaid, не выдумывать fallback. Сохранённые controls A после второго открытия B проверять отдельно от простого closed/busy. [Первичные воспроизведения](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026).
