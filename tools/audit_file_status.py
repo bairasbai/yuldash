@@ -66,8 +66,12 @@ REQUIRED_HEADINGS = [
 STATUS_RE = re.compile(r"^- Статус:\s*([a-z_]+)\b", re.M)
 LEAF_RE = re.compile(r"^- Лист:\s*(leaf-[0-9][0-9.]*[0-9]|leaf-[0-9]+)\s*$", re.M)
 REASON_RE = re.compile(r"^Причина:\s*(\S.{9,})$", re.M)
-# A test reference: repository path, "::", then a test name (quoted when it has spaces).
-REF_RE = re.compile(r'((?:backend|android|tools)/[\w./-]+?\.(?:py|kt))::((?:"[^"]+")|(?:[\w\[\]\-.]+(?:::[\w\[\]\-.]+)*))')
+# A test reference: repository path, "::", then a test name (quoted when it has spaces). Several tests of
+# one file may share a cell as "path::test_a, ::test_b": a bare "::name" reuses the path of the previous
+# reference in the same cell. "::" glued to a word or a path is part of a name, and a bare one before a
+# digit or a bracket ("::1", "[::]") is an address; neither is such a shorthand.
+REF_RE = re.compile(r'(?:((?:backend|android|tools)/[\w./-]+?\.(?:py|kt))|(?<![\w\].:/-])(?=::(?:"|[^\W\d])))'
+                    r'::((?:"[^"]+")|(?:[\w\[\]\-.]+(?:::[\w\[\]\-.]+)*))')
 MUTATION_ID_RE = re.compile(r"^\|\s*(M\d+)\s*\|", re.M)
 
 
@@ -137,6 +141,21 @@ def table_rows(block):
     return [r for r in rows[1:] if not re.match(r"^\|[\s:|-]+\|$", r.strip())]
 
 
+def row_refs(row):
+    """(path, name) test references of one table row, plus bare "::name" shorthands with no path to reuse."""
+    refs, orphans, rel, end = [], [], None, 0
+    for m in REF_RE.finditer(row):
+        if "|" in row[end:m.start()]:
+            rel = None  # a new cell: a shorthand never borrows the path of another column
+        end = m.end()
+        rel = m.group(1) or rel
+        if rel:
+            refs.append((rel, m.group(2)))
+        else:
+            orphans.append(m.group(2))
+    return refs, orphans
+
+
 def resolve_ref(root, rel, name):
     target = root / rel
     if not target.is_file():
@@ -194,22 +213,27 @@ def validate_card(root, path, leaf_hint=None):
         problems.append("таблица «Функции и разбор» пуста")
     tests, mutation_ids, reason = [], [], None
     rules = table_rows(section(text, "## Важные правила и тесты"))
-    if status == "verified":
-        if not rules:
+    # Tests back every card except ⚪/⛔ (those rest on «Причина:»). 🟩 must name tests and breakages,
+    # 🟥/🟨 may, and whatever a card names must resolve: run-tests runs it all, so a 🟥 card's broken test
+    # cannot hide behind a green leaf.
+    if status not in NEEDS_REASON:
+        if status == "verified" and not rules:
             problems.append("для 🟩 нужна хотя бы одна строка правил с тестом")
         for row in rules:
-            refs = REF_RE.findall(row)
-            if not refs:
+            refs, orphans = row_refs(row)
+            if status == "verified" and not refs:
                 problems.append(f"правило без ссылки на тест: {row[:80]}")
+            for name in orphans:
+                problems.append(f"«::{name}» без пути к файлу теста раньше в той же ячейке: {row[:80]}")
             for rel, name in refs:
                 err = resolve_ref(root, rel, name)
                 if err:
                     problems.append(err)
                 tests.append(f"{rel}::{name}")
         mutation_ids = MUTATION_ID_RE.findall(section(text, "## Проверка нарочной поломкой") or "")
-        if not mutation_ids:
+        if status == "verified" and not mutation_ids:
             problems.append("для 🟩 нужна хотя бы одна нарочная поломка (строка | M1 | …)")
-        specs = load_mutations(root, leaf) if leaf else None
+        specs = load_mutations(root, leaf) if leaf and mutation_ids else None
         if mutation_ids and specs is None:
             problems.append(f"нет файла {MUTATIONS}/{leaf}.json")
         for mid in mutation_ids:
@@ -437,15 +461,25 @@ def cmd_run_tests(root, args):
 
 
 def _run_tests(root, args, audit_mutation):
-    refs, statuses = set(), []
+    cards = []
     for path in args.files:
         status, _, tests, _, _, problems = validate_card(root, path, args.leaf)
         if problems:
             print(f"✗ {path}: " + "; ".join(problems))
             print("LEAF TESTS RED (карточки неверны)")
             raise SystemExit(1)
-        statuses.append(status)
+        cards.append((path, status, tests))
+    # Tests listed on 🟥/🟨 cards run along with the 🟩 ones; the listing and the per-status counts show
+    # which cards fed the run.
+    refs, per_status = set(), {}
+    print("Тесты из карточек:")
+    for path, status, tests in cards:
+        print(f"  {STATUSES[status]} {path}: тестов {len(tests)}")
+        per_status.setdefault(status, []).append(tests)
         refs.update(tests)
+    sys.stdout.flush()  # the listing must precede the runners' own output in a log
+    by_status = ", ".join(f"{s} {len(set().union(*per_status[s]))} ({len(per_status[s])} card(s))"
+                          for s in STATUSES if s in per_status)
     paths = sorted({r.split("::", 1)[0] for r in refs})
     instrumented = [p for p in paths if "/src/androidTest/" in p]
     if instrumented:
@@ -453,7 +487,7 @@ def _run_tests(root, args, audit_mutation):
         print("LEAF TESTS RED (нужен эмулятор)")
         raise SystemExit(1)
     if not refs:
-        if statuses and all(s in NEEDS_REASON for s in statuses):
+        if per_status and all(s in NEEDS_REASON for s in per_status):
             print("LEAF TESTS GREEN 0 (все файлы листа ⚪/⛔, тестов не требуется)")
             return
         print("LEAF TESTS RED (в карточках нет ссылок на тесты)")
@@ -489,7 +523,8 @@ def _run_tests(root, args, audit_mutation):
     if failed:
         print(f"LEAF TESTS RED: {', '.join(failed)}")
         raise SystemExit(1)
-    print(f"LEAF TESTS GREEN {len(refs)} ref(s): backend {len(backend)}, tools {len(tools)}, android classes {len(kotlin)}")
+    print(f"LEAF TESTS GREEN {len(refs)} ref(s): backend {len(backend)}, tools {len(tools)}, "
+          f"android classes {len(kotlin)}; by status: {by_status}")
 
 
 def cmd_list(root, args):
