@@ -5921,3 +5921,9 @@ RED ActivityBundle/App подтвердил потерю7назначений,п
 ## 10.10.2026 — явный выбор Home атомарен с его local commit
 
 Не превращать initial sync в navigateLocally: это потеряет initial intent. Принятый user selection отменяет прежний public/private pending и синхронно сохраняетtab. Передавать commit closure в parent monitor, а не возвращать Boolean с последующим legacy flag/preset write. Исходящая анимация сохраняет своё renderedtab право, даже если callbacks обновились. Incoming private revision не является blanket stale условием для Home. AccountDeletion receipt исключён из обычного tabgate. [Доказательства](audit-blocks.md#b02--явный-выбор-вкладки-home-09102026).
+
+## 10.10.2026 — исправлять подтверждённое ожидание, сохранять границу исторического вывода
+
+Для3 manual-clock fixtures выбрана явная отправка snapshot notifications до frame: она повторяет уже применённое правило BookingConfirmationJourneyTest и устраняет доказанный причинный отказ без изменения product логики, таймаутов, ожиданий HTTP/маршрута/владельца или assertions. Добавлены3 test-only controls с одной и той же искусственной потерей автоматической доставки: RED3/3 отказали, GREEN3/3 прошли.
+
+Старые14 failures не объявляем14rootcauses или одним доказанным product багом: лог даёт13timeouts+1calls0, но не snapshot flag/очередь. Один RUNNABLE thread dump не доказывает deadlock. Одна ограниченная попытка со старыми ожиданиями: 264 tests/0 failures/0 errors/0 skipped, 19classes, 219.313s; 0 post-failure диагностических строк. Повтор прошёл: естественная потеря доставки в этой попытке не наблюдалась. Это не доказывает отсутствие дефекта или точную причину старого отказа. Итог607tests сохраняет604 IDs и добавляет3. [Критерии, результаты и остатки](audit-blocks.md#b02--ожидания-compose-и-разбор-14-сбоев-10102026).

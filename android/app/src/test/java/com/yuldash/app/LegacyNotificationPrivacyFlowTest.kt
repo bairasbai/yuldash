@@ -1,5 +1,7 @@
 package com.yuldash.app
 
+import androidx.compose.runtime.snapshots.Snapshot
+
 import android.app.Application
 import android.content.Context
 import android.content.Intent
@@ -59,7 +61,7 @@ class LegacyNotificationPrivacyFlowTest {
         DeepLink.pendingFairness.value=false;DeepLink.pendingRequestResponsesId.value=null;DeepLink.pendingRequestsFeed.value=false;DeepLink.pendingApplicationScreen.value=null
     }
     private fun pump(ms:Long=500) {
-        repeat((ms/100).toInt()) { compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100));Thread.sleep(10) }
+        repeat((ms/100).toInt()) { Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100));Thread.sleep(10) }
         compose.waitForIdle()
     }
     private fun mount() {
@@ -82,7 +84,7 @@ class LegacyNotificationPrivacyFlowTest {
     private fun accepted(recipient:String,token:String) {
         deliver(recipient)
         compose.waitUntil(12000) {
-            compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle()
+            Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle()
             vm.screen.value==Screen.InstantChat && vm.pendingScreenNavigation.value==null &&
                 records.any {it.first=="GET" && it.second=="/instant/orders/44/messages" && it.third=="Bearer $token"}
         }
@@ -97,6 +99,10 @@ class LegacyNotificationPrivacyFlowTest {
     }
     @Test fun missingRecipientDoesNotLoadAndSameMarkerValidOwnerDeliveryWorks() {
         mount();deliver();remainsNotificationsWithoutPrivateRead();accepted("11",tokenA)
+    }
+    @Test fun currentRecipientSurvivesLostGlobalSnapshotNotification() {
+        mount()
+        withLostGlobalSnapshotNotification { accepted("11",tokenA) }
     }
     @Test fun missingRecipientAfterAccountSwitchCannotLoadOldOrder() {
         ApiClient.saveToken(tokenB);mount();deliver();remainsNotificationsWithoutPrivateRead();accepted("12",tokenB)

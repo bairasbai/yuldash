@@ -83,7 +83,7 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 897
+    "test_support": 898
   },
   "counts_by_block": {
     "B01": 128,
@@ -93,7 +93,7 @@
     "B05": 37,
     "B06": 84,
     "B07": 106,
-    "B08": 166,
+    "B08": 167,
     "B09": 540,
     "B10": 346,
     "B11": 90
@@ -2071,8 +2071,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingNotificationFlowTest.kt",
       "kind": "test_support",
       "block": "B06",
-      "sha256": "1d784defb40182bc878bfd42e0e3d44c270a8c7e271d5ace042ac4936bc86783",
-      "lines": 227
+      "sha256": "cf5559fba53a140b6b86485e8e75a3c25ddd1aad3f9e7797b8f17129e3a41b15",
+      "lines": 236
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingNotificationRestorationTest.kt",
@@ -2365,15 +2365,15 @@
       "path": "android/app/src/test/java/com/yuldash/app/LegacyNotificationPrivacyFlowTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "4cb6e7e06c97cc64629c93ae9f7919364d5c0498ae731c53ef1d47c63472608a",
-      "lines": 111
+      "sha256": "f5a3634193bf2e4d6626cbaf1269f8527cdbf50eead9fa41363d98bf10d39d71",
+      "lines": 117
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/LegacySavedStateCompatibilityTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "7a90b892d439c199ebc62ab76568b48a6a93a59b7532d8c932898302b519388c",
-      "lines": 350
+      "sha256": "3a98d0cd4662138f6014d37d76db50ff8fe18920f03e96d8c24efe1316563069",
+      "lines": 357
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/LinePromiseIsHonestTest.kt",
@@ -2892,6 +2892,13 @@
       "block": "B09",
       "sha256": "f6430f0adc7d459c8470cc6f7f2c00d3d55717a6f955ec4b48fd7a1bf9e1e074",
       "lines": 47
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/RobolectricSnapshotDeliveryTestSupport.kt",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "d7d1e38e8619c1dffb93a069e96278e643950c0a8709098f1772ae38d05c2029",
+      "lines": 24
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RoleCabinetIntegrationTest.kt",

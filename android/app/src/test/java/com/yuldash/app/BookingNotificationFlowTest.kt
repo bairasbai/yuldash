@@ -1,5 +1,7 @@
 package com.yuldash.app
 
+import androidx.compose.runtime.snapshots.Snapshot
+
 import android.app.Application
 import android.content.Context
 import android.content.Intent
@@ -83,10 +85,10 @@ class BookingNotificationFlowTest {
     }
     private fun json(body: String, status: Int = 200) = MockResponse().setResponseCode(status).setHeader("Content-Type", "application/json").setBody(body)
     private fun pump(ms: Long = 600) {
-        repeat((ms / 100).toInt()) { compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100)); Thread.sleep(10) }
+        repeat((ms / 100).toInt()) { Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100)); Thread.sleep(10) }
         compose.waitForIdle()
     }
-    private fun await(check: () -> Boolean) = compose.waitUntil(12000) { compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idle(); check() }
+    private fun await(check: () -> Boolean) = compose.waitUntil(12000) { Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idle(); check() }
     private fun mount() {
         compose.mainClock.autoAdvance = false
         compose.setContent { if (mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides actor.get()) { YuldashTheme { YuldashApp() } } }
@@ -130,6 +132,13 @@ class BookingNotificationFlowTest {
     @Test fun sameOwnerTokenReplacementCanFinishChat() {
         startHeld(); compose.runOnIdle { ApiClient.saveToken(token11 + "new") }; reached(43); finishOld()
         assertTrue(records.any { it.first == "/bookings/43/role" && it.second == "Bearer ${token11}new" })
+    }
+    @Test fun currentChatSurvivesLostGlobalSnapshotNotification() {
+        mount()
+        withLostGlobalSnapshotNotification {
+            deliver(43); reached(43)
+            assertTrue(records.any { it.first == "/bookings/43/role" && it.second == "Bearer $token11" })
+        }
     }
     @Test fun bookingFailureWaitsForManualRetry() {
         firstStatus = 503; mount(); deliver(43, "booking")

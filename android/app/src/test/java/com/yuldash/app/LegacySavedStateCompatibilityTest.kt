@@ -1,5 +1,7 @@
 package com.yuldash.app
 
+import androidx.compose.runtime.snapshots.Snapshot
+
 import android.app.Application
 import android.content.Context
 import android.os.Bundle
@@ -72,7 +74,7 @@ class LegacySavedStateCompatibilityTest {
         }
         ApiClient.testBaseUrl=server.url("/").toString().trimEnd('/');ApiClient.testTimeoutMs=1000
     }
-    private fun pump() { repeat(8) {compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();Thread.sleep(10)};compose.waitForIdle() }
+    private fun pump() { repeat(8) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();Thread.sleep(10)};compose.waitForIdle() }
     private fun mount() {
         compose.mainClock.autoAdvance=false
         compose.setContent { if(mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides actor.get(),LocalSaveableStateRegistry provides registry) { YuldashTheme { YuldashApp() } } }
@@ -92,11 +94,11 @@ class LegacySavedStateCompatibilityTest {
         if(capture!=null) {
             if(destination==Screen.InstantChat) compose.runOnIdle {NavSignals.openInstantChat.value=id}
             else {
-                compose.waitUntil(12000) {compose.mainClock.advanceTimeBy(100);compose.onAllNodesWithText("Событие $id").fetchSemanticsNodes().isNotEmpty()}
+                compose.waitUntil(12000) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);compose.onAllNodesWithText("Событие $id").fetchSemanticsNodes().isNotEmpty()}
                 compose.onNodeWithText("Событие $id").performClick()
             }
             pump()
-            compose.waitUntil(12000) {compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();vm.screen.value==destination};pump()
+            compose.waitUntil(12000) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();vm.screen.value==destination};pump()
             assertEquals(destination,vm.screen.value)
             val observed=Bundle().also {actor.saveInstanceState(it)}
             val registryKey="androidx.lifecycle.BundlableSavedStateRegistry.key"
@@ -145,7 +147,7 @@ class LegacySavedStateCompatibilityTest {
         registry=SaveableStateRegistry(restored) {true}
         if(!fresh) {vm.instantChatOrderId.value=99;vm.screen.value=Screen.InstantChat;vm.persistNav()}
         mount()
-        compose.waitUntil(12000) {compose.mainClock.advanceTimeBy(100);records.any {it.second=="/instant/orders/99/messages"}}
+        compose.waitUntil(12000) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);records.any {it.second=="/instant/orders/99/messages"}}
         assertEquals(Screen.InstantChat,vm.screen.value);assertEquals(99,vm.instantChatOrderId.value)
         assertFalse(records.any {it.second=="/instant/orders/43/messages" || it.second=="/instant/orders/0/messages"})
         assertFalse(records.any {it.first!="GET" && it.second!="/me/update"})
@@ -180,7 +182,7 @@ class LegacySavedStateCompatibilityTest {
                 .putExtra("recipient_user_id","11").putExtra("yuldash_navigation_delivery_id","root-fresh-control"))
         mount()
         if(fresh) {
-            compose.waitUntil(12000) {compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();records.any {it.second=="/instant/orders/99/messages"}}
+            compose.waitUntil(12000) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();records.any {it.second=="/instant/orders/99/messages"}}
             assertEquals(Screen.InstantChat,vm.screen.value);assertEquals(99,vm.instantChatOrderId.value)
         } else {
             assertEquals(Screen.Notifications,vm.screen.value);assertEquals(Screen.Notifications,vm.navPrev.value)
@@ -223,7 +225,7 @@ class LegacySavedStateCompatibilityTest {
         registry=SaveableStateRegistry(saved) {true};records.clear()
         compose.runOnIdle {mounted.value=true};pump()
         if(corruption==null) {
-            compose.waitUntil(12000) {compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();records.any {it.second==path}}
+            compose.waitUntil(12000) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();records.any {it.second==path}}
             assertEquals(screen,vm.screen.value)
         } else {
             assertEquals(Screen.Notifications,vm.screen.value);assertFalse(records.any {it.second==path})
@@ -238,7 +240,9 @@ class LegacySavedStateCompatibilityTest {
     @Test fun anotherRootFieldCannotBecomeAReceiptId()=taggedRoot(Screen.TripReceipt,"receiptBookingId",42,"/trips/42/receipt","field")
     @Test fun wronglyTypedTaggedRootIdCannotBecomeAReceiptId()=taggedRoot(Screen.TripReceipt,"receiptBookingId",42,"/trips/42/receipt","type")
     @Test fun anotherRootOwnerCannotRestoreAReceiptId()=taggedRoot(Screen.TripReceipt,"receiptBookingId",42,"/trips/42/receipt","owner")
-    @Test fun currentReceiptCallbackBeforeQueuedFallbackKeepsItsNewContext() {
+    @Test fun currentReceiptCallbackBeforeQueuedFallbackKeepsItsNewContext() = receiptCallbackBeforeQueuedFallback(false)
+    @Test fun currentReceiptCallbackSurvivesLostGlobalSnapshotNotification() = receiptCallbackBeforeQueuedFallback(true)
+    private fun receiptCallbackBeforeQueuedFallback(dropAutomaticNotification:Boolean) {
         completedBooking=true
         actor=Robolectric.buildActivity(MainActivity::class.java).create()
         vm=ViewModelProvider(actor.get())[YuldashViewModel::class.java]
@@ -261,17 +265,20 @@ class LegacySavedStateCompatibilityTest {
                 }
             }
         }
-        compose.waitUntil(12000) {compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty()}
+        compose.waitUntil(12000) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty()}
         assertTrue(records.any {it.second=="/bookings/42/role"})
         compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText("Квитанция"))
         compose.onNodeWithText("Квитанция").assertIsDisplayed().assertIsEnabled()
         receiptClick=compose.onNodeWithText("Квитанция").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
-        compose.runOnIdle {armed=true;vm.screen.value=Screen.TripReceipt};pump()
-        assertEquals(1,calls)
-        assertEquals("A callback that supplies a current ID must win over the queued missing-ID fallback",Screen.TripReceipt,vm.screen.value)
-        compose.waitUntil(12000) {compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();records.any {it.second=="/trips/42/receipt"}}
-        assertFalse(records.any {it.second=="/trips/0/receipt"})
-        assertFalse(records.any {it.first!="GET" && it.second!="/me/update"})
+        val checkCallback = {
+            compose.runOnIdle {armed=true;vm.screen.value=Screen.TripReceipt};pump()
+            assertEquals(1,calls)
+            assertEquals("A callback that supplies a current ID must win over the queued missing-ID fallback",Screen.TripReceipt,vm.screen.value)
+            compose.waitUntil(12000) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();records.any {it.second=="/trips/42/receipt"}}
+            assertFalse(records.any {it.second=="/trips/0/receipt"})
+            assertFalse(records.any {it.first!="GET" && it.second!="/me/update"})
+        }
+        if(dropAutomaticNotification) withLostGlobalSnapshotNotification(checkCallback) else checkCallback()
     }
     @After fun cleanup() {
         if(::actor.isInitialized) {compose.runOnIdle {mounted.value=false};pump();actor.destroy()}

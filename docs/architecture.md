@@ -4461,3 +4461,9 @@ MainActivity private dispatch требует matching positive String recipient_
 ## Home: явная вкладка и исходящий слот (10.10.2026, QA-B02-003)
 
 HomeRoute разделяет silent onTabChange и onSelectTab(tab, commit). Root unchanged-session/live Home/epoch gate → navigateLocally → startHomeTab/epoch → commit Shell state/preset/order bridge → persistNav. Shell scope/epoch и per-render tab gate передают navigation callbacks0/1/2/3; local читается в AnimatedContent provider. AccountDeleted остаётся guestreceipt cleanup без tabgate. Bar пока legacy effect и прежний TaxiTripScreen polling/session contract: отдельный next. [604 localcases/версии/границы](audit-blocks.md#b02--явный-выбор-вкладки-home-09102026). Main/VM/API/Profile/enum/strings/deps не менялись.
+
+## 10.10.2026 — тестовая доставка изменений состояния
+
+BookingNotificationFlowTest, LegacyNotificationPrivacyFlowTest и LegacySavedStateCompatibilityTest при manual Compose clock теперь вызывают Snapshot.sendApplyNotifications перед продвижением кадра (2+2+8=12 мест). Последний тест чека вынес прежнее тело в receiptCallbackBeforeQueuedFallback(false); true — новый причинный контроль. Product API/VM/App/Home, версии и зависимости не менялись.
+
+Новый android/app/src/test/java/com/yuldash/app/RobolectricSnapshotDeliveryTestSupport.kt — только тестовый withLostGlobalSnapshotNotification: после готового UI проверяет started, сохраняет AtomicBoolean sent, удерживает sent=true, finally восстанавливает prior и отправляет apply. Это модель потерянной автоматической доставки, не production обход. Reflection привязана к проверенному installed Compose1.11.3; изменение внутреннего поля потребует пересмотра helper. Временная post-failure диагностика удалена из четырёх исходников точным восстановлением байтов. [Критерии, результаты и остатки](audit-blocks.md#b02--ожидания-compose-и-разбор-14-сбоев-10102026).

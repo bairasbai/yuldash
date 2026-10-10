@@ -990,3 +990,7 @@ Android-хранилище (19.09.2026): [источник актуальног�
 
 
 **10.10.2026 — B02, вкладки Home:** [Принятый выбор/late HTTP/уходящие кнопки](audit-blocks.md#b02--явный-выбор-вкладки-home-09102026).604distinct=25new+570retained+9existing Shell;обаAPK. ActiveTripBarpoll/session и otherwriters дальше; B02/релиз частичны.
+
+## 10.10.2026 — разбор 14 старых integration сбоев
+
+Подтверждён и исправлен дефект ручных тестовых ожиданий:12 apply-before-frame вызовов в3 fixtures,3 причинных контроля RED3→GREEN3;607=604retained+3new/53classes/обаAPK. Точная историческая причина всех14 не подтверждена. [Критерии, результаты и остатки](audit-blocks.md#b02--ожидания-compose-и-разбор-14-сбоев-10102026). Далее ActiveTripBar poll/order/session ownership; полный B02/релиз открыт.
