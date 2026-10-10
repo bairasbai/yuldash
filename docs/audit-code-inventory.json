@@ -83,11 +83,11 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 898
+    "test_support": 899
   },
   "counts_by_block": {
     "B01": 128,
-    "B02": 173,
+    "B02": 174,
     "B03": 101,
     "B04": 75,
     "B05": 37,
@@ -1203,8 +1203,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/TaxiTripScreen.kt",
       "kind": "android_main",
       "block": "B03",
-      "sha256": "6c1bd07caa5e496b339c6f547b920b8fe15051c13726aabaf771d4804aaa2c8c",
-      "lines": 1531
+      "sha256": "0c9e9f4bf6293b0912873bf09fa8cec4c008e6334456a2d5c30a0c43ff3d0682",
+      "lines": 1542
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/TripLiveLink.kt",
@@ -1308,7 +1308,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "fd27c63c91752cbd4b897fcedceb7727e8a28b5c1b7400b40eeb3193674fb06c",
+      "sha256": "ff44ec44b509683c5a782be8de546eeb15957401c4e279a6e4f83588b617cbf9",
       "lines": 7965
     },
     {
@@ -1786,6 +1786,13 @@
       "block": "B01",
       "sha256": "9da4903d9098b9aad2ff52039450185394a450df13a91870973efc4fc12997c4",
       "lines": 130
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/ActiveTripBarBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "004b15d8de18cdd2fd52ac7877ae788814b5e6b7e3db3c22a22bce4c6f44be95",
+      "lines": 205
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripBoardingCodeLoadTest.kt",

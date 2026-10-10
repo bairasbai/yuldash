@@ -9099,3 +9099,9 @@ AnimatedContent ещё держит прежний child: lifetime одного 
 При autoAdvance=false каждый ручной pump/wait сначала вызывает Snapshot.sendApplyNotifications, затем mainClock.advanceTimeBy, затем нужный Looper idle. waitForIdle в конце не гарантирует следующий кадр. Проверенный GlobalSnapshotManager использует started/sent и channel: пока sent=true, новый observer не посылает ещё одно сообщение; в тестах можно контролируемо моделировать потерю предыдущей доставки. Сохранять/восстанавливать test-only AtomicBoolean в finally; не переносить reflection в приложение.
 
 Признаки: Boolean/HTTP route wait12s и receiptcalls0. Доказательство дефекта — одна и та же потеря доставки и неизменённые критерии RED→GREEN, а не обычный удачный повтор. Для старого лога без snapshot/queue наблюдения прямо писать «Я не могу это подтвердить» о точной причине всех14. Post-failure диагностика сохраняет первичныйassert и могла влиять на последующие tests. [Критерии, результаты и остатки](audit-blocks.md#b02--ожидания-compose-и-разбор-14-сбоев-10102026).
+
+## 10.10.2026 — ID недостаточно для приватного кеша и опроса
+
+remember и effect для приватного объекта должны включать сессию; stale cached DTO нельзя оставлять при A→B. Одного pre-request isCurrentSession недостаточно: передавать captured expectedGeneration в call, чтобы вход между guard и вызовом не подставил новый bearer. После ответа проверять gen/liveID/DTO.id под коротким monitor; terminal другой DTO не очищает текущий заказ. Клик старого semantic action тоже проверяет текущую сессию/ID/onScreen.
+
+Тест refresh обязан выполнить настоящий401→refresh→повтор с новым token и сохранённымgen; saveToken меняетgen и не является refresh. Lifecycle pause уже действовал доfix; held serverdispatch не равен завершению клиента. [Критерии, версии и остатки](audit-blocks.md#b02--панель-активного-заказа-сессия-и-ответы-10102026).

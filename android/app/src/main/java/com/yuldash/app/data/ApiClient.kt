@@ -2894,8 +2894,8 @@ object ApiClient {
         }
 
     /** Детали заказа: пассажир поллит статус (searching→offered→accepted→arriving→onboard→done). */
-    suspend fun getInstantOrder(id: Int): Result<InstantOrderDto> =
-        call("GET", "/instant/orders/$id", null, auth = true).map { it.toInstantOrderDto() }
+    suspend fun getInstantOrder(id: Int, expectedGeneration: Long? = null): Result<InstantOrderDto> =
+        call("GET", "/instant/orders/$id", null, auth = true, expectedGeneration = expectedGeneration).map { it.toInstantOrderDto() }
 
     /** Активный оффер для водителя (поллинг-фолбэк к пушу). null = нет входящего заказа. */
     suspend fun getDriverOffer(): Result<InstantOrderDto?> =
