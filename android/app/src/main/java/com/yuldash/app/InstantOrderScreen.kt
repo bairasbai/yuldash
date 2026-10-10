@@ -1487,12 +1487,13 @@ internal fun InstantOrderScreen(
     readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>> = { id, generation ->
         ApiClient.getInstantShares(id, expectedGeneration = generation)
     },
+    shareOperations: InstantShareOperations = DefaultInstantShareOperations,
 ) {
     val generation by ApiClient.sessionChanges.collectAsState()
     key(generation) {
         InstantOrderContent(
             generation, onBack, onLoginRequired, embedded, onTaxiOnboarding, onOpenScheduled,
-            onSavedPlaces, payMethod, onOpenPayments, renderNativeMap, winterArmAfterMs, readShares,
+            onSavedPlaces, payMethod, onOpenPayments, renderNativeMap, winterArmAfterMs, readShares, shareOperations,
         )
     }
 }
@@ -1511,6 +1512,7 @@ private fun InstantOrderContent(
     renderNativeMap: Boolean,
     winterArmAfterMs: Long,
     readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>>,
+    shareOperations: InstantShareOperations,
 ) {
     val publisher = remember { Any() }
     DisposableEffect(generation, publisher) {
@@ -1855,6 +1857,7 @@ private fun InstantOrderContent(
                             },
                             mapContent = if (renderNativeMap) null else { modifier -> Box(modifier) },
                             readShares = readShares,
+                            shareOperations = shareOperations,
                         )
                     }
                     "expired" -> current?.let { o ->
@@ -4620,13 +4623,28 @@ internal fun InstantShareDialog(
     readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>> = { id, generation ->
         ApiClient.getInstantShares(id, expectedGeneration = generation)
     },
+    operations: InstantShareOperations = DefaultInstantShareOperations,
 ) {
     val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
     val session by ApiClient.sessionChanges.collectAsState()
     if (session != generation || !ApiClient.isCurrentSession(generation) ||
         (ownerGeneration != null && ownerGeneration != generation)) return
-    key(orderId, generation) { InstantShareContent(orderId, onDismiss, generation, isCurrentParent, readShares) }
+    key(orderId, generation) { InstantShareContent(orderId, onDismiss, generation, isCurrentParent, readShares, operations) }
 }
+
+internal class InstantShareOperations(
+    val contacts: suspend (Long) -> Result<List<com.yuldash.app.data.ContactDto>> = { generation ->
+        ApiClient.getContacts(expectedGeneration = generation)
+    },
+    val create: suspend (Int, Int, Long) -> Result<com.yuldash.app.data.TripShareDto?> = { id, contact, generation ->
+        ApiClient.shareInstantTrip(id, contact, expectedGeneration = generation)
+    },
+    val revoke: suspend (Int, Int, Long) -> Result<Unit> = { id, share, generation ->
+        ApiClient.revokeInstantShare(id, share, expectedGeneration = generation)
+    },
+)
+
+internal val DefaultInstantShareOperations = InstantShareOperations()
 
 private data class PendingInstantShareMutation(
     val contactId: Int? = null,
@@ -4641,6 +4659,7 @@ private fun InstantShareContent(
     generation: Long,
     isCurrentParent: () -> Boolean,
     readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>>,
+    operations: InstantShareOperations,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -4657,12 +4676,16 @@ private fun InstantShareContent(
     val readerState = remember { mutableStateOf(readShares, referentialEqualityPolicy()) }
     readerState.value = readShares
     val currentReadShares by readerState
+    val currentOperations by rememberUpdatedState(operations)
     val dismiss by rememberUpdatedState(onDismiss)
     var closed by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     fun isCurrent() = scope.isActive && !closed && ApiClient.isCurrentSession(generation) && currentParent()
     fun commit(action: () -> Unit) { ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() } }
+    fun commitContext(revision: Long, action: () -> Unit) {
+        commit { if (parentContext.revision == revision) action() }
+    }
     fun close() { commit { closed = true; dismiss() } }
     var contacts by remember { mutableStateOf<List<com.yuldash.app.data.ContactDto>?>(null) }
     var loadError by remember { mutableStateOf(false) }
@@ -4706,22 +4729,36 @@ private fun InstantShareContent(
         }
     }
     fun clearBusy() { ApiClient.runIfCurrentSession(generation) { if (scope.isActive) busy = false } }
+    fun retireUnsent(attempt: PendingInstantShareMutation) {
+        // Only call before entering the operation: no server result is unknown yet.
+        ApiClient.runIfCurrentSession(generation) {
+            if (scope.isActive && pending === attempt) pending = null
+        }
+    }
     fun retryPending() {
         var attempt: PendingInstantShareMutation? = null
         commit { if (!busy && !loading && pending != null) { busy = true; attempt = pending } }
         attempt?.let { current -> scope.launch { try { recheck(current) } finally { clearBusy() } } }
     }
+    fun retireLoad() {
+        // Clearing private data is safe even while the mounted parent's lease is absent.
+        ApiClient.runIfCurrentSession(generation) {
+            if (scope.isActive && !closed) { contacts = emptyList(); loadError = true; loading = false }
+        }
+    }
     LaunchedEffect(contactsTick) {
         if (!isCurrent()) return@LaunchedEffect
+        val parentRevision = parentContext.revision
         commit { loading = true; contacts = null; loadError = false }
-        val loaded = ApiClient.getContacts(expectedGeneration = generation)
-        if (!isCurrent()) return@LaunchedEffect
+        val loaded = currentOperations.contacts(generation)
+        if (!isCurrent() || parentContext.revision != parentRevision) { retireLoad(); return@LaunchedEffect }
         if (loaded.isFailure) {
             commit { loadError = true; contacts = emptyList(); loading = false }
             return@LaunchedEffect
         }
         val shares = currentReadShares(orderId, generation)
-        commit {
+        if (!isCurrent() || parentContext.revision != parentRevision) { retireLoad(); return@LaunchedEffect }
+        commitContext(parentRevision) {
             contacts = loaded.getOrThrow()
             shares.onSuccess { activeShares = it }.onFailure { loadError = true }
             loading = false
@@ -4773,15 +4810,22 @@ private fun InstantShareContent(
                             Row(
                                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
                                     .clickable(enabled = !busy && !loading && !loadError && pending == null) {
-                                        var accepted = false
-                                        commit { if (!busy && !loading && !loadError && pending == null && liveLink == null && contacts?.contains(c) == true) { busy = true; accepted = true } }
-                                        if (accepted) scope.launch {
+                                        var attempt: PendingInstantShareMutation? = null
+                                        var parentRevision = 0L
+                                        commit { if (!busy && !loading && !loadError && pending == null && liveLink == null && contacts?.contains(c) == true) {
+                                            busy = true; parentRevision = parentContext.revision
+                                            attempt = PendingInstantShareMutation(contactId = c.id, error = java.io.IOException())
+                                            pending = attempt
+                                        } }
+                                        attempt?.let { current -> scope.launch {
                                             try {
-                                            if (!isCurrent()) return@launch
-                                            ApiClient.shareInstantTrip(orderId, c.id, expectedGeneration = generation)
+                                            if (!isCurrent() || parentContext.revision != parentRevision || pending !== current) { retireUnsent(current); return@launch }
+                                            currentOperations.create(orderId, c.id, generation)
                                                 .onSuccess { share ->
-                                                    commit {
+                                                    commitContext(parentRevision) {
+                                                        if (pending !== current) return@commitContext
                                                         if (share == null || share.contactId == c.id) {
+                                                            pending = null
                                                             Toast.makeText(ctx, "$sharedMsg: ${c.name}", Toast.LENGTH_SHORT).show()
                                                             if (share != null) {
                                                                 activeShares = activeShares.filterNot { it.id == share.id } + share
@@ -4791,12 +4835,12 @@ private fun InstantShareContent(
                                                     }
                                                 }
                                                 .onFailure {
-                                                    val attempt = PendingInstantShareMutation(contactId = c.id, error = it)
-                                                    commit { pending = attempt }
-                                                    recheck(attempt)
+                                                    val failed = current.copy(error = it)
+                                                    commitContext(parentRevision) { if (pending === current) pending = failed }
+                                                    recheck(failed)
                                                 }
                                             } finally { clearBusy() }
-                                        }
+                                        } }
                                     }
                                     .padding(horizontal = 8.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -4823,26 +4867,33 @@ private fun InstantShareContent(
                             Spacer(Modifier.width(8.dp))
                             Text(name, color = CanonText, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1)
                             TextButton(enabled = !busy && !loading && !loadError && pending == null, onClick = {
-                                var accepted = false
-                                commit { if (!busy && !loading && !loadError && pending == null && activeShares.contains(share)) { busy = true; accepted = true } }
-                                if (accepted) scope.launch {
+                                var attempt: PendingInstantShareMutation? = null
+                                var parentRevision = 0L
+                                commit { if (!busy && !loading && !loadError && pending == null && activeShares.contains(share)) {
+                                    busy = true; parentRevision = parentContext.revision
+                                    attempt = PendingInstantShareMutation(share = share, error = java.io.IOException())
+                                    pending = attempt
+                                } }
+                                attempt?.let { current -> scope.launch {
                                     try {
-                                        if (!isCurrent()) return@launch
-                                        ApiClient.revokeInstantShare(orderId, share.id, expectedGeneration = generation)
+                                        if (!isCurrent() || parentContext.revision != parentRevision || pending !== current) { retireUnsent(current); return@launch }
+                                        currentOperations.revoke(orderId, share.id, generation)
                                         .onSuccess {
-                                            commit {
+                                            commitContext(parentRevision) {
+                                                if (pending !== current) return@commitContext
+                                                pending = null
                                                 activeShares = activeShares.filterNot { it.id == share.id }
                                                 if (liveLink == share.link) liveLink = null
                                                 Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                         .onFailure {
-                                            val attempt = PendingInstantShareMutation(share = share, error = it)
-                                            commit { pending = attempt }
-                                            recheck(attempt)
+                                            val failed = current.copy(error = it)
+                                            commitContext(parentRevision) { if (pending === current) pending = failed }
+                                            recheck(failed)
                                         }
                                     } finally { clearBusy() }
-                                }
+                                } }
                             }, modifier = Modifier.heightIn(min = 48.dp)) {
                                 Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }

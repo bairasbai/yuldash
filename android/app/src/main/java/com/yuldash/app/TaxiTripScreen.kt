@@ -140,6 +140,7 @@ internal fun TaxiTripScreen(
     readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>> = { id, generation ->
         ApiClient.getInstantShares(id, expectedGeneration = generation)
     },
+    shareOperations: InstantShareOperations = DefaultInstantShareOperations,
 ) {
     val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
     val session by ApiClient.sessionChanges.collectAsState()
@@ -147,7 +148,7 @@ internal fun TaxiTripScreen(
         (ownerGeneration != null && ownerGeneration != generation)) return
     key(order.id, generation) {
         TaxiTripContent(order, onCancel, onOrderUpdated, onMinimize, enableLiveTracking,
-            onOpenPayments, mapContent, generation, isCurrentParent, readShares)
+            onOpenPayments, mapContent, generation, isCurrentParent, readShares, shareOperations)
     }
 }
 
@@ -163,6 +164,7 @@ private fun TaxiTripContent(
     generation: Long,
     isCurrentParent: () -> Boolean,
     readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>>,
+    shareOperations: InstantShareOperations,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -443,7 +445,8 @@ private fun TaxiTripContent(
     }
     if (showShare) {
         InstantShareDialog(orderId = order.id, onDismiss = { commit { showShare = false } },
-            ownerGeneration = generation, isCurrentParent = { isCurrentAction() && showShare }, readShares = readShares)
+            ownerGeneration = generation, isCurrentParent = { isCurrentAction() && showShare }, readShares = readShares,
+            operations = shareOperations)
     }
     if (confirmPaidCancel) {
         TripPaidCancelDialog(

@@ -4537,3 +4537,8 @@ TaxiTripScreen принимает последним необязательны�
 ## B02 — ссылка и владелец внешнего экрана заказа, 11.10.2026
 
 InstantOrderScreen optional readShares default real ApiClient проходит через InstantOrderContent в настоящий TaxiTripScreen; production parent/lease/DTO/currentTrip gates прежние. Новый InstantOrderShareCallerTest24 открывает весь локальный caller из actual GETmine. Legacy debug148, main declaration/comment; source trace не execution release. 1009 различных ID = 985 сохранённых + 24 новых; 72 класса, 0 отказов/ошибок/пропусков/устаревших XML, 609.063 с, 96 отпечатков исходников. Собраны оба debug APK. Повторы не увеличивают число различных проверок. [Границы](audit-blocks.md#b02--ссылка-и-владелец-внешнего-экрана-заказа-11102026).
+
+
+## B02 — начальная загрузка и удержанные операции ссылки, 11.10.2026
+
+InstantShareOperations — optional immutable contacts/create/revoke callbacks, default real ApiClient/generation; screen→content→TaxiTrip→Dialog. readShares прежний. Initial load/POST/DELETE теперь снимают parentContext revision; retirement load→error/retry, mutation unknown pending создаётся до отправки; отвергнутый preflight до operation снимает только свою pending. Fresh retry только GET, ordinary DTO сохраняет guards. 1047 различных ID = 1009 сохранённых + 38 новых; 73 класса, 0 отказов/ошибок/пропусков/устаревших XML, 683.891 с, 97 отпечатков исходников. Собраны оба debug APK. Повторы не увеличивают число различных проверок. [Границы](audit-blocks.md#b02--начальная-загрузка-и-удержанные-операции-ссылки-11102026).
