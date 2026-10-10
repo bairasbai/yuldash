@@ -114,6 +114,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.referentialEqualityPolicy
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -4619,11 +4620,19 @@ internal fun InstantShareDialog(
     key(orderId, generation) { InstantShareContent(orderId, onDismiss, generation, isCurrentParent) }
 }
 
+private data class PendingInstantShareMutation(
+    val contactId: Int? = null,
+    val share: com.yuldash.app.data.TripShareDto? = null,
+    val error: Throwable,
+)
+
 @Composable
 private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation: Long, isCurrentParent: () -> Boolean) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val currentParent by rememberUpdatedState(isCurrentParent)
+    val parentState = remember { mutableStateOf(isCurrentParent, referentialEqualityPolicy()) }
+    parentState.value = isCurrentParent
+    val currentParent by parentState
     val dismiss by rememberUpdatedState(onDismiss)
     var closed by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -4639,9 +4648,44 @@ private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation:
     var liveLink by remember { mutableStateOf<String?>(null) }   // ссылка после share (B7c)
     // Приватность: активные ссылки этого заказа (сервер отдаёт GET shares) + отозвать.
     var activeShares by remember { mutableStateOf<List<com.yuldash.app.data.TripShareDto>>(emptyList()) }
+    var pending by remember { mutableStateOf<PendingInstantShareMutation?>(null) }
     val sharedMsg = appText("Близкий получит SMS о поездке", "Яҡын кеше сәфәр тураһында SMS алыр")
     val shareFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
     val revokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
+    // A failed mutation may already be committed. Read the full list before allowing another action.
+    suspend fun recheck(attempt: PendingInstantShareMutation) {
+        if (!isCurrent() || pending !== attempt) return
+        val fresh = ApiClient.getInstantShares(orderId, expectedGeneration = generation)
+        commit {
+            if (pending !== attempt) return@commit
+            fresh.onSuccess { shares ->
+                activeShares = shares
+                if (liveLink != null && shares.none { it.link == liveLink }) liveLink = null
+                pending = null
+                if (attempt.contactId != null) {
+                    val stored = shares.firstOrNull { it.contactId == attempt.contactId }
+                    if (stored != null) {
+                        // Existence does not prove SMS delivery; do not show the normal SMS toast.
+                        liveLink = stored.link
+                    } else {
+                        Toast.makeText(ctx, serverSaid(attempt.error, shareFailMsg), Toast.LENGTH_LONG).show()
+                        close()
+                    }
+                } else if (shares.none { it.id == attempt.share?.id }) {
+                    Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(ctx, serverSaid(attempt.error, shareFailMsg), Toast.LENGTH_LONG).show()
+                }
+            }
+            // Failed/schema-invalid GET keeps the pending state and retires all stale actions.
+        }
+    }
+    fun clearBusy() { ApiClient.runIfCurrentSession(generation) { if (scope.isActive) busy = false } }
+    fun retryPending() {
+        var attempt: PendingInstantShareMutation? = null
+        commit { if (!busy && !loading && pending != null) { busy = true; attempt = pending } }
+        attempt?.let { current -> scope.launch { try { recheck(current) } finally { clearBusy() } } }
+    }
     LaunchedEffect(contactsTick) {
         if (!isCurrent()) return@LaunchedEffect
         commit { loading = true; contacts = null; loadError = false }
@@ -4674,8 +4718,16 @@ private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation:
             val link = liveLink
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 when {
+                    pending != null -> {
+                        if (busy) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
+                        else AppErrorState(
+                            onRetry = ::retryPending,
+                            title = appText("Не удалось проверить ссылку", "Һылтанманы тикшереп булманы"),
+                            text = appText("Доступ мог измениться. Повтори проверку перед новым действием.", "Инеү мөмкинлеге үҙгәргән булыуы мөмкин. Яңы ғәмәл алдынан ҡабат тикшер."),
+                        )
+                    }
                     link != null -> LiveLinkCard(link, ownerGeneration = generation,
-                        isCurrentParent = { isCurrent() && !busy && liveLink == link && activeShares.any { it.link == link } })
+                        isCurrentParent = { isCurrent() && !busy && !loading && !loadError && pending == null && liveLink == link && activeShares.any { it.link == link } })
                     list == null -> Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
                         Spacer(Modifier.width(8.dp))
@@ -4695,12 +4747,12 @@ private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation:
                         list.forEach { c ->
                             Row(
                                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                                    .clickable(enabled = !busy && !loading) {
+                                    .clickable(enabled = !busy && !loading && !loadError && pending == null) {
                                         var accepted = false
-                                        commit { if (!busy && !loading && liveLink == null && contacts?.contains(c) == true) { busy = true; accepted = true } }
+                                        commit { if (!busy && !loading && !loadError && pending == null && liveLink == null && contacts?.contains(c) == true) { busy = true; accepted = true } }
                                         if (accepted) scope.launch {
-                                            if (!isCurrent()) return@launch
                                             try {
+                                            if (!isCurrent()) return@launch
                                             ApiClient.shareInstantTrip(orderId, c.id, expectedGeneration = generation)
                                                 .onSuccess { share ->
                                                     commit {
@@ -4714,12 +4766,11 @@ private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation:
                                                     }
                                                 }
                                                 .onFailure {
-                                                    commit {
-                                                        Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show()
-                                                        close()
-                                                    }
+                                                    val attempt = PendingInstantShareMutation(contactId = c.id, error = it)
+                                                    commit { pending = attempt }
+                                                    recheck(attempt)
                                                 }
-                                            } finally { commit { busy = false } }
+                                            } finally { clearBusy() }
                                         }
                                     }
                                     .padding(horizontal = 8.dp, vertical = 12.dp),
@@ -4736,7 +4787,7 @@ private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation:
                     }
                 }
                 // Приватность (B7c): активные ссылки заказа + «Отозвать» (сгорит /t/{token}, SMS-статусы стоп).
-                if (activeShares.isNotEmpty()) {
+                if (!loadError && pending == null && activeShares.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
                     Text(appText("Активные ссылки", "Әүҙем һылтанмалар"), color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     activeShares.forEach { share ->
@@ -4746,12 +4797,12 @@ private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation:
                             Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(name, color = CanonText, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                            TextButton(enabled = !busy && !loading, onClick = {
+                            TextButton(enabled = !busy && !loading && !loadError && pending == null, onClick = {
                                 var accepted = false
-                                commit { if (!busy && !loading && activeShares.contains(share)) { busy = true; accepted = true } }
+                                commit { if (!busy && !loading && !loadError && pending == null && activeShares.contains(share)) { busy = true; accepted = true } }
                                 if (accepted) scope.launch {
-                                    if (!isCurrent()) return@launch
                                     try {
+                                        if (!isCurrent()) return@launch
                                         ApiClient.revokeInstantShare(orderId, share.id, expectedGeneration = generation)
                                         .onSuccess {
                                             commit {
@@ -4760,8 +4811,12 @@ private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation:
                                                 Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
                                             }
                                         }
-                                        .onFailure { commit { Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show() } }
-                                    } finally { commit { busy = false } }
+                                        .onFailure {
+                                            val attempt = PendingInstantShareMutation(share = share, error = it)
+                                            commit { pending = attempt }
+                                            recheck(attempt)
+                                        }
+                                    } finally { clearBusy() }
                                 }
                             }, modifier = Modifier.heightIn(min = 48.dp)) {
                                 Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -4772,7 +4827,7 @@ private fun InstantShareContent(orderId: Int, onDismiss: () -> Unit, generation:
             }
         },
         confirmButton = {
-            if (shownLink != null) TextButton(enabled = !busy, onClick = { commit { if (!busy && liveLink == shownLink) liveLink = null } }) {
+            if (shownLink != null && pending == null && !loadError) TextButton(enabled = !busy, onClick = { commit { if (!busy && !loading && pending == null && !loadError && liveLink == shownLink) liveLink = null } }) {
                 Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
             }
         },

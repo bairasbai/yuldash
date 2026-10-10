@@ -2180,14 +2180,38 @@ object ApiClient {
 
     /** Активные шаринги такси-заказа (пассажиру — «уже поделился с …» + отозвать). */
     suspend fun getInstantShares(orderId: Int, expectedGeneration: Long? = null): Result<List<TripShareDto>> =
-        call("GET", "/instant/orders/$orderId/shares", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
-            val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).mapNotNull { parseTripShare(arr.getJSONObject(it)) }
+        call("GET", "/instant/orders/$orderId/shares", null, auth = true, expectedGeneration = expectedGeneration).mapCatching { obj ->
+            // Missing/malformed rows cannot establish that a previous share was revoked.
+            val arr = obj.getJSONArray("items")
+            val shares = (0 until arr.length()).map { index ->
+                val row = arr.getJSONObject(index)
+                requirePositiveShareId(row, "id")
+                requirePositiveShareId(row, "contact_id")
+                if (row.has("order_id")) require(requirePositiveShareId(row, "order_id") == orderId)
+                require(!row.has("booking_id") || row.isNull("booking_id"))
+                require(!row.has("parcel_id") || row.isNull("parcel_id"))
+                require(!row.has("token") || row.isNull("token") || row.get("token") is String)
+                val share = requireNotNull(parseTripShare(row))
+                if (row.isNull("token")) share.copy(link = null) else share
+            }
+            require(shares.map { it.id }.distinct().size == shares.size)
+            shares
         }
+
+    private fun requirePositiveShareId(row: JSONObject, field: String): Int {
+        val value = row.get(field)
+        require(value is Number)
+        val id = value.toLong()
+        require(id in 1..Int.MAX_VALUE.toLong() && value.toDouble() == id.toDouble())
+        return id.toInt()
+    }
 
     /** Отозвать шаринг такси-заказа (B7c). */
     suspend fun revokeInstantShare(orderId: Int, shareId: Int, expectedGeneration: Long? = null): Result<Unit> =
-        call("DELETE", "/instant/orders/$orderId/share/$shareId", null, auth = true, expectedGeneration = expectedGeneration).map { }
+        call("DELETE", "/instant/orders/$orderId/share/$shareId", null, auth = true, expectedGeneration = expectedGeneration).mapCatching {
+            // Missing ok remains compatible with old servers; an explicit false is not success.
+            require(!it.has("ok") || it.get("ok") == true)
+        }
             .onSuccess { Analytics.log("revoke_share") }
 
     /** Разбор TripShare с сервера → id/contact_id/token + готовый live-URL (или null, старый сервер). */

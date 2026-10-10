@@ -4507,3 +4507,8 @@ TaxiReceipt: owner wrapper/sessionChanges + child key(order,generation); matchin
 ## B02 — зимний вопрос: владелец, таймер и подтверждение, 10.10.2026
 
 WinterProtocol: watcher latest params +captured owner/target/lifecycle; server-state aware retry; dialog keyed opening with async Result and current/busy/closed guards.6API expectedGeneration; Taxi own per-ID start/state +currentTrip/publisher, Booking known passenger status, Courier active selection. [Доказательства/границы](audit-blocks.md#b02--зимний-вопрос-владелец-таймер-и-подтверждение-10102026).
+
+
+## B02 — сверка ссылки после потерянного ответа, 10.10.2026
+
+InstantShareDialog: pending failed mutation → full GET reconciliation; unknown state retires contact/revoke/clipboard/chooser actions; retry GET only. Captured generation/parent/child scope gate before and after request; queued early return clearsbusy infinally. ApiClient.getInstantShares validates full list/IDs/instant namespace; explicitfalse revoke ACK fails. [Версии/границы](audit-blocks.md#b02--сверка-ссылки-после-потерянного-ответа-10102026).

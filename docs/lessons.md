@@ -9146,3 +9146,8 @@ Native WRAP_CONTENT Dialog/TextField в Robolectric может бесконеч�
 ## B02 — зимний вопрос: владелец, таймер и подтверждение, 10.10.2026
 
 LaunchedEffect(key) сохраняет closures первого render. Local function references могут сравниваться равными при разных captures: callback holders используют referentialEqualityPolicy; сроки/state refs обновляются через rememberUpdatedState. Server returned перед MockResponse не client join: тест observes callback return/cancel finally и UI application. Root finished publication надо проверять отдельно от screen publisher. busy cleanup своей scope вfinally даже если parent predicate временно false; fullABA отдельно. [Воспроизведения](audit-blocks.md#b02--зимний-вопрос-владелец-таймер-и-подтверждение-10102026).
+
+
+## B02 — сверка ссылки после потерянного ответа, 10.10.2026
+
+Не превращать malformed/missing list в empty: это ложно подтверждает отзыв доступа. Ранний queued return должен быть внутриtry/finally, иначеbusy остаётся после временного parent retirement. Server handler return+boundedpump не join клиента и не доказательство отмены; точный lateheldGET boundary проверяется отдельным этапом. [RED/GREEN и ограничения](audit-blocks.md#b02--сверка-ссылки-после-потерянного-ответа-10102026).

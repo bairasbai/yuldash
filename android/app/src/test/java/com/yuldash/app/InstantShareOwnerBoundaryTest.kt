@@ -48,6 +48,8 @@ abstract class ShareHelpBoundaryHarness {
     protected var nullShare = false
     protected var failContacts = false
     protected var failMutation = false
+    protected var sharesResponse: String? = null
+    protected open fun customResponse(request: RecordedRequest, path: String): MockResponse? = null
     protected val started = CountDownLatch(1)
     protected val release = CountDownLatch(1)
     private val returned = CountDownLatch(1)
@@ -65,9 +67,10 @@ abstract class ShareHelpBoundaryHarness {
                     val p = q.requestUrl!!.encodedPath
                     records += listOf(q.method, p, q.getHeader("Authorization"), q.body.readUtf8())
                     if (p == holdPath) { started.countDown(); assertTrue(release.await(35, TimeUnit.SECONDS)); returned.countDown() }
+                    customResponse(q, p)?.let { return it }
                     val response = when {
                         p == "/trusted-contacts" -> if (failContacts) "{}" else """{"items":[{"id":7,"name":"Контакт А","relation":"Синтетический","phone":"+70000000007"}]}"""
-                        p.endsWith("/shares") -> """{"items":[]}"""
+                        p.endsWith("/shares") -> sharesResponse ?: """{"items":[]}"""
                         p.endsWith("/share") -> if (nullShare) "{}" else {
                             val n = if (rotateLink) records.count { it[0] == "POST" && it[1]!!.endsWith("/share") } else 0
                             """{"id":${501 + n},"contact_id":${if (wrongContact) 8 else 7},"token":"synthetic-share${if (rotateLink) "-$n" else ""}"}"""
@@ -161,7 +164,7 @@ class InstantShareOwnerBoundaryTest : ShareHelpBoundaryHarness() {
     @Test fun currentRevokeRetiresLinkAndRetainedRoutes() { shareAndLink(); val copy = text("Скопировать"); val send = text("Отправить"); click("Отозвать"); await { count("DELETE", "/share/501") == 1 }; pump(1500); compose.runOnIdle { dispatch(copy); dispatch(send) }; pump(); assertFalse(clipboard.hasPrimaryClip()); assertNull(Shadows.shadowOf(app).nextStartedActivity); assertTrue(compose.onAllNodesWithText("Скопировать").fetchSemanticsNodes().isEmpty()) }
     @Test fun duplicateRevokeWhileHeldSendsOnce() { shareAndLink(); holdPath = "/instant/orders/91/share/501"; val a = text("Отозвать"); compose.runOnIdle { dispatch(a); dispatch(a) }; await { started.count == 0L }; pump(); assertEquals(1, count("DELETE", "/share/501")); finishHeld() }
     @Test fun oldRevokeCannotUseNextAccount() { shareAndLink(); changeOwner(text("Отозвать")); assertEquals(0, count("DELETE", "/share/501")) }
-    @Test fun currentRevokeErrorPreservesLinkAndCanRetry() { shareAndLink(); ShadowToast.reset(); failMutation = true; click("Отозвать"); await { ShadowToast.getTextOfLatestToast() != null }; assertTrue(compose.onAllNodesWithText("Скопировать").fetchSemanticsNodes().isNotEmpty()); failMutation = false; click("Отозвать"); await { count("DELETE", "/share/501") == 2 }; pump(1000); assertTrue(compose.onAllNodesWithText("Скопировать").fetchSemanticsNodes().isEmpty()) }
+    @Test fun currentRevokeErrorPreservesLinkAndCanRetry() { shareAndLink(); sharesResponse = """{"items":[{"id":501,"contact_id":7,"token":"synthetic-share"}]}"""; ShadowToast.reset(); failMutation = true; click("Отозвать"); await { ShadowToast.getTextOfLatestToast() != null }; assertTrue(compose.onAllNodesWithText("Скопировать").fetchSemanticsNodes().isNotEmpty()); failMutation = false; click("Отозвать"); await { count("DELETE", "/share/501") == 2 }; pump(1000); assertTrue(compose.onAllNodesWithText("Скопировать").fetchSemanticsNodes().isEmpty()) }
     @Test fun oldRetryCannotFetchForNextAccount() { failContacts = true; mountShare(); val a = text("Повторить"); val before = count("GET", "/trusted-contacts"); changeOwner(a); assertEquals(before, count("GET", "/trusted-contacts")) }
     @Test fun standaloneLinkCannotCopyOrRouteForNextOwner() { mountLink(); val copy = text("Скопировать"); val send = text("Отправить"); compose.runOnIdle { ApiClient.saveToken(tokenB); dispatch(copy); dispatch(send) }; pump(); assertFalse(clipboard.hasPrimaryClip()); assertNull(Shadows.shadowOf(app).nextStartedActivity) }
     @Test fun previousLinkCannotCopyAfterReplacement() { mountLink(); val copy = text("Скопировать"); compose.runOnIdle { link.value = "https://example.invalid/t/synthetic-b" }; pump(); compose.runOnIdle { dispatch(copy) }; pump(); assertFalse(clipboard.hasPrimaryClip()) }
