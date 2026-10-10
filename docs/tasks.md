@@ -17768,3 +17768,22 @@ Final498/498=42new+15revised+441retained,44classes/обаAPK. Missing-recipient 
 ### Результат этапа Home→InstantOrder
 
 Перечисленные локальные10 критериев прошли; 659 различных ID = 649 сохранённых + 10 новых; 59 классов, 0 отказов/ошибок/пропусков/устаревших XML, 370.984 с, 72 отпечатков исходников, оба debug APK. Повторные RED/GREEN не прибавляются к числу уникальных проверок. [Проверяемые доказательства и остатки](audit-blocks.md#b02--сохранённый-переход-из-полоски-такси-10102026). План реализации выполнен; до сообщения о GitHub отдельно проверяем scoped review, staged tree, main и remote. Новых переводов нет. Следующий независимый пункт: личные callbacks InstantOrder при смене входа (создание/отмена/оплата), затем оставшаяся native/device/provider матрица. B02/релиз не закрыты.
+
+
+## B02 — создание, отмена и онлайн-оплата такси (10.10.2026)
+
+План от опубликованного a1d07d0a; продолжаем разрешённые аудит, собственный коммит, main/push.
+1. Воспроизвести действия настоящих picker/cancel dialog/PayOnlineCard после смены входа, повтор/закрытие/поздний ответ; проверить границы текущего order/payment ID.
+2. Исправить подтверждённые причины минимально: текущий owner/lease/scope перед запуском, захваченное поколение в API, current owner/ID перед применением ответа и побочным recent/browser/gate действием. Сохранить valid same-owner поведение, default API callers, тексты/стиль/версии.
+3. Затронутые проверки, одна итоговая интеграция из-за изменений общего API/payment component, оба debug APK, обновление реестра/мозга/инвентаризации, scoped независимое ревью, собственная доставка без чужих40.
+
+Замок реализации снят после единственной итоговой сборки; root последовательно выполняет scoped review и собственную Git-доставку. Зона: InstantOrderScreen.kt, PayOnlineCard.kt, data/ApiClient.kt; PayOnlineCard bindings в трёх экранах; дополнительно TaxiReceipt стабильный paymentOwner передан через private TaxiAfterRideActions. Новые TaxiOrderActionBoundaryTest.kt/PayOnlineOwnerBoundaryTest.kt; docs/реестр/инвентаризация; единственная сборка — root. MainActivity/mobile/production/настоящие провайдеры не трогаем. Дополнительный агент только read-only по точному заданию. Всё B02/релиз и реальные устройства/платежи этим планом не закрываются.
+
+10.10.2026 — новый integration отказ688/1: scoped замок root дополнительно на RideshareCompletedRestorationTest.kt, только последний auth oracle одного testcase. Его payload/draft/restore assertions сохраняем; публичный GET /health отделяем от личных запросов и проверяем отсутствие Bearer. Scope17own=6product+2newtests+1revisedtest+8brain; число уникальных688 не растёт от targeted/full repeats. Pre-correction fixture и first final сохранены; targeted restoration class и final-v2 после нового сбоя, без изменений продукта.
+
+
+### Локальный результат taxi/create/cancel/pay
+
+689 различных ID = 659 сохранённых + 30 новых; 61 класс, 0 отказов/ошибок/пропусков/устаревших XML, 406.437 с, 78 отпечатков исходников и оба debug APK. Повторные прогоны не увеличивают число уникальных проверок. [Критерии, фактические версии, RED/fixture оговорки и остатки](audit-blocks.md#b02--создание-предзаказ-отмена-и-онлайн-оплата-10102026). Новых текстов/BA drafts нет. Root один writer docs/inventory/Git до независимой приёмки/own commit/FFmain/push по продолжающемуся поручению;40foreign сохраняются. Следующие независимые пункты: другие TaxiTrip/TaxiReceipt личные действия. B02/релиз не закрыты.
+
+10.10.2026 — final review finding Paid reset воспроизведён RED1/1 (expected1/actual2 POST); исправлены3stage predicates. GREEN30 и final689/обаAPK прошли, исходный test не менялся. Прежние194raw+own bytes сохранены203copies, checkpoint-v1 исторический. Замок реализации снят; root один docs/inventory/Git writer до приёмки checkpoint-v2 и собственной доставки. Own17, foreign40, следующий пункт other TaxiTrip/receipt actions; весьB02/релиз открыт.

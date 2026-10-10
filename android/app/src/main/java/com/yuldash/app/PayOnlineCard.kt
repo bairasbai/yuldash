@@ -29,6 +29,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,12 +47,13 @@ import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.PayTripResultDto
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
  * «Оплатить онлайн» — оплата ЗАВЕРШЁННОЙ поездки картой/СБП через ЮKassa (за флагом провайдера).
- * Переиспользуемая карточка: бронь → pay = { m -> ApiClient.payBooking(id, m) },
- * быстрый заказ → pay = { m -> ApiClient.payInstantOrder(id, m) }.
+ * Переиспользуемая карточка: бронь → pay = { m, owner -> ApiClient.payBooking(id, m, owner) },
+ * быстрый заказ → pay = { m, owner -> ApiClient.payInstantOrder(id, m, owner) }.
  *
  * ЧЕСТНОСТЬ: сервер — источник правды. Провайдер выключен (mock в проде) → сервер отвечает 503,
  * мы запоминаем это на сессию ([OnlinePayGate]) и карточка исчезает везде — никаких кнопок-обманок.
@@ -58,7 +61,12 @@ import kotlinx.coroutines.launch
  * Онлайн-оплата ДОПОЛНЯЕТ «договорённость об оплате» (PayAgreementBlock), не заменяет её.
  */
 internal object OnlinePayGate {
-    /** true после первого 503 от /pay — онлайн-оплата ещё не включена (до перезапуска приложения). */
+    private var generation by mutableStateOf<Long?>(null)
+    fun ensureOwner(owner: Long) {
+        if (generation != owner) { generation = owner; asked = false; unavailable = false }
+    }
+    fun unavailableFor(owner: Long): Boolean = generation == owner && unavailable
+    /** true после первого 503 от /pay для текущего владельца входа. */
     var unavailable by mutableStateOf(false)
     /** Спрашивали ли уже сервер, включена ли онлайн-оплата (один раз на сессию). */
     var asked by mutableStateOf(false)
@@ -74,21 +82,45 @@ private enum class PayOnlineStage { Idle, Waiting, Paid }
 @Composable
 internal fun PayOnlineCard(
     amountKop: Int?,
-    pay: suspend (String) -> Result<PayTripResultDto>,
+    pay: suspend (String, Long) -> Result<PayTripResultDto>,
     modifier: Modifier = Modifier,
+    targetKey: String = "",
+    ownerGeneration: Long? = null,
 ) {
-    // Спрашиваем сервер ДО показа кнопки: раньше карточка появлялась всегда и пряталась
-    // только после первого нажатия, ответившего «нельзя». Один впустую нажатый платёж за
-    // сессию — мелочь, но именно на ней человек решает, можно ли верить кнопкам вообще.
-    LaunchedEffect(Unit) {
-        if (!OnlinePayGate.asked) {
-            OnlinePayGate.asked = true
-            ApiClient.paymentsOnlineEnabled().onSuccess { OnlinePayGate.unavailable = !it }
-        }
-    }
-    if (OnlinePayGate.unavailable) return
+    // Захватываем владельца до любого conditional return. Смена входа скрывает старую
+    // карточку, а не перепривязывает прежний заказ к новому аккаунту.
+    val owner = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != owner || !ApiClient.isCurrentSession(owner) ||
+        (ownerGeneration != null && ownerGeneration != owner)) return
+    key(targetKey, owner) { PayOnlineOwnedCard(amountKop, pay, modifier, owner) }
+}
+
+@Composable
+private fun PayOnlineOwnedCard(
+    amountKop: Int?,
+    pay: suspend (String, Long) -> Result<PayTripResultDto>,
+    modifier: Modifier,
+    generation: Long,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation)
+    fun commit(action: () -> Unit) {
+        ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() }
+    }
+    LaunchedEffect(generation) {
+        var ask = false
+        commit {
+            OnlinePayGate.ensureOwner(generation)
+            if (!OnlinePayGate.asked) { OnlinePayGate.asked = true; ask = true }
+        }
+        if (ask) ApiClient.paymentsOnlineEnabled(expectedGeneration = generation).onSuccess { enabled ->
+            commit { OnlinePayGate.unavailable = OnlinePayGate.unavailable || !enabled }
+        }
+    }
+    if (OnlinePayGate.unavailableFor(generation)) return
 
     var stage by remember { mutableStateOf(PayOnlineStage.Idle) }
     var method by remember { mutableStateOf("card") }   // card | sbp
@@ -106,11 +138,12 @@ internal fun PayOnlineCard(
     )
 
     fun startPay() {
-        if (busy) return
+        if (!isCurrent() || stage != PayOnlineStage.Idle || busy || OnlinePayGate.unavailableFor(generation)) return
         busy = true
         scope.launch {
-            pay(method)
-                .onSuccess { res ->
+            if (!isCurrent()) return@launch
+            pay(method, generation)
+                .onSuccess { res -> commit {
                     busy = false
                     res.paymentId?.let { paymentId = it }
                     when {
@@ -121,8 +154,8 @@ internal fun PayOnlineCard(
                         }
                         else -> stage = PayOnlineStage.Waiting
                     }
-                }
-                .onFailure { e ->
+                } }
+                .onFailure { e -> commit {
                     busy = false
                     if (e is ApiException && e.status == 503) {
                         // Сервер честно сказал «ещё нельзя» → прячем карточку на всю сессию.
@@ -132,23 +165,26 @@ internal fun PayOnlineCard(
                         val msg = if (e is ApiException) (e.message ?: errMsg) else errMsg
                         Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                     }
-                }
+                } }
         }
     }
 
     fun checkPayment() {
-        if (busy) return
+        if (!isCurrent() || stage != PayOnlineStage.Waiting || busy || OnlinePayGate.unavailableFor(generation)) return
         val pid = paymentId ?: run { stage = PayOnlineStage.Idle; return }
         busy = true
         scope.launch {
             // Тот же механизм, что у Boost: сервер при pending сам перепроверяет оплату у ЮKassa.
-            ApiClient.getPaymentStatus(pid)
-                .onSuccess { st ->
-                    busy = false
-                    if (st.status == "succeeded") stage = PayOnlineStage.Paid
-                    else Toast.makeText(context, notYetMsg, Toast.LENGTH_SHORT).show()
-                }
-                .onFailure { busy = false; Toast.makeText(context, serverSaid(it, errMsg), Toast.LENGTH_LONG).show() }
+            if (!isCurrent()) return@launch
+            ApiClient.getPaymentStatus(pid, expectedGeneration = generation)
+                .onSuccess { st -> commit {
+                    if (paymentId == pid) {
+                        busy = false
+                        if (st.paymentId == pid && st.status == "succeeded") stage = PayOnlineStage.Paid
+                        else Toast.makeText(context, notYetMsg, Toast.LENGTH_SHORT).show()
+                    }
+                } }
+                .onFailure { error -> commit { busy = false; Toast.makeText(context, serverSaid(error, errMsg), Toast.LENGTH_LONG).show() } }
         }
     }
 
@@ -178,11 +214,11 @@ internal fun PayOnlineCard(
                             NearbyFilterChip(
                                 Icons.Default.CreditCard, appText("Карта", "Карта"), method == "card",
                                 modifier = Modifier.heightIn(min = 48.dp),
-                            ) { if (!busy) method = "card" }
+                            ) { if (isCurrent() && stage == PayOnlineStage.Idle && !busy) method = "card" }
                             NearbyFilterChip(
                                 Icons.Default.Bolt, appText("СБП", "СБП"), method == "sbp",
                                 modifier = Modifier.heightIn(min = 48.dp),
-                            ) { if (!busy) method = "sbp" }
+                            ) { if (isCurrent() && stage == PayOnlineStage.Idle && !busy) method = "sbp" }
                         }
                         AppButton(
                             text = if (amountKop != null && amountKop > 0)
@@ -214,7 +250,7 @@ internal fun PayOnlineCard(
                             onClick = { checkPayment() },
                             loading = busy,
                         )
-                        TextButton(onClick = { if (!busy) stage = PayOnlineStage.Idle }) {
+                        TextButton(onClick = { if (isCurrent() && stage == PayOnlineStage.Waiting && !busy) stage = PayOnlineStage.Idle }) {
                             Text(appText("Выбрать другой способ", "Икенсе ысул һайлау"), color = CanonMuted, fontSize = 14.sp)
                         }
                     }

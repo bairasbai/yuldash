@@ -5940,3 +5940,10 @@ RED ActivityBundle/App подтвердил потерю7назначений,п
 ## 10.10.2026 — сохранять Home-нажатие до кадра
 
 Выбрали явный onOpenInstantOrder callback в существующем guarded tab commit, вместо ожидания LaunchedEffect для временного bool. Назначение и владелец сохраняются в уже существующем VM pending record; новой схемы/слоя/очереди не нужно. Сохраняем legacy importer для совместимости прежнего guest→login сценария. Для OrdersNav наследуем existing defaulttrue map gate, чтобы локально проверить App consume с accepted DTO. Решение подтверждено RED8→GREEN10 на неизменённом fixture и итоговыми659 ID; границы — [реестр](audit-blocks.md#b02--сохранённый-переход-из-полоски-такси-10102026).
+
+
+## 10.10.2026 — операции остаются у нажавшего владельца
+
+Используем существующие session generation/screen lease/coroutine scope; не вводим новый слой и не меняем версии. Card не key(generation) с прежним pay lambda: старый mount скрывается, новый target сбрасывает child отдельно. В typed pay callback передаём owner в API, чтобы второй snapshot не мог выбрать другой аккаунт. Gate scoped по owner; поздний health=true не отменяет более новый503. DTO статуса считается подтверждением лишь для запрошенного paymentId. [RED, controls и пределы](audit-blocks.md#b02--создание-предзаказ-отмена-и-онлайн-оплата-10102026).
+
+После финального finding reset допускается лишь Waiting, а method chips лишь Idle. Подтверждённую оплату старое действие не возвращает в Idle; RED1→GREEN30 и общий689 привязаны к новой версии Card.

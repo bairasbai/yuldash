@@ -1566,16 +1566,30 @@ private fun InstantOrderContent(
     // Причина (long_wait|found_other|wrong_address|plans_changed|price|other) опциональна: пустая
     // строка = прежнее поведение. Раньше её не слали вообще, и в статистике было видно только
     // «отменил» — а «долго ждать» и «дорого» лечатся по-разному: первое матчингом, второе ценой.
+    var cancelling by remember { mutableStateOf(false) }
+    fun isCurrentOrder(id: Int): Boolean = scope.isActive &&
+        TaxiNavigationState.isScreenOwner(generation, publisher) &&
+        order?.let { it.id == id && it.status !in setOf("done", "cancelled", "expired") } == true
+    fun isCurrentPicker(): Boolean = scope.isActive &&
+        TaxiNavigationState.isScreenOwner(generation, publisher) &&
+        order == null && scheduledConfirmId == 0 && !checking && !restoreError
     fun cancelOrder(id: Int, reason: String = "") {
+        var accepted = false
+        ApiClient.runIfCurrentSession(generation) {
+            if (isCurrentOrder(id) && !cancelling) { cancelling = true; accepted = true }
+        }
+        if (!accepted) return
         scope.launch {
-            ApiClient.instantCancel(id, reason = reason)
-                .onSuccess { order = it }
-                .onFailure {
-                    Toast.makeText(
-                        ctx,
-                        (it as? ApiException)?.message ?: cancelFailMsg,
-                        Toast.LENGTH_SHORT,
-                    ).show()
+            try {
+                if (!isCurrentOrder(id)) return@launch
+                val result = ApiClient.instantCancel(id, reason = reason, expectedGeneration = generation)
+                ApiClient.runIfCurrentSession(generation) {
+                    if (!isCurrentOrder(id)) return@runIfCurrentSession
+                    result.onSuccess { if (it.id == id) order = it }
+                        .onFailure { Toast.makeText(ctx, (it as? ApiException)?.message ?: cancelFailMsg, Toast.LENGTH_SHORT).show() }
+                }
+            } finally {
+                ApiClient.runIfCurrentSession(generation) { if (scope.isActive) cancelling = false }
             }
         }
     }
@@ -1764,17 +1778,25 @@ private fun InstantOrderContent(
                         )
                     }
                     "picker" -> InstantDestinationPicker(
-                        onOrderCreated = { order = it },
+                        generation = generation,
+                        isCurrentParent = ::isCurrentPicker,
+                        onOrderCreated = { created ->
+                            ApiClient.runIfCurrentSession(generation) { if (isCurrentPicker()) order = created }
+                        },
                         onSavedPlaces = onSavedPlaces,
                         embedded = embedded,
                         payMethod = payMethod,
                         onOpenPayments = onOpenPayments,
                         renderNativeMap = renderNativeMap,
                         onScheduled = { scheduled ->
-                            scheduledConfirmId = scheduled.id
-                            scheduledConfirmAt = scheduled.scheduledAt
-                            scheduledConfirmFrom = scheduled.fromText
-                            scheduledConfirmTo = scheduled.toText
+                            ApiClient.runIfCurrentSession(generation) {
+                                if (isCurrentPicker()) {
+                                    scheduledConfirmId = scheduled.id
+                                    scheduledConfirmAt = scheduled.scheduledAt
+                                    scheduledConfirmFrom = scheduled.fromText
+                                    scheduledConfirmTo = scheduled.toText
+                                }
+                            }
                         },
                     )
                     // Отмену не гасим сразу: сперва короткий вопрос «почему», и только потом запрос.
@@ -2129,6 +2151,8 @@ private fun InstantAddressResults(
 
 @Composable
 private fun InstantDestinationPicker(
+    generation: Long,
+    isCurrentParent: () -> Boolean,
     onOrderCreated: (InstantOrderDto) -> Unit,
     onScheduled: (InstantOrderDto) -> Unit = {},
     onSavedPlaces: () -> Unit = {},
@@ -2141,6 +2165,7 @@ private fun InstantDestinationPicker(
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    fun isCurrentAction(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) && isCurrentParent()
     val myLocationFix by rememberMyLocationFix(active = true)
     val myPoint = myLocationFix?.point
 
@@ -3033,13 +3058,14 @@ private fun InstantDestinationPicker(
                     }
                     Button(
                         onClick = {
-                            if (!estimateCurrent || creating) return@Button
+                            if (!isCurrentAction() || !estimateCurrent || creating) return@Button
                             val f = effFrom ?: return@Button
                             val t = toPoint ?: return@Button
                             creating = true; errorText = null
                             val fText = fromText.ifBlank { myPosText }
                             val tText = toText.ifBlank { mapPointText }
                             scope.launch {
+                                if (!isCurrentAction()) return@launch
                                 if (scheduled) {
                                     val iso = isoFromMillis(scheduledAtMs!!)
                                     ApiClient.scheduleInstantOrder(
@@ -3053,12 +3079,17 @@ private fun InstantDestinationPicker(
                                         returnWaitMin = if (roundTrip) returnWaitMin else 0,
                                         stops = stops,
                                         paymentMethod = payMethod,
+                                        expectedGeneration = generation,
                                     )
                                         .onSuccess {
-                                            ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
-                                            onScheduled(it)
+                                            ApiClient.runIfCurrentSession(generation) {
+                                                if (isCurrentAction()) {
+                                                    ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude, generation)
+                                                    onScheduled(it)
+                                                }
+                                            }
                                         }
-                                        .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                                        .onFailure { error -> ApiClient.runIfCurrentSession(generation) { if (isCurrentAction()) errorText = (error as? ApiException)?.message ?: createFailMsg } }
                                 } else {
                                     ApiClient.createInstantOrder(
                                         f.latitude, f.longitude, t.latitude, t.longitude, fText, tText, category,
@@ -3072,15 +3103,20 @@ private fun InstantDestinationPicker(
                                         stops = stops,
                                         // Чем рассчитаются — водитель увидит это вместе с оффером.
                                         paymentMethod = payMethod,
+                                        expectedGeneration = generation,
                                     )
                                         .onSuccess {
                                             // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
-                                            ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
-                                            onOrderCreated(it)
+                                            ApiClient.runIfCurrentSession(generation) {
+                                                if (isCurrentAction()) {
+                                                    ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude, generation)
+                                                    onOrderCreated(it)
+                                                }
+                                            }
                                         }
-                                        .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                                        .onFailure { error -> ApiClient.runIfCurrentSession(generation) { if (isCurrentAction()) errorText = (error as? ApiException)?.message ?: createFailMsg } }
                                 }
-                                creating = false
+                                if (isCurrentAction()) creating = false
                             }
                         },
                         enabled = effFrom != null && toPoint != null && estimateCurrent && !creating,

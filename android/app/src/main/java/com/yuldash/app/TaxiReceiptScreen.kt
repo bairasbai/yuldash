@@ -105,6 +105,7 @@ internal fun TaxiReceiptScreen(
     initialReceipt: InstantReceiptDto? = null,
     loadRemote: Boolean = true,
 ) {
+    val paymentOwner = remember { ApiClient.queueSessionGeneration() }
     var receipt by remember(orderId, initialReceipt) { mutableStateOf(initialReceipt) }
     var loading by remember(orderId, initialReceipt) { mutableStateOf(initialReceipt == null && loadRemote) }
     var errorStatus by remember(orderId) { mutableStateOf<Int?>(null) }   // null = нет ошибки; 409 = ещё не завершена
@@ -162,6 +163,7 @@ internal fun TaxiReceiptScreen(
                     TaxiReceiptCard(r)
                     TaxiAfterRideActions(
                         r,
+                        paymentOwner = paymentOwner,
                         onOpenChat = onOpenChat,
                         onPaidLocally = { reload++ },
                         onShare = onShare,
@@ -616,6 +618,7 @@ private fun TaxiReceiptNote(icon: ImageVector, tint: Color, text: String) {
 @Composable
 private fun TaxiAfterRideActions(
     r: InstantReceiptDto,
+    paymentOwner: Long,
     onOpenChat: (Int) -> Unit,
     onPaidLocally: () -> Unit,
     onShare: () -> Unit,
@@ -764,7 +767,9 @@ private fun TaxiAfterRideActions(
         if (!isDriver && !r.paid) {
             PayOnlineCard(
                 amountKop = r.amountKop,
-                pay = { method -> ApiClient.payInstantOrder(r.orderId, method) },
+                pay = { method, owner -> ApiClient.payInstantOrder(r.orderId, method, expectedGeneration = owner) },
+                targetKey = "taxi:${r.orderId}",
+                ownerGeneration = paymentOwner,
             )
         }
 

@@ -2317,7 +2317,8 @@ private fun ActiveTripContent(
                     // Цена попутки задаётся водителем в целых рублях — переводим в копейки
                     // на границе, потому что карточка оплаты считает деньги в копейках.
                     amountKop = (payAmount ?: ride?.price?.takeIf { it > 0 })?.times(100),
-                    pay = { m -> ApiClient.payBooking(bookingId, m) },
+                    pay = { m, owner -> ApiClient.payBooking(bookingId, m, expectedGeneration = owner) },
+                    targetKey = "booking:$bookingId",
                     modifier = Modifier.appearIn(2),
                 )
             }

@@ -152,7 +152,9 @@ class RideshareCompletedRestorationTest {
         node("rating").performClick(); await { posts("rating") == 1 }; pump()
         val payload = JSONObject(records.single { it.first == key("rating") }.third)
         assertEquals(4, payload.getInt("stars")); assertEquals("ontime", payload.getString("tags")); assertEquals("Спасибо за дорогу", payload.getString("text"))
-        assertTrue(records.all { it.second == "Bearer $tokenA" })
+        val personal = records.filterNot { it.first == "GET /health" }
+        assertTrue("Personal requests: $personal", personal.all { it.second == "Bearer $tokenA" })
+        assertTrue("Public health must not carry bearer", records.filter { it.first == "GET /health" }.all { it.second == null })
     }
     @Test fun confirmedRatingRestoresDoneWithoutDuplicatePost() {
         serverStars = 4; serverTags = "ontime"; mount(); restore(); node("rating").performClick()

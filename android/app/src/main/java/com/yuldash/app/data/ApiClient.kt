@@ -217,9 +217,9 @@ object ApiClient {
 
     /** Best-effort: наполнить «Недавние» точкой назначения после создания заказа/заявки.
      *  На долгоживущем scope — переживает уход с экрана, заказ не блокирует. */
-    fun fireAddRecentPlace(address: String, lat: Double, lng: Double) {
+    fun fireAddRecentPlace(address: String, lat: Double, lng: Double, expectedGeneration: Long = queueSessionGeneration()) {
         if (address.isBlank()) return
-        bg.launch { addRecentPlace(address, lat, lng) }
+        bg.launch { addRecentPlace(address, lat, lng, expectedGeneration) }
     }
 
     fun fireUpdateName(name: String) {
@@ -2345,8 +2345,8 @@ object ApiClient {
 
     /** Статус СВОЕГО платежа — клиент поллит после возврата из браузера ЮKassa (ON_RESUME экрана).
      *  Сервер при pending+yookassa сам перепроверяет оплату у ЮKassa и активирует boost (go-live). */
-    suspend fun getPaymentStatus(paymentId: Int): Result<PaymentStatusDto> =
-        call("GET", "/payments/$paymentId/status", null, auth = true).map { o ->
+    suspend fun getPaymentStatus(paymentId: Int, expectedGeneration: Long? = null): Result<PaymentStatusDto> =
+        call("GET", "/payments/$paymentId/status", null, auth = true, expectedGeneration = expectedGeneration).map { o ->
             PaymentStatusDto(
                 paymentId = o.optInt("payment_id"),
                 status = o.optString("status"),
@@ -2686,8 +2686,8 @@ object ApiClient {
      * была живой, и человек узнавал правду, только нажав её. Ответ не требует входа —
      * это факт про сервис, а не про человека.
      */
-    suspend fun paymentsOnlineEnabled(): Result<Boolean> =
-        call("GET", "/health", null, auth = false)
+    suspend fun paymentsOnlineEnabled(expectedGeneration: Long? = null): Result<Boolean> =
+        call("GET", "/health", null, auth = false, expectedGeneration = expectedGeneration)
             .map { it.optString("payments", "off") != "off" }
 
     /**
@@ -2714,6 +2714,7 @@ object ApiClient {
         roundTrip: Boolean = false, returnWaitMin: Int = 0,
         stops: List<TaxiStop> = emptyList(),
         paymentMethod: String = "",
+        expectedGeneration: Long? = null,
     ): Result<InstantOrderDto> {
         val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
             roundTrip, returnWaitMin, stops)
@@ -2731,7 +2732,7 @@ object ApiClient {
         if (womenOnly) body.put("women_only", true)
         // Чем рассчитаются. Пусто — сервер поставит «договоримся на месте», как было раньше.
         if (paymentMethod.isNotBlank()) body.put("payment_method", paymentMethod)
-        return call("POST", "/instant/orders", body, auth = true)
+        return call("POST", "/instant/orders", body, auth = true, expectedGeneration = expectedGeneration)
             .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_create") }
     }
 
@@ -2962,8 +2963,8 @@ object ApiClient {
             .onSuccess { Analytics.log("instant_passenger_done") }
 
     /** Отмена заказа (пассажир до посадки / водитель после accept). Причина опциональна. */
-    suspend fun instantCancel(id: Int, reason: String = ""): Result<InstantOrderDto> =
-        call("POST", "/instant/orders/$id/cancel", JSONObject().put("reason", reason), auth = true).map { it.toInstantOrderDto() }
+    suspend fun instantCancel(id: Int, reason: String = "", expectedGeneration: Long? = null): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/cancel", JSONObject().put("reason", reason), auth = true, expectedGeneration = expectedGeneration).map { it.toInstantOrderDto() }
             .onSuccess { Analytics.log("instant_order_cancel") }
 
     // ---------- Предзаказ такси «на время» (scheduled) ----------
@@ -2977,6 +2978,7 @@ object ApiClient {
         roundTrip: Boolean = false, returnWaitMin: Int = 0,
         stops: List<TaxiStop> = emptyList(),
         paymentMethod: String = "",
+        expectedGeneration: Long? = null,
     ): Result<InstantOrderDto> {
         // Предзаказ шлёт ТОТ ЖЕ набор полей, что обычный заказ (аудит сценариев 30.08).
         // Раньше уходили только точки, время и класс: человек выбирал детское кресло,
@@ -2991,7 +2993,7 @@ object ApiClient {
         if (forPhone.isNotBlank()) body.put("for_phone", forPhone.take(32))
         if (womenOnly) body.put("women_only", true)
         if (paymentMethod.isNotBlank()) body.put("payment_method", paymentMethod)
-        return call("POST", "/instant/schedule", body, auth = true)
+        return call("POST", "/instant/schedule", body, auth = true, expectedGeneration = expectedGeneration)
             .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_schedule") }
     }
 
@@ -4638,13 +4640,13 @@ object ApiClient {
     // 503 = онлайн-оплата ещё не включена (mock в проде) → UI прячет карточку, «на доверии» остаётся.
 
     /** Оплатить ЗАВЕРШЁННУЮ бронь плановой поездки. methodKey: cash | card | sbp. */
-    suspend fun payBooking(bookingId: Int, methodKey: String): Result<PayTripResultDto> =
-        call("POST", "/bookings/$bookingId/pay", JSONObject().put("method", methodKey), auth = true)
+    suspend fun payBooking(bookingId: Int, methodKey: String, expectedGeneration: Long? = null): Result<PayTripResultDto> =
+        call("POST", "/bookings/$bookingId/pay", JSONObject().put("method", methodKey), auth = true, expectedGeneration = expectedGeneration)
             .map { it.toPayTripResult() }
 
     /** Оплатить ЗАВЕРШЁННЫЙ быстрый заказ (такси). methodKey: cash | card | sbp. */
-    suspend fun payInstantOrder(orderId: Int, methodKey: String): Result<PayTripResultDto> =
-        call("POST", "/instant/orders/$orderId/pay", JSONObject().put("method", methodKey), auth = true)
+    suspend fun payInstantOrder(orderId: Int, methodKey: String, expectedGeneration: Long? = null): Result<PayTripResultDto> =
+        call("POST", "/instant/orders/$orderId/pay", JSONObject().put("method", methodKey), auth = true, expectedGeneration = expectedGeneration)
             .map { it.toPayTripResult() }
 
     private fun JSONObject.toPayTripResult() = PayTripResultDto(
@@ -4728,9 +4730,9 @@ object ApiClient {
         }
 
     /** Добавить/обновить недавний адрес (дедуп по address на сервере). Best-effort — заказ не блокируем. */
-    suspend fun addRecentPlace(address: String, lat: Double, lng: Double): Result<Unit> =
+    suspend fun addRecentPlace(address: String, lat: Double, lng: Double, expectedGeneration: Long? = null): Result<Unit> =
         call("POST", "/places/recent", JSONObject()
-            .put("address", address).put("lat", lat).put("lng", lng), auth = true).map { }
+            .put("address", address).put("lat", lat).put("lng", lng), auth = true, expectedGeneration = expectedGeneration).map { }
 
     /**
      * Убрать один недавний адрес (чужое/нет → 404).

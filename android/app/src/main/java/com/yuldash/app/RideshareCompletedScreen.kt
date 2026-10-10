@@ -360,9 +360,10 @@ private fun RideshareCompletedSession(
         onlinePay = {
             PayOnlineCard(
                 amountKop = amount?.times(100),
-                pay = { method ->
+                targetKey = "booking:$bookingId",
+                pay = { method, owner ->
                     if (!isCurrent()) throw CancellationException("Completed screen disposed")
-                    ApiClient.payBooking(bookingId, method)
+                    ApiClient.payBooking(bookingId, method, expectedGeneration = owner)
                 },
             )
         },
