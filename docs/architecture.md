@@ -4497,3 +4497,8 @@ TaxiTripScreen → owner wrapper + key(order.id,generation) → private TaxiTrip
 ## B02 — ссылки поездки и помощь на дороге, 10.10.2026
 
 Shared InstantShareDialog/LiveLinkCard/RoadsideHelpAction имеют owner wrapper и отдельный child key+scope. Contacts expectedGeneration проверяется до cache fast path; API share/list/revoke/three stuck adapters передают generation. Taxi safety/share и Booking shared-card/help связываются с live родителем; Courier/legacy пока default owner/dispose fence, full phase/target controls отдельны. [Доказательства и границы](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026).
+
+
+## B02 — чек такси: текущий владелец и действия, 10.10.2026
+
+TaxiReceipt: owner wrapper/sessionChanges + child key(order,generation); matching DTO, live root screen/id parent, closed/loading/error guard;9API optional expectedGeneration. Local invalid ID отображает error/back и не вызывает HTTP. Rating/afterride/incident scopes самостоятельны, вложенная PayOnline проверяет родителя. [Доказательства и границы](audit-blocks.md#b02--чек-такси-текущий-владелец-и-действия-10102026).

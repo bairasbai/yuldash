@@ -1206,6 +1206,7 @@ private fun YuldashAppContent() {
                 instantTripOrderId = instantTripOrderId,
                 instantChatOrderId = instantChatOrderId,
                 taxiReceiptOrderId = taxiReceiptOrderId,
+                isCurrentReceipt = { id -> screen == Screen.TaxiReceipt && taxiReceiptOrderId == id },
                 carPhotoMode = carPhotoMode,
                 parcelChatId = parcelChatId,
                 parcelChatPeerIsCourier = parcelChatPeerIsCourier,

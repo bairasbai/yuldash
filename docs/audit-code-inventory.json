@@ -83,12 +83,12 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 908
+    "test_support": 909
   },
   "counts_by_block": {
     "B01": 128,
     "B02": 174,
-    "B03": 109,
+    "B03": 110,
     "B04": 75,
     "B05": 37,
     "B06": 84,
@@ -650,8 +650,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/AppNavOrders.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "427baf71b7cb1bfde1c83c28a1efaf2281ad96f4fbe8a2e9e95a74467aeeab16",
-      "lines": 106
+      "sha256": "a51183c90a13f5ad9714ac8bb7892f3aca1aedf56afbab6e0d98246c6e95bac5",
+      "lines": 108
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AppReviewScreen.kt",
@@ -804,8 +804,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/FairnessScreens.kt",
       "kind": "android_main",
       "block": "B08",
-      "sha256": "7216503fb9f490a07be2716655dea24198d155b1e66dff19ed74cf9e7e9d4088",
-      "lines": 1576
+      "sha256": "11b84d74d3b43b6799fb904d789e97830d4fa8134c7ec4bbab1ec5e95b233be1",
+      "lines": 1611
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/ForceUpdateScreen.kt",
@@ -972,8 +972,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/PayOnlineCard.kt",
       "kind": "android_main",
       "block": "B07",
-      "sha256": "1ecf9f361f522c32a67e42586b85c039bdc821275461795f1cd6275817675b08",
-      "lines": 293
+      "sha256": "c11b9c5143fa39bf051cb628d5054bc0e904480431403ce32467119461b02cb4",
+      "lines": 297
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/PaymentMethodsScreen.kt",
@@ -1056,7 +1056,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "5b7d353a259092bb1173fbfcc6c577d7d301b91144bfe58f7cf89b17d1e0f1e9",
+      "sha256": "9e4d5be33a2d8cec05f8c3f3b801fa4f7a7baf40bec8b45a1a2fe73ae6d74a76",
       "lines": 2507
     },
     {
@@ -1189,8 +1189,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/TaxiReceiptScreen.kt",
       "kind": "android_main",
       "block": "B03",
-      "sha256": "371cbab67fe2c5d4f39dd4c0f7346f36f5b67b7027375b8f1eb544d83df181e3",
-      "lines": 994
+      "sha256": "5a3d6665f8df5db03e6b668d3a3335f7b9d94c499926020d2e007fa13c0a0e47",
+      "lines": 1070
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/TaxiSearchingScreen.kt",
@@ -1287,8 +1287,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "08c0b5fadb876bc279583293e50d2504b4ed99a65a8fbd37a7b6ec625e21bc67",
-      "lines": 2782
+      "sha256": "ef8ced62861cbb2650658b5aa974014e550f7c73b2370a5f738219de8cb8f30c",
+      "lines": 2783
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1315,8 +1315,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "1af173360a1bdca47b25ec133cc936e2b27c28cd45c0b7ece501a692e68d764a",
-      "lines": 7969
+      "sha256": "4dafad23337bb340fc13c8f766dd71f4556e5065f41147ef7d934f812e286a59",
+      "lines": 7970
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -3263,6 +3263,13 @@
       "block": "B03",
       "sha256": "44e64dafb9a69f5339a0dbf61b0b1163347a30ee812af1e26d3ccd153e5a6d74",
       "lines": 180
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/TaxiReceiptOwnerBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B03",
+      "sha256": "228a59907a3466ce658d351ceffd69a2584fef03038c373d9e43b86e9960c51a",
+      "lines": 284
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/TaxiTripActionBoundaryTest.kt",

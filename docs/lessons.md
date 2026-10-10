@@ -9136,3 +9136,8 @@ Actual Compose fixture должна раскрыть TaxiSheet Full, поско�
 ## B02 — ссылки поездки и помощь на дороге, 10.10.2026
 
 В actual semantics кнопка может содержать только icon description, а видимый label — соседний Text без OnClick. Не считать такой timeout дефектом продукта. Адрес live URL в тесте следует брать из действующего local ApiClient.apiBase, error toast — из serverSaid, не выдумывать fallback. Сохранённые controls A после второго открытия B проверять отдельно от простого closed/busy. [Первичные воспроизведения](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026).
+
+
+## B02 — чек такси: текущий владелец и действия, 10.10.2026
+
+Native WRAP_CONTENT Dialog/TextField в Robolectric может бесконечно remeasure. Повторно используем documented test-only window width workaround до первого idle, не меняем production DialogProperties и не считаем aborted0XML полноценным RED. Исторические original fixture bodies сохраняем. После source review invalid-number regression воспроизводим actual error/back/0HTTP контролем. Перед commit проверять не только candidate inventory file hash, но и equality самого staged blob с candidate; ранняя prepare-проверка не заменяет конечную. [Воспроизведения](audit-blocks.md#b02--чек-такси-текущий-владелец-и-действия-10102026).

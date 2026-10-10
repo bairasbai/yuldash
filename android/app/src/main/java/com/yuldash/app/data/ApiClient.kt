@@ -1293,13 +1293,13 @@ object ApiClient {
      *  Жалоба анонимна: цель НИКОГДА не видит автора. */
     suspend fun reportUser(
         targetUserId: Int? = null, reason: String = "", category: String = "other",
-        orderId: Int? = null, bookingId: Int? = null,
+        orderId: Int? = null, bookingId: Int? = null, expectedGeneration: Long? = null,
     ): Result<Unit> {
         val body = JSONObject().put("reason", reason).put("category", category)
         if (targetUserId != null) body.put("target_user_id", targetUserId)
         if (orderId != null) body.put("order_id", orderId)
         if (bookingId != null) body.put("booking_id", bookingId)
-        return call("POST", "/reports", body, auth = true).map { }
+        return call("POST", "/reports", body, auth = true, expectedGeneration = expectedGeneration).map { }
             .onSuccess { Analytics.log("report_create") }
     }
 
@@ -1329,12 +1329,12 @@ object ApiClient {
 
     /** Оценить вторую сторону завершённого быстрого заказа (1..5). Оценка анонимна —
      *  в рейтинг идёт только агрегат, «кто поставил» не раскрывается. */
-    suspend fun rateInstantOrder(orderId: Int, stars: Int, tags: String = ""): Result<Unit> =
+    suspend fun rateInstantOrder(orderId: Int, stars: Int, tags: String = "", expectedGeneration: Long? = null): Result<Unit> =
         call(
             "POST",
             "/instant/orders/$orderId/rate",
             JSONObject().put("stars", stars).put("tags", tags),
-            auth = true,
+            auth = true, expectedGeneration = expectedGeneration,
         ).map { }
             .onSuccess { Analytics.log("instant_order_rate") }
 
@@ -4818,8 +4818,8 @@ object ApiClient {
         }
 
     /** Квитанция за такси-поездку (обе стороны, только после done). Телефонов в чеке нет. */
-    suspend fun getInstantReceipt(orderId: Int): Result<InstantReceiptDto> =
-        call("GET", "/instant/orders/$orderId/receipt", null, auth = true).map { o ->
+    suspend fun getInstantReceipt(orderId: Int, expectedGeneration: Long? = null): Result<InstantReceiptDto> =
+        call("GET", "/instant/orders/$orderId/receipt", null, auth = true, expectedGeneration = expectedGeneration).map { o ->
             InstantReceiptDto(
                 orderId = o.optInt("order_id"),
                 role = o.optString("role"),
@@ -4931,13 +4931,13 @@ object ApiClient {
 
     /** Водитель: «наличные получил». Раньше отметить оплату мог только пассажир — и если он
      *  просто закрывал приложение, заказ навсегда оставался «не оплачен». */
-    suspend fun instantCashReceived(orderId: Int): Result<String> =
-        call("POST", "/instant/orders/$orderId/cash-received", JSONObject(), auth = true)
+    suspend fun instantCashReceived(orderId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/instant/orders/$orderId/cash-received", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("status") }
 
     /** «Я забыл вещь в машине» → чат заказа снова открыт на запись 48 часов (обеим сторонам). */
-    suspend fun instantLostItem(orderId: Int): Result<String> =
-        call("POST", "/instant/orders/$orderId/lost-item", JSONObject(), auth = true)
+    suspend fun instantLostItem(orderId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/instant/orders/$orderId/lost-item", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("chat_open_until") }
 
     /** То же для попутки. Пока чат попутки не закрывался, выход был не нужен; после того как
@@ -4949,8 +4949,8 @@ object ApiClient {
             .onSuccess { Analytics.log("lost_item_booking") }
 
     /** Инфо для «Сказать рәхмәт» после такси-поездки (money != null → водитель оставил СБП). */
-    suspend fun getInstantTipInfo(orderId: Int): Result<TipInfoDto> =
-        call("GET", "/instant/orders/$orderId/tip", null, auth = true).map { o ->
+    suspend fun getInstantTipInfo(orderId: Int, expectedGeneration: Long? = null): Result<TipInfoDto> =
+        call("GET", "/instant/orders/$orderId/tip", null, auth = true, expectedGeneration = expectedGeneration).map { o ->
             val m = o.optJSONObject("money")
             TipInfoDto(
                 driverName = o.optString("driver_name"),
@@ -4960,8 +4960,8 @@ object ApiClient {
         }
 
     /** «Рәхмәт» водителю такси — тёплый жест без денег. Идемпотентно. */
-    suspend fun sayInstantThanks(orderId: Int): Result<Unit> =
-        call("POST", "/instant/orders/$orderId/thanks", JSONObject(), auth = true).map { }
+    suspend fun sayInstantThanks(orderId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/thanks", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
 
     /** То же для попутки. Сервер умел это с самого начала — «рәхмәт» и придумали для попуток,
      *  но кнопка в итоге появилась только в чеке такси, и обе ручки годами никто не звал
@@ -5249,6 +5249,7 @@ object ApiClient {
     suspend fun fileIncident(
         respondentId: Int, type: String, description: String,
         bookingId: Int? = null, orderId: Int? = null, evidenceUrls: List<String> = emptyList(),
+        expectedGeneration: Long? = null,
     ): Result<IncidentDto> {
         val body = JSONObject()
             .put("respondent_id", respondentId)
@@ -5257,7 +5258,7 @@ object ApiClient {
         if (bookingId != null) body.put("booking_id", bookingId)
         if (orderId != null) body.put("order_id", orderId)
         if (evidenceUrls.isNotEmpty()) body.put("evidence_urls", JSONArray(evidenceUrls))
-        return call("POST", "/incidents", body, auth = true)
+        return call("POST", "/incidents", body, auth = true, expectedGeneration = expectedGeneration)
             .map { it.toIncidentDto() }.onSuccess { Analytics.log("incident_file") }
     }
 
@@ -5307,8 +5308,8 @@ object ApiClient {
         }
 
     /** Загрузить фото-доказательство → приватный URL (/secure/evidence/...). НЕ публичный /media. */
-    suspend fun uploadEvidence(bytes: ByteArray, ext: String = "jpg"): Result<String> =
-        callMultipart("/upload/evidence", bytes, ext, "evidence.$ext").map { it.optString("url") }
+    suspend fun uploadEvidence(bytes: ByteArray, ext: String = "jpg", expectedGeneration: Long? = null): Result<String> =
+        callMultipart("/upload/evidence", bytes, ext, "evidence.$ext", expectedGeneration = expectedGeneration).map { it.optString("url") }
 
     /** Админ: очередь споров. status: open|awaiting_response|under_review|appealed|resolved|closed. */
     suspend fun adminIncidents(status: String? = null): Result<List<IncidentDto>> =

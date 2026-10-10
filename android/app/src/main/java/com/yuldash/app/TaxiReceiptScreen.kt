@@ -56,6 +56,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -78,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.InstantReceiptDto
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /*
@@ -104,22 +108,55 @@ internal fun TaxiReceiptScreen(
     onOpenChat: (Int) -> Unit = {},
     initialReceipt: InstantReceiptDto? = null,
     loadRemote: Boolean = true,
+    isCurrentParent: () -> Boolean = { true },
 ) {
-    val paymentOwner = remember { ApiClient.queueSessionGeneration() }
-    var receipt by remember(orderId, initialReceipt) { mutableStateOf(initialReceipt) }
-    var loading by remember(orderId, initialReceipt) { mutableStateOf(initialReceipt == null && loadRemote) }
-    var errorStatus by remember(orderId) { mutableStateOf<Int?>(null) }   // null = нет ошибки; 409 = ещё не завершена
+    val generation = remember { ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != generation || !ApiClient.isCurrentSession(generation)) return
+    key(orderId, generation) {
+        TaxiReceiptContent(orderId, onBack, onOpenChat, initialReceipt, loadRemote, generation, isCurrentParent)
+    }
+}
+
+@Composable
+private fun TaxiReceiptContent(
+    orderId: Int,
+    onBack: () -> Unit,
+    onOpenChat: (Int) -> Unit,
+    initialReceipt: InstantReceiptDto?,
+    loadRemote: Boolean,
+    generation: Long,
+    isCurrentParent: () -> Boolean,
+) {
+    val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    var closed by remember { mutableStateOf(false) }
+    fun isCurrent(): Boolean = !closed && scope.isActive &&
+        ApiClient.isCurrentSession(generation) && currentParent()
+    fun commit(action: () -> Unit) {
+        ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() }
+    }
+    val matchingInitial = initialReceipt?.takeIf { it.orderId == orderId && orderId > 0 }
+    var receipt by remember(matchingInitial) { mutableStateOf(matchingInitial) }
+    var loading by remember(matchingInitial) { mutableStateOf(matchingInitial == null && loadRemote && orderId > 0) }
+    var errorStatus by remember { mutableStateOf<Int?>(if (orderId > 0) null else -1) }
     var reload by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(orderId, reload, loadRemote) {
-        if (!loadRemote) return@LaunchedEffect
-        if (orderId <= 0) { loading = false; errorStatus = -1; return@LaunchedEffect }
-        loading = true; errorStatus = null
-        ApiClient.getInstantReceipt(orderId)
-            .onSuccess { receipt = it; errorStatus = null }
-            .onFailure { errorStatus = (it as? ApiException)?.status ?: -1 }
-        loading = false
+    LaunchedEffect(reload, loadRemote) {
+        if (!loadRemote || orderId <= 0 || !isCurrent()) return@LaunchedEffect
+        commit { loading = true; errorStatus = null }
+        ApiClient.getInstantReceipt(orderId, expectedGeneration = generation)
+            .onSuccess { value -> commit {
+                if (value.orderId == orderId) { receipt = value; errorStatus = null }
+                else { receipt = null; errorStatus = -1 }
+            } }
+            .onFailure { failure -> commit { errorStatus = (failure as? ApiException)?.status ?: -1 } }
+        commit { loading = false }
     }
+    fun retry() { commit { if (orderId > 0 && !loading) { loading = loadRemote; reload++ } } }
+    fun isCurrentReceipt(shown: InstantReceiptDto): Boolean = isCurrent() && !loading &&
+        errorStatus == null && receipt == shown && shown.orderId == orderId
+    if (!isCurrent()) return
 
     val context = LocalContext.current
     val shareChooser = appText("Поделиться чеком", "Чек менән бүлешеү")
@@ -129,7 +166,7 @@ internal fun TaxiReceiptScreen(
     val sharePayment = receipt?.let { payMethodLabel(it.paymentMethod) }.orEmpty()
     val shareOrder = receipt?.let { appText("Заказ № ${it.orderId}", "Заказ № ${it.orderId}") }.orEmpty()
     val shareText = receipt?.let { r ->
-        remember(r, shareTitle, shareAmount, shareDriver, shareOrder) {
+        remember(r, shareTitle, shareAmount, shareDriver, shareOrder, sharePayment) {
             buildString {
                 appendLine(shareTitle)
                 appendLine(shareOrder)
@@ -140,14 +177,19 @@ internal fun TaxiReceiptScreen(
             }
         }
     }
+    val shownReceipt = receipt
     val onShare = {
-        shareText?.let { shareRide(context, it, shareChooser) }
+        commit {
+            if (shownReceipt != null && isCurrentReceipt(shownReceipt))
+                shareText?.let { shareRide(context, it, shareChooser) }
+        }
         Unit
     }
+    val onBackOwned = { commit { closed = true; onBack() } }
 
     Scaffold(
         containerColor = CanonBg,
-        topBar = { TaxiReceiptTopBar(onBack = onBack, onShare = onShare.takeIf { shareText != null }) },
+        topBar = { TaxiReceiptTopBar(onBack = onBackOwned, onShare = onShare.takeIf { shareText != null }) },
     ) { padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())
@@ -158,14 +200,15 @@ internal fun TaxiReceiptScreen(
             when {
                 loading -> TaxiReceiptSkeleton()
                 errorStatus == 409 -> TaxiReceiptPendingCard()
-                r == null -> AppErrorState(onRetry = { reload++ })
+                r == null || errorStatus != null -> AppErrorState(onRetry = { retry() })
                 else -> {
-                    TaxiReceiptCard(r)
+                    TaxiReceiptCard(r, generation) { isCurrentReceipt(r) }
                     TaxiAfterRideActions(
                         r,
-                        paymentOwner = paymentOwner,
-                        onOpenChat = onOpenChat,
-                        onPaidLocally = { reload++ },
+                        paymentOwner = generation,
+                        isCurrentParent = { isCurrentReceipt(r) },
+                        onOpenChat = { id -> commit { if (isCurrentReceipt(r) && id == orderId) onOpenChat(id) } },
+                        onPaidLocally = { commit { if (isCurrentReceipt(r)) { loading = loadRemote; reload++ } } },
                         onShare = onShare,
                     )
                 }
@@ -205,10 +248,10 @@ private fun TaxiReceiptTopBar(onBack: () -> Unit, onShare: (() -> Unit)?) {
 // ─────────────────── Карточка чека ───────────────────
 
 @Composable
-private fun TaxiReceiptCard(r: InstantReceiptDto) {
+private fun TaxiReceiptCard(r: InstantReceiptDto, generation: Long, isCurrentParent: () -> Boolean) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TaxiReceiptDocument(r, modifier = Modifier.appearIn(0))
-        TaxiReceiptCompactRating(r, modifier = Modifier.appearIn(1))
+        TaxiReceiptCompactRating(r, generation, isCurrentParent, modifier = Modifier.appearIn(1))
     }
 }
 
@@ -301,8 +344,11 @@ private fun TaxiReceiptDocument(r: InstantReceiptDto, modifier: Modifier = Modif
 }
 
 @Composable
-private fun TaxiReceiptCompactRating(r: InstantReceiptDto, modifier: Modifier = Modifier) {
+private fun TaxiReceiptCompactRating(r: InstantReceiptDto, generation: Long, isCurrentParent: () -> Boolean, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) && currentParent()
+    fun commit(action: () -> Unit) { ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() } }
     var stars by remember(r.orderId, r.myStars) { mutableIntStateOf(r.myStars) }
     var pending by remember(r.orderId) { mutableIntStateOf(0) }
     var busy by remember(r.orderId) { mutableStateOf(false) }
@@ -325,13 +371,14 @@ private fun TaxiReceiptCompactRating(r: InstantReceiptDto, modifier: Modifier = 
                 val shown = pending.takeIf { it > 0 } ?: stars
                 Box(
                     Modifier.size(48.dp).clickable(enabled = !busy) {
-                        pending = value
-                        busy = true
-                        scope.launch {
-                            ApiClient.rateInstantOrder(r.orderId, value, r.myRatingTags)
-                                .onSuccess { stars = value; pending = 0; error = null }
-                                .onFailure { pending = 0; error = serverSaid(it, fail) }
-                            busy = false
+                        var send = false
+                        commit { if (!busy) { pending = value; busy = true; send = true } }
+                        if (send) scope.launch {
+                            if (!isCurrent()) return@launch
+                            ApiClient.rateInstantOrder(r.orderId, value, r.myRatingTags, expectedGeneration = generation)
+                                .onSuccess { commit { stars = value; pending = 0; error = null } }
+                                .onFailure { failure -> commit { pending = 0; error = serverSaid(failure, fail) } }
+                            commit { busy = false }
                         }
                     },
                     contentAlignment = Alignment.Center,
@@ -619,17 +666,25 @@ private fun TaxiReceiptNote(icon: ImageVector, tint: Color, text: String) {
 private fun TaxiAfterRideActions(
     r: InstantReceiptDto,
     paymentOwner: Long,
+    isCurrentParent: () -> Boolean,
     onOpenChat: (Int) -> Unit,
     onPaidLocally: () -> Unit,
     onShare: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(paymentOwner) && currentParent()
+    fun commit(action: () -> Unit) { ApiClient.runIfCurrentSession(paymentOwner) { if (isCurrent()) action() } }
     val isDriver = r.role == "driver"
     var thanked by remember(r.orderId) { mutableStateOf(false) }
     var thanksBusy by remember(r.orderId) { mutableStateOf(false) }
     var cashBusy by remember(r.orderId) { mutableStateOf(false) }
+    var cashMarked by remember(r.orderId) { mutableStateOf(false) }
     var lostBusy by remember(r.orderId) { mutableStateOf(false) }
     var lostOpened by remember(r.orderId) { mutableStateOf(false) }
+    var problemOpening by remember { mutableIntStateOf(0) }
+    var reportOpening by remember { mutableIntStateOf(0) }
+    var disputeOpening by remember { mutableIntStateOf(0) }
     var showProblemChoice by remember(r.orderId) { mutableStateOf(false) }
     var showReport by remember(r.orderId) { mutableStateOf(false) }
     var showDispute by remember(r.orderId) { mutableStateOf(false) }
@@ -645,7 +700,8 @@ private fun TaxiAfterRideActions(
 
     // Уже сказал «рәхмәт» раньше — узнаём у сервера, чтобы не предлагать второй раз.
     LaunchedEffect(r.orderId, isDriver) {
-        if (!isDriver) ApiClient.getInstantTipInfo(r.orderId).onSuccess { thanked = it.alreadyThanked }
+        if (!isDriver && isCurrent()) ApiClient.getInstantTipInfo(r.orderId, expectedGeneration = paymentOwner)
+            .onSuccess { value -> commit { thanked = thanked || value.alreadyThanked } }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -669,17 +725,18 @@ private fun TaxiAfterRideActions(
                 busy = thanksBusy,
                 enabled = !thanked,
                 onClick = {
-                    if (thanksBusy || thanked) return@TaxiReceiptActionRow
+                    if (!isCurrent() || thanksBusy || thanked) return@TaxiReceiptActionRow
                     thanksBusy = true
                     scope.launch {
-                        ApiClient.sayInstantThanks(r.orderId)
-                            .onSuccess {
+                        if (!isCurrent()) return@launch
+                        ApiClient.sayInstantThanks(r.orderId, expectedGeneration = paymentOwner)
+                            .onSuccess { commit {
                                 thanked = true
                                 errText = null
                                 successText = thanksSentMessage
-                            }
-                            .onFailure { errText = (it as? ApiException)?.message ?: errFallback }
-                        thanksBusy = false
+                            } }
+                            .onFailure { failure -> commit { errText = (failure as? ApiException)?.message ?: errFallback } }
+                        commit { thanksBusy = false }
                     }
                 },
             )
@@ -687,7 +744,7 @@ private fun TaxiAfterRideActions(
 
         // Водитель: отметить наличные. Без этой кнопки заказ навсегда «не оплачен», если
         // пассажир вышел и закрыл приложение (аудит 2026-07-26).
-        if (isDriver && !r.paid) {
+        if (isDriver && !r.paid && !cashMarked) {
             AppCard(modifier = Modifier.appearIn(4)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TaxiActionHead(
@@ -703,13 +760,18 @@ private fun TaxiAfterRideActions(
                     AppButton(
                         text = appText("Наличные получил", "Аҡсаны алдым"),
                         onClick = {
-                            if (cashBusy) return@AppButton
+                            if (!isCurrent() || cashBusy || cashMarked || r.paid) return@AppButton
                             cashBusy = true
                             scope.launch {
-                                ApiClient.instantCashReceived(r.orderId)
-                                    .onSuccess { errText = null; onPaidLocally() }
-                                    .onFailure { errText = (it as? ApiException)?.message ?: errFallback }
-                                cashBusy = false
+                                if (!isCurrent()) return@launch
+                                ApiClient.instantCashReceived(r.orderId, expectedGeneration = paymentOwner)
+                                    .onSuccess { status -> commit {
+                                        if (status == "paid" || status == "already_paid") {
+                                            cashMarked = true; errText = null; onPaidLocally()
+                                        } else errText = errFallback
+                                    } }
+                                    .onFailure { failure -> commit { errText = (failure as? ApiException)?.message ?: errFallback } }
+                                commit { cashBusy = false }
                             }
                         },
                         icon = Icons.Default.Payments,
@@ -737,19 +799,21 @@ private fun TaxiAfterRideActions(
             else appText("Связаться по этой поездке", "Был сәфәр буйынса бәйләнешеү"),
             busy = lostBusy,
             onClick = {
+                if (!isCurrent()) return@TaxiReceiptActionRow
                 if (lostOpened) {
                     onOpenChat(r.orderId)
                 } else if (!lostBusy) {
                     lostBusy = true
                     scope.launch {
-                        ApiClient.instantLostItem(r.orderId)
-                            .onSuccess {
+                        if (!isCurrent()) return@launch
+                        ApiClient.instantLostItem(r.orderId, expectedGeneration = paymentOwner)
+                            .onSuccess { commit {
                                 lostOpened = true
                                 errText = null
                                 onOpenChat(r.orderId)
-                            }
-                            .onFailure { errText = (it as? ApiException)?.message ?: errFallback }
-                        lostBusy = false
+                            } }
+                            .onFailure { failure -> commit { errText = (failure as? ApiException)?.message ?: errFallback } }
+                        commit { lostBusy = false }
                     }
                 }
             },
@@ -760,7 +824,7 @@ private fun TaxiAfterRideActions(
             title = appText("Проблема с поездкой", "Сәфәр менән проблема"),
             text = if (disputeFiled) appText("Разбор уже открыт", "Ҡарау асылған")
             else appText("Сообщить или открыть разбор", "Хәбәр итеү йәки ҡарау асыу"),
-            onClick = { showProblemChoice = true },
+            onClick = { commit { if (!showProblemChoice && !showReport && !showDispute) { problemOpening++; showProblemChoice = true } } },
         )
 
         // Пассажир может завершить оплату прямо из чека, если закрыл финальный экран.
@@ -770,6 +834,7 @@ private fun TaxiAfterRideActions(
                 pay = { method, owner -> ApiClient.payInstantOrder(r.orderId, method, expectedGeneration = owner) },
                 targetKey = "taxi:${r.orderId}",
                 ownerGeneration = paymentOwner,
+                isCurrentParent = { isCurrent() },
             )
         }
 
@@ -802,8 +867,11 @@ private fun TaxiAfterRideActions(
     }
 
     if (showProblemChoice) {
+        val opening = problemOpening
+        fun currentChoice(): Boolean = isCurrent() && showProblemChoice && opening == problemOpening
+        fun closeChoice() { commit { if (currentChoice()) showProblemChoice = false } }
         AlertDialog(
-            onDismissRequest = { showProblemChoice = false },
+            onDismissRequest = { closeChoice() },
             containerColor = CanonSurface,
             shape = CanonCardShape,
             title = {
@@ -819,21 +887,21 @@ private fun TaxiAfterRideActions(
                         icon = Icons.Outlined.ReportProblem,
                         title = appText("Сообщить о нарушении", "Боҙоу тураһында хәбәр итеү"),
                         text = appText("Анонимно, проверит человек", "Аноним, кеше тикшерәсәк"),
-                        onClick = { showProblemChoice = false; showReport = true },
+                        onClick = { commit { if (currentChoice()) { showProblemChoice = false; reportOpening++; showReport = true } } },
                     )
                     if (r.counterpartyId > 0) {
                         TaxiReceiptActionRow(
                             icon = Icons.Default.Verified,
                             title = appText("Открыть разбор", "Ҡарауҙы асыу"),
                             text = appText("Выслушаем обе стороны", "Ике яҡты ла тыңлаясаҡбыҙ"),
-                            onClick = { showProblemChoice = false; showDispute = true },
+                            onClick = { commit { if (currentChoice()) { showProblemChoice = false; disputeOpening++; showDispute = true } } },
                         )
                     }
                 }
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showProblemChoice = false }) {
+                TextButton(onClick = { closeChoice() }) {
                     Text(appText("Закрыть", "Ябыу"), color = CanonGreen2)
                 }
             },
@@ -841,36 +909,44 @@ private fun TaxiAfterRideActions(
     }
 
     if (showReport) {
+        val opening = reportOpening
+        fun currentReport(): Boolean = isCurrent() && showReport && opening == reportOpening
         ReportCategoryDialog(
             title = appText("Сообщить о нарушении", "Боҙоу тураһында хәбәр итеү"),
             categories = if (isDriver) reportCategoriesPassenger() else reportCategoriesDriver(),
-            onDismiss = { showReport = false },
+            onDismiss = { commit { if (currentReport()) showReport = false } },
             onSend = { category, details ->
+                if (!currentReport()) return@ReportCategoryDialog
                 showReport = false
                 scope.launch {
-                    ApiClient.reportUser(reason = details, category = category, orderId = r.orderId)
-                        .onSuccess {
+                    if (!isCurrent()) return@launch
+                    ApiClient.reportUser(reason = details, category = category, orderId = r.orderId, expectedGeneration = paymentOwner)
+                        .onSuccess { commit {
                             errText = null
                             successText = reportSentMessage
-                        }
-                        .onFailure { errText = (it as? ApiException)?.message ?: errFallback }
+                        } }
+                        .onFailure { failure -> commit { errText = (failure as? ApiException)?.message ?: errFallback } }
                 }
             },
         )
     }
 
     if (showDispute && r.counterpartyId > 0) {
-        FileIncidentDialog(
+        val opening = disputeOpening
+        fun currentDispute(): Boolean = isCurrent() && showDispute && opening == disputeOpening
+        key(opening) { FileIncidentDialog(
             respondentId = r.counterpartyId,
             respondentName = r.counterpartyName.ifBlank { counterpartyFallback },
             orderId = r.orderId,
-            onDismiss = { showDispute = false },
-            onFiled = {
+            ownerGeneration = paymentOwner,
+            isCurrentParent = { currentDispute() },
+            onDismiss = { commit { if (currentDispute()) showDispute = false } },
+            onFiled = { commit { if (currentDispute()) {
                 showDispute = false
                 disputeFiled = true
                 successText = disputeSentMessage
-            },
-        )
+            } } },
+        ) }
     }
 }
 

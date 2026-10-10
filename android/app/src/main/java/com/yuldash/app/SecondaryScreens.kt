@@ -2299,7 +2299,7 @@ internal fun ReportCategoryDialog(
         confirmButton = {
             TextButton(
                 enabled = canSend,
-                onClick = { onSend(selected ?: "other", details.trim()) },
+                onClick = { if (selected != null && (selected != "other" || details.isNotBlank())) onSend(selected ?: "other", details.trim()) },
             ) { Text(appText("Отправить", "Ебәреү"), color = if (canSend) CanonRed else CanonMuted, fontWeight = FontWeight.Bold) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },

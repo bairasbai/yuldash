@@ -34,6 +34,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -86,6 +87,7 @@ internal fun PayOnlineCard(
     modifier: Modifier = Modifier,
     targetKey: String = "",
     ownerGeneration: Long? = null,
+    isCurrentParent: () -> Boolean = { true },
 ) {
     // Захватываем владельца до любого conditional return. Смена входа скрывает старую
     // карточку, а не перепривязывает прежний заказ к новому аккаунту.
@@ -93,7 +95,7 @@ internal fun PayOnlineCard(
     val session by ApiClient.sessionChanges.collectAsState()
     if (session != owner || !ApiClient.isCurrentSession(owner) ||
         (ownerGeneration != null && ownerGeneration != owner)) return
-    key(targetKey, owner) { PayOnlineOwnedCard(amountKop, pay, modifier, owner) }
+    key(targetKey, owner) { PayOnlineOwnedCard(amountKop, pay, modifier, owner, isCurrentParent) }
 }
 
 @Composable
@@ -102,11 +104,13 @@ private fun PayOnlineOwnedCard(
     pay: suspend (String, Long) -> Result<PayTripResultDto>,
     modifier: Modifier,
     generation: Long,
+    isCurrentParent: () -> Boolean,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation)
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) && currentParent()
     fun commit(action: () -> Unit) {
         ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() }
     }

@@ -5957,3 +5957,8 @@ RED ActivityBundle/App подтвердил потерю7назначений,п
 ## B02 — ссылки поездки и помощь на дороге, 10.10.2026
 
 Сохранённая кнопка должна принадлежать конкретному открытию: owner/target недостаточно для cancel→reopen в том же child. Roadside хранит номер открытия confirmation; share-more сравнивает показанную ссылку. В кеш личных контактов добавлен optional expectedGeneration до fast path, без смены поведения прежних default callers. [Проверки](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026).
+
+
+## B02 — чек такси: текущий владелец и действия, 10.10.2026
+
+Владелец живого UI и валидность HTTP-номера — разные проверки: invalid ID нельзя превращать в пустой экран. Front guard до launch ограничивает повтор, inner guard после launch снимает очередь до HTTP при back. FileIncident фиксирует payload и closure/opening, report проверяет live category/details. [Проверки](audit-blocks.md#b02--чек-такси-текущий-владелец-и-действия-10102026).

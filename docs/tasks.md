@@ -17821,3 +17821,18 @@ Final498/498=42new+15revised+441retained,44classes/обаAPK. Missing-recipient 
 ## B02 — ссылки поездки и помощь на дороге, 10.10.2026
 
 787 различных ID = 740 сохранённых + 47 новых; 66 классов, 0 отказов/ошибок/пропусков/устаревших XML, 486.609 с, 87 отпечатков исходников, оба debug APK. Повторы не прибавляются к unique. План реализации/сборки выполнен; review/staged/main/remote проверяем отдельно. 17own/40foreign, новых BA drafts нет. [Критерии и остатки](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026). Следующий локальный пункт — TaxiReceipt действия; uncertain share reconciliation и full caller матрицы остаются в реестре.
+
+
+## B02 — чек такси: владелец и действия, 10.10.2026
+
+План от опубликованного0f539dd7; продолжающееся поручение включает собственный коммит/FFmain/push.
+1. Воспроизвести actual TaxiReceipt: загрузку/повтор и matching ID, сохранённую оценку/спасибо/наличные/забытую вещь/шаринг, смену входа/цели/закрытие, повтор и удержанный ответ. Общие диалоги жалобы/разбора исследовать отдельно по точным связям.
+2. Минимально связать экран и личные действия с captured generation/target/scope/current parent, передать expectedGeneration через API. Сохранить текущие успешные пути и обычный отказ/повтор; не менять тексты/стиль/версии.
+3. Проверить затронутое, затем итоговую интеграцию787 сохранённых ID + новые из-за изменения shared API/callers, обе debug-сборки. Обновить реестр/мозг/inventory, scoped независимое чтение и собственная доставка;40foreign сохраняются.
+
+Замок реализации снят после итоговой проверки; root один docs/inventory/Git writer до scoped приёмки и доставки. Область: TaxiReceiptScreen.kt, scoped ApiClient entries, новых receipt tests/docs/inventory; единственный Gradle/Git. После конкретных read-only findings область расширена на FileIncidentDialog submit/owner/picker/decode/upload guards в FairnessScreens.kt, только front canSend в SecondaryScreens.kt, optional current parent в PayOnlineCard.kt, только receipt live screen+ID binding в AppNavOrders.kt/YuldashApp.kt. b02_trip_action_review — bounded read-only этих связей, без edits/build/device/network/Git. Предыдущий этап доставлен0f539dd7;572raw прежнего freeze сохранены flat copies до изменений. MainActivity/mobile/backend/production/реальные платежи/SMS/провайдеры не затрагиваем. Fullshared incident/upload матрица, winter и весьB02/релиз не закрываются инвентаризацией или сборкой.
+
+
+## B02 — чек такси: текущий владелец и действия, 10.10.2026
+
+844 различных ID = 787 сохранённых + 57 новых; 67 классов, 0 отказов/ошибок/пропусков/устаревших XML, 490.250 с, 90 отпечатков исходников, оба debug APK. Повторы не прибавляются к unique. План реализации/сборки выполнен; review/staged/main/remote проверяем отдельно. 16own/40foreign, новых BA drafts нет. [Критерии и остатки](audit-blocks.md#b02--чек-такси-текущий-владелец-и-действия-10102026). Следующий локальный пункт — winter, shared incident photo/native/caller и uncertain server reconciliation отдельно.
