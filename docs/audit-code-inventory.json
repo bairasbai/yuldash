@@ -83,12 +83,12 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 902
+    "test_support": 903
   },
   "counts_by_block": {
     "B01": 128,
     "B02": 174,
-    "B03": 105,
+    "B03": 106,
     "B04": 75,
     "B05": 37,
     "B06": 84,
@@ -643,15 +643,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/AppNavHome.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "ac00f58a3b42ca648c1b1302026c4afda6ee552202f8c0f535f33f841b1ea5ac",
-      "lines": 276
+      "sha256": "9135f44323ab1a4fc8f51bdb6f6f983acb0f97cf97c12f9b2a16ddb74a3ac6e2",
+      "lines": 278
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AppNavOrders.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "e22015d9e2dd1e7ad986db7fefb18a1d7c65ee9eed2fb62f715a08e3f722a229",
-      "lines": 105
+      "sha256": "427baf71b7cb1bfde1c83c28a1efaf2281ad96f4fbe8a2e9e95a74467aeeab16",
+      "lines": 106
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AppReviewScreen.kt",
@@ -1287,8 +1287,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "b1cd5c338a54956bca60ecc2f8b9b462d83c2fdfae05485f66827c700531b3dd",
-      "lines": 2779
+      "sha256": "08c0b5fadb876bc279583293e50d2504b4ed99a65a8fbd37a7b6ec625e21bc67",
+      "lines": 2782
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -3207,6 +3207,13 @@
       "block": "B03",
       "sha256": "14e05221b235ef2e7708ec445ba4c835a2952bf78a7aeb956d3ed34b08681fc9",
       "lines": 140
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/TaxiOrderBridgeRestorationTest.kt",
+      "kind": "test_support",
+      "block": "B03",
+      "sha256": "c39f6453d2b05abf6870c1d03c196d3e8ed16f0c0fa1500877f004dcce828a40",
+      "lines": 225
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/TaxiPassengerJourneyTest.kt",

@@ -2461,6 +2461,7 @@ internal fun HomeScreen(
     onCourierMode: () -> Unit = {},      // из режима «Курьер» — к работе курьера (заказы, линия, заработок)
     onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → создать поездку с датой-шаблоном
     onTabChange: (HomeTab) -> Unit = {},
+    onOpenInstantOrder: () -> Unit = {},
     onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() }
 ) {
     var ridesPresetTo by remember { mutableStateOf("") }
@@ -2468,7 +2469,8 @@ internal fun HomeScreen(
 
     // Шелл (таб-стейт + нижнее меню + смена вкладок) вынесен в чистый HomeShell — тестируется на JVM.
     // HomeScreen остаётся «умной» обёрткой: раздаёт данные/колбэки в тело конкретной вкладки.
-    HomeShell(initialTab = initialTab, onTabChange = onTabChange, onSelectTab = onSelectTab) { tab, selectTab ->
+    HomeShell(initialTab = initialTab, onTabChange = onTabChange, onSelectTab = onSelectTab,
+        onOpenInstantOrder = onOpenInstantOrder) { tab, selectTab ->
             val gate = LocalHomeTabActionGate.current
             fun openRides(to: String = "", today: Boolean = false) {
                 gate.select(HomeTab.Rides) {
@@ -2585,6 +2587,7 @@ internal fun HomeShell(
     initialTab: HomeTab,
     onTabChange: (HomeTab) -> Unit = {},
     onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() },
+    onOpenInstantOrder: () -> Unit = {},
     tabContent: @Composable (tab: HomeTab, selectTab: (HomeTab) -> Unit) -> Unit,
 ) {
     val generation by ApiClient.sessionChanges.collectAsState()
@@ -2632,7 +2635,7 @@ internal fun HomeShell(
             ActiveTripBar(onOpen = {
                 if (renderedTrip != null) TaxiNavigationState.runIfCurrentTrip(renderedTrip) {
                     if (!TaxiNavigationState.tripOnScreen(generation)) {
-                        selectTab(HomeTab.Map) { NavSignals.openInstantOrder.value = true }
+                        selectTab(HomeTab.Map, onOpenInstantOrder)
                     }
                 }
             })

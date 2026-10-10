@@ -118,10 +118,12 @@ internal fun HomeRoute(
                 openHomeScreen {
                     startHomeTab = tab
                     homeDestinationEpoch++
-                    // Shell state, presets and order bridge commit under the same session monitor.
+                    // Shell state and the pending order destination commit under one session monitor.
                     commit()
                 }
             },
+            // Called only inside the guarded tab commit: save before the next Compose frame.
+            onOpenInstantOrder = { vm.requestScreenDestination(Screen.InstantOrder, ApiClient.myUserId()) },
             onCreateRide = { openHomeScreen { onCreateRide(HomeTab.Request, null) } },
             onSeasonalPublish = { date -> openHomeScreen { onCreateRide(HomeTab.Request, date) } },   // F15: дата праздника уже в форме
             onCreateRequest = { openHomeScreen { screen = Screen.CreateRequest } },

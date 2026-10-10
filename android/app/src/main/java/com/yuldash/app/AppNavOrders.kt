@@ -41,7 +41,8 @@ internal fun OrdersNav(
             onBack = { onBack() },
             onLoginRequired = { onOpen(Screen.Login) },
             onTaxiOnboarding = { onOpen(Screen.TaxiOnboarding) },
-            onOpenScheduled = { onOpen(Screen.ScheduledOrders) }
+            onOpenScheduled = { onOpen(Screen.ScheduledOrders) },
+            renderNativeMap = LocalPoolingNativeMapEnabled.current,
         )
         Screen.InstantDriverTrip -> InstantDriverTripScreen(
             orderId = instantTripOrderId,
