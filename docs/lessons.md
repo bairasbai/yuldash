@@ -9141,3 +9141,8 @@ Actual Compose fixture должна раскрыть TaxiSheet Full, поско�
 ## B02 — чек такси: текущий владелец и действия, 10.10.2026
 
 Native WRAP_CONTENT Dialog/TextField в Robolectric может бесконечно remeasure. Повторно используем documented test-only window width workaround до первого idle, не меняем production DialogProperties и не считаем aborted0XML полноценным RED. Исторические original fixture bodies сохраняем. После source review invalid-number regression воспроизводим actual error/back/0HTTP контролем. Перед commit проверять не только candidate inventory file hash, но и equality самого staged blob с candidate; ранняя prepare-проверка не заменяет конечную. [Воспроизведения](audit-blocks.md#b02--чек-такси-текущий-владелец-и-действия-10102026).
+
+
+## B02 — зимний вопрос: владелец, таймер и подтверждение, 10.10.2026
+
+LaunchedEffect(key) сохраняет closures первого render. Local function references могут сравниваться равными при разных captures: callback holders используют referentialEqualityPolicy; сроки/state refs обновляются через rememberUpdatedState. Server returned перед MockResponse не client join: тест observes callback return/cancel finally и UI application. Root finished publication надо проверять отдельно от screen publisher. busy cleanup своей scope вfinally даже если parent predicate временно false; fullABA отдельно. [Воспроизведения](audit-blocks.md#b02--зимний-вопрос-владелец-таймер-и-подтверждение-10102026).

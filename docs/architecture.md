@@ -4502,3 +4502,8 @@ Shared InstantShareDialog/LiveLinkCard/RoadsideHelpAction имеют owner wrapp
 ## B02 — чек такси: текущий владелец и действия, 10.10.2026
 
 TaxiReceipt: owner wrapper/sessionChanges + child key(order,generation); matching DTO, live root screen/id parent, closed/loading/error guard;9API optional expectedGeneration. Local invalid ID отображает error/back и не вызывает HTTP. Rating/afterride/incident scopes самостоятельны, вложенная PayOnline проверяет родителя. [Доказательства и границы](audit-blocks.md#b02--чек-такси-текущий-владелец-и-действия-10102026).
+
+
+## B02 — зимний вопрос: владелец, таймер и подтверждение, 10.10.2026
+
+WinterProtocol: watcher latest params +captured owner/target/lifecycle; server-state aware retry; dialog keyed opening with async Result and current/busy/closed guards.6API expectedGeneration; Taxi own per-ID start/state +currentTrip/publisher, Booking known passenger status, Courier active selection. [Доказательства/границы](audit-blocks.md#b02--зимний-вопрос-владелец-таймер-и-подтверждение-10102026).

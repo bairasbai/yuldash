@@ -1481,12 +1481,14 @@ internal fun InstantOrderScreen(
     // JVM-тесты не могут загрузить нативную библиотеку Yandex MapKit. false заменяет только
     // карту фоном; форма, её onClick и реальные вызовы ApiClient остаются теми же.
     renderNativeMap: Boolean = true,
+    // Configurable timer interval also lets local integration execute the actual parent without a two-hour wait.
+    winterArmAfterMs: Long = WINTER_FALLBACK_MS,
 ) {
     val generation by ApiClient.sessionChanges.collectAsState()
     key(generation) {
         InstantOrderContent(
             generation, onBack, onLoginRequired, embedded, onTaxiOnboarding, onOpenScheduled,
-            onSavedPlaces, payMethod, onOpenPayments, renderNativeMap,
+            onSavedPlaces, payMethod, onOpenPayments, renderNativeMap, winterArmAfterMs,
         )
     }
 }
@@ -1503,6 +1505,7 @@ private fun InstantOrderContent(
     payMethod: String,
     onOpenPayments: () -> Unit,
     renderNativeMap: Boolean,
+    winterArmAfterMs: Long,
 ) {
     val publisher = remember { Any() }
     DisposableEffect(generation, publisher) {
@@ -1522,9 +1525,18 @@ private fun InstantOrderContent(
     // те же четыре часа зимней трассы — и один с незнакомым водителем (аудит 2026-08-06).
     // Отсчёт ведём от момента, когда человек сел в машину: до посадки вопрос «доехал?»
     // бессмысленен, и сервер такой заход всё равно отклонит (too_early).
-    val winterAsked = rememberSaveable { mutableStateOf(false) }
-    val winterShow = rememberSaveable { mutableStateOf(false) }
-    var onboardSeenAt by rememberSaveable { mutableStateOf(0L) }
+    val winterOrderId = order?.id
+    val winterAsked = rememberSaveable(winterOrderId) { mutableStateOf(false) }
+    val winterShow = rememberSaveable(winterOrderId) { mutableStateOf(false) }
+    var onboardSeenAt by rememberSaveable(winterOrderId) { mutableStateOf(0L) }
+    fun isWinterOrderCurrent(): Boolean {
+        return winterOrderId != null && winterOrderId > 0 && scope.isActive &&
+            TaxiNavigationState.isScreenOwner(generation, publisher) &&
+            TaxiNavigationState.currentTrip(generation)?.let {
+                it.orderId == winterOrderId && it.publisher === publisher
+            } == true &&
+            order?.let { it.id == winterOrderId && it.status == "onboard" } == true
+    }
     var checking by remember { mutableStateOf(loggedIn) }   // первичная загрузка: есть ли активный заказ
     // Гейт такси (волна 2): доступно ли такси в моей точке (глобальный флаг + города на сервере).
     // Сеть упала → фолбэк «доступно» (обычный пикер): сервер всё равно гейтит оценку и заказ.
@@ -1534,22 +1546,24 @@ private fun InstantOrderContent(
 
     // Запоминаем момент посадки один раз: DTO времени посадки не отдаёт, а таймеру нужна точка
     // отсчёта, переживающая поворот экрана.
-    LaunchedEffect(order?.status) {
+    LaunchedEffect(winterOrderId, order?.status) {
         if (order?.status == "onboard" && onboardSeenAt == 0L) {
             onboardSeenAt = System.currentTimeMillis()
         }
     }
     WinterArrivalWatcher(
-        key = order?.id,
+        key = winterOrderId,
         startMs = { onboardSeenAt.takeIf { it > 0L } },
-        active = { order?.status == "onboard" },
+        active = ::isWinterOrderCurrent,
         asked = winterAsked,
         show = winterShow,
-        onArm = { order?.id?.let { ApiClient.winterCheckOrder(it) } },
+        armAfterMs = winterArmAfterMs,
+        ownerGeneration = generation,
+        isCurrentTarget = ::isWinterOrderCurrent,
+        onArm = { owner -> ApiClient.winterCheckOrder(winterOrderId!!, expectedGeneration = owner) },
     )
-    WinterArrivalDialog(winterShow) {
-        val oid = order?.id
-        if (oid != null) scope.launch { ApiClient.winterCheckOrderOk(oid) }
+    WinterArrivalDialog(winterShow, winterOrderId, generation, ::isWinterOrderCurrent) { owner ->
+        ApiClient.winterCheckOrderOk(winterOrderId!!, expectedGeneration = owner)
     }
 
     // Связь с сервером при поллинге активного заказа потеряна → мягкий баннер «пробуем ещё», не молчим.

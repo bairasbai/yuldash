@@ -83,7 +83,7 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 909
+    "test_support": 910
   },
   "counts_by_block": {
     "B01": 128,
@@ -93,7 +93,7 @@
     "B05": 37,
     "B06": 84,
     "B07": 107,
-    "B08": 167,
+    "B08": 168,
     "B09": 541,
     "B10": 346,
     "B11": 90
@@ -678,8 +678,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "e49863cea2b7c67ff04cbb9504d6ecdcc4145879c144bf8e6bbe4edd54eaba99",
-      "lines": 3986
+      "sha256": "58f87843d16f4d0bfaccb26bd77124e8ff5226a67cdfe2d2d52bbfc3a9d48520",
+      "lines": 3989
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -734,8 +734,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/CourierScreen.kt",
       "kind": "android_main",
       "block": "B04",
-      "sha256": "99d6e0ae13fab31bf3edbb58d48d5a5ec5a47a0db8733ae15c2b18cefaf8fb21",
-      "lines": 2546
+      "sha256": "e7084a4f9f60434feff5332231a284c413f306aa88c5388002cab056a4e6a5f7",
+      "lines": 2553
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CourierTroubleDialog.kt",
@@ -839,8 +839,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt",
       "kind": "android_main",
       "block": "B03",
-      "sha256": "a0ba4ad9d7c2055fb198ad8822a427bc5efc9b25b674cd362c3e684995d3bbf1",
-      "lines": 8102
+      "sha256": "9a233b20eac6f667b232933bfc5697098b1e10bd060736ca381c3013714bfe11",
+      "lines": 8116
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/IntroHero.kt",
@@ -1280,8 +1280,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/WinterProtocol.kt",
       "kind": "android_main",
       "block": "B08",
-      "sha256": "51833b5184c48d0221d42f762504a0103210dec1a13740746171d6b903ef9bec",
-      "lines": 118
+      "sha256": "ae5ff9b619b9c0d4b53bb3516d462d0c16613bfb4ea4b95016f26c6eec2624b7",
+      "lines": 203
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
@@ -1315,7 +1315,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "4dafad23337bb340fc13c8f766dd71f4556e5065f41147ef7d934f812e286a59",
+      "sha256": "8a2022a8e891ac15c1217b8ab918bf6089af87c426e0de0468be0ac3053aa1f8",
       "lines": 7970
     },
     {
@@ -3396,6 +3396,13 @@
       "block": "B06",
       "sha256": "1f07a71881b1c1ad41c0ce02d7e4030821c6ff2ca0627cef94afee8f0f3c37f8",
       "lines": 105
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/WinterOwnerBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "745c0809fcf088babd24bcbf4333a531bab493a7159707ec94fba75e0dc49212",
+      "lines": 213
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/YuldashAppContentTest.kt",

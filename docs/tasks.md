@@ -17836,3 +17836,18 @@ Final498/498=42new+15revised+441retained,44classes/обаAPK. Missing-recipient 
 ## B02 — чек такси: текущий владелец и действия, 10.10.2026
 
 844 различных ID = 787 сохранённых + 57 новых; 67 классов, 0 отказов/ошибок/пропусков/устаревших XML, 490.250 с, 90 отпечатков исходников, оба debug APK. Повторы не прибавляются к unique. План реализации/сборки выполнен; review/staged/main/remote проверяем отдельно. 16own/40foreign, новых BA drafts нет. [Критерии и остатки](audit-blocks.md#b02--чек-такси-текущий-владелец-и-действия-10102026). Следующий локальный пункт — winter, shared incident photo/native/caller и uncertain server reconciliation отдельно.
+
+
+## B02 — зимний вопрос: владелец и таймер, 10.10.2026
+
+План от опубликованного1e6a5ad6; продолжающееся поручение включает собственный коммит/FFmain/push.
+1. Воспроизвести actual WinterArrivalWatcher/Dialog: текущий таймер/кнопки, поздние параметры, смена владельца/цели, закрытие/повторное открытие, дубли/очередь/удержанные ответы и обычный503.
+2. Минимально привязать общие действия к captured generation/target/current parent/opening/scope, свежим параметрам таймера и expectedGeneration шести API. Обновить только winter adapters в Taxi/Booking/Courier, сохранив стиль/версии.
+3. Проверить затронутое и итоговую интеграцию844 сохранённых ID + новые, обе debug-сборки. Обновить реестр/мозг/inventory, scoped независимое чтение и собственную доставку;40foreign сохраняются.
+
+Замок реализации снят после итоговой интеграции; root один docs/inventory/Git writer до scopedприёмки/доставки. Область: WinterProtocol.kt, exact winter bindings InstantOrderScreen.kt/BookingActiveTripScreen.kt/CourierScreen.kt,6entries ApiClient.kt,new winter test/docs/inventory; единственный Gradle/Git. b02_trip_action_review только bounded read-only, без edits/build/device/network/Git.713raw previousfreeze сохранены до изменений. MainActivity/mobile/backend/production/реальныеSMS/providers не затрагиваем. Full экранные phase/target/ABA матрицы и фактическая доставка SMS/FCM/device/релиз остаются открытыми.
+
+
+## B02 — зимний вопрос: владелец, таймер и подтверждение, 10.10.2026
+
+890 различных ID = 844 сохранённых + 46 новых;68 классов,0 отказов/ошибок/пропусков/устаревших XML,512.953с,92 отпечатков исходников,оба debug APK. Повторы не прибавляются к unique. План реализации/сборки выполнен, review/staged/main/remote проверяются отдельно.14own/40foreign; fallback BA reusedexistingpair, новых drafts нет. [Критерии/остатки](audit-blocks.md#b02--зимний-вопрос-владелец-таймер-и-подтверждение-10102026).

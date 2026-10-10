@@ -1256,35 +1256,35 @@ object ApiClient {
     /** F12 «Зимний протокол»: арм авто-проверки «доехал?». Идемпотентна — сервер сам решает
      *  (too_early / check_sent / waiting / escalated). Возвращает поле state. Клиент зовёт,
      *  когда его ETA+буфер истёк, а поездка ещё активна. */
-    suspend fun winterCheck(bookingId: Int): Result<String> =
-        call("POST", "/bookings/$bookingId/winter-check", JSONObject(), auth = true)
+    suspend fun winterCheck(bookingId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/bookings/$bookingId/winter-check", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("state") }.onSuccess { Analytics.log("winter_check") }
 
     /** F12: участник ответил «всё в порядке» на проверку «доехал?» — гасит эскалацию доверенным. */
-    suspend fun winterCheckOk(bookingId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/winter-check/ok", JSONObject(), auth = true).map { }
+    suspend fun winterCheckOk(bookingId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/bookings/$bookingId/winter-check/ok", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
             .onSuccess { Analytics.log("winter_check_ok") }
 
     // ❄️ Зимний протокол в такси и доставке. Раньше он был только у попутки, хотя дорога
     // одна: пассажир такси едет те же четыре часа, курьер — тоже и вдобавок один.
     /** Зимний протокол по такси-заказу: арм проверки «доехал?» (сервер решает, не рано ли). */
-    suspend fun winterCheckOrder(orderId: Int): Result<String> =
-        call("POST", "/instant/orders/$orderId/winter-check", JSONObject(), auth = true)
+    suspend fun winterCheckOrder(orderId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/instant/orders/$orderId/winter-check", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("state") }.onSuccess { Analytics.log("winter_check_order") }
 
     /** «Доехал» по такси-заказу — гасит эскалацию близким. */
-    suspend fun winterCheckOrderOk(orderId: Int): Result<Unit> =
-        call("POST", "/instant/orders/$orderId/winter-check/ok", JSONObject(), auth = true).map { }
+    suspend fun winterCheckOrderOk(orderId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/winter-check/ok", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
             .onSuccess { Analytics.log("winter_check_order_ok") }
 
     /** Зимний протокол по доставке: спрашиваем курьера — он в дороге один. */
-    suspend fun winterCheckParcel(parcelId: Int): Result<String> =
-        call("POST", "/parcels/$parcelId/winter-check", JSONObject(), auth = true)
+    suspend fun winterCheckParcel(parcelId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/parcels/$parcelId/winter-check", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("state") }.onSuccess { Analytics.log("winter_check_parcel") }
 
     /** «Доехал» по доставке — отмечает только курьер. */
-    suspend fun winterCheckParcelOk(parcelId: Int): Result<Unit> =
-        call("POST", "/parcels/$parcelId/winter-check/ok", JSONObject(), auth = true).map { }
+    suspend fun winterCheckParcelOk(parcelId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/parcels/$parcelId/winter-check/ok", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
             .onSuccess { Analytics.log("winter_check_parcel_ok") }
 
     // ---------- Жалобы и чёрный список ----------

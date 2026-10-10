@@ -1574,6 +1574,8 @@ private fun ActiveTripContent(
     val arrivalAsked = rememberSaveable(bookingId) { mutableStateOf(false) }
     var departIso by remember(bookingId) { mutableStateOf("") }
     var armAfterMs by remember(bookingId) { mutableStateOf(ARRIVAL_CHECK_FALLBACK_MS) }
+    fun isWinterBookingCurrent() = bookingId != null && bookingId > 0 && isTripChatActive() &&
+        role == "passenger" && bookingStatusAllowsBoarding(bookingStatus)
     // F12: пробудить проверку «доехал?» один раз, когда прошёл буфер после выезда, а поездка
     // ещё активна (не done/cancelled). Буфер — эвристика (ETA в этом экране нет): сервер сам
     // не пошлёт пуш до depart_at и не эскалирует раньше 30 мин + активного шаринга.
@@ -1584,11 +1586,13 @@ private fun ActiveTripContent(
             iso.takeIf { it.isNotBlank() }?.let(::parseIsoUtcMillis)
         },
         // Водителя не спрашиваем: протокол сторожит того, кого везут.
-        active = { bookingStatus != "done" && bookingStatus != "cancelled" && role != "driver" },
+        active = ::isWinterBookingCurrent,
         asked = arrivalAsked,
         show = showArrivalCheck,
         armAfterMs = armAfterMs,
-        onArm = { bookingId?.let { ApiClient.winterCheck(it) } },   // сервер решит: too_early / check_sent
+        ownerGeneration = tripSession,
+        isCurrentTarget = ::isWinterBookingCurrent,
+        onArm = { owner -> ApiClient.winterCheck(bookingId!!, expectedGeneration = owner) },
     )
     // Ключуем по bookingId: черновик/режим редактирования/выбранный статус не должны утекать в другую бронь.
     var draft by remember(bookingId) { mutableStateOf("") }
@@ -2657,9 +2661,8 @@ private fun ActiveTripContent(
         }
     }
 
-    WinterArrivalDialog(showArrivalCheck) {
-        val bid = bookingId
-        if (bid != null) voiceScope.launch { ApiClient.winterCheckOk(bid) }
+    WinterArrivalDialog(showArrivalCheck, bookingId, tripSession, ::isWinterBookingCurrent) { owner ->
+        ApiClient.winterCheckOk(bookingId!!, expectedGeneration = owner)
     }
 
     if (showShare && isTripChatActive()) {

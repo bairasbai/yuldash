@@ -5962,3 +5962,8 @@ RED ActivityBundle/App подтвердил потерю7назначений,п
 ## B02 — чек такси: текущий владелец и действия, 10.10.2026
 
 Владелец живого UI и валидность HTTP-номера — разные проверки: invalid ID нельзя превращать в пустой экран. Front guard до launch ограничивает повтор, inner guard после launch снимает очередь до HTTP при back. FileIncident фиксирует payload и closure/opening, report проверяет live category/details. [Проверки](audit-blocks.md#b02--чек-такси-текущий-владелец-и-действия-10102026).
+
+
+## B02 — зимний вопрос: владелец, таймер и подтверждение, 10.10.2026
+
+Вопрос показывать после известного server state, не до успешного arm. Обычный arm failure/too_early/unknown не consumes asked; повтор60s/resume. Подтверждение не прятать до успеха;503 visible error/retry. Screen owner не доказывает живую поездку после finishTrip. [Проверки](audit-blocks.md#b02--зимний-вопрос-владелец-таймер-и-подтверждение-10102026).

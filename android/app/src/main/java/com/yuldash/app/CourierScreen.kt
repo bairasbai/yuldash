@@ -499,20 +499,27 @@ private fun CourierWorkContent(
     //
     // Спрашиваем по самой ранней из везомых посылок: если курьер молчит, неважно, какая
     // из них — важно, что молчит он сам.
-    val winterAsked = rememberSaveable { mutableStateOf(false) }
-    val winterShow = rememberSaveable { mutableStateOf(false) }
-    val winterParcel = carrying.minByOrNull { it.acceptedAt ?: it.createdAt }
+    val winterGeneration = remember { ApiClient.queueSessionGeneration() }
+    fun currentWinterParcel() = carrying.filter { it.status in setOf("accepted", "in_transit", "returning") }
+        .minByOrNull { it.acceptedAt ?: it.createdAt }
+    val winterParcel = currentWinterParcel()
+    val winterParcelId = winterParcel?.id
+    val winterAsked = rememberSaveable(winterParcelId) { mutableStateOf(false) }
+    val winterShow = rememberSaveable(winterParcelId) { mutableStateOf(false) }
+    fun isWinterParcelCurrent() = winterParcelId != null && winterParcelId > 0 &&
+        currentWinterParcel()?.id == winterParcelId
     WinterArrivalWatcher(
-        key = winterParcel?.id,
+        key = winterParcelId,
         startMs = { winterParcel?.acceptedAt?.let(::parseIsoUtcMillis) },
-        active = { winterParcel != null },
+        active = ::isWinterParcelCurrent,
         asked = winterAsked,
         show = winterShow,
-        onArm = { winterParcel?.id?.let { ApiClient.winterCheckParcel(it) } },
+        ownerGeneration = winterGeneration,
+        isCurrentTarget = ::isWinterParcelCurrent,
+        onArm = { owner -> ApiClient.winterCheckParcel(winterParcelId!!, expectedGeneration = owner) },
     )
-    WinterArrivalDialog(winterShow) {
-        val pid = winterParcel?.id
-        if (pid != null) scope.launch { ApiClient.winterCheckParcelOk(pid) }
+    WinterArrivalDialog(winterShow, winterParcelId, winterGeneration, ::isWinterParcelCurrent) { owner ->
+        ApiClient.winterCheckParcelOk(winterParcelId!!, expectedGeneration = owner)
     }
 
     val toggleErr = appText("Не получилось изменить статус. Проверь сеть.", "Статусты үҙгәртеп булманы. Селтәрҙе тикшер.")
