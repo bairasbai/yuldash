@@ -4642,6 +4642,13 @@ private fun InstantShareContent(
     val parentState = remember { mutableStateOf(isCurrentParent, referentialEqualityPolicy()) }
     parentState.value = isCurrentParent
     val currentParent by parentState
+    // Observe parent state in composition, including while the pending branch hides the link.
+    val parentIsCurrent = currentParent()
+    val parentContext = remember { object { var wasCurrent = true; var revision = 0L } }
+    SideEffect {
+        if (parentContext.wasCurrent && !parentIsCurrent) parentContext.revision++
+        parentContext.wasCurrent = parentIsCurrent
+    }
     val readerState = remember { mutableStateOf(readShares, referentialEqualityPolicy()) }
     readerState.value = readShares
     val currentReadShares by readerState
@@ -4667,9 +4674,10 @@ private fun InstantShareContent(
     // A failed mutation may already be committed. Read the full list before allowing another action.
     suspend fun recheck(attempt: PendingInstantShareMutation) {
         if (!isCurrent() || pending !== attempt) return
+        val parentRevision = parentContext.revision
         val fresh = currentReadShares(orderId, generation)
         commit {
-            if (pending !== attempt) return@commit
+            if (pending !== attempt || parentContext.revision != parentRevision) return@commit
             fresh.onSuccess { shares ->
                 activeShares = shares
                 if (liveLink != null && shares.none { it.link == liveLink }) liveLink = null

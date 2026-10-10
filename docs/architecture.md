@@ -4522,3 +4522,8 @@ InstantShareDialog принимает необязательный suspend readS
 ## B02 — поздняя повторная сверка после отзыва ссылки, 10.10.2026
 
 Структура продукта и readShares seam прежние. InstantShareLateResponseTest расширен с 26 до 33 методов: общий lateRetry теперь принимает revoke=false по умолчанию, шесть новых методов используют revoke=true; положительный пустой GET разрешает новую текущую ссылку. Подготовительные и новый POST подтверждаются UI/HTTP, отдельно их Job не наблюдался. [Доказательства и границы](audit-blocks.md#b02--поздняя-повторная-сверка-после-отзыва-ссылки-10102026).
+
+
+## B02 — возврат родителя до ответа сверки ссылки, 10.10.2026
+
+InstantShareContent читает currentParent() в composition и через SideEffect сохраняет lastParent/revision в remembered non-snapshot holder. Применённый true→false увеличивает revision; возврат true её не сбрасывает. recheck снимает revision перед readShares, publication требует её совпадения. Pending/key/closed/finally и API прежние; fresh retry возможен. Контекст применяется только к recheck, другие цепочки не объявлены защищёнными этим изменением. [Версии и границы](audit-blocks.md#b02--возврат-родителя-до-ответа-сверки-ссылки-10102026).

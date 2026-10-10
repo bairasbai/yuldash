@@ -839,8 +839,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt",
       "kind": "android_main",
       "block": "B03",
-      "sha256": "530dfda454c2c7c0394bc3564a866e56ff93756190b292f8dfa5170a85396d33",
-      "lines": 8183
+      "sha256": "ed2dee9a3d87d58d4ed789f77b6773f380a6dc5a9c0fde86df5f595cdf2ffbf1",
+      "lines": 8191
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/IntroHero.kt",
@@ -2358,8 +2358,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/InstantShareLateResponseTest.kt",
       "kind": "test_support",
       "block": "B03",
-      "sha256": "bef8a1ab091963cc2a4c3ebc08c1a3bf33a1ca84b02c23d15659070f5f59a1e1",
-      "lines": 257
+      "sha256": "a0f919c9033fbfb5eb1c7539acb601a9e71e193f0b9084897bfddf20e17f6b1d",
+      "lines": 311
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/InstantShareOwnerBoundaryTest.kt",

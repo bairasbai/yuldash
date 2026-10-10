@@ -3,6 +3,8 @@ package com.yuldash.app
 import android.app.Application
 import android.content.Intent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
 import androidx.compose.ui.test.*
 import com.yuldash.app.data.ApiClient
@@ -42,6 +44,8 @@ class InstantShareLateResponseTest : ShareHelpBoundaryHarness() {
     )
     private data class Retained(val actions: List<() -> Boolean>, val close: () -> Boolean)
     private val reads = CopyOnWriteArrayList<Read>()
+    private val appliedParents = CopyOnWriteArrayList<Boolean>()
+    private var observeParentFrames = false
     private val ordinals = ConcurrentHashMap<Int, AtomicInteger>()
     private val stored = ConcurrentHashMap<Int, Boolean>()
     private val tokens = ConcurrentHashMap<Int, String>()
@@ -112,9 +116,15 @@ class InstantShareLateResponseTest : ShareHelpBoundaryHarness() {
         return read
     }
     private fun finish(read: Read) { unblock.countDown(); completed(read) }
+    @Composable private fun ParentFrameProbe() {
+        // A sibling restart group observes frames without making the dialog's caller read parent.
+        val active = parentCurrent.value
+        SideEffect { appliedParents += active }
+    }
     private fun mount(lang: AppLanguage = AppLanguage.Ru) {
         language = lang; compose.mainClock.autoAdvance = false
         compose.setContent { if (mounted.value) key(slot.value) {
+            if (observeParentFrames) ParentFrameProbe()
             val renderedId = target.value
             CompositionLocalProvider(LocalAppLanguage provides language) { YuldashTheme {
                 InstantShareDialog(renderedId, { dismisses++ },
@@ -199,6 +209,42 @@ class InstantShareLateResponseTest : ShareHelpBoundaryHarness() {
         assertTrue("Recheck preserved record must restore the same link", shown(copyLabel))
         currentRoutes("active-91")
     }
+    private fun parentReturn(revoke: Boolean, retry: Boolean, recordRemains: Boolean) {
+        observeParentFrames = true; holdOrdinal = if (retry) 3 else 2
+        commitDelete = !recordRemains; listFails = retry
+        val retained = if (revoke) existing() else create()
+        if (retry) { completed(read(2)); assertTrue(shown(retryLabel)); listFails = false; click(retryLabel) }
+        val old = blocked(holdOrdinal)
+        compose.runOnIdle { parentCurrent.value = false }
+        await { appliedParents.lastOrNull() == false }
+        assertFalse(old.job.isCompleted); assertFalse(old.returned.get())
+        compose.runOnIdle { parentCurrent.value = true }
+        await { appliedParents.lastOrNull() == true }
+        assertFalse(old.job.isCompleted); assertFalse(old.returned.get())
+        if (!revoke && !recordRemains) stored[91] = false
+        finish(old); assertFalse(old.job.isCancelled)
+        assertTrue("Retired read must leave unknown state for a fresh retry", shown(retryLabel))
+        assertFalse(shown(copyLabel)); assertNull(ShadowToast.getTextOfLatestToast()); assertEquals(0, dismisses)
+        compose.runOnIdle { retained.actions.forEach { dispatch(it) } }; pump(300)
+        assertFalse(clipboard.hasPrimaryClip()); assertNull(Shadows.shadowOf(app).nextStartedActivity)
+        assertNull(ShadowToast.getTextOfLatestToast()); assertEquals(0, dismisses)
+        assertEquals(1, count("POST", "/share")); assertEquals(if (revoke) 1 else 0, count("DELETE", "/share/501"))
+        assertEquals(holdOrdinal, count("GET", "/orders/91/shares"))
+        click(retryLabel); val fresh = read(holdOrdinal + 1); completed(fresh)
+        assertNotSame(old.job, fresh.job); assertFalse(fresh.job.isCancelled)
+        assertFalse(shown(retryLabel)); assertEquals(recordRemains, shown(copyLabel))
+        if (recordRemains) {
+            if (revoke) assertNotNull(ShadowToast.getTextOfLatestToast()) else assertNull(ShadowToast.getTextOfLatestToast())
+            currentRoutes(if (revoke) "active-91" else "late-91"); assertEquals(0, dismisses)
+        } else {
+            assertFalse(shown(revokeLabel)); assertNotNull(ShadowToast.getTextOfLatestToast())
+            if (revoke) { assertEquals("Ссылка отозвана", ShadowToast.getTextOfLatestToast()); assertEquals(0, dismisses) }
+            else assertEquals(1, dismisses)
+        }
+        assertEquals(1, count("POST", "/share")); assertEquals(if (revoke) 1 else 0, count("DELETE", "/share/501"))
+        assertEquals(holdOrdinal + 1, count("GET", "/orders/91/shares"))
+        assertFalse(records.any { it[2] == "Bearer $tokenB" })
+    }
     @After fun releaseRead() { unblock.countDown() }
     @Test fun heldCreateAfterOwnerChange() = late(Retire.OWNER, false)
     @Test fun heldCreateAfterGuest() = late(Retire.GUEST, false)
@@ -254,4 +300,12 @@ class InstantShareLateResponseTest : ShareHelpBoundaryHarness() {
     @Test fun pendingFailedReadRoutesDoNotCopySendOrClearLink() = pendingRoutes(false)
     @Test fun bashkirPendingRoutesRecoverThePreservedLink() = pendingRoutes(false, AppLanguage.Ba)
     @Test fun duplicateRetryWhileHeldReadsOnce() { holdOrdinal = 3; listFails = true; create(); completed(read(2)); listFails = false; val retry = text(retryLabel); compose.runOnIdle { dispatch(retry); dispatch(retry) }; val read = blocked(3); assertEquals(3, count("GET", "/orders/91/shares")); finish(read); assertTrue(shown(copyLabel)); assertEquals(1, count("POST", "/share")) }
+    @Test fun parentReturnsBeforeCreateStoredRead() = parentReturn(false, false, true)
+    @Test fun parentReturnsBeforeCreateAbsentRead() = parentReturn(false, false, false)
+    @Test fun parentReturnsBeforeRevokeCommittedRead() = parentReturn(true, false, false)
+    @Test fun parentReturnsBeforeRevokePreservedRead() = parentReturn(true, false, true)
+    @Test fun parentReturnsBeforeCreateStoredRetry() = parentReturn(false, true, true)
+    @Test fun parentReturnsBeforeCreateAbsentRetry() = parentReturn(false, true, false)
+    @Test fun parentReturnsBeforeRevokeCommittedRetry() = parentReturn(true, true, false)
+    @Test fun parentReturnsBeforeRevokePreservedRetry() = parentReturn(true, true, true)
 }
