@@ -787,3 +787,8 @@ RED1 actualApp observer после external joined API; five stopped0completed d
 ## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
 
 RED4 expected1actual2; green19; first final280/3; header compatibility fixed; green-fixed24; final282JVM=243+21+18existing; native26=14existing+12new. Unique308, новые33. Native initializationError→fixtureUnit→baseline4green; header comment уточнён до current final-fixed JVM/обаAPK. Не суммировать повторы, не объявлять native RED. Foreign40 сохранены. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).
+
+
+## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
+
+Initial RED5/1(4inflightalreadygreen); red-gated5/5=1product+4fixture; corrected RED4 product, nativeRED8 product. Green44; final328=282+46,native34=26+8,unique362=308+54. Только новые fixture поправлены, старыеtests unchanged; actualJobjoin/checkpoints, не all cancellation windows. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).

@@ -18170,3 +18170,18 @@ Root scoped stage:243JVM=214existing+29new, native14=10existing+4new, обаAPK/
 ## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
 
 Этап проверен scoped: 282JVM/23/0+26native,обаAPK/visual. Source/build/adb locks сняты; docs/inventory/Git до receiptdelivery root. EOF observed replay закрыт в новой contacts ветке; nativebaseline не объявлен failing. Далее genericcache доCE и прочие реестровые остатки. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).
+
+
+## B02 — общий кеш и поздний ответ отменённой загрузки, 12.10.2026
+
+Поручение: проверить общий кеш/late cancellation, после проверок own-only commit/FF main/обычный push. База e4711487.
+1. Actual ApiClient/HTTP/реальный Deferred: отмена во время удержанного ответа на Dispatchers.IO, отдельно prompt caller boundary, warm-cache и отмена до HTTP. Проверить отсутствие кеширования и me callbacks/дисковых тарифов, owner/session и contacts revision.
+2. Только после meaningful RED — minimal cancellation checkpoints общего cachedGet и принятие статических тарифов после успешного parse/owner/cancellation. Существующие Result/error/TTL/cache-hit/contacts publication и mutation settlement не ослаблять. Новый UI/переводы/зависимости не нужны.
+3. Новые JVM/native controls, прежние затронутые cached/contacts/auth/retry controls, оба debugAPK. Registry/inventory/immutable hashes и свежая независимая приёмка; own11 commit/main/push. Исторический полный прогон без причины не повторять.
+
+🔒 Root: ApiClient.kt cachedGet/readContacts/static callers, два новых test files,8docs/inventory; единственный Gradle/adb/GitHub. b02_integration_review — только read-only контракт; fresh reviewer отдельный. Foreign40 сохранить; старые tests/mobile/backend/MainActivity/версии/видимые тексты вне правки. Actual Login double-key/concurrent noncancelled reads/TTL/manualVMclear/остальные lifecycle/providers/CI/full B02/release и исторические14 остаются отдельно.
+
+
+## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
+
+Этап scoped проверен: 328JVM/24/0+native34/обаAPK. Source/build/adb locks сняты; docs/inventory/Git root доreceipt/delivery. Далее actualLogin count/concurrent active reads/TTL/manualVMclear и прочие остатки. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).

@@ -6067,3 +6067,8 @@ DELETE receipt сообщает о необходимости сверки, не
 ## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
 
 Не использовать только fixed-length HUC как общий запрет replay: JDK writeRequests имеет отдельную retryветку без streaming guard. Existing OkHttp + oneShot также запрещает HTTP503 Retry-After0 follow-up. Смена транспорта ограничена contacts mutations; stale/CE/cache/event остаются существующими. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).
+
+
+## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
+
+Сохранение статических тарифов входит в owner/cancellation acceptance общего кеша. Guard проверяется после ожидания monitor, без redesign HTTP/Job cancellation. Не откатывать snapshot, принятый до последующей отмены. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).

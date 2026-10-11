@@ -9246,3 +9246,8 @@ Robolectric ADD dialog fetchSemanticsNodes может застрять внут�
 ## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
 
 Нулевая wrapper retry policy не доказывает один wire request: транспорт может повторить EOF сам. Считать method+exactpath на wire; проверять runtime отдельно. Kotlin JUnit expression body с последним Log.i возвращает Int — завершать Unit. Начальная initializationError не является productRED. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).
+
+
+## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
+
+IO same dispatcher не означает обход cancellation withContext. Для точного after-fetch окна подтвердить actual worker BLOCKED на acceptance monitor, затем cancel/unlock/join/probe. Robolectric декорирует methodname; initial oracle stop не product RED. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).

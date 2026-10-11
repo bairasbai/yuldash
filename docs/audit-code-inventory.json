@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 132,
     "backend_main": 103,
-    "infra_resource_config": 351,
+    "infra_resource_config": 352,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 933
+    "test_support": 934
   },
   "counts_by_block": {
     "B01": 128,
@@ -94,8 +94,8 @@
     "B06": 84,
     "B07": 107,
     "B08": 173,
-    "B09": 550,
-    "B10": 351,
+    "B09": 551,
+    "B10": 352,
     "B11": 90
   },
   "excluded_counts": {
@@ -197,6 +197,13 @@
       "block": "B10",
       "sha256": "336467b6e995f4d48ba5fc18707ed4b227e4a466cfac76dee1c6aa6666c8a432",
       "lines": 79
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/CacheCancellationInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "9a7d2cbf41e575035f4425fa2b3e796e09b88ca35d0b0de886cd94c82a291d4c",
+      "lines": 156
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/CallbackHelpJourneyInstrumentedTest.kt",
@@ -1350,8 +1357,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "9c5f09a2fa36408348050a26324c8af5e6aac60660da621ffb65b1237533932e",
-      "lines": 8154
+      "sha256": "a9913e91407bbdf41e25af3b03c9750936fb550dbee78c02e41a63ac9a90b3f5",
+      "lines": 8168
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -3606,6 +3613,13 @@
       "block": "B02",
       "sha256": "280139376dd107822c6562bc1aceac17be20d0193e9c30575271aa607d8bb86f",
       "lines": 292
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientCacheCancellationTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "ae969b6cbff33de4e89974e6b732a297dfccdb10c271f3c80012977034914ca6",
+      "lines": 249
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientCachedTest.kt",

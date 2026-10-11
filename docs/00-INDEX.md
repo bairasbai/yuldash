@@ -1130,3 +1130,8 @@ Late bootstrap contacts больше не возвращает удалённы�
 ## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
 
 Contacts-only скрытый EOF replay устранён: current282JVM/23/0+native26/обаAPK. На старом nativeAPI35 EOF4 alreadypassed. Далее genericcache доCE; B02/релиз partial. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).
+
+
+## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
+
+Общий кеш отмены: 328JVM/24/0+native34/обаAPK; new54. Дальше actualLogin count и прочие реестровые остатки; B02/release partial. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).

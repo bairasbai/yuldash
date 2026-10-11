@@ -4607,3 +4607,8 @@ ApiClient.contactAdditions(version,generation) emit same-session ADD success/unc
 ## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
 
 Только mutateContacts передаёт call singleAttemptMutation=true. Contacts transport использует existing OkHttp4.12 retryfalse/redirectsfalse/NONE authenticators/oneShotBody; emptyDELETE0. Тот же flag после explicit401 refresh; общий HUC default и safe-before-send wrapper retry прежние. Response закрывается до refresh и finally. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).
+
+
+## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
+
+cachedGet captures callerContext; ensureActive внутри initial/acceptance sessionLock. readContacts guard доforceRefreshinvalidate. Static packages/boost raw JSON сохраняется только accepted onValue послеparse; cache T List/seedStatic прежние. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).

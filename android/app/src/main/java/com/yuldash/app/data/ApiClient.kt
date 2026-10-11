@@ -5,6 +5,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.yuldash.app.BuildConfig
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelChildren
@@ -431,7 +432,9 @@ object ApiClient {
         notifyOnCacheHit: Boolean = false,
         fetch: suspend () -> Result<T>,
     ): Result<T> {
+        val callerContext = currentCoroutineContext()
         val (generation, contactsRevision) = synchronized(sessionLock) {
+            callerContext.ensureActive()
             if (expectedGeneration != null && !sameSession(expectedGeneration)) return staleSession()
             respCache[key]?.let { c ->
                 if (c.generation == sessionGeneration && System.currentTimeMillis() - c.ts < ttlMs && c.value != null) {
@@ -444,6 +447,8 @@ object ApiClient {
         }
         val result = fetch()
         return synchronized(sessionLock) {
+            // Cancellation can arrive after fetch returned, while waiting for this monitor.
+            callerContext.ensureActive()
             if (!sameSession(generation)) staleSession()
             else result.onSuccess {
                 if (key != "contacts" || contactsRevision == contactsCacheRevision) {
@@ -1291,6 +1296,7 @@ object ApiClient {
     ): Result<List<ContactDto>> {
         val callerContext = currentCoroutineContext()
         val generation = synchronized(sessionLock) {
+            callerContext.ensureActive() // A cancelled forceRefresh must not evict a valid snapshot.
             val owner = expectedGeneration ?: sessionGeneration
             if (!sameSession(owner)) return staleSession()
             if (onAccepted != null && !isCurrentSession(owner)) return staleSession()
@@ -2220,11 +2226,15 @@ object ApiClient {
     }
 
     /** Тарифы размещения (из конфига сервера) — для кабинета/витрины. Без входа. */
-    suspend fun getAdPackages(): Result<List<AdPackageDto>> = cachedGet("ad-packages", TTL_STATIC) {
-        call("GET", "/ad-packages", null, auth = false).map { o ->
-            val arr = o.optJSONArray("items") ?: JSONArray()
-            persistStatic("ad-packages", arr)   // сохранить → переживёт перезапуск, работает оффлайн
-            parseAdPackages(arr)
+    suspend fun getAdPackages(): Result<List<AdPackageDto>> {
+        var acceptedRaw: JSONArray? = null
+        return cachedGet("ad-packages", TTL_STATIC, onValue = { _: List<AdPackageDto> ->
+            acceptedRaw?.let { persistStatic("ad-packages", it) }
+        }) {
+            call("GET", "/ad-packages", null, auth = false).map { o ->
+                val arr = o.optJSONArray("items") ?: JSONArray()
+                parseAdPackages(arr).also { acceptedRaw = arr }
+            }
         }
     }
 
@@ -2444,11 +2454,15 @@ object ApiClient {
     // ---------- Boost (поднятие объявления, оплата) ----------
 
     /** Тарифы поднятия (цены с бэкенда). */
-    suspend fun getBoostPlans(): Result<List<BoostPlanDto>> = cachedGet("boost-plans", TTL_STATIC) {
-        call("GET", "/boost/plans", null, auth = false).map { obj ->
-            val arr = obj.optJSONArray("items") ?: JSONArray()
-            persistStatic("boost-plans", arr)   // сохранить → мгновенно на холодном старте
-            parseBoostPlans(arr)
+    suspend fun getBoostPlans(): Result<List<BoostPlanDto>> {
+        var acceptedRaw: JSONArray? = null
+        return cachedGet("boost-plans", TTL_STATIC, onValue = { _: List<BoostPlanDto> ->
+            acceptedRaw?.let { persistStatic("boost-plans", it) }
+        }) {
+            call("GET", "/boost/plans", null, auth = false).map { obj ->
+                val arr = obj.optJSONArray("items") ?: JSONArray()
+                parseBoostPlans(arr).also { acceptedRaw = arr }
+            }
         }
     }
 
