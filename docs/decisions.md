@@ -6012,3 +6012,8 @@ HTTP ошибка не доказывает откат создания ссыл
 ## B02 — загрузка контактов до запроса и некорректный ответ, 11.10.2026
 
 После потери lease до первого запроса не ждать автоматического возобновления: retireLoad и явный Retry только при текущем родителе. Успешный HTTP с неверными contacts является Result.failure, а не empty success; parser исключения остаются внутри Result. Barearray/wrapper/validempty/пустое stringname/отсутствующие optional поля совместимы с backend/legacy. [RED/GREEN](audit-blocks.md#b02--загрузка-контактов-до-запроса-и-некорректный-ответ-11102026).
+
+
+## B02 — ссылка и запись той же поездки, 11.10.2026
+
+Одинаковые ID+publisher не заменяют identity publication: синхронный91→92→91 меняет receipt без appliedfalse parent. Родитель share захватывает receipt и меняет child key; retained callbacks сразу отвергаются. Null/foreign receipt не удаляет последний свой mounted scope: поздний ответ безопасно завершается с falseparent по прежнему контракту. Normaluser достижимость syntheticABA не подтверждена. [RED/GREEN](audit-blocks.md#b02--ссылка-и-запись-той-же-поездки-11102026).

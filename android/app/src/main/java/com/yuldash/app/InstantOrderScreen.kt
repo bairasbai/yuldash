@@ -1838,27 +1838,34 @@ private fun InstantOrderContent(
                         // Волна 160: поездка переехала на собственный экран — карта во весь
                         // рост, шторка с тремя положениями. Старая карточка (InstantDriverEnRouteCard)
                         // пока жива рядом: удалим её, когда новый экран отходит на людях.
-                        TaxiTripScreen(
+                        // A repeated number is a new publication, even under the same screen lease.
+                        // Retain the last applied receipt while finished/another screen owns the trip:
+                        // the mounted old UI remains fenced, and its in-flight work can retire normally.
+                        val rememberedPublication = remember(o.id) { object { var last: TaxiTripPublication? = null } }
+                        val livePublication = TaxiNavigationState.currentTrip(generation)?.takeIf {
+                            it.orderId == o.id && it.publisher === publisher
+                        }
+                        val publication = livePublication ?: rememberedPublication.last
+                        SideEffect { if (livePublication != null) rememberedPublication.last = livePublication }
+                        if (publication != null) key(publication) { TaxiTripScreen(
                             order = o,
                             onCancel = { cancelReasonForId = o.id },
                             onMinimize = onBack,
                             onOpenPayments = onOpenPayments,
                             onOrderUpdated = { fresh ->
                                 ApiClient.runIfCurrentSession(generation) {
-                                    if (isCurrentOrder(o.id) && fresh.id == o.id) order = fresh
+                                    if (isCurrentOrder(o.id) && TaxiNavigationState.currentTrip(generation) === publication && fresh.id == o.id) order = fresh
                                 }
                             },
                             ownerGeneration = generation,
                             isCurrentParent = {
                                 isCurrentOrder(o.id) && order == o &&
-                                    TaxiNavigationState.currentTrip(generation)?.let {
-                                        it.orderId == o.id && it.publisher === publisher
-                                    } == true
+                                    TaxiNavigationState.currentTrip(generation) === publication
                             },
                             mapContent = if (renderNativeMap) null else { modifier -> Box(modifier) },
                             readShares = readShares,
                             shareOperations = shareOperations,
-                        )
+                        ) }
                     }
                     "expired" -> current?.let { o ->
                         InstantNoDriversCard(

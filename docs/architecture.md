@@ -4552,3 +4552,8 @@ InstantOrderShareInitialLoadTest проверяет прежние настоя�
 ## B02 — загрузка контактов до запроса и некорректный ответ, 11.10.2026
 
 Initial InstantShareContent preflight теперь вызывает retireLoad при неактуальном контексте: private данные очищены, loading завершён, существующий error/Retry, HTTP0. getContacts проверяет структуру/ID/поля через mapCatching, failure не кешируется; generic call/cache и parseContactDto не менялись. 1096 различных ID = 1059 сохранённых + 37 новых (27 API + 10 UI); 76 классов, 0 отказов/ошибок/пропусков/устаревших XML, 750.922 с, 100 отпечатков исходников. Оба debug APK собраны. 1058 прежних IDs без правок,1 прежний метод укреплён без удаления assertions. Повторы/RED/diagnostic не увеличивают число различных проверок. [Пределы](audit-blocks.md#b02--загрузка-контактов-до-запроса-и-некорректный-ответ-11102026).
+
+
+## B02 — ссылка и запись той же поездки, 11.10.2026
+
+Enroute InstantOrderContent захватывает matching TaxiTripPublication; applied holder сохраняет последнюю свою receipt при null/foreign owner. key(publication) монтирует TaxiTripScreen только после публикации и удаляет старый child при новой своей receipt. currentParent/onOrderUpdated сравнивают currentTrip===capturedPublication. SideEffect publisher и API/TaxiNavigationState/TaxiTripScreen прежние; ordinaryDTO сохраняет receipt/scope. 1112 различных ID = 1096 сохранённых без правок + 16 новых; 77 классов, 0 отказов/ошибок/пропусков/устаревших XML, 810.344 с, 101 отпечаток исходников. Собраны оба debug APK. Повторы/RED/ошибочный новый oracle не увеличивают число уникальных проверок. [Границы](audit-blocks.md#b02--ссылка-и-запись-той-же-поездки-11102026).
