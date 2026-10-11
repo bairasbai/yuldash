@@ -9221,3 +9221,8 @@ Raw callback в одном runOnIdle с boundary позволяет наблюд
 ## B02 — открытый экран контактов после неизвестного ответа, 11.10.2026
 
 JVM DELETE RED подтвердил stale parent row после committed malformed reply. ADD draft Robolectric зависал в dialog layout: перенесён в реальные Android проверки, это не productRED и не доказательство конкретной причины loop. Accepted15 JVMtest LF сохранён от RED доfinal127; native6 отдельно и без утверждения App VM route. [Архивы/границы](audit-blocks.md#b02--открытый-экран-контактов-после-неизвестного-ответа-11102026).
+
+
+## B02 — отмена и срок жизни экрана контактов, 11.10.2026
+
+catch внутри withContext(IO) не ловит prompt cancellation при возвращении к caller. Проверять оба момента: IO удержан и returning Runnable уже queued. Postjoin API green не доказывает immediate UI reopening: отдельный actual App RED показал второй stale-cache случай. Server-return latch UI не выдавать за Job completion/join. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).

@@ -4582,3 +4582,8 @@ ApiClient.mutateContacts сохраняет исходную ошибку, но 
 ## B02 — открытый экран контактов после неизвестного ответа, 11.10.2026
 
 TrustedContactsScreen фиксирует owner/sessionChanges, keyed Editor владеет read/add/delete и server snapshot (empty также authoritative). App keyed по privateNavigationRevision принимает полный список; expectedGeneration API и liveparent guard защищают старый callback до frame. Source/runtime/hash различаются: actual App/defaultVM DELETE15 на JVM; native ADD/wrapper6 без App/defaultVM. [Версия/остатки](audit-blocks.md#b02--открытый-экран-контактов-после-неизвестного-ответа-11102026).
+
+
+## B02 — отмена и срок жизни экрана контактов, 11.10.2026
+
+ApiClient.mutateContacts: outer catch CancellationException, same-generation contacts revision invalidation, rethrow. getContacts(expectedGeneration, forceRefresh=false) связывает один owner с кешем/HTTP; новый TrustedContactsEditor делает initial fresh GET. UI cancellation не останавливает blocking IO сразу; actual App/VM DELETE8 на JVM, native6 wrapper regression. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).

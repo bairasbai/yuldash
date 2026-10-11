@@ -18093,3 +18093,20 @@ B02 mutation-owner: первый green70/7/0 (12новых+55прежнихсо�
 ## B02 — открытый экран контактов после неизвестного ответа, 11.10.2026
 
 Завершено локально: текущие127/11/0 и обаAPK, native6/0/visual;15newJVM+112existing+6newnative=133unique. AcceptedRED DELETE1; nativeADD post-fix regression, draft32/idling failures сохранены. Scope implementation/Gradle/adb замки сняты; root sole docs/inventory/Git до frozen independent/own13/mainpush. Следующий критерий — удержанная HTTP mutation/read при смене owner/parent и отмене; [остатки](audit-blocks.md#b02--открытый-экран-контактов-после-неизвестного-ответа-11102026). Переводы: новыхBAстрокнет, прежниечерновикинеутверждаем.
+
+
+## B02 — отмена и срок жизни экрана контактов, 11.10.2026
+
+План от опубликованного d1314431; продолжающееся поручение разрешает собственный коммит/FFmain/обычный push после проверки.
+1. Отдельное состояние loopback сервера и actual Deferred/join: committed ADD/DELETE + отмена до возврата IO; meaningful RED для stale warm cache. Controls: смена A→B, logout, отмена до старта, незавершённый старый GET.
+2. Только подтверждённый корень: очистить contacts cache при CancellationException текущего поколения и пробросить отмену; не повторять мутацию/не делать скрытый GET. Прочие cache keys/новый owner не менять.
+3. Настоящий YuldashApp/default VM/Compose: уход/owner switch после отправки и во время reconciliation GET, возврат на экран, отсутствие поздней публикации. Related JVM profile + debug APK; docs/registry/inventory, независимая приёмка, own-only delivery. Старый полный1143/1158 не повторять без причины.
+
+🔒 Root: ApiClient.kt только mutateContacts cancellation, два новых test files,8docs/inventory; единственный Gradle/adb/GitHub. b02_integration_review read-only contract; независимая final receipt отдельным агентом.40foreign сохранены,1875 inventory только чужой.gitignore drift. UI/MainActivity/mobile/backend/старыеtests/версии/deps/тексты вне правки. Поздний bootstrap writer, explicit HTTP unknown commit, TTL/production retry/providers/CI/full B02/release остаются открыты. Native новых lifecycle сценариев этим планом не обещан; доступность и фактические запуски отмечаются отдельно.
+
+Уточнение плана: единственный UI writer root расширяет own на AccessibilityScreens.kt только initial readContacts; новое открытие должно читать сервер до завершения старого отменённого IO. API forceRefresh optional с owner guard; без internal Job API/новых зависимостей.
+
+
+## B02 — отмена и срок жизни экрана контактов, 11.10.2026
+
+Локальный этап завершён по текущему профилю154/13/0,19API+8actualAppUI новых; native6existing regressions, обаAPK/visual. Source/build/adb замки root сняты; docs/inventory/Git до review/delivery — только root. Следующий первый независимый локальный остаток — поздний App bootstrap writer. ADD lifecycle/Toast/TTL/providers/CI/fullB02 открыты. Новых RU/BA строк нет. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).

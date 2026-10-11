@@ -83,7 +83,7 @@
     "infra_resource_config": 347,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 924
+    "test_support": 926
   },
   "counts_by_block": {
     "B01": 128,
@@ -93,8 +93,8 @@
     "B05": 37,
     "B06": 84,
     "B07": 107,
-    "B08": 169,
-    "B09": 545,
+    "B08": 170,
+    "B09": 546,
     "B10": 347,
     "B11": 90
   },
@@ -531,8 +531,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/AccessibilityScreens.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "98d56bb2ba3c5dd6cd027f5358aeb99f9a603a82e22d1a34f6d8db03a533ca12",
-      "lines": 2187
+      "sha256": "18ab013f72cb84e5b77ad3150e11ad070803fbaf5275eee344da27437799f307",
+      "lines": 2188
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AdminAdsScreen.kt",
@@ -1322,8 +1322,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "d38287426287bb235b6b058f844fed9108e23c385879d9fcf6fb8dd4ac8ccd37",
-      "lines": 8033
+      "sha256": "ebf7e538151e5714ec51300b9ccb2864fcceca80537d4ae232421b21f481e1c3",
+      "lines": 8048
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -3412,6 +3412,13 @@
       "lines": 94
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/TrustedContactsLifetimeTest.kt",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "8e1679ef6807a445ac001412b91033ef64cc56900b346c89746637431990a713",
+      "lines": 211
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/TrustedContactsReconciliationTest.kt",
       "kind": "test_support",
       "block": "B08",
@@ -3564,6 +3571,13 @@
       "block": "B03",
       "sha256": "c82ce512f8303c5b8cf242e62f6208d23bcdafbfa51e40c500f8e9e0b302635e",
       "lines": 228
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientContactsCancellationTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "69b268ff7011dd08ee59d6f73ca37ca2faf76a5a56bad24b87f858c3ae4a2ef5",
+      "lines": 220
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientContactsMutationCacheTest.kt",

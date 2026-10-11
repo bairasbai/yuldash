@@ -1641,9 +1641,9 @@ private fun TrustedContactsEditor(
     val added = appText("Контакт добавлен", "Контакт өҫтәлде")
     fun active() = !retired && scope.isActive && parent() && ApiClient.isCurrentSession(owner)
     DisposableEffect(owner) { onDispose { retired = true } }
-    suspend fun readContacts() {
+    suspend fun readContacts(forceRefresh: Boolean = false) {
         if (!active()) return
-        val result = ApiClient.getContacts(expectedGeneration = owner)
+        val result = ApiClient.getContacts(expectedGeneration = owner, forceRefresh = forceRefresh)
         if (!active()) return
         ApiClient.runIfCurrentSession(owner) {
             if (active()) {
@@ -1657,7 +1657,8 @@ private fun TrustedContactsEditor(
         }
     }
     LaunchedEffect(owner) {
-        readContacts()
+        // A cancelled old mutation can still be waiting for its blocking HTTP response.
+        readContacts(forceRefresh = true)
         if (active()) busy = false
     }
     fun mutate(contact: TrustedContact, deleting: Boolean) {

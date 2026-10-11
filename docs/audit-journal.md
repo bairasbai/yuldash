@@ -762,3 +762,8 @@ RED34 корректно сведён из31v2+3v3;22productfailures. Незав
 ## B02 — открытый экран контактов после неизвестного ответа, 11.10.2026
 
 RED1→green15→current127/11/0+обаAPK→native6.127=15new+112existing;112=104prior+8Content; TrustedDelete3 уже внутри104.133JVM/native distinctID,21new; повтор не новыйcase. Exactsource/freeze/foreign40/инвентаризация1875, scoped independent и remote квитанции отдельно. [Точный реестр](audit-blocks.md#b02--открытый-экран-контактов-после-неизвестного-ответа-11102026).
+
+
+## B02 — отмена и срок жизни экрана контактов, 11.10.2026
+
+Две meaningful RED границы expected[]/actual[7]: cancelled actual API Job и новый App screen до старого HTTPreturn. Current154JVM+6native=160 distinct IDs,27new+133existing. Red/repeat не новыеID; old1143/1158 не текущий полный прогон.1877inventory,12own paths/40foreign сохранены; independent/remote квитанции отдельно. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).

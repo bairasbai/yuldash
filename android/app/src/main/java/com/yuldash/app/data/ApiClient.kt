@@ -1186,7 +1186,14 @@ object ApiClient {
 
     private suspend fun mutateContacts(method: String, path: String, body: JSONObject?, expectedGeneration: Long? = null): Result<Unit> {
         val generation = expectedGeneration ?: requestSession().generation
-        val result = call(method, path, body, auth = true, expectedGeneration = generation)
+        val result = try {
+            call(method, path, body, auth = true, expectedGeneration = generation)
+        } catch (cancelled: CancellationException) {
+            // Cancellation may be delivered after the server committed, including on IO return.
+            // Keep the cancellation thrown; never resend or invalidate a newer owner's cache.
+            synchronized(sessionLock) { if (sameSession(generation)) invalidate("contacts") }
+            throw cancelled
+        }
         return synchronized(sessionLock) {
             if (result.isSuccess && !sameSession(generation)) staleSession()
             else {
@@ -1217,22 +1224,30 @@ object ApiClient {
     suspend fun deleteContact(contactId: Int, expectedGeneration: Long? = null): Result<Unit> =
         mutateContacts("DELETE", "/trusted-contacts/$contactId", null, expectedGeneration)
 
-    suspend fun getContacts(expectedGeneration: Long? = null): Result<List<ContactDto>> = cachedGet("contacts", TTL_PERSONAL, expectedGeneration = expectedGeneration) {
-        call("GET", "/trusted-contacts", null, auth = true, expectedGeneration = expectedGeneration).mapCatching { obj ->
-            // Malformed success must remain a failure and never enter the contacts cache.
-            val arr = obj.getJSONArray("items")
-            val ids = HashSet<Int>()
-            (0 until arr.length()).map { i ->
-                val row = arr.getJSONObject(i)
-                val id = row.get("id")
-                require(id is Number)
-                val integral = id.toLong()
-                require(integral in 1..Int.MAX_VALUE.toLong() && id.toDouble() == integral.toDouble())
-                require(ids.add(integral.toInt()))
-                require(row.get("name") is String)
-                for (field in listOf("relation", "phone")) require(!row.has(field) || row.get(field) is String)
-                require(!row.has("notify_by_default") || row.get("notify_by_default") is Boolean)
-                parseContactDto(row)
+    suspend fun getContacts(expectedGeneration: Long? = null, forceRefresh: Boolean = false): Result<List<ContactDto>> {
+        val generation = synchronized(sessionLock) {
+            val owner = expectedGeneration ?: sessionGeneration
+            if (!sameSession(owner)) return staleSession()
+            if (forceRefresh) invalidate("contacts")
+            owner
+        }
+        return cachedGet("contacts", TTL_PERSONAL, expectedGeneration = generation) {
+            call("GET", "/trusted-contacts", null, auth = true, expectedGeneration = generation).mapCatching { obj ->
+                // Malformed success must remain a failure and never enter the contacts cache.
+                val arr = obj.getJSONArray("items")
+                val ids = HashSet<Int>()
+                (0 until arr.length()).map { i ->
+                    val row = arr.getJSONObject(i)
+                    val id = row.get("id")
+                    require(id is Number)
+                    val integral = id.toLong()
+                    require(integral in 1..Int.MAX_VALUE.toLong() && id.toDouble() == integral.toDouble())
+                    require(ids.add(integral.toInt()))
+                    require(row.get("name") is String)
+                    for (field in listOf("relation", "phone")) require(!row.has(field) || row.get(field) is String)
+                    require(!row.has("notify_by_default") || row.get("notify_by_default") is Boolean)
+                    parseContactDto(row)
+                }
             }
         }
     }
