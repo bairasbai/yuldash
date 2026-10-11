@@ -69,8 +69,11 @@ REASON_RE = re.compile(r"^Причина:\s*(\S.{9,})$", re.M)
 # A test reference: repository path, "::", then a test name (quoted when it has spaces). Several tests of
 # one file may share a cell as "path::test_a, ::test_b": a bare "::name" reuses the path of the previous
 # reference in the same cell. "::" glued to a word or a path is part of a name, and a bare one before a
-# digit or a bracket ("::1", "[::]") is an address; neither is such a shorthand.
-REF_RE = re.compile(r'(?:((?:backend|android|tools)/[\w./-]+?\.(?:py|kt))|(?<![\w\].:/-])(?=::(?:"|[^\W\d])))'
+# digit or a bracket ("::1", "[::]") is an address; neither is such a shorthand. A path that does not start
+# at the repository root ("test_x.py::test_a", "routers/x.py::fn") is matched too: for a test file it is an
+# error, a source file's function stays a mention, and a bare "::name" after either borrows no older path.
+REF_RE = re.compile(r'(?:((?:backend|android|tools)/[\w./-]+?\.(?:py|kt))|([\w.-][\w./-]*?\.(?:py|kt))'
+                    r'|(?<![\w\].:/-])(?=::(?:"|[^\W\d])))'
                     r'::((?:"[^"]+")|(?:[\w\[\]\-.]+(?:::[\w\[\]\-.]+)*))')
 MUTATION_ID_RE = re.compile(r"^\|\s*(M\d+)\s*\|", re.M)
 
@@ -141,19 +144,30 @@ def table_rows(block):
     return [r for r in rows[1:] if not re.match(r"^\|[\s:|-]+\|$", r.strip())]
 
 
+def is_test_file(path):
+    name = path.rsplit("/", 1)[-1]
+    return name.startswith("test_") or name.endswith("Test.kt")
+
+
 def row_refs(row):
-    """(path, name) test references of one table row, plus bare "::name" shorthands with no path to reuse."""
-    refs, orphans, rel, end = [], [], None, 0
+    """Test references of one table row: (path, name) pairs, bare "::name" shorthands with no path to reuse,
+    and tests cited by a path that does not start at the repository root."""
+    refs, orphans, unrooted, rel, end = [], [], [], None, 0
     for m in REF_RE.finditer(row):
         if "|" in row[end:m.start()]:
             rel = None  # a new cell: a shorthand never borrows the path of another column
         end = m.end()
+        if m.group(2):
+            rel = None  # a shorthand after a path from elsewhere would silently land in an older file
+            if is_test_file(m.group(2)):
+                unrooted.append(f"{m.group(2)}::{m.group(3)}")
+            continue
         rel = m.group(1) or rel
         if rel:
-            refs.append((rel, m.group(2)))
+            refs.append((rel, m.group(3)))
         else:
-            orphans.append(m.group(2))
-    return refs, orphans
+            orphans.append(m.group(3))
+    return refs, orphans, unrooted
 
 
 def resolve_ref(root, rel, name):
@@ -220,9 +234,12 @@ def validate_card(root, path, leaf_hint=None):
         if status == "verified" and not rules:
             problems.append("для 🟩 нужна хотя бы одна строка правил с тестом")
         for row in rules:
-            refs, orphans = row_refs(row)
+            refs, orphans, unrooted = row_refs(row)
             if status == "verified" and not refs:
                 problems.append(f"правило без ссылки на тест: {row[:80]}")
+            for ref in unrooted:
+                problems.append(f"«{ref}»: путь к тесту не от корня репозитория (нужен backend/…, android/… "
+                                f"или tools/…): {row[:80]}")
             for name in orphans:
                 problems.append(f"«::{name}» без пути к файлу теста раньше в той же ячейке: {row[:80]}")
             for rel, name in refs:
