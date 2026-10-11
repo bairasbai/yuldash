@@ -18125,3 +18125,18 @@ B02 mutation-owner: первый green70/7/0 (12новых+55прежнихсо�
 ## B02 — поздний стартовый ответ контактов, 11.10.2026
 
 Этап локально проверен189JVM/15/0 (21API+14App new), native8 (2Appnew+6wrapperexisting), обаAPK/visual. Замки source/build/adb root сняты; docs/inventory/Git до receipt/delivery пишет root. Далее generic cache before delivered cancellation/commit после fresh GET. Actual login double-key count/ADD bootstrap/lifecycle/Toast/TTL/providers/CI/fullB02 открыты. Новых видимых RU/BA строк нет. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).
+
+
+## B02 — удаление после свежего чтения открытого экрана, 11.10.2026
+
+План от c3582e44 в рамках продолжающегося поручения с own-only commit/FF main/ordinary push после проверки.
+1. Actual App/default VM/Compose/API: удержать DELETE до server commit, закрыть прежний Editor, принять GET[7] новым Editor, затем commit/late response. Сохранить meaningful RED и неизменный test assertion.
+2. Минимальный owner-scoped сигнал settled DELETE и read-only сверка текущего Editor, без повторения mutation. Если один известный DELETE уже отражён в принятом списке, сохранить прежний no-extra-GET контракт. ADD late commit — отдельный следующий пункт, не объявлять проверенным.
+3. Новый API/App/native профиль, прежние189 JVM/8native регрессий по изменённым двум product файлам; обаAPK. Доки/реестр/inventory/freeze/fresh independent receipt; own-only main/push. Исторический full1143/1158 не повторять.
+
+🔒 Root: ApiClient.kt contacts deletion notification/publication helper, AccessibilityScreens.kt TrustedContactsEditor,3new tests,8docs. Единственный Gradle/adb/GitHub. b02_integration_review только read-only контракт; другой reviewer свежая приёмка.40foreign entries сохранены. MainActivity/mobile/старыеtests/versions/deps/UI strings вне правок. ADD, generic cache before delivered cancellation, actual login double-key count/прочие lifecycle/Toast/TTL/provider/CI/fullB02/release/solehistoric14cause остаются открыты.
+
+
+## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
+
+Root этап проверен214JVM/17/0=189existing+25new; native10=8existing+2new; обаAPK/visual. Замки source/build/adb сняты, root держитdocs/inventory/Git до свежей receipt/delivery. Далее ADD late commit и EOF2DELETE transport. Новых видимых RU/BA строк/versions/deps нет; B02/release open. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).

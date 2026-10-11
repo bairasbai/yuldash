@@ -96,6 +96,16 @@ object ApiClient {
     private val mutableSessionChanges = kotlinx.coroutines.flow.MutableStateFlow(0L)
     // Publish only after a complete login/logout mutation; refresh keeps the same owner.
     internal val sessionChanges = mutableSessionChanges.asStateFlow()
+    // A disposed editor's blocking DELETE can settle after another editor has read the list.
+    internal data class ContactDeletion(val version: Long, val generation: Long, val contactId: Int)
+    private val mutableContactDeletions = kotlinx.coroutines.flow.MutableStateFlow(ContactDeletion(0, 0, 0))
+    internal val contactDeletions = mutableContactDeletions.asStateFlow()
+    private fun notifyContactDeletion(generation: Long, contactId: Int?) {
+        // Called under sessionLock, together with same-session cache invalidation.
+        if (contactId != null) mutableContactDeletions.value = ContactDeletion(
+            mutableContactDeletions.value.version + 1, generation, contactId,
+        )
+    }
     private data class RequestSession(val generation: Long, val bearer: String?)
     private fun requestSession() = synchronized(sessionLock) { RequestSession(sessionGeneration, token) }
     internal fun queueSessionGeneration(): Long = sessionGeneration
@@ -1190,14 +1200,19 @@ object ApiClient {
         error is JSONException || (error is IOException && error !is ConnectException &&
             error !is UnknownHostException && error !is NoRouteToHostException)
 
-    private suspend fun mutateContacts(method: String, path: String, body: JSONObject?, expectedGeneration: Long? = null): Result<Unit> {
+    private suspend fun mutateContacts(method: String, path: String, body: JSONObject?, expectedGeneration: Long? = null, deletedId: Int? = null): Result<Unit> {
         val generation = expectedGeneration ?: requestSession().generation
         val result = try {
             call(method, path, body, auth = true, expectedGeneration = generation)
         } catch (cancelled: CancellationException) {
             // Cancellation may be delivered after the server committed, including on IO return.
             // Keep the cancellation thrown; never resend or invalidate a newer owner's cache.
-            synchronized(sessionLock) { if (sameSession(generation)) invalidate("contacts") }
+            synchronized(sessionLock) {
+                if (sameSession(generation)) {
+                    invalidate("contacts")
+                    notifyContactDeletion(generation, deletedId)
+                }
+            }
             throw cancelled
         }
         return synchronized(sessionLock) {
@@ -1207,7 +1222,10 @@ object ApiClient {
                 // The server may have committed before its reply was lost or malformed.
                 // Refresh on the next read, preserving the error and never resending here.
                 val uncertain = isUncertainContactMutation(error)
-                if (sameSession(generation) && (result.isSuccess || uncertain)) invalidate("contacts")
+                if (sameSession(generation) && (result.isSuccess || uncertain)) {
+                    invalidate("contacts")
+                    notifyContactDeletion(generation, deletedId)
+                }
                 result.map { }
             }
         }
@@ -1228,7 +1246,7 @@ object ApiClient {
      * Сервер сначала гасит шаринги этого контакта, потом сам контакт.
      */
     suspend fun deleteContact(contactId: Int, expectedGeneration: Long? = null): Result<Unit> =
-        mutateContacts("DELETE", "/trusted-contacts/$contactId", null, expectedGeneration)
+        mutateContacts("DELETE", "/trusted-contacts/$contactId", null, expectedGeneration, deletedId = contactId)
 
     suspend fun getContacts(expectedGeneration: Long? = null, forceRefresh: Boolean = false): Result<List<ContactDto>> =
         readContacts(expectedGeneration, forceRefresh)
@@ -1236,8 +1254,9 @@ object ApiClient {
     // Publish only at the guarded cache acceptance point; the ordinary GET may still return an older snapshot.
     internal suspend fun loadContactsForPublication(
         expectedGeneration: Long,
+        forceRefresh: Boolean = false,
         onAccepted: (List<ContactDto>) -> Unit,
-    ): Result<List<ContactDto>> = readContacts(expectedGeneration, false, onAccepted)
+    ): Result<List<ContactDto>> = readContacts(expectedGeneration, forceRefresh, onAccepted)
 
     private suspend fun readContacts(
         expectedGeneration: Long?,

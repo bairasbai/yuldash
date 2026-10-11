@@ -772,3 +772,8 @@ RED1→green15→current127/11/0+обаAPK→native6.127=15new+112existing;112=1
 ## B02 — поздний стартовый ответ контактов, 11.10.2026
 
 Meaningful RED1 late bootstrap expected[]/actual[7] с неизменённым ApptestLF→current189JVM+8native=197ID;37new+160existing. Compiler attempt0tests и2logout-oracle failures отдельно.1880inventory/13own/40foreign; source/build/native/review/remote разделены. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).
+
+
+## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
+
+RED1 initial latecommit UI timeout и RED1 own failedread Retry timeout, exactLF archives; current214JVM+10native=224ID (197existing+27new). Промежуточные compile0tests/EOF24with1failure не увеличиваютunique и не скрывают EOF2DELETE.1883inventory/13own/40foreign; source/build/native/review/remote разделены. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).

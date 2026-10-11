@@ -9231,3 +9231,8 @@ catch внутри withContext(IO) не ловит prompt cancellation при в
 ## B02 — поздний стартовый ответ контактов, 11.10.2026
 
 Защищённый кеш не защищает независимый .onSuccess writer в default VM. RED держит именно первый bootstrap, а не editor GET, затем real DELETE/fresh[] и уход. UI trace/drain не называть Job join. При счёте contacts HTTP отфильтровать namespace: logout штатно отправляет отдельный auth POST; не выдавать ошибку oracle за product RED. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).
+
+
+## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
+
+Observer без watermark на failed own read создаёт скрытый повтор GET и уничтожает Retry. Отмечать захваченную до запроса версию, не latest после ошибки. DISCONNECT_AFTER_REQUEST может дать второй реальный DELETE даже при test API retry limit1; сохранить наблюдение/исходник и открытый transport пункт, не назвать ошибкой fixture. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).

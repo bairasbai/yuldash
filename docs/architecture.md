@@ -4592,3 +4592,8 @@ ApiClient.mutateContacts: outer catch CancellationException, same-generation con
 ## B02 — поздний стартовый ответ контактов, 11.10.2026
 
 Контакты bootstrap: effect(sessionVersion,navigationSession) → loadContactsForPublication. Accepted callback под sessionLock/revision+исходный context.isActive+авторизованный owner. cachedGet.notifyOnCacheHit=false по умолчанию, contacts opt-in true; warm/empty также публикуются атомарно. Ordinary getContacts stale samegen Result остаётся success. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).
+
+
+## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
+
+ApiClient.contactDeletions: latest version/generation/contactId, emit only DELETE same-session success/uncertain/CE под sessionLock. Editor guarded loadContactsForPublication(forceRefresh), handled watermark; single already-absent ID skip; version gap forced read; own success watermark предотвращает duplicate, failure marks captured attempt только. Reader в remember scope, не в эффекте с busy key. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).

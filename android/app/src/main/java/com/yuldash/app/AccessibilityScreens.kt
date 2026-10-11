@@ -1630,6 +1630,8 @@ private fun TrustedContactsEditor(
     var busy by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf(false) }
     var retired by remember { mutableStateOf(false) }
+    val deletion by ApiClient.contactDeletions.collectAsState()
+    var handledDeletion by remember { mutableStateOf(deletion.version) }
     val scope = rememberCoroutineScope()
     val parent by rememberUpdatedState(isCurrentParent)
     val publish by rememberUpdatedState(onContactsChanged)
@@ -1643,16 +1645,21 @@ private fun TrustedContactsEditor(
     DisposableEffect(owner) { onDispose { retired = true } }
     suspend fun readContacts(forceRefresh: Boolean = false) {
         if (!active()) return
-        val result = ApiClient.getContacts(expectedGeneration = owner, forceRefresh = forceRefresh)
+        val attemptedDeletion = ApiClient.contactDeletions.value.version
+        val result = ApiClient.loadContactsForPublication(expectedGeneration = owner, forceRefresh = forceRefresh) { list ->
+            if (active()) {
+                val snapshot = list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) }
+                serverContacts = snapshot
+                publish(snapshot)
+                handledDeletion = ApiClient.contactDeletions.value.version
+            }
+        }
         if (!active()) return
         ApiClient.runIfCurrentSession(owner) {
             if (active()) {
-                result.onSuccess { list ->
-                    val snapshot = list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) }
-                    serverContacts = snapshot
-                    publish(snapshot)
-                }
                 loadError = result.isFailure
+                // A failed own reconciliation waits for Retry; do not consume a later concurrent DELETE.
+                if (result.isFailure) handledDeletion = maxOf(handledDeletion, attemptedDeletion)
             }
         }
     }
@@ -1660,6 +1667,19 @@ private fun TrustedContactsEditor(
         // A cancelled old mutation can still be waiting for its blocking HTTP response.
         readContacts(forceRefresh = true)
         if (active()) busy = false
+    }
+    LaunchedEffect(owner, deletion.version, busy) {
+        if (!active() || busy || deletion.generation != owner || deletion.version <= handledDeletion) return@LaunchedEffect
+        val previous = handledDeletion
+        handledDeletion = deletion.version
+        // One known DELETE already reflected in an accepted snapshot needs no additional HTTP.
+        // A conflated gap can contain another ID, so reconcile it with one fresh read.
+        if (deletion.version == previous + 1 && serverContacts?.none { it.id == deletion.contactId } == true) return@LaunchedEffect
+        busy = true
+        scope.launch {
+            readContacts(forceRefresh = true)
+            if (active()) busy = false
+        }
     }
     fun mutate(contact: TrustedContact, deleting: Boolean) {
         // Set synchronously: a retained confirmation invoked twice in one frame sends once.

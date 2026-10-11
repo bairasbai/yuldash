@@ -6052,3 +6052,8 @@ HTTP ошибка не доказывает откат создания ссыл
 ## B02 — поздний стартовый ответ контактов, 11.10.2026
 
 Публиковать App contacts в точке принятия кешем, не после возврата ordinary Result. Capture revision при actual cache lookup; warm callback тоже под lock. Короткая запись VM допустима, HTTP/блокирующие действия под этим callback запрещены. SessionChanges добавлен в effect key; actual LoginScreen request count пока отдельный остаток. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).
+
+
+## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
+
+DELETE receipt сообщает о необходимости сверки, не разрешает локально менять список. Conflated version gap требует fresh GET; ADD нельзя признать уже отражённым по имени/телефону — отдельный этап. Failed reconciliation оставляет явную Retry. EOF и read timeout разные испытания;1DELETE при timeout не закрывает observed2 при EOF. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).

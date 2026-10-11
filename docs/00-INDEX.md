@@ -1115,3 +1115,8 @@ Android-хранилище (19.09.2026): [источник актуальног�
 ## B02 — поздний стартовый ответ контактов, 11.10.2026
 
 Late bootstrap contacts больше не возвращает удалённый контакт поверх свежего списка.189JVM=154existing+35new; native8=2actualAppnew+6wrapperexisting, обаAPK. B02/релиз partial. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).
+
+
+## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
+
+Поздний DELETE после принятого fresh GET теперь вызывает серверную сверку текущего Editor.214JVM/17/0+native10/обаAPK; B02/релиз partial. Далее ADD и наблюдавшийся transport EOF2DELETE. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).
