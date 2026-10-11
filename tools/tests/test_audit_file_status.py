@@ -206,6 +206,101 @@ class FileStatusCliTest(unittest.TestCase):
         proc = self.run_cli("run-tests", "--files", PY, ok=False)
         self.assertIn("LEAF TESTS RED", proc.stdout)
 
+    def test_run_tests_also_runs_the_tests_a_bug_card_lists(self):
+        self.run_cli("init")
+        self.spec()
+        self.put(f"docs/audit-files/{PY}.md", card(PY).encode("utf-8"))
+        coupons = "backend/app/coupons.py"
+        self.put(coupons, b"LIMIT = 1\n")
+        self.put("backend/tests/test_coupons.py", b"def test_redeem_once():\n    assert False\n")
+        rules = "| R1 | купон гасится один раз | backend/tests/test_coupons.py::test_redeem_once | нет |"
+        self.put(f"docs/audit-files/{coupons}.md",
+                 card(coupons, status="bug", rules=rules, mutations="").encode("utf-8"))
+        red = self.run_cli("run-tests", "--files", PY, coupons, "--leaf", "leaf-1.1", ok=False)
+        self.assertIn("LEAF TESTS RED", red.stdout)
+        self.assertNotIn("LEAF TESTS GREEN", red.stdout)
+        self.put("backend/tests/test_coupons.py", b"def test_redeem_once():\n    assert True\n")
+        green = self.run_cli("run-tests", "--files", PY, coupons, "--leaf", "leaf-1.1")
+        self.assertIn(f"🟥 открытая ошибка {coupons}: тестов 1", green.stdout)
+        self.assertIn("LEAF TESTS GREEN 2 ref(s)", green.stdout)
+        self.assertIn("by status: verified 1 (1 card(s)), bug 1 (1 card(s))", green.stdout)
+
+    def test_bug_card_tests_are_optional_but_must_resolve(self):
+        self.run_cli("init")
+        target = f"docs/audit-files/{PY}.md"
+        self.put(target, card(PY, status="bug", rules="| R1 | сумма | теста пока нет | — |", mutations="").encode("utf-8"))
+        self.assertIn(f"✓ {PY}: bug, тестов 0, поломок 0", self.run_cli("check-cards", "--files", PY).stdout)
+        broken = "| R1 | сумма | backend/tests/test_ledger.py::test_does_not_exist | да |"
+        self.put(target, card(PY, status="bug", rules=broken, mutations="").encode("utf-8"))
+        proc = self.run_cli("check-cards", "--files", PY, ok=False)
+        self.assertIn("нет функции/класса test_does_not_exist", proc.stdout)
+        self.assertIn("CARDS INVALID 1/1", proc.stdout)
+        red = self.run_cli("run-tests", "--files", PY, ok=False)
+        self.assertIn("LEAF TESTS RED (карточки неверны)", red.stdout)
+
+    def test_bug_card_breakages_must_be_described_for_its_file(self):
+        self.run_cli("init")
+        rules = "| R1 | сумма | backend/tests/test_ledger.py::test_sum | да, M1 |"
+        self.put(f"docs/audit-files/{PY}.md", card(PY, status="bug", rules=rules).encode("utf-8"))
+        self.assertIn("нет файла docs/audit-mutations/leaf-1.1.json",
+                      self.run_cli("check-cards", "--files", PY, ok=False).stdout)
+        self.spec(file=TOOL)
+        self.assertIn("поломка M1 не описана для этого файла",
+                      self.run_cli("check-cards", "--files", PY, ok=False).stdout)
+        self.spec()
+        self.assertIn(f"✓ {PY}: bug, тестов 1, поломок 1", self.run_cli("check-cards", "--files", PY).stdout)
+        self.run_cli("apply", "--files", PY, "--leaf", "leaf-1.1")
+        entry = self.registry()[PY]
+        self.assertEqual((entry["status"], entry["tests"], entry["mutations"]),
+                         ("bug", ["backend/tests/test_ledger.py::test_sum"], ["M1"]))
+
+    def test_shorthand_reference_reuses_the_path_of_its_cell_and_runs(self):
+        self.run_cli("init")
+        self.spec()
+        tests = (b"def test_sum():\n    assert True\n\n\ndef test_diff():\n    assert True\n\n\n"
+                 b"class TestLedger:\n    def test_zero(self):\n        assert True\n")
+        self.put("backend/tests/test_ledger.py", tests)
+        rules = ("| R1 | сумма и разность | backend/tests/test_ledger.py::test_sum, ::test_diff, "
+                 "::TestLedger::test_zero | да, M1 |")
+        self.put(f"docs/audit-files/{PY}.md", card(PY, rules=rules).encode("utf-8"))
+        self.assertIn(f"✓ {PY}: verified, тестов 3", self.run_cli("check-cards", "--files", PY).stdout)
+        self.assertIn("LEAF TESTS GREEN 3 ref(s)", self.run_cli("run-tests", "--files", PY, "--leaf", "leaf-1.1").stdout)
+        self.put("backend/tests/test_ledger.py", tests.replace(b"assert True\n\n\nclass", b"assert False\n\n\nclass"))
+        red = self.run_cli("run-tests", "--files", PY, "--leaf", "leaf-1.1", ok=False)
+        self.assertIn("LEAF TESTS RED", red.stdout)
+
+    def test_shorthand_with_a_missing_test_or_no_path_in_its_cell_is_rejected(self):
+        self.run_cli("init")
+        self.spec()
+        target = f"docs/audit-files/{PY}.md"
+        self.put(target, card(PY, rules="| R1 | сумма | backend/tests/test_ledger.py::test_sum, ::test_gone | да |").encode("utf-8"))
+        self.assertIn("нет функции/класса test_gone", self.run_cli("check-cards", "--files", PY, ok=False).stdout)
+        for rules in ("| R1 | сумма | ::test_sum | да |",
+                      "| R1 | backend/tests/test_ledger.py::test_sum | ::test_sum |"):
+            self.put(target, card(PY, rules=rules).encode("utf-8"))
+            proc = self.run_cli("check-cards", "--files", PY, ok=False)
+            self.assertIn("«::test_sum» без пути к файлу теста", proc.stdout)
+            self.assertNotIn("CARDS OK", proc.stdout)
+
+    def test_addresses_and_qualified_names_are_not_taken_for_shorthand(self):
+        self.run_cli("init")
+        self.spec()
+        rules = "| R1 | слушает [::]:80 и ::1, вызывает Foo::class | backend/tests/test_ledger.py::test_sum | да |"
+        self.put(f"docs/audit-files/{PY}.md", card(PY, rules=rules).encode("utf-8"))
+        self.assertIn(f"✓ {PY}: verified, тестов 1", self.run_cli("check-cards", "--files", PY).stdout)
+
+    def test_kotlin_shorthand_with_quoted_names_resolves(self):
+        self.run_cli("init")
+        test_kt = "android/app/src/test/java/com/yuldash/app/WalletTest.kt"
+        self.put(test_kt, b"class WalletTest {\n  @Test fun `balance never negative`() {}\n"
+                          b"  @Test fun `balance survives restart`() {}\n}\n")
+        self.put("docs/audit-mutations/leaf-1.1.json", json.dumps({"mutations": [
+            {"id": "M1", "file": KT, "find": "Wallet", "replace": "Purse", "runner": "gradle",
+             "tests": ["com.yuldash.app.WalletTest"]}]}).encode("utf-8"))
+        rules = f'| R1 | баланс | {test_kt}::"balance never negative", ::"balance survives restart" | да |'
+        self.put(f"docs/audit-files/{KT}.md", card(KT, rules=rules).encode("utf-8"))
+        self.assertIn(f"✓ {KT}: verified, тестов 2", self.run_cli("check-cards", "--files", KT).stdout)
+
     def test_progress_can_be_limited_to_one_group(self):
         self.run_cli("init")
         data = json.loads(self.run_cli("progress", "--group", "G7").stdout)
