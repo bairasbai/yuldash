@@ -797,3 +797,8 @@ Initial RED5/1(4inflightalreadygreen); red-gated5/5=1product+4fixture; corrected
 ## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
 
 Testonly:initial2timeout вводаname, missingdiagnostic0XML, probes diagnostic, correctednew8/0, final16=8new+8existing,native2new. Unique18,10new; product0,own10,inventory1892,foreign40. Старый328/34 не запускался и не суммировался. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).
+
+
+## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
+
+Initial compile0XML — test Map projection; corrected RED21/11 реальные rollback failures. GREEN25; final369=344existing+25new, native57=36existing+21new,426unique=380+46. API readOrder change1,own12,inventory1895,foreign40. Повтор общего cache dependency обоснован изменением product. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).

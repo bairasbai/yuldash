@@ -6077,3 +6077,8 @@ DELETE receipt сообщает о необходимости сверки, не
 ## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
 
 Два ключа сами не productbug: actualUI/TGwire counts не далиduplicate. Test-onlyзакрытиеограниченногокритерия; не удалятьkey безmeaningfulRED. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).
+
+
+## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
+
+Выбрана минимальная политика latest successful read по порядку начала запросов. Старый caller получает исходный Result; shared cache и accepted callbacks не откатываются. Latest-start-wins и single-flight не добавлены; explicit eviction может удалить order barrier и остаётся отдельным критерием. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).

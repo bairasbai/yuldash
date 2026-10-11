@@ -412,8 +412,10 @@ object ApiClient {
     private const val TTL_SLOW = 5 * 60_000L      // popular-routes, my-routes (обновляются медленно)
     private const val TTL_FEED = 3 * 60_000L      // feed (счётчики дня)
     private const val TTL_PERSONAL = 90_000L      // me, referral, contacts (+ инвалидация на мутациях)
-    private class CacheEntry(val ts: Long, val value: Any?, val generation: Long = sessionGeneration)
+    private class CacheEntry(val ts: Long, val value: Any?, val generation: Long = sessionGeneration, val readOrder: Long = 0L)
     private val respCache = java.util.concurrent.ConcurrentHashMap<String, CacheEntry>()
+    // Guarded by sessionLock. An older read may return its own Result, but cannot undo a newer accepted read.
+    private var cacheReadOrder = 0L
     // Guarded by sessionLock; an older GET must not undo a confirmed or uncertain mutation.
     private var contactsCacheRevision = 0L
     private fun invalidate(vararg keys: String) = synchronized(sessionLock) {
@@ -433,7 +435,7 @@ object ApiClient {
         fetch: suspend () -> Result<T>,
     ): Result<T> {
         val callerContext = currentCoroutineContext()
-        val (generation, contactsRevision) = synchronized(sessionLock) {
+        val (generation, contactsRevision, readOrder) = synchronized(sessionLock) {
             callerContext.ensureActive()
             if (expectedGeneration != null && !sameSession(expectedGeneration)) return staleSession()
             respCache[key]?.let { c ->
@@ -443,7 +445,7 @@ object ApiClient {
                     return Result.success(value)
                 }
             }
-            sessionGeneration to contactsCacheRevision
+            Triple(sessionGeneration, contactsCacheRevision, ++cacheReadOrder)
         }
         val result = fetch()
         return synchronized(sessionLock) {
@@ -451,8 +453,9 @@ object ApiClient {
             callerContext.ensureActive()
             if (!sameSession(generation)) staleSession()
             else result.onSuccess {
-                if (key != "contacts" || contactsRevision == contactsCacheRevision) {
-                    respCache[key] = CacheEntry(System.currentTimeMillis(), it, generation)
+                val newerAccepted = respCache[key]?.let { entry -> entry.generation == generation && entry.readOrder > readOrder } == true
+                if (!newerAccepted && (key != "contacts" || contactsRevision == contactsCacheRevision)) {
+                    respCache[key] = CacheEntry(System.currentTimeMillis(), it, generation, readOrder)
                     onValue(it)
                 }
             }

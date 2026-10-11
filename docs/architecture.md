@@ -4617,3 +4617,8 @@ cachedGet captures callerContext; ensureActive внутри initial/acceptance s
 ## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
 
 Contacts LaunchedEffect(sessionVersion,navigationSession) unchanged. commitAuth generation/publish→synchronousonContinue version++; actualTGUI bootstrapGET1 иEditorfreshGET2 проверены, не manualauthзамена. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).
+
+
+## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
+
+ApiClient.cachedGet связывает cold-read с монотонным readOrder; CacheEntry хранит порядок принятия. Guard проверяет тот же key+owner под sessionLock; пока новая CacheEntry сохранена, accepted newer success защищает cache/onValue. Более поздняя ошибка не блокирует старый успех. Contacts revision остаётся отдельным барьером; generic eviction отдельно открыт. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).

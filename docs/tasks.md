@@ -18200,3 +18200,18 @@ Root scoped stage:243JVM=214existing+29new, native14=10existing+4new, обаAPK/
 ## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
 
 Scoped actualTGcount checked:16JVM/4/0+native2/обаAPK. Source/build/adb locksсняты; rootdocs/inventory/Git доreceipt/delivery. Далее concurrentcache/TTL/manualVMclear; externalSMS/TG/providers/CI/fullrelease отдельны. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).
+
+
+## B02 — порядок ответов общего кеша, TTL и очистка списка в памяти, 12.10.2026
+
+База bd066c4b. Продолжение QA-B02-003; после проверки и независимого ревью собственный commit/FF main/push по действующему поручению.
+1. Проверить два активных cold GET одного поколения: обратный и обычный порядок завершения, поздний успех/ошибка, независимые ключи, ordinary/forceRefresh contacts. Считать HTTP, callbacks и static prefs отдельно от возвращаемого Result. Исправлять только подтверждённый RED.
+2. Проверить TTL90s до/после границы без реального ожидания90с: явно состарить только test cache timestamp и подтвердить actual clock/cache/network. Проверить восстановление вручную очищенного VM через accepted warm publication и actual App reentry, включая authoritative empty и RU/BA.
+3. Новые JVM/native controls, затронутые сохранённые проверки общего кеша/contacts/login, оба debug APK, registry/inventory/current hash binding и fresh review. Повтор общей cache dependency обосновать изменением product; исторический полный набор не повторять.
+
+🔒 Root — sole writer ApiClient.kt только cachedGet/order guards при RED, три новых test files и8docs/inventory; sole Gradle/adb/GitHub. b02_integration_review — scoped read-only контракт; другой reviewer независимая приёмка. Foreign40 сохранить. MainActivity/mobile/backend/старые tests/UI strings/версии/deps вне изменений. Wall-clock reversal, disk exceptions/все cancellation instruction windows/прочие lifecycle/callers/providers/CI/fullB02/release и solecause14 отдельно открыты.
+
+
+## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
+
+Scoped stage проверен:369JVM/30/0+57native/обаAPK. Source/Gradle/adb замки сняты; root docs/inventory/Git до fresh receipt/delivery. Далее generic mutation/invalidation barrier и direct callers; clock/disk/native reentry/provider/CI/fullrelease отдельно. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).

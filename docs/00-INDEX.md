@@ -1140,3 +1140,8 @@ Contacts-only скрытый EOF replay устранён: current282JVM/23/0+nat
 ## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
 
 ActualTGlogin bootstrap:16JVM/4/0+nativeRU/BA2/обаAPK,10new. Product unchanged; historical328/34 не повторены. Далее concurrentactivecache/TTL/manualVMclear. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).
+
+
+## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
+
+Исправлен возврат старого ответа поверх нового кеша.369 JVM+57 native,46 новых случаев; оба APK. Далее generic mutation/invalidation и direct callbacks. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).

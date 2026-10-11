@@ -9256,3 +9256,8 @@ IO same dispatcher не означает обход cancellation withContext. Д
 ## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
 
 TGформаимеетname первымtextfield, code вторым. ЦелитьсявсемантикуплейсхолдераRU/BA, не onFirst(hasSetTextAction). Initialtimeout безauthverify не доказательствоauthbug. Не переноситьold diagnosticinit-script вобычныйrunner. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).
+
+
+## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
+
+ConcurrentHashMap защищает структуру, но не порядок HTTP snapshots. Нужны удержанные реальные запросы, завершение нового перед старым и probes cache/callback/prefs после actual Job.join. Тест возраста80/100s доказывает TTL ветви, не elapsed/exact90s. Изменение VM list не является изменением LaunchedEffect keys. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).
