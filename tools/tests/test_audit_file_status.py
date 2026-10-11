@@ -289,6 +289,39 @@ class FileStatusCliTest(unittest.TestCase):
         self.put(f"docs/audit-files/{PY}.md", card(PY, rules=rules).encode("utf-8"))
         self.assertIn(f"✓ {PY}: verified, тестов 1", self.run_cli("check-cards", "--files", PY).stdout)
 
+    def test_test_path_not_from_the_repository_root_is_rejected(self):
+        self.run_cli("init")
+        self.spec()
+        target = f"docs/audit-files/{PY}.md"
+        for cited in ("test_ledger.py::test_sum", "tests/test_ledger.py::test_sum", "LedgerTest.kt::\"sum holds\"",
+                      "my_backend/tests/test_ledger.py::test_sum"):
+            self.put(target, card(PY, rules=f"| R1 | сумма | backend/tests/test_ledger.py::test_sum, {cited} | да |")
+                     .encode("utf-8"))
+            proc = self.run_cli("check-cards", "--files", PY, ok=False)
+            self.assertIn(f"«{cited}»: путь к тесту не от корня репозитория", proc.stdout)
+            self.assertNotIn("CARDS OK", proc.stdout)
+
+    def test_shorthand_after_a_path_from_elsewhere_borrows_no_older_path(self):
+        # test_diff also exists in the first file: inheriting its path would silently run the wrong test.
+        self.run_cli("init")
+        self.spec()
+        self.put("backend/tests/test_ledger.py", b"def test_sum():\n    assert True\n\n\ndef test_diff():\n    assert True\n")
+        target = f"docs/audit-files/{PY}.md"
+        for between in ("test_other.py::test_a", "`routers/ledger.py::total`"):
+            rules = f"| R1 | сумма | backend/tests/test_ledger.py::test_sum (+ {between}, ::test_diff) | да |"
+            self.put(target, card(PY, rules=rules).encode("utf-8"))
+            proc = self.run_cli("check-cards", "--files", PY, ok=False)
+            self.assertIn("«::test_diff» без пути к файлу теста", proc.stdout)
+            self.assertNotIn("CARDS OK", proc.stdout)
+
+    def test_function_of_a_source_file_is_a_mention_not_a_test(self):
+        self.run_cli("init")
+        self.spec()
+        rules = ("| R1 | как `routers/ledger.py::total` и `WalletScreen.kt::Balance` | "
+                 "backend/tests/test_ledger.py::test_sum | да, поломка в `ledger.py::total` |")
+        self.put(f"docs/audit-files/{PY}.md", card(PY, rules=rules).encode("utf-8"))
+        self.assertIn(f"✓ {PY}: verified, тестов 1", self.run_cli("check-cards", "--files", PY).stdout)
+
     def test_kotlin_shorthand_with_quoted_names_resolves(self):
         self.run_cli("init")
         test_kt = "android/app/src/test/java/com/yuldash/app/WalletTest.kt"
