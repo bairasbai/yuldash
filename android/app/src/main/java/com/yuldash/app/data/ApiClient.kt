@@ -376,7 +376,14 @@ object ApiClient {
     private const val TTL_PERSONAL = 90_000L      // me, referral, contacts (+ инвалидация на мутациях)
     private class CacheEntry(val ts: Long, val value: Any?, val generation: Long = sessionGeneration)
     private val respCache = java.util.concurrent.ConcurrentHashMap<String, CacheEntry>()
-    private fun invalidate(vararg keys: String) { keys.forEach { respCache.remove(it) } }
+    // Guarded by sessionLock; an older contacts GET must not undo a successful mutation.
+    private var contactsCacheRevision = 0L
+    private fun invalidate(vararg keys: String) = synchronized(sessionLock) {
+        keys.forEach {
+            if (it == "contacts") contactsCacheRevision++
+            respCache.remove(it)
+        }
+    }
 
     @Suppress("UNCHECKED_CAST")
     private suspend fun <T : Any> cachedGet(
@@ -386,20 +393,22 @@ object ApiClient {
         expectedGeneration: Long? = null,
         fetch: suspend () -> Result<T>,
     ): Result<T> {
-        val generation = synchronized(sessionLock) {
+        val (generation, contactsRevision) = synchronized(sessionLock) {
             if (expectedGeneration != null && !sameSession(expectedGeneration)) return staleSession()
             respCache[key]?.let { c ->
                 if (c.generation == sessionGeneration && System.currentTimeMillis() - c.ts < ttlMs && c.value != null)
                     return Result.success(c.value as T)
             }
-            sessionGeneration
+            sessionGeneration to contactsCacheRevision
         }
         val result = fetch()
         return synchronized(sessionLock) {
             if (!sameSession(generation)) staleSession()
             else result.onSuccess {
-                respCache[key] = CacheEntry(System.currentTimeMillis(), it, generation)
-                onValue(it)
+                if (key != "contacts" || contactsRevision == contactsCacheRevision) {
+                    respCache[key] = CacheEntry(System.currentTimeMillis(), it, generation)
+                    onValue(it)
+                }
             }
         }
     }
@@ -1170,12 +1179,20 @@ object ApiClient {
 
     // ---------- Доверенные контакты / SOS ----------
 
+    private suspend fun mutateContacts(method: String, path: String, body: JSONObject?): Result<Unit> {
+        val generation = requestSession().generation
+        val result = call(method, path, body, auth = true, expectedGeneration = generation)
+        return synchronized(sessionLock) {
+            if (result.isSuccess && !sameSession(generation)) staleSession()
+            else result.onSuccess { invalidate("contacts") }.map { }
+        }
+    }
+
     suspend fun addContact(name: String, relation: String, phone: String, notifyByDefault: Boolean): Result<Unit> =
-        call(
+        mutateContacts(
             "POST", "/trusted-contacts",
             JSONObject().put("name", name).put("relation", relation).put("phone", phone).put("notify_by_default", notifyByDefault),
-            auth = true,
-        ).onSuccess { invalidate("contacts") }.map { }   // добавили контакт → следующий getContacts тянет свежий список
+        )   // добавили контакт → следующий getContacts тянет свежий список
 
     /**
      * Убрать доверенный контакт. Сервер умел это с самого начала, а приложение не звало:
@@ -1185,8 +1202,7 @@ object ApiClient {
      * Сервер сначала гасит шаринги этого контакта, потом сам контакт.
      */
     suspend fun deleteContact(contactId: Int): Result<Unit> =
-        call("DELETE", "/trusted-contacts/$contactId", null, auth = true)
-            .onSuccess { invalidate("contacts") }.map { }
+        mutateContacts("DELETE", "/trusted-contacts/$contactId", null)
 
     suspend fun getContacts(expectedGeneration: Long? = null): Result<List<ContactDto>> = cachedGet("contacts", TTL_PERSONAL, expectedGeneration = expectedGeneration) {
         call("GET", "/trusted-contacts", null, auth = true, expectedGeneration = expectedGeneration).mapCatching { obj ->
