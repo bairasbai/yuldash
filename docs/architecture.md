@@ -4557,3 +4557,8 @@ Initial InstantShareContent preflight теперь вызывает retireLoad �
 ## B02 — ссылка и запись той же поездки, 11.10.2026
 
 Enroute InstantOrderContent захватывает matching TaxiTripPublication; applied holder сохраняет последнюю свою receipt при null/foreign owner. key(publication) монтирует TaxiTripScreen только после публикации и удаляет старый child при новой своей receipt. currentParent/onOrderUpdated сравнивают currentTrip===capturedPublication. SideEffect publisher и API/TaxiNavigationState/TaxiTripScreen прежние; ordinaryDTO сохраняет receipt/scope. 1112 различных ID = 1096 сохранённых без правок + 16 новых; 77 классов, 0 отказов/ошибок/пропусков/устаревших XML, 810.344 с, 101 отпечаток исходников. Собраны оба debug APK. Повторы/RED/ошибочный новый oracle не увеличивают число уникальных проверок. [Границы](audit-blocks.md#b02--ссылка-и-запись-той-же-поездки-11102026).
+
+
+## B02 — смена контекста до первого запроса контактов, 11.10.2026
+
+Actual outer caller: session generation key удаляет прежний child; unmount освобождает publisher. Queued raw share click и граница до composition/effect не входят в contacts/readShares adapters. Fresh mount/current owner по явному sharing вызывает настоящий contacts+sharesAPI с одним Job. Продукт/ApiClient/TaxiNavigationState/TaxiTripScreen неизменны;1111 oldtests без правок,1await укреплён с сохранением assertions. 1118 различных ID = 1112 сохранённых (1111 без правок,1 ожидание усилено) + 6 новых; 78 классов, 0 отказов/ошибок/пропусков/устаревших XML, 787.812 с, 102 отпечатка исходников. Оба debug APK собраны. Повторы не прибавлены к уникальным проверкам. [Границы](audit-blocks.md#b02--смена-контекста-до-первого-запроса-контактов-11102026).

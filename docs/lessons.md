@@ -9196,3 +9196,8 @@ ClaimScreen возвращает право владения, но не обещ
 ## B02 — ссылка и запись той же поездки, 11.10.2026
 
 Проверка id/publisher не отличает новую запись прежнего номера. Проверять captured receipt до callbacks и после HTTP, child key должен менять scope при replacement. При обычном DTO receipt сохраняется. Для диалога после GET активных ссылок liveLink ещё null: его заголовок не подходит как oracle наличия окна. Exclusive Close/Ябыу и точные HTTP/adapter counts проверяют повторное открытие без ослабления проверок продукта. Сначала сохранить ошибочный run/source, затем исправлять тест. Synthetic writer API transition не равен доказанной достижимости через normal UI. [Источник](audit-blocks.md#b02--ссылка-и-запись-той-же-поездки-11102026).
+
+
+## B02 — смена контекста до первого запроса контактов, 11.10.2026
+
+Raw callback в одном runOnIdle с boundary позволяет наблюдать отсутствие applied кадра между действиями; dispatch дополнительно крутит mainLooper и может преждевременно запустить effect. HTTP0 не доказывает API0. При unmount frames внутри if(mounted) не пишут removal: нужен onDispose marker. Если adapter не вошёл, Job не наблюдался и его cancellation/join нельзя заявлять. Повтор ошибки ожидания: исчезновение кнопки при pending и запись GET сервером не доказывают обработку ответа. Revoke404 ждёт наблюдаемый nonnullToast, сохраняя исходный exact assert; controlled held404 probe доказывает преждевременность старого predicate. [Источник](audit-blocks.md#b02--смена-контекста-до-первого-запроса-контактов-11102026).
