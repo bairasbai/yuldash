@@ -83,7 +83,7 @@
     "infra_resource_config": 346,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 921
+    "test_support": 922
   },
   "counts_by_block": {
     "B01": 128,
@@ -94,7 +94,7 @@
     "B06": 84,
     "B07": 107,
     "B08": 168,
-    "B09": 543,
+    "B09": 544,
     "B10": 346,
     "B11": 90
   },
@@ -3557,6 +3557,13 @@
       "block": "B09",
       "sha256": "d5a3e51c0e0188dc1548ac592638109db79c500657282c1379102477b4e13018",
       "lines": 169
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientContactsMutationOwnerTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "f4ce44551e23b39fd180de4051b6f189d1bb618931d438e202ac0a96105270f3",
+      "lines": 225
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientContactsSchemaTest.kt",

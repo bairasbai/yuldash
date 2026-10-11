@@ -9206,3 +9206,8 @@ Raw callback в одном runOnIdle с boundary позволяет наблюд
 ## B02 — поздняя загрузка контактов после удаления, 11.10.2026
 
 Удаление ключа кеша не останавливает старый GET той же сессии. Invalidation и finalcachecommit должны сравнивать revision под одним lock; сеть вне monitor. Проверять после actual client Deferred await/join/finally/completion, затем exactHTTP count и отсутствие refetch. Ошибка DELETE не доказывает, что сервер не удалил контакт. Проверка владельца перед успешным sideeffect не должна маскировать исходный failure401: call может сам завершить сессию. Сохранять ошибки, повторно проверять receipt только для успеха. [Источник](audit-blocks.md#b02--поздняя-загрузка-контактов-после-удаления-11102026).
+
+
+## B02 — поздний ответ изменения контактов и владелец кеша, 11.10.2026
+
+Извлечённый из очереди Runnable надо сохранить до assertion и удалить из heldcollection передrun. Иначе failure передresume оставит недренируемую coroutine. Cleanuprelease/cancel/drain/join и обязательныйfinallyreset/shutdown; это улучшениеfixture,неproductRED. Ошибка401 сама завершает старуюсессию до регистрации продолжения; statusпроверять послеB, не маскировать его SessionChanged. [Источник](audit-blocks.md#b02--поздний-ответ-изменения-контактов-и-владелец-кеша-11102026).

@@ -4567,3 +4567,8 @@ Actual outer caller: session generation key удаляет прежний child;
 ## B02 — поздняя загрузка контактов после удаления, 11.10.2026
 
 ApiClient контакты: monotonic contactsCacheRevision под sessionLock; cachedGet захватывает generation/revision и после HTTP не пишет cache/onValue при старой revision. Same-gen Result прежний, иной session failure. mutateContacts общий дляadd/delete, expectedGeneration/rechecklock передsuccessinvalidate; другие cache keys не ограничены revision. 1143 различных ID = 1118 сохранённых без правок + 15 существующих соседних + 10 новых; 81 класс, 0 отказов/ошибок/пропусков/устаревших XML, 798.469 с, 105 отпечатков исходников. Оба debug APK собраны. Повторы/RED не прибавлены к уникальным проверкам. [Границы](audit-blocks.md#b02--поздняя-загрузка-контактов-после-удаления-11102026).
+
+
+## B02 — поздний ответ изменения контактов и владелец кеша, 11.10.2026
+
+ApiClient не менялся. Queued actual caller задерживает возврат из IO внутриcall до обработки результата mutateContacts. Owner/currentpositive/error401-503 guards теперь имеют runtime-проверку в этой границе; открытыйUI и unknownservercommit отдельны. [Границы](audit-blocks.md#b02--поздний-ответ-изменения-контактов-и-владелец-кеша-11102026).
