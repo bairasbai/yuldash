@@ -4577,3 +4577,8 @@ ApiClient не менялся. Queued actual caller задерживает во�
 ## B02 — изменение контактов без подтверждения, 11.10.2026
 
 ApiClient.mutateContacts сохраняет исходную ошибку, но при том же владельце инвалидирует contacts/revision после JSON parse failure либо неопределённого IOException. Definite pre-send и явные HTTPerrors сохраняют прежнюю политику; старое продолжение не очищает кеш B. [Версия и проверки](audit-blocks.md#b02--изменение-контактов-без-подтверждения-11102026).
+
+
+## B02 — открытый экран контактов после неизвестного ответа, 11.10.2026
+
+TrustedContactsScreen фиксирует owner/sessionChanges, keyed Editor владеет read/add/delete и server snapshot (empty также authoritative). App keyed по privateNavigationRevision принимает полный список; expectedGeneration API и liveparent guard защищают старый callback до frame. Source/runtime/hash различаются: actual App/defaultVM DELETE15 на JVM; native ADD/wrapper6 без App/defaultVM. [Версия/остатки](audit-blocks.md#b02--открытый-экран-контактов-после-неизвестного-ответа-11102026).

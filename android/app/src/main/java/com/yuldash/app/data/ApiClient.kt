@@ -1180,8 +1180,12 @@ object ApiClient {
 
     // ---------- Доверенные контакты / SOS ----------
 
-    private suspend fun mutateContacts(method: String, path: String, body: JSONObject?): Result<Unit> {
-        val generation = requestSession().generation
+    internal fun isUncertainContactMutation(error: Throwable?): Boolean =
+        error is JSONException || (error is IOException && error !is ConnectException &&
+            error !is UnknownHostException && error !is NoRouteToHostException)
+
+    private suspend fun mutateContacts(method: String, path: String, body: JSONObject?, expectedGeneration: Long? = null): Result<Unit> {
+        val generation = expectedGeneration ?: requestSession().generation
         val result = call(method, path, body, auth = true, expectedGeneration = generation)
         return synchronized(sessionLock) {
             if (result.isSuccess && !sameSession(generation)) staleSession()
@@ -1189,18 +1193,18 @@ object ApiClient {
                 val error = result.exceptionOrNull()
                 // The server may have committed before its reply was lost or malformed.
                 // Refresh on the next read, preserving the error and never resending here.
-                val uncertain = error is JSONException || (error is IOException &&
-                    error !is ConnectException && error !is UnknownHostException && error !is NoRouteToHostException)
+                val uncertain = isUncertainContactMutation(error)
                 if (sameSession(generation) && (result.isSuccess || uncertain)) invalidate("contacts")
                 result.map { }
             }
         }
     }
 
-    suspend fun addContact(name: String, relation: String, phone: String, notifyByDefault: Boolean): Result<Unit> =
+    suspend fun addContact(name: String, relation: String, phone: String, notifyByDefault: Boolean, expectedGeneration: Long? = null): Result<Unit> =
         mutateContacts(
             "POST", "/trusted-contacts",
             JSONObject().put("name", name).put("relation", relation).put("phone", phone).put("notify_by_default", notifyByDefault),
+            expectedGeneration,
         )   // добавили контакт → следующий getContacts тянет свежий список
 
     /**
@@ -1210,8 +1214,8 @@ object ApiClient {
      * навсегда — хотя отношения меняются: бывший, поссорились, ошиблись номером.
      * Сервер сначала гасит шаринги этого контакта, потом сам контакт.
      */
-    suspend fun deleteContact(contactId: Int): Result<Unit> =
-        mutateContacts("DELETE", "/trusted-contacts/$contactId", null)
+    suspend fun deleteContact(contactId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        mutateContacts("DELETE", "/trusted-contacts/$contactId", null, expectedGeneration)
 
     suspend fun getContacts(expectedGeneration: Long? = null): Result<List<ContactDto>> = cachedGet("contacts", TTL_PERSONAL, expectedGeneration = expectedGeneration) {
         call("GET", "/trusted-contacts", null, auth = true, expectedGeneration = expectedGeneration).mapCatching { obj ->

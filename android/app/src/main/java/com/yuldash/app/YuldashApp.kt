@@ -1650,23 +1650,20 @@ private fun YuldashAppContent() {
                     goBack()
                 }
             )
-            Screen.TrustedContacts -> TrustedContactsScreen(
-                contacts = trustedContacts,
-                onBack = { closeTrustedContacts() },
-                onAddContact = { contact ->
-                    // Безопасность: контакт получает статус поездки/SOS — успех показываем ПО ФАКТУ сервера,
-                    // при сбое откатываем (иначе fire-and-forget = «добавлен» на экране, а на сервере нет).
-                    trustedContacts.add(contact)
-                    appScope.launch {
-                        ApiClient.addContact(contact.name, contact.relation, contact.phone, contact.notifyByDefault)
-                            .onSuccess { Toast.makeText(context, if (language == AppLanguage.Ba) "Контакт өҫтәлде" else "Контакт добавлен", Toast.LENGTH_SHORT).show() }
-                            .onFailure {
-                                trustedContacts.remove(contact)
-                                Toast.makeText(context, if (language == AppLanguage.Ba) "Булманы. Сетте тикшереп ҡабатла" else "Не получилось. Проверь сеть и повтори", Toast.LENGTH_SHORT).show()
-                            }
-                    }
+            Screen.TrustedContacts -> {
+                val displayedRevision = vm.privateNavigationRevision
+                androidx.compose.runtime.key(displayedRevision) {
+                    TrustedContactsScreen(
+                        contacts = trustedContacts,
+                        onBack = { closeTrustedContacts() },
+                        isCurrentParent = { vm.screen.value == Screen.TrustedContacts && vm.privateNavigationRevision == displayedRevision },
+                        onContactsChanged = { snapshot ->
+                            trustedContacts.clear()
+                            trustedContacts.addAll(snapshot)
+                        },
+                    )
                 }
-            )
+            }
             Screen.RepeatTrip -> RepeatTripScreen(
                 contacts = trustedContacts,
                 onBack = { goBack() },

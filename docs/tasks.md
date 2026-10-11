@@ -18078,3 +18078,18 @@ B02 mutation-owner: первый green70/7/0 (12новых+55прежнихсо�
 ## B02 — изменение контактов без подтверждения, 11.10.2026
 
 Завершено локально: RED2behavior→24newgreen→104/9/0+обаAPK; 24new+80existing, повторённый профиль обоснован изменением ApiClient и интеграцией. Реализация/Gradle замки сняты; root единственный writer docs/inventory/Git до независимой приёмки и own-only main/push. Исторические1143/1158 не выдаём за текущий полный прогон. Следующий пункт — UI после неизвестного изменения; [остатки](audit-blocks.md#b02--изменение-контактов-без-подтверждения-11102026).
+
+
+## B02 — открытый экран контактов после неизвестного ответа, 11.10.2026
+
+План от опубликованного2370cd27. Пользователь явно поручил проверки открытого экрана и own-only main/push после проверки.
+1. Настоящий YuldashApp/VM/Compose/ApiClient и localhost: RED для DELETE/POST после committed malformed reply/потери ответа; RU/BA, отдельное серверное состояние. Экран остаётся открыт и должен принять актуальный список без повторной мутации.
+2. Минимальный wrapper-only fix: authoritative server snapshot вместо merge stale parent/local shadows; один владелец add/delete/read, fresh GET после success/unknown error, error+retry после отказа перечитывания; ID с сервера, current owner/parent/lease guards и single-flight. API contacts expectedGeneration/classifier seam, branch TrustedContacts parent publication; остальные экраны не переписывать.
+3. Новые/связанные проверки, обаAPK, по доступности native; реестр/docs/inventory, независимая scoped приёмка, собственный коммит/FFmain/обычныйpush. Исторические1143/1158 не считать новым полным прогоном.
+
+🔒 Root: AccessibilityScreens.kt только TrustedContactsScreen (при необходимости состояние Content), YuldashApp.kt только TrustedContacts branch, ApiClient.kt только contacts seam, новый TrustedContactsReconciliationTest.kt, docs/inventory; единственный Gradle/adb/GitHub. b02_integration_review только read-only contract.40foreign сохранены; начальнаяinventory1873 толькоforeign.gitignore. MainActivity/mobile/backend/старыеtests/версии/deps/переводы вне области. Отмена servercommit/explicitHTTPunknowncommit/TTL/прочиеcallers/realproviders/production/CI/fullB02/release отдельно открыты.
+
+
+## B02 — открытый экран контактов после неизвестного ответа, 11.10.2026
+
+Завершено локально: текущие127/11/0 и обаAPK, native6/0/visual;15newJVM+112existing+6newnative=133unique. AcceptedRED DELETE1; nativeADD post-fix regression, draft32/idling failures сохранены. Scope implementation/Gradle/adb замки сняты; root sole docs/inventory/Git до frozen independent/own13/mainpush. Следующий критерий — удержанная HTTP mutation/read при смене owner/parent и отмене; [остатки](audit-blocks.md#b02--открытый-экран-контактов-после-неизвестного-ответа-11102026). Переводы: новыхBAстрокнет, прежниечерновикинеутверждаем.
