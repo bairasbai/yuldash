@@ -119,7 +119,8 @@ def escalate_now(
     ему ждать нечего.
     """
     from .routers.safety import _send_sos_sms          # локально: safety тянет пол-проекта
-    from .services import notify_admin_telegram, push_notification, sms_will_reach
+    from .services import (notify_admin_telegram, pick_lang, push_notification,
+                           sms_lang_of, sms_will_reach)
 
     if not contact_phones:
         # Звать некого: человек не добавил доверенных или не расшарил поездку.
@@ -158,7 +159,18 @@ def escalate_now(
     session.refresh(event)
 
     who = (who_row.name or who_row.phone) if who_row else "человек"
-    sms_text = f"Юлдаш: {who} не отметил(а), что доехал(а). Позвони, проверь, всё ли хорошо."
+    # На языке того, кто завёл контакт (services.sms_lang_of, волна 95): у доверенного контакта
+    # своего языка в базе нет, а близкий человека, который сидит в приложении по-башкирски,
+    # и сам, скорее всего, читает по-башкирски. До этой правки SMS уходило только по-русски —
+    # то же упущение, что чинили в WINTER_ASK_BA (push «доехал?»), просто на другом канале
+    # (независимое ревью leaf-3.1, см. карточку routers/safety.py, раздел «Остаток»).
+    lang = sms_lang_of(session, watch_user_id)
+    sms_text = pick_lang(
+        lang,
+        f"Юлдаш: {who} не отметил(а), что доехал(а). Позвони, проверь, всё ли хорошо.",
+        # Башкирский — черновик модели (docs/tasks.md, на проверку Александру как носителю).
+        f"Юлдаш: {who} барып еткәнен билдәләмәне. Шылтырат, бөтәһе лә яҡшымы икәнен тикшер.",
+    )
     # Скольким SMS реально уйдёт: на проде канал молчит, и «уведомлено: 3» дежурному
     # означало бы, что близкие уже едут проверять. Не едут — им никто не написал (волна 184).
     дошло = sms_will_reach(contact_phones)
