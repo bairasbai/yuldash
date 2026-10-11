@@ -6062,3 +6062,8 @@ DELETE receipt сообщает о необходимости сверки, не
 ## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
 
 Сигнал ADD не содержит имя/телефон/ID: даже samephone+ID+name не означает актуальные relation/notify. Отменённый/неопределённый запрос требует чтения server truth, не повтор POST. Разделены JVM external API Deferred/actualApp observer и native actualform/Editor action. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).
+
+
+## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
+
+Не использовать только fixed-length HUC как общий запрет replay: JDK writeRequests имеет отдельную retryветку без streaming guard. Existing OkHttp + oneShot также запрещает HTTP503 Retry-After0 follow-up. Смена транспорта ограничена contacts mutations; stale/CE/cache/event остаются существующими. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).

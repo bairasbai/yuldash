@@ -9241,3 +9241,8 @@ Observer без watermark на failed own read создаёт скрытый п�
 ## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
 
 Robolectric ADD dialog fetchSemanticsNodes может застрять внутри waitForIdle до ввода; внешний waitUntil не ограничивает inner blocking. NATIVE/LEGACY/clock/size не доказали причину, остановленные0completed не product RED. Native нужен для формы, JVM bounded APIcaller для observer. rg Windows wildcard передавать через -g, а не literal path со *. Пользовательские чужие файлы не трогать. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).
+
+
+## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
+
+Нулевая wrapper retry policy не доказывает один wire request: транспорт может повторить EOF сам. Считать method+exactpath на wire; проверять runtime отдельно. Kotlin JUnit expression body с последним Log.i возвращает Int — завершать Unit. Начальная initializationError не является productRED. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).

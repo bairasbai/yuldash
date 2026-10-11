@@ -18155,3 +18155,18 @@ Root этап проверен214JVM/17/0=189existing+25new; native10=8existing+
 ## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
 
 Root scoped stage:243JVM=214existing+29new, native14=10existing+4new, обаAPK/visual. Source/build/adb locks сняты; Rootdocs/inventory/Git до fresh receipt/delivery. Новых UIstrings/versions/deps нет. ADD-after-fresh пункт проверен scoped, EOF2DELETE/transport и B02/release открыты. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).
+
+
+## B02 — скрытый повтор контактов при обрыве соединения, 12.10.2026
+
+План в рамках продолжающегося поручения; база3fed8d49, own-only commit/FFmain/ordinary push после проверки.
+1. Воспроизвести observed EOF2DELETE на текущем настоящем ApiClient/HTTP, отдельно проверить POST и точное число mutation после server commit. Сохранить RED и неизменные assertions; отличить повторы транспорта от call backoff и refresh401.
+2. Минимально запретить replay транспорта только для POST/DELETE trusted contacts, сохранив GET, safe-before-send backoff, явный refresh после401, owner/cache/event/Result/cancellation и payload. Подтвердить actual Android runtime; Java/Robolectric не выдавать за Android.
+3. Новые transport controls (commit/no-commit/EOF/redirect/401/manual retry/owner/body), прежний contacts243JVM/14native по изменённому ApiClient и затронутые auth/retry contracts; обаdebugAPK, registry/inventory/current hashes/fresh review, собственный main/push. Полный исторический набор без причины не повторять.
+
+🔒 Root: ApiClient.kt contacts-only transport branch, два новых test files,8docs/inventory; единственный Gradle/adb/GitHub. b02_integration_review только read-only источник/контракт; fresh reviewer другой.40foreign entries сохраняются. MainActivity/mobile/backend/старыеtests/версии/deps/видимые строки вне правок. Genericcache доCE, actualLogin count, прочие lifecycle/TTL/providers/CI/fullB02/release/solecause14 открыты.
+
+
+## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
+
+Этап проверен scoped: 282JVM/23/0+26native,обаAPK/visual. Source/build/adb locks сняты; docs/inventory/Git до receiptdelivery root. EOF observed replay закрыт в новой contacts ветке; nativebaseline не объявлен failing. Далее genericcache доCE и прочие реестровые остатки. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).

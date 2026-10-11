@@ -20,6 +20,14 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+import okhttp3.Authenticator
+import okhttp3.Headers
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.Response
+import okio.BufferedSink
 import java.io.IOException
 import java.io.OutputStreamWriter
 import java.net.ConnectException
@@ -28,10 +36,11 @@ import java.net.NoRouteToHostException
 import java.net.URL
 import java.net.UnknownHostException
 import java.security.SecureRandom
+import java.util.concurrent.TimeUnit
 
 /**
  * Тонкий клиент к настоящему бэкенду (FastAPI, см. docs/server.md).
- * Встроенный HttpURLConnection + org.json — БЕЗ внешних зависимостей.
+ * HttpURLConnection + org.json; изменения контактов используют уже подключённый OkHttp без replay.
  * Токен храним в SharedPreferences, чтобы вход не слетал между запусками.
  *
  * Базовый URL приходит из BuildConfig:
@@ -64,6 +73,13 @@ object ApiClient {
 
     private val connectMs: Int get() = testTimeoutMs ?: 15000
     private val readMs: Int get() = testTimeoutMs ?: 15000
+
+    // Only contact mutations: never replay a sent body after a lost reply or HTTP follow-up.
+    private val contactsTransport by lazy {
+        OkHttpClient.Builder().retryOnConnectionFailure(false)
+            .followRedirects(false).followSslRedirects(false)
+            .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE).build()
+    }
 
     /**
      * Тест-хук: оборвать всё фоновое и вернуть клиента в исходное состояние.
@@ -1211,7 +1227,7 @@ object ApiClient {
     private suspend fun mutateContacts(method: String, path: String, body: JSONObject?, expectedGeneration: Long? = null, deletedId: Int? = null, adding: Boolean = false): Result<Unit> {
         val generation = expectedGeneration ?: requestSession().generation
         val result = try {
-            call(method, path, body, auth = true, expectedGeneration = generation)
+            call(method, path, body, auth = true, expectedGeneration = generation, singleAttemptMutation = true)
         } catch (cancelled: CancellationException) {
             // Cancellation may be delivered after the server committed, including on IO return.
             // Keep the cancellation thrown; never resend or invalidate a newer owner's cache.
@@ -3598,6 +3614,7 @@ object ApiClient {
         retryOnNetwork: Boolean = true,  // M5: повторять транзитные обрывы связи с backoff (по умолчанию вкл.)
         expectedGeneration: Long? = null,
         idempotencyKey: String? = null,
+        singleAttemptMutation: Boolean = false,
     ): Result<JSONObject> {
         val snapshot = requestSession()
         val generation = expectedGeneration ?: snapshot.generation
@@ -3628,27 +3645,57 @@ object ApiClient {
         while (true) {
             if (sessionBound && !sameSession(generation)) return@withContext staleSession()
             var conn: HttpURLConnection? = null
+            var mutationResponse: Response? = null
             try {
-                conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
-                    requestMethod = method
-                    connectTimeout = connectMs
-                    readTimeout = readMs
-                    setRequestProperty("Accept", "application/json")
-                    idempotencyKey?.let { setRequestProperty("Idempotency-Key", it) }
-                    deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
-                    if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
-                    if (body != null) {
-                        doOutput = true
-                        setRequestProperty("Content-Type", "application/json")
-                        OutputStreamWriter(outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
+                val code: Int
+                val text: String
+                if (singleAttemptMutation) {
+                    val bytes = body?.toString()?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
+                    val requestBody = object : RequestBody() {
+                        override fun contentType() = if (body != null) "application/json; charset=utf-8".toMediaType() else null
+                        override fun contentLength() = bytes.size.toLong()
+                        override fun isOneShot() = true // Also for empty DELETE: 503/408 follow-ups must not resend it.
+                        override fun writeTo(sink: BufferedSink) { sink.write(bytes) }
                     }
+                    val headers = Headers.Builder().add("Accept", "application/json").apply {
+                        idempotencyKey?.let { add("Idempotency-Key", it) }
+                        deviceId?.let { add("X-Device-Id", it) }
+                        if (auth) usedToken?.let {
+                            val bearer = "Bearer $it"
+                            // Match the old transport's non-ASCII compatibility without allowing header injection.
+                            require(bearer.all { ch -> ch == '\t' || (ch.code >= 32 && ch.code != 127) })
+                            addUnsafeNonAscii("Authorization", bearer)
+                        }
+                    }.build()
+                    val request = Request.Builder().url(BASE + path).method(method, requestBody).headers(headers).build()
+                    val client = contactsTransport.newBuilder().connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
+                        .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).writeTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()
+                    mutationResponse = client.newCall(request).execute()
+                    code = mutationResponse.code
+                    serverUnreachable.value = false
+                    text = mutationResponse.body?.string().orEmpty()
+                } else {
+                    conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
+                        requestMethod = method
+                        connectTimeout = connectMs
+                        readTimeout = readMs
+                        setRequestProperty("Accept", "application/json")
+                        idempotencyKey?.let { setRequestProperty("Idempotency-Key", it) }
+                        deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
+                        if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
+                        if (body != null) {
+                            doOutput = true
+                            setRequestProperty("Content-Type", "application/json")
+                            OutputStreamWriter(outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
+                        }
+                    }
+                    code = conn.responseCode
+                    // Сервер ОТВЕТИЛ — связь есть, даже если ответ 4xx/5xx. Гасим флаг «нет связи»:
+                    // иначе плашка висела бы после восстановления сети до следующего перезапуска.
+                    serverUnreachable.value = false
+                    val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                    text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 }
-                val code = conn.responseCode
-                // Сервер ОТВЕТИЛ — связь есть, даже если ответ 4xx/5xx. Гасим флаг «нет связи»:
-                // иначе плашка висела бы после восстановления сети до следующего перезапуска.
-                serverUnreachable.value = false
-                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 if (sessionBound && !sameSession(generation)) return@withContext staleSession()
                 return@withContext if (code in 200..299) {
                     val obj = when {
@@ -3660,10 +3707,11 @@ object ApiClient {
                     Result.success(obj)
                 } else if (code == 401 && auth && !isRetry && !refreshToken.isNullOrBlank()) {
                     // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
-                    conn.disconnect(); conn = null
+                    conn?.disconnect(); conn = null
+                    mutationResponse?.close(); mutationResponse = null
                     val refreshed = tryRefresh(usedToken, generation)
                     if (refreshed.isSuccess) call(method, path, body, auth, isRetry = true, expectedGeneration = generation,
-                        idempotencyKey = idempotencyKey)
+                        idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation)
                     else Result.failure(refreshed.exceptionOrNull()!!)
                 } else if (code == 401 && auth) {
                     // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,
@@ -3705,6 +3753,7 @@ object ApiClient {
                 return@withContext Result.failure(e)
             } finally {
                 conn?.disconnect()
+                mutationResponse?.close()
             }
         }
         @Suppress("UNREACHABLE_CODE")

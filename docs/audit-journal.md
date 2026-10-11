@@ -782,3 +782,8 @@ RED1 initial latecommit UI timeout и RED1 own failedread Retry timeout, exactLF
 ## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
 
 RED1 actualApp observer после external joined API; five stopped0completed dialog probes и initial fixture1failure исключены из productRED/unique.243JVM+14native=257ID=224existing+33new.1886inventory/13own/40foreign. Source/body hashes, test/build/native/review/remote раздельно. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).
+
+
+## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
+
+RED4 expected1actual2; green19; first final280/3; header compatibility fixed; green-fixed24; final282JVM=243+21+18existing; native26=14existing+12new. Unique308, новые33. Native initializationError→fixtureUnit→baseline4green; header comment уточнён до current final-fixed JVM/обаAPK. Не суммировать повторы, не объявлять native RED. Foreign40 сохранены. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).

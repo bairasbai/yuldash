@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 132,
     "backend_main": 103,
-    "infra_resource_config": 350,
+    "infra_resource_config": 351,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 932
+    "test_support": 933
   },
   "counts_by_block": {
     "B01": 128,
@@ -94,8 +94,8 @@
     "B06": 84,
     "B07": 107,
     "B08": 173,
-    "B09": 549,
-    "B10": 350,
+    "B09": 550,
+    "B10": 351,
     "B11": 90
   },
   "excluded_counts": {
@@ -239,6 +239,13 @@
       "block": "B10",
       "sha256": "e00449137acd019ff4ca513de67f427e3268a9f29ba67a589666e8402c6aaf06",
       "lines": 186
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/ContactsTransportInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "652883acd29bc5f010e07b0e1b8bdfb8bb1c479f0f89215c4c5f56343019366f",
+      "lines": 149
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/FreshNotificationRuntimeInstrumentedTest.kt",
@@ -1343,8 +1350,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "58405af96327f05ac4c381f415b329e26a24b27d425f8984788ffe383bd8bfcc",
-      "lines": 8105
+      "sha256": "9c5f09a2fa36408348050a26324c8af5e6aac60660da621ffb65b1237533932e",
+      "lines": 8154
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -3669,6 +3676,13 @@
       "block": "B09",
       "sha256": "edf6406f670fd33ec17f7ad57465ebe684d4777a80421d3c3e77ac4e2ab6131a",
       "lines": 99
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientContactsTransportTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "bca7349559c5546641a920b3a30b083a66254f5469f9d337223a075a1184f9c3",
+      "lines": 164
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientCriticalBadPathTest.kt",

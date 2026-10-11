@@ -4602,3 +4602,8 @@ ApiClient.contactDeletions: latest version/generation/contactId, emit only DELET
 ## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
 
 ApiClient.contactAdditions(version,generation) emit same-session ADD success/uncertain/CE под sessionLock. Editor всегда fresh GET для ADD (upsert samephone/ID); оба watermarks в guarded accepted callback, failure только captured. Два observers сериализованы synchronous busy; existing DELETE skip/gap rules сохранены. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).
+
+
+## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
+
+Только mutateContacts передаёт call singleAttemptMutation=true. Contacts transport использует existing OkHttp4.12 retryfalse/redirectsfalse/NONE authenticators/oneShotBody; emptyDELETE0. Тот же flag после explicit401 refresh; общий HUC default и safe-before-send wrapper retry прежние. Response закрывается до refresh и finally. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).

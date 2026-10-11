@@ -1125,3 +1125,8 @@ Late bootstrap contacts больше не возвращает удалённы�
 ## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
 
 Поздний ADD после fresh GET обновляет открытый Editor чтением сервера.243JVM/19/0+native14/обаAPK; B02/release partial. Далее observed EOF2DELETE/transport retry. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).
+
+
+## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
+
+Contacts-only скрытый EOF replay устранён: current282JVM/23/0+native26/обаAPK. На старом nativeAPI35 EOF4 alreadypassed. Далее genericcache доCE; B02/релиз partial. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).
