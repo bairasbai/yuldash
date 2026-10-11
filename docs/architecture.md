@@ -4542,3 +4542,8 @@ InstantOrderScreen optional readShares default real ApiClient проходит �
 ## B02 — начальная загрузка и удержанные операции ссылки, 11.10.2026
 
 InstantShareOperations — optional immutable contacts/create/revoke callbacks, default real ApiClient/generation; screen→content→TaxiTrip→Dialog. readShares прежний. Initial load/POST/DELETE теперь снимают parentContext revision; retirement load→error/retry, mutation unknown pending создаётся до отправки; отвергнутый preflight до operation снимает только свою pending. Fresh retry только GET, ordinary DTO сохраняет guards. 1047 различных ID = 1009 сохранённых + 38 новых; 73 класса, 0 отказов/ошибок/пропусков/устаревших XML, 683.891 с, 97 отпечатков исходников. Собраны оба debug APK. Повторы не увеличивают число различных проверок. [Границы](audit-blocks.md#b02--начальная-загрузка-и-удержанные-операции-ссылки-11102026).
+
+
+## B02 — ошибка первой загрузки ссылок и кеш контактов, 11.10.2026
+
+InstantOrderShareInitialLoadTest проверяет прежние настоящие callers/initial load/cache ApiClient. Ошибка shares закрывает действия, Retry использует кеш contacts и новый HTTP shares; repeated/reopened callback не создаёт лишних запросов. Архитектуру продукта не меняли. 1059 различных ID = 1047 сохранённых + 12 новых; 74 класса, 0 отказов/ошибок/пропусков/устаревших XML, 869.047 с, 98 отпечатков исходников. Собраны оба debug APK. Повторы/отрицательные контроли не увеличивают число различных проверок. [Границы](audit-blocks.md#b02--ошибка-первой-загрузки-ссылок-и-кеш-контактов-11102026).
