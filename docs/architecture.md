@@ -4572,3 +4572,8 @@ ApiClient контакты: monotonic contactsCacheRevision под sessionLock; 
 ## B02 — поздний ответ изменения контактов и владелец кеша, 11.10.2026
 
 ApiClient не менялся. Queued actual caller задерживает возврат из IO внутриcall до обработки результата mutateContacts. Owner/currentpositive/error401-503 guards теперь имеют runtime-проверку в этой границе; открытыйUI и unknownservercommit отдельны. [Границы](audit-blocks.md#b02--поздний-ответ-изменения-контактов-и-владелец-кеша-11102026).
+
+
+## B02 — изменение контактов без подтверждения, 11.10.2026
+
+ApiClient.mutateContacts сохраняет исходную ошибку, но при том же владельце инвалидирует contacts/revision после JSON parse failure либо неопределённого IOException. Definite pre-send и явные HTTPerrors сохраняют прежнюю политику; старое продолжение не очищает кеш B. [Версия и проверки](audit-blocks.md#b02--изменение-контактов-без-подтверждения-11102026).

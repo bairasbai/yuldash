@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.io.OutputStreamWriter
@@ -376,7 +377,7 @@ object ApiClient {
     private const val TTL_PERSONAL = 90_000L      // me, referral, contacts (+ инвалидация на мутациях)
     private class CacheEntry(val ts: Long, val value: Any?, val generation: Long = sessionGeneration)
     private val respCache = java.util.concurrent.ConcurrentHashMap<String, CacheEntry>()
-    // Guarded by sessionLock; an older contacts GET must not undo a successful mutation.
+    // Guarded by sessionLock; an older GET must not undo a confirmed or uncertain mutation.
     private var contactsCacheRevision = 0L
     private fun invalidate(vararg keys: String) = synchronized(sessionLock) {
         keys.forEach {
@@ -1184,7 +1185,15 @@ object ApiClient {
         val result = call(method, path, body, auth = true, expectedGeneration = generation)
         return synchronized(sessionLock) {
             if (result.isSuccess && !sameSession(generation)) staleSession()
-            else result.onSuccess { invalidate("contacts") }.map { }
+            else {
+                val error = result.exceptionOrNull()
+                // The server may have committed before its reply was lost or malformed.
+                // Refresh on the next read, preserving the error and never resending here.
+                val uncertain = error is JSONException || (error is IOException &&
+                    error !is ConnectException && error !is UnknownHostException && error !is NoRouteToHostException)
+                if (sameSession(generation) && (result.isSuccess || uncertain)) invalidate("contacts")
+                result.map { }
+            }
         }
     }
 
