@@ -767,3 +767,8 @@ RED1→green15→current127/11/0+обаAPK→native6.127=15new+112existing;112=1
 ## B02 — отмена и срок жизни экрана контактов, 11.10.2026
 
 Две meaningful RED границы expected[]/actual[7]: cancelled actual API Job и новый App screen до старого HTTPreturn. Current154JVM+6native=160 distinct IDs,27new+133existing. Red/repeat не новыеID; old1143/1158 не текущий полный прогон.1877inventory,12own paths/40foreign сохранены; independent/remote квитанции отдельно. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).
+
+
+## B02 — поздний стартовый ответ контактов, 11.10.2026
+
+Meaningful RED1 late bootstrap expected[]/actual[7] с неизменённым ApptestLF→current189JVM+8native=197ID;37new+160existing. Compiler attempt0tests и2logout-oracle failures отдельно.1880inventory/13own/40foreign; source/build/native/review/remote разделены. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).

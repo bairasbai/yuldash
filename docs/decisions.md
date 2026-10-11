@@ -6047,3 +6047,8 @@ HTTP ошибка не доказывает откат создания ссыл
 ## B02 — отмена и срок жизни экрана контактов, 11.10.2026
 
 Новый экземпляр контактов всегда читает сервер: это закрывает stale warmcache reopening после commit до завершения отменённого старого HTTP. Cancellation не Result.failure и не повтор mutation. Conservative cache invalidation только текущего owner; fresh guard+revision под одним sessionLock. Дополнительный GET при новом открытии — принятый расход для актуальности. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).
+
+
+## B02 — поздний стартовый ответ контактов, 11.10.2026
+
+Публиковать App contacts в точке принятия кешем, не после возврата ordinary Result. Capture revision при actual cache lookup; warm callback тоже под lock. Короткая запись VM допустима, HTTP/блокирующие действия под этим callback запрещены. SessionChanges добавлен в effect key; actual LoginScreen request count пока отдельный остаток. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).

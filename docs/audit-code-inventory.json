@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 132,
     "backend_main": 103,
-    "infra_resource_config": 347,
+    "infra_resource_config": 348,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 926
+    "test_support": 928
   },
   "counts_by_block": {
     "B01": 128,
@@ -93,9 +93,9 @@
     "B05": 37,
     "B06": 84,
     "B07": 107,
-    "B08": 170,
-    "B09": 546,
-    "B10": 347,
+    "B08": 171,
+    "B09": 547,
+    "B10": 348,
     "B11": 90
   },
   "excluded_counts": {
@@ -421,6 +421,13 @@
       "block": "B10",
       "sha256": "4466925936a5201b6fb31b028a95b87b615dac2dea7baa6f1461797dba7a63cd",
       "lines": 194
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/TrustedContactsBootstrapInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "0ff8d161812fd0e472741cefee7303f2b496c1774decdb9772d7ea0e13a58dcc",
+      "lines": 180
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/TrustedContactsReconciliationInstrumentedTest.kt",
@@ -1294,7 +1301,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "f85d73ef466ec2255c955dbfbc79d667de9f7bf9bd9b205e3a6cf9f7632e6180",
+      "sha256": "ead71a3242f0aaeb5ade759dd817fa1dee100c11ad237a51078fe1b4d13279e5",
       "lines": 2780
     },
     {
@@ -1322,8 +1329,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "ebf7e538151e5714ec51300b9ccb2864fcceca80537d4ae232421b21f481e1c3",
-      "lines": 8048
+      "sha256": "aa4eecd07d004a51e7cfe8e8892a8533119ccd8360905c11c6d36249f5c63258",
+      "lines": 8076
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -3412,6 +3419,13 @@
       "lines": 94
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/TrustedContactsBootstrapTest.kt",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "92de8b9672a16d86dbe9a79c85525cfa68b985b87db94066ac67a37a6023e49f",
+      "lines": 236
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/TrustedContactsLifetimeTest.kt",
       "kind": "test_support",
       "block": "B08",
@@ -3599,6 +3613,13 @@
       "block": "B09",
       "sha256": "6b32697fc2bea4d9ee6ebd8463d6975ea7e7739d660d4282e5d104936a640b85",
       "lines": 251
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientContactsPublicationTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "935af0ec96f01295b1134ba6dff4b5fefcb02d0f54966e1cfdcc836bec3bc2a0",
+      "lines": 215
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientContactsSchemaTest.kt",

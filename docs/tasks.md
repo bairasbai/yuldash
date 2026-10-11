@@ -18110,3 +18110,18 @@ B02 mutation-owner: первый green70/7/0 (12новых+55прежнихсо�
 ## B02 — отмена и срок жизни экрана контактов, 11.10.2026
 
 Локальный этап завершён по текущему профилю154/13/0,19API+8actualAppUI новых; native6existing regressions, обаAPK/visual. Source/build/adb замки root сняты; docs/inventory/Git до review/delivery — только root. Следующий первый независимый локальный остаток — поздний App bootstrap writer. ADD lifecycle/Toast/TTL/providers/CI/fullB02 открыты. Новых RU/BA строк нет. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).
+
+
+## B02 — запоздавший стартовый список контактов, 11.10.2026
+
+План от опубликованного441ed1b2. Продолжающееся поручение разрешает свой коммит/FFmain/обычныйpush после проверки.
+1. Actual YuldashApp/default VM/Compose/API: удержать начальный GET[7], через настоящий экран принять свежий список/DELETE, затем выпустить старый bootstrap. Подтвердить meaningful RED родительского списка, отдельно от cache revision.
+2. Минимальное contacts-only publication API: callback при принятом read/cache-hit под атомарной проверкой owner+contacts revision+активный Job; не менять обычный Result для старого caller/прочие onValue warm defaults. App bootstrap публикует только через этот callback и связан с navigationSession. Failed/stale/cancelled read не публикует выдуманный empty.
+3. Новые queued actual Deferred/join controls, App RU/BA cases и native actualApp/defaultVM на ComponentActivity host по доступности. Related154 JVM profile,обаAPK; реестр/docs/inventory/freeze/независимая приёмка; own-only commit/main/push. Повтор из-за2product changes/интеграции; исторический полный1143/1158 не повторять без причины.
+
+🔒 Root: YuldashApp.kt толькоcontacts bootstrap, ApiClient.kt cachedGet optional cache-hit publication и contacts-only helper/parser reuse;3new test files,8docs/inventory. Единственный Gradle/adb/GitHub. b02_integration_review read-only contract; fresh receipt другим агентом.40foreign сохранены; initial1877inventory только чужая.gitignore. MainActivity/mobile/backend/старыеtests/версии/deps/тексты/TrustedContacts editor вне правки. Commit после свежего чтения, generic cache доCE, прочие callbacks/ADD lifecycle/Toast/heldGET duplicates/explicitHTTP unknowncommit/TTL/providers/productionCI/fullB02/release/причина14 остаются открыты.
+
+
+## B02 — поздний стартовый ответ контактов, 11.10.2026
+
+Этап локально проверен189JVM/15/0 (21API+14App new), native8 (2Appnew+6wrapperexisting), обаAPK/visual. Замки source/build/adb root сняты; docs/inventory/Git до receipt/delivery пишет root. Далее generic cache before delivered cancellation/commit после fresh GET. Actual login double-key count/ADD bootstrap/lifecycle/Toast/TTL/providers/CI/fullB02 открыты. Новых видимых RU/BA строк нет. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).

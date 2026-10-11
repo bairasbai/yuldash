@@ -4587,3 +4587,8 @@ TrustedContactsScreen фиксирует owner/sessionChanges, keyed Editor вл
 ## B02 — отмена и срок жизни экрана контактов, 11.10.2026
 
 ApiClient.mutateContacts: outer catch CancellationException, same-generation contacts revision invalidation, rethrow. getContacts(expectedGeneration, forceRefresh=false) связывает один owner с кешем/HTTP; новый TrustedContactsEditor делает initial fresh GET. UI cancellation не останавливает blocking IO сразу; actual App/VM DELETE8 на JVM, native6 wrapper regression. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).
+
+
+## B02 — поздний стартовый ответ контактов, 11.10.2026
+
+Контакты bootstrap: effect(sessionVersion,navigationSession) → loadContactsForPublication. Accepted callback под sessionLock/revision+исходный context.isActive+авторизованный owner. cachedGet.notifyOnCacheHit=false по умолчанию, contacts opt-in true; warm/empty также публикуются атомарно. Ordinary getContacts stale samegen Result остаётся success. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).

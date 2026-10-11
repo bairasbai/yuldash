@@ -8,6 +8,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.asStateFlow
@@ -392,13 +394,17 @@ object ApiClient {
         ttlMs: Long,
         onValue: (T) -> Unit = {},
         expectedGeneration: Long? = null,
+        notifyOnCacheHit: Boolean = false,
         fetch: suspend () -> Result<T>,
     ): Result<T> {
         val (generation, contactsRevision) = synchronized(sessionLock) {
             if (expectedGeneration != null && !sameSession(expectedGeneration)) return staleSession()
             respCache[key]?.let { c ->
-                if (c.generation == sessionGeneration && System.currentTimeMillis() - c.ts < ttlMs && c.value != null)
-                    return Result.success(c.value as T)
+                if (c.generation == sessionGeneration && System.currentTimeMillis() - c.ts < ttlMs && c.value != null) {
+                    val value = c.value as T
+                    if (notifyOnCacheHit) onValue(value)
+                    return Result.success(value)
+                }
             }
             sessionGeneration to contactsCacheRevision
         }
@@ -1224,14 +1230,36 @@ object ApiClient {
     suspend fun deleteContact(contactId: Int, expectedGeneration: Long? = null): Result<Unit> =
         mutateContacts("DELETE", "/trusted-contacts/$contactId", null, expectedGeneration)
 
-    suspend fun getContacts(expectedGeneration: Long? = null, forceRefresh: Boolean = false): Result<List<ContactDto>> {
+    suspend fun getContacts(expectedGeneration: Long? = null, forceRefresh: Boolean = false): Result<List<ContactDto>> =
+        readContacts(expectedGeneration, forceRefresh)
+
+    // Publish only at the guarded cache acceptance point; the ordinary GET may still return an older snapshot.
+    internal suspend fun loadContactsForPublication(
+        expectedGeneration: Long,
+        onAccepted: (List<ContactDto>) -> Unit,
+    ): Result<List<ContactDto>> = readContacts(expectedGeneration, false, onAccepted)
+
+    private suspend fun readContacts(
+        expectedGeneration: Long?,
+        forceRefresh: Boolean,
+        onAccepted: ((List<ContactDto>) -> Unit)? = null,
+    ): Result<List<ContactDto>> {
+        val callerContext = currentCoroutineContext()
         val generation = synchronized(sessionLock) {
             val owner = expectedGeneration ?: sessionGeneration
             if (!sameSession(owner)) return staleSession()
+            if (onAccepted != null && !isCurrentSession(owner)) return staleSession()
             if (forceRefresh) invalidate("contacts")
             owner
         }
-        return cachedGet("contacts", TTL_PERSONAL, expectedGeneration = generation) {
+        return cachedGet(
+            "contacts", TTL_PERSONAL, expectedGeneration = generation,
+            notifyOnCacheHit = onAccepted != null,
+            onValue = { list: List<ContactDto> ->
+                // cachedGet holds sessionLock and checks the contacts revision before this short memory-only callback.
+                if (onAccepted != null && callerContext.isActive && isCurrentSession(generation)) onAccepted(list)
+            },
+        ) {
             call("GET", "/trusted-contacts", null, auth = true, expectedGeneration = generation).mapCatching { obj ->
                 // Malformed success must remain a failure and never enter the contacts cache.
                 val arr = obj.getJSONArray("items")

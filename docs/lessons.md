@@ -9226,3 +9226,8 @@ JVM DELETE RED подтвердил stale parent row после committed malfor
 ## B02 — отмена и срок жизни экрана контактов, 11.10.2026
 
 catch внутри withContext(IO) не ловит prompt cancellation при возвращении к caller. Проверять оба момента: IO удержан и returning Runnable уже queued. Postjoin API green не доказывает immediate UI reopening: отдельный actual App RED показал второй stale-cache случай. Server-return latch UI не выдавать за Job completion/join. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).
+
+
+## B02 — поздний стартовый ответ контактов, 11.10.2026
+
+Защищённый кеш не защищает независимый .onSuccess writer в default VM. RED держит именно первый bootstrap, а не editor GET, затем real DELETE/fresh[] и уход. UI trace/drain не называть Job join. При счёте contacts HTTP отфильтровать namespace: logout штатно отправляет отдельный auth POST; не выдавать ошибку oracle за product RED. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).

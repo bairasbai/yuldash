@@ -1093,9 +1093,9 @@ private fun YuldashAppContent() {
             }
             requestsLoading = false
         }
-        // Доверенные контакты — с сервера (после входа). Перечитываем и при смене sessionVersion (после логина).
-        LaunchedEffect(sessionVersion) {
-            ApiClient.getContacts().onSuccess { list ->
+        // Только актуальный ответ этого входа может обновить контакты в состоянии приложения.
+        LaunchedEffect(sessionVersion, navigationSession) {
+            ApiClient.loadContactsForPublication(navigationSession) { list ->
                 // Чистим БЕЗУСЛОВНО: у нового вошедшего (после logout на общем устройстве) может быть
                 // 0 контактов — тогда без clear() остались бы видны контакты (имена+телефоны) прошлого юзера.
                 trustedContacts.clear()
