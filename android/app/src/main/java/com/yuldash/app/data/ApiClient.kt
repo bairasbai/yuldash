@@ -1189,11 +1189,21 @@ object ApiClient {
             .onSuccess { invalidate("contacts") }.map { }
 
     suspend fun getContacts(expectedGeneration: Long? = null): Result<List<ContactDto>> = cachedGet("contacts", TTL_PERSONAL, expectedGeneration = expectedGeneration) {
-        call("GET", "/trusted-contacts", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
-            val arr = obj.optJSONArray("items") ?: JSONArray()
+        call("GET", "/trusted-contacts", null, auth = true, expectedGeneration = expectedGeneration).mapCatching { obj ->
+            // Malformed success must remain a failure and never enter the contacts cache.
+            val arr = obj.getJSONArray("items")
+            val ids = HashSet<Int>()
             (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                parseContactDto(o)
+                val row = arr.getJSONObject(i)
+                val id = row.get("id")
+                require(id is Number)
+                val integral = id.toLong()
+                require(integral in 1..Int.MAX_VALUE.toLong() && id.toDouble() == integral.toDouble())
+                require(ids.add(integral.toInt()))
+                require(row.get("name") is String)
+                for (field in listOf("relation", "phone")) require(!row.has(field) || row.get(field) is String)
+                require(!row.has("notify_by_default") || row.get("notify_by_default") is Boolean)
+                parseContactDto(row)
             }
         }
     }

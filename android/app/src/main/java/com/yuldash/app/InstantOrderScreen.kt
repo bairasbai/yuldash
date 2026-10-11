@@ -4747,7 +4747,7 @@ private fun InstantShareContent(
         }
     }
     LaunchedEffect(contactsTick) {
-        if (!isCurrent()) return@LaunchedEffect
+        if (!isCurrent()) { retireLoad(); return@LaunchedEffect }
         val parentRevision = parentContext.revision
         commit { loading = true; contacts = null; loadError = false }
         val loaded = currentOperations.contacts(generation)

@@ -17977,3 +17977,20 @@ Final498/498=42new+15revised+441retained,44classes/обаAPK. Missing-recipient 
 ## B02 — ошибка первой загрузки ссылок и кеш контактов, 11.10.2026
 
 1059 различных ID = 1047 сохранённых + 12 новых; 74 класса, 0 отказов/ошибок/пропусков/устаревших XML, 869.047 с, 98 отпечатков исходников. Собраны оба debug APK. Повторы/отрицательные контроли не увеличивают число различных проверок. Продукт/ApiClient/старые1047 tests неизменны. Новых UI/BA строк нет;2 прежних черновика не утверждены. Main/remote и приёмка доказываются отдельно. [Очередь/остатки](audit-blocks.md#b02--ошибка-первой-загрузки-ссылок-и-кеш-контактов-11102026).
+
+
+## B02 — загрузка контактов до запроса и некорректный ответ, 11.10.2026
+
+План от опубликованного 0ec4175a. Александр прямо поручил проверки, объединение с main и push.
+1. Новый ApiClientContactsSchemaTest: реальный /trusted-contacts и кеш, некорректная форма/строки/ID/дубликаты/поля, Result.failure без исключения наружу; повтор должен получить валидные данные заново. Сохранить совместимость настоящего backend array, прежнего items wrapper и корректного пустого списка.
+2. Новый InstantContactsLoadBoundaryTest: настоящий общий dialog/доступный внешний caller, preflight до contacts operation и0HTTP, потеря/возврат контекста и явный Retry; ошибочные contacts скрывают действия/не вызывают shares и не кешируются. Чётко отделять direct dialog/plain parent от actual outer frame. Сначала воспроизводимый RED и архив исходников, затем минимальные изменения ApiClient/getContacts и initial preflight в InstantOrderScreen, старые1059 тестов не менять.
+3. Новые классы и затронутые соседи, итоговая интеграция/оба debug APK, реестр/7 документов/inventory, независимая scoped приёмка и own-only доставка. Проверены234LF/сохранены2048RAW прошлого freeze;40 чужих изменений сохраняются.
+
+Замок реализации снят после итоговой интеграции; root один writer docs/inventory/Git до приёмки и доставки. b02_integration_review — bounded read-only queued initial исследование; b02_trip_action_review — будущая независимая приёмка. MainActivity/mobile/backend/TaxiNavigationState/TaxiTripScreen/старые тесты/версии/зависимости/тексты не менять. Прочие callers/TTL/native/providers/production/CI/full B02/release/solehistoric14cause остаются открытыми.
+
+Уточнение после проверки: GREEN125/6 дал1 отказ старого queuedRevoke test; отдельная controlled oracle probe1/0 доказала hidden-row при held-before-API/HTTP0 и последующее Jobcomplete/HTTP1. Root дополнительно один writer одной строки InstantShareReconciliationTest: дождаться HTTP1, прежние assertions/ID сохранить. API stale case усилить warm B cache; после этого fresh targeted2classes+legacy и итоговая интеграция. Диагностический ID не прибавлять к37новым.
+
+
+## B02 — загрузка контактов до запроса и некорректный ответ, 11.10.2026
+
+1096 различных ID = 1059 сохранённых + 37 новых (27 API + 10 UI); 76 классов, 0 отказов/ошибок/пропусков/устаревших XML, 750.922 с, 100 отпечатков исходников. Оба debug APK собраны. 1058 прежних IDs без правок,1 прежний метод укреплён без удаления assertions. Повторы/RED/diagnostic не увеличивают число различных проверок. Controlled RED29/23→GREEN;2минимальных fixes. Сохранены1059IDs:1058без правок,1awaitstrengthened; новых UI/BA строк нет,2 прежних черновика не утверждены. Приёмка/main/remote отдельными доказательствами. [Очередь](audit-blocks.md#b02--загрузка-контактов-до-запроса-и-некорректный-ответ-11102026).

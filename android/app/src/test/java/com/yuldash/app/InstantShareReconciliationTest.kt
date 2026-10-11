@@ -137,7 +137,7 @@ class InstantShareReconciliationTest : ShareHelpBoundaryHarness() {
     @Test fun queuedRevokeRetiresBeforeLaunchAndBusyRecoversForCurrentParent() {
         mutationFails = false; startExisting(); val revoke = text("Отозвать")
         compose.runOnIdle { revoke(); parentCurrent.value = false }; pump(); assertEquals(0, count("DELETE", "/share/501"))
-        compose.runOnIdle { parentCurrent.value = true }; pump(); click("Отозвать"); await { !shown("Отозвать") }; assertEquals(1, count("DELETE", "/share/501"))
+        compose.runOnIdle { parentCurrent.value = true }; pump(); click("Отозвать"); await { count("DELETE", "/share/501") == 1 && !shown("Отозвать") }; assertEquals(1, count("DELETE", "/share/501"))
     }
     @Test fun explicitNullOrderCannotProvideVerifiedList() {
         listBody = """[{"id":501,"contact_id":7,"order_id":null,"token":"unbound"}]"""
