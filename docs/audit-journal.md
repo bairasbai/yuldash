@@ -792,3 +792,8 @@ RED4 expected1actual2; green19; first final280/3; header compatibility fixed; gr
 ## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
 
 Initial RED5/1(4inflightalreadygreen); red-gated5/5=1product+4fixture; corrected RED4 product, nativeRED8 product. Green44; final328=282+46,native34=26+8,unique362=308+54. Только новые fixture поправлены, старыеtests unchanged; actualJobjoin/checkpoints, не all cancellation windows. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).
+
+
+## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
+
+Testonly:initial2timeout вводаname, missingdiagnostic0XML, probes diagnostic, correctednew8/0, final16=8new+8existing,native2new. Unique18,10new; product0,own10,inventory1892,foreign40. Старый328/34 не запускался и не суммировался. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).

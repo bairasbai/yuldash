@@ -80,13 +80,13 @@
   "counts_by_kind": {
     "android_main": 132,
     "backend_main": 103,
-    "infra_resource_config": 352,
+    "infra_resource_config": 353,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 934
+    "test_support": 935
   },
   "counts_by_block": {
-    "B01": 128,
+    "B01": 129,
     "B02": 174,
     "B03": 119,
     "B04": 75,
@@ -95,7 +95,7 @@
     "B07": 107,
     "B08": 173,
     "B09": 551,
-    "B10": 352,
+    "B10": 353,
     "B11": 90
   },
   "excluded_counts": {
@@ -274,6 +274,13 @@
       "block": "B10",
       "sha256": "598d74f4d063c0577b1deb440f413b7bb5bfa6951e1570da8919af62cad49f66",
       "lines": 91
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/LoginContactsBootstrapInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "e408addd1cef9c2d7bae3fa20b747c520985586ec64524b6c392e0dc7680c453",
+      "lines": 156
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/MapScreenInstrumentedTest.kt",
@@ -2521,6 +2528,13 @@
       "block": "B06",
       "sha256": "333fdde17608e4c9d8a096091670e7d9a1054a646bb99aeb9b4060e95307bd87",
       "lines": 230
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/LoginContactsBootstrapTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "c0fd11eaa5b617b790f2fc81a88d145b7273f0f4d216cfda7e8b15c691727caf",
+      "lines": 176
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/LoginDeep2ContentTest.kt",

@@ -18185,3 +18185,18 @@ Root scoped stage:243JVM=214existing+29new, native14=10existing+4new, обаAPK/
 ## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
 
 Этап scoped проверен: 328JVM/24/0+native34/обаAPK. Source/build/adb locks сняты; docs/inventory/Git root доreceipt/delivery. Далее actualLogin count/concurrent active reads/TTL/manualVMclear и прочие остатки. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).
+
+
+## B02 — настоящий вход и число стартовых чтений контактов, 12.10.2026
+
+Поручение продолжить реестр, затем собственный commit/FF main/push; база e1bbb7d8.
+1. Actual YuldashApp/defaultVM/LoginScreen/TG HTTP: синтетический request/code/session, регистрация нового владельца, onContinue и held contacts; exact GET/Bearer/payload count RU/BA. Ошибка кода→явный повтор, пустой список, прежний held owner и закрытый экран отдельно.
+2. Не объявлять два ключа эффекта багом без wire RED. Если runtime уже корректен — test-only этап, без ненужного изменения продукта; если reproduced duplicate — минимально исправить ключ contacts effect и связанную integration.
+3. Новые JVM/native UIcontrols и затронутые существующие login/bootstrap evidence, оба APK; актуальные hashes/inventory/registry/freshreview и own main/push. Не повторять неизменённый общий328/34 без изменения product. MainActivity/mobile/backend/старыеtests/версии/UItexts вне правок.
+
+🔒 Root: новые LoginContactsBootstrapTest/InstrumentedTest, возможный scoped YuldashApp contacts effect только после RED,8docs/inventory; soleGradle/adb/GitHub. b02_integration_review read-only contract, инойfreshreviewer. Foreign40 сохранить. External Telegram/SMS/phone/production/CI/fullB02/release, concurrent active cache/TTL/manualVMclear и historic14cause отдельно.
+
+
+## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
+
+Scoped actualTGcount checked:16JVM/4/0+native2/обаAPK. Source/build/adb locksсняты; rootdocs/inventory/Git доreceipt/delivery. Далее concurrentcache/TTL/manualVMclear; externalSMS/TG/providers/CI/fullrelease отдельны. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).

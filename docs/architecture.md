@@ -4612,3 +4612,8 @@ ApiClient.contactAdditions(version,generation) emit same-session ADD success/unc
 ## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
 
 cachedGet captures callerContext; ensureActive внутри initial/acceptance sessionLock. readContacts guard доforceRefreshinvalidate. Static packages/boost raw JSON сохраняется только accepted onValue послеparse; cache T List/seedStatic прежние. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).
+
+
+## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
+
+Contacts LaunchedEffect(sessionVersion,navigationSession) unchanged. commitAuth generation/publish→synchronousonContinue version++; actualTGUI bootstrapGET1 иEditorfreshGET2 проверены, не manualauthзамена. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).

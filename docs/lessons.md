@@ -9251,3 +9251,8 @@ Robolectric ADD dialog fetchSemanticsNodes может застрять внут�
 ## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
 
 IO same dispatcher не означает обход cancellation withContext. Для точного after-fetch окна подтвердить actual worker BLOCKED на acceptance monitor, затем cancel/unlock/join/probe. Robolectric декорирует methodname; initial oracle stop не product RED. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).
+
+
+## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
+
+TGформаимеетname первымtextfield, code вторым. ЦелитьсявсемантикуплейсхолдераRU/BA, не onFirst(hasSetTextAction). Initialtimeout безauthverify не доказательствоauthbug. Не переноситьold diagnosticinit-script вобычныйrunner. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).

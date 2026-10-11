@@ -1135,3 +1135,8 @@ Contacts-only скрытый EOF replay устранён: current282JVM/23/0+nat
 ## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
 
 Общий кеш отмены: 328JVM/24/0+native34/обаAPK; new54. Дальше actualLogin count и прочие реестровые остатки; B02/release partial. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).
+
+
+## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
+
+ActualTGlogin bootstrap:16JVM/4/0+nativeRU/BA2/обаAPK,10new. Product unchanged; historical328/34 не повторены. Далее concurrentactivecache/TTL/manualVMclear. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).

@@ -6072,3 +6072,8 @@ DELETE receipt сообщает о необходимости сверки, не
 ## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
 
 Сохранение статических тарифов входит в owner/cancellation acceptance общего кеша. Guard проверяется после ожидания monitor, без redesign HTTP/Job cancellation. Не откатывать snapshot, принятый до последующей отмены. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).
+
+
+## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
+
+Два ключа сами не productbug: actualUI/TGwire counts не далиduplicate. Test-onlyзакрытиеограниченногокритерия; не удалятьkey безmeaningfulRED. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).
