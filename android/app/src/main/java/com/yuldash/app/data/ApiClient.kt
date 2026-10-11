@@ -106,6 +106,14 @@ object ApiClient {
             mutableContactDeletions.value.version + 1, generation, contactId,
         )
     }
+    // POST can also update an existing phone/ID; no payload can prove that a snapshot already reflects it.
+    internal data class ContactAddition(val version: Long, val generation: Long)
+    private val mutableContactAdditions = kotlinx.coroutines.flow.MutableStateFlow(ContactAddition(0, 0))
+    internal val contactAdditions = mutableContactAdditions.asStateFlow()
+    private fun notifyContactAddition(generation: Long, adding: Boolean) {
+        // Called under sessionLock, together with same-session cache invalidation.
+        if (adding) mutableContactAdditions.value = ContactAddition(mutableContactAdditions.value.version + 1, generation)
+    }
     private data class RequestSession(val generation: Long, val bearer: String?)
     private fun requestSession() = synchronized(sessionLock) { RequestSession(sessionGeneration, token) }
     internal fun queueSessionGeneration(): Long = sessionGeneration
@@ -1200,7 +1208,7 @@ object ApiClient {
         error is JSONException || (error is IOException && error !is ConnectException &&
             error !is UnknownHostException && error !is NoRouteToHostException)
 
-    private suspend fun mutateContacts(method: String, path: String, body: JSONObject?, expectedGeneration: Long? = null, deletedId: Int? = null): Result<Unit> {
+    private suspend fun mutateContacts(method: String, path: String, body: JSONObject?, expectedGeneration: Long? = null, deletedId: Int? = null, adding: Boolean = false): Result<Unit> {
         val generation = expectedGeneration ?: requestSession().generation
         val result = try {
             call(method, path, body, auth = true, expectedGeneration = generation)
@@ -1211,6 +1219,7 @@ object ApiClient {
                 if (sameSession(generation)) {
                     invalidate("contacts")
                     notifyContactDeletion(generation, deletedId)
+                    notifyContactAddition(generation, adding)
                 }
             }
             throw cancelled
@@ -1225,6 +1234,7 @@ object ApiClient {
                 if (sameSession(generation) && (result.isSuccess || uncertain)) {
                     invalidate("contacts")
                     notifyContactDeletion(generation, deletedId)
+                    notifyContactAddition(generation, adding)
                 }
                 result.map { }
             }
@@ -1235,7 +1245,7 @@ object ApiClient {
         mutateContacts(
             "POST", "/trusted-contacts",
             JSONObject().put("name", name).put("relation", relation).put("phone", phone).put("notify_by_default", notifyByDefault),
-            expectedGeneration,
+            expectedGeneration, adding = true,
         )   // добавили контакт → следующий getContacts тянет свежий список
 
     /**

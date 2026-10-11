@@ -1120,3 +1120,8 @@ Late bootstrap contacts больше не возвращает удалённы�
 ## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
 
 Поздний DELETE после принятого fresh GET теперь вызывает серверную сверку текущего Editor.214JVM/17/0+native10/обаAPK; B02/релиз partial. Далее ADD и наблюдавшийся transport EOF2DELETE. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).
+
+
+## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
+
+Поздний ADD после fresh GET обновляет открытый Editor чтением сервера.243JVM/19/0+native14/обаAPK; B02/release partial. Далее observed EOF2DELETE/transport retry. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).

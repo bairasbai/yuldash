@@ -777,3 +777,8 @@ Meaningful RED1 late bootstrap expected[]/actual[7] с неизменённым 
 ## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
 
 RED1 initial latecommit UI timeout и RED1 own failedread Retry timeout, exactLF archives; current214JVM+10native=224ID (197existing+27new). Промежуточные compile0tests/EOF24with1failure не увеличиваютunique и не скрывают EOF2DELETE.1883inventory/13own/40foreign; source/build/native/review/remote разделены. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).
+
+
+## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
+
+RED1 actualApp observer после external joined API; five stopped0completed dialog probes и initial fixture1failure исключены из productRED/unique.243JVM+14native=257ID=224existing+33new.1886inventory/13own/40foreign. Source/body hashes, test/build/native/review/remote раздельно. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).

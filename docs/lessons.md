@@ -9236,3 +9236,8 @@ catch внутри withContext(IO) не ловит prompt cancellation при в
 ## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
 
 Observer без watermark на failed own read создаёт скрытый повтор GET и уничтожает Retry. Отмечать захваченную до запроса версию, не latest после ошибки. DISCONNECT_AFTER_REQUEST может дать второй реальный DELETE даже при test API retry limit1; сохранить наблюдение/исходник и открытый transport пункт, не назвать ошибкой fixture. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).
+
+
+## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
+
+Robolectric ADD dialog fetchSemanticsNodes может застрять внутри waitForIdle до ввода; внешний waitUntil не ограничивает inner blocking. NATIVE/LEGACY/clock/size не доказали причину, остановленные0completed не product RED. Native нужен для формы, JVM bounded APIcaller для observer. rg Windows wildcard передавать через -g, а не literal path со *. Пользовательские чужие файлы не трогать. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).

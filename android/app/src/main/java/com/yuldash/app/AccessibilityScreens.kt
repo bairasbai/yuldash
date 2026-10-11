@@ -1632,6 +1632,8 @@ private fun TrustedContactsEditor(
     var retired by remember { mutableStateOf(false) }
     val deletion by ApiClient.contactDeletions.collectAsState()
     var handledDeletion by remember { mutableStateOf(deletion.version) }
+    val addition by ApiClient.contactAdditions.collectAsState()
+    var handledAddition by remember { mutableStateOf(addition.version) }
     val scope = rememberCoroutineScope()
     val parent by rememberUpdatedState(isCurrentParent)
     val publish by rememberUpdatedState(onContactsChanged)
@@ -1646,20 +1648,25 @@ private fun TrustedContactsEditor(
     suspend fun readContacts(forceRefresh: Boolean = false) {
         if (!active()) return
         val attemptedDeletion = ApiClient.contactDeletions.value.version
+        val attemptedAddition = ApiClient.contactAdditions.value.version
         val result = ApiClient.loadContactsForPublication(expectedGeneration = owner, forceRefresh = forceRefresh) { list ->
             if (active()) {
                 val snapshot = list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) }
                 serverContacts = snapshot
                 publish(snapshot)
                 handledDeletion = ApiClient.contactDeletions.value.version
+                handledAddition = ApiClient.contactAdditions.value.version
             }
         }
         if (!active()) return
         ApiClient.runIfCurrentSession(owner) {
             if (active()) {
                 loadError = result.isFailure
-                // A failed own reconciliation waits for Retry; do not consume a later concurrent DELETE.
-                if (result.isFailure) handledDeletion = maxOf(handledDeletion, attemptedDeletion)
+                // A failed own reconciliation waits for Retry; consume only versions captured before this read.
+                if (result.isFailure) {
+                    handledDeletion = maxOf(handledDeletion, attemptedDeletion)
+                    handledAddition = maxOf(handledAddition, attemptedAddition)
+                }
             }
         }
     }
@@ -1675,6 +1682,16 @@ private fun TrustedContactsEditor(
         // One known DELETE already reflected in an accepted snapshot needs no additional HTTP.
         // A conflated gap can contain another ID, so reconcile it with one fresh read.
         if (deletion.version == previous + 1 && serverContacts?.none { it.id == deletion.contactId } == true) return@LaunchedEffect
+        busy = true
+        scope.launch {
+            readContacts(forceRefresh = true)
+            if (active()) busy = false
+        }
+    }
+    LaunchedEffect(owner, addition.version, busy) {
+        if (!active() || busy || addition.generation != owner || addition.version <= handledAddition) return@LaunchedEffect
+        handledAddition = addition.version
+        // A same-phone upsert can change other fields while retaining the ID: always ask the server.
         busy = true
         scope.launch {
             readContacts(forceRefresh = true)

@@ -4597,3 +4597,8 @@ ApiClient.mutateContacts: outer catch CancellationException, same-generation con
 ## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
 
 ApiClient.contactDeletions: latest version/generation/contactId, emit only DELETE same-session success/uncertain/CE под sessionLock. Editor guarded loadContactsForPublication(forceRefresh), handled watermark; single already-absent ID skip; version gap forced read; own success watermark предотвращает duplicate, failure marks captured attempt только. Reader в remember scope, не в эффекте с busy key. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).
+
+
+## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
+
+ApiClient.contactAdditions(version,generation) emit same-session ADD success/uncertain/CE под sessionLock. Editor всегда fresh GET для ADD (upsert samephone/ID); оба watermarks в guarded accepted callback, failure только captured. Два observers сериализованы synchronous busy; existing DELETE skip/gap rules сохранены. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).

@@ -18140,3 +18140,18 @@ B02 mutation-owner: первый green70/7/0 (12новых+55прежнихсо�
 ## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
 
 Root этап проверен214JVM/17/0=189existing+25new; native10=8existing+2new; обаAPK/visual. Замки source/build/adb сняты, root держитdocs/inventory/Git до свежей receipt/delivery. Далее ADD late commit и EOF2DELETE transport. Новых видимых RU/BA строк/versions/deps нет; B02/release open. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).
+
+
+## B02 — добавление после свежего чтения контактов, 11.10.2026
+
+Поручение: ADD завершается после принятого fresh GET; после проверок own-only commit/FFmain/ordinary push. База6f081afe.
+1. Actual App/default VM/form/API: удержать POST до server commit, закрыть старый Editor, новый принимает прежний список, затем commit/late response; meaningful RED нового server ID/VM/UI.
+2. Отдельный owner-scoped ADD settlement version без payload/phone matching. Текущий Editor сверяется GET; own read обновляет watermark, failed read ждёт явную Retry. Preserve DELETE/no-extraGET и обычные Result/cachedGet контракты; backend/mobile/MainActivity/старыеtests/versions/deps/UIstrings не трогать.
+3. API real Deferred/join cancellation+owner controls, App RU/BA/success/malformed/timeout/errorRetry/own read/no commit/retirement; nativeactualApp realform RU/BA по доступности. Прежние214 JVM/10native интеграции,обаAPK; registry/docs/inventory/freeze/freshreview,own main/push. Исторический full1143/1158 без причин не повторять.
+
+🔒 Root: product2(ApiClient contacts ADD signal + TrustedContactsEditor),3new tests,8docs. Единственный Gradle/adb/GitHub. b02_integration_review read-only contract; иной reviewer свежая receipt.40foreign entries сохранены. EOF2DELETE/transport retries, genericcache beforeCE, actuallogin doublekey, прочие lifecycle/Toast/TTL/providers/CI/fullB02/release/solehistoric14cause остаются OPEN.
+
+
+## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
+
+Root scoped stage:243JVM=214existing+29new, native14=10existing+4new, обаAPK/visual. Source/build/adb locks сняты; Rootdocs/inventory/Git до fresh receipt/delivery. Новых UIstrings/versions/deps нет. ADD-after-fresh пункт проверен scoped, EOF2DELETE/transport и B02/release открыты. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).

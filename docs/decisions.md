@@ -6057,3 +6057,8 @@ HTTP ошибка не доказывает откат создания ссыл
 ## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
 
 DELETE receipt сообщает о необходимости сверки, не разрешает локально менять список. Conflated version gap требует fresh GET; ADD нельзя признать уже отражённым по имени/телефону — отдельный этап. Failed reconciliation оставляет явную Retry. EOF и read timeout разные испытания;1DELETE при timeout не закрывает observed2 при EOF. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).
+
+
+## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
+
+Сигнал ADD не содержит имя/телефон/ID: даже samephone+ID+name не означает актуальные relation/notify. Отменённый/неопределённый запрос требует чтения server truth, не повтор POST. Разделены JVM external API Deferred/actualApp observer и native actualform/Editor action. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).
