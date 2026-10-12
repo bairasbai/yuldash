@@ -232,6 +232,12 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # Договорённость об оплате: способ по умолчанию — «договоримся»; сумма — из цены поездки, если не задана.
     pay_method = body.pay_method or PayMethod.negotiate
     pay_amount = _clean_pay_amount(body.pay_amount)
+    if pay_amount is not None and pay_amount < total_price:
+        # Сумму ниже цены объявления пассажир в одиночку не ставит (ревью 2026-10-13): водитель
+        # в карточке «Подтвердить» и в пуше о брони её не видит и подтвердил бы вслепую — карта
+        # списала бы «1 ₽». Торг идёт через заявку и отклик, там цену называет водитель сам.
+        raise herr(403, "Сумма не может быть меньше цены поездки. Хочешь дешевле — договорись с водителем в чате",
+                   "Сумма сәфәр хаҡынан кәм була алмай. Арзаныраҡ кәрәк булһа — йөрөтөүсе менән чатта килеш")
     if pay_amount is None:
         pay_amount = total_price if total_price > 0 else None
     booking = Booking(
@@ -383,7 +389,7 @@ def set_pay_agreement(booking_id: int, body: PayAgreementIn, user: User = Depend
     # Сериализуем правку с созданием счёта. Payment здесь только читаем:
     # применение оплаты блокирует Payment → Booking, обратный порядок опасен.
     booking = session.get(Booking, booking_id, with_for_update=True, populate_existing=True)
-    booking, _ride = booking_and_ride_for_user(session, booking_id, user)
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
     amount = _clean_pay_amount(body.pay_amount) if body.pay_amount is not None else None
     current_amount = booking.pay_amount if booking.pay_amount is not None else booking.price
     if amount is not None and amount != current_amount:
@@ -394,6 +400,17 @@ def set_pay_agreement(booking_id: int, body: PayAgreementIn, user: User = Depend
         if booking.paid or issued is not None:
             raise herr(409, "Счёт уже выставлен. Сумму изменить нельзя.",
                        "Иҫәп инде сығарылған. Сумманы үҙгәртеп булмай.")
+        # Ниже цены поездки сумму опускает только водитель. Раньше любая сторона писала любую
+        # цифру: пассажир после поездки ставил «договорились на 1 ₽», карта списывала 1 ₽ вместо
+        # цены, бронь считалась оплаченной, водителю зачислялся 1 ₽ — и он нигде на это не
+        # соглашался (ревью 2026-10-12, P2, спит до ЮKassa). Скидку даёт водитель — он её и
+        # записывает. Поднять может любой: пассажир — чаевые, водитель — доплату за багаж (сумму
+        # к списанию пассажир видит и подтверждает в банке). Свою надбавку пассажир может
+        # откатить — но не ниже цены поездки и не ниже скидки, которую дал водитель.
+        floor = min(booking.price or 0, current_amount or 0)
+        if amount < floor and ride.driver_id != user.id:
+            raise herr(403, "Снизить сумму может только водитель — попроси его поменять",
+                       "Сумманы тик йөрөтөүсе генә кәметә ала — унан үҙгәртеүен һора")
     if body.pay_method is not None:
         booking.pay_method = body.pay_method
     if amount is not None:
