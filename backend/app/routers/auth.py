@@ -110,6 +110,23 @@ def _bump_review_login_failure(session: Session, phone: str) -> None:
     session.commit()
 
 
+def _lock_phone_holder(session: Session, phone: str, *, exclude_id: int | None = None) -> User | None:
+    """Аккаунт, которому СЕЙЧАС принадлежит номер, — под блокировкой строки.
+
+    Поиск и блокировка — два шага. Между ними параллельный вход мог открепить номер (волна 139)
+    и закоммитить: тогда `FOR UPDATE` вернёт уже откреплённый аккаунт с пустым устройством, и
+    проверка «номер перешёл» молча скажет «нет» — вошедший попал бы в аккаунт прежнего хозяина.
+    Поэтому после блокировки номер сверяется ещё раз.
+    """
+    holder = find_user_by_phone(session, phone, commit=False)
+    if holder is None or holder.id == exclude_id:
+        return None
+    holder = lock_refresh_user(session, holder.id)
+    if normalize_phone(holder.phone) != normalize_phone(phone):
+        return None
+    return holder
+
+
 def _lock_otp_phone(session: Session, phone: str) -> None:
     """Serialize SMS issuance/verification, including a phone with no OTP/User yet."""
     dialect = session.get_bind().dialect.name
@@ -501,9 +518,7 @@ def _verify_sms_login(body: VerifyIn, session: Session, x_device_id: str):
     ).values(code="", expires_at=utcnow()))
     if consumed.rowcount != 1:
         raise herr(400, "Неверный или просроченный код", "Код дөрөҫ түгел йәки ваҡыты үткән")
-    user = find_user_by_phone(session, body.phone, commit=False)
-    if user:
-        user = lock_refresh_user(session, user.id)
+    user = _lock_phone_holder(session, body.phone)
     released_user_id = None
     # Номер мог перейти к ДРУГОМУ человеку: оператор забирает неиспользуемый номер и через
     # полгода-год продаёт (волна 139). Тогда аккаунт прежнего хозяина отвязываем от номера,
@@ -588,18 +603,20 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         if str(contact.get("user_id")) == tid and contact.get("phone_number"):
             phone = _norm_phone(contact["phone_number"])
             with Session(engine) as s:
+                # Номер всегда запоминаем и на сессии входа: verify проверяет по нему, не перешёл
+                # ли номер от молчащего полгода аккаунта (волна 139). Без этого «заготовка» tg<id>,
+                # у которой номер занят таким аккаунтом, получала здесь тихий отказ, в verify
+                # приходила без номера и застревала на «поделись номером» навсегда.
+                row = s.exec(
+                    select(TgAuth).where(TgAuth.telegram_id == tid).order_by(TgAuth.id.desc())
+                ).first()
+                if row:
+                    row.shared_phone = phone
+                    s.add(row)
+                    s.commit()
                 u = s.exec(select(User).where(User.telegram_id == tid)).first()
                 if u:
                     _set_user_phone(s, u, phone)               # юзер уже есть → сразу пишем
-                else:
-                    # ещё не верифицировался → запомним на сессии входа, применим при verify
-                    row = s.exec(
-                        select(TgAuth).where(TgAuth.telegram_id == tid).order_by(TgAuth.id.desc())
-                    ).first()
-                    if row:
-                        row.shared_phone = phone
-                        s.add(row)
-                        s.commit()
             return {"method": "sendMessage", "chat_id": chat.get("id"),
                     "text": "Спасибо! Номер сохранён ✅ Вернись в приложение и введи код.",
                     "reply_markup": {"remove_keyboard": True}}
@@ -877,16 +894,32 @@ def _verify_telegram_login(body: TgVerifyIn, session: Session, x_device_id: str)
     ).values(status="used"))
     if consumed.rowcount != 1:
         raise herr(409, "Сначала получи код в Telegram", "Башта Telegram-да код ал")
+    # Через дверь: номер из Telegram приходит в своём написании («79991234567»), а в базе
+    # тот же человек мог быть заведён как «+79991234567». Прямое сравнение их не склеивало,
+    # и Telegram-вход заводил ВТОРОЙ аккаунт тому же человеку.
+    verified_phone = normalize_phone(verified_phone) if verified_phone else None
+    if verified_phone:
+        # Та же очередь по номеру, что у входа по SMS, и ДО блокировок аккаунтов (порядок как
+        # там): иначе два входа на один номер могли бы одновременно решать его судьбу.
+        _lock_otp_phone(session, verified_phone)
     user = session.exec(select(User).where(User.telegram_id == verified_telegram_id)).first()
     if user:
         user = lock_refresh_user(session, user.id)
+    holder = (_lock_phone_holder(session, verified_phone, exclude_id=user.id if user else None)
+              if verified_phone else None)
+    released_user_id = None
+    # Номер мог перейти к ДРУГОМУ человеку (волна 139, та же проверка, что у входа по SMS).
+    # Telegram помнит номер годами, и без неё новый владелец симки входил через бота прямо
+    # в аккаунт прежнего хозяина: имя, поездки, переписка, доверенные контакты. А если прежний
+    # хозяин успел привязать свой Telegram, новый застревал на «поделись номером» навсегда.
+    # Молчал полгода и вход с другого устройства — номер откручиваем от старого аккаунта,
+    # дальше заводится чистый новый. Данные прежнего владельца целы, доступ вернёт поддержка.
+    if holder and phone_looks_recycled(holder, x_device_id):
+        released_user_id = holder.id
+        release_phone(session, holder, commit=False, notify=False)
+        holder = None
     if not user and verified_phone:
-        # Через дверь: номер из Telegram приходит в своём написании («79991234567»), а в базе
-        # тот же человек мог быть заведён как «+79991234567». Прямое сравнение их не склеивало,
-        # и Telegram-вход заводил ВТОРОЙ аккаунт тому же человеку.
-        existing_by_phone = find_user_by_phone(session, verified_phone, commit=False)
-        if existing_by_phone:
-            existing_by_phone = lock_refresh_user(session, existing_by_phone.id)
+        existing_by_phone = holder
         if existing_by_phone and not existing_by_phone.telegram_id:
             existing_by_phone.telegram_id = verified_telegram_id
             # B1: НЕ выставляем verified при входе — это только результат модерации документов.
@@ -923,7 +956,7 @@ def _verify_telegram_login(body: TgVerifyIn, session: Session, x_device_id: str)
     # повторяет ввод того же кода. Клиент по 403 phone_required показывает экран-подсказку.
     if is_placeholder_phone(user.phone):
         raise HTTPException(403, "phone_required")
-    return _complete_login(session, user, x_device_id)
+    return _complete_login(session, user, x_device_id, released_user_id=released_user_id)
 
 
 class RefreshIn(BaseModel):
