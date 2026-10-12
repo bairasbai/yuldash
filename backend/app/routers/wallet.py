@@ -22,6 +22,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session
+from ..debt import ledger_note_text
 from ..errors import herr
 from ..ledger import (PayoutError, driver_balance, ledger_entries, owed_to_platform_kop,
                       payable_balance, reconcile, request_payout, _reversal_ext_id)
@@ -297,14 +298,18 @@ def wallet_balance(user: User = Depends(current_user), session: Session = Depend
 
 @router.get("/wallet/ledger")
 def wallet_ledger(limit: int = 100, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """История начислений/комиссий/выплат водителя. Всегда по СВОЕМУ id — чужую не видно."""
+    """История начислений/комиссий/выплат водителя. Всегда по СВОЕМУ id — чужую не видно.
+
+    Подпись строки — на языке человека (`User.language`): приложение показывает `note` как есть,
+    а сервер пишет его по-русски. Известные серверные подписи переводим здесь (leaf-1.2c)."""
     rows = ledger_entries(session, user.id, limit)
+    lang = "ba" if (user.language or "") == "ba" else "ru"
     return [
         {
             "id": e.id, "kind": e.kind.value if hasattr(e.kind, "value") else e.kind,
             "amount_kop": e.amount_kop, "amount_rub": e.amount_kop / 100.0,
             "order_id": e.order_id, "booking_id": e.booking_id,
-            "note": e.note, "created_at": e.created_at,
+            "note": ledger_note_text(e.note, lang), "created_at": e.created_at,
         }
         for e in rows
     ]

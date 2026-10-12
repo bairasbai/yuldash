@@ -636,12 +636,42 @@ def refund_ext_id(*, order_id: Optional[int] = None, parcel_id: Optional[int] = 
     return f"refund:order:{order_id}" if order_id is not None else f"refund:parcel:{parcel_id}"
 
 
+def taxi_debt_refund_ext_id(payment_id: int, debt_id: int) -> str:
+    """Ключ возврата «счёт картой списал долг, который уже был закрыт» (leaf-1.2c).
+
+    Ключ — ПЛАТЁЖ и долг, а не заказ. Ключ по заказу ломался двумя способами:
+      • пассажир удалил аккаунт → у долга `order_id = NULL` (account.py), и ключ превращался в
+        общий для всех водителей `refund:parcel:None`: первый возврат проходил, все следующие —
+        у любого водителя — молча глотал уникальный индекс;
+      • `refund:order:N` уже занимает возврат по жалобе «пассажир не заплатил». Это ДРУГОЙ
+        платёж водителя (СБП), и возврат по карте за тот же заказ молча пропадал — или наоборот.
+    Один платёж по одному долгу возвращается не больше раза: повтор вебхука даёт тот же ключ.
+    Префикс `refund:` — под барьером БД `uq_ledgerentry_refund` (ledger.py)."""
+    return f"refund:taxi_debt:{int(payment_id)}:{int(debt_id)}"
+
+
 REFUND_NOTE = "Возврат комиссии: разбор подтвердил, что не заплатили"
+TAXI_DEBT_REFUND_NOTE = "Возврат: пока банк подтверждал оплату картой, эта комиссия уже была закрыта"
+
+# Подписи, которые сервер сам пишет в историю кошелька, — на башкирском. В базе лежит русский
+# текст (история денег append-only, админ сверяет по нему), на экран кошелька отдаём по языку
+# человека (`ledger_note_text`). Черновики — на проверке у Александра (docs/tasks.md).
+LEDGER_NOTE_BA = {
+    REFUND_NOTE: "Комиссия ҡайтарылды: «түләмәнеләр» ялыуы раҫланды",
+    TAXI_DEBT_REFUND_NOTE: "Ҡайтарыу: банк карта менән түләүҙе раҫлағансы, был комиссия инде ябылғайны",
+}
+
+
+def ledger_note_text(note: Optional[str], lang: str) -> Optional[str]:
+    """Подпись строки кошелька на языке человека. Незнакомая (например, админская) — как есть."""
+    if lang == "ba" and note in LEDGER_NOTE_BA:
+        return LEDGER_NOTE_BA[note]
+    return note
 
 
 def refund_commission_to_wallet(session: Session, driver_id: Optional[int], amount_kop: int, *,
                                 order_id: Optional[int] = None, parcel_id: Optional[int] = None,
-                                note: str = REFUND_NOTE):
+                                note: str = REFUND_NOTE, ext_id: Optional[str] = None):
     """Вернуть человеку комиссию, которую он платформе УЖЕ перевёл (волна 215).
 
     Зачем. Договор «не заплатили → комиссию снимаем» умел только одно: пометить долг
@@ -664,10 +694,15 @@ def refund_commission_to_wallet(session: Session, driver_id: Optional[int], amou
     поэтому гонку ловим SAVEPOINT’ом (`session.begin_nested`), а не внешним commit — проигравшая
     сторона откатывает ТОЛЬКО свою вставку, не трогая остальные изменения чужой транзакции
     (например, уже выставленный `Report.status="resolved"` в routers/safety.py).
+
+    `ext_id` — свой ключ идемпотентности вместо ключа по заказу (см. `taxi_debt_refund_ext_id`).
+    Обязан начинаться с `refund:`: иначе его не покрывает индекс, и гонку ничто не остановит.
     """
+    if ext_id is not None and not ext_id.startswith("refund:"):
+        raise ValueError("ключ возврата вне пространства uq_ledgerentry_refund")
     if driver_id is None or amount_kop <= 0:
         return None
-    ext = refund_ext_id(order_id=order_id, parcel_id=parcel_id)
+    ext = ext_id or refund_ext_id(order_id=order_id, parcel_id=parcel_id)
     prev = session.exec(
         select(LedgerEntry).where(LedgerEntry.ext_id == ext, LedgerEntry.kind == LedgerKind.adj)
     ).first()
@@ -1236,6 +1271,42 @@ class DebtChanged(Exception):
         super().__init__(f"ожидали {expected_kop}, сейчас {actual_kop}")
 
 
+class DebtAlreadySettled(Exception):
+    """Весь батч, который видел админ, закрыт другим путём между «увидел» и «нажал».
+
+    Живой случай — вебхук карты (`_activate_payment`, purpose=taxi_debt): водитель заявил
+    перевод по СБП, а потом оплатил тот же долг картой. Подтверждать или отклонять тут нечего,
+    и админ должен это УВИДЕТЬ: деньги за эти долги пришли дважды (leaf-1.2c)."""
+
+
+def _apply_to_batch(session: Session, driver_id: int, batch: list, **values) -> int:
+    """Закрыть батч админа одним UPDATE с условием «долг всё ещё pending» прямо в WHERE.
+
+    Раньше статус читали, а потом перезаписывали вслепую. Если между чтением и записью долг
+    закрыла карта, `admin_confirm` выдавал оплату картой за подтверждённый перевод, а
+    `admin_reject` возвращал оплаченный картой долг в неоплаченные — водитель платил второй
+    раз (leaf-1.2c). Условие в UPDATE атомарно на обеих базах: на Postgres оно перепроверяется
+    на свежей версии строки после ожидания чужого лока.
+
+    Батч меняется целиком или никак: закрылась не вся пачка → откат и `DebtAlreadySettled`
+    (закрыто всё) / `DebtChanged` (закрыта часть — сумма на экране админа уже неверна)."""
+    ids = [d.id for d in batch]
+    total = sum(d.amount_kop for d in batch)
+    changed = session.execute(
+        update(CommissionDebt)
+        .where(CommissionDebt.id.in_(ids), CommissionDebt.status == DebtStatus.pending)
+        .values(**values)
+    ).rowcount
+    if changed == len(ids):
+        session.commit()
+        return total
+    session.rollback()
+    statuses = session.exec(select(CommissionDebt.status).where(CommissionDebt.id.in_(ids))).all()
+    if all(s == DebtStatus.paid for s in statuses):
+        raise DebtAlreadySettled()
+    raise DebtChanged(total, sum(d.amount_kop for d in _pending(session, driver_id)))
+
+
 def _batch_admin_saw(session: Session, debt: CommissionDebt,
                      expected_kop: Optional[int]) -> list:
     """Какие именно долги закрывает это нажатие. Два пути, и оба безопасны.
@@ -1276,17 +1347,11 @@ def admin_confirm(session: Session, debt_id: int,
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         return None
-    now = utcnow()
     pending = _batch_admin_saw(session, debt, expected_kop)
-    total = 0
-    for d in pending:
-        d.status = DebtStatus.paid
-        d.confirmed_at = now
-        session.add(d)
-        total += d.amount_kop
-    if pending:
-        session.commit()
-    return total
+    if not pending:
+        return 0
+    return _apply_to_batch(session, debt.driver_id, pending,
+                           status=DebtStatus.paid, confirmed_at=utcnow())
 
 
 def admin_reject(session: Session, debt_id: int,
@@ -1302,12 +1367,7 @@ def admin_reject(session: Session, debt_id: int,
     if not debt:
         return None
     pending = _batch_admin_saw(session, debt, expected_kop)
-    total = 0
-    for d in pending:
-        d.status = DebtStatus.unpaid
-        d.paid_declared_at = None
-        session.add(d)
-        total += d.amount_kop
-    if pending:
-        session.commit()
-    return total
+    if not pending:
+        return 0
+    return _apply_to_batch(session, debt.driver_id, pending,
+                           status=DebtStatus.unpaid, paid_declared_at=None)

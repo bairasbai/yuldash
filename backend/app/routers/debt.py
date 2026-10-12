@@ -14,6 +14,7 @@
 """
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from .. import debt as debt_mod
@@ -195,6 +196,10 @@ def admin_confirm(debt_id: int, body: DebtActionIn | None = None,
                                           body.amount_kop if body else None)
     except debt_mod.DebtChanged as e:
         raise _debt_changed(e)
+    except debt_mod.DebtAlreadySettled:
+        # Пока админ смотрел на строку, долг закрыла карта. Подтверждать нечего — а перевод по
+        # СБП, если он пришёл, лишний: админ видит это и разбирается с водителем (leaf-1.2c).
+        return {"ok": True, "status": "paid", "already": True, "paid_kop": 0}
     admin_action(user.id, "debt.confirm", debt_id=debt_id, driver=driver_id, amount_kop=paid_kop)
     if paid_kop:
         # Запись, а не голый пуш: это снятие блокировки — человек должен узнать о нём даже
@@ -240,11 +245,19 @@ def admin_forgive(debt_id: int, body: ForgiveIn | None = None,
     if debt.status == DebtStatus.paid:
         return {"ok": True, "status": "paid", "already": True}
     reason = ((body.reason if body else "") or "").strip()[:300]
-    debt.status = DebtStatus.paid
-    debt.confirmed_at = utcnow()
-    debt.note = (f"Списан админом: {reason}" if reason else "Списан админом")[:300]
-    session.add(debt)
+    # Условие «ещё не оплачен» — прямо в UPDATE, а не проверкой выше (leaf-1.2c). Между чтением
+    # и записью долг мог закрыть вебхук карты; слепая перезапись выдавала оплату картой за
+    # «Списан админом», и деньги водителя пропадали: возврат по такой пометке уже не положен.
+    if session.execute(
+        update(CommissionDebt)
+        .where(CommissionDebt.id == debt_id, CommissionDebt.status != DebtStatus.paid)
+        .values(status=DebtStatus.paid, confirmed_at=utcnow(),
+                note=(f"Списан админом: {reason}" if reason else "Списан админом")[:300])
+    ).rowcount == 0:
+        session.rollback()
+        return {"ok": True, "status": "paid", "already": True}
     session.commit()
+    session.refresh(debt)
     admin_action(user.id, "debt.forgive", debt_id=debt_id, driver=debt.driver_id,
                  amount_kop=debt.amount_kop)
     push_notification(
@@ -274,6 +287,10 @@ def admin_reject(debt_id: int, body: DebtActionIn | None = None,
                                          body.amount_kop if body else None)
     except debt_mod.DebtChanged as e:
         raise _debt_changed(e)
+    except debt_mod.DebtAlreadySettled:
+        # Долг закрыла карта, пока админ смотрел на строку. Возвращать его в неоплаченные
+        # нельзя: водитель заплатил бы второй раз (leaf-1.2c).
+        return {"ok": True, "status": "paid", "already": True, "unpaid_kop": 0}
     admin_action(user.id, "debt.reject", debt_id=debt_id, driver=driver_id, amount_kop=back_kop)
     if back_kop:
         # Самое важное из трёх: долг вернулся в неоплаченные, такси снова закрыто. Проверено
