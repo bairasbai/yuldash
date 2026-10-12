@@ -32,6 +32,11 @@ internal data class ContactsState(
 internal class ContactsRepository(private val clock: () -> Long = System::currentTimeMillis) {
     private val lock = Any()
     private val mutableState = MutableStateFlow(ContactsState())
+    /**
+     * Published under the repository lock, so the order of states is the order of decisions.
+     * Collectors must dispatch (Dispatchers.Main, Compose effects), never run inline here: the
+     * session-reset listener takes this lock while holding ApiClient's session lock.
+     */
     val state: StateFlow<ContactsState> = mutableState.asStateFlow()
 
     // Guarded by lock. One counter numbers both reads and invalidations.
@@ -104,9 +109,13 @@ internal class ContactsRepository(private val clock: () -> Long = System::curren
     private fun serverMayHaveChanged(owner: Long, deletedId: Int?) = synchronized(lock) {
         if (!sameSession(owner)) return@synchronized
         val known = mutableState.value
-        // One DELETE whose id an up-to-date list already lacks changes nothing.
-        if (deletedId != null && upToDate(owner) && known.contacts?.none { it.id == deletedId } == true) return@synchronized
-        outdatedAt = ++ticks
+        // One DELETE whose id an up-to-date list already lacks changes nothing: the list stays valid.
+        val reflected = deletedId != null && upToDate(owner) && known.contacts?.none { it.id == deletedId } == true
+        outdatedAt = ++ticks // Either way, replies sent before the change settled are not trusted.
+        if (reflected) {
+            acceptedAt = ++ticks
+            return@synchronized
+        }
         mutableState.value = known.copy(changes = known.changes + 1)
     }
 

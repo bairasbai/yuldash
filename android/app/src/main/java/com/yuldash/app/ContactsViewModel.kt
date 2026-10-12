@@ -100,7 +100,7 @@ internal class ContactsViewModel(
             // Read only; never repeat the mutation after an unknown reply.
             if (error == null || repository.isUnknownOutcome(error)) load(force = false)
             else mutableEvents.trySend(Event.Failed(error, deleting))
-            if (!deleting && error == null && !mutableUi.value.loadError) mutableEvents.trySend(Event.Added)
+            if (!deleting && error == null && active() && !mutableUi.value.loadError) mutableEvents.trySend(Event.Added)
         }
         return true
     }

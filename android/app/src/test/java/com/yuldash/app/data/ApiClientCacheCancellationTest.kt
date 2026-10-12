@@ -188,7 +188,9 @@ class ApiClientCacheCancellationTest {
     @Test fun afterFetchMe() = afterFetch(Get.ME)
     // Was afterFetch(CONTACTS): it proved the window by finding a `cachedGet` frame BLOCKED on ApiClient's monitor
     // in the IO thread's stack. Contacts are accepted by ContactsRepository on the caller after the HTTP returns,
-    // so the same window is held by pausing the caller's continuation instead of reading stack traces.
+    // so the caller's continuation is paused instead: the HTTP has completed, the job is cancelled before the
+    // caller resumes, and nothing may reach the shared state. (Cancellation lands at the resume itself; the
+    // repository's own ensureActive under its lock guards the narrower window after resume.)
     @Test fun afterFetchContacts() {
         val paused = java.util.concurrent.LinkedBlockingQueue<Runnable>()
         val caller = object : CoroutineDispatcher() {

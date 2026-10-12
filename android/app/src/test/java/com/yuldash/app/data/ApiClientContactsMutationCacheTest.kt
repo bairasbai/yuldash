@@ -153,6 +153,17 @@ class ApiClientContactsMutationCacheTest {
         TestContacts.delete(7).getOrThrow(); reply("[]"); assertEquals(emptyList<Int>(), ids())
         assertEquals(emptyList<Int>(), ids()); counts(2, 1)
     }
+    // Review of the layering pilot: a DELETE already reflected in the list is not a visible change,
+    // but a reply that was in flight before it settled must still be refused.
+    @Test fun reflectedDeleteStillRejectsReadSentBeforeIt() = scenario {
+        val first = reply("[]", held = true); val firstRead = start(first)
+        val second = reply(contacts(7), held = true); val secondRead = start(second)
+        assertEquals(emptyList<Int>(), finish(first, firstRead).getOrThrow().map { it.id })
+        val changes = TestContacts.changes
+        TestContacts.delete(7).getOrThrow(); assertEquals(changes, TestContacts.changes)
+        assertEquals(listOf(7), finish(second, secondRead).getOrThrow().map { it.id })
+        assertEquals("A reply sent before the DELETE settled must not bring 7 back", emptyList<Int>(), ids()); counts(2, 1)
+    }
     @Test fun successfulAddKeepsFreshCacheAndExistingRequestContract() = scenario {
         val old = reply(contacts(7), held = true); val read = start(old)
         TestContacts.add("Synthetic 8", "Synthetic", "+70000000008", true).getOrThrow()

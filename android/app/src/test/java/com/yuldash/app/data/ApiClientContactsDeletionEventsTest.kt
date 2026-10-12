@@ -59,7 +59,7 @@ class ApiClientContactsDeletionEventsTest {
     private fun version() = TestContacts.changes
     private suspend fun acceptedIds() = TestContacts.read().getOrThrow().map { it.id }
     private fun receipt(before: Long, owner: Long) {
-        // Exactly one signal, and only while its account is still the current one.
+        // Exactly one signal. Owner scoping itself is proven by the switched-owner and logout cases below.
         assertEquals(before + 1, version()); assertEquals(owner, ApiClient.queueSessionGeneration())
     }
     private fun settled(malformedReply: Boolean) = runBlocking {

@@ -66,7 +66,7 @@ class ApiClientContactsAdditionEventsTest {
     }
     private fun version() = TestContacts.changes
     private fun receipt(before: Long, owner: Long) {
-        // Exactly one signal, and only while its account is still the current one.
+        // Exactly one signal. Owner scoping itself is proven by the switched-owner and logout cases below.
         assertEquals(before + 1, version()); assertEquals(owner, ApiClient.queueSessionGeneration())
     }
     private suspend fun add(owner: Long? = null) = TestContacts.add("B", "New", if (upsert) "+70000000007" else "+70000000008", false, owner)

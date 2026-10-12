@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.util.Log
+import com.yuldash.app.data.TestContacts
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.data.ApiClient
@@ -76,7 +77,7 @@ class ChatSocketRefreshInstrumentedTest {
     }
     private fun refresh() = runBlocking {
         val generation = ApiClient.queueSessionGeneration()
-        assertTrue(ApiClient.getContacts().isSuccess)
+        assertTrue(TestContacts.read().isSuccess)
         assertEquals("access-A2", ApiClient.currentToken())
         assertEquals(generation, ApiClient.queueSessionGeneration())
         assertEquals(1, state().getInt("refreshes"))

@@ -120,13 +120,10 @@ class ApiClientCachedTest {
                    "phone":"+79991112233","notify_by_default":true}]}""",
             ),
         )
-        // Contacts are personal: since the layering pilot a guest read fails locally without HTTP
-        // (it used to go out with no Authorization). Parse them for a synthetic signed-in account.
-        ApiClient.init(androidx.test.core.app.ApplicationProvider.getApplicationContext())
-        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.signature")
-        val res = TestContacts.read()
+        // Parsing lives in ContactsApi since the layering pilot. The repository refuses guest reads
+        // without HTTP, so the DTO is checked one layer down, with the same unauthenticated GET as before.
+        val res = ContactsApi.list(ApiClient.queueSessionGeneration())
         assertTrue(res.isSuccess)
-        assertEquals("Bearer header.eyJzdWIiOiIxMSJ9.signature", server.takeRequest().getHeader("Authorization"))
         val list = res.getOrThrow()
         assertEquals(1, list.size)
         assertEquals(5, list[0].id)
