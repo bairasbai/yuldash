@@ -37,7 +37,7 @@ class TaxiPostTripGuardTest {
         assertTrue(receipt.contains("TaxiReceiptDocument(r,"))
         assertTrue(receipt.contains("MobilityRouteTimeline("))
         assertTrue(receipt.contains("mutableIntStateOf(r.myStars)"))
-        assertTrue(receipt.contains("ApiClient.rateInstantOrder(r.orderId, value, r.myRatingTags)"))
+        assertTrue(receipt.contains("ApiClient.rateInstantOrder(r.orderId, value, r.myRatingTags, expectedGeneration = generation)"))
         assertTrue(receipt.contains("Поделиться чеком"))
         // «Забыл», а не «Забыли»: тон Юлдаша — на «ты» (CLAUDE.md §9). Сторож тона это
         // вежливое прошедшее раньше не ловил, поэтому «вы» дожило до чека (2026-09-06).

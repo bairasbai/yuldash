@@ -23,7 +23,7 @@ import org.robolectric.annotation.Config
  *
  *  • не смогли дозвониться (нет сети, хост не резолвится) — запрос не ушёл, повтор безопасен;
  *  • ответ не пришёл вовремя (`SocketTimeoutException` на чтении) — запрос УШЁЛ, сервер мог
- *    выполнить его целиком, просто не успел ответить за 15 секунд.
+ *    выполнить его целиком, просто не успел ответить за 15 секунд (в тесте — за секунду).
  *
  * Во втором случае повтор создаёт вторую бронь, вторую посылку, второй платёж. Дедуп на
  * сервере есть только у двух ручек из всех — бронь и заказ такси; остальные ловили дубль молча.
@@ -43,10 +43,13 @@ class ApiClientRetrySafetyTest {
         server = MockWebServer()
         server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        // Таймаут чтения — секунда вместо пятнадцати; повторы и паузы между ними — как в проде.
+        ApiClient.testRetryTimeoutMs = 1000
     }
 
     @After
     fun teardown() {
+        ApiClient.testRetryTimeoutMs = null
         ApiClient.testBaseUrl = null
         server.shutdown()
     }
