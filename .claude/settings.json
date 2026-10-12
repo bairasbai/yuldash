@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(/mobile/**)",
+      "Read(local.properties)",
+      "Read(google-services.json)",
+      "Read(keystore.properties)",
+      "Read(*.jks)",
+      "Read(*.keystore)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/yuldash-post-edit.mjs\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+#!/usr/bin/env node
+// PostToolUse-хук Юлдаша: сразу после правки ловит то, что иначе всплывёт только в CI
+// через 10–40 минут. Ничего не правит сам — только говорит агенту, что поправить.
+//
+//   backend/**.py        → ruff --select F (мёртвые импорты/переменные) — тот же гейт, что в CI.
+//   android/app/src/main → захардкоженный Color(0x…) и одноязычный Text("…") в НОВЫХ строках.
+//                          Полную шкалу Canon* держит CanonSourceGuardTest; тут — быстрая подсказка.
+//
+// Любая неожиданность (нет ruff, кривой JSON) → молча выходим: хук не должен мешать работе.
+import { spawnSync } from 'node:child_process';
+
+let raw = '';
+for await (const chunk of process.stdin) raw += chunk;
+let input;
+try { input = JSON.parse(raw); } catch { process.exit(0); }
+
+const ti = input.tool_input ?? {};
+const file = String(ti.file_path ?? '').replace(/\\/g, '/');
+if (!file) process.exit(0);
+
+// Новые строки: то, чего не было в старом тексте. Write — весь файл.
+const pairs = [
+  [ti.old_string ?? '', ti.new_string ?? ti.content ?? ''],
+  ...(Array.isArray(ti.edits) ? ti.edits.map(e => [e.old_string ?? '', e.new_string ?? '']) : []),
+];
+const added = pairs.flatMap(([oldText, newText]) => {
+  const before = new Set(String(oldText).split('\n').map(l => l.trim()));
+  return String(newText).split('\n').filter(l => l.trim() && !before.has(l.trim()));
+});
+
+const problems = [];
+
+if (/(^|\/)backend\/.+\.py$/.test(file)) {
+  const args = ['check', '--select', 'F', '--output-format', 'concise', '--no-cache', file];
+  let r = spawnSync('ruff', args, { encoding: 'utf8', timeout: 20000 });
+  if (r.error) r = spawnSync('python', ['-m', 'ruff', ...args], { encoding: 'utf8', timeout: 20000 });
+  if (!r.error && r.status === 1) {
+    const out = (r.stdout || '').split('\n').filter(l => l.includes(':')).slice(0, 10);
+    if (out.length) problems.push(`ruff (как в CI, --select F):\n${out.join('\n')}`);
+  }
+}
+
+const isScreenKotlin = /(^|\/)android\/app\/src\/main\/.+\.kt$/.test(file)
+  && !/\/(Canon[^/]*|[^/]*Theme[^/]*)\.kt$/.test(file);
+if (isScreenKotlin) {
+  for (const line of added) {
+    const code = line.trim();
+    if (code.startsWith('//')) continue;
+    if (/\bColor\(\s*0x/i.test(code)) {
+      problems.push(`цвет захардкожен → возьми Canon* из CanonTokens.kt (нет нужного — заведи там):\n  ${code}`);
+    }
+    // Имя бренда и госномер («Х123УХ102») одинаковы на обоих языках — их не трогаем.
+    const literal = code.match(/(?<![\w.])Text\(\s*(?:text\s*=\s*)?"([^"]*)"/)?.[1] ?? '';
+    if (/[а-яё]/.test(literal.replace(/Юлдаш/g, ''))) {
+      problems.push(`надпись на одном языке → appText("рус", "баш"), черновой башкирский — в docs/tasks.md:\n  ${code}`);
+    }
+  }
+}
+
+if (problems.length) {
+  const reason = [
+    `Проверка правки ${file.split('/').pop()}:`,
+    ...problems.slice(0, 10).map(p => `• ${p}`),
+    'Если это не видимый пользователю текст (превью, тест, лог) — оставь и скажи об этом в отчёте.',
+  ].join('\n');
+  process.stdout.write(JSON.stringify({ decision: 'block', reason }));
+}
+process.exit(0);
