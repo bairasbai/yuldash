@@ -912,18 +912,12 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
     # от того, какую жалобу она считает и в каком запросе сработала — запоминаем reason ДО её
     # вызова и, если был "review", возвращаем обратно после: более строгая причина не слабее от
     # постороннего порога «3 жалобы за 30 дней».
-    if r.target_user_id is not None:      # аккаунт обвиняемого удалён — наказывать некого
-        prof_before = session.exec(select(DriverProfile).where(
-            DriverProfile.user_id == r.target_user_id)).first()
-        was_review = prof_before is not None and prof_before.taxi_pause_reason == quality.PAUSE_REASON_REVIEW
-        quality.apply_ladder_after_resolve(session, r.target_user_id)
-        if was_review:
-            prof_after = session.exec(select(DriverProfile).where(
-                DriverProfile.user_id == r.target_user_id)).first()
-            if prof_after is not None and prof_after.taxi_pause_reason != quality.PAUSE_REASON_REVIEW:
-                prof_after.taxi_pause_reason = quality.PAUSE_REASON_REVIEW
-                session.add(prof_after)
-                session.commit()
+    #
+    # Было (круг 3, найдено ревью 12.10): лестница стояла ЗДЕСЬ, до блока «тяжёлая жалоба»
+    # ниже. Подтверждение третьей тяжёлой жалобы обычной кнопкой (keep_pause=false) звало
+    # maybe_release_review_pause ПОСЛЕ лестницы — и та стирала свежую 72-часовую паузу:
+    # водитель получал «пауза 72 ч», а следом «Такси снова доступно». Лестница снова в конце
+    # разбора, как до обхода, — после снятия паузы разбора; защита reason="review" осталась.
     if r.category in quality.SEVERE_CATEGORIES and r.target_user_id is not None:
         if body.keep_pause:
             # «Оставить»: подтверждённая тяжёлая жалоба не должна ОСЛАБИТЬ наказание (N1,
@@ -936,7 +930,7 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
             #      тяжёлая жалоба или более длинная ручная пауза админа слетали к 72 часам;
             #   3) unpause_taxi() сам шлёт «Такси снова доступно — пауза снята», хотя она
             #      остаётся — водитель читает «можно работать» и упирается в 403.
-            # Правка: причину не меняем (reason="review" уже защищён от лестницы выше), трогаем
+            # Правка: причину не меняем (reason="review" защищён от лестницы ниже), трогаем
             # только СВОЮ "review"-паузу, и только если других нерешённых тяжёлых жалоб на цель
             # нет. Ручную ПОСТОРОННЮЮ паузу админа (reason="admin") не трогаем — это не наша
             # дверь.
@@ -1046,7 +1040,20 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
                     )
         except Exception as e:  # noqa: BLE001 — разбор важнее побочки со списанием
             log.warning(f"[DEBT] списание комиссии по доставке {r.parcel_id}: {type(e).__name__}: {scrub_exc(e)}")
-    # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш).
+    # 🔴 Лестница: накопленные resolved-жалобы за окно → авто-пауза (+пуш). Строго ПОСЛЕ
+    # снятия паузы разбора выше — иначе снятие стирает только что поставленные 72 ч.
+    if r.target_user_id is not None:      # аккаунт обвиняемого удалён — наказывать некого
+        prof_before = session.exec(select(DriverProfile).where(
+            DriverProfile.user_id == r.target_user_id)).first()
+        was_review = prof_before is not None and prof_before.taxi_pause_reason == quality.PAUSE_REASON_REVIEW
+        quality.apply_ladder_after_resolve(session, r.target_user_id)
+        if was_review:
+            prof_after = session.exec(select(DriverProfile).where(
+                DriverProfile.user_id == r.target_user_id)).first()
+            if prof_after is not None and prof_after.taxi_pause_reason != quality.PAUSE_REASON_REVIEW:
+                prof_after.taxi_pause_reason = quality.PAUSE_REASON_REVIEW
+                session.add(prof_after)
+                session.commit()
     quality.tell_report_decision(session, r, confirmed=True)   # автор узнаёт исход (волна 85)
     return _admin_report_out(session, r)
 

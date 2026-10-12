@@ -319,3 +319,44 @@ def test_лестница_в_чужом_запросе_не_ослабляет_�
         prof = s.exec(select(DriverProfile).where(DriverProfile.user_id == drv["id"])).first()
         assert prof.taxi_pause_reason == quality.PAUSE_REASON_REVIEW
         assert prof.taxi_paused_until >= until_after_a
+
+
+def test_третья_тяжёлая_жалоба_обычной_кнопкой_ставит_лестничные_72_часа(client, user_factory):
+    """Ревью 12.10 (регрессия круга 3): у водителя уже две подтверждённые жалобы за 30 дней,
+    админ подтверждает третью — тяжёлую — ОБЫЧНОЙ кнопкой «Подтвердить» (keep_pause=false,
+    `SecondaryScreens.kt`). Лестница обязана поставить паузу такси на 72 часа.
+
+    Было (круг 3): лестница звалась ДО снятия паузы разбора, и `maybe_release_review_pause`
+    тут же стирала только что поставленные 72 часа — самый проблемный водитель получал «пауза
+    72 ч», а следом «Такси снова доступно». В main (до обхода) лестница шла последней."""
+    drv = user_factory("N1Drv8", role=UserRole.driver)
+    pax1 = user_factory("N1Pax8a")
+    pax2 = user_factory("N1Pax8b")
+    pax3 = user_factory("N1Pax8c")
+    admin = user_factory("N1Admin8", role=UserRole.admin)
+    _ensure_profile(drv["id"])
+
+    for pax in (pax1, pax2):
+        with Session(engine) as s:
+            order = InstantOrder(passenger_id=pax["id"], driver_id=drv["id"],
+                                 status=S.done, price_estimate=300, price_final=300)
+            s.add(order)
+            s.commit()
+            s.refresh(order)
+            s.add(Report(reporter_id=pax["id"], target_user_id=drv["id"], category="rude",
+                         order_id=order.id, status="resolved", resolved_at=utcnow()))
+            s.commit()
+
+    rid = _severe_report_pauses_driver(drv["id"], pax3["id"], category="dangerous_driving")
+
+    r = client.post(f"/admin/reports/{rid}/resolve", headers=admin["auth"],
+                    json={"resolution": "confirmed", "keep_pause": False})
+    assert r.status_code == 200, r.text
+
+    with Session(engine) as s:
+        prof = s.exec(select(DriverProfile).where(DriverProfile.user_id == drv["id"])).first()
+        assert prof.taxi_paused_until is not None and \
+            prof.taxi_paused_until > utcnow() + timedelta(hours=70), (
+                "третья подтверждённая жалоба за 30 дней сняла водителя с паузы вместо 72 часов: "
+                f"until={prof.taxi_paused_until} reason={prof.taxi_pause_reason}"
+            )
