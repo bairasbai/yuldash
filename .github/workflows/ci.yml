@@ -258,6 +258,16 @@ jobs:
           name: android-coverage-report
           path: android/app/build/reports/jacoco/jacocoTestReport
           if-no-files-found: ignore
+      # Журнал сборщика мусора тестовой JVM (12.10.2026): 12.10 одинаковый код шёл то 22, то
+      # больше 45 минут без единого упавшего теста. Файл пишется по ходу прогона, поэтому
+      # выкладывается и при обрыве по лимиту — по нему видно, не кончилась ли память.
+      - name: Журнал сборщика мусора тестов (даже при обрыве)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-gc-log
+          path: android/app/build/test-gc.log
+          if-no-files-found: ignore
 
 
   # Сборка PWA-фронта (webapp/). Защищает ветку: PR не пройдёт, если фронт не собрался.

@@ -225,6 +225,28 @@ android {
                     showStackTraces = true
                     showCauses = true
                 }
+                // Ход прогона — в лог CI (12.10.2026). Прогон, оборванный лимитом 45 мин, не
+                // оставлял ни строки: Gradle печатает только упавшие тесты, а отчёт пишет в самом
+                // конце. Теперь видно, сколько шёл каждый класс и каждый тест дольше 5 секунд,
+                // а повисший класс — это последний «▶» без своего «✓».
+                it.addTestListener(object : org.gradle.api.tasks.testing.TestListener {
+                    override fun beforeSuite(suite: org.gradle.api.tasks.testing.TestDescriptor) {
+                        if (suite.className != null) println("▶ ${suite.className}")
+                    }
+                    override fun afterSuite(suite: org.gradle.api.tasks.testing.TestDescriptor, result: org.gradle.api.tasks.testing.TestResult) {
+                        if (suite.className != null) println("✓ ${suite.className} " +
+                            "${(result.endTime - result.startTime) / 1000}s, тестов ${result.testCount}, упало ${result.failedTestCount}")
+                    }
+                    override fun beforeTest(testDescriptor: org.gradle.api.tasks.testing.TestDescriptor) {}
+                    override fun afterTest(testDescriptor: org.gradle.api.tasks.testing.TestDescriptor, result: org.gradle.api.tasks.testing.TestResult) {
+                        val ms = result.endTime - result.startTime
+                        if (ms >= 5_000) println("  ⏱ ${ms / 1000}s ${testDescriptor.className?.substringAfterLast('.')}.${testDescriptor.name}")
+                    }
+                })
+                // Журнал сборщика мусора тестовой JVM. Путь относительный: тесты идут из папки
+                // модуля, а двоеточие в абсолютном пути Windows ломает разбор -Xlog. CI выкладывает
+                // файл даже при обрыве по лимиту — по нему видно, не захлебнулась ли память.
+                it.jvmArgs("-Xlog:gc:file=build/test-gc.log:uptime")
                 // Один упавший тест не должен обрывать прогон: нужен ПОЛНЫЙ список проблем
                 // за один заход, иначе каждый круг CI (11 минут) вскрывает по одной ошибке.
                 it.ignoreFailures = false
