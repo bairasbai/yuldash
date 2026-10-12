@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import com.yuldash.app.data.TestContacts
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.*
 import androidx.lifecycle.Lifecycle
@@ -89,7 +90,7 @@ class InstantOrderShareInitialLoadTest : ShareHelpBoundaryHarness() {
         return try { api() } finally { a.returned.set(true) }
     }
     private val operations = InstantShareOperations(
-        contacts = { generation -> observe(Op.CONTACTS, generation) { ApiClient.getContacts(expectedGeneration = generation) } },
+        contacts = { generation -> observe(Op.CONTACTS, generation) { TestContacts.read(owner = generation) } },
         revoke = { id, shareId, generation ->
             assertEquals(91, id); assertEquals(601, shareId)
             observe(Op.REVOKE, generation) { ApiClient.revokeInstantShare(id, shareId, expectedGeneration = generation) }

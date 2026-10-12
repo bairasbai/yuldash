@@ -4641,7 +4641,7 @@ internal fun InstantShareDialog(
 
 internal class InstantShareOperations(
     val contacts: suspend (Long) -> Result<List<com.yuldash.app.data.ContactDto>> = { generation ->
-        ApiClient.getContacts(expectedGeneration = generation)
+        com.yuldash.app.data.ContactsRepository.shared.read(generation)
     },
     val create: suspend (Int, Int, Long) -> Result<com.yuldash.app.data.TripShareDto?> = { id, contact, generation ->
         ApiClient.shareInstantTrip(id, contact, expectedGeneration = generation)

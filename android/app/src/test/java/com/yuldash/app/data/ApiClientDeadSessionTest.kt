@@ -66,7 +66,7 @@ class ApiClientDeadSessionTest {
         // 401 на сам вызов + запас на фоновые запросы logout (/push/unregister, /auth/logout).
         repeat(4) { server.enqueue(MockResponse().setResponseCode(401).setBody("""{"detail":"Неверный токен"}""")) }
 
-        val res = ApiClient.deleteContact(7)
+        val res = TestContacts.delete(7)
 
         assertTrue("вызов обязан вернуть ошибку", res.isFailure)
         assertEquals(401, (res.exceptionOrNull() as ApiException).status)
@@ -81,7 +81,7 @@ class ApiClientDeadSessionTest {
         ApiClient.saveToken("живой_токен")
         server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ok":true}"""))
 
-        val res = ApiClient.deleteContact(7)
+        val res = TestContacts.delete(7)
 
         assertTrue(res.isSuccess)
         assertFalse("сессия жива — сигнала быть не должно", ApiClient.sessionExpired.value)
@@ -95,7 +95,7 @@ class ApiClientDeadSessionTest {
         ApiClient.saveToken("живой_токен")
         server.enqueue(MockResponse().setResponseCode(500).setBody("""{"detail":"упало"}"""))
 
-        val res = ApiClient.deleteContact(7)
+        val res = TestContacts.delete(7)
 
         assertTrue(res.isFailure)
         assertEquals(500, (res.exceptionOrNull() as ApiException).status)

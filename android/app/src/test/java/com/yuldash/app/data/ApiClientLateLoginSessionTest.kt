@@ -104,7 +104,7 @@ class ApiClientLateLoginSessionTest {
         assertEquals("Late login must not replace the current access token", "access-B", ApiClient.currentToken())
         assertEquals("Late login must not replace the current profile name", "Account B", ApiClient.cachedName())
         // Exercise refresh through the real public API, rather than inspecting private fields.
-        assertTrue(ApiClient.getContacts().getOrThrow().isEmpty())
+        assertTrue(TestContacts.read().getOrThrow().isEmpty())
         assertEquals(1, refreshBodies.size)
         assertEquals("refresh-B", JSONObject(refreshBodies.single()).getString("refresh_token"))
         assertEquals("access-B-refreshed", ApiClient.currentToken())

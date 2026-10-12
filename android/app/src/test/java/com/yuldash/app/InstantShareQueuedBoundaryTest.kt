@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import com.yuldash.app.data.TestContacts
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -80,7 +81,7 @@ class InstantShareQueuedBoundaryTest : ShareHelpBoundaryHarness() {
         return try { api() } finally { a.returned.set(true) }
     }
     private val operations = InstantShareOperations(
-        contacts = { generation -> observe("contacts", generation) { ApiClient.getContacts(expectedGeneration = generation) } },
+        contacts = { generation -> observe("contacts", generation) { TestContacts.read(owner = generation) } },
         create = { id, contact, generation -> observe("create", generation) { ApiClient.shareInstantTrip(id, contact, expectedGeneration = generation) } },
         revoke = { id, shareId, generation -> observe("revoke", generation) { ApiClient.revokeInstantShare(id, shareId, expectedGeneration = generation) } },
     )

@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
@@ -262,7 +263,6 @@ import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.isActive
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.key
 
@@ -1597,7 +1597,6 @@ internal fun FamilyOrderFormContent(
 internal fun TrustedContactsScreen(
     contacts: List<TrustedContact>,
     onBack: () -> Unit,
-    onContactsChanged: (List<TrustedContact>) -> Unit,
     isCurrentParent: () -> Boolean = { true },
 ) {
     val currentSession by ApiClient.sessionChanges.collectAsState()
@@ -1607,115 +1606,46 @@ internal fun TrustedContactsScreen(
         LaunchedEffect(owner) { if (isCurrentParent()) leave() }
         return
     }
+    val current by rememberUpdatedState(isCurrentParent)
     key(owner) {
-        TrustedContactsEditor(contacts, onBack, onContactsChanged, isCurrentParent, owner)
+        val vm = rememberScreenViewModel { ContactsViewModel(owner, isCurrent = { current() }) }
+        TrustedContactsEditor(vm, contacts, onBack, isCurrentParent)
     }
 }
 
+/**
+ * Обвязка экрана: диалоги, тосты и навигация. Список, «занят», «ошибка» и все запросы —
+ * в [ContactsViewModel]; здесь нет ни одного сетевого вызова и ни одного флага гонок.
+ */
 @Composable
 private fun TrustedContactsEditor(
+    vm: ContactsViewModel,
     contacts: List<TrustedContact>,
     onBack: () -> Unit,
-    onContactsChanged: (List<TrustedContact>) -> Unit,
     isCurrentParent: () -> Boolean,
-    owner: Long,
 ) {
+    val ui by vm.ui.collectAsStateWithLifecycle()
     var showAdd by remember { mutableStateOf(false) }
     var nm by remember { mutableStateOf("") }
     var rel by remember { mutableStateOf("") }
     var ph by remember { mutableStateOf("") }
     var toDelete by remember { mutableStateOf<TrustedContact?>(null) }
-    // An accepted server snapshot (including empty) replaces every previous list.
-    var serverContacts by remember { mutableStateOf<List<TrustedContact>?>(null) }
-    var busy by remember { mutableStateOf(true) }
-    var loadError by remember { mutableStateOf(false) }
-    var retired by remember { mutableStateOf(false) }
-    val deletion by ApiClient.contactDeletions.collectAsState()
-    var handledDeletion by remember { mutableStateOf(deletion.version) }
-    val addition by ApiClient.contactAdditions.collectAsState()
-    var handledAddition by remember { mutableStateOf(addition.version) }
-    val scope = rememberCoroutineScope()
+    // Navigation may already have left this screen before the frame removed it: one Back only.
     val parent by rememberUpdatedState(isCurrentParent)
-    val publish by rememberUpdatedState(onContactsChanged)
     val ctx = LocalContext.current
     val defaultRel = appText("Контакт", "Контакт")
     val loadErr = appText("Не удалось загрузить контакты. Проверь интернет.", "Контакттарҙы йөкләп булманы. Интернетты тикшер.")
-    val deleteFailed = appText("Не получилось убрать. Проверь сеть и повтори.", "Алып булманы. Сетте тикшереп ҡабатла.")
-    val addFailed = appText("Не получилось. Проверь сеть и повтори", "Булманы. Сетте тикшереп ҡабатла")
-    val added = appText("Контакт добавлен", "Контакт өҫтәлде")
-    fun active() = !retired && scope.isActive && parent() && ApiClient.isCurrentSession(owner)
-    DisposableEffect(owner) { onDispose { retired = true } }
-    suspend fun readContacts(forceRefresh: Boolean = false) {
-        if (!active()) return
-        val attemptedDeletion = ApiClient.contactDeletions.value.version
-        val attemptedAddition = ApiClient.contactAdditions.value.version
-        val result = ApiClient.loadContactsForPublication(expectedGeneration = owner, forceRefresh = forceRefresh) { list ->
-            if (active()) {
-                val snapshot = list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) }
-                serverContacts = snapshot
-                publish(snapshot)
-                handledDeletion = ApiClient.contactDeletions.value.version
-                handledAddition = ApiClient.contactAdditions.value.version
-            }
-        }
-        if (!active()) return
-        ApiClient.runIfCurrentSession(owner) {
-            if (active()) {
-                loadError = result.isFailure
-                // A failed own reconciliation waits for Retry; consume only versions captured before this read.
-                if (result.isFailure) {
-                    handledDeletion = maxOf(handledDeletion, attemptedDeletion)
-                    handledAddition = maxOf(handledAddition, attemptedAddition)
-                }
-            }
-        }
-    }
-    LaunchedEffect(owner) {
-        // A cancelled old mutation can still be waiting for its blocking HTTP response.
-        readContacts(forceRefresh = true)
-        if (active()) busy = false
-    }
-    LaunchedEffect(owner, deletion.version, busy) {
-        if (!active() || busy || deletion.generation != owner || deletion.version <= handledDeletion) return@LaunchedEffect
-        val previous = handledDeletion
-        handledDeletion = deletion.version
-        // One known DELETE already reflected in an accepted snapshot needs no additional HTTP.
-        // A conflated gap can contain another ID, so reconcile it with one fresh read.
-        if (deletion.version == previous + 1 && serverContacts?.none { it.id == deletion.contactId } == true) return@LaunchedEffect
-        busy = true
-        scope.launch {
-            readContacts(forceRefresh = true)
-            if (active()) busy = false
-        }
-    }
-    LaunchedEffect(owner, addition.version, busy) {
-        if (!active() || busy || addition.generation != owner || addition.version <= handledAddition) return@LaunchedEffect
-        handledAddition = addition.version
-        // A same-phone upsert can change other fields while retaining the ID: always ask the server.
-        busy = true
-        scope.launch {
-            readContacts(forceRefresh = true)
-            if (active()) busy = false
-        }
-    }
-    fun mutate(contact: TrustedContact, deleting: Boolean) {
-        // Set synchronously: a retained confirmation invoked twice in one frame sends once.
-        if (!active() || busy || loadError || serverContacts == null || (deleting && contact.id <= 0)) return
-        busy = true
-        showAdd = false; toDelete = null
-        scope.launch {
-            if (!active()) return@launch
-            val result = if (deleting) ApiClient.deleteContact(contact.id, expectedGeneration = owner)
-                else ApiClient.addContact(contact.name, contact.relation, contact.phone, contact.notifyByDefault, expectedGeneration = owner)
-            if (!active()) return@launch
-            if (result.isSuccess || ApiClient.isUncertainContactMutation(result.exceptionOrNull())) {
-                readContacts() // Read only; never repeat the mutation after an unknown reply.
-            } else {
-                Toast.makeText(ctx, serverSaid(result.exceptionOrNull()!!, if (deleting) deleteFailed else addFailed), Toast.LENGTH_LONG).show()
-            }
-            if (active()) {
-                busy = false
-                if (!deleting && result.isSuccess && !loadError) Toast.makeText(ctx, added, Toast.LENGTH_SHORT).show()
+    val deleteFailed by rememberUpdatedState(appText("Не получилось убрать. Проверь сеть и повтори.", "Алып булманы. Сетте тикшереп ҡабатла."))
+    val addFailed by rememberUpdatedState(appText("Не получилось. Проверь сеть и повтори", "Булманы. Сетте тикшереп ҡабатла"))
+    val added by rememberUpdatedState(appText("Контакт добавлен", "Контакт өҫтәлде"))
+    LaunchedEffect(vm) { vm.start() }
+    LaunchedEffect(vm) {
+        vm.events.collect { event ->
+            when (event) {
+                ContactsViewModel.Event.Added -> Toast.makeText(ctx, added, Toast.LENGTH_SHORT).show()
+                is ContactsViewModel.Event.Failed -> Toast.makeText(
+                    ctx, serverSaid(event.error, if (event.deleting) deleteFailed else addFailed), Toast.LENGTH_LONG,
+                ).show()
             }
         }
     }
@@ -1732,9 +1662,8 @@ private fun TrustedContactsEditor(
                 }
             },
             confirmButton = {
-                TextButton(enabled = !busy && nm.isNotBlank() && ph.isNotBlank(), onClick = {
-                    val r = rel.trim().ifBlank { defaultRel }
-                    mutate(TrustedContact(nm.trim(), r, ph.trim(), true, relationBa = r), deleting = false)
+                TextButton(enabled = !ui.busy && nm.isNotBlank() && ph.isNotBlank(), onClick = {
+                    if (vm.add(nm.trim(), rel.trim().ifBlank { defaultRel }, ph.trim())) showAdd = false
                     nm = ""; rel = ""; ph = ""
                 }) { Text(appText("Добавить", "Өҫтәргә"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
@@ -1756,7 +1685,7 @@ private fun TrustedContactsEditor(
                 )
             },
             confirmButton = {
-                TextButton(enabled = !busy, onClick = { mutate(victim, deleting = true) }) {
+                TextButton(enabled = !ui.busy, onClick = { if (vm.delete(victim)) toDelete = null }) {
                     Text(appText("Убрать", "Алырға"), color = CanonRed, fontWeight = FontWeight.Bold)
                 }
             },
@@ -1764,23 +1693,18 @@ private fun TrustedContactsEditor(
         )
     }
     Scaffold(containerColor = CanonBg, topBar = {
-        ScreenTopBar(appText("Доверенные контакты", "Ышаныслы контакттар")) { if (active()) { retired = true; onBack() } }
+        ScreenTopBar(appText("Доверенные контакты", "Ышаныслы контакттар")) { if (parent()) onBack() }
     }) { padding ->
         TrustedContactsContent(
-            loading = busy,
-            loadError = loadError,
-            contacts = if (loadError) emptyList() else serverContacts ?: contacts,
+            loading = ui.busy,
+            loadError = ui.loadError,
+            contacts = if (ui.loadError) emptyList() else ui.contacts ?: contacts,
             loadErrorText = loadErr,
-            onRetry = {
-                if (active() && !busy) {
-                    busy = true; loadError = false
-                    scope.launch { readContacts(); if (active()) busy = false }
-                }
-            },
-            onAddClick = { if (active() && !busy && !loadError) showAdd = true },
-            actionsEnabled = !busy && !loadError && serverContacts != null,
+            onRetry = vm::retry,
+            onAddClick = { if (!ui.busy && !ui.loadError) showAdd = true },
+            actionsEnabled = ui.actionsEnabled,
             modifier = Modifier.padding(padding).fillMaxSize(),
-            onDelete = { if (active() && !busy && !loadError) toDelete = it },
+            onDelete = { if (!ui.busy && !ui.loadError) toDelete = it },
         )
     }
 }

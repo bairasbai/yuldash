@@ -25,8 +25,8 @@ class ApiClientContactsMutationOwnerTest {
     private enum class Mutation(val method: String, val path: String) {
         DELETE("DELETE", "/trusted-contacts/7"), ADD("POST", "/trusted-contacts");
         suspend fun execute(): Result<Unit> = when (this) {
-            DELETE -> ApiClient.deleteContact(7)
-            ADD -> ApiClient.addContact("Synthetic 8", "Synthetic", "+70000000008", true)
+            DELETE -> TestContacts.delete(7)
+            ADD -> TestContacts.add("Synthetic 8", "Synthetic", "+70000000008", true)
         }
     }
     private data class Dispatch(val job: Job?, val block: Runnable)
@@ -133,10 +133,10 @@ class ApiClientContactsMutationOwnerTest {
     }
     private fun read(vararg ids: Int): List<Int> {
         contactReplies += contacts(*ids)
-        return runBlocking { ApiClient.getContacts(expectedGeneration = ApiClient.queueSessionGeneration()).getOrThrow().map { it.id } }
+        return runBlocking { TestContacts.read(owner = ApiClient.queueSessionGeneration()).getOrThrow().map { it.id } }
     }
     private fun cachedIds() = runBlocking {
-        ApiClient.getContacts(expectedGeneration = ApiClient.queueSessionGeneration()).getOrThrow().map { it.id }
+        TestContacts.read(owner = ApiClient.queueSessionGeneration()).getOrThrow().map { it.id }
     }
     private fun contactRecords() = records.filter { it.path.startsWith("/trusted-contacts") }
     private fun record(m: Mutation, token: String) = Triple(m.method, m.path, "Bearer $token")

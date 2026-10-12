@@ -126,7 +126,7 @@ class ApiClientMoreTest {
     @Test
     fun addContact_postsContactFields() = runBlocking {
         server.enqueue(json("{}"))
-        val res = ApiClient.addContact(
+        val res = TestContacts.add(
             name = "Айгуль", relation = "сестра", phone = "+79991112233", notifyByDefault = true,
         )
         assertTrue(res.isSuccess)
@@ -143,7 +143,7 @@ class ApiClientMoreTest {
     @Test
     fun addContact_serverError500_returnsFailureWithApiException() = runBlocking {
         server.enqueue(error500())
-        val res = ApiClient.addContact("Х", "друг", "+70000000000", false)
+        val res = TestContacts.add("Х", "друг", "+70000000000", false)
         assertTrue(res.isFailure)
         assertEquals(500, (res.exceptionOrNull() as ApiException).status)
     }

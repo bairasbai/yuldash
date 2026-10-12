@@ -77,7 +77,7 @@ class ApiClientStaleAccountResponseTest {
     private fun contacts(name: String) = "{\"items\":[{\"id\":1,\"name\":\"$name\",\"relation\":\"family\",\"phone\":\"+70000000000\"}]}"
 
     @Test fun delayedOldContactsCannotPopulateTheNewAccountsCache() = runBlocking {
-        val oldRequest = async(Dispatchers.IO) { ApiClient.getContacts() }
+        val oldRequest = async(Dispatchers.IO) { TestContacts.read() }
         try {
             assertTrue("A contacts GET must reach the local server before switching accounts", oldRequestArrived.await(5, TimeUnit.SECONDS))
             ApiClient.logout()
@@ -86,7 +86,7 @@ class ApiClientStaleAccountResponseTest {
             releaseOldResponse.countDown()
         }
         oldRequest.await() // Old success or cancellation must never become B's cached data.
-        val contacts = ApiClient.getContacts().getOrThrow()
+        val contacts = TestContacts.read().getOrThrow()
         assertEquals("New account must read its own contacts", "Contact of B", contacts.single().name)
         assertEquals("B must authenticate its own contacts request", 1, newAccountRequests.get())
         assertEquals("local-account-B", ApiClient.currentToken())
@@ -94,7 +94,7 @@ class ApiClientStaleAccountResponseTest {
 
     @Test fun delayedUnauthorizedResponseCannotLogOutTheNewAccount() = runBlocking {
         oldStatus = 401
-        val oldRequest = async(Dispatchers.IO) { ApiClient.getContacts() }
+        val oldRequest = async(Dispatchers.IO) { TestContacts.read() }
         try {
             assertTrue("A contacts GET must reach the local server before releasing its 401", oldRequestArrived.await(5, TimeUnit.SECONDS))
             ApiClient.logout()
@@ -105,7 +105,7 @@ class ApiClientStaleAccountResponseTest {
         assertTrue(oldRequest.await().isFailure)
         assertEquals("Old 401 must not destroy B's session", "local-account-B", ApiClient.currentToken())
         assertFalse("Old request must not navigate B back to login", ApiClient.sessionExpired.value)
-        assertEquals("Contact of B", ApiClient.getContacts().getOrThrow().single().name)
+        assertEquals("Contact of B", TestContacts.read().getOrThrow().single().name)
         assertEquals(1, newAccountRequests.get())
     }
 }

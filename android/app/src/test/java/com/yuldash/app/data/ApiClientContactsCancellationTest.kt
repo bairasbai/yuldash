@@ -25,8 +25,8 @@ class ApiClientContactsCancellationTest {
     private enum class Mutation(val method: String, val path: String, val after: List<Int>) {
         DELETE("DELETE", "/trusted-contacts/7", emptyList()), ADD("POST", "/trusted-contacts", listOf(7, 8));
         suspend fun execute(owner: Long): Result<Unit> = when (this) {
-            DELETE -> ApiClient.deleteContact(7, expectedGeneration = owner)
-            ADD -> ApiClient.addContact("Synthetic 8", "Synthetic", "+70000000008", true, expectedGeneration = owner)
+            DELETE -> TestContacts.delete(7, owner = owner)
+            ADD -> TestContacts.add("Synthetic 8", "Synthetic", "+70000000008", true, owner = owner)
         }
     }
     private data class Dispatch(val job: Job?, val block: Runnable)
@@ -119,7 +119,7 @@ class ApiClientContactsCancellationTest {
         try { runBlocking { p.job.await() }; fail("Cancellation must propagate to caller") }
         catch (_: CancellationException) { }
     }
-    private fun ids(): List<Int> = runBlocking { ApiClient.getContacts(expectedGeneration = ApiClient.queueSessionGeneration()).getOrThrow().map { it.id } }
+    private fun ids(): List<Int> = runBlocking { TestContacts.read(owner = ApiClient.queueSessionGeneration()).getOrThrow().map { it.id } }
     private fun feed() = runBlocking { ApiClient.getFeed().getOrThrow() }
     private fun contactsRecords() = records.filter { it.path.startsWith("/trusted-contacts") }
     private fun contract(m: Mutation, methods: List<String>, tokens: List<String> = List(methods.size) { tokenA }) {
@@ -169,7 +169,7 @@ class ApiClientContactsCancellationTest {
         assertEquals("GET", contactsRecords().single().method); assertEquals(listOf(7), state.get()); assertTrue(caller.tasks.isEmpty())
     }
     private fun oldGet(m: Mutation) {
-        holdNextGet.set(true); val old = pending { ApiClient.getContacts(expectedGeneration = ownerA) }
+        holdNextGet.set(true); val old = pending { TestContacts.read(owner = ownerA) }
         val initial = take(); assertSame(old.job, initial.job); resume(initial); assertTrue(oldGetStarted.await(10, TimeUnit.SECONDS))
         assertEquals(listOf(7), ids()); val p = start(m); cancelled(p, returning(p))
         assertEquals(m.after, ids()); oldGetRelease.countDown(); val late = take(); assertSame(old.job, late.job); resume(late)
@@ -196,22 +196,22 @@ class ApiClientContactsCancellationTest {
     @Test fun explicitFreshReadBypassesWarmCacheAndSeedsNewSnapshot() {
         assertEquals(listOf(7), ids()); state.set(listOf(8))
         assertEquals(listOf(7), ids())
-        assertEquals(listOf(8), runBlocking { ApiClient.getContacts(ownerA, forceRefresh = true).getOrThrow().map { it.id } })
+        assertEquals(listOf(8), runBlocking { TestContacts.read(ownerA, force = true).getOrThrow().map { it.id } })
         assertEquals(listOf(8), ids()); assertEquals(listOf("GET", "GET"), contactsRecords().map { it.method })
     }
     @Test fun staleOwnerFreshReadCannotInvalidateNewOwnerCacheOrSendHttp() {
         assertEquals(listOf(7), ids()); ApiClient.saveToken(tokenB); val ownerB = ApiClient.queueSessionGeneration()
         assertEquals(listOf(9), ids())
-        val result = runBlocking { ApiClient.getContacts(ownerA, forceRefresh = true) }
+        val result = runBlocking { TestContacts.read(ownerA, force = true) }
         assertTrue(result.isFailure); assertTrue(result.exceptionOrNull() is IllegalStateException)
         assertEquals(listOf(9), ids()); assertEquals(ownerB, ApiClient.queueSessionGeneration()); assertEquals(tokenB, ApiClient.currentToken())
         assertEquals(listOf("Bearer $tokenA", "Bearer $tokenB"), contactsRecords().map { it.bearer })
     }
     @Test fun explicitFreshReadStopsEarlierColdReadFromRefillingCache() {
-        holdNextGet.set(true); val old = pending { ApiClient.getContacts(ownerA) }
+        holdNextGet.set(true); val old = pending { TestContacts.read(ownerA) }
         val initial = take(); assertSame(old.job, initial.job); resume(initial); assertTrue(oldGetStarted.await(10, TimeUnit.SECONDS))
         state.set(listOf(8))
-        assertEquals(listOf(8), runBlocking { ApiClient.getContacts(ownerA, forceRefresh = true).getOrThrow().map { it.id } })
+        assertEquals(listOf(8), runBlocking { TestContacts.read(ownerA, force = true).getOrThrow().map { it.id } })
         oldGetRelease.countDown(); val late = take(); assertSame(old.job, late.job); resume(late)
         assertEquals(listOf(7), runBlocking { old.job.join(); old.job.await().getOrThrow().map { it.id } })
         assertTrue(old.returned.get()); assertTrue(old.completed.await(5, TimeUnit.SECONDS)); assertFalse(old.job.isCancelled)

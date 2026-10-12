@@ -1,5 +1,22 @@
 # 🗺️ Карта кода Юлдаш
 
+## Слои экрана: пилот «Доверенные контакты» (12.10.2026)
+
+Целевая схема — [decisions.md, «Слои Android-экрана»](decisions.md). Первый экран, переведённый на неё:
+
+| Слой | Файл | Что делает |
+|---|---|---|
+| Экран | `AccessibilityScreens.kt` → `TrustedContactsScreen` / `TrustedContactsEditor` / `TrustedContactsContent` | Владелец входа и уход при смене входа; диалоги, тосты; плоский рендер всех состояний RU/BA |
+| ViewModel экрана | `ContactsViewModel.kt` | «Занят», «ошибка», тосты; чтение при открытии, повтор, добавить/убрать, перечитать после чужого изменения |
+| Срок жизни ViewModel | `ScreenViewModel.kt` → `rememberScreenViewModel` | Своё `ViewModelStore` на экран; очищается при уходе, `viewModelScope` отменяется |
+| Репозиторий | `data/ContactsRepository.kt` | `StateFlow<ContactsState>` (владелец, список, `changes`); правило приёма ответов; TTL 90 с; сброс при смене входа |
+| API домена | `data/ContactsApi.kt` | GET/POST/DELETE `/trusted-contacts`, строгая схема, `ContactDto`, «ответ потерян» |
+| Ядро | `data/ApiClient.kt` → `authorized(...)`, `onSessionReset`, `oneShotTransport` | Общие транспорт, сессия, refresh; отправка без скрытых повторов |
+
+`YuldashApp.kt`: `vm.trustedContacts` — зеркало репозитория для текущего входа (стартовое чтение + сбор
+`state`). Такси-диалог «поделиться» (`InstantOrderScreen.kt`, `InstantShareOperations.contacts`) читает
+тот же репозиторий. Сторож размера файлов — `FileSizeRatchetTest`.
+
 ## Terminal HTTP и отправитель очереди (07.10.2026, QA-B02-003)
 
 `ActiveTripContent` использует `isTripChatActive` перед/после initial history/code/details, flush follow-up и REST send success. Начатый same-owner send при сетевой ошибке всё ещё сохраняет Outbox action/key; terminal блокирует только поздние UI/Toast. `Outbox.flush(context, expectedGeneration, shouldContinue={true})` сохраняет global default и проверяет динамический caller predicate после mutex и перед новым действием. Predicate выполняется вне монитора Outbox; не брать sessionLock из него. Ответ уже отправленного действия подтверждается merge по action.id/owner generation, остальные действия сохраняются; затем predicate останавливает следующие POST. Terminal не является глобальной политикой удаления очереди или запрета history: backend сохраняет after-trip/lost-item окно, YuldashApp startup flush независим.

@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import com.yuldash.app.data.TestContacts
 import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
@@ -147,7 +148,7 @@ class TrustedContactsBootstrapTest {
         pump(); assertEquals(Screen.TrustedContacts, vm.screen.value)
     }
     private fun leave() { compose.runOnIdle { vm.navigateLocally { vm.screen.value = Screen.Support } }; pump(); assertEquals(Screen.Support, vm.screen.value) }
-    private fun cachedIds() = runBlocking { ApiClient.getContacts().getOrThrow().map { it.id } }
+    private fun cachedIds() = runBlocking { TestContacts.read().getOrThrow().map { it.id } }
     private fun releaseOldBootstrap() {
         bootRelease.countDown(); assertTrue(bootReturned.await(5, TimeUnit.SECONDS))
         assertTrue(bootParsed.await(5, TimeUnit.SECONDS)); pump(1500)

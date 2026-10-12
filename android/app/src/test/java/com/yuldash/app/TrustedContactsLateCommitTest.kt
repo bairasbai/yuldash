@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import com.yuldash.app.data.TestContacts
 import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
@@ -175,7 +176,7 @@ class TrustedContactsLateCommitTest {
         assertEquals("One read-only reconciliation of the late commit, never repeat DELETE", initialGets + if (failRead) 3 else 2, count("GET"))
         assertEquals(1, count("DELETE")); assertEquals(revision, vm.privateNavigationRevision); assertEquals(owner, ApiClient.queueSessionGeneration())
         assertFalse(ApiClient.sessionExpired.value); assertTrue(records.filter { it.path.startsWith("/trusted-contacts") }.all { it.bearer == "Bearer $tokenA" })
-        assertEquals(expected.map { it.id }, kotlinx.coroutines.runBlocking { ApiClient.getContacts().getOrThrow().map { it.id } })
+        assertEquals(expected.map { it.id }, kotlinx.coroutines.runBlocking { TestContacts.read().getOrThrow().map { it.id } })
         assertEquals(initialGets + if (failRead) 3 else 2, count("GET"))
     }
     private fun own(reply: Reply) {
@@ -205,8 +206,8 @@ class TrustedContactsLateCommitTest {
         // Keep the UI queue paused while two real API calls settle. The latest ID99 was absent already.
         compose.runOnIdle {
             kotlinx.coroutines.runBlocking {
-                ApiClient.deleteContact(7)
-                ApiClient.deleteContact(99)
+                TestContacts.delete(7)
+                TestContacts.delete(99)
             }
         }
         settled(listOf(b)); assertEquals(initialGets + 2, count("GET")); assertEquals(2, count("DELETE"))

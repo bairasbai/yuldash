@@ -16,7 +16,11 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Actual API Deferred cancellation is observed through finally/completion/join, not inferred from navigation. */
+/**
+ * Actual API Deferred cancellation is observed through finally/completion/join, not inferred from navigation.
+ * Layering pilot: the add/delete event versions of ApiClient became ContactsRepository.state.changes —
+ * one owner-guarded "the server may have changed" signal that every screen reconciles on.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class ApiClientContactsAdditionEventsTest {
@@ -60,13 +64,13 @@ class ApiClientContactsAdditionEventsTest {
     @After fun cleanup() {
         release.countDown(); ApiClient.testTrace = null; ApiClient.resetForTest(); ApiClient.testTimeoutMs = null; server.shutdown()
     }
-    private fun version() = ApiClient.contactAdditions.value.version
+    private fun version() = TestContacts.changes
     private fun receipt(before: Long, owner: Long) {
-        val event = ApiClient.contactAdditions.value
-        assertEquals(before + 1, event.version); assertEquals(owner, event.generation)
+        // Exactly one signal, and only while its account is still the current one.
+        assertEquals(before + 1, version()); assertEquals(owner, ApiClient.queueSessionGeneration())
     }
-    private suspend fun add(owner: Long? = null) = ApiClient.addContact("B", "New", if (upsert) "+70000000007" else "+70000000008", false, owner)
-    private suspend fun ids() = ApiClient.getContacts().getOrThrow().map { it.id }
+    private suspend fun add(owner: Long? = null) = TestContacts.add("B", "New", if (upsert) "+70000000007" else "+70000000008", false, owner)
+    private suspend fun ids() = TestContacts.read().getOrThrow().map { it.id }
     private fun exactPost() {
         val request = requests.single { it.method == "POST" && it.requestUrl!!.encodedPath == "/trusted-contacts" }
         assertEquals("/trusted-contacts", request.path); assertEquals("Bearer $tokenA", request.getHeader("Authorization"))
@@ -115,8 +119,10 @@ class ApiClientContactsAdditionEventsTest {
         val before = version(); val owner = ApiClient.queueSessionGeneration()
         add(owner).getOrThrow(); receipt(before, owner); add(owner).getOrThrow(); receipt(before + 1, owner); assertEquals(2, server.requestCount)
     }
-    @Test fun successfulDeleteDoesNotClaimAnAdditionEvent() = runBlocking {
-        val before = version(); ApiClient.deleteContact(7).getOrThrow(); assertEquals(before, version())
+    // Was: a DELETE does not bump the separate addition channel. There is one channel now: a DELETE of a
+    // contact absent from no known list is one change, and it is still a single DELETE, never a POST.
+    @Test fun successfulDeleteIsOneChangeAndNeverAPost() = runBlocking {
+        val before = version(); TestContacts.delete(7).getOrThrow(); assertEquals(before + 1, version())
         assertEquals(1, server.requestCount); assertEquals("DELETE", requests.single().method)
     }
     @Test fun completedOldOwnerAdditionKeepsStaleFailureAndEmitsNothing() = runBlocking {
@@ -133,8 +139,8 @@ class ApiClientContactsAdditionEventsTest {
     }
     @Test fun existingPhoneUpsertInvalidatesWarmFieldsWithSameId() = runBlocking {
         upsert = true; val before = version(); val owner = ApiClient.queueSessionGeneration()
-        assertEquals("Old", ApiClient.getContacts().getOrThrow().single().relation); add(owner).getOrThrow(); receipt(before, owner)
-        val row = ApiClient.getContacts().getOrThrow().single()
+        assertEquals("Old", TestContacts.read().getOrThrow().single().relation); add(owner).getOrThrow(); receipt(before, owner)
+        val row = TestContacts.read().getOrThrow().single()
         assertEquals(7, row.id); assertEquals("B", row.name); assertEquals("New", row.relation); assertFalse(row.notifyByDefault)
         assertEquals(3, server.requestCount); exactPost()
     }
