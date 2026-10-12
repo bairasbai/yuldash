@@ -198,7 +198,10 @@ def admin_confirm(debt_id: int, body: DebtActionIn | None = None,
         raise _debt_changed(e)
     except debt_mod.DebtAlreadySettled:
         # Пока админ смотрел на строку, долг закрыла карта. Подтверждать нечего — а перевод по
-        # СБП, если он пришёл, лишний: админ видит это и разбирается с водителем (leaf-1.2c).
+        # СБП, если он пришёл, лишний. След в журнале обязателен: приложение админа этот ответ
+        # пока не различает и показывает обычное «подтверждено» (leaf-1.2c, доработка клиента).
+        admin_action(user.id, "debt.confirm", debt_id=debt_id, driver=driver_id, amount_kop=0,
+                     outcome="already_settled")
         return {"ok": True, "status": "paid", "already": True, "paid_kop": 0}
     admin_action(user.id, "debt.confirm", debt_id=debt_id, driver=driver_id, amount_kop=paid_kop)
     if paid_kop:
@@ -229,6 +232,14 @@ class ForgiveIn(BaseModel):
     reason: str = Field("", max_length=300)
 
 
+def _forgive_already(user: User, debt: CommissionDebt) -> dict:
+    """Долг уже закрыт (повторный клик или его успела закрыть карта) — прощать нечего.
+    След в журнале — чтобы «простил, а комиссия осталась у платформы» было видно (leaf-1.2c)."""
+    admin_action(user.id, "debt.forgive", debt_id=debt.id, driver=debt.driver_id,
+                 amount_kop=0, outcome="already_settled")
+    return {"ok": True, "status": "paid", "already": True}
+
+
 @router.post("/admin/debts/{debt_id}/forgive")
 def admin_forgive(debt_id: int, body: ForgiveIn | None = None,
                   user: User = Depends(current_user), session: Session = Depends(get_session)):
@@ -243,7 +254,7 @@ def admin_forgive(debt_id: int, body: ForgiveIn | None = None,
     if not debt:
         raise herr(404, "Долг не найден", "Бурыс табылманы")
     if debt.status == DebtStatus.paid:
-        return {"ok": True, "status": "paid", "already": True}
+        return _forgive_already(user, debt)
     reason = ((body.reason if body else "") or "").strip()[:300]
     # Условие «ещё не оплачен» — прямо в UPDATE, а не проверкой выше (leaf-1.2c). Между чтением
     # и записью долг мог закрыть вебхук карты; слепая перезапись выдавала оплату картой за
@@ -255,7 +266,7 @@ def admin_forgive(debt_id: int, body: ForgiveIn | None = None,
                 note=(f"Списан админом: {reason}" if reason else "Списан админом")[:300])
     ).rowcount == 0:
         session.rollback()
-        return {"ok": True, "status": "paid", "already": True}
+        return _forgive_already(user, debt)
     session.commit()
     session.refresh(debt)
     admin_action(user.id, "debt.forgive", debt_id=debt_id, driver=debt.driver_id,
@@ -290,6 +301,8 @@ def admin_reject(debt_id: int, body: DebtActionIn | None = None,
     except debt_mod.DebtAlreadySettled:
         # Долг закрыла карта, пока админ смотрел на строку. Возвращать его в неоплаченные
         # нельзя: водитель заплатил бы второй раз (leaf-1.2c).
+        admin_action(user.id, "debt.reject", debt_id=debt_id, driver=driver_id, amount_kop=0,
+                     outcome="already_settled")
         return {"ok": True, "status": "paid", "already": True, "unpaid_kop": 0}
     admin_action(user.id, "debt.reject", debt_id=debt_id, driver=driver_id, amount_kop=back_kop)
     if back_kop:

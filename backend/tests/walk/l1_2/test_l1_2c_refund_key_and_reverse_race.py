@@ -23,6 +23,7 @@
 PostgreSQL. Настоящая блокировка строки на Postgres — в `test_l1_2c_reverse_race_pg.py`.
 """
 import contextlib
+import logging
 
 import pytest
 from sqlalchemy import event
@@ -137,8 +138,8 @@ def test_taxi_debt_refund_key_is_guarded_by_the_unique_refund_index(client, user
     """Новый ключ обязан попадать под барьер БД `uq_ledgerentry_refund`, а не только под
     проверку «уже возвращали?» в коде (её одну настоящая гонка обходит)."""
     drv = user_factory("L12cIndex", role=UserRole.driver)
-    key = debt_mod.taxi_debt_refund_ext_id(777_001, 888_001)
-    assert key == "refund:taxi_debt:777001:888001"
+    key = debt_mod.taxi_debt_refund_ext_id(drv["id"] + 7_000_000, drv["id"])   # уникален на прогон
+    assert key == f"refund:taxi_debt:{drv['id'] + 7_000_000}:{drv['id']}"
     with Session(engine) as s:
         assert debt_mod.refund_commission_to_wallet(s, drv["id"], 5_000, ext_id=key) is not None
         s.commit()
@@ -158,6 +159,15 @@ def test_explicit_refund_key_outside_the_guarded_namespace_is_refused(client, us
     with Session(engine) as s:
         with pytest.raises(ValueError):
             debt_mod.refund_commission_to_wallet(s, drv["id"], 5_000, ext_id="taxi_debt:1:2")
+
+
+def test_refund_without_order_parcel_or_explicit_key_is_refused(client, user_factory):
+    """Без заказа, доставки и явного ключа ключ выродился бы в общий `refund:parcel:None`."""
+    drv = user_factory("L12cNoKey", role=UserRole.driver)
+    with Session(engine) as s:
+        with pytest.raises(ValueError):
+            debt_mod.refund_commission_to_wallet(s, drv["id"], 5_000)
+    assert _wallet_balance(drv["id"]) == 0
 
 
 def test_refund_never_pays_out_the_amount_of_someone_elses_debt(client, user_factory):
@@ -242,7 +252,19 @@ def _notification_titles(user_id: int) -> list[str]:
         return [n.title_ru for n in s.exec(select(Notification).where(Notification.user_id == user_id)).all()]
 
 
-def test_forgive_does_not_overwrite_a_debt_the_card_closed_a_moment_earlier(client, user_factory):
+@pytest.fixture
+def admin_log(caplog):
+    caplog.set_level(logging.INFO, logger="yuldash")
+    return caplog
+
+
+def _already_logged(admin_log, what: str, debt_id: int) -> bool:
+    return any("[ADMIN]" in r.getMessage() and what in r.getMessage()
+               and f"debt_id={debt_id} " in r.getMessage()
+               and "outcome=already_settled" in r.getMessage() for r in admin_log.records)
+
+
+def test_forgive_does_not_overwrite_a_debt_the_card_closed_a_moment_earlier(client, user_factory, admin_log):
     admin = _admin(user_factory, "L12cAdmF")
     drv, (d1,) = _driver_with_debts(user_factory, "L12cRaceForgive", [10_000])
     pay_id = _snapshot_payment(drv["id"], 10_000, tier=debt_mod.make_taxi_debt_snapshot_tier((d1,)))
@@ -260,9 +282,10 @@ def test_forgive_does_not_overwrite_a_debt_the_card_closed_a_moment_earlier(clie
         "оплата картой затёрта пометкой «Списан админом» — деньги водителя потеряны"
     )
     assert "Долг списан" not in _notification_titles(drv["id"])
+    assert _already_logged(admin_log, "debt.forgive", d1), "«уже оплачено» не оставило следа в журнале админа"
 
 
-def test_confirm_does_not_take_credit_for_a_batch_the_card_closed_a_moment_earlier(client, user_factory):
+def test_confirm_does_not_take_credit_for_a_batch_the_card_closed_a_moment_earlier(client, user_factory, admin_log):
     admin = _admin(user_factory, "L12cAdmC")
     drv, (d1, d2) = _driver_with_debts(user_factory, "L12cRaceConfirm", [10_000, 15_000])
     _declare(drv["id"])
@@ -279,6 +302,7 @@ def test_confirm_does_not_take_credit_for_a_batch_the_card_closed_a_moment_earli
     )
     assert all(_debt(d).status == DebtStatus.paid for d in (d1, d2))
     assert "Долг подтверждён" not in _notification_titles(drv["id"])
+    assert _already_logged(admin_log, "debt.confirm", d1), "«уже оплачено» не оставило следа в журнале админа"
 
 
 def test_confirm_refuses_and_changes_nothing_when_the_card_closed_part_of_the_batch(client, user_factory):
@@ -296,7 +320,7 @@ def test_confirm_refuses_and_changes_nothing_when_the_card_closed_part_of_the_ba
     assert _debt(d2).status == DebtStatus.pending, "при отказе батч не трогаем вовсе"
 
 
-def test_reject_does_not_reopen_a_batch_the_card_closed_a_moment_earlier(client, user_factory):
+def test_reject_does_not_reopen_a_batch_the_card_closed_a_moment_earlier(client, user_factory, admin_log):
     admin = _admin(user_factory, "L12cAdmR")
     drv, (d1, d2) = _driver_with_debts(user_factory, "L12cRaceReject", [10_000, 15_000])
     _declare(drv["id"])
@@ -312,6 +336,28 @@ def test_reject_does_not_reopen_a_batch_the_card_closed_a_moment_earlier(client,
         "оплаченный картой долг снова числится неоплаченным — водитель заплатит второй раз"
     )
     assert "Оплата не найдена" not in _notification_titles(drv["id"])
+    assert _already_logged(admin_log, "debt.reject", d1), "«уже оплачено» не оставило следа в журнале админа"
+
+
+@pytest.mark.parametrize("action", ["forgive", "confirm", "reject"])
+def test_card_closed_before_the_admin_even_clicked_gets_the_same_already_answer(client, user_factory, admin_log,
+                                                                                action):
+    """Карта закрыла батч ДО чтения админа (его экран просто устарел) — ответ тот же, что в окне
+    гонки: «уже оплачено» и след в журнале, а не «подтверждено 0 ₽» / «отклонено 0 ₽»."""
+    admin = _admin(user_factory, f"L12cAdmEarly{action}")
+    drv, (d1, d2) = _driver_with_debts(user_factory, f"L12cEarly{action}", [10_000, 15_000])
+    if action != "forgive":
+        _declare(drv["id"])
+    pay_id = _snapshot_payment(drv["id"], 25_000, tier=debt_mod.make_taxi_debt_snapshot_tier((d1, d2)))
+    assert _activate(pay_id).status == "succeeded"
+
+    body = {"reason": "спор"} if action == "forgive" else {"amount_kop": 25_000}
+    r = client.post(f"/admin/debts/{d1}/{action}", headers=admin["auth"], json=body)
+
+    assert r.status_code == 200
+    assert r.json().get("already") is True and r.json()["status"] == "paid"
+    assert [_debt(d).status for d in (d1, d2)] == [DebtStatus.paid, DebtStatus.paid]
+    assert _already_logged(admin_log, f"debt.{action}", d1)
 
 
 def test_reject_refuses_and_changes_nothing_when_the_card_closed_part_of_the_batch(client, user_factory):

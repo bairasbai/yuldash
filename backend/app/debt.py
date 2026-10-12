@@ -700,6 +700,10 @@ def refund_commission_to_wallet(session: Session, driver_id: Optional[int], amou
     """
     if ext_id is not None and not ext_id.startswith("refund:"):
         raise ValueError("ключ возврата вне пространства uq_ledgerentry_refund")
+    if ext_id is None and order_id is None and parcel_id is None:
+        # Без заказа и доставки ключ выродился бы в общий `refund:parcel:None` — первый такой
+        # возврат прошёл бы, все следующие у ЛЮБОГО водителя молча проглотил бы индекс.
+        raise ValueError("возврат без заказа и доставки требует явного ext_id")
     if driver_id is None or amount_kop <= 0:
         return None
     ext = ext_id or refund_ext_id(order_id=order_id, parcel_id=parcel_id)
@@ -1279,6 +1283,14 @@ class DebtAlreadySettled(Exception):
     и админ должен это УВИДЕТЬ: деньги за эти долги пришли дважды (leaf-1.2c)."""
 
 
+def _nothing_pending(debt: CommissionDebt) -> int:
+    """Батч пуст. Если строку, на которую кликнул админ, уже закрыли (карта успела ДО его
+    чтения), — тот же честный ответ «уже оплачено», что и внутри окна гонки; иначе — 0, как раньше."""
+    if debt.status == DebtStatus.paid:
+        raise DebtAlreadySettled()
+    return 0
+
+
 def _apply_to_batch(session: Session, driver_id: int, batch: list, **values) -> int:
     """Закрыть батч админа одним UPDATE с условием «долг всё ещё pending» прямо в WHERE.
 
@@ -1349,7 +1361,7 @@ def admin_confirm(session: Session, debt_id: int,
         return None
     pending = _batch_admin_saw(session, debt, expected_kop)
     if not pending:
-        return 0
+        return _nothing_pending(debt)
     return _apply_to_batch(session, debt.driver_id, pending,
                            status=DebtStatus.paid, confirmed_at=utcnow())
 
@@ -1368,6 +1380,6 @@ def admin_reject(session: Session, debt_id: int,
         return None
     pending = _batch_admin_saw(session, debt, expected_kop)
     if not pending:
-        return 0
+        return _nothing_pending(debt)
     return _apply_to_batch(session, debt.driver_id, pending,
                            status=DebtStatus.unpaid, paid_declared_at=None)

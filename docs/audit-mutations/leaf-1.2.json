@@ -698,6 +698,39 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_confirm_does_not_take_credit_for_a_batch_the_card_closed_a_moment_earlier"]
+    },
+    {
+      "id": "M65",
+      "file": "backend/app/debt.py",
+      "rule": "R8d",
+      "description": "leaf-1.2c: карта закрыла батч ДО клика админа — «подтвердить» снова отвечает «подтверждено 0 ₽» вместо «уже оплачено»",
+      "find": "    if debt.status == DebtStatus.paid:\n        raise DebtAlreadySettled()",
+      "replace": "    if False:\n        raise DebtAlreadySettled()",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_card_closed_before_the_admin_even_clicked_gets_the_same_already_answer"]
+    },
+    {
+      "id": "M66",
+      "file": "backend/app/debt.py",
+      "rule": "R7c",
+      "description": "leaf-1.2c: возврат без заказа, доставки и явного ключа снова пишется под общим refund:parcel:None",
+      "find": "    if ext_id is None and order_id is None and parcel_id is None:",
+      "replace": "    if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_refund_without_order_parcel_or_explicit_key_is_refused"]
+    },
+    {
+      "id": "M67",
+      "file": "backend/app/routers/debt.py",
+      "rule": "R8e",
+      "description": "leaf-1.2c: «простить» уже оплаченный картой долг не оставляет следа в журнале админа — «простил, а комиссия у платформы» никто не увидит",
+      "find": "    admin_action(user.id, \"debt.forgive\", debt_id=debt.id, driver=debt.driver_id,\n                 amount_kop=0, outcome=\"already_settled\")",
+      "replace": "    pass",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_forgive_does_not_overwrite_a_debt_the_card_closed_a_moment_earlier"]
     }
   ]
 }
