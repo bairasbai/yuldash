@@ -92,12 +92,15 @@ def test_driver_can_call_roadside_help_too(client, user_factory):
 
 
 def test_stranger_cannot_call_roadside_help(client, user_factory):
+    """Чужой заказ: сигнал «застрял» постороннего всё равно пишется (N5, независимое ревью),
+    но к чужому заказу не привязывается."""
     pax = user_factory("Юлаусы5")
     drv = user_factory("Водитель3", role=UserRole.driver)
     stranger = user_factory("Посторонний")
     oid = _order(pax["id"], drv["id"])
     r = client.post(f"/instant/orders/{oid}/stuck", headers=stranger["auth"], json={"lat": 53.1, "lng": 57.2})
-    assert r.status_code == 403
+    assert r.status_code == 200, r.text
+    assert r.json()["order_id"] is None, "чужой заказ не должен попасть в событие как свой"
 
 
 def test_roadside_event_lands_in_admin_sos_feed(client, user_factory):

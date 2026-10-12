@@ -22,9 +22,9 @@ from __future__ import annotations
 
 from sqlmodel import Session, select
 
-from app.config import _phone_key
 from app.db import engine
 from app.models import PromoClaimLog, User, UserRole
+from app.routers.promo import _phone_claim_key
 
 НОМЕР = "+79995551490"
 
@@ -79,7 +79,10 @@ def test_след_переживает_удаление_аккаунта(client,
     with Session(engine) as s:
         след = s.exec(select(PromoClaimLog).where(PromoClaimLog.promo_id == pid)).all()
     assert след, "след исчез вместе с аккаунтом — значит и защиты нет"
-    assert след[0].phone_key == _phone_key("+79995551491"), след[0].phone_key
+    # Ключ — HMAC номера (leaf-1.3, круг 3-4), не сам номер цифрами: самого номера в следе
+    # нет и по строке его не узнать, даже если база утечёт.
+    assert след[0].phone_key == _phone_claim_key("+79995551491"), след[0].phone_key
+    assert "79995551491" not in след[0].phone_key, "в следе не должно быть самого номера"
     assert "79995551491" not in [след[0].device_id], "в следе не должно быть самого номера"
 
 

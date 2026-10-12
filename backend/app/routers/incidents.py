@@ -574,7 +574,19 @@ def admin_incidents(status: Optional[str] = None, user: User = Depends(current_u
 def resolve_incident(incident_id: int, body: ResolveIn,
                      user: User = Depends(current_user), session: Session = Depends(get_session)):
     _require_admin(user)
-    inc = session.get(Incident, incident_id)
+    # Блокируем строку спора ДО проверки статуса — тот же приём, что у admin_resolve_report
+    # в routers/safety.py (N8, независимое ревью leaf-3.1). Без лока два одновременных клика
+    # «Подтвердить» (двойной тап админа / авто-ретрай при плохой связи) оба читают ещё не
+    # решённый статус и оба прогоняют apply_incident_resolution: страйк/предупреждение
+    # накручивается дважды и пауза пересчитывается заново — обвинённый получает лестницу
+    # за одно и то же дело два раза, хотя админ (в своей голове) решил его один раз.
+    # get_or_create_safety_profile(lock=True) внутри apply_incident_resolution блокирует
+    # ТОЛЬКО профиль обвинённого — это не мешает второму потоку заново выполнить саму логику
+    # начисления после того, как первый коммитнул. SQLite `FOR UPDATE` игнорирует (однопоточные
+    # тесты не ломаются), гарантию на PostgreSQL даёт изолированный кластер (флаг pg).
+    inc = session.exec(
+        select(Incident).where(Incident.id == incident_id).with_for_update()
+    ).first()
     if not inc:
         raise herr(404, "Спор не найден", "Бәхәс табылманы")
     # Идемпотентность: уже решённый спор повторно не «дорешать» (двойной тап/ретрай иначе добавил бы страйк дважды).

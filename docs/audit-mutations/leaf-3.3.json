@@ -1,0 +1,150 @@
+{
+  "schema": 1,
+  "leaf": "leaf-3.3",
+  "mutations": [
+    {
+      "id": "M1",
+      "file": "backend/app/routers/incidents.py",
+      "rule": "R1",
+      "description": "resolve_incident: with_for_update() снят с фетча спора — два одновременных «Подтвердить» снова накручивают лестницу наказаний дважды",
+      "find": "select(Incident).where(Incident.id == incident_id).with_for_update()",
+      "replace": "select(Incident).where(Incident.id == incident_id)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_resolve_incident_race.py::test_гонка_два_одновременных_resolve_дают_одно_предупреждение"],
+      "db": "postgres"
+    },
+    {
+      "id": "M5",
+      "file": "backend/app/routers/incidents.py",
+      "rule": "R2",
+      "description": "get_incident: проверка доступа отключена — посторонний человек получает чужой спор",
+      "find": "if user.id not in (inc.reporter_id, inc.respondent_id) and user.role != UserRole.admin:",
+      "replace": "if False and user.role != UserRole.admin:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_incident_rights.py::test_посторонний_не_видит_чужой_спор"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M2",
+      "file": "backend/app/routers/support.py",
+      "rule": "R1",
+      "description": "create_ticket: проверка дубликата отключена — двойной тап снова заводит два тикета",
+      "find": "existing = _duplicate_open_ticket(session, user.id, subject, first_body)",
+      "replace": "existing = None",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_support_double_tap.py::test_двойной_тап_не_плодит_два_тикета"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M3",
+      "file": "backend/app/winter_escalate.py",
+      "rule": "R1",
+      "description": "escalate_now: язык SMS близким снова всегда ru — игнорирует язык того, кто завёл контакт",
+      "find": "lang = sms_lang_of(session, watch_user_id)",
+      "replace": "lang = \"ru\"",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_winter_sms_bilingual.py::test_башкироязычному_уходит_башкирский_текст"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M4",
+      "file": "backend/app/incident_escalate.py",
+      "rule": "R1",
+      "description": "escalate_silent_incidents: scrub_exc(e) снова заменён на сырой e — телефон из текста исключения снова может попасть в лог",
+      "find": "log.warning(f\"[incident_escalate] push failed inc={inc.id}: {scrub_exc(e)}\")",
+      "replace": "log.warning(f\"[incident_escalate] push failed inc={inc.id}: {e}\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_log_privacy.py::test_сбой_push_при_эскалации_не_пишет_телефон_в_лог"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M6",
+      "file": "backend/app/routers/support.py",
+      "rule": "R2",
+      "description": "_own_ticket: проверка владельца отключена — посторонний получает доступ к чужому тикету поддержки",
+      "find": "if not t or t.user_id != user_id:",
+      "replace": "if not t:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_support.py::test_foreign_ticket_is_404"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M7",
+      "file": "backend/app/routers/incidents.py",
+      "rule": "R3",
+      "description": "withdraw_incident: проверка статуса отключена — withdraw снова перетирает уже вынесенный вердикт",
+      "find": "if inc.status not in (\"open\", \"awaiting_response\", \"under_review\"):",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_audit_hardening.py::test_withdraw_only_before_verdict"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M8",
+      "file": "backend/app/winter_escalate.py",
+      "rule": "R3",
+      "description": "escalate_now: проверка «уже эскалировано» отключена — повторный вызов для того же дела снова шлёт SMS и заводит второе событие",
+      "find": "    if already:\n        return {\"state\": \"escalated\", \"already\": True, \"sos_event_id\": already.id}",
+      "replace": "    if False:\n        return {\"state\": \"escalated\", \"already\": True, \"sos_event_id\": already.id}",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_winter_sms_bilingual.py::test_повторная_эскалация_не_шлёт_второе_sms"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M9",
+      "file": "backend/app/incident_escalate.py",
+      "rule": "R3",
+      "description": "escalate_silent_incidents: фильтр по статусу снят — повторный прогон задачи снова уведомляет по уже переведённому в разбор делу",
+      "find": "Incident.status == \"awaiting_response\",",
+      "replace": "True,",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_log_privacy.py::test_повторный_прогон_эскалации_не_дублирует_уведомления"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M10",
+      "file": "backend/app/winter_escalate.py",
+      "rule": "R2",
+      "description": "_winter_identity_pattern: закрывающий разделитель после номера снят — order#1 снова путается с order#10/order#100 (исторический баг из комментария в коде)",
+      "find": "return f\"Зимний протокол ({kind}#{obj_id}):%\"",
+      "replace": "return f\"Зимний протокол ({kind}#{obj_id}%\"",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_3/test_l3_3_winter_sms_bilingual.py::test_identity_pattern_не_путает_order_1_и_order_10"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M11",
+      "file": "backend/app/routers/incidents.py",
+      "rule": "R4",
+      "description": "_require_admin: проверка роли отключена — не-админ решает чужие споры",
+      "find": "    if user.role != UserRole.admin:\n        raise HTTPException(403, \"Только для админа\")",
+      "replace": "    if False:\n        raise HTTPException(403, \"Только для админа\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_incidents.py::test_resolve_admin_only"],
+      "db": "sqlite"
+    },
+    {
+      "id": "M12",
+      "file": "backend/app/routers/support.py",
+      "rule": "R4",
+      "description": "_guard_admin: проверка роли отключена — обычный пользователь попадает в админ-очередь поддержки",
+      "find": "    if user.role != UserRole.admin:\n        raise HTTPException(403, \"Только для админа\")",
+      "replace": "    if False:\n        raise HTTPException(403, \"Только для админа\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_support.py::test_admin_only_guard"],
+      "db": "sqlite"
+    }
+  ]
+}

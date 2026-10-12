@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -231,6 +232,9 @@ private fun PayOnlineOwnedCard(
                             onClick = { startPay() },
                             icon = Icons.Default.CreditCard,
                             loading = busy,
+                            // Текст кнопки при loading прячется под спиннер (см. AppButtonContent) —
+                            // тест двойного нажатия находит кнопку по тегу, не по тексту.
+                            modifier = Modifier.testTag("pay_online_submit"),
                         )
                         Text(
                             appText(

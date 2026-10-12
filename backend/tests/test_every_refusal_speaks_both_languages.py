@@ -25,6 +25,10 @@ import pathlib
 import re
 
 КОРЕНЬ = pathlib.Path(__file__).resolve().parents[1] / "app"
+#: Код ответа числом (`401`) или именем (`status.HTTP_401_UNAUTHORIZED`). Именная форма была
+#: слепым пятном: так записанные отказы сессии уходили человеку только по-русски, хотя это
+#: самый частый отказ приложения — он стоит на каждом защищённом запросе (аудит leaf-2.1).
+_КОД = r'(?:\d{3}|status\.HTTP_\d{3}_[A-Z_]+)'
 
 
 def _отказы_на_одном_языке(текст_файла: str, имя: str = "образец.py") -> list:
@@ -46,19 +50,19 @@ def _отказы_на_одном_языке(текст_файла: str, имя:
     найдено = []
     for i, строка in enumerate(строки, 1):
         # Позиционная форма — `HTTPException(403, "Пройди проверку")`.
-        m = re.search(r'HTTPException\(\s*\d{3}\s*,\s*["\']([^"\']{4,})', строка)
+        m = re.search(r'HTTPException\(\s*' + _КОД + r'\s*,\s*["\']([^"\']{4,})', строка)
         # Именованная — `HTTPException(status_code=404, detail="Бронь не найдена")`.
         # Слепое пятно, через которое проскочили три отказа на экране оценки поездки
         # (сверка двуязычия, 2026-08-31): человек оценивал поездку и читал русский текст.
         if m is None:
             m = re.search(
-                r'HTTPException\(\s*status_code\s*=\s*\d{3}\s*,\s*'
+                r'HTTPException\(\s*status_code\s*=\s*' + _КОД + r'\s*,\s*'
                 r'detail\s*=\s*["\']([^"\']{4,})',
                 строка,
             )
         текст = m.group(1) if m else None
         if текст is None:
-            k = re.search(r'HTTPException\(\s*\d{3}\s*,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*[,)]',
+            k = re.search(r'HTTPException\(\s*' + _КОД + r'\s*,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*[,)]',
                           строка)
             if k:
                 текст = словарь.get(k.group(1).split(".")[-1])
@@ -170,6 +174,11 @@ DEVICE_BANNED_MSG = ("Аккаунт заблокирован — напиши �
 def set_zone():
     raise HTTPException(403, DEVICE_BANNED_MSG)
 '''
+    символьный_код = '''
+@router.post("/auth/refresh")
+def refresh():
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Сессия завершена. Войди заново.")
+'''
     просто_переменная = '''
 @router.post("/instant/zone")
 def set_zone():
@@ -183,6 +192,9 @@ def set_zone():
     )
     assert not _отказы_на_одном_языке(константа_двуязычная), (
         "сторож ругается на константу, где оба языка лежат в одной строке"
+    )
+    assert _отказы_на_одном_языке(символьный_код), (
+        "код ответа записан именем status.HTTP_* — и сторож ослеп: так ушли отказы сессии"
     )
     assert not _отказы_на_одном_языке(просто_переменная), (
         "сторож принял обычную переменную за константу с русским текстом"

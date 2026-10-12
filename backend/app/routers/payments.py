@@ -8,8 +8,9 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlmodel import Session, select
+from starlette.concurrency import run_in_threadpool
 
 from ..config import settings
 from ..db import get_session
@@ -191,14 +192,26 @@ def _activate_payment(session: Session, payment: Payment) -> None:
     # Эффект и статус — одна транзакция; Payment → заказ/бронь — общий порядок lock.
     if payment.purpose == "ride" and payment.order_id is not None:
         from .. import ledger
-        ledger.settle_instant_order(session, payment.order_id, payment.method or "yookassa", payment.amount_kop,
-                                   commit=False)
+        result = ledger.settle_instant_order(session, payment.order_id, payment.method or "yookassa", payment.amount_kop,
+                                            commit=False)
+        if result != "settled":
+            # "already" (заказ оплачен ДРУГИМ платежом/налом, пока этот шёл к провайдеру) или
+            # "skip" (заказ пропал/без водителя) — деньги пришли, а применить их уже некуда.
+            # Раньше здесь всё равно ставился succeeded: пассажир платил, провайдер подтверждал,
+            # а водителю ничего не начислялось и никто — ни человек, ни админ — об этом не узнавал
+            # (след оставался только в ledger.reconcile как молчаливое расхождение). Это ровно тот
+            # случай, ради которого написан _handle_unclaimed_payment.
+            _handle_unclaimed_payment(session, payment)
+            return
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     if payment.purpose == "booking" and payment.booking_id is not None:
         from .. import ledger
-        ledger.settle_booking(session, payment.booking_id, payment.method or "yookassa", payment.amount_kop,
-                             commit=False)
+        result = ledger.settle_booking(session, payment.booking_id, payment.method or "yookassa", payment.amount_kop,
+                                      commit=False)
+        if result != "settled":
+            _handle_unclaimed_payment(session, payment)
+            return
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     if payment.purpose == "courier_commission":
@@ -237,11 +250,54 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     if payment.purpose == "taxi_debt":
-        # Таксист оплатил недельную комиссию картой → гасим долг (unpaid+pending), но только тот, что
-        # вошёл в снапшот суммы (created_at <= момент создания платежа). Долг, накопленный в окне до
-        # подтверждения, останется к оплате следующим платежом (иначе гасился бы бесплатно). Идемпотентно.
+        # Таксист оплатил недельную комиссию картой → гасим долг СТРОГО по причинному ID-снимку
+        # состава счёта (Payment.tier, taxi_debt_snapshot_ids — лист 1.1), тем же приёмом, что
+        # courier_commission выше (_courier_snapshot_ids). Долг, начисленный ПОСЛЕ выставления
+        # счёта, в снимок не входит — и так не трогается (`id.in_(snapshot_ids)` его не видит).
+        # Платёж без снимка (исторический формат, до этой правки) — как раньше, по времени.
         from .. import debt as debt_mod
-        debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at, commit=False)
+        from ..models import CommissionDebt, DebtStatus
+        snapshot_ids = debt_mod.taxi_debt_snapshot_ids(payment)
+        if snapshot_ids:
+            now = utcnow()
+            # Атомарный UPDATE с условием ПРЯМО в WHERE — ядро защиты от гонки с
+            # /admin/debts/{id}/forgive (routers/debt.py, чужой файл): ни тот путь, ни этот
+            # не берут общий лок на строку долга, оба решают «ещё не paid?» в своей транзакции.
+            # WHERE status != paid атомарен на уровне СУБД: если форгив успел закоммититься
+            # раньше нас, долг сюда уже не попадёт — мы не перезатираем его отметку прощения
+            # своим «оплачено картой», и не выдаём эту поездку за реально собранную комиссию.
+            # RETURNING(id) говорит РОВНО какие долги закрыли МЫ — остальные ID снимка (там,
+            # где статус уже был paid ДО этого UPDATE — простили, подтвердили СБП и т.п., пока
+            # счёт висел у банка) идут на возврат ниже: деньги за них списаны картой ВТОРОЙ раз.
+            closed_ids = set(session.execute(
+                update(CommissionDebt)
+                .where(CommissionDebt.driver_id == payment.user_id,
+                      CommissionDebt.id.in_(snapshot_ids),
+                      CommissionDebt.status != DebtStatus.paid)
+                .values(status=DebtStatus.paid, confirmed_at=now)
+                .returning(CommissionDebt.id)
+            ).scalars().all())
+            already_paid_ids = [i for i in snapshot_ids if i not in closed_ids]
+            if already_paid_ids:
+                for d in session.exec(
+                    select(CommissionDebt).where(CommissionDebt.id.in_(already_paid_ids))
+                ).all():
+                    # Возврат идемпотентен по заказу (refund:order:N, SAVEPOINT внутри) — не
+                    # коммитит сам, безопасен в ЭТОЙ же транзакции успеха платежа.
+                    debt_mod.refund_commission_to_wallet(
+                        session, payment.user_id, d.amount_kop, order_id=d.order_id,
+                        note="Возврат: долг из счёта на оплату комиссии уже был закрыт другим "
+                             "способом, пока счёт ждал подтверждения банка",
+                    )
+        elif snapshot_ids == ():
+            # Маркер нашего формата, но повреждён — состав счёта неизвестен. Fail-closed, как
+            # у курьера: не гасим и не возвращаем вслепую, платёж остаётся pending — webhook/
+            # поллинг повторят попытку после ремонта данных.
+            raise RuntimeError("invalid taxi debt payment snapshot marker")
+        else:
+            # snapshot_ids is None → платёж без маркера (создан до этой правки) — старое
+            # поведение по времени создания платежа.
+            debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at, commit=False)
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     # --- Аддитивные / прочие эффекты: succeeded ПЕРВЫМ (под тем же row-lock), потом эффект ---
@@ -568,7 +624,13 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
     # mock/yookassa. user.phone реальный (current_user не пускает плейсхолдер) → на него ЮKassa шлёт чек.
     if reused and payment.provider_id:
         # Счёт у провайдера уже заведён — второй раз не создаём, отдаём ту же ссылку на оплату.
-        existing = fetch_payment(payment.provider_id)
+        # Сеть/провайдер мог ответить ошибкой (в отличие от _sync_provider_status, этот путь
+        # раньше ничего не ловил и ронял весь запрос в 500) — неизвестный исход не страшнее
+        # повторного _start_yookassa с тем же Idempotence-Key ниже.
+        try:
+            existing = fetch_payment(payment.provider_id)
+        except Exception:  # noqa: BLE001
+            existing = None
         if existing and existing.get("confirmation_url"):
             return {"status": "pending", "method": "yookassa", "payment_id": payment.id,
                     "confirmation_url": existing["confirmation_url"]}
@@ -713,7 +775,14 @@ def admin_pending_payments(user: User = Depends(current_user), session: Session 
 
     Платежи, созданные у провайдера (provider_id != ''), сюда НЕ попадают: их судьбу знает только
     вебхук/перепроверка ЮKassa. Иначе после флипа на yookassa в списке висели бы карточные pending,
-    и случайный тап «подтвердить» начислил бы водителю деньги, которых не было."""
+    и случайный тап «подтвердить» начислил бы водителю деньги, которых не было.
+
+    Поездка/бронь сюда тоже не должны попадать (для них СБП-«на доверии» не предусмотрен — только
+    ЮKassa), и фильтр method != 'yookassa' это уже обеспечивает: Payment(purpose=ride/booking)
+    получает method='yookassa' СРАЗУ при создании строки (см. _pay_cashless), ни на миг не
+    становясь «сиротой» с method='card'/'sbp'. Строго историческое исключение: до этой правки
+    существовали непомеченные ручные строки за бронь (см. test_manual_payment_terminal_confirmation.py
+    ::legacy_booking) — их сюда по-прежнему пускаем намеренно, не задним числом."""
     _require_admin(user)
     rows = session.exec(select(Payment).where(
         Payment.status == "pending", Payment.provider_id == "", Payment.method != "yookassa",
@@ -811,15 +880,33 @@ async def yookassa_webhook(request: Request, session: Session = Depends(get_sess
         body = await request.json()
     except Exception:
         return {"ok": True}
-    provider_id = ((body.get("object") or {}).get("id")) or ""
-    if not provider_id:
+    # Валидный JSON неожиданной формы ([], число, {"object": "строка"}, числовой id) — такое же
+    # «тело, которому не доверяем», как и битый JSON: это не повод падать 500 (независимая
+    # проверка, Opus 5.5, 2026-10-02), только повод молча выйти.
+    object_ = body.get("object") if isinstance(body, dict) else None
+    provider_id = object_.get("id") if isinstance(object_, dict) else None
+    if not isinstance(provider_id, str) or not provider_id:
         return {"ok": True}
+    # Поиск своей строки и возможная сверка (_sync_provider_status) — синхронные БД-запросы и,
+    # внутри нашего `fetch_payment`, синхронный HTTP к ЮKassa (httpx.get, до 15 с) — переносим
+    # в threadpool. async def тут только ради await request.json() (битый JSON — всё ещё 200,
+    # не 422, в отличие от объявления тела через Body). Без переноса этот код выполнялся бы
+    # ПРЯМО на потоке event loop: на --workers 2 один медленный ответ ЮKassa держит весь воркер,
+    # а с блокировкой заказа (with_for_update в pay_instant_order/pay_booking) другой запрос на
+    # ТОМ ЖЕ воркере может ждать снятия этой блокировки прямо в loop — взаимное зависание без
+    # таймаута (lock_timeout в db.py не задан). Независимая проверка, Opus 5.5, 2026-10-02.
+    await run_in_threadpool(_process_yookassa_webhook, session, provider_id)
+    return {"ok": True}
+
+
+def _process_yookassa_webhook(session: Session, provider_id: str) -> None:
+    """Синхронная часть вебхука: поиск СВОЕЙ строки и сверка статуса. Вызывается через
+    run_in_threadpool из yookassa_webhook — не исполняется на потоке event loop (см. выше)."""
     # Сначала ищем СВОЙ платёж по id (параметризованный запрос). Нет совпадения / уже
     # оплачен → тихо выходим БЕЗ исходящего запроса к ЮKassa. Иначе любой мог бы флудить
     # вебхук случайными id и заставлять сервер ходить наружу (амплификация/DoS), а чужой id
     # уходил бы в URL-путь ЮKassa. Наружу ходим только за id, что сами выпустили.
     payment = session.exec(select(Payment).where(Payment.provider_id == provider_id)).first()
     if not payment or payment.status in ("succeeded", REFUND_DUE):
-        return {"ok": True}
+        return
     _sync_provider_status(session, payment)
-    return {"ok": True}
