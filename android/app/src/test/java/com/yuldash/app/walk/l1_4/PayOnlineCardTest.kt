@@ -92,7 +92,8 @@ class PayOnlineCardTest {
     private fun render(amountKop: Int?, pay: suspend (String) -> Result<PayTripResultDto>) {
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                PayOnlineCard(amountKop = amountKop, pay = pay)
+                // Второй аргумент — поколение входа (1cd57e9f); этим тестам он не нужен.
+                PayOnlineCard(amountKop = amountKop, pay = { method, _ -> pay(method) })
             }
         }
     }
@@ -119,7 +120,7 @@ class PayOnlineCardTest {
         val amountKop = androidx.compose.runtime.mutableStateOf<Int?>(100_00)
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                PayOnlineCard(amountKop = amountKop.value, pay = { Result.failure(ApiException(503, "Оплата скоро", "")) })
+                PayOnlineCard(amountKop = amountKop.value, pay = { _, _ -> Result.failure(ApiException(503, "Оплата скоро", "")) })
             }
         }
 
