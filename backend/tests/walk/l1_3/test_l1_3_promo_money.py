@@ -329,7 +329,7 @@ def test_legacy_plaintext_claim_still_blocks_reapply_before_and_after_migration(
     # строка к переводу) — `promo_apply` тем же секретом считает HMAC что при записи, что при
     # сравнении, так что подмена не ломает сам тест.
     monkeypatch.setattr(settings, "jwt_secret", _STRONG_TEST_SECRET)
-    НОМЕР = "+79995559911"
+    НОМЕР = "+79995559937"   # не +79995559911: тот занят test_launch_extras (общая БД прогона на PostgreSQL)
     admin = user_factory("HmacГраницаАдмин", role=UserRole.admin)
     r = client.post("/admin/promo", headers=admin["auth"], json={"code": "HMACBORDER", "kind": "welcome"})
     assert r.status_code == 200, r.text
