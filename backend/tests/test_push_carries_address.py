@@ -29,6 +29,26 @@ import app.services as services
 from app.db import engine
 
 
+def _push_router_kinds(router: str) -> set[str]:
+    """Виды, которые разбирает тап по пушу в шторке, — только из двух функций-маршрутизаторов
+    `MainActivity.kt`: `dispatchNavIntent` (закрытые экраны) и `openChatFromPush` (брони, рейсы).
+
+    Ветка записана в одной из форм: `"x" ->` / `type == "x" ->`, `type in setOf("x", "y") ->`,
+    `type?.startsWith("x") == true ->`. Раньше тест искал только первую по ВСЕМУ файлу: ветку
+    «instant» переписали во вторую (d1685f71, 08.10, поведение то же — экран такси-заказа),
+    и тест покраснел ложно; а «parcel» он находил случайно — в `when` про иконки категорий.
+    """
+    kinds: set[str] = set()
+    for fn in ("private fun dispatchNavIntent(", "private fun openChatFromPush("):
+        body = router[router.index(fn):]
+        body = body[: body.index("\n    }\n")]
+        kinds |= set(re.findall(r'"([a-z_]+)"\s*->', body))
+        for group in re.findall(r'type in setOf\(([^)]*)\)\s*->', body):
+            kinds |= set(re.findall(r'"([a-z_]+)"', group))
+        kinds |= set(re.findall(r'type\?\.startsWith\("([a-z_]+)"\)\s*==\s*true\s*->', body))
+    return kinds
+
+
 def test_адрес_подставляется_когда_сервер_его_знает(monkeypatch, user_factory):
     sent: list = []
     _s = Session(engine)
@@ -78,7 +98,7 @@ def test_приложение_умеет_открыть_то_что_шлёт_с�
     root = pathlib.Path(__file__).resolve().parents[2]
     android = root / "android/app/src/main/java/com/yuldash/app"
     router = (android / "MainActivity.kt").read_text(encoding="utf-8")
-    handled = set(re.findall(r'"([a-z_]+)"\s*->', router))
+    handled = _push_router_kinds(router)
     # Виды, ради которых правило и заводилось: человек ждёт ответа и должен попасть точно.
     must = {"support", "incident", "booking"}
     missing = must - handled
@@ -104,7 +124,7 @@ def test_шторка_и_лента_ведут_в_одно_место():
     block = feed[feed.index("when (n.refKind)"):]
     block = block[: block.index("\n    }")]
     feed_kinds = set(re.findall(r'"([a-z_]+)"\s*->', block))
-    push_kinds = set(re.findall(r'"([a-z_]+)"\s*->', router))
+    push_kinds = _push_router_kinds(router)
     # Заявки таксиста/курьера открывают экраны подачи документов — туда пуш ведёт кнопкой
     # в самом уведомлении, отдельная ветка не нужна. Остальное должно совпадать.
     allowed_gap = {"taxi_apply", "courier_apply"}

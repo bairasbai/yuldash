@@ -6147,3 +6147,8 @@ DELETE receipt сообщает о необходимости сверки, не
 ## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
 
 Barrier успешной инвалидации должен переживать CacheEntry.remove. Per-key revisions выбраны вместо зависимости только от cached entry/readOrder. Uncertain generic mutations и late setterowner не объявлены закрытыми. После checked delivery+hаndoff выполнить STOP по поручению пользователя. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).
+
+
+## Б-1 — вход по SMS: код живёт только если SMS ушла, 12.10.2026
+
+Перенос в main правки 8ac8122c из `hotfix/frozen-sms-login` (02.10 она туда не попала). Три решения в `backend/app/routers/auth.py`: (1) `request_code` — `flush → send_sms → commit`: сбой канала откатывает код целиком; (2) `verify` отказывает по SMS-коду (503, RU+BA), пока на проде канал заморожен (`settings.is_prod and not sms_channel_live()`) — страховка от кода, оставшегося в базе; (3) поверх 15 попыток на живые коды — суточный потолок 100 неудач по всем кодам номера (NIST 800-63B), а строки `OtpCode` с попытками чистильщик в `telegram_webhook` держит 25 ч (чистые — как раньше, 60 с). Почему не «только (1)»: без (2) старый код из базы всё ещё принимается, без (3) перебор обнуляется каждым новым кодом (~4300 попыток/сутки на номер, номер из `ADMIN_PHONES` даёт админа). Тесты: `backend/tests/walk/l2_1/test_l2_1_frozen_sms_door.py`.
