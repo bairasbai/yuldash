@@ -174,7 +174,9 @@ class DriverEarningsScreenTest {
         // Второй запрос (здесь — через смену периода, как и у "Кошелька") не отвечает.
         compose.onNodeWithText("Месяц").performClick()
         compose.waitUntil(5_000) { round >= 2 }
-        compose.waitForIdle()
+        // Сервер получил запрос — ещё не значит, что экран обработал ответ (он дочитывается на
+        // Dispatchers.IO, waitForIdle() его не ждёт). Ждём саму плашку, которую увидит водитель.
+        awaitText("Не удалось обновить — цифры могут быть старыми")
 
         assertTrue("данные прошлого ответа должны остаться видимыми", round >= 2)
         compose.onAllNodes(hasScrollToNodeAction()).onFirst().performScrollToNode(hasText("45 000 ₽"))

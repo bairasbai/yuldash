@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -88,7 +89,10 @@ class BookingCompletionDestinationTest {
             start()
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
-        ApiClient.testTimeoutMs = 300
+        // Ни один запрос здесь не должен упираться в таймаут: сервер местный и отвечает сразу
+        // (`/rides/42` — через 200 мс). Прежние 300 мс — впритык: на медленном раннере GitHub
+        // ответ о роли в поездке мог не успеть, и бронь вместо открытия уходила в ошибку.
+        ApiClient.testTimeoutMs = 5_000
         ApiClient.init(context)
         // No account or real service is needed to exercise the startup navigation race.
         ApiClient.saveToken("")
@@ -110,6 +114,12 @@ class BookingCompletionDestinationTest {
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         server.shutdown()
+    }
+
+    /** Ручные часы: каждый шаг доставляет изменения состояния и кадр, пока не наступит событие. */
+    private fun awaitManualFrames(check: () -> Boolean) = compose.waitUntil(timeoutMillis = 10_000) {
+        Snapshot.sendApplyNotifications(); compose.mainClock.advanceTimeBy(100)
+        Shadows.shadowOf(Looper.getMainLooper()).idle(); check()
     }
 
     @Test fun completedBookingDestinationSurvivesSplashAndUnfinishedOnboarding() {
@@ -134,8 +144,10 @@ class BookingCompletionDestinationTest {
             ApiClient.saveToken("local-completion-test")
             vm.screen.value = Screen.Login
         }
-        compose.mainClock.advanceTimeBy(1_000)
-        compose.waitForIdle()
+        // Бронь открывается только после ответа сервера о роли (настоящий HTTP на местный
+        // сервер). Ждём сам переход, а не секунду времени: секунды хватало быстрой машине,
+        // но не раннеру GitHub.
+        awaitManualFrames { vm.screen.value == Screen.ActiveTrip }
         compose.runOnIdle {
             assertEquals(Screen.ActiveTrip, vm.screen.value)
             assertEquals(42, vm.activeBookingId.value)

@@ -2809,7 +2809,7 @@ private fun ActiveTripContent(
                     }
                 }
                 }
-                AnimatedVisibility(visible = mutationBusy, enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) {
+                AnimatedVisibility(visible = mutationBusy, enter = fadeIn(tween(CanonMotion.QUICK)), exit = fadeOut(tween(CanonMotion.QUICK))) {
                     LinearProgressIndicator(Modifier.fillMaxWidth(), color = CanonGreen2)
                 }
             }

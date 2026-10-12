@@ -163,7 +163,14 @@ class WalletPayoutFlowTest {
         compose.onNodeWithTag("payout_submit").performClick()
         compose.onNodeWithTag("payout_confirm").performClick()
         compose.waitUntil(5_000) { payoutKeys.size >= 1 }
-        compose.waitForIdle()
+        // Сервер получил запрос — это ещё не «экран обработал ответ»: ответ дочитывается на
+        // Dispatchers.IO, waitForIdle() его не ждёт. Пока busy, «Вывести» выключена и повторное
+        // нажатие уходит в пустоту. Ждём то, что видит человек: окно подтверждения закрылось,
+        // кнопка снова доступна.
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("payout_confirm").fetchSemanticsNodes().isEmpty() &&
+                compose.onAllNodes(hasTestTag("payout_submit") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
 
         // Неоднозначный отказ не закрывает экран: сумма осталась, можно повторить тем же путём.
         compose.onNodeWithTag("payout_submit").performClick()
@@ -189,7 +196,14 @@ class WalletPayoutFlowTest {
         compose.onNodeWithTag("payout_submit").performClick()
         compose.onNodeWithTag("payout_confirm").performClick()
         compose.waitUntil(5_000) { payoutKeys.size >= 1 }
-        compose.waitForIdle()
+        // Сервер получил запрос — это ещё не «экран обработал ответ»: ответ дочитывается на
+        // Dispatchers.IO, waitForIdle() его не ждёт. Пока busy, «Вывести» выключена и повторное
+        // нажатие уходит в пустоту. Ждём то, что видит человек: окно подтверждения закрылось,
+        // кнопка снова доступна.
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("payout_confirm").fetchSemanticsNodes().isEmpty() &&
+                compose.onAllNodes(hasTestTag("payout_submit") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
 
         compose.onNodeWithTag("payout_submit").performClick()
         compose.onNodeWithTag("payout_confirm").performClick()

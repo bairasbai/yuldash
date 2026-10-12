@@ -10,6 +10,7 @@ import org.junit.Assert.*
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -54,9 +55,14 @@ class ApiClientContactsTransportTest {
                     }
                     return MockResponse().setResponseCode(404).setBody("{}")
                 }
-            }; start()
+            }
+            // Явно IPv4, и в адресе — тоже цифры, а не `localhost`. На Linux (GitHub) `localhost`
+            // резолвится сначала в `[::1]`, а сервер слушает 127.0.0.1. Клиент мутаций контактов
+            // намеренно не повторяет запрос на другой адрес (иначе «потерянный» POST ушёл бы
+            // дважды), поэтому вместо отката на IPv4 тест получал «Connection refused».
+            start(InetAddress.getByName("127.0.0.1"), 0)
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/'); ApiClient.testTimeoutMs = 2000
+        ApiClient.testBaseUrl = "http://127.0.0.1:${server.port}"; ApiClient.testTimeoutMs = 2000
     }
     @After fun cleanup() {
         ApiClient.testTrace = null; ApiClient.resetForTest(); ApiClient.testTimeoutMs = null; server.shutdown()

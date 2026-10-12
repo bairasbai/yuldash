@@ -174,6 +174,8 @@ class MyDataScreenStatesTest {
         assertTrue(compose.onAllNodesWithText("Удалить документы?").fetchSemanticsNodes().isNotEmpty())
         compose.onNodeWithText("Удалить").performClick()
         compose.waitUntil(10_000) { settle(); compose.onAllNodesWithText("Удалить документы?").fetchSemanticsNodes().isEmpty() }
+        // Повторная загрузка уходит ПОСЛЕ закрытия окна и долетает до сервера не мгновенно.
+        compose.waitUntil(10_000) { settle(); requests.count { it == "GET /me/data" } >= 2 }
         assertEquals(1, requests.count { it == "POST /me/driver-docs/delete" })
         assertEquals("closing the dialog must re-fetch, not assume the deletion client-side",
             2, requests.count { it == "GET /me/data" })

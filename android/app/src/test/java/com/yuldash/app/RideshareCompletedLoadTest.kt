@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -99,11 +100,11 @@ class RideshareCompletedLoadTest {
     }
     private fun pump(ms: Long = 700) {
         repeat((ms / 100).toInt()) {
-            compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100)); Thread.sleep(10)
+            Snapshot.sendApplyNotifications(); compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100)); Thread.sleep(10)
         }; compose.waitForIdle()
     }
     private fun waitFor(predicate: () -> Boolean) = compose.waitUntil(12000) {
-        compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idle(); predicate()
+        Snapshot.sendApplyNotifications(); compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idle(); predicate()
     }
     private fun mount() {
         compose.setContent {
