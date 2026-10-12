@@ -1,4 +1,6 @@
 import java.util.Properties
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 plugins {
     id("com.android.application")
@@ -229,6 +231,7 @@ android {
                 // оставлял ни строки: Gradle печатает только упавшие тесты, а отчёт пишет в самом
                 // конце. Теперь видно, сколько шёл каждый класс и каждый тест дольше 5 секунд,
                 // а повисший класс — это последний «▶» без своего «✓».
+                val runningTests = ConcurrentHashMap<String, Long>()
                 it.addTestListener(object : org.gradle.api.tasks.testing.TestListener {
                     override fun beforeSuite(suite: org.gradle.api.tasks.testing.TestDescriptor) {
                         if (suite.className != null) println("▶ ${suite.className}")
@@ -237,12 +240,32 @@ android {
                         if (suite.className != null) println("✓ ${suite.className} " +
                             "${(result.endTime - result.startTime) / 1000}s, тестов ${result.testCount}, упало ${result.failedTestCount}")
                     }
-                    override fun beforeTest(testDescriptor: org.gradle.api.tasks.testing.TestDescriptor) {}
+                    override fun beforeTest(testDescriptor: org.gradle.api.tasks.testing.TestDescriptor) {
+                        runningTests["${testDescriptor.className?.substringAfterLast('.')}.${testDescriptor.name}"] = System.currentTimeMillis()
+                    }
                     override fun afterTest(testDescriptor: org.gradle.api.tasks.testing.TestDescriptor, result: org.gradle.api.tasks.testing.TestResult) {
+                        runningTests.remove("${testDescriptor.className?.substringAfterLast('.')}.${testDescriptor.name}")
                         val ms = result.endTime - result.startTime
                         if (ms >= 5_000) println("  ⏱ ${ms / 1000}s ${testDescriptor.className?.substringAfterLast('.')}.${testDescriptor.name}")
                     }
                 })
+                // Сторож зависаний (12.10.2026). В CI тест BookingOfflinePaymentJourneyTest
+                // однажды крутил кадры Compose 37 минут, пока не кончилась память, — и прогон
+                // обрывался лимитом 45 мин, ничего не объяснив. Самые долгие честные тесты идут
+                // ~15 с. Тест дольше 3 мин: печатаем стеки всех потоков тестовой JVM (видно, что
+                // именно крутится). Дольше 5 мин: останавливаем тестовую JVM — прогон падает сразу
+                // и с понятной причиной, а не через 45 минут молчания.
+                // По умолчанию — только в CI (GitHub ставит CI=true): дома ноутбук может уснуть
+                // посреди прогона, и сон выглядел бы как зависание. Локально включается
+                // `-Pyuldash.hangDumpSec=… -Pyuldash.hangKillSec=…`.
+                val onCi = System.getenv("CI") == "true"
+                val hangDumpSec = (project.findProperty("yuldash.hangDumpSec") as String?)?.toLong() ?: if (onCi) 180L else null
+                val hangKillSec = (project.findProperty("yuldash.hangKillSec") as String?)?.toLong() ?: 300L
+                if (hangDumpSec != null) {
+                    var hangWatcher: Thread? = null
+                    it.doFirst { hangWatcher = startHangWatcher(runningTests, hangDumpSec, hangKillSec) }
+                    it.doLast { hangWatcher?.interrupt() }
+                }
                 // Журнал сборщика мусора тестовой JVM. Путь относительный: тесты идут из папки
                 // модуля, а двоеточие в абсолютном пути Windows ломает разбор -Xlog. CI выкладывает
                 // файл даже при обрыве по лимиту — по нему видно, не захлебнулась ли память.
@@ -455,3 +478,63 @@ tasks.register<JacocoCoverageVerification>("jacocoCoverageVerification") {
 
 // `gradlew check` (и любой CI-прогон) теперь проверяет и покрытие тоже.
 tasks.named("check") { dependsOn("jacocoCoverageVerification") }
+
+/**
+ * Сторож зависаний unit-тестов (см. `testOptions.unitTests.all` выше).
+ *
+ * Тестовая JVM — дочерний процесс Gradle с аргументом «Gradle Test Executor N». Стеки снимаем
+ * штатным `jcmd` из той же JDK, что запускает Gradle. Сторож сам засыпает навсегда, если
+ * 10 минут не идёт ни один тест: задача кончилась, а постоянный демон Gradle живёт дальше.
+ */
+fun startHangWatcher(running: Map<String, Long>, dumpAfterSec: Long, killAfterSec: Long): Thread {
+    val windows = System.getProperty("os.name").lowercase().contains("win")
+    val jcmd = File(System.getProperty("java.home"), "bin/" + if (windows) "jcmd.exe" else "jcmd")
+    // Только свои дочерние процессы: на машине разработчика рядом могут идти чужие сборки.
+    // `jcmd -l` показывает аргументы JVM и там, где ОС их не отдаёт (Windows).
+    fun testWorkers(): List<ProcessHandle> {
+        val own = ProcessHandle.current().descendants().toList().associateBy { it.pid() }
+        val listed = runCatching {
+            val proc = ProcessBuilder(jcmd.path, "-l").redirectErrorStream(true).start()
+            proc.inputStream.bufferedReader().readLines().also { proc.waitFor(30, TimeUnit.SECONDS) }
+        }.getOrDefault(emptyList())
+        return listed.filter { it.contains("Gradle Test Executor") }
+            .mapNotNull { line -> line.substringBefore(' ').toLongOrNull()?.let(own::get) }
+    }
+    fun dump(test: String, sec: Long) {
+        println("⚠ Тест идёт уже $sec с — похоже, завис: $test. Стеки тестовой JVM:")
+        val workers = testWorkers()
+        if (workers.isEmpty()) println("  (тестовая JVM не найдена среди дочерних процессов Gradle)")
+        workers.forEach { worker ->
+            runCatching {
+                val proc = ProcessBuilder(jcmd.path, worker.pid().toString(), "Thread.print")
+                    .redirectErrorStream(true).start()
+                val text = proc.inputStream.bufferedReader().readText()
+                proc.waitFor(60, TimeUnit.SECONDS)
+                text.lineSequence().forEach { line -> println("  | $line") }
+            }.onFailure { e -> println("  (не удалось снять стеки: $e)") }
+        }
+    }
+    return Thread {
+        val dumped = mutableSetOf<String>()
+        var lastBusy = System.currentTimeMillis()
+        try {
+            while (true) {
+                Thread.sleep(5_000)
+                val now = System.currentTimeMillis()
+                if (running.isNotEmpty()) lastBusy = now
+                else if (now - lastBusy > 600_000) return@Thread
+                for ((test, since) in running) {
+                    val sec = (now - since) / 1000
+                    if (sec >= dumpAfterSec && dumped.add(test)) dump(test, sec)
+                    if (sec >= killAfterSec) {
+                        println("⛔ Тест $test висит $sec с — останавливаю тестовую JVM, чтобы прогон " +
+                            "упал сейчас с понятной причиной, а не через 45 минут по лимиту CI.")
+                        testWorkers().forEach { worker -> worker.destroyForcibly() }
+                        return@Thread
+                    }
+                }
+            }
+        } catch (_: InterruptedException) {
+        }
+    }.apply { isDaemon = true; name = "yuldash-test-hang-watch"; start() }
+}
