@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -52,18 +53,22 @@ def _cancel_own_pending_cashless(session: Session, user_id: int, *, order_id=Non
     ссылка ЮKassa переживает нал: пассажир «передумал → нал → позже открыл старую ссылку» платит
     дважды (нал водителю + карта платформе), а settle_* отбивает вебхук как "already" без денег
     водителю. Локальный canceled убирает платёж из дедупа/поллинга; сама ссылка у провайдера
-    протухает по его TTL (API отмены неоплаченного pending у ЮKassa нет)."""
-    q = select(Payment).where(
+    протухает по его TTL (API отмены неоплаченного pending у ЮKassa нет).
+
+    Один атомарный UPDATE с условием `status == "pending"` В САМОМ запросе — не SELECT, потом
+    безусловная правка объектов в Python. Иначе в узком окне вебхук (держит lock Payment, ждёт
+    lock заказа, который на миг взяла эта же функция) успевает поставить `refund_due` уже ПОСЛЕ
+    нашего SELECT, но ДО нашего commit — и мы затираем его обратно в `canceled`, хотя тикет и
+    Telegram про возврат уже ушли (независимая проверка, Opus 5.5, 2026-10-02, N1). Условие в
+    UPDATE переоценивается СУБД на момент самого обновления, а не на момент более раннего
+    чтения — строка, которая успела стать не-pending, просто не попадёт под обновление."""
+    stmt = update(Payment).where(
         Payment.user_id == user_id, Payment.status == "pending",
         Payment.purpose == ("ride" if order_id is not None else "booking"),
     )
-    q = q.where(Payment.order_id == order_id) if order_id is not None else q.where(Payment.booking_id == booking_id)
-    rows = session.exec(q).all()
-    if rows:
-        for p in rows:
-            p.status = "canceled"
-            session.add(p)
-        session.commit()
+    stmt = stmt.where(Payment.order_id == order_id) if order_id is not None else stmt.where(Payment.booking_id == booking_id)
+    session.execute(stmt.values(status="canceled"))
+    session.commit()
 
 
 def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: int,
@@ -82,11 +87,26 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
     )
     dq = dq.where(Payment.order_id == order_id) if order_id is not None else dq.where(Payment.booking_id == booking_id)
     existing = session.exec(dq.order_by(Payment.id.desc())).first()
-    if existing and (booking_id is not None or existing.provider_id or existing.method == "yookassa"):
-        if booking_id is not None:
-            # Счёт уже фиксирует сумму. Освобождаем Booking перед внешним HTTP
-            # и Payment → Booking activation, иначе возможен deadlock с webhook.
-            session.commit()
+    #
+    # Любая строка, которую нашёл этот запрос (user+purpose+заказ/бронь, статус pending), — это
+    # уже идущая попытка оплаты, и её надо ИСПОЛЬЗОВАТЬ, а не завести вторую. Раньше для заказов
+    # (booking_id нет) тут стояло доп.условие «только если у строки уже есть provider_id или
+    # method=='yookassa'» — то есть ровно в миллисекунды между тем, как _pay_cashless вставил
+    # строку, и тем, как _start_yookassa пометил её method='yookassa', дедуп эту строку не узнавал
+    # (а «сироту», оставшуюся в этом же состоянии после падения процесса между теми же двумя
+    # commit, не узнавал вообще никогда — такая строка висела в ручной СБП-очереди админа).
+    #
+    # Это условие СУЖАЕТ окно гонки, но само по себе его не закрывает (независимая проверка,
+    # Opus 5.5, 2026-10-02): если ДВА запроса дойдут до SELECT дедупа до того, как любой из них
+    # вставит свою строку, оба её не найдут и оба вставят свою. От ЭТОГО защищает блокировка
+    # заказа/брони (with_for_update в pay_instant_order/pay_booking) — вторая нить ждёт commit
+    # первой и заново проходит этот код, уже видя её строку.
+    if existing:
+        # Освобождаем lock заказа/брони ДО внешнего HTTP (sync ниже или сам _start_yookassa) —
+        # иначе запрос держит его во время похода к ЮKassa, а вебхук берёт лок в обратном порядке
+        # (Payment → заказ/бронь, см. _sync_provider_status и ledger.settle_instant_order/
+        # settle_booking) → взаимная блокировка под нагрузкой.
+        session.commit()
         if existing.provider_id:
             existing, info = _sync_provider_status(session, existing)
             if existing.status == "succeeded":
@@ -94,6 +114,12 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
             if existing.status == "pending":
                 return {"status": "pending", "method": "yookassa", "payment_id": existing.id,
                         "confirmation_url": (info or {}).get("confirmation_url", "")}
+            if existing.status != "canceled":
+                # refund_due (деньги по ЭТОЙ строке пришли, но применить их уже некуда — см.
+                # _handle_unclaimed_payment) или новый статус из будущего. Третий счёт заводить
+                # нельзя: заказ/бронь либо уже оплачены иначе, либо ждут возврата по этой же
+                # строке — и то, и другое не «заплати ещё раз».
+                return {"status": "already_paid", "method": existing.method or "yookassa"}
             existing = None  # provider canceled окончательно: ниже создадим новую строку и ключ
         if existing is not None:
             # Неизвестный исход первого обращения: повторяем ту же локальную строку, поэтому
@@ -102,9 +128,14 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
             existing.provider_id = res["provider_id"]
             session.add(existing)
             session.commit()
-            if res["status"] == "succeeded":
+            if res["status"] == "succeeded":              # mock/dev — оплачено сразу → начисляем
                 _activate_payment(session, existing)
-                return {"status": "succeeded", "method": "yookassa", "payment_id": existing.id}
+                # _activate_payment мог уйти в _handle_unclaimed_payment (заказ/бронь уже оплачены
+                # ДРУГИМ платежом, пока этот шёл к провайдеру) — отвечаем по ФАКТИЧЕСКОМУ статусу
+                # строки, а не всегда «succeeded» (иначе честный refund_due выглядел бы как обман).
+                if existing.status == "succeeded":
+                    return {"status": "succeeded", "method": "yookassa", "payment_id": existing.id}
+                return {"status": "already_paid", "method": "yookassa", "payment_id": existing.id}
             return {"status": "pending", "method": "yookassa", "payment_id": existing.id,
                     "confirmation_url": res["confirmation_url"]}
         if booking_id is not None:
@@ -122,9 +153,30 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
             # Повторяем дедуп под вновь полученным Booking lock вместо второго INSERT.
             return _pay_cashless(session, payer, purpose=purpose, amount_kop=amount_kop,
                                  method=method, description=description, booking_id=booking_id)
+        if order_id is not None:
+            # Симметрично ветке брони выше: провайдер закрыл старый счёт, а пока шла перепроверка,
+            # заказ мог уже оплатиться иначе (нал / другой платёж). Новый счёт — по свежей цене,
+            # под вновь полученным lock на заказ.
+            order = session.get(InstantOrder, order_id, with_for_update=True, populate_existing=True)
+            if not order:
+                raise herr(404, "Заказ не найден", "Заказ табылманы")
+            if order.paid:
+                return {"status": "already_paid", "method": order.payment_method}
+            if order.status != InstantOrderStatus.done:
+                raise herr(409, "Оплатить можно только завершённую поездку", "Тик тамамланған сәфәр өсөн түләп була")
+            from .. import promo_ride
+            amount_kop = promo_ride.payable_kop(order)
+            return _pay_cashless(session, payer, purpose=purpose, amount_kop=amount_kop,
+                                 method=method, description=description, order_id=order_id)
+    # method фиксируем 'yookassa' сразу для ОБОИХ (заказ/бронь): человек выбирал карту/СБП для
+    # экрана, но физически списание решает страница ЮKassa, а свой выбор человека никто после
+    # этого не читает — зато СРАЗУ помеченная строка ни на миг не становится «сиротой»
+    # (pending, method='card'/'sbp', без provider_id), которую легко принять за ручную СБП-заявку
+    # в /admin/payments/pending (независимая проверка, Opus 5.5, 2026-10-02: раньше это было
+    # верно только для брони — для заказа переходное состояние существовало до _start_yookassa).
     payment = Payment(
         user_id=payer.id, purpose=purpose, amount_kop=amount_kop,
-        method=("yookassa" if booking_id is not None else method),
+        method="yookassa",
         order_id=order_id, booking_id=booking_id,
     )
     session.add(payment)
@@ -136,7 +188,11 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
     session.commit()
     if res["status"] == "succeeded":              # mock/dev — оплачено сразу → начисляем
         _activate_payment(session, payment)
-        return {"status": "succeeded", "method": "yookassa", "payment_id": payment.id}
+        # См. комментарий у аналогичной проверки выше: _activate_payment мог перенаправить
+        # в _handle_unclaimed_payment, если заказ/бронь уже оплачены другим платежом.
+        if payment.status == "succeeded":
+            return {"status": "succeeded", "method": "yookassa", "payment_id": payment.id}
+        return {"status": "already_paid", "method": "yookassa", "payment_id": payment.id}
     return {"status": "pending", "method": "yookassa", "payment_id": payment.id,
             "confirmation_url": res["confirmation_url"]}
 
@@ -145,8 +201,12 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
 @router.post("/instant/orders/{order_id}/pay")
 def pay_instant_order(order_id: int, body: PayIn, user: User = Depends(current_user),
                       session: Session = Depends(get_session)):
-    """Пассажир оплачивает ЗАВЕРШЁННЫЙ быстрый заказ. Только владелец, только статус done."""
-    order = session.get(InstantOrder, order_id)
+    """Пассажир оплачивает ЗАВЕРШЁННЫЙ быстрый заказ. Только владелец, только статус done.
+
+    Заказ блокируется (FOR UPDATE) сразу, как и бронь в pay_booking ниже: вторая нить,
+    пытающаяся оплатить тот же заказ, ждёт здесь, пока первая не закоммитит (см. комментарий
+    в _pay_cashless), и заново проходит этот код, уже видя её платёж — не заводит второй."""
+    order = session.get(InstantOrder, order_id, with_for_update=True, populate_existing=True)
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.passenger_id != user.id:                     # анти-IDOR: чужой заказ не оплатить
@@ -162,9 +222,20 @@ def pay_instant_order(order_id: int, body: PayIn, user: User = Depends(current_u
     # см. app/promo_ride.py) — без этого промокод молча пропадал бы при оплате картой.
     from .. import promo_ride
     amount_kop = promo_ride.payable_kop(order)
+    if amount_kop <= 0:
+        # Полная промо-скидка (или нулевая цена) обнуляет сумму к оплате. У брони этот же
+        # случай уже закрыт в _booking_amount_kop — здесь симметрично: 0 к оплате не уходит
+        # ни карте/СБП (ЮKassa отклонит "0.00" → вечный pending), ни даже "налом" (нечего
+        # передавать из рук в руки, а order.paid=True на пустом месте маскирует эту скидку).
+        raise herr(409, "У заказа нет суммы к оплате", "Заказда түләргә сумма юҡ")
     if body.method == "cash":
         from .. import ledger
-        ledger.settle_instant_order(session, order.id, "cash", amount_kop)   # paid=True, ledger НЕ трогаем
+        result = ledger.settle_instant_order(session, order.id, "cash", amount_kop)
+        if result != "settled":
+            # Заказ уже оплачен ДРУГИМ способом/платежом (гонка с картой/СБП, пока эта кнопка
+            # ждала тапа) — честный ответ «уже оплачено», а не «оплачено налом» поверх чужих
+            # денег: человек иначе отдал бы наличные водителю второй раз.
+            return {"status": "already_paid", "method": order.payment_method}
         _cancel_own_pending_cashless(session, user.id, order_id=order.id)
         return {"status": "paid", "method": "cash"}
     return _pay_cashless(session, user, purpose="ride", amount_kop=amount_kop, method=body.method,
@@ -197,7 +268,11 @@ def pay_booking(booking_id: int, body: PayIn, user: User = Depends(current_user)
     amount_kop = _booking_amount_kop(booking)
     if body.method == "cash":
         from .. import ledger
-        ledger.settle_booking(session, booking.id, "cash", amount_kop)
+        result = ledger.settle_booking(session, booking.id, "cash", amount_kop)
+        if result != "settled":
+            # Бронь уже оплачена ДРУГИМ способом/платежом (гонка с картой/СБП) — честное
+            # «уже оплачено», а не «оплачено налом» поверх чужих денег.
+            return {"status": "already_paid", "method": booking.payment_method}
         _cancel_own_pending_cashless(session, user.id, booking_id=booking.id)
         return {"status": "paid", "method": "cash"}
     return _pay_cashless(session, user, purpose="booking", amount_kop=amount_kop, method=body.method,

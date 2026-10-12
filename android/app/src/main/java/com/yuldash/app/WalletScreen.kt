@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -432,6 +433,8 @@ private fun PayoutCard(
                     },
                     enabled = canPayout,
                     loading = busy,
+                    // Текст прячется под спиннер при busy — тест двойного нажатия ищет кнопку по тегу.
+                    modifier = Modifier.testTag("payout_submit"),
                 )
             }
         }
@@ -488,7 +491,7 @@ private fun PayoutCard(
                                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                             }
                     }
-                }) {
+                }, enabled = !busy, modifier = Modifier.testTag("payout_confirm")) {
                     Text(
                         if (busy) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Да, вывести", "Эйе, сығарырға"),
                         color = CanonGreen2, fontWeight = FontWeight.Bold,
@@ -496,7 +499,11 @@ private fun PayoutCard(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { if (!busy) showConfirm = false }) {
+                // enabled=!busy — раньше кнопка лишь ИГНОРИРОВАЛА нажатие изнутри (`if (!busy)`),
+                // а на вид оставалась обычной: второй тап во время отправки не ломал список, но
+                // TalkBack озвучивал кнопку как доступную и нажимаемую, пока она на самом деле
+                // ничего не делает — то же самое для «Да, вывести» выше.
+                TextButton(onClick = { if (!busy) showConfirm = false }, enabled = !busy) {
                     Text(appText("Отмена", "Кире алыу"), color = CanonMuted)
                 }
             },

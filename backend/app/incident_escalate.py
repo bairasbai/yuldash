@@ -28,6 +28,7 @@ from datetime import timedelta
 from sqlmodel import Session, select
 
 from .models import Incident
+from .observability import scrub_exc
 from .timeutil import utcnow
 
 log = logging.getLogger("yuldash")
@@ -79,7 +80,10 @@ def escalate_silent_incidents(session: Session, dry_run: bool = False) -> list:
                 ref_kind="incident", ref_id=inc.id,
             )
         except Exception as e:  # noqa: BLE001 — уведомление вторично, дело уже двинулось
-            log.warning(f"[incident_escalate] push failed inc={inc.id}: {e}")
+            # Сырой текст исключения может нести телефон (SQLAlchemy кладёт параметры запроса
+            # прямо в текст IntegrityError — см. observability.scrub_exc). Лог сервера читает
+            # не только разработчик (152-ФЗ, §8 CLAUDE.md), поэтому только очищенный текст.
+            log.warning(f"[incident_escalate] push failed inc={inc.id}: {scrub_exc(e)}")
     if тронутые:
         log.info(f"[incident_escalate] на разбор ушло дел: {len(тронутые)}")
     return тронутые
