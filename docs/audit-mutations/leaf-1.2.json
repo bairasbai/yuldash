@@ -509,6 +509,61 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/walk/l1_2/test_l1_2_cancel_pending_does_not_clobber_refund_due.py::test_cancel_own_pending_does_not_touch_a_refund_due_row"]
+    },
+    {
+      "id": "M48",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R1b",
+      "description": "leaf-1.2b: taxi_debt по снимку — атомарный UPDATE перестаёт реально закрывать долги снимка (status больше не выставляется)",
+      "find": "                .values(status=DebtStatus.paid, confirmed_at=now)",
+      "replace": "                .values(confirmed_at=now)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2b_taxi_debt_snapshot.py::test_snapshot_closes_exactly_its_own_debts"]
+    },
+    {
+      "id": "M49",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R2b",
+      "description": "leaf-1.2b: долг снимка, уже закрытый другим способом (прощён админом и т.п.) к приходу карты — возврат разницы в кошелёк снят",
+      "find": "            if already_paid_ids:",
+      "replace": "            if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2b_taxi_debt_snapshot.py::test_debt_forgiven_mid_flight_refunds_the_difference_and_closes_the_rest"]
+    },
+    {
+      "id": "M50",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R3b",
+      "description": "leaf-1.2b: taxi_debt по снимку — фильтр по ID снимка снят, гасит ВСЕ неоплаченные долги водителя, включая начисленные после выставления счёта",
+      "find": "                      CommissionDebt.id.in_(snapshot_ids),\n                      CommissionDebt.status != DebtStatus.paid)",
+      "replace": "                      CommissionDebt.id > -1,\n                      CommissionDebt.status != DebtStatus.paid)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2b_taxi_debt_snapshot.py::test_debt_accrued_after_payment_creation_stays_untouched"]
+    },
+    {
+      "id": "M51",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R4b",
+      "description": "leaf-1.2b: taxi_debt — повреждённый маркер снимка больше не бросает исключение, платёж тихо становится succeeded без гашения",
+      "find": "            raise RuntimeError(\"invalid taxi debt payment snapshot marker\")",
+      "replace": "            pass",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2b_taxi_debt_snapshot.py::test_corrupted_snapshot_marker_fails_closed_touches_nothing"]
+    },
+    {
+      "id": "M52",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R5b",
+      "description": "leaf-1.2b: taxi_debt без снимка (исторический платёж) — путь по времени создания снят, долг не гасится вовсе",
+      "find": "            debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at, commit=False)",
+      "replace": "            pass",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2b_taxi_debt_snapshot.py::test_payment_without_snapshot_marker_uses_time_cutoff"]
     }
   ]
 }

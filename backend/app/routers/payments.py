@@ -8,7 +8,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
 
@@ -250,21 +250,54 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     if payment.purpose == "taxi_debt":
-        # Таксист оплатил недельную комиссию картой → гасим долг (unpaid+pending), но только тот, что
-        # вошёл в снапшот суммы (created_at <= момент создания платежа). Долг, накопленный в окне до
-        # подтверждения, останется к оплате следующим платежом (иначе гасился бы бесплатно). Идемпотентно.
-        #
-        # Известный остаток (найдено кругом 3, на стыке с листом 1.1, 2026-10-02): это гашение —
-        # по ВРЕМЕНИ, а НЕ по причинному ID-снимку состава счёта, который лист 1.1 в этом же
-        # раунде начал писать в Payment.tier (taxi_debt_snapshot_ids, его F2, см. debt.py.md).
-        # Если админ простит один из долгов снимка (`/admin/debts/{id}/forgive`), пока счёт ещё
-        # висит у банка, время-граница этого не заметит и молча «погасит» уже прощённый долг —
-        # разница, реально списанная с карты, в кошелёк не вернётся. НЕ исправлено в этом
-        # коммите намеренно: ведущий ведёт этот ID-снимок отдельной небольшой задачей сразу
-        # после слияния круга 3, чтобы не тащить чужие файлы (debt.py/ledger.py/routers/debt.py)
-        # в историю этого листа.
+        # Таксист оплатил недельную комиссию картой → гасим долг СТРОГО по причинному ID-снимку
+        # состава счёта (Payment.tier, taxi_debt_snapshot_ids — лист 1.1), тем же приёмом, что
+        # courier_commission выше (_courier_snapshot_ids). Долг, начисленный ПОСЛЕ выставления
+        # счёта, в снимок не входит — и так не трогается (`id.in_(snapshot_ids)` его не видит).
+        # Платёж без снимка (исторический формат, до этой правки) — как раньше, по времени.
         from .. import debt as debt_mod
-        debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at, commit=False)
+        from ..models import CommissionDebt, DebtStatus
+        snapshot_ids = debt_mod.taxi_debt_snapshot_ids(payment)
+        if snapshot_ids:
+            now = utcnow()
+            # Атомарный UPDATE с условием ПРЯМО в WHERE — ядро защиты от гонки с
+            # /admin/debts/{id}/forgive (routers/debt.py, чужой файл): ни тот путь, ни этот
+            # не берут общий лок на строку долга, оба решают «ещё не paid?» в своей транзакции.
+            # WHERE status != paid атомарен на уровне СУБД: если форгив успел закоммититься
+            # раньше нас, долг сюда уже не попадёт — мы не перезатираем его отметку прощения
+            # своим «оплачено картой», и не выдаём эту поездку за реально собранную комиссию.
+            # RETURNING(id) говорит РОВНО какие долги закрыли МЫ — остальные ID снимка (там,
+            # где статус уже был paid ДО этого UPDATE — простили, подтвердили СБП и т.п., пока
+            # счёт висел у банка) идут на возврат ниже: деньги за них списаны картой ВТОРОЙ раз.
+            closed_ids = set(session.execute(
+                update(CommissionDebt)
+                .where(CommissionDebt.driver_id == payment.user_id,
+                      CommissionDebt.id.in_(snapshot_ids),
+                      CommissionDebt.status != DebtStatus.paid)
+                .values(status=DebtStatus.paid, confirmed_at=now)
+                .returning(CommissionDebt.id)
+            ).scalars().all())
+            already_paid_ids = [i for i in snapshot_ids if i not in closed_ids]
+            if already_paid_ids:
+                for d in session.exec(
+                    select(CommissionDebt).where(CommissionDebt.id.in_(already_paid_ids))
+                ).all():
+                    # Возврат идемпотентен по заказу (refund:order:N, SAVEPOINT внутри) — не
+                    # коммитит сам, безопасен в ЭТОЙ же транзакции успеха платежа.
+                    debt_mod.refund_commission_to_wallet(
+                        session, payment.user_id, d.amount_kop, order_id=d.order_id,
+                        note="Возврат: долг из счёта на оплату комиссии уже был закрыт другим "
+                             "способом, пока счёт ждал подтверждения банка",
+                    )
+        elif snapshot_ids == ():
+            # Маркер нашего формата, но повреждён — состав счёта неизвестен. Fail-closed, как
+            # у курьера: не гасим и не возвращаем вслепую, платёж остаётся pending — webhook/
+            # поллинг повторят попытку после ремонта данных.
+            raise RuntimeError("invalid taxi debt payment snapshot marker")
+        else:
+            # snapshot_ids is None → платёж без маркера (создан до этой правки) — старое
+            # поведение по времени создания платежа.
+            debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at, commit=False)
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     # --- Аддитивные / прочие эффекты: succeeded ПЕРВЫМ (под тем же row-lock), потом эффект ---
