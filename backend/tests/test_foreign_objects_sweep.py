@@ -43,6 +43,30 @@ _PUBLIC_BY_DESIGN = {
     "/parcels/{parcel_id}/accept",      # взять чужую посылку — работа курьера
 }
 
+# Сигнал о помощи («застрял на трассе») пишется ВСЕГДА, даже с чужим номером в адресе
+# (N5, лист 3.1: кнопка беды не отказывает из-за неверной привязки). Успешный ответ тут — норма,
+# находка — если чужой объект всё-таки ПРИВЯЗАЛСЯ к сигналу постороннего: его номер в колонке
+# события или маршрут чужой посылки в тексте. Проверяется ниже, а не пропускается молча.
+_SIGNAL_ALWAYS_RECORDED = {
+    "/bookings/{booking_id}/stuck",
+    "/instant/orders/{order_id}/stuck",
+    "/parcels/{parcel_id}/stuck",
+}
+
+
+def _signal_binds_foreign_object(r) -> str:
+    """Пусто — сигнал записан без чужой привязки; иначе — что именно привязалось."""
+    try:
+        body = r.json()
+    except ValueError:
+        return f"ответ не JSON: {r.text[:120]}"
+    leaks = [k for k in ("booking_id", "order_id") if body.get(k) is not None]
+    note = body.get("note") or ""
+    if "Баймак" in note or "Сибай" in note or "Доставка #" in note:
+        leaks.append(f"маршрут чужой доставки в note: {note[:120]!r}")
+    return "; ".join(leaks)
+
+
 # Методы, которые тест не дёргает: они меняют состояние необратимо и проверяются точечно.
 _SAFE_METHODS = ("GET", "POST", "DELETE", "PATCH")
 
@@ -202,6 +226,11 @@ def test_посторонний_не_попадает_в_чужие_объект
         for p in params:
             url = url.replace("{" + p + "}", str(ids[p]))
         r = client.request(method, url, headers=stranger["auth"], json={})
+        if path in _SIGNAL_ALWAYS_RECORDED and 200 <= r.status_code < 300:
+            leak = _signal_binds_foreign_object(r)
+            if leak:
+                opened.append(f"{method} {path} → сигнал привязал чужое: {leak}")
+            continue
         if 200 <= r.status_code < 300:
             opened.append(f"{method} {path} → {r.status_code} {r.text[:120]}")
 
