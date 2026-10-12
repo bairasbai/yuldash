@@ -17,7 +17,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -91,6 +91,52 @@ def _reservation_active(red: CouponRedemption, coupon: Coupon, now: datetime) ->
         return False
     deadline = coupon.valid_until or (red.reserved_at + timedelta(days=RESERVATION_TTL_DAYS))
     return now < deadline
+
+
+def _slot_held_sql(coupons: List[Coupon], now: datetime):
+    """SQL-двойник `_reservation_active`: условие «бронь занимает слот ПРЯМО СЕЙЧАС» сразу для
+    нескольких купонов — чтобы занятые слоты считал COUNT в базе, а не Python по строкам.
+
+    Зачем (независимое ревью leaf-1.3, отложено из кругов 4–5): витрина, деталь купона и
+    активация грузили в Python ВСЕ брони купона (reserved+redeemed) и фильтровали их
+    `_reservation_active`. Погашённые строки копятся вечно — у популярного купона открытая
+    БЕЗ входа витрина становилась запросом без потолка стоимости.
+
+    Правило то же, строка в строку: `redeemed` держит слот всегда; `reserved` — у купона со
+    сроком, пока срок не наступил (срок общий для всех броней — одно сравнение на купон, тут
+    же, в Python); у бессрочного — пока `now < reserved_at + TTL`, то есть `reserved_at > now − TTL`.
+    Границу считаем в Python и сравниваем столбец с готовой датой — без арифметики дат внутри
+    SQL (в SQLite и Postgres она пишется по-разному, из-за неё фильтр и жил в Python). Такое
+    сравнение столбца с датой уже работает на обеих базах по всему проекту. Прочие статусы
+    слот не держат никогда. Совпадение с `_reservation_active` по каждой строке держит
+    test_slot_count_in_db_matches_reservation_rule_row_by_row."""
+    open_ids = [c.id for c in coupons if c.valid_until is not None and now < c.valid_until]
+    unbounded_ids = [c.id for c in coupons if c.valid_until is None]
+    fresh_since = now - timedelta(days=RESERVATION_TTL_DAYS)
+    reserved_holds = or_(
+        CouponRedemption.coupon_id.in_(open_ids),
+        and_(CouponRedemption.coupon_id.in_(unbounded_ids), CouponRedemption.reserved_at > fresh_since),
+    )
+    return and_(
+        CouponRedemption.coupon_id.in_([c.id for c in coupons]),
+        or_(CouponRedemption.status == "redeemed",
+            and_(CouponRedemption.status == "reserved", reserved_holds)),
+    )
+
+
+def _slots_taken(session: Session, coupons: List[Coupon], now: datetime, user_id: Optional[int] = None) -> dict:
+    """Сколько броней СЕЙЧАС занимает слот у каждого купона — {coupon_id: число}, одним
+    `COUNT … GROUP BY` в базе по правилу `_slot_held_sql`. Цена запроса не растёт от того,
+    сколько погашений купон накопил за всю жизнь: в Python приходит по строке на купон, а не
+    по строке на бронь. `user_id` — считать только брони этого человека (лимит на
+    пользователя). Купона без занятых слотов в ответе нет — читать через `.get(id, 0)`."""
+    if not coupons:
+        return {}
+    query = select(CouponRedemption.coupon_id, func.count()).where(_slot_held_sql(coupons, now))
+    if user_id is not None:
+        query = query.where(CouponRedemption.user_id == user_id)
+    rows = session.exec(query.group_by(CouponRedemption.coupon_id)).all()
+    return {coupon_id: int(taken) for coupon_id, taken in rows}
 
 
 # ---------- Тела запросов ----------
@@ -333,22 +379,10 @@ def coupons_list(
     # premium выше; внутри — свежие сверху
     live.sort(key=lambda c: (1 if c.premium else 0, c.created_at or now), reverse=True)
     # «Остаток» на витрине — тем же числом, каким реально считает лимит coupon_activate
-    # (brони, которые СЕЙЧАС занимают слот — `_reservation_active`, не вечно и не только
-    # по факту погашения). Один запрос на всю выдачу, фильтр по истечению — в Python:
-    # даты считаются по-разному в SQLite/Postgres, а строк на одну витрину немного.
-    taken_by_coupon: dict = {}
-    coupon_by_id = {c.id: c for c in live}
-    coupon_ids = list(coupon_by_id)
-    if coupon_ids:
-        rows = session.exec(
-            select(CouponRedemption).where(
-                CouponRedemption.coupon_id.in_(coupon_ids),
-                CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
-            )
-        ).all()
-        for r in rows:
-            if _reservation_active(r, coupon_by_id[r.coupon_id], now):
-                taken_by_coupon[r.coupon_id] = taken_by_coupon.get(r.coupon_id, 0) + 1
+    # (брони, которые СЕЙЧАС занимают слот, — не вечно и не только по факту погашения).
+    # Считает база, одним запросом на всю выдачу (`_slots_taken`): витрина открыта без входа,
+    # и загружать в Python каждую бронь за всю историю купона ей нельзя.
+    taken_by_coupon = _slots_taken(session, live, now)
     return [_coupon_public(c, partners.get(c.partner_id), taken_by_coupon.get(c.id, 0)) for c in live]
 
 
@@ -432,18 +466,13 @@ def coupon_redeem(body: RedeemIn, user: User = Depends(current_user), session: S
 @router.get("/coupons/{coupon_id}")
 def coupon_detail(coupon_id: int, session: Session = Depends(get_session)):
     """Деталь купона (та же видимость, что в витрине)."""
+    now = utcnow()
     coupon = session.get(Coupon, coupon_id)
     partner = session.get(Partner, coupon.partner_id) if coupon else None
-    if not coupon or not _coupon_visible(coupon, partner, utcnow()):
+    if not coupon or not _coupon_visible(coupon, partner, now):
         raise herr(404, "Купон не найден", "Купон табылманы")
-    rows = session.exec(
-        select(CouponRedemption).where(
-            CouponRedemption.coupon_id == coupon.id,
-            CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
-        )
-    ).all()
-    now = utcnow()
-    taken = sum(1 for r in rows if _reservation_active(r, coupon, now))
+    # Остаток — тем же подсчётом в базе, что витрина и активация (`_slots_taken`).
+    taken = _slots_taken(session, [coupon], now).get(coupon.id, 0)
     return _coupon_public(coupon, partner, taken)
 
 
@@ -505,23 +534,19 @@ def coupon_activate(coupon_id: int, user: User = Depends(current_user), session:
     if not _in_window(coupon, now):
         raise herr(422, "Срок купона истёк", "Купон ваҡыты үтте")
 
-    # Лимиты считаем по БРОНЯМ, которые СЕЙЧАС занимают слот (`_reservation_active`) — не по
-    # сырому статусу: забытая reserved-бронь старше RESERVATION_TTL_DAYS (или старше срока
-    # купона) слот больше не держит (решение ведущего, leaf-1.3 круг 3 — «вечная бронь»).
-    rows = session.exec(
-        select(CouponRedemption).where(
-            CouponRedemption.coupon_id == coupon.id,
-            CouponRedemption.status.in_(_ACTIVE_REDEMPTION_STATUSES),
-        )
-    ).all()
-    active_rows = [r for r in rows if _reservation_active(r, coupon, now)]
+    # Лимиты считаем по БРОНЯМ, которые СЕЙЧАС занимают слот (то же правило, что
+    # `_reservation_active`) — не по сырому статусу: забытая reserved-бронь старше
+    # RESERVATION_TTL_DAYS (или старше срока купона) слот больше не держит (решение ведущего,
+    # leaf-1.3 круг 3 — «вечная бронь»). Считает база (`_slots_taken`), а не Python по всем
+    # броням купона: погашённые копятся вечно. Между двумя подсчётами чужая активация этого
+    # купона не вклинится — она ждёт блокировку строки купона (см. выше).
 
     # Общий лимит: занятые (и ещё не истёкшие) брони против limit_total.
-    if coupon.limit_total > 0 and len(active_rows) >= coupon.limit_total:
+    if coupon.limit_total > 0 and _slots_taken(session, [coupon], now).get(coupon.id, 0) >= coupon.limit_total:
         raise herr(409, "Купоны закончились", "Купондар бөттө")
 
     # Лимит на пользователя.
-    mine = sum(1 for r in active_rows if r.user_id == user.id)
+    mine = _slots_taken(session, [coupon], now, user_id=user.id).get(coupon.id, 0)
     if mine >= max(1, coupon.limit_per_user):
         raise herr(409, "Ты уже воспользовался этим купоном", "Һин был купондан файҙаландың инде")
 
