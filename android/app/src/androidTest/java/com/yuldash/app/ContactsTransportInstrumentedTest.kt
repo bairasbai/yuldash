@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.util.Log
+import com.yuldash.app.data.TestContacts
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.data.ApiClient
@@ -31,13 +32,13 @@ class ContactsTransportInstrumentedTest {
     @After fun cleanup() { server.close(); ApiClient.testTrace=null; ApiClient.resetForTest(); ApiClient.testTimeoutMs=null }
     private fun eof(add: Boolean, commit: Boolean) = runBlocking {
         server.row=!add; server.commit=commit
-        val before=if(add) ApiClient.contactAdditions.value.version else ApiClient.contactDeletions.value.version
-        assertEquals(if(add) emptyList<Int>() else listOf(7),ApiClient.getContacts().getOrThrow().map { it.id })
-        val result=if(add) ApiClient.addContact("Әсәй — контакт","Синтетический","+70000000007",false) else ApiClient.deleteContact(7)
-        assertTrue(result.isFailure); assertTrue(ApiClient.isUncertainContactMutation(result.exceptionOrNull()))
+        val before=TestContacts.changes
+        assertEquals(if(add) emptyList<Int>() else listOf(7),TestContacts.read().getOrThrow().map { it.id })
+        val result=if(add) TestContacts.add("Әсәй — контакт","Синтетический","+70000000007",false) else TestContacts.delete(7)
+        assertTrue(result.isFailure); assertTrue(com.yuldash.app.data.ContactsApi.isUncertain(result.exceptionOrNull()))
         assertEquals("A sent mutation must not replay after EOF",1,server.mutations.get())
-        assertEquals(before+1,if(add) ApiClient.contactAdditions.value.version else ApiClient.contactDeletions.value.version)
-        assertEquals(if(if(commit) add else !add) listOf(7) else emptyList<Int>(),ApiClient.getContacts().getOrThrow().map { it.id })
+        assertEquals(before+1,TestContacts.changes)
+        assertEquals(if(if(commit) add else !add) listOf(7) else emptyList<Int>(),TestContacts.read().getOrThrow().map { it.id })
         assertEquals(2,server.gets.get()); assertTrue(server.errors.toString(),server.errors.isEmpty())
         val sent=server.records.single { it.method==if(add) "POST" else "DELETE" }
         assertEquals("Bearer header.eyJzdWIiOiIxMSJ9.signature",sent.bearer)
@@ -55,15 +56,15 @@ class ContactsTransportInstrumentedTest {
     @Test fun addEofBeforeCommit()=eof(true,false)
     private fun successful(add:Boolean)=runBlocking {
         server.drop=false
-        val result=if(add) ApiClient.addContact("Әсәй — контакт","Синтетический","+70000000007",false) else ApiClient.deleteContact(7)
+        val result=if(add) TestContacts.add("Әсәй — контакт","Синтетический","+70000000007",false) else TestContacts.delete(7)
         result.getOrThrow(); assertEquals(1,server.mutations.get())
-        assertEquals(if(add) listOf(7) else emptyList<Int>(),ApiClient.getContacts().getOrThrow().map { it.id })
+        assertEquals(if(add) listOf(7) else emptyList<Int>(),TestContacts.read().getOrThrow().map { it.id })
     }
     @Test fun successfulAdd()=successful(true)
     @Test fun successfulDelete()=successful(false)
     private fun rejected(add:Boolean,redirect:Boolean)=runBlocking {
         server.drop=false; server.replyCode=if(redirect) 307 else 503
-        val result=if(add) ApiClient.addContact("Synthetic","","+70000000007",true) else ApiClient.deleteContact(7)
+        val result=if(add) TestContacts.add("Synthetic","","+70000000007",true) else TestContacts.delete(7)
         val error=result.exceptionOrNull(); assertTrue(error is ApiException); assertEquals(server.replyCode,(error as ApiException).status)
         assertEquals(1,server.mutations.get()); assertEquals(1,server.records.size); assertFalse(server.row)
     }
@@ -74,8 +75,8 @@ class ContactsTransportInstrumentedTest {
     private fun refreshed(add:Boolean)=runBlocking {
         ApiClient.verifyCode("+70000000000","000000","Synthetic").getOrThrow(); server.refreshRequired=true
         val owner=ApiClient.queueSessionGeneration()
-        val result=if(add) ApiClient.addContact("Synthetic","","+70000000007",true) else ApiClient.deleteContact(7)
-        assertTrue(result.isFailure); assertTrue(ApiClient.isUncertainContactMutation(result.exceptionOrNull()))
+        val result=if(add) TestContacts.add("Synthetic","","+70000000007",true) else TestContacts.delete(7)
+        assertTrue(result.isFailure); assertTrue(com.yuldash.app.data.ContactsApi.isUncertain(result.exceptionOrNull()))
         assertEquals(2,server.mutations.get()); assertEquals(1,server.records.count { it.path=="/auth/refresh" })
         val sent=server.records.filter { it.path==(if(add) "/trusted-contacts" else "/trusted-contacts/7") }
         assertEquals(listOf("Bearer old-access","Bearer new-access"),sent.map { it.bearer })

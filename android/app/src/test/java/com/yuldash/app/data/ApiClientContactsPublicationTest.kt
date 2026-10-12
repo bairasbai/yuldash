@@ -3,6 +3,9 @@ package com.yuldash.app.data
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.mapNotNull
 import okhttp3.mockwebserver.*
 import org.json.JSONObject
 import org.junit.*
@@ -18,7 +21,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
 
-/** The HTTP snapshot, caller continuation and accepted publication have independent witnesses. */
+/**
+ * The HTTP snapshot, caller continuation and accepted publication have independent witnesses.
+ * Layering pilot: "publication" used to be ApiClient calling the caller's onAccepted callback. It is now
+ * what every screen actually observes — an accepted list of account A appearing in ContactsRepository.state.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class ApiClientContactsPublicationTest {
@@ -39,6 +46,7 @@ class ApiClientContactsPublicationTest {
     private val state = AtomicReference(listOf(7))
     private val records = CopyOnWriteArrayList<Record>()
     private val publications = CopyOnWriteArrayList<List<Int>>()
+    private val recorder = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
     private val oldStarted = CountDownLatch(1)
     private val oldRelease = CountDownLatch(1)
     private val holdNext = AtomicBoolean(false)
@@ -76,9 +84,13 @@ class ApiClientContactsPublicationTest {
             }; start()
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/'); ApiClient.testTimeoutMs = 60000
+        recorder.launch {
+            ContactsRepository.shared.state.filter { it.owner == ownerA }.mapNotNull { it.contacts }.distinctUntilChanged()
+                .collect { list -> publications += list.map { c -> c.id } }
+        }
     }
     @After fun cleanup() {
-        oldRelease.countDown(); parent.cancel()
+        recorder.cancel(); oldRelease.countDown(); parent.cancel()
         try {
             held.toList().forEach { resume(it) }
             while (!parent.isCompleted) caller.next().block.run()
@@ -86,16 +98,16 @@ class ApiClientContactsPublicationTest {
         } finally { ApiClient.resetForTest(); ApiClient.testTimeoutMs = null; server.shutdown() }
     }
     private fun publish(owner: Long = ownerA) = runBlocking {
-        ApiClient.loadContactsForPublication(owner) { publications += it.map { c -> c.id } }
+        TestContacts.read(owner)
     }
     private fun ids(fresh: Boolean = false): List<Int> = runBlocking {
-        ApiClient.getContacts(ApiClient.queueSessionGeneration(), forceRefresh = fresh).getOrThrow().map { it.id }
+        TestContacts.read(ApiClient.queueSessionGeneration(), force = fresh).getOrThrow().map { it.id }
     }
     private fun pending(): Pending {
         val entered = AtomicBoolean(false); val returned = AtomicBoolean(false); val completed = CountDownLatch(1)
         val job = scope.async {
             entered.set(true)
-            try { ApiClient.loadContactsForPublication(ownerA) { publications += it.map { c -> c.id } } }
+            try { TestContacts.read(ownerA) }
             finally { returned.set(true) }
         }
         job.invokeOnCompletion { completed.countDown() }; return Pending(job, entered, returned, completed)
@@ -156,17 +168,17 @@ class ApiClientContactsPublicationTest {
         val p = start(); val d = if (queued) returning(p) else null
         val expected = when (add) {
             true -> {
-                runBlocking { ApiClient.addContact("Synthetic 8", "Synthetic", "+70000000008", true, ownerA).getOrThrow() }
+                runBlocking { TestContacts.add("Synthetic 8", "Synthetic", "+70000000008", true, ownerA).getOrThrow() }
                 listOf(7, 8)
             }
-            false -> { runBlocking { ApiClient.deleteContact(7, ownerA).getOrThrow() }; emptyList() }
+            false -> { runBlocking { TestContacts.delete(7, ownerA).getOrThrow() }; emptyList() }
             null -> { state.set(listOf(8)); listOf(8) }
         }
         if (failedFresh) {
-            replyCode = 503; assertTrue(runBlocking { ApiClient.getContacts(ownerA, forceRefresh = true) }.isFailure); replyCode = 200
+            replyCode = 503; assertTrue(runBlocking { TestContacts.read(ownerA, force = true) }.isFailure); replyCode = 200
         } else assertEquals(expected, ids(fresh = add == null))
         assertEquals(listOf(7), finish(p, d ?: returning(p)).getOrThrow().map { it.id })
-        assertTrue("Rejected snapshot must not call the publisher", publications.isEmpty())
+        assertEquals("Rejected snapshot must never reach the state; only the newer read may", if (failedFresh) emptyList() else listOf(expected), publications.toList())
         assertEquals(expected, ids()); assertEquals(expected, ids()); assertEquals(ownerA, ApiClient.queueSessionGeneration())
         val methods = if (add == null) List(if (failedFresh) 3 else 2) { "GET" } else listOf("GET", if (add) "POST" else "DELETE", "GET")
         wire(methods)
@@ -200,7 +212,8 @@ class ApiClientContactsPublicationTest {
         val p = start(); cancel(p, returning(p)); assertEquals(listOf(7), ids()); wire(listOf("GET", "GET"))
     }
     @Test fun cancelledBeforeEntryDoesNotPublishWarmCacheOrSendHttp() {
-        assertEquals(listOf(7), ids()); val p = pending(); val d = take(); assertSame(p.job, d.job)
+        assertEquals(listOf(7), ids()); publications.clear() // the warm-up acceptance is not under test
+        val p = pending(); val d = take(); assertSame(p.job, d.job)
         p.job.cancel(); resume(d); runBlocking { withTimeout(5000) { p.job.join() } }
         assertFalse(p.entered.get()); assertFalse(p.returned.get()); assertTrue(p.job.isCancelled); assertTrue(p.completed.await(5, TimeUnit.SECONDS))
         assertTrue(publications.isEmpty()); assertEquals(listOf(7), ids()); assertTrue(caller.tasks.isEmpty()); wire(listOf("GET"))

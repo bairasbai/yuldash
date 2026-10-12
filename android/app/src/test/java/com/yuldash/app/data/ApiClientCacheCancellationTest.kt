@@ -40,7 +40,7 @@ class ApiClientCacheCancellationTest {
         }
         suspend fun read(): Result<Int> = when (this) {
             ME -> ApiClient.me().map { it.getString("name").substringAfterLast(' ').toInt() }
-            CONTACTS -> ApiClient.getContacts().map { it.single().id }
+            CONTACTS -> TestContacts.read().map { it.single().id }
             REFERRAL -> ApiClient.getReferral().map { it.credits }
             POPULAR -> ApiClient.getPopularRoutes().map { it.single().count }
             MY_ROUTES -> ApiClient.getMyRoutes().map { it.single().count }
@@ -186,7 +186,33 @@ class ApiClientCacheCancellationTest {
         } finally { leaveTrace.countDown(); unlock.countDown(); holder.join(10000) }
     }
     @Test fun afterFetchMe() = afterFetch(Get.ME)
-    @Test fun afterFetchContacts() = afterFetch(Get.CONTACTS)
+    // Was afterFetch(CONTACTS): it proved the window by finding a `cachedGet` frame BLOCKED on ApiClient's monitor
+    // in the IO thread's stack. Contacts are accepted by ContactsRepository on the caller after the HTTP returns,
+    // so the caller's continuation is paused instead: the HTTP has completed, the job is cancelled before the
+    // caller resumes, and nothing may reach the shared state. (Cancellation lands at the resume itself; the
+    // repository's own ensureActive under its lock guards the narrower window after resume.)
+    @Test fun afterFetchContacts() {
+        val paused = java.util.concurrent.LinkedBlockingQueue<Runnable>()
+        val caller = object : CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) { paused.add(block) }
+        }
+        val cancelled = AtomicBoolean(); val returned = AtomicBoolean(); val final = AtomicBoolean()
+        val job = scope.async(caller) {
+            try { Get.CONTACTS.read().also { returned.set(true) } }
+            catch (ce: CancellationException) { cancelled.set(true); throw ce }
+            finally { final.set(true) }
+        }
+        paused.poll(10, TimeUnit.SECONDS)!!.run() // enter the read; HTTP runs on IO
+        val afterHttp = paused.poll(10, TimeUnit.SECONDS)!! // the HTTP has returned; acceptance has not run yet
+        assertEquals(listOf(Get.CONTACTS.path), records.toList()); assertFalse(final.get())
+        job.cancel(); assertTrue(job.isCancelled); assertFalse(job.isCompleted)
+        afterHttp.run()
+        while (!job.isCompleted) paused.poll(10, TimeUnit.SECONDS)!!.run()
+        assertTrue(final.get())
+        version.set(2); assertEquals("Late cancelled fetch must not seed shared state", 2, read(Get.CONTACTS))
+        assertEquals(listOf(Get.CONTACTS.path, Get.CONTACTS.path), records.toList())
+        assertTrue("Cancellation must be thrown at acceptance", cancelled.get()); assertFalse(returned.get())
+    }
     @Test fun afterFetchReferral() = afterFetch(Get.REFERRAL)
     @Test fun afterFetchPopular() = afterFetch(Get.POPULAR)
     @Test fun afterFetchMyRoutes() = afterFetch(Get.MY_ROUTES)
@@ -240,7 +266,7 @@ class ApiClientCacheCancellationTest {
         assertEquals(1, read(Get.CONTACTS)); version.set(2); val cancelled = AtomicBoolean()
         val job = scope.async(start = CoroutineStart.UNDISPATCHED) {
             currentCoroutineContext().cancel()
-            try { ApiClient.getContacts(forceRefresh = true) }
+            try { TestContacts.read(force = true) }
             catch (ce: CancellationException) { cancelled.set(true); throw ce }
         }
         runBlocking { job.join() }; assertTrue(cancelled.get()); assertTrue(job.isCancelled)

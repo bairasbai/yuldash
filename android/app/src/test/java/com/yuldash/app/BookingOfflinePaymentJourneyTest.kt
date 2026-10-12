@@ -144,6 +144,18 @@ class BookingOfflinePaymentJourneyTest {
             .performScrollToNode(hasText(text))
         compose.onNodeWithText(text).assertIsDisplayed()
     }
+    private val saveWarning = "Не удалось сохранить поездку без интернета"
+    /**
+     * The save warning is the first card of the list, on screen without scrolling. Do not poll
+     * show() for it: scrolling the list while the card animates in could leave the card's reported
+     * position above the list top, and performScrollToNode (no timeout) then scrolled up forever —
+     * 37 min of Compose frames until OutOfMemoryError in CI (12.10.2026).
+     */
+    private fun awaitSaveWarning() {
+        waitFor { compose.onAllNodesWithText(saveWarning).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        compose.onNodeWithText(saveWarning).assertIsDisplayed()
+    }
     private fun diskJson() = JSONObject(requireNotNull(secure.restarted().getString("pass_42", null)))
 
     private fun awaitOfflineBanner(language: AppLanguage) {
@@ -194,8 +206,8 @@ class BookingOfflinePaymentJourneyTest {
             .put("price", 700).put("pay_method", "sbp").put("pay_amount", 700).put("boarding_code", "old"))))
         secure.failWriteOf = "pass_42"
         mount(AppLanguage.Ru)
-        val warning = "Не удалось сохранить поездку без интернета"
-        waitFor { runCatching { show(warning); true }.getOrDefault(false) }
+        val warning = saveWarning
+        awaitSaveWarning()
         assertEquals("sbp", diskJson().getString("pay_method"))
         assertEquals(700, diskJson().getInt("pay_amount"))
         secure.failWriteOf = null
@@ -230,8 +242,7 @@ class BookingOfflinePaymentJourneyTest {
         release.countDown()
         assertTrue(returned.await(5, TimeUnit.SECONDS))
         // The warning is set only after saveTripPass returns false: observe completion, not a fixed delay.
-        waitFor { runCatching { show("Не удалось сохранить поездку без интернета"); true }.getOrDefault(false) }
-        compose.waitForIdle()
+        awaitSaveWarning()
         assertEquals("sbp", diskJson().getString("pay_method"))
         assertEquals(900, diskJson().getInt("pay_amount"))
         assertEquals("B-only", diskJson().getString("boarding_code"))

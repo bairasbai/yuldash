@@ -103,7 +103,7 @@ class ApiClientRefreshSessionBoundaryTest {
 
     @Test fun lateRefreshCannotReplaceTheNewAccountsTokens() = runBlocking {
         mode = "late-refresh"
-        val old = async(Dispatchers.IO) { ApiClient.getContacts() }
+        val old = async(Dispatchers.IO) { TestContacts.read() }
         try {
             assertTrue("A refresh must reach the local server", refreshArrived.await(5, TimeUnit.SECONDS))
             ApiClient.logout()
@@ -114,12 +114,12 @@ class ApiClientRefreshSessionBoundaryTest {
         old.await()
         assertEquals("Old refresh must not overwrite B's access token", "access-B", ApiClient.currentToken())
         assertFalse(ApiClient.sessionExpired.value)
-        assertEquals("Contact B", ApiClient.getContacts().getOrThrow().single().name)
+        assertEquals("Contact B", TestContacts.read().getOrThrow().single().name)
     }
 
     @Test fun oldUnauthorizedRequestCannotRetryUnderTheNewAccount() = runBlocking {
         mode = "late-401"
-        val old = async(Dispatchers.IO) { ApiClient.getContacts() }
+        val old = async(Dispatchers.IO) { TestContacts.read() }
         try {
             assertTrue("A GET must reach the server before switching accounts", oldGetArrived.await(5, TimeUnit.SECONDS))
             ApiClient.logout()
@@ -136,7 +136,7 @@ class ApiClientRefreshSessionBoundaryTest {
     }
 
     @Test fun normalTokenRefreshKeepsTheSessionWorking() = runBlocking {
-        assertEquals("Contact A", ApiClient.getContacts().getOrThrow().single().name)
+        assertEquals("Contact A", TestContacts.read().getOrThrow().single().name)
         assertEquals("access-A-new", ApiClient.currentToken())
         assertEquals(1, refreshCalls.get())
         assertFalse(ApiClient.sessionExpired.value)
@@ -144,8 +144,8 @@ class ApiClientRefreshSessionBoundaryTest {
 
     @Test fun parallelUnauthorizedRequestsShareOneRefresh() = runBlocking {
         mode = "parallel"
-        val first = async(Dispatchers.IO) { ApiClient.getContacts() }
-        val second = async(Dispatchers.IO) { ApiClient.getContacts() }
+        val first = async(Dispatchers.IO) { TestContacts.read() }
+        val second = async(Dispatchers.IO) { TestContacts.read() }
         assertEquals("Contact A", first.await().getOrThrow().single().name)
         assertEquals("Contact A", second.await().getOrThrow().single().name)
         assertEquals("Both original requests must actually have reached the server", 0L, bothOldGets.count)

@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import com.yuldash.app.data.TestContacts
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -171,9 +172,9 @@ class InstantShareOwnerBoundaryTest : ShareHelpBoundaryHarness() {
     @Test fun disposedLinkCannotRoute() { mountLink(); val a = text("Отправить"); compose.runOnIdle { mounted.value = false }; pump(); compose.runOnIdle { dispatch(a) }; pump(); assertNull(Shadows.shadowOf(app).nextStartedActivity) }
     @Test fun actualTaxiSafetyCanOpenAndShare() { mountTaxiSafety(); click("Поделиться поездкой"); click("Контакт А"); await { count("POST", "/share") == 1 }; await { compose.onAllNodesWithText("Скопировать").fetchSemanticsNodes().isNotEmpty() } }
     @Test fun actualTaxiShareRejectsParentRetirementBeforeFrame() { mountTaxiSafety(); click("Поделиться поездкой"); val a = text("Контакт А"); compose.runOnIdle { parentCurrent.value = false; dispatch(a) }; pump(); assertEquals(0, count("POST", "/share")) }
-    @Test fun contactsRejectStaleGenerationBeforeColdHttp() { val generation = ApiClient.queueSessionGeneration(); ApiClient.saveToken(tokenB); assertTrue(runBlocking { ApiClient.getContacts(expectedGeneration = generation) }.isFailure); assertEquals(0, count("GET", "/trusted-contacts")) }
-    @Test fun contactsRejectStaleGenerationBeforeHotCache() { val generation = ApiClient.queueSessionGeneration(); ApiClient.saveToken(tokenB); val current = runBlocking { ApiClient.getContacts().getOrThrow() }; assertEquals(7, current.single().id); assertTrue(runBlocking { ApiClient.getContacts(expectedGeneration = generation) }.isFailure); assertEquals(1, count("GET", "/trusted-contacts")) }
-    @Test fun currentContactsCanStillUseHotCache() { val generation = ApiClient.queueSessionGeneration(); val first = runBlocking { ApiClient.getContacts(expectedGeneration = generation).getOrThrow() }; val second = runBlocking { ApiClient.getContacts().getOrThrow() }; assertEquals(first, second); assertEquals(1, count("GET", "/trusted-contacts")) }
+    @Test fun contactsRejectStaleGenerationBeforeColdHttp() { val generation = ApiClient.queueSessionGeneration(); ApiClient.saveToken(tokenB); assertTrue(runBlocking { TestContacts.read(owner = generation) }.isFailure); assertEquals(0, count("GET", "/trusted-contacts")) }
+    @Test fun contactsRejectStaleGenerationBeforeHotCache() { val generation = ApiClient.queueSessionGeneration(); ApiClient.saveToken(tokenB); val current = runBlocking { TestContacts.read().getOrThrow() }; assertEquals(7, current.single().id); assertTrue(runBlocking { TestContacts.read(owner = generation) }.isFailure); assertEquals(1, count("GET", "/trusted-contacts")) }
+    @Test fun currentContactsCanStillUseHotCache() { val generation = ApiClient.queueSessionGeneration(); val first = runBlocking { TestContacts.read(owner = generation).getOrThrow() }; val second = runBlocking { TestContacts.read().getOrThrow() }; assertEquals(first, second); assertEquals(1, count("GET", "/trusted-contacts")) }
     @Test fun allScopedPrivateApiCallsRejectCapturedOldOwner() {
         val generation = ApiClient.queueSessionGeneration(); ApiClient.saveToken(tokenB)
         val results = runBlocking { listOf(ApiClient.shareInstantTrip(91, 7, generation), ApiClient.getInstantShares(91, generation), ApiClient.revokeInstantShare(91, 501, generation), ApiClient.instantRoadsideHelp(91, null, null, expectedGeneration = generation), ApiClient.roadsideHelp(91, null, null, "", generation), ApiClient.parcelRoadsideHelp(91, null, null, expectedGeneration = generation)) }

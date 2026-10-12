@@ -19,7 +19,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import org.json.JSONException
 import org.json.JSONObject
 import okhttp3.Authenticator
 import okhttp3.Headers
@@ -83,8 +82,8 @@ object ApiClient {
     private val connectMs: Int get() = testTimeoutMs ?: testRetryTimeoutMs ?: 15000
     private val readMs: Int get() = testTimeoutMs ?: testRetryTimeoutMs ?: 15000
 
-    // Only contact mutations: never replay a sent body after a lost reply or HTTP follow-up.
-    private val contactsTransport by lazy {
+    // One-shot mutations (see [authorized]): never replay a sent body after a lost reply or HTTP follow-up.
+    private val oneShotTransport by lazy {
         OkHttpClient.Builder().retryOnConnectionFailure(false)
             .followRedirects(false).followSslRedirects(false)
             .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE).build()
@@ -121,24 +120,6 @@ object ApiClient {
     private val mutableSessionChanges = kotlinx.coroutines.flow.MutableStateFlow(0L)
     // Publish only after a complete login/logout mutation; refresh keeps the same owner.
     internal val sessionChanges = mutableSessionChanges.asStateFlow()
-    // A disposed editor's blocking DELETE can settle after another editor has read the list.
-    internal data class ContactDeletion(val version: Long, val generation: Long, val contactId: Int)
-    private val mutableContactDeletions = kotlinx.coroutines.flow.MutableStateFlow(ContactDeletion(0, 0, 0))
-    internal val contactDeletions = mutableContactDeletions.asStateFlow()
-    private fun notifyContactDeletion(generation: Long, contactId: Int?) {
-        // Called under sessionLock, together with same-session cache invalidation.
-        if (contactId != null) mutableContactDeletions.value = ContactDeletion(
-            mutableContactDeletions.value.version + 1, generation, contactId,
-        )
-    }
-    // POST can also update an existing phone/ID; no payload can prove that a snapshot already reflects it.
-    internal data class ContactAddition(val version: Long, val generation: Long)
-    private val mutableContactAdditions = kotlinx.coroutines.flow.MutableStateFlow(ContactAddition(0, 0))
-    internal val contactAdditions = mutableContactAdditions.asStateFlow()
-    private fun notifyContactAddition(generation: Long, adding: Boolean) {
-        // Called under sessionLock, together with same-session cache invalidation.
-        if (adding) mutableContactAdditions.value = ContactAddition(mutableContactAdditions.value.version + 1, generation)
-    }
     private data class RequestSession(val generation: Long, val bearer: String?)
     private fun requestSession() = synchronized(sessionLock) { RequestSession(sessionGeneration, token) }
     internal fun queueSessionGeneration(): Long = sessionGeneration
@@ -157,7 +138,16 @@ object ApiClient {
         if (!sameSession(generation) || !token.isNullOrBlank()) false else { action(); true }
     }
     private class SessionChangedException : IllegalStateException("Session changed")
-    private fun <T> staleSession(): Result<T> = Result.failure(SessionChangedException())
+    internal fun <T> staleSession(): Result<T> = Result.failure(SessionChangedException())
+
+    // Domain repositories (ContactsRepository) drop per-account state at the same moment as respCache.
+    private val sessionResetListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+    /** Called under the session lock right after the account changed; keep it short and memory-only. */
+    internal fun onSessionReset(listener: () -> Unit) { sessionResetListeners += listener }
+    private fun clearSessionCaches() {
+        respCache.clear()
+        sessionResetListeners.forEach { it() }
+    }
     private fun expireSession(generation: Long) = synchronized(sessionLock) {
         if (sameSession(generation)) {
             logout()
@@ -253,10 +243,6 @@ object ApiClient {
         bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup, pickupLat, pickupLng, onlyTrusted = onlyTrusted) }
     }
 
-    fun fireAddContact(name: String, relation: String, phone: String, notifyByDefault: Boolean) {
-        bg.launch { addContact(name, relation, phone, notifyByDefault) }
-    }
-
     fun fireRequestCallback(note: String) {
         bg.launch { requestCallback(note) }
     }
@@ -331,7 +317,7 @@ object ApiClient {
         val p = selected?.prefs
         prefs = p
         sessionGeneration++
-        respCache.clear()
+        clearSessionCaches()
         cachedUserId = null
         cachedUserIdForToken = null
         token = p?.getString("token", null)
@@ -439,7 +425,6 @@ object ApiClient {
         ttlMs: Long,
         onValue: (T) -> Unit = {},
         expectedGeneration: Long? = null,
-        notifyOnCacheHit: Boolean = false,
         fetch: suspend () -> Result<T>,
     ): Result<T> {
         val callerContext = currentCoroutineContext()
@@ -448,9 +433,7 @@ object ApiClient {
             if (expectedGeneration != null && !sameSession(expectedGeneration)) return staleSession()
             respCache[key]?.let { c ->
                 if (c.generation == sessionGeneration && System.currentTimeMillis() - c.ts < ttlMs && c.value != null) {
-                    val value = c.value as T
-                    if (notifyOnCacheHit) onValue(value)
-                    return Result.success(value)
+                    return Result.success(c.value as T)
                 }
             }
             Triple(sessionGeneration, cacheRevisions[key] ?: 0L, ++cacheReadOrder)
@@ -502,7 +485,7 @@ object ApiClient {
                 .remove("user_name").remove("user_role")
         }) { "Session storage unavailable" }
         sessionGeneration++
-        respCache.clear()
+        clearSessionCaches()
         cachedUserId = null
         cachedUserIdForToken = null
         token = t
@@ -559,7 +542,7 @@ object ApiClient {
         userRole = null
         cachedUserId = null
         cachedUserIdForToken = null
-        respCache.clear()   // сброс кеша ответов (иначе следующий юзер увидит чужой /me/referral/contacts)
+        clearSessionCaches()   // сброс кешей (иначе следующий юзер увидит чужой /me/referral/contacts)
         // Диск тоже чистим, иначе следующий пользователь телефона получает чужое наследство:
         //  • push_token — чтобы не зарегистрировать устройство прошлого владельца заново;
         //  • паспорта поездок — там ИМЯ И ТЕЛЕФОН пассажиров (чужие ПДн на диске, 152-ФЗ);
@@ -773,7 +756,7 @@ object ApiClient {
                     .putString("user_name", name).putString("user_role", role)
             }) return@synchronized Result.failure(SessionPersistenceException())
             sessionGeneration++
-            respCache.clear()
+            clearSessionCaches()
             cachedUserId = null
             cachedUserIdForToken = null
             token = access
@@ -1234,113 +1217,14 @@ object ApiClient {
             ConsentDto(kind = o.optString("kind"), grantedAt = o.optString("granted_at"))
         }
 
-    // ---------- Доверенные контакты / SOS ----------
-
-    internal fun isUncertainContactMutation(error: Throwable?): Boolean =
-        error is JSONException || (error is IOException && error !is ConnectException &&
-            error !is UnknownHostException && error !is NoRouteToHostException)
-
-    private suspend fun mutateContacts(method: String, path: String, body: JSONObject?, expectedGeneration: Long? = null, deletedId: Int? = null, adding: Boolean = false): Result<Unit> {
-        val generation = expectedGeneration ?: requestSession().generation
-        val result = try {
-            call(method, path, body, auth = true, expectedGeneration = generation, singleAttemptMutation = true)
-        } catch (cancelled: CancellationException) {
-            // Cancellation may be delivered after the server committed, including on IO return.
-            // Keep the cancellation thrown; never resend or invalidate a newer owner's cache.
-            synchronized(sessionLock) {
-                if (sameSession(generation)) {
-                    invalidate("contacts")
-                    notifyContactDeletion(generation, deletedId)
-                    notifyContactAddition(generation, adding)
-                }
-            }
-            throw cancelled
-        }
-        return synchronized(sessionLock) {
-            if (result.isSuccess && !sameSession(generation)) staleSession()
-            else {
-                val error = result.exceptionOrNull()
-                // The server may have committed before its reply was lost or malformed.
-                // Refresh on the next read, preserving the error and never resending here.
-                val uncertain = isUncertainContactMutation(error)
-                if (sameSession(generation) && (result.isSuccess || uncertain)) {
-                    invalidate("contacts")
-                    notifyContactDeletion(generation, deletedId)
-                    notifyContactAddition(generation, adding)
-                }
-                result.map { }
-            }
-        }
-    }
-
-    suspend fun addContact(name: String, relation: String, phone: String, notifyByDefault: Boolean, expectedGeneration: Long? = null): Result<Unit> =
-        mutateContacts(
-            "POST", "/trusted-contacts",
-            JSONObject().put("name", name).put("relation", relation).put("phone", phone).put("notify_by_default", notifyByDefault),
-            expectedGeneration, adding = true,
-        )   // добавили контакт → следующий getContacts тянет свежий список
+    // ---------- SOS (доверенные контакты — ContactsApi + ContactsRepository) ----------
 
     /**
-     * Убрать доверенный контакт. Сервер умел это с самого начала, а приложение не звало:
-     * контакт удалялся ТОЛЬКО на экране и возвращался после перезапуска. То есть человек,
-     * которому уходит твоя геопозиция в поездке и SOS-сигнал ночью, оставался в списке
-     * навсегда — хотя отношения меняются: бывший, поссорились, ошиблись номером.
-     * Сервер сначала гасит шаринги этого контакта, потом сам контакт.
+     * Общий вход доменных HTTP-клиентов (первый — [ContactsApi]): авторизованный запрос входа [owner].
+     * [oneShot] — меняющий запрос, который транспорт не повторит молча после потерянного ответа.
      */
-    suspend fun deleteContact(contactId: Int, expectedGeneration: Long? = null): Result<Unit> =
-        mutateContacts("DELETE", "/trusted-contacts/$contactId", null, expectedGeneration, deletedId = contactId)
-
-    suspend fun getContacts(expectedGeneration: Long? = null, forceRefresh: Boolean = false): Result<List<ContactDto>> =
-        readContacts(expectedGeneration, forceRefresh)
-
-    // Publish only at the guarded cache acceptance point; the ordinary GET may still return an older snapshot.
-    internal suspend fun loadContactsForPublication(
-        expectedGeneration: Long,
-        forceRefresh: Boolean = false,
-        onAccepted: (List<ContactDto>) -> Unit,
-    ): Result<List<ContactDto>> = readContacts(expectedGeneration, forceRefresh, onAccepted)
-
-    private suspend fun readContacts(
-        expectedGeneration: Long?,
-        forceRefresh: Boolean,
-        onAccepted: ((List<ContactDto>) -> Unit)? = null,
-    ): Result<List<ContactDto>> {
-        val callerContext = currentCoroutineContext()
-        val generation = synchronized(sessionLock) {
-            callerContext.ensureActive() // A cancelled forceRefresh must not evict a valid snapshot.
-            val owner = expectedGeneration ?: sessionGeneration
-            if (!sameSession(owner)) return staleSession()
-            if (onAccepted != null && !isCurrentSession(owner)) return staleSession()
-            if (forceRefresh) invalidate("contacts")
-            owner
-        }
-        return cachedGet(
-            "contacts", TTL_PERSONAL, expectedGeneration = generation,
-            notifyOnCacheHit = onAccepted != null,
-            onValue = { list: List<ContactDto> ->
-                // cachedGet holds sessionLock and checks the contacts revision before this short memory-only callback.
-                if (onAccepted != null && callerContext.isActive && isCurrentSession(generation)) onAccepted(list)
-            },
-        ) {
-            call("GET", "/trusted-contacts", null, auth = true, expectedGeneration = generation).mapCatching { obj ->
-                // Malformed success must remain a failure and never enter the contacts cache.
-                val arr = obj.getJSONArray("items")
-                val ids = HashSet<Int>()
-                (0 until arr.length()).map { i ->
-                    val row = arr.getJSONObject(i)
-                    val id = row.get("id")
-                    require(id is Number)
-                    val integral = id.toLong()
-                    require(integral in 1..Int.MAX_VALUE.toLong() && id.toDouble() == integral.toDouble())
-                    require(ids.add(integral.toInt()))
-                    require(row.get("name") is String)
-                    for (field in listOf("relation", "phone")) require(!row.has(field) || row.get(field) is String)
-                    require(!row.has("notify_by_default") || row.get("notify_by_default") is Boolean)
-                    parseContactDto(row)
-                }
-            }
-        }
-    }
+    internal suspend fun authorized(method: String, path: String, body: JSONObject?, owner: Long, oneShot: Boolean = false): Result<JSONObject> =
+        call(method, path, body, auth = true, expectedGeneration = owner, singleAttemptMutation = oneShot)
 
     /** SOS. orderId — контекст такси-заказа (B7b-2), bookingId — контекст попутки: дежурный
      *  увидит маршрут и вторую сторону. Раньше поле брони было только на сервере и всегда
@@ -3693,7 +3577,7 @@ object ApiClient {
                         }
                     }.build()
                     val request = Request.Builder().url(BASE + path).method(method, requestBody).headers(headers).build()
-                    val client = contactsTransport.newBuilder().connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
+                    val client = oneShotTransport.newBuilder().connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
                         .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).writeTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()
                     mutationResponse = client.newCall(request).execute()
                     code = mutationResponse.code
@@ -6950,14 +6834,6 @@ data class ResponseDto(
     val haggled: Boolean get() = bargainRounds > 0
 }
 
-data class ContactDto(
-    val id: Int,
-    val name: String,
-    val relation: String,
-    val phone: String,
-    val notifyByDefault: Boolean,
-)
-
 /** Активный шаринг поездки близкому (B7c): id для отзыва, к какому контакту, готовая live-ссылка. */
 data class TripShareDto(
     val id: Int,
@@ -7003,17 +6879,6 @@ internal fun parseAdminReportDto(o: JSONObject): AdminReportDto {
         status = o.optString("status", "new"),
         resolution = if (o.isNull("resolution")) "" else o.optString("resolution"),
         targetUserId = o.optInt("target_user_id"),
-    )
-}
-
-/** Доверенный контакт — кому уходит SOS. */
-internal fun parseContactDto(o: JSONObject): ContactDto {
-    return ContactDto(
-        id = o.optInt("id"),
-        name = o.optString("name"),
-        relation = o.optString("relation"),
-        phone = o.optString("phone"),
-        notifyByDefault = o.optBoolean("notify_by_default"),
     )
 }
 

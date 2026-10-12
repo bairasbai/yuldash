@@ -75,7 +75,7 @@ class ApiClientContactsMutationCacheTest {
     private fun CoroutineScope.start(r: Reply): Read {
         val returned = AtomicBoolean(false); val completed = CountDownLatch(1)
         val job = async(Dispatchers.Default) {
-            try { ApiClient.getContacts(expectedGeneration = generation) } finally { returned.set(true) }
+            try { TestContacts.read(owner = generation) } finally { returned.set(true) }
         }
         job.invokeOnCompletion { completed.countDown() }
         assertTrue(r.started.await(10, TimeUnit.SECONDS)); assertFalse(job.isCompleted); assertFalse(returned.get())
@@ -87,7 +87,7 @@ class ApiClientContactsMutationCacheTest {
         assertTrue(read.deferred.isCompleted); assertFalse(read.deferred.isCancelled)
         return result
     }
-    private suspend fun ids() = ApiClient.getContacts(expectedGeneration = generation).getOrThrow().map { it.id }
+    private suspend fun ids() = TestContacts.read(owner = generation).getOrThrow().map { it.id }
     private fun counts(gets: Int, deletes: Int, token: String = tokenA) {
         val contact = records.filter { it.second!!.startsWith("/trusted-contacts") }
         assertEquals(gets, contact.count { it.first == "GET" }); assertEquals(deletes, contact.count { it.first == "DELETE" })
@@ -96,38 +96,38 @@ class ApiClientContactsMutationCacheTest {
     }
     @Test fun lateGetCannotOverwriteFreshCacheAfterSuccessfulDelete() = scenario {
         val old = reply(contacts(7), held = true); val read = start(old)
-        ApiClient.deleteContact(7).getOrThrow(); reply("[]"); assertEquals(emptyList<Int>(), ids()); counts(2, 1)
+        TestContacts.delete(7).getOrThrow(); reply("[]"); assertEquals(emptyList<Int>(), ids()); counts(2, 1)
         assertEquals(listOf(7), finish(old, read).getOrThrow().map { it.id })
         assertEquals("Late old GET must not replace fresh empty cache", emptyList<Int>(), ids()); counts(2, 1)
     }
     @Test fun lateGetBeforeFreshReadCannotRepopulateInvalidatedCache() = scenario {
         val old = reply(contacts(7), held = true); val read = start(old)
-        ApiClient.deleteContact(7).getOrThrow(); assertEquals(listOf(7), finish(old, read).getOrThrow().map { it.id }); counts(1, 1)
+        TestContacts.delete(7).getOrThrow(); assertEquals(listOf(7), finish(old, read).getOrThrow().map { it.id }); counts(1, 1)
         reply("[]"); assertEquals("Invalidated key must fetch again", emptyList<Int>(), ids()); counts(2, 1)
     }
     @Test fun failedFreshReadDoesNotLetLateGetRestoreDeletedContact() = scenario {
         val old = reply(contacts(7), held = true); val read = start(old)
-        ApiClient.deleteContact(7).getOrThrow(); reply("{}", 503)
-        assertTrue(ApiClient.getContacts(expectedGeneration = generation).isFailure); counts(2, 1)
+        TestContacts.delete(7).getOrThrow(); reply("{}", 503)
+        assertTrue(TestContacts.read(owner = generation).isFailure); counts(2, 1)
         assertEquals(listOf(7), finish(old, read).getOrThrow().map { it.id })
         reply("[]"); assertEquals(emptyList<Int>(), ids()); counts(3, 1)
     }
     @Test fun rejectedDeleteDoesNotDiscardValidInFlightRead() = scenario {
         val old = reply(contacts(7), held = true); val read = start(old); deleteCode = 503
-        val rejected = ApiClient.deleteContact(7); assertTrue(rejected.isFailure)
+        val rejected = TestContacts.delete(7); assertTrue(rejected.isFailure)
         assertEquals(503, (rejected.exceptionOrNull() as ApiException).status)
         assertEquals(listOf(7), finish(old, read).getOrThrow().map { it.id })
         assertEquals(listOf(7), ids()); counts(1, 1)
     }
     @Test fun lateFailedGetDoesNotDamageFreshCache() = scenario {
         val old = reply("{}", 503, held = true); val read = start(old)
-        ApiClient.deleteContact(7).getOrThrow(); reply("[]"); assertEquals(emptyList<Int>(), ids())
+        TestContacts.delete(7).getOrThrow(); reply("[]"); assertEquals(emptyList<Int>(), ids())
         val result = finish(old, read); assertTrue(result.isFailure); assertEquals(503, (result.exceptionOrNull() as ApiException).status)
         assertEquals(emptyList<Int>(), ids()); counts(2, 1)
     }
     @Test fun newAccountCacheSurvivesLateOldReadAfterDelete() = scenario {
         val old = reply(contacts(7), held = true); val read = start(old)
-        ApiClient.deleteContact(7).getOrThrow(); ApiClient.saveToken(tokenB)
+        TestContacts.delete(7).getOrThrow(); ApiClient.saveToken(tokenB)
         generation = ApiClient.queueSessionGeneration(); reply(contacts(8)); assertEquals(listOf(8), ids())
         assertTrue(finish(old, read).isFailure); assertEquals(listOf(8), ids())
         assertEquals(listOf("Bearer $tokenA", "Bearer $tokenA", "Bearer $tokenB"), records.map { it.third })
@@ -135,27 +135,38 @@ class ApiClientContactsMutationCacheTest {
     }
     @Test fun twoDeleteRevisionsRejectBothOlderReads() = scenario {
         val first = reply(contacts(7, 8), held = true); val firstRead = start(first)
-        ApiClient.deleteContact(7).getOrThrow(); val second = reply(contacts(8), held = true); val secondRead = start(second)
-        ApiClient.deleteContact(8).getOrThrow(); reply("[]"); assertEquals(emptyList<Int>(), ids())
+        TestContacts.delete(7).getOrThrow(); val second = reply(contacts(8), held = true); val secondRead = start(second)
+        TestContacts.delete(8).getOrThrow(); reply("[]"); assertEquals(emptyList<Int>(), ids())
         assertEquals(listOf(8), finish(second, secondRead).getOrThrow().map { it.id }); assertEquals(emptyList<Int>(), ids()); counts(3, 2)
         assertEquals(listOf(7, 8), finish(first, firstRead).getOrThrow().map { it.id }); assertEquals(emptyList<Int>(), ids()); counts(3, 2)
     }
     @Test fun contactDeletionPreservesIndependentFeedCache() = scenario {
         val feed = ApiClient.getFeed().getOrThrow(); assertEquals(17, feed.today)
         val old = reply(contacts(7), held = true); val read = start(old)
-        ApiClient.deleteContact(7).getOrThrow(); reply("[]"); assertEquals(emptyList<Int>(), ids())
+        TestContacts.delete(7).getOrThrow(); reply("[]"); assertEquals(emptyList<Int>(), ids())
         finish(old, read).getOrThrow(); assertEquals(emptyList<Int>(), ids()); counts(2, 1)
         assertEquals(feed, ApiClient.getFeed().getOrThrow()); assertEquals(1, records.count { it.second == "/feed" })
         assertEquals(4, server.requestCount)
     }
     @Test fun successfulDeleteInvalidatesAlreadyWarmCache() = scenario {
         reply(contacts(7)); assertEquals(listOf(7), ids()); assertEquals(listOf(7), ids()); counts(1, 0)
-        ApiClient.deleteContact(7).getOrThrow(); reply("[]"); assertEquals(emptyList<Int>(), ids())
+        TestContacts.delete(7).getOrThrow(); reply("[]"); assertEquals(emptyList<Int>(), ids())
         assertEquals(emptyList<Int>(), ids()); counts(2, 1)
+    }
+    // Review of the layering pilot: a DELETE already reflected in the list is not a visible change,
+    // but a reply that was in flight before it settled must still be refused.
+    @Test fun reflectedDeleteStillRejectsReadSentBeforeIt() = scenario {
+        val first = reply("[]", held = true); val firstRead = start(first)
+        val second = reply(contacts(7), held = true); val secondRead = start(second)
+        assertEquals(emptyList<Int>(), finish(first, firstRead).getOrThrow().map { it.id })
+        val changes = TestContacts.changes
+        TestContacts.delete(7).getOrThrow(); assertEquals(changes, TestContacts.changes)
+        assertEquals(listOf(7), finish(second, secondRead).getOrThrow().map { it.id })
+        assertEquals("A reply sent before the DELETE settled must not bring 7 back", emptyList<Int>(), ids()); counts(2, 1)
     }
     @Test fun successfulAddKeepsFreshCacheAndExistingRequestContract() = scenario {
         val old = reply(contacts(7), held = true); val read = start(old)
-        ApiClient.addContact("Synthetic 8", "Synthetic", "+70000000008", true).getOrThrow()
+        TestContacts.add("Synthetic 8", "Synthetic", "+70000000008", true).getOrThrow()
         reply(contacts(7, 8)); assertEquals(listOf(7, 8), ids())
         assertEquals(listOf(7), finish(old, read).getOrThrow().map { it.id }); assertEquals(listOf(7, 8), ids())
         assertEquals(listOf("GET", "POST", "GET"), records.map { it.first })

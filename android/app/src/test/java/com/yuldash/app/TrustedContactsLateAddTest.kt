@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import com.yuldash.app.data.TestContacts
 import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
@@ -138,7 +139,7 @@ class TrustedContactsLateAddTest {
     }
     private fun beginHeld(addition: Row = b) {
         val owner = ApiClient.queueSessionGeneration()
-        caller = callerScope.async { ApiClient.addContact(addition.name, addition.relation, addition.phone, addition.notify, owner) }
+        caller = callerScope.async { TestContacts.add(addition.name, addition.relation, addition.phone, addition.notify, owner) }
         await { started.count == 0L }; assertEquals(1, count("POST")); assertEquals(1L, returned.count)
         val body = JSONObject(records.single { it.path == "/trusted-contacts" && it.method == "POST" }.body)
         assertEquals(4, body.length()); assertEquals(addition.name, body.getString("name")); assertEquals(addition.relation, body.getString("relation"))
@@ -163,7 +164,7 @@ class TrustedContactsLateAddTest {
         assertEquals(revision, vm.privateNavigationRevision); assertEquals(owner, ApiClient.queueSessionGeneration()); assertFalse(ApiClient.sessionExpired.value)
         assertNull("Retired add action must not show success Toast in the new screen", ShadowToast.getTextOfLatestToast())
         assertTrue(records.filter { it.path.startsWith("/trusted-contacts") }.all { it.bearer == "Bearer $tokenA" })
-        assertEquals(expected.map { it.id }, kotlinx.coroutines.runBlocking { ApiClient.getContacts().getOrThrow().map { it.id } }); assertEquals(if (failedRead) 5 else 4, count("GET"))
+        assertEquals(expected.map { it.id }, kotlinx.coroutines.runBlocking { TestContacts.read().getOrThrow().map { it.id } }); assertEquals(if (failedRead) 5 else 4, count("GET"))
     }
     private fun own(reply: Reply, failedRead: Boolean = false) {
         mode = reply; mount(AppLanguage.Ru); beginHeld(); if (failedRead) failNextGet.set(true); releaseAdd()
@@ -185,7 +186,7 @@ class TrustedContactsLateAddTest {
     }
     private fun coalescedAddDelete() {
         mount(AppLanguage.Ru); release.countDown()
-        compose.runOnIdle { kotlinx.coroutines.runBlocking { ApiClient.addContact(b.name, b.relation, b.phone, true); ApiClient.deleteContact(a.id) } }
+        compose.runOnIdle { kotlinx.coroutines.runBlocking { TestContacts.add(b.name, b.relation, b.phone, true); TestContacts.delete(a.id) } }
         settled(listOf(b)); assertEquals(3, count("GET")); assertEquals(1, count("POST")); assertEquals(1, count("DELETE"))
     }
     @After fun cleanup() {

@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.graphics.Bitmap
+import com.yuldash.app.data.TestContacts
 import android.os.Process
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -144,7 +145,7 @@ class ActiveTripChatUiInstrumentedTest {
         mount()
         compose.onNode(hasSetTextAction()).performTextInput("private-draft-A")
         val generation = ApiClient.queueSessionGeneration()
-        runBlocking { ApiClient.getContacts().getOrThrow() }
+        runBlocking { TestContacts.read().getOrThrow() }
         assertEquals(server.tokenA2, ApiClient.currentToken())
         assertEquals(generation, ApiClient.queueSessionGeneration())
         compose.waitForIdle()

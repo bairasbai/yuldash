@@ -266,6 +266,10 @@ import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.yuldash.app.data.ContactsRepository
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.isActive
 import androidx.compose.ui.platform.testTag
 
@@ -1093,14 +1097,22 @@ private fun YuldashAppContent() {
             }
             requestsLoading = false
         }
-        // Только актуальный ответ этого входа может обновить контакты в состоянии приложения.
+        // Контакты в состоянии приложения — отражение ContactsRepository для этого входа: сюда
+        // попадает только принятый ответ (чей угодно), поздний или чужой — никогда.
         LaunchedEffect(sessionVersion, navigationSession) {
-            ApiClient.loadContactsForPublication(navigationSession) { list ->
-                // Чистим БЕЗУСЛОВНО: у нового вошедшего (после logout на общем устройстве) может быть
-                // 0 контактов — тогда без clear() остались бы видны контакты (имена+телефоны) прошлого юзера.
-                trustedContacts.clear()
-                trustedContacts.addAll(list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) })
-            }
+            launch { ContactsRepository.shared.read(navigationSession) }
+            ContactsRepository.shared.state
+                .filter { it.owner == navigationSession }
+                .mapNotNull { it.contacts }
+                .distinctUntilChanged()
+                .collect { list ->
+                    ApiClient.runIfCurrentSession(navigationSession) {
+                        // Чистим БЕЗУСЛОВНО: у нового вошедшего (после logout на общем устройстве) может быть
+                        // 0 контактов — тогда без clear() остались бы видны контакты (имена+телефоны) прошлого юзера.
+                        trustedContacts.clear()
+                        trustedContacts.addAll(list.map { it.toTrustedContact() })
+                    }
+                }
         }
         BackHandler(enabled = screen != Screen.Onboarding && screen != Screen.Login && screen != Screen.Home && screen != Screen.Splash && screen != Screen.Intro) {
             if (screen == Screen.TrustedContacts) closeTrustedContacts() else goBack()
@@ -1657,10 +1669,6 @@ private fun YuldashAppContent() {
                         contacts = trustedContacts,
                         onBack = { closeTrustedContacts() },
                         isCurrentParent = { vm.screen.value == Screen.TrustedContacts && vm.privateNavigationRevision == displayedRevision },
-                        onContactsChanged = { snapshot ->
-                            trustedContacts.clear()
-                            trustedContacts.addAll(snapshot)
-                        },
                     )
                 }
             }

@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import com.yuldash.app.data.TestContacts
 import android.content.Intent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -100,7 +101,7 @@ class InstantOrderShareOperationsTest : ShareHelpBoundaryHarness() {
         return try { api() } finally { attempt.returned.set(true) }
     }
     private val operations = InstantShareOperations(
-        contacts = { generation -> observe(Op.CONTACTS, generation) { ApiClient.getContacts(expectedGeneration = generation) } },
+        contacts = { generation -> observe(Op.CONTACTS, generation) { TestContacts.read(owner = generation) } },
         create = { id, contact, generation ->
             assertEquals(91, id); assertEquals(7, contact)
             observe(Op.CREATE, generation) { ApiClient.shareInstantTrip(id, contact, expectedGeneration = generation) }
