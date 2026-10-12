@@ -18,9 +18,11 @@
 
 Здесь всё сведено в одну функцию: обе ручки зовут её и потому ведут себя одинаково.
 """
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
 
+from sqlalchemy import text as sa_text, update as sa_update
 from sqlmodel import Session, select
 
 from .antifraud import moderate_open_text
@@ -85,6 +87,41 @@ def guard_rating_on_pause(session: Session, rater_id: int,
         raise herr(403, PAUSED_RU, PAUSED_BA)
 
 
+def _lock_rating_slot(session: Session, rater_id: int, booking_id: Optional[int],
+                      order_id: Optional[int]) -> None:
+    """Сериализует конкурентные попытки поставить ОДНУ оценку одного человека за одну поездку.
+
+    Было (аудит leaf-3.2): «есть ли уже оценка» и «вставить новую строку» не были одной
+    операцией. Двойная отправка — два открытых тапа по звёздам, повтор после обрыва связи
+    в двух вкладках — шлёт два запроса ПОЧТИ одновременно. Оба успевают прочитать «оценки ещё
+    нет» раньше, чем любой из них закоммитит свою, и оба вставляют СВОЙ `Rating`. Ответ при
+    этом 200 у обеих вкладок — ошибки никакой, просто у водителя задвоилась одна звезда в
+    среднем и «N отзывов» выросло на единицу без второй настоящей поездки. Юнит-констрейнта
+    на (rater, booking)/(rater, order) в таблице нет (models.py — не наша зона), поэтому
+    защищаемся блокировкой, а не отловом конфликта уникальности.
+
+    Тот же приём, что `routers/auth.py::_lock_otp_phone`: на PostgreSQL — транзакционный
+    advisory-lock по стабильному ключу (рейтер, поездка); на SQLite (тесты/демо) — холостой
+    UPDATE, который забирает писательскую блокировку базы на время транзакции.
+
+    Лочим ПОСЛЕ модерации текста и ДО чтения `existing`: у модерации своя короткая транзакция
+    со своим commit (`log_text_flag`) — захваченный РАНЬШЕ неё advisory-lock освободился бы
+    тем коммитом, так и не доработав до записи оценки.
+    """
+    slot = f"b{booking_id}" if booking_id is not None else f"o{order_id}"
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        # Телефон/число не несём — ключ только из id, стабилен и воспроизводим между запросами.
+        key = int.from_bytes(
+            hashlib.sha256(f"yuldash-rating\0{rater_id}\0{slot}".encode()).digest()[:8],
+            "big", signed=True)
+        session.execute(sa_text("SELECT pg_advisory_xact_lock(CAST(:key AS bigint))"), {"key": key})
+    elif dialect == "sqlite":
+        session.execute(sa_update(Rating).where(Rating.id == -1).values(stars=Rating.stars))
+    else:
+        raise RuntimeError("Rating locking requires PostgreSQL or SQLite")
+
+
 def apply_rating(session: Session, rater: User, ratee_id: int, *, stars: int,
                  text: str = "", tags: str = "", booking_id: Optional[int] = None,
                  order_id: Optional[int] = None, place: str = "rating",
@@ -104,6 +141,10 @@ def apply_rating(session: Session, rater: User, ratee_id: int, *, stars: int,
         moderate_open_text(text, rater.id, place=place,
                            ref_id=booking_id or order_id, session=session)
 
+    # Двойная отправка (аудит leaf-3.2): без лока ДВЕ одновременные транзакции обе видят
+    # «оценки ещё нет» и обе вставляют свой Rating. Лочим ПРЯМО ПЕРЕД чтением «есть ли уже»,
+    # чтобы проверка и запись ниже видели согласованное состояние.
+    _lock_rating_slot(session, rater.id, booking_id, order_id)
     cond = (Rating.booking_id == booking_id) if booking_id is not None else (Rating.order_id == order_id)
     existing = session.exec(select(Rating).where(cond, Rating.rater_id == rater.id)).first()
     if existing:
