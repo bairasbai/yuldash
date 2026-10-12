@@ -29,47 +29,24 @@ import app.services as services
 from app.db import engine
 
 
-def _push_kinds(router: str) -> tuple[set[str], set[str]]:
-    """Какие виды пуша приложение разбирает по тапу в шторке: (точные виды, префиксы).
+def _push_router_kinds(router: str) -> set[str]:
+    """Виды, которые разбирает тап по пушу в шторке, — только из двух функций-маршрутизаторов
+    `MainActivity.kt`: `dispatchNavIntent` (закрытые экраны) и `openChatFromPush` (брони, рейсы).
 
-    Читаем только сам разбор тапа — `dispatchNavIntent` и `openChatFromPush`, а не весь
-    `MainActivity.kt`: иначе в «умеет открыть» попадают посторонние строки (например,
-    `"parcel" -> Triple(...)` из подписи категории), и сторож зеленеет без причины.
-
-    Ветка `when` записывается тремя способами, и все три — настоящий маршрут:
-      * `"booking" ->` или `type == "support" ->` — один вид;
-      * `type in setOf("instant", "instant_status") ->` — несколько видов в одну ветку;
-      * `type?.startsWith("parcel") == true ->` — целое семейство видов по префиксу.
+    Ветка записана в одной из форм: `"x" ->` / `type == "x" ->`, `type in setOf("x", "y") ->`,
+    `type?.startsWith("x") == true ->`. Раньше тест искал только первую по ВСЕМУ файлу: ветку
+    «instant» переписали во вторую (d1685f71, 08.10, поведение то же — экран такси-заказа),
+    и тест покраснел ложно; а «parcel» он находил случайно — в `when` про иконки категорий.
     """
-    body = router[router.index("private fun dispatchNavIntent("):router.index("private fun handleDeepLink(")]
-    exact = set(re.findall(r'"([a-z_]+)"\s*->', body))
-    for group in re.findall(r'type in setOf\(([^)]*)\)[^\n]*?->', body):
-        exact |= set(re.findall(r'"([a-z_]+)"', group))
-    prefixes = set(re.findall(r'type\?\.startsWith\("([a-z_]+)"\)\s*==\s*true[^\n]*?->', body))
-    return exact, prefixes
-
-
-def _opens(kind: str, exact: set[str], prefixes: set[str]) -> bool:
-    return kind in exact or any(kind.startswith(p) for p in prefixes)
-
-
-def test_разбор_пуша_понимает_все_формы_ветки():
-    """Сам сторож не должен слепнуть, когда ветку перепишут другой записью."""
-    sample = (
-        "private fun dispatchNavIntent(i: Intent?) {\n"
-        "    x == 1 || type in setOf(\"instant\", \"instant_status\") -> A\n"
-        "    type?.startsWith(\"parcel\") == true -> B\n"
-        "    type == \"support\" -> C\n"
-        "    if (type in setOf(\"skip_me\")) return\n"
-        "}\n"
-        "private fun openChatFromPush(i: Intent?) { when (type) { \"booking\" -> D } }\n"
-        "private fun handleDeepLink(i: Intent?) { \"not_router\" -> E }\n"
-    )
-    exact, prefixes = _push_kinds(sample)
-    assert exact == {"instant", "instant_status", "support", "booking"}, exact
-    assert prefixes == {"parcel"}, prefixes
-    assert _opens("parcel_status", exact, prefixes)
-    assert not _opens("skip_me", exact, prefixes) and not _opens("not_router", exact, prefixes)
+    kinds: set[str] = set()
+    for fn in ("private fun dispatchNavIntent(", "private fun openChatFromPush("):
+        body = router[router.index(fn):]
+        body = body[: body.index("\n    }\n")]
+        kinds |= set(re.findall(r'"([a-z_]+)"\s*->', body))
+        for group in re.findall(r'type in setOf\(([^)]*)\)\s*->', body):
+            kinds |= set(re.findall(r'"([a-z_]+)"', group))
+        kinds |= set(re.findall(r'type\?\.startsWith\("([a-z_]+)"\)\s*==\s*true\s*->', body))
+    return kinds
 
 
 def test_адрес_подставляется_когда_сервер_его_знает(monkeypatch, user_factory):
@@ -121,10 +98,10 @@ def test_приложение_умеет_открыть_то_что_шлёт_с�
     root = pathlib.Path(__file__).resolve().parents[2]
     android = root / "android/app/src/main/java/com/yuldash/app"
     router = (android / "MainActivity.kt").read_text(encoding="utf-8")
-    exact, prefixes = _push_kinds(router)
+    handled = _push_router_kinds(router)
     # Виды, ради которых правило и заводилось: человек ждёт ответа и должен попасть точно.
     must = {"support", "incident", "booking"}
-    missing = {k for k in must if not _opens(k, exact, prefixes)}
+    missing = must - handled
     assert not missing, (
         "сервер шлёт адрес, а приложение не знает, куда открыть: %s. "
         "Добавь ветку в openChatFromPush (MainActivity.kt)." % ", ".join(sorted(missing))
@@ -147,11 +124,11 @@ def test_шторка_и_лента_ведут_в_одно_место():
     block = feed[feed.index("when (n.refKind)"):]
     block = block[: block.index("\n    }")]
     feed_kinds = set(re.findall(r'"([a-z_]+)"\s*->', block))
-    exact, prefixes = _push_kinds(router)
+    push_kinds = _push_router_kinds(router)
     # Заявки таксиста/курьера открывают экраны подачи документов — туда пуш ведёт кнопкой
     # в самом уведомлении, отдельная ветка не нужна. Остальное должно совпадать.
     allowed_gap = {"taxi_apply", "courier_apply"}
-    gap = {k for k in feed_kinds - allowed_gap if not _opens(k, exact, prefixes)}
+    gap = feed_kinds - push_kinds - allowed_gap
     assert not gap, (
         "из ленты событие открывается, а из шторки нет: %s. "
         "Одно событие должно вести в одно место." % ", ".join(sorted(gap))
