@@ -138,12 +138,24 @@ def test_другая_открытая_тяжёлая_жалоба_не_даёт
 
 def test_подтвердить_и_оставить_не_присылает_ложное_пауза_снята(client, user_factory, monkeypatch):
     """Старый код звал unpause_taxi(), который шлёт «Такси снова доступно» — неправда, пауза
-    остаётся. Проверяем push_notification изнутри safety.py (прямой вызов, без Firebase)."""
+    остаётся.
+
+    Б4 (повторное ревью): подменять ТОЛЬКО `app.routers.safety.push_notification` недостаточно
+    — ложный пуш у `unpause_taxi` уходит через ЕГО СОБСТВЕННЫЙ импорт
+    `from .services import push_notification` внутри `quality.py` (разные биндинги одного
+    имени, `from import` их не связывает). С такой подменой тест прошёл бы и на старом,
+    буквально ещё не исправленном коде — молча ничего не проверяя. Патчим оба модуля, которые
+    реально умеют слать уведомление по ЭТОМУ пути."""
     import app.routers.safety as safety
+    import app.quality as quality_mod
 
     calls = []
-    monkeypatch.setattr(safety, "push_notification",
-                        lambda session, uid, kind, t1, t2, b1, b2, **kw: calls.append((t1, b1)))
+
+    def _capture(session, uid, kind, t1, t2, b1, b2, **kw):
+        calls.append((t1, b1))
+
+    monkeypatch.setattr(safety, "push_notification", _capture)
+    monkeypatch.setattr(quality_mod, "push_notification", _capture)
     drv = user_factory("N1Drv4", role=UserRole.driver)
     pax = user_factory("N1Pax4")
     admin = user_factory("N1Admin4", role=UserRole.admin)
@@ -193,3 +205,117 @@ def test_более_длинную_ручную_паузу_админа_оста
         assert prof.taxi_pause_reason == quality.PAUSE_REASON_ADMIN, "ручная причина не должна подмениться"
         far_future = utcnow() + timedelta(days=200)
         assert prof.taxi_paused_until > far_future, "ручная годовая пауза не должна укоротиться до 72ч"
+
+
+def test_повторный_нарушитель_третья_жалоба_не_открывает_дверь(client, user_factory):
+    """Б2 (повторное ревью, остаток N1): самый проблемный водитель — тот, у кого это уже
+    ТРЕТЬЯ подтверждённая жалоба за 30 дней (`quality_pause_reports`) — не должен получить
+    открытую курьерскую/посылочную дверь в ТОМ ЖЕ запросе, где админ его наказывает.
+
+    Было: лестница (`quality.apply_ladder_after_resolve`) звалась ПОСЛЕ блока «оставить» и
+    своим, чуть более поздним `now` переставляла reason на "reports" — `under_severe_review`
+    (дверь курьера/посылки) в тот же момент становился `False`."""
+    drv = user_factory("N1Drv6", role=UserRole.driver)
+    pax1 = user_factory("N1Pax6a")
+    pax2 = user_factory("N1Pax6b")
+    pax3 = user_factory("N1Pax6c")
+    admin = user_factory("N1Admin6", role=UserRole.admin)
+    _ensure_profile(drv["id"])
+
+    # Две ПРЕЖНИЕ подтверждённые жалобы (любая категория — лестница считает все resolved).
+    for pax in (pax1, pax2):
+        with Session(engine) as s:
+            order = InstantOrder(passenger_id=pax["id"], driver_id=drv["id"],
+                                 status=S.done, price_estimate=300, price_final=300)
+            s.add(order)
+            s.commit()
+            s.refresh(order)
+            rep = Report(reporter_id=pax["id"], target_user_id=drv["id"], category="rude",
+                        order_id=order.id, status="resolved", resolved_at=utcnow())
+            s.add(rep)
+            s.commit()
+
+    # Третья — ТЯЖЁЛАЯ, разбирается только что.
+    rid = _severe_report_pauses_driver(drv["id"], pax3["id"], category="dangerous_driving")
+
+    r = client.post(f"/admin/reports/{rid}/resolve", headers=admin["auth"],
+                    json={"resolution": "confirmed", "keep_pause": True})
+    assert r.status_code == 200, r.text
+
+    with Session(engine) as s:
+        assert quality.under_severe_review(s, drv["id"]) is True, (
+            "третья подтверждённая жалоба за 30 дней открыла курьерскую/посылочную дверь "
+            "самому проблемному водителю в том же запросе, где его наказали"
+        )
+        prof = s.exec(select(DriverProfile).where(DriverProfile.user_id == drv["id"])).first()
+        assert prof.taxi_pause_reason == quality.PAUSE_REASON_REVIEW
+
+
+def test_лестница_в_чужом_запросе_не_ослабляет_уже_идущую_review_паузу(
+    client, user_factory, monkeypatch
+):
+    """Б2 (второй круг): лестница считает ЛЮБЫЕ resolved-жалобы за 30 дней, не только тяжёлые,
+    и может сработать в запросе, который к текущему "review" вообще не относится. Сценарий:
+    тяжёлая жалоба A подтверждена с «оставить» (пауза укорочена до 72ч от t0); позже, когда
+    набегают СОВСЕМ ДРУГИЕ, НЕ тяжёлые жалобы (B, C — "rude"), резолв ТРЕТЬЕЙ из них на t1
+    триггерит лестницу своим «сейчас+72ч», который к t1 уже обгоняет пока ещё действующую, но
+    более старую паузу жалобы A — `pause_taxi` восстанавливает по времени совпадающие даты и
+    заодно переписывает reason на "reports". Этот запрос НЕ тяжёлый (category="rude") — старый
+    блок «оставить» (который смотрит только на r.category in SEVERE_CATEGORIES) в него даже не
+    заходит, значит restore там работать не может: защита обязана жить на уровне самого вызова
+    лестницы, а не внутри ветки «тяжёлая жалоба»."""
+    drv = user_factory("N1Drv7", role=UserRole.driver)
+    pax_a = user_factory("N1Pax7a")
+    pax_b = user_factory("N1Pax7b")
+    pax_c = user_factory("N1Pax7c")
+    admin = user_factory("N1Admin7", role=UserRole.admin)
+    _ensure_profile(drv["id"])
+
+    t0 = utcnow()
+    monkeypatch.setattr("app.routers.safety.utcnow", lambda: t0)
+    monkeypatch.setattr("app.quality.utcnow", lambda: t0)
+    rid_a = _severe_report_pauses_driver(drv["id"], pax_a["id"], category="dangerous_driving")
+    r = client.post(f"/admin/reports/{rid_a}/resolve", headers=admin["auth"],
+                    json={"resolution": "confirmed", "keep_pause": True})
+    assert r.status_code == 200, r.text
+    with Session(engine) as s:
+        prof = s.exec(select(DriverProfile).where(DriverProfile.user_id == drv["id"])).first()
+        assert prof.taxi_pause_reason == quality.PAUSE_REASON_REVIEW
+        until_after_a = prof.taxi_paused_until
+
+    def _make_report(pax, status="new"):
+        with Session(engine) as s:
+            order = InstantOrder(passenger_id=pax["id"], driver_id=drv["id"],
+                                 status=S.done, price_estimate=300, price_final=300)
+            s.add(order)
+            s.commit()
+            s.refresh(order)
+            rep = Report(reporter_id=pax["id"], target_user_id=drv["id"], category="rude",
+                        order_id=order.id, status=status,
+                        resolved_at=(t0 if status == "resolved" else None))
+            s.add(rep)
+            s.commit()
+            s.refresh(rep)
+            return rep.id
+
+    _make_report(pax_b, status="resolved")   # 2-я подтверждённая (не тяжёлая)
+    rid_c = _make_report(pax_c, status="new")   # 3-я — разбирается ниже
+
+    # Проходит заметное время: укороченная пауза A формально ещё активна (её until в будущем
+    # относительно t0), но лестничные «t1 + 72ч» эту дату уже обгоняют.
+    t1 = t0 + timedelta(hours=1)
+    monkeypatch.setattr("app.routers.safety.utcnow", lambda: t1)
+    monkeypatch.setattr("app.quality.utcnow", lambda: t1)
+    r = client.post(f"/admin/reports/{rid_c}/resolve", headers=admin["auth"],
+                    json={"resolution": "confirmed"})   # обычная жалоба, keep_pause не при чём
+    assert r.status_code == 200, r.text
+
+    with Session(engine) as s:
+        assert quality.under_severe_review(s, drv["id"]) is True, (
+            "резолв ПОСТОРОННЕЙ, не тяжёлой жалобы (третьей за 30 дней) триггернул лестницу "
+            "и переставил причину уже идущей паузы на 'reports' — курьерская/посылочная дверь "
+            "открылась самому проблемному водителю, хотя его тяжёлая жалоба всё ещё в силе"
+        )
+        prof = s.exec(select(DriverProfile).where(DriverProfile.user_id == drv["id"])).first()
+        assert prof.taxi_pause_reason == quality.PAUSE_REASON_REVIEW
+        assert prof.taxi_paused_until >= until_after_a
