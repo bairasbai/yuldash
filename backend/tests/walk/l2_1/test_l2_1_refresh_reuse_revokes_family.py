@@ -36,9 +36,11 @@ def _login(client, phone: str, name: str = "U") -> dict:
 
 
 def test_replay_with_a_wrong_rotation_id_outside_the_window_revokes_the_family(client, monkeypatch):
-    # Окно обнуляем: В ТУ ЖЕ миллисекунду после ротации уже «вне окна» — проверяем именно
-    # факт отзыва семьи, не гонясь за настоящими 120 секундами реального времени в тесте.
-    monkeypatch.setattr(security, "REFRESH_RECOVERY_SECONDS", 0, raising=False)
+    # Окно «уже закрыто» при любой разнице времени: проверяем именно факт отзыва семьи, не гонясь
+    # за настоящими 120 секундами в тесте. Не 0: ротация и повтор часто попадают в ОДИН такт
+    # часов (на Windows ~15 мс), разница выходит ровно 0 — это «внутри окна [0; 0]», и тест
+    # падал в ~1 прогоне из 5 на PostgreSQL. Отрицательная граница исключает и этот случай.
+    monkeypatch.setattr(security, "REFRESH_RECOVERY_SECONDS", -1, raising=False)
     phone = "+79995553011"
     first = _login(client, phone, "Б3Жертва")
     # Вторая, полностью независимая сессия того же человека (второй логин тем же номером —
@@ -156,7 +158,7 @@ def test_same_nonce_replayed_after_the_window_closes_does_not_alarm(client, monk
     assert rotated.status_code == 200, rotated.text
 
     # Реальных 120с не ждём — сокращаем окно, чтобы повтор оказался «поздним» немедленно.
-    monkeypatch.setattr(security, "REFRESH_RECOVERY_SECONDS", 0, raising=False)
+    monkeypatch.setattr(security, "REFRESH_RECOVERY_SECONDS", -1, raising=False)   # не 0: см. первый тест
     late_retry = client.post("/auth/refresh", json={
         "refresh_token": first["refresh_token"], "rotation_id": nonce,
     })
@@ -174,7 +176,7 @@ def test_the_same_stolen_token_does_not_alarm_twice(client, monkeypatch):
     иначе любой старый сожжённый токен превращается в бесплатный рубильник, которым вор может
     раз за разом выкидывать человека отовсюду (DoS)."""
     phone = "+79995553016"
-    monkeypatch.setattr(security, "REFRESH_RECOVERY_SECONDS", 0, raising=False)
+    monkeypatch.setattr(security, "REFRESH_RECOVERY_SECONDS", -1, raising=False)   # не 0: см. первый тест
     first = _login(client, phone, "ПовторнаяКража")
 
     rotated = client.post("/auth/refresh", json={
