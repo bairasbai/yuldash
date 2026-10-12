@@ -286,7 +286,18 @@ class CouponsScreenWalkTest {
         val reasonField = compose.onNode(hasSetTextAction())
         reasonField.performTextInput("Скидку не дали")
         compose.onNodeWithText("Отправить").performClick()
+        // Ответ на жалобу приходит из Dispatchers.IO в реальном времени, а не по тестовым часам:
+        // фиксированные 30 кадров на загруженной машине CI кончались раньше ответа (тест падал на
+        // проверке ниже). Сначала, как и раньше, 30 кадров: при остановленных часах первая же
+        // проверка семантики до них ждёт «простоя», которого анимация диалога без хода часов не
+        // даёт (60 с и AppNotIdleException). Затем крутим кадры, пока ошибка не появится, ≤10 с.
         repeat(30) { settle(); compose.mainClock.advanceTimeByFrame() }
+        val deadline = System.nanoTime() + 10_000_000_000L
+        while (compose.onAllNodesWithText("Ошибка сервера. Попробуй позже.").fetchSemanticsNodes().isEmpty() &&
+            System.nanoTime() < deadline
+        ) {
+            settle(); compose.mainClock.advanceTimeByFrame(); Thread.sleep(10)
+        }
         // Сервер не прислал detail.ru/ba — общий текст по коду 500 (ApiClient.genericByStatus),
         // НЕ «activate»-текст.
         assertTrue(compose.onAllNodesWithText("Ошибка сервера. Попробуй позже.").fetchSemanticsNodes().isNotEmpty())
