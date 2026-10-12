@@ -280,14 +280,20 @@ def _activate_payment(session: Session, payment: Payment) -> None:
             already_paid_ids = [i for i in snapshot_ids if i not in closed_ids]
             if already_paid_ids:
                 for d in session.exec(
-                    select(CommissionDebt).where(CommissionDebt.id.in_(already_paid_ids))
+                    # Только долги ЭТОГО водителя: чужой ID в снимке (повреждённые данные) не
+                    # должен превращаться в возврат чужой суммы (leaf-1.2c).
+                    select(CommissionDebt).where(CommissionDebt.id.in_(already_paid_ids),
+                                                 CommissionDebt.driver_id == payment.user_id)
                 ).all():
-                    # Возврат идемпотентен по заказу (refund:order:N, SAVEPOINT внутри) — не
-                    # коммитит сам, безопасен в ЭТОЙ же транзакции успеха платежа.
+                    # Ключ — платёж и долг, НЕ заказ (leaf-1.2c): у долга без заказа (пассажир
+                    # удалил аккаунт) ключ по заказу был общим на всех водителей, а
+                    # `refund:order:N` занят возвратом по жалобе «не заплатили» — это другой
+                    # платёж водителя. Идемпотентно (SAVEPOINT внутри), не коммитит сам —
+                    # безопасно в ЭТОЙ же транзакции успеха платежа.
                     debt_mod.refund_commission_to_wallet(
                         session, payment.user_id, d.amount_kop, order_id=d.order_id,
-                        note="Возврат: долг из счёта на оплату комиссии уже был закрыт другим "
-                             "способом, пока счёт ждал подтверждения банка",
+                        ext_id=debt_mod.taxi_debt_refund_ext_id(payment.id, d.id),
+                        note=debt_mod.TAXI_DEBT_REFUND_NOTE,
                     )
         elif snapshot_ids == ():
             # Маркер нашего формата, но повреждён — состав счёта неизвестен. Fail-closed, как

@@ -564,6 +564,173 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/walk/l1_2/test_l1_2b_taxi_debt_snapshot.py::test_payment_without_snapshot_marker_uses_time_cutoff"]
+    },
+    {
+      "id": "M53",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R7a",
+      "description": "leaf-1.2c: возврат по карте снова под ключом заказа — у долга без заказа (пассажир удалил аккаунт) ключ общий на всех водителей, второй возврат глотается",
+      "find": "                        ext_id=debt_mod.taxi_debt_refund_ext_id(payment.id, d.id),\n",
+      "replace": "                        ext_id=None,\n",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_refunds_of_debts_orphaned_by_passenger_deletion_are_not_swallowed_across_drivers"]
+    },
+    {
+      "id": "M54",
+      "file": "backend/app/debt.py",
+      "rule": "R7b",
+      "description": "leaf-1.2c: refund_commission_to_wallet игнорирует переданный ключ — возврат по карте делит refund:order:N с разбором жалобы «не заплатили»",
+      "find": "    ext = ext_id or refund_ext_id(order_id=order_id, parcel_id=parcel_id)",
+      "replace": "    ext = refund_ext_id(order_id=order_id, parcel_id=parcel_id)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_card_refund_is_not_swallowed_by_an_earlier_unpaid_report_refund_on_the_same_order"]
+    },
+    {
+      "id": "M55",
+      "file": "backend/app/debt.py",
+      "rule": "R7c",
+      "description": "leaf-1.2c: ключ возврата вне пространства refund: принимается — его не покрывает uq_ledgerentry_refund",
+      "find": "    if ext_id is not None and not ext_id.startswith(\"refund:\"):",
+      "replace": "    if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_explicit_refund_key_outside_the_guarded_namespace_is_refused"]
+    },
+    {
+      "id": "M56",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R7d",
+      "description": "leaf-1.2c: возврат по снимку счёта без фильтра по водителю — чужой ID в снимке превращается в возврат чужой суммы",
+      "find": "                    select(CommissionDebt).where(CommissionDebt.id.in_(already_paid_ids),\n                                                 CommissionDebt.driver_id == payment.user_id)",
+      "replace": "                    select(CommissionDebt).where(CommissionDebt.id.in_(already_paid_ids))",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_refund_never_pays_out_the_amount_of_someone_elses_debt"]
+    },
+    {
+      "id": "M57",
+      "file": "backend/app/routers/wallet.py",
+      "rule": "R7e",
+      "description": "leaf-1.2c: история кошелька отдаёт подпись возврата только по-русски, башкироязычный водитель не понимает строку",
+      "find": "            \"note\": ledger_note_text(e.note, lang), \"created_at\": e.created_at,",
+      "replace": "            \"note\": e.note, \"created_at\": e.created_at,",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_card_refund_line_in_wallet_history_speaks_the_drivers_language"]
+    },
+    {
+      "id": "M58",
+      "file": "backend/app/routers/payments.py",
+      "rule": "R7e",
+      "description": "leaf-1.2c: возврат по карте подписан как возврат по жалобе «не заплатили» — водитель видит неправду о причине",
+      "find": "                        note=debt_mod.TAXI_DEBT_REFUND_NOTE,\n",
+      "replace": "                        note=debt_mod.REFUND_NOTE,\n",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_card_refund_line_in_wallet_history_speaks_the_drivers_language"]
+    },
+    {
+      "id": "M59",
+      "file": "backend/app/routers/debt.py",
+      "rule": "R8a",
+      "description": "leaf-1.2c: «простить» снова перезаписывает долг без условия — закрытый картой долг становится «Списан админом», деньги водителя потеряны",
+      "find": "        .where(CommissionDebt.id == debt_id, CommissionDebt.status != DebtStatus.paid)",
+      "replace": "        .where(CommissionDebt.id == debt_id)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_forgive_does_not_overwrite_a_debt_the_card_closed_a_moment_earlier"]
+    },
+    {
+      "id": "M60",
+      "file": "backend/app/routers/debt.py",
+      "rule": "R8a",
+      "description": "leaf-1.2c (PostgreSQL, настоящий лок): «простить» без условия в WHERE применяется после коммита карты и затирает оплату",
+      "find": "        .where(CommissionDebt.id == debt_id, CommissionDebt.status != DebtStatus.paid)",
+      "replace": "        .where(CommissionDebt.id == debt_id)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_reverse_race_pg.py::test_pg_admin_write_waits_for_the_card_and_then_does_not_overwrite_it[forgive]"],
+      "db": "postgres"
+    },
+    {
+      "id": "M61",
+      "file": "backend/app/debt.py",
+      "rule": "R8b",
+      "description": "leaf-1.2c: «подтвердить»/«отклонить» батч без условия pending — оплата картой выдаётся за СБП или возвращается в неоплаченные",
+      "find": "        .where(CommissionDebt.id.in_(ids), CommissionDebt.status == DebtStatus.pending)",
+      "replace": "        .where(CommissionDebt.id.in_(ids))",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_reject_does_not_reopen_a_batch_the_card_closed_a_moment_earlier"]
+    },
+    {
+      "id": "M62",
+      "file": "backend/app/debt.py",
+      "rule": "R8b",
+      "description": "leaf-1.2c (PostgreSQL, настоящий лок): «подтвердить» без условия pending ждёт лок карты и потом закрывает уже оплаченный картой батч как СБП",
+      "find": "        .where(CommissionDebt.id.in_(ids), CommissionDebt.status == DebtStatus.pending)",
+      "replace": "        .where(CommissionDebt.id.in_(ids))",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_reverse_race_pg.py::test_pg_admin_write_waits_for_the_card_and_then_does_not_overwrite_it[confirm]"],
+      "db": "postgres"
+    },
+    {
+      "id": "M63",
+      "file": "backend/app/debt.py",
+      "rule": "R8c",
+      "description": "leaf-1.2c: батч, частично закрытый картой, всё равно подтверждается наполовину вместо отказа «сумма изменилась»",
+      "find": "    if changed == len(ids):",
+      "replace": "    if changed:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_confirm_refuses_and_changes_nothing_when_the_card_closed_part_of_the_batch"]
+    },
+    {
+      "id": "M64",
+      "file": "backend/app/debt.py",
+      "rule": "R8d",
+      "description": "leaf-1.2c: батч, целиком закрытый картой, отвечает админу 409 «сумма изменилась» вместо честного «уже оплачено»",
+      "find": "    if all(s == DebtStatus.paid for s in statuses):",
+      "replace": "    if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_confirm_does_not_take_credit_for_a_batch_the_card_closed_a_moment_earlier"]
+    },
+    {
+      "id": "M65",
+      "file": "backend/app/debt.py",
+      "rule": "R8d",
+      "description": "leaf-1.2c: карта закрыла батч ДО клика админа — «подтвердить» снова отвечает «подтверждено 0 ₽» вместо «уже оплачено»",
+      "find": "    if debt.status == DebtStatus.paid:\n        raise DebtAlreadySettled()",
+      "replace": "    if False:\n        raise DebtAlreadySettled()",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_card_closed_before_the_admin_even_clicked_gets_the_same_already_answer"]
+    },
+    {
+      "id": "M66",
+      "file": "backend/app/debt.py",
+      "rule": "R7c",
+      "description": "leaf-1.2c: возврат без заказа, доставки и явного ключа снова пишется под общим refund:parcel:None",
+      "find": "    if ext_id is None and order_id is None and parcel_id is None:",
+      "replace": "    if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_refund_without_order_parcel_or_explicit_key_is_refused"]
+    },
+    {
+      "id": "M67",
+      "file": "backend/app/routers/debt.py",
+      "rule": "R8e",
+      "description": "leaf-1.2c: «простить» уже оплаченный картой долг не оставляет следа в журнале админа — «простил, а комиссия у платформы» никто не увидит",
+      "find": "    admin_action(user.id, \"debt.forgive\", debt_id=debt.id, driver=debt.driver_id,\n                 amount_kop=0, outcome=\"already_settled\")",
+      "replace": "    pass",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l1_2/test_l1_2c_refund_key_and_reverse_race.py::test_forgive_does_not_overwrite_a_debt_the_card_closed_a_moment_earlier"]
     }
   ]
 }
