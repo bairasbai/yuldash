@@ -9,6 +9,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -19,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import com.yuldash.app.data.ApiClient
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -40,18 +44,36 @@ import kotlinx.coroutines.launch
 fun RoadsideHelpAction(
     key: Any?,
     modifier: Modifier = Modifier,
-    send: suspend (Double?, Double?) -> Result<ApiClient.RoadsideResult>,
+    ownerGeneration: Long? = null,
+    isCurrentParent: () -> Boolean = { true },
+    send: suspend (Double?, Double?, Long) -> Result<ApiClient.RoadsideResult>,
+) {
+    val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != generation || !ApiClient.isCurrentSession(generation) ||
+        (ownerGeneration != null && ownerGeneration != generation)) return
+    key(key, generation) { RoadsideHelpContent(modifier, generation, isCurrentParent, send) }
+}
+
+@Composable
+private fun RoadsideHelpContent(
+    modifier: Modifier, generation: Long, isCurrentParent: () -> Boolean,
+    send: suspend (Double?, Double?, Long) -> Result<ApiClient.RoadsideResult>,
 ) {
     val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    fun isCurrent() = scope.isActive && ApiClient.isCurrentSession(generation) && currentParent()
+    fun commit(action: () -> Unit) { ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() } }
     val ctx = LocalContext.current
-    var confirm by remember(key) { mutableStateOf(false) }
-    var busy by remember(key) { mutableStateOf(false) }
-    var sent by remember(key) { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf(false) }
+    var openingVersion by remember { mutableIntStateOf(0) }
+    var busy by remember { mutableStateOf(false) }
+    var sent by remember { mutableStateOf(false) }
     // Скольким близким реально уйдёт SMS. -1 = ещё не отправляли.
-    var notified by remember(key) { mutableIntStateOf(-1) }
+    var notified by remember { mutableIntStateOf(-1) }
     // Сколько доверенных заведено всего. Нужен, чтобы отличить «звать некого» от
     // «есть кого, но сообщение не уйдёт»: человеку на трассе это разные новости (волна 184).
-    var contactsTotal by remember(key) { mutableIntStateOf(0) }
+    var contactsTotal by remember { mutableIntStateOf(0) }
     val failMsg = appText(
         "Сигнал не отправлен. Проверь связь и повтори.",
         "Сигнал ебәрелмәне. Бәйләнеште тикшереп ҡабатла.",
@@ -98,13 +120,14 @@ fun RoadsideHelpAction(
     RoadsideHelpButton(
         sending = busy,
         sent = false,
-        onClick = { confirm = true },
+        onClick = { commit { if (!busy && !sent && !confirm) { openingVersion++; confirm = true } } },
         modifier = modifier,
     )
 
     if (confirm) {
+        val opening = openingVersion
         AlertDialog(
-            onDismissRequest = { if (!busy) confirm = false },
+            onDismissRequest = { commit { if (!busy && openingVersion == opening) confirm = false } },
             containerColor = CanonSurface,
             title = {
                 Text(
@@ -123,21 +146,35 @@ fun RoadsideHelpAction(
             },
             confirmButton = {
                 TextButton(enabled = !busy, onClick = {
-                    busy = true
-                    scope.launch {
-                        send(LocationPrefs.lastLat, LocationPrefs.lastLng)
+                    var accepted = false
+                    var lat: Double? = null
+                    var lng: Double? = null
+                    commit {
+                        if (confirm && openingVersion == opening && !busy && !sent) {
+                            busy = true; accepted = true
+                            lat = LocationPrefs.lastLat; lng = LocationPrefs.lastLng
+                        }
+                    }
+                    if (accepted) scope.launch {
+                        if (!isCurrent()) return@launch
+                        try {
+                            send(lat, lng, generation)
                             .onSuccess { r ->
-                                notified = r.notified
-                                contactsTotal = r.contactsTotal
-                                sent = true
-                                confirm = false
+                                commit {
+                                    notified = r.notified
+                                    contactsTotal = r.contactsTotal
+                                    sent = true
+                                    confirm = false
+                                }
                             }
                             .onFailure {
-                                android.widget.Toast
+                                commit {
+                                    android.widget.Toast
                                     .makeText(ctx, serverSaid(it, failMsg), android.widget.Toast.LENGTH_LONG)
                                     .show()
+                                }
                             }
-                        busy = false
+                        } finally { commit { busy = false } }
                     }
                 }) {
                     Text(
@@ -147,7 +184,7 @@ fun RoadsideHelpAction(
                 }
             },
             dismissButton = {
-                TextButton(enabled = !busy, onClick = { confirm = false }) {
+                TextButton(enabled = !busy, onClick = { commit { if (!busy && openingVersion == opening) confirm = false } }) {
                     Text(appText("Отмена", "Кире алыу"), color = CanonMuted)
                 }
             },

@@ -52,6 +52,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -80,6 +83,7 @@ import com.yuldash.app.data.IncidentDto
 import com.yuldash.app.data.SafetyPolicyDto
 import com.yuldash.app.data.StandingDto
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -1393,9 +1397,30 @@ internal fun FileIncidentDialog(
     orderId: Int? = null,     // такси-заказ как контекст (для попутки передают bookingId)
     onDismiss: () -> Unit,
     onFiled: (IncidentDto) -> Unit,
+    ownerGeneration: Long? = null,
+    isCurrentParent: () -> Boolean = { true },
+) {
+    val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != generation || !ApiClient.isCurrentSession(generation) ||
+        (ownerGeneration != null && ownerGeneration != generation)) return
+    key(respondentId, bookingId, orderId, generation) {
+        FileIncidentContent(respondentId, respondentName, bookingId, orderId, onDismiss, onFiled, generation, isCurrentParent)
+    }
+}
+
+@Composable
+private fun FileIncidentContent(
+    respondentId: Int, respondentName: String, bookingId: Int?, orderId: Int?,
+    onDismiss: () -> Unit, onFiled: (IncidentDto) -> Unit,
+    generation: Long, isCurrentParent: () -> Boolean,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    var closed by remember { mutableStateOf(false) }
+    fun isCurrent(): Boolean = !closed && scope.isActive && ApiClient.isCurrentSession(generation) && currentParent()
+    fun commit(action: () -> Unit) { ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() } }
     var type by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var photos by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -1411,20 +1436,24 @@ internal fun FileIncidentDialog(
     val uploadFail = appText("Фото не загрузилось, попробуй ещё раз", "Фото йөкләнмәне, тағы ҡабатла")
 
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+        if (uri == null || !isCurrent() || busy || uploading) return@rememberLauncherForActivityResult
         uploading = true; err = null
         scope.launch {
+            if (!isCurrent()) return@launch
             val bytes = withContext(Dispatchers.IO) { decodeToJpeg(ctx, uri) }
-            if (bytes == null) { uploading = false; err = uploadFail; return@launch }
-            ApiClient.uploadEvidence(bytes)
-                .onSuccess { url -> if (url.isNotBlank()) photos = photos + url }
-                .onFailure { err = uploadFail }
-            uploading = false
+            if (!isCurrent()) return@launch
+            if (bytes == null) { commit { uploading = false; err = uploadFail }; return@launch }
+            ApiClient.uploadEvidence(bytes, expectedGeneration = generation)
+                .onSuccess { url -> commit { if (url.isNotBlank()) photos = photos + url } }
+                .onFailure { commit { err = uploadFail } }
+            commit { uploading = false }
         }
     }
 
+    fun dismiss() { commit { if (!busy) { closed = true; onDismiss() } } }
+    if (!isCurrent()) return
     AlertDialog(
-        onDismissRequest = { if (!busy) onDismiss() },
+        onDismissRequest = { dismiss() },
         containerColor = CanonSurface,
         shape = CanonCardShape,
         title = { Text(appText("Открыть разбор", "Ҡарауҙы асыу"), color = CanonText, fontWeight = FontWeight.Bold) },
@@ -1460,7 +1489,7 @@ internal fun FileIncidentDialog(
                                 IncidentTypeOption(
                                     label = appText(t.ru, t.ba),
                                     selected = type == t.key,
-                                    onClick = { type = t.key; typesOpen = false },
+                                    onClick = { commit { if (!busy) { type = t.key; typesOpen = false } } },
                                 )
                             }
                         }
@@ -1469,7 +1498,7 @@ internal fun FileIncidentDialog(
                             IncidentTypeOption(
                                 label = incidentTypeLabel(type),
                                 selected = true,
-                                onClick = { typesOpen = true },
+                                onClick = { commit { if (!busy) typesOpen = true } },
                             )
                             Text(
                                 appText("Нажми, чтобы выбрать другое", "Башҡаһын һайлар өсөн баҫ"),
@@ -1482,14 +1511,14 @@ internal fun FileIncidentDialog(
                 }
                 OutlinedTextField(
                     value = description,
-                    onValueChange = { description = it.take(2000) },
+                    onValueChange = { value -> commit { if (!busy) description = value.take(2000) } },
                     label = { Text(appText("Как было", "Нисек булды"), fontSize = FairBody) },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                     shape = FairFieldShape,
                     colors = fairFieldColors(),
                 )
-                EvidencePicker(photos, uploading) { pickPhoto.launch("image/*") }
+                EvidencePicker(photos, uploading) { if (isCurrent() && !busy && !uploading) pickPhoto.launch("image/*") }
                 AnimatedVisibility(
                     visible = err != null,
                     enter = fadeIn(tween(CanonMotion.QUICK)),
@@ -1504,12 +1533,18 @@ internal fun FileIncidentDialog(
                 enabled = !busy && !uploading && type.isNotBlank() && description.isNotBlank(),
                 modifier = Modifier.heightIn(min = FairTouch),
                 onClick = {
+                    if (!isCurrent() || busy || uploading || type.isBlank() || description.isBlank()) return@TextButton
+                    val sentType = type
+                    val sentDescription = description
+                    val sentPhotos = photos.toList()
                     busy = true; err = null
                     scope.launch {
-                        ApiClient.fileIncident(respondentId, type, description, bookingId, orderId, photos)
-                            .onSuccess { onFiled(it) }
-                            .onFailure { err = (it as? ApiException)?.message ?: errFallback }
-                        busy = false
+                        if (!isCurrent()) return@launch
+                        ApiClient.fileIncident(respondentId, sentType, sentDescription, bookingId, orderId, sentPhotos,
+                            expectedGeneration = generation)
+                            .onSuccess { value -> commit { closed = true; onFiled(value) } }
+                            .onFailure { failure -> commit { err = (failure as? ApiException)?.message ?: errFallback } }
+                        commit { busy = false }
                     }
                 },
             ) {
@@ -1537,7 +1572,7 @@ internal fun FileIncidentDialog(
             }
         },
         dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss, modifier = Modifier.heightIn(min = FairTouch)) {
+            TextButton(enabled = !busy, onClick = { dismiss() }, modifier = Modifier.heightIn(min = FairTouch)) {
                 Text(appText("Отмена", "Кире алыу"), color = CanonMuted, fontSize = FairBody)
             }
         },

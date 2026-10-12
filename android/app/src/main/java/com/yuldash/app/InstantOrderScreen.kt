@@ -99,6 +99,9 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -110,6 +113,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.referentialEqualityPolicy
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -1477,9 +1482,45 @@ internal fun InstantOrderScreen(
     // JVM-тесты не могут загрузить нативную библиотеку Yandex MapKit. false заменяет только
     // карту фоном; форма, её onClick и реальные вызовы ApiClient остаются теми же.
     renderNativeMap: Boolean = true,
+    // Configurable timer interval also lets local integration execute the actual parent without a two-hour wait.
+    winterArmAfterMs: Long = WINTER_FALLBACK_MS,
+    readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>> = { id, generation ->
+        ApiClient.getInstantShares(id, expectedGeneration = generation)
+    },
+    shareOperations: InstantShareOperations = DefaultInstantShareOperations,
 ) {
+    val generation by ApiClient.sessionChanges.collectAsState()
+    key(generation) {
+        InstantOrderContent(
+            generation, onBack, onLoginRequired, embedded, onTaxiOnboarding, onOpenScheduled,
+            onSavedPlaces, payMethod, onOpenPayments, renderNativeMap, winterArmAfterMs, readShares, shareOperations,
+        )
+    }
+}
+
+@Composable
+private fun InstantOrderContent(
+    generation: Long,
+    onBack: () -> Unit,
+    onLoginRequired: () -> Unit,
+    embedded: Boolean,
+    onTaxiOnboarding: () -> Unit,
+    onOpenScheduled: () -> Unit,
+    onSavedPlaces: () -> Unit,
+    payMethod: String,
+    onOpenPayments: () -> Unit,
+    renderNativeMap: Boolean,
+    winterArmAfterMs: Long,
+    readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>>,
+    shareOperations: InstantShareOperations,
+) {
+    val publisher = remember { Any() }
+    DisposableEffect(generation, publisher) {
+        TaxiNavigationState.claimScreen(generation, publisher)
+        onDispose { TaxiNavigationState.releaseScreen(generation, publisher) }
+    }
     val scope = rememberCoroutineScope()
-    val loggedIn = ApiClient.isLoggedIn()
+    val loggedIn = ApiClient.isCurrentSession(generation)
     var order by remember { mutableStateOf<InstantOrderDto?>(null) }
     // Предзаказ «на время» создан → сохраняем только поля подтверждения. DTO в Bundle
     // не кладём, а минимальный receipt переживает recreation и не допускает повторный заказ.
@@ -1491,9 +1532,18 @@ internal fun InstantOrderScreen(
     // те же четыре часа зимней трассы — и один с незнакомым водителем (аудит 2026-08-06).
     // Отсчёт ведём от момента, когда человек сел в машину: до посадки вопрос «доехал?»
     // бессмысленен, и сервер такой заход всё равно отклонит (too_early).
-    val winterAsked = rememberSaveable { mutableStateOf(false) }
-    val winterShow = rememberSaveable { mutableStateOf(false) }
-    var onboardSeenAt by rememberSaveable { mutableStateOf(0L) }
+    val winterOrderId = order?.id
+    val winterAsked = rememberSaveable(winterOrderId) { mutableStateOf(false) }
+    val winterShow = rememberSaveable(winterOrderId) { mutableStateOf(false) }
+    var onboardSeenAt by rememberSaveable(winterOrderId) { mutableStateOf(0L) }
+    fun isWinterOrderCurrent(): Boolean {
+        return winterOrderId != null && winterOrderId > 0 && scope.isActive &&
+            TaxiNavigationState.isScreenOwner(generation, publisher) &&
+            TaxiNavigationState.currentTrip(generation)?.let {
+                it.orderId == winterOrderId && it.publisher === publisher
+            } == true &&
+            order?.let { it.id == winterOrderId && it.status == "onboard" } == true
+    }
     var checking by remember { mutableStateOf(loggedIn) }   // первичная загрузка: есть ли активный заказ
     // Гейт такси (волна 2): доступно ли такси в моей точке (глобальный флаг + города на сервере).
     // Сеть упала → фолбэк «доступно» (обычный пикер): сервер всё равно гейтит оценку и заказ.
@@ -1503,22 +1553,24 @@ internal fun InstantOrderScreen(
 
     // Запоминаем момент посадки один раз: DTO времени посадки не отдаёт, а таймеру нужна точка
     // отсчёта, переживающая поворот экрана.
-    LaunchedEffect(order?.status) {
+    LaunchedEffect(winterOrderId, order?.status) {
         if (order?.status == "onboard" && onboardSeenAt == 0L) {
             onboardSeenAt = System.currentTimeMillis()
         }
     }
     WinterArrivalWatcher(
-        key = order?.id,
+        key = winterOrderId,
         startMs = { onboardSeenAt.takeIf { it > 0L } },
-        active = { order?.status == "onboard" },
+        active = ::isWinterOrderCurrent,
         asked = winterAsked,
         show = winterShow,
-        onArm = { order?.id?.let { ApiClient.winterCheckOrder(it) } },
+        armAfterMs = winterArmAfterMs,
+        ownerGeneration = generation,
+        isCurrentTarget = ::isWinterOrderCurrent,
+        onArm = { owner -> ApiClient.winterCheckOrder(winterOrderId!!, expectedGeneration = owner) },
     )
-    WinterArrivalDialog(winterShow) {
-        val oid = order?.id
-        if (oid != null) scope.launch { ApiClient.winterCheckOrderOk(oid) }
+    WinterArrivalDialog(winterShow, winterOrderId, generation, ::isWinterOrderCurrent) { owner ->
+        ApiClient.winterCheckOrderOk(winterOrderId!!, expectedGeneration = owner)
     }
 
     // Связь с сервером при поллинге активного заказа потеряна → мягкий баннер «пробуем ещё», не молчим.
@@ -1536,23 +1588,37 @@ internal fun InstantOrderScreen(
     // Причина (long_wait|found_other|wrong_address|plans_changed|price|other) опциональна: пустая
     // строка = прежнее поведение. Раньше её не слали вообще, и в статистике было видно только
     // «отменил» — а «долго ждать» и «дорого» лечатся по-разному: первое матчингом, второе ценой.
+    var cancelling by remember { mutableStateOf(false) }
+    fun isCurrentOrder(id: Int): Boolean = scope.isActive &&
+        TaxiNavigationState.isScreenOwner(generation, publisher) &&
+        order?.let { it.id == id && it.status !in setOf("done", "cancelled", "expired") } == true
+    fun isCurrentPicker(): Boolean = scope.isActive &&
+        TaxiNavigationState.isScreenOwner(generation, publisher) &&
+        order == null && scheduledConfirmId == 0 && !checking && !restoreError
     fun cancelOrder(id: Int, reason: String = "") {
+        var accepted = false
+        ApiClient.runIfCurrentSession(generation) {
+            if (isCurrentOrder(id) && !cancelling) { cancelling = true; accepted = true }
+        }
+        if (!accepted) return
         scope.launch {
-            ApiClient.instantCancel(id, reason = reason)
-                .onSuccess { order = it }
-                .onFailure {
-                    Toast.makeText(
-                        ctx,
-                        (it as? ApiException)?.message ?: cancelFailMsg,
-                        Toast.LENGTH_SHORT,
-                    ).show()
+            try {
+                if (!isCurrentOrder(id)) return@launch
+                val result = ApiClient.instantCancel(id, reason = reason, expectedGeneration = generation)
+                ApiClient.runIfCurrentSession(generation) {
+                    if (!isCurrentOrder(id)) return@runIfCurrentSession
+                    result.onSuccess { if (it.id == id) order = it }
+                        .onFailure { Toast.makeText(ctx, (it as? ApiException)?.message ?: cancelFailMsg, Toast.LENGTH_SHORT).show() }
+                }
+            } finally {
+                ApiClient.runIfCurrentSession(generation) { if (scope.isActive) cancelling = false }
             }
         }
     }
 
     // Восстановление активного заказа при входе на экран + проверка доступности такси в точке.
-    LaunchedEffect(restoreTick) {
-        if (!loggedIn) { checking = false; return@LaunchedEffect }
+    LaunchedEffect(generation, restoreTick) {
+        if (!loggedIn || !TaxiNavigationState.isScreenOwner(generation, publisher)) { checking = false; return@LaunchedEffect }
         checking = true
         restoreError = false
         val lat = LocationPrefs.lastLat ?: InstantDefaultPoint.latitude
@@ -1569,22 +1635,30 @@ internal fun InstantOrderScreen(
                 // Доступность: сеть упала → фолбэк «доступно» (сервер всё равно гейтит).
                 val availabilityJob = async { ApiClient.getTaxiAvailability(lat, lng) }
                 // А вот список заказов важен: не загрузился — НЕ роняем в пикер молча, вдруг есть живой заказ.
-                val ordersJob = async { ApiClient.getMyInstantOrders(limit = 5) }
-                availabilityJob.await().onSuccess { availability = it }
+                val ordersJob = async { ApiClient.getMyInstantOrders(limit = 5, expectedGeneration = generation) }
+                availabilityJob.await().onSuccess { fresh ->
+                    ApiClient.runIfCurrentSession(generation) {
+                        if (TaxiNavigationState.isScreenOwner(generation, publisher)) availability = fresh
+                    }
+                }
                 ordersJob.await()
             }
         }
-        when {
-            // Не уложились в бюджет — это тоже сбой связи, показываем ошибку с «Повторить».
-            restored == null -> restoreError = true
-            else -> restored
-                // Предзаказы (scheduled) сюда не тянем — они живут в «Моих предзаказах», а не как активный заказ.
-                // isWaitingQueue: заказ формально expired, но человек нажал «Подожду машину» —
-                // воркер ещё ищет, и такой заказ надо восстановить как живой.
-                .onSuccess { list -> order = list.firstOrNull { (!it.isTerminal || it.isWaitingQueue) && !it.isScheduled } }
-                .onFailure { restoreError = true }
+        ApiClient.runIfCurrentSession(generation) {
+            if (TaxiNavigationState.isScreenOwner(generation, publisher)) {
+                when {
+                    // Не уложились в бюджет — это тоже сбой связи, показываем ошибку с «Повторить».
+                    restored == null -> restoreError = true
+                    else -> restored
+                        // Предзаказы (scheduled) сюда не тянем — они живут в «Моих предзаказах», а не как активный заказ.
+                        // isWaitingQueue: заказ формально expired, но человек нажал «Подожду машину» —
+                        // воркер ещё ищет, и такой заказ надо восстановить как живой.
+                        .onSuccess { list -> order = list.firstOrNull { (!it.isTerminal || it.isWaitingQueue) && !it.isScheduled } }
+                        .onFailure { restoreError = true }
+                }
+                checking = false
+            }
         }
-        checking = false
     }
 
     // Поллинг статуса активного заказа (пока заказ есть и не терминальный или стоит в очереди ожидания).
@@ -1597,13 +1671,25 @@ internal fun InstantOrderScreen(
     // Запрос идёт ПЕРЕД паузой: вернулся на экран — данные свежие сразу, а не через три секунды.
     val activeId = order?.takeIf { !it.isTerminal || it.isWaitingQueue }?.id
     val pollLifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(activeId, pollLifecycleOwner) {
+    LaunchedEffect(generation, activeId, pollLifecycleOwner) {
         val id = activeId ?: return@LaunchedEffect
         pollLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (isActive) {
-                ApiClient.getInstantOrder(id)
-                    .onSuccess { order = it; pollOffline = false }
-                    .onFailure { pollOffline = true }   // связь потеряна — не глотаем, показываем баннер
+                if (!TaxiNavigationState.isScreenOwner(generation, publisher)) return@repeatOnLifecycle
+                ApiClient.getInstantOrder(id, expectedGeneration = generation)
+                    .onSuccess { fresh ->
+                        ApiClient.runIfCurrentSession(generation) {
+                            if (TaxiNavigationState.isScreenOwner(generation, publisher) && order?.id == id && fresh.id == id) {
+                                order = fresh
+                                pollOffline = false
+                            }
+                        }
+                    }
+                    .onFailure {
+                        ApiClient.runIfCurrentSession(generation) {
+                            if (TaxiNavigationState.isScreenOwner(generation, publisher)) pollOffline = true
+                        }
+                    }   // связь потеряна — не глотаем, показываем баннер
                 val o = order
                 if (o != null && o.isTerminal && !o.isWaitingQueue) break
                 delay(3_000)
@@ -1661,21 +1747,8 @@ internal fun InstantOrderScreen(
             // профиль, и поездка от этого не заканчивается: наоборот, именно тогда ему нужна
             // полоска «Ильдар едет · 3 мин» сверху. Гасит сигнал наблюдатель в HomeShell,
             // когда заказ действительно завершился.
-            LaunchedEffect(phase, current?.id) {
-                if (phase == "enroute") NavSignals.activeTaxiTrip.value = current?.id ?: 0
-                else if (current == null || current.isTerminal) NavSignals.activeTaxiTrip.value = 0
-            }
-            // Поиск и поездка занимают весь рабочий экран: переключатель сервисов и нижнее
-            // меню там только провоцируют случайно бросить живой заказ. Отдельный сигнал
-            // `taxiTripOnScreen` остаётся уже — он гасит полоску активной поездки только
-            // на самом экране поездки, а не во время поиска.
-            DisposableEffect(phase) {
-                NavSignals.taxiOrderOnScreen.value = phase == "searching" || phase == "enroute"
-                if (phase == "enroute") NavSignals.taxiTripOnScreen.value = true
-                onDispose {
-                    NavSignals.taxiOrderOnScreen.value = false
-                    NavSignals.taxiTripOnScreen.value = false
-                }
+            SideEffect {
+                TaxiNavigationState.publishScreen(generation, publisher, phase, current?.id)
             }
             AnimatedContent(
                 targetState = phase,
@@ -1727,17 +1800,25 @@ internal fun InstantOrderScreen(
                         )
                     }
                     "picker" -> InstantDestinationPicker(
-                        onOrderCreated = { order = it },
+                        generation = generation,
+                        isCurrentParent = ::isCurrentPicker,
+                        onOrderCreated = { created ->
+                            ApiClient.runIfCurrentSession(generation) { if (isCurrentPicker()) order = created }
+                        },
                         onSavedPlaces = onSavedPlaces,
                         embedded = embedded,
                         payMethod = payMethod,
                         onOpenPayments = onOpenPayments,
                         renderNativeMap = renderNativeMap,
                         onScheduled = { scheduled ->
-                            scheduledConfirmId = scheduled.id
-                            scheduledConfirmAt = scheduled.scheduledAt
-                            scheduledConfirmFrom = scheduled.fromText
-                            scheduledConfirmTo = scheduled.toText
+                            ApiClient.runIfCurrentSession(generation) {
+                                if (isCurrentPicker()) {
+                                    scheduledConfirmId = scheduled.id
+                                    scheduledConfirmAt = scheduled.scheduledAt
+                                    scheduledConfirmFrom = scheduled.fromText
+                                    scheduledConfirmTo = scheduled.toText
+                                }
+                            }
                         },
                     )
                     // Отмену не гасим сразу: сперва короткий вопрос «почему», и только потом запрос.
@@ -1757,14 +1838,34 @@ internal fun InstantOrderScreen(
                         // Волна 160: поездка переехала на собственный экран — карта во весь
                         // рост, шторка с тремя положениями. Старая карточка (InstantDriverEnRouteCard)
                         // пока жива рядом: удалим её, когда новый экран отходит на людях.
-                        TaxiTripScreen(
+                        // A repeated number is a new publication, even under the same screen lease.
+                        // Retain the last applied receipt while finished/another screen owns the trip:
+                        // the mounted old UI remains fenced, and its in-flight work can retire normally.
+                        val rememberedPublication = remember(o.id) { object { var last: TaxiTripPublication? = null } }
+                        val livePublication = TaxiNavigationState.currentTrip(generation)?.takeIf {
+                            it.orderId == o.id && it.publisher === publisher
+                        }
+                        val publication = livePublication ?: rememberedPublication.last
+                        SideEffect { if (livePublication != null) rememberedPublication.last = livePublication }
+                        if (publication != null) key(publication) { TaxiTripScreen(
                             order = o,
                             onCancel = { cancelReasonForId = o.id },
                             onMinimize = onBack,
                             onOpenPayments = onOpenPayments,
-                            onOrderUpdated = { order = it },
+                            onOrderUpdated = { fresh ->
+                                ApiClient.runIfCurrentSession(generation) {
+                                    if (isCurrentOrder(o.id) && TaxiNavigationState.currentTrip(generation) === publication && fresh.id == o.id) order = fresh
+                                }
+                            },
+                            ownerGeneration = generation,
+                            isCurrentParent = {
+                                isCurrentOrder(o.id) && order == o &&
+                                    TaxiNavigationState.currentTrip(generation) === publication
+                            },
                             mapContent = if (renderNativeMap) null else { modifier -> Box(modifier) },
-                        )
+                            readShares = readShares,
+                            shareOperations = shareOperations,
+                        ) }
                     }
                     "expired" -> current?.let { o ->
                         InstantNoDriversCard(
@@ -2092,6 +2193,8 @@ private fun InstantAddressResults(
 
 @Composable
 private fun InstantDestinationPicker(
+    generation: Long,
+    isCurrentParent: () -> Boolean,
     onOrderCreated: (InstantOrderDto) -> Unit,
     onScheduled: (InstantOrderDto) -> Unit = {},
     onSavedPlaces: () -> Unit = {},
@@ -2104,6 +2207,7 @@ private fun InstantDestinationPicker(
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    fun isCurrentAction(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) && isCurrentParent()
     val myLocationFix by rememberMyLocationFix(active = true)
     val myPoint = myLocationFix?.point
 
@@ -2996,13 +3100,14 @@ private fun InstantDestinationPicker(
                     }
                     Button(
                         onClick = {
-                            if (!estimateCurrent || creating) return@Button
+                            if (!isCurrentAction() || !estimateCurrent || creating) return@Button
                             val f = effFrom ?: return@Button
                             val t = toPoint ?: return@Button
                             creating = true; errorText = null
                             val fText = fromText.ifBlank { myPosText }
                             val tText = toText.ifBlank { mapPointText }
                             scope.launch {
+                                if (!isCurrentAction()) return@launch
                                 if (scheduled) {
                                     val iso = isoFromMillis(scheduledAtMs!!)
                                     ApiClient.scheduleInstantOrder(
@@ -3016,12 +3121,17 @@ private fun InstantDestinationPicker(
                                         returnWaitMin = if (roundTrip) returnWaitMin else 0,
                                         stops = stops,
                                         paymentMethod = payMethod,
+                                        expectedGeneration = generation,
                                     )
                                         .onSuccess {
-                                            ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
-                                            onScheduled(it)
+                                            ApiClient.runIfCurrentSession(generation) {
+                                                if (isCurrentAction()) {
+                                                    ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude, generation)
+                                                    onScheduled(it)
+                                                }
+                                            }
                                         }
-                                        .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                                        .onFailure { error -> ApiClient.runIfCurrentSession(generation) { if (isCurrentAction()) errorText = (error as? ApiException)?.message ?: createFailMsg } }
                                 } else {
                                     ApiClient.createInstantOrder(
                                         f.latitude, f.longitude, t.latitude, t.longitude, fText, tText, category,
@@ -3035,15 +3145,20 @@ private fun InstantDestinationPicker(
                                         stops = stops,
                                         // Чем рассчитаются — водитель увидит это вместе с оффером.
                                         paymentMethod = payMethod,
+                                        expectedGeneration = generation,
                                     )
                                         .onSuccess {
                                             // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
-                                            ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude)
-                                            onOrderCreated(it)
+                                            ApiClient.runIfCurrentSession(generation) {
+                                                if (isCurrentAction()) {
+                                                    ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude, generation)
+                                                    onOrderCreated(it)
+                                                }
+                                            }
                                         }
-                                        .onFailure { errorText = (it as? ApiException)?.message ?: createFailMsg }
+                                        .onFailure { error -> ApiClient.runIfCurrentSession(generation) { if (isCurrentAction()) errorText = (error as? ApiException)?.message ?: createFailMsg } }
                                 }
-                                creating = false
+                                if (isCurrentAction()) creating = false
                             }
                         },
                         enabled = effFrom != null && toPoint != null && estimateCurrent && !creating,
@@ -4499,8 +4614,8 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
     // Зимний протокол для такси: мягче SOS, но реальный. Раньше работал только для попуток,
     // хотя четыре часа трассы Сибай–Уфа зимой — это как раз такси (аудит 2026-07-26).
     // Сам блок общий на три сценария (RoadsideHelp.kt): две копии уже разошлись текстами.
-    RoadsideHelpAction(key = orderId) { lat, lng ->
-        ApiClient.instantRoadsideHelp(orderId, lat, lng)
+    RoadsideHelpAction(key = orderId) { lat, lng, generation ->
+        ApiClient.instantRoadsideHelp(orderId, lat, lng, expectedGeneration = generation)
     }
 }
 
@@ -4508,9 +4623,77 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
  *  а пассажиру тут же показываем ссылку — скопировать или отправить самому (share-sheet).
  *  Состояния честные: загрузка / пусто (подсказка добавить контакт) / список / ошибка / ссылка. */
 @Composable
-internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
+internal fun InstantShareDialog(
+    orderId: Int, onDismiss: () -> Unit,
+    ownerGeneration: Long? = null,
+    isCurrentParent: () -> Boolean = { true },
+    readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>> = { id, generation ->
+        ApiClient.getInstantShares(id, expectedGeneration = generation)
+    },
+    operations: InstantShareOperations = DefaultInstantShareOperations,
+) {
+    val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != generation || !ApiClient.isCurrentSession(generation) ||
+        (ownerGeneration != null && ownerGeneration != generation)) return
+    key(orderId, generation) { InstantShareContent(orderId, onDismiss, generation, isCurrentParent, readShares, operations) }
+}
+
+internal class InstantShareOperations(
+    val contacts: suspend (Long) -> Result<List<com.yuldash.app.data.ContactDto>> = { generation ->
+        ApiClient.getContacts(expectedGeneration = generation)
+    },
+    val create: suspend (Int, Int, Long) -> Result<com.yuldash.app.data.TripShareDto?> = { id, contact, generation ->
+        ApiClient.shareInstantTrip(id, contact, expectedGeneration = generation)
+    },
+    val revoke: suspend (Int, Int, Long) -> Result<Unit> = { id, share, generation ->
+        ApiClient.revokeInstantShare(id, share, expectedGeneration = generation)
+    },
+)
+
+internal val DefaultInstantShareOperations = InstantShareOperations()
+
+private data class PendingInstantShareMutation(
+    val contactId: Int? = null,
+    val share: com.yuldash.app.data.TripShareDto? = null,
+    val error: Throwable,
+)
+
+@Composable
+private fun InstantShareContent(
+    orderId: Int,
+    onDismiss: () -> Unit,
+    generation: Long,
+    isCurrentParent: () -> Boolean,
+    readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>>,
+    operations: InstantShareOperations,
+) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val parentState = remember { mutableStateOf(isCurrentParent, referentialEqualityPolicy()) }
+    parentState.value = isCurrentParent
+    val currentParent by parentState
+    // Observe parent state in composition, including while the pending branch hides the link.
+    val parentIsCurrent = currentParent()
+    val parentContext = remember { object { var wasCurrent = true; var revision = 0L } }
+    SideEffect {
+        if (parentContext.wasCurrent && !parentIsCurrent) parentContext.revision++
+        parentContext.wasCurrent = parentIsCurrent
+    }
+    val readerState = remember { mutableStateOf(readShares, referentialEqualityPolicy()) }
+    readerState.value = readShares
+    val currentReadShares by readerState
+    val currentOperations by rememberUpdatedState(operations)
+    val dismiss by rememberUpdatedState(onDismiss)
+    var closed by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(true) }
+    fun isCurrent() = scope.isActive && !closed && ApiClient.isCurrentSession(generation) && currentParent()
+    fun commit(action: () -> Unit) { ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() } }
+    fun commitContext(revision: Long, action: () -> Unit) {
+        commit { if (parentContext.revision == revision) action() }
+    }
+    fun close() { commit { closed = true; dismiss() } }
     var contacts by remember { mutableStateOf<List<com.yuldash.app.data.ContactDto>?>(null) }
     var loadError by remember { mutableStateOf(false) }
     // Это единственный путь дать близкому live-ссылку во время поездки: ошибка без «Повторить»
@@ -4519,18 +4702,78 @@ internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
     var liveLink by remember { mutableStateOf<String?>(null) }   // ссылка после share (B7c)
     // Приватность: активные ссылки этого заказа (сервер отдаёт GET shares) + отозвать.
     var activeShares by remember { mutableStateOf<List<com.yuldash.app.data.TripShareDto>>(emptyList()) }
+    var pending by remember { mutableStateOf<PendingInstantShareMutation?>(null) }
     val sharedMsg = appText("Близкий получит SMS о поездке", "Яҡын кеше сәфәр тураһында SMS алыр")
     val shareFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
     val revokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
-    LaunchedEffect(contactsTick) {
-        contacts = null; loadError = false   // повтор начинается с честной загрузки, а не с ошибки
-        ApiClient.getContacts()
-            .onSuccess { contacts = it }
-            .onFailure { loadError = true; contacts = emptyList() }
-        ApiClient.getInstantShares(orderId).onSuccess { activeShares = it }
+    // A failed mutation may already be committed. Read the full list before allowing another action.
+    suspend fun recheck(attempt: PendingInstantShareMutation) {
+        if (!isCurrent() || pending !== attempt) return
+        val parentRevision = parentContext.revision
+        val fresh = currentReadShares(orderId, generation)
+        commit {
+            if (pending !== attempt || parentContext.revision != parentRevision) return@commit
+            fresh.onSuccess { shares ->
+                activeShares = shares
+                if (liveLink != null && shares.none { it.link == liveLink }) liveLink = null
+                pending = null
+                if (attempt.contactId != null) {
+                    val stored = shares.firstOrNull { it.contactId == attempt.contactId }
+                    if (stored != null) {
+                        // Existence does not prove SMS delivery; do not show the normal SMS toast.
+                        liveLink = stored.link
+                    } else {
+                        Toast.makeText(ctx, serverSaid(attempt.error, shareFailMsg), Toast.LENGTH_LONG).show()
+                        close()
+                    }
+                } else if (shares.none { it.id == attempt.share?.id }) {
+                    Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(ctx, serverSaid(attempt.error, shareFailMsg), Toast.LENGTH_LONG).show()
+                }
+            }
+            // Failed/schema-invalid GET keeps the pending state and retires all stale actions.
+        }
     }
+    fun clearBusy() { ApiClient.runIfCurrentSession(generation) { if (scope.isActive) busy = false } }
+    fun retireUnsent(attempt: PendingInstantShareMutation) {
+        // Only call before entering the operation: no server result is unknown yet.
+        ApiClient.runIfCurrentSession(generation) {
+            if (scope.isActive && pending === attempt) pending = null
+        }
+    }
+    fun retryPending() {
+        var attempt: PendingInstantShareMutation? = null
+        commit { if (!busy && !loading && pending != null) { busy = true; attempt = pending } }
+        attempt?.let { current -> scope.launch { try { recheck(current) } finally { clearBusy() } } }
+    }
+    fun retireLoad() {
+        // Clearing private data is safe even while the mounted parent's lease is absent.
+        ApiClient.runIfCurrentSession(generation) {
+            if (scope.isActive && !closed) { contacts = emptyList(); loadError = true; loading = false }
+        }
+    }
+    LaunchedEffect(contactsTick) {
+        if (!isCurrent()) { retireLoad(); return@LaunchedEffect }
+        val parentRevision = parentContext.revision
+        commit { loading = true; contacts = null; loadError = false }
+        val loaded = currentOperations.contacts(generation)
+        if (!isCurrent() || parentContext.revision != parentRevision) { retireLoad(); return@LaunchedEffect }
+        if (loaded.isFailure) {
+            commit { loadError = true; contacts = emptyList(); loading = false }
+            return@LaunchedEffect
+        }
+        val shares = currentReadShares(orderId, generation)
+        if (!isCurrent() || parentContext.revision != parentRevision) { retireLoad(); return@LaunchedEffect }
+        commitContext(parentRevision) {
+            contacts = loaded.getOrThrow()
+            shares.onSuccess { activeShares = it }.onFailure { loadError = true }
+            loading = false
+        }
+    }
+    val shownLink = liveLink
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::close,
         containerColor = CanonSurface,
         title = {
             Text(
@@ -4544,14 +4787,23 @@ internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
             val link = liveLink
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 when {
-                    link != null -> LiveLinkCard(link)
+                    pending != null -> {
+                        if (busy) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
+                        else AppErrorState(
+                            onRetry = ::retryPending,
+                            title = appText("Не удалось проверить ссылку", "Һылтанманы тикшереп булманы"),
+                            text = appText("Доступ мог измениться. Повтори проверку перед новым действием.", "Инеү мөмкинлеге үҙгәргән булыуы мөмкин. Яңы ғәмәл алдынан ҡабат тикшер."),
+                        )
+                    }
+                    link != null -> LiveLinkCard(link, ownerGeneration = generation,
+                        isCurrentParent = { isCurrent() && !busy && !loading && !loadError && pending == null && liveLink == link && activeShares.any { it.link == link } })
                     list == null -> Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonGreen2)
                         Spacer(Modifier.width(8.dp))
                         Text(appText("Загружаем близких…", "Яҡындарҙы йөкләйбеҙ…"), color = CanonMuted, fontSize = 14.sp)
                     }
                     loadError -> AppErrorState(
-                        onRetry = { contactsTick++ },
+                        onRetry = { commit { if (!loading && !busy && loadError) { loading = true; contactsTick++ } } },
                         title = appText("Не удалось загрузить близких", "Яҡындарҙы йөкләп булманы"),
                         text = appText(
                             "Проверь интернет и повтори — список никуда не пропал.",
@@ -4564,21 +4816,38 @@ internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                         list.forEach { c ->
                             Row(
                                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                                    .clickable {
-                                        scope.launch {
-                                            ApiClient.shareInstantTrip(orderId, c.id)
+                                    .clickable(enabled = !busy && !loading && !loadError && pending == null) {
+                                        var attempt: PendingInstantShareMutation? = null
+                                        var parentRevision = 0L
+                                        commit { if (!busy && !loading && !loadError && pending == null && liveLink == null && contacts?.contains(c) == true) {
+                                            busy = true; parentRevision = parentContext.revision
+                                            attempt = PendingInstantShareMutation(contactId = c.id, error = java.io.IOException())
+                                            pending = attempt
+                                        } }
+                                        attempt?.let { current -> scope.launch {
+                                            try {
+                                            if (!isCurrent() || parentContext.revision != parentRevision || pending !== current) { retireUnsent(current); return@launch }
+                                            currentOperations.create(orderId, c.id, generation)
                                                 .onSuccess { share ->
-                                                    Toast.makeText(ctx, "$sharedMsg: ${c.name}", Toast.LENGTH_SHORT).show()
-                                                    if (share != null) {
-                                                        activeShares = activeShares.filterNot { it.id == share.id } + share
-                                                        if (!share.link.isNullOrBlank()) liveLink = share.link
-                                                    } else onDismiss()
+                                                    commitContext(parentRevision) {
+                                                        if (pending !== current) return@commitContext
+                                                        if (share == null || share.contactId == c.id) {
+                                                            pending = null
+                                                            Toast.makeText(ctx, "$sharedMsg: ${c.name}", Toast.LENGTH_SHORT).show()
+                                                            if (share != null) {
+                                                                activeShares = activeShares.filterNot { it.id == share.id } + share
+                                                                if (!share.link.isNullOrBlank()) liveLink = share.link
+                                                            } else close()
+                                                        }
+                                                    }
                                                 }
                                                 .onFailure {
-                                                    onDismiss()
-                                                    Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show()
+                                                    val failed = current.copy(error = it)
+                                                    commitContext(parentRevision) { if (pending === current) pending = failed }
+                                                    recheck(failed)
                                                 }
-                                        }
+                                            } finally { clearBusy() }
+                                        } }
                                     }
                                     .padding(horizontal = 8.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -4594,7 +4863,7 @@ internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                     }
                 }
                 // Приватность (B7c): активные ссылки заказа + «Отозвать» (сгорит /t/{token}, SMS-статусы стоп).
-                if (activeShares.isNotEmpty()) {
+                if (!loadError && pending == null && activeShares.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
                     Text(appText("Активные ссылки", "Әүҙем һылтанмалар"), color = CanonMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     activeShares.forEach { share ->
@@ -4604,16 +4873,35 @@ internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
                             Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(name, color = CanonText, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                            TextButton(onClick = {
-                                scope.launch {
-                                    ApiClient.revokeInstantShare(orderId, share.id)
+                            TextButton(enabled = !busy && !loading && !loadError && pending == null, onClick = {
+                                var attempt: PendingInstantShareMutation? = null
+                                var parentRevision = 0L
+                                commit { if (!busy && !loading && !loadError && pending == null && activeShares.contains(share)) {
+                                    busy = true; parentRevision = parentContext.revision
+                                    attempt = PendingInstantShareMutation(share = share, error = java.io.IOException())
+                                    pending = attempt
+                                } }
+                                attempt?.let { current -> scope.launch {
+                                    try {
+                                        if (!isCurrent() || parentContext.revision != parentRevision || pending !== current) { retireUnsent(current); return@launch }
+                                        currentOperations.revoke(orderId, share.id, generation)
                                         .onSuccess {
-                                            activeShares = activeShares.filterNot { it.id == share.id }
-                                            Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
+                                            commitContext(parentRevision) {
+                                                if (pending !== current) return@commitContext
+                                                pending = null
+                                                activeShares = activeShares.filterNot { it.id == share.id }
+                                                if (liveLink == share.link) liveLink = null
+                                                Toast.makeText(ctx, revokedMsg, Toast.LENGTH_SHORT).show()
+                                            }
                                         }
-                                        .onFailure { Toast.makeText(ctx, serverSaid(it, shareFailMsg), Toast.LENGTH_LONG).show() }
-                                }
-                            }, modifier = Modifier.heightIn(min = 44.dp)) {
+                                        .onFailure {
+                                            val failed = current.copy(error = it)
+                                            commitContext(parentRevision) { if (pending === current) pending = failed }
+                                            recheck(failed)
+                                        }
+                                    } finally { clearBusy() }
+                                } }
+                            }, modifier = Modifier.heightIn(min = 48.dp)) {
                                 Text(appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                         }
@@ -4622,12 +4910,12 @@ internal fun InstantShareDialog(orderId: Int, onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            if (liveLink != null) TextButton(onClick = { liveLink = null }) {
+            if (shownLink != null && pending == null && !loadError) TextButton(enabled = !busy, onClick = { commit { if (!busy && !loading && pending == null && !loadError && liveLink == shownLink) liveLink = null } }) {
                 Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(appText("Закрыть", "Ябыу"), color = CanonMuted) }
+            TextButton(onClick = ::close) { Text(appText("Закрыть", "Ябыу"), color = CanonMuted) }
         },
     )
 }
@@ -7317,8 +7605,31 @@ internal fun ChangeDestinationSheet(
     order: InstantOrderDto,
     onDismiss: () -> Unit,
     onChanged: () -> Unit,
+    ownerGeneration: Long? = null,
+    isCurrentParent: () -> Boolean = { true },
+) {
+    val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != generation || !ApiClient.isCurrentSession(generation) ||
+        (ownerGeneration != null && ownerGeneration != generation)) return
+    key(order.id, generation) { ChangeDestinationContent(order, onDismiss, onChanged, generation, isCurrentParent) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChangeDestinationContent(
+    order: InstantOrderDto, onDismiss: () -> Unit, onChanged: () -> Unit,
+    generation: Long, isCurrentParent: () -> Boolean,
 ) {
     val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    val currentOrder by rememberUpdatedState(order)
+    val target = remember { order.id }
+    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) && currentParent() &&
+        currentOrder.id == target && currentOrder.status in setOf("accepted", "arriving", "onboard")
+    fun commit(action: () -> Unit) {
+        ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() }
+    }
     var query by remember { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<com.yuldash.app.data.GeoHit>>(emptyList()) }
     var picked by remember { mutableStateOf<com.yuldash.app.data.GeoHit?>(null) }
@@ -7336,24 +7647,28 @@ internal fun ChangeDestinationSheet(
     LaunchedEffect(query) {
         if (query.trim().length < 2) { suggestions = emptyList(); return@LaunchedEffect }
         delay(350)
-        GeocoderClient.suggestResult(query).onSuccess { suggestions = it.take(6) }
+        if (!isCurrent() || picked != null) return@LaunchedEffect
+        val input = query
+        val result = GeocoderClient.suggestResult(input, expectedGeneration = generation)
+        commit { if (query == input && picked == null) result.onSuccess { suggestions = it.take(6) } }
     }
 
     // Выбрали адрес — сразу считаем, во что это обойдётся. Ничего пока не меняя.
     LaunchedEffect(picked) {
         val place = picked ?: return@LaunchedEffect
-        busy = true; error = null
-        ApiClient.previewDestination(order.id, place.lat, place.lon, place.title)
-            .onSuccess { quote = it }
-            .onFailure {
-                quote = null
-                error = (it as? ApiException)?.message
-                    ?: failCount
+        if (!isCurrent()) return@LaunchedEffect
+        busy = true; error = null; quote = null
+        val result = ApiClient.previewDestination(target, place.lat, place.lon, place.title, expectedGeneration = generation)
+        commit {
+            if (picked == place) {
+                result.onSuccess { quote = it }
+                    .onFailure { quote = null; error = (it as? ApiException)?.message ?: failCount }
+                busy = false
             }
-        busy = false
+        }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
+    ModalBottomSheet(onDismissRequest = { commit { if (!busy) onDismiss() } }, containerColor = CanonSurface) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
@@ -7362,7 +7677,7 @@ internal fun ChangeDestinationSheet(
 
             OutlinedTextField(
                 value = query,
-                onValueChange = { query = it; picked = null; quote = null },
+                onValueChange = { value -> commit { if (!busy) { query = value; picked = null; quote = null; suggestions = emptyList() } } },
                 placeholder = { Text(appText("Новый адрес", "Яңы адрес"), color = CanonMuted) },
                 singleLine = true,
                 shape = CanonFieldShape,
@@ -7373,7 +7688,7 @@ internal fun ChangeDestinationSheet(
                 Surface(
                     color = CanonBg, shape = CanonItemShape,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        .clickable { picked = sug; query = sug.title; suggestions = emptyList() },
+                        .clickable { commit { if (!busy && sug in suggestions) { picked = sug; query = sug.title; suggestions = emptyList(); quote = null } } },
                 ) {
                     Box(Modifier.padding(horizontal = CanonSpace.md), contentAlignment = Alignment.CenterStart) {
                         Text(sug.title, style = CanonBody, color = CanonText, maxLines = 2)
@@ -7424,18 +7739,19 @@ internal fun ChangeDestinationSheet(
             Button(
                 onClick = {
                     val place = picked ?: return@Button
+                    if (!isCurrent() || busy || quote == null) return@Button
                     busy = true; error = null
                     scope.launch {
-                        ApiClient.changeDestination(order.id, place.lat, place.lon, place.title)
-                            .onSuccess { onChanged(); onDismiss() }
-                            .onFailure {
-                                error = (it as? ApiException)?.message
-                                    ?: failChange
-                            }
-                        busy = false
+                        if (!isCurrent() || picked != place) return@launch
+                        val result = ApiClient.changeDestination(target, place.lat, place.lon, place.title, expectedGeneration = generation)
+                        commit {
+                            result.onSuccess { onChanged(); onDismiss() }
+                                .onFailure { error = (it as? ApiException)?.message ?: failChange }
+                            busy = false
+                        }
                     }
                 },
-                enabled = picked != null && !busy,
+                enabled = picked != null && quote != null && !busy,
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             ) {
@@ -7465,24 +7781,49 @@ internal const val InstantStopsMax = 3
 internal fun PickStopSheet(
     onDismiss: () -> Unit,
     onPicked: (com.yuldash.app.data.GeoHit) -> Unit,
+    ownerGeneration: Long? = null,
+    isCurrentParent: () -> Boolean = { true },
 ) {
+    val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != generation || !ApiClient.isCurrentSession(generation) ||
+        (ownerGeneration != null && ownerGeneration != generation)) return
+    key(generation) { PickStopContent(onDismiss, onPicked, generation, isCurrentParent) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PickStopContent(
+    onDismiss: () -> Unit, onPicked: (com.yuldash.app.data.GeoHit) -> Unit,
+    generation: Long, isCurrentParent: () -> Boolean,
+) {
+    val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    var consumed by remember { mutableStateOf(false) }
+    fun isCurrent(): Boolean = scope.isActive && ApiClient.isCurrentSession(generation) && currentParent() && !consumed
+    fun commit(action: () -> Unit) {
+        ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() }
+    }
     var query by remember { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<com.yuldash.app.data.GeoHit>>(emptyList()) }
 
     LaunchedEffect(query) {
         if (query.trim().length < 2) { suggestions = emptyList(); return@LaunchedEffect }
         delay(350)   // та же пауза, что на экране заказа: запросы к карте платные
-        GeocoderClient.suggestResult(query).onSuccess { suggestions = it.take(6) }
+        if (!isCurrent()) return@LaunchedEffect
+        val input = query
+        val result = GeocoderClient.suggestResult(input, expectedGeneration = generation)
+        commit { if (query == input) result.onSuccess { suggestions = it.take(6) } }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
+    ModalBottomSheet(onDismissRequest = { commit { consumed = true; onDismiss() } }, containerColor = CanonSurface) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
         ) {
             Text(appText("Куда заехать?", "Ҡайҙа инеп сығырға?"), style = CanonTitle, color = CanonText)
             OutlinedTextField(
-                value = query, onValueChange = { query = it },
+                value = query, onValueChange = { value -> commit { query = value; suggestions = emptyList() } },
                 placeholder = { Text(appText("Адрес остановки", "Туҡталыш адресы"), color = CanonMuted) },
                 singleLine = true, shape = CanonFieldShape, modifier = Modifier.fillMaxWidth(),
             )
@@ -7490,7 +7831,7 @@ internal fun PickStopSheet(
                 Surface(
                     color = CanonBg, shape = CanonItemShape,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        .clickable { onPicked(hit) },
+                        .clickable { commit { if (hit in suggestions) { consumed = true; onPicked(hit) } } },
                 ) {
                     Box(Modifier.padding(horizontal = CanonSpace.md), contentAlignment = Alignment.CenterStart) {
                         Text(hit.title, style = CanonBody, color = CanonText, maxLines = 2)

@@ -62,8 +62,11 @@ else
 fi
 [ -n "$BACKUP" ] && [ -f "$BACKUP" ] || fail "не нашёл ни одного бэкапа в $BACKUP_DIR (маска ${DB_NAME}-*.sql.gz)"
 
-# Проверяем, что gzip не битый, ещё до разворачивания.
-gzip -t "$BACKUP" 2>/dev/null || fail "битый gzip-архив: $BACKUP"
+# Обычный gzip проверяем до разворачивания. Зашифрованный файл ещё не gzip:
+# его целостность проверит ниже цепочка openssl → gunzip → psql с pipefail.
+if [ "${BACKUP##*.}" != "enc" ]; then
+  gzip -t "$BACKUP" 2>/dev/null || fail "битый gzip-архив: $BACKUP"
+fi
 echo "[verify] проверяю бэкап: $BACKUP ($(du -h "$BACKUP" | cut -f1))"
 
 # --- 3) Временная база + гарантированная уборка за собой --------------------

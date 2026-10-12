@@ -183,6 +183,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -321,6 +323,12 @@ internal fun endSession(context: android.content.Context, vm: YuldashViewModel) 
 
 @Composable
 internal fun YuldashApp() {
+    // При изменении positional Compose/launcher slots меняем namespace, не угадываем старые ключи.
+    key("yuldash-app-saveable-v1") { YuldashAppContent() }
+}
+
+@Composable
+private fun YuldashAppContent() {
     val context = LocalContext.current
     val prefs = remember {
         context.getSharedPreferences("yuldash_prefs", android.content.Context.MODE_PRIVATE)
@@ -328,6 +336,7 @@ internal fun YuldashApp() {
     // Память экранов: что было на экране, когда с него ушли (см. SaveableStateProvider ниже).
     // Черновики принадлежат аккаунту, а не устройству. Обновление токена того же
     // пользователя сохраняет их; выход или смена пользователя создаёт новое хранилище.
+    val navigationSession by ApiClient.sessionChanges.collectAsState()
     val screenStateOwner = ApiClient.myUserId()
     val screenStates = key(screenStateOwner) { rememberSaveableStateHolder() }
     // Чем человек рассчитывается с водителем. Помним между заказами: платят изо дня в день
@@ -343,7 +352,7 @@ internal fun YuldashApp() {
     val localRequests = vm.localRequests
     var requestsLoading by remember { mutableStateOf(true) }   // скелетон «Моих заявок» до первой загрузки
     var requestsError by remember { mutableStateOf(false) }   // обрыв связи ≠ «заявок нет» (аудит 2026-08-04)
-    var bookingInFlight by remember { mutableStateOf(false) }  // бронь уже уходит на сервер → второй тап игнорируем
+    var bookingInFlight by remember(navigationSession) { mutableStateOf(false) }  // создание/отмена; свой флаг для каждой сессии
     var callbackInFlight by remember { mutableStateOf(false) }
     var requestsReload by remember { mutableStateOf(0) }      // кнопка «Повторить» на экране заявок
     val appScope = rememberCoroutineScope()
@@ -374,7 +383,7 @@ internal fun YuldashApp() {
     var screen by vm.screen
     var language by vm.language
     // Сохраняем только запрошенный экран, без данных прежнего аккаунта или автодействия.
-    var destinationAfterLogin by rememberSaveable { mutableStateOf<Screen?>(null) }
+    var destinationAfterLogin by rememberSaveable(saver = rootNavigationStateSaver<Screen?>("destinationAfterLogin")) { mutableStateOf<Screen?>(null) }
     // SharedPreferences — источник языка для настоящего холодного старта, когда SavedStateHandle пуст.
     // Пока гидратация не закончилась, не пишем дефолтный RU обратно на диск и сервер.
     val persistedLanguage = remember(context) { AppPrefs.language(context) }
@@ -406,19 +415,19 @@ internal fun YuldashApp() {
     var startHomeTab by vm.startHomeTab
     var callbackRequested by vm.callbackRequested
     var responsesRequestId by vm.responsesRequestId   // какую заявку открыть в «Откликах»
-    var driverProfileId by rememberSaveable { mutableStateOf(0) }   // чей публичный профиль открыть (0 = никакой)
-    var createRideReturnScreen by rememberSaveable { mutableStateOf(Screen.Home) }
-    var createRideReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Request) }
-    var createRidePrefillDate by rememberSaveable { mutableStateOf<String?>(null) }   // F15: дата-шаблон праздника для формы поездки
-    var trustedContactsReturnScreen by rememberSaveable { mutableStateOf(Screen.SimpleMode) }
-    var trustedContactsReturnHomeTab by rememberSaveable { mutableStateOf(HomeTab.Profile) }
-    var selectedBookingStatus by rememberSaveable { mutableStateOf("") }
-    var instantTripOrderId by rememberSaveable { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
-    var instantChatOrderId by rememberSaveable { mutableStateOf(0) }   // чат такси-заказа (B7b-1): id заказа
-    var sosOrderId by rememberSaveable { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
-    var sosBookingId by rememberSaveable { mutableStateOf(0) }         // SOS с контекстом попутки; 0 = без поездки
-    var sosContextNote by rememberSaveable { mutableStateOf("") }      // подпись дежурному (курьер: маршрут доставки)
-    var returnToSosAfterLogin by rememberSaveable { mutableStateOf(false) }
+    var driverProfileId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("driverProfileId", screenStateOwner)) { mutableStateOf(0) }   // чей публичный профиль открыть (0 = никакой)
+    var createRideReturnScreen by rememberSaveable(saver = rootNavigationStateSaver<Screen>("createRideReturnScreen")) { mutableStateOf(Screen.Home) }
+    var createRideReturnHomeTab by rememberSaveable(saver = rootNavigationStateSaver<HomeTab>("createRideReturnHomeTab")) { mutableStateOf(HomeTab.Request) }
+    var createRidePrefillDate by rememberSaveable(saver = rootNavigationStateSaver<String?>("createRidePrefillDate")) { mutableStateOf<String?>(null) }   // F15: дата-шаблон праздника для формы поездки
+    var trustedContactsReturnScreen by rememberSaveable(saver = rootNavigationStateSaver<Screen>("trustedContactsReturnScreen")) { mutableStateOf(Screen.SimpleMode) }
+    var trustedContactsReturnHomeTab by rememberSaveable(saver = rootNavigationStateSaver<HomeTab>("trustedContactsReturnHomeTab")) { mutableStateOf(HomeTab.Profile) }
+    var selectedBookingStatus by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("selectedBookingStatus", screenStateOwner)) { mutableStateOf("") }
+    var instantTripOrderId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("instantTripOrderId", screenStateOwner)) { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
+    var instantChatOrderId by vm.instantChatOrderId   // ID чата сохраняется вместе с маршрутом.
+    var sosOrderId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("sosOrderId", screenStateOwner)) { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
+    var sosBookingId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("sosBookingId", screenStateOwner)) { mutableStateOf(0) }         // SOS с контекстом попутки; 0 = без поездки
+    var sosContextNote by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("sosContextNote", screenStateOwner)) { mutableStateOf("") }      // подпись дежурному (курьер: маршрут доставки)
+    var returnToSosAfterLogin by rememberSaveable(saver = rootNavigationStateSaver<Boolean>("returnToSosAfterLogin")) { mutableStateOf(false) }
     LaunchedEffect(returnToSosAfterLogin, screen) {
         if (!returnToSosAfterLogin || !ApiClient.isLoggedIn()) return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
@@ -430,20 +439,20 @@ internal fun YuldashApp() {
         returnToSosAfterLogin = false
         screen = Screen.Sos
     }
-    var receiptBookingId by rememberSaveable { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
-    var taxiReceiptOrderId by rememberSaveable { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
+    var receiptBookingId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("receiptBookingId", screenStateOwner)) { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
+    var taxiReceiptOrderId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("taxiReceiptOrderId", screenStateOwner)) { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
     // Чат по посылке: id + с кем говорим + статус (по нему чат уходит в read-only после закрытия).
-    var parcelChatId by rememberSaveable { mutableStateOf(0) }
-    var parcelChatPeerIsCourier by rememberSaveable { mutableStateOf(true) }
-    var parcelChatStatus by rememberSaveable { mutableStateOf("") }
-    var incidentId by rememberSaveable { mutableStateOf(0) }           // «Справедливость»: id открытого спора
+    var parcelChatId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("parcelChatId", screenStateOwner)) { mutableStateOf(0) }
+    var parcelChatPeerIsCourier by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Boolean>("parcelChatPeerIsCourier", screenStateOwner)) { mutableStateOf(true) }
+    var parcelChatStatus by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("parcelChatStatus", screenStateOwner)) { mutableStateOf("") }
+    var incidentId by vm.incidentId           // «Справедливость»: id открытого спора
     // Режим фотоконтроля машины: такси или курьер. Экран один, кадры разные — и человек,
     // который возит и людей, и посылки, показывает машину дважды, по разу за роль.
-    var carPhotoMode by rememberSaveable { mutableStateOf("taxi") }
-    var supportTicketId by rememberSaveable { mutableStateOf(0) }      // Поддержка: id открытого обращения (deep-link/список)
+    var carPhotoMode by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("carPhotoMode", screenStateOwner)) { mutableStateOf("") }
+    var supportTicketId by vm.supportTicketId
     // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
-    var routeWatchPrefillFrom by rememberSaveable { mutableStateOf("") }
-    var routeWatchPrefillTo by rememberSaveable { mutableStateOf("") }
+    var routeWatchPrefillFrom by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("routeWatchPrefillFrom", screenStateOwner)) { mutableStateOf("") }
+    var routeWatchPrefillTo by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("routeWatchPrefillTo", screenStateOwner)) { mutableStateOf("") }
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
     var isAdmin by vm.isAdmin
     // Версия сессии: инкрементится при входе (onContinue), чтобы user-специфичные загрузки
@@ -472,47 +481,49 @@ internal fun YuldashApp() {
     // Полноэкранный оффер такси (B7a-2): тап/фуллскрин уведомления «Новый заказ» → MainActivity
     // ставит NavSignals → открываем кабинет водителя (там InstantOfferOverlay). Ждём, пока сплэш
     // отработает (он перезаписал бы screen), и не дёргаем навигацию на входе/онбординге.
-    val wantDriverCabinet by NavSignals.openDriverCabinet
-    LaunchedEffect(wantDriverCabinet, screen) {
-        if (!wantDriverCabinet) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        NavSignals.openDriverCabinet.value = false
-        if (screen != Screen.InstantDriverTrip) screen = Screen.DriverCabinet
+    // Старые внутренние кнопки пишут bridge; private уведомления уже сохранены Activity.
+    LaunchedEffect(NavSignals.openDriverCabinet.value, NavSignals.openInstantOrder.value,
+        NavSignals.openInstantChat.value, DeepLink.pendingParcels.value, DeepLink.pendingSupport.value,
+        NavSignals.openAdsCabinet.value, NavSignals.openPartnerCabinet.value, DeepLink.pendingFairness.value,
+        DeepLink.pendingRequestResponsesId.value, DeepLink.pendingRequestsFeed.value, DeepLink.pendingApplicationScreen.value, navigationSession) {
+        val previous = vm.pendingScreenNavigation.value
+        val bridge = when {
+            NavSignals.openInstantChat.value > 0 -> Screen.InstantChat to NavSignals.openInstantChat.value
+            NavSignals.openInstantOrder.value -> Screen.InstantOrder to 0
+            NavSignals.openDriverCabinet.value -> Screen.DriverCabinet to 0
+            DeepLink.pendingParcels.value -> Screen.Parcels to 0
+            DeepLink.pendingSupport.value -> Screen.SupportTickets to 0
+            NavSignals.openAdsCabinet.value -> Screen.AdsCabinet to 0
+            NavSignals.openPartnerCabinet.value -> Screen.PartnerCabinet to 0
+            DeepLink.pendingFairness.value -> Screen.FairnessCenter to 0
+            (DeepLink.pendingRequestResponsesId.value ?: 0) > 0 -> Screen.RequestResponses to DeepLink.pendingRequestResponsesId.value!!
+            DeepLink.pendingRequestsFeed.value -> Screen.RequestsFeed to 0
+            DeepLink.pendingApplicationScreen.value != null -> DeepLink.pendingApplicationScreen.value!! to 0
+            else -> null
+        }
+        vm.pendingScreenForOwner(ApiClient.myUserId())
+        if (bridge != null && (previous?.destination != bridge.first ||
+                (bridge.first in setOf(Screen.InstantChat, Screen.RequestResponses) && previous.targetId != bridge.second))) {
+            vm.requestScreenDestination(bridge.first, ApiClient.myUserId(), bridge.second)
+        }
     }
-    // Тап по пушу про рекламу или партнёрство — тем же путём, что кабинет водителя выше.
-    // Раньше эти два вида открывались только из ленты внутри приложения, а из шторки вели
-    // просто «в приложение»: человек видел, что одно и то же событие ведёт по-разному.
-    val wantAds by NavSignals.openAdsCabinet
-    LaunchedEffect(wantAds, screen) {
-        if (!wantAds) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+    LaunchedEffect(vm.pendingScreenNavigation.value, screen, navigationSession) {
+        val destination = vm.pendingScreenForOwner(ApiClient.myUserId()) ?: return@LaunchedEffect
+        if (screen in setOf(Screen.Splash, Screen.Intro, Screen.Onboarding)) return@LaunchedEffect
         if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        NavSignals.openAdsCabinet.value = false
-        screen = Screen.AdsCabinet
-    }
-    val wantPartner by NavSignals.openPartnerCabinet
-    LaunchedEffect(wantPartner, screen) {
-        if (!wantPartner) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        NavSignals.openPartnerCabinet.value = false
-        screen = Screen.PartnerCabinet
+        ApiClient.runIfCurrentSession(navigationSession) {
+            vm.consumePendingScreen(destination) {
+                if (destination.destination == Screen.InstantChat) instantChatOrderId = destination.targetId
+                if (destination.destination == Screen.SupportTicket) supportTicketId = destination.targetId
+                if (destination.destination == Screen.RequestResponses) responsesRequestId = destination.targetId
+                if (destination.destination == Screen.IncidentDetail) incidentId = destination.targetId
+                // Оффер не выводит водителя из уже исполняемого заказа.
+                if (destination.destination != Screen.DriverCabinet || screen != Screen.InstantDriverTrip) screen = destination.destination
+            }
+        }
     }
     // Кнопки «Написать»/SOS живут глубоко в экранах такси (в т.ч. встроенных в главную) —
     // навигация через NavSignals (паттерн openDriverCabinet), без колбэков через все слои.
-    val wantInstantChat by NavSignals.openInstantChat
-    LaunchedEffect(wantInstantChat, screen) {
-        if (wantInstantChat <= 0) return@LaunchedEffect
-        // P3: ждём, пока сплэш/интро/онбординг отработают — иначе они перезапишут screen, а сигнал
-        // уже погашен (value=0) и тап по пушу «Написать» на холодном старте потерялся бы.
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (ApiClient.isLoggedIn()) {
-            instantChatOrderId = wantInstantChat
-            NavSignals.openInstantChat.value = 0
-            screen = Screen.InstantChat
-        }
-    }
     // Чек за такси-поездку: кнопка в финальной карточке заказа (и у пассажира, и у водителя).
     val wantTaxiReceipt by NavSignals.openTaxiReceipt
     LaunchedEffect(wantTaxiReceipt, screen) {
@@ -551,27 +562,19 @@ internal fun YuldashApp() {
     }
     // Пуш о ходе такси-заказа (B9b-2): тап по «Водитель найден / Машина на месте / …» →
     // экран заказа пассажира (сам подхватывает активный заказ). Ждём, пока сплэш отработает.
-    val wantInstantOrder by NavSignals.openInstantOrder
-    LaunchedEffect(wantInstantOrder, screen) {
-        if (!wantInstantOrder) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        NavSignals.openInstantOrder.value = false
-        screen = Screen.InstantOrder
-    }
     // Force-update (B9b-1): при старте ПАРАЛЛЕЛЬНО обычному запуску спрашиваем /version/min.
     // versionCode < min с сервера → блокирующий экран «Обнови Юлдаш» (ниже, поверх всего).
     // Офлайн / ошибка ручки / min=0 → НИЧЕГО не блокируем, приложение стартует как обычно.
-    var forceUpdateRequired by rememberSaveable { mutableStateOf(false) }
-    var forceUpdateStoreUrl by rememberSaveable { mutableStateOf("") }
+    var forceUpdateRequired by rememberSaveable(saver = rootNavigationStateSaver<Boolean>("forceUpdateRequired")) { mutableStateOf(false) }
+    var forceUpdateStoreUrl by rememberSaveable(saver = rootNavigationStateSaver<String>("forceUpdateStoreUrl")) { mutableStateOf("") }
     // Мягкое обновление (B9b-1b): версия ещё поддерживается, но вышла свежее → плашка сверху.
     // Списки «что нового» держим строкой через \n, а не List: rememberSaveable переживает
     // поворот экрана только для простых типов, иначе плашка теряла бы содержимое.
-    var updateLatestCode by rememberSaveable { mutableIntStateOf(0) }
-    var updateVersionName by rememberSaveable { mutableStateOf("") }
-    var updateStoreUrl by rememberSaveable { mutableStateOf("") }
-    var updateWhatsNewRu by rememberSaveable { mutableStateOf("") }
-    var updateWhatsNewBa by rememberSaveable { mutableStateOf("") }
+    var updateLatestCode by rememberSaveable(saver = rootNavigationStateSaver<Int>("updateLatestCode")) { mutableIntStateOf(0) }
+    var updateVersionName by rememberSaveable(saver = rootNavigationStateSaver<String>("updateVersionName")) { mutableStateOf("") }
+    var updateStoreUrl by rememberSaveable(saver = rootNavigationStateSaver<String>("updateStoreUrl")) { mutableStateOf("") }
+    var updateWhatsNewRu by rememberSaveable(saver = rootNavigationStateSaver<String>("updateWhatsNewRu")) { mutableStateOf("") }
+    var updateWhatsNewBa by rememberSaveable(saver = rootNavigationStateSaver<String>("updateWhatsNewBa")) { mutableStateOf("") }
     // Какую версию человек уже отклонил. Живёт в настройках устройства, а не в памяти:
     // иначе плашка возвращалась бы при каждом запуске, и «позже» ничего не значило.
     var updateDismissedCode by remember { mutableIntStateOf(prefs.getInt(PREF_UPDATE_DISMISSED, 0)) }
@@ -607,7 +610,7 @@ internal fun YuldashApp() {
         }
     }
     val notifPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    var notifAsked by rememberSaveable { mutableStateOf(false) }
+    var notifAsked by rememberSaveable(saver = rootNavigationStateSaver<Boolean>("notifAsked")) { mutableStateOf(false) }
     LaunchedEffect(screen) {
         if (!notifAsked && (screen == Screen.Home || screen == Screen.DriverCabinet) &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -617,40 +620,93 @@ internal fun YuldashApp() {
             notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
-    var failedRideLink by rememberSaveable { mutableStateOf<Int?>(null) }
-    var rideLinkUnavailable by rememberSaveable { mutableStateOf(false) }
+    var failedRideLink by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int?>("failedRideLink", screenStateOwner)) { mutableStateOf<Int?>(null) }
+    var rideLinkUnavailable by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Boolean>("rideLinkUnavailable", screenStateOwner)) { mutableStateOf(false) }
     // null: публичная поездка; false: чат брони; true: завершённая бронь.
-    var failedBookingDestination by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    var failedBookingDestination by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Boolean?>("failedBookingDestination", screenStateOwner)) { mutableStateOf<Boolean?>(null) }
+    var failedCompletedOwner by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int?>("failedCompletedOwner", screenStateOwner)) { mutableStateOf<Int?>(null) }
+    var failedCompletedRevision by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Long?>("failedCompletedRevision", screenStateOwner)) { mutableStateOf<Long?>(null) }
     var bookingLinkAttempt by remember { mutableIntStateOf(0) }
+    // Отличает два запроса того же public id: старый callback не управляет новой ошибкой.
+    var publicLinkAttempt by remember { mutableIntStateOf(0) }
+    LaunchedEffect(vm.privateNavigationRevision) {
+        if (failedRideLink != null && failedCompletedRevision != null && failedCompletedRevision != vm.privateNavigationRevision) {
+            failedRideLink = null
+            failedBookingDestination = null
+        }
+    }
+    // Старые внутренние producer/test bridge тоже принимаются, но HTTP читает durable record.
+    LaunchedEffect(DeepLink.pendingCompletedBookingId.value, DeepLink.pendingBookingChatId.value, navigationSession) {
+        val owner = ApiClient.myUserId()
+        val previous = vm.pendingBookingNavigation.value
+        val completedBridge = DeepLink.pendingCompletedBookingId.value
+        val chatBridge = DeepLink.pendingBookingChatId.value
+        vm.pendingBookingForOwner(owner)
+        if (failedBookingDestination != null && failedCompletedOwner != null && failedCompletedOwner != owner) {
+            failedRideLink = null
+        }
+        if (previous?.ownerId == null || previous.ownerId == owner) {
+            if (completedBridge != null && (previous?.bookingId != completedBridge || !previous.completed)) {
+                vm.requestCompletedBooking(completedBridge, owner)
+            } else if (chatBridge != null && (previous?.bookingId != chatBridge || previous.completed)) {
+                vm.requestBookingDestination(chatBridge, owner, completed = false)
+            }
+        }
+    }
     // Публичная ссылка: ошибка не должна молча терять назначение, повтор использует тот же id.
-    LaunchedEffect(DeepLink.pendingRideId.value, screen) {
+    LaunchedEffect(DeepLink.pendingRideId.value, screen, vm.privateNavigationRevision, navigationSession) {
         val rideId = DeepLink.pendingRideId.value ?: return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
+        val requestedScreen = screen
+        val requestedRevision = vm.privateNavigationRevision
+        val requestedSession = ApiClient.queueSessionGeneration()
+        val requestedAttempt = ++publicLinkAttempt
         failedRideLink = null
         failedBookingDestination = null
         val result = ApiClient.getRide(rideId)
         // Не менять ключ LaunchedEffect до окончания запроса: это отменяло саму загрузку.
-        if (!isActive || DeepLink.pendingRideId.value != rideId) return@LaunchedEffect
-        DeepLink.pendingRideId.value = null
-        result.onSuccess { dto ->
-            selectedRide = dto.toUiRide()
-            activeBookingId = null
-            selectedBookingStatus = ""
-            screen = Screen.Booking
-        }.onFailure { error ->
-            rideLinkUnavailable = (error as? ApiException)?.status in listOf(403, 404, 410)
-            failedBookingDestination = null
-            failedRideLink = rideId
+        ApiClient.runIfUnchangedSession(requestedSession) {
+            if (!isActive || DeepLink.pendingRideId.value != rideId || vm.screen.value != requestedScreen ||
+                vm.privateNavigationRevision != requestedRevision || publicLinkAttempt != requestedAttempt) return@runIfUnchangedSession
+            DeepLink.pendingRideId.value = null
+            result.onSuccess { dto ->
+                vm.navigateLocally {
+                    selectedRide = dto.toUiRide()
+                    activeBookingId = null
+                    selectedBookingStatus = ""
+                    screen = Screen.Booking
+                }
+            }.onFailure { error ->
+                rideLinkUnavailable = (error as? ApiException)?.status in listOf(403, 404, 410)
+                failedBookingDestination = null
+                failedCompletedRevision = requestedRevision
+                failedRideLink = rideId
+            }
         }
     }
     failedRideLink?.takeIf {
         DeepLink.pendingRideId.value == null && DeepLink.pendingBookingChatId.value == null &&
             DeepLink.pendingCompletedBookingId.value == null
     }?.let { rideId ->
-        val tagPrefix = if (failedBookingDestination == null) "rideLink" else "bookingLink"
+        val failedKind = failedBookingDestination
+        val failedOwner = failedCompletedOwner
+        val failedRevision = if (failedKind == null) failedCompletedRevision ?: vm.privateNavigationRevision else failedCompletedRevision
+        val failedSession = ApiClient.queueSessionGeneration()
+        val failedScreen = screen
+        val failedPublicAttempt = publicLinkAttempt
+        fun isDisplayedFailureCurrent() = appScope.isActive && failedRideLink == rideId && failedBookingDestination == failedKind &&
+            vm.screen.value == failedScreen && (if (failedKind == null)
+                vm.privateNavigationRevision == failedRevision && publicLinkAttempt == failedPublicAttempt
+            else failedCompletedRevision == failedRevision)
+        fun closeDisplayedFailure() {
+            ApiClient.runIfUnchangedSession(failedSession) {
+                if (isDisplayedFailureCurrent()) failedRideLink = null
+            }
+        }
+        val tagPrefix = if (failedKind == null) "rideLink" else "bookingLink"
         AlertDialog(
             modifier = Modifier.testTag("${tagPrefix}Failure"),
-            onDismissRequest = { failedRideLink = null },
+            onDismissRequest = { closeDisplayedFailure() },
             shape = CanonCardShape,
             containerColor = CanonSurface,
             titleContentColor = CanonText,
@@ -663,24 +719,39 @@ internal fun YuldashApp() {
             else appText("Проверь сеть и попробуй снова.", "Селтәрҙе тикшереп ҡабатла.")) },
             confirmButton = {
                 if (rideLinkUnavailable) {
-                    TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { failedRideLink = null }) {
+                    TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { closeDisplayedFailure() }) {
                         Text(appText("Закрыть", "Ябыу"), color = CanonGreen2)
                     }
                 } else {
-                    TextButton(modifier = Modifier.testTag("${tagPrefix}Retry"), onClick = {
-                        val pending = when (failedBookingDestination) {
-                            true -> DeepLink.pendingCompletedBookingId
-                            false -> DeepLink.pendingBookingChatId
-                            null -> DeepLink.pendingRideId
+                    TextButton(modifier = Modifier.testTag("${tagPrefix}Retry"), onClick = retry@{
+                        if (failedRideLink != rideId || failedBookingDestination != failedKind ||
+                            (failedKind != null && failedCompletedRevision != failedRevision)) return@retry
+                        if (failedKind != null) {
+                            val currentSession = ApiClient.queueSessionGeneration()
+                            ApiClient.runIfCurrentSession(currentSession) {
+                                // Старый callback не привязывает поездку к другому аккаунту.
+                                // Refresh того же владельца допускает осознанный ручной повтор.
+                                if (failedOwner != null && ApiClient.myUserId() != failedOwner) return@runIfCurrentSession
+                                if (failedOwner == null && currentSession != failedSession) return@runIfCurrentSession
+                                if (vm.privateNavigationRevision != failedRevision || vm.pendingScreenNavigation.value != null) return@runIfCurrentSession
+                                if (vm.pendingBookingNavigation.value == null) vm.requestBookingDestination(rideId, failedOwner, failedKind)
+                                failedRideLink = null
+                            }
+                            return@retry
                         }
-                        if (pending.value == null) pending.value = rideId
-                        failedRideLink = null
+                        ApiClient.runIfUnchangedSession(failedSession) {
+                            if (!isDisplayedFailureCurrent() || DeepLink.pendingRideId.value != null ||
+                                vm.pendingBookingNavigation.value != null || vm.pendingScreenNavigation.value != null) return@runIfUnchangedSession
+                            publicLinkAttempt++
+                            DeepLink.pendingRideId.value = rideId
+                            failedRideLink = null
+                        }
                     }) { Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2) }
                 }
             },
             dismissButton = {
                 if (!rideLinkUnavailable) {
-                    TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { failedRideLink = null }) {
+                    TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { closeDisplayedFailure() }) {
                         Text(appText("Закрыть", "Ябыу"), color = CanonMuted)
                     }
                 }
@@ -696,84 +767,45 @@ internal fun YuldashApp() {
         parcelChatStatus = target.status
         screen = Screen.ParcelChat
     }
-    // Пуш о ходе посылки → открываем «Посылки». Отправитель не должен догадываться, что для
-    // проверки статуса надо самому зайти в приложение и переключить вкладку: тап по уведомлению
-    // ведёт прямо туда, где видно, где его посылка. Не вошёл — сначала вход.
-    LaunchedEffect(DeepLink.pendingParcels.value, screen) {
-        if (!DeepLink.pendingParcels.value) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingParcels.value = false   // одноразово — не переоткрываем при рекомпозиции
-        screen = Screen.Parcels
-    }
-    // Пуши поддержки, споров и заявок: ждём запуска и входа, затем гасим сигнал.
-    LaunchedEffect(DeepLink.pendingSupport.value, screen) {
-        if (!DeepLink.pendingSupport.value) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingSupport.value = false
-        screen = Screen.Support
-    }
-    LaunchedEffect(DeepLink.pendingApplicationScreen.value, screen) {
-        val destination = DeepLink.pendingApplicationScreen.value ?: return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingApplicationScreen.value = null
-        screen = destination
-    }
-    LaunchedEffect(DeepLink.pendingFairness.value, screen) {
-        if (!DeepLink.pendingFairness.value) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingFairness.value = false
-        screen = Screen.FairnessCenter
-    }
-    // «Водитель откликнулся на твою заявку» — открываем отклики именно этой заявки.
-    LaunchedEffect(DeepLink.pendingRequestResponsesId.value, screen) {
-        val rid = DeepLink.pendingRequestResponsesId.value ?: return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingRequestResponsesId.value = null
-        responsesRequestId = rid
-        screen = Screen.RequestResponses
-    }
-    LaunchedEffect(DeepLink.pendingRequestsFeed.value, screen) {
-        if (!DeepLink.pendingRequestsFeed.value) return@LaunchedEffect
-        if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
-        if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-        DeepLink.pendingRequestsFeed.value = false
-        screen = Screen.RequestsFeed
-    }
     // Личное назначение сохраняем до входа. Не устанавливаем бронь до проверки участника.
     listOf(false, true).forEach { completed ->
         val pending = if (completed) DeepLink.pendingCompletedBookingId else DeepLink.pendingBookingChatId
-        LaunchedEffect(pending.value, screen, bookingLinkAttempt) {
-            val bid = pending.value ?: return@LaunchedEffect
+        val revision = vm.pendingBookingNavigation.value?.takeIf { it.completed == completed }?.revision
+        LaunchedEffect(pending.value, revision, screen, bookingLinkAttempt, navigationSession) {
+            val destination = vm.pendingBookingForOwner(ApiClient.myUserId())?.takeIf { it.completed == completed } ?: return@LaunchedEffect
+            if (destination.revision != revision) return@LaunchedEffect
+            val bid = destination.bookingId
             if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
             failedRideLink = null
             val sessionToken = ApiClient.currentToken()
+            val requestedSession = navigationSession
             if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
             val result = ApiClient.getTripState(bid)
             if (!isActive || pending.value != bid) return@LaunchedEffect
+            if (vm.pendingBookingNavigation.value != destination || !ApiClient.isCurrentSession(requestedSession)) return@LaunchedEffect
             // В том числе после обновления токена: новый запрос проверит текущую сессию.
             if (sessionToken != ApiClient.currentToken()) {
                 if (ApiClient.isLoggedIn()) bookingLinkAttempt++ else screen = Screen.Login
                 return@LaunchedEffect
             }
-            pending.value = null
             val state = result.getOrNull()
-            if (state != null && state.role in listOf("driver", "passenger")) {
-                selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "",
-                    price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
-                activeBookingId = bid
-                selectedBookingStatus = ""
-                if (completed) activeTrip = null
-                screen = if (completed) Screen.ActiveTrip else Screen.Booking
-            } else {
-                rideLinkUnavailable = (result.exceptionOrNull() as? ApiException)?.status in listOf(403, 404, 410)
-                failedBookingDestination = completed
-                failedRideLink = bid
+            val applyResult = {
+                if (state != null && state.role in listOf("driver", "passenger")) {
+                    selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "",
+                        price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
+                    activeBookingId = bid
+                    selectedBookingStatus = state.status
+                    if (completed) activeTrip = null
+                    screen = if (completed) Screen.ActiveTrip else Screen.Booking
+                } else {
+                    rideLinkUnavailable = (result.exceptionOrNull() as? ApiException)?.status in listOf(403, 404, 410)
+                    failedBookingDestination = completed
+                    failedCompletedOwner = destination.ownerId
+                    failedCompletedRevision = destination.revision
+                    failedRideLink = bid
+                }
             }
+            ApiClient.runIfCurrentSession(requestedSession) { vm.consumePendingBooking(destination, applyResult) }
         }
     }
     // Реклама — сервер-управляемая (/ads); демо-шаблон даёт оформление, демо-список — фоллбэк.
@@ -814,68 +846,63 @@ internal fun YuldashApp() {
     val adStats = vm.adStats   // SnapshotStateMap: мутируем одну запись вместо копии всей карты на событие
     // Сохраняем survival-состояние в SavedStateHandle при изменении → переживает смерть процесса.
     // activeBookingId в ключах: смена активной брони тоже должна попасть в handle (H1).
-    LaunchedEffect(screen, language, startHomeTab, activeBookingId, languagePersistenceReady) {
+    LaunchedEffect(screen, language, startHomeTab, activeBookingId, languagePersistenceReady, vm.navHistory.toList()) {
         if (languagePersistenceReady) vm.persistNav()
     }
 
     // Лёгкий back-stack: трейл экранов, чтобы аппаратная «Назад» возвращалась по нему, а не прыгала на Home.
     val navHistory = vm.navHistory
     var navPopping by vm.navPopping
-    var navPrev by vm.navPrev
     LaunchedEffect(screen) {
-        // Intro тоже транзитный (брендовое интро первого запуска) — иначе «Назад» из кабинета водителя
-        // на first-run проваливал обратно на экран Intro (Intro→Onboarding пушил Intro в историю).
-        val transient = navPrev == Screen.Splash || navPrev == Screen.Login || navPrev == Screen.Onboarding || navPrev == Screen.Intro
-        // Вход — граница сессии. После clearUserData нельзя снова записать предыдущий
-        // личный экран: следующий водитель смог бы вернуться к нему кнопкой «Назад».
-        if (screen == Screen.Login) navHistory.clear()
-        else if (!navPopping && screen != navPrev && !transient) navHistory.add(navPrev)
-        navPopping = false
-        navPrev = screen
+        vm.recordNavigationChange()
     }
 
-    // H1 — активная поездка выживает после kill процесса. screen и activeBookingId переживают смерть
-    // процесса (SavedStateHandle), но объекты Ride (selectedRide/activeTrip) — нет. Если восстановились
-    // на брони/активной поездке без объектов → по сохранённому activeBookingId дочитываем бронь с сервера
-    // и восстанавливаем поездку (маршрут на карте, гейт live-гео, back-навигацию). Экран ActiveTrip сам
-    // грузит код посадки/трекинг по bookingId, так что до ответа сервера он не пустует.
-    // Не нашлась активная бронь / нет сети → мягко уходим на Home (прежнее поведение, без краша).
-    LaunchedEffect(Unit) {
+    // SavedStateHandle хранит навигацию, но не объекты Ride. При входе/возврате на бронь
+    // дочитываем её по сохранённому id. Ответ применяется только к исходному экрану, брони
+    // и сессии; уход со страницы отменяет загрузчик. Live-гео включается лишь для активной поездки.
+    // Не нашлась текущая бронь / нет сети → Home (прежнее поведение).
+    LaunchedEffect(screen, activeBookingId, navigationSession) {
         if ((screen == Screen.Booking || screen == Screen.ActiveTrip) && selectedRide == null && activeTrip == null) {
             val bid = activeBookingId
+            val requestedScreen = screen
+            val requestedSession = navigationSession
+            val restoreScope = this
+            fun isCurrentRestore() = restoreScope.isActive && screen == requestedScreen &&
+                activeBookingId == bid && selectedRide == null && activeTrip == null &&
+                ApiClient.isCurrentSession(requestedSession)
             var restored = false
             if (bid != null) {
-                ApiClient.getMyBookingsDetailed().onSuccess { list ->
-                    val b = list.firstOrNull { it.id == bid }
-                    if (b != null) {
-                        // Сводку с сервера дополняем feed-поездкой по ride_id (как экран «Мои поездки»).
-                        val feed = rides.firstOrNull { it.id == b.rideId.toString() }
-                        val restoredRide = Ride(
-                            id = b.id.toString(),
-                            from = b.fromCity.ifBlank { feed?.from ?: "" },
-                            to = b.toCity.ifBlank { feed?.to ?: "" },
-                            time = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.time ?: ""),
-                            timeBa = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.timeBa ?: feed?.time ?: ""),
-                            driver = b.driverName.ifBlank { feed?.driver ?: "" },
-                            car = feed?.car ?: "",
-                            carBa = feed?.carBa ?: feed?.car ?: "",
-                            price = if (b.price > 0) b.price else (feed?.price ?: 0),
-                            seats = b.seats,
-                            rating = feed?.rating ?: 0.0,
-                            verified = b.driverVerified || (feed?.verified ?: false),
-                            boosted = false,
-                        )
-                        selectedRide = restoredRide
-                        selectedBookingStatus = b.status
-                        // Live-гео и карта гейтятся на activeTrip: ставим его только для активной поездки.
-                        activeTrip = if (bookingStatusAllowsBoarding(b.status)) restoredRide else null
-                        // Отменённая бронь → детали; done остаётся на экране завершения и оценки.
-                        if (screen == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status)) screen = Screen.Booking
-                        restored = true
-                    }
+                val list = ApiClient.getMyBookingsDetailed().getOrNull()
+                if (!isCurrentRestore()) return@LaunchedEffect
+                val b = list?.firstOrNull { it.id == bid }
+                if (b != null) {
+                    // Сводку с сервера дополняем feed-поездкой по ride_id (как экран «Мои поездки»).
+                    val feed = rides.firstOrNull { it.id == b.rideId.toString() }
+                    val restoredRide = Ride(
+                        id = b.id.toString(),
+                        from = b.fromCity.ifBlank { feed?.from ?: "" },
+                        to = b.toCity.ifBlank { feed?.to ?: "" },
+                        time = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.time ?: ""),
+                        timeBa = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.timeBa ?: feed?.time ?: ""),
+                        driver = b.driverName.ifBlank { feed?.driver ?: "" },
+                        car = feed?.car ?: "",
+                        carBa = feed?.carBa ?: feed?.car ?: "",
+                        price = if (b.price > 0) b.price else (feed?.price ?: 0),
+                        seats = b.seats,
+                        rating = feed?.rating ?: 0.0,
+                        verified = b.driverVerified || (feed?.verified ?: false),
+                        boosted = false,
+                    )
+                    selectedRide = restoredRide
+                    selectedBookingStatus = b.status
+                    // Live-гео и карта гейтятся на activeTrip: ставим его только для активной поездки.
+                    activeTrip = if (bookingStatusAllowsBoarding(b.status)) restoredRide else null
+                    // Отменённая бронь → детали; done остаётся на экране завершения и оценки.
+                    if (screen == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status)) screen = Screen.Booking
+                    restored = true
                 }
             }
-            if (!restored) screen = Screen.Home
+            if (!restored && isCurrentRestore()) screen = Screen.Home
         }
     }
 
@@ -1008,6 +1035,28 @@ internal fun YuldashApp() {
     // Синхронизируем язык сообщений об ошибке в слое данных (ApiClient — не Composable,
     // appText недоступен). Иначе башкир видел бы серверные/клиентские ошибки по-русски.
     LaunchedEffect(language) { ApiClient.setUiLanguageBashkir(language == AppLanguage.Ba) }
+    // Не монтируем экран с утраченным root-контекстом: его загрузчик успел бы отправить GET /0.
+    fun missingRootDestinations(): Set<Screen> = buildSet {
+        if (receiptBookingId <= 0) add(Screen.TripReceipt)
+        if (taxiReceiptOrderId <= 0) add(Screen.TaxiReceipt)
+        if (parcelChatId <= 0) add(Screen.ParcelChat)
+        if (instantTripOrderId <= 0) add(Screen.InstantDriverTrip)
+        if (driverProfileId <= 0) add(Screen.DriverProfile)
+        if (carPhotoMode !in setOf("taxi", "courier")) add(Screen.CarPhoto)
+    }
+    val unavailableRootDestinations = missingRootDestinations()
+    val rootDestination = screen
+    val rootRevision = vm.privateNavigationRevision
+    val missingRootDestination = rootDestination in unavailableRootDestinations
+    LaunchedEffect(rootDestination, unavailableRootDestinations, rootRevision, navigationSession) {
+        if (missingRootDestination && vm.screen.value == rootDestination && vm.privateNavigationRevision == rootRevision) {
+            ApiClient.runIfUnchangedSession(navigationSession) {
+                val currentMissing = missingRootDestinations()
+                if (rootDestination in currentMissing && vm.screen.value == rootDestination && vm.privateNavigationRevision == rootRevision)
+                    vm.recoverMissingRootDestination(rootDestination, currentMissing)
+            }
+        }
+    }
     CompositionLocalProvider(LocalAppLanguage provides language, LocalOpenDriverProfile provides openDriverProfile) {
         // Force-update (B9b-1): версия ниже минимальной → блокирующий экран вместо всего приложения.
         // Не экран навигации (enum Screen) намеренно: из него нельзя выйти «Назад» — только обновиться.
@@ -1044,9 +1093,9 @@ internal fun YuldashApp() {
             }
             requestsLoading = false
         }
-        // Доверенные контакты — с сервера (после входа). Перечитываем и при смене sessionVersion (после логина).
-        LaunchedEffect(sessionVersion) {
-            ApiClient.getContacts().onSuccess { list ->
+        // Только актуальный ответ этого входа может обновить контакты в состоянии приложения.
+        LaunchedEffect(sessionVersion, navigationSession) {
+            ApiClient.loadContactsForPublication(navigationSession) { list ->
                 // Чистим БЕЗУСЛОВНО: у нового вошедшего (после logout на общем устройстве) может быть
                 // 0 контактов — тогда без clear() остались бы видны контакты (имена+телефоны) прошлого юзера.
                 trustedContacts.clear()
@@ -1093,7 +1142,7 @@ internal fun YuldashApp() {
             if (offlineNow || updateVisible) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier
         )) {
         AnimatedContent(
-            targetState = screen,
+            targetState = if (missingRootDestination) Screen.Notifications else screen,
             transitionSpec = {
                 (fadeIn(animationSpec = tween(CanonMotion.NORMAL)) +
                     slideInHorizontally(animationSpec = tween(CanonMotion.SLOW)) { it / 12 })
@@ -1104,6 +1153,7 @@ internal fun YuldashApp() {
             },
             label = "screen"
         ) { scr ->
+        if (scr in unavailableRootDestinations) return@AnimatedContent
         // Состояние экрана переживает уход с него: ушёл в «Способы оплаты» и вернулся —
         // маршрут, цена и введённый текст на месте. Обычный `when` уничтожает композицию
         // ушедшего экрана вместе с его состоянием, и человек вводил адрес заново.
@@ -1156,6 +1206,7 @@ internal fun YuldashApp() {
                 instantTripOrderId = instantTripOrderId,
                 instantChatOrderId = instantChatOrderId,
                 taxiReceiptOrderId = taxiReceiptOrderId,
+                isCurrentReceipt = { id -> screen == Screen.TaxiReceipt && taxiReceiptOrderId == id },
                 carPhotoMode = carPhotoMode,
                 parcelChatId = parcelChatId,
                 parcelChatPeerIsCourier = parcelChatPeerIsCourier,
@@ -1252,7 +1303,17 @@ internal fun YuldashApp() {
             )
             Screen.Support -> SupportScreen(onBack = { goBack() })
             Screen.Boost -> BoostScreen(onBack = { goBack() })
-            Screen.Booking -> BookingScreen(
+            Screen.Booking -> {
+                val displayedRide = selectedRide
+                val displayedBookingId = activeBookingId
+                val displayedStatus = selectedBookingStatus
+                val displayedSession = navigationSession
+                val displayedRevision = vm.privateNavigationRevision
+                fun isDisplayedBookingUnchanged() = screen == Screen.Booking && selectedRide == displayedRide &&
+                    activeBookingId == displayedBookingId && selectedBookingStatus == displayedStatus &&
+                    vm.privateNavigationRevision == displayedRevision && ApiClient.queueSessionGeneration() == displayedSession
+                fun isDisplayedBookingCurrent() = isDisplayedBookingUnchanged() && ApiClient.isCurrentSession(displayedSession)
+                BookingScreen(
                 // null = бронировать нечего (лента пуста и ничего не выбрано): экран сам вернёт
                 // назад. Раньше тут подставлялась демо-поездка «вместо краша на пустом списке» —
                 // человек видел карточку выдуманного водителя, а бронь не проходила (id не серверный).
@@ -1269,30 +1330,50 @@ internal fun YuldashApp() {
                 // Передумал, пока водитель молчит. Место возвращается в поездку, водителю
                 // уходит уведомление — этим занимается сервер.
                 onCancelBooking = {
-                    val id = activeBookingId
-                    if (id != null) appScope.launch {
-                        ApiClient.cancelBooking(id)
-                            .onSuccess {
-                                selectedBookingStatus = "cancelled"
-                                activeBookingId = null
-                                openHome(HomeTab.Rides)
-                            }
-                            .onFailure {
-                                val текст = if (language == AppLanguage.Ba)
-                                    "Кире алып булманы. Селтәрҙе тикшереп ҡабатла."
-                                else "Не получилось отменить. Проверь сеть и повтори."
-                                Toast.makeText(context, serverSaid(it, текст),
-                                               Toast.LENGTH_LONG).show()
-                            }
+                    if (displayedBookingId != null && isDisplayedBookingCurrent() && !bookingInFlight) {
+                        bookingInFlight = true
+                        appScope.launch {
+                            try {
+                                if (!isDisplayedBookingCurrent()) return@launch
+                                val result = ApiClient.cancelBooking(displayedBookingId)
+                                if (!isDisplayedBookingCurrent()) return@launch
+                                ApiClient.runIfCurrentSession(displayedSession) {
+                                    result.onSuccess {
+                                        vm.navigateLocally {
+                                            selectedBookingStatus = "cancelled"
+                                            activeBookingId = null
+                                            openHome(HomeTab.Rides)
+                                        }
+                                    }.onFailure {
+                                        val текст = if (language == AppLanguage.Ba)
+                                            "Кире алып булманы. Селтәрҙе тикшереп ҡабатла."
+                                        else "Не получилось отменить. Проверь сеть и повтори."
+                                        Toast.makeText(context, serverSaid(it, текст), Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            } finally { bookingInFlight = false }
+                        }
                     }
                 },
                 onFindAnotherRide = { openHome(HomeTab.Rides) },
                 onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
-                    if (activeBookingId != null) {
-                        activeTrip = selectedRide
-                        screen = Screen.ActiveTrip
+                    if (!isDisplayedBookingUnchanged()) return@BookingScreen
+                    if (!ApiClient.isLoggedIn()) {
+                        ApiClient.runIfUnchangedSession(displayedSession) {
+                            if (isDisplayedBookingUnchanged()) vm.navigateLocally { openProtectedScreen(Screen.Booking) }
+                        }
+                        return@BookingScreen
+                    }
+                    if (!isDisplayedBookingCurrent()) return@BookingScreen
+                    if (displayedBookingId != null) {
+                        ApiClient.runIfCurrentSession(displayedSession) {
+                            if (isDisplayedBookingCurrent()) vm.navigateLocally {
+                                activeTrip = displayedRide.takeIf { bookingStatusAllowsBoarding(displayedStatus) }
+                                screen = Screen.ActiveTrip
+                            }
+                        }
                     } else {
-                        val rid = selectedRide?.id?.toIntOrNull()
+                        val rid = displayedRide?.id?.toIntOrNull()
                         // Демо-поездка (id не число) сюда не доходит: бронировать пример нельзя,
                         // и молчать об этом тоже нельзя — иначе кнопка просто «не работает».
                         if (rid == null) {
@@ -1314,27 +1395,31 @@ internal fun YuldashApp() {
                         if (rid != null && !bookingInFlight) {
                             bookingInFlight = true
                             appScope.launch {
-                                ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone)
-                                    .onSuccess { booking ->
-                                        activeBookingId = booking.id
-                                        selectedBookingStatus = booking.status
-                                        activeTrip = selectedRide.takeIf { bookingStatusAllowsBoarding(booking.status) }
-                                        screen = if (bookingStatusAllowsActiveTrip(booking.status)) Screen.ActiveTrip else Screen.Booking
+                                try {
+                                    if (!isDisplayedBookingCurrent()) return@launch
+                                    val result = ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone)
+                                    if (!isDisplayedBookingCurrent()) return@launch
+                                    ApiClient.runIfCurrentSession(displayedSession) {
+                                        result.onSuccess { booking ->
+                                            vm.navigateLocally {
+                                                activeBookingId = booking.id
+                                                selectedBookingStatus = booking.status
+                                                activeTrip = displayedRide.takeIf { bookingStatusAllowsBoarding(booking.status) }
+                                                screen = if (bookingStatusAllowsActiveTrip(booking.status)) Screen.ActiveTrip else Screen.Booking
+                                            }
+                                        }.onFailure { e ->
+                                            val msg = (e as? ApiException)?.message?.takeIf { it.isNotBlank() }
+                                                ?: if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори."
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                        }
                                     }
-                                    // Сервер объясняет отказ по-человечески («укажите взрослого»,
-                                    // «водитель берёт только 18+»). Показываем его слова, а не
-                                    // общее «повтори»: иначе человек не поймёт, что чинить.
-                                    .onFailure { e ->
-                                        val msg = (e as? ApiException)?.message?.takeIf { it.isNotBlank() }
-                                            ?: if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори."
-                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                    }
-                                bookingInFlight = false
+                                } finally { bookingInFlight = false }
                             }
                         }
                     }
                 }
             )
+            }
             Screen.ActiveTrip -> ActiveTripScreen(
                 ride = selectedRide,
                 contacts = trustedContacts,
@@ -1362,35 +1447,32 @@ internal fun YuldashApp() {
                 onSelectTab = { tab -> openHome(tab) },
                 // Deep-link: тап по брони/поездке/сообщению → детали брони (BookingScreen сам грузит их по id).
                 onOpenBooking = { bid ->
-                    selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
-                    activeBookingId = bid
-                    selectedBookingStatus = ""
-                    screen = Screen.Booking
+                    vm.requestBookingDestination(bid, ApiClient.myUserId(), completed = false)
                 },
                 // Тап по «отклик на заявку» → экран откликов этой заявки.
-                onOpenResponses = { rid -> responsesRequestId = rid; screen = Screen.RequestResponses },
-                onOpenCompletedBooking = { bid -> DeepLink.pendingCompletedBookingId.value = bid },
-                onOpenRequestsFeed = { screen = Screen.RequestsFeed },
+                onOpenResponses = { rid -> vm.requestScreenDestination(Screen.RequestResponses, ApiClient.myUserId(), rid) },
+                onOpenCompletedBooking = { bid -> vm.requestCompletedBooking(bid, ApiClient.myUserId()) },
+                onOpenRequestsFeed = { vm.requestScreenDestination(Screen.RequestsFeed, ApiClient.myUserId()) },
                 onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches },
                 // Тап по уведомлению поддержки → тред обращения (ref_id = id тикета).
-                onOpenSupport = { tid -> supportTicketId = tid; screen = Screen.SupportTicket },
+                onOpenSupport = { tid -> vm.requestScreenDestination(Screen.SupportTicket, ApiClient.myUserId(), tid) },
                 // Доставка и такси (аудит 2026-08-06): раньше эти карточки не открывались вовсе.
-                onOpenParcels = { screen = Screen.Parcels },
-                onOpenInstantOrder = { NavSignals.openInstantOrder.value = true },
+                onOpenParcels = { vm.requestScreenDestination(Screen.Parcels, ApiClient.myUserId()) },
+                onOpenInstantOrder = { vm.requestScreenDestination(Screen.InstantOrder, ApiClient.myUserId()) },
                 // «Появилась поездка» / «Поездка завершена, оцени» → карточка поездки
                 // (тем же путём, что ссылка yulbash.ru/r/{id}).
                 onOpenRide = { rid -> DeepLink.pendingRideId.value = rid },
                 // «Открыт разбор» / «Решение по спору» → карточка разбора: там причина и срок.
-                onOpenIncident = { id -> incidentId = id; screen = Screen.IncidentDetail },
+                onOpenIncident = { id -> vm.requestScreenDestination(Screen.IncidentDetail, ApiClient.myUserId(), id) },
                 // Долг, списанная комиссия, пауза такси → кабинет водителя: там это всё видно.
-                onOpenDriverCabinet = { screen = Screen.DriverCabinet },
+                onOpenDriverCabinet = { vm.requestScreenDestination(Screen.DriverCabinet, ApiClient.myUserId()) },
                 // Решение по заявке → её экран со статусом проверки.
-                onOpenTaxiApply = { screen = Screen.TaxiOnboarding },
-                onOpenCourierApply = { screen = Screen.CourierOnboarding },
+                onOpenTaxiApply = { vm.requestScreenDestination(Screen.TaxiOnboarding, ApiClient.myUserId()) },
+                onOpenCourierApply = { vm.requestScreenDestination(Screen.CourierOnboarding, ApiClient.myUserId()) },
                 // Решение по бизнесу или купону → «Мой бизнес»; по рекламе → мои объявления.
                 // За то и другое человек заплатил, поэтому сообщение обязано вести к делу.
-                onOpenPartnerCabinet = { screen = Screen.PartnerCabinet },
-                onOpenAdsCabinet = { screen = Screen.AdsCabinet },
+                onOpenPartnerCabinet = { vm.requestScreenDestination(Screen.PartnerCabinet, ApiClient.myUserId()) },
+                onOpenAdsCabinet = { vm.requestScreenDestination(Screen.AdsCabinet, ApiClient.myUserId()) },
             )
             Screen.RouteWatches -> RouteWatchesScreen(
                 onBack = { goBack() },
@@ -1509,11 +1591,26 @@ internal fun YuldashApp() {
                 // Согласился на встречную цену → сразу в поездку, как при обычном accept у пассажира.
                 onOpenTrip = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip },
             )
-            Screen.RequestResponses -> ResponsesScreen(
-                requestId = responsesRequestId,
+            Screen.RequestResponses -> {
+                val displayedRequestId = responsesRequestId
+                val responseSession = navigationSession
+                val responseRevision = vm.privateNavigationRevision
+                ResponsesScreen(
+                requestId = displayedRequestId,
                 onBack = { goBack() },
-                onAccepted = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip }
+                onAccepted = { bid ->
+                    ApiClient.runIfCurrentSession(responseSession) {
+                        if (bid > 0 && screen == Screen.RequestResponses && responsesRequestId == displayedRequestId &&
+                            vm.privateNavigationRevision == responseRevision) vm.navigateLocally {
+                            selectedRide = null
+                            activeBookingId = bid
+                            activeTrip = null
+                            screen = Screen.ActiveTrip
+                        }
+                    }
+                }
             )
+            }
             Screen.AdsCabinet -> AdsCabinetScreen(
                 onBack = { goBack() },
                 onCreateAd = { adEditorTarget = null; screen = Screen.AdEditor },
@@ -1553,23 +1650,20 @@ internal fun YuldashApp() {
                     goBack()
                 }
             )
-            Screen.TrustedContacts -> TrustedContactsScreen(
-                contacts = trustedContacts,
-                onBack = { closeTrustedContacts() },
-                onAddContact = { contact ->
-                    // Безопасность: контакт получает статус поездки/SOS — успех показываем ПО ФАКТУ сервера,
-                    // при сбое откатываем (иначе fire-and-forget = «добавлен» на экране, а на сервере нет).
-                    trustedContacts.add(contact)
-                    appScope.launch {
-                        ApiClient.addContact(contact.name, contact.relation, contact.phone, contact.notifyByDefault)
-                            .onSuccess { Toast.makeText(context, if (language == AppLanguage.Ba) "Контакт өҫтәлде" else "Контакт добавлен", Toast.LENGTH_SHORT).show() }
-                            .onFailure {
-                                trustedContacts.remove(contact)
-                                Toast.makeText(context, if (language == AppLanguage.Ba) "Булманы. Сетте тикшереп ҡабатла" else "Не получилось. Проверь сеть и повтори", Toast.LENGTH_SHORT).show()
-                            }
-                    }
+            Screen.TrustedContacts -> {
+                val displayedRevision = vm.privateNavigationRevision
+                androidx.compose.runtime.key(displayedRevision) {
+                    TrustedContactsScreen(
+                        contacts = trustedContacts,
+                        onBack = { closeTrustedContacts() },
+                        isCurrentParent = { vm.screen.value == Screen.TrustedContacts && vm.privateNavigationRevision == displayedRevision },
+                        onContactsChanged = { snapshot ->
+                            trustedContacts.clear()
+                            trustedContacts.addAll(snapshot)
+                        },
+                    )
                 }
-            )
+            }
             Screen.RepeatTrip -> RepeatTripScreen(
                 contacts = trustedContacts,
                 onBack = { goBack() },
@@ -1647,6 +1741,19 @@ internal fun YuldashApp() {
         }
     }
 }
+
+/** Field identity prevents same-type legacy ID collisions as well as invalid casts.
+ * Anonymous pre-schema root state is intentionally discarded; owner-scoped screen drafts are separate. */
+private inline fun <reified T> rootNavigationStateSaver(field: String, ownerId: Int? = null): Saver<MutableState<T>, Any> = Saver(
+    save = { arrayListOf("yuldash-root-navigation-v1", field, ownerId, it.value) },
+    restore = { stored ->
+        val record = stored as? List<*>
+        if (record?.size == 4 && record[0] == "yuldash-root-navigation-v1" && record[1] == field &&
+            record[2] == ownerId && record[3] is T)
+            mutableStateOf(record[3] as T)
+        else null
+    },
+)
 
 internal fun shareRide(context: android.content.Context, text: String, chooserTitle: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {
@@ -2271,6 +2378,19 @@ internal fun ScreenTopBar(title: String, onBack: () -> Unit) {
     )
 }
 
+/** Each animated tab owns its actions even while its outgoing content recomposes. */
+internal class HomeTabActionGate(
+    private val accepts: () -> Boolean,
+    private val choose: (HomeTab, () -> Unit) -> Unit = { _, action -> action() },
+) {
+    fun select(tab: HomeTab, afterSelection: () -> Unit) { if (accepts()) choose(tab, afterSelection) }
+    fun guard(action: () -> Unit): () -> Unit = { if (accepts()) action() }
+    fun <A> guard(action: (A) -> Unit): (A) -> Unit = { a -> if (accepts()) action(a) }
+    fun <A, B> guard(action: (A, B) -> Unit): (A, B) -> Unit = { a, b -> if (accepts()) action(a, b) }
+    fun <A, B, C> guard(action: (A, B, C) -> Unit): (A, B, C) -> Unit = { a, b, c -> if (accepts()) action(a, b, c) }
+}
+private val LocalHomeTabActionGate = staticCompositionLocalOf { HomeTabActionGate(accepts = { true }) }
+
 @Composable
 internal fun HomeScreen(
     rides: List<Ride>,
@@ -2328,7 +2448,7 @@ internal fun HomeScreen(
     onParcels: () -> Unit = {},
     onCourier: () -> Unit = {},
     onToggleLanguage: () -> Unit,
-    onAccountDeleted: () -> Unit = {},
+    onAccountDeleted: (Long) -> Unit = {},
     onInstantLogin: () -> Unit = {},
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» водитель уходит в онбординг
     onOpenScheduled: () -> Unit = {},    // «На время»: предзаказ создан из встроенного такси → «Мои предзаказы»
@@ -2338,18 +2458,23 @@ internal fun HomeScreen(
     onOpenPayments: () -> Unit = {},
     onCourierMode: () -> Unit = {},      // из режима «Курьер» — к работе курьера (заказы, линия, заработок)
     onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → создать поездку с датой-шаблоном
-    onTabChange: (HomeTab) -> Unit = {}
+    onTabChange: (HomeTab) -> Unit = {},
+    onOpenInstantOrder: () -> Unit = {},
+    onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() }
 ) {
     var ridesPresetTo by remember { mutableStateOf("") }
     var ridesPresetToday by remember { mutableStateOf(false) }
 
     // Шелл (таб-стейт + нижнее меню + смена вкладок) вынесен в чистый HomeShell — тестируется на JVM.
     // HomeScreen остаётся «умной» обёрткой: раздаёт данные/колбэки в тело конкретной вкладки.
-    HomeShell(initialTab = initialTab, onTabChange = onTabChange) { tab, selectTab ->
+    HomeShell(initialTab = initialTab, onTabChange = onTabChange, onSelectTab = onSelectTab,
+        onOpenInstantOrder = onOpenInstantOrder) { tab, selectTab ->
+            val gate = LocalHomeTabActionGate.current
             fun openRides(to: String = "", today: Boolean = false) {
-                ridesPresetTo = to
-                ridesPresetToday = today
-                selectTab(HomeTab.Rides)
+                gate.select(HomeTab.Rides) {
+                    ridesPresetTo = to
+                    ridesPresetToday = today
+                }
             }
             when (tab) {
                 HomeTab.Map -> PassengerModeHome(
@@ -2357,24 +2482,24 @@ internal fun HomeScreen(
                     activeTrip = activeTrip,
                     ads = ads,
                     adStats = adStats,
-                    onBookRide = onBookRide,
+                    onBookRide = gate.guard(onBookRide),
                     onShareRide = onShareRide,
                     onAdImpression = onAdImpression,
                     onAdClick = onAdClick,
-                    onSos = onSos,
+                    onSos = gate.guard(onSos),
                     onOpenPopular = { route -> openRides(to = route.to, today = true) },
-                    onDriver = onCreateRide,
-                    onBoost = onBoost,
-                    onInstantLogin = onInstantLogin,
-                    onTaxiOnboarding = onTaxiOnboarding,
-                    onClinicRides = onClinicRides,
-                    onRouteWatch = onRouteWatch,
-                    onOpenScheduled = onOpenScheduled,
-                    onSavedPlaces = onSavedPlaces,
+                    onDriver = gate.guard(onCreateRide),
+                    onBoost = gate.guard(onBoost),
+                    onInstantLogin = gate.guard(onInstantLogin),
+                    onTaxiOnboarding = gate.guard(onTaxiOnboarding),
+                    onClinicRides = gate.guard(onClinicRides),
+                    onRouteWatch = gate.guard(onRouteWatch),
+                    onOpenScheduled = gate.guard(onOpenScheduled),
+                    onSavedPlaces = gate.guard(onSavedPlaces),
                     payMethod = payMethod,
-                    onOpenPayments = onOpenPayments,
-                    onCourierMode = onCourierMode,
-                    onSeasonalPublish = onSeasonalPublish,   // F15: баннер «на праздник» → создать поездку (с датой-шаблоном)
+                    onOpenPayments = gate.guard(onOpenPayments),
+                    onCourierMode = gate.guard(onCourierMode),
+                    onSeasonalPublish = gate.guard(onSeasonalPublish),   // F15: баннер «на праздник» → создать поездку (с датой-шаблоном)
                 )
                 HomeTab.Rides -> RidesScreen(
                     rides = rides,
@@ -2382,63 +2507,63 @@ internal fun HomeScreen(
                     adStats = adStats,
                     presetTo = ridesPresetTo,
                     presetToday = ridesPresetToday,
-                    onBookRide = onBookRide,
-                    onOpenBookingDetails = onOpenBookingDetails,
-                    onOpenActiveTrip = onOpenActiveTrip,
+                    onBookRide = gate.guard(onBookRide),
+                    onOpenBookingDetails = gate.guard(onOpenBookingDetails),
+                    onOpenActiveTrip = gate.guard(onOpenActiveTrip),
                     onMessage = { selectTab(HomeTab.Chat) },
                     onShareRide = onShareRide,
-                    onBoost = onBoost,
+                    onBoost = gate.guard(onBoost),
                     onCreateRequest = { selectTab(HomeTab.Request) },
                     onAdImpression = onAdImpression,
                     onAdClick = onAdClick,
-                    onDriverCabinet = onDriverCabinet,
+                    onDriverCabinet = gate.guard(onDriverCabinet),
                 )
                 HomeTab.Request -> MyRequestsScreen(
                     requests = requests,
-                    onCreateNew = onCreateRequest,
-                    onViewResponses = onOpenResponses,   // открыть отклики ИМЕННО этой заявки (раньше терялся id → кидало на вкладку Чат)
+                    onCreateNew = gate.guard(onCreateRequest),
+                    onViewResponses = gate.guard(onOpenResponses),   // открыть отклики ИМЕННО этой заявки (раньше терялся id → кидало на вкладку Чат)
                     onCancel = onCancelRequest,
                     loading = requestsLoading,
                     error = requestsError,
                     onRetry = onRetryRequests,
                     onEditRequest = onEditRequest,
-                    onOpenRide = { dto -> onBookRide(dto.toUiRide()) }   // авто-подбор → открыть бронь поездки
+                    onOpenRide = { dto -> gate.guard { onBookRide(dto.toUiRide()) }() }   // авто-подбор → открыть бронь поездки
                 )
                 HomeTab.Chat -> ChatScreen(
                     voiceMessages = voiceMessages,
                     onAddVoiceMessage = onAddVoiceMessage,
-                    onNotifications = onNotifications,
-                    onOpenChat = onOpenChat,
-                    onOpenResponses = onOpenResponses
+                    onNotifications = gate.guard(onNotifications),
+                    onOpenChat = gate.guard(onOpenChat),
+                    onOpenResponses = gate.guard(onOpenResponses)
                 )
                 HomeTab.Profile -> ProfileScreen(
                     ads = ads,
                     adStats = adStats,
-                    onSupport = onSupport,
-                    onVerifyDriver = onVerifyDriver,
-                    onSafety = onSafety,
-                    onSettings = onSettings,
-                    onPrivacy = onPrivacy,
-                    onTrust = onTrust,
-                    onConsents = onConsents,
-                    onHelp = onHelp,
-                    onReview = onReview,
-                    onAdminReviews = onAdminReviews,
-                    onAdminAds = onAdminAds,
-                    onPassengerCabinet = onPassengerCabinet,
-                    onDriverCabinet = onDriverCabinet,
-                    onSimpleMode = onSimpleMode,
-                    onTrustedContacts = onTrustedContacts,
-                    onCallbackHelp = onCallbackHelp,
-                    onAdsCabinet = onAdsCabinet,
-                    onFairness = onFairness,
-                    onMyStats = onMyStats,
-                    onCoupons = onCoupons,
-                    onPromo = onPromo,
-                    onParcels = onParcels,
-                    onCourier = onCourier,
-                    onPartnerCabinet = onPartnerCabinet,
-                    onMyData = onMyData,
+                    onSupport = gate.guard(onSupport),
+                    onVerifyDriver = gate.guard(onVerifyDriver),
+                    onSafety = gate.guard(onSafety),
+                    onSettings = gate.guard(onSettings),
+                    onPrivacy = gate.guard(onPrivacy),
+                    onTrust = gate.guard(onTrust),
+                    onConsents = gate.guard(onConsents),
+                    onHelp = gate.guard(onHelp),
+                    onReview = gate.guard(onReview),
+                    onAdminReviews = gate.guard(onAdminReviews),
+                    onAdminAds = gate.guard(onAdminAds),
+                    onPassengerCabinet = gate.guard(onPassengerCabinet),
+                    onDriverCabinet = gate.guard(onDriverCabinet),
+                    onSimpleMode = gate.guard(onSimpleMode),
+                    onTrustedContacts = gate.guard(onTrustedContacts),
+                    onCallbackHelp = gate.guard(onCallbackHelp),
+                    onAdsCabinet = gate.guard(onAdsCabinet),
+                    onFairness = gate.guard(onFairness),
+                    onMyStats = gate.guard(onMyStats),
+                    onCoupons = gate.guard(onCoupons),
+                    onPromo = gate.guard(onPromo),
+                    onParcels = gate.guard(onParcels),
+                    onCourier = gate.guard(onCourier),
+                    onPartnerCabinet = gate.guard(onPartnerCabinet),
+                    onMyData = gate.guard(onMyData),
                     onToggleLanguage = onToggleLanguage,
                     onAccountDeleted = onAccountDeleted,
                     onAdImpression = onAdImpression,
@@ -2459,18 +2584,33 @@ internal fun HomeScreen(
 internal fun HomeShell(
     initialTab: HomeTab,
     onTabChange: (HomeTab) -> Unit = {},
+    onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() },
+    onOpenInstantOrder: () -> Unit = {},
     tabContent: @Composable (tab: HomeTab, selectTab: (HomeTab) -> Unit) -> Unit,
 ) {
+    val generation by ApiClient.sessionChanges.collectAsState()
     var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }   // вкладка переживает поворот
+    val shellScope = rememberCoroutineScope()
+    var selectionEpoch by remember { mutableIntStateOf(0) }
+    val callbackEpoch = selectionEpoch
+    fun selectTab(tab: HomeTab, afterSelection: () -> Unit = {}) {
+        if (shellScope.isActive && callbackEpoch == selectionEpoch) {
+            onSelectTab(tab) {
+                selectedTab = tab
+                selectionEpoch++
+                afterSelection()
+            }
+        }
+    }
     LaunchedEffect(selectedTab) { onTabChange(selectedTab) }
 
     BackHandler(enabled = selectedTab != HomeTab.Map) {
-        selectedTab = HomeTab.Map
+        selectTab(HomeTab.Map)
     }
 
     // Пока идёт поиск или сама поездка, нижнее меню прячется. Заказ уже живой: случайный
     // переход в другой раздел только теряет контекст, а освободившееся место нужно карте.
-    val taxiOrderOnScreen = NavSignals.taxiOrderOnScreen.value
+    val taxiOrderOnScreen = TaxiNavigationState.orderOnScreen(generation)
     Scaffold(
         containerColor = CanonBg,
         bottomBar = {
@@ -2481,7 +2621,7 @@ internal fun HomeShell(
             ) {
                 YuldashBottomBar(
                     selectedTab = selectedTab,
-                    onSelect = { selectedTab = it }
+                    onSelect = { selectTab(it) }
                 )
             }
         }
@@ -2489,9 +2629,13 @@ internal fun HomeShell(
         Column(Modifier.padding(padding)) {
             // Полоска стоит НАД содержимым, а не поверх него: наложенная, она закрывала
             // переключатель сервисов, и тот торчал из-под неё краями.
+            val renderedTrip = TaxiNavigationState.currentTrip(generation)
             ActiveTripBar(onOpen = {
-                selectedTab = HomeTab.Map
-                NavSignals.openInstantOrder.value = true
+                if (renderedTrip != null) TaxiNavigationState.runIfCurrentTrip(renderedTrip) {
+                    if (!TaxiNavigationState.tripOnScreen(generation)) {
+                        selectTab(HomeTab.Map, onOpenInstantOrder)
+                    }
+                }
             })
             AnimatedContent(
                 targetState = selectedTab,
@@ -2502,7 +2646,14 @@ internal fun HomeShell(
                 },
                 label = "homeTab"
             ) { tab ->
-                tabContent(tab) { selectedTab = it }
+                val renderedEpoch = selectionEpoch
+                val gate = HomeTabActionGate(
+                    accepts = { shellScope.isActive && tab == selectedTab && renderedEpoch == selectionEpoch },
+                    choose = { target, after -> selectTab(target, after) },
+                )
+                CompositionLocalProvider(LocalHomeTabActionGate provides gate) {
+                    tabContent(tab) { target -> gate.guard { selectTab(target) }() }
+                }
             }
         }
     }
@@ -2627,4 +2778,3 @@ private fun RowScope.YuldashBottomItem(
         )
     }
 }
-

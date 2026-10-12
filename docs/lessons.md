@@ -17,6 +17,32 @@
 - **Проверка на всём живом наборе карточек — до и после правки инструмента.** Сравнение «сколько тестов у
   каждой карточки было/стало» сразу показывает и потерянные, и ложно найденные ссылки.
 
+## 07.10.2026 — жизненный цикл отправителя и сохранность очереди (QA-B02-003)
+
+Terminal экрана не обязательно закрывает серверный чат: сверять after-trip/lost-item policy прежде, чем удалять очередь или запрещать API. Caller predicate с defaulttrue позволяет остановить только UI flush; проверять его после mutex и перед следующим HTTP, не брать sessionLock под Outbox monitor. Пришедшее200 подтверждает конкретный action.id даже после закрытия отправителя; merge должен сохранить другие queued actions и stable keys. Сетевой отказ начатой ещё активной REST-отправки сохраняет same-owner слово/key до подавления поздних Toast, иначе guard сам создаёт потерю сообщения.
+
+Join suspend jobs и bounded Compose virtual pump — разные доказательства. Если новый terminal guard убирает «следующий HTTP» как причинный свидетель старого теста, честно обозначить более слабое отрицательное окно. Native held-response fixture требует readTimeout больше собственного latch deadline и времени UI/снимка; исправлять такое окружение до runtime, не называть ошибкой продукта. Реальный encrypted reopen в одном процессе не заменяет cold process, controlled LocalLifecycleOwner не заменяет всю навигацию приложения.
+
+## 07.10.2026 — поколение входа и границы main-thread проверки (QA-B02-003)
+
+Смена token сама не очищает remembered Compose UI. Публиковать завершённую смену владельца и удалять child composition до навигации; исходного owner брать из того же опубликованного значения, чтобы не смешать raw generation с ещё прежним Flow. Внутри доставленного на main callback повторно проверять не только вход, но и terminal статус. Refresh того же входа должен сохранить экран; positive control обязателен.
+
+Captured Kotlin invokedynamic callback-поля могут называться arg$N: тестовый стенд сначала сверяет их фактические типы/количество. Скролл Compose бывает одновременно vertical LazyColumn и horizontal replies — выбирать вертикальный список через semantics VerticalScrollAxisRange. Башкирскую подпись искать в фактическом appText, не придумывать сокращение. Worker join плюс виртуальный Looper pump доказывают ограниченную доставку в заданном расписании, не все проволочные гонки и не бесконечное отсутствие событий. При переносе Composable сохранять его прежние OptIn. Keystore available, screenshot тестового родителя и live backend — разные доказательства.
+
+## 07.10.2026 — сохранённая договорённость и границы экранного теста (DESIGN065)
+
+Цена объявления, согласованная сумма и отсутствие суммы — разные данные. Хранить оба typed поля отдельно от original price; `?:` сохраняет0, `>0` его скрывает. Старый свободный payment_note не доказывает известный способ оплаты. Проверять и паспорт, и соседний read-only блок, чтобы default второго не противоречил снимку.
+
+LazyColumn не обязан составить баннер вне viewport: сначала дождаться транспортного отказа, затем bounded scroll-to-banner. Закреплённый CTA искать вне списка. Отсутствие блока доказывать поиском по всему списку, не одним assertDoesNotExist на текущем экране. Компонентный тест может не вызывать mount: cleanup INITIALIZED lifecycle нельзя переводить прямо в DESTROYED. Настоящий logout создаёт легитимный POST и асинхронно читает loopback URL: запретить POST брони, дождаться выхода перед reset URL. Вторичную ошибку cleanup сохранять вместе с основной product assertion. Модель независимого диска, настоящее encrypted reopen и новый процесс — разные доказательства.
+
+## 07.10.2026 — границы доказательств при продолжении блоков
+
+Contract-check обязан завершаться ошибкой, если ожидаемый серверный models.py отсутствует; строка «пропуск» с exit0 скрывала неправильный путь. Проверять положительную пару и действительное расхождение обязательных/nullable полей, не только наличие файла.
+
+После ошибки компиляции общий Gradle output может сохранять XML предыдущего теста. Старый XML не является новым результатом; сверять mtime/первичный task log и сохранять отдельную папку каждого запуска. Новый helper исключает stale XML. В пассажирском и водительском обработчиках соседние одинаковые комментарии не заменяют чтение окружающей ветки — первая правка root попала в driver и не скомпилировалась, исправленный diff касается только passenger.
+
+Windows os.environ нормализует ключи: allowlist для стенда сравнивать через upper(). У первого стенда отсутствовали SYSTEMROOT и другие Windows variables, initdb дал PANIC «could not generate secret authorization token»; после исправления allowlist прошёл. Конкретную ответственную переменную отдельно не выделяли. Запуск фонового pg_ctl с capture_output может ждать унаследованные daemon pipe handles; вывод направлять в файл, проверять реальный data_directory перед остановкой. SQL со строковыми литералами передавать через stdin/heredoc, не вкладывать кавычки в shell-аргумент. Ошибки стенда хранить отдельно от product RED.
+
 ## 03.10.2026 — уроки пофайлового обхода (первые 7 листов)
 
 - **`git merge --abort` может молча не сработать** («not uptodate»), и следующий `git commit` завершает
@@ -8992,3 +9018,288 @@ Payment был залочен, но вызываемый settlement helper са�
 01.10.2026 — QA-B08-003: safe localwarning не очищает сторонний HTTPXINFO URL. Privacyтест проверяет formatted/getMessage и исходные args для structuredhandlers плюс safeGETbefore/during/after, wirepayload/status controls. Мутация должна провалить правило; исходный164 и stronger165 могут падать на разных asserts — это явно отражать. ComposeassertIsDisplayed не доказывает видимостьpixel заIME; callbackPNG не закрываетvisualacceptance.
 
 01.10.2026 — ENV-B10-final: тест Settings automaticmode обязан задавать storage_backend явно; иначе safeENVlocal корректно меняет результат. Все5oracleasserts сохранены,3ambientcases имутацияautoFalse доказываютправило. Первыймутационныйstartupfailure не называть assertionproof. Fullfailhistory не стирать targetedgreen.
+
+## B02: ожидание замка не меняет владельца операции — 07.10.2026
+
+Поколение входа захватывать до первого ожидания общего ресурса. Если определить его внутри `Mutex.withLock`, ожидающий вызов A после выхода и входа B примет новую очередь. Доказательство: `OutboxWaitingSessionTest` удерживает первый HTTP, ставит второй вызов в ожидание, переключает вход и создаёт B-очередь; старый вызов её не отправляет, новый B-вызов отправляет. Сокет также имеет постоянного владельца, а экран повторно проверяет его после переноса callback на главный поток. Зелёные тесты отдельных гонок не закрывают все варианты смены аккаунта.
+
+## B02: сначала проверить стенд, затем классифицировать отказ — 07.10.2026
+
+`assertIsDisplayed` для чата требует прокрутки к фактическому элементу: тайм-аут положительного контроля до переключения входа был ошибкой viewport, а не дефектом сессии. У native-экрана одновременно доступны вертикальный список и горизонтальный ряд; выбирается вертикальный `ScrollAxisRange`. Делегированный `SharedPreferences.Editor.putString()` возвращает исходный editor: цепочка `.putString().commit()` обходила тестовый отказ записи. Все fluent-методы заглушки должны возвращать заглушку; отдельная пробная запись обязана подтвердить отказ до UI-действия. Server-side MockWebServer WebSocket закрывать `close`, поскольку `cancel` в этом стенде дал ошибку очистки. Первичные неуспешные журналы сохранять и отделять от подтверждённых product assertions; актуальные источники — реестр B02 и `b02-*-20261007` в локальном `test-results`.
+
+## Проверка удержанного кода и кадра — 07.10.2026
+
+- Удалённый disk snapshot может стать наблюдаемым раньше callback на main. При проверке cancelled дождись и удаления, и callback; затем отдельно проверь, что поздний ответ не вызвал callback повторно. Исходный baseline8/1fail — стендовая гонка, не product RED.
+- Compose semantics/assertIsDisplayed могут опередить реальную отрисовку первого кадра: первый Ba-error native PNG был почти пустым при green2/2. Дождись отрисованного узла через PixelCopy, затем сохраняй оригинальный полный screenshot и просматривай его. Повтор native обоснован плохим кадром, не увеличивает уникальное покрытие.
+- Серверный returned latch означает отдачу ответа dispatcher, не join клиента. Отрицательный результат после bounded2с observation обозначай именно так. Два click одного performTouchInput batch не доказывают single-flight для всех быстрых нажатий/межкадровых гонок.
+- Logcat сохраняет прошлые процессы;4marker строки в двух native runs не означают4проверки. Выделяй текущие JUnit IDs и PID (здесь3315), прежний2973 оставляй историей. Смена testAPK требует нового хэша; неизменный debugAPK можно сверять с прошлым checkpoint.
+
+## Чат: токен в момент авторизации и повторный callback — 07.10.2026
+
+- Refresh меняет ключ, сохраняя поколение входа. Владелец проверен, но token, захваченный до held HTTPupgrade, может уже устареть. Читай ключ внутри ownerlock непосредственно перед authframe и помни фактически отправленное значение; saveToken не моделирует refresh, поскольку меняет generation.
+- Код 1008 не различает истёкший ключ и отсутствие прав. Повтор допустим здесь только при уже обновлённом ключе той же сессии; отказ свежему ключу должен остановить цикл. Не считать синтетический 1008 проверкой настоящего JWT или истечения ключа на сервере.
+- Пользовательский onConnected(false) может синхронно вызвать connect/close. После callback заново проверяй connection/closed перед назначением таймера; иначе старое закрытие планирует замену поверх уже работающего сокета. Проверяй оба пути: actualonClosed и actualclientcancel→onFailure.
+- Различай actual transport и инъекцию сохранённого listener: green callback test не означает фактическую доставку всех старых кадров по сети. Отрицательные poll окна сообщай явно.
+- Проверяй локальную библиотеку сервера до исполнения: websockets15 Request.parse принимает толькоGETбезbody, поэтому нельзя этим listener обслуживать authPOST. Для native HTTP+WS использован уже установленный aiohttp3.13.5; helper опубликован tools/audit_chat_refresh_loopback.py, не спрятан только вignored test-results.
+## 07.10.2026 — отмена отправки и достоверность UI-стенда (QA-B02-003)
+
+Очистка только в конце coroutine пропускается при cancellation. Одного finally недостаточно для never-started launch; для переданной законченной записи нужна inactive-entry очистка и completion handler. Отсутствие Toast после закрытия экрана не означает, что следует отменить начальное уведомление, уже показанное активной кнопкой записи.
+
+Семантический OnClick может быть обёрткой ClickableNode: отсутствие захваченного scope в этой обёртке — ошибка стенда, а не продукта. Сначала положительные controls; извлекать нужный scope из проверенного callback, ожидать конкретный Job. Сохранённый OnClick, вызванный после disposal, отмечать как сознательную инъекцию; synthetic recorder bytes/registry URI не считать настоящим микрофоном/галереей. Обычный action должен вернуть отличающуюся историю и проверить её отображение, точный HTTP method/payload, а не только число GET. [Фактический журнал](audit-blocks.md#b02--редактирование-и-медиа-07102026).
+## 07.10.2026 — MediaRecorder и достоверность стенда
+
+- `recorder = MediaRecorder().apply { prepare(); start() }` получает ссылку только после apply. Ошибка внутри оставляет новый объект вне cleanup. Сначала принять candidate во владение, затем настраивать; перед stop/release отделить recorder/path, чтобы повторный callback не передал старый файл.
+- Synthetic shadow список файлов пуст, если настройка упала до setOutputFile. Для проверки cleanup файла, созданного раньше, сверять настоящий cache before/after; пустой shadow список не доказывает удаления.
+- Standalone ChatComposer должен иметь те же ограничения размера, что и item реального LazyColumn. Constrained Box и QuickReplyChip fillMaxHeight изменили layout и дали touch misses в JVM/native. Semantic callback проверяет обработчик, но сам по себе не подтверждает touch/hitbox; actual native tap проходит с LazyColumn.
+- Проверка activeRecordingConfigurations/готового файла не синхронизирует кадр окна. Native v2 прошёл assertions, но просмотр PNG показал предыдущие кадры. Добавлены ожидание Compose idle/видимого marker/node capture/window idle+150ms; v3 изображения соответствуют фазам. Повтор только native-test APK и native двух случаев, product/JVM hashes неизменны.
+- Cleanup старого recorder в cancelled LazyColumn ещё не доказывает запрет нового. Скролл/remount+micclick воспроизвёл новый старт; ActiveTrip recordingAllowed должен ограничивать также вход в запись.
+
+XML/история/пределы: [реестр](audit-blocks.md#b02--запись-голоса-при-уходе-07102026). Не обобщать успешно освобождённый emulator recorder на hardware release exception, реальные permission-диалоги или физический телефон.
+
+07.10.2026 — B02 sharing/completion: `remember(bookingId)` сбрасывает отдельные значения, но не прекращает coroutineScope и external callbacks старой брони. Keyed child + проверка generation/scope нужны вместе. Sheet jobs нельзя запускать в parent scope: done ранний return может сохранить родителя, а закрытый лист продолжит показывать Toast. Dismiss тоже callback: без собственной scope-проверки старый лист может закрыть повторно открытый.
+
+Новые Compose-тесты: сначала обычный control. Невидимый LazyColumn item искать через list.performScrollToNode; fixed footer не имеет scroll ancestor и не допускает performScrollTo. Ошибки подписи/поиска/Dismiss в fixture не считать дефектами продукта. Результат patch/команды проверять до зависимого runner: в этом этапе unpatched green был запущен преждевременно и остановлен строго по подтверждённому дереву собственных процессов; это не успешный прогон. Независимое source-замечание до итоговой приёмки может потребовать остановки ещё собирающего APK runner; причину повтора записывать.
+
+07.10.2026 — B02 sharing list: token DTO и raw array должны совпадать с API; поле link в старой fixture парсер игнорировал, поэтому прежний owner test не доказывал выбранный URL. Новый fixture проверяет `/t/token91`→`/t/token92` фактически. При удалении выбранной ссылки недостаточно очищать liveLink лишь после последнего токена: надо выбрать оставшуюся. Response failure может наступить после server commit; authoritative GET отделяет неизвестный результат от отсутствия доступа.
+
+Native Retry меняет state, а HTTP стартует из LaunchedEffect после frame. CountDownLatch await не прокручивает Compose test clock; compose.waitUntil сделал ожидание наблюдаемого GET. Native-only fix требует rebuild/повтор native, а неизменённые product/JVM hashes разрешают не повторять123. V1 не называть2/2. [Стенд/границы](audit-blocks.md#b02--загрузка-списка-ссылок-и-повторные-действия-07102026).
+
+PowerShell: два readonly Python -c запуска с вложенными двойными кавычками и exec(multiline) дали SyntaxError до выполнения. Сложный Python сохранять в отдельный .py через apply_patch и запускать файл; JSON-экранирование и обратный слеш не являются экранированием PowerShell. Такие ошибки команды не считать поведением продукта или результатом теста.
+
+07.10.2026 — native LazyColumn: отсутствие offscreen error-node не доказывает завершённый HTTP. Перед поиском retry прокрутить список; после release ждать положительный receipt/action/saved результат. Star icon без Selected semantics проверять реальным отправленным rating payload, не выдуманным флагом. Native-only исправление стенда требует сборки/повтора native при сохранённых product/JVM SHA; прежние68 не повторяются. [Первичные результаты](audit-blocks.md#b02--загрузка-квитанции-и-статуса-благодарности-07102026).
+
+07.10.2026 — native restoration fixture должна устанавливать initial/recreated Render из одного content callsite. V1 BA GETsavedflag прошёл, RU собственный saveable draft пропал при разных setContent callsites; общий attach прошёл exact draft/payload проверку. Parent не должен хранить/копировать draft, иначе тест подменит product saved-state. Native-only helper change → APK/native repeat с неизменными product/JVM hashes;81 не повторять. [Первичные журналы](audit-blocks.md#b02--восстановление-экрана-после-поездки-07102026).
+
+07.10.2026 — LaunchedEffect(Unit) для восстановления навигации не покрывает возвращение на экран и новую бронь. Сохранённый screen без history даёт ложный Home на Назад. Проверять наблюдаемый SavedStateHandle в новом VM отдельно от Activity.recreate (там VM сохраняется), session generation захватывать неизменяемым значением. Readiness LazyColumn следует искать по контейнеру; верхний item может отсутствовать в композиции при восстановленной прокрутке. После этого оставить exact draft/POST assertions. Причины повторов и текущие хэши — [реестр](audit-blocks.md#b02--навигация-квитанция-и-возврат-к-черновику-07102026).
+
+07.10.2026 — removeExtra у launch intent приложения не доказывает очистку исходного intent, который ActivityManager вернёт после kill. Проверять второй Activity с новой исходной копией и настоящим saved Bundle; затем OS SIGKILL после STOPPED/mHaveState, новый PID/тот же task, plainlauncher без переноса snapshot. Grid label «Квитанция» не доказывает Receipt: нужен toolbar рядом с Back и loaded card в одном XML. [Воспроизведение](audit-blocks.md#b02--смерть-процесса-и-восстановление-квитанции-07102026).
+
+07.10.2026 — сохранённая старая квитанция не доказывает сохранение нового ещё не обработанного уведомления. Доставить43 через actual onNewIntent над42, удержать role HTTP, сохранить task, убить process, вернуть plainlauncher и требовать свежий43 GET. Retained retry проверять до recomposition A→B, а не только исчезновение modal после pump. State test не должен вручную добавлять ожидаемый history вместо production tracker. Receipt fixture должен открыть реальную кнопку, screen-only seed не задаёт отдельный saveable id; Kotlin mixed numeric mapOf требует explicit Any, иначе Int может статьLong. RoleGET destination и Completed reader — не число Retry clicks. [Журнал](audit-blocks.md#b02--новое-уведомление-во-время-смерти-процесса-07102026).
+
+### B02: сохранить тип назначения и владельца исходной кнопки,07.10.2026
+
+Не достаточно защитить только новый HTTP: retained callback старого списка может прочитать нового owner прямо во время вызова. Перед callback/read/navigation проверяй immutable generation исходного отображения. Личную очередь сохраняй до HTTP и сравнивай весь record, включая kind и повтор того же ID; два bridge не являются двумя источниками истины.
+
+runIfCurrentSession требует непустой token: guest loading нельзя завершать только внутри него. Empty guest — отдельная ветка до protected GET. Проверять selector по исходнику/реальному UI: ошибочный «Пока тихо» исключён из behavior evidence. Старый Home fixture с уже consumed intent отличается от Home без обработанного intent; assertion и сценарий должны согласоваться. [219 IDs и классификация](audit-blocks.md#b02--личные-уведомления-брони-и-чата-07102026).
+
+## 08.10.2026 — navigation monitor, реальный экран и тестовый Back trail
+
+Для pre-login intent недостаточно взять bearer-required runIfCurrentSession: он отвергает guest destination, что воспроизведено шестью integration cases. Короткий runIfUnchangedSession проверяет generation под тем же lock и допускает guest сохранение; protected route/HTTP остаются под authenticated guards. Название enum не доказывает назначение: actual header+GET показали, что Support — donation, обращения — SupportTickets.
+
+Fixture должна вызвать recordNavigationChange перед persistNav, иначе navPrev остаётся Splash; два таких failures не являются дефектами восстановления приложения. Merged Compose node требует actual text OnClick selector; ошибочный hasAnyDescendant не принимается как product RED. Retained Retry проверять в том же frame и после consume нового screen: отсутствие pending уже не означает право старой кнопки. Current313 — объединение ID двух зелёных профилей, не сумма всех повторов; native2 внешних случая и provision1×2setup учитывать отдельно. [Классификация и доказательства](audit-blocks.md#b02--такси-посылки-и-обращения-поддержки-08102026).
+
+## 08.10.2026 — поле адреса события и честное объединение проверок
+
+Notification.type может быть ride,а FCMtype=request из ref_kind: route и ID сверять с producer/converter,не названиями. Notification.id901 не равно request/incident ref43. Центр споров native не доказывает detail ID: добавлена отдельная current-Bundle IncidentDetail43 regression. Final361 и последующий Restoration23 содержат22повторных ID; unique362,не384. Product/APK после final не менялись,повтор scoped suite обоснован новым тестом для gap ревью. Fixed legacy importer priority не выдавать за last-write timestamps. [Точные версии/пределы](audit-blocks.md#b02--остальные-личные-назначения-08102026).
+
+
+## 08.10.2026 — сохранённые Home действия и достоверное воспроизведение
+
+App-wide coroutine может завершить POST после Back: проверять исходный экран/ride/bid/revision и session до запроса и публикации. Private guard с bearer нельзя применять к публичной карточке гостя без отдельного контроля. Двойной semantic callback не называть pointer-тестом. Native loaded witness должен отличаться от заголовка спиннера. При тестировании отмены нужно подтвердить настоящий диалог; fixture timeout и compiler failure не являются поведенческими дефектами. При fresh Home учитывать реальную подсказку режимов, закрывая её через UI. [Журналы red/final/native](audit-blocks.md#b02--home-создание-и-отмена-брони-08102026).
+
+
+## 08.10.2026 — fresh Bundle и фактический loaded UI
+
+Blanket restored-booking guard блокирует действительно новое уведомление: отличать доставку от копии по сохранённой identity. При разборе failure читать текущие HTTP/XML лично: root неверно считал Home/noHTTP, когда v3 уже был loaded Booking42. Отсутствие cancel оказалось пустым UI-status после успешного role ответа; две actual Compose RU/BA проверки воспроизвели это. Pending VM != loaded UI; native callback create/newIntent без наблюдения не утверждать. Windows Gradle interprocess WEPoll error не считать зелёным отчётом: финальный прогон после закрытия эмулятора и локального selector override, без смены версий. [Журналы и границы](audit-blocks.md#b02--новое-уведомление-поверх-сохранённой-задачи-08102026).
+
+Windows Python helpers запускать с -X utf8 либо stdout.reconfigure(encoding=utf-8). Ошибка console UnicodeEncodeError после успешной записи документов не требует повторять append: проверять уже записанные файлы, иначе раздел продублируется.
+
+Распределение новых файлов по категориям брать из фактического counts_by_kind инвентаризации: androidTest и audit helper классификатор относит к infrastructure; JVM тесты — к test_support. Сумма1831 сама по себе не проверяет распределение346/882.
+
+
+## 08.10.2026 — B02, старое сохранённое состояние
+
+Compose stateSaver restore=null внутри MutableState может оставить непустую state с null Boolean и NPE: отвергать весь MutableState. Собственный tagged Saver не защищает соседний permission launcher от old implicit slot — нужен namespace. SaveableRegistry может хранить много providers под одним ключом: менять только один индекс, не весь список. SideEffect ordering нельзя предполагать: первый race fixture calls0 не является product RED; DisposableEffect remembered earlier даёт конкретный воспроизводимый порядок. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).
+
+
+## 08.10.2026 — B02, старые уведомления без получателя и маркера
+
+При изменении external Intent contract проверять реальные исторические producers: wire receiver check не означает, что receiver попал в shown PendingIntent. Старые guest fixtures нельзя молча считать валидными: фиксированный recipient и явно заменённые ID/expectations, внутренние guest journeys отдельны. HTTP отрицательный критерий ограничивать предметом и временем: account logout POST не private navigation write. PowerShell не поддерживает Bash brace-list файлов; использовать rg по реальному каталогу с -g или массив путей. [Доказательства и пределы](audit-blocks.md#b02--старые-уведомления-без-получателя-и-маркера-08102026).
+
+08.10.2026 — Public link/Home: совпадение public id не защищает от новой попытки того же id; retained dialog callback должен проверять runtime attempt вместе с screen/revision/session и живым App scope до записи global bridge. Direct-VM тест с seeded Home обязан сначала установить navPrev через recordNavigationChange, иначе проверяет искусственную Splash→Home историю. Dispatcher latch перед return response не означает, что HTTP клиент завершился; bounded pump следует явно обозначать. Проверка public GET после A→B/guest должна отличать Bearer и ответ новой аудитории, а не считать публичность независимостью от аккаунта.
+
+08.10.2026 — Не считать сохранённый Semantics OnClick immutable callback: local foundation1.11.3 applySemantics читает node.onClick, который обновляется при recomposition. Привязать stale-control к реальному disposal/отдельной области или фиксированному raw callback; overstrong тест сохранить и явно отклонить. MainActivity.create/default VM не означает active Back dispatcher; в actualCompose fixture использовать dispatcher текущего UI host и проверять enabled callbacks. Timing гипотеза сама по себе не доказательство. Все промежуточные падения классифицировать: продукт/fixture/неверное ожидание, не складывать их в число дефектов.
+
+## B02 — удаление аккаунта и позднее подтверждение, 09.10.2026
+
+Удаление меняет generation до UI callback: передавать exactpost-delete receipt из API, не угадывать через queueSessionGeneration после возврата и не использовать oldHomeSession на legitimate success. Retained confirmation должен владеть sourcegeneration до запуска coroutine. Ошибка поиска UI, в которой diagnostic printToString крутит CPU, не является business RED: сохранить thread proof/0XML, остановить лишь verifiedowned worker, сделать bounded real scroll и воспроизвести заново. 570distinct=18new(10actualApp/Profile+8joinedAPI/defaultVMreceipt)+550prior+2existing deletion IDs/authfixture;обаAPK. Captured generation до coroutine, API atomic post-delete guest generation, guest-only monitor и Home cleanup через navigateLocally.4behavior RED закрыты; initial0XML tree-print fixture stop отдельно. [Критерии, версии и границы](audit-blocks.md#b02--удаление-аккаунта-и-позднее-подтверждение-09102026).
+
+09.10.2026 — уточнение передачи этого этапа: после первого freeze независимый reviewer обнаружил новый чужой `.claude/agents/yuldash-bashkir-linguist.md` (содержимое не читали/не меняли). Прежние39 entries сохранны; теперь40=39raw-hashed файлов+1directory. Новая версия freeze сохраняет прежние brain snapshots/receipt aliases; product/test/APK bindings и570IDs не изменились, повтор тестов не требуется. Свои15 paths не включают этот файл. [Текущий foreign manifest](../test-results/b02-account-deletion-foreign-final-v2-20261009.json).
+
+
+## 10.10.2026 — отличать начальную синхронизацию от выбора вкладки
+
+AnimatedContent ещё держит прежний child: lifetime одного Home недостаточен, нужен renderedtab+epoch guard. Sideeffect аргументов/preset должен быть в accepted commit под тем же session monitor. resetForTest/init не делает fixture гостевым: проверяй logout на localURL/witness+!isLoggedIn. Для duplicate header/tab ищи Role/Selected semantics. Python selectors=list(classes), неalias; список исходных классов бери из XML IDs, methodwildcard не путь. [Текущий этап](audit-blocks.md#b02--явный-выбор-вкладки-home-09102026).
+
+## 10.10.2026 — manual clock: snapshot delivery до frame, не после pump
+
+При autoAdvance=false каждый ручной pump/wait сначала вызывает Snapshot.sendApplyNotifications, затем mainClock.advanceTimeBy, затем нужный Looper idle. waitForIdle в конце не гарантирует следующий кадр. Проверенный GlobalSnapshotManager использует started/sent и channel: пока sent=true, новый observer не посылает ещё одно сообщение; в тестах можно контролируемо моделировать потерю предыдущей доставки. Сохранять/восстанавливать test-only AtomicBoolean в finally; не переносить reflection в приложение.
+
+Признаки: Boolean/HTTP route wait12s и receiptcalls0. Доказательство дефекта — одна и та же потеря доставки и неизменённые критерии RED→GREEN, а не обычный удачный повтор. Для старого лога без snapshot/queue наблюдения прямо писать «Я не могу это подтвердить» о точной причине всех14. Post-failure диагностика сохраняет первичныйassert и могла влиять на последующие tests. [Критерии, результаты и остатки](audit-blocks.md#b02--ожидания-compose-и-разбор-14-сбоев-10102026).
+
+## 10.10.2026 — ID недостаточно для приватного кеша и опроса
+
+remember и effect для приватного объекта должны включать сессию; stale cached DTO нельзя оставлять при A→B. Одного pre-request isCurrentSession недостаточно: передавать captured expectedGeneration в call, чтобы вход между guard и вызовом не подставил новый bearer. После ответа проверять gen/liveID/DTO.id под коротким monitor; terminal другой DTO не очищает текущий заказ. Клик старого semantic action тоже проверяет текущую сессию/ID/onScreen.
+
+Тест refresh обязан выполнить настоящий401→refresh→повтор с новым token и сохранённымgen; saveToken меняетgen и не является refresh. Lifecycle pause уже действовал доfix; held serverdispatch не равен завершению клиента. [Критерии, версии и остатки](audit-blocks.md#b02--панель-активного-заказа-сессия-и-ответы-10102026).
+
+## Такси: вход, lease и повтор SideEffect, 10.10.2026
+
+1. Проверка поколения в потребителе недостаточна, если глобальный ID не имеет владельца: новый effect может запросить прежний номер с новым ключом. Привязывать запись у производителя и проверять expectedGeneration доHTTP.
+2. checking/null при восстановлении не подтверждает завершение: не удалять минимизированную поездку до успешного пустого списка/своего terminal.
+3. Dispose старого экземпляра не должен снимать флаги нового, даже при одном ID.
+4. finish→перерисовка old accepted может повторить публикацию: actual RED показал3status GET вместо2. Finished IDs принадлежат lease и должны сохраняться даже в compatibility setter.
+5. Перед refresh-тестом verifyCode создаёт НОВЫЙ вход: активный ID надо опубликовать после него; иначе тест проверяет запрещённый перенос, а не refresh. Исходные assert сохранять.
+[Критерии, доказательства и остатки](audit-blocks.md#b02--владелец-активной-поездки-и-завершённая-запись-10102026). 649 = 622 сохранённых ID + 25 новых (10 экран/панель, 14 состояние/вход, 1 завершение) + 2 прежних пассажирских сценария, впервые включённых в этот интеграционный набор; 58 классов, 0 отказов/ошибок/пропусков/устаревших XML, оба debug APK, 416.750 с, 70 отпечатков исходников в журнале. Fingerprints/число тестов не являются процентом готовности. Другие личные действия InstantOrder/платежей, сохранённый переход InstantOrder после холодного запуска, прежнее нажатие при onScreen=true, завершение удержанного клиентского ответа при STARTED/dispose, настоящий сервер/устройство/FCM/SMS/платёжные провайдеры/production/CI и весь B02/релиз остаются открытыми. Точную единственную историческую причину всех 14 прежних отказов я не могу подтвердить.
+
+
+## 10.10.2026 — временный сигнал между нажатием и saved task
+
+LaunchedEffect не записывает переход в SavedStateHandle во время самого нажатия: Activity save между ними воспроизвёл потерю Home→InstantOrder. Долговременное назначение пишем в принятом callback синхронно. Не запускаем второй guard после изменения собственного epoch. При локальном root→accepted taxi тесте MapKit требует native окружение; передаём existing defaulttrue render gate и явно ограничиваем доказательство. Отсутствующий runner import дал0 выполненных тестов, это не RED приложения. Источник — [RED/GREEN и итог](audit-blocks.md#b02--сохранённый-переход-из-полоски-такси-10102026); повторные прогоны не суммируем.
+
+
+## 10.10.2026 — retained действия и общий платёжный gate
+
+Наличие кнопки в прежнем Compose кадре не означает право нажать её сейчас: owner/scope/phase проверяем внутри действия и перед публикацией результата. Busy защищает только незавершённый запрос; retained Idle action после Waiting требует отдельного stage guard. Поздний enabled-health не должен снимать подтверждённый503 текущего owner. В отрицательном recent assertion различаем GET нового аккаунта и запрещённый POST старого адреса; исходный ошибочный журнал сохраняем. Compiler0executed не GREEN/RED приложения. [Конкретные журналы](audit-blocks.md#b02--создание-предзаказ-отмена-и-онлайн-оплата-10102026).
+
+Даже после guards pay/check нужно отдельно проверять retained reset после Paid: иначе цепочка reset→старый pay повторяет POST. Expected1/actual2 воспроизведён до трёх stage guards; реальное повторное списание не проверялось.
+
+
+## B02 — active TaxiTrip callbacks, 10.10.2026
+
+Actual Compose fixture должна раскрыть TaxiSheet Full, поскольку extra в Half вообще отсутствует. Нельзя искать/ждать UI node внутри runOnIdle; retain выполняем заранее, на UI-потоке вызываем только сохранённое действие. Одноимённые route opener/modal confirm — разные узлы; подтверждение выбираем в modal. Иначе false timeout либо ложный успех при отсутствии нужного POST. Первичные результаты сохраняем, не выдаём fixture errors за product failures. Перед сборкой проверяем imports новых coroutine/runtime helpers; green-v1/v2:0executed. Для архивных доказательств используем плоские SHA имена: вложенный путь превысил Windows limit, completed483raw manifest проверен. [Первичные доказательства](audit-blocks.md#b02--active-taxitrip-callbacks-10102026).
+
+
+## B02 — ссылки поездки и помощь на дороге, 10.10.2026
+
+В actual semantics кнопка может содержать только icon description, а видимый label — соседний Text без OnClick. Не считать такой timeout дефектом продукта. Адрес live URL в тесте следует брать из действующего local ApiClient.apiBase, error toast — из serverSaid, не выдумывать fallback. Сохранённые controls A после второго открытия B проверять отдельно от простого closed/busy. [Первичные воспроизведения](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026).
+
+
+## B02 — чек такси: текущий владелец и действия, 10.10.2026
+
+Native WRAP_CONTENT Dialog/TextField в Robolectric может бесконечно remeasure. Повторно используем documented test-only window width workaround до первого idle, не меняем production DialogProperties и не считаем aborted0XML полноценным RED. Исторические original fixture bodies сохраняем. После source review invalid-number regression воспроизводим actual error/back/0HTTP контролем. Перед commit проверять не только candidate inventory file hash, но и equality самого staged blob с candidate; ранняя prepare-проверка не заменяет конечную. [Воспроизведения](audit-blocks.md#b02--чек-такси-текущий-владелец-и-действия-10102026).
+
+
+## B02 — зимний вопрос: владелец, таймер и подтверждение, 10.10.2026
+
+LaunchedEffect(key) сохраняет closures первого render. Local function references могут сравниваться равными при разных captures: callback holders используют referentialEqualityPolicy; сроки/state refs обновляются через rememberUpdatedState. Server returned перед MockResponse не client join: тест observes callback return/cancel finally и UI application. Root finished publication надо проверять отдельно от screen publisher. busy cleanup своей scope вfinally даже если parent predicate временно false; fullABA отдельно. [Воспроизведения](audit-blocks.md#b02--зимний-вопрос-владелец-таймер-и-подтверждение-10102026).
+
+
+## B02 — сверка ссылки после потерянного ответа, 10.10.2026
+
+Не превращать malformed/missing list в empty: это ложно подтверждает отзыв доступа. Ранний queued return должен быть внутриtry/finally, иначеbusy остаётся после временного parent retirement. Server handler return+boundedpump не join клиента и не доказательство отмены; точный lateheldGET boundary проверяется отдельным этапом. [RED/GREEN и ограничения](audit-blocks.md#b02--сверка-ссылки-после-потерянного-ответа-10102026).
+
+
+## B02 — поздняя сверка ссылки и завершение клиента, 10.10.2026
+
+Для удержанного ответа недостаточно server latch и ожидания по времени. Сначала подтвердить старт HTTP и незавершённый Job, после ответа дождаться полного завершения клиента (включая finally), затем проверять UI. Ожидание GET и Toast также не доказывает применение нового кадра: перед проверкой кнопки ждать её состояния. В прежнем тесте добавлено это ожидание после фактического AssertionError; единственная причина падения не доказана. Для прежнего «Поделиться ещё» пустой GET — слабый контроль: вернуть сохранённую запись A и проверить её восстановление. Для отправки явно проверить отсутствие Intent и успешный текущий выбор приложения после сверки. [Пример и пределы](audit-blocks.md#b02--поздняя-сверка-ссылки-и-завершение-клиента-10102026).
+
+
+## B02 — поздняя повторная сверка после отзыва ссылки, 10.10.2026
+
+Удержанный повторный GET после отзыва имеет собственную матрицу смены владельца/выхода, parent/target/close/dispose. Подтверждать завершение настоящего клиентского Job до UI и проверять сохранённые callbacks. Положительный контроль нового создания нужен для проверки, что запрет старых действий не заблокировал текущее окно. Возврат parent до ответа остаётся отдельным критерием. [Пример](audit-blocks.md#b02--поздняя-повторная-сверка-после-отзыва-ссылки-10102026).
+
+
+## B02 — возврат родителя до ответа сверки ссылки, 10.10.2026
+
+Callback state, прочитанный только в coroutine/event, не гарантирует подписку composition на parent при pending. Читать его в composition, фиксировать применённый кадр SideEffect, сравнивать номер вокруг suspend GET. В тесте независимая sibling restart group подтверждает false/true кадры без чтения parent вызывающим кодом диалога. RED8 доказывает выбранное нарушение unknown/retry, не 8 независимых причин или все последующие effects. [Воспроизведение](audit-blocks.md#b02--возврат-родителя-до-ответа-сверки-ссылки-10102026).
+
+
+## B02 — ссылка через экран поездки, 10.10.2026
+
+Actual screen onDismiss меняет showShare и не связан с harness dismisses; проверять настоящее окно/heading/retry и новое окно после смены ID. Exact success Toast содержит имя контакта; pending create сохраняет исходный heading, revoke — heading ссылки. Первые 6 fixture failures сохранены, точные oracle исправлены, неизвестный результат дополнительно проверен через retry. [Исходники и XML](audit-blocks.md#b02--ссылка-через-экран-поездки-10102026).
+
+
+## B02 — ссылка и владелец внешнего экрана заказа, 11.10.2026
+
+Новый owner экрана законно делает GETmine подB: проверка старого окна запрещает B на его share endpoints, а не любые запросы нового экрана. Revoke recheck отсутствие записи оставляет contacts dialog и Toast; автоматического close продукт не обещает. Первый24/3 — ошибки ожиданий теста, не product RED. Архивировать исходники/фактические XML перед исправлением; scoped diff и новые stronger assertions отдельно. Lifecycle CREATED/poll RESUMED, WS только explicit local synthetic; не выдавать disposal за late payload и source debug reachability за binary/runtime proof. [Доказательства](audit-blocks.md#b02--ссылка-и-владелец-внешнего-экрана-заказа-11102026).
+
+
+## B02 — начальная загрузка и удержанные операции ссылки, 11.10.2026
+
+ClaimScreen возвращает право владения, но не обещает автоматический visibility republish; проверять actual owner/receipt и применённые SideEffect кадры. Intent.EXTRA_TEXT содержит существующий RU/BA prefix+URL. Первые38/8 — oracle ошибки, не product RED; после исправления ожиданий6RED воспроизвели старые публикации/цепочки. Нельзя добавить только revision и оставить loading навсегда или mutation доступной для дубля: нужны явные состояния error/retry и unknown. Если queued operation отвергнута доAPI, unknown надо снять только для той же pending; начатая operation остаётся unknown до сверки. Первые2 integration failures сохранены, прежние тесты не менялись. После Retry выбирать новый observer count+1 и distinct Job: last/any может вернуть старую завершённую запись. Усиление этого ожидания требует повторить новый класс; старые соседние исходники неизменны. [Архив и тесты](audit-blocks.md#b02--начальная-загрузка-и-удержанные-операции-ссылки-11102026).
+
+
+## B02 — ошибка первой загрузки ссылок и кеш контактов, 11.10.2026
+
+Для cache recovery считать HTTP и вызовы observer отдельно: Retry вызывает contacts callback повторно, но горячий кеш возвращает данные без второго HTTP. Изменить синтетическое серверное имя после первого успеха и проверить прежнее UI-имя; одно количество callbacks этого не доказывает. Намеренное отключениеTTL и проверки order_id — отрицательные контроли выбранных assertions, не баг продукта. Защита владельца/входа при этом не отключалась. После восстановления байтов нужен итоговый прогон/сборка. [Доказательства](audit-blocks.md#b02--ошибка-первой-загрузки-ссылок-и-кеш-контактов-11102026).
+
+
+## B02 — загрузка контактов до запроса и некорректный ответ, 11.10.2026
+
+Скрытая строка pending не доказывает начало HTTP: ждать нужный серверный счётчик, сохраняя точный assert1/queued0; diagnostic gate доAPI доказывает расхождение без ослабления guard. Природу единственного естественного отказа без Jobtrace не выдавать за установленную историческую причину. Ранний return до HTTP обязан завершить UI loading у остающегося смонтированным окна. Result.map не ловит исключения parser; mapCatching нужен внутри fetch до cache.onSuccess. Нулевой HTTP не доказывает нулевой contacts callback при cachehit: считать оба. RAW Share затем realclaimScreen в одном callback до mainLooper idle доказывает lease loss до первой composition, не более сильный interframe race. У такого skipped effect observerJob отсутствует; не приписывать ему Job Retry. Для rg в PowerShell использовать настоящий каталог и -g для маски; wildcard в аргументе пути не раскрывается. [Источники](audit-blocks.md#b02--загрузка-контактов-до-запроса-и-некорректный-ответ-11102026).
+
+
+## B02 — ссылка и запись той же поездки, 11.10.2026
+
+Проверка id/publisher не отличает новую запись прежнего номера. Проверять captured receipt до callbacks и после HTTP, child key должен менять scope при replacement. При обычном DTO receipt сохраняется. Для диалога после GET активных ссылок liveLink ещё null: его заголовок не подходит как oracle наличия окна. Exclusive Close/Ябыу и точные HTTP/adapter counts проверяют повторное открытие без ослабления проверок продукта. Сначала сохранить ошибочный run/source, затем исправлять тест. Synthetic writer API transition не равен доказанной достижимости через normal UI. [Источник](audit-blocks.md#b02--ссылка-и-запись-той-же-поездки-11102026).
+
+
+## B02 — смена контекста до первого запроса контактов, 11.10.2026
+
+Raw callback в одном runOnIdle с boundary позволяет наблюдать отсутствие applied кадра между действиями; dispatch дополнительно крутит mainLooper и может преждевременно запустить effect. HTTP0 не доказывает API0. При unmount frames внутри if(mounted) не пишут removal: нужен onDispose marker. Если adapter не вошёл, Job не наблюдался и его cancellation/join нельзя заявлять. Повтор ошибки ожидания: исчезновение кнопки при pending и запись GET сервером не доказывают обработку ответа. Revoke404 ждёт наблюдаемый nonnullToast, сохраняя исходный exact assert; controlled held404 probe доказывает преждевременность старого predicate. [Источник](audit-blocks.md#b02--смена-контекста-до-первого-запроса-контактов-11102026).
+
+
+## B02 — поздняя загрузка контактов после удаления, 11.10.2026
+
+Удаление ключа кеша не останавливает старый GET той же сессии. Invalidation и finalcachecommit должны сравнивать revision под одним lock; сеть вне monitor. Проверять после actual client Deferred await/join/finally/completion, затем exactHTTP count и отсутствие refetch. Ошибка DELETE не доказывает, что сервер не удалил контакт. Проверка владельца перед успешным sideeffect не должна маскировать исходный failure401: call может сам завершить сессию. Сохранять ошибки, повторно проверять receipt только для успеха. [Источник](audit-blocks.md#b02--поздняя-загрузка-контактов-после-удаления-11102026).
+
+
+## B02 — поздний ответ изменения контактов и владелец кеша, 11.10.2026
+
+Извлечённый из очереди Runnable надо сохранить до assertion и удалить из heldcollection передrun. Иначе failure передresume оставит недренируемую coroutine. Cleanuprelease/cancel/drain/join и обязательныйfinallyreset/shutdown; это улучшениеfixture,неproductRED. Ошибка401 сама завершает старуюсессию до регистрации продолжения; statusпроверять послеB, не маскировать его SessionChanged. [Источник](audit-blocks.md#b02--поздний-ответ-изменения-контактов-и-владелец-кеша-11102026).
+
+
+## B02 — изменение контактов без подтверждения, 11.10.2026
+
+Подтверждённый RED: после серверного удаления/добавления и повреждённого HTTP200 success-only invalidation оставлял старый кеш. Проверка должна наблюдать server state и настоящий client completion отдельно, затем публичный GET и точное число мутаций. Тот же неизменённый тест стал зелёным после узкого исправления. [RED/GREEN](audit-blocks.md#b02--изменение-контактов-без-подтверждения-11102026).
+
+
+## B02 — открытый экран контактов после неизвестного ответа, 11.10.2026
+
+JVM DELETE RED подтвердил stale parent row после committed malformed reply. ADD draft Robolectric зависал в dialog layout: перенесён в реальные Android проверки, это не productRED и не доказательство конкретной причины loop. Accepted15 JVMtest LF сохранён от RED доfinal127; native6 отдельно и без утверждения App VM route. [Архивы/границы](audit-blocks.md#b02--открытый-экран-контактов-после-неизвестного-ответа-11102026).
+
+
+## B02 — отмена и срок жизни экрана контактов, 11.10.2026
+
+catch внутри withContext(IO) не ловит prompt cancellation при возвращении к caller. Проверять оба момента: IO удержан и returning Runnable уже queued. Postjoin API green не доказывает immediate UI reopening: отдельный actual App RED показал второй stale-cache случай. Server-return latch UI не выдавать за Job completion/join. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).
+
+
+## B02 — поздний стартовый ответ контактов, 11.10.2026
+
+Защищённый кеш не защищает независимый .onSuccess writer в default VM. RED держит именно первый bootstrap, а не editor GET, затем real DELETE/fresh[] и уход. UI trace/drain не называть Job join. При счёте contacts HTTP отфильтровать namespace: logout штатно отправляет отдельный auth POST; не выдавать ошибку oracle за product RED. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).
+
+
+## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
+
+Observer без watermark на failed own read создаёт скрытый повтор GET и уничтожает Retry. Отмечать захваченную до запроса версию, не latest после ошибки. DISCONNECT_AFTER_REQUEST может дать второй реальный DELETE даже при test API retry limit1; сохранить наблюдение/исходник и открытый transport пункт, не назвать ошибкой fixture. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).
+
+
+## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
+
+Robolectric ADD dialog fetchSemanticsNodes может застрять внутри waitForIdle до ввода; внешний waitUntil не ограничивает inner blocking. NATIVE/LEGACY/clock/size не доказали причину, остановленные0completed не product RED. Native нужен для формы, JVM bounded APIcaller для observer. rg Windows wildcard передавать через -g, а не literal path со *. Пользовательские чужие файлы не трогать. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).
+
+
+## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
+
+Нулевая wrapper retry policy не доказывает один wire request: транспорт может повторить EOF сам. Считать method+exactpath на wire; проверять runtime отдельно. Kotlin JUnit expression body с последним Log.i возвращает Int — завершать Unit. Начальная initializationError не является productRED. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).
+
+
+## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
+
+IO same dispatcher не означает обход cancellation withContext. Для точного after-fetch окна подтвердить actual worker BLOCKED на acceptance monitor, затем cancel/unlock/join/probe. Robolectric декорирует methodname; initial oracle stop не product RED. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).
+
+
+## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
+
+TGформаимеетname первымtextfield, code вторым. ЦелитьсявсемантикуплейсхолдераRU/BA, не onFirst(hasSetTextAction). Initialtimeout безauthverify не доказательствоauthbug. Не переноситьold diagnosticinit-script вобычныйrunner. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).
+
+
+## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
+
+ConcurrentHashMap защищает структуру, но не порядок HTTP snapshots. Нужны удержанные реальные запросы, завершение нового перед старым и probes cache/callback/prefs после actual Job.join. Тест возраста80/100s доказывает TTL ветви, не elapsed/exact90s. Изменение VM list не является изменением LaunchedEffect keys. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).
+
+
+## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
+
+Тест order с новой сохранённой entry не проверяет eviction. Нужны реальные mutations и два порядка: invalidation послеaccepted GET и до первого fresh GET. Fire-and-forget serverresponse не равен side-effect completion; реальный child Job.join нужен до oracle. PublicUnit не превращать в Result. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).

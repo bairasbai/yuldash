@@ -9,7 +9,8 @@
 //  Сверяем механически: имя интерфейса = имя модели сервера, поле Optional
 //  на сервере обязано допускать null у нас.
 //
-//  Сервера рядом нет (например, в другой машине) — набор просто пропускается.
+//  Ожидаем модели соседнего backend в том же репозитории. Их отсутствие —
+//  отказ проверки: без них нельзя подтвердить соответствие контракта.
 // ================================================================
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -17,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const API = join(HERE, "..", "src", "api");
-const MODELS = join(HERE, "..", "..", "..", "..", "..", "backend", "app", "models.py");
+const MODELS = join(HERE, "..", "..", "backend", "app", "models.py");
 
 let bad = 0;
 const check = (ok, label, extra = "") => {
@@ -26,9 +27,8 @@ const check = (ok, label, extra = "") => {
 };
 
 if (!existsSync(MODELS)) {
-  console.log("✓ сервер рядом не найден — сверка контракта пропущена");
-  console.log("\nВСЁ СОШЛОСЬ");
-  process.exit(0);
+  console.error(`Не найден ожидаемый файл моделей сервера: ${MODELS}`);
+  process.exit(1);
 }
 
 // ---------------- модели сервера ----------------

@@ -229,6 +229,9 @@ import android.view.MotionEvent
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yandex.mapkit.MapKitFactory
@@ -259,6 +262,9 @@ import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 
 @Composable
 internal fun SimpleModeScreen(
@@ -540,11 +546,12 @@ internal fun VoiceRequestScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val recorder = remember { VoiceRecorder(context) }
-    var recording by remember { mutableStateOf(false) }
-    var startMs by remember { mutableStateOf(0L) }
-    var recordedPath by remember { mutableStateOf<String?>(null) }
-    var recordedDur by remember { mutableStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val recorder = remember(context, lifecycleOwner) { VoiceRecorder(context) }
+    var recording by remember(recorder) { mutableStateOf(false) }
+    var startMs by remember(recorder) { mutableStateOf(0L) }
+    var recordedPath by remember(recorder) { mutableStateOf<String?>(null) }
+    var recordedDur by remember(recorder) { mutableStateOf(0) }
     var uploading by remember { mutableStateOf(false) }
     var submittingText by remember { mutableStateOf(false) }
     val trusted = contacts.firstOrNull()
@@ -556,7 +563,23 @@ internal fun VoiceRequestScreen(
     val vrNoStt = appText("Распознавание недоступно на устройстве", "Таныу ҡорамалда юҡ")
     val vrSendError = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Интернетте тикшереп ҡабатла.")
     val vrUploadError = appText("Не удалось загрузить запись. Проверь сеть и повтори.", "Яҙманы тейәп булманы. Интернетте тикшереп ҡабатла.")
-    fun begin() { if (recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
+    DisposableEffect(recorder, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                recorder.cancel()
+                recording = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            recorder.close()
+            recordedPath?.let { ApiClient.dropVoiceFile(it) }
+            recordedPath = null
+        }
+    }
+    fun canRecord() = !recorder.isClosed && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+    fun begin() { if (canRecord() && recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
     fun finish() {
         recordedPath = recorder.stop()
         recordedDur = ((SystemClock.elapsedRealtime() - startMs) / 1000).toInt().coerceAtLeast(1)
@@ -575,7 +598,7 @@ internal fun VoiceRequestScreen(
         whyRu = "Микрофон нужен, чтобы записать заявку голосом — не придётся набирать текст.",
         whyBa = "Заявканы тауыш менән яҙыр өсөн микрофон кәрәк — текст яҙырға тура килмәй.",
         onGranted = { begin() },
-        onDenied = { Toast.makeText(context, deniedMicText, Toast.LENGTH_LONG).show() },
+        onDenied = { if (canRecord()) Toast.makeText(context, deniedMicText, Toast.LENGTH_LONG).show() },
     )
     var recognizedText by remember { mutableStateOf<String?>(null) }
     val sttLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -1574,31 +1597,127 @@ internal fun FamilyOrderFormContent(
 internal fun TrustedContactsScreen(
     contacts: List<TrustedContact>,
     onBack: () -> Unit,
-    onAddContact: (TrustedContact) -> Unit
+    onContactsChanged: (List<TrustedContact>) -> Unit,
+    isCurrentParent: () -> Boolean = { true },
+) {
+    val currentSession by ApiClient.sessionChanges.collectAsState()
+    val owner = remember { currentSession }
+    val leave by rememberUpdatedState(onBack)
+    if (currentSession != owner) {
+        LaunchedEffect(owner) { if (isCurrentParent()) leave() }
+        return
+    }
+    key(owner) {
+        TrustedContactsEditor(contacts, onBack, onContactsChanged, isCurrentParent, owner)
+    }
+}
+
+@Composable
+private fun TrustedContactsEditor(
+    contacts: List<TrustedContact>,
+    onBack: () -> Unit,
+    onContactsChanged: (List<TrustedContact>) -> Unit,
+    isCurrentParent: () -> Boolean,
+    owner: Long,
 ) {
     var showAdd by remember { mutableStateOf(false) }
     var nm by remember { mutableStateOf("") }
     var rel by remember { mutableStateOf("") }
     var ph by remember { mutableStateOf("") }
-    val defaultRel = appText("Контакт", "Контакт")
-    // Свой экран сам тянет контакты с сервера: переданный список — затравка/фолбэк, плюс добавленные тут локально.
-    var serverContacts by remember { mutableStateOf<List<TrustedContact>>(emptyList()) }
-    val locallyAdded = remember { mutableStateListOf<TrustedContact>() }
-    var loading by remember { mutableStateOf(true) }
-    // Экран безопасности: сбой сети НЕ должен выглядеть как «контактов нет» (иначе юзер решит, что близкие слетели).
+    var toDelete by remember { mutableStateOf<TrustedContact?>(null) }
+    // An accepted server snapshot (including empty) replaces every previous list.
+    var serverContacts by remember { mutableStateOf<List<TrustedContact>?>(null) }
+    var busy by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf(false) }
-    var reloadKey by remember { mutableStateOf(0) }
+    var retired by remember { mutableStateOf(false) }
+    val deletion by ApiClient.contactDeletions.collectAsState()
+    var handledDeletion by remember { mutableStateOf(deletion.version) }
+    val addition by ApiClient.contactAdditions.collectAsState()
+    var handledAddition by remember { mutableStateOf(addition.version) }
+    val scope = rememberCoroutineScope()
+    val parent by rememberUpdatedState(isCurrentParent)
+    val publish by rememberUpdatedState(onContactsChanged)
+    val ctx = LocalContext.current
+    val defaultRel = appText("Контакт", "Контакт")
     val loadErr = appText("Не удалось загрузить контакты. Проверь интернет.", "Контакттарҙы йөкләп булманы. Интернетты тикшер.")
-    LaunchedEffect(reloadKey) {
-        loading = true; loadError = false
-        ApiClient.getContacts()
-            .onSuccess { list -> serverContacts = list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) } }
-            .onFailure { loadError = true }
-        loading = false
+    val deleteFailed = appText("Не получилось убрать. Проверь сеть и повтори.", "Алып булманы. Сетте тикшереп ҡабатла.")
+    val addFailed = appText("Не получилось. Проверь сеть и повтори", "Булманы. Сетте тикшереп ҡабатла")
+    val added = appText("Контакт добавлен", "Контакт өҫтәлде")
+    fun active() = !retired && scope.isActive && parent() && ApiClient.isCurrentSession(owner)
+    DisposableEffect(owner) { onDispose { retired = true } }
+    suspend fun readContacts(forceRefresh: Boolean = false) {
+        if (!active()) return
+        val attemptedDeletion = ApiClient.contactDeletions.value.version
+        val attemptedAddition = ApiClient.contactAdditions.value.version
+        val result = ApiClient.loadContactsForPublication(expectedGeneration = owner, forceRefresh = forceRefresh) { list ->
+            if (active()) {
+                val snapshot = list.map { c -> TrustedContact(c.name, c.relation, c.phone, c.notifyByDefault, c.id) }
+                serverContacts = snapshot
+                publish(snapshot)
+                handledDeletion = ApiClient.contactDeletions.value.version
+                handledAddition = ApiClient.contactAdditions.value.version
+            }
+        }
+        if (!active()) return
+        ApiClient.runIfCurrentSession(owner) {
+            if (active()) {
+                loadError = result.isFailure
+                // A failed own reconciliation waits for Retry; consume only versions captured before this read.
+                if (result.isFailure) {
+                    handledDeletion = maxOf(handledDeletion, attemptedDeletion)
+                    handledAddition = maxOf(handledAddition, attemptedAddition)
+                }
+            }
+        }
     }
-    // Слияние: затравка → сервер → добавленные локально; дубли убираем по телефону, порядок сохраняем.
-    val merged = remember(contacts, serverContacts, locallyAdded.toList()) {
-        (contacts + serverContacts + locallyAdded).distinctBy { it.phone }
+    LaunchedEffect(owner) {
+        // A cancelled old mutation can still be waiting for its blocking HTTP response.
+        readContacts(forceRefresh = true)
+        if (active()) busy = false
+    }
+    LaunchedEffect(owner, deletion.version, busy) {
+        if (!active() || busy || deletion.generation != owner || deletion.version <= handledDeletion) return@LaunchedEffect
+        val previous = handledDeletion
+        handledDeletion = deletion.version
+        // One known DELETE already reflected in an accepted snapshot needs no additional HTTP.
+        // A conflated gap can contain another ID, so reconcile it with one fresh read.
+        if (deletion.version == previous + 1 && serverContacts?.none { it.id == deletion.contactId } == true) return@LaunchedEffect
+        busy = true
+        scope.launch {
+            readContacts(forceRefresh = true)
+            if (active()) busy = false
+        }
+    }
+    LaunchedEffect(owner, addition.version, busy) {
+        if (!active() || busy || addition.generation != owner || addition.version <= handledAddition) return@LaunchedEffect
+        handledAddition = addition.version
+        // A same-phone upsert can change other fields while retaining the ID: always ask the server.
+        busy = true
+        scope.launch {
+            readContacts(forceRefresh = true)
+            if (active()) busy = false
+        }
+    }
+    fun mutate(contact: TrustedContact, deleting: Boolean) {
+        // Set synchronously: a retained confirmation invoked twice in one frame sends once.
+        if (!active() || busy || loadError || serverContacts == null || (deleting && contact.id <= 0)) return
+        busy = true
+        showAdd = false; toDelete = null
+        scope.launch {
+            if (!active()) return@launch
+            val result = if (deleting) ApiClient.deleteContact(contact.id, expectedGeneration = owner)
+                else ApiClient.addContact(contact.name, contact.relation, contact.phone, contact.notifyByDefault, expectedGeneration = owner)
+            if (!active()) return@launch
+            if (result.isSuccess || ApiClient.isUncertainContactMutation(result.exceptionOrNull())) {
+                readContacts() // Read only; never repeat the mutation after an unknown reply.
+            } else {
+                Toast.makeText(ctx, serverSaid(result.exceptionOrNull()!!, if (deleting) deleteFailed else addFailed), Toast.LENGTH_LONG).show()
+            }
+            if (active()) {
+                busy = false
+                if (!deleting && result.isSuccess && !loadError) Toast.makeText(ctx, added, Toast.LENGTH_SHORT).show()
+            }
+        }
     }
     if (showAdd) {
         AlertDialog(
@@ -1613,27 +1732,15 @@ internal fun TrustedContactsScreen(
                 }
             },
             confirmButton = {
-                TextButton(enabled = nm.isNotBlank() && ph.isNotBlank(), onClick = {
+                TextButton(enabled = !busy && nm.isNotBlank() && ph.isNotBlank(), onClick = {
                     val r = rel.trim().ifBlank { defaultRel }
-                    val newContact = TrustedContact(nm.trim(), r, ph.trim(), true, relationBa = r)
-                    onAddContact(newContact)
-                    // Показать сразу в списке, не дожидаясь обновления родителя/сервера.
-                    if (merged.none { it.phone == newContact.phone }) locallyAdded.add(newContact)
-                    nm = ""; rel = ""; ph = ""; showAdd = false
+                    mutate(TrustedContact(nm.trim(), r, ph.trim(), true, relationBa = r), deleting = false)
+                    nm = ""; rel = ""; ph = ""
                 }) { Text(appText("Добавить", "Өҫтәргә"), color = CanonGreen2, fontWeight = FontWeight.Bold) }
             },
             dismissButton = { TextButton(onClick = { showAdd = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
-    // Удаление контакта. Спрашиваем подтверждение: близкий перестанет получать статус поездки
-    // и SOS — это ровно то, ради чего его добавляли, и промах пальцем не должен это отнимать.
-    var toDelete by remember { mutableStateOf<TrustedContact?>(null) }
-    // Кого уже убрали на этом экране: сервер отвечает не мгновенно, а список склеен из трёх
-    // источников — без этого набора удалённый контакт мигал бы обратно.
-    val removedPhones = remember { mutableStateListOf<String>() }
-    val deleteFailed = appText("Не получилось убрать. Проверь сеть и повтори.", "Алып булманы. Сетте тикшереп ҡабатла.")
-    val ctx = LocalContext.current
-    val deleteScope = rememberCoroutineScope()
     toDelete?.let { victim ->
         AlertDialog(
             onDismissRequest = { toDelete = null },
@@ -1649,36 +1756,31 @@ internal fun TrustedContactsScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    val phone = victim.phone
-                    toDelete = null
-                    removedPhones.add(phone)
-                    locallyAdded.removeAll { it.phone == phone }
-                    deleteScope.launch {
-                        // id > 0 — контакт с сервера. Только что добавленный локально ещё без id:
-                        // его достаточно убрать из списка, на сервере его пока нет.
-                        if (victim.id > 0) {
-                            ApiClient.deleteContact(victim.id).onFailure {
-                                removedPhones.remove(phone)   // не получилось — контакт возвращается на экран
-                                Toast.makeText(ctx, serverSaid(it, deleteFailed), Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }
-                }) { Text(appText("Убрать", "Алырға"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                TextButton(enabled = !busy, onClick = { mutate(victim, deleting = true) }) {
+                    Text(appText("Убрать", "Алырға"), color = CanonRed, fontWeight = FontWeight.Bold)
+                }
             },
             dismissButton = { TextButton(onClick = { toDelete = null }) { Text(appText("Оставить", "Ҡалдырырға"), color = CanonMuted) } },
         )
     }
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Доверенные контакты", "Ышаныслы контакттар"), onBack) }) { padding ->
+    Scaffold(containerColor = CanonBg, topBar = {
+        ScreenTopBar(appText("Доверенные контакты", "Ышаныслы контакттар")) { if (active()) { retired = true; onBack() } }
+    }) { padding ->
         TrustedContactsContent(
-            loading = loading,
+            loading = busy,
             loadError = loadError,
-            contacts = merged.filterNot { it.phone in removedPhones },
+            contacts = if (loadError) emptyList() else serverContacts ?: contacts,
             loadErrorText = loadErr,
-            onRetry = { reloadKey++ },
-            onAddClick = { showAdd = true },
+            onRetry = {
+                if (active() && !busy) {
+                    busy = true; loadError = false
+                    scope.launch { readContacts(); if (active()) busy = false }
+                }
+            },
+            onAddClick = { if (active() && !busy && !loadError) showAdd = true },
+            actionsEnabled = !busy && !loadError && serverContacts != null,
             modifier = Modifier.padding(padding).fillMaxSize(),
-            onDelete = { toDelete = it },
+            onDelete = { if (active() && !busy && !loadError) toDelete = it },
         )
     }
 }
@@ -1698,6 +1800,7 @@ internal fun TrustedContactsContent(
     onAddClick: () -> Unit,
     modifier: Modifier = Modifier,
     onDelete: (TrustedContact) -> Unit = {},
+    actionsEnabled: Boolean = true,
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -1745,12 +1848,14 @@ internal fun TrustedContactsContent(
                 }
             }
             else -> itemsIndexed(contacts, key = { _, c -> c.phone }) { index, contact ->
-                Box(Modifier.appearIn(index)) { TrustedContactCard(contact, onDelete = { onDelete(contact) }) }
+                Box(Modifier.appearIn(index)) { TrustedContactCard(contact, onDelete = { onDelete(contact) }, enabled = actionsEnabled) }
             }
         }
         item {
             AppButton(
                 text = appText("Добавить контакт", "Контакт өҫтәү"),
+                loading = loading,
+                enabled = actionsEnabled,
                 onClick = onAddClick
             )
         }
@@ -1758,7 +1863,7 @@ internal fun TrustedContactsContent(
 }
 
 @Composable
-private fun TrustedContactCard(contact: TrustedContact, onDelete: () -> Unit = {}) {
+private fun TrustedContactCard(contact: TrustedContact, onDelete: () -> Unit = {}, enabled: Boolean = true) {
     Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
         Row(Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
@@ -1773,7 +1878,7 @@ private fun TrustedContactCard(contact: TrustedContact, onDelete: () -> Unit = {
             // Убрать контакт. Кнопки не было вовсе: человек, которому уходит геопозиция в поездке
             // и SOS-сигнал ночью, оставался в списке навсегда. Тач-цель 48dp — рядом текст, промах
             // по такой кнопке стоил бы дорого.
-            IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
+            IconButton(onClick = onDelete, enabled = enabled, modifier = Modifier.size(48.dp)) {
                 Icon(
                     Icons.Default.DeleteOutline,
                     contentDescription = appText("Убрать контакт", "Контактты алыу"),

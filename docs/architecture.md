@@ -1,5 +1,45 @@
 # 🗺️ Карта кода Юлдаш
 
+## Terminal HTTP и отправитель очереди (07.10.2026, QA-B02-003)
+
+`ActiveTripContent` использует `isTripChatActive` перед/после initial history/code/details, flush follow-up и REST send success. Начатый same-owner send при сетевой ошибке всё ещё сохраняет Outbox action/key; terminal блокирует только поздние UI/Toast. `Outbox.flush(context, expectedGeneration, shouldContinue={true})` сохраняет global default и проверяет динамический caller predicate после mutex и перед новым действием. Predicate выполняется вне монитора Outbox; не брать sessionLock из него. Ответ уже отправленного действия подтверждается merge по action.id/owner generation, остальные действия сохраняются; затем predicate останавливает следующие POST. Terminal не является глобальной политикой удаления очереди или запрета history: backend сохраняет after-trip/lost-item окно, YuldashApp startup flush независим.
+
+[RED/GREEN178/native2/версии и пределы](audit-blocks.md#b02--terminal-http-и-очередь-сообщений-07102026). Data5 join jobs, UI16 bounded virtual scheduling,5manual system callback cases; native RU/BA done с HTTP-only/controlled lifecycle и actual encrypted queue reopen в том же процессе. LateTerminalTest после code теперь negative bounded/no-details, прежний next-request causal witness удалён. UI/style/text/navigation enum/версии не менялись.
+
+## Прежний экран и события чата (07.10.2026, QA-B02-003)
+
+`ApiClient.sessionChanges` — read-only StateFlow поколения входа, публикация после завершения init/saveToken/clearLocalSession/commitAuth. Refresh его не меняет. `ActiveTripScreen` фиксирует опубликованного владельца и удаляет keyed `ActiveTripContent` при смене поколения перед onBack. Дочерний content хранит прежние состояния и Compose scopes; сохранённый маршрут не подхватывает B автоматически. `isTripChatActive` проверяет поколение и актуальный bookingStatus внутри каждого message/connected/rejected main callback; `DisposableEffect(bookingId, terminalBooking)` закрывает terminal socket. Догрузка истории reconnect проверяет активность с обеих сторон HTTP. Прочие terminal операции не объявлены полностью покрытыми.
+
+[Точные версии/100 JVM/3 native и ограничения](audit-blocks.md#b02--поздние-события-и-закрытие-прежнего-экрана-07102026). JVM включает actual wire receive нового B; native HTTP-only проверяет RU выход, BA смену/повторное открытие и RU refresh, не realtime/terminal/cold process. MainActivity/enum/nav/стиль/строки/зависимости не менялись.
+
+## Подключение чата и refresh (07.10.2026, QA-B02-003)
+
+`ChatSocket.openSocket` хранит номер соединения, а актуальный token читает только при `onOpen` внутри `ApiClient.runIfCurrentSession`. `authenticatedToken` принадлежит этому соединению и отражает фактически отправленную авторизацию. Если старое соединение закрыто1008 после уже выполненного RESTrefresh в том же поколении входа, возможен reconnect с новым token;1008 текущему ключу остаётся terminal. Собственный refresh из сокета не добавлен. После `onConnected(false)` в onClosed/onFailure снова проверяются closed/connection, поскольку callback может синхронно вызвать connect/close. Прежние owner guards, query-free auth frame и backoff остаются.
+
+12 новых JVM +74 неизменённых соседа и3actual Android-transport cases; native использует воспроизводимый host fixture `tools/audit_chat_refresh_loopback.py` через adb reverse. Он не входит в продукт и не меняет зависимости Android. [Фактические RED/GREEN, версии и границы](audit-blocks.md#b02--подключение-чата-и-обновление-входа-07102026). Late listener injection обозначена отдельно, UI disappearance/main-thread callbacks и реальные сервисы ещё открыты.
+
+## Повтор кода: проверенные границы (07.10.2026, QA-B02-011 / DESIGN066)
+
+Существующий `ActiveTripScreen` повторяет код отдельным `LaunchedEffect(codeLoadRetry)`: проверяет захваченное поколение входа и done/cancelled до запроса и после ответа. Сохранение в IO повторно проверяет владельца/terminal и передаёт expectedGeneration в `TripPassStore.updateBoardingCode`; `.copy` сохраняет договор оплаты. Никакой новый product guard в этом этапе не добавлен. Удержанный retry при A→B, terminal polling и реальной кнопке Назад проверен actual Compose/ApiClient с независимым диском модели. Негативное окно2с после ответа, не join; два pointer click проверены в одном event batch, не общий single-flight.
+
+Новые `ActiveTripBoardingCodeRetryBoundaryTest` (8JVM) и `ActiveTripBoardingCodeRetryInstrumentedTest` (2native RU/BA) покрывают указанные границы. Native использует реальное encrypted reopen и ждёт отрисованный кадр перед screenshot; не cold process/телефон/нативные гонки. [Результаты, версия и точные остатки](audit-blocks.md#b02--повтор-кода-поздние-ответы-и-устройство-07102026). Параллельный history/code и WebSocket handshake/refresh ещё открыты.
+
+## Оплата в офлайн-паспорте (07.10.2026, QA-B02-013 / DESIGN065)
+
+`TripPass.kt`: `payMethod:String?` и `payAmount:Int?` добавлены в конец модели с nullable defaults. JSON сохраняет отдельные `pay_method`/`pay_amount` и исходный `price`; `effectivePayAmount=payAmount?:price`, поэтому0 не теряется. Старые missing/null поля означают неизвестный метод; свободный paymentNote не используется для угадывания. Поколение владельца, миграция, rollback, код и terminal deletion остаются прежними, `.copy(boardingCode)` сохраняет новые поля.
+
+`BookingActiveTripScreen.kt/saveTripPass` переносит обе договорённости из подтверждённых details. `TripPassCard` показывает известный метод через прежний двуязычный helper либо «Способ оплаты не сохранён». Офлайн read-only блок берёт тот же snapshot, а при неизвестном методе скрывается; `PayAgreementBlock` показывает явную нулевую сумму. Новая BA строка — черновик в tasks. [Принятые доказательства и границы](audit-blocks.md#b02--договорённость-оплаты-офлайн-07102026):121 выбранных JVM,3 native real encrypted reopen/actual UI; не live backend/телефон/cold process.
+
+## Владелец активной поездки и восстановление ошибок (07.10.2026, B02)
+
+`BookingActiveTripScreen.kt` захватывает поколение входа при открытии брони. Это же значение передаёт в `ChatSocket` и `Outbox.flush`; проверяет его в обработчиках чата на главном потоке, перед отправкой и после сетевых ответов. `ChatSocket.kt` хранит владельца до закрытия экземпляра, проверяет его при отправке/авторизации/повторном соединении и отделяет события заменённых соединений. В `TripPass.kt` ожидаемый вход для `flush` определяется **до ожидания** общего замка очереди: ожидавшая операция A не должна принять очередь B. Общие файлы затрагивают B01/B05, поэтому в итоговый профиль включены их прежние проверки. Полное исчезновение старого экрана после смены входа этим не доказано.
+
+Отказ GET кода посадки (403/503/пустой успешный ответ) теперь даёт ошибку и отдельный повтор этого GET в фактическом `ActiveTripOptionBHero`. Повтор не перезапускает начальную историю чата и не меняет поездку. Новые строки RU/BA используют `appText`; башкирский остаётся черновиком в `tasks.md`. Основная водительская кнопка после «Подъезжаю» открывает тот же диалог подтверждения завершения, что и дополнительная кнопка. Проверены все три перехода водителя, отмена диалога и повтор после 409/503. [Текущие доказательства и остатки](audit-blocks.md#b02--продолжение-второго-блока-07102026).
+
+## Отклонённый пассажирский статус (07.10.2026, QA-B02-010 / DESIGN-062)
+
+ActiveTripScreen в BookingActiveTripScreen.kt возвращает previousStatus при ApiException пассажирского POST /trip-status, если локальный status ещё равен этой попытке. Кнопка повторяет «Я сел» после403/409/503; серверный отказ не кладётся в Outbox. Успех200 переводит к следующему действию. Транспортная ошибка сохраняет прежний отдельный путь очереди. Проверены фактический экран/управляемый HTTP; гонки/чужая сессия/прочие действия отдельно открыты. [Реестр и доказательства](audit-blocks.md#этапы-продолжения--07102026).
+
 ## Общая кнопка и обязательное обновление (01.10.2026, DESIGN-R4)
 
 UiKit.AppButton сохраняет action name в semantics только приloading; idle имеет прежний Text, progress/disabled остаются Material. ForceUpdateScreen использует ограниченный viewport со scroll/minHeight и Arrangement.Center: короткий контент по центру, крупный шрифт читает полный текст/CTA прокруткой. Существующие RU/BA/Canon/insets/анимация/URL ветки сохранены. Component32JVM/8device и ограничения — [журнал](audit-journal.md); это не проверка всего version/min пути.
@@ -4332,3 +4372,258 @@ Actual SQL fault before Payment UPDATE доказал отсутствие ос�
 01.10.2026 — notify_admin_telegram при exception сохраняет localwarning только classname; boolFalse/status/payload остаютсяпрежними. QA00248/7profile, HTTPXINFO отдельныйopenканал. CallbackAndroid singleflight/success-afterHTTP использует AppButton loading и existinggeneration; устройство/полныйscreenmatrix отдельны.
 
 01.10.2026 — QA-B08-003: logs.py устанавливает постоянный filter именованного httpx logger доhandlers; matching Telegramcredential заменяется в record.msg/args без изменения Request/JSON/loggerlevels. Реальная productionlevel/exposure не измерена.
+## Редактирование и медиа активной поездки (07.10.2026, QA-B02-003)
+
+`BookingActiveTripScreen.kt`: `isTripChatActive` включает живость `voiceScope`, прежнее поколение входа и динамический done/cancelled. Edit/delete/voice/photo проверяют это на входе, в запущенной задаче, после ответов и перед следующим запросом; поздняя история и Toast не публикуются. Черновик и выбор редактирования также защищены. Уже принятый HTTP этим не отменяется. Общие ApiClient/backend правила чтения и чата после поездки не изменены.
+
+Голос читается через `withContext(Dispatchers.IO)`. Неактивный callback очищает переданный файл сразу, активный прикрепляет `dropVoiceFile` к `Job.invokeOnCompletion`: очистка работает и при отменённой задаче, которая не начала тело. Сам helper ApiClient не менялся. Это относится к завершённой записи, переданной экрану; освобождение ещё записывающего микрофона при disposal требует отдельной проверки. Точные runtime-профили/версии/ограничения — [реестр](audit-blocks.md#b02--редактирование-и-медиа-07102026).
+## Запись голоса и владение файлом (07.10.2026, QA-B02-003)
+
+`VoiceRecorder.kt` — прежний helper из MainActivity, теперь отдельно: уникальный voice_*.m4a в cache; candidate сохраняется до настройки; повторный start отвергается; stop отделяет ссылки и передаёт успешный файл один раз; cancel освобождает активный recorder и удаляет собственный незавершённый файл; close дополнительно запрещает будущий start. Вызовы release/delete защищены от исключений; успех аппаратной очистки при самом исключении не гарантируется этим кодом/профилем.
+
+ChatComposer (`RidesRequestsChatScreens.kt`) и VoiceRequestScreen (`AccessibilityScreens.kt`) связывают instance/state с context/LocalLifecycleOwner, отменяют текущую запись на ON_PAUSE, закрывают на disposal, разрешают start только RESUMED. В чате `recordingAllowed=true` по умолчанию; ActiveTrip передаёт dynamic `isTripChatActive()`. False закрывает instance и выключает правую кнопку, true создаёт свежий. После успешного stop chat передаёт файл callback и больше им не владеет; request держит preview при паузе/повторе отправки и удаляет его на disposal. ApiClient/backend/общий permission gate не расширены. Новых экранов/enum/строк/палитр/зависимостей нет.
+
+[216 JVM/native2/точные версии и ограничения](audit-blocks.md#b02--запись-голоса-при-уходе-07102026). Native standalone RU chat/BA request: virtual emulator audio, actual MediaRecorder/AAC/activeRecordingConfigurations/owned file, controlled lifecycle/parent removal. Не весь native ActiveTrip/navigation/реальный permission-return/телефон. Снимки синхронизированы с нужным кадром, предыдущий v2 stale-frame результат сохранён историей.
+
+07.10.2026 — B02 sharing/completion owner boundary: `BookingActiveTripScreen.kt` sharing лист имеет собственный `rememberCoroutineScope`; входы create/revoke/dismiss и ответы проверяют живость этой композиции, showShare, поколение login и текущий nonterminal ActiveTrip. Закрытие листа отменяет его jobs независимо от родителя; новый лист получает новый scope. Это локальная UI-политика активной поездки: серверный list/revoke/create после done/cancelled не менялся.
+
+`RideshareCompletedScreen` — wrapper, удерживающий поколение login и keyed child по bookingId+generation. `RideshareCompletedSession` владеет состоянием и scope; receipt/tip loads проверяют владельца до и после suspend, rating/thanks/lost-item — до действия/launch и после ответа, navigation/editor callbacks — на входе. Done остаётся допустимым. Online-pay получает только входную owner-проверку; ответы оплаты относятся к отдельной незакрытой B07-проверке. Доказательства и точные остатки — текущий пункт [реестра](audit-blocks.md#b02--ссылки-и-действия-после-поездки-07102026).
+
+## Список sharing и неясный результат (07.10.2026, QA-B02-003)
+
+В scoped листе ActiveTrip: listLoading/listError/mutationUncertain/mutationBusy/listRequest; initial/retry GET заменяет весь список, включая пустой. Пока список не подтверждён или действие pending/uncertain, mutations запрещены. Busy ставится до launch и читается сохранённой кнопкой. POST/DELETE ошибка требует manualGET, успех revoke выбирает first remaining URL, create сообщает «Ссылка готова». Null booking имеет закрываемую unavailable ошибку. VerticalScroll/Canon/48dp/fade160. Existing sharingScope/session/terminal guards сохранены; shared API/backend не менялся. [Версии,123/native2 и точные пределы](audit-blocks.md#b02--загрузка-списка-ссылок-и-повторные-действия-07102026).
+
+## Completed: загрузка и сверка статуса (07.10.2026)
+
+RideshareCompletedScreen scoped по booking/session: receipt retry ставит loading до tick; GET проверяет текущий tick и active effect после suspend. Tip имеет thanksLoading/error/tick/statusKnown; отправка разрешена лишь после успешной сверки passenger статуса, динамическая роль проверяется перед/после POST. Неясный POST требует manualGET, без повторного POST. Private ActionCard/InlineMessage показывают RU/BA pending/error/retry и saved flag. Rating edit сохраняется после late receipt; платежи и restoration не расширялись. [68/native2, точные версии и ограничения](audit-blocks.md#b02--загрузка-квитанции-и-статуса-благодарности-07102026).
+
+## Completed: восстановление состояния (07.10.2026)
+
+ratingBusy/thanksBusy/lostBusy — transient remember, живут вместе с coroutine scope одной composition. Saveable draft и подтверждённые ratingSent/thanked/lostOpened остаются. После restore квитанция и tip снова загружаются; автоматического replay POST нет, pending rating повторяется только явным кликом. [StateRestorationTester13/current81 и native Activity.recreate2](audit-blocks.md#b02--восстановление-экрана-после-поездки-07102026). Standalone native host не доказывает production YuldashApp/SaveableStateHolder или cold process.
+
+07.10.2026 — B02 navigation: YuldashViewModel хранит navHistory в SavedStateHandle как список имён Screen, clearUserData удаляет saved trail; объекты поездок остаются transient. YuldashApp persistNav следит за trail, rehydrate key=screen/bookingId/session generation; исходное поколение захвачено, stale response не применяет Ride/Home после ухода/смены id/входа. Current actual YuldashApp saved holder/freshVM model и native retainedVM recreation — [реестр](audit-blocks.md#b02--навигация-квитанция-и-возврат-к-черновику-07102026); настоящая смерть процесса ещё открыта.
+
+07.10.2026 — MainActivity process restore: после super(savedBundle) тот же default Activity VM проверяет сохранённый bookingId и screen. Для известной брони вне Splash/Intro/Onboarding/Login base launch intent не переигрывается; начальное назначение без сохранённой брони и fresh onNewIntent остаются. Controlled Android task restore/newPID/actual UI доказан на API35; durable pending43 ещё открыт. [Критерии](audit-blocks.md#b02--смерть-процесса-и-восстановление-квитанции-07102026).
+
+07.10.2026 — MainActivity booking_done → default Activity YuldashViewModel.requestCompletedBooking: saved pending id/owner/revision до HTTP. App completed loader принимает только current owner/revision/runtime session; consume сохраняет screen/id/Back trail до очистки pending. Обычный tracker делегирует VM.recordNavigationChange. Old failed retry callback захватывает owner/type/revision и не заменяет новую поездку/аккаунт; same-owner refresh разрешён. Tracked tools/audit_pending_notification.py использует предыдущий actual process helper: system SINGLE_TOP43 над Receipt42/heldHTTP/savedtask/SIGKILL/plainlauncher→новая43. Saved only booking_done; другие назначения — остаток. [Доказательства](audit-blocks.md#b02--новое-уведомление-во-время-смерти-процесса-07102026).
+
+### Сохранённые личные уведомления и список Notifications,07.10.2026
+
+MainActivity перед Compose получает default Activity VM; booking/chat/booking_done producer пишет общий pending до HTTP. YuldashViewModel.PendingBookingNavigation содержит id/owner/revision/completed. Legacy saved keys сохранены, новый yuldash_pending_booking_completed отсутствует у старого Completed task и трактуется как true. pendingCompletedNavigation — derived projection для прежних внутренних callers; HTTP берёт authoritative pendingBookingNavigation. Revision после consume/clear сохраняется для tombstone copied base intent. Новые onNewIntent принимаются; public URI не подавляется этим tombstone.
+
+YuldashApp проверяет owner/current session/полный record, сохраняет route+Back trail синхронно при consume; manual Retry сохраняет failed kind/owner/revision. NotificationsScreen в SecondaryScreens пересоздаёт feed/состояния по immutable sampled session, публикация HTTP/retained row/read/navigation guard. Guest отображает existing empty без protected GET. [Сценарии и границы](audit-blocks.md#b02--личные-уведомления-брони-и-чата-07102026); wrappers не означают новый отдельный Completed queue.
+
+## Private screen destinations и общий revision (08.10.2026, QA-B02-003)
+
+YuldashViewModel хранит два взаимоисключающих типа pending: прежний booking и PendingScreenNavigation(destination,targetId,ownerId,revision). Новый тип допускает InstantOrder/InstantChat/DriverCabinet/Parcels/SupportTickets/SupportTicket, требует положительный ID для двух detail экранов. Общий KEY_PENDING_REVISION сохраняется после consume/clear и предотвращает copied base replay/старый Retry. NavSignals и DeepLink flags — проекции; publish сразу выставляет нужное значение без false→true импульса. Consume выполняет route→recordNavigationChange→persistNav→clear. instantChatOrderId/supportTicketId перенесены в SavedStateHandle вместе с маршрутом; миграция прежнего rememberSaveable Bundle не проверена.
+
+MainActivity dispatch/явный recipient/save — короткий runIfUnchangedSession generation monitor, допускающий anonymous pre-login; runIfCurrentSession остаётся bearer-required. FcmService/TaxiOfferNotifier включают recipient_user_id в content/fullscreen intent. YuldashApp импортирует legacy bridge с проверкой предыдущей записи, ждёт login/onboarding, применяет record под session guard; active InstantDriverTrip не вытесняется driver offer. Notification row support→конкретный SupportTicket, push support→SupportTickets. Screen.Support — отдельные пожертвования.
+
+[313 JVM/обаAPK/native2/точные версии и границы](audit-blocks.md#b02--такси-посылки-и-обращения-поддержки-08102026). Current Bundle restoration принят, old Bundle migration/legacy recipient/full Home/all child screen privacy не принят.
+
+## Остальные private назначения (08.10.2026, QA-B02-003)
+
+Existing PendingScreenNavigation охватывает ещё AdsCabinet/PartnerCabinet/FairnessCenter/RequestResponses/RequestsFeed/TaxiOnboarding/CourierOnboarding/IncidentDetail. Positive target IDs требуются для RequestResponses и IncidentDetail; responsesRequestId/incidentId читаются из SavedStateHandle и persistNav.11старых bridge states — проекции одной записи, clearUserData их очищает. Fixed legacy importer priority не является временем последнего независимого legacy writer.
+
+Main copied private types включает7новых существующих FCM назначений; raw positive ID gates сохранены. Pushincident→FairnessCenter,feedincident→IncidentDetail(refId); request refId — ID заявки,не Notification.id; legacy request_watch/refkindrequest→RequestsFeed.8 Notifications callbacks используют saved record/sharedrevision, прежний owner callback guard сохраняется. [362unique/обаAPK/native2/Bundle ID и пределы](audit-blocks.md#b02--остальные-личные-назначения-08102026). FullHome/old-version Bundle migration/all childprivacy остаются открыты.
+
+
+## B02 Home: версия от 08.10.2026
+
+`YuldashViewModel.navigateLocally` снимает прежние private pending/bridges, увеличивает общую revision и синхронно вызывает tracker/persist. AppNavHome пять booking/chat/responses входов защищает поколением исходной сессии и Home; public onBookRide допускает гостя через runIfUnchangedSession, остальные требуют bearer. YuldashApp Booking захватывает отображённые ride/bid/status/session/revision; создание и отмена делят session-keyed busy flag, проверяют ответ перед публикацией. RequestResponses после принятия очищает прежний Ride, сохраняет новый booking ID и запускает обычную гидратацию. Новых экранов/ключей/dependencies нет. [Версии, 377 JVM и 2 native, границы](audit-blocks.md#b02--home-создание-и-отмена-брони-08102026).
+
+
+## B02 fresh delivery, 08.10.2026
+
+FcmService/TaxiOfferNotifier каждый показ помечают UUID `yuldash_navigation_delivery_id`; MainActivity принимает валидный свежий private marker поверх current restored active/pending. VM SavedStateHandle хранит `yuldash_initial_notification_delivery`/`yuldash_last_notification_delivery`; consume/logout сохраняют marker. Recipient/target/session guard до commit. Первая/последняя копия блокируется; произвольная middle history/legacy/old Bundle остаются открытыми. YuldashApp успешный role ответ передаёт state.status в Booking кнопки. [417 JVM/2native process+1PendingIntent и границы](audit-blocks.md#b02--новое-уведомление-поверх-сохранённой-задачи-08102026).
+
+
+## 08.10.2026 — B02, старое сохранённое состояние
+
+VM восстанавливает четыре именованных положительных Int-ID и фильтрует историю. Whole root key yuldash-app-saveable-v1 изолирует старые implicit slots/launcher/holder;34 full-state Saver packets проверяют schema/field/owner/type,19 owner-scoped. Missing six root contexts скрыты до children/GET0; late fallback rechecks current IDs/session/revision. Old holder drafts reset once; current same-owner holder journeys retained. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).
+
+
+## 08.10.2026 — B02, старые уведомления без получателя и маркера
+
+MainActivity private dispatch требует matching positive String recipient_user_id до VM/mutation под session guard. Unmarked initial private Intent при meaningful saved screen не замещает маршрут; current marked проверяется прежним first/last delivery механизмом, known-recipient cold/newIntent legacy разрешён. Private guest external action не переносится в новую session; внутренние Home/feed пути прежние. [Контракты, версии и пределы](audit-blocks.md#b02--старые-уведомления-без-получателя-и-маркера-08102026).
+
+08.10.2026 — QA-B02-003 public navigation: YuldashViewModel.navigateLocally и валидные requestScreenDestination/requestBookingDestination очищают transient DeepLink.pendingRideId синхронно. YuldashApp public loader учитывает screen/privateNavigationRevision/navigationSession, захватывает session/revision/runtime attempt и публикует через runIfUnchangedSession после проверки текущего выбора. Success использует navigateLocally. Failed public dialog хранит общую ревизию в уже существующем failedCompletedRevision; public attempt только remember. Public Retry и общий Close требуют живой appScope, того же screen/id/kind/revision/attempt/session. Private Retry branch отдельный и его disposal остаётся открытым. Root namespace/34 Saver packets/19 owner fields не расширены. Pending public Int и selectedRide не стали durable;5 guarded Home routes не означают все Home переходы. Проверенные версии/границы — актуальный QA-B02-003 в audit-blocks.md.
+
+08.10.2026 — HomeRoute общий entry: rememberCoroutineScope живёт ровно вместе с Home, runtime homeDestinationEpoch меняется после принятого исходящего выбора screen!=Home; callbackEpoch/session снимаются при composition. sessionChanges.collectAsState().value наблюдает новые поколения и даёт неизменяемый Long для closure. Entry проверяет scope/screenHome/epoch и current или unchanged session в зависимости от прежней guest/auth политики, затем один vm.navigateLocally.39 оставшихся routing callbacks/delegates используют guest-permitting wrapper;5 прежних выборов сохраняют правила. Incoming pending notification не меняет Home epoch. Root helpers/34 Saver packets/VM schema не изменены. onTabChange/accountDeleted/non-routing actions остаются отдельными boundaries. Версии/сценарии/границы — актуальный QA-B02-003 в audit-blocks.md.
+
+## B02 — удаление аккаунта и позднее подтверждение, 09.10.2026
+
+570distinct=18new(10actualApp/Profile+8joinedAPI/defaultVMreceipt)+550prior+2existing deletion IDs/authfixture;обаAPK. Captured generation до coroutine, API atomic post-delete guest generation, guest-only monitor и Home cleanup через navigateLocally.4behavior RED закрыты; initial0XML tree-print fixture stop отдельно. [Критерии, версии и границы](audit-blocks.md#b02--удаление-аккаунта-и-позднее-подтверждение-09102026). Callback onAccountDeleted теперь принимает Long post-delete receipt через HomeScreen/Profile/HomeRoute. Main/VM/Saver schema не менялись. stopLiveTracking проверен только source/local stubs, не реальный GPS.
+
+09.10.2026 — уточнение передачи этого этапа: после первого freeze независимый reviewer обнаружил новый чужой `.claude/agents/yuldash-bashkir-linguist.md` (содержимое не читали/не меняли). Прежние39 entries сохранны; теперь40=39raw-hashed файлов+1directory. Новая версия freeze сохраняет прежние brain snapshots/receipt aliases; product/test/APK bindings и570IDs не изменились, повтор тестов не требуется. Свои15 paths не включают этот файл. [Текущий foreign manifest](../test-results/b02-account-deletion-foreign-final-v2-20261009.json).
+
+
+## Home: явная вкладка и исходящий слот (10.10.2026, QA-B02-003)
+
+HomeRoute разделяет silent onTabChange и onSelectTab(tab, commit). Root unchanged-session/live Home/epoch gate → navigateLocally → startHomeTab/epoch → commit Shell state/preset/order bridge → persistNav. Shell scope/epoch и per-render tab gate передают navigation callbacks0/1/2/3; local читается в AnimatedContent provider. AccountDeleted остаётся guestreceipt cleanup без tabgate. Bar пока legacy effect и прежний TaxiTripScreen polling/session contract: отдельный next. [604 localcases/версии/границы](audit-blocks.md#b02--явный-выбор-вкладки-home-09102026). Main/VM/API/Profile/enum/strings/deps не менялись.
+
+## 10.10.2026 — тестовая доставка изменений состояния
+
+BookingNotificationFlowTest, LegacyNotificationPrivacyFlowTest и LegacySavedStateCompatibilityTest при manual Compose clock теперь вызывают Snapshot.sendApplyNotifications перед продвижением кадра (2+2+8=12 мест). Последний тест чека вынес прежнее тело в receiptCallbackBeforeQueuedFallback(false); true — новый причинный контроль. Product API/VM/App/Home, версии и зависимости не менялись.
+
+Новый android/app/src/test/java/com/yuldash/app/RobolectricSnapshotDeliveryTestSupport.kt — только тестовый withLostGlobalSnapshotNotification: после готового UI проверяет started, сохраняет AtomicBoolean sent, удерживает sent=true, finally восстанавливает prior и отправляет apply. Это модель потерянной автоматической доставки, не production обход. Reflection привязана к проверенному installed Compose1.11.3; изменение внутреннего поля потребует пересмотра helper. Временная post-failure диагностика удалена из четырёх исходников точным восстановлением байтов. [Критерии, результаты и остатки](audit-blocks.md#b02--ожидания-compose-и-разбор-14-сбоев-10102026).
+
+## 10.10.2026 — ActiveTripBar: версия сессии, ID и опрос
+
+TaxiTripScreen.kt/ActiveTripBar собирает ApiClient.sessionChanges; remember(order) и RepeatWhileVisible используют tripId+generation. Guest/stale effect не запрашивает заказ. ApiClient.getInstantOrder получил optional expectedGeneration; defaultnull сохраняет поведение других callers, bar передаёт захваченное поколение в существующий call guard. После HTTP короткий runIfCurrentSession проверяет live trip и DTO.id; только matched terminal очищает signal. Отрисовка исключает stale/terminal, onClick повторно проверяет gen/currentID/onScreen. Другие API/call/refresh/lifecycle функции не менялись.
+
+Новый ActiveTripBarBoundaryTest.kt:15actual component/API/lifecycle controls на местном HTTP и synthetic sessions. Прежние HomeTabBoundaryTest cases сохранены в622. Session gating панели не доказывает владельца untagged NavSignals во всех writers. [Критерии, версии и остатки](audit-blocks.md#b02--панель-активного-заказа-сессия-и-ответы-10102026).
+
+## TaxiNavigationState: владелец активной поездки, 10.10.2026
+
+Новый android/app/src/main/java/com/yuldash/app/TaxiNavigationState.kt отделяет publication (generation/orderId/publisher, идентичность экземпляра) от ScreenOwner (lease, visibility, finished IDs). NavSignals.activeTaxiTrip/taxiOrderOnScreen/taxiTripOnScreen — совместимые представления с проверкой текущего входа. InstantOrderScreen — внешний sessionChanges/key wrapper, private InstantOrderContent — локальные данные/restore/poll/lease. ActiveTripBar использует publication как ключ памяти/опроса, сравнивает запись при finish/click. HomeShell и PassengerModeHome наблюдают поколение. В ApiClient.getMyInstantOrders добавлен optional expectedGeneration; остальные вызовы сохраняют default. Ни карта, ни общий MainActivity не переписывались. [Критерии, доказательства и остатки](audit-blocks.md#b02--владелец-активной-поездки-и-завершённая-запись-10102026). 649 = 622 сохранённых ID + 25 новых (10 экран/панель, 14 состояние/вход, 1 завершение) + 2 прежних пассажирских сценария, впервые включённых в этот интеграционный набор; 58 классов, 0 отказов/ошибок/пропусков/устаревших XML, оба debug APK, 416.750 с, 70 отпечатков исходников в журнале. SHA не означают body coverage. Другие личные действия InstantOrder/платежей, сохранённый переход InstantOrder после холодного запуска, прежнее нажатие при onScreen=true, завершение удержанного клиентского ответа при STARTED/dispose, настоящий сервер/устройство/FCM/SMS/платёжные провайдеры/production/CI и весь B02/релиз остаются открытыми. Точную единственную историческую причину всех 14 прежних отказов я не могу подтвердить.
+
+
+## Home → InstantOrder: синхронно сохранённое назначение, 10.10.2026
+
+AppNavHome onOpenInstantOrder → HomeScreen → HomeShell: callback вызывается в guarded onSelectTab commit и напрямую requestScreenDestination пишет SavedStateHandle. До commit HomeRoute уже увеличил homeDestinationEpoch; повторный openHomeScreen отверг бы первый выбор, поэтому callback использует существующую защиту commit. HomeShell сохраняет receipt identity/session/visibility/slot/disposal проверки. AppNavOrders InstantOrderScreen наследует existing LocalPoolingNativeMapEnabled(defaulttrue) для native map; тестовый false не означает проверку MapKit. VM schema/legacy-import прежние. 659 различных ID = 649 сохранённых + 10 новых; 59 классов, 0 отказов/ошибок/пропусков/устаревших XML, 370.984 с, 72 отпечатков исходников, оба debug APK. Повторные RED/GREEN не прибавляются к числу уникальных проверок. [Критерии, команды, версии и границы](audit-blocks.md#b02--сохранённый-переход-из-полоски-такси-10102026).
+
+
+## Владелец пассажирских taxi/pay действий, 10.10.2026
+
+InstantOrderContent current picker predicate=screen lease+scope+пустой order/нет scheduled/checking/restoreError. Child scope предохраняет outgoing picker. Cancel current nonterminal ID+busy, matching DTO. ApiClient optional expectedGeneration сохраняет прежних callers; recent захватывает owner перед bg.launch. Shared PayOnlineCard pay callback=(method,owner), wrapper mount owner до return, child key(target namespace+ID), allowed stage (pay/method Idle, check/reset Waiting, Paid нельзя reopen старым reset) и matching paymentId. TaxiReceipt передаёт стабильного родительского paymentOwner через TaxiAfterRideActions; это payment fence, не защита всех receipt данных/кнопок. Gate own-generation и monotonic503. 689 различных ID = 659 сохранённых + 30 новых; 61 класс, 0 отказов/ошибок/пропусков/устаревших XML, 406.437 с, 78 отпечатков исходников и оба debug APK. Повторные прогоны не увеличивают число уникальных проверок. [Доказательства/границы](audit-blocks.md#b02--создание-предзаказ-отмена-и-онлайн-оплата-10102026).
+
+
+## B02 — active TaxiTrip callbacks, 10.10.2026
+
+TaxiTripScreen → owner wrapper + key(order.id,generation) → private TaxiTripContent с latest order/current parent predicate. InstantOrderContent передаёт generation и predicate live order/currentTrip publisher, matching-ID callback. Private ImComing/Pending/Finished принимают current predicate+generation; waypoint update сохраняет исходный индекс. Shared ChangeDestination/PickStop получают optional ownerGeneration/current-parent; GeocoderClient.suggestResult и7API операций принимают optional expectedGeneration (defaults прежние). Сокеты/share/roadside/receipt/winter не закрыты этим шагом. [Доказательства](audit-blocks.md#b02--active-taxitrip-callbacks-10102026).
+
+
+## B02 — ссылки поездки и помощь на дороге, 10.10.2026
+
+Shared InstantShareDialog/LiveLinkCard/RoadsideHelpAction имеют owner wrapper и отдельный child key+scope. Contacts expectedGeneration проверяется до cache fast path; API share/list/revoke/three stuck adapters передают generation. Taxi safety/share и Booking shared-card/help связываются с live родителем; Courier/legacy пока default owner/dispose fence, full phase/target controls отдельны. [Доказательства и границы](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026).
+
+
+## B02 — чек такси: текущий владелец и действия, 10.10.2026
+
+TaxiReceipt: owner wrapper/sessionChanges + child key(order,generation); matching DTO, live root screen/id parent, closed/loading/error guard;9API optional expectedGeneration. Local invalid ID отображает error/back и не вызывает HTTP. Rating/afterride/incident scopes самостоятельны, вложенная PayOnline проверяет родителя. [Доказательства и границы](audit-blocks.md#b02--чек-такси-текущий-владелец-и-действия-10102026).
+
+
+## B02 — зимний вопрос: владелец, таймер и подтверждение, 10.10.2026
+
+WinterProtocol: watcher latest params +captured owner/target/lifecycle; server-state aware retry; dialog keyed opening with async Result and current/busy/closed guards.6API expectedGeneration; Taxi own per-ID start/state +currentTrip/publisher, Booking known passenger status, Courier active selection. [Доказательства/границы](audit-blocks.md#b02--зимний-вопрос-владелец-таймер-и-подтверждение-10102026).
+
+
+## B02 — сверка ссылки после потерянного ответа, 10.10.2026
+
+InstantShareDialog: pending failed mutation → full GET reconciliation; unknown state retires contact/revoke/clipboard/chooser actions; retry GET only. Captured generation/parent/child scope gate before and after request; queued early return clearsbusy infinally. ApiClient.getInstantShares validates full list/IDs/instant namespace; explicitfalse revoke ACK fails. [Версии/границы](audit-blocks.md#b02--сверка-ссылки-после-потерянного-ответа-10102026).
+
+
+## B02 — поздняя сверка ссылки и завершение клиента, 10.10.2026
+
+InstantShareDialog принимает необязательный suspend readShares; по умолчанию это прежний ApiClient.getInstantShares. Дочерний компонент хранит актуальный callback по ссылочному равенству; generation передаётся в initial/recheck. Дополнительных Job не создаётся; наблюдатель настоящего клиентского Job находится в тесте. Защиты и существующие вызывающие экраны прежние. [Доказательства и границы](audit-blocks.md#b02--поздняя-сверка-ссылки-и-завершение-клиента-10102026).
+
+
+## B02 — поздняя повторная сверка после отзыва ссылки, 10.10.2026
+
+Структура продукта и readShares seam прежние. InstantShareLateResponseTest расширен с 26 до 33 методов: общий lateRetry теперь принимает revoke=false по умолчанию, шесть новых методов используют revoke=true; положительный пустой GET разрешает новую текущую ссылку. Подготовительные и новый POST подтверждаются UI/HTTP, отдельно их Job не наблюдался. [Доказательства и границы](audit-blocks.md#b02--поздняя-повторная-сверка-после-отзыва-ссылки-10102026).
+
+
+## B02 — возврат родителя до ответа сверки ссылки, 10.10.2026
+
+InstantShareContent читает currentParent() в composition и через SideEffect сохраняет lastParent/revision в remembered non-snapshot holder. Применённый true→false увеличивает revision; возврат true её не сбрасывает. recheck снимает revision перед readShares, publication требует её совпадения. Pending/key/closed/finally и API прежние; fresh retry возможен. Контекст применяется только к recheck, другие цепочки не объявлены защищёнными этим изменением. [Версии и границы](audit-blocks.md#b02--возврат-родителя-до-ответа-сверки-ссылки-10102026).
+
+
+## B02 — ссылка через экран поездки, 10.10.2026
+
+TaxiTripScreen принимает последним необязательный suspend readShares и передаёт через TaxiTripContent в настоящий InstantShareDialog. Default вызывает прежний ApiClient с поколением входа. Guards/key/showShare/API операций/UI прежние. Новый TaxiTripShareCallerTest открывает Safety→Share и наблюдает настоящий Job на реальном API; DTO transitions синтетические, Main InstantOrder publisher gate отдельно. [Доказательства](audit-blocks.md#b02--ссылка-через-экран-поездки-10102026).
+
+
+## B02 — ссылка и владелец внешнего экрана заказа, 11.10.2026
+
+InstantOrderScreen optional readShares default real ApiClient проходит через InstantOrderContent в настоящий TaxiTripScreen; production parent/lease/DTO/currentTrip gates прежние. Новый InstantOrderShareCallerTest24 открывает весь локальный caller из actual GETmine. Legacy debug148, main declaration/comment; source trace не execution release. 1009 различных ID = 985 сохранённых + 24 новых; 72 класса, 0 отказов/ошибок/пропусков/устаревших XML, 609.063 с, 96 отпечатков исходников. Собраны оба debug APK. Повторы не увеличивают число различных проверок. [Границы](audit-blocks.md#b02--ссылка-и-владелец-внешнего-экрана-заказа-11102026).
+
+
+## B02 — начальная загрузка и удержанные операции ссылки, 11.10.2026
+
+InstantShareOperations — optional immutable contacts/create/revoke callbacks, default real ApiClient/generation; screen→content→TaxiTrip→Dialog. readShares прежний. Initial load/POST/DELETE теперь снимают parentContext revision; retirement load→error/retry, mutation unknown pending создаётся до отправки; отвергнутый preflight до operation снимает только свою pending. Fresh retry только GET, ordinary DTO сохраняет guards. 1047 различных ID = 1009 сохранённых + 38 новых; 73 класса, 0 отказов/ошибок/пропусков/устаревших XML, 683.891 с, 97 отпечатков исходников. Собраны оба debug APK. Повторы не увеличивают число различных проверок. [Границы](audit-blocks.md#b02--начальная-загрузка-и-удержанные-операции-ссылки-11102026).
+
+
+## B02 — ошибка первой загрузки ссылок и кеш контактов, 11.10.2026
+
+InstantOrderShareInitialLoadTest проверяет прежние настоящие callers/initial load/cache ApiClient. Ошибка shares закрывает действия, Retry использует кеш contacts и новый HTTP shares; repeated/reopened callback не создаёт лишних запросов. Архитектуру продукта не меняли. 1059 различных ID = 1047 сохранённых + 12 новых; 74 класса, 0 отказов/ошибок/пропусков/устаревших XML, 869.047 с, 98 отпечатков исходников. Собраны оба debug APK. Повторы/отрицательные контроли не увеличивают число различных проверок. [Границы](audit-blocks.md#b02--ошибка-первой-загрузки-ссылок-и-кеш-контактов-11102026).
+
+
+## B02 — загрузка контактов до запроса и некорректный ответ, 11.10.2026
+
+Initial InstantShareContent preflight теперь вызывает retireLoad при неактуальном контексте: private данные очищены, loading завершён, существующий error/Retry, HTTP0. getContacts проверяет структуру/ID/поля через mapCatching, failure не кешируется; generic call/cache и parseContactDto не менялись. 1096 различных ID = 1059 сохранённых + 37 новых (27 API + 10 UI); 76 классов, 0 отказов/ошибок/пропусков/устаревших XML, 750.922 с, 100 отпечатков исходников. Оба debug APK собраны. 1058 прежних IDs без правок,1 прежний метод укреплён без удаления assertions. Повторы/RED/diagnostic не увеличивают число различных проверок. [Пределы](audit-blocks.md#b02--загрузка-контактов-до-запроса-и-некорректный-ответ-11102026).
+
+
+## B02 — ссылка и запись той же поездки, 11.10.2026
+
+Enroute InstantOrderContent захватывает matching TaxiTripPublication; applied holder сохраняет последнюю свою receipt при null/foreign owner. key(publication) монтирует TaxiTripScreen только после публикации и удаляет старый child при новой своей receipt. currentParent/onOrderUpdated сравнивают currentTrip===capturedPublication. SideEffect publisher и API/TaxiNavigationState/TaxiTripScreen прежние; ordinaryDTO сохраняет receipt/scope. 1112 различных ID = 1096 сохранённых без правок + 16 новых; 77 классов, 0 отказов/ошибок/пропусков/устаревших XML, 810.344 с, 101 отпечаток исходников. Собраны оба debug APK. Повторы/RED/ошибочный новый oracle не увеличивают число уникальных проверок. [Границы](audit-blocks.md#b02--ссылка-и-запись-той-же-поездки-11102026).
+
+
+## B02 — смена контекста до первого запроса контактов, 11.10.2026
+
+Actual outer caller: session generation key удаляет прежний child; unmount освобождает publisher. Queued raw share click и граница до composition/effect не входят в contacts/readShares adapters. Fresh mount/current owner по явному sharing вызывает настоящий contacts+sharesAPI с одним Job. Продукт/ApiClient/TaxiNavigationState/TaxiTripScreen неизменны;1111 oldtests без правок,1await укреплён с сохранением assertions. 1118 различных ID = 1112 сохранённых (1111 без правок,1 ожидание усилено) + 6 новых; 78 классов, 0 отказов/ошибок/пропусков/устаревших XML, 787.812 с, 102 отпечатка исходников. Оба debug APK собраны. Повторы не прибавлены к уникальным проверкам. [Границы](audit-blocks.md#b02--смена-контекста-до-первого-запроса-контактов-11102026).
+
+
+## B02 — поздняя загрузка контактов после удаления, 11.10.2026
+
+ApiClient контакты: monotonic contactsCacheRevision под sessionLock; cachedGet захватывает generation/revision и после HTTP не пишет cache/onValue при старой revision. Same-gen Result прежний, иной session failure. mutateContacts общий дляadd/delete, expectedGeneration/rechecklock передsuccessinvalidate; другие cache keys не ограничены revision. 1143 различных ID = 1118 сохранённых без правок + 15 существующих соседних + 10 новых; 81 класс, 0 отказов/ошибок/пропусков/устаревших XML, 798.469 с, 105 отпечатков исходников. Оба debug APK собраны. Повторы/RED не прибавлены к уникальным проверкам. [Границы](audit-blocks.md#b02--поздняя-загрузка-контактов-после-удаления-11102026).
+
+
+## B02 — поздний ответ изменения контактов и владелец кеша, 11.10.2026
+
+ApiClient не менялся. Queued actual caller задерживает возврат из IO внутриcall до обработки результата mutateContacts. Owner/currentpositive/error401-503 guards теперь имеют runtime-проверку в этой границе; открытыйUI и unknownservercommit отдельны. [Границы](audit-blocks.md#b02--поздний-ответ-изменения-контактов-и-владелец-кеша-11102026).
+
+
+## B02 — изменение контактов без подтверждения, 11.10.2026
+
+ApiClient.mutateContacts сохраняет исходную ошибку, но при том же владельце инвалидирует contacts/revision после JSON parse failure либо неопределённого IOException. Definite pre-send и явные HTTPerrors сохраняют прежнюю политику; старое продолжение не очищает кеш B. [Версия и проверки](audit-blocks.md#b02--изменение-контактов-без-подтверждения-11102026).
+
+
+## B02 — открытый экран контактов после неизвестного ответа, 11.10.2026
+
+TrustedContactsScreen фиксирует owner/sessionChanges, keyed Editor владеет read/add/delete и server snapshot (empty также authoritative). App keyed по privateNavigationRevision принимает полный список; expectedGeneration API и liveparent guard защищают старый callback до frame. Source/runtime/hash различаются: actual App/defaultVM DELETE15 на JVM; native ADD/wrapper6 без App/defaultVM. [Версия/остатки](audit-blocks.md#b02--открытый-экран-контактов-после-неизвестного-ответа-11102026).
+
+
+## B02 — отмена и срок жизни экрана контактов, 11.10.2026
+
+ApiClient.mutateContacts: outer catch CancellationException, same-generation contacts revision invalidation, rethrow. getContacts(expectedGeneration, forceRefresh=false) связывает один owner с кешем/HTTP; новый TrustedContactsEditor делает initial fresh GET. UI cancellation не останавливает blocking IO сразу; actual App/VM DELETE8 на JVM, native6 wrapper regression. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).
+
+
+## B02 — поздний стартовый ответ контактов, 11.10.2026
+
+Контакты bootstrap: effect(sessionVersion,navigationSession) → loadContactsForPublication. Accepted callback под sessionLock/revision+исходный context.isActive+авторизованный owner. cachedGet.notifyOnCacheHit=false по умолчанию, contacts opt-in true; warm/empty также публикуются атомарно. Ordinary getContacts stale samegen Result остаётся success. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).
+
+
+## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
+
+ApiClient.contactDeletions: latest version/generation/contactId, emit only DELETE same-session success/uncertain/CE под sessionLock. Editor guarded loadContactsForPublication(forceRefresh), handled watermark; single already-absent ID skip; version gap forced read; own success watermark предотвращает duplicate, failure marks captured attempt только. Reader в remember scope, не в эффекте с busy key. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).
+
+
+## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
+
+ApiClient.contactAdditions(version,generation) emit same-session ADD success/uncertain/CE под sessionLock. Editor всегда fresh GET для ADD (upsert samephone/ID); оба watermarks в guarded accepted callback, failure только captured. Два observers сериализованы synchronous busy; existing DELETE skip/gap rules сохранены. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).
+
+
+## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
+
+Только mutateContacts передаёт call singleAttemptMutation=true. Contacts transport использует existing OkHttp4.12 retryfalse/redirectsfalse/NONE authenticators/oneShotBody; emptyDELETE0. Тот же flag после explicit401 refresh; общий HUC default и safe-before-send wrapper retry прежние. Response закрывается до refresh и finally. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).
+
+
+## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
+
+cachedGet captures callerContext; ensureActive внутри initial/acceptance sessionLock. readContacts guard доforceRefreshinvalidate. Static packages/boost raw JSON сохраняется только accepted onValue послеparse; cache T List/seedStatic прежние. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).
+
+
+## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
+
+Contacts LaunchedEffect(sessionVersion,navigationSession) unchanged. commitAuth generation/publish→synchronousonContinue version++; actualTGUI bootstrapGET1 иEditorfreshGET2 проверены, не manualauthзамена. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).
+
+
+## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
+
+ApiClient.cachedGet связывает cold-read с монотонным readOrder; CacheEntry хранит порядок принятия. Guard проверяет тот же key+owner под sessionLock; пока новая CacheEntry сохранена, accepted newer success защищает cache/onValue. Более поздняя ошибка не блокирует старый успех. Contacts revision остаётся отдельным барьером; generic eviction отдельно открыт. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).
+
+
+## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
+
+ApiClient.cacheRevisions хранит invalidation version по фиксированному ключу под sessionLock. invalidate increment-before-remove; cachedGet capturesversionbeforefetch ипроверяетприacceptance вместе с readOrder/owner/cancel. Contacts revision теперь тот же generic key mechanism; session generation отдельна. Direct caller Result не изменён. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).

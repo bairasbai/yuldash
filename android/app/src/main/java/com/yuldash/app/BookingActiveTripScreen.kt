@@ -74,6 +74,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
@@ -180,6 +181,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -207,6 +210,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.sizeIn
 import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -281,6 +285,7 @@ import com.yuldash.app.data.Outbox
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -313,8 +318,10 @@ private suspend fun saveTripPass(
             pickupLng = d.pickupLng,
             price = d.price,
             seats = d.seats,
-            paymentNote = "",   // явной договорённости от бэка нет — оплату показываем из price (двуязычно на экране)
+            paymentNote = "",
             savedAt = System.currentTimeMillis(),
+            payMethod = d.payMethod,
+            payAmount = d.payAmount,
         ),
         retryMigration = retryMigration,
         expectedGeneration = expectedGeneration,
@@ -1130,7 +1137,7 @@ internal fun PayAgreementBlock(
                         Text(payMethodLabel(method), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
-                if (summaryAmount != null && summaryAmount > 0) {
+                if (summaryAmount != null) {
                     Text("$summaryAmount ₽", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
@@ -1435,12 +1442,31 @@ internal fun ActiveTripScreen(
     onSupport: () -> Unit = {},
     onOpenReceipt: (Int) -> Unit = {}
 ) {
+    val currentSession by ApiClient.sessionChanges.collectAsState()
+    val tripSession = remember(bookingId) { currentSession }
+    val leave by rememberUpdatedState(onBack)
+    if (currentSession != tripSession) {
+        // Remove all remembered state, sheets, coroutine scopes and subscriptions before navigation.
+        LaunchedEffect(tripSession) { leave() }
+        return
+    }
+    key(bookingId, tripSession) {
+        ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession)
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun ActiveTripContent(
+    ride: Ride?, contacts: List<TrustedContact>, bookingId: Int?,
+    onBack: () -> Unit, onTripEnd: () -> Unit, onSos: () -> Unit,
+    onSupport: () -> Unit, onOpenReceipt: (Int) -> Unit, tripSession: Long,
+) {
     val context = LocalContext.current
     var messages by remember(bookingId) { mutableStateOf<List<MessageDto>>(emptyList()) }
     val voiceScope = rememberCoroutineScope()
     // Русский тут на «ты», башкирский был на «вы» (тикшерегеҙ) — тон обязан совпадать в обоих языках.
     val statusErrMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшер.")
-    val shareErrMsg = appText("Не удалось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер.")
     val driverNotifiedMsg = appText("Пассажир уведомлён", "Пассажир хәбәрҙар ителде")
     val chatSendFailMsg = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла.")
     val chatActionFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
@@ -1461,7 +1487,8 @@ internal fun ActiveTripScreen(
     }
     // F11: офлайн-паспорт брони. Читаем СРАЗУ из локального (secure) хранилища — данные видны без сети.
     var tripPass by remember(bookingId) { mutableStateOf(bookingId?.let { TripPassStore.load(context, it) }) }
-    val tripSession = remember(bookingId) { ApiClient.queueSessionGeneration() }
+    fun isTripSessionCurrent() = tripSession == ApiClient.queueSessionGeneration()
+    fun isTripChatActive() = voiceScope.isActive && isTripSessionCurrent() && bookingStatus != "done" && bookingStatus != "cancelled"
     var removalFailed by remember(bookingId) { mutableStateOf(false) }
     var removalBusy by remember(bookingId) { mutableStateOf(false) }
     var removalRetry by remember(bookingId) { mutableStateOf(0) }
@@ -1547,6 +1574,8 @@ internal fun ActiveTripScreen(
     val arrivalAsked = rememberSaveable(bookingId) { mutableStateOf(false) }
     var departIso by remember(bookingId) { mutableStateOf("") }
     var armAfterMs by remember(bookingId) { mutableStateOf(ARRIVAL_CHECK_FALLBACK_MS) }
+    fun isWinterBookingCurrent() = bookingId != null && bookingId > 0 && isTripChatActive() &&
+        role == "passenger" && bookingStatusAllowsBoarding(bookingStatus)
     // F12: пробудить проверку «доехал?» один раз, когда прошёл буфер после выезда, а поездка
     // ещё активна (не done/cancelled). Буфер — эвристика (ETA в этом экране нет): сервер сам
     // не пошлёт пуш до depart_at и не эскалирует раньше 30 мин + активного шаринга.
@@ -1557,11 +1586,13 @@ internal fun ActiveTripScreen(
             iso.takeIf { it.isNotBlank() }?.let(::parseIsoUtcMillis)
         },
         // Водителя не спрашиваем: протокол сторожит того, кого везут.
-        active = { bookingStatus != "done" && bookingStatus != "cancelled" && role != "driver" },
+        active = ::isWinterBookingCurrent,
         asked = arrivalAsked,
         show = showArrivalCheck,
         armAfterMs = armAfterMs,
-        onArm = { bookingId?.let { ApiClient.winterCheck(it) } },   // сервер решит: too_early / check_sent
+        ownerGeneration = tripSession,
+        isCurrentTarget = ::isWinterBookingCurrent,
+        onArm = { owner -> ApiClient.winterCheck(bookingId!!, expectedGeneration = owner) },
     )
     // Ключуем по bookingId: черновик/режим редактирования/выбранный статус не должны утекать в другую бронь.
     var draft by remember(bookingId) { mutableStateOf("") }
@@ -1570,7 +1601,7 @@ internal fun ActiveTripScreen(
     var showDriverFinishConfirmation by rememberSaveable(bookingId) { mutableStateOf(false) }
     var showShare by remember { mutableStateOf(false) }
     val shareSheet = rememberModalBottomSheetState()
-    val tripSharedPrefix = appText("Поездка отправлена", "Сәфәр ебәрелде")
+    val tripSharedPrefix = appText("Ссылка готова", "Һылтанма әҙер")
     val shareRevokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
 
     val myId = remember { ApiClient.myUserId() ?: -1 }
@@ -1584,6 +1615,8 @@ internal fun ActiveTripScreen(
     var tempSeq by remember(bookingId) { mutableStateOf(-2) }
     val restAttempts = remember(bookingId) { mutableMapOf<Int, com.yuldash.app.data.OutboxAction>() }
     var boardingCode by remember(bookingId) { mutableStateOf("") }
+    var codeLoadFailed by remember(bookingId) { mutableStateOf(false) }
+    var codeLoadRetry by remember(bookingId) { mutableStateOf(0) }
     var codeSaveFailed by remember(bookingId) { mutableStateOf(false) }
     var codeSaveBusy by remember(bookingId) { mutableStateOf(false) }
     var codeSaveRetry by remember(bookingId) { mutableIntStateOf(0) }
@@ -1628,24 +1661,27 @@ internal fun ActiveTripScreen(
     // История — по REST (один раз, + повтор по кнопке). + код посадки брони.
     LaunchedEffect(bookingId, historyTick) {
         val id = bookingId ?: run { historyLoading = false; return@LaunchedEffect }
-        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        if (!isTripChatActive()) return@LaunchedEffect
         historyLoading = true
         historyError = false
         val historyResult = ApiClient.getMessages(id)
         // Каждый запрос защищён отдельно, но следующий иначе захватит уже новый аккаунт.
-        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        if (!isTripChatActive()) return@LaunchedEffect
         historyResult
             .onSuccess { messages = it }
             .onFailure { historyError = true }
         historyLoading = false
         val codeResult = ApiClient.getBoardingCode(id)
-        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        if (!isTripChatActive()) return@LaunchedEffect
+        if (bookingStatus != "done" && bookingStatus != "cancelled") {
+            codeLoadFailed = codeResult.getOrNull().isNullOrBlank()
+        }
         codeResult.onSuccess { code ->
             if (bookingStatus == "done" || bookingStatus == "cancelled") return@onSuccess
             if (code.isNotBlank()) boardingCode = code
         }
         val detailsResult = ApiClient.getBookingDetails(id)
-        if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        if (!isTripChatActive()) return@LaunchedEffect
         detailsResult.onSuccess { d ->
             payMethod = d.payMethod
             payAmount = d.payAmount
@@ -1656,15 +1692,28 @@ internal fun ActiveTripScreen(
         }
     }
 
+    // Retry only the code request; chat history and trip mutations must not be repeated.
+    LaunchedEffect(bookingId, codeLoadRetry) {
+        val id = bookingId ?: return@LaunchedEffect
+        if (codeLoadRetry == 0 || !isTripSessionCurrent() || terminalBooking != null) return@LaunchedEffect
+        codeLoadFailed = false
+        val result = ApiClient.getBoardingCode(id)
+        if (!isTripSessionCurrent() || bookingStatus == "done" || bookingStatus == "cancelled") return@LaunchedEffect
+        codeLoadFailed = result.getOrNull().isNullOrBlank()
+        result.onSuccess { code -> if (code.isNotBlank()) boardingCode = code }
+    }
+
     // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
     val chatSocket = remember(bookingId) {
         bookingId?.let { id ->
             ChatSocket(
                 bookingId = id,
+                expectedGeneration = tripSession,
                 onMessage = { inc ->
                     // WS-колбэк приходит с фонового потока OkHttp → правку Compose-state делаем на main
                     // (read-modify-write `messages` иначе может потерять обновление при гонке потоков).
                     voiceScope.launch {
+                        if (!isTripChatActive()) return@launch
                         // оптимистичное = отрицательный id, не помеченное как «не доставлено», моё, тот же текст
                         val optIdx = messages.indexOfFirst { it.id < 0 && it.id !in failedIds && it.senderId == myId && it.text == inc.text }
                         val dto = MessageDto(inc.id, inc.text, inc.senderId, flag = inc.flag, fromAdmin = inc.fromAdmin)
@@ -1675,12 +1724,15 @@ internal fun ActiveTripScreen(
                         }
                     }
                 },
-                onConnected = { wsConnected = it },
+                onConnected = { connected ->
+                    voiceScope.launch { if (isTripChatActive()) wsConnected = connected }
+                },
                 // Сервер не принял сообщение (слишком быстрый поток). Помечаем его
                 // «Не доставлено · Повторить» — тем же способом, что и отказ по обычному
                 // запросу. Молча оставить нельзя: оно висело бы как отправленное.
                 onRejected = { tempId, _ ->
                     voiceScope.launch {
+                        if (!isTripChatActive()) return@launch
                         failedIds = failedIds + tempId
                         Toast.makeText(context, tooFastMsg, Toast.LENGTH_SHORT).show()
                     }
@@ -1688,17 +1740,19 @@ internal fun ActiveTripScreen(
             )
         }
     }
-    DisposableEffect(bookingId) {
-        chatSocket?.connect()
+    DisposableEffect(bookingId, terminalBooking) {
+        if (terminalBooking == null) chatSocket?.connect()
+        else { wsConnected = false; chatSocket?.close() }
         onDispose { chatSocket?.close() }
     }
     // После авто-реконнекта WS (был обрыв → связь вернулась) дотягиваем пропущенные сообщения по REST:
     // живой приём мог простоять, пока сокет был мёртв. Первый коннект не трогаем — историю уже грузит эффект выше.
     var wasEverConnected by remember(bookingId) { mutableStateOf(false) }
     LaunchedEffect(wsConnected) {
+        if (!isTripChatActive()) return@LaunchedEffect
         if (wsConnected) {
             if (wasEverConnected) {
-                bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { messages = it } }
+                bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { if (isTripChatActive()) messages = it } }
             }
             wasEverConnected = true
         }
@@ -1708,12 +1762,20 @@ internal fun ActiveTripScreen(
     // разгружаем очередь (сообщения/статусы), затем подтягиваем авторитетную историю и состояние.
     fun flushOutbox() {
         val id = bookingId ?: return
+        if (!isTripChatActive()) return
         voiceScope.launch {
-            val changed = Outbox.flush(context)
+            if (!isTripChatActive()) return@launch
+            val changed = Outbox.flush(context, expectedGeneration = tripSession, shouldContinue = ::isTripChatActive)
+            if (!isTripChatActive()) return@launch
             if (changed) {
                 queuedIds = emptySet()
-                ApiClient.getMessages(id).onSuccess { messages = it }
-                ApiClient.getTripState(id).onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; acceptBookingStatus(st.status); offline = false }
+                ApiClient.getMessages(id).onSuccess { if (isTripChatActive()) messages = it }
+                if (!isTripChatActive()) return@launch
+                ApiClient.getTripState(id).onSuccess { st ->
+                    if (!isTripChatActive()) return@onSuccess
+                    role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified
+                    aloneWithDriver = st.aloneWithDriver; acceptBookingStatus(st.status); offline = false
+                }
             }
         }
     }
@@ -1738,7 +1800,8 @@ internal fun ActiveTripScreen(
     // - ошибка сервера → «Не доставлено · Повторить» (ручной повтор, как прежде).
     fun deliver(tempId: Int, text: String) {
         val bid = bookingId ?: return
-        val queueSession = ApiClient.queueSessionGeneration()
+        if (!isTripChatActive()) return
+        val queueSession = tripSession
         val ws = chatSocket
         // tempId уходит на сервер: если он откажется принять сообщение, вернёт этот же номер,
         // и мы пометим «Не доставлено» именно это сообщение (см. onRejected).
@@ -1746,10 +1809,13 @@ internal fun ActiveTripScreen(
         if (sentViaWs) return   // эхо WS заменит оптимистичное сообщение настоящим
         val action = restAttempts.getOrPut(tempId) { Outbox.newMessage(bid, text) }
         voiceScope.launch {
+            if (!isTripChatActive()) return@launch
             ApiClient.sendMessage(bid, action.payload, Outbox.messageRequestKey(action))
-                .onSuccess { ApiClient.getMessages(bid).onSuccess { messages = it } }   // забираем авторитетную историю
+                .onSuccess { if (isTripChatActive()) ApiClient.getMessages(bid).onSuccess { if (isTripChatActive()) messages = it } }
                 .onFailure { e ->
+                    if (!isTripSessionCurrent()) return@onFailure
                     if (e is ApiException) {
+                        if (!isTripChatActive()) return@onFailure
                         failedIds = failedIds + tempId
                         // Сервер знает причину: чат закрылся после поездки, собеседник в блокировке.
                         // «Не отправилось» об этом молчало, и человек писал в пустоту.
@@ -1757,6 +1823,7 @@ internal fun ActiveTripScreen(
                     } else {
                         // Нет сети → в очередь на авто-ретрай. Сообщение остаётся на экране с меткой «в очереди».
                         val saved = withContext(Dispatchers.IO) { Outbox.enqueue(context, action, queueSession) }
+                        if (!isTripChatActive()) return@onFailure
                         if (saved) queuedIds = queuedIds + tempId else failedIds = failedIds + tempId
                         Toast.makeText(context, if (saved) queuedMsg else queueSaveFailMsg, Toast.LENGTH_SHORT).show()
                     }
@@ -1766,7 +1833,7 @@ internal fun ActiveTripScreen(
 
     fun sendText(text: String) {
         val t = text.trim()
-        if (t.isEmpty() || bookingId == null) return
+        if (t.isEmpty() || bookingId == null || !isTripChatActive()) return
         val tempId = tempSeq
         tempSeq -= 1
         messages = messages + MessageDto(tempId, t, myId)   // показываем сразу (оптимистично)
@@ -1774,6 +1841,7 @@ internal fun ActiveTripScreen(
     }
 
     fun retry(tempId: Int, text: String) {
+        if (!isTripChatActive()) return
         failedIds = failedIds - tempId
         deliver(tempId, text)
     }
@@ -1790,18 +1858,22 @@ internal fun ActiveTripScreen(
     // тот же серверный переход, очередь без сети и очистку офлайн-паспорта.
     fun updateTripStatus(st: String) {
         val bid = bookingId
-        val queueSession = ApiClient.queueSessionGeneration()
+        if (!isTripSessionCurrent()) return
+        val queueSession = tripSession
         if (role == "driver") {
             if (bid == null) {
                 if (st == "done") bookingStatus = "done"
             } else voiceScope.launch {
+                if (!isTripSessionCurrent()) return@launch
                 ApiClient.driverStatus(bid, st)
                     .onSuccess {
+                        if (!isTripSessionCurrent()) return@onSuccess
                         if (st == "done") {
                             bookingStatus = "done"
                         } else {
                             Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
                             ApiClient.getTripState(bid).onSuccess { s ->
+                                if (!isTripSessionCurrent()) return@onSuccess
                                 role = s.role
                                 driverPhase = s.driverPhase
                                 arrivalVerified = s.arrivalVerified
@@ -1811,8 +1883,10 @@ internal fun ActiveTripScreen(
                         }
                     }
                     .onFailure { e ->
+                        if (!isTripSessionCurrent()) return@onFailure
                         if (e !is ApiException) {
                             val saved = withContext(Dispatchers.IO) { Outbox.enqueue(context, Outbox.newDriverStatus(bid, st), queueSession) }
+                            if (!isTripSessionCurrent()) return@onFailure
                             Toast.makeText(context, if (saved) queuedMsg else queueSaveFailMsg, Toast.LENGTH_SHORT).show()
                         } else {
                             // Сервер объясняет отказ подробно: «ты ещё далеко от места
@@ -1829,11 +1903,14 @@ internal fun ActiveTripScreen(
             if (bid == null) {
                 if (st == "done") bookingStatus = "done"
             } else voiceScope.launch {
+                if (!isTripSessionCurrent()) return@launch
                 ApiClient.setTripStatus(bid, st)
                     .onSuccess {
+                        if (!isTripSessionCurrent()) return@onSuccess
                         if (st == "done") {
                             bookingStatus = "done"
                         } else ApiClient.getTripState(bid).onSuccess { s ->
+                            if (!isTripSessionCurrent()) return@onSuccess
                             role = s.role
                             driverPhase = s.driverPhase
                             arrivalVerified = s.arrivalVerified
@@ -1842,11 +1919,16 @@ internal fun ActiveTripScreen(
                         }
                     }
                     .onFailure { e ->
+                        if (!isTripSessionCurrent()) return@onFailure
                         if (e !is ApiException) {
                             val saved = withContext(Dispatchers.IO) { Outbox.enqueue(context, Outbox.newTripStatus(bid, st), queueSession) }
+                            if (!isTripSessionCurrent()) return@onFailure
                             if (!saved && status == st) status = previousStatus
                             Toast.makeText(context, if (saved) queuedMsg else queueSaveFailMsg, Toast.LENGTH_SHORT).show()
                         } else {
+                            // A rejected server transition must leave the same passenger action retryable.
+                            // Do not undo a newer state if another operation already advanced it.
+                            if (status == st) status = previousStatus
                             // Сервер объясняет отказ подробно: «ты ещё далеко от места
                             // подачи (≈1.4 км)». Своё «проверь сеть» здесь неправда —
                             // сеть работает, а водитель жмёт кнопку снова и снова.
@@ -1929,11 +2011,16 @@ internal fun ActiveTripScreen(
                             }
                         }
                     },
-                    onPrimary = { updateTripStatus(nextTripStatus) },
+                    onPrimary = {
+                        if (isTripSessionCurrent()) {
+                            if (role == "driver" && nextTripStatus == "done") showDriverFinishConfirmation = true
+                            else updateTripStatus(nextTripStatus)
+                        }
+                    },
                     finishText = if (role == "driver" && driverPhase == "departed") {
                         appText("Завершить поездку", "Сәфәрҙе тамамлау")
                     } else null,
-                    onFinish = { showDriverFinishConfirmation = true },
+                    onFinish = { if (isTripSessionCurrent()) showDriverFinishConfirmation = true },
                 )
             }
         },
@@ -1986,6 +2073,8 @@ internal fun ActiveTripScreen(
                         }
                     },
                     boardingCode = boardingCode,
+                    boardingCodeLoadFailed = codeLoadFailed,
+                    onRetryBoardingCode = { if (isTripSessionCurrent()) codeLoadRetry++ },
                     role = role,
                     driverPhase = driverPhase,
                     passengerStatus = status,
@@ -2035,14 +2124,14 @@ internal fun ActiveTripScreen(
                     AlonePassengerHint(onShare = { showShare = true }, modifier = Modifier.appearIn(1))
                 }
             }
-            if (bookingId != null) {
+            if (bookingId != null && (!offline || tripPass?.payMethod in payMethodKeys)) {
                 item {
                     Box(Modifier.appearIn(1)) {
                         PayAgreementBlock(
                             editable = false,
-                            method = payMethod,
+                            method = if (offline) tripPass!!.payMethod!! else payMethod,
                             amountText = "",
-                            summaryAmount = payAmount,
+                            summaryAmount = if (offline) tripPass!!.effectivePayAmount else payAmount,
                             onMethod = {},
                             onAmount = {}
                         )
@@ -2232,7 +2321,8 @@ internal fun ActiveTripScreen(
                     // Цена попутки задаётся водителем в целых рублях — переводим в копейки
                     // на границе, потому что карточка оплаты считает деньги в копейках.
                     amountKop = (payAmount ?: ride?.price?.takeIf { it > 0 })?.times(100),
-                    pay = { m -> ApiClient.payBooking(bookingId, m) },
+                    pay = { m, owner -> ApiClient.payBooking(bookingId, m, expectedGeneration = owner) },
+                    targetKey = "booking:$bookingId",
                     modifier = Modifier.appearIn(2),
                 )
             }
@@ -2452,12 +2542,14 @@ internal fun ActiveTripScreen(
                     canDeleteAll = saved && m.senderId == myId && !m.deleted,
                     canDeleteMine = saved && !m.deleted,
                     onRetry = { retry(m.id, m.text) },
-                    onEdit = { editingId = m.id; draft = m.text },
+                    onEdit = { if (isTripChatActive()) { editingId = m.id; draft = m.text } },
                     onDelete = { scope ->
-                        if (bookingId != null) voiceScope.launch {
-                            ApiClient.deleteMessage(bookingId, m.id, scope)
-                                .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                .onFailure { Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
+                        if (bookingId != null && isTripChatActive()) voiceScope.launch {
+                            if (!isTripChatActive()) return@launch
+                            val result = ApiClient.deleteMessage(bookingId, m.id, scope)
+                            if (!isTripChatActive()) return@launch
+                            result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
+                                .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
                         }
                     },
                 )
@@ -2482,16 +2574,19 @@ internal fun ActiveTripScreen(
                 }
                 ChatComposer(
                     draft = draft,
-                    onDraftChange = { draft = it },
+                    recordingAllowed = isTripChatActive(),
+                    onDraftChange = { if (isTripChatActive()) draft = it },
                     onSend = {
                         val t = draft.trim()
-                        if (t.isNotEmpty() && bookingId != null) {
+                        if (t.isNotEmpty() && bookingId != null && isTripChatActive()) {
                             val eid = editingId
                             if (eid != null) {
                                 voiceScope.launch {
-                                    ApiClient.editMessage(bookingId, eid, t)
-                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
+                                    if (!isTripChatActive()) return@launch
+                                    val result = ApiClient.editMessage(bookingId, eid, t)
+                                    if (!isTripChatActive()) return@launch
+                                    result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
+                                        .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
                                 }
                                 editingId = null
                             } else {
@@ -2501,30 +2596,38 @@ internal fun ActiveTripScreen(
                         }
                     },
                     onVoiceRecorded = { path, _ ->
-                        Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show()
-                        if (bookingId != null) voiceScope.launch {
-                            val bytes = runCatching { File(path).readBytes() }.getOrNull()
-                            if (bytes != null) ApiClient.uploadVoice(bytes)
-                                .onSuccess { url ->
-                                    ApiClient.sendVoiceMessage(bookingId, url)   // результат больше НЕ выброшен: сбой = «не отправилось», не молчим
-                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                                }
-                                .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                            // Запись ушла (или не ушла) — на телефоне ей делать нечего: это голос
-                            // человека, и он не должен копиться в кеше до смены владельца (волна 75).
+                        if (bookingId == null || !isTripChatActive()) {
                             ApiClient.dropVoiceFile(path)
+                        } else {
+                            Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show()
+                            voiceScope.launch {
+                                if (!isTripChatActive()) return@launch
+                                val bytes = withContext(Dispatchers.IO) { runCatching { File(path).readBytes() }.getOrNull() }
+                                    ?: return@launch
+                                if (!isTripChatActive()) return@launch
+                                val upload = ApiClient.uploadVoice(bytes)
+                                if (!isTripChatActive()) return@launch
+                                upload.onSuccess { url ->
+                                    val result = ApiClient.sendVoiceMessage(bookingId, url)
+                                    if (!isTripChatActive()) return@launch
+                                    result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
+                                        .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
+                                }.onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
+                            // Completion also runs for a launch cancelled before its body starts.
+                            }.invokeOnCompletion { ApiClient.dropVoiceFile(path) }
                         }
                     },
                     onPhotoPicked = { bytes ->
-                        if (bookingId != null) voiceScope.launch {
-                            ApiClient.uploadChatPhoto(bytes)
-                                .onSuccess { url ->
-                                    ApiClient.sendPhotoMessage(bookingId, url)   // результат больше НЕ выброшен
-                                        .onSuccess { ApiClient.getMessages(bookingId).onSuccess { messages = it } }
-                                        .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                                }
-                                .onFailure { Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
+                        if (bookingId != null && isTripChatActive()) voiceScope.launch {
+                            if (!isTripChatActive()) return@launch
+                            val upload = ApiClient.uploadChatPhoto(bytes)
+                            if (!isTripChatActive()) return@launch
+                            upload.onSuccess { url ->
+                                val result = ApiClient.sendPhotoMessage(bookingId, url)
+                                if (!isTripChatActive()) return@launch
+                                result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
+                                    .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
+                            }.onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
                         }
                     },
                     onQuickSend = { phrase -> sendText(phrase) }   // готовая фраза — тот же надёжный путь (WS→REST)
@@ -2535,8 +2638,10 @@ internal fun ActiveTripScreen(
             if (bookingId != null && bookingStatusAllowsBoarding(bookingStatus)) {
                 item {
                     // Блок общий с такси и доставкой (RoadsideHelp.kt): копии разошлись текстами.
-                    RoadsideHelpAction(key = bookingId, modifier = Modifier.appearIn(5)) { lat, lng ->
-                        ApiClient.roadsideHelp(bookingId, lat, lng, "")
+                    RoadsideHelpAction(key = bookingId, modifier = Modifier.appearIn(5),
+                        ownerGeneration = tripSession,
+                        isCurrentParent = { isTripChatActive() && bookingStatusAllowsBoarding(bookingStatus) }) { lat, lng, generation ->
+                        ApiClient.roadsideHelp(bookingId, lat, lng, "", expectedGeneration = generation)
                     }
                 }
             }
@@ -2556,59 +2661,106 @@ internal fun ActiveTripScreen(
         }
     }
 
-    WinterArrivalDialog(showArrivalCheck) {
-        val bid = bookingId
-        if (bid != null) voiceScope.launch { ApiClient.winterCheckOk(bid) }
+    WinterArrivalDialog(showArrivalCheck, bookingId, tripSession, ::isWinterBookingCurrent) { owner ->
+        ApiClient.winterCheckOk(bookingId!!, expectedGeneration = owner)
     }
 
-    if (showShare) {
-        ModalBottomSheet(onDismissRequest = { showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
+    if (showShare && isTripChatActive()) {
+        // A fresh scope for each opening rejects its predecessor's results and retained callbacks.
+        val sharingScope = rememberCoroutineScope()
+        fun isShareCurrent() = sharingScope.isActive && showShare && isTripChatActive()
+        ModalBottomSheet(onDismissRequest = { if (isShareCurrent()) showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
             // Ссылка live-поездки (B7c): после выбора близкого показываем её тут же —
             // скопировать или отправить самому через системный share-sheet.
             var liveLink by remember { mutableStateOf<String?>(null) }
             // Приватность: кому сейчас открыта поездка + возможность отозвать.
             var activeShares by remember { mutableStateOf<List<Pair<com.yuldash.app.data.TripShareDto, String>>>(emptyList()) }
-            // «Поделиться ещё» гасит вид ссылки, но список активных ссылок оставляем видимым.
             var showContacts by remember { mutableStateOf(true) }
-            // Спрашиваем сервер, кому уже открыто. Раньше список жил только в памяти экрана:
-            // человек делился, сворачивал приложение — и отзывать было нечего, хотя ссылка на
-            // его живое местоположение работала до конца поездки (аудит 2026-08-06). Старый
-            // сервер без этой ручки просто вернёт ошибку — поведение как раньше, ничего не ломаем.
-            LaunchedEffect(bookingId) {
-                val bid = bookingId ?: return@LaunchedEffect
+            var listLoading by remember { mutableStateOf(true) }
+            var listError by remember { mutableStateOf(false) }
+            var mutationUncertain by remember { mutableStateOf(false) }
+            var mutationBusy by remember { mutableStateOf(false) }
+            var listRequest by remember { mutableIntStateOf(0) }
+            fun canMutate() = isShareCurrent() && !listLoading && !listError && !mutationBusy
+            fun reloadShares() {
+                if (!isShareCurrent() || listLoading || mutationBusy) return
+                // Set before launch: retained callbacks in the same frame must see the lock.
+                listLoading = true
+                listError = false
+                listRequest++
+            }
+            fun reconcileShares() {
+                // A failed POST/DELETE can follow a committed server change. Only GET settles access.
+                mutationUncertain = true
+                listError = true
+            }
+            LaunchedEffect(bookingId, listRequest) {
+                if (!isShareCurrent()) return@LaunchedEffect
+                val bid = bookingId
+                if (bid == null) {
+                    listError = true
+                    listLoading = false
+                    return@LaunchedEffect
+                }
                 ApiClient.getBookingShares(bid).onSuccess { srv ->
-                    if (srv.isEmpty()) return@onSuccess
+                    if (!isShareCurrent()) return@onSuccess
                     activeShares = srv.map { s ->
                         s to (contacts.firstOrNull { it.id == s.contactId }?.name ?: "")
                     }
                     liveLink = srv.firstNotNullOfOrNull { it.link?.takeIf(String::isNotBlank) }
-                    showContacts = false   // есть кому открыто → сразу показываем список, а не выбор контакта
+                    showContacts = srv.isEmpty()
+                    mutationUncertain = false
+                    listError = false
+                }.onFailure {
+                    if (isShareCurrent()) listError = true
                 }
+                if (isShareCurrent()) listLoading = false
             }
-            Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
                 val link = liveLink
-                if (activeShares.isNotEmpty() && !showContacts) {
+                if (listLoading) {
+                    Text(appText("Проверяем ссылки…", "Һылтанмаларҙы тикшерәбеҙ…"), color = CanonText, modifier = Modifier.padding(vertical = 16.dp))
+                    LinearProgressIndicator(Modifier.fillMaxWidth().testTag("tripSharesLoading"), color = CanonGreen2)
+                } else if (listError) {
+                    Text(
+                        if (bookingId == null) appText("Не удалось открыть ссылки. Открой поездку заново.", "Һылтанмаларҙы асып булманы. Сәфәрҙе яңынан ас.")
+                        else if (mutationUncertain) appText("Не получилось подтвердить результат. Обнови список ссылок.", "Һөҙөмтәне раҫлап булманы. Һылтанмалар исемлеген яңырт.")
+                        else appText("Не удалось загрузить ссылки. Проверь сеть и повтори.", "Һылтанмаларҙы йөкләп булманы. Селтәрҙе тикшереп ҡабатла."),
+                        color = CanonText, modifier = Modifier.padding(vertical = 16.dp).testTag("tripSharesError"),
+                    )
+                    TextButton(onClick = { if (bookingId == null) { if (isShareCurrent()) showShare = false } else reloadShares() }, modifier = Modifier.heightIn(min = 48.dp).testTag("tripSharesRetry")) {
+                        Text(if (bookingId == null) appText("Закрыть", "Ябыу") else if (mutationUncertain) appText("Обновить список", "Исемлекте яңыртыу") else appText("Повторить", "Ҡабатлау"), color = CanonGreen2)
+                    }
+                } else if (activeShares.isNotEmpty() && !showContacts) {
                     Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
-                    if (!link.isNullOrBlank()) LiveLinkCard(link)
-                    ActiveSharesList(activeShares) { share ->
+                    if (!link.isNullOrBlank()) LiveLinkCard(link, ownerGeneration = tripSession,
+                        isCurrentParent = { isShareCurrent() && !listLoading && !listError && !mutationBusy &&
+                            !showContacts && liveLink == link && activeShares.any { it.first.link == link } })
+                    ActiveSharesList(activeShares, enabled = !mutationBusy) { share ->
                         val bid = bookingId
-                        if (bid != null) voiceScope.launch {
-                            ApiClient.revokeBookingShare(bid, share.id)
+                        if (bid != null && canMutate() && !showContacts && activeShares.any { it.first.id == share.id }) {
+                            mutationBusy = true
+                            sharingScope.launch {
+                                if (!isShareCurrent()) return@launch
+                                try { ApiClient.revokeBookingShare(bid, share.id)
                                 .onSuccess {
+                                    if (!isShareCurrent()) return@onSuccess
                                     activeShares = activeShares.filterNot { it.first.id == share.id }
-                                    if (activeShares.none { !it.first.link.isNullOrBlank() }) liveLink = null
+                                    liveLink = activeShares.firstNotNullOfOrNull { it.first.link?.takeIf(String::isNotBlank) }
                                     if (activeShares.isEmpty()) showContacts = true
                                     Toast.makeText(context, shareRevokedMsg, Toast.LENGTH_SHORT).show()
                                 }
-                                .onFailure { Toast.makeText(context, serverSaid(it, shareErrMsg), Toast.LENGTH_LONG).show() }
+                                .onFailure { if (isShareCurrent()) reconcileShares() }
+                                } finally { if (isShareCurrent()) mutationBusy = false }
+                            }
                         }
                     }
                     Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton(onClick = { showContacts = true }) {
+                        TextButton(enabled = !mutationBusy, onClick = { if (canMutate()) showContacts = true }) {
                             Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                         }
-                        TextButton(onClick = { showShare = false }) {
+                        TextButton(onClick = { if (isShareCurrent()) showShare = false }) {
                             Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold)
                         }
                     }
@@ -2619,23 +2771,29 @@ internal fun ActiveTripScreen(
                 }
                 contacts.forEach { c ->
                     Row(
-                        Modifier.fillMaxWidth().clickable {
+                        Modifier.fillMaxWidth().clickable(enabled = !mutationBusy) {
                             val bid = bookingId
-                            if (bid != null) voiceScope.launch {
-                                ApiClient.shareTrip(bid, c.id)
+                            if (bid != null && canMutate() && showContacts) {
+                                mutationBusy = true
+                                sharingScope.launch {
+                                    if (!isShareCurrent()) return@launch
+                                    try { ApiClient.shareTrip(bid, c.id)
                                     .onSuccess { share ->
-                                        Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
+                                        if (!isShareCurrent()) return@onSuccess
                                         if (share != null) {
                                             activeShares = activeShares.filterNot { it.first.id == share.id } + (share to c.name)
-                                            if (!share.link.isNullOrBlank()) liveLink = share.link
+                                            liveLink = share.link?.takeIf(String::isNotBlank)
                                             showContacts = false
-                                        } else showShare = false
+                                            Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
+                                        } else reconcileShares()
                                     }
                                     .onFailure {
-                                        showShare = false
-                                        Toast.makeText(context, serverSaid(it, shareErrMsg), Toast.LENGTH_LONG).show()
+                                        if (!isShareCurrent()) return@onFailure
+                                        reconcileShares()
                                     }
-                            } else showShare = false
+                                    } finally { if (isShareCurrent()) mutationBusy = false }
+                                }
+                            }
                         }.padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -2650,6 +2808,9 @@ internal fun ActiveTripScreen(
                         Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
                     }
                 }
+                }
+                AnimatedVisibility(visible = mutationBusy, enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = CanonGreen2)
                 }
             }
         }
@@ -2823,6 +2984,8 @@ internal fun ActiveTripOptionBHero(
     toPoint: Point?,
     liveBookingId: Int?,
     modifier: Modifier = Modifier,
+    boardingCodeLoadFailed: Boolean = false,
+    onRetryBoardingCode: () -> Unit = {},
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ActiveTripDriverCard(
@@ -2837,7 +3000,8 @@ internal fun ActiveTripOptionBHero(
             onCall = onCall,
         )
         if (bookingStatusAllowsBoarding(bookingStatus) || bookingStatus.isBlank()) {
-            ActiveTripBoardingCodeCard(code = boardingCode, role = role)
+            ActiveTripBoardingCodeCard(code = boardingCode, role = role,
+                loadFailed = boardingCodeLoadFailed, onRetry = onRetryBoardingCode)
         }
         ActiveTripProgressCard(
             role = role,
@@ -2953,7 +3117,7 @@ private fun ActiveTripDriverCard(
 }
 
 @Composable
-private fun ActiveTripBoardingCodeCard(code: String, role: String) {
+private fun ActiveTripBoardingCodeCard(code: String, role: String, loadFailed: Boolean, onRetry: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         color = CanonGreen2,
@@ -2989,6 +3153,12 @@ private fun ActiveTripBoardingCodeCard(code: String, role: String) {
                     lineHeight = 17.sp,
                     textAlign = TextAlign.Center,
                 )
+            } else if (loadFailed) {
+                Text(appText("Не удалось загрузить код", "Кодты йөкләп булманы"),
+                    fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+                TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(appText("Повторить загрузку кода", "Кодты яңынан йөкләргә"), color = CanonOnFilled)
+                }
             } else {
                 Row(
                     Modifier.heightIn(min = 52.dp),
@@ -3431,10 +3601,12 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
             }
             if (pass.pickup.isNotBlank()) TripPassRow(Icons.Default.LocationOn, appText("Точка сбора", "Йыйылыу урыны"), pass.pickup)
             if (pass.boardingCode.isNotBlank()) TripPassRow(Icons.Default.Pin, appText("Код посадки", "Ултырыу коды"), pass.boardingCode)
-            if (pass.price > 0) TripPassRow(
-                Icons.Default.Payments, appText("Оплата", "Түләү"),
-                appText("${pass.price} ₽ · перевод по СБП", "${pass.price} ₽ · СБП аша күсереү")
-            )
+            if (pass.payAmount != null || pass.price > 0 || pass.payMethod != null) {
+                val method = pass.payMethod?.takeIf { it in payMethodKeys }?.let { payMethodLabel(it) }
+                    ?: appText("Способ оплаты не сохранён", "Түләү ысулы һаҡланмаған")
+                TripPassRow(Icons.Default.Payments, appText("Оплата", "Түләү"),
+                    "${pass.effectivePayAmount} ₽ · $method")
+            }
         }
     }
 }
@@ -3606,6 +3778,7 @@ internal fun ShareTripRow(
 @Composable
 private fun ActiveSharesList(
     shares: List<Pair<com.yuldash.app.data.TripShareDto, String>>,
+    enabled: Boolean = true,
     onRevoke: (com.yuldash.app.data.TripShareDto) -> Unit,
 ) {
     if (shares.isEmpty()) return
@@ -3625,7 +3798,8 @@ private fun ActiveSharesList(
             Text(name, color = CanonText, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             TextButton(
                 onClick = { onRevoke(share) },
-                modifier = Modifier.heightIn(min = 44.dp),
+                enabled = enabled,
+                modifier = Modifier.heightIn(min = 48.dp),
             ) {
                 Icon(Icons.Default.Close, contentDescription = appText("Отозвать ссылку", "Һылтанманы кире алыу"), tint = CanonRed, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
@@ -3813,5 +3987,3 @@ internal fun MessageBubble(
         }
     }
 }
-
-

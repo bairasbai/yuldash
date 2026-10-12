@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.lifecycle.ViewModelProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -195,10 +196,6 @@ import android.app.Activity
 import android.speech.RecognizerIntent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
-import android.media.MediaRecorder
-import android.os.Build
-import android.os.SystemClock
-import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -282,8 +279,34 @@ class MainActivity : ComponentActivity() {
                 contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
             ) > 0f
         }.getOrDefault(true)
-        handleNavIntent(intent)   // холодный старт из полноэкранного оффера такси (B7a-2)
-        handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
+        // ActivityManager сохраняет исходный intent, даже если extras удалены из нашей копии.
+        // После смерти процесса он не должен перекрыть уже сохранённый экран поездки.
+        // Начальный переход до входа/выбора брони и новые onNewIntent обрабатываем как прежде.
+        val restoredNavigation = if (savedInstanceState != null) {
+            ViewModelProvider(this)[YuldashViewModel::class.java]
+        } else null
+        val hadSavedPending = restoredNavigation?.pendingBookingNavigation?.value != null || restoredNavigation?.pendingScreenNavigation?.value != null
+        restoredNavigation?.pendingBookingForOwner(ApiClient.myUserId())
+        restoredNavigation?.pendingScreenForOwner(ApiClient.myUserId())
+        val privateIntent = isPrivateNavigationIntent(intent)
+        val deliveryId = notificationDeliveryId(intent)
+        val freshPrivateDelivery = privateIntent && deliveryId != null &&
+            restoredNavigation?.hasHandledNotificationDelivery(deliveryId) != true
+        val copiedBookingIntent = restoredNavigation?.hasHandledBookingIntent == true && privateIntent
+        val hasRestoredBooking = restoredNavigation != null &&
+            (restoredNavigation.activeBookingId.value ?: 0) > 0 &&
+            restoredNavigation.screen.value !in setOf(Screen.Splash, Screen.Intro, Screen.Onboarding, Screen.Login)
+        // Без маркера нельзя отличить новый показ от исходной копии сохранённой задачи.
+        // Сохраняем любой восстановленный рабочий экран; onNewIntent с известным получателем
+        // остаётся совместимым со старым форматом без маркера.
+        val unidentifiablePrivateRestore = privateIntent && deliveryId == null && restoredNavigation != null &&
+            restoredNavigation.screen.value !in setOf(Screen.Splash, Screen.Intro, Screen.Onboarding, Screen.Login)
+        // Новый показ уведомления не равен копии base Intent из сохранённой задачи.
+        if (freshPrivateDelivery) handleNavIntent(intent)
+        if (!hasRestoredBooking && !hadSavedPending) {
+            if (!freshPrivateDelivery && !unidentifiablePrivateRestore) handleNavIntent(intent, skipBookingIntent = copiedBookingIntent)
+            handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
+        }
         setContent {
             YuldashTheme(darkTheme = appIsDark()) {
                 // Крупный шрифт: множим системный fontScale на выбранный пользователем множитель —
@@ -308,40 +331,73 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Уведомление «Новый заказ 🚕» → сигнал YuldashApp открыть кабинет водителя (карточка оффера). */
-    private fun handleNavIntent(i: Intent?) {
-        if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) == true) {
-            i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER)   // не сработать повторно при пересоздании
-            NavSignals.openDriverCabinet.value = true
+    private fun handleNavIntent(i: Intent?) = handleNavIntent(i, skipBookingIntent = false)
+
+    private fun handleNavIntent(i: Intent?, skipBookingIntent: Boolean) {
+        val requestedSession = ApiClient.queueSessionGeneration()
+        ApiClient.runIfUnchangedSession(requestedSession) { dispatchNavIntent(i, skipBookingIntent) }
+    }
+
+    private fun dispatchNavIntent(i: Intent?, skipBookingIntent: Boolean) {
+        if (i == null) return
+        // Старые PendingIntent могли не содержать получателя. Привязывать их к аккаунту
+        // в момент нажатия небезопасно: аккаунт уже мог смениться. Отказываем до записи VM.
+        if (isPrivateNavigationIntent(i) || i.hasExtra("recipient_user_id")) {
+            val recipient = i.getStringExtra("recipient_user_id")?.toIntOrNull()
+            if (recipient == null || recipient <= 0 || recipient != ApiClient.myUserId()) return
         }
-        // Пуш о ходе такси-заказа (B9b-2). Два пути: наше уведомление из FcmService (extra
-        // EXTRA_OPEN_ORDER) ИЛИ системный трей FCM в фоне (data-ключи приходят как extras интента).
-        // «instant_payment» — пассажир сменил способ расчёта на ходу. Ведём туда же, куда
-        // и остальные новости о заказе: водитель должен увидеть новую строку «Оплата:»
-        // в своей карточке, а не гадать, что изменилось.
-        if (i?.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) == true ||
-            i?.getStringExtra("type") == "instant_status" ||
-            i?.getStringExtra("type") == "instant_payment" ||
-            // «Пассажир выходит» — та же новость о ходе заказа, и вести должна туда же.
-            // Без этой строки водитель читал пуш «уже спускается», жал по нему и оставался
-            // на месте: для него это выглядит как поломка приложения.
-            i?.getStringExtra("type") == "instant_im_coming"
-        ) {
+        val type = i.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: i.getStringExtra("type")
+        val deliveryId = notificationDeliveryId(i)
+        val navigation = ViewModelProvider(this)[YuldashViewModel::class.java]
+        if (isPrivateNavigationIntent(i) && i.hasExtra(EXTRA_NAVIGATION_DELIVERY_ID) &&
+            (deliveryId == null || navigation.hasHandledNotificationDelivery(deliveryId))) return
+        val privateScreen = when {
+            i.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) || type == "debt" -> Screen.DriverCabinet
+            i.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) || type in setOf("instant", "instant_status", "instant_payment", "instant_im_coming") -> Screen.InstantOrder
+            i.getBooleanExtra(FcmService.EXTRA_OPEN_PARCELS, false) || type?.startsWith("parcel") == true -> Screen.Parcels
+            type == "order_chat" -> Screen.InstantChat
+            type == "support" -> Screen.SupportTickets
+            type == "ad" -> Screen.AdsCabinet
+            type == "partner" -> Screen.PartnerCabinet
+            type == "incident" -> Screen.FairnessCenter
+            type == "request" -> Screen.RequestResponses
+            type == "request_watch" -> Screen.RequestsFeed
+            type == "taxi_apply" -> Screen.TaxiOnboarding
+            type == "courier_apply" -> Screen.CourierOnboarding
+            else -> null
+        }
+        if (privateScreen != null) {
+            if (skipBookingIntent) return
+            val id = (i.getStringExtra(FcmService.EXTRA_PUSH_ID) ?: i.getStringExtra("id"))?.toIntOrNull() ?: 0
+            if (id <= 0 && (privateScreen == Screen.InstantChat || type in setOf("support", "ad", "partner", "incident", "request", "request_watch", "taxi_apply", "courier_apply"))) return
+            navigation.requestScreenDestination(privateScreen, ApiClient.myUserId(), id)
+            deliveryId?.let(navigation::recordHandledNotificationDelivery)
             i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER)
-            i.removeExtra("type")
-            NavSignals.openInstantOrder.value = true
-        }
-        // Пуш о ходе посылки. Те же два пути, что у такси: наше уведомление (extra) либо системный
-        // трей FCM в фоне (data-ключи приходят как extras). Без этого отправитель узнавал, что
-        // курьер взял посылку, только если сам заходил в приложение и переключал вкладку.
-        val parcelType = i?.getStringExtra("type")
-        if (i?.getBooleanExtra(FcmService.EXTRA_OPEN_PARCELS, false) == true ||
-            (parcelType != null && parcelType.startsWith("parcel"))
-        ) {
+            i.removeExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER)
             i.removeExtra(FcmService.EXTRA_OPEN_PARCELS)
-            i.removeExtra("type")
-            DeepLink.pendingParcels.value = true
+            i.removeExtra(FcmService.EXTRA_PUSH_TYPE); i.removeExtra(FcmService.EXTRA_PUSH_ID)
+            i.removeExtra("type"); i.removeExtra("id")
+            return
         }
-        openChatFromPush(i)
+        if (!skipBookingIntent) {
+            if (type in setOf("booking", "chat", "booking_done")) {
+                val id = (i.getStringExtra(FcmService.EXTRA_PUSH_ID) ?: i.getStringExtra("id"))?.toIntOrNull() ?: 0
+                if (id <= 0) return
+                openChatFromPush(i)
+                deliveryId?.let(navigation::recordHandledNotificationDelivery)
+            } else openChatFromPush(i)
+        }
+    }
+
+    private fun notificationDeliveryId(i: Intent?) = i?.getStringExtra(EXTRA_NAVIGATION_DELIVERY_ID)
+        ?.takeIf { it.isNotBlank() && it.length <= 128 }
+
+    private fun isPrivateNavigationIntent(i: Intent?): Boolean {
+        if (i == null) return false
+        val type = i.getStringExtra(FcmService.EXTRA_PUSH_TYPE) ?: i.getStringExtra("type")
+        return type in PRIVATE_PUSH_TYPES || type?.startsWith("parcel") == true ||
+            i.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_ORDER, false) ||
+            i.getBooleanExtra(TaxiOfferNotifier.EXTRA_OPEN_OFFER, false) || i.getBooleanExtra(FcmService.EXTRA_OPEN_PARCELS, false)
     }
 
     /**
@@ -360,28 +416,19 @@ class MainActivity : ComponentActivity() {
         val id = (i.getStringExtra(FcmService.EXTRA_PUSH_ID) ?: i.getStringExtra("id"))?.toIntOrNull()
         if (id == null || id <= 0) return
         when (type) {
-            "chat" -> DeepLink.pendingBookingChatId.value = id        // чат попутки → экран брони
-            "order_chat" -> NavSignals.openInstantChat.value = id     // чат такси-заказа
+            "chat" -> ViewModelProvider(this)[YuldashViewModel::class.java]
+                .requestBookingDestination(id, ApiClient.myUserId(), completed = false)
             // Сервер теперь кладёт адрес в КАЖДОЕ уведомление, у которого он есть
             // (см. services.push_notification). Разбираем то, что умеем открыть точно:
-            "booking" -> DeepLink.pendingBookingChatId.value = id     // бронь попутки → её экран
-            "booking_done" -> DeepLink.pendingCompletedBookingId.value = id
-            "support" -> DeepLink.pendingSupport.value = true         // ответ поддержки → «Поддержка»
-            "incident" -> DeepLink.pendingFairness.value = true       // решение по спору
+            "booking" -> ViewModelProvider(this)[YuldashViewModel::class.java]
+                .requestBookingDestination(id, ApiClient.myUserId(), completed = false)
+            "booking_done" -> ViewModelProvider(this)[YuldashViewModel::class.java]
+                .requestCompletedBooking(id, ApiClient.myUserId())
             // Лента уведомлений внутри приложения разбирает ДЕСЯТЬ видов, а тап по пушу —
             // разбирал пять. Одно и то же событие вело в разные места в зависимости от того,
             // прочитал человек его в шторке или в ленте. Достраиваем до того же списка;
             // назначения уже есть, новых экранов не нужно.
             "ride" -> DeepLink.pendingRideId.value = id               // событие по моему рейсу
-            "parcel" -> DeepLink.pendingParcels.value = true          // ход посылки → «Посылки»
-            "debt" -> NavSignals.openDriverCabinet.value = true       // долг по комиссии виден в кабинете
-            "ad" -> NavSignals.openAdsCabinet.value = true            // решение по рекламе → кабинет рекламы
-            "partner" -> NavSignals.openPartnerCabinet.value = true   // оплата/статус подписки → кабинет партнёра
-            "instant" -> NavSignals.openInstantOrder.value = true     // заказ такси
-            "request" -> DeepLink.pendingRequestResponsesId.value = id  // отклики на мою заявку
-            "request_watch" -> DeepLink.pendingRequestsFeed.value = true
-            "taxi_apply" -> DeepLink.pendingApplicationScreen.value = Screen.TaxiOnboarding
-            "courier_apply" -> DeepLink.pendingApplicationScreen.value = Screen.CourierOnboarding
             else -> return
         }
         i.removeExtra(FcmService.EXTRA_PUSH_TYPE)   // не сработать повторно при пересоздании
@@ -400,6 +447,13 @@ class MainActivity : ComponentActivity() {
         val idx = segments.indexOf("r")
         val rideId = segments.getOrNull(idx + 1)?.toIntOrNull() ?: return
         DeepLink.pendingRideId.value = rideId
+    }
+
+    companion object {
+        const val EXTRA_NAVIGATION_DELIVERY_ID = "yuldash_navigation_delivery_id"
+        private val PRIVATE_PUSH_TYPES = setOf("booking", "chat", "booking_done", "order_chat", "instant", "instant_status",
+            "instant_payment", "instant_im_coming", "support", "debt", "ad", "partner", "incident", "request", "request_watch",
+            "taxi_apply", "courier_apply")
     }
 }
 
@@ -783,31 +837,7 @@ internal fun apiCategoryToUiFor(language: AppLanguage, category: String, withKid
 // Доменные UI-модели (Ride, PopularRoute, TrustedContact, FrequentTrip, LocalRequest,
 // LocalVoiceMessage) вынесены в Domain.kt (Фаза 0).
 
-// Запись голоса с микрофона: MediaRecorder → m4a в кэше приложения.
-internal class VoiceRecorder(private val context: Context) {
-    private var recorder: MediaRecorder? = null
-    private var path: String? = null
-    fun start(): Boolean = try {
-        val f = File(context.cacheDir, "voice_${SystemClock.elapsedRealtime()}.m4a")
-        path = f.absolutePath
-        recorder = (if (Build.VERSION.SDK_INT >= 31) MediaRecorder(context) else @Suppress("DEPRECATION") MediaRecorder()).apply {
-            setAudioSource(MediaRecorder.AudioSource.MIC)
-            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            setOutputFile(path)
-            prepare()
-            start()
-        }
-        true
-    } catch (e: Exception) {
-        recorder?.release(); recorder = null; false
-    }
-    fun stop(): String? = try {
-        recorder?.stop(); recorder?.release(); recorder = null; path
-    } catch (e: Exception) {
-        recorder?.release(); recorder = null; null
-    }
-}
+// Запись голоса вынесена в VoiceRecorder.kt: владение устройством и временным файлом.
 
 // Русский плюрал: 1 поездка / 2 поездки / 5 поездок.
 private fun plRu(n: Int, one: String, few: String, many: String): String {

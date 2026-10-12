@@ -23,15 +23,21 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuldash.app.data.ApiClient
+import kotlinx.coroutines.isActive
 
 /**
  * Карточка live-ссылки близкому (B7c): ссылка /t/{token} + «Скопировать» + системный share-sheet.
@@ -39,9 +45,25 @@ import androidx.compose.ui.unit.sp
  * Используется в листах «Поделиться поездкой» такси-заказа и попутки.
  */
 @Composable
-internal fun LiveLinkCard(link: String, modifier: Modifier = Modifier) {
+internal fun LiveLinkCard(
+    link: String, modifier: Modifier = Modifier, ownerGeneration: Long? = null,
+    isCurrentParent: () -> Boolean = { true },
+) {
+    val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
+    val session by ApiClient.sessionChanges.collectAsState()
+    if (session != generation || !ApiClient.isCurrentSession(generation) ||
+        (ownerGeneration != null && ownerGeneration != generation)) return
+    key(link, generation) { LiveLinkContent(link, modifier, generation, isCurrentParent) }
+}
+
+@Composable
+private fun LiveLinkContent(link: String, modifier: Modifier, generation: Long, isCurrentParent: () -> Boolean) {
+    val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    fun commit(action: () -> Unit) {
+        ApiClient.runIfCurrentSession(generation) { if (scope.isActive && currentParent()) action() }
+    }
     val ctx = LocalContext.current
-    val clipboard = LocalClipboardManager.current
     val copiedMsg = appText("Ссылка скопирована", "Һылтанма күсерелде")
     val shareText = appText("Следи за моей поездкой в Юлдаш: ", "Юлдашта минең сәфәремде күҙәт: ") + link
     val shareTitle = appText("Отправить ссылку", "Һылтанманы ебәреү")
@@ -63,10 +85,10 @@ internal fun LiveLinkCard(link: String, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-                onClick = {
+                onClick = { commit {
                     copySensitive(ctx, link)   // ссылка показывает, где человек едет сейчас
                     Toast.makeText(ctx, copiedMsg, Toast.LENGTH_SHORT).show()
-                },
+                } },
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 shape = RoundedCornerShape(14.dp),
             ) {
@@ -76,13 +98,13 @@ internal fun LiveLinkCard(link: String, modifier: Modifier = Modifier) {
                 Text(appText("Скопировать", "Күсереү"), color = CanonGreen2, fontWeight = FontWeight.Bold, maxLines = 1)
             }
             Button(
-                onClick = {
+                onClick = { commit {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(Intent.EXTRA_TEXT, shareText)
                     }
                     ctx.startActivity(Intent.createChooser(send, shareTitle))
-                },
+                } },
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),

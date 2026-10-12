@@ -276,6 +276,8 @@ jobs:
           cache-dependency-path: webapp/package-lock.json
       - name: Install deps
         run: npm ci
+      - name: Проверки PWA и контракта с сервером
+        run: npm run check
       - name: Build
         run: npm run build
         # tsc (типы) + vite build → dist/. Секреты не нужны: VITE_* пустые → мягкие плейсхолдеры.

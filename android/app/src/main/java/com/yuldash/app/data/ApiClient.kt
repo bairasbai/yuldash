@@ -5,17 +5,30 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.yuldash.app.BuildConfig
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
+import okhttp3.Authenticator
+import okhttp3.Headers
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.Response
+import okio.BufferedSink
 import java.io.IOException
 import java.io.OutputStreamWriter
 import java.net.ConnectException
@@ -24,10 +37,11 @@ import java.net.NoRouteToHostException
 import java.net.URL
 import java.net.UnknownHostException
 import java.security.SecureRandom
+import java.util.concurrent.TimeUnit
 
 /**
  * Тонкий клиент к настоящему бэкенду (FastAPI, см. docs/server.md).
- * Встроенный HttpURLConnection + org.json — БЕЗ внешних зависимостей.
+ * HttpURLConnection + org.json; изменения контактов используют уже подключённый OkHttp без replay.
  * Токен храним в SharedPreferences, чтобы вход не слетал между запусками.
  *
  * Базовый URL приходит из BuildConfig:
@@ -61,6 +75,13 @@ object ApiClient {
     private val connectMs: Int get() = testTimeoutMs ?: 15000
     private val readMs: Int get() = testTimeoutMs ?: 15000
 
+    // Only contact mutations: never replay a sent body after a lost reply or HTTP follow-up.
+    private val contactsTransport by lazy {
+        OkHttpClient.Builder().retryOnConnectionFailure(false)
+            .followRedirects(false).followSslRedirects(false)
+            .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE).build()
+    }
+
     /**
      * Тест-хук: оборвать всё фоновое и вернуть клиента в исходное состояние.
      *
@@ -89,6 +110,27 @@ object ApiClient {
     // Меняется только на границе входа/выхода. Refresh сохраняет поколение.
     private val sessionLock = Any()
     @Volatile private var sessionGeneration = 0L
+    private val mutableSessionChanges = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    // Publish only after a complete login/logout mutation; refresh keeps the same owner.
+    internal val sessionChanges = mutableSessionChanges.asStateFlow()
+    // A disposed editor's blocking DELETE can settle after another editor has read the list.
+    internal data class ContactDeletion(val version: Long, val generation: Long, val contactId: Int)
+    private val mutableContactDeletions = kotlinx.coroutines.flow.MutableStateFlow(ContactDeletion(0, 0, 0))
+    internal val contactDeletions = mutableContactDeletions.asStateFlow()
+    private fun notifyContactDeletion(generation: Long, contactId: Int?) {
+        // Called under sessionLock, together with same-session cache invalidation.
+        if (contactId != null) mutableContactDeletions.value = ContactDeletion(
+            mutableContactDeletions.value.version + 1, generation, contactId,
+        )
+    }
+    // POST can also update an existing phone/ID; no payload can prove that a snapshot already reflects it.
+    internal data class ContactAddition(val version: Long, val generation: Long)
+    private val mutableContactAdditions = kotlinx.coroutines.flow.MutableStateFlow(ContactAddition(0, 0))
+    internal val contactAdditions = mutableContactAdditions.asStateFlow()
+    private fun notifyContactAddition(generation: Long, adding: Boolean) {
+        // Called under sessionLock, together with same-session cache invalidation.
+        if (adding) mutableContactAdditions.value = ContactAddition(mutableContactAdditions.value.version + 1, generation)
+    }
     private data class RequestSession(val generation: Long, val bearer: String?)
     private fun requestSession() = synchronized(sessionLock) { RequestSession(sessionGeneration, token) }
     internal fun queueSessionGeneration(): Long = sessionGeneration
@@ -97,6 +139,14 @@ object ApiClient {
     /** Only short publication actions; never put the export file I/O under this monitor. */
     internal fun runIfCurrentSession(generation: Long, action: () -> Unit): Boolean = synchronized(sessionLock) {
         if (!isCurrentSession(generation)) false else { action(); true }
+    }
+    /** Navigation may be saved before login; generation must still be unchanged. */
+    internal fun runIfUnchangedSession(generation: Long, action: () -> Unit): Boolean = synchronized(sessionLock) {
+        if (!sameSession(generation)) false else { action(); true }
+    }
+    /** A deletion receipt authorizes cleanup only in its exact logged-out session. */
+    internal fun runIfLoggedOutSession(generation: Long, action: () -> Unit): Boolean = synchronized(sessionLock) {
+        if (!sameSession(generation) || !token.isNullOrBlank()) false else { action(); true }
     }
     private class SessionChangedException : IllegalStateException("Session changed")
     private fun <T> staleSession(): Result<T> = Result.failure(SessionChangedException())
@@ -205,9 +255,9 @@ object ApiClient {
 
     /** Best-effort: наполнить «Недавние» точкой назначения после создания заказа/заявки.
      *  На долгоживущем scope — переживает уход с экрана, заказ не блокирует. */
-    fun fireAddRecentPlace(address: String, lat: Double, lng: Double) {
+    fun fireAddRecentPlace(address: String, lat: Double, lng: Double, expectedGeneration: Long = queueSessionGeneration()) {
         if (address.isBlank()) return
-        bg.launch { addRecentPlace(address, lat, lng) }
+        bg.launch { addRecentPlace(address, lat, lng, expectedGeneration) }
     }
 
     fun fireUpdateName(name: String) {
@@ -289,6 +339,7 @@ object ApiClient {
         // Startup can invalidate auth without going through logout (corruption,
         // interrupted login/logout). Do not hand the previous user's offline data to a guest.
         if (token.isNullOrBlank()) clearAssociatedPersonalData()
+        mutableSessionChanges.value = sessionGeneration
     }
 
     fun isLoggedIn(): Boolean = !token.isNullOrBlank()
@@ -361,30 +412,52 @@ object ApiClient {
     private const val TTL_SLOW = 5 * 60_000L      // popular-routes, my-routes (обновляются медленно)
     private const val TTL_FEED = 3 * 60_000L      // feed (счётчики дня)
     private const val TTL_PERSONAL = 90_000L      // me, referral, contacts (+ инвалидация на мутациях)
-    private class CacheEntry(val ts: Long, val value: Any?, val generation: Long = sessionGeneration)
+    private class CacheEntry(val ts: Long, val value: Any?, val generation: Long = sessionGeneration, val readOrder: Long = 0L)
     private val respCache = java.util.concurrent.ConcurrentHashMap<String, CacheEntry>()
-    private fun invalidate(vararg keys: String) { keys.forEach { respCache.remove(it) } }
+    // Guarded by sessionLock. An older read may return its own Result, but cannot undo a newer accepted read.
+    private var cacheReadOrder = 0L
+    // Guarded by sessionLock. Keep invalidation versions even after the entry has been removed.
+    private val cacheRevisions = mutableMapOf<String, Long>()
+    private fun invalidate(vararg keys: String) = synchronized(sessionLock) {
+        keys.forEach {
+            cacheRevisions[it] = (cacheRevisions[it] ?: 0L) + 1L
+            respCache.remove(it)
+        }
+    }
 
     @Suppress("UNCHECKED_CAST")
     private suspend fun <T : Any> cachedGet(
         key: String,
         ttlMs: Long,
         onValue: (T) -> Unit = {},
+        expectedGeneration: Long? = null,
+        notifyOnCacheHit: Boolean = false,
         fetch: suspend () -> Result<T>,
     ): Result<T> {
-        val generation = synchronized(sessionLock) {
+        val callerContext = currentCoroutineContext()
+        val (generation, cacheRevision, readOrder) = synchronized(sessionLock) {
+            callerContext.ensureActive()
+            if (expectedGeneration != null && !sameSession(expectedGeneration)) return staleSession()
             respCache[key]?.let { c ->
-                if (c.generation == sessionGeneration && System.currentTimeMillis() - c.ts < ttlMs && c.value != null)
-                    return Result.success(c.value as T)
+                if (c.generation == sessionGeneration && System.currentTimeMillis() - c.ts < ttlMs && c.value != null) {
+                    val value = c.value as T
+                    if (notifyOnCacheHit) onValue(value)
+                    return Result.success(value)
+                }
             }
-            sessionGeneration
+            Triple(sessionGeneration, cacheRevisions[key] ?: 0L, ++cacheReadOrder)
         }
         val result = fetch()
         return synchronized(sessionLock) {
+            // Cancellation can arrive after fetch returned, while waiting for this monitor.
+            callerContext.ensureActive()
             if (!sameSession(generation)) staleSession()
             else result.onSuccess {
-                respCache[key] = CacheEntry(System.currentTimeMillis(), it, generation)
-                onValue(it)
+                val newerAccepted = respCache[key]?.let { entry -> entry.generation == generation && entry.readOrder > readOrder } == true
+                if (!newerAccepted && cacheRevision == (cacheRevisions[key] ?: 0L)) {
+                    respCache[key] = CacheEntry(System.currentTimeMillis(), it, generation, readOrder)
+                    onValue(it)
+                }
             }
         }
     }
@@ -429,6 +502,7 @@ object ApiClient {
         userName = null
         userRole = null
         sessionExpired.value = false
+        mutableSessionChanges.value = sessionGeneration
     }
 
     fun logout() = synchronized(sessionLock) {
@@ -489,6 +563,7 @@ object ApiClient {
             SessionKeys.CLEARED_ON_LOGOUT.forEach { remove(it) }
         }?.apply()
         clearAssociatedPersonalData()
+        mutableSessionChanges.value = sessionGeneration
     }
 
     /** Also used after a startup auth reset, once both offline stores have been initialized. */
@@ -539,12 +614,15 @@ object ApiClient {
 
     /** Необратимое удаление аккаунта и всех данных на сервере (POST /me/delete).
      *  При успехе локально очищаем сессию — как при выходе. Ошибку прокидываем наверх. */
-    suspend fun deleteAccount(): Result<Unit> {
-        val generation = requestSession().generation
-        val result = call("POST", "/me/delete", JSONObject(), auth = true, expectedGeneration = generation)
+    suspend fun deleteAccount(expectedGeneration: Long = queueSessionGeneration()): Result<Long> {
+        if (!isCurrentSession(expectedGeneration)) return staleSession()
+        val result = call("POST", "/me/delete", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
         return synchronized(sessionLock) {
-            if (!sameSession(generation)) staleSession()
-            else result.onSuccess { clearLocalSession() }.map { }
+            if (!sameSession(expectedGeneration)) staleSession()
+            else result.map {
+                clearLocalSession()
+                sessionGeneration // Exact post-delete receipt, captured before another login can intervene.
+            }
         }
     }
 
@@ -695,6 +773,7 @@ object ApiClient {
             sessionExpired.value = false
             userName = name
             userRole = role
+            mutableSessionChanges.value = sessionGeneration
             Result.success(obj)
         }
     private fun persistNewSession(write: (android.content.SharedPreferences.Editor) -> Unit): Boolean {
@@ -845,8 +924,8 @@ object ApiClient {
      * ни в посылках, ни в «моих адресах»; человек с правильным адресом видел «не нашли»
      * (аудит 2026-08-07). Разбор адресов и кеш остались в [GeocoderClient].
      */
-    internal suspend fun geocode(query: String): Result<JSONObject> =
-        call("GET", "/geocode?q=" + enc(query), null, auth = true)
+    internal suspend fun geocode(query: String, expectedGeneration: Long? = null): Result<JSONObject> =
+        call("GET", "/geocode?q=" + enc(query), null, auth = true, expectedGeneration = expectedGeneration)
 
     /**
      * Адрес по координатам (обратный геокодер).
@@ -1149,12 +1228,49 @@ object ApiClient {
 
     // ---------- Доверенные контакты / SOS ----------
 
-    suspend fun addContact(name: String, relation: String, phone: String, notifyByDefault: Boolean): Result<Unit> =
-        call(
+    internal fun isUncertainContactMutation(error: Throwable?): Boolean =
+        error is JSONException || (error is IOException && error !is ConnectException &&
+            error !is UnknownHostException && error !is NoRouteToHostException)
+
+    private suspend fun mutateContacts(method: String, path: String, body: JSONObject?, expectedGeneration: Long? = null, deletedId: Int? = null, adding: Boolean = false): Result<Unit> {
+        val generation = expectedGeneration ?: requestSession().generation
+        val result = try {
+            call(method, path, body, auth = true, expectedGeneration = generation, singleAttemptMutation = true)
+        } catch (cancelled: CancellationException) {
+            // Cancellation may be delivered after the server committed, including on IO return.
+            // Keep the cancellation thrown; never resend or invalidate a newer owner's cache.
+            synchronized(sessionLock) {
+                if (sameSession(generation)) {
+                    invalidate("contacts")
+                    notifyContactDeletion(generation, deletedId)
+                    notifyContactAddition(generation, adding)
+                }
+            }
+            throw cancelled
+        }
+        return synchronized(sessionLock) {
+            if (result.isSuccess && !sameSession(generation)) staleSession()
+            else {
+                val error = result.exceptionOrNull()
+                // The server may have committed before its reply was lost or malformed.
+                // Refresh on the next read, preserving the error and never resending here.
+                val uncertain = isUncertainContactMutation(error)
+                if (sameSession(generation) && (result.isSuccess || uncertain)) {
+                    invalidate("contacts")
+                    notifyContactDeletion(generation, deletedId)
+                    notifyContactAddition(generation, adding)
+                }
+                result.map { }
+            }
+        }
+    }
+
+    suspend fun addContact(name: String, relation: String, phone: String, notifyByDefault: Boolean, expectedGeneration: Long? = null): Result<Unit> =
+        mutateContacts(
             "POST", "/trusted-contacts",
             JSONObject().put("name", name).put("relation", relation).put("phone", phone).put("notify_by_default", notifyByDefault),
-            auth = true,
-        ).onSuccess { invalidate("contacts") }.map { }   // добавили контакт → следующий getContacts тянет свежий список
+            expectedGeneration, adding = true,
+        )   // добавили контакт → следующий getContacts тянет свежий список
 
     /**
      * Убрать доверенный контакт. Сервер умел это с самого начала, а приложение не звало:
@@ -1163,16 +1279,57 @@ object ApiClient {
      * навсегда — хотя отношения меняются: бывший, поссорились, ошиблись номером.
      * Сервер сначала гасит шаринги этого контакта, потом сам контакт.
      */
-    suspend fun deleteContact(contactId: Int): Result<Unit> =
-        call("DELETE", "/trusted-contacts/$contactId", null, auth = true)
-            .onSuccess { invalidate("contacts") }.map { }
+    suspend fun deleteContact(contactId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        mutateContacts("DELETE", "/trusted-contacts/$contactId", null, expectedGeneration, deletedId = contactId)
 
-    suspend fun getContacts(): Result<List<ContactDto>> = cachedGet("contacts", TTL_PERSONAL) {
-        call("GET", "/trusted-contacts", null, auth = true).map { obj ->
-            val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                parseContactDto(o)
+    suspend fun getContacts(expectedGeneration: Long? = null, forceRefresh: Boolean = false): Result<List<ContactDto>> =
+        readContacts(expectedGeneration, forceRefresh)
+
+    // Publish only at the guarded cache acceptance point; the ordinary GET may still return an older snapshot.
+    internal suspend fun loadContactsForPublication(
+        expectedGeneration: Long,
+        forceRefresh: Boolean = false,
+        onAccepted: (List<ContactDto>) -> Unit,
+    ): Result<List<ContactDto>> = readContacts(expectedGeneration, forceRefresh, onAccepted)
+
+    private suspend fun readContacts(
+        expectedGeneration: Long?,
+        forceRefresh: Boolean,
+        onAccepted: ((List<ContactDto>) -> Unit)? = null,
+    ): Result<List<ContactDto>> {
+        val callerContext = currentCoroutineContext()
+        val generation = synchronized(sessionLock) {
+            callerContext.ensureActive() // A cancelled forceRefresh must not evict a valid snapshot.
+            val owner = expectedGeneration ?: sessionGeneration
+            if (!sameSession(owner)) return staleSession()
+            if (onAccepted != null && !isCurrentSession(owner)) return staleSession()
+            if (forceRefresh) invalidate("contacts")
+            owner
+        }
+        return cachedGet(
+            "contacts", TTL_PERSONAL, expectedGeneration = generation,
+            notifyOnCacheHit = onAccepted != null,
+            onValue = { list: List<ContactDto> ->
+                // cachedGet holds sessionLock and checks the contacts revision before this short memory-only callback.
+                if (onAccepted != null && callerContext.isActive && isCurrentSession(generation)) onAccepted(list)
+            },
+        ) {
+            call("GET", "/trusted-contacts", null, auth = true, expectedGeneration = generation).mapCatching { obj ->
+                // Malformed success must remain a failure and never enter the contacts cache.
+                val arr = obj.getJSONArray("items")
+                val ids = HashSet<Int>()
+                (0 until arr.length()).map { i ->
+                    val row = arr.getJSONObject(i)
+                    val id = row.get("id")
+                    require(id is Number)
+                    val integral = id.toLong()
+                    require(integral in 1..Int.MAX_VALUE.toLong() && id.toDouble() == integral.toDouble())
+                    require(ids.add(integral.toInt()))
+                    require(row.get("name") is String)
+                    for (field in listOf("relation", "phone")) require(!row.has(field) || row.get(field) is String)
+                    require(!row.has("notify_by_default") || row.get("notify_by_default") is Boolean)
+                    parseContactDto(row)
+                }
             }
         }
     }
@@ -1196,8 +1353,8 @@ object ApiClient {
 
     /** «Поделиться поездкой» из такси-заказа (B7b-2): близкий получит SMS о маршруте и статусах.
      *  B7c: сервер возвращает token live-ссылки — отдаём готовый URL (null на старом сервере). */
-    suspend fun shareInstantTrip(orderId: Int, contactId: Int): Result<TripShareDto?> =
-        call("POST", "/instant/orders/$orderId/share", JSONObject().put("contact_id", contactId), auth = true)
+    suspend fun shareInstantTrip(orderId: Int, contactId: Int, expectedGeneration: Long? = null): Result<TripShareDto?> =
+        call("POST", "/instant/orders/$orderId/share", JSONObject().put("contact_id", contactId), auth = true, expectedGeneration = expectedGeneration)
             .map { parseTripShare(it) }
             .onSuccess { Analytics.log("instant_share_trip") }
 
@@ -1222,10 +1379,10 @@ object ApiClient {
      *  тому, кто доверенных контактов не заводил. Волна 184 добавила второе число — сколько
      *  доверенных вообще заведено: без него «ушло нулю» и «звать некого» выглядят одинаково,
      *  а человеку на трассе это разные новости и разные действия. */
-    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String): Result<RoadsideResult> {
+    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String, expectedGeneration: Long? = null): Result<RoadsideResult> {
         val body = JSONObject().put("note", note)
         if (lat != null && lng != null) body.put("lat", lat).put("lng", lng)
-        return call("POST", "/bookings/$bookingId/stuck", body, auth = true).map { roadsideResult(it) }.onSuccess { Analytics.log("roadside_help") }
+        return call("POST", "/bookings/$bookingId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }.onSuccess { Analytics.log("roadside_help") }
     }
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
@@ -1235,35 +1392,35 @@ object ApiClient {
     /** F12 «Зимний протокол»: арм авто-проверки «доехал?». Идемпотентна — сервер сам решает
      *  (too_early / check_sent / waiting / escalated). Возвращает поле state. Клиент зовёт,
      *  когда его ETA+буфер истёк, а поездка ещё активна. */
-    suspend fun winterCheck(bookingId: Int): Result<String> =
-        call("POST", "/bookings/$bookingId/winter-check", JSONObject(), auth = true)
+    suspend fun winterCheck(bookingId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/bookings/$bookingId/winter-check", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("state") }.onSuccess { Analytics.log("winter_check") }
 
     /** F12: участник ответил «всё в порядке» на проверку «доехал?» — гасит эскалацию доверенным. */
-    suspend fun winterCheckOk(bookingId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/winter-check/ok", JSONObject(), auth = true).map { }
+    suspend fun winterCheckOk(bookingId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/bookings/$bookingId/winter-check/ok", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
             .onSuccess { Analytics.log("winter_check_ok") }
 
     // ❄️ Зимний протокол в такси и доставке. Раньше он был только у попутки, хотя дорога
     // одна: пассажир такси едет те же четыре часа, курьер — тоже и вдобавок один.
     /** Зимний протокол по такси-заказу: арм проверки «доехал?» (сервер решает, не рано ли). */
-    suspend fun winterCheckOrder(orderId: Int): Result<String> =
-        call("POST", "/instant/orders/$orderId/winter-check", JSONObject(), auth = true)
+    suspend fun winterCheckOrder(orderId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/instant/orders/$orderId/winter-check", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("state") }.onSuccess { Analytics.log("winter_check_order") }
 
     /** «Доехал» по такси-заказу — гасит эскалацию близким. */
-    suspend fun winterCheckOrderOk(orderId: Int): Result<Unit> =
-        call("POST", "/instant/orders/$orderId/winter-check/ok", JSONObject(), auth = true).map { }
+    suspend fun winterCheckOrderOk(orderId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/winter-check/ok", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
             .onSuccess { Analytics.log("winter_check_order_ok") }
 
     /** Зимний протокол по доставке: спрашиваем курьера — он в дороге один. */
-    suspend fun winterCheckParcel(parcelId: Int): Result<String> =
-        call("POST", "/parcels/$parcelId/winter-check", JSONObject(), auth = true)
+    suspend fun winterCheckParcel(parcelId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/parcels/$parcelId/winter-check", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("state") }.onSuccess { Analytics.log("winter_check_parcel") }
 
     /** «Доехал» по доставке — отмечает только курьер. */
-    suspend fun winterCheckParcelOk(parcelId: Int): Result<Unit> =
-        call("POST", "/parcels/$parcelId/winter-check/ok", JSONObject(), auth = true).map { }
+    suspend fun winterCheckParcelOk(parcelId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/parcels/$parcelId/winter-check/ok", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
             .onSuccess { Analytics.log("winter_check_parcel_ok") }
 
     // ---------- Жалобы и чёрный список ----------
@@ -1272,13 +1429,13 @@ object ApiClient {
      *  Жалоба анонимна: цель НИКОГДА не видит автора. */
     suspend fun reportUser(
         targetUserId: Int? = null, reason: String = "", category: String = "other",
-        orderId: Int? = null, bookingId: Int? = null,
+        orderId: Int? = null, bookingId: Int? = null, expectedGeneration: Long? = null,
     ): Result<Unit> {
         val body = JSONObject().put("reason", reason).put("category", category)
         if (targetUserId != null) body.put("target_user_id", targetUserId)
         if (orderId != null) body.put("order_id", orderId)
         if (bookingId != null) body.put("booking_id", bookingId)
-        return call("POST", "/reports", body, auth = true).map { }
+        return call("POST", "/reports", body, auth = true, expectedGeneration = expectedGeneration).map { }
             .onSuccess { Analytics.log("report_create") }
     }
 
@@ -1308,12 +1465,12 @@ object ApiClient {
 
     /** Оценить вторую сторону завершённого быстрого заказа (1..5). Оценка анонимна —
      *  в рейтинг идёт только агрегат, «кто поставил» не раскрывается. */
-    suspend fun rateInstantOrder(orderId: Int, stars: Int, tags: String = ""): Result<Unit> =
+    suspend fun rateInstantOrder(orderId: Int, stars: Int, tags: String = "", expectedGeneration: Long? = null): Result<Unit> =
         call(
             "POST",
             "/instant/orders/$orderId/rate",
             JSONObject().put("stars", stars).put("tags", tags),
-            auth = true,
+            auth = true, expectedGeneration = expectedGeneration,
         ).map { }
             .onSuccess { Analytics.log("instant_order_rate") }
 
@@ -2072,11 +2229,15 @@ object ApiClient {
     }
 
     /** Тарифы размещения (из конфига сервера) — для кабинета/витрины. Без входа. */
-    suspend fun getAdPackages(): Result<List<AdPackageDto>> = cachedGet("ad-packages", TTL_STATIC) {
-        call("GET", "/ad-packages", null, auth = false).map { o ->
-            val arr = o.optJSONArray("items") ?: JSONArray()
-            persistStatic("ad-packages", arr)   // сохранить → переживёт перезапуск, работает оффлайн
-            parseAdPackages(arr)
+    suspend fun getAdPackages(): Result<List<AdPackageDto>> {
+        var acceptedRaw: JSONArray? = null
+        return cachedGet("ad-packages", TTL_STATIC, onValue = { _: List<AdPackageDto> ->
+            acceptedRaw?.let { persistStatic("ad-packages", it) }
+        }) {
+            call("GET", "/ad-packages", null, auth = false).map { o ->
+                val arr = o.optJSONArray("items") ?: JSONArray()
+                parseAdPackages(arr).also { acceptedRaw = arr }
+            }
         }
     }
 
@@ -2158,15 +2319,39 @@ object ApiClient {
             .onSuccess { Analytics.log("revoke_share") }
 
     /** Активные шаринги такси-заказа (пассажиру — «уже поделился с …» + отозвать). */
-    suspend fun getInstantShares(orderId: Int): Result<List<TripShareDto>> =
-        call("GET", "/instant/orders/$orderId/shares", null, auth = true).map { obj ->
-            val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).mapNotNull { parseTripShare(arr.getJSONObject(it)) }
+    suspend fun getInstantShares(orderId: Int, expectedGeneration: Long? = null): Result<List<TripShareDto>> =
+        call("GET", "/instant/orders/$orderId/shares", null, auth = true, expectedGeneration = expectedGeneration).mapCatching { obj ->
+            // Missing/malformed rows cannot establish that a previous share was revoked.
+            val arr = obj.getJSONArray("items")
+            val shares = (0 until arr.length()).map { index ->
+                val row = arr.getJSONObject(index)
+                requirePositiveShareId(row, "id")
+                requirePositiveShareId(row, "contact_id")
+                if (row.has("order_id")) require(requirePositiveShareId(row, "order_id") == orderId)
+                require(!row.has("booking_id") || row.isNull("booking_id"))
+                require(!row.has("parcel_id") || row.isNull("parcel_id"))
+                require(!row.has("token") || row.isNull("token") || row.get("token") is String)
+                val share = requireNotNull(parseTripShare(row))
+                if (row.isNull("token")) share.copy(link = null) else share
+            }
+            require(shares.map { it.id }.distinct().size == shares.size)
+            shares
         }
 
+    private fun requirePositiveShareId(row: JSONObject, field: String): Int {
+        val value = row.get(field)
+        require(value is Number)
+        val id = value.toLong()
+        require(id in 1..Int.MAX_VALUE.toLong() && value.toDouble() == id.toDouble())
+        return id.toInt()
+    }
+
     /** Отозвать шаринг такси-заказа (B7c). */
-    suspend fun revokeInstantShare(orderId: Int, shareId: Int): Result<Unit> =
-        call("DELETE", "/instant/orders/$orderId/share/$shareId", null, auth = true).map { }
+    suspend fun revokeInstantShare(orderId: Int, shareId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("DELETE", "/instant/orders/$orderId/share/$shareId", null, auth = true, expectedGeneration = expectedGeneration).mapCatching {
+            // Missing ok remains compatible with old servers; an explicit false is not success.
+            require(!it.has("ok") || it.get("ok") == true)
+        }
             .onSuccess { Analytics.log("revoke_share") }
 
     /** Разбор TripShare с сервера → id/contact_id/token + готовый live-URL (или null, старый сервер). */
@@ -2272,11 +2457,15 @@ object ApiClient {
     // ---------- Boost (поднятие объявления, оплата) ----------
 
     /** Тарифы поднятия (цены с бэкенда). */
-    suspend fun getBoostPlans(): Result<List<BoostPlanDto>> = cachedGet("boost-plans", TTL_STATIC) {
-        call("GET", "/boost/plans", null, auth = false).map { obj ->
-            val arr = obj.optJSONArray("items") ?: JSONArray()
-            persistStatic("boost-plans", arr)   // сохранить → мгновенно на холодном старте
-            parseBoostPlans(arr)
+    suspend fun getBoostPlans(): Result<List<BoostPlanDto>> {
+        var acceptedRaw: JSONArray? = null
+        return cachedGet("boost-plans", TTL_STATIC, onValue = { _: List<BoostPlanDto> ->
+            acceptedRaw?.let { persistStatic("boost-plans", it) }
+        }) {
+            call("GET", "/boost/plans", null, auth = false).map { obj ->
+                val arr = obj.optJSONArray("items") ?: JSONArray()
+                parseBoostPlans(arr).also { acceptedRaw = arr }
+            }
         }
     }
 
@@ -2326,8 +2515,8 @@ object ApiClient {
 
     /** Статус СВОЕГО платежа — клиент поллит после возврата из браузера ЮKassa (ON_RESUME экрана).
      *  Сервер при pending+yookassa сам перепроверяет оплату у ЮKassa и активирует boost (go-live). */
-    suspend fun getPaymentStatus(paymentId: Int): Result<PaymentStatusDto> =
-        call("GET", "/payments/$paymentId/status", null, auth = true).map { o ->
+    suspend fun getPaymentStatus(paymentId: Int, expectedGeneration: Long? = null): Result<PaymentStatusDto> =
+        call("GET", "/payments/$paymentId/status", null, auth = true, expectedGeneration = expectedGeneration).map { o ->
             PaymentStatusDto(
                 paymentId = o.optInt("payment_id"),
                 status = o.optString("status"),
@@ -2667,8 +2856,8 @@ object ApiClient {
      * была живой, и человек узнавал правду, только нажав её. Ответ не требует входа —
      * это факт про сервис, а не про человека.
      */
-    suspend fun paymentsOnlineEnabled(): Result<Boolean> =
-        call("GET", "/health", null, auth = false)
+    suspend fun paymentsOnlineEnabled(expectedGeneration: Long? = null): Result<Boolean> =
+        call("GET", "/health", null, auth = false, expectedGeneration = expectedGeneration)
             .map { it.optString("payments", "off") != "off" }
 
     /**
@@ -2695,6 +2884,7 @@ object ApiClient {
         roundTrip: Boolean = false, returnWaitMin: Int = 0,
         stops: List<TaxiStop> = emptyList(),
         paymentMethod: String = "",
+        expectedGeneration: Long? = null,
     ): Result<InstantOrderDto> {
         val body = instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
             roundTrip, returnWaitMin, stops)
@@ -2712,13 +2902,13 @@ object ApiClient {
         if (womenOnly) body.put("women_only", true)
         // Чем рассчитаются. Пусто — сервер поставит «договоримся на месте», как было раньше.
         if (paymentMethod.isNotBlank()) body.put("payment_method", paymentMethod)
-        return call("POST", "/instant/orders", body, auth = true)
+        return call("POST", "/instant/orders", body, auth = true, expectedGeneration = expectedGeneration)
             .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_create") }
     }
 
     /** Посчитать смену адреса, ничего не меняя. Человек должен увидеть цену ДО согласия. */
-    suspend fun previewDestination(orderId: Int, lat: Double, lng: Double, text: String = ""):
-        Result<DestinationQuoteDto> = changeDestination(orderId, lat, lng, text, preview = true)
+    suspend fun previewDestination(orderId: Int, lat: Double, lng: Double, text: String = "", expectedGeneration: Long? = null):
+        Result<DestinationQuoteDto> = changeDestination(orderId, lat, lng, text, preview = true, expectedGeneration = expectedGeneration)
 
     /** Сменить адрес назначения. Цену считает сервер — из клиента она не принимается.
      *
@@ -2726,13 +2916,13 @@ object ApiClient {
      *  «на потом» нельзя: человек будет уверен, что адрес сменился, а машина поедет по старому,
      *  и смена прилетит водителю через десять минут, когда он уже почти на месте. */
     suspend fun changeDestination(
-        orderId: Int, lat: Double, lng: Double, text: String = "", preview: Boolean = false,
+        orderId: Int, lat: Double, lng: Double, text: String = "", preview: Boolean = false, expectedGeneration: Long? = null,
     ): Result<DestinationQuoteDto> {
         val body = JSONObject()
             .put("to_lat", lat).put("to_lng", lng)
             .put("to_text", text.take(200))
             .put("preview", preview)
-        return call("POST", "/instant/orders/$orderId/destination", body, auth = true).map { o ->
+        return call("POST", "/instant/orders/$orderId/destination", body, auth = true, expectedGeneration = expectedGeneration).map { o ->
             DestinationQuoteDto(
                 price = o.optInt("price"),
                 oldPrice = o.optInt("old_price"),
@@ -2752,9 +2942,9 @@ object ApiClient {
      *  Проеденные сервер сохранит сам — их не передаём и убрать нельзя: уже проехали.
      *  Порядок задаём тем, в каком идут точки; переставлять на ходу нельзя (водитель уже
      *  едет к первой, и навигатор ведёт туда же). */
-    suspend fun setWaypoints(orderId: Int, stops: List<TaxiStop>): Result<DestinationQuoteDto> =
+    suspend fun setWaypoints(orderId: Int, stops: List<TaxiStop>, expectedGeneration: Long? = null): Result<DestinationQuoteDto> =
         call("POST", "/instant/orders/$orderId/waypoints",
-            JSONObject().put("waypoints", stopsArray(stops)), auth = true).map { o ->
+            JSONObject().put("waypoints", stopsArray(stops)), auth = true, expectedGeneration = expectedGeneration).map { o ->
             DestinationQuoteDto(
                 price = o.optInt("price"),
                 oldPrice = o.optInt("old_price"),
@@ -2868,15 +3058,15 @@ object ApiClient {
     }
 
     /** Мои быстрые заказы (свежие сверху) — восстановить активный заказ при возврате на экран. */
-    suspend fun getMyInstantOrders(limit: Int = 5): Result<List<InstantOrderDto>> =
-        call("GET", "/instant/orders/mine?limit=$limit", null, auth = true).map { obj ->
+    suspend fun getMyInstantOrders(limit: Int = 5, expectedGeneration: Long? = null): Result<List<InstantOrderDto>> =
+        call("GET", "/instant/orders/mine?limit=$limit", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { arr.getJSONObject(it).toInstantOrderDto() }
         }
 
     /** Детали заказа: пассажир поллит статус (searching→offered→accepted→arriving→onboard→done). */
-    suspend fun getInstantOrder(id: Int): Result<InstantOrderDto> =
-        call("GET", "/instant/orders/$id", null, auth = true).map { it.toInstantOrderDto() }
+    suspend fun getInstantOrder(id: Int, expectedGeneration: Long? = null): Result<InstantOrderDto> =
+        call("GET", "/instant/orders/$id", null, auth = true, expectedGeneration = expectedGeneration).map { it.toInstantOrderDto() }
 
     /** Активный оффер для водителя (поллинг-фолбэк к пушу). null = нет входящего заказа. */
     suspend fun getDriverOffer(): Result<InstantOrderDto?> =
@@ -2930,21 +3120,21 @@ object ApiClient {
         call("POST", "/instant/orders/$id/done", JSONObject(), auth = true).map { it.toInstantOrderDto() }
 
     /** Пассажир отзывает свой вопрос про новый адрес: едем по старому. */
-    suspend fun withdrawDestination(id: Int): Result<Unit> =
-        call("POST", "/instant/orders/$id/destination/withdraw", JSONObject(), auth = true).map { }
+    suspend fun withdrawDestination(id: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/instant/orders/$id/destination/withdraw", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
 
     /**
      * «Поездка закончилась» — пассажир закрывает поездку, которую водитель не закрыл.
      * Сервер пускает только после расчётного времени поездки плюс запас.
      */
-    suspend fun instantPassengerDone(id: Int): Result<InstantOrderDto> =
-        call("POST", "/instant/orders/$id/passenger-done", JSONObject(), auth = true)
+    suspend fun instantPassengerDone(id: Int, expectedGeneration: Long? = null): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/passenger-done", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.toInstantOrderDto() }
             .onSuccess { Analytics.log("instant_passenger_done") }
 
     /** Отмена заказа (пассажир до посадки / водитель после accept). Причина опциональна. */
-    suspend fun instantCancel(id: Int, reason: String = ""): Result<InstantOrderDto> =
-        call("POST", "/instant/orders/$id/cancel", JSONObject().put("reason", reason), auth = true).map { it.toInstantOrderDto() }
+    suspend fun instantCancel(id: Int, reason: String = "", expectedGeneration: Long? = null): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/cancel", JSONObject().put("reason", reason), auth = true, expectedGeneration = expectedGeneration).map { it.toInstantOrderDto() }
             .onSuccess { Analytics.log("instant_order_cancel") }
 
     // ---------- Предзаказ такси «на время» (scheduled) ----------
@@ -2958,6 +3148,7 @@ object ApiClient {
         roundTrip: Boolean = false, returnWaitMin: Int = 0,
         stops: List<TaxiStop> = emptyList(),
         paymentMethod: String = "",
+        expectedGeneration: Long? = null,
     ): Result<InstantOrderDto> {
         // Предзаказ шлёт ТОТ ЖЕ набор полей, что обычный заказ (аудит сценариев 30.08).
         // Раньше уходили только точки, время и класс: человек выбирал детское кресло,
@@ -2972,7 +3163,7 @@ object ApiClient {
         if (forPhone.isNotBlank()) body.put("for_phone", forPhone.take(32))
         if (womenOnly) body.put("women_only", true)
         if (paymentMethod.isNotBlank()) body.put("payment_method", paymentMethod)
-        return call("POST", "/instant/schedule", body, auth = true)
+        return call("POST", "/instant/schedule", body, auth = true, expectedGeneration = expectedGeneration)
             .map { it.toInstantOrderDto() }.onSuccess { Analytics.log("instant_order_schedule") }
     }
 
@@ -3440,6 +3631,7 @@ object ApiClient {
         retryOnNetwork: Boolean = true,  // M5: повторять транзитные обрывы связи с backoff (по умолчанию вкл.)
         expectedGeneration: Long? = null,
         idempotencyKey: String? = null,
+        singleAttemptMutation: Boolean = false,
     ): Result<JSONObject> {
         val snapshot = requestSession()
         val generation = expectedGeneration ?: snapshot.generation
@@ -3470,27 +3662,57 @@ object ApiClient {
         while (true) {
             if (sessionBound && !sameSession(generation)) return@withContext staleSession()
             var conn: HttpURLConnection? = null
+            var mutationResponse: Response? = null
             try {
-                conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
-                    requestMethod = method
-                    connectTimeout = connectMs
-                    readTimeout = readMs
-                    setRequestProperty("Accept", "application/json")
-                    idempotencyKey?.let { setRequestProperty("Idempotency-Key", it) }
-                    deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
-                    if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
-                    if (body != null) {
-                        doOutput = true
-                        setRequestProperty("Content-Type", "application/json")
-                        OutputStreamWriter(outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
+                val code: Int
+                val text: String
+                if (singleAttemptMutation) {
+                    val bytes = body?.toString()?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
+                    val requestBody = object : RequestBody() {
+                        override fun contentType() = if (body != null) "application/json; charset=utf-8".toMediaType() else null
+                        override fun contentLength() = bytes.size.toLong()
+                        override fun isOneShot() = true // Also for empty DELETE: 503/408 follow-ups must not resend it.
+                        override fun writeTo(sink: BufferedSink) { sink.write(bytes) }
                     }
+                    val headers = Headers.Builder().add("Accept", "application/json").apply {
+                        idempotencyKey?.let { add("Idempotency-Key", it) }
+                        deviceId?.let { add("X-Device-Id", it) }
+                        if (auth) usedToken?.let {
+                            val bearer = "Bearer $it"
+                            // Match the old transport's non-ASCII compatibility without allowing header injection.
+                            require(bearer.all { ch -> ch == '\t' || (ch.code >= 32 && ch.code != 127) })
+                            addUnsafeNonAscii("Authorization", bearer)
+                        }
+                    }.build()
+                    val request = Request.Builder().url(BASE + path).method(method, requestBody).headers(headers).build()
+                    val client = contactsTransport.newBuilder().connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
+                        .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).writeTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()
+                    mutationResponse = client.newCall(request).execute()
+                    code = mutationResponse.code
+                    serverUnreachable.value = false
+                    text = mutationResponse.body?.string().orEmpty()
+                } else {
+                    conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
+                        requestMethod = method
+                        connectTimeout = connectMs
+                        readTimeout = readMs
+                        setRequestProperty("Accept", "application/json")
+                        idempotencyKey?.let { setRequestProperty("Idempotency-Key", it) }
+                        deviceId?.let { setRequestProperty("X-Device-Id", it) }   // анти-фрод (B8-1)
+                        if (auth) usedToken?.let { setRequestProperty("Authorization", "Bearer $it") }
+                        if (body != null) {
+                            doOutput = true
+                            setRequestProperty("Content-Type", "application/json")
+                            OutputStreamWriter(outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
+                        }
+                    }
+                    code = conn.responseCode
+                    // Сервер ОТВЕТИЛ — связь есть, даже если ответ 4xx/5xx. Гасим флаг «нет связи»:
+                    // иначе плашка висела бы после восстановления сети до следующего перезапуска.
+                    serverUnreachable.value = false
+                    val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                    text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 }
-                val code = conn.responseCode
-                // Сервер ОТВЕТИЛ — связь есть, даже если ответ 4xx/5xx. Гасим флаг «нет связи»:
-                // иначе плашка висела бы после восстановления сети до следующего перезапуска.
-                serverUnreachable.value = false
-                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 if (sessionBound && !sameSession(generation)) return@withContext staleSession()
                 return@withContext if (code in 200..299) {
                     val obj = when {
@@ -3502,10 +3724,11 @@ object ApiClient {
                     Result.success(obj)
                 } else if (code == 401 && auth && !isRetry && !refreshToken.isNullOrBlank()) {
                     // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
-                    conn.disconnect(); conn = null
+                    conn?.disconnect(); conn = null
+                    mutationResponse?.close(); mutationResponse = null
                     val refreshed = tryRefresh(usedToken, generation)
                     if (refreshed.isSuccess) call(method, path, body, auth, isRetry = true, expectedGeneration = generation,
-                        idempotencyKey = idempotencyKey)
+                        idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation)
                     else Result.failure(refreshed.exceptionOrNull()!!)
                 } else if (code == 401 && auth) {
                     // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,
@@ -3547,6 +3770,7 @@ object ApiClient {
                 return@withContext Result.failure(e)
             } finally {
                 conn?.disconnect()
+                mutationResponse?.close()
             }
         }
         @Suppress("UNREACHABLE_CODE")
@@ -4619,13 +4843,13 @@ object ApiClient {
     // 503 = онлайн-оплата ещё не включена (mock в проде) → UI прячет карточку, «на доверии» остаётся.
 
     /** Оплатить ЗАВЕРШЁННУЮ бронь плановой поездки. methodKey: cash | card | sbp. */
-    suspend fun payBooking(bookingId: Int, methodKey: String): Result<PayTripResultDto> =
-        call("POST", "/bookings/$bookingId/pay", JSONObject().put("method", methodKey), auth = true)
+    suspend fun payBooking(bookingId: Int, methodKey: String, expectedGeneration: Long? = null): Result<PayTripResultDto> =
+        call("POST", "/bookings/$bookingId/pay", JSONObject().put("method", methodKey), auth = true, expectedGeneration = expectedGeneration)
             .map { it.toPayTripResult() }
 
     /** Оплатить ЗАВЕРШЁННЫЙ быстрый заказ (такси). methodKey: cash | card | sbp. */
-    suspend fun payInstantOrder(orderId: Int, methodKey: String): Result<PayTripResultDto> =
-        call("POST", "/instant/orders/$orderId/pay", JSONObject().put("method", methodKey), auth = true)
+    suspend fun payInstantOrder(orderId: Int, methodKey: String, expectedGeneration: Long? = null): Result<PayTripResultDto> =
+        call("POST", "/instant/orders/$orderId/pay", JSONObject().put("method", methodKey), auth = true, expectedGeneration = expectedGeneration)
             .map { it.toPayTripResult() }
 
     private fun JSONObject.toPayTripResult() = PayTripResultDto(
@@ -4709,9 +4933,9 @@ object ApiClient {
         }
 
     /** Добавить/обновить недавний адрес (дедуп по address на сервере). Best-effort — заказ не блокируем. */
-    suspend fun addRecentPlace(address: String, lat: Double, lng: Double): Result<Unit> =
+    suspend fun addRecentPlace(address: String, lat: Double, lng: Double, expectedGeneration: Long? = null): Result<Unit> =
         call("POST", "/places/recent", JSONObject()
-            .put("address", address).put("lat", lat).put("lng", lng), auth = true).map { }
+            .put("address", address).put("lat", lat).put("lng", lng), auth = true, expectedGeneration = expectedGeneration).map { }
 
     /**
      * Убрать один недавний адрес (чужое/нет → 404).
@@ -4760,27 +4984,27 @@ object ApiClient {
      *  быть уже в лифте, а мог не выйти вовсе, и разницы на экране не было никакой. Одна
      *  кнопка снимает и лишний звонок, и половину поводов для спора о простое.
      */
-    suspend fun instantImComing(orderId: Int): Result<Boolean> =
-        call("POST", "/instant/orders/$orderId/im-coming", JSONObject(), auth = true)
+    suspend fun instantImComing(orderId: Int, expectedGeneration: Long? = null): Result<Boolean> =
+        call("POST", "/instant/orders/$orderId/im-coming", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optBoolean("ok", true) }
 
     // Тип результата пришёл из main (волна 19x): помощь на дороге теперь возвращает не число,
     // а разбор ситуации. Мой метод «уже выхожу» рядом — они друг другу не мешают.
-    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = ""): Result<RoadsideResult> {
+    suspend fun instantRoadsideHelp(orderId: Int, lat: Double?, lng: Double?, note: String = "", expectedGeneration: Long? = null): Result<RoadsideResult> {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true).map { roadsideResult(it) }
+        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }
     }
 
     /** «Застрял на трассе» в ДОСТАВКЕ. Курьер едет по той же зимней трассе и вдобавок один:
      *  рядом нет пассажира, который заметит беду. Сервер принимал сигнал с 2026-08-06,
      *  но в приложении нажать было негде (аудит 2026-08-06). */
-    suspend fun parcelRoadsideHelp(parcelId: Int, lat: Double?, lng: Double?, note: String = ""): Result<RoadsideResult> {
+    suspend fun parcelRoadsideHelp(parcelId: Int, lat: Double?, lng: Double?, note: String = "", expectedGeneration: Long? = null): Result<RoadsideResult> {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/parcels/$parcelId/stuck", body, auth = true).map { roadsideResult(it) }
+        return call("POST", "/parcels/$parcelId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }
             .onSuccess { Analytics.log("roadside_help_parcel") }
     }
 
@@ -4795,8 +5019,8 @@ object ApiClient {
         }
 
     /** Квитанция за такси-поездку (обе стороны, только после done). Телефонов в чеке нет. */
-    suspend fun getInstantReceipt(orderId: Int): Result<InstantReceiptDto> =
-        call("GET", "/instant/orders/$orderId/receipt", null, auth = true).map { o ->
+    suspend fun getInstantReceipt(orderId: Int, expectedGeneration: Long? = null): Result<InstantReceiptDto> =
+        call("GET", "/instant/orders/$orderId/receipt", null, auth = true, expectedGeneration = expectedGeneration).map { o ->
             InstantReceiptDto(
                 orderId = o.optInt("order_id"),
                 role = o.optString("role"),
@@ -4908,13 +5132,13 @@ object ApiClient {
 
     /** Водитель: «наличные получил». Раньше отметить оплату мог только пассажир — и если он
      *  просто закрывал приложение, заказ навсегда оставался «не оплачен». */
-    suspend fun instantCashReceived(orderId: Int): Result<String> =
-        call("POST", "/instant/orders/$orderId/cash-received", JSONObject(), auth = true)
+    suspend fun instantCashReceived(orderId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/instant/orders/$orderId/cash-received", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("status") }
 
     /** «Я забыл вещь в машине» → чат заказа снова открыт на запись 48 часов (обеим сторонам). */
-    suspend fun instantLostItem(orderId: Int): Result<String> =
-        call("POST", "/instant/orders/$orderId/lost-item", JSONObject(), auth = true)
+    suspend fun instantLostItem(orderId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/instant/orders/$orderId/lost-item", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("chat_open_until") }
 
     /** То же для попутки. Пока чат попутки не закрывался, выход был не нужен; после того как
@@ -4926,8 +5150,8 @@ object ApiClient {
             .onSuccess { Analytics.log("lost_item_booking") }
 
     /** Инфо для «Сказать рәхмәт» после такси-поездки (money != null → водитель оставил СБП). */
-    suspend fun getInstantTipInfo(orderId: Int): Result<TipInfoDto> =
-        call("GET", "/instant/orders/$orderId/tip", null, auth = true).map { o ->
+    suspend fun getInstantTipInfo(orderId: Int, expectedGeneration: Long? = null): Result<TipInfoDto> =
+        call("GET", "/instant/orders/$orderId/tip", null, auth = true, expectedGeneration = expectedGeneration).map { o ->
             val m = o.optJSONObject("money")
             TipInfoDto(
                 driverName = o.optString("driver_name"),
@@ -4937,8 +5161,8 @@ object ApiClient {
         }
 
     /** «Рәхмәт» водителю такси — тёплый жест без денег. Идемпотентно. */
-    suspend fun sayInstantThanks(orderId: Int): Result<Unit> =
-        call("POST", "/instant/orders/$orderId/thanks", JSONObject(), auth = true).map { }
+    suspend fun sayInstantThanks(orderId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/instant/orders/$orderId/thanks", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
 
     /** То же для попутки. Сервер умел это с самого начала — «рәхмәт» и придумали для попуток,
      *  но кнопка в итоге появилась только в чеке такси, и обе ручки годами никто не звал
@@ -5226,6 +5450,7 @@ object ApiClient {
     suspend fun fileIncident(
         respondentId: Int, type: String, description: String,
         bookingId: Int? = null, orderId: Int? = null, evidenceUrls: List<String> = emptyList(),
+        expectedGeneration: Long? = null,
     ): Result<IncidentDto> {
         val body = JSONObject()
             .put("respondent_id", respondentId)
@@ -5234,7 +5459,7 @@ object ApiClient {
         if (bookingId != null) body.put("booking_id", bookingId)
         if (orderId != null) body.put("order_id", orderId)
         if (evidenceUrls.isNotEmpty()) body.put("evidence_urls", JSONArray(evidenceUrls))
-        return call("POST", "/incidents", body, auth = true)
+        return call("POST", "/incidents", body, auth = true, expectedGeneration = expectedGeneration)
             .map { it.toIncidentDto() }.onSuccess { Analytics.log("incident_file") }
     }
 
@@ -5284,8 +5509,8 @@ object ApiClient {
         }
 
     /** Загрузить фото-доказательство → приватный URL (/secure/evidence/...). НЕ публичный /media. */
-    suspend fun uploadEvidence(bytes: ByteArray, ext: String = "jpg"): Result<String> =
-        callMultipart("/upload/evidence", bytes, ext, "evidence.$ext").map { it.optString("url") }
+    suspend fun uploadEvidence(bytes: ByteArray, ext: String = "jpg", expectedGeneration: Long? = null): Result<String> =
+        callMultipart("/upload/evidence", bytes, ext, "evidence.$ext", expectedGeneration = expectedGeneration).map { it.optString("url") }
 
     /** Админ: очередь споров. status: open|awaiting_response|under_review|appealed|resolved|closed. */
     suspend fun adminIncidents(status: String? = null): Result<List<IncidentDto>> =

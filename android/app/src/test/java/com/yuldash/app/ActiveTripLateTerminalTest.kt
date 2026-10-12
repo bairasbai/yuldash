@@ -129,12 +129,15 @@ class ActiveTripLateTerminalTest {
         assertNull(TripPassStore.load(context, 42))
 
         releaseCode.countDown()
-        compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-            detailsRequested.count == 0L
+        // The terminal screen now stops the initial request chain after the held code.
+        // Bounded main/IO observation; absence of a follow-up is not an unbounded join proof.
+        repeat(20) {
+            compose.mainClock.advanceTimeBy(100)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100))
+            Thread.sleep(10)
         }
-        // The next real API call is a causal witness that the late code callback has run.
         compose.waitForIdle()
+        assertEquals("Closed trip must not request details after the late code", 1L, detailsRequested.count)
         compose.onNodeWithText("Поездка завершена").assertIsDisplayed()
         compose.onAllNodesWithText("5678").assertCountEquals(0)
         compose.onAllNodesWithText("1234").assertCountEquals(0)

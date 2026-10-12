@@ -56,6 +56,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import com.yuldash.app.data.ApiClient
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -155,7 +157,8 @@ internal fun PassengerModeHome(
 
     // Поиск и поездка — уже начатый заказ. Переключатель сервисов прячется, чтобы человек
     // не бросил его случайным касанием, а карте и статусу досталось всё свободное место.
-    val taxiOrderOnScreen = NavSignals.taxiOrderOnScreen.value
+    val generation by ApiClient.sessionChanges.collectAsState()
+    val taxiOrderOnScreen = TaxiNavigationState.orderOnScreen(generation)
     Column(Modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = !taxiOrderOnScreen,

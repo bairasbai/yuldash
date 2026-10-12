@@ -35,13 +35,15 @@ internal fun OrdersNav(
     onOpenReceipt: (Int) -> Unit,
     /** Открыть фото машины: режим («такси» или «курьер») решает, что снимаем. */
     onOpenCarPhoto: (String) -> Unit,
+    isCurrentReceipt: (Int) -> Boolean = { true },
 ) {
     when (screen) {
         Screen.InstantOrder -> InstantOrderScreen(
             onBack = { onBack() },
             onLoginRequired = { onOpen(Screen.Login) },
             onTaxiOnboarding = { onOpen(Screen.TaxiOnboarding) },
-            onOpenScheduled = { onOpen(Screen.ScheduledOrders) }
+            onOpenScheduled = { onOpen(Screen.ScheduledOrders) },
+            renderNativeMap = LocalPoolingNativeMapEnabled.current,
         )
         Screen.InstantDriverTrip -> InstantDriverTripScreen(
             orderId = instantTripOrderId,
@@ -58,6 +60,7 @@ internal fun OrdersNav(
         )
         Screen.TaxiReceipt -> TaxiReceiptScreen(
             orderId = taxiReceiptOrderId,
+            isCurrentParent = { isCurrentReceipt(taxiReceiptOrderId) },
             onBack = { onBack() },
             // «Забыл вещь» открыл чат заказа на 48 часов → ведём прямо туда.
             onOpenChat = { id -> onOpenTaxiChat(id) },

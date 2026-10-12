@@ -227,6 +227,9 @@ import android.view.MotionEvent
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yandex.mapkit.MapKitFactory
@@ -3223,9 +3226,11 @@ internal fun ChatComposer(
     onVoiceRecorded: (String, Int) -> Unit,
     onPhotoPicked: (ByteArray) -> Unit = {},
     onQuickSend: (String) -> Unit = {},   // тап по готовой фразе → отправить сразу (тот же путь, что и обычное сообщение)
+    recordingAllowed: Boolean = true,
 ) {
     val context = LocalContext.current
-    val recorder = remember { VoiceRecorder(context) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val recorder = remember(context, lifecycleOwner, recordingAllowed) { VoiceRecorder(context) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             // Пережимаем перед отправкой: снимок с камеры весит 5-6 МБ, а в деревне это
@@ -3236,9 +3241,24 @@ internal fun ChatComposer(
             if (bytes != null) onPhotoPicked(bytes)
         }
     }
-    var recording by remember { mutableStateOf(false) }
-    var startMs by remember { mutableStateOf(0L) }
-    fun begin() { if (recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
+    var recording by remember(recorder) { mutableStateOf(false) }
+    var startMs by remember(recorder) { mutableStateOf(0L) }
+    DisposableEffect(recorder, lifecycleOwner) {
+        if (!recordingAllowed) recorder.close()
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                recorder.cancel()
+                recording = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            recorder.close()
+        }
+    }
+    fun canRecord() = recordingAllowed && !recorder.isClosed && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+    fun begin() { if (canRecord() && recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
     fun finish() {
         val p = recorder.stop()
         val dur = ((SystemClock.elapsedRealtime() - startMs) / 1000).toInt().coerceAtLeast(1)
@@ -3260,7 +3280,7 @@ internal fun ChatComposer(
         whyRu = "Микрофон нужен, чтобы записать короткое сообщение попутчику — это удобнее, чем набирать текст за рулём или на морозе.",
         whyBa = "Микрофон юлдашыңа ҡыҫҡа хәбәр яҙыр өсөн кәрәк — руль артында йәки һыуыҡта яҙғандан уңайлыраҡ.",
         onGranted = { begin() },
-        onDenied = { Toast.makeText(context, deniedMic, Toast.LENGTH_LONG).show() },
+        onDenied = { if (canRecord()) Toast.makeText(context, deniedMic, Toast.LENGTH_LONG).show() },
     )
     fun requestVoice() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) begin()
@@ -3345,6 +3365,7 @@ internal fun ChatComposer(
             }
             // Кнопка справа: микрофон (пусто) / отправить (есть текст или идёт запись)
             IconButton(
+                enabled = recordingAllowed,
                 onClick = {
                     when {
                         recording -> finish()

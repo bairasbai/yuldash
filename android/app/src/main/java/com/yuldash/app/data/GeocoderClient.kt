@@ -25,7 +25,7 @@ object GeocoderClient {
      * Раньше оба случая возвращали пустой список, и человеку с ПРАВИЛЬНЫМ адресом уверенно
      * писали «Такого адреса не нашли» — экран врал вместо «нет связи, повторить?».
      */
-    suspend fun suggestResult(query: String): Result<List<GeoHit>> = withContext(Dispatchers.IO) {
+    suspend fun suggestResult(query: String, expectedGeneration: Long? = null): Result<List<GeoHit>> = withContext(Dispatchers.IO) {
         val q = query.trim()
         if (q.length < 2) return@withContext Result.success(emptyList())
         synchronized(cache) { cache[q] }?.let { return@withContext Result.success(it) }
@@ -34,7 +34,7 @@ object GeocoderClient {
         // авторизацию требует: подсказки адреса не работали НИГДЕ — ни в такси, ни в посылках,
         // ни в «моих адресах». Человек вводил правильный адрес и получал «не нашли»
         // (аудит 2026-08-07).
-        ApiClient.geocode(q).map { obj ->
+        ApiClient.geocode(q, expectedGeneration = expectedGeneration).map { obj ->
             val items = obj.optJSONArray("items") ?: return@map emptyList<GeoHit>()
             val hits = (0 until items.length()).mapNotNull { i ->
                 val o = items.getJSONObject(i)

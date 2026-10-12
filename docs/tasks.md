@@ -17468,3 +17468,843 @@ glossary и четыре связанных auth-набора, exit0. 🔒 Бр�
 01.10.2026 — этап остановлен по просьбе пользователя: независимая ENV-B10 приёмка принята,35 новых тестовых файлов/85 собственных файлов публикационного пакета. Отчёт и запуск Клода: docs/audit-handoff-claude-20261001.md, текущая передача: верх audit-journal.md, очередь только audit-blocks.md. Все субагенты завершены, наши файловые/Gradle/эмулятор/БД замки сняты; own PG55431/AVD5580 остановлены, pytest/Gradle отсутствуют. Исторические строки владения выше не актуальны. Полный backend остаётся с историческим1fixturefail/39skip; новый полный green требуется отдельно, current68 принят. Raw evidence/компактный архив локальны и сохраняются. Авторизация commit/push/main только для этого пакета.
 
 01.10.2026 — основной пакет зафиксирован 48b92c12addeb544307a84d98cc83707d37690fc; локальный main перенесён ff-only в публикационной копии. Заключительная документация поверх него, код и тесты frozen. Фактическая отправка/refs/sharedforeignpreservation фиксируются local audit-handoff-git-final-20261001.json; новый аудит не начинается, рабочий сервер/платные действия не выполняются. Следующему агенту начать с отчёта и верхнего handoff, проверить CI/общий backend и продолжить реестр.
+
+## Оценка подготовки к релизу — 04.10.2026
+
+Запрос: прочитать исходники/блоки и дать честную оценку по100%, остаток проверок/доработок/релиза. План read-only: сверить реестр/инвентаризацию → отдельно прочитать Android/backend/web+CI → проверить первичные XML/coverage и свежие исходные замечания → свести шкалу и приоритеты в существующий реестр. Исполнители: root и три read-only агента; писатель документов root. Продуктовый код, mobile, версии, БД, production, GitHub и общие сборки не менялись/не запускались.
+
+Результат: [оценка в едином реестре](audit-blocks.md#оценка-подготовки-к-релизу--04102026). Инвентаризация1767: только известный чужой .gitignore drift; исходники/тесты совпадают снимку. Прочитаны первичные backend-v2 XML/coverage и исторические Android/PWA summaries. Диапазоны — мнение, не измеренная исправность. Зарегистрирован QA-B10-002 (gzip-проверка .enc до расшифровки); runtime/fix/restore открыты. Исправлений/новых продуктовых тестов в этой оценке нет. Все11 блоков сохраняют прежние незакрытые статусы. Точные сроки/число будущих тестов не установлены; коммит/пуш не выполнялись.
+
+## Продолжение блоков B01–B11 — 07.10.2026
+
+Авторизация пользователя: «Продолжи каждый блок добивать этап за этапом». План: сверить исходники/реестр и ресурсы; первый доступный остаток B01 (legacy переход и холодный процесс/отказ хранения); подтвердить каждый дефект воспроизведением, минимально исправить и проверить соседние пути; продолжать B02–B11 по критериям, внешнюю недоступность фиксировать отдельно; выполнить итоговую сборку/интеграцию и обновлять существующий реестр. Без новых общих отчётов, коммитов, push, production/платных/внешних отправок. Root — единственный писатель общих docs/инвентаризации, Android-source, владелец Gradle/adb/своего emulator5580 и тестовых БД. android_readiness — read-only B01 остаток. backend_readiness — только backend/ops/restore-verify.sh и новый изолированный test_restore_verify_encrypted_backup.py, без настоящей БД. web_release_readiness — read-only выбранные PWA/promo/CI критерии. Других процессов Gradle/pytest/emulator при старте не найдено; системный PostgreSQL не трогаем. adb devices пуст. Изменение инвентаризации только известный чужой .gitignore; прежние документы оценки и чужие файлы сохранены. Ветка audit/release-stages-20261007.
+
+Результаты этапов: [единственный актуальный реестр](audit-blocks.md#этапы-продолжения--07102026). QA010 триactualPID/реальныйKeystore, B02/DESIGN062 RED3failure→28/28+обаAPK, B09 contract6/6+regression4/4+66/66suites, PWA build/CIcheck, QA-B10-0029/9+настоящийPG16.15restore/plain/encrypted/wrongkey+cleanup, B11 tsc/compositions исправлены. Исходные ошибки стенда не скрыты и не считаются product defects. Новых пользовательских строк/версий/переводов нет. Root следит за текущим полным backend/mock прогоном и записывает конечный результат отдельно; ничего из всех11блоков не объявлено полностью готовым. QA020cold rollback/физическиеintegrations/остальныедизайнкейсы открыты.
+
+Финал локальной интеграции07.10:4947pass/39skip/0fail-error SQLite/mock;38 PostgreSQL-specific skippedIDs отдельно38/38безskip на ownPG16.15,1intentionalтаксиlabel остаётсяисключённым. Coverage20414/22066=92.51%lines/branchfalse. После косметическогоlinttestfix current9/9 иRuff0, appmain103неизменны. Inventory1771/4added/8changed(одинforeign.gitignore)/0removed,--check0; savedoldJSON. Текущаяветкаcodex/release-stages-20261007. СвойPG/5580остановлены,adbпуст; агентытолькоreview завершают, source/docsзамкиroot снятыпослефинальныхзаписей. B01coldrollback, полныйPG/Androidrelease/телефоны/полныепути/матрицаUI ещёоткрыты; следующийпунктвреестре, готовностьвсего11неутверждается.
+
+07.10.2026 — публикация разрешена новым запросом «Вливай в main и запушь на гитхаб». План: проверить паузу стража и свежий origin/main; включить только18собственных файлов этапа/оценки, исключив чужие.gitignore/.claude/$SCRATCH/archive/overview; пересчитать inventory для чистой публикуемой версии; сверить staged tree/проверенные источники/отсутствие секретных файлов; commit→fast-forward main в существующей чистой публикационной копии→обычный push безforce→одна сверка удалённогоSHA. Полные неизменённые тесты повторно не запускать. Если удалённая ветка изменится, сначала изучить разницу. Root — единственный писатель пакета/публикационной копии, без production/deploy.
+
+07.10.2026 — пользователь «Идем дальше, второй блок»: продолжение B02 / QA-B02-003 от main 2c4af780 на codex/b02-session-boundaries-20261007. План: (1) управляемые WS/HTTP/очередь/пауза-возврат воспроизведения старого экрана при A→B; (2) минимальные guards только после подтверждения, соседние положительные сценарии; (3) профиль связанных Android-тестов и assembleDebug, свежая read-only приёмка; (4) обновить тот же реестр/инвентаризацию, затем следующий доступный остаток B02. Исходная дельта — только известная чужая .gitignore, её не меняем; остальные чужие файлы сохранены. 🔒 root: BookingActiveTripScreen.kt, при подтверждённой необходимости ChatSocket.kt, новые tests, общие docs/inventory, единственный Gradle/adb; b02_socket_review — только чтение ограниченного участка, без запуска ресурсов. При старте java/emulator/python не обнаружены; shared adb не останавливаем. Проверки настоящего сервера/телефона отдельны от локального HTTP/WS стенда.
+
+Продолжение B02: DESIGN066 — отдельная ошибка загрузки кода, повторяет только GET кода; QA-B02-004 — диалог отказа локального удаления после реальной UI-отмены на собственном эмуляторе5580/API35. Синтетические дисковые prefs и отказ commit задаёт стенд, HTTP — loopback, не FastAPI. Новый device test принадлежит root; сборка/установка/снимки только по очереди. Тесты с ошибками компиляции/очистки/непрокрученным чатом сохраняются и не считаются product RED. Чистые подтверждённые исходные отказы: session12 cases/7 productfail/1viewportfixturefail/4pass + waitingflush1/1fail; code-load4/3fail/1pass после исправления прокрутки.
+
+### Переводы на проверку — B02, 07.10.2026
+
+Черновой башкирский новых строк для проверки Александром:
+- «Не удалось загрузить код» — «Кодты йөкләп булманы».
+- «Повторить загрузку кода» — «Кодты яңынан йөкләргә».
+
+07.10.2026 — B02 локальный этап принят: QA-B02-003 выбранные WS/сессия/очередь/lifecycle17 случаев; QA-B02-011/DESIGN066 code-load4; QA-B02-012/PATH-03 driver3. Новые24 уже входят финальным135/135 в28классах,0fail/error/skip; debug+testAPK собраны. Отдельно QA-B02-004 native-v4 RU/BA2/2: один серверный cancelPOST, успешный локальный повтор и сохранная другая бронь, оба PNG просмотрены. Native-v1/v2/v3 были ошибками стенда; исправленный fluent Editor подтверждает свой отказ пробной записью. Независимый читатель принял текущие9source/test files и primary outputs с явными границами; checkpoints и незакрытые критерии только в audit-blocks.md. Предыдущий inventory сохранён, новый1777/--check0; чужие.gitignore/.claude/$SCRATCH/archive/overview сохранены. Замки source/Gradle завершены; root заканчивает документы/сверку публикации. Никакой весь B02/релиз/физический телефон/production не назван готовым.
+
+07.10.2026 — передача B02 по прежней пользовательской инструкции main/push: только16собственных файлов, чистый публикуемый inventory без чужой.gitignore; guard→свежийorigin→staged/source hashcheck→commit→ff-only main→обычныйpush→однаremoteSHAсверка. Отправка raw локальных журналов/production не входит. Точный результат только b02-git-publication-20261007.json после выполнения. Следующий локальный B02-критерий — DESIGN065; QA-B01-020 и внешние провайдеры не закрыты этим этапом.
+
+🔓 B02 root / 07.10.2026: свои source/tests/docs/Gradle/adb замки этого этапа сняты после записи результатов. Собственный emulator-5580 остановлен; финальный adbdevices пуст, PID28192/27308 и слушатель5580 отсутствуют. Общий adb и чужие emulator-процессы не останавливались. Публикационные операции сериализованы root, origin/main после одногоfetch совпал исходному2c4af780; guard «пауза:нет». Дальше начинать с текущего реестра/нового inventory, не считать исторические строки замков активными.
+
+## B02 / DESIGN065 — продолжение по запросу «Продолжай», 07.10.2026
+
+Старт edcbc592 на codex/b02-offline-payment-20261007. План: (1) проверить серверный nullable договор оплаты и путь details→save→offline UI, старые паспорта/zero/None/RU/BA; (2) сначала воспроизвести ошибочную сумму/СБП meaningful тестами, затем минимально исправить сохранение/отображение; (3) проверить отказ записи, миграцию, владельца/поколение и терминальное удаление соседними тестами, собрать APK, получить независимую read-only приёмку; (4) обновить существующие docs/inventory и передать только собственные файлы в main/push по прежнему указанию. Исходная дельта inventory — только чужая.gitignore; mobile/версии/production/чужие материалы не трогать. 🔒 Root: TripPass.kt, BookingActiveTripScreen.kt, новые тесты, общие docs/inventory, единственный Gradle/adb. b02_socket_review — read-only точный DESIGN065, без ресурсов/изменений. При старте java/python/эмуляторы не обнаружены; shared adb/системные сервисы не останавливать. Прежний этап135/2 не повторять целиком без изменения соответствующих зависимостей.
+
+
+07.10.2026 — QA-B02-013/DESIGN065: минимально исправлены typed agreement snapshot/JSON и два offline UI блока/zero;12 UI+9data входят финальным121/121, native realencrypted3/3. Отказ записи сохраняет прежние700/СБП до повторного GET; actual held-code A→B оставляет B900/СБП. Старый rawJSON не выдумывает метод, включая полный поиск дополнительного блока. Не скрыты ранние fixture failures; причины повторов в audit-journal. Источники и очередь только audit-blocks.md. Предыдущий inventory сохранён, новый1780/--check0; foreign.gitignore/конфиги/архивы не включать в commit. Независимая приёмка передаётся в b02-payment-independent-20261007.json, контрольные суммы — b02-payment-final-checkpoint-20261007.json.
+
+### Переводы на проверку — QA-B02-013, 07.10.2026
+
+- «Способ оплаты не сохранён» → «Түләү ысулы һаҡланмаған» — новый черновой BA для старого/неизвестного офлайн-метода; проверить Александру как носителю.
+
+🔓 QA-B02-013 root / 07.10.2026: сборки/native закончены; собственный emulator5580 остановлен, PID/порты отсутствуют, adbdevices пуст. Source/tests frozen; root заканчивает общие документы/публикацию12 собственных файлов по прежней инструкции main/push. Исторические замки прежних этапов не активны. Фактический commit/remote SHA и сохранность foreign — только b02-payment-git-publication-20261007.json после выполнения; force/production/платные действия не входят.
+
+
+## B02 / QA-B02-011 — границы повтора кода, 07.10.2026
+
+Продолжение по «Продолжай», от опубликованного f04b10c0 на codex/b02-code-retry-boundaries-20261007. План: (1) controlled actual ActiveTripScreen ошибка→held retry→A→B/done/cancelled/Back и быстрые повторные нажатия; проверять фактический disk/UI/HTTP и неизменность другой брони; (2) менять продукт только при подтверждённом RED, сохранённые owner/terminal guards не объявлять новыми исправлениями; (3) актуальные соседние unit checks+assembleDebug, actual emulator RU/BA error/loading/retry если окружение доступно, независимая приёмка; (4) обновить существующий реестр/inventory и передать только свои текущие файлы main/push по прежней инструкции. Начальный inventory1780: только известная чужая.gitignore дельта,0source drift; чужие конфиги/$SCRATCH/archive/overview сохранить. 🔒 Root: BookingActiveTripScreen.kt при обоснованной необходимости, новые ActiveTripBoardingCodeRetryBoundaryTest.kt/ActiveTripBoardingCodeRetryInstrumentedTest.kt, общие docs/inventory, единственный Gradle/adb. b02_socket_review только boundedread, без изменения источников/ресурсов/GitHub. При старте java/python/emulator/qemu не обнаружены; shared adb не останавливать. Настоящий сервер/физические телефоны/cold process и остальные WS-критерии не входят в это локальное доказательство.
+
+07.10.2026 — QA-B02-011/DESIGN066, текущий локальный этап завершён: новые held retry8 проверяют RU/BA, pointerbatch, late200/503 после A→B, done/cancelled и фактическую кнопку Назад; продуктового дефекта в этих воспроизведениях не найдено, source не менялся. Интеграция41/41; после усиления cancelled exactly-once и ожидания native кадра affected8/8+debug/testAPK заново зелёные. Уникально8+33=41, native2/2 отдельно. Native-v2 encrypted reopen/6исходныхPNG просмотрены root; первая blankBa-error сохранена историей. Точные версии/границы/первые ошибки только [в реестре](audit-blocks.md#b02--повтор-кода-поздние-ответы-и-устройство-07102026), independentreceipt/freeze в b02-code-retry-independent/final-checkpoint-20261007.json. Inventory1780backup→1782/--check0; чужие.gitignore/конфиги/$SCRATCH/archive/overview сохранены. Новых BA строк нет.
+
+🔓 Root source/tests/Gradle/adb замки этого этапа сняты; свой эмулятор остановлен,5580/5581 не слушают,adbпуст; sharedadb не останавливался. Документы/публикация остаются root до принятия и main/push по уже данному указанию. Только9своих путей, чистыйcandidateinventory безforeign.gitignore; результат b02-code-retry-git-publication-20261007.json. Следующий доступный локальный шаг B02 — удержанный WebSocket handshake при A→B, same-sessionrefresh и callbacks заменённого соединения; source-revision и доказательства сверить перед новой проверкой. Полный B02, настоящий сервер/физические телефоны/coldprocess/релиз этим этапом не подтверждены.
+
+
+## B02 / QA-B02-003 — подключение чата и обновление входа, 07.10.2026
+
+Старт опубликованный d287ce4a, codex/b02-chat-handshake-refresh-20261007. План: (1) управляемый настоящий loopback WebSocket: удержанный HTTP upgrade при A→B/close/replacement и обновление токена той же сессии через реальный ApiClient HTTP401/refresh; (2) meaningful тесты до правки продукта, менять ChatSocket/ApiClient только при подтверждённом дефекте, проверить нормальное подключение/приём/отправку; (3) затронутые соседние проверки, assembleDebug, независимая приёмка актуальных source/proofs; (4) обновить тот же реестр/inventory и передать только свои файлы main/push по прежней пользовательской инструкции. Root единственный writer ChatSocket.kt, новые точные tests, docs/inventory/Gradle/adb/GitHub; b02_socket_review только bounded read-only аудит, без ресурсов. При старте нет java/emulator/qemu; неизвестный python624 не останавливаем. Исходная inventory1782 дельта — только чужая.gitignore,0source drift. Чужие конфиги//archive/overview, mobile/версии/backend/production сохраняются. Реальный сервер/телефон/native/coldprocess и полное исчезновение старого UI отдельно открыты. 🔒 Root owns current named files and single build; review agent has no write access except later one explicit receipt.
+
+07.10.2026 — QA-B02-003 localhandshake/refresh завершён: runtimeRED11/4fail→ChatSocketonlypatch→GREEN24→integration85/85; поreader добавленactualonFailure-reentrantcontrol→final12/12+обаAPK. Уникально12new+74old=86, native3/3actualAPI35/HTTP/WS,0fixturefails. Product изменён один, ApiClient/NetworkMonitor/экран/backend/версии/mobile прежние. Repro nativehosttools/audit_chat_refresh_loopback.py добавлен вscopeдляпубликации; исходныйwebsockets draft не запускался. Точные hashes/proofs/границы только [вреестре](audit-blocks.md#b02--подключение-чата-и-обновление-входа-07102026), independent/finalcheckpoint b02-chat-handshake-*-20261007.json. Inventory1782backup→1785/check0;knownforeign не включать. НовыхRU/BAстрокнет.
+
+🔓 Root ChatSocket/tests/helper/Gradle/adb замки завершены: свойэмулятор7184/children иhost2348 остановлены,5580/5581/19079 отсутствуют,reverseabsent/adbпуст,sharedadb сохранён. Root закрывает docs/freeze/приёмку/публикацию11own путей через чистый inventory. Main/push уже разрешены пользователем; фактическийcommit/remote receipt b02-chat-handshake-git-publication-20261007.json. Следующий локальный шаг QA-B02-003 — callbackнаглавномпотоке при A→B/terminal и удаление прежнихличныхданныхUI; весьB02/релиз/liveproviders/phones/coldprocess ещё не подтверждены.
+
+
+## B02 / QA-B02-003 — поздние события и закрытие прежнего экрана, 07.10.2026
+
+Пользователь «Идем дальше», опубликованная база a3825e1c, ветка codex/b02-chat-ui-boundaries-20261007. План: (1) воспроизвести на настоящем Compose-экране сохранение прежних сообщений/черновика после выхода и смены A→B, а также задержанные до главного потока message/connected/rejected при terminal; (2) исправить только подтверждённые причины, сохранить обычный чат и обновление ключа той же сессии; (3) выполнить затронутые проверки и assembleDebug, проверить доступные native-сценарии, принять текущие версии независимым читателем; (4) обновить этот реестр и инвентаризацию, влить только свои файлы в main и push по прежнему указанию.
+
+🔒 Root: BookingActiveTripScreen.kt, при необходимости ApiClient.kt, точные новые/затронутые tests, docs/inventory, единственные Gradle/adb/GitHub. b02_socket_review: только чтение указанной области, без сборок/эмулятора/сети/изменений. MainActivity.kt/mobile/версии/чужие файлы не трогать. Исходная инвентаризация 1785: добавлений/удалений нет, единственная чужая дельта .gitignore. Java/emulator/python на старте не обнаружены. Реальные провайдеры/сервер/телефон и смерть процесса не считать проверенными локальными тестами.
+
+07.10.2026 — текущий локальный этап QA-B02-003 завершён: product BookingActiveTripScreen/ApiClient, новые JVM12 и native3, Realtime7 обновлён под исчезновение UI. Final33/33+unchangeddata67/67=100unique (12new+88old), debug/testAPK зелёные; native HTTP-only3/3/6PNG. Ранние fixture/compile failures и точные ограничения сохранены в [реестре](audit-blocks.md#b02--поздние-события-и-закрытие-прежнего-экрана-07102026). Полная terminal/HTTP/очередь матрица и реальные сервер/телефоны не объявлены закрытыми. Inventory1785backup→1787/check0, knownforeign сохраняется. Новых BA строк продукта нет.
+
+🔓 Root source/tests/Gradle/adb замки этого этапа сняты: emulator21968/children остановлены,5580/5581 отсутствуют,adbпуст,sharedadb не останавливался. Root завершает только freeze/docs/independent приёмку и публикацию12своих путей main/push по уже данному указанию. b02_socket_review пишет только один ignored independentreceipt. Фактическая доставка/foreign preservation — b02-chat-ui-git-publication-20261007.json после действий. Следующий локальный критерий — удержанная terminal REST/reconnect история и очередь отправки при done/cancelled; весь B02 остаётся частичным.
+
+
+## B02 / QA-B02-003 — terminal HTTP и очередь сообщений, 07.10.2026
+
+Продолжение по «Идем дальше» от опубликованного98f297f9, ветка codex/b02-chat-terminal-http-20261007. План: (1) управляемые реальные HTTP-задержки initial/reconnect/flush/send и done/cancelled на настоящем Compose, очередь ожидает mutex и сохраняет соседнюю бронь99; сверить backend readonly/write contract перед выбором ожиданий; (2) исправлять только подтверждённые причины, не терять неизрасходованную очередь и успешное подтверждение уже отправленного действия; (3) affected tests/assembleDebug, доступные native проверки и независимая приёмка точных версий; (4) обновить существующий реестр/inventory и передать только свои изменения main/push по прежнему разрешению. Повторы обосновать изменением источников, новые случаи не складывать с повторными.
+
+🔒 Root: BookingActiveTripScreen.kt, при необходимости data/TripPass.kt, точные новые tests/связанные старые ожидания, docs/inventory, единственные Gradle/adb/GitHub. b02_socket_review только read-only TripPass/ApiClient/backend booking-chat contract/callers, без изменения источников и ресурсов. ApiClient/ChatSocket/NetworkMonitor/mobile/MainActivity/версии/production не менять без нового подтверждённого основания. Старт inventory1787:0added/removed, только известная чужая.gitignore; java/python/emulator не обнаружены. Чужие38files+directory сохранять. Управляемый сервер не подтверждает live FastAPI/JWT/телефон/cold process.
+
+07.10.2026 — локальный terminal HTTP/queue этап QA-B02-003 завершён: validRED14/10behaviorfail/4controls→productBooking/TripPass→GREEN22→final178/178/29classes/0fail-error-skip/debug+testAPK. Новые21=16UI+5data,157existing; native RU/BA done2/2/PID3052/4PNG/currentAPK и actual sameprocess encryptedqueue reopen. Native-onlytimeout fix/readTimeout60>hold45 перед первым native run, rebuild33.062s; product/JVM dependencies не менялись. Точные limits/weakLateTerminal negativewitness и queue/serverpolicy только [вреестре](audit-blocks.md#b02--terminal-http-и-очередь-сообщений-07102026). Inventory1787backup→1790/check0, foreignвнеpackage; новых BA строк продукта нет.
+
+🔓 Root product/tests/Gradle/adb замки сняты: emulator11532/children stopped,ports5580/5581free,adbпуст,sharedadbretained. Source/tests frozen послеnative; root заканчиваетdocs/freeze/independent/публикацию13own files main/push по прежней инструкции. b02_socket_review пишет только ignoredindependentreceipt. Фактическая доставка/foreign preservation — b02-chat-terminal-git-publication-20261007.json после действий. Следующий локальный участок: held edit/delete/voice/photo и latehistory/Toast после A→B/done/cancelled/Back; B02 partial, реальный сервер/телефоны/cold process ещё открыты.
+## B02 / QA-B02-003 — редактирование и медиа, 07.10.2026
+
+Продолжение «Идем дальше» от cddf7620, ветка codex/b02-chat-actions-boundaries-20261007. План: (1) реальные Compose/HTTP edit/delete/upload/send/history с задержками после done/cancelled, смены A→B и удаления маршрута; обычные положительные случаи и очистка собственного голосового файла; (2) минимально исправить подтверждённые ошибки, сохранить общие API/backend контракты; (3) затронутые тесты, assembleDebug/testAPK и независимая приёмка; (4) обновить существующий реестр и инвентаризацию, только свои изменения в main/push по прежнему указанию. Синтетические фото/аудио и управляемый сервер явно отделять от настоящего микрофона/галереи/провайдеров.
+
+07.10.2026 — локальный этап принят в указанной области: один product BookingActiveTripScreen, новые JVM60/native2. ValidRED48/36behaviorfail+retainedRED8/6fail→patch→GREEN60/59pass/1fixtureexpectation→final184/184 (60new+124existing), оба APK. Native2/2 RUedit/BAdelete done,4PNG просмотрены root. Полный микрофон/галерея/навигация/backend/coldprocess не подтверждены. Все exactproofs и текущие остатки только [в реестре](audit-blocks.md#b02--редактирование-и-медиа-07102026). Inventory1790backup→1792/write-check0; новых RU/BA надписей продукта нет.
+
+🔓 Root product/tests/Gradle/adb сняты: свой emulator1732/children gracefully stopped,5580/5581 свободны,adbпуст,sharedadb сохранён. Первое наблюдение через2с ещё видело остановку; финальное наблюдение подтвердило исчезновение, второй kill не потребовался. Root единственный писатель docs/inventory и владелец GitHub до freeze/приёмки/main/push11own paths по прежнему указанию. b02_socket_review пишет только ignored независимую receipt. API/backend/MainActivity/mobile/версии/39foreign не изменены. Фактическая доставка — b02-chat-actions-git-publication-20261007.json после действий. Следующая доступная локальная граница — освобождение ещё записывающего микрофона при уходе, затем sharing/completion. Весь B02 частичен.
+## B02 / QA-B02-003 — запись голоса при уходе, 07.10.2026
+
+Продолжение от9edf0447, ветка codex/b02-voice-disposal-20261007. План: (1) воспроизвести на actual Compose/Robolectric уход/terminal/A→B/паузу во время записи и прямые lifecycle/failure границы VoiceRecorder; native RU/BA с микрофоном эмулятора, если доступен; (2) минимально исправить подтверждённые утечки, позднее разрешение и владение файлами, не удалять переданную запись/соседние файлы; (3) affected tests/assembleDebug/testAPK и independent review exactversions; (4) существующий реестр/inventory, own main/push по прежнему разрешению. Положительные controls обязательны, fake recorder exceptions/synthetic bytes отделять от actual device recorder/codec/телефона.
+
+🔒 Root: участок VoiceRecorder в MainActivity.kt (только этот helper, допускается выделение в отдельный файл), ChatComposer в RidesRequestsChatScreens.kt, связанный lifecycle VoiceRequestScreen в AccessibilityScreens.kt; точные tests/docs/inventory; единственные Gradle/adb/GitHub. b02_socket_review read-only этих участков. MainActivity строки787–815 стабильны на старте, других java/emulator/python не обнаружено, inventory1792 только knownforeign.gitignore/0added-removed. mobile/версии/backend/API/прочие рабочие экраны не трогать. 39foreign сохранять. Реальный телефон/провайдеры/cold process не считать доказанными эмулятором.
+07.10.2026 — локальный этап записи при уходе завершён в перечисленной области: semantic RED24/18behaviorfail+6controls→GREEN24; strengthened cancelled RED1/1→recordingAllowed; final216/216/15classes/debug+testAPK. Новые36=13recorder+19UI+4ActiveTrip,180existing. Native v1:1pass/1fixturetouchmiss; v2:2/2hardwareproof,4stalePNG; native-only render fix/rebuild23.735с→v3:2/2/PID3732/AAC1536ms/5574bytes у каждого/4phase-correct PNG root просмотрел. Полный JVM не повторяли после native-only changes, совпадение product/JVM SHA проверено. Inventory1796/check0; RU/BA новых надписей нет. [Доказательства/остатки](audit-blocks.md#b02--запись-голоса-при-уходе-07102026).
+
+🔓 Root source/tests/Gradle/adb сняты: own emulator18908/children gracefully stopped,5580/5581 свободны,adbпуст/sharedadb сохранён. Root единственный writer docs/inventory/GitHub до freeze/independent/main/push17own paths по прежней инструкции. b02_socket_review только ignored independentreceipt. 39foreign/mobile/backend/API/версии сохранены. Delivery b02-voice-disposal-git-publication-20261007.json после действий. Следующая локальная очередь — sharing/completion; QA-B02-003/B02 частичны, real permission-return/phone/server/nativeActiveTrip/fullnav/coldprocess открыты.
+## B02 / QA-B02-003 — ссылки и действия после поездки, 07.10.2026
+
+Продолжение от14f77cec, ветка codex/b02-sharing-completion-20261007. План: (1) сверить actual Android/API/backend контракты create/list/revoke links и receipt/rating/thanks/lost-item, воспроизвести обычные и late ответы на actual Compose/управляемом HTTP после sheet-close/done/cancelled/A→B/unmount/смены booking; (2) исправлять только подтверждённые caller/state причины, сохранить допустимые сервером after-trip действия; (3) affected tests/assembleDebug/testAPK, доступный native RU/BA и independent review точных версий; (4) существующий реестр/inventory и own main/push по прежней инструкции. Runtime/JVM/нативный UI/реальный сервер/телефон различать, повторы не суммировать с уникальными проверками.
+
+🔒 Root: sharing участок BookingActiveTripScreen.kt, связанный wrapper/state/callback участок RideshareCompletedScreen.kt, конкретныеtests/docs/inventory; единственные Gradle/adb/GitHub. b02_socket_review толькоread-only соответствующихAPI/backend/caller contracts, без файловыхправок/сборок/adb/GitHub. MainActivity/voice/ApiClient/backend/mobile/версии/прочиеэкраны не менять без нового подтверждённого основания. Старт inventory1796:0added/removed, толькоknownforeign.gitignore;39foreign сохранять. Наблюдавшийсяpython30912 был во время собственного параллельного inventorycheck, послеего завершения java/python/emulator не обнаружены. Поделиться через внешние мессенджеры/письма не отправлять; native/systemshare только контролируемое локальное доказательство без внешней рассылки.
+
+07.10.2026 — sharing/completion локальные критерии этого этапа: valid RED42/31behavior failures+11pass→final132/132/11classes/debug+testAPK. Новые42=17sharing+25Completed,90existing; отдельно native2/2/API35/PID3159/RUshare→done→A→B ровно1exit+BAactualHTTPcompleted/oldreceipt guard,4phase-correct PNG root просмотрены. Native-only owner/INIT cleanup rebuild24.656с+24.125с, product/JVM SHA неизменны после132. Inventory1799/check0. Предыдущие fixture failures, premature unpatched green и прерванная ради source review сборка отдельно в run-analysis, не считаются успешными/новыми тестами. [Точный результат/остатки](audit-blocks.md#b02--ссылки-и-действия-после-поездки-07102026).
+
+🔓 Root product/tests/Gradle/adb сняты: own emulator10560/24676 stopped через emu kill, проверенный оставшийся own conhost3176 завершён отдельно;5580/5581 свободны/adbпуст,sharedadb сохранён. Root единственный writer docs/inventory/GitHub до freeze/independent/main/push13own paths по прежней инструкции. b02_socket_review только ignored independentreceipt. mobile/backend/API/MainActivity/voice/версии/39foreign сохранены. Доставка подтверждается отдельным git-publication/delivery receipt после действий. Следующая локальная очередь — initial sharing list/error/retry/loading/двойные mutations/close→reopen; held receipt/tip/restoration затем. QA-B02-003/B02 частичны; реальный сервер/доставка/телефон/coldprocess/fullnav/online-pay отдельно открыты. Новых переводов на проверку нет.
+
+## B02 / QA-B02-003 — загрузка списка ссылок и повторные действия, 07.10.2026
+
+От42540d26, codex/b02-sharing-load-20261007. План: (1) actual ActiveTrip/Compose/HTTP controls и RED для initial list loading/error/retry, list→mutation, double create/revoke и close→reopen; (2) минимальная scoped state/entry защита, inline RU/BA загрузка/ошибка/повтор без изменения серверного terminal договора; (3) affected JVM/assembleDebug/testAPK и native RU/BA, exact versions independent review; (4) реестр/inventory/собственные main+push по прежнему разрешению. Не суммировать повторные ID; held receipt/tip/финансы/fullnav/backend/live link/phone остаются отдельными.
+
+🔒 Root: только sharing участок BookingActiveTripScreen.kt/связанный ActiveSharesList, конкретные sharing tests/native/docs/inventory; sole Gradle/adb/GitHub. b02_socket_review — readonly contracts/tests review без сборок/adb/network. MainActivity/Completed/voice/API/backend/mobile/версии/39foreign не трогать. Старт inventory1799,0added/removed, толькоknownforeign.gitignore; другие java/python/emulator после проверки отсутствуют. Внешние ссылки/сообщения не отправлять.
+
+07.10.2026 — локальные критерии sharing-load завершены: controls3,RED20/15behavior scenario failures+5pass,nullRED1/1→final123/123(23new+100existing)/9classes/debug+testAPK. Nativev1 BA1pass/RU1fixture ожидание frame, native-only sync rebuild→v2 RU/BA2/2/4phase-correct PNG root просмотрены,product/JVM SHA unchanged. Inventory1801/check0. [Реестр/ограничения](audit-blocks.md#b02--загрузка-списка-ссылок-и-повторные-действия-07102026).
+
+🔓 Product/tests/Gradle/adb замки сняты; own31452/21844/17168 family stopped/ports5580-5581free,sharedadb retained. Root единственный docs/inventory/GitHub до exactfreeze/independent/main/push12ownpaths по прежнему разрешению. Reviewer только ignored receipt. 39foreign/Completed/API/backend/MainActivity/voice/mobile/версии не менялись. Дальше held receipt/tip/restoration; B02 partial.
+
+### Переводы на проверку — sharing list,07.10.2026
+
+Новые/изменённые BA строки ниже — черновики; Александр как носитель ещё не подтверждал:
+
+| Русский | Башкирский черновик |
+|---|---|
+| Ссылка готова | Һылтанма әҙер |
+| Проверяем ссылки… | Һылтанмаларҙы тикшерәбеҙ… |
+| Не удалось загрузить ссылки. Проверь сеть и повтори. | Һылтанмаларҙы йөкләп булманы. Селтәрҙе тикшереп ҡабатла. |
+| Не получилось подтвердить результат. Обнови список ссылок. | Һөҙөмтәне раҫлап булманы. Һылтанмалар исемлеген яңырт. |
+| Обновить список | Исемлекте яңыртыу |
+| Не удалось открыть ссылки. Открой поездку заново. | Һылтанмаларҙы асып булманы. Сәфәрҙе яңынан ас. |
+| Закрыть | Ябыу |
+
+## B02 / QA-B02-003 — загрузка квитанции и статуса благодарности, 07.10.2026
+
+От f2751b72, ветка codex/b02-completed-load-20261007. План: (1) actual Completed/Compose/loopback HTTP controls, held receipt/tip, ошибка/повтор/старые callbacks/другая booking или login; (2) минимально исправить подтверждённые причины, добавить RU/BA загрузку/ошибку/повтор статуса благодарности, сохранить done-действия и ручной/неподключённый платёжный договор; (3) affected JVM/debug/testAPK, native RU/BA, независимая приёмка текущих версий; (4) существующий реестр/inventory и только свои main/push по прежнему разрешению. Restoration — отдельный следующий участок; проценты/весь релиз не подтверждать этим профилем.
+
+🔒 Root: RideshareCompletedScreen.kt loading/state/callbacks/связанные private helpers, конкретные новые load tests/native/docs/inventory; единственные Gradle/adb/GitHub. b02_socket_review только readonly Completed/API/backend договоры и затем exact acceptance. ActiveTrip/MainActivity/API/backend/mobile/версии/39foreign не менять. Inventory1801:0added/removed, толькоknownforeign.gitignore. При первичном чтении java/python/emulator не обнаружены. Любой pending action на сервере UI-закрытием не откатывается; реальный backend/телефон/провайдеры не выдавать за loopback результат.
+
+07.10.2026 — локальные completed-load критерии: final68/68=24new+44existing/7classes/debug+testAPK. Nativev1 0/2fixtureoffscreen→native-onlysync/rebuild→v2BApass/RUhealthfixturefailed→native-onlyhealth/rebuild→v3RU/BA2/2→BArawRUerror/productlocalization→fresh68+APKs/v4RU/BA2/2/4PNGrootviewed. Product/JVM были неизменны при native-only fix; локализация затем обосновала повтор. RED24=10behaviorfailure scenarios+1fixture+13pass; не11productбагов. Inventory1803/check0. [Результат и остаток](audit-blocks.md#b02--загрузка-квитанции-и-статуса-благодарности-07102026).
+
+🔓 Root product/tests/Gradle/adb сняты: own16652/26860/424 family stopped,5580/5581free/sharedadb retained. Root docs/inventory/GitHub до exactfreeze/independent/own11main+push по прежнему указанию. Reviewer только ignoredreceipt. ActiveTrip/API/backend/MainActivity/mobile/версии/39foreign сохранены. Далее navigation/restoration; B02 partial.
+
+### Переводы на проверку — Completed loading,07.10.2026
+
+Все следующие BA строки — черновики, Александр ещё не подтверждал.
+
+| Русский | Башкирский черновик |
+|---|---|
+| Не получилось подтвердить благодарность. Обнови статус. | Рәхмәтте раҫлап булманы. Хәлде яңырт. |
+| Не получилось проверить благодарность. Повтори ещё раз. | Рәхмәтте тикшереп булманы. Тағы бер тапҡыр ҡабатла. |
+| Благодарность сохранена | Рәхмәт һаҡланды |
+| Проверяем благодарность… | Рәхмәтте тикшерәбеҙ… |
+| Сначала обнови статус | Башта хәлде яңырт |
+| Обновить | Яңыртыу |
+
+## B02 / QA-B02-003 — восстановление Completed,07.10.2026
+
+От69b28b6a, ветка codex/b02-completed-restoration-20261007. План: (1) actual Compose StateRestorationTester controls и сохранение stars/tags/text, held rating/thanks/lost POST при save/dispose/restore; сверить server contracts; (2) минимально исправить подтверждённые причины transient busy/устаревших callbacks, без автоматического replay принятого POST; (3) affected JVM/debug/testAPK и native RU/BA Activity.recreate при доступном эмуляторе; (4) существующий реестр/inventory/exact independent/own main+push по прежнему разрешению. State restoration/Activity recreation/потеря процесса/fullnav/live backend отличать; late commit не отрицать успешным ранним GET.
+
+🔒 Root: только scoped RideshareCompletedScreen.kt/restoration helpers, конкретные новые tests/native/docs/inventory; единственные Gradle/adb/GitHub. b02_socket_review readonly contracts/review без сборки/adb/network/файловых правок. ActiveTrip/MainActivity/API/backend/mobile/версии/39foreign сохранить. На старте inventory1803:0added/removed, толькоknownforeign.gitignore; других java/python/emulator не обнаружено. Новый экран/маршрут не планируется; обязательная native проверка относится к standalone Completed, не всей навигации.
+
+07.10.2026 — локальный Completed restoration этап: controls4/4→RED13(9pass+4behaviorfailure scenarios)→3transientbusy fix→final81/81=13new+68existing/8classes/debug+testAPK. Nativev1BApass/RUdraftmissing→native-onlysameattach/rebuild→v2RU/BA2/2 distinctActivity/savedBundle/exactdraft,4PNGrootviewed. Product/JVM SHA unchanged после final,81 не повторялся. Inventory1805/check0. [Факты и остатки](audit-blocks.md#b02--восстановление-экрана-после-поездки-07102026).
+
+🔓 Root product/tests/Gradle/adb сняты: own20024/17032/21980 family stopped,5580/5581free/sharedadb retained. Root docs/inventory/GitHub до exactfreeze/independent/own11main+push по прежнему указанию. Reviewer пишет только ignored receipt. Далее production navigation/SaveableStateHolder и cold process; B02 partial. Новые видимые строки не добавлены; прежние BA drafts не подтверждены.
+
+## B02 / QA-B02-003 — навигация Completed,07.10.2026
+
+От ec73de92, ветка codex/b02-completed-navigation-20261007. План: (1) настоящий YuldashApp: итог поездки → квитанция/поддержка → Назад, saveable draft/подтверждённые результаты/другая бронь; (2) сохранённая композиция с новым ViewModel/SavedStateHandle и actual Activity recreation на RU/BA при доступном окружении; (3) минимально исправить воспроизведённые причины, affected JVM/debug/testAPK/native и independent review; (4) обновить существующий реестр/inventory и отправить свои main/push по прежнему указанию. Новый ViewModel + saved snapshot не объявлять настоящим kill процесса. Настоящий backend/телефон/провайдеры/финансы отдельно.
+
+🔒 Root: scoped YuldashApp.kt/YuldashViewModel.kt/Completed navigation state только при подтверждённом сбое; конкретные новые tests/native/docs/inventory; единственные Gradle/adb/GitHub. b02_socket_review readonly маршруты/сохранение/проверка, без edits/build/adb/network. MainActivity/API/backend/mobile/версии/зависимости/39foreign сохранить. На старте1805sources:0added/removed, толькоknownforeign.gitignore; других java/python/emulator не обнаружено.
+
+07.10.2026 — Completed navigation local stage: saved trail/fresh VM observed snapshot/actualYuldashApp Receipt/Support Back/draft isolation/current loader guards. Final123/123=11new+112existing/14classes/обаAPK; nativeRU/BA2/2 actual Activity.recreate distinctActivity/savedBundle/retainedVM,4PNGrootviewed. Inventory1807/check0. [Доказательства и остатки](audit-blocks.md#b02--навигация-квитанция-и-возврат-к-черновику-07102026).
+
+🔓 Root product/tests/Gradle/adb сняты: own28144/20324/12052 family stopped,5580/5581free/sharedadb retained. Root docs/inventory/GitHub до exactfreeze/independent/12ownmain+push по прежнему указанию. Reviewer пишет только ignored receipt. Следующий незакрытый критерий: настоящий kill процесса/cold start через MainActivity, не модель fresh VM. Runtime role/language/frame/live/backend/phone/финансы открыты. Видимые новые строки не добавлены; прежние BA drafts остаются на проверке.
+
+
+## B02 / QA-B02-003 — настоящий process kill,07.10.2026
+
+От126bb0f6, codex/b02-completed-process-20261007. План: (1) локальная fixture и debug API URL через существующую env-настройку, отдельный opt-in provision настоящей disk session/language без screen/id/draft/saved-state; (2) actual MainActivity launch через существующий booking_done intent, RU draft/BA thanks → Receipt → Home background/save → targeted OS SIGKILL → возврат в тот же task новым PID → Back; (3) UI/XML/PNG/HTTP/payload/task/PID свидетельства, минимальная правка только подтверждённой причины при сбое; (4) соответствующая сборка/соседние проверки, существующий реестр/inventory/independent/own main+push. Не называть force-stop, новое пустое окно или переданный snapshot восстановлением ActivityManager task. Физический телефон/live backend/push/финансы отдельно.
+
+🔒 Root newnative provision/ignored fixture-runner/docs/inventory и единственные Gradle/adb/GitHub. Existing product only ifconfirmedfailure, MainActivity/API/backend/mobile/версии/39foreign preserve. b02_socket_review readonly process protocol/source/contracts, no edits/build/adb/network. Startinventory1807: onlyforeign.gitignore. No java/python/emulator observed.
+
+
+🔒 Root MainActivity.kt — занят,07.10.2026: воспроизведён stale original launch intent при real task restore Receipt→Completed, before3345/new3753/task937/mHaveState Bundle11524. Новый MainActivityLaunchRestorationTest проверяет actual create/save(savedState)/newcreate и copied original Intent; newonNewIntent controls/earlySplash/Login/Home routing retained. Scoped fix после RED; единственный writer/build. Reviewer readonly.
+
+07.10.2026 — Controlled process restore local stage завершён: actual MainActivity guard/копия старого intent/observed savedBundle/newonNewIntent controls. Final146/146=13new+133existing/17classes/обаAPK;2 внешних RU/BA sameTask/SIGKILL/newPID UI cases,1provisionJUnit×2setup отдельно,7PNGrootviewed. Inventory1810/check0. [Доказательства/остатки](audit-blocks.md#b02--смерть-процесса-и-восстановление-квитанции-07102026).
+
+🔓 Root MainActivity/product/tests/Gradle/adb сняты: own28992/36788/11780 stopped,5580/5581free/sharedadb retained. Root docs/inventory/GitHub до exactfreeze/independent/12ownmain+push по прежнему указанию. Reviewer пишет только ignored independent receipt. Следующая локальная очередь: durable pending43 поверх Receipt42 при process death; full flow отHome/runtime matrix/phone/livebackend/FCM/финансы открыты. Новых переводов нет.
+
+## B02 / QA-B02-003 — незавершённое новое уведомление,07.10.2026
+
+От0290f82a, codex/b02-pending-notification-20261007. План: (1) actual MainActivity/onNewIntent booking_done43 поверх Receipt42, удержанный roleGET, наблюдаемый savedBundle и process kill — воспроизвести потерю pending назначения; (2) минимальное сохранение/потребление назначения с проверками смены входа/нового уведомления и защитой от повторного старого intent; (3) affected JVM/обаAPK, настоящий saved task/newPID/plainlauncher на ownedAPI35 RU/BA, текущие HTTP/UI/PID доказательства; (4) существующий реестр/inventory, independent review и только own main+push по прежнему указанию. Новые UI-строки/зависимости/версии/live backend/FCM доставка/платежи/fullHomeflow отдельно.
+
+🔒 Root MainActivity routing/YuldashViewModel pending/YuldashApp booking-effect, конкретные tests/tools/docs/inventory; sole Gradle/adb/GitHub. b02_socket_review только readonly pending contract/source review, без правок/сборок/adb/network. Первый inventory1810 — толькоforeign.gitignore,39foreign сохранить; java/python/emulator перед стартом не наблюдались. Замки предыдущего этапа сняты. Изменять product только после воспроизведения текущего критерия.
+
+07.10.2026 — pending booking_done local criterion закрыт в указанной среде: saved owner/revision/consume Back trail/current manualretry, final178/178=32new+146existing/20classes/обаAPK; native RU/BA2 внешних process UI cases/SINGLE_TOP43overReceipt42/heldrole/SIGKILL/newPID/plainlauncher→Receipt43, provision1×2setup и8PNG отдельно. Inventory1814/check0. [Доказательства/остатки](audit-blocks.md#b02--новое-уведомление-во-время-смерти-процесса-07102026).
+
+🔓 Root MainActivity/App/VM/product/tests/Gradle/adb сняты: own29772/28904/8368 stopped,5580/5581free/sharedadb retained,fixture/reverseoff. Root docs/inventory/GitHub до exactfreeze/independent/17own main+push по прежнему указанию. Reviewer only ignored receipt. Следующий пункт: durability остальных личных notification/deep-link типов и login/logout boundary; full Home/role-language-frame/live/FCM/LMKD/phone/payment открыты. Новых переводов нет.
+
+## B02 / QA-B02-003 — личные уведомления брони и чата,07.10.2026
+
+От438a8d20, codex/b02-booking-notifications-20261007. План: (1) реальные MainActivity/onNewIntent booking/chat, наблюдаемый savedBundle/новый Activity и App: поздний ответ, последнее назначение между chat/booking_done, вход/выход/смена владельца, старый manual retry; (2) минимальная общая saved запись личного назначения с владельцем/версией, только после воспроизведения; (3) затронутые JVM/обаAPK и actual system intent/held HTTP/saved task/SIGKILL/plainlauncher на owned API35 RU/BA при доступности; (4) текущий реестр/inventory, независимая проверка, только свои main+push по прежнему разрешению. URI проверяем только существующие, не придумываем закрытые ссылки. Такси/посылки/поддержка/публичные ride links и настоящие провайдеры остаются в очереди своих блоков.
+
+🔒 Root MainActivity routing/YuldashViewModel pending/YuldashApp private booking loader и конкретные tests/tools/docs/inventory; единственные Gradle/adb/GitHub. b02_socket_review readonly B02 routing/login contracts и итоговое ревью, без writes/tests/adb/network. Inventory1814: added0/removed0, только известный foreign.gitignore;39foreign сохранить. На старте иных java/python/emulator не обнаружено (python inventory — собственная текущая проверка). Новых экранов/строк/версий не планируется.
+
+Дополнение по воспроизведению: readonly review выявил сохранённую строку Notifications; actual Semantics.OnClick A→B дал RED46/1fail. Root расширяет свою область только на session guards списка в SecondaryScreens.kt: старый список/ответ/callback и markRead не должны переходить к новому аккаунту. Новых строк/дизайна нет; остаются прежние внешние остатки.
+
+## B02 / QA-B02-003 — результат booking/chat,07.10.2026
+
+219/219=35 новых+178 прежних+6 существующих login/23класса/обаAPK.2 внешних process UI cases RU booking/BA chat и6 PNG отдельно. Закрыт локальный scoped criterion saved private id/kind/owner/revision/latest/retained retry/Notifications row+late feed/anonymous empty. [Доказательства и остатки](audit-blocks.md#b02--личные-уведомления-брони-и-чата-07102026).
+
+🔓 Root MainActivity/App/VM/Secondary/product/tests/Gradle/adb освобождены:33520/20836/25672 stopped,5580/5581free,fixture/reverseoff/sharedadb retained. Root docs/inventory/GitHub до exact freeze/independent/16own main+push. Reviewer readonly пишет only ignored receipt. Следующие критерии: другие private notification назначения и полный Home путь; fresh private create(nonnullBundle)/phone/live FCM/JWT/provider/payment/matrix отдельно. Новых переводов нет.
+
+## B02 / QA-B02-003 — такси, посылки и поддержка,08.10.2026
+
+База1249595c, ветка codex/b02-private-destinations-20261008. План: (1) actual MainActivity/saved Bundle и настоящий FcmService→contentIntent: потеря private назначения, copied replay, A→B и последний переход между типами; (2) минимальный saved owner/revision record для существующих InstantOrder/InstantChat/DriverCabinet/Parcels/SupportTickets/SupportTicket, атомарное consume и сохранение ID, только после RED; (3) actual App login/session/latest/late booking HTTP, затронутые JVM/обаAPK и scoped native при доступности; (4) существующий реестр/inventory, независимая приёмка, только свои main+push по прежнему разрешению. Показанный уведомлением owner должен сохраняться в extras; отсутствие recipient в старых intent нельзя выдавать за доказанный owner. Полный Home, прочие назначения и внешние провайдеры остаются отдельно.
+
+🔒 Root: MainActivity/YuldashViewModel/YuldashApp, scoped FcmService/TaxiOfferNotifier при воспроизведённом старом notification A→B, конкретные новые tests/tool/docs/inventory; sole Gradle/adb/GitHub. b02_socket_review readonly контрактов и затем результата, без edits/tests/adb/network. Inventory1817:0added/removed, только known foreign.gitignore;39foreign сохранить. На старте других java/python/emulator не обнаружено. Никаких новых экранов/строк/версий/зависимостей/mobile/backend.
+
+
+08.10.2026 — область дополнена ApiClient.runIfUnchangedSession после шести подтверждённых guest regressions bearer-required dispatch; существующий runIfCurrentSession не изменён. Support push→SupportTickets после actual App RED неверного donation header/GET. Root единственный writer API; reviewer readonly.
+
+08.10.2026 — локальные критерии этого этапа выполнены: 313/313unique=51new+219previous+43additionalexisting/34classes/обаAPK;2 внешних process UI cases RU taxi chat43/BA support tickets/savedTask/SIGKILL/newPID/plainlauncher,GET1→2/privatewrites0/6PNG root просмотрены. Inventory1817→1821 (+3 JVM,+1tool); source/APK после green не менялись. [Критерии, версии, RED classification и остатки](audit-blocks.md#b02--такси-посылки-и-обращения-поддержки-08102026).
+
+🔓 Root MainActivity/App/VM/Fcm/TaxiOffer/API/product/tests/Gradle/adb освобождены:16264/36404/25816 stopped,5580/5581/5198 свободны,fixture/reverse off,sharedadb retained. Root docs/inventory/GitHub до exactfreeze/independent/19own main+push по прежнему разрешению. Reviewer только ignored independent receipt. Следующий локальный пункт: ad/partner/fairness/request/application private destinations; затем полный Home. Fresh nonnullBundle/old-version Bundle migration/legacy recipient/child privacy/phone/live FCM/JWT/provider/payment/matrix отдельно открыты. B02 partial. Новых переводов на проверку нет; прежние BA черновики и русский Receipt toolbar не подтверждены.
+
+
+## B02 / QA-B02-003 — остальные личные назначения,08.10.2026
+
+Базаd1685f71, ветка codex/b02-remaining-destinations-20261008. План: (1) actual MainActivity/defaultVM/observed Bundle для ad/partner/incident/request/request_watch/taxi_apply/courier_apply: потеря pending, copied replay, owner/latest между прежними booking/taxi и новыми типами; actual App guest/login/same-frame owner/held booking/retained Retry и Notifications rows; (2) расширение existing typed saved record/bridge projection и saved request ID только после воспроизведения; назначение incident push сохраняет существующий FairnessCenter, row контракт проверить отдельно; (3) affected JVM/обаAPK, при доступном owned API35 два native consumed route/ID savedTask/SIGKILL/plainlauncher случая; (4) registry/inventory/freeze/independent scoped review, свои commit/FFmain/push по прежнему разрешению. Никаких новых URI/экранов/строк/зависимостей/версий; full Home, old Bundle migration, legacy missingrecipient, childprivacy, phone/liveFCM/backend/WS/provider/payment/matrix остаются отдельно.
+
+🔒 Root MainActivity/App/VM, конкретные newtests/tool/docs/inventory, sole Gradle/adb/GitHub. b02_socket_review readonly exact notification contracts и acceptance, без edits/tests/adb/network. Старт inventory1821:0added/removed, толькоknownforeign.gitignore;39foreign сохранить. Других java/python/emulator на старте не наблюдалось. Fcm/TaxiOffer/API/backend/mobile не менять без воспроизведения нового основания; product/docs одного writer.
+
+08.10.2026 — уточнение области по actual contract/red:8selectedNotifications callbacks (request/feed/incident/driver/applications/partner/ad) используют sharedrecord; incidentId теперь сохранён с маршрутом. Pushincident center/feedincident detail и driver request_watch/refkindrequest различаются как прежде. Fcm/TaxiOffer/API не менялись. Локальный результат: final361/37classes/обаAPK; дополнительный current IncidentDetailBundletest→Restoration23/23,22повтора не прибавлены;362unique=49new+313previous. NativeRUrequest43/BAFairnessCenter2externalcases/savedTask/SIGKILL/newPID/plainlauncher/GET1→2/privatewrites0;6PNGrootviewed/provision отдельно. [Доказательства/остатки](audit-blocks.md#b02--остальные-личные-назначения-08102026).
+
+🔓 Root Main/App/VM/product/tests/Gradle/adb освобождены:own12152/23396/22816 stopped,5580/5581/5198free,fixture/reverseoff/sharedadb retained. Rootdocs/inventory/GitHub до exactfreeze/independent/15own FFmain+push по прежней инструкции. Reviewer только ignoredreceipt. Следующий локальный критерий fullHome; freshnonnullBundle/old-versionBundle/legacyrecipient/allchildprivacy/concurrentlegacyflags/nativepreconsume/phone/liveFCM/backend/WS/provider/payment/matrix остаются. B02partial. Новых видимых строк/переводов нет; прежние BAчерновики/Receipttoolbar/mixedcash ещё не подтверждены.
+
+## B02 / QA-B02-003 — полный путь от Home,08.10.2026
+
+База2e72d98c; codex/b02-home-navigation-20261008. План по продолжающемуся поручению: (1) actual YuldashApp/Home→поездка→бронь и Home/Мои поездки→существующая бронь, удержанные ответы создания/отмены/старого notification и сохранение маршрута/ID/Назад; (2) только подтверждённые исправления в связующей навигации; (3) затронутые JVM и обаAPK, при доступности два native RU/BA Home UI пути и saved task/process restore; (4) обновить реестр/inventory и доказательства, независимое scoped ревью, свои commit/FFmain/push по прежнему разрешению. Настоящие SMS/FCM/backend/WS/оплата/телефон, old-version Bundle, все дочерние экраны/вся матрица остаются отдельными критериями; полная готовность B02 не заявляется.
+
+🔒 Root: scoped AppNavHome.kt/YuldashApp.kt/YuldashViewModel.kt/RidesRequestsChatScreens.kt при воспроизведённой причине, конкретные newtests/tool/docs/inventory; sole Gradle/adb/GitHub. b02_socket_review только readonly Home/private session/Backtrail contracts и acceptance, без edits/build/adb/network. Старт inventory1825:0added/removed, только известная foreign.gitignore. Сохраняем39foreign; MainActivity/API/backend/mobile/версии не менять без нового основания. На старте java/python/emulator процессов не наблюдалось. Замки предыдущего этапа закрыты после подтверждённой доставки2e72d98c.
+
+
+08.10.2026 — результат Home: actual final377/377 =15new+362previous,38classes/обаAPK. Red-v3 11 behavioral assertion failures/13 и priority1, intermediateguestregression1 отдельно; final исправлен. Native v2 два RU/BA Home/Rides→pending42→Back/reopen→savedTask/SIGKILL/newPID/plainlauncher случая,10currentPNG; первоначальныйnative0 остановлен mode introduction, helper исправлен без измененияAndroid/APK. [Доказательства/остатки](audit-blocks.md#b02--home-создание-и-отмена-брони-08102026).
+
+🔓 Root product/tests/Gradle/adb освобождены; owned emulator family закрыта по verified resource receipt,5580/5581/5198 свободны,sharedadb сохранён,fixture/reverse off. Rootdocs/inventory/GitHub до freeze/independent/13own FFmain+push по прежнему разрешению. Reviewer только ignoredreceipt. Следующий доступный локальный критерий — fresh private create(nonnullBundle)/delivery identity. Весь Home/B02 и внешние сервисы частичны; прежние BA черновики не подтверждены. Новых видимых строк/переводов нет.
+
+
+## B02 / QA-B02-003 — новое уведомление при восстановлении, 08.10.2026
+
+База `98ee06b4`, ветка `codex/b02-fresh-notification-20261008`. План по продолжающемуся поручению: (1) actual MainActivity/default VM/current saved Bundle: fresh private create(nonnullBundle), copied original versus fresh same-target delivery, latest pending, recipient/invalid ID boundaries; actual FcmService/TaxiOffer PendingIntent producers; (2) только воспроизведённые исправления durable delivery identity и dispatch, без новых экранов/URI/строк/версий; (3) новые и затронутые JVM, оба APK; доступный native lifecycle сценарий с точным ограничением create/onNewIntent доказательства; (4) обновить текущий реестр/inventory/доказательства, независимое scoped ревью, свои commit/FFmain/push по прежнему разрешению. Legacy intent без delivery marker/recipient, old-version Bundle, весь Home/child privacy, реальные SMS/FCM/телефон/backend/WS/provider/payment/matrix остаются открытыми, если не доказаны отдельно.
+
+🔒 Root: scoped MainActivity.kt/YuldashViewModel.kt/data/FcmService.kt/TaxiOfferNotifier.kt, конкретные новые tests/tool/docs/inventory; sole Gradle/adb/GitHub. b02_socket_review только readonly fresh/copy/private recipient контрактов и итоговой приёмки, без edits/build/adb/network. Старт inventory1827: 0 added/removed, только известная foreign.gitignore; 39 чужих status entries сохранены. MainActivity строки перед стартом сверены, других java/python/emulator процессов не наблюдалось. Замки прошлого этапа закрыты после доставки `98ee06b4`.
+
+Дополнение текущего QA-B02-003: фактический XML device-v3 уже содержит Booking42 и HTTP42 role/details; прежний вывод no-HTTP/Home исправлен. Root расширяет область на YuldashApp.kt и HomeBookingNavigationTest.kt: status из принятого role ответа должен включать pending-кнопку отмены RU/BA. Сначала две поведенческие проверки до исправления, затем минимальная передача state.status, интеграция и native RU/BA; сборка/adb/GitHub только root. Native FreshNotificationRuntimeInstrumentedTest.kt принадлежит root. Reviewer read-only.
+
+
+08.10.2026 — результат fresh-stage: final-v3 417/417=34Activity+4producer+2Compose status+377previous/40classes/обаAPK; final-v2 failed Windows WEPoll/0freshXML отдельно. Native v4 2RU/BA process UI +runtime-v2 1PendingIntent; root8currentPNG, fixture/reverse/forward и owned emulator закрыты/sharedadb retained. [Доказательства и остатки](audit-blocks.md#b02--новое-уведомление-поверх-сохранённой-задачи-08102026).
+
+🔓 Rootproduct/tests/Gradle/adb освобождены по receipts. Rootdocs/inventory/GitHub до freeze/read-only independent/18own FFmain+push по прежнему разрешению. Nextold-version rememberSaveable Bundle/IDs. First/last identity != full delivery history; legacy/no recipient, Home/fullB02/realservices ещё частичны. Новых строк/переводов нет; старые BA черновики не подтверждены.
+
+## B02 / QA-B02-003 — совместимость сохранённого состояния старой версии, 08.10.2026
+
+База `9d7547c3`, ветка `codex/b02-legacy-bundle-20261008`. План по продолжающемуся поручению: (1) найти точные исторические форматы root rememberSaveable и VM, получить наблюдаемый payload из исторического кода в изолированной локальной копии; (2) воспроизвести восстановление текущим приложением, исправить только подтверждённую потерю ID/смешение состояний; (3) новые и затронутые JVM, обязательный assembleDebug и тестовый APK; (4) обновить реестр/inventory/доказательства, независимое scoped ревью, свои commit/FF main/push по прежнему разрешению. Восстановление локального payload не выдавать за обновление APK на телефоне. Неподтверждённые старые форматы, legacy intent без recipient, live FCM/сервер/устройство остаются отдельно.
+
+🔒 Root: scoped YuldashApp.kt/YuldashViewModel.kt/MainActivity.kt только при воспроизведении, конкретные новые tests/fixtures/docs/inventory; единственный writer и владелец Gradle/adb/GitHub. b02_socket_review — read-only локальная история и затем scoped приёмка, без edits/tests/Gradle/adb/network. Старт inventory1831: 0 added/removed, только ранее известная чужая `.gitignore`; 39 чужих status entries сохраняем. Никаких изменений mobile/backend/версий/зависимостей/новых экранов.
+
+
+## 08.10.2026 — B02, старое сохранённое состояние
+
+Результат: final-v2 456/456 (39legacy+1revised+416prior),42classes/обаAPK; исторический capture3 отдельно. Old root/permission/holder namespace reset, включая старые несохранённые drafts; current same-owner restore/Back/draft подтверждены integration controls. Next legacy private intent безrecipient/marker; realoldAPK/native unifiedBundle/preVM/childschema/all19ownerfields/fullB02 остаются открытыми. Новых product строк/переводов нет. 🔓 Root product/tests/Gradle после completed final; docs/inventory/publication до scoped review/FFmain/push по прежнему разрешению. [Доказательства и пределы](audit-blocks.md#b02--старые-сохранения-и-утраченный-контекст-08102026).
+
+## B02 / QA-B02-003 — старые уведомления без получателя/доставки, 08.10.2026
+
+База `655b597d`, ветка `codex/b02-legacy-intent-20261008`. План по ранее разрешённому продолжению: сверить реальные producer/caller contracts; воспроизвести missing-recipient и unmarked restored-screen случаи в actual MainActivity/default VM/наблюдаемом Bundle; ограниченно исправить входную навигацию; проверить допустимые старые same-recipient cold/newIntent и current marked/public пути; собрать оба APK и выполнить затронутую интеграцию; обновить реестр/инвентаризацию, получить scoped независимое ревью, затем commit/FF main/push. Без production deploy/реальных FCM/SMS/финансов.
+
+🔒 Root — единственный писатель MainActivity.kt, Android-тестов и docs/inventory; единственная сборка/GitHub. b02_socket_review — только read-only producer/history contracts и последующее independent review, без build/adb/network. Начальная inventory:1838, добавленных/удалённых/изменённых product источников нет; единственная известная дельта `.gitignore` чужая.39 чужих status entries сохраняются. Отсутствие recipient нельзя трактовать как доказанный текущий аккаунт; без delivery identity не обещать различение новой доставки и копии.
+
+
+## 08.10.2026 — B02, старые уведомления без получателя и маркера
+
+Final498/498=42new+15revised+441retained,44classes/обаAPK. Missing-recipient private отказ, unmarked restored meaningful route сохранён; current marked и known-recipient compatibility controls passed.15 прежних guest-private/Home-copy ID заменены явно. Old ownerless notification taps перестают открываться; current nullable TaxiOffer producer ещё требует отдельной проверки. New UI strings/BA drafts нет. 🔓 Root product/tests/Gradle после final; docs/inventory до freeze/scoped review и22own commit/FF main/push по persistent разрешению. Next public pendingRideId/held HTTP vs local Home; fullB02/release остаются частичными. [Доказательства и ограничения](audit-blocks.md#b02--старые-уведомления-без-получателя-и-маркера-08102026).
+
+## B02 / QA-B02-003 — публичная ссылка и более новый выбор, 08.10.2026
+
+База `7f10c9a0`, ветка `codex/b02-public-link-20261008`. План по продолжающемуся поручению: проверить public producer/loader/retry и local Home навигацию; воспроизвести delayed public success/failure и retained Retry после нового выбора через actual App/default Activity VM/локальный HTTP; исправить только доказанную границу; проверить guest/current link/same-ID newer/private destination/session/сохранение при необходимости; обе APK и затронутая интеграция; реестр/inventory/scoped review → свои commit/FF main/push. Без настоящих FCM/SMS/серверных операций/production deploy.
+
+🔒 Root — единственный writer YuldashApp.kt/YuldashViewModel.kt/затронутых tests/docs/inventory, единственная сборка/GitHub; другие product файлы только при подтверждённой необходимости. b02_socket_review — readonly public contract research и затем scoped acceptance, без edits/build/adb/network. Inventory1840 без added/removed/product delta, только прежняя чужая `.gitignore`;39 чужих status entries сохраняем. Новый UI/переводы/версии/dependencies не планируются.
+
+## 08.10.2026 — B02, публичная ссылка и более новый выбор: локальный итог
+
+531/531=28new+498retained+5existing,46classes/обаAPK;28new=24App+4VM. Held success/failure против Home/private, sameID, retained Retry/Close, App disposal и audience A→B/logout проверены локально. Green-v2 fixture navPrev исправлен отдельно; lifetime-red intermediate подтверждён и закрыт appScope guard. UI строки/BA drafts не добавлены. 🔓 Product/tests/Gradle после final; root docs/inventory до freeze/readonly review/11own commit/FF main/push по продолжающемуся разрешению. Следом прямые Home callbacks вне navigateLocally/concurrent legacy flags. Public durable process/oldBundle, private Retry disposal, actual401 refresh/native/FCM/весьB02/релиз открыты. [Версии/доказательства/ограничения](audit-blocks.md#b02--публичная-ссылка-и-более-новый-выбор-08102026).
+
+## B02 / QA-B02-003 — остальные переходы Home, 08.10.2026
+
+База329e9d8d, ветка codex/b02-home-transitions-20261008. План по продолжающемуся поручению: targeted remaining Home callbacks/delegates contract → actual Home/App retained click+heldHTTP RED → минимальная общая защита актуального Home выбора с сохранением guest/protected/tab/Back/prefill/role поведения → regression/current callback controls и обе APK/integration → обновить этот реестр/inventory/scoped review →11+ собственных paths commit/FF main/push (точное число после diff). Без production/provider/FCM/SMS/send/share действий. Не расширять этап до request edit/cancel HTTP, private Retry disposal, URI parser или concurrent legacy flags.
+
+🔒 Root — единственный writer AppNavHome.kt/при доказанной необходимости root helper YuldashApp.kt/new tests/docs/inventory; одна Gradle сборка/Git. b02_socket_review — readonly targeted research/fresh acceptance без edits/build/adb/network. Inventory1841, дельта только прежняя чужая .gitignore;39 чужих status entries=38raw files+directory сохранны. Новые UI тексты/цвета/переводы/enum/версии/dependencies не планируются.
+
+## 08.10.2026 — B02, остальные переходы Home: локальный итог
+
+550/550=19new+531retained,47classes/обаAPK.19 actualApp cases;39 wrappers по source, не39runtime paths. Shared Home scope/epoch/immutable observed session; сохранён row42 при held notification44. Fixture Back/неверный Semantics assumption исправлены и исторически классифицированы; newUI/BA drafts нет. 🔓 Root product/tests/Gradle после final; docs/inventory до freeze/readonly acceptance/10own commit/FF main/push по продолжающемуся разрешению. Далее accountDeleted cleanup/A→B; tab/HomeShell/otherwriters/concurrentflags и остальные B02/релиз границы открыты. [Точные доказательства](audit-blocks.md#b02--остальные-переходы-home-08102026).
+
+## B02 / QA-B02-003 — удаление аккаунта и позднее действие, 09.10.2026
+
+База98ac740a. План по продолжающемуся поручению: проверить Profile confirmation/API delete/Home cleanup; actual App/Profile локальный HTTP RED для retained confirm A→B и собственной очистки; минимально связать действие с исходной сессией и выдать post-delete receipt под монитором; положительные/отрицательные controls и затронутая интеграция/оба APK; реестр/inventory/независимое scoped ревью; свои commit/FF main/push. Не выполнять настоящее удаление аккаунта, provider/deployment/внешние сообщения. Не расширять этап на остальные Profile HTTP, tabs/otherwriters, native/fullB02.
+
+🔒 Root — единственный writer scoped ProfileScreen.kt/AppNavHome.kt/data/ApiClient.kt/YuldashApp.kt forwarding signature при необходимости, собственных tests/docs/inventory; единственный Gradle/Git. b02_delete_review — read-only контракты и затем приёмка, без edits/build/adb/network. Inventory1842: только прежняя чужая.gitignore;39foreign entries=38raw files+directory сохранны. Новых строк/переводов/цветов/enum/версий/dependencies не планируется.
+
+## B02 — удаление аккаунта и позднее подтверждение, 09.10.2026
+
+570distinct=18new(10actualApp/Profile+8joinedAPI/defaultVMreceipt)+550prior+2existing deletion IDs/authfixture;обаAPK. Captured generation до coroutine, API atomic post-delete guest generation, guest-only monitor и Home cleanup через navigateLocally.4behavior RED закрыты; initial0XML tree-print fixture stop отдельно. [Критерии, версии и границы](audit-blocks.md#b02--удаление-аккаунта-и-позднее-подтверждение-09102026). 🔓 Product/tests/Gradle после final; docs/inventory/Git до freeze/scoped acceptance/15own commit/FFmain/push. Замки предыдущего этапа завершены подтверждённой доставкой98ac740a. Nexttabs/HomeShell/otherwriters; не писать параллельно. Полные QA-B02-003 и релиз не закрыты.
+
+09.10.2026 — уточнение передачи этого этапа: после первого freeze независимый reviewer обнаружил новый чужой `.claude/agents/yuldash-bashkir-linguist.md` (содержимое не читали/не меняли). Прежние39 entries сохранны; теперь40=39raw-hashed файлов+1directory. Новая версия freeze сохраняет прежние brain snapshots/receipt aliases; product/test/APK bindings и570IDs не изменились, повтор тестов не требуется. Свои15 paths не включают этот файл. [Текущий foreign manifest](../test-results/b02-account-deletion-foreign-final-v2-20261009.json).
+
+
+## B02 / QA-B02-003 — явный выбор вкладки Home, 09.10.2026
+
+База483d2340, веткаcodex/b02-home-tabs-20261009. План по продолжающемуся поручению: actual App/Home local HTTP RED для явной вкладки при held public/private и старых Home callbacks; разделить initial sync и принятую synchronous tab action; минимальная защита HomeShell bottom/child/Back/ActiveTripBar и исходящей animated tab; current/guest/initial/сохранение controls, обаAPK и затронутая интеграция; обновить реестр/inventory/scoped independent review; свои commit/FF main/push. Без production/provider/настоящих аккаунтов/FCM/SMS/deploy. Другие route writers/external same-frame roundtrip/concurrent legacy flags и остальные B02 критерии отдельно.
+
+🔒 Root — единственный writer AppNavHome.kt/YuldashApp.kt/scoped new tests/docs/inventory, единственная сборка/Git. b02_delete_review — readonly scope/review без edits/build/adb/network. Inventory1844: единственная дельта чужая.gitignore;40foreign entries проверены по предыдущему publication manifest и сохраняются. Новые UI тексты/переводы/цвета/enum/версии/dependencies не планируются.
+
+
+## 10.10.2026 — B02, вкладки Home: локальный итог
+
+604=25new(20App+5Shell)+570prior+9existing/53classes/обаAPK.6behavior RED+1duplicate-label fixture; green compile/preflight/guest fixture уточнены вреестре. Новых строк/BA drafts нет. 🔓 Root product/tests/Gradle завершены после final; docs/inventory/Git до freeze/readonly acceptance/12own commit/FF main/push по прежнему разрешению.40foreign сохраняем. Дальше ActiveTripBar poll/sessionownership, otherwriters/external sameframe/concurrentflags; полный B02/релиз открыт. [Критерии/версии/остатки](audit-blocks.md#b02--явный-выбор-вкладки-home-09102026).
+
+## B02 / QA-B02-003 — причина 14 integration сбоев, 10.10.2026
+
+Пользователь отдельно поручил выяснить14сбоев первого Home-tabs final-v2, прежде чем продолжать ActiveTripBar. База be580c0c; ветка codex/b02-integration-isolation-20261010. План: извлечь точные failure IDs/стэки/порядок и связать с сохранённым thread dump; проверить отличие fixture/environment и воспроизвести минимальную причинную последовательность; исправить только подтверждённый дефект, оставив старые журналы неизменными; выполнить causal negative/positive controls и необходимую интеграцию/сборку; обновить реестр/инвентаризацию/уроки и получить независимое ревью; свои commit/FF main/push по продолжающемуся разрешению. Если точную историческую причину нельзя доказать, явно отделить подтверждённый reproducer от исторического совпадения. Успешный повтор не считается объяснением.
+
+🔒 Root — единственный writer scoped fixture/product при доказанной необходимости, tests/docs/inventory и единственный Gradle/Git; b02_delete_review — readonly3failed-class fixture research/review без edits/build/adb/network. Предыдущий этап доставлен be580c0c; его замки завершены. Inventory1846, только известная чужая.gitignore delta;40foreign entries сохраняем. Без version/dependency изменений/настоящих аккаунтов/провайдеров/production/native операций; переход к ActiveTripBar после разбора причины или честно зафиксированного ограничения.
+
+## 10.10.2026 — QA-B02-003: тестовые ожидания исправлены
+
+607unique=604retained+3new причинных controls,53classes/обаAPK/0failures-errors-skips.12apply-before-frame в3fixtures; product/dependencies/тексты/BA drafts не менялись. RED3→GREEN3 под идентичной потерей automatic delivery. Одна ограниченная попытка со старыми ожиданиями: 264 tests/0 failures/0 errors/0 skipped, 19classes, 219.313s; 0 post-failure диагностических строк. Повтор прошёл: естественная потеря доставки в этой попытке не наблюдалась. Это не доказывает отсутствие дефекта или точную причину старого отказа. Временные4исходника восстановлены byte-exact к final60bindings. Точную историческую причину всех14 я не могу подтвердить: старый журнал не содержит состояния snapshot/очереди. Прежняя14неясность уточнена подтверждённым и закрытым дефектом ожиданий; не превращается в100% B02.
+
+🔓 Root product/tests/Gradle завершены; root один writer docs/inventory/Git до scoped readonly receipt и своих12 commit/FFmain/push по прежнему разрешению.40foreign сохраняются. Следующий независимый пункт — ActiveTripBar order/poll/session ownership A→B, затем other route writers. [Критерии, результаты и остатки](audit-blocks.md#b02--ожидания-compose-и-разбор-14-сбоев-10102026). Полный B02/релиз/native/provider/production/CI открыты.
+
+## B02 / QA-B02-003 — панель активного заказа, 10.10.2026
+
+Предыдущий этап доставлен в main/GitHub aafcec47; разбор 14 завершён с явным ограничением исторической причины. База aafcec47bac542472fad732cc03b5cf9a36efd1b, ветка codex/b02-active-bar-20261010. План по продолжающемуся поручению: проверить настоящий ActiveTripBar на локальном HTTP при смене аккаунта/выходе, прежнем ответе и смене ID; сначала воспроизвести отказ; минимально защитить чтение/показ и завершение заказа текущей сессией и ID, сохранив same-owner refresh, отказ сети и lifecycle; causal controls, необходимая интеграция/оба APK; обновить реестр/inventory/уроки, readonly приёмка, свои commit/FFmain/push.
+
+🔒 Root — единственный писатель TaxiTripScreen.kt (только ActiveTripBar), ApiClient.kt (только optional expectedGeneration в getInstantOrder), scoped новых тестов, docs/inventory и единственная сборка/Git. b02_integration_review — только чтение перечисленных связей, без изменений/сборок/эмулятора/сети. Предыдущие замки завершены доставкой aafcec47. 40 чужих записей сохраняются. Навигационный durable bridge и другие writers — отдельные критерии; настоящие аккаунты/провайдеры/production/mobile не затрагиваются. Новые строки, цвета и зависимости не планируются.
+
+## 10.10.2026 — QA-B02-003, панель: локальный итог
+
+622unique=607retained+15new/54classes/обаAPK/61sourceLF; 388.812s,0failures-errors-skips-staleXML. RED13/7failures, те же13GREEN;2additional final controls. Текущая сессия/ID защищают кеш, HTTP и публикацию/кнопку; UI тексты/BA/colors/версии/dependencies не менялись. Реальный synthetic local refresh и lifecycle pause/resume сохранены — они прошли ещёRED. Принадлежность ID во всех писателях NavSignals, ABA/переход через0/внешние same-frame изменения, удержанный ответ при STARTED/dispose, retained action при onScreen=true и durable InstantOrder bridge остаются отдельными критериями. Наблюдение held ответа ограничено pump1500 после serverdispatch, не join клиента. Native/realserver/FCM/provider/production/CI/fullB02/релиз не закрыты; точная историческая причина всех14 не подтверждена.
+
+🔓 Root product/tests/Gradle завершены; docs/inventory/Git до scoped readonly приёмки и своих11commit/FFmain/push по продолжающемуся разрешению.40foreign сохраняются. Следующий локальный пункт — владелец activeTaxiTrip и остальные NavSignals writers, затем durablebridge и прочие навигационные writers. [Критерии, версии и остатки](audit-blocks.md#b02--панель-активного-заказа-сессия-и-ответы-10102026).
+
+## B02 / QA-B02-003 — владелец активной поездки, 10.10.2026
+
+База45337534e6722eb2dc27406edc4a49b0d48dddc5. План по продолжающемуся поручению: воспроизвести перенос прежнего номера A→B/guest, сброс при checking и позднее закрытие второго экрана (включая same-ID); привязать активную поездку к поколению входа и уникальной публикации, флаги — к экземпляру экрана; сохранить поездку при минимизации/временном отказе, очищать только подтверждённое завершение текущей публикации. Проверить фактические InstantOrderScreen/ActiveTripBar и локальный API, сохранить предыдущие622 ID с явно обоснованной адаптацией двух bar fixtures, регрессию пассажирского потока; обе сборки, независимое чтение, обновление реестра/inventory, свои commit/FFmain/push. Процент всегоB02/релиза этим не закрывается.
+
+🔒 Root — единственный writer scoped TaxiOfferNotifier/NavSignals, нового taxi ownership state, InstantOrderScreen session wrapper/publisher/restore/poll, ActiveTripBar, HomeShell/ModeSwitchHome consumers и scoped tests/docs/inventory; единственная сборка/Git. b02_integration_review — readonly точных связей/результата, без edit/build/device/network.40 чужих entries сохраняются. MainActivity/mobile/backend/production/provider не затрагиваются. Прочие личные действия InstantOrder/платежей и durable bridge остаются отдельными критериями. Новые UI строки/цвета/версии/dependencies не планируются.
+
+10.10.2026 — владелец поездки: исходные10RED/10fail → теже10GREEN/0fail, fixtureбайты/ID одинаковы. Expanded64/1fail: единственный отказ realrefresh на loaded после предварительного НОВОГОverifyCode; fixture теперь публикует91 послеэтоговхода, исходные проверкиrefresh не менялись. Всего3existingbar предусловияобновлены:2positiveA→B и1verify-before-refresh. Независимыйreadonly нашёл finish→oldSideEffect resurrection: directRED иactualRED, усиленныйactualRED-v2expected2pollsactual3. ДобавленfinishedID вlease, finish очищаетфлаги толькосвоегоpublisher иотклоняетего повторenroute. Новыйscreenownerможетопубликовать91сознательно. GREEN25 выполняется; finalещёнепринят. Scope19ownpaths=7product+4test(3new+1revisedbar)+8brain/inventory; другиеcallbacks/durablebridge/device/providers остаютсяоткрыты.
+
+🔓 10.10.2026 — root product/tests/Gradle завершены; scoped docs/inventory/Git остаются до независимой приёмки и доставки своих19 путей по продолжающемуся поручению. 649 = 622 сохранённых ID + 25 новых (10 экран/панель, 14 состояние/вход, 1 завершение) + 2 прежних пассажирских сценария, впервые включённых в этот интеграционный набор; 58 классов, 0 отказов/ошибок/пропусков/устаревших XML, оба debug APK, 416.750 с, 70 отпечатков исходников в журнале. Три existing bar предусловия явно публикуют ID после НОВОГО входа, assert не ослаблены. Compatibility14-й case добавлен к сохранённому13-case fixture; originalOwner10/actualCompletion1 не менялись. [Критерии, доказательства и остатки](audit-blocks.md#b02--владелец-активной-поездки-и-завершённая-запись-10102026). Другие личные действия InstantOrder/платежей, сохранённый переход InstantOrder после холодного запуска, прежнее нажатие при onScreen=true, завершение удержанного клиентского ответа при STARTED/dispose, настоящий сервер/устройство/FCM/SMS/платёжные провайдеры/production/CI и весь B02/релиз остаются открытыми. Точную единственную историческую причину всех 14 прежних отказов я не могу подтвердить.
+
+
+## B02 — сохранённый переход к такси (10.10.2026)
+
+План от опубликованного 0235e424; продолжаем разрешённый аудит, собственный коммит, main/push.
+1. Проверить фактические источники InstantOrder перехода, владельца входа и сохранение Activity Bundle; воспроизвести промежуток между нажатием Home и обработкой временного флага.
+2. При подтверждённом дефекте сохранить назначение синхронно под уже существующими проверками входа/экрана/слота; не переписывать рабочие экраны. Проверить смену аккаунта, выход, повтор/новейший выбор и восстановление.
+3. Выполнить затронутые проверки и итоговую интеграцию по причине изменения общего Home routing; оба debug APK. Обновить реестр/мозг/инвентаризацию, независимое read-only ревью, сохранить чужие 40 записей.
+
+Замок реализации снят: root завершил единственную сборку и исходные правки; scoped review и собственная Git-доставка выполняются последовательно root. Другие агенты только read-only по назначению. MainActivity.kt/mobile/production не меняем. Сохранённый Bundle в Robolectric не доказывает настоящий kill процесса/устройство/провайдеров или готовность всего B02.
+
+
+### Результат этапа Home→InstantOrder
+
+Перечисленные локальные10 критериев прошли; 659 различных ID = 649 сохранённых + 10 новых; 59 классов, 0 отказов/ошибок/пропусков/устаревших XML, 370.984 с, 72 отпечатков исходников, оба debug APK. Повторные RED/GREEN не прибавляются к числу уникальных проверок. [Проверяемые доказательства и остатки](audit-blocks.md#b02--сохранённый-переход-из-полоски-такси-10102026). План реализации выполнен; до сообщения о GitHub отдельно проверяем scoped review, staged tree, main и remote. Новых переводов нет. Следующий независимый пункт: личные callbacks InstantOrder при смене входа (создание/отмена/оплата), затем оставшаяся native/device/provider матрица. B02/релиз не закрыты.
+
+
+## B02 — создание, отмена и онлайн-оплата такси (10.10.2026)
+
+План от опубликованного a1d07d0a; продолжаем разрешённые аудит, собственный коммит, main/push.
+1. Воспроизвести действия настоящих picker/cancel dialog/PayOnlineCard после смены входа, повтор/закрытие/поздний ответ; проверить границы текущего order/payment ID.
+2. Исправить подтверждённые причины минимально: текущий owner/lease/scope перед запуском, захваченное поколение в API, current owner/ID перед применением ответа и побочным recent/browser/gate действием. Сохранить valid same-owner поведение, default API callers, тексты/стиль/версии.
+3. Затронутые проверки, одна итоговая интеграция из-за изменений общего API/payment component, оба debug APK, обновление реестра/мозга/инвентаризации, scoped независимое ревью, собственная доставка без чужих40.
+
+Замок реализации снят после единственной итоговой сборки; root последовательно выполняет scoped review и собственную Git-доставку. Зона: InstantOrderScreen.kt, PayOnlineCard.kt, data/ApiClient.kt; PayOnlineCard bindings в трёх экранах; дополнительно TaxiReceipt стабильный paymentOwner передан через private TaxiAfterRideActions. Новые TaxiOrderActionBoundaryTest.kt/PayOnlineOwnerBoundaryTest.kt; docs/реестр/инвентаризация; единственная сборка — root. MainActivity/mobile/production/настоящие провайдеры не трогаем. Дополнительный агент только read-only по точному заданию. Всё B02/релиз и реальные устройства/платежи этим планом не закрываются.
+
+10.10.2026 — новый integration отказ688/1: scoped замок root дополнительно на RideshareCompletedRestorationTest.kt, только последний auth oracle одного testcase. Его payload/draft/restore assertions сохраняем; публичный GET /health отделяем от личных запросов и проверяем отсутствие Bearer. Scope17own=6product+2newtests+1revisedtest+8brain; число уникальных688 не растёт от targeted/full repeats. Pre-correction fixture и first final сохранены; targeted restoration class и final-v2 после нового сбоя, без изменений продукта.
+
+
+### Локальный результат taxi/create/cancel/pay
+
+689 различных ID = 659 сохранённых + 30 новых; 61 класс, 0 отказов/ошибок/пропусков/устаревших XML, 406.437 с, 78 отпечатков исходников и оба debug APK. Повторные прогоны не увеличивают число уникальных проверок. [Критерии, фактические версии, RED/fixture оговорки и остатки](audit-blocks.md#b02--создание-предзаказ-отмена-и-онлайн-оплата-10102026). Новых текстов/BA drafts нет. Root один writer docs/inventory/Git до независимой приёмки/own commit/FFmain/push по продолжающемуся поручению;40foreign сохраняются. Следующие независимые пункты: другие TaxiTrip/TaxiReceipt личные действия. B02/релиз не закрыты.
+
+10.10.2026 — final review finding Paid reset воспроизведён RED1/1 (expected1/actual2 POST); исправлены3stage predicates. GREEN30 и final689/обаAPK прошли, исходный test не менялся. Прежние194raw+own bytes сохранены203copies, checkpoint-v1 исторический. Замок реализации снят; root один docs/inventory/Git writer до приёмки checkpoint-v2 и собственной доставки. Own17, foreign40, следующий пункт other TaxiTrip/receipt actions; весьB02/релиз открыт.
+
+
+## B02 — действия активной пассажирской поездки (10.10.2026)
+
+План от опубликованного1cd57e9f; продолжаем разрешённые аудит, собственный коммит/main/push.
+1. Actual TaxiTrip controls: chat/dial/pay/SOS/cancel/minimize/открытие листов; im-coming, withdraw, passenger-done, waypoints и destination preview/confirm. Проверить captured session/parent lease/target/phase/disposal, дубли/late reply/wrong ID; отдельный payload control проеханная остановка+две активные. Исходный RED сохранить до product edits.
+2. Минимально связать экран/листы с owner/target/live parent predicate, expectedGeneration API и matching DTO; сохранять current successful paths, тексты/стиль/версии. Shared share/roadside internals, sockets/GPS, зимний протокол, legacy/driver и receipt actions — отдельные следующие критерии; открытие листа не доказывает его все действия.
+3. Затронутые GREEN, интеграция689retained+new при изменении общего ApiClient/родителя, оба debug APK, реестр/мозг/inventory, независимая scoped приёмка, только свои файлы с сохранением40foreign. Repeat не увеличиваетunique; реальный сервер/устройство/provider/CI/весьB02/релиз не принимаем этим этапом.
+
+Замок реализации снят после итоговой проверки. Root — единственный docs/inventory/Git writer до scoped review и собственной доставки. Область: TaxiTripScreen.kt, InstantOrderScreen.kt, data/ApiClient.kt, новый TaxiTripActionBoundaryTest.kt и docs; Gradle/emulator/Git только root. Read-only reviewer b02_trip_action_review без права на source/docs/build/network/Git. MainActivity/mobile/production не меняем.
+
+Уточнение области текущего шага: дополнительно GeocoderClient.kt (передача владельца запроса подсказок через IO) и TaxiTripAdaptiveGuardTest.kt (существующая проверка callsite после добавления параметров). Root единственный writer; всего14 своих путей. RED-v1 сохранён; RED-v2 раскрыл Full и убрал ожидания с UI-потока, адресный control дополнительно выбирает кнопку подтверждения sheet, а не одноимённую кнопку маршрута.
+
+
+## B02 — active TaxiTrip callbacks, 10.10.2026
+
+740 различных ID = 689 из предыдущего набора + 16 существующих проверок, дополнительно выбранных (4adaptive+12geocoder/network), + 35 новых. 64 класса; 0 отказов/ошибок/пропусков/устаревших XML; 461.218 с; 82 отпечатков исходников; оба debug APK. Повторы RED/GREEN не прибавляются к unique.
+
+План реализации/сборки выполнен; review/staged/main/remote подтверждаем отдельно перед сообщением о доставке. 14own/40foreign; новых строк/BA draft нет. [Критерии, версии и остатки](audit-blocks.md#b02--active-taxitrip-callbacks-10102026). Далее share/roadside/receipt callbacks и невыполненная trip UI матрица; B02/релиз открыты.
+
+
+## B02 — поделиться поездкой и помощь на дороге, 10.10.2026
+
+План от опубликованного7b7cb2fe; продолжающееся поручение включает собственный коммит/FFmain/push.
+1. Воспроизвести actual InstantShareDialog/LiveLinkCard/RoadsideHelpAction: смена входа/объекта/закрытие, повторы и удержанный ответ; текущие share/revoke/link и три HTTP-адаптера помощи. Все аккаунты и контакты синтетические, HTTP местный.
+2. Минимально связать состояние/корутины/кнопки с поколением входа, объектом и текущим родителем; передать captured generation через API, включая cache fast path контактов. Отзыв должен закрывать соответствующую локальную ссылку. Тексты/стиль/версии сохраняем.
+3. Затронутые GREEN и итоговая интеграция740 сохранённых ID + новые, обе debug-сборки; обновление реестра/мозга/inventory, независимое scoped чтение, доставка только своих файлов с сохранением40foreign. Повторы не увеличиваютunique.
+
+Замок реализации снят после итоговой проверки; root один docs/inventory/Git writer до независимой приёмки и доставки. Область: InstantOrderScreen.kt (shared share + roadside call), TaxiTripScreen.kt (safety/share bindings), RoadsideHelp.kt, TripLiveLink.kt, data/ApiClient.kt (contacts/share/stuck expectedGeneration), BookingActiveTripScreen.kt/CourierScreen.kt (stuck adapters), новые scoped tests, docs/inventory. Gradle/Git только root. b02_trip_action_review — read-only соответствующих тел/доказательств, без edit/build/network/device. MainActivity/mobile/production/настоящие SMS/устройство/провайдеры не затрагиваем. Receipt/winter/fulllegacy/driver/fullB02/релиз остаются открытыми. Новых переводов не планируется.
+
+
+## B02 — ссылки поездки и помощь на дороге, 10.10.2026
+
+787 различных ID = 740 сохранённых + 47 новых; 66 классов, 0 отказов/ошибок/пропусков/устаревших XML, 486.609 с, 87 отпечатков исходников, оба debug APK. Повторы не прибавляются к unique. План реализации/сборки выполнен; review/staged/main/remote проверяем отдельно. 17own/40foreign, новых BA drafts нет. [Критерии и остатки](audit-blocks.md#b02--ссылки-поездки-и-помощь-на-дороге-10102026). Следующий локальный пункт — TaxiReceipt действия; uncertain share reconciliation и full caller матрицы остаются в реестре.
+
+
+## B02 — чек такси: владелец и действия, 10.10.2026
+
+План от опубликованного0f539dd7; продолжающееся поручение включает собственный коммит/FFmain/push.
+1. Воспроизвести actual TaxiReceipt: загрузку/повтор и matching ID, сохранённую оценку/спасибо/наличные/забытую вещь/шаринг, смену входа/цели/закрытие, повтор и удержанный ответ. Общие диалоги жалобы/разбора исследовать отдельно по точным связям.
+2. Минимально связать экран и личные действия с captured generation/target/scope/current parent, передать expectedGeneration через API. Сохранить текущие успешные пути и обычный отказ/повтор; не менять тексты/стиль/версии.
+3. Проверить затронутое, затем итоговую интеграцию787 сохранённых ID + новые из-за изменения shared API/callers, обе debug-сборки. Обновить реестр/мозг/inventory, scoped независимое чтение и собственная доставка;40foreign сохраняются.
+
+Замок реализации снят после итоговой проверки; root один docs/inventory/Git writer до scoped приёмки и доставки. Область: TaxiReceiptScreen.kt, scoped ApiClient entries, новых receipt tests/docs/inventory; единственный Gradle/Git. После конкретных read-only findings область расширена на FileIncidentDialog submit/owner/picker/decode/upload guards в FairnessScreens.kt, только front canSend в SecondaryScreens.kt, optional current parent в PayOnlineCard.kt, только receipt live screen+ID binding в AppNavOrders.kt/YuldashApp.kt. b02_trip_action_review — bounded read-only этих связей, без edits/build/device/network/Git. Предыдущий этап доставлен0f539dd7;572raw прежнего freeze сохранены flat copies до изменений. MainActivity/mobile/backend/production/реальные платежи/SMS/провайдеры не затрагиваем. Fullshared incident/upload матрица, winter и весьB02/релиз не закрываются инвентаризацией или сборкой.
+
+
+## B02 — чек такси: текущий владелец и действия, 10.10.2026
+
+844 различных ID = 787 сохранённых + 57 новых; 67 классов, 0 отказов/ошибок/пропусков/устаревших XML, 490.250 с, 90 отпечатков исходников, оба debug APK. Повторы не прибавляются к unique. План реализации/сборки выполнен; review/staged/main/remote проверяем отдельно. 16own/40foreign, новых BA drafts нет. [Критерии и остатки](audit-blocks.md#b02--чек-такси-текущий-владелец-и-действия-10102026). Следующий локальный пункт — winter, shared incident photo/native/caller и uncertain server reconciliation отдельно.
+
+
+## B02 — зимний вопрос: владелец и таймер, 10.10.2026
+
+План от опубликованного1e6a5ad6; продолжающееся поручение включает собственный коммит/FFmain/push.
+1. Воспроизвести actual WinterArrivalWatcher/Dialog: текущий таймер/кнопки, поздние параметры, смена владельца/цели, закрытие/повторное открытие, дубли/очередь/удержанные ответы и обычный503.
+2. Минимально привязать общие действия к captured generation/target/current parent/opening/scope, свежим параметрам таймера и expectedGeneration шести API. Обновить только winter adapters в Taxi/Booking/Courier, сохранив стиль/версии.
+3. Проверить затронутое и итоговую интеграцию844 сохранённых ID + новые, обе debug-сборки. Обновить реестр/мозг/inventory, scoped независимое чтение и собственную доставку;40foreign сохраняются.
+
+Замок реализации снят после итоговой интеграции; root один docs/inventory/Git writer до scopedприёмки/доставки. Область: WinterProtocol.kt, exact winter bindings InstantOrderScreen.kt/BookingActiveTripScreen.kt/CourierScreen.kt,6entries ApiClient.kt,new winter test/docs/inventory; единственный Gradle/Git. b02_trip_action_review только bounded read-only, без edits/build/device/network/Git.713raw previousfreeze сохранены до изменений. MainActivity/mobile/backend/production/реальныеSMS/providers не затрагиваем. Full экранные phase/target/ABA матрицы и фактическая доставка SMS/FCM/device/релиз остаются открытыми.
+
+
+## B02 — зимний вопрос: владелец, таймер и подтверждение, 10.10.2026
+
+890 различных ID = 844 сохранённых + 46 новых;68 классов,0 отказов/ошибок/пропусков/устаревших XML,512.953с,92 отпечатков исходников,оба debug APK. Повторы не прибавляются к unique. План реализации/сборки выполнен, review/staged/main/remote проверяются отдельно.14own/40foreign; fallback BA reusedexistingpair, новых drafts нет. [Критерии/остатки](audit-blocks.md#b02--зимний-вопрос-владелец-таймер-и-подтверждение-10102026).
+
+
+## B02 — потерянный ответ создания/отзыва ссылки, 10.10.2026
+
+План от опубликованного a72c56b3; продолжающееся поручение включает собственный коммит/FFmain/push.
+1. Воспроизвести actual InstantShareDialog с локальным HTTP: сервер изменил записи, ответ потерян/429/503, GET подтверждает результат либо тоже отказывает. Проверить обычный отказ/повтор, owner/target/parent/dispose и удержанную сверку.
+2. Минимальная сверка GET после failed create/revoke; при неизвестном состоянии запретить прежние действия/ссылку до повторной сверки. Проверить форму/ID/target списка, сохранить успешные пути и двуязычные тексты.
+3. Проверить выбранные случаи и итоговую интеграцию 890 сохранённых ID + новые, обе debug-сборки; обновить реестр/мозг/inventory, независимая scoped-приёмка и собственная доставка. Повторы не считать новыми.
+
+Замок реализации снят после итоговой интеграции; root один docs/inventory/Git writer до независимой scopedприёмки/доставки. Область: exact InstantShareDialog в InstantOrderScreen.kt, scoped getInstantShares parser ApiClient.kt, новых tests/необходимого старого fixture, docs/inventory; единственный Gradle/Git. b02_trip_action_review bounded read-only source/contracts.871raw previousfreeze сохранены до изменений;40foreign сохраняются. MainActivity/mobile/backend/версии/dependencies не менять. Настоящие SMS/доставка/TTL работоспособность ссылки/нативный полный путь/production/backend runtime/весь B02 остаются отдельными критериями.
+
+Переводы на проверку Александру (новые BA черновики этого этапа):
+- «Не удалось проверить ссылку» → «Һылтанманы тикшереп булманы».
+- «Доступ мог измениться. Повтори проверку перед новым действием.» → «Инеү мөмкинлеге үҙгәргән булыуы мөмкин. Яңы ғәмәл алдынан ҡабат тикшер.».
+
+
+## B02 — сверка ссылки после потерянного ответа, 10.10.2026
+
+916 различных ID = 890 сохранённых + 26 новых; 69 классов, 0 отказов/ошибок/пропусков/устаревших XML, 534.641 с, 93 отпечатков исходников, оба debug APK. Повторы не прибавляются к unique. Реализация/сборки выполнены; review/staged/main/remote проверяются отдельно.12own/40foreign; две BA строки выше остаются на проверку Александру. [Критерии/следующий этап](audit-blocks.md#b02--сверка-ссылки-после-потерянного-ответа-10102026).
+
+
+## B02 — поздняя сверка ссылки и завершение действия, 10.10.2026
+
+План от опубликованного f1513c72. Продолжающееся поручение включает собственный коммит, объединение с main без переписывания истории и push.
+1. Добавить необязательный readShares в InstantShareDialog, сохранив обычный вызов реального API. Тест фиксирует Job настоящего клиента и invokeOnCompletion, затем выполняет прежний GET с захваченным поколением входа. Удержать ответ и проверить смену владельца/выход, parent/target/close/dispose после полного завершения клиента, включая UI, Toast, буфер и выбор приложения.
+2. Проверить сохранённые действия выбора приложения и «Поделиться ещё» при ожидании, обычные create/revoke/retry и оба языка. Сохранить 916 прежних ID. Новые случаи на уже защищённом коде закрепляют существующее поведение. Контроль чувствительности временно снимает выбранные защиты в локальной копии, затем исходная версия точно восстанавливается по SHA до финального прогона и коммита. Исходная ошибка без воспроизведения не заявляется.
+3. Выполнить затронутые тесты и итоговую интеграцию (916 прежних + новые проверки, оба debug APK), получить независимую приёмку, обновить 7 документов и инвентаризацию, доставить только собственные изменения. До правок сохранены 996 прежних файлов доказательств; 40 чужих изменений сохраняются. Новых текстов, версий и зависимостей нет.
+
+Замок реализации снят после финальной интеграции; root — единственный автор docs/inventory/Git до приёмки и доставки. Область: exact InstantShareDialog seam/new InstantShareLateResponseTest/docs/inventory, одинGradle/Git. b02_trip_action_review read-only review (сейчасбезedits/receipt/build/Git/device/network). MainActivity/mobile/backend/sharedApiClient не менять. Same-IDABA/transientparent, TTL/SMS/backendruntime/native/provider/весьB02/релиз отдельные критерии.
+
+
+## B02 — поздняя сверка ссылки и завершение клиента, 10.10.2026
+
+942 различных ID тестов = 916 сохранённых (915 прежних + 1 с уточнённым ожиданием UI) + 26 новых; 70 классов, 0 отказов/ошибок/пропусков, без устаревших XML, 508.297 с, 94 отпечатка исходников. Собраны оба debug APK. Повторные прогоны не увеличивают число различных проверок.  Аргумент наблюдения, проверки и сборки выполнены. После фактического сбоя первого общего прогона уточнено ожидание UI одного прежнего теста, без изменения следующих assert. Независимая приёмка, staged/main/remote подтверждаются отдельно. 11 собственных / 40 чужих изменений. Новых башкирских строк нет; 2 прежних черновика не утверждены. [Критерии и следующий этап](audit-blocks.md#b02--поздняя-сверка-ссылки-и-завершение-клиента-10102026).
+
+
+## B02 — поздняя повторная сверка после отзыва ссылки, 10.10.2026
+
+План от опубликованного 9c73e51d. Продолжающееся поручение включает собственный коммит, объединение с main без переписывания истории и push.
+1. Дополнить InstantShareLateResponseTest шестью случаями: после DELETE с неизвестным результатом первая сверка неудачна, ответ повторного GET удержан; до ответа сменить владельца/выйти, утратить актуальность родителя, сменить поездку, закрыть или пересоздать окно. Дождаться полного завершения настоящего клиентского Job и проверить сохранённые действия, отсутствие Toast, буфера, выбора приложения и дополнительных POST/DELETE.
+2. Добавить положительный случай текущего окна: DELETE уже удалил запись, повторный GET возвращает пустой список, окно сообщает об отзыве и блокирует прежние действия. Существующие 942 ID сохранить. Это регрессии существующих защит, а не заявленная новая ошибка продукта.
+3. Запустить затронутый класс, затем итоговую интеграцию (942 прежних + новые проверки, оба debug APK). Обновить 7 документов и инвентаризацию, получить независимую приёмку и доставить только собственные изменения. До правок сохранены 1204 файла доказательств прошлого freeze; 40 чужих изменений сохраняются.
+
+Замок реализации снят после итоговой интеграции; root один writer docs/inventory/Git до приёмки и доставки. Область: InstantShareLateResponseTest.kt. b02_trip_action_review — независимое чтение; запись только собственного receipt после freeze по отдельному поручению. MainActivity/mobile/backend/ApiClient/InstantOrderScreen, тексты, версии и зависимости не менять. Возврат parent до ответа, same-ID ABA, реальные вызывающие экраны, native/provider/весь B02 и релиз остаются отдельными критериями.
+
+
+## B02 — поздняя повторная сверка после отзыва ссылки, 10.10.2026
+
+949 различных ID = 942 сохранённых + 7 новых; 70 классов, 0 отказов/ошибок/пропусков/устаревших XML, 512.984 с, 94 отпечатка исходников. Собраны оба debug APK. Повторные прогоны не увеличивают число различных проверок. 7 новых = 6 поздних revoke-origin retry + 1 текущее окно. Код продукта, версии и тексты прежние; новых башкирских строк нет. Независимая приёмка и staged/main/remote подтверждаются отдельными артефактами. Следующий критерий — возврат parent до ответа; 2 старых BA-черновика прежнего этапа не утверждены. [Реестр](audit-blocks.md#b02--поздняя-повторная-сверка-после-отзыва-ссылки-10102026).
+
+
+## B02 — возврат родителя до ответа сверки ссылки, 10.10.2026
+
+План от опубликованного 26ea3ef8. Продолжающееся поручение включает собственный коммит, объединение с main и push.
+1. Восемь новых сценариев: родитель true → применённый кадр false → применённый кадр true до удержанного GET; создание/отзыв и их повтор, сохранённая/отсутствующая запись. Старый ответ не публикует ссылку, Toast или закрытие. Дождаться настоящего Job, проверить сохранённые действия и новый текущий GET без повторной мутации. Сначала RED на неизменённом продукте; риск по чтению не считать подтверждённой ошибкой.
+2. После воспроизведения минимально версионировать наблюдаемый контекст parent для recheck. Обязательно сохранить unknown pending и свежий retry текущего окна; старые parent-return-after-completion методы не менять. Исчезновение false между кадрами и реальные условия вызывающих экранов остаются отдельными критериями.
+3. Затронутые тесты и соседи, итоговая интеграция (949 прежних + новые проверки, оба APK), независимая приёмка 10 собственных файлов, обновление реестра и инвентаризации, доставка только своего. До правок сохранены 1306 RAW-доказательств прошлого freeze; 40 чужих изменений сохраняются.
+
+Замок реализации снят после итоговой интеграции; root один writer docs/inventory/Git до приёмки и доставки. Область: InstantShareContent recheck context/InstantShareLateResponseTest. b02_trip_action_review — независимое чтение; receipt только после отдельного freeze-поручения. MainActivity/mobile/backend/ApiClient/другие операции, тексты, версии и зависимости не менять. Native/providers/full B02/release, same-ID ABA, межкадровые смены и реальные callers открыты.
+
+
+## B02 — возврат родителя до ответа сверки ссылки, 10.10.2026
+
+957 различных ID = 949 сохранённых + 8 новых; 70 классов, 0 отказов/ошибок/пропусков/устаревших XML, 537.468 с, 94 отпечатка исходников. Собраны оба debug APK. Повторные прогоны не увеличивают число различных проверок. RED8 → GREEN95, assertions после RED прежние; старые 33 методы сохранены. Новых текстов/BA/версий/зависимостей нет. Независимая приёмка и staged/main/remote подтверждаются отдельно. Следующий пункт — реальные условия вызывающего экрана; 2 прежних BA-черновика не утверждены. [Реестр](audit-blocks.md#b02--возврат-родителя-до-ответа-сверки-ссылки-10102026).
+
+
+## B02 — ссылка через экран поездки, 10.10.2026
+
+План от опубликованного d9383685. Продолжающееся поручение включает собственный коммит, объединение с main и push.
+1. Новый TaxiTripShareCallerTest открывает настоящий TaxiTripScreen → Безопасность → InstantShareDialog. Удерживает первую/повторную сверку после неизвестного создания/отзыва и проверяет done/cancelled/замену заказа; отдельно сохранённые действия и положительные текущие сценарии RU/BA. Необязательный внутренний readShares проходит screen→content→dialog, обычный вызов остаётся реальным ApiClient. Тест наблюдает настоящий клиентский Job без дополнительного coroutineScope/withContext.
+2. Проверить возврат фазы done→onboard до ответа: применённые кадры, неизвестное состояние после старого ответа, новый текущий GET и обычный результат. Новую ошибку считать подтверждённой только после воспроизведения; ранее зелёные защиты закрепляются тестами. Устройства, серверные уведомления, настоящий InstantOrderScreen и старый driver caller отдельно.
+3. Запустить новый класс и соседей; итоговая интеграция сохраняет 957 прежних ID и собирает оба debug APK. Обновить 7 документов и инвентаризацию, получить независимую приёмку, доставить только свои файлы. До изменений сохранены 1423 RAW-доказательства прошлого freeze; 40 чужих изменений сохраняются.
+
+Замок реализации снят после итоговой интеграции. Root — единственный writer docs/inventory/Git до приёмки и доставки; область TaxiTripScreen/readShares passthrough и новый TaxiTripShareCallerTest. b02_trip_action_review — read-only source review; receipt после отдельного поручения. MainActivity/mobile/backend/ApiClient/InstantOrderScreen/существующие тесты, тексты, версии и зависимости не менять. Полный B02/релиз, same-ID ABA, межкадровые и plain-state parent/initial load/held POSTDELETE остаются открыты.
+
+
+## B02 — ссылка через экран поездки, 10.10.2026
+
+985 различных ID = 957 сохранённых + 28 новых; 71 класс, 0 отказов/ошибок/пропусков/устаревших XML, 547.109 с, 95 отпечатков исходников. Собраны оба debug APK. Повторы не увеличивают число различных проверок. Новых BA строк нет; 2 прежних черновика не утверждены. Независимая приёмка и staged/main/remote подтверждаются отдельно. [Следующий пункт и остатки](audit-blocks.md#b02--ссылка-через-экран-поездки-10102026).
+
+
+## B02 — ссылка и владелец внешнего экрана заказа, 10.10.2026
+
+План от опубликованного be852fa2. Продолжающееся поручение включает собственный коммит, объединение с main и push.
+1. Настоящий InstantOrderScreen → TaxiTripScreen → Безопасность → InstantShareDialog; реальный ApiClient и локальный HTTP. Необязательное наблюдение readShares проходит через внешний экран без подмены parent, публикации, lease, DTO или API. Удержать первую/повторную сверку создания/отзыва при потере lease и завершении publication, отдельно проверить прежние safety/contact actions.
+2. Применить terminal через настоящий polling (done/cancelled), смену входа/выход и обычное обновление того же DTO; проверить Job/completion, старые действия, отсутствие лишних мутаций/Toast/буфера/выбора приложения. Текущие положительные RU/BA. Проверить достижимость legacy InstantDriverEnRouteCard в main/debug по исходникам; отладочный preview не выдавать за активный путь release. Новую ошибку заявлять только после воспроизведения.
+3. Новый класс и соседи; итоговая интеграция сохраняет 985 прежних ID, обе debug-сборки. Обновить реестр/7 документов/inventory, получить scoped независимую приёмку, доставить только своё. До изменений проверены230LF и сохранены1550RAW прошлого freeze;40 чужих изменений сохраняются. Весь B02/релиз, native/provider/production, исходная причина исторических14, межкадровые/plain-state parent и held POST/DELETE отдельно открыты.
+
+Замок реализации снят после итоговой интеграции; root один writer docs/inventory/Git до приёмки и доставки. Область InstantOrderScreen readShares passthrough и новый InstantOrderShareCallerTest. b02_trip_action_review — bounded read-only исходники, receipt после отдельного freeze-поручения. MainActivity/mobile/backend/ApiClient/TaxiTripScreen/существующие тесты, UI-тексты, версии/зависимости не менять. Реальные два экрана/возврат lease, before-frame terminal, полная фазовая матрица не заявляются без исполнения.
+
+
+## B02 — ссылка и владелец внешнего экрана заказа, 11.10.2026
+
+1009 различных ID = 985 сохранённых + 24 новых; 72 класса, 0 отказов/ошибок/пропусков/устаревших XML, 609.063 с, 96 отпечатков исходников. Собраны оба debug APK. Повторы не увеличивают число различных проверок. Новых UI/BA строк нет;2 прежних BA drafts не утверждены. Независимая приёмка/staged/main/remote отдельными артефактами. [Очередь/остатки](audit-blocks.md#b02--ссылка-и-владелец-внешнего-экрана-заказа-11102026).
+
+
+## B02 — начальная загрузка и удержанные операции ссылки, 11.10.2026
+
+План от опубликованного bfb90072. Продолжающееся поручение включает собственный коммит, объединение с main и push.
+1. Новый InstantOrderShareOperationsTest: настоящий InstantOrderScreen → TaxiTripScreen → Безопасность → InstantShareDialog, ApiClient/локальный HTTP, реальные публикация и lease. Необязательные contacts/create/revoke callbacks по умолчанию вызывают прежний API; тест наблюдает настоящий coroutine Job без wrapper Job. Удержать initial contacts/shares и POST/DELETE отдельно.
+2. Проверить loss lease/finish receipt, owner/guest и polled done/cancelled, старые действия и завершение клиента. Отдельно applied lease loss→возврат до ответа и ordinary DTO: риск из чтения не считать багом без воспроизведения. Не менять существующие тесты/тексты/версии; новый дефект сначала RED, затем минимальное исправление.
+3. Новый класс и соседи, итоговая интеграция сохраняет1009 прежних ID и собирает оба debug APK. Обновить реестр/7 документов/inventory, независимая scoped приёмка, доставка только своих файлов. Проверены232LF и сохранены1685RAW предыдущего freeze;40 чужих изменений сохраняются.
+
+Замок реализации снят после итоговой интеграции; root один writer docs/inventory/Git до приёмки и доставки. Область InstantOrderScreen/TaxiTripScreen share callbacks/fences, новый InstantOrderShareOperationsTest. b02_integration_review — bounded read-only исследование; b02_trip_action_review — будущая scoped независимая приёмка. MainActivity/mobile/backend/ApiClient/TaxiNavigationState/существующие тесты не менять. Native/сервер/DB/SMS/TTL/GPS/FCM/платежи/production/CI/full B02/release, same-ID ABA/interframe/unapplied/offmain parent и единственная причина исторических14 отдельно открыты.
+
+Уточнение интеграции: в первом общем прогоне обнаружены два прежних queuedContact/queuedRevoke (InstantShareReconciliationTest:132–140); pending устанавливается до launch, при отказе до API остаётся unknown и скрывает действия после возврата parent. Старые тесты не менять. После окончания единственной сборки сохранить её результат/исходники; минимально убрать только ту же pending в отвергнутом preflight до вызова operation, затем проверить прежний класс26 + новый38 и повторить итог1047/оба APK. Начатую operation и pending после ответа не очищать этим путём; queued initial load остаётся отдельным открытым критерием. Подтверждение: [текущий журнал первого общего прогона](../test-results/b02-share-operations-final-all-20261011/gradle.log).
+
+
+## B02 — начальная загрузка и удержанные операции ссылки, 11.10.2026
+
+1047 различных ID = 1009 сохранённых + 38 новых; 73 класса, 0 отказов/ошибок/пропусков/устаревших XML, 683.891 с, 97 отпечатков исходников. Собраны оба debug APK. Повторы не увеличивают число различных проверок. Новых текстов/BA нет;2 прежних BA drafts не утверждены. Приёмка/staged/main/remote отдельными доказательствами. [Следующий пункт и остатки](audit-blocks.md#b02--начальная-загрузка-и-удержанные-операции-ссылки-11102026).
+
+
+## B02 — ошибка первой загрузки ссылок и кеш контактов, 11.10.2026
+
+План от опубликованного 5495f09c. Александр прямо поручил проверки, объединение с main и push.
+1. Новый InstantOrderShareInitialLoadTest: настоящий InstantOrderScreen → TaxiTripScreen → Безопасность → InstantShareDialog, реальный ApiClient и синтетический локальный HTTP. Первая загрузка ссылок: 503 и неверная схема; ошибка/Retry, отсутствие действий с непроверенной ссылкой. Повтор: действующий кеш контактов, новый GET ссылок, текущие данные, RU/BA.
+2. Удержать именно свежий GET и повторно вызвать сохранённый Retry до/после его старта: отсутствие дублирования HTTP/мутаций, завершение нового настоящего Job. Проверить чувствительность выбранных assertions изолированными отрицательными контролями, не выдавая их за продуктовый RED. Подтверждённый дефект — сначала RED и архив, затем минимальное исправление; старые 1047 проверок не менять.
+3. Новый класс и затронутые соседи, итоговая интеграция/оба debug APK, реестр/7 документов/inventory, независимая scoped приёмка, own-only доставка. Проверены233LF и сохранены1921RAW прошлого freeze;40 чужих изменений сохранены.
+
+Замок реализации снят после итоговой интеграции; root один writer docs/inventory/Git до приёмки и доставки. Продукт/API/старые тесты без подтверждённого дефекта не менять. b02_trip_action_review — будущая read-only приёмка. MainActivity/mobile/backend/версии/зависимости/тексты не менять. Native/провайдеры/production/CI/полный B02/релиз и единственная причина исторических14 открыты.
+
+
+## B02 — ошибка первой загрузки ссылок и кеш контактов, 11.10.2026
+
+1059 различных ID = 1047 сохранённых + 12 новых; 74 класса, 0 отказов/ошибок/пропусков/устаревших XML, 869.047 с, 98 отпечатков исходников. Собраны оба debug APK. Повторы/отрицательные контроли не увеличивают число различных проверок. Продукт/ApiClient/старые1047 tests неизменны. Новых UI/BA строк нет;2 прежних черновика не утверждены. Main/remote и приёмка доказываются отдельно. [Очередь/остатки](audit-blocks.md#b02--ошибка-первой-загрузки-ссылок-и-кеш-контактов-11102026).
+
+
+## B02 — загрузка контактов до запроса и некорректный ответ, 11.10.2026
+
+План от опубликованного 0ec4175a. Александр прямо поручил проверки, объединение с main и push.
+1. Новый ApiClientContactsSchemaTest: реальный /trusted-contacts и кеш, некорректная форма/строки/ID/дубликаты/поля, Result.failure без исключения наружу; повтор должен получить валидные данные заново. Сохранить совместимость настоящего backend array, прежнего items wrapper и корректного пустого списка.
+2. Новый InstantContactsLoadBoundaryTest: настоящий общий dialog/доступный внешний caller, preflight до contacts operation и0HTTP, потеря/возврат контекста и явный Retry; ошибочные contacts скрывают действия/не вызывают shares и не кешируются. Чётко отделять direct dialog/plain parent от actual outer frame. Сначала воспроизводимый RED и архив исходников, затем минимальные изменения ApiClient/getContacts и initial preflight в InstantOrderScreen, старые1059 тестов не менять.
+3. Новые классы и затронутые соседи, итоговая интеграция/оба debug APK, реестр/7 документов/inventory, независимая scoped приёмка и own-only доставка. Проверены234LF/сохранены2048RAW прошлого freeze;40 чужих изменений сохраняются.
+
+Замок реализации снят после итоговой интеграции; root один writer docs/inventory/Git до приёмки и доставки. b02_integration_review — bounded read-only queued initial исследование; b02_trip_action_review — будущая независимая приёмка. MainActivity/mobile/backend/TaxiNavigationState/TaxiTripScreen/старые тесты/версии/зависимости/тексты не менять. Прочие callers/TTL/native/providers/production/CI/full B02/release/solehistoric14cause остаются открытыми.
+
+Уточнение после проверки: GREEN125/6 дал1 отказ старого queuedRevoke test; отдельная controlled oracle probe1/0 доказала hidden-row при held-before-API/HTTP0 и последующее Jobcomplete/HTTP1. Root дополнительно один writer одной строки InstantShareReconciliationTest: дождаться HTTP1, прежние assertions/ID сохранить. API stale case усилить warm B cache; после этого fresh targeted2classes+legacy и итоговая интеграция. Диагностический ID не прибавлять к37новым.
+
+
+## B02 — загрузка контактов до запроса и некорректный ответ, 11.10.2026
+
+1096 различных ID = 1059 сохранённых + 37 новых (27 API + 10 UI); 76 классов, 0 отказов/ошибок/пропусков/устаревших XML, 750.922 с, 100 отпечатков исходников. Оба debug APK собраны. 1058 прежних IDs без правок,1 прежний метод укреплён без удаления assertions. Повторы/RED/diagnostic не увеличивают число различных проверок. Controlled RED29/23→GREEN;2минимальных fixes. Сохранены1059IDs:1058без правок,1awaitstrengthened; новых UI/BA строк нет,2 прежних черновика не утверждены. Приёмка/main/remote отдельными доказательствами. [Очередь](audit-blocks.md#b02--загрузка-контактов-до-запроса-и-некорректный-ответ-11102026).
+
+
+## B02 — ссылка и запись той же поездки, 11.10.2026
+
+План от опубликованного a1e1f43f. Продолжающееся поручение включает собственный коммит, объединение с main и push после проверок.
+1. Новый InstantSharePublicationBoundaryTest: реальный InstantOrderScreen → TaxiTripScreen → Безопасность → InstantShareDialog; удержанный настоящий API/Job. Повтор номера с новой publication: отличать captured receipt от numeric ID/publisher; applied false parent не обязателен для синхронного ABA. Контроль неизменённой publication и обычного DTO.
+2. Сначала воспроизводимый RED, если нарушение подтвердится, и архив кода; затем минимальный parent guard. Старые1096 IDs/тесты сохранять. Отдельно проверить два реально смонтированных InstantOrderScreen и последствия снятия старого экрана, не выдавая ручной claim за два экрана.
+3. Новые/затронутые проверки, итоговая интеграция с обоими debug APK, реестр/7 документов/inventory, независимая scoped приёмка, own-only main/push. Проверены236 LF и сохранены2202 RAW предыдущего freeze;40 чужих изменений сохранены.
+
+Замок реализации снят после итоговой интеграции; root один writer docs/inventory/Git до приёмки/доставки. b02_integration_review — bounded read-only исследование same-ID/publication; b02_trip_action_review — будущая независимая приёмка. MainActivity/mobile/backend/ApiClient/TaxiNavigationState/TaxiTripScreen/старые тесты/версии/зависимости/тексты не менять. Полный TaxiReceipt/TTL/offmain/native/providers/production/CI/B02/релиз отдельно открыты.
+
+
+## B02 — ссылка и запись той же поездки, 11.10.2026
+
+1112 различных ID = 1096 сохранённых без правок + 16 новых; 77 классов, 0 отказов/ошибок/пропусков/устаревших XML, 810.344 с, 101 отпечаток исходников. Собраны оба debug APK. Повторы/RED/ошибочный новый oracle не увеличивают число уникальных проверок. RED2/2 до fix; первый100/8 с ошибкой нового oracle сохранён, corrected16/0. Старые1096tests неизменны; новых UI/BA строк нет,2 прежних drafts не утверждены. [Следующая очередь](audit-blocks.md#b02--ссылка-и-запись-той-же-поездки-11102026). Приёмка/main/remote отдельными доказательствами.
+
+
+## B02 — смена контекста до первого запроса контактов, 11.10.2026
+
+План от опубликованного 9fd482cd. Продолжающееся поручение включает собственный коммит, объединение с main и push после проверок.
+1. Новый InstantShareQueuedBoundaryTest: настоящий InstantOrderScreen → TaxiTripScreen → Безопасность, raw callback «Поделиться» и A→B/A→guest/unmount в одном runOnIdle до composition/effect. RU/BA, по два нуля: contacts/shares adapter entries и HTTP. Применённое удаление/смена владельца, marker disposal, старый callback после границы. Для skipped effect создание/отмена/завершение Job не наблюдаются и не заявляются.
+2. Свежий положительный контроль каждого случая: новый текущий вход/remount, новый publisher/receipt, настоящий contacts+shares API/Job/completion, верные generation/Bearer и UI. Старые1112 tests и продукт без подтверждённого RED не менять; если баг воспроизведён, архив и минимальное исправление.
+3. Затронутые проверки, итоговая интеграция/оба APK, реестр/7 документов/inventory; независимая приёмка и own-only доставка. Проверены237LF/сохранены2334RAW прошлого freeze,40 чужих изменений.
+
+Замок реализации снят; root единственный writer docs/inventory/Git до приёмки/доставки, независимый reviewer read-only. MainActivity/mobile/backend/старые tests/версии/зависимости/тексты не менять. Native/providers/production/CI/fullB02/release/solehistoric14cause не закрываются.
+
+
+B02 queued — итог1118 дал1failure старого revoke404AlsoChecksWhetherRecordStillExists. Root дополнительно один writer этого одного await и временного held404 diagnostic probe после архива/перед exact restore. Проверить до ответа сервера: прежний predicate true/Toastnull, после release exactToast/DELETE1/GET2. Затем усилить ожидание уведомления без удаления прежних assertions, повторить затронутый класс+новый и итоговую интеграцию из-за нового подтверждённого сбоя. Diagnostic ID не добавлять к6новым.
+
+
+## B02 — смена контекста до первого запроса контактов, 11.10.2026
+
+1118 различных ID = 1112 сохранённых (1111 без правок,1 ожидание усилено) + 6 новых; 78 классов, 0 отказов/ошибок/пропусков/устаревших XML, 787.812 с, 102 отпечатка исходников. Оба debug APK собраны. Повторы не прибавлены к уникальным проверкам. Новых UI/BA строк нет;2 прежних BA drafts не утверждены. Продукт неизменен;1111 oldtests без правок,1await укреплён без удаления assertions. [Следующая очередь](audit-blocks.md#b02--смена-контекста-до-первого-запроса-контактов-11102026). Приёмка/main/remote отдельными доказательствами.
+
+
+## B02 — поздняя загрузка контактов после удаления, 11.10.2026
+
+План от опубликованного be1a2a36. Продолжающееся поручение включает собственный коммит, main и push после проверки.
+1. Новый ApiClientContactsMutationCacheTest: настоящий ApiClient/локальный MockWebServer. Удержать cold GET старого контакта, успешно удалить, выполнить свежий GET, отпустить старый ответ и дождаться настоящего client Job; последующее чтение должно сохранить свежий кеш без HTTP. Проверить также release до свежего GET, отказ удаления/ошибку старого GET, другой аккаунт и независимый кеш.
+2. Сохранить воспроизводимый RED и прежний ApiClient; только затем минимально исправить версию кеша. Старые1118 IDs/тесты не менять. Не заявлять обновление уже открытого UI или единственную причину исторических14 сбоев.
+3. Новые/затронутые API-проверки и итоговая интеграция/оба APK, реестр/документы/inventory, независимая bounded приёмка; own-only commit/main/push. Предыдущие238 LF проверены,2557 RAW сохранены;40 чужих изменений сохранены.
+
+Замок реализации снят; root единственный writer docs/inventory/Git до приёмки/доставки. b02_integration_review — read-only механизм кеша; независимый финальный reviewer отдельно. MainActivity/mobile/backend/UI/старые тесты/версии/зависимости/тексты не менять. TTL/addContact/GET без мутации/native/providers/CI/fullB02/release отдельно открыты.
+
+
+B02 contacts-delete-cache — первый итог1143/81 дал1failure старого DeadSession401 после введённого helper: ошибочный post-call generation guard маскировал исходную ApiException401. Сохранён immutable first-final/current source. Root исправляет только success-ветку helper, без правок старого теста. Проверить DeadSession3 и все текущие10+APIcached12/schema27/Trusted3, затем повторить итог из-за product regression. Первый fail/повтор не увеличивают новые ID.
+
+
+## B02 — поздняя загрузка контактов после удаления, 11.10.2026
+
+1143 различных ID = 1118 сохранённых без правок + 15 существующих соседних + 10 новых; 81 класс, 0 отказов/ошибок/пропусков/устаревших XML, 798.469 с, 105 отпечатков исходников. Оба debug APK собраны. Повторы/RED не прибавлены к уникальным проверкам. Старые1118 tests без изменений, новых UI/BA строк нет;2 прежних BA drafts не утверждены. Общий add/delete helper дополнительно проверен positive add-control; полные add failure/concurrency отдельно. [Следующая очередь](audit-blocks.md#b02--поздняя-загрузка-контактов-после-удаления-11102026). Приёмка/main/remote отдельными доказательствами.
+
+
+## B02 — поздний ответ изменения контактов и владелец кеша, 11.10.2026
+
+План от опубликованного 8001a60a. Продолжающееся поручение включает собственный коммит, main и push после проверки.
+1. Новый ApiClientContactsMutationOwnerTest: настоящий ApiClient/локальный MockWebServer, собственный очередной CoroutineDispatcher. Удержать настоящее продолжение после завершения HTTP внутри call, сменить A→B/guest, прогреть кеш B, возобновить старый DELETE/POST и дождаться настоящего client Job; он не должен очищать кеш B. Отдельные controls того же владельца должны очищать старый кеш и получать свежий список. HTTP-held смена владельца проверяется отдельно от post-call границы.
+2. Исходные ошибки 503/401 должны сохраниться без очистки кеша нового владельца. Проверить точные метод/путь/Bearer/body, generation и исходный Job/finally/completion; запросы контактов считать отдельно от фонового logout. Продукт/старые1143 tests не менять без подтверждённого дефекта; новая проверка существующей защиты не называется RED→fix.
+3. Выполнить новые/затронутые проверки и сборки. Интеграционный профиль повторять только по обоснованию новых границ/изменений. Обновить реестр/docs/inventory, независимая bounded приёмка, own-only commit/main/push. Предыдущие241 LF и2792 RAW проверены;40 чужих изменений сохранить.
+
+Замок реализации снят; root единственный writer docs/inventory/Git до приёмки/доставки. b02_integration_review — read-only дизайн границы; независимый финальный reviewer отдельно. MainActivity/mobile/backend/UI/продукт/старые тесты/версии/зависимости/тексты не менять. Уже открытый UI/unknown committed mutation/TTL/native/providers/CI/fullB02/release и единственная причина исторических14 сбоев отдельно открыты.
+
+
+B02 mutation-owner: первый green70/7/0 (12новых+55прежнихсоседей+3существующихLateProfile). Source-review улучшение teardown нового fixture: сохранён извлечённый возвратный Runnable, чтобы при assertion до finish очистка могла отменить/дренировать и дождаться настоящего Job. Старые12scenario assertions без изменений; весь reverse возвращает архив green source. Толькоnew12повторяются из-за нового fixture, product/старые1143tests неизменны. Полный прежний профиль не повторяется без причины; текущий итог — объединение ID и совпадение исходников, не новый полный1158run.
+
+
+## B02 — поздний ответ изменения контактов и владелец кеша, 11.10.2026
+
+12 новых сценариев текущего green-v3:1класс/0сбоев,34.766с. Первыйgreen70/7/0,61.969с;12перепроверены после fixturetracking/finally,55прежних+3existingneighborsбезправок. Объединение1158ID=1143исторических+3существующихдополнительных+12новых,83класса; это не новый полный1158прогон. Прежний полный профиль принят по неизменным исходникам/контрольнымсуммам. Оба debugAPK:assembly17.360с,71задачаUPTODATE. Старые1143/productunchanged;cleanupдоработан дважды поsource-review,все12assertionsсохранены,дваархива/exactreverse. НовыхUI/BAстрокнет;2прежнихBA draftsнеутверждены. [Следующая очередь](audit-blocks.md#b02--поздний-ответ-изменения-контактов-и-владелец-кеша-11102026). Приёмка/main/remote отдельными доказательствами.
+
+
+## B02 — изменение контактов без подтверждения, 11.10.2026
+
+План от опубликованного 44fac514. Продолжающееся поручение разрешает собственный коммит, слияние main и push после проверок.
+1. Настоящий ApiClient/MockWebServer: отдельно наблюдать состояние локального сервера после DELETE/POST, повреждённый HTTP200 и разрыв тела ответа; прогретый кеш должен уступить новому GET без повторной мутации. Сначала получить поведенческий RED.
+2. Минимальное исправление только mutateContacts после подтверждения. Сохранить исходную ошибку и границы владельца; controls HTTP403/503 без изменения серверного состояния, независимый feed, старый GET до/после свежего чтения, неудачный fresh GET/повтор, поздний неизвестный ответ A после входа B.
+3. Новые/затронутые тесты и оба debugAPK; независимая read-only приёмка, обновление того же реестра/docs/inventory, own-only commit/FF main/push. Не объявлять новый полный исторический прогон: изменение ApiClient требует новых доказательств выбранного профиля.
+
+🔒 Root: ApiClient.kt только mutateContacts/comment кеша, новый ApiClientContactsMutationReceiptTest.kt, docs/inventory; единственный Gradle/GitHub. b02_integration_review — только чтение указанного договора. Старые tests/UI/MainActivity/backend/mobile/версии/зависимости/тексты не менять. Начальная inventory1872: только известная чужая .gitignore;40foreign сохранены. Открытый UI/отмена/TTL/live providers/production/полный B02/релиз остаются отдельными критериями.
+
+
+## B02 — изменение контактов без подтверждения, 11.10.2026
+
+Завершено локально: RED2behavior→24newgreen→104/9/0+обаAPK; 24new+80existing, повторённый профиль обоснован изменением ApiClient и интеграцией. Реализация/Gradle замки сняты; root единственный writer docs/inventory/Git до независимой приёмки и own-only main/push. Исторические1143/1158 не выдаём за текущий полный прогон. Следующий пункт — UI после неизвестного изменения; [остатки](audit-blocks.md#b02--изменение-контактов-без-подтверждения-11102026).
+
+
+## B02 — открытый экран контактов после неизвестного ответа, 11.10.2026
+
+План от опубликованного2370cd27. Пользователь явно поручил проверки открытого экрана и own-only main/push после проверки.
+1. Настоящий YuldashApp/VM/Compose/ApiClient и localhost: RED для DELETE/POST после committed malformed reply/потери ответа; RU/BA, отдельное серверное состояние. Экран остаётся открыт и должен принять актуальный список без повторной мутации.
+2. Минимальный wrapper-only fix: authoritative server snapshot вместо merge stale parent/local shadows; один владелец add/delete/read, fresh GET после success/unknown error, error+retry после отказа перечитывания; ID с сервера, current owner/parent/lease guards и single-flight. API contacts expectedGeneration/classifier seam, branch TrustedContacts parent publication; остальные экраны не переписывать.
+3. Новые/связанные проверки, обаAPK, по доступности native; реестр/docs/inventory, независимая scoped приёмка, собственный коммит/FFmain/обычныйpush. Исторические1143/1158 не считать новым полным прогоном.
+
+🔒 Root: AccessibilityScreens.kt только TrustedContactsScreen (при необходимости состояние Content), YuldashApp.kt только TrustedContacts branch, ApiClient.kt только contacts seam, новый TrustedContactsReconciliationTest.kt, docs/inventory; единственный Gradle/adb/GitHub. b02_integration_review только read-only contract.40foreign сохранены; начальнаяinventory1873 толькоforeign.gitignore. MainActivity/mobile/backend/старыеtests/версии/deps/переводы вне области. Отмена servercommit/explicitHTTPunknowncommit/TTL/прочиеcallers/realproviders/production/CI/fullB02/release отдельно открыты.
+
+
+## B02 — открытый экран контактов после неизвестного ответа, 11.10.2026
+
+Завершено локально: текущие127/11/0 и обаAPK, native6/0/visual;15newJVM+112existing+6newnative=133unique. AcceptedRED DELETE1; nativeADD post-fix regression, draft32/idling failures сохранены. Scope implementation/Gradle/adb замки сняты; root sole docs/inventory/Git до frozen independent/own13/mainpush. Следующий критерий — удержанная HTTP mutation/read при смене owner/parent и отмене; [остатки](audit-blocks.md#b02--открытый-экран-контактов-после-неизвестного-ответа-11102026). Переводы: новыхBAстрокнет, прежниечерновикинеутверждаем.
+
+
+## B02 — отмена и срок жизни экрана контактов, 11.10.2026
+
+План от опубликованного d1314431; продолжающееся поручение разрешает собственный коммит/FFmain/обычный push после проверки.
+1. Отдельное состояние loopback сервера и actual Deferred/join: committed ADD/DELETE + отмена до возврата IO; meaningful RED для stale warm cache. Controls: смена A→B, logout, отмена до старта, незавершённый старый GET.
+2. Только подтверждённый корень: очистить contacts cache при CancellationException текущего поколения и пробросить отмену; не повторять мутацию/не делать скрытый GET. Прочие cache keys/новый owner не менять.
+3. Настоящий YuldashApp/default VM/Compose: уход/owner switch после отправки и во время reconciliation GET, возврат на экран, отсутствие поздней публикации. Related JVM profile + debug APK; docs/registry/inventory, независимая приёмка, own-only delivery. Старый полный1143/1158 не повторять без причины.
+
+🔒 Root: ApiClient.kt только mutateContacts cancellation, два новых test files,8docs/inventory; единственный Gradle/adb/GitHub. b02_integration_review read-only contract; независимая final receipt отдельным агентом.40foreign сохранены,1875 inventory только чужой.gitignore drift. UI/MainActivity/mobile/backend/старыеtests/версии/deps/тексты вне правки. Поздний bootstrap writer, explicit HTTP unknown commit, TTL/production retry/providers/CI/full B02/release остаются открыты. Native новых lifecycle сценариев этим планом не обещан; доступность и фактические запуски отмечаются отдельно.
+
+Уточнение плана: единственный UI writer root расширяет own на AccessibilityScreens.kt только initial readContacts; новое открытие должно читать сервер до завершения старого отменённого IO. API forceRefresh optional с owner guard; без internal Job API/новых зависимостей.
+
+
+## B02 — отмена и срок жизни экрана контактов, 11.10.2026
+
+Локальный этап завершён по текущему профилю154/13/0,19API+8actualAppUI новых; native6existing regressions, обаAPK/visual. Source/build/adb замки root сняты; docs/inventory/Git до review/delivery — только root. Следующий первый независимый локальный остаток — поздний App bootstrap writer. ADD lifecycle/Toast/TTL/providers/CI/fullB02 открыты. Новых RU/BA строк нет. [Доказательства и остатки](audit-blocks.md#b02--отмена-и-срок-жизни-экрана-контактов-11102026).
+
+
+## B02 — запоздавший стартовый список контактов, 11.10.2026
+
+План от опубликованного441ed1b2. Продолжающееся поручение разрешает свой коммит/FFmain/обычныйpush после проверки.
+1. Actual YuldashApp/default VM/Compose/API: удержать начальный GET[7], через настоящий экран принять свежий список/DELETE, затем выпустить старый bootstrap. Подтвердить meaningful RED родительского списка, отдельно от cache revision.
+2. Минимальное contacts-only publication API: callback при принятом read/cache-hit под атомарной проверкой owner+contacts revision+активный Job; не менять обычный Result для старого caller/прочие onValue warm defaults. App bootstrap публикует только через этот callback и связан с navigationSession. Failed/stale/cancelled read не публикует выдуманный empty.
+3. Новые queued actual Deferred/join controls, App RU/BA cases и native actualApp/defaultVM на ComponentActivity host по доступности. Related154 JVM profile,обаAPK; реестр/docs/inventory/freeze/независимая приёмка; own-only commit/main/push. Повтор из-за2product changes/интеграции; исторический полный1143/1158 не повторять без причины.
+
+🔒 Root: YuldashApp.kt толькоcontacts bootstrap, ApiClient.kt cachedGet optional cache-hit publication и contacts-only helper/parser reuse;3new test files,8docs/inventory. Единственный Gradle/adb/GitHub. b02_integration_review read-only contract; fresh receipt другим агентом.40foreign сохранены; initial1877inventory только чужая.gitignore. MainActivity/mobile/backend/старыеtests/версии/deps/тексты/TrustedContacts editor вне правки. Commit после свежего чтения, generic cache доCE, прочие callbacks/ADD lifecycle/Toast/heldGET duplicates/explicitHTTP unknowncommit/TTL/providers/productionCI/fullB02/release/причина14 остаются открыты.
+
+
+## B02 — поздний стартовый ответ контактов, 11.10.2026
+
+Этап локально проверен189JVM/15/0 (21API+14App new), native8 (2Appnew+6wrapperexisting), обаAPK/visual. Замки source/build/adb root сняты; docs/inventory/Git до receipt/delivery пишет root. Далее generic cache before delivered cancellation/commit после fresh GET. Actual login double-key count/ADD bootstrap/lifecycle/Toast/TTL/providers/CI/fullB02 открыты. Новых видимых RU/BA строк нет. [Критерии и доказательства](audit-blocks.md#b02--поздний-стартовый-ответ-контактов-11102026).
+
+
+## B02 — удаление после свежего чтения открытого экрана, 11.10.2026
+
+План от c3582e44 в рамках продолжающегося поручения с own-only commit/FF main/ordinary push после проверки.
+1. Actual App/default VM/Compose/API: удержать DELETE до server commit, закрыть прежний Editor, принять GET[7] новым Editor, затем commit/late response. Сохранить meaningful RED и неизменный test assertion.
+2. Минимальный owner-scoped сигнал settled DELETE и read-only сверка текущего Editor, без повторения mutation. Если один известный DELETE уже отражён в принятом списке, сохранить прежний no-extra-GET контракт. ADD late commit — отдельный следующий пункт, не объявлять проверенным.
+3. Новый API/App/native профиль, прежние189 JVM/8native регрессий по изменённым двум product файлам; обаAPK. Доки/реестр/inventory/freeze/fresh independent receipt; own-only main/push. Исторический full1143/1158 не повторять.
+
+🔒 Root: ApiClient.kt contacts deletion notification/publication helper, AccessibilityScreens.kt TrustedContactsEditor,3new tests,8docs. Единственный Gradle/adb/GitHub. b02_integration_review только read-only контракт; другой reviewer свежая приёмка.40foreign entries сохранены. MainActivity/mobile/старыеtests/versions/deps/UI strings вне правок. ADD, generic cache before delivered cancellation, actual login double-key count/прочие lifecycle/Toast/TTL/provider/CI/fullB02/release/solehistoric14cause остаются открыты.
+
+
+## B02 contacts: DELETE commit после принятого fresh GET (11.10.2026)
+
+Root этап проверен214JVM/17/0=189existing+25new; native10=8existing+2new; обаAPK/visual. Замки source/build/adb сняты, root держитdocs/inventory/Git до свежей receipt/delivery. Далее ADD late commit и EOF2DELETE transport. Новых видимых RU/BA строк/versions/deps нет; B02/release open. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-commit-20261011).
+
+
+## B02 — добавление после свежего чтения контактов, 11.10.2026
+
+Поручение: ADD завершается после принятого fresh GET; после проверок own-only commit/FFmain/ordinary push. База6f081afe.
+1. Actual App/default VM/form/API: удержать POST до server commit, закрыть старый Editor, новый принимает прежний список, затем commit/late response; meaningful RED нового server ID/VM/UI.
+2. Отдельный owner-scoped ADD settlement version без payload/phone matching. Текущий Editor сверяется GET; own read обновляет watermark, failed read ждёт явную Retry. Preserve DELETE/no-extraGET и обычные Result/cachedGet контракты; backend/mobile/MainActivity/старыеtests/versions/deps/UIstrings не трогать.
+3. API real Deferred/join cancellation+owner controls, App RU/BA/success/malformed/timeout/errorRetry/own read/no commit/retirement; nativeactualApp realform RU/BA по доступности. Прежние214 JVM/10native интеграции,обаAPK; registry/docs/inventory/freeze/freshreview,own main/push. Исторический full1143/1158 без причин не повторять.
+
+🔒 Root: product2(ApiClient contacts ADD signal + TrustedContactsEditor),3new tests,8docs. Единственный Gradle/adb/GitHub. b02_integration_review read-only contract; иной reviewer свежая receipt.40foreign entries сохранены. EOF2DELETE/transport retries, genericcache beforeCE, actuallogin doublekey, прочие lifecycle/Toast/TTL/providers/CI/fullB02/release/solehistoric14cause остаются OPEN.
+
+
+## B02 contacts: ADD после принятого fresh GET (12.10.2026, начат11.10)
+
+Root scoped stage:243JVM=214existing+29new, native14=10existing+4new, обаAPK/visual. Source/build/adb locks сняты; Rootdocs/inventory/Git до fresh receipt/delivery. Новых UIstrings/versions/deps нет. ADD-after-fresh пункт проверен scoped, EOF2DELETE/transport и B02/release открыты. [Критерии и доказательства](audit-blocks.md#b02-contacts-late-add-20261011).
+
+
+## B02 — скрытый повтор контактов при обрыве соединения, 12.10.2026
+
+План в рамках продолжающегося поручения; база3fed8d49, own-only commit/FFmain/ordinary push после проверки.
+1. Воспроизвести observed EOF2DELETE на текущем настоящем ApiClient/HTTP, отдельно проверить POST и точное число mutation после server commit. Сохранить RED и неизменные assertions; отличить повторы транспорта от call backoff и refresh401.
+2. Минимально запретить replay транспорта только для POST/DELETE trusted contacts, сохранив GET, safe-before-send backoff, явный refresh после401, owner/cache/event/Result/cancellation и payload. Подтвердить actual Android runtime; Java/Robolectric не выдавать за Android.
+3. Новые transport controls (commit/no-commit/EOF/redirect/401/manual retry/owner/body), прежний contacts243JVM/14native по изменённому ApiClient и затронутые auth/retry contracts; обаdebugAPK, registry/inventory/current hashes/fresh review, собственный main/push. Полный исторический набор без причины не повторять.
+
+🔒 Root: ApiClient.kt contacts-only transport branch, два новых test files,8docs/inventory; единственный Gradle/adb/GitHub. b02_integration_review только read-only источник/контракт; fresh reviewer другой.40foreign entries сохраняются. MainActivity/mobile/backend/старыеtests/версии/deps/видимые строки вне правок. Genericcache доCE, actualLogin count, прочие lifecycle/TTL/providers/CI/fullB02/release/solecause14 открыты.
+
+
+## B02 — обрыв ответа контактов и скрытый повтор, 12.10.2026
+
+Этап проверен scoped: 282JVM/23/0+26native,обаAPK/visual. Source/build/adb locks сняты; docs/inventory/Git до receiptdelivery root. EOF observed replay закрыт в новой contacts ветке; nativebaseline не объявлен failing. Далее genericcache доCE и прочие реестровые остатки. [Критерии и доказательства](audit-blocks.md#b02-contacts-transport-20261012).
+
+
+## B02 — общий кеш и поздний ответ отменённой загрузки, 12.10.2026
+
+Поручение: проверить общий кеш/late cancellation, после проверок own-only commit/FF main/обычный push. База e4711487.
+1. Actual ApiClient/HTTP/реальный Deferred: отмена во время удержанного ответа на Dispatchers.IO, отдельно prompt caller boundary, warm-cache и отмена до HTTP. Проверить отсутствие кеширования и me callbacks/дисковых тарифов, owner/session и contacts revision.
+2. Только после meaningful RED — minimal cancellation checkpoints общего cachedGet и принятие статических тарифов после успешного parse/owner/cancellation. Существующие Result/error/TTL/cache-hit/contacts publication и mutation settlement не ослаблять. Новый UI/переводы/зависимости не нужны.
+3. Новые JVM/native controls, прежние затронутые cached/contacts/auth/retry controls, оба debugAPK. Registry/inventory/immutable hashes и свежая независимая приёмка; own11 commit/main/push. Исторический полный прогон без причины не повторять.
+
+🔒 Root: ApiClient.kt cachedGet/readContacts/static callers, два новых test files,8docs/inventory; единственный Gradle/adb/GitHub. b02_integration_review — только read-only контракт; fresh reviewer отдельный. Foreign40 сохранить; старые tests/mobile/backend/MainActivity/версии/видимые тексты вне правки. Actual Login double-key/concurrent noncancelled reads/TTL/manualVMclear/остальные lifecycle/providers/CI/full B02/release и исторические14 остаются отдельно.
+
+
+## B02 — общий кеш и отменённый поздний ответ, 12.10.2026
+
+Этап scoped проверен: 328JVM/24/0+native34/обаAPK. Source/build/adb locks сняты; docs/inventory/Git root доreceipt/delivery. Далее actualLogin count/concurrent active reads/TTL/manualVMclear и прочие остатки. [Критерии и доказательства](audit-blocks.md#b02-cache-cancellation-20261012).
+
+
+## B02 — настоящий вход и число стартовых чтений контактов, 12.10.2026
+
+Поручение продолжить реестр, затем собственный commit/FF main/push; база e1bbb7d8.
+1. Actual YuldashApp/defaultVM/LoginScreen/TG HTTP: синтетический request/code/session, регистрация нового владельца, onContinue и held contacts; exact GET/Bearer/payload count RU/BA. Ошибка кода→явный повтор, пустой список, прежний held owner и закрытый экран отдельно.
+2. Не объявлять два ключа эффекта багом без wire RED. Если runtime уже корректен — test-only этап, без ненужного изменения продукта; если reproduced duplicate — минимально исправить ключ contacts effect и связанную integration.
+3. Новые JVM/native UIcontrols и затронутые существующие login/bootstrap evidence, оба APK; актуальные hashes/inventory/registry/freshreview и own main/push. Не повторять неизменённый общий328/34 без изменения product. MainActivity/mobile/backend/старыеtests/версии/UItexts вне правок.
+
+🔒 Root: новые LoginContactsBootstrapTest/InstrumentedTest, возможный scoped YuldashApp contacts effect только после RED,8docs/inventory; soleGradle/adb/GitHub. b02_integration_review read-only contract, инойfreshreviewer. Foreign40 сохранить. External Telegram/SMS/phone/production/CI/fullB02/release, concurrent active cache/TTL/manualVMclear и historic14cause отдельно.
+
+
+## B02 — настоящий вход и стартовое чтение контактов, 12.10.2026
+
+Scoped actualTGcount checked:16JVM/4/0+native2/обаAPK. Source/build/adb locksсняты; rootdocs/inventory/Git доreceipt/delivery. Далее concurrentcache/TTL/manualVMclear; externalSMS/TG/providers/CI/fullrelease отдельны. [Критерии и доказательства](audit-blocks.md#b02-login-bootstrap-20261012).
+
+
+## B02 — порядок ответов общего кеша, TTL и очистка списка в памяти, 12.10.2026
+
+База bd066c4b. Продолжение QA-B02-003; после проверки и независимого ревью собственный commit/FF main/push по действующему поручению.
+1. Проверить два активных cold GET одного поколения: обратный и обычный порядок завершения, поздний успех/ошибка, независимые ключи, ordinary/forceRefresh contacts. Считать HTTP, callbacks и static prefs отдельно от возвращаемого Result. Исправлять только подтверждённый RED.
+2. Проверить TTL90s до/после границы без реального ожидания90с: явно состарить только test cache timestamp и подтвердить actual clock/cache/network. Проверить восстановление вручную очищенного VM через accepted warm publication и actual App reentry, включая authoritative empty и RU/BA.
+3. Новые JVM/native controls, затронутые сохранённые проверки общего кеша/contacts/login, оба debug APK, registry/inventory/current hash binding и fresh review. Повтор общей cache dependency обосновать изменением product; исторический полный набор не повторять.
+
+🔒 Root — sole writer ApiClient.kt только cachedGet/order guards при RED, три новых test files и8docs/inventory; sole Gradle/adb/GitHub. b02_integration_review — scoped read-only контракт; другой reviewer независимая приёмка. Foreign40 сохранить. MainActivity/mobile/backend/старые tests/UI strings/версии/deps вне изменений. Wall-clock reversal, disk exceptions/все cancellation instruction windows/прочие lifecycle/callers/providers/CI/fullB02/release и solecause14 отдельно открыты.
+
+
+## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
+
+Scoped stage проверен:369JVM/30/0+57native/обаAPK. Source/Gradle/adb замки сняты; root docs/inventory/Git до fresh receipt/delivery. Далее generic mutation/invalidation barrier и direct callers; clock/disk/native reentry/provider/CI/fullrelease отдельно. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).
+
+
+## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
+
+База d07909a6. Пользователь поручил завершить следующий этап как раньше, затем оставить работу на паузе и подготовить передачу Claude Code. После проверки/ревью собственный commit/FF main/push; после доставки не начинать следующий пункт.
+1. Реальные held GET me/referral одного входа + настоящий локальный mutation HTTP: удаление cache entry после newer accepted read и до него, fresh GET после изменения, поздний old Result/cache/onValue. POST failures/невалидный gender/независимые ключи — controls; никакой production/денежной операции.
+2. Только meaningful RED → minimal per-key revision в invalidate/cachedGet, сохраняя readOrder, contacts rules, owner/cancel/error/Result/TTL. Новые JVM/native API controls, затронутый прошлый профиль369/57 и оба APK. Старые tests/UI/backend/mobile/версии/тексты вне изменений.
+3. Registry/inventory/source hashes/foreign40 и fresh scoped acceptance; own main/push. Создать docs/audit-handoff-claude-20261012.md с текущей версией, доказательствами, точными остатками, окружением/командами, чужими файлами и местом продолжения. Это инструкция запуска, не новый реестр. Завершить ресурсы/замки и STOP по просьбе пользователя.
+
+🔒 Root — sole writer ApiClient.kt только invalidate/cachedGet epoch, два новых test files,8docs/inventory+handoff; sole Gradle/adb/GitHub. b02_integration_review scoped read-only, иной reviewer acceptance. Foreign40 сохраняются. Direct callbacks/late mutation caller owner/clock/disk/launcher/native reentry/providers/CI/fullB02/release/solecause14 остаются отдельными критериями.
+
+
+## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
+
+Current402JVM/31/0+90native/обаAPK; source/Gradle/adb locks сняты. Rootdocs/inventory/Git до receipt/delivery; затем остановка по просьбе пользователя. Следующий пункт не начат. Claude инструкция вaudit-handoff-claude-20261012.md, directResult/lateowner/uncertaingeneric mutation и прочиеостатки только вреестре. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).

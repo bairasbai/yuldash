@@ -1,0 +1,610 @@
+{
+  "schema": 1,
+  "source_commit": "126bb0f63b3369ac92a7f891762011bb7f0820b1",
+  "capture_result": "test-results/b02-legacy-capture-v6-20261008/result.json",
+  "capture_harness_sha256_lf": "e6816dd5dc80eee0bae9184727c5bcfed7ef70ff77471f62f7b249c2bb3ccb29",
+  "capture_harness_path": "capture-harness.kt.txt",
+  "mount_prefix_identical_to_current_harness": true,
+  "historical_production_sources_verified": [
+    {
+      "path": "android/app/build.gradle.kts",
+      "sha256_lf": "12609f0822800e788b85a1975924ddd05b7412fa6dd976a8ca2884c4aa79103c"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AccessibilityScreens.kt",
+      "sha256_lf": "2c998c08d187270d40840948c689b2ad9549dbfe295d621868d432d1d808e4a3"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminAdsScreen.kt",
+      "sha256_lf": "07507883605359e9e815ed8280c4c593cc71c8cfd5962b76a7abacc9c68d543a"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminCourierScreen.kt",
+      "sha256_lf": "4c590c4f83ad296203ecb10ed42eeef74d005d6e6e7e195b9287b99cff3efd0a"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminIncidentsScreen.kt",
+      "sha256_lf": "2c9fea8e9269be2a6ba7b1b798369dd2c4e2d1d6d9b6972f709d9d13c383e093"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminModerationScreen.kt",
+      "sha256_lf": "cc2323bb0dfdefd4f695644e97691754a2c115dfad2fb776da4a3c7e546146be"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminParcelsScreen.kt",
+      "sha256_lf": "de713b164a35f96970d118317957c8e1e4ee5d20621e9032d1b60af2ec5987f2"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminPartnersScreen.kt",
+      "sha256_lf": "780d648bdb970db3ea97208ef5c4bd48f352da7fd72ac3984c9311dcf2ed390b"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminPromoScreen.kt",
+      "sha256_lf": "a84359f7d5c3466c97c51d9850e0c3fb1c0fc038b58eae35c4670388c6089ca5"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminRatingsScreen.kt",
+      "sha256_lf": "b6364ac0899cea7c7b07687c5b54b05838023ece7ac64000fa81f48d43745229"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminReviewsScreen.kt",
+      "sha256_lf": "52179ccc0a18ff9c5a655b01ed85da0d1e6b823d1c9715bdefb49072534a5c5a"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminSosScreen.kt",
+      "sha256_lf": "02c0f9c1c2ab67cd4cbfb3ed05ac3d313067e2e8fcf8a3f960e5517fb6805162"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminSupportScreen.kt",
+      "sha256_lf": "ba9b6749e587ca2783cf0ff1ff554d89445ff8a1fdb2836727724535550e1163"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminTaxiPulseScreen.kt",
+      "sha256_lf": "8a3190e280093c2738a45e184ec572b342c61651089bf4ff9062c1eae25436b0"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminTaxiScreen.kt",
+      "sha256_lf": "8162cfadd898dbcef725fe0f5be2f30534610f005553c4b54e0ad8f63dfa4349"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminTextFlagsScreen.kt",
+      "sha256_lf": "6b7b46f04f82118f6e1dd4b35919dfceeb2ceea6ab38b430ddb1b10a29f4e512"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminWaitlistScreen.kt",
+      "sha256_lf": "dfa3c7494ee1ee5f874f574cba17d3992a24b08648c472436779aa197da6bce5"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AppNavAdmin.kt",
+      "sha256_lf": "362a6591b8ffca1128fac98412bce7f8bfc3e606f6f8c966c0095c98359a3843"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AppNavHome.kt",
+      "sha256_lf": "9e07c79e432cd83a1a304772f3b05073c5f048edce044629e495b0c33d6e128f"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AppNavOrders.kt",
+      "sha256_lf": "e22015d9e2dd1e7ad986db7fefb18a1d7c65ee9eed2fb62f715a08e3f722a229"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AppReviewScreen.kt",
+      "sha256_lf": "9d5028df425d1c462b505d8f3792dfd245fac10e0bcff1b4307becdb46cc1f57"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/AppText.kt",
+      "sha256_lf": "91cbe8ee02bce3a921d0f71a558c24f47e7144d0a8a29ab822e9b6fc42a00306"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/BargainUi.kt",
+      "sha256_lf": "16e0d2dbf4b46d35be47e90c02f8b19e9b6ccf4da58beb792cc32bbbf38c9d12"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
+      "sha256_lf": "339f15b91e7c7f38380ffd09ad0353d1eaccc653e1d7ad65b0c0b2f3426af8a7"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
+      "sha256_lf": "91cd5231e9948d9fc4ba6ec013e010562d0ba9ca07f7c5d8d856ff8a11416687"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/CarPhotoScreen.kt",
+      "sha256_lf": "3f71b189eb142d90603fba19b69b1b27f9d7f054b3fb5bef9f6b2753f183a1e2"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/ClinicRidesScreen.kt",
+      "sha256_lf": "6b82b6e53f132499715d6eb806b1f0e88423bbf65d6aec870d2741e83ff41ba3"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/CouponsScreen.kt",
+      "sha256_lf": "125afa67661c8ff90bd770f566f803642980fd9bce8aa046c6c3037cfde69646"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/CourierEarningsScreen.kt",
+      "sha256_lf": "b4ccb2119192fb7e99d691a404cde2d98be5102d1c61b7b1cc6bc6817f15ba82"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/CourierLocationService.kt",
+      "sha256_lf": "e0112c39578cea572a446f2f894d3dc508ad1f862a74f87e6c9ad51c2300635e"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/CourierOnboardingScreen.kt",
+      "sha256_lf": "129f4273580accddbbbb014a8685828a1ed0296bf97f6c9c63cf7a9d78cb7e82"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/CourierScreen.kt",
+      "sha256_lf": "0d7a8ef194138ea4854048857c4cbfc8ec1ccb141448b487d466e1fbe4ea8f6f"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/CourierTroubleDialog.kt",
+      "sha256_lf": "cd7e506e0ee5d24fcc42687096ec86619bd7cea0ac3613c2d7bced6dcaa559e4"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/CreateRideScreen.kt",
+      "sha256_lf": "e61f945748d5e84ee2b059cc8a88023ba9e14fdc4a47fefc37c213c61609f98e"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/DirectionGlyph.kt",
+      "sha256_lf": "cfbb58d0b1874cf9f4105952f88f2ad6a4ab82c17bc9f6c7454269898ae86222"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/Domain.kt",
+      "sha256_lf": "662ac9a4adb1562986b25ac82d68ed66a517d71a1a13a49e7e0d2626e823db57"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/DriverEarningsScreen.kt",
+      "sha256_lf": "0e16d832eb8167ea902475298ba8b286e01140956e911061ce1335ed74f04a55"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/DriverProfileScreen.kt",
+      "sha256_lf": "35b51ae0fe76d9f4d5c5ab391a542ed90b2c857aaa1bd30202a4093d04309f6f"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/DriverResponsesScreen.kt",
+      "sha256_lf": "515ae6455deed9a5802d30a22dce2a5c98d2910314112febbc2601bd44f0ba14"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/DriverTaxiRidesScreen.kt",
+      "sha256_lf": "f0342ade1e00250d1d61be3a676b24404e22e7c8f33c72efc9fe41e111cc0c03"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/DriverTipsCards.kt",
+      "sha256_lf": "22b1832390c50e5d73dfc32d8c2768c84883f3109b4d71dad27c1dc09b3f84c2"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/FairnessScreens.kt",
+      "sha256_lf": "7216503fb9f490a07be2716655dea24198d155b1e66dff19ed74cf9e7e9d4088"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/ForceUpdateScreen.kt",
+      "sha256_lf": "544b33fbb62dcc1415aff502a19f673b21e0eabd56dfa958f1943fb0d844a1e7"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/GeoUi.kt",
+      "sha256_lf": "5d923fc721bd0a10e4735634d3eb38c9639a80af42869cf21baabc17e2f90b0c"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/IncomeCalculatorScreen.kt",
+      "sha256_lf": "55594cd4c212d58424ffb9287de3e279d30ce1b3c87fddf30fe1eab298fae5c1"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/InstantChatScreen.kt",
+      "sha256_lf": "b661657be05c32ea1194505d6cf877f6606ac93f19c1ee3a7857cde543447687"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt",
+      "sha256_lf": "7c5d3fc91554f91728c969476360d500ee442b1d9fea5969f0c658f1c4ab6b81"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/IntroHero.kt",
+      "sha256_lf": "eaa29e92a7041a4566b7dd5e9607c47eda67ffb3b5d4aea876f3df1c7a1b493c"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/IntroScreen.kt",
+      "sha256_lf": "d0b2ef814118e1d5cf6dd87686b2a85adb35c9953e73d3692a3a9e775b0e7758"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/LoginScreen.kt",
+      "sha256_lf": "9c25953bea9aa4e22adc6fdd4b87790504d8d8294d663e87651c059368460f26"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/MainActivity.kt",
+      "sha256_lf": "470278745906d901c0eecbfcb0f44dfc9769e603c97564d35a7f2511972c0c98"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/MapCluster.kt",
+      "sha256_lf": "51150c491ea518f75cc6897ab618995d0706f3fff6f34ed40b14715b5b547de0"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/MapGeo.kt",
+      "sha256_lf": "fca75f65be220413f75cfb407e39df5761110421fa5a60a948cdbdd9726dd0b5"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/MapPins.kt",
+      "sha256_lf": "88c9b1d88a5b588d66b62449c473e58430acdeb365b266aa3f567552f89b8477"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/MapScreen.kt",
+      "sha256_lf": "b7d83366da56899b8454e85535d9e8ca9bdec9eb7d7b360cd335b42e89d28bc7"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/MobilityUi.kt",
+      "sha256_lf": "96351b19abff2bf679b1a6276fb08f2142a503645dd0224411af79eccb74decd"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/Mocks.kt",
+      "sha256_lf": "8488e1a24c9d3e47e98fba974614e3392ce7519797be226ba8b8b169451de00a"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/ModeSwitchHome.kt",
+      "sha256_lf": "a35c6952a5efb989286c36fcc741de7d493486f00c1ecdb8c82277d03786e442"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/MyDataScreen.kt",
+      "sha256_lf": "191f70d185c06448c823c538e3b954d8852521457ebc55282041a36ca3167eba"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/MyStatsScreen.kt",
+      "sha256_lf": "a3da2bf2a44280d21e1148500f4fc2410d7fd4e69152ef513729173b6a26adbc"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/MyTaxiTripsScreen.kt",
+      "sha256_lf": "57c2f1491fab9e375563930d9e17c20c9d7da6d13309306d1dcc5d9a5fdb4e35"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/ParcelChatScreen.kt",
+      "sha256_lf": "389547f1b13c367d46434c033b57cba9108a47f72fb58310c829c7fa75dc5146"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/ParcelReceiptDialog.kt",
+      "sha256_lf": "d0b0f05d6c99dfe33e920bc2719986027aaef6184736840d79800fce1e47640a"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/ParcelsScreen.kt",
+      "sha256_lf": "4568a54e3b1efc52b598501e18118251b5a449f857ad30a7788e2f0bb154ea52"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/PartnerCabinetScreen.kt",
+      "sha256_lf": "9a6bc1f9b6b97264b92107e096071f87ff641f086cfcef9e38bdb8b6219d9f46"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/PayOnlineCard.kt",
+      "sha256_lf": "91c056f9197ffbe0bc0e363d845027e446b79f211b8f1a7550eabba38b633c09"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/PaymentMethodsScreen.kt",
+      "sha256_lf": "291ad9f1d3c57dfdeb35d866e6ddf934e0021993574e5c8039fe7440ec42e409"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/Permissions.kt",
+      "sha256_lf": "255573dc8f89cf65e6aa6d544a94bc5f071e74426417ef1d1239fbfc19dd5785"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/PriceSpeech.kt",
+      "sha256_lf": "1d784b1aaee551d63fc640d3171b544cf707c5083425c6d094dc4ffc33687c15"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
+      "sha256_lf": "f2963adae108d2b0865ae7a7255a2c8f933a6aaaa324a820cb235dea82e95e4d"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
+      "sha256_lf": "0cb129fe456d1e203d844f92b8041a0fcaf87af8b1f4c1c31d538cfd5b142324"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
+      "sha256_lf": "4fbe8d1f7836e77ed6594a311e1764f7da5bb07aa03d7312badbe0cb18632b88"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/RideshareCompletedScreen.kt",
+      "sha256_lf": "cfa8ec06c18cc71b08484d19ee6de22c0d68438ea41b46e56a0f549382d6bd9e"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/RoadsideHelp.kt",
+      "sha256_lf": "0465e642ebdf03fbfa2665529a7aab1ece1a331f0cb7152fc1b3f51cfbdac7f8"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/SavedPlacesScreen.kt",
+      "sha256_lf": "f58a9a0066a1fb2699f2f3868efabd0fb55b3b0aacd2b865139ccfb133e7fa20"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/ScheduledOrdersScreen.kt",
+      "sha256_lf": "152bf51a2c5d7c3c69d59d54f355d692a76b88b16f218748ebe1453572161a7e"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/SeasonalBanner.kt",
+      "sha256_lf": "4cba35082b7304ad9833c57606dd62dce787d711d0c8df6e49a583ccbc85c027"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt",
+      "sha256_lf": "335684e9e57c5aa625c089f3e708de55bce02c95d5c8d59501ba319ccac63b1f"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/SecureImageRequest.kt",
+      "sha256_lf": "cfc24b74ba5168067aa581c4fbaff4ef5c91d7b4443f9d137919a5c9520a02c7"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/SecureWindow.kt",
+      "sha256_lf": "2e5a913bcd985780ea71e1dc2a00db6d1a86e53a157fbffc664f1a78a879c49c"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/SensitiveClipboard.kt",
+      "sha256_lf": "4f26e39de26533821fd75f8d2eef2b66735b41e9c3c8ae20278273eb7e4f1ceb"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/SosVerifyScreens.kt",
+      "sha256_lf": "5171d7484dfa75d2feb2dc39aa290633ffd02144a59cdbfcdde3ac41a5449906"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/StoreReview.kt",
+      "sha256_lf": "c559d592b1449ac54477e3e718180e8cf6d0bd7815cfda4567303892b6783784"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/SunTime.kt",
+      "sha256_lf": "813eae0753b3cc3134e60c45c2b28208229feb7c520164ad3b196e95f1bf6e1b"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/SupportBoostScreen.kt",
+      "sha256_lf": "5723e610ec8a0811c4d5d039a91c461afffb131269f77bc51c09c23577ee255e"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/SupportChatScreen.kt",
+      "sha256_lf": "d62261334b13742dd65c6a4c8277301c1831546d06a711618d9b626fa47a9090"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiCompletedScreen.kt",
+      "sha256_lf": "a27419f0f7ff46eb624b96744c6cdbf06ac0dc4dd37513d222af64fd2bbb59fa"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiDocsScreens.kt",
+      "sha256_lf": "fad58caa6f1d69849f7901a47743cd203bd8557e63edbaad594e0aaf8f909a67"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiDriverCancelledScreen.kt",
+      "sha256_lf": "72d0decd4c04a2b9155da5a8746547550c69c1a42aeed374b1ee780c0c5a2837"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiDriverCompletedScreen.kt",
+      "sha256_lf": "bc37fe83df33f13bfd1a2b75561ff806863f82a7da71fd07221c045629765a85"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiDriverNavigationScreen.kt",
+      "sha256_lf": "4ba7a8c95c408705aff5ae99c3175e6a25fb8e1be46efc7b2d3b3c486041ee81"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiLineService.kt",
+      "sha256_lf": "6ed9440467663427caa7ecaa25df5202038d813ba68dd3da6bcf8869c38ec968"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiLocationMark.kt",
+      "sha256_lf": "fed902f9c5095dc1c26228177a2b3e00db83a0800cf345f35e3d76fb96b777d7"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiOfferNotifier.kt",
+      "sha256_lf": "78329b1f2480997f8914886d3cd425c57ff96e5d6bff7acd2a5f89d8e755f478"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiOnboardingScreen.kt",
+      "sha256_lf": "bb578b5c6ba1a8b4c21f3f7f4e8279e5ebf52519b13638d6ca3b490f019d488f"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiReceiptScreen.kt",
+      "sha256_lf": "a15d8315c47b1679642d21fc09fea7156d69528da82f273cddab77d070f181ff"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiSearchingScreen.kt",
+      "sha256_lf": "a12679bbf304d383e75484e66dfd9dd76df34c4bf44b6c5390f3263f91aeae77"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiSheet.kt",
+      "sha256_lf": "bb1a7b19b242143f40b93a6c6d333967a62fc37d0378dd8304a599b01afa43d2"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TaxiTripScreen.kt",
+      "sha256_lf": "6c1bd07caa5e496b339c6f547b920b8fe15051c13726aabaf771d4804aaa2c8c"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TripLiveLink.kt",
+      "sha256_lf": "dc41d95e270f1858558a863e35bf7f4f1b0e829e549b3feba5e5fe830f4e2e6e"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TripLocationService.kt",
+      "sha256_lf": "e22798839297e0a1d524dc0a06658d4e18b5c9a005a3418477e6c2a127581fb0"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TripReceiptScreen.kt",
+      "sha256_lf": "ac57e30ecceb1a4d0a211d562a5dba2b11bfad224d7afd2cf1dabf2a9b0e4a5e"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/TrustScreens.kt",
+      "sha256_lf": "ba14a3f920bd5f052825fd98231b54d439282018ccfa0a4d86aba3e9c4f93d1c"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/UiKit.kt",
+      "sha256_lf": "741ae5f8287c9e03801ba6ccc0ab1ae6a270f1e0a35480cfd6bb61228bb1b7aa"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/UpdateBanner.kt",
+      "sha256_lf": "dd6d69e23dad74461f0fcb3a9a4e3c392a18e16459335db5ecfafb7f6dcafdc7"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/VoiceRecorder.kt",
+      "sha256_lf": "3b91544eef284bcee3d4f6ddbd38ab45be8ef5978b8e952f0c49d0786b7b8105"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/WalletScreen.kt",
+      "sha256_lf": "9126f689e04cc8d050e8150688e67b4c45ad2d4b986b39dbeb48db54868e3aeb"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/WeatherWarningCard.kt",
+      "sha256_lf": "d186432cac1a94f83b0d7b72076299643f0bf72de6410a597520aad31d9a3df6"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/WinterProtocol.kt",
+      "sha256_lf": "51833b5184c48d0221d42f762504a0103210dec1a13740746171d6b903ef9bec"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
+      "sha256_lf": "aff1ba6a6dc08ff804271499ed6f1dd8fb3356dfcc7affca1680150e30a54af5"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
+      "sha256_lf": "a85e0ea8948b6bdc3d29a81b5ca19e53b6ec10cde56b43fb926f8476c84c1ea3"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/YuldashViewModel.kt",
+      "sha256_lf": "ea1cb35165ab8982af1ff6da7eacba5485b645ccd878fa2a04fd91d549eb33a0"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/Analytics.kt",
+      "sha256_lf": "569f0e977481432dfe594f39cb8a939a694d356f1818e6bb63a14e4cc1f70a8d"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
+      "sha256_lf": "2c121d94d784a38a4f3564d6de2b57bca6d787e3c2bdf33ccb061d929ef7019f"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
+      "sha256_lf": "26a6759061f0b685c5b92867f3cedd238ad0b8b3147b225bb61a253272b7eb91"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/ChatSocket.kt",
+      "sha256_lf": "6df0967280ea1ecac75a284de7276374694186fd484c791907d84068d1913546"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/FcmService.kt",
+      "sha256_lf": "0e00a602f5befa6d36b446d7f0e8c8f0098d54ce7ac21558b4feaba8f0d20005"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/GeocoderClient.kt",
+      "sha256_lf": "d07e13e45fae23289fd4e0c87bce3574a8ddbf3b98bd7ae42bd88219349d23bb"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/InstantLocationSocket.kt",
+      "sha256_lf": "370c6f2aaeb4021b575c5ecb9d2f84ad62d3efe2681f2ae599c9b5989e569e06"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/LocationSocket.kt",
+      "sha256_lf": "6ba468c5cd3853778f43b7f83dd6e75c62b47083c850bc9425751df05f0314a6"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/MapFeedSocket.kt",
+      "sha256_lf": "a12186d7b571c0f017c11d4da7474c79ba757dae085061a097e66532393214d0"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/NetworkMonitor.kt",
+      "sha256_lf": "9548f95a6267352587576fcc539ab6404e0d0606dfad682b913afd2b81ad31b0"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/OfflineLegacyStores.kt",
+      "sha256_lf": "b5a59803daf6f65f6584f2e8d29429cbebefdddd869d84529560fb00f24ac4b8"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/OfflineMigration.kt",
+      "sha256_lf": "d38b56039138265363a624aaba0364ef2fcb286dcbb87a4b7f81f86be7fd4223"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/OfflineStoreReset.kt",
+      "sha256_lf": "19e586b6c5f957bcb8093fe34d75fead2a884ebc25f0d0a6b414bb893a7654fa"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/OfflineWrites.kt",
+      "sha256_lf": "899dc355a2e114049c8c4490dff3210359da15e7b2009c1a6fcc5f90b630bda1"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/PersonalDataExports.kt",
+      "sha256_lf": "b0cd8f2ab1cdf23acbdab60c0c53e027ef6887c49f5dfe8e644b84395f1ba78e"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt",
+      "sha256_lf": "d2b621b27813cbb894715cc11cd88e8209e4a29b1c38b8c208036dba93af0b7a"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/TripLocationBus.kt",
+      "sha256_lf": "e6b44988d6f8bc05b5491f9187a3a8c908a60f3b6b2b61b168472187728fbbb0"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
+      "sha256_lf": "79943a048c026fe039f75c9026e2f8e9cc14c69aab17e17c4ad02401b2af87e7"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/TripPassDeletion.kt",
+      "sha256_lf": "e658c649a26978e62a8095131db78eb737880e212ef8e9b05d4ee08ef3cc51c2"
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/ui/theme/Theme.kt",
+      "sha256_lf": "1eabf99357b62d6dcfcd2e68fc03fde51291b051db38b28fe3285060ab2790b3"
+    },
+    {
+      "path": "android/build.gradle.kts",
+      "sha256_lf": "87720c03e859b5484710fd46222fe90c355da27277fae98e68ae334d5cbafeea"
+    },
+    {
+      "path": "android/gradle.properties",
+      "sha256_lf": "6296d14496027e4f493bc642b145363d5f3240ecbc4742e1be5ed47dda9ce4a8"
+    },
+    {
+      "path": "android/settings.gradle.kts",
+      "sha256_lf": "3747c46c10868439ecdf7419840d7a5e1a8fca29b68c17c912a4e3bd6bf8408d"
+    }
+  ],
+  "fixtures": [
+    {
+      "path": "126-chat.json",
+      "sha256_raw": "224c61749fd58abcc03fd19393fae4672300c6e6e0583be83c5339de29a5d083",
+      "route": "InstantChat",
+      "target": 43,
+      "synthetic_owner": 11,
+      "activity_scope": "androidx.lifecycle.internal.SavedStateHandlesProvider",
+      "excluded_activity_keys": [
+        "android:fragments",
+        "android:lastAutofillId",
+        "android:viewHierarchyState"
+      ],
+      "excluded_provider_keys": [
+        "android:support:activity-result"
+      ]
+    },
+    {
+      "path": "126-incident.json",
+      "sha256_raw": "294f7fc8eb36012617a61ed95c6080f67988c8d57645ed574018d1aa940c97b9",
+      "route": "IncidentDetail",
+      "target": 44,
+      "synthetic_owner": 11,
+      "activity_scope": "androidx.lifecycle.internal.SavedStateHandlesProvider",
+      "excluded_activity_keys": [
+        "android:fragments",
+        "android:lastAutofillId",
+        "android:viewHierarchyState"
+      ],
+      "excluded_provider_keys": [
+        "android:support:activity-result"
+      ]
+    },
+    {
+      "path": "126-support.json",
+      "sha256_raw": "2436cb784fb3560cb80b745aa7f6805f6c38dc0258a8aa0d441a3198469cc4ed",
+      "route": "SupportTicket",
+      "target": 45,
+      "synthetic_owner": 11,
+      "activity_scope": "androidx.lifecycle.internal.SavedStateHandlesProvider",
+      "excluded_activity_keys": [
+        "android:fragments",
+        "android:lastAutofillId",
+        "android:viewHierarchyState"
+      ],
+      "excluded_provider_keys": [
+        "android:support:activity-result"
+      ]
+    }
+  ],
+  "method": "Historical source compiled with original Gradle/dependency versions. Actual MainActivity.saveInstanceState SavedStateHandlesProvider and separately hosted production YuldashApp SaveableStateRegistry. Typed JSON codec; DefaultLazyKey uses a allowlisted Robolectric Parcel codec.",
+  "limitations": [
+    "Two component captures, not a joint native Activity Bundle",
+    "No old APK installation/OS upgrade/phone proof",
+    "Historical root numeric IDs have no persisted account binding; do not infer an ID from a slot",
+    "Other old versions/screens/providers not established",
+    "No production secrets copied; historical local.properties contains SDK path only",
+    "Typed JSON transfers observed values; it is not a general Parcelable/Compose policy migration. Only DefaultLazyKey Parcelable is allowlisted."
+  ],
+  "capture_harness_execution_path": "test-results/b02-legacy-source-126bb0f6-20261008/android/app/src/test/java/com/yuldash/app/LegacySavedStateCompatibilityTest.kt"
+}

@@ -79,6 +79,7 @@ internal object TaxiOfferNotifier {
         priceRub: Int,
         lang: AppLanguage,
         ttlSec: Int = 20,
+        recipientUserId: Int? = com.yuldash.app.data.ApiClient.myUserId(),
     ) {
         // Тумблер приложения и системное разрешение — обе причины внутри notificationsAllowed
         // (волна 117): раньше тумблер проверялся здесь отдельно, и экран линии про него не знал.
@@ -91,7 +92,9 @@ internal object TaxiOfferNotifier {
         val mgr = ctx.getSystemService(NotificationManager::class.java) ?: return
         val open = Intent(ctx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_NAVIGATION_DELIVERY_ID, java.util.UUID.randomUUID().toString())
             putExtra(EXTRA_OPEN_OFFER, true)
+            recipientUserId?.let { putExtra("recipient_user_id", it.toString()) }
         }
         val pi = PendingIntent.getActivity(
             ctx, orderId, open,
@@ -149,14 +152,14 @@ internal object NavSignals {
     // прячутся — человек уже едет, выбор сервиса он сделал. Сигнал общий, а не колбэк через
     // пять слоёв: прятать надо в двух разных местах дерева (HomeShell и PassengerModeHome),
     // и протаскивать флаг туда обоими путями пришлось бы через все экраны между ними.
-    val activeTaxiTrip = mutableStateOf(0)
+    val activeTaxiTrip = TaxiNavigationState.activeTrip
     // Прямо сейчас на экране показан живой заказ такси: поиск машины ИЛИ сама поездка.
     // На этих двух шагах режим уже выбран, поэтому верхний переключатель и нижнее меню
     // прячутся, освобождая карту и защищая от случайного ухода из заказа.
-    val taxiOrderOnScreen = mutableStateOf(false)
+    val taxiOrderOnScreen = TaxiNavigationState.orderVisible
     // Экран поездки прямо сейчас перед глазами. Нужен, чтобы не показывать полоску
     // «Ильдар едет» поверх экрана, где и так всё это написано крупно.
-    val taxiTripOnScreen = mutableStateOf(false)
+    val taxiTripOnScreen = TaxiNavigationState.tripVisible
     val openSosForOrder = mutableStateOf(0)      // orderId → открыть SOS с контекстом заказа
     // Экран заработка курьера — отдельный, вкладку в «Режиме курьера» он сам переключить не может.
     // Через сигнал он просит открыть «Заказы»: пустая заглушка не просто указывает дорогу, а ведёт.
