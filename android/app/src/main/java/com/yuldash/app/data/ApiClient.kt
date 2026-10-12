@@ -72,8 +72,16 @@ object ApiClient {
      */
     internal var testTimeoutMs: Int? = null
 
-    private val connectMs: Int get() = testTimeoutMs ?: 15000
-    private val readMs: Int get() = testTimeoutMs ?: 15000
+    /**
+     * Тест-хук для проверок САМИХ повторов: короткие таймауты, но паузы и повторы как в проде.
+     * [testTimeoutMs] повторы выключает — по нему нельзя проверить, что GET повторяется, а POST
+     * после таймаута чтения нет. Без хука такая проверка ждёт настоящие 15 секунд на попытку
+     * (три попытки GET — 46 секунд на одном тесте). В проде null.
+     */
+    internal var testRetryTimeoutMs: Int? = null
+
+    private val connectMs: Int get() = testTimeoutMs ?: testRetryTimeoutMs ?: 15000
+    private val readMs: Int get() = testTimeoutMs ?: testRetryTimeoutMs ?: 15000
 
     // Only contact mutations: never replay a sent body after a lost reply or HTTP follow-up.
     private val contactsTransport by lazy {

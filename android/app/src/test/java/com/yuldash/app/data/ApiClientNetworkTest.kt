@@ -1,8 +1,10 @@
 package com.yuldash.app.data
 
 import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -165,7 +167,16 @@ class ApiClientNetworkTest {
 
     @Test
     fun networkFailure_isCaughtIntoFailure() = runBlocking {
-        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        // Связь рвётся на КАЖДОЙ попытке. Один обрыв в очереди не годится: GET повторяется,
+        // повтор упирался в пустую очередь сервера и ждал настоящие 15 секунд таймаута чтения
+        // (три попытки — 46 секунд на тест), а проверял в итоге таймаут, а не обрыв.
+        // `peek` обязателен: обрыв «в самом начале» MockWebServer берёт из него, а не из
+        // `dispatch` — без него сервер молча отвечал пустым 200, и тест видел «успех».
+        val drop = MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)
+        server.dispatcher = object : Dispatcher() {
+            override fun peek() = drop
+            override fun dispatch(request: RecordedRequest) = drop
+        }
         val res = ApiClient.getPendingReviews()
         assertTrue(res.isFailure)
         assertFalse(res.isSuccess)

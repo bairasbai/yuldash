@@ -56,11 +56,22 @@ class ApiClientEndpointContractTest {
         server.shutdown()
     }
 
-    /** Строка таблицы: как зовут ручку, куда она должна пойти и как её вызвать. */
+    /**
+     * Строка таблицы: как зовут ручку, куда она должна пойти и как её вызвать.
+     *
+     * [okBody] — настоящий ответ сервера для ручки со СТРОГИМ разбором. Общий «полный» ответ
+     * кладёт число 7 во все id сразу (`order_id`, `booking_id`, `parcel_id`), а строгий разбор
+     * обязан такое отвергнуть: ссылка заказа 1 не может принадлежать брони 7.
+     *
+     * [strictEmptyReason] — почему ручке НЕЛЬЗЯ молча проглатывать ответ без полей. Для неё
+     * правило «пустой ответ не роняет разбор» перевёрнуто: пустой ответ обязан стать ошибкой.
+     */
     private class Ep(
         val name: String,
         val method: String,
         val path: String,
+        val okBody: String? = null,
+        val strictEmptyReason: String? = null,
         val call: suspend () -> Any?,
     )
 
@@ -272,7 +283,18 @@ class ApiClientEndpointContractTest {
         Ep("deleteRouteWatch", "DELETE", "/route-watch/1") { ApiClient.deleteRouteWatch(id = 1) },
         Ep("getMyAdsStats", "GET", "/ads/mine/stats") { ApiClient.getMyAdsStats() },
         Ep("revokeBookingShare", "DELETE", "/bookings/1/share/1") { ApiClient.revokeBookingShare(bookingId = 1, shareId = 1) },
-        Ep("getInstantShares", "GET", "/instant/orders/1/shares") { ApiClient.getInstantShares(orderId = 1) },
+        Ep(
+            "getInstantShares", "GET", "/instant/orders/1/shares",
+            // Как отвечает `GET /instant/orders/{id}/shares` (backend/app/routers/family.py):
+            // список строк TripShare целиком, заказ — свой, бронь и посылка — null.
+            okBody = """[{"id":1,"booking_id":null,"order_id":1,"parcel_id":null,"contact_id":2,""" +
+                """"token":"tok_abcdefghijklmnop","last_status":"shared",""" +
+                """"created_at":"2026-10-11T08:00:00","expires_at":null}]""",
+            // По этому списку экран решает, что ссылка близкому ОТОЗВАНА: строки нет — доступ
+            // закрыт. Строка без id или contact_id не доказывает ни того, ни другого. Подставить
+            // «по умолчанию» здесь — значит сказать человеку «ссылка отозвана», пока она живёт.
+            strictEmptyReason = "строка без id/contact_id не доказывает отзыв ссылки",
+        ) { ApiClient.getInstantShares(orderId = 1) },
         Ep("revokeInstantShare", "DELETE", "/instant/orders/1/share/1") { ApiClient.revokeInstantShare(orderId = 1, shareId = 1) },
         Ep("getDriverPublic", "GET", "/drivers/1/public") { ApiClient.getDriverPublic(driverId = 1) },
         Ep("markNoShow", "POST", "/bookings/1/no-show") { ApiClient.markNoShow(bookingId = 1) },
@@ -408,7 +430,7 @@ class ApiClientEndpointContractTest {
     fun `каждая ручка идёт по своему адресу своим методом`() = runBlocking {
         val bad = mutableListOf<String>()
         for (ep in endpoints()) {
-            server.enqueue(okResponse())
+            server.enqueue(ep.okBody?.let { MockResponse().setResponseCode(200).setBody(it) } ?: okResponse())
             val res = runCatching { ep.call() }
             val rec = drain()
             when {
@@ -458,7 +480,12 @@ class ApiClientEndpointContractTest {
             drain()
             if (res.isFailure) bad += "${ep.name}: упал на ответе без полей — ${res.exceptionOrNull()}"
             val r = res.getOrNull()
-            if (r is Result<*> && r.isFailure) {
+            if (ep.strictEmptyReason != null) {
+                // Исключение из правила: здесь пустой ответ обязан стать ошибкой, а не «успехом».
+                if (r !is Result<*> || r.isSuccess) {
+                    bad += "${ep.name}: ответ без полей принят за успех, а нельзя — ${ep.strictEmptyReason}"
+                }
+            } else if (r is Result<*> && r.isFailure) {
                 val e = r.exceptionOrNull()
                 // ApiException тут быть не может (ответ 200) — значит это упавший разбор.
                 if (e !is ApiException) bad += "${ep.name}: разбор пустого ответа дал ошибку — $e"

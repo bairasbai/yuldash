@@ -179,6 +179,8 @@ class TaxiOrderBridgeRestorationTest {
         await { vm.screen.value == Screen.InstantOrder && vm.pendingScreenNavigation.value == null }
         await { records.any { it.first == "/instant/orders/mine" && it.second == "Bearer $tokenA" } }
         assertFalse(NavSignals.openInstantOrder.value)
+        // Сервер ПОЛУЧИЛ запрос — это ещё не ответ на экране: ждём сам ответ, а не время.
+        await { compose.onAllNodesWithText("Водитель А").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Водитель А").assertExists()
         compose.runOnIdle { vm.navigateLocally { vm.screen.value = Screen.Notifications } }; pump(1500)
         assertEquals(Screen.Notifications, vm.screen.value); assertNull(vm.pendingScreenNavigation.value)
