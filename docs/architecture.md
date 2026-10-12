@@ -4622,3 +4622,8 @@ Contacts LaunchedEffect(sessionVersion,navigationSession) unchanged. commitAuth 
 ## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
 
 ApiClient.cachedGet связывает cold-read с монотонным readOrder; CacheEntry хранит порядок принятия. Guard проверяет тот же key+owner под sessionLock; пока новая CacheEntry сохранена, accepted newer success защищает cache/onValue. Более поздняя ошибка не блокирует старый успех. Contacts revision остаётся отдельным барьером; generic eviction отдельно открыт. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).
+
+
+## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
+
+ApiClient.cacheRevisions хранит invalidation version по фиксированному ключу под sessionLock. invalidate increment-before-remove; cachedGet capturesversionbeforefetch ипроверяетприacceptance вместе с readOrder/owner/cancel. Contacts revision теперь тот же generic key mechanism; session generation отдельна. Direct caller Result не изменён. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).

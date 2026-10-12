@@ -9261,3 +9261,8 @@ TGформаимеетname первымtextfield, code вторым. Целит�
 ## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
 
 ConcurrentHashMap защищает структуру, но не порядок HTTP snapshots. Нужны удержанные реальные запросы, завершение нового перед старым и probes cache/callback/prefs после actual Job.join. Тест возраста80/100s доказывает TTL ветви, не elapsed/exact90s. Изменение VM list не является изменением LaunchedEffect keys. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).
+
+
+## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
+
+Тест order с новой сохранённой entry не проверяет eviction. Нужны реальные mutations и два порядка: invalidation послеaccepted GET и до первого fresh GET. Fire-and-forget serverresponse не равен side-effect completion; реальный child Job.join нужен до oracle. PublicUnit не превращать в Result. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).

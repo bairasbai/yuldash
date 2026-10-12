@@ -802,3 +802,8 @@ Testonly:initial2timeout вводаname, missingdiagnostic0XML, probes diagnosti
 ## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
 
 Initial compile0XML — test Map projection; corrected RED21/11 реальные rollback failures. GREEN25; final369=344existing+25new, native57=36existing+21new,426unique=380+46. API readOrder change1,own12,inventory1895,foreign40. Повтор общего cache dependency обоснован изменением product. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).
+
+
+## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
+
+MeaningfulRED33/14 (7eviction+7beforefresh),19positive/negativecontrols; GREEN33; final402=369+33, native90=57+33,492unique=426+66. Per-keyrevision oneproduct,own12,inventory1897,foreign40. Подготовлена текущая передача Claude; afterdeliverySTOP по просьбе пользователя. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).

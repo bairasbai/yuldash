@@ -6082,3 +6082,8 @@ DELETE receipt сообщает о необходимости сверки, не
 ## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
 
 Выбрана минимальная политика latest successful read по порядку начала запросов. Старый caller получает исходный Result; shared cache и accepted callbacks не откатываются. Latest-start-wins и single-flight не добавлены; explicit eviction может удалить order barrier и остаётся отдельным критерием. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).
+
+
+## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
+
+Barrier успешной инвалидации должен переживать CacheEntry.remove. Per-key revisions выбраны вместо зависимости только от cached entry/readOrder. Uncertain generic mutations и late setterowner не объявлены закрытыми. После checked delivery+hаndoff выполнить STOP по поручению пользователя. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).

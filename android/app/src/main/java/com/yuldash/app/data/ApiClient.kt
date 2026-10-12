@@ -416,11 +416,11 @@ object ApiClient {
     private val respCache = java.util.concurrent.ConcurrentHashMap<String, CacheEntry>()
     // Guarded by sessionLock. An older read may return its own Result, but cannot undo a newer accepted read.
     private var cacheReadOrder = 0L
-    // Guarded by sessionLock; an older GET must not undo a confirmed or uncertain mutation.
-    private var contactsCacheRevision = 0L
+    // Guarded by sessionLock. Keep invalidation versions even after the entry has been removed.
+    private val cacheRevisions = mutableMapOf<String, Long>()
     private fun invalidate(vararg keys: String) = synchronized(sessionLock) {
         keys.forEach {
-            if (it == "contacts") contactsCacheRevision++
+            cacheRevisions[it] = (cacheRevisions[it] ?: 0L) + 1L
             respCache.remove(it)
         }
     }
@@ -435,7 +435,7 @@ object ApiClient {
         fetch: suspend () -> Result<T>,
     ): Result<T> {
         val callerContext = currentCoroutineContext()
-        val (generation, contactsRevision, readOrder) = synchronized(sessionLock) {
+        val (generation, cacheRevision, readOrder) = synchronized(sessionLock) {
             callerContext.ensureActive()
             if (expectedGeneration != null && !sameSession(expectedGeneration)) return staleSession()
             respCache[key]?.let { c ->
@@ -445,7 +445,7 @@ object ApiClient {
                     return Result.success(value)
                 }
             }
-            Triple(sessionGeneration, contactsCacheRevision, ++cacheReadOrder)
+            Triple(sessionGeneration, cacheRevisions[key] ?: 0L, ++cacheReadOrder)
         }
         val result = fetch()
         return synchronized(sessionLock) {
@@ -454,7 +454,7 @@ object ApiClient {
             if (!sameSession(generation)) staleSession()
             else result.onSuccess {
                 val newerAccepted = respCache[key]?.let { entry -> entry.generation == generation && entry.readOrder > readOrder } == true
-                if (!newerAccepted && (key != "contacts" || contactsRevision == contactsCacheRevision)) {
+                if (!newerAccepted && cacheRevision == (cacheRevisions[key] ?: 0L)) {
                     respCache[key] = CacheEntry(System.currentTimeMillis(), it, generation, readOrder)
                     onValue(it)
                 }

@@ -18215,3 +18215,18 @@ Scoped actualTGcount checked:16JVM/4/0+native2/обаAPK. Source/build/adb locks
 ## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
 
 Scoped stage проверен:369JVM/30/0+57native/обаAPK. Source/Gradle/adb замки сняты; root docs/inventory/Git до fresh receipt/delivery. Далее generic mutation/invalidation barrier и direct callers; clock/disk/native reentry/provider/CI/fullrelease отдельно. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).
+
+
+## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
+
+База d07909a6. Пользователь поручил завершить следующий этап как раньше, затем оставить работу на паузе и подготовить передачу Claude Code. После проверки/ревью собственный commit/FF main/push; после доставки не начинать следующий пункт.
+1. Реальные held GET me/referral одного входа + настоящий локальный mutation HTTP: удаление cache entry после newer accepted read и до него, fresh GET после изменения, поздний old Result/cache/onValue. POST failures/невалидный gender/независимые ключи — controls; никакой production/денежной операции.
+2. Только meaningful RED → minimal per-key revision в invalidate/cachedGet, сохраняя readOrder, contacts rules, owner/cancel/error/Result/TTL. Новые JVM/native API controls, затронутый прошлый профиль369/57 и оба APK. Старые tests/UI/backend/mobile/версии/тексты вне изменений.
+3. Registry/inventory/source hashes/foreign40 и fresh scoped acceptance; own main/push. Создать docs/audit-handoff-claude-20261012.md с текущей версией, доказательствами, точными остатками, окружением/командами, чужими файлами и местом продолжения. Это инструкция запуска, не новый реестр. Завершить ресурсы/замки и STOP по просьбе пользователя.
+
+🔒 Root — sole writer ApiClient.kt только invalidate/cachedGet epoch, два новых test files,8docs/inventory+handoff; sole Gradle/adb/GitHub. b02_integration_review scoped read-only, иной reviewer acceptance. Foreign40 сохраняются. Direct callbacks/late mutation caller owner/clock/disk/launcher/native reentry/providers/CI/fullB02/release/solecause14 остаются отдельными критериями.
+
+
+## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
+
+Current402JVM/31/0+90native/обаAPK; source/Gradle/adb locks сняты. Rootdocs/inventory/Git до receipt/delivery; затем остановка по просьбе пользователя. Следующий пункт не начат. Claude инструкция вaudit-handoff-claude-20261012.md, directResult/lateowner/uncertaingeneric mutation и прочиеостатки только вреестре. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).

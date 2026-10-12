@@ -1145,3 +1145,8 @@ ActualTGlogin bootstrap:16JVM/4/0+nativeRU/BA2/обаAPK,10new. Product unchange
 ## B02 — порядок ответов кеша, срок хранения и повторное открытие, 12.10.2026
 
 Исправлен возврат старого ответа поверх нового кеша.369 JVM+57 native,46 новых случаев; оба APK. Далее generic mutation/invalidation и direct callbacks. [Критерии и доказательства](audit-blocks.md#b02-cache-ordering-20261012).
+
+
+## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
+
+Текущая передача Claude Code: [audit-handoff-claude-20261012.md](audit-handoff-claude-20261012.md). Per-key invalidation guard,402JVM+90native/обаAPK,66new. После доставки пользователь просит остановиться; актуальная очередь только вреестре. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).

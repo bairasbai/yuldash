@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 132,
     "backend_main": 103,
-    "infra_resource_config": 354,
+    "infra_resource_config": 355,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 937
+    "test_support": 938
   },
   "counts_by_block": {
     "B01": 129,
@@ -94,14 +94,14 @@
     "B06": 84,
     "B07": 107,
     "B08": 174,
-    "B09": 552,
-    "B10": 354,
+    "B09": 553,
+    "B10": 355,
     "B11": 90
   },
   "excluded_counts": {
     "binary_asset_or_non_source": 97,
     "documentation": 14,
-    "documentation_artifacts_or_private_material": 249,
+    "documentation_artifacts_or_private_material": 250,
     "experimental_not_current_product": 21,
     "legacy_flutter_do_not_modify": 22,
     "secret_or_local_settings_not_read": 2
@@ -204,6 +204,13 @@
       "block": "B10",
       "sha256": "9a7d2cbf41e575035f4425fa2b3e796e09b88ca35d0b0de886cd94c82a291d4c",
       "lines": 156
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/CacheInvalidationInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "c366ecb00c7a9dec705db850dd7801d96e5249af5f8cb2fbc908dbe1c52ce801",
+      "lines": 211
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/CacheOrderingInstrumentedTest.kt",
@@ -1371,7 +1378,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "4e237c6792eff225dec6b507eaceb60d009120db01d862efe14ebd286fce7a28",
+      "sha256": "a8ca042800239f4d2815f0bd260bad76e8cf0c7a65a30398505f20bd9451e297",
       "lines": 8171
     },
     {
@@ -3648,6 +3655,13 @@
       "block": "B09",
       "sha256": "ae969b6cbff33de4e89974e6b732a297dfccdb10c271f3c80012977034914ca6",
       "lines": 249
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientCacheInvalidationTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "0a3915a51978ad76fe28e4139d3055b31bf1f08f5adc2b6a4d9bdf90e0399bfa",
+      "lines": 179
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientCacheOrderingTest.kt",
@@ -14120,6 +14134,10 @@
     },
     {
       "path": "docs/audit-handoff-claude-20261001.md",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
+      "path": "docs/audit-handoff-claude-20261012.md",
       "reason": "documentation_artifacts_or_private_material"
     },
     {
