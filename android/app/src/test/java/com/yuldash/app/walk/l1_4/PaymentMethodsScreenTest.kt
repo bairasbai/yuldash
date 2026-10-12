@@ -118,7 +118,8 @@ class PaymentMethodsScreenTest {
         assertEquals("onPick не должен звать раньше ответа сервера", null, picked)
 
         latch.countDown()
-        compose.waitForIdle()
+        // Ответ дочитывается на Dispatchers.IO — waitForIdle() его не ждёт (как и в тесте R4 ниже).
+        compose.waitUntil(5_000) { picked != null }
         assertEquals(PayMethods.SBP, picked)
     }
 
@@ -130,6 +131,9 @@ class PaymentMethodsScreenTest {
         render(current = PayMethods.CASH, activeOrderId = 55, onPick = { picked = it })
 
         compose.onNodeWithText("Переведёшь на телефон водителя").performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Водитель об этом не знает").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.waitForIdle()
 
         compose.onNodeWithText("Водитель об этом не знает").assertIsDisplayed()
@@ -138,6 +142,7 @@ class PaymentMethodsScreenTest {
 
         succeed = true
         compose.onNodeWithText("Повторить").performClick()
+        compose.waitUntil(5_000) { picked != null }
         compose.waitForIdle()
 
         assertEquals("«Повторить» обязан послать запрос ещё раз", 2, calls.get())

@@ -221,6 +221,8 @@ class PayOnlineCardTest {
         compose.onNodeWithText("Ждём подтверждения оплаты").assertIsDisplayed()
 
         compose.onNodeWithText("Проверить оплату").performClick()
+        // GET /payments/{id}/status идёт на Dispatchers.IO — waitForIdle() его не ждёт.
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Оплачено — спасибо!").fetchSemanticsNodes().isNotEmpty() }
         compose.waitForIdle()
 
         compose.onNodeWithText("Оплачено — спасибо!").assertIsDisplayed()
