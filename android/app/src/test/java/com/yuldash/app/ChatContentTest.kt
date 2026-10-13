@@ -1,12 +1,14 @@
 package com.yuldash.app
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -99,9 +101,12 @@ class ChatContentTest {
                 )
             }
         }
-        // Нижнее сообщение — за пределами экрана: доскролливаем и проверяем, что оно есть.
-        composeRule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Сообщение №40"))
+        // Как в мессенджерах: лента открывается на последнем сообщении, без прокрутки, а начало
+        // переписки ушло вверх. До 13.10.2026 лента открывалась сверху и №40 был за краем.
         composeRule.onNodeWithText("Сообщение №40").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Сообщение №1").assertCountEquals(0)
+        composeRule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Сообщение №1"))
+        composeRule.onNodeWithText("Сообщение №1").assertIsDisplayed()
     }
 
     // --- гард двойного нажатия «отправить»: sending=true → кнопка выключена ---

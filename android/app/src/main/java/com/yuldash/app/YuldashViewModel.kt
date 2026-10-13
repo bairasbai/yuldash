@@ -268,9 +268,26 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         val current = screen.value
         val transient = previous in listOf(Screen.Splash, Screen.Login, Screen.Onboarding, Screen.Intro)
         if (current == Screen.Login) navHistory.clear()
-        else if (!navPopping.value && current != previous && !transient) navHistory.add(previous)
+        // Чат поездки под самой поездкой в историю не кладём: это тот же экран (см. showTripChat),
+        // иначе «Назад» с поездки, открытой поверх чата, сперва вёл бы обратно в чат.
+        else if (!navPopping.value && current != previous && !transient &&
+            !(previous == Screen.TripChat && current == Screen.ActiveTrip)) navHistory.add(previous)
         navPopping.value = false
         navPrev.value = current
+    }
+
+    /**
+     * Чат поездки и «Моя поездка» — два вида ОДНОГО живого экрана (общие сокет, опрос, черновик).
+     * Открыть чат — обычный шаг вперёд. Вернуться к поездке — ЗАМЕНИТЬ чат поездкой: если пришли
+     * из неё, снимаем её с трейла, иначе «Назад» водил бы по кругу поездка → чат → поездка.
+     */
+    fun showTripChat(open: Boolean) {
+        // Поздний тап с уходящего экрана (или второй тап за анимацию) — экран уже другой, не трогаем.
+        if (screen.value != (if (open) Screen.ActiveTrip else Screen.TripChat)) return
+        if (open) { screen.value = Screen.TripChat; return }
+        if (navHistory.lastOrNull() == Screen.ActiveTrip) navHistory.removeAt(navHistory.lastIndex)
+        navPopping.value = true
+        screen.value = Screen.ActiveTrip
     }
 
     // --- Транзитные/бизнес: переживают поворот, не переживают kill (как и было) ---
@@ -376,4 +393,18 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         val PRIVATE_SCREENS = ID_SCREENS + setOf(Screen.InstantOrder, Screen.DriverCabinet, Screen.Parcels, Screen.SupportTickets,
             Screen.AdsCabinet, Screen.PartnerCabinet, Screen.FairnessCenter, Screen.RequestsFeed, Screen.TaxiOnboarding, Screen.CourierOnboarding)
     }
+}
+
+/**
+ * Ключ содержимого в общей анимации экранов. TripChat рисует тот же живой экран, что ActiveTrip
+ * (вид «переписка»), поэтому делит с ним композицию: переход поездка ↔ чат не пересоздаёт сокет,
+ * историю и черновик, а свою анимацию «вглубь» экран играет сам.
+ */
+internal fun Screen.contentScreen(): Screen = if (this == Screen.TripChat) Screen.ActiveTrip else this
+
+/** Чем экран поездки показан сейчас: чат / поездка; null — на экране другой экран (идёт уход). */
+internal fun Screen.tripChatView(): Boolean? = when (this) {
+    Screen.TripChat -> true
+    Screen.ActiveTrip -> false
+    else -> null
 }
