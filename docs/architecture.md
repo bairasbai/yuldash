@@ -1,5 +1,26 @@
 # 🗺️ Карта кода Юлдаш
 
+## Выключатели направлений — запуск волнами (13.10.2026)
+
+- **Сервер:** флаги в `config.py` (`TAXI_ENABLED`, `COURIER_ENABLED`, `PARCELS_ENABLED`, `ADS_ENABLED`,
+  `BUSINESS_ENABLED`), замки новых дверей и сводка — `app/features.py`, публичная ручка
+  `GET /config/features` — `routers/health.py`. Гейты: посылки — `routers/parcels.py` (создать, лента,
+  взять «по пути»), реклама — `routers/ads.py`, купоны и бизнес — `routers/coupons.py`; такси и курьер —
+  свои, прежние (`app/taxi.py`, `routers/courier.py`).
+- **Android:** `FeatureFlags.kt` — флаги, кеш на диске (`yuldash_features`), «неизвестно = выключено»;
+  `ComingSoon.kt` — заглушка «Скоро в Юлдаше», `FeatureGate` / `ScreenGate` (гейт в навигации) и запасной
+  ответ о такси `taxiOffByFlag`; `DeliveryGate.kt` — что показать внутри доставки, когда открыта одна её
+  половина (посылки «по пути» или курьер). Где стоит гейт: вкладка «Курьер» (`ModeSwitchHome.kt`),
+  `Screen.Courier` / `Screen.CourierEarnings` (`AppNavOrders.kt`), `Screen.AdsCabinet` / `AdEditor` /
+  `Coupons` / `PartnerCabinet` (`YuldashApp.kt`); «Отправить» в `ParcelsScreen.kt`; плитки профиля
+  (`ProfileScreen.kt`); такси — запасной путь в `InstantOrderScreen.kt`. Новый экран закрываемого
+  направления — заворачивай ветку `when` в гейт; сторож `FeatureGateWiringGuardTest` проверяет основные
+  двери. В тестах `ApiClient.resetForTest()` открывает все направления (как `TAXI_ENABLED=true` в
+  серверном conftest).
+- **PWA:** `webapp/src/featureRules.ts` (чистая логика, кеш `yuldash.features`), `features.ts` (сеть и
+  `useFeatures()`), `components/ComingSoon.tsx`, `components/FeatureGate.tsx` — гейты на маршрутах в `App.tsx`;
+  проверки — `webapp/tests/features-test.mjs`.
+
 ## Слои экрана: пилот «Доверенные контакты» (12.10.2026)
 
 Целевая схема — [decisions.md, «Слои Android-экрана»](decisions.md). Первый экран, переведённый на неё:

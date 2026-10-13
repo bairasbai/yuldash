@@ -1,11 +1,12 @@
-import { Suspense, useEffect, useState } from "react";
-import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import BottomNav from "./components/BottomNav";
 import ActiveTaxiBar from "./components/ActiveTaxiBar";
 import InstallPrompt from "./components/InstallPrompt";
 import OfflineBanner from "./components/OfflineBanner";
 import RequireAuth from "./components/RequireAuth";
 import RequireAdmin from "./components/RequireAdmin";
+import FeatureGate from "./components/FeatureGate";
 import { LoadingList } from "./components/States";
 import { lazyScreen, clearChunkReloadFlag } from "./lazyScreen";
 import RidesScreen from "./screens/RidesScreen";
@@ -22,14 +23,17 @@ import BookingScreen from "./screens/BookingScreen";
 import ActiveTripScreen from "./screens/ActiveTripScreen";
 import UpdateBanner from "./components/UpdateBanner";
 import { watchOutbox } from "./utils/outbox";
-import InstantOrderScreen from "./screens/InstantOrderScreen";
+import InstantOrderScreen, { taxiGateView } from "./screens/InstantOrderScreen";
 import InstantDriverTripScreen from "./screens/InstantDriverTripScreen";
 import InstantChatScreen from "./screens/InstantChatScreen";
 import ChatInboxScreen from "./screens/ChatInboxScreen";
 import SosScreen from "./screens/SosScreen";
 import { useTaxiOrderOnScreen } from "./navSignals";
 import { useAuth } from "./auth/AuthProvider";
+import { useLang } from "./i18n/lang";
 import { fetchDriverDebt } from "./api/driver";
+import { refreshFeatures, useFeatures } from "./features";
+import { isTaxiOpen } from "./featureRules";
 
 
 /**
@@ -177,12 +181,39 @@ function Shell() {
   );
 }
 
+/**
+ * Такси для гостя. Пока такси выключено, просьба «войди» ведёт в никуда: после входа человек
+ * всё равно упрётся в «Такси скоро». Гостю показываем ту же карточку сразу, с очередью
+ * раннего доступа (она публичная). Вошедшего не трогаем: у него может быть живой заказ,
+ * а доступность города скажет сервер.
+ */
+function TaxiGuestGate({ children }: { children: ReactNode }) {
+  const features = useFeatures();
+  const { status } = useAuth();
+  const { appText, lang } = useLang();
+  const navigate = useNavigate();
+  if (status !== "guest" || isTaxiOpen(features)) return <>{children}</>;
+  if (!features.ready) return <LoadingList count={2} />;
+  return taxiGateView({ appText, ru: lang !== "ba", navigate, message: null, city: "" });
+}
+
 export default function App() {
   const { status: queueStatus, user: queueUser } = useAuth();
   // Приложение поднялось — значит куски грузятся. Снимаем метку разовой
   // перезагрузки, чтобы следующее обновление сайта тоже сработало.
   useEffect(() => {
     clearChunkReloadFlag();
+  }, []);
+
+  // Какие направления включены (запуск волнами): спрашиваем на старте и когда вкладку открыли
+  // снова. Свежее запомненное сеть не трогает — проверка возраста внутри.
+  useEffect(() => {
+    void refreshFeatures();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshFeatures();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
   // Накопленные без сети «выехал»/«доехал» и сообщения досылаем на СТАРТЕ, а не
@@ -486,9 +517,11 @@ export default function App() {
         <Route
           path="/taxi"
           element={
-            <RequireAuth>
-              <InstantOrderScreen />
-            </RequireAuth>
+            <TaxiGuestGate>
+              <RequireAuth>
+                <InstantOrderScreen />
+              </RequireAuth>
+            </TaxiGuestGate>
           }
         />
         <Route
@@ -594,9 +627,11 @@ export default function App() {
         <Route
           path="/courier-earnings"
           element={
-            <RequireAuth>
-              <CourierEarningsScreen />
-            </RequireAuth>
+            <FeatureGate need="courier">
+              <RequireAuth>
+                <CourierEarningsScreen />
+              </RequireAuth>
+            </FeatureGate>
           }
         />
 
@@ -643,20 +678,27 @@ export default function App() {
         />
 
         {/* --- Волна 5: курьер и посылки --- */}
+        {/* Запуск волнами: «Мои посылки» живут и при выключенной доставке (начатое доживает),
+            поэтому вошедшего экран не закрывает — внутри он сам прячет «Отправить» и «Возить».
+            Гостю нечего доживать: «скоро» вместо просьбы войти. */}
         <Route
           path="/parcels"
           element={
-            <RequireAuth>
-              <ParcelsScreen />
-            </RequireAuth>
+            <FeatureGate need="delivery" guestOnly>
+              <RequireAuth>
+                <ParcelsScreen />
+              </RequireAuth>
+            </FeatureGate>
           }
         />
         <Route
           path="/courier"
           element={
-            <RequireAuth>
-              <CourierScreen />
-            </RequireAuth>
+            <FeatureGate need="courier">
+              <RequireAuth>
+                <CourierScreen />
+              </RequireAuth>
+            </FeatureGate>
           }
         />
         <Route
@@ -670,7 +712,14 @@ export default function App() {
 
         {/* --- Волна 6: деньги и маркетплейс --- */}
         {/* «Скидки по пути» и «Как оплатить» — публичные витрины */}
-        <Route path="/coupons" element={<CouponsScreen />} />
+        <Route
+          path="/coupons"
+          element={
+            <FeatureGate need="business">
+              <CouponsScreen />
+            </FeatureGate>
+          }
+        />
         <Route path="/payment-info" element={<PaymentInfoScreen />} />
         <Route
           path="/payment-methods"
@@ -712,33 +761,41 @@ export default function App() {
         <Route
           path="/partner"
           element={
-            <RequireAuth>
-              <PartnerCabinetScreen />
-            </RequireAuth>
+            <FeatureGate need="business">
+              <RequireAuth>
+                <PartnerCabinetScreen />
+              </RequireAuth>
+            </FeatureGate>
           }
         />
         <Route
           path="/ads"
           element={
-            <RequireAuth>
-              <AdsCabinetScreen />
-            </RequireAuth>
+            <FeatureGate need="ads">
+              <RequireAuth>
+                <AdsCabinetScreen />
+              </RequireAuth>
+            </FeatureGate>
           }
         />
         <Route
           path="/ads/new"
           element={
-            <RequireAuth>
-              <AdEditorScreen />
-            </RequireAuth>
+            <FeatureGate need="ads">
+              <RequireAuth>
+                <AdEditorScreen />
+              </RequireAuth>
+            </FeatureGate>
           }
         />
         <Route
           path="/ads/:id/edit"
           element={
-            <RequireAuth>
-              <AdEditorScreen />
-            </RequireAuth>
+            <FeatureGate need="ads">
+              <RequireAuth>
+                <AdEditorScreen />
+              </RequireAuth>
+            </FeatureGate>
           }
         />
 

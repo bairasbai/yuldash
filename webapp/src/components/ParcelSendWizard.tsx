@@ -22,6 +22,7 @@ import {
 import { searchSettlements } from "../api/geo";
 import { geocode } from "../api/discovery";
 import { track } from "../analytics";
+import type { DeliveryType } from "../featureRules";
 import { IconBox, IconCar, IconCheck, IconCopy, IconRoute, IconStore } from "./Icons";
 import {
   DeliveryBlockedHint,
@@ -46,7 +47,6 @@ import {
   UrgencyChip,
 } from "./parcelForm";
 
-type DeliveryType = "poputka" | "courier" | "buy_bring";
 type Step = 0 | 1 | 2;
 const STEP_ROUTE: Step = 0; // способ доставки + откуда/куда
 const STEP_PARCEL: Step = 1; // что за посылка: размер, груз, срок, описание, цена, ценность
@@ -97,12 +97,20 @@ interface Created {
   receiver: string;
 }
 
-export default function ParcelSendWizard({ onSent }: { onSent: () => void }) {
+/**
+ * `allowed` — какие способы доставки сервер сейчас принимает (запуск волнами, featureRules.deliveryTypes):
+ * «по пути» — пока включены посылки, «курьером» и «купи и привези» — пока включён курьер. Невключённого
+ * в мастере нет вовсе: иначе человек заполнил бы три шага, чтобы получить отказ сервера.
+ */
+export default function ParcelSendWizard({ onSent, allowed }: { onSent: () => void; allowed: DeliveryType[] }) {
   const { appText } = useLang();
 
   const [created, setCreated] = useState<Created | null>(null);
 
-  const [deliveryType, setDeliveryType] = useState<DeliveryType>("poputka");
+  const firstType: DeliveryType = allowed.includes("poputka") ? "poputka" : "courier";
+  const [pickedType, setPickedType] = useState<DeliveryType>(firstType);
+  // Выбранный способ могли выключить, пока форма открыта, — тогда берём первый из доступных.
+  const deliveryType: DeliveryType = allowed.includes(pickedType) ? pickedType : firstType;
   const [fromCity, setFromCity] = useState("");
   const [toCity, setToCity] = useState("");
   const [fromAddress, setFromAddress] = useState("");
@@ -157,7 +165,7 @@ export default function ParcelSendWizard({ onSent }: { onSent: () => void }) {
   /** Успех: показываем код и начинаем чистый черновик — повторный заказ по ошибке исключён. */
   function showCreatedReceipt(code: string, from: string, to: string, receiver: string) {
     setCreated({ code, from, to, receiver });
-    setDeliveryType("poputka");
+    setPickedType(firstType);
     setFromCity(""); setToCity(""); setFromAddress(""); setToAddress(""); setSize(""); setDescription("");
     setWeightInput(""); setCargoType(""); setFragile(false);
     setReceiverName(""); setReceiverPhone(""); setRulesAccepted(false);
@@ -291,7 +299,7 @@ export default function ParcelSendWizard({ onSent }: { onSent: () => void }) {
   }
 
   // Смена типа/города/размера/срочности сбрасывает расчёт: цена считалась для других условий.
-  const pickType = (t: DeliveryType) => { setDeliveryType(t); setEstimate(null); };
+  const pickType = (t: DeliveryType) => { setPickedType(t); setEstimate(null); };
   const addrAtLimit = fromAddress.length >= PARCEL_ADDRESS_MAX_LEN || toAddress.length >= PARCEL_ADDRESS_MAX_LEN;
 
   const nextHint =
@@ -338,27 +346,33 @@ export default function ParcelSendWizard({ onSent }: { onSent: () => void }) {
       {step === STEP_ROUTE && (
         <>
           <div className="dl-stack" role="radiogroup" aria-label={appText("Способ доставки", "Илтеү ысулы")}>
-            <DeliveryTypeCard
-              selected={deliveryType === "poputka"}
-              title={appText("По пути", "Юл ыңғайы")}
-              subtitle={appText("Попутчик, который и так едет. Дёшево, по-соседски.", "Юл ыңғайы бараған юлдаш. Арзан, күршеләрсә.")}
-              icon={<IconCar size={20} />}
-              onClick={() => pickType("poputka")}
-            />
-            <DeliveryTypeCard
-              selected={deliveryType === "courier"}
-              title={appText("Заказать курьера", "Курьер заказлау")}
-              subtitle={appText("Проверенный курьер Юлдаша заберёт и доставит. Цена — сразу.", "Юлдаштың тикшерелгән курьеры алып илтер. Хаҡы — шунда уҡ.")}
-              icon={<IconRoute size={20} />}
-              onClick={() => pickType("courier")}
-            />
-            <DeliveryTypeCard
-              selected={deliveryType === "buy_bring"}
-              title={appText("Купи и привези", "Ал да килтер")}
-              subtitle={appText("Курьер купит товар за тебя и привезёт. До 5000 ₽.", "Курьер һинең өсөн тауар алып килтерер. 5000 ₽-ға тиклем.")}
-              icon={<IconStore size={20} />}
-              onClick={() => pickType("buy_bring")}
-            />
+            {allowed.includes("poputka") && (
+              <DeliveryTypeCard
+                selected={deliveryType === "poputka"}
+                title={appText("По пути", "Юл ыңғайы")}
+                subtitle={appText("Попутчик, который и так едет. Дёшево, по-соседски.", "Юл ыңғайы бараған юлдаш. Арзан, күршеләрсә.")}
+                icon={<IconCar size={20} />}
+                onClick={() => pickType("poputka")}
+              />
+            )}
+            {allowed.includes("courier") && (
+              <DeliveryTypeCard
+                selected={deliveryType === "courier"}
+                title={appText("Заказать курьера", "Курьер заказлау")}
+                subtitle={appText("Проверенный курьер Юлдаша заберёт и доставит. Цена — сразу.", "Юлдаштың тикшерелгән курьеры алып илтер. Хаҡы — шунда уҡ.")}
+                icon={<IconRoute size={20} />}
+                onClick={() => pickType("courier")}
+              />
+            )}
+            {allowed.includes("buy_bring") && (
+              <DeliveryTypeCard
+                selected={deliveryType === "buy_bring"}
+                title={appText("Купи и привези", "Ал да килтер")}
+                subtitle={appText("Курьер купит товар за тебя и привезёт. До 5000 ₽.", "Курьер һинең өсөн тауар алып килтерер. 5000 ₽-ға тиклем.")}
+                icon={<IconStore size={20} />}
+                onClick={() => pickType("buy_bring")}
+              />
+            )}
             <DeliveryWaitNote type={deliveryType} />
           </div>
 

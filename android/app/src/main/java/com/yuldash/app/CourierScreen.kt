@@ -212,8 +212,8 @@ internal fun CourierScreen(
     var loading by remember { mutableStateOf(true) }
     var meError by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(reloadKey) {
+    val courierOn = rememberFeatures().isOn(Feature.Courier)   // запуск волнами: DeliveryGate.kt
+    LaunchedEffect(reloadKey, courierOn) {
         loading = true
         meError = false
         applicationRefreshFailed = false
@@ -221,7 +221,7 @@ internal fun CourierScreen(
             .onSuccess { latestApplication ->
                 application = latestApplication
                 applicationChecked = true
-                if (latestApplication?.status == "approved") {
+                if (latestApplication?.status == "approved" && courierOn) {   // режим выключен — кабинет сервер не отдаст
                     ApiClient.getCourierMe()
                         .onSuccess { me = it }
                         .onFailure { meError = true }
@@ -268,16 +268,12 @@ internal fun CourierScreen(
                 // значит убить главный сценарий доставки «между своими». Сервер этого и не
                 // требовал — `/parcels/available` открыт любому вошедшему; запрет жил только
                 // в приложении. Профи-лента («Курьерские») по-прежнему за заявкой.
-                application?.status != "approved" -> Column(Modifier.fillMaxSize()) {
-                    CourierNotApprovedView(
-                        application = application,
-                        refreshFailed = applicationRefreshFailed,
-                        onRetry = { reloadKey++ },
-                        onBecomeCourier = onBecomeCourier,
-                        compact = true,
-                    )
-                    PoputkaDeliveryTabs()
-                }
+                !courierOn || application?.status != "approved" -> CourierPoputkaOrApply(
+                    application = application,
+                    refreshFailed = applicationRefreshFailed,
+                    onRetry = { reloadKey++ },
+                    onBecomeCourier = onBecomeCourier,
+                )
                 m == null -> Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
@@ -290,7 +286,7 @@ internal fun CourierScreen(
 
 /** Попутные доставки доступны независимо от заявки профессионального курьера. */
 @Composable
-private fun PoputkaDeliveryTabs() {
+internal fun PoputkaDeliveryTabs() {
     var sub by rememberSaveable { mutableIntStateOf(0) }
     var carrying by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
     Column(Modifier.fillMaxSize()) {
@@ -330,7 +326,7 @@ private fun PoputkaDeliveryTabs() {
 
 // ─────────────────────────── Не одобрен → CTA ───────────────────────────
 @Composable
-private fun CourierNotApprovedView(
+internal fun CourierNotApprovedView(
     application: CourierApplicationDto?,
     refreshFailed: Boolean,
     onRetry: () -> Unit,
@@ -960,7 +956,8 @@ private fun CourierAvailableTab(
     val actionErr = appText("Не получилось взять. Проверь сеть.", "Алып булманы. Селтәрҙе тикшер.")
     val tookMsg = appText("Заказ у тебя. Он во вкладке «Везу».", "Заказ һиндә. Ул «Илтәм» бүлегендә.")
 
-    val poputka = feed == COURIER_FEED_POPUTKA
+    val parcelsOn = rememberFeatures().isOn(Feature.Parcels)   // посылки выключены — только профи-лента
+    val poputka = feed == COURIER_FEED_POPUTKA && (poputkaOnly || parcelsOn)
     // Линия нужна только профи-ленте: «по пути» человек берёт заодно со своей дорогой.
     val feedReady = poputka || online
     val queryKey = "$feed|$zone|${workCity.trim()}|${cityFilter.trim()}|${toCityFilter.trim()}"
@@ -1040,7 +1037,7 @@ private fun CourierAvailableTab(
                     ),
                 )
             }
-            if (!poputkaOnly) {
+            if (!poputkaOnly && parcelsOn) {
                 item {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CourierPickChip(appText("Курьерские", "Курьер заказдары"), !poputka) { feed = COURIER_FEED_PRO }

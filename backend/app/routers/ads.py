@@ -17,6 +17,7 @@ from ..antifraud import safe_link
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
+from ..features import guard_ads
 from ..logs import admin_action
 from ..middleware import user_over_limit
 from ..models import Ad, AdEvent, Payment, User, UserRole
@@ -174,7 +175,12 @@ def _ad_public(ad: Ad) -> dict:
 
 @router.get("/ads")
 def ads(city: Optional[str] = None, placement: Optional[str] = None, session: Session = Depends(get_session)):
-    """Активные объявления в периоде. Фильтр по городу/месту опционален. Сортировка по приоритету (premium выше)."""
+    """Активные объявления в периоде. Фильтр по городу/месту опционален. Сортировка по приоритету (premium выше).
+
+    Реклама выключена (запуск волнами, 13.10.2026) → пустой список, а не ошибка: витрину
+    рисуют карта и профиль, и отказ там был бы красной плашкой посреди главного экрана."""
+    if not settings.ads_enabled:
+        return []
     now = utcnow()
     rows = session.exec(select(Ad).where(Ad.status == "active")).all()
     live = [a for a in rows if _is_live(a, now)]
@@ -402,6 +408,7 @@ class AdCreateIn(BaseModel):
 @router.post("/ads")
 def ad_create(body: AdCreateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Партнёр создаёт своё объявление (черновик). Анти-спам: лимит на владельца."""
+    guard_ads()                       # запуск волнами: реклама включается своим флагом
     ensure_active(session, user.id)   # отстранённый разбором рекламу не заводит (волна 62)
     count = session.exec(select(func.count()).select_from(Ad).where(Ad.owner_id == user.id)).one()
     if count >= MAX_ADS_PER_OWNER:
@@ -460,6 +467,7 @@ def ad_update(ad_id: int, body: AdCreateIn, user: User = Depends(current_user), 
 @router.post("/ads/{ad_id}/submit")
 def ad_submit(ad_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Отправить своё объявление на модерацию (draft/rejected → pending_review)."""
+    guard_ads()
     ad = _own_editable_ad(ad_id, user, session)
     if not ad.title.strip() or ad.package not in AD_PACKAGES:
         raise herr(422, "Заполни заголовок и выбери тариф", "Башлыҡты тултыр һәм тариф һайла")
@@ -492,7 +500,10 @@ def ad_submit(ad_id: int, user: User = Depends(current_user), session: Session =
 @router.post("/ads/{ad_id}/pay")
 def ad_pay(ad_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Партнёр создаёт заявку на оплату СВОЕГО размещения (СБП «на доверии», подтверждает админ).
-    Доступно после одобрения модерацией. В эфир объявление пойдёт, когда админ подтвердит оплату."""
+    Доступно после одобрения модерацией. В эфир объявление пойдёт, когда админ подтвердит оплату.
+
+    Реклама выключена → «скоро»: брать деньги за показы, которых не будет, нельзя."""
+    guard_ads()
     ad = session.get(Ad, ad_id)
     if not ad or ad.owner_id != user.id:
         raise herr(404, "Объявление не найдено", "Иғлан табылманы")
@@ -552,7 +563,10 @@ def ad_renew(ad_id: int, user: User = Depends(current_user), session: Session = 
     Помечаем платёж `tier="renew"`: по этой метке подтверждение оплаты добавляет период
     К ОСТАТКУ, а не отсчитывает срок заново — иначе продление «про запас» съедало бы
     оплаченные дни.
+
+    Реклама выключена → «скоро», по той же причине, что и оплата.
     """
+    guard_ads()
     ad = session.get(Ad, ad_id)
     if not ad or ad.owner_id != user.id:
         raise herr(404, "Объявление не найдено", "Иғлан табылманы")

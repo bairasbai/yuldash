@@ -40,6 +40,13 @@ os.environ["RATE_LIMIT_ENABLED"] = "false"
 # Гейт такси (волна 2): в тестах такси ВКЛЮЧЕНО (иначе весь instant-стек отдаёт 403 «скоро»).
 # Сам гейт (выключенный флаг/города) проверяется в test_taxi_gate.py через monkeypatch.
 os.environ["TAXI_ENABLED"] = "true"
+# Запуск волнами (13.10.2026): посылки, реклама и «Скидки по пути» в проде по умолчанию
+# выключены. В тестах включены по той же причине, что такси, — иначе сотни проверок этих
+# направлений упёрлись бы в «скоро». Сами выключатели (выкл → «скоро», вкл → работает)
+# проверяет test_wave_launch_switches.py через monkeypatch.
+os.environ["PARCELS_ENABLED"] = "true"
+os.environ["ADS_ENABLED"] = "true"
+os.environ["BUSINESS_ENABLED"] = "true"
 # Дневная сводка (B9b-3): middleware выключен, чтобы прогон после 21:00 местного не слал
 # фоновую «сводку» посреди тестов. Сама логика проверяется в test_launch_extras.py напрямую.
 os.environ["DAILY_DIGEST_ENABLED"] = "false"

@@ -342,7 +342,8 @@ internal fun ProfileScreen(
     val deletionSession = ApiClient.sessionChanges.collectAsState().value
     // Реклама профиля: у пользователя нет города в данных → не фильтруем по хардкод-городу
     // (иначе объявление показывалось лишь при совпадении с «Баймаҡ» — у всех остальных пусто). Берём любое.
-    val profileAd = ads.forPlacement(AdPlacement.Profile).firstOrNull()
+    val features = rememberFeatures()   // запуск волнами: плиток закрытых направлений не показываем
+    val profileAd = if (features.isOn(Feature.Ads)) ads.forPlacement(AdPlacement.Profile).firstOrNull() else null
     // Свой рейтинг (как пассажира) — из реальных оценок водителей. null, пока никто не оценил.
     var myRating by remember { mutableStateOf<Double?>(null) }
     var displayName by remember { mutableStateOf(ApiClient.cachedName() ?: (if (isBashkir) "Мин" else "Я")) }
@@ -854,10 +855,10 @@ internal fun ProfileScreen(
             item {
                 ProfileSectionLabel(appText("Сервисы", "Хеҙмәттәр"))
             }
-            item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Скидки по пути", "Юл буйынса ташламалар"), appText("Скидки от местных заведений по маршруту", "Маршрут буйынса ерле урындарҙан ташлама"), Icons.Default.LocalOffer, onCoupons) } }
+            if (features.isOn(Feature.Business)) item(key = "svc_coupons") { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Скидки по пути", "Юл буйынса ташламалар"), appText("Скидки от местных заведений по маршруту", "Маршрут буйынса ерле урындарҙан ташлама"), Icons.Default.LocalOffer, onCoupons) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Промокод", "Промокод"), appText("Ввести код друга или акции", "Дуҫ йәки акция кодын индереү"), Icons.Default.Redeem, onPromo) } }
-            item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Посылки", "Бандеролдәр"), appText("Отправить с попутчиком или подвезти", "Юлдаш менән ебәреү йәки илтеү"), R.drawable.yu_mode_parcel, onParcels) } }
-            item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Режим курьера", "Курьер режимы"), appText("Возить заказы или стать курьером", "Заказ илтеү йәки курьер булыу"), R.drawable.yu_mode_courier, onCourier) } }
+            if (features.deliveryOn) item(key = "svc_parcels") { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Посылки", "Бандеролдәр"), appText("Отправить с попутчиком или подвезти", "Юлдаш менән ебәреү йәки илтеү"), R.drawable.yu_mode_parcel, onParcels) } }
+            if (features.deliveryOn) item(key = "svc_courier") { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Режим курьера", "Курьер режимы"), appText("Возить заказы или стать курьером", "Заказ илтеү йәки курьер булыу"), R.drawable.yu_mode_courier, onCourier) } }
             item {
                 ProfileSectionLabel(appText("Мои кабинеты", "Минең кабинеттар"))
             }
@@ -903,17 +904,13 @@ internal fun ProfileScreen(
                 item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Модерация отзывов", "Фекерҙәрҙе модерациялау"), appText("Одобрить отзывы для сайта", "Сайт өсөн фекерҙәрҙе раҫларға"), Icons.Default.Verified, onAdminReviews) } }
                 item { Box(Modifier.appearIn(12)) { ProfileActionCard(appText("Модерация объявлений", "Иғландарҙы модерациялау"), appText("Объявления партнёров: публикация, пауза, удаление", "Партнёр иғландары: баҫтырыу, пауза, бөтөрөү"), Icons.Default.AdminPanelSettings, onAdminAds) } }
             }
-            item {
-                ProfileSectionLabel(appText("Партнёры Юлдаш", "Юлдаш партнёрҙары"))
-            }
-            if (hasBusiness) {
-                item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Мой бизнес", "Минең бизнес"), appText("Купоны, подписка и счёт", "Купондар, яҙылыу һәм иҫәп"), Icons.Default.Storefront, onPartnerCabinet) } }
-                item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Кабинет рекламы", "Реклама кабинеты"), appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"), Icons.Default.Payments, onAdsCabinet) } }
-            } else {
-                // Бизнеса нет — одна строка-приглашение вместо двух кабинетов, которыми
-                // человеку пока нечего открывать. Путь внутрь тот же: там и регистрация.
-                item { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("У меня есть бизнес", "Минең бизнесым бар"), appText("Купоны и реклама для местных заведений", "Ерле урындар өсөн купондар һәм реклама"), Icons.Default.Storefront, onPartnerCabinet) } }
-            }
+            // Партнёры — пока открыты купоны или реклама (запуск волнами); реклама без купонов — своим кабинетом.
+            if (features.isOn(Feature.Business) || features.isOn(Feature.Ads)) item(key = "partners_label") { ProfileSectionLabel(appText("Партнёры Юлдаш", "Юлдаш партнёрҙары")) }
+            if (hasBusiness && features.isOn(Feature.Business)) item(key = "partner_cabinet") { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Мой бизнес", "Минең бизнес"), appText("Купоны, подписка и счёт", "Купондар, яҙылыу һәм иҫәп"), Icons.Default.Storefront, onPartnerCabinet) } }
+            if ((hasBusiness || !features.isOn(Feature.Business)) && features.isOn(Feature.Ads)) item(key = "ads_cabinet") { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("Кабинет рекламы", "Реклама кабинеты"), appText("Объявления, erid, показы и клики", "Иғландар, erid, күрһәтеү һәм баҫыу"), Icons.Default.Payments, onAdsCabinet) } }
+            // Бизнеса нет — одна строка-приглашение вместо двух кабинетов, которыми
+            // человеку пока нечего открывать. Путь внутрь тот же: там и регистрация.
+            if (!hasBusiness && features.isOn(Feature.Business)) item(key = "partner_invite") { Box(Modifier.appearIn(13)) { ProfileActionCard(appText("У меня есть бизнес", "Минең бизнесым бар"), appText("Купоны и реклама для местных заведений", "Ерле урындар өсөн купондар һәм реклама"), Icons.Default.Storefront, onPartnerCabinet) } }
             profileAd?.let { ad ->
                 item {
                     Box(Modifier.appearIn(12)) {

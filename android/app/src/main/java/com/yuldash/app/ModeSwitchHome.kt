@@ -56,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.yuldash.app.data.ApiClient
 import androidx.compose.runtime.getValue
@@ -99,6 +100,16 @@ private fun rideModeFromPref(value: String?): RideMode = when (value) {
     MODE_VALUE_TAXI -> RideMode.Taxi
     MODE_VALUE_COURIER -> RideMode.Courier
     else -> RideMode.Pooling
+}
+
+/**
+ * Просьба извне переключить хаб на нужный режим. Нужна заглушке «Скоро в Юлдаше» на
+ * отдельном экране: её кнопка «Найти попутку» ведёт на главную, а главная помнит последний
+ * режим — и без этой просьбы человек вернулся бы в ту же закрытую вкладку «Курьер».
+ */
+internal object RideModeRequest {
+    val pending = mutableStateOf<RideMode?>(null)
+    fun pooling() { pending.value = RideMode.Pooling }
 }
 
 /**
@@ -155,6 +166,18 @@ internal fun PassengerModeHome(
     // Аппаратная «Назад» из любого не-основного режима → возвращаемся к попутке (а не выходим из приложения).
     BackHandler(enabled = mode != RideMode.Pooling) { selectMode(RideMode.Pooling) }
 
+    // «Найти попутку» с заглушки на отдельном экране: хаб должен открыться на попутке.
+    val requestedMode by RideModeRequest.pending
+    LaunchedEffect(requestedMode) {
+        requestedMode?.let { selectMode(it); RideModeRequest.pending.value = null }
+    }
+
+    // Запуск волнами (13.10.2026): что сервер уже включил. Попутка открыта всегда.
+    val features = rememberFeatures()
+    // Реклама выключена — не показываем её даже из кеша ленты: витрина без маркировки
+    // и без договора — это нарушение закона, а не просто пустое место.
+    val visibleAds = if (features.isOn(Feature.Ads)) ads else emptyList()
+
     // Поиск и поездка — уже начатый заказ. Переключатель сервисов прячется, чтобы человек
     // не бросил его случайным касанием, а карте и статусу досталось всё свободное место.
     val generation by ApiClient.sessionChanges.collectAsState()
@@ -171,6 +194,8 @@ internal fun PassengerModeHome(
                 onExplain = { showHint = true },
                 showExplain = !hintSeen,
                 onCourierMode = onCourierMode,
+                // Доставка закрыта — «Хочу возить» вёл бы во вторую такую же заглушку.
+                showCourierWork = features.deliveryOn,
             )
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -188,7 +213,7 @@ internal fun PassengerModeHome(
                     RideMode.Pooling -> MapScreen(
                         rides = rides,
                         activeTrip = activeTrip,
-                        ads = ads,
+                        ads = visibleAds,
                         adStats = adStats,
                         onBookRide = onBookRide,
                         onShareRide = onShareRide,
@@ -214,10 +239,25 @@ internal fun PassengerModeHome(
                     )
                     // Курьер: раньше «Посылки» лежали 9-м пунктом профиля — до отправки было 9–11 касаний.
                     // Теперь это равноправный режим хаба: два касания от старта приложения.
-                    RideMode.Courier -> ParcelsScreen(
+                    // Пока посылки и курьеры не запущены (волна 1 — только попутки), вкладка
+                    // честно говорит «скоро» и зовёт курьеров заранее, а не роняет человека
+                    // в форму, которую сервер отклонит.
+                    RideMode.Courier -> FeatureGate(
+                        open = { it.deliveryOn },
+                        kind = ComingSoonKind.Delivery,
                         onBack = { selectMode(RideMode.Pooling) },
+                        onFindRide = { selectMode(RideMode.Pooling) },
                         embedded = true,
-                    )
+                        secondaryLabel = becomeCourierEarlyLabel(),
+                        // Анкета курьера — через общий мост навигации (как пуш «заявка курьера»): он сам
+                        // попросит войти, если нужно. Набор курьеров открыт и до запуска доставки.
+                        onSecondary = { DeepLink.pendingApplicationScreen.value = Screen.CourierOnboarding },
+                    ) {
+                        ParcelsScreen(
+                            onBack = { selectMode(RideMode.Pooling) },
+                            embedded = true,
+                        )
+                    }
                 }
             }
         }
@@ -252,6 +292,7 @@ private fun ModeSwitchBar(
     onExplain: () -> Unit,
     showExplain: Boolean,
     onCourierMode: () -> Unit = {},
+    showCourierWork: Boolean = true,
 ) {
     val items = listOf(
         Triple(RideMode.Pooling, R.drawable.yu_mode_rideshare, appText("Попутка", "Юлдаш")),
@@ -383,7 +424,7 @@ private fun ModeSwitchBar(
       }
       // Вторая сторона курьера — сама работа. Дверь к ней стоит там же, где человек выбрал
       // «Курьер», а не в глубине профиля: иначе курьер свою работу просто не найдёт.
-      AnimatedVisibility(visible = mode == RideMode.Courier) {
+      AnimatedVisibility(visible = mode == RideMode.Courier && showCourierWork) {
           Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
               TextButton(onClick = onCourierMode, contentPadding = PaddingValues(horizontal = 8.dp)) {
                   Text(appText("Хочу возить", "Йөрөтөргә теләйем"),

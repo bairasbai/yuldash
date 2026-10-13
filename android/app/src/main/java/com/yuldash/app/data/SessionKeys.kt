@@ -75,6 +75,8 @@ internal object SessionKeys {
         "mode_hint_shown" to "подсказку про режимы на этом телефоне уже показывали",
         "update_dismissed_code" to "«не напоминать про это обновление» — решение владельца устройства",
         "last_store_review_ms" to "когда просили оценить приложение; сброс превратил бы выход в повод спросить снова",
+        "features_json" to "какие направления Юлдаша включены сервером — одинаково для всех, к аккаунту не относится",
+        "features_at" to "когда флаги направлений спрашивали у сервера — служебная метка свежести, не личные данные",
     )
 
     /** Cleared by each store's atomic reset, never separately through CLEARED_BY_FILE. */

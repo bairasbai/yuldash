@@ -32,6 +32,7 @@ from ..config import settings
 from ..db import get_session
 from ..logs import admin_action
 from ..errors import herr
+from ..features import guard_parcels
 from ..flood import (TOO_FAST_CREATING, TOO_MANY_CARRYING, TOO_MANY_PARCELS, guard_burst,
                      guard_open_items)
 from ..models import ParcelDelivery, User, UserRole
@@ -684,6 +685,9 @@ def parcel_create(body: ParcelIn, user: User = Depends(current_user), session: S
     - `fee_kop` — сервисный сбор платформы. Начисляем ТОЛЬКО если settings.parcel_fee_enabled:
       пока платить его некому и нечем (см. комментарий у флага), а «начислили и показали как
       собранное» — это выдуманная выручка."""
+    # Запуск волнами (13.10.2026): посылки «по пути» включаются своим флагом. Первым — до
+    # проверок человека: пока направление закрыто, ответ один для всех — «скоро».
+    guard_parcels()
     # Гейт «Справедливости»: приостановленный за нарушения (напр. кража груза) не заводит новые
     # доставки. Раньше проверки не было ни здесь, ни в accept — отстранённый в тот же день брал
     # следующую посылку, и пауза была декорацией (аудит 2026-07-26).
@@ -1027,7 +1031,11 @@ def parcels_available(
     БЕЗ телефона получателя (скрыт до принятия). Фильтр по городам опционален. Новые сверху.
 
     C1: courier/buy_bring-заказы сюда НЕ попадают — их видят только одобренные курьеры
-    в /courier/available (профессиональный режим, гейт _guard_courier)."""
+    в /courier/available (профессиональный режим, гейт _guard_courier).
+
+    Посылки выключены (запуск волнами) → 403 «скоро», а не пустой список: «рядом ничего нет»
+    было бы неправдой, и человек ждал бы заказов, которых не будет."""
+    guard_parcels()
     q = select(ParcelDelivery).where(
         *live_parcel_conds(),                       # протухшие в ленту не попадают
         ParcelDelivery.sender_id != user.id,
@@ -1187,8 +1195,11 @@ def parcel_accept(parcel_id: int, body: Optional[ParcelAcceptIn] = None,
                      limit=settings.flood_carrying_parcels_max,
                      ru=TOO_MANY_CARRYING[0], ba=TOO_MANY_CARRYING[1])
     # C1: courier/buy_bring-заказы берут только одобренные курьеры на линии (гейт).
-    # «По пути» (poputka) — как раньше, без гейта (любой попутчик помогает).
-    if (getattr(parcel, "delivery_type", "poputka") or "poputka") != "poputka":
+    # «По пути» (poputka) — без проверки курьера (любой попутчик помогает), но за флагом
+    # направления: выключены посылки — новую не берут (запуск волнами, 13.10.2026).
+    if (getattr(parcel, "delivery_type", "poputka") or "poputka") == "poputka":
+        guard_parcels()
+    else:
         # локальный импорт — избегаем цикла
         from .courier import _guard_courier_enabled
         _guard_courier_enabled()          # мастер-флаг режима: про сервис, а не про человека

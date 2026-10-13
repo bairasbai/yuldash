@@ -24,7 +24,9 @@ from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
 from ..db import get_session
+from ..config import settings
 from ..errors import herr
+from ..features import guard_business
 from ..logs import admin_action
 from ..middleware import user_over_limit
 from ..models import Coupon, CouponReport, CouponRedemption, Partner, Payment, User, UserRole
@@ -362,7 +364,12 @@ def coupons_list(
     session: Session = Depends(get_session),
 ):
     """Активные купоны «Скидки по пути». Видны только у active-партнёра с оплаченной подпиской,
-    в окне дат и с неисчерпанным общим лимитом. Premium выше. Просмотр без входа."""
+    в окне дат и с неисчерпанным общим лимитом. Premium выше. Просмотр без входа.
+
+    «Скидки по пути» выключены (запуск волнами, 13.10.2026) → пустая витрина, а не ошибка:
+    её рисуют и другие экраны, где отказ выглядел бы поломкой."""
+    if not settings.business_enabled:
+        return []
     now = utcnow()
     coupons = session.exec(select(Coupon).where(Coupon.status == "active")).all()
     if not coupons:
@@ -466,6 +473,7 @@ def coupon_redeem(body: RedeemIn, user: User = Depends(current_user), session: S
 @router.get("/coupons/{coupon_id}")
 def coupon_detail(coupon_id: int, session: Session = Depends(get_session)):
     """Деталь купона (та же видимость, что в витрине)."""
+    guard_business()
     now = utcnow()
     coupon = session.get(Coupon, coupon_id)
     partner = session.get(Partner, coupon.partner_id) if coupon else None
@@ -483,6 +491,7 @@ def coupon_activate(coupon_id: int, user: User = Depends(current_user), session:
 
     Гранулярные ошибки (не общий 404): срок истёк → 422, лимиты → 409. «Недоступен вообще»
     (нет партнёра / не одобрен / подписка не оплачена / купон не active) → 404, как в витрине."""
+    guard_business()                  # запуск волнами: новые брони купонов — только при включённых «Скидках»
     now = utcnow()
     # V2: row-lock на купоне сериализует параллельные активации — иначе два запроса оба проходят
     # COUNT-проверки limit_total/limit_per_user и оба вставляют бронь (пробитие лимита). На SQLite
@@ -638,6 +647,7 @@ def _partner_mine(partner: Partner) -> dict:
 @router.post("/partner")
 def partner_register(body: PartnerIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Зарегистрировать МОЙ бизнес (один owner = один партнёр). status=pending (модерация админом)."""
+    guard_business()
     existing = session.exec(select(Partner).where(Partner.owner_id == user.id)).first()
     if existing:
         raise herr(409, "У тебя уже есть бизнес", "Һинең бизнесың бар инде")
@@ -710,7 +720,10 @@ def _own_partner(partner_id: int, user: User, session: Session) -> Partner:
 @router.post("/partner/subscribe")
 def partner_subscribe(body: SubscribeIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Создать платёж подписки бизнеса (СБП «на доверии», подтверждает админ).
-    Бизнес должен быть одобрен (active). Идемпотентно: существующий pending → возвращаем его."""
+    Бизнес должен быть одобрен (active). Идемпотентно: существующий pending → возвращаем его.
+
+    «Скидки по пути» выключены → «скоро»: брать плату за витрину, которой не видно, нельзя."""
+    guard_business()
     partner = session.exec(select(Partner).where(Partner.owner_id == user.id)).first()
     if not partner:
         raise herr(404, "Сначала зарегистрируй бизнес", "Башта бизнесты теркә")
@@ -826,6 +839,7 @@ def partner_coupons(user: User = Depends(current_user), session: Session = Depen
 @router.post("/partner/coupons")
 def partner_coupon_create(body: CouponIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Создать купон (draft). Бизнес должен быть active. Анти-спам: лимит купонов на бизнес."""
+    guard_business()
     partner = _my_active_partner(user, session)
     # Row-lock партнёра: сериализует параллельные «создать купон» у ОДНОГО бизнеса. Без лока
     # на границе лимита (49-й/50-й уже есть) два запроса оба проходят COUNT ДО того, как любой

@@ -20,6 +20,8 @@ import {
 } from "../components/BrandIcons";
 import { PartnerAdSlot } from "../components/PartnerAd";
 import ReferralCard from "../components/ReferralCard";
+import { useFeatures } from "../features";
+import { isOpen, type Need } from "../featureRules";
 
 function initials(name: string): string {
   const p = name.trim().split(/\s+/).filter(Boolean);
@@ -35,6 +37,9 @@ export default function ProfileScreen() {
   const { appText } = useLang();
   const { user, isAuthed, logout, status } = useAuth();
   const navigate = useNavigate();
+  // Запуск волнами: плитка закрытого направления не показывается вовсе — человек не должен
+  // нажимать на то, что откроется «скоро». Появится сама (плавно), когда сервер включит.
+  const features = useFeatures();
 
   // Бейджи непрочитанного (уведомления + поддержка). Мягко: ошибку глотаем.
   const [notifUnread, setNotifUnread] = useState(0);
@@ -60,6 +65,8 @@ export default function ProfileScreen() {
     authed?: boolean;
     admin?: boolean;
     badge?: number;
+    /** Плитка видна, только пока сервер включил это направление. */
+    need?: Need;
   }[] = [
     {
       key: "admin",
@@ -142,6 +149,7 @@ export default function ProfileScreen() {
       title: appText("Посылки", "Бандеролдәр"),
       sub: appText("Отправить или довезти «между своими»", "Ебәр йәки еткер «үҙебеҙ араһында»"),
       authed: true,
+      need: "delivery",
     },
     {
       key: "courier",
@@ -150,6 +158,7 @@ export default function ProfileScreen() {
       title: appText("Режим курьера", "Курьер режимы"),
       sub: appText("Бери доставки рядом и зарабатывай", "Яҡындағы доставкаларҙы ал һәм эшлә"),
       authed: true,
+      need: "delivery",
     },
     {
       key: "places",
@@ -181,6 +190,7 @@ export default function ProfileScreen() {
       icon: <IconTicket size={22} />,
       title: appText("Скидки по пути", "Юлда ташламалар"),
       sub: appText("Купоны от своих заведений", "Үҙ заведениеларҙан купондар"),
+      need: "business",
     },
     {
       key: "promo",
@@ -197,6 +207,7 @@ export default function ProfileScreen() {
       title: appText("Мой бизнес", "Минең бизнесым"),
       sub: appText("Разместить свою скидку в Юлдаше", "Юлдашта үҙ ташламаңды урынлаштыр"),
       authed: true,
+      need: "business",
     },
     {
       key: "ads",
@@ -205,6 +216,7 @@ export default function ProfileScreen() {
       title: appText("Реклама", "Реклама"),
       sub: appText("Рассказать о деле попутчикам", "Юлдаштарға эшең тураһында һөйләргә"),
       authed: true,
+      need: "ads",
     },
     {
       key: "payment-methods",
@@ -437,7 +449,7 @@ export default function ProfileScreen() {
       {(() => {
         const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
         const visible = (r: (typeof rows)[number] | undefined) =>
-          !!r && (!r.authed || isAuthed) && (!r.admin || user?.role === "admin");
+          !!r && (!r.authed || isAuthed) && (!r.admin || user?.role === "admin") && (!r.need || isOpen(r.need, features));
         // Разделы, как в настройках iOS: тихие подписи + сгруппированные карточки.
         const sections: { label: string; keys: string[] }[] = [
           { label: appText("Управление", "Идара итеү"), keys: ["admin"] },

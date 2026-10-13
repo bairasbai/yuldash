@@ -36,6 +36,8 @@ internal fun OrdersNav(
     /** Открыть фото машины: режим («такси» или «курьер») решает, что снимаем. */
     onOpenCarPhoto: (String) -> Unit,
     isCurrentReceipt: (Int) -> Boolean = { true },
+    /** «Найти попутку» с заглушки «Скоро в Юлдаше»: на главную, в режим попутки. */
+    onFindRide: () -> Unit = onBack,
 ) {
     when (screen) {
         Screen.InstantOrder -> InstantOrderScreen(
@@ -91,18 +93,38 @@ internal fun OrdersNav(
         // правила, лестница и тон одинаковые (580-ФЗ).
         Screen.CarPhoto -> CarPhotoScreen(mode = carPhotoMode, onBack = { onBack() })
         Screen.PretripCheck -> PretripCheckScreen(onBack = { onBack() })
-        Screen.CourierEarnings -> CourierEarningsScreen(onBack = { onBack() })
-        Screen.Parcels -> ParcelsScreen(onBack = { onBack() })
+        // Запуск волнами (13.10.2026): курьерский заработок живёт за флагом курьера — сервер
+        // при выключенном режиме отвечает отказом, и экран показал бы ошибку вместо «скоро».
+        Screen.CourierEarnings -> FeatureGate(
+            open = { it.isOn(Feature.Courier) },
+            kind = ComingSoonKind.Delivery,
+            onBack = { onBack() },
+            onFindRide = onFindRide,
+            title = appText("Мой заработок", "Минең табыш"),
+        ) { CourierEarningsScreen(onBack = { onBack() }) }
+        Screen.Parcels -> ParcelsScreen(onBack = { onBack() }, onFindRide = onFindRide)
         Screen.CourierOnboarding -> CourierOnboardingScreen(
             onBack = { onBack() },
             onOpenCourier = { onOpen(Screen.Courier) },
         )
-        Screen.Courier -> CourierScreen(
+        // «Режим курьера» держит и попутные посылки, и работу курьера. Пока закрыты обе —
+        // заглушка, но с дверью «стать курьером заранее»: набор открыт и до запуска.
+        Screen.Courier -> FeatureGate(
+            open = { it.deliveryOn },
+            kind = ComingSoonKind.Delivery,
             onBack = { onBack() },
-            onBecomeCourier = { onOpen(Screen.CourierOnboarding) },
-            onEarnings = { onOpen(Screen.CourierEarnings) },
-            onCarPhoto = { onOpenCarPhoto("courier") },
-        )
+            onFindRide = onFindRide,
+            title = appText("Режим курьера", "Курьер режимы"),
+            secondaryLabel = becomeCourierEarlyLabel(),
+            onSecondary = { onOpen(Screen.CourierOnboarding) },
+        ) {
+            CourierScreen(
+                onBack = { onBack() },
+                onBecomeCourier = { onOpen(Screen.CourierOnboarding) },
+                onEarnings = { onOpen(Screen.CourierEarnings) },
+                onCarPhoto = { onOpenCarPhoto("courier") },
+            )
+        }
         else -> Unit   // снаружи сюда ведут только перечисленные экраны
     }
 }

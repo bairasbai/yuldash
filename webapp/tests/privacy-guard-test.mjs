@@ -53,6 +53,9 @@ const DEVICE_KEYS = new Set([
   "yuldash.chunkReload",
   "yuldash.pref.notifications",
   "yuldash.pref.sounds",
+  // Какие направления включены (запуск волнами, GET /config/features): одинаково для всех,
+  // публичный ответ сервера без единого личного поля — настройка устройства, не человека.
+  "yuldash.features",
 ]);
 // Эти чистятся своим кодом, не через privacy.ts.
 const CLEARED_ELSEWHERE = new Set([

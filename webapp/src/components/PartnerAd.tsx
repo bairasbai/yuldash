@@ -17,6 +17,9 @@ import { useEffect, useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
 import { fetchAds, sendAdEvent, type AdPlacement, type PartnerAd } from "../api/ads";
 import { isOwnApiUrl } from "../api/client";
+import { useFeatures } from "../features";
+
+const EMPTY_ADS: PartnerAd[] = [];
 
 /**
  * Реклама под место показа. Молчит при любой неудаче: нет сети, ручки
@@ -24,16 +27,25 @@ import { isOwnApiUrl } from "../api/client";
  */
 export function usePartnerAds(placement: AdPlacement, city?: string): PartnerAd[] {
   const [ads, setAds] = useState<PartnerAd[]>([]);
+  // Запуск волнами: реклама выключена — не показываем и не запрашиваем. Витрина без договора
+  // и маркировки — нарушение закона, а не просто пустое место, поэтому даже уже загруженное
+  // скрывается, как только флаг выключился или стал неизвестным.
+  const adsOpen = useFeatures().ads;
 
   useEffect(() => {
+    if (!adsOpen) {
+      setAds([]);
+      return;
+    }
     const ac = new AbortController();
     fetchAds({ placement, city: city?.trim() || undefined, signal: ac.signal })
       .then((list) => setAds(Array.isArray(list) ? list : []))
       .catch(() => setAds([])); // 404 / нет сети → тихо без рекламы
     return () => ac.abort();
-  }, [placement, city]);
+  }, [placement, city, adsOpen]);
 
-  return ads;
+  // Между переключением флага и очисткой состояния кадр не должен показать старое.
+  return adsOpen ? ads : EMPTY_ADS;
 }
 
 /** Телефон для звонка: оставляем только цифры и плюс. Меньше 10 цифр — не номер. */
