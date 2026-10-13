@@ -815,13 +815,23 @@ export function fetchAdminDebts(signal?: AbortSignal): Promise<AdminDebt[]> {
   return apiGet<AdminDebt[]>("/admin/debts", { signal });
 }
 
+/**
+ * Ответ на подтвердить / отклонить / списать. `already: true` — долг закрыли другим путём
+ * (карта, кошелёк, разбор жалобы), пока админ смотрел на строку: ничего не изменилось.
+ */
+export interface DebtActionResult {
+  ok: boolean;
+  status: string;
+  already?: boolean;
+}
+
 /** Деньги пришли — долг закрыт. */
-export function confirmDebt(debtId: number): Promise<{ ok: boolean; status: string }> {
+export function confirmDebt(debtId: number): Promise<DebtActionResult> {
   return apiPost(`/admin/debts/${debtId}/confirm`);
 }
 
 /** Денег нет — возвращаем долг в «не оплачен». */
-export function rejectDebt(debtId: number): Promise<{ ok: boolean }> {
+export function rejectDebt(debtId: number): Promise<DebtActionResult> {
   return apiPost(`/admin/debts/${debtId}/reject`);
 }
 
@@ -829,7 +839,7 @@ export function rejectDebt(debtId: number): Promise<{ ok: boolean }> {
  * Списать долг по-человечески: пассажир не заплатил, поездка сорвалась, спорная ситуация.
  * Раньше выбора не было — водитель оставался должен комиссию за поездку, где ему не заплатили.
  */
-export function forgiveDebt(debtId: number, reason: string): Promise<{ ok: boolean }> {
+export function forgiveDebt(debtId: number, reason: string): Promise<DebtActionResult> {
   return apiPost(`/admin/debts/${debtId}/forgive`, { reason });
 }
 

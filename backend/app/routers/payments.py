@@ -258,6 +258,17 @@ def _activate_payment(session: Session, payment: Payment) -> None:
         from .. import debt as debt_mod
         from ..models import CommissionDebt, DebtStatus
         snapshot_ids = debt_mod.taxi_debt_snapshot_ids(payment)
+        if snapshot_ids == ():
+            # Маркер нашего формата, но повреждён — состав счёта неизвестен. Fail-closed, как
+            # у курьера: не гасим и не возвращаем вслепую, платёж остаётся pending — webhook/
+            # поллинг повторят попытку после ремонта данных.
+            raise RuntimeError("invalid taxi debt payment snapshot marker")
+        if snapshot_ids is None:
+            # Платёж без маркера (создан до листа 1.1): состав — по времени создания платежа,
+            # читаем его ОДИН раз и дальше идём тем же путём, что снимок (лист 1.2d). Раньше
+            # отдельная `mark_all_paid` писала «оплачено» вслепую: долг, прощённый или закрытый
+            # кошельком между её чтением и записью, карта оплачивала второй раз без возврата.
+            snapshot_ids = debt_mod.legacy_taxi_debt_bill_ids(session, payment.user_id, payment.created_at)
         if snapshot_ids:
             now = utcnow()
             # Атомарный UPDATE с условием ПРЯМО в WHERE — ядро защиты от гонки с
@@ -295,15 +306,6 @@ def _activate_payment(session: Session, payment: Payment) -> None:
                         ext_id=debt_mod.taxi_debt_refund_ext_id(payment.id, d.id),
                         note=debt_mod.TAXI_DEBT_REFUND_NOTE,
                     )
-        elif snapshot_ids == ():
-            # Маркер нашего формата, но повреждён — состав счёта неизвестен. Fail-closed, как
-            # у курьера: не гасим и не возвращаем вслепую, платёж остаётся pending — webhook/
-            # поллинг повторят попытку после ремонта данных.
-            raise RuntimeError("invalid taxi debt payment snapshot marker")
-        else:
-            # snapshot_ids is None → платёж без маркера (создан до этой правки) — старое
-            # поведение по времени создания платежа.
-            debt_mod.mark_all_paid(session, payment.user_id, up_to=payment.created_at, commit=False)
         _mark_succeeded(payment); session.add(payment); session.commit()
         return
     # --- Аддитивные / прочие эффекты: succeeded ПЕРВЫМ (под тем же row-lock), потом эффект ---
@@ -847,7 +849,7 @@ def reject_manual_payment(session: Session, payment_id: int) -> tuple[str, Payme
     который в ту же секунду провёл вебхук, и отвечала «Отклонена оплата» по проведённым деньгам.
     И плательщику ничего не сообщала — в отличие от админки (волна 84).
 
-    Исход: not_found | closed | already | rejected.
+    Исход: not_found | closed | already | provider | rejected.
     """
     payment = session.get(Payment, payment_id, with_for_update=True, populate_existing=True)
     if not payment:
@@ -856,6 +858,11 @@ def reject_manual_payment(session: Session, payment_id: int) -> tuple[str, Payme
         return "closed", payment
     if payment.status == "canceled":
         return "already", payment
+    # Карточный платёж руками не отменяем — так же, как не подтверждаем (ревью #123). Его судьбу
+    # знает только банк: человек мог уже оплатить по ссылке, а вебхук применяет платёж лишь из
+    # pending — отменённый руками остался бы отменённым, деньги у платформы, человеку ничего.
+    if payment.provider_id or payment.method == "yookassa":
+        return "provider", payment
     payment.status = "canceled"
     session.add(payment)
     session.commit()
@@ -895,6 +902,9 @@ def admin_reject_payment(payment_id: int, user: User = Depends(current_user), se
     if outcome == "closed":
         raise herr(409, "Этот платёж уже закрыт. Обнови список.",
                    "Был түләү инде ябылған. Исемлекте яңырт.")
+    if outcome == "provider":
+        raise herr(409, "Платёж картой вручную не отклоняется — проверь его в ЮKassa",
+                   "Карта менән түләү ҡул менән кире ҡағылмай — уны ЮKassa-ла тикшер")
     admin_action(user.id, "payment.reject", payment_id=payment.id, user=payment.user_id)
     return {"payment_id": payment.id, "status": payment.status}
 
