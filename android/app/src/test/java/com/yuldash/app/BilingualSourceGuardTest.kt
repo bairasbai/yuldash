@@ -226,9 +226,10 @@ class BilingualSourceGuardTest {
     //
     // Правило одно на все формы: в выражении не должно быть русского в кавычках вне `appText(…)`.
     // Ветка по `AppLanguage` (`if (language == AppLanguage.Ba) "…" else "…"`) — тоже выбор языка.
+    // Вложенный блок `{ … }` с выбором языка внутри (Ru/Ba собраны заранее) — не тревога.
     // НЕ видит (честно): надпись, собранную заранее в переменную (`val msg = "…"; Toast(…, msg, …)`),
-    // русский внутри вложенного блока `{ … }` выражения (`if (a) { "…" } else …`) и выражение,
-    // перенесённое на новую строку сразу после `if (…)`.
+    // русский в блоке `{ … }`, где рядом уже есть `appText` (сторож не различает, что к чему), и
+    // выражение, перенесённое на новую строку сразу после `if (…)`.
 
     private val languageBranch = Regex("""\bAppLanguage\b""")
     // `appText` и помощники, которые сами зовут его и получают оба языка аргументами
@@ -238,7 +239,10 @@ class BilingualSourceGuardTest {
     private val named = Regex("""^\s*\w+\s*=(?!=)""")
 
     /** Выражение справа от `=` в [code]: до запятой, закрывающей скобки или конца строки на нулевой глубине. */
-    private fun exprAfter(code: String, start: Int): IntRange {
+    private fun exprAfter(code: String, from: Int): IntRange {
+        // Значение может стоять и на следующей строке: `contentDescription =\n    "Назад"`.
+        var start = from
+        while (start < code.length && code[start].isWhitespace()) start++
         var depth = 0
         var i = start
         fun nextWord(): String {
@@ -258,7 +262,7 @@ class BilingualSourceGuardTest {
             } else if (c == '\n' && depth == 0) {
                 val before = code.substring(start, i).trimEnd()
                 val after = nextWord()
-                val goesOn = listOf("else", "+", "?:", "=").any { before.endsWith(it) } ||
+                val goesOn = listOf("else", "+", "?:").any { before.endsWith(it) } ||
                     listOf("else", "+", "?:", ".").any { after.startsWith(it) }
                 if (!goesOn) break
             }
@@ -280,11 +284,21 @@ class BilingualSourceGuardTest {
         // Внутри вложенного блока `{ … }` — свой код: там варианты строят по языкам заранее
         // (`val разборRu = …; val разборBa = …; appText(…$разборRu…, …$разборBa…)`), а надписи
         // в лямбдах (`text = { Text("…") }`) проверяет их собственный вызов `Text(`.
+        // Блок прощается, только если в нём самом есть выбор языка — иначе `when (s) { A -> "Ждёт" }`,
+        // `name.ifBlank { "Гость" }` или `if (a) { "Да" } else { "Нет" }` прошли бы молча.
         var depth = 0
+        var open = -1
         expr.forEachIndexed { k, ch ->
-            if (ch == '{') depth++
-            if (depth > 0) covered[k] = true
-            if (ch == '}' && depth > 0) depth--
+            if (ch == '{') { if (depth == 0) open = k; depth++ }
+            if (ch == '}' && depth > 0) {
+                depth--
+                if (depth == 0 && open >= 0) {
+                    val block = expr.substring(open, k + 1)
+                    if (appTextOpen.containsMatchIn(block) || languageBranch.containsMatchIn(block)) {
+                        for (b in open..k) covered[b] = true
+                    }
+                }
+            }
         }
         appTextOpen.findAll(expr).forEach { m ->
             val open = range.first + m.range.last
@@ -387,21 +401,31 @@ class BilingualSourceGuardTest {
         assertEquals(0, texts("// Text(text = \"$ru\")").size)
         assertEquals(0, texts("if (text == \"$ru\") return").size)
         assertEquals(0, texts("Text(if (a) { val r = \"$ru\"; val b = \"Сәләм\"; appText(r, b) } else appText(\"$ru\", \"Сәләм\"))").size)
-        assertEquals(1, texts("AlertDialog(text = { Text(\"$ru\") })").size)   // ловит сам Text(, не text =
+        assertTrue(texts("AlertDialog(text = { Text(\"$ru\") })").isNotEmpty())
+        assertEquals(1, texts("Text(when (s) { A -> \"Ждёт\"\n else -> \"Готово\" })").size)
+        assertEquals(1, texts("Text(name.ifBlank { \"Гость\" })").size)
+        assertEquals(1, texts("Text(if (a) { \"Да\" } else { \"Нет\" })").size)
+        assertEquals(1, texts("Text(buildAnnotatedString { append(\"$ru\") })").size)
+        assertEquals(1, descs("Icon(\n    i,\n    contentDescription =\n        \"Назад\",\n)").size)
+        assertEquals(1, texts("Text(\n    text =\n        \"$ru\",\n)").size)
         assertEquals(0, descs("Modifier.semantics { contentDescription = \"\$title. \$subtitle\" }").size)
         assertEquals(0, descs("Icon(i, contentDescription = null)").size)
         assertEquals(0, descs("Icon(i, null, tint = CanonGreen)").size)
         assertEquals(0, toasts("Toast.makeText(ctx, if (language == AppLanguage.Ba) \"Сәләм\" else \"$ru\", Toast.LENGTH_SHORT)"))
         assertEquals(0, toasts("Toast.makeText(ctx, appText(\"$ru\", \"Сәләм\"), Toast.LENGTH_SHORT)"))
         assertEquals(0, toasts("Toast.makeText(context, serverSaid(it, текст), Toast.LENGTH_LONG)"))
-        // На живом коде разбор обязан видеть сотни Toast и Text — иначе он ослеп.
+        // На живом коде разбор обязан видеть сотни Toast, Text и подписей для TalkBack — иначе он ослеп.
         var toastCount = 0
         var textCount = 0
+        var descCount = 0
         SourceScan.appSources().forEach { f ->
             val src = f.readText()
+            val code = SourceScan.scrub(src, blankStrings = true)
             toastCount += toastMessages(src).size
-            textCount += Regex("""(?<![\w.])Text\(""").findAll(SourceScan.scrub(src, blankStrings = true)).count()
+            textCount += Regex("""(?<![\w.])Text\(""").findAll(code).count()
+            descCount += Regex("""\bcontentDescription\s*=(?!=)|(?<![\w.])(?:Icon|Image)\(""").findAll(code).count()
         }
+        assertTrue("нашёл всего $descCount contentDescription/Icon/Image — разбор ослеп", descCount > 200)
         assertTrue("нашёл всего $toastCount Toast — разбор ослеп", toastCount > 200)
         assertTrue("нашёл всего $textCount Text( — разбор ослеп", textCount > 1000)
     }

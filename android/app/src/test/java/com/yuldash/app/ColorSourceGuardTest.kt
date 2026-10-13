@@ -23,7 +23,9 @@ import org.junit.Test
  * через `.toArgb()`. Битовая маска (`x and 0x00FFFFFF`) — не цвет, её сторож не трогает.
  *
  * Чего сторож НЕ видит (честно): `Color.White`/`Color.Black` и прочие именованные цвета
- * (в том числе `android.graphics.Color.WHITE`); цвет, собранный из частей (`(a shl 24) or rgb`).
+ * (в том числе `android.graphics.Color.WHITE`); цвет, собранный из частей (`(a shl 24) or rgb`);
+ * число в десятичной записи вне `Color(…)` (`paint.color = -16777216`). Ложная тревога возможна на
+ * маске с переносом строки после `and` или на `nextInt(0x7FFFFFFF)` — тогда перепиши в одну строку.
  */
 class ColorSourceGuardTest {
 
@@ -35,8 +37,11 @@ class ColorSourceGuardTest {
 
     private val numericColor = Regex(
         """\bColor\(\s*(?:(?:color|red|green|blue|alpha)\s*=\s*)?[-+]?\.?\d|\bColor\.hs[vl]\(""" +
-            // Canvas: «#…» строкой, rgb/argb числами и голое ARGB-число (не после and/or/xor — то маска).
-            """|\bparseColor\(|\bColor\.a?rgb\(\s*\d|(?<!\b(?:and|or|xor)\s)\b0[xX][0-9A-Fa-f]{8}\b"""
+            // Canvas: «#…» строкой, rgb/argb/valueOf/setARGB/HSVToColor числами и голое ARGB-число:
+            // `0xFF0B6B3A`, `0xFF0B6B3AL`, `0xFF_0B_6B_3A`, `-0x1000000` (не после and/or/xor — то маска).
+            """|\bparseColor\(|\bColor\.(?:a?rgb|valueOf)\(\s*[-.\d]|\bsetARGB\(\s*\d|\bHSVToColor\(""" +
+            """|(?<![\w.])-0[xX][0-9A-Fa-f]{6,8}\b""" +
+            """|(?<!\b(?:and|or|xor)\s)\b0[xX](?:[0-9A-Fa-f]_?){7}[0-9A-Fa-f][uUlL]*(?![0-9A-Fa-f_])"""
     )
 
     private fun allowedPlace(rel: String) = rel == "CanonTokens.kt" || rel.startsWith("ui/theme/")
@@ -100,6 +105,13 @@ class ColorSourceGuardTest {
             "setShadowLayer(4f, 0f, 2f, 0x40000000)",
             "val white = 0xFFFFFFFF.toInt()",
             "val j = android.graphics.Color.rgb(11, 107, 58)",
+            "paint.color = -0x1000000",
+            "val k = 0xFF0B6B3AL",
+            "val l = 0xFF_0B_6B_3A",
+            "paint.setARGB(255, 11, 107, 58)",
+            "val m = android.graphics.Color.valueOf(0.04f, 0.42f, 0.23f)",
+            "val n = android.graphics.Color.argb(.5f, 0f, 0f, 0f)",
+            "val o = android.graphics.Color.HSVToColor(hsv)",
             "Text(\"https://yulbash.ru\", color = Color(0xFF000000))",
         )
         caught.forEach { assertEquals("не поймал: $it", 1, ownColors(it).size) }

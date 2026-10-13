@@ -8,7 +8,7 @@
 //                          Хук — быстрая подсказка сразу после правки; договор держат тесты, но только
 //                          при прогоне: цвет — ColorSourceGuardTest, кегль/радиус/длительность/тень —
 //                          CanonSourceGuardTest, padding(N.dp) — храповик SpacingRatchetGuardTest,
-//                          один язык (Text, text =, contentDescription, Toast) — BilingualSourceGuardTest.
+//                          один язык (Text, text =, contentDescription, Icon/Image, Toast) — BilingualSourceGuardTest.
 //
 // Любая неожиданность (нет ruff, кривой JSON) → молча выходим: хук не должен мешать работе.
 import { spawnSync } from 'node:child_process';

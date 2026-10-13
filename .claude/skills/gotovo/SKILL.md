@@ -39,7 +39,7 @@ $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"     # local.properties не н
 .\gradlew.bat :app:testDebugUnitTest --no-daemon --tests "*GuardTest" --tests "<тесты затронутых экранов>"
 ```
 - `*GuardTest` — ~30 сторожей правил, читают исходники и идут быстро: двуязычие (`Text`, `text =`,
-  `contentDescription`, `Toast`), шкалы `Canon*`, свой цвет `Color(0x…)` (`ColorSourceGuardTest`),
+  `contentDescription`, `Icon`/`Image`, `Toast`), шкалы `Canon*`, свой цвет `Color(0x…)` (`ColorSourceGuardTest`),
   храповик `padding(N.dp)` (`SpacingRatchetGuardTest`), контраст, тон «ты», тач-цели, деньги, приватность. Полный набор (3 600+ тестов Robolectric, долго,
   с порогом покрытия) гоняет CI; локально — сторожа и тесты затронутых экранов.
 - `compileDebugAndroidTestKotlin` — инструментальные тесты (`androidTest`) не собирают ни `assembleDebug`,
