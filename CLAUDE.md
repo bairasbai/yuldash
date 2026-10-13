@@ -10,7 +10,7 @@
 
 ## Автоматика в `.claude/settings.json`
 - После каждой правки хук `.claude/hooks/yuldash-post-edit.mjs` подсказывает: мёртвые импорты в `backend/app/` (ruff `--select F`, как CI), `Color(0x…)` и одноязычный `Text("…")` в новых строках экранов. Подсказку хука чини сразу, не жди CI.
-- Запрещено (deny): правки `mobile/**`; чтение `local.properties`, `google-services.json`, `keystore.properties`, `*.jks`, `*.keystore` — в любой папке, в т.ч. в основном чекауте из worktree. Хук `.claude/hooks/yuldash-secrets-guard.mjs` не даёт команде Bash/PowerShell прочитать или скопировать эти файлы. Отказ — граница, не обходи.
+- Запрещено (deny): правки `mobile/**`; чтение `local.properties`, `google-services.json`, `keystore.properties`, `*.jks`, `*.keystore` — в любой папке, в т.ч. в основном чекауте из worktree. Хук `.claude/hooks/yuldash-secrets-guard.mjs` не даёт команде Bash/PowerShell прочитать или скопировать их (по имени или маске) и запрещает рекурсивный `grep`/`findstr`/`Get-ChildItem -Recurse` по папкам, где лежат ключи: искать по коду — инструментом Grep или `rg` (они пропускают файлы из `.gitignore`). Отказ — граница, не обходи.
 
 ## Модели: кому какую работу (Claude 5.5)
 `model` субагенту — всегда явно. Бриф Opus/Fable — цель + ограничения + критерий готовности, а не пошаговый план; каждому исполнителю — «запусти реальную проверку и приложи вывод».

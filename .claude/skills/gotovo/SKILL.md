@@ -73,9 +73,10 @@ python -m pytest tests/ -q --maxfail=25
   (раздел «Навигация разрезана» в `docs/architecture.md`) + строка в `docs/architecture.md`.
 - Второй мозг: решение → `docs/decisions.md`, грабли → `docs/lessons.md`, прогресс → `docs/tasks.md`.
 - `mobile/` не тронут: `git diff --name-only $(git merge-base origin/main HEAD) -- mobile` — пусто.
-- Ключей нет: среди изменённых и новых файлов (шаг 1) нет `local.properties`, `google-services.json`,
-  `keystore.properties`, `*.jks`, `*.keystore`, `.env`; и сканер чист:
-  `detect-secrets scan <изменённые и новые файлы>` → `"results": {}`.
+- Ключей нет — обе команды выводят пусто (хук-сторож их пропускает):
+  `git diff --name-only $(git merge-base origin/main HEAD) -- '*local.properties' '*google-services.json' '*keystore.properties' '*.jks' '*.keystore' '*.env'`
+  `git ls-files --others --exclude-standard -- '*local.properties' '*google-services.json' '*keystore.properties' '*.jks' '*.keystore' '*.env'`
+  и сканер чист: `detect-secrets scan <изменённые и новые файлы>` → `"results": {}`.
 
 ## 4. Независимая приёмка (⭐ п.8 `AGENTS.md`)
 

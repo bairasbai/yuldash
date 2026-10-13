@@ -5,8 +5,9 @@
 //   backend/app/**.py    → ruff --select F (мёртвые импорты/переменные) — тот же гейт, что в CI
 //                          (CI гоняет ruff только по app/; в tests/ свои старые F-ошибки — не наши).
 //   android/app/src/main → захардкоженный Color(0x…) и одноязычный Text("…") в НОВЫХ строках.
-//                          Кегль, радиус, длительность, тень держит CanonSourceGuardTest; цвет и
-//                          одноязычный Text не ловит ни один тест — только этот хук.
+//                          Кегль, радиус, длительность, тень держит CanonSourceGuardTest, одноязычный
+//                          Text — BilingualSourceGuardTest (но только при прогоне тестов); цвет не ловит
+//                          ни один тест — только этот хук. Хук — быстрая подсказка сразу после правки.
 //
 // Любая неожиданность (нет ruff, кривой JSON) → молча выходим: хук не должен мешать работе.
 import { spawnSync } from 'node:child_process';
@@ -43,6 +44,20 @@ if (/(^|\/)backend\/app\/.+\.py$/.test(file)) {
   }
 }
 
+// Код строки без хвостового `// комментария`; `//` внутри строки в кавычках («https://…») — не комментарий.
+function stripComment(code) {
+  let quote = '';
+  for (let i = 0; i < code.length; i++) {
+    const c = code[i];
+    if (quote) {
+      if (c === '\\') i++;
+      else if (c === quote) quote = '';
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === '/' && code[i + 1] === '/') return code.slice(0, i);
+  }
+  return code;
+}
+
 const isScreenKotlin = /(^|\/)android\/app\/src\/main\/.+\.kt$/.test(file)
   && !/\/(Canon[^/]*|[^/]*Theme[^/]*)\.kt$/.test(file);
 if (isScreenKotlin) {
@@ -50,7 +65,7 @@ if (isScreenKotlin) {
     const code = line.trim();
     if (code.startsWith('//')) continue;
     // Цвет — по коду без хвостового комментария: `foo() // было Color(0x…)` — не нарушение.
-    if (/\bColor\(\s*0x/i.test(code.split('//')[0])) {
+    if (/\bColor\(\s*0x/i.test(stripComment(code))) {
       problems.push(`цвет захардкожен → возьми Canon* из CanonTokens.kt (нет нужного — заведи там):\n  ${code}`);
     }
     // Имя бренда и госномер («Х123УХ102») одинаковы на обоих языках — их не трогаем.

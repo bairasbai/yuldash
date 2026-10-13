@@ -40,14 +40,14 @@
    (ws://127.0.0.1:8000/ws/trip/{booking_id}/location, первым {"type":"auth","token":...}, дальше {"type":"loc",...}).
    Подтверди бронь (POST /bookings/{id}/confirm водителем), выстави departed (POST /bookings/{id}/driver-status {"status":"departed"}) →
    пассажир видит баннер «Водитель выехал к вам». В UI debug-кнопка «▶ Симуляция» внизу-слева карты (только BuildConfig.DEBUG).
-6. Бэкенд: pytest на сервере, /health, журнал ошибок (systemctl status yuldash-api / journalctl). Симулируй поездки/заявки/чат через API.
+6. Бэкенд: pytest на сервере (своя тестовая база), /health, журнал ошибок (systemctl status yuldash-api / journalctl). Поездки/заявки/чат симулируй через API ТОЛЬКО на локальном стенде (docs/qa.md, «Локальный стенд»); на проде — только чтение: изменение прод-базы ждёт «да» Александра (§8 AGENTS.md).
 7. Баги чини сам (корневая причина, не костыль). Двуязычие: любая надпись через appText(ru, ba). Пересобери зелёным. Перепроверь фикс на эмуляторе.
 8. Отчёт: test_artifacts/TEST_REPORT.md (дата, окружение, статистика тестов, упавшие с логами, скриншоты, вердикт production-ready).
    Обнови docs/tasks.md + lessons.md. Скриншоты — test_artifacts/screenshots/.
 
 ПРАВИЛА:
 - Один агент — один файл (MainActivity/экраны). Эмулятор/сборка — по очереди, не параллель.
-- Не помечай «готово» без BUILD SUCCESSFUL. Не коммить без явной просьбы Александра.
+- Не помечай «готово» без BUILD SUCCESSFUL. Коммит в свою ветку — можно; слияние в main и push — только по просьбе Александра (§8 AGENTS.md).
 - Сначала вывод, потом детали. По-русски, просто. Диктофонные баги — с фрагментом лога.
 ```
 
@@ -57,6 +57,6 @@
 
 - **Espresso @Ignore на API 37** — эмулятор `Pixel_5` = Android 17/API 37 (будущий). `InputManager.getInstance` удалён → `createComposeRule` падает `NoSuchMethodException`. Поэтому Compose-UI-тесты скипаются, E2E делаем через `adb`+`uiautomator`. Снять `@Ignore` на эмуляторе API ≤36.
 - **Кириллица в консоли** — Windows-консоль cp1251, `uiautomator dump` содержит `→`/кириллицу. Парсить bounds через `python` с `export PYTHONIOENCODING=utf-8`, иначе `UnicodeEncodeError`.
-- **local.properties** — в `.gitignore`, в worktree его нет. Без ключей MapKit сборка карты падает. Копировать из основного репо.
+- **local.properties** — в `.gitignore`. Не копировать и не читать (§11 `AGENTS.md`): сборке хватает `ANDROID_HOME` (`build.gradle.kts` терпит отсутствие файла, CI так и собирает). Ключ в новые worktree кладёт сам Claude Code по `.worktreeinclude`; в старых карта пустая.
 - **API-токены для тестов** — `make_token(user_id)` минует SMS/Telegram-вход. Быстрый способ гонять E2E-потоки поездок без реального логина.
 - **LIVE-трекинг код-тестом** — 2 телефона не нужны: WS-стрим водителя запускается скриптом на сервере, пассажир смотрится на эмуляторе. Так проверяется реле `/ws/trip/{id}/location` + баннер статуса + плавная нав-стрелка.
