@@ -72,6 +72,7 @@ python -m pytest tests/ -q --maxfail=25
 - Новый экран — `enum Screen` (в `MainActivity.kt`) + ветка в `YuldashApp.kt` или `AppNav*.kt`
   (раздел «Навигация разрезана» в `docs/architecture.md`) + строка в `docs/architecture.md`.
 - Второй мозг: решение → `docs/decisions.md`, грабли → `docs/lessons.md`, прогресс → `docs/tasks.md`.
+- Меняли `.claude/hooks/` — `node .claude/hooks/yuldash-secrets-guard.test.mjs` зелёный.
 - `mobile/` не тронут: `git diff --name-only $(git merge-base origin/main HEAD) -- mobile` — пусто.
 - Ключей нет — обе команды выводят пусто (хук-сторож их пропускает):
   `git diff --name-only $(git merge-base origin/main HEAD) -- '*local.properties' '*google-services.json' '*keystore.properties' '*.jks' '*.keystore' '*.env'`
