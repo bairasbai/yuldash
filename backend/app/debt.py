@@ -652,6 +652,10 @@ def taxi_debt_refund_ext_id(payment_id: int, debt_id: int) -> str:
 
 REFUND_NOTE = "Возврат комиссии: разбор подтвердил, что не заплатили"
 TAXI_DEBT_REFUND_NOTE = "Возврат: пока банк подтверждал оплату картой, эта комиссия уже была закрыта"
+# Онлайн-оплата заказа (ledger.settle_instant_order) удержала комиссию записью fee, а долг Модели А
+# по этому заказу водитель к тому моменту уже оплатил — подпись «разбор подтвердил, что не
+# заплатили» тут была бы неправдой (ревью Opus 1.2d).
+ONLINE_REFUND_NOTE = "Возврат комиссии: заказ оплачен онлайн, комиссия уже удержана"
 
 # Подписи, которые сервер сам пишет в историю кошелька, — на башкирском. В базе лежит русский
 # текст (история денег append-only, админ сверяет по нему), на экран кошелька отдаём по языку
@@ -659,6 +663,7 @@ TAXI_DEBT_REFUND_NOTE = "Возврат: пока банк подтвержда�
 LEDGER_NOTE_BA = {
     REFUND_NOTE: "Комиссия ҡайтарылды: «түләмәнеләр» ялыуы раҫланды",
     TAXI_DEBT_REFUND_NOTE: "Ҡайтарыу: банк карта менән түләүҙе раҫлағансы, был комиссия инде ябылғайны",
+    ONLINE_REFUND_NOTE: "Комиссия ҡайтарылды: заказ онлайн түләнде, комиссия инде тотоп ҡалынды",
 }
 
 
@@ -774,7 +779,8 @@ def void_debt_for_order(session: Session, order_id: int, note: str = ""):
     # ещё слово водителя, и админ может его отклонить; вернуть по слову значило бы
     # подарить комиссию тому, чей перевод не дошёл.
     return "refunded" if refund_commission_to_wallet(
-        session, debt.driver_id, debt.amount_kop, order_id=order_id) else None
+        session, debt.driver_id, debt.amount_kop, order_id=order_id,
+        note=ONLINE_REFUND_NOTE if note else REFUND_NOTE) else None
 
 
 def _write_off(session: Session, debt: CommissionDebt, note: str) -> bool:

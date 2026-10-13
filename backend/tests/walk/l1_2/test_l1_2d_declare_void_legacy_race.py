@@ -107,7 +107,10 @@ def test_declare_does_not_reopen_debts_the_card_closed_a_moment_earlier(client, 
         "оплаченный картой долг снова «на подтверждении» — «Отклонить» у админа вернёт его в неоплаченные"
     )
     assert [d.declare_count or 0 for d in after] == [0, 0], "обещание засчитано по долгу, который уже оплачен"
-    assert told == [], "админу ушло «водитель заявил оплату» по долгу, который уже закрыт картой"
+    assert len(told) == 1 and "уже закрыт" in told[0] and "вернуть" in told[0], (
+        f"админ должен узнать, что перевод по СБП, если пришёл, — лишний: {told}"
+    )
+    assert "заявил оплату" not in told[0], "админу ушло «заявил оплату» по долгу, который уже закрыт картой"
 
 
 def test_declare_moves_only_what_is_still_unpaid_when_the_card_closed_part(client, user_factory, monkeypatch):
@@ -196,7 +199,8 @@ def test_unpaid_report_does_not_relabel_a_card_payment_as_written_off(client, us
     )
     assert res == "refunded", f"водитель заплатил картой, а разбор ответил «{res}» вместо «вернули»"
     assert _wallet_balance(drv["id"]) == 10_000
-    assert [e.ext_id for e in _ledger_adj_entries(drv["id"])] == [f"refund:order:{order_id}"]
+    assert [(e.ext_id, e.note) for e in _ledger_adj_entries(drv["id"])] == [
+        (f"refund:order:{order_id}", debt_mod.REFUND_NOTE)]
 
 
 def test_online_order_payment_refunds_a_debt_the_card_closed_a_moment_earlier(client, user_factory):
@@ -211,6 +215,10 @@ def test_online_order_payment_refunds_a_debt_the_card_closed_a_moment_earlier(cl
     assert box["fired"]
     assert res == "refunded"
     assert _wallet_balance(drv["id"]) == 10_000
+    # Подпись в кошельке — про онлайн-оплату, а не «разбор подтвердил, что не заплатили».
+    assert [e.note for e in _ledger_adj_entries(drv["id"])] == [debt_mod.ONLINE_REFUND_NOTE]
+    ba = debt_mod.LEDGER_NOTE_BA.get(debt_mod.ONLINE_REFUND_NOTE, "")
+    assert ba.strip() and ba != debt_mod.ONLINE_REFUND_NOTE
 
 
 def test_unpaid_report_keeps_the_admins_own_reason_when_he_forgave_a_moment_earlier(client, user_factory):

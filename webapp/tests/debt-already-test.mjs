@@ -1,4 +1,4 @@
-// «Долг уже оплачен»: на ответ сервера `already: true` админка показывает свою надпись,
+// «Долг уже закрыт»: на ответ сервера `already: true` админка показывает свою надпись,
 // а не обычное «Оплата подтверждена» (лист 1.2c). Раньше лишний перевод по СБП было видно
 // только в журнале сервера.
 import assert from "node:assert/strict";
@@ -20,7 +20,7 @@ console.log("✓ «уже оплачено» — только на настоя�
 for (const action of ["confirm", "reject", "forgive"]) {
   const { ru, ba } = DEBT_ALREADY[action];
   assert.ok(ru.trim() && ba.trim() && ru !== ba, `${action}: нужны оба языка`);
-  assert.ok(ru.startsWith("Долг уже оплачен"), `${action}: ${ru}`);
+  assert.ok(ru.startsWith("Долг уже закрыт"), `${action}: ${ru}`);
 }
 assert.ok(DEBT_ALREADY.confirm.ru.includes("СБП"), "при подтверждении админ должен узнать про лишний перевод по СБП");
 console.log("✓ тексты на двух языках, у подтверждения — подсказка про лишний перевод");

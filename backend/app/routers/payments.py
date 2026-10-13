@@ -903,8 +903,8 @@ def admin_reject_payment(payment_id: int, user: User = Depends(current_user), se
         raise herr(409, "Этот платёж уже закрыт. Обнови список.",
                    "Был түләү инде ябылған. Исемлекте яңырт.")
     if outcome == "provider":
-        raise herr(409, "Платёж у провайдера — вручную не отклоняется: если оплаты не будет, банк закроет его сам",
-                   "Түләү провайдерҙа — ҡул менән кире ҡағылмай: түләү булмаһа, банк уны үҙе яба")
+        raise herr(409, "Платёж картой вручную не отклоняется — проверь его в ЮKassa",
+                   "Карта менән түләү ҡул менән кире ҡағылмай — уны ЮKassa-ла тикшер")
     admin_action(user.id, "payment.reject", payment_id=payment.id, user=payment.user_id)
     return {"payment_id": payment.id, "status": payment.status}
 

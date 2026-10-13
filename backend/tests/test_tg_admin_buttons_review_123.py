@@ -67,7 +67,7 @@ def test_крестик_не_отменяет_карточный_платёж(cl
         r, сказано = _тап(client, monkeypatch, f"pay:no:{pid}")
         assert r.status_code == 200
         assert _статус(pid) == "pending", "карточный платёж отменён руками — оплату банка потом некуда применить"
-        assert any("у провайдера" in t for t in сказано), сказано
+        assert any("вручную не отклоняется" in t for t in сказано), сказано
         assert not any("Отклонена оплата" in t for t in сказано), сказано
 
 
@@ -79,7 +79,7 @@ def test_http_отклонить_не_отменяет_карточный_пла
         r = client.post(f"/admin/payments/{pid}/reject", headers=admin["auth"])
         assert r.status_code == 409, r.text
         detail = r.json()["detail"]
-        assert "провайдер" in detail["ru"].lower() and detail["ba"].strip() and detail["ba"] != detail["ru"]
+        assert "вручную не отклоняется" in detail["ru"] and detail["ba"].strip() and detail["ba"] != detail["ru"]
         assert _статус(pid) == "pending"
 
 
