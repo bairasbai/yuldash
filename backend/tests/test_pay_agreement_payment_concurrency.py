@@ -211,9 +211,13 @@ def _setup(client, user_factory):
                        "depart_at": depart, "seats_total": 3, "price": 1000})
     assert ride.status_code == 200, ride.text
     booked = client.post("/bookings", headers=passenger["auth"], json={"ride_id": ride.json()["id"], "seats": 1,
-                          "pay_method": "sbp", "pay_amount": 400})
-    assert booked.status_code == 200 and booked.json()["pay_amount"] == 400, booked.text
+                          "pay_method": "sbp"})
+    assert booked.status_code == 200, booked.text
     booking_id = booked.json()["id"]
+    # Сумму ниже цены поездки записывает водитель (скидка), не пассажир при брони — 13.10.
+    agreed = client.post(f"/bookings/{booking_id}/pay-agreement", headers=driver["auth"],
+                         json={"pay_amount": 400})
+    assert agreed.status_code == 200 and agreed.json()["pay_amount"] == 400, agreed.text
     assert client.post(f"/bookings/{booking_id}/confirm", headers=driver["auth"]).status_code == 200
     done = client.post(f"/bookings/{booking_id}/driver-status", headers=driver["auth"], json={"status": "done"})
     assert done.status_code == 200 and done.json()["status"] == "done", done.text
