@@ -22,7 +22,7 @@ from ..errors import herr
 from ..logs import admin_action, log
 from ..models import (
     Ad, Booking, DeviceToken, DriverProfile, InstantOrder, Message, Notification, OtpCode,
-    Payment, Rating, RequestResponse, Ride, SosEvent, TgAuth, User, UserRole,
+    Rating, RequestResponse, Ride, SosEvent, TgAuth, User, UserRole,
     WebPushSubscription,
 )
 from ..security import (
@@ -809,29 +809,27 @@ def _handle_admin_callback(callback: dict):
                 except HTTPException as e:
                     text = f"Не удалось принять отклик #{resp.id}: {e.detail}"
         else:
-            payment = s.get(Payment, user_id)
-            if not payment:
-                text = f"Платёж #{user_id} не найден"
-            elif approve:
-                if payment.status == "succeeded":
-                    text = f"Платёж #{payment.id} уже подтверждён"
-                elif payment.provider_id:
-                    # Карточный платёж (создан у провайдера) руками не активируем — его подтвердит
-                    # вебхук после реального списания (иначе тап ✅ = начисление без денег).
-                    text = f"Платёж #{payment.id} у провайдера — подтвердится сам после оплаты"
-                else:
-                    # ЕДИНЫЙ активатор из payments.py: знает ВСЕ назначения (boost/ad/partner_sub/
-                    # courier_commission/…). Локальная копия здесь знала только boost/ad — Telegram-✅
-                    # «подтверждал» подписку бизнеса и комиссию курьера, не применяя эффект.
-                    from .payments import _activate_payment   # локальный импорт — без цикла на старте
-                    _activate_payment(s, payment)
-                    text = f"Подтверждена оплата #{payment.id}: {payment.purpose} {payment.amount_kop // 100} ₽"
+            # То же ядро, что у админки (payments.py): блокировка строки, проверка статуса,
+            # единый активатор всех назначений, сообщение плательщику при отказе. Своя копия
+            # здесь отвечала «Подтверждена оплата» по уже отменённому платежу и «Отклонена» —
+            # по проведённому (ревью 2026-10-12, P2).
+            from .payments import confirm_manual_payment, reject_manual_payment   # без цикла на старте
+            if approve:
+                outcome, payment = confirm_manual_payment(s, user_id)
             else:
-                if payment.status == "pending":
-                    payment.status = "canceled"
-                    s.add(payment)
-                    s.commit()
-                text = f"Отклонена оплата #{payment.id}: {payment.purpose} {payment.amount_kop // 100} ₽"
+                outcome, payment = reject_manual_payment(s, user_id)
+            what = (f"{payment.purpose} {payment.amount_kop // 100} ₽" if payment else "")
+            text = {
+                "not_found": f"Платёж #{user_id} не найден",
+                "already": (f"Платёж #{user_id} уже подтверждён" if approve
+                            else f"Платёж #{user_id} уже отклонён"),
+                "closed": (f"Платёж #{user_id} уже закрыт ({payment.status if payment else ''}) — "
+                           + ("подтверждать нечего" if approve else "отклонить нельзя")),
+                "provider": f"Платёж #{user_id} у провайдера — подтвердится сам после оплаты",
+                "failed": f"Не удалось подтвердить платёж #{user_id} — проверь в админке",
+                "confirmed": f"Подтверждена оплата #{user_id}: {what}",
+                "rejected": f"Отклонена оплата #{user_id}: {what}",
+            }[outcome]
 
     if cb_id:
         _telegram_api("answerCallbackQuery", {"callback_query_id": cb_id, "text": text})
