@@ -33,7 +33,7 @@ from ..security import (
 )
 from ..services import (
     find_user_by_phone, guard_own_media_url, send_sms, set_driver_docs_verdict,
-    set_user_gender, sms_channel_live, user_rating,
+    set_user_gender, sms_channel_live, tell_driver_docs_verdict, user_rating,
 )
 from ..safety_logic import GENDERS
 from ..trust_service import record_login_consents
@@ -783,8 +783,10 @@ def _handle_admin_callback(callback: dict):
                     dp = DriverProfile(user_id=user_id)
                 # Тот же вердикт, что и кнопкой в админке, — через общий хелпер: отказ
                 # гасит подтверждение пола (его давали по этим правам).
-                set_driver_docs_verdict(s, target, dp, approved=approve)
+                changed = set_driver_docs_verdict(s, target, dp, approved=approve)
                 s.commit()
+                if changed:   # итог водителю — только записанный вердикт (после commit)
+                    tell_driver_docs_verdict(s, user_id, approved=approve)
                 text = f"{'Одобрен' if approve else 'Отклонён'} водитель #{user_id}: {target.name or target.phone}"
         elif parts[0] == "ad":
             ad = s.get(Ad, user_id)

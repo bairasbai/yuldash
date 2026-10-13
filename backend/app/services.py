@@ -341,7 +341,7 @@ def set_user_gender(session: Session, user: User, gender: str) -> None:
         session.add(prof)
 
 
-def set_driver_docs_verdict(session: Session, user: User, profile: DriverProfile, approved: bool) -> None:
+def set_driver_docs_verdict(session: Session, user: User, profile: DriverProfile, approved: bool) -> bool:
     """ЕДИНСТВЕННОЕ место, где выносится вердикт по документам водителя.
 
     Вердикт ставят три двери: кнопка админа (`/admin/drivers/{id}/moderate`), кнопки в
@@ -350,13 +350,46 @@ def set_driver_docs_verdict(session: Session, user: User, profile: DriverProfile
     права признали негодными, подтверждать по ним нечего. Через две другие двери водитель
     с отклонёнными документами сохранял бейдж «женщина за рулём» и женские заказы.
     Сторож — `test_docs_verdicts_go_through_one_door`.
+
+    Возвращает True, если вердикт поменялся: тогда дверь ПОСЛЕ своего commit зовёт
+    `tell_driver_docs_verdict` (сторож — `test_every_verdict_door_tells_the_driver`).
     """
+    new_status = "verified" if approved else "rejected"
+    changed = profile.docs_status != new_status
     user.verified = approved
-    profile.docs_status = "verified" if approved else "rejected"
+    profile.docs_status = new_status
     if not approved and profile.gender_verified:
         profile.gender_verified = False
     session.add(user)
     session.add(profile)
+    return changed
+
+
+def tell_driver_docs_verdict(session: Session, user_id: int, approved: bool) -> None:
+    """Сказать водителю итог проверки документов (сквозная проверка волны 1, 13.10.2026).
+
+    Экран проверки обещает «Сообщим о результате», а сообщения не было ни из одной двери:
+    одобренный водитель не знал, что бейдж уже есть, отклонённый — что надо переснять фото.
+
+    Зовётся ТОЛЬКО после commit вердикта. Раньше — нельзя: сообщение «проверены» ушло бы до
+    того, как вердикт записан, а на SQLite отдельная сессия уведомления упиралась в блокировку
+    записи открытой транзакции двери и молча терялась (ревью Opus волны 1). Тип `docs` —
+    приватный на заблокированном экране, как остальные сообщения о документах.
+    """
+    if approved:
+        push_notification(
+            session, user_id, "docs",
+            "Документы проверены", "Документтар тикшерелде",
+            "Теперь у тебя бейдж «Проверен» — пассажиры видят его в ленте и в брони.",
+            "Хәҙер һинең «Тикшерелгән» билдәң бар — юлсылар уны таҫмала һәм бронда күрә.",
+        )
+    else:
+        push_notification(
+            session, user_id, "docs",
+            "Документы не приняты", "Документтар ҡабул ителмәне",
+            "Проверь фото прав и машины и отправь снова.",
+            "Права һәм машина фотоларын тикшереп, ҡабат ебәр.",
+        )
 
 
 def clear_driver_docs(session: Session, user: User, profile: DriverProfile) -> None:

@@ -162,9 +162,20 @@ class ActiveTripSharingLoadTest {
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
         if (!missingBooking) waitFor { requests.any { it.first == "GET /bookings/42/details" } }
         callbacks = Shadows.shadowOf(cm).networkCallbacks.filter { it !in before }
-        compose.onNode(hasScrollToNodeAction() and SemanticsMatcher.keyIsDefined(
-            androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
-            .performScrollToNode(hasText(shareTitle()))
+        // CI 14.10: the details request is recorded before its answer reaches the screen, and the share
+        // row appears only after that answer. Give the screen a few frames and retry a bounded number of times.
+        var shareRowReached = false
+        repeat(5) {
+            if (!shareRowReached) {
+                pump()
+                shareRowReached = runCatching {
+                    compose.onNode(hasScrollToNodeAction() and SemanticsMatcher.keyIsDefined(
+                        androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+                        .performScrollToNode(hasText(shareTitle()))
+                }.isSuccess
+            }
+        }
+        check(shareRowReached) { "share row never appeared on the trip screen" }
         compose.onNodeWithText(shareTitle()).performClick()
         if (!missingBooking) waitFor { requests.any { it.first == "GET /bookings/42/shares" } }
         pump()
