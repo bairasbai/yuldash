@@ -6,8 +6,8 @@ import org.junit.Test
 
 /**
  * Сторож цвета. Читает исходники приложения и падает на любом цвете, заданном числом
- * (`Color(0xFF0B6B3A)`, `Color(255, 0, 0)`, `Color(red = 0.5f, …)`) где-либо, кроме
- * `CanonTokens.kt` и `ui/theme/`.
+ * (`Color(0xFF0B6B3A)`, `Color(color = 0xFF…)`, `Color(-16777216)`, `Color(255, 0, 0)`, `Color(.5f, …)`,
+ * `Color(red = 0.5f, …)`, `Color.hsv(…)`/`Color.hsl(…)`) где-либо, кроме `CanonTokens.kt` и `ui/theme/`.
  *
  * Зачем. Правило «цвет — только `Canon*`» стояло в правилах проекта давно, но держалось на
  * подсказке хука после правки и на ревью — тест его не проверял. Хук видит только новые строки
@@ -19,8 +19,9 @@ import org.junit.Test
  * красит интерфейс, или плоский, если это часть рисунка или картинки, которая от темы не зависит.
  *
  * Чего сторож НЕ видит (честно): `Color.White`/`Color.Black` и прочие именованные цвета Compose;
- * `android.graphics.Color.parseColor("#…")` и числа `0xFF….toInt()` в рисовании на `Canvas`
- * (значки карты в `MapPins.kt`/`MapCluster.kt`, картинка-открытка в `MyStatsScreen.kt`).
+ * число, спрятанное в константу (`const val G = 0xFF…` → `Color(G)`); `android.graphics.Color.parseColor("#…")`
+ * и числа `0xFF….toInt()` в рисовании картинок (значки карты в `MapPins.kt`/`MapCluster.kt`, цвет линии
+ * маршрута в `MapScreen.kt`, картинка-открытка в `MyStatsScreen.kt`).
  */
 class ColorSourceGuardTest {
 
@@ -30,7 +31,9 @@ class ColorSourceGuardTest {
      */
     private val exceptions: Map<String, String> = emptyMap()
 
-    private val numericColor = Regex("""\bColor\(\s*(?:\d|(?:red|green|blue|alpha)\s*=\s*\d)""")
+    private val numericColor = Regex(
+        """\bColor\(\s*(?:(?:color|red|green|blue|alpha)\s*=\s*)?[-+]?\.?\d|\bColor\.hs[vl]\("""
+    )
 
     private fun allowedPlace(rel: String) = rel == "CanonTokens.kt" || rel.startsWith("ui/theme/")
 
@@ -84,6 +87,11 @@ class ColorSourceGuardTest {
             "Box(Modifier.background(Color( 0x33FFFFFF )))",
             "val b = Color(255, 0, 0)",
             "val c = Color(red = 0.5f, green = 0f, blue = 0f)",
+            "val e = Color(color = 0xFF0B6B3A)",
+            "val f = Color(-16777216)",
+            "val g = Color(.5f, .5f, .5f)",
+            "val h = Color.hsv(140f, 0.9f, 0.4f)",
+            "val i = androidx.compose.ui.graphics.Color(0xFF0B6B3A)",
             "Text(\"https://yulbash.ru\", color = Color(0xFF000000))",
         )
         caught.forEach { assertEquals("не поймал: $it", 1, ownColors(it).size) }

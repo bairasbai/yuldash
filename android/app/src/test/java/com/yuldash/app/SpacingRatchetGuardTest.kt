@@ -11,11 +11,13 @@ import org.junit.Test
  * когда экраны уже были написаны: замер 13.10.2026 — **1004** вызова `padding(…)` с числом `N.dp`
  * против **495** ссылок на `CanonSpace`. Переписать тысячу мест разом — риск сломать вёрстку
  * десятков экранов ради ноля пользы. Поэтому долг заморожен: число не растёт, только падает.
+ * После слияния с `main` в тот же день (правки экранов из ревью 12.10) — **996**.
  *
  * Что считается. Вызов `padding(…)`, в аргументах которого есть число `N.dp`, кроме `0.dp`
  * («без отступа» — не дизайнерское решение). Один вызов — одна штука, сколько бы чисел в нём
- * ни было. Комментарии и текст в кавычках не считаются. НЕ считаются (честно): `PaddingValues(…)`,
- * `Arrangement.spacedBy(…)`, `Spacer(Modifier.height(…))` — они держатся на ревью.
+ * ни было; запись числа любая — `16.dp`, `16f.dp`, `(16).dp`, `Dp(16f)`. Комментарии и текст в кавычках
+ * не считаются. НЕ считаются (честно): `PaddingValues(…)`, `Arrangement.spacedBy(…)`,
+ * `Spacer(Modifier.height(…))` и отступ через переменную (`val p = 16.dp; padding(p)`) — они на ревью.
  *
  * Как снижать. Трогаешь экран — переведи его отступы на лестницу: 4→`xs`, 8→`sm`, 12→`md`,
  * 16→`lg`, 24→`xl`, 32→`xxl`, 48→`huge`; число мимо лестницы (10, 14, 18…) — ближайшая ступень.
@@ -25,15 +27,19 @@ import org.junit.Test
 class SpacingRatchetGuardTest {
 
     /** Потолок: сколько вызовов `padding(N.dp)` сейчас в коде. Расти нельзя, снижать — нужно. */
-    private val ceiling = 1004
+    private val ceiling = 996
 
     /**
      * На сколько число может опуститься ниже потолка, прежде чем тест попросит опустить и потолок.
-     * Запас — чтобы две ветки, каждая убравшая по паре отступов, не валили `main` после слияния.
+     * Запас — чтобы две ветки, каждая убравшая по паре отступов, не валили `main` после слияния;
+     * больше 10 не делать — иначе после уборки можно незаметно вернуть столько же сырых отступов.
      */
-    private val slack = 30
+    private val slack = 10
 
-    private val rawDp = Regex("""(?<![\w.])(\d+(?:\.\d+)?)\.dp\b""")
+    // `16.dp`, `16f.dp`, `(16).dp`, `Dp(16f)` — одно и то же число в разных записях.
+    private val rawDp = Regex(
+        """(?<![\w.])(\d+(?:\.\d+)?)[fF]?\.dp\b|\(\s*(\d+(?:\.\d+)?)[fF]?\s*\)\.dp\b|\bDp\(\s*(\d+(?:\.\d+)?)[fF]?\s*\)"""
+    )
 
     /** Вызовы `padding(…)` с сырым `N.dp` в тексте файла: номера строк. */
     private fun rawPaddings(src: String): List<Int> {
@@ -41,7 +47,7 @@ class SpacingRatchetGuardTest {
         return Regex("""\bpadding\(""").findAll(code).mapNotNull { m ->
             val open = m.range.last
             val args = SourceScan.callArgs(code, open).joinToString(",") { code.substring(it.first, it.last + 1) }
-            val own = rawDp.findAll(args).any { it.groupValues[1].toDouble() != 0.0 }
+            val own = rawDp.findAll(args).any { m -> m.groupValues.drop(1).first { it.isNotEmpty() }.toDouble() != 0.0 }
             if (own) SourceScan.lineOf(code, open) else null
         }.toList()
     }
@@ -80,6 +86,9 @@ class SpacingRatchetGuardTest {
             "Modifier.padding(if (wide) 10.dp else CanonSpace.md)",
             "Modifier.padding(CanonSpace.lg + 2.dp)",
             "Modifier.padding(0.5.dp)",
+            "Modifier.padding(16f.dp)",
+            "Modifier.padding((16).dp)",
+            "Modifier.padding(Dp(16f))",
         )
         counted.forEach { assertEquals("не посчитал: $it", 1, rawPaddings(it).size) }
         val skipped = listOf(

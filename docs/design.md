@@ -418,6 +418,6 @@ MSYS_NO_PATHCONV=1 adb pull /sdcard/s.png shot.png
 > темпе пульса, тени и весе `Black`. `Color(0x…)` вне `CanonTokens.kt` и `ui/theme/` валит
 > `ColorSourceGuardTest` (с 13.10.2026; цвет рисунка, не зависящий от темы, — плоский токен
 > в `CanonTokens.kt`). `padding(10.dp)` держит храповик `SpacingRatchetGuardTest`: таких вызовов
-> 1004, число не растёт — в новой строке бери `CanonSpace` (`PaddingValues`, `spacedBy`, `Spacer`
-> он не считает). `Text(text = "…")`, `contentDescription = "…"` и `Toast` на одном языке валит
-> `BilingualSourceGuardTest`. Остальное (`key` в списках, `Scaffold` во вкладке) — на глазах.
+> около тысячи (потолок — в тесте), число не растёт — в новой строке бери `CanonSpace` (`PaddingValues`,
+> `spacedBy`, `Spacer` и отступ через переменную он не считает). Надпись на одном языке в `Text`, `text =`,
+> `contentDescription`, `Icon`/`Image` и `Toast` валит `BilingualSourceGuardTest`. Остальное (`key` в списках, `Scaffold` во вкладке) — на глазах.

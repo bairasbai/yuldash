@@ -66,8 +66,8 @@ description: "Дизайн-система и правила UI Юлдаша — 
 38 длительностей**. Одно и то же по роли выглядело по-разному на каждом экране — это
 и читалось как «самоделка». Теперь одна шкала на всё, и её держит `CanonSourceGuardTest`:
 он читает исходники и **падает на своём кегле, радиусе, длительности и тени**. Цвет `Color(0x…)` валит
-`ColorSourceGuardTest`. Отступы `padding(N.dp)` держит храповик `SpacingRatchetGuardTest`: их 1004 и
-больше не становится — в новой строке только `CanonSpace` (`PaddingValues`, `spacedBy`, `Spacer` он не считает).
+`ColorSourceGuardTest`. Отступы `padding(N.dp)` держит храповик `SpacingRatchetGuardTest`: их около тысячи (потолок — в тесте)
+и больше не становится — в новой строке только `CanonSpace` (`PaddingValues`, `spacedBy`, `Spacer` он не считает).
 
 **Кегль — токеном, а не числом.** Пиши `style = CanonBody`, не `fontSize = 16.sp`.
 
