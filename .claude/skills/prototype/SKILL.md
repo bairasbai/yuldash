@@ -4,7 +4,7 @@ description: Build multiple genuinely different versions of a UI piece you descr
 disable-model-invocation: true
 ---
 > **Юлдаш — это про сайт, не про приложение.**
-> Советы применимы к лендингу в `web/` (Next.js). К Android-приложению в `android/` — нет:
+> Советы применимы к лендингу в `web/` (Next.js) и к PWA в `webapp/` (React). К Android-приложению в `android/` — нет:
 > там ни npm-пакетов, ни React. Для экранов приложения бери `yuldash-ui` и `docs/design.md`.
 
 

@@ -156,7 +156,7 @@ private fun TaxiReceiptContent(
     fun retry() { commit { if (orderId > 0 && !loading) { loading = loadRemote; reload++ } } }
     fun isCurrentReceipt(shown: InstantReceiptDto): Boolean = isCurrent() && !loading &&
         errorStatus == null && receipt == shown && shown.orderId == orderId
-    if (!isCurrent()) return
+    // Чек не гасим, когда он перестал быть текущим: экран ещё уезжает анимацией (было: вспышка фона); действия режет commit.
 
     val context = LocalContext.current
     val shareChooser = appText("Поделиться чеком", "Чек менән бүлешеү")
@@ -866,7 +866,7 @@ private fun TaxiAfterRideActions(
         }
     }
 
-    if (showProblemChoice) {
+    if (showProblemChoice && isCurrent()) {   // ушли с чека — диалог не висит поверх нового экрана
         val opening = problemOpening
         fun currentChoice(): Boolean = isCurrent() && showProblemChoice && opening == problemOpening
         fun closeChoice() { commit { if (currentChoice()) showProblemChoice = false } }
@@ -908,7 +908,7 @@ private fun TaxiAfterRideActions(
         )
     }
 
-    if (showReport) {
+    if (showReport && isCurrent()) {
         val opening = reportOpening
         fun currentReport(): Boolean = isCurrent() && showReport && opening == reportOpening
         ReportCategoryDialog(
@@ -931,7 +931,7 @@ private fun TaxiAfterRideActions(
         )
     }
 
-    if (showDispute && r.counterpartyId > 0) {
+    if (showDispute && r.counterpartyId > 0 && isCurrent()) {
         val opening = disputeOpening
         fun currentDispute(): Boolean = isCurrent() && showDispute && opening == disputeOpening
         key(opening) { FileIncidentDialog(

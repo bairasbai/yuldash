@@ -410,7 +410,7 @@ private fun TaxiTripContent(
     if (showChangeDestination) {
         ChangeDestinationSheet(
             order = order,
-            onDismiss = { commit { showChangeDestination = false } },
+            onDismiss = { showChangeDestination = false },   // всегда, даже после смены фазы: иначе невидимое окно поверх экрана
             ownerGeneration = generation,
             isCurrentParent = { isCurrentAction() && showChangeDestination },
             // Экран сам переспросит сервер через пару секунд — новую цену и адрес возьмёт

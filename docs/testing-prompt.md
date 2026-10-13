@@ -16,16 +16,16 @@
 
 ОКРУЖЕНИЕ (не спрашивай — оно такое):
 - Рабочий код: android/ (Kotlin + Jetpack Compose). НЕ трогать mobile/ (старый Flutter).
-- Сборка: cd android; $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'; .\gradlew.bat :app:assembleDebug --no-daemon
+- Сборка — из СВОЕГО чекаута (в worktree — его): Set-Location "$(git rev-parse --show-toplevel)\android"; $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'; $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"; .\gradlew.bat :app:assembleDebug --no-daemon
 - ADB: C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe
 - Эмулятор: AVD `Pixel_5` (API 37, экран 1080x2340). Запуск: emulator -avd Pixel_5 (если занят — фича «multiinstance», добавь -read-only). Ждать boot_completed=1.
-- local.properties НЕТ в worktree (в .gitignore) — скопируй из C:\Users\Bayra\Yuldash\android\local.properties (там ключи MapKit/геокодера, БЕЗ них карта не соберётся).
-- Бэкенд LIVE: https://yulbash.ru (health: {"status":"ok","db":"ok"}). SSH: ssh root@85.239.52.55 (ключ на ноуте). pytest: cd /opt/yuldash && ./.venv/bin/python -m pytest tests/ -q.
-- Токен для API-тестов без телефона: ssh ... "cd /opt/yuldash && ./.venv/bin/python -c 'from app.security import make_token; print(make_token(<user_id>))'". Юзеры: 1-4 водители (Ильдар/Айгуль/Рустам/Гүзәл), 27 водитель codex, 28 пассажир Codex.
+- local.properties НЕТ в worktree (в .gitignore) и НЕ копируй его: там ключи (§11 AGENTS.md). Сборке хватает ANDROID_HOME. Ключ карты — только в основной папке, копий не делаем: в worktree карта пустая, остальное проверяется; карту — сборкой из основной папки, когда ветка туда влита. Свой сервер для эмулятора — docs/qa.md, «Локальный стенд».
+- Бэкенд LIVE: https://yulbash.ru — для проверок ТОЛЬКО чтение: /health ({"status":"ok","db":"ok"}), журнал ошибок. SSH на прод (root@85.239.52.55) и любые действия там, кроме чтения, — только с «да» Александра (§8 AGENTS.md).
+- Токен для API-тестов без телефона — только на локальном стенде (docs/qa.md): из своего backend/ python -c 'from app.security import make_token; print(make_token(<user_id>))' по локальной базе. Токены за пользователей прода (в т.ч. тестовые аккаунты 27/28) — только с «да» Александра: это вход под чужим именем.
 
 ШАГИ:
-1. Прочитай docs/00-INDEX.md + docs/architecture.md (карта кода по строкам, НЕ читай MainActivity целиком).
-2. Скопируй local.properties в worktree. Собери :app:assembleDebug — зелёная? Установи -r на эмулятор.
+1. Мозг — по §1 AGENTS.md: ищи по экрану/файлу (rg; у Claude — Grep) и открывай только найденный раздел; 00-INDEX.md, architecture.md, MainActivity.kt целиком НЕ читай.
+2. Собери :app:assembleDebug (команда выше, с ANDROID_HOME) — зелёная? Установи -r на эмулятор.
 3. Unit: gradlew :app:testDebugUnitTest (CoreLogicTest). Instrumentation: gradlew :app:connectedDebugAndroidTest
    (YuldashViewModelInstrumentedTest пройдёт; BilingualComposeTest под @Ignore — Espresso 3.6.1 несовместим с API 37).
 4. РУЧНОЕ E2E через adb shell input tap + uiautomator dump (координаты хрупкие — всегда сверяй по dump, парси bounds
@@ -36,18 +36,18 @@
    - Заявка: форма (7 условий-тумблеров + обязательная дата/время), «Проверка заявки» (серый чек у незаполненного), создание.
    - Чат-инбокс (3 вкладки: Активные/Заявки/Система). Профиль (реферал, бейдж, язык RU↔BA — весь UI перерисовывается).
    - Состояния: оффлайн (svc wifi/data disable + airplane_mode_on 1) → карта на моках, «Поездки» = «Не удалось загрузить · Повторить». Retry после возврата сети.
-5. LIVE-трекинг БЕЗ 2 телефонов: symлируй водителя WS-стримом с сервера
+5. LIVE-трекинг БЕЗ 2 телефонов — ТОЛЬКО на локальном стенде (docs/qa.md): симулируй водителя WS-стримом со своего сервера
    (ws://127.0.0.1:8000/ws/trip/{booking_id}/location, первым {"type":"auth","token":...}, дальше {"type":"loc",...}).
    Подтверди бронь (POST /bookings/{id}/confirm водителем), выстави departed (POST /bookings/{id}/driver-status {"status":"departed"}) →
    пассажир видит баннер «Водитель выехал к вам». В UI debug-кнопка «▶ Симуляция» внизу-слева карты (только BuildConfig.DEBUG).
-6. Бэкенд: pytest на сервере, /health, журнал ошибок (systemctl status yuldash-api / journalctl). Симулируй поездки/заявки/чат через API.
+6. Бэкенд: pytest — локально (/gotovo); на сервере — только с «да» Александра (§8). На проде — /health и журнал ошибок (systemctl status yuldash-api / journalctl), только чтение. Поездки/заявки/чат симулируй через API ТОЛЬКО на локальном стенде (docs/qa.md, «Локальный стенд»); на проде — только чтение: изменение прод-базы ждёт «да» Александра (§8 AGENTS.md).
 7. Баги чини сам (корневая причина, не костыль). Двуязычие: любая надпись через appText(ru, ba). Пересобери зелёным. Перепроверь фикс на эмуляторе.
 8. Отчёт: test_artifacts/TEST_REPORT.md (дата, окружение, статистика тестов, упавшие с логами, скриншоты, вердикт production-ready).
    Обнови docs/tasks.md + lessons.md. Скриншоты — test_artifacts/screenshots/.
 
 ПРАВИЛА:
 - Один агент — один файл (MainActivity/экраны). Эмулятор/сборка — по очереди, не параллель.
-- Не помечай «готово» без BUILD SUCCESSFUL. Не коммить без явной просьбы Александра.
+- Не помечай «готово» без BUILD SUCCESSFUL. Коммит в свою ветку — можно; слияние в main и push — только по просьбе Александра (§8 AGENTS.md).
 - Сначала вывод, потом детали. По-русски, просто. Диктофонные баги — с фрагментом лога.
 ```
 
@@ -57,6 +57,6 @@
 
 - **Espresso @Ignore на API 37** — эмулятор `Pixel_5` = Android 17/API 37 (будущий). `InputManager.getInstance` удалён → `createComposeRule` падает `NoSuchMethodException`. Поэтому Compose-UI-тесты скипаются, E2E делаем через `adb`+`uiautomator`. Снять `@Ignore` на эмуляторе API ≤36.
 - **Кириллица в консоли** — Windows-консоль cp1251, `uiautomator dump` содержит `→`/кириллицу. Парсить bounds через `python` с `export PYTHONIOENCODING=utf-8`, иначе `UnicodeEncodeError`.
-- **local.properties** — в `.gitignore`, в worktree его нет. Без ключей MapKit сборка карты падает. Копировать из основного репо.
+- **local.properties** — в `.gitignore`. Не копировать и не читать (§11 `AGENTS.md`): сборке хватает `ANDROID_HOME` (`build.gradle.kts` терпит отсутствие файла, CI так и собирает). Ключ карты — только в основной папке (копий не делаем); в worktree карта пустая, карту проверяют из основной папки.
 - **API-токены для тестов** — `make_token(user_id)` минует SMS/Telegram-вход. Быстрый способ гонять E2E-потоки поездок без реального логина.
-- **LIVE-трекинг код-тестом** — 2 телефона не нужны: WS-стрим водителя запускается скриптом на сервере, пассажир смотрится на эмуляторе. Так проверяется реле `/ws/trip/{id}/location` + баннер статуса + плавная нав-стрелка.
+- **LIVE-трекинг код-тестом** — 2 телефона не нужны: WS-стрим водителя запускается скриптом на локальном стенде (не на проде), пассажир смотрится на эмуляторе. Так проверяется реле `/ws/trip/{id}/location` + баннер статуса + плавная нав-стрелка.

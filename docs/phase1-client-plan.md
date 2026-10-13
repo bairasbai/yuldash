@@ -3,7 +3,7 @@
 > **Зачем этот файл:** самый большой рычаг из [architecture-review-2026-07-20.md](architecture-review-2026-07-20.md) — клиентский фундамент (резать экраны, слой Repository+ViewModel). Но его **нельзя довести до «готово» в облачном контейнере** (нет Android SDK/`local.properties` → не собрать, а правило проекта — не помечать готовым без зелёной сборки). Здесь — пошаговый план, чтобы выполнить его там, где сборка есть (машина Александра / сессия Claude Code с настроенным SDK). Каждый шаг: **не меняет поведение → `gradlew :app:assembleDebug` зелёный → отдельный коммит**.
 
 ## Предусловия (перед стартом)
-1. Android SDK установлен; `android/local.properties` есть (`sdk.dir` + `YANDEX_MAPKIT_KEY`) — в worktree скопировать из основного репо (см. `lessons.md`).
+1. Android SDK установлен; `android/local.properties` есть (`sdk.dir` + `YANDEX_MAPKIT_KEY`) — в worktree скопировать из основного репо (см. `lessons.md`). **[Отменено 13.10.2026: ключи не копируем и не удаляем; сборка — с `ANDROID_HOME` (§5, §11 `AGENTS.md`).]**
 2. Один UI-агент за раз на `MainActivity.kt`/общий слой (§12 CLAUDE.md).
 3. Базовая сборка зелёная ДО начала: `cd android && ./gradlew :app:assembleDebug`.
 

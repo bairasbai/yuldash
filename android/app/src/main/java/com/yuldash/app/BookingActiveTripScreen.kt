@@ -776,7 +776,7 @@ internal fun BookingScreen(
 }
 
 @Composable
-private fun BookingDecisionBar(
+internal fun BookingDecisionBar(
     primaryText: String,
     primaryEnabled: Boolean,
     primaryStyle: AppButtonStyle,
@@ -784,7 +784,7 @@ private fun BookingDecisionBar(
     onMessage: () -> Unit,
     onPrimary: () -> Unit,
 ) {
-    val largeText = LocalDensity.current.fontScale >= 1.2f
+    val largeText = LocalDensity.current.fontScale > 1f   // уже при 1.15 на 320 dp «Забронировать» рвалось в строке
     Surface(color = CanonSurface, shadowElevation = CanonDepth.sheet) {
         val barModifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)
         if (largeText) {
@@ -804,6 +804,7 @@ private fun BookingDecisionBar(
                 )
             }
         } else {
+            val compactPadding = PaddingValues(horizontal = CanonSpace.md, vertical = CanonSpace.sm)
             Row(
                 barModifier.height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -811,18 +812,18 @@ private fun BookingDecisionBar(
                 AppButton(
                     text = appText("Написать", "Яҙырға"),
                     onClick = onMessage,
-                    modifier = Modifier.weight(0.9f).fillMaxHeight(),
+                    modifier = Modifier.width(IntrinsicSize.Max).fillMaxHeight(),   // по ширине подписи: доля weight на 320 dp рвала «Написа/ть»
                     style = AppButtonStyle.Secondary,
-                    fillWidth = false,
+                    fillWidth = false, contentPadding = compactPadding,
                 )
                 AppButton(
                     text = primaryText,
                     onClick = onPrimary,
-                    modifier = Modifier.weight(1.35f).fillMaxHeight(),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                     enabled = primaryEnabled,
                     style = primaryStyle,
                     icon = primaryIcon,
-                    fillWidth = false,
+                    fillWidth = false, contentPadding = compactPadding,
                 )
             }
         }
@@ -2679,6 +2680,7 @@ private fun ActiveTripContent(
             var listLoading by remember { mutableStateOf(true) }
             var listError by remember { mutableStateOf(false) }
             var mutationUncertain by remember { mutableStateOf(false) }
+            var listErrorText by remember { mutableStateOf<String?>(null) }   // объяснение сервера (429 и т.п.); null — обрыв сети
             var mutationBusy by remember { mutableStateOf(false) }
             var listRequest by remember { mutableIntStateOf(0) }
             fun canMutate() = isShareCurrent() && !listLoading && !listError && !mutationBusy
@@ -2686,13 +2688,13 @@ private fun ActiveTripContent(
                 if (!isShareCurrent() || listLoading || mutationBusy) return
                 // Set before launch: retained callbacks in the same frame must see the lock.
                 listLoading = true
-                listError = false
+                listError = false; listErrorText = null
                 listRequest++
             }
-            fun reconcileShares() {
+            fun reconcileShares(cause: Throwable?) {
                 // A failed POST/DELETE can follow a committed server change. Only GET settles access.
                 mutationUncertain = true
-                listError = true
+                listError = true; listErrorText = serverText(cause)
             }
             LaunchedEffect(bookingId, listRequest) {
                 if (!isShareCurrent()) return@LaunchedEffect
@@ -2710,29 +2712,29 @@ private fun ActiveTripContent(
                     liveLink = srv.firstNotNullOfOrNull { it.link?.takeIf(String::isNotBlank) }
                     showContacts = srv.isEmpty()
                     mutationUncertain = false
-                    listError = false
+                    listError = false; listErrorText = null
                 }.onFailure {
-                    if (isShareCurrent()) listError = true
+                    if (isShareCurrent()) { listError = true; listErrorText = serverText(it) }
                 }
                 if (isShareCurrent()) listLoading = false
             }
-            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl)) {
                 val link = liveLink
                 if (listLoading) {
-                    Text(appText("Проверяем ссылки…", "Һылтанмаларҙы тикшерәбеҙ…"), color = CanonText, modifier = Modifier.padding(vertical = 16.dp))
+                    Text(appText("Проверяем ссылки…", "Һылтанмаларҙы тикшерәбеҙ…"), color = CanonText, modifier = Modifier.padding(vertical = CanonSpace.lg))
                     LinearProgressIndicator(Modifier.fillMaxWidth().testTag("tripSharesLoading"), color = CanonGreen2)
                 } else if (listError) {
                     Text(
                         if (bookingId == null) appText("Не удалось открыть ссылки. Открой поездку заново.", "Һылтанмаларҙы асып булманы. Сәфәрҙе яңынан ас.")
-                        else if (mutationUncertain) appText("Не получилось подтвердить результат. Обнови список ссылок.", "Һөҙөмтәне раҫлап булманы. Һылтанмалар исемлеген яңырт.")
-                        else appText("Не удалось загрузить ссылки. Проверь сеть и повтори.", "Һылтанмаларҙы йөкләп булманы. Селтәрҙе тикшереп ҡабатла."),
-                        color = CanonText, modifier = Modifier.padding(vertical = 16.dp).testTag("tripSharesError"),
+                        else if (mutationUncertain) listOfNotNull(listErrorText, appText("Не получилось подтвердить результат. Обнови список ссылок.", "Һөҙөмтәне раҫлап булманы. Һылтанмалар исемлеген яңырт.")).joinToString("\n")
+                        else listErrorText ?: appText("Не удалось загрузить ссылки. Проверь сеть и повтори.", "Һылтанмаларҙы йөкләп булманы. Селтәрҙе тикшереп ҡабатла."),
+                        color = CanonText, modifier = Modifier.padding(vertical = CanonSpace.lg).testTag("tripSharesError"),
                     )
                     TextButton(onClick = { if (bookingId == null) { if (isShareCurrent()) showShare = false } else reloadShares() }, modifier = Modifier.heightIn(min = 48.dp).testTag("tripSharesRetry")) {
                         Text(if (bookingId == null) appText("Закрыть", "Ябыу") else if (mutationUncertain) appText("Обновить список", "Исемлекте яңыртыу") else appText("Повторить", "Ҡабатлау"), color = CanonGreen2)
                     }
                 } else if (activeShares.isNotEmpty() && !showContacts) {
-                    Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+                    Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = CanonSpace.sm))
                     if (!link.isNullOrBlank()) LiveLinkCard(link, ownerGeneration = tripSession,
                         isCurrentParent = { isShareCurrent() && !listLoading && !listError && !mutationBusy &&
                             !showContacts && liveLink == link && activeShares.any { it.first.link == link } })
@@ -2750,12 +2752,12 @@ private fun ActiveTripContent(
                                     if (activeShares.isEmpty()) showContacts = true
                                     Toast.makeText(context, shareRevokedMsg, Toast.LENGTH_SHORT).show()
                                 }
-                                .onFailure { if (isShareCurrent()) reconcileShares() }
+                                .onFailure { if (isShareCurrent()) reconcileShares(it) }
                                 } finally { if (isShareCurrent()) mutationBusy = false }
                             }
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(CanonSpace.md))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         TextButton(enabled = !mutationBusy, onClick = { if (canMutate()) showContacts = true }) {
                             Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
@@ -2765,7 +2767,7 @@ private fun ActiveTripContent(
                         }
                     }
                 } else {
-                Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+                Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = CanonSpace.sm))
                 if (contacts.isEmpty()) {
                     Text(appText("Сначала добавь доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтә"), color = CanonMuted)
                 }
@@ -2785,22 +2787,22 @@ private fun ActiveTripContent(
                                             liveLink = share.link?.takeIf(String::isNotBlank)
                                             showContacts = false
                                             Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
-                                        } else reconcileShares()
+                                        } else reconcileShares(null)
                                     }
                                     .onFailure {
                                         if (!isShareCurrent()) return@onFailure
-                                        reconcileShares()
+                                        reconcileShares(it)
                                     }
                                     } finally { if (isShareCurrent()) mutationBusy = false }
                                 }
                             }
-                        }.padding(vertical = 12.dp),
+                        }.padding(vertical = CanonSpace.md),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(Modifier.size(44.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
                             Text(c.name.take(1), fontWeight = FontWeight.Bold)
                         }
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(CanonSpace.md))
                         Column(Modifier.weight(1f)) {
                             Text(c.name, fontWeight = FontWeight.Bold)
                             Text(c.relation, color = CanonMuted, fontSize = 14.sp)
