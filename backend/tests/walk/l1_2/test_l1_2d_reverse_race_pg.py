@@ -147,6 +147,7 @@ def test_pg_legacy_card_bill_waits_for_forgive_and_refunds_it(client, user_facto
         d.confirmed_at = utcnow()
         d.note = "Списан админом: гонка"
         s.add(d)
+        s.flush()          # UPDATE уходит сейчас и берёт лок строки — коммит придержит _HoldsCommit
         s.commit()
 
     def card():
