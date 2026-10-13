@@ -60,8 +60,9 @@ def test_commissiondebt_null_order_id_allowed(client, user_factory):
 # ---------------- HIGH-2: не прощаем долг/комиссию, накопленные в окне оплаты ----------------
 
 def test_taxi_debt_window_not_forgiven(client, user_factory):
-    """mark_all_paid(up_to) гасит только долг ДО момента создания платежа; новый долг остаётся."""
-    from app import debt as debt_mod
+    """Счёт картой без снимка гасит только долг ДО момента создания платежа; новый долг остаётся.
+    (Раньше — через `mark_all_paid(up_to)`; с листа 1.2d её заменил тот же путь, что у снимка.)"""
+    from app.routers.payments import _activate_payment
     drv = user_factory("WinDrv", role=UserRole.driver)["id"]
     boundary = utcnow()
     with Session(engine) as s:
@@ -69,11 +70,13 @@ def test_taxi_debt_window_not_forgiven(client, user_factory):
                              status=DebtStatus.unpaid, created_at=boundary - timedelta(minutes=5))
         new = CommissionDebt(driver_id=drv, order_id=None, amount_kop=500,
                              status=DebtStatus.unpaid, created_at=boundary + timedelta(minutes=5))
-        s.add(old); s.add(new); s.commit()
-        old_id, new_id = old.id, new.id
+        pay = Payment(user_id=drv, purpose="taxi_debt", amount_kop=500, method="yookassa",
+                      provider_id="qa-win-taxi-debt", status="pending", tier="", created_at=boundary)
+        s.add(old); s.add(new); s.add(pay); s.commit()
+        old_id, new_id, pay_id = old.id, new.id, pay.id
     with Session(engine) as s:
-        paid = debt_mod.mark_all_paid(s, drv, up_to=boundary)
-        assert paid == 500                                      # погашен только «старый» долг
+        _activate_payment(s, s.get(Payment, pay_id))
+        assert s.get(Payment, pay_id).status == "succeeded"     # погашен только «старый» долг
     with Session(engine) as s:
         assert s.get(CommissionDebt, old_id).status == DebtStatus.paid
         assert s.get(CommissionDebt, new_id).status == DebtStatus.unpaid   # накопленный в окне — не прощён

@@ -117,7 +117,13 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
                 "amount_kop": owed_kop, "confirmation_url": res["confirmation_url"]}
 
     # СБП «на доверии» (по умолчанию): долг → pending, админ подтверждает.
-    paid_kop = debt_mod.declare_paid(session, user.id)
+    try:
+        paid_kop = debt_mod.declare_paid(session, user.id)
+    except debt_mod.DebtAlreadySettled:
+        # Пока водитель жал кнопку, долг закрыли другим путём (карта, кошелёк, админ) —
+        # заявлять нечего, и админу не о чем сообщать (leaf-1.2d). Поле аддитивное:
+        # старый клиент видит pending_kop=0 и просто обновляет экран долга.
+        return {"ok": True, "method": "sbp_manual", "pending_kop": 0, "already": True}
     if paid_kop > 0:
         # Телефон сюда не кладём (найдено независимым ревью Opus, 2026-10-02): Telegram —
         # сторонний зарубежный сервис, а шапка модуля обещает «суммы не логируем с привязкой

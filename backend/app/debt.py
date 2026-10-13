@@ -745,43 +745,59 @@ def void_debt_for_order(session: Session, order_id: int, note: str = ""):
     note — ПОЧЕМУ долг стал paid. Это не косметика: от причины зависит расшифровка заработка
     (см. fee_charged_kop). По умолчанию — «сняли по разбору», то есть комиссию с водителя НЕ
     взяли (так зовёт жалоба «пассажир не заплатил»). Онлайн-оплата передаёт свой note: там
-    комиссия удержана, просто записью fee в кошельке."""
+    комиссия удержана, просто записью fee в кошельке.
+
+    Снимаем долг одним UPDATE с условием «ещё не оплачен» прямо в WHERE (лист 1.2d), как
+    «простить» у админа (1.2c). Раньше долг читали, а потом записывали вслепую: если между
+    чтением и записью его закрыла карта (или админ подтвердил перевод), оплата перезаписывалась
+    пометкой «Списан: снят по разбору» — и возврат водителю по ней уже не полагался. Теперь
+    закрытый в этом окне долг разбирается как уже оплаченный: деньги у платформы → возврат."""
     debt = session.exec(
         select(CommissionDebt).where(CommissionDebt.order_id == order_id)
     ).first()
     if debt is None:
         return None
-    if debt.status == DebtStatus.paid:
-        # `paid` здесь означает две разные вещи: либо платформа действительно получила
-        # комиссию, либо долг уже списали без оплаты. После первого разбора второй вариант
-        # тоже становится `paid`; возвращать его сумму при повторном разборе нельзя — этих
-        # денег у платформы никогда не было. Причину различаем тем же договором по note,
-        # который использует fee_charged_kop выше.
-        if (debt.note or "").startswith(WRITTEN_OFF_PREFIX):
-            return None
-        # Деньги платформа УЖЕ получила — снимать нечего, надо возвращать (волна 215).
-        # Только `paid`: это статус «админ подтвердил, что перевод пришёл». `pending` —
-        # ещё слово водителя, и админ может его отклонить; вернуть по слову значило бы
-        # подарить комиссию тому, чей перевод не дошёл.
-        return "refunded" if refund_commission_to_wallet(
-            session, debt.driver_id, debt.amount_kop, order_id=order_id) else None
-    debt.status = DebtStatus.paid
-    debt.confirmed_at = utcnow()
+    if debt.status != DebtStatus.paid:
+        if _write_off(session, debt, note):
+            return "voided"
+        # Долг закрыли другим путём между чтением и записью — берём его свежую версию.
+        session.refresh(debt)
+    # `paid` здесь означает две разные вещи: либо платформа действительно получила
+    # комиссию, либо долг уже списали без оплаты. После первого разбора второй вариант
+    # тоже становится `paid`; возвращать его сумму при повторном разборе нельзя — этих
+    # денег у платформы никогда не было. Причину различаем тем же договором по note,
+    # который использует fee_charged_kop выше.
+    if (debt.note or "").startswith(WRITTEN_OFF_PREFIX):
+        return None
+    # Деньги платформа УЖЕ получила — снимать нечего, надо возвращать (волна 215).
+    # Только `paid`: это статус «админ подтвердил, что перевод пришёл». `pending` —
+    # ещё слово водителя, и админ может его отклонить; вернуть по слову значило бы
+    # подарить комиссию тому, чей перевод не дошёл.
+    return "refunded" if refund_commission_to_wallet(
+        session, debt.driver_id, debt.amount_kop, order_id=order_id) else None
+
+
+def _write_off(session: Session, debt: CommissionDebt, note: str) -> bool:
+    """Снять не оплаченный долг (→ paid с причиной). False — его уже закрыли другим путём."""
+    values = {"status": DebtStatus.paid, "confirmed_at": utcnow()}
     if not note:
         # Пустой аргумент — именно списание без оплаты. Даже если на долге уже была служебная
         # пометка, причина `paid` обязана быть машиночитаемой: повторный разбор распознаёт её
         # по WRITTEN_OFF_PREFIX. Старый полезный текст не теряем.
         прежняя_пометка = (debt.note or "").strip()
         if not прежняя_пометка.startswith(WRITTEN_OFF_PREFIX):
-            debt.note = (
+            values["note"] = (
                 f"{WRITTEN_OFF_PREFIX}: снят по разбору"
                 + (f"; прежняя пометка: {прежняя_пометка}" if прежняя_пометка else "")
             )[:300]
     elif not debt.note:
         # Непустой note передаёт онлайн-оплата: комиссия реально удержана, это не списание.
-        debt.note = note
-    session.add(debt)
-    return "voided"
+        values["note"] = note
+    return session.execute(
+        update(CommissionDebt)
+        .where(CommissionDebt.id == debt.id, CommissionDebt.status != DebtStatus.paid)
+        .values(**values)
+    ).rowcount == 1
 
 
 # Причина, по которой долг стал paid без перевода по СБП: его закрыли деньгами, которые уже
@@ -1218,48 +1234,50 @@ def declare_paid(session: Session, driver_id: int) -> int:
 
     Считаем, сколько раз по каждому долгу давали «слово»: после debt_max_declares отказов
     заявка больше не снимает блокировку (см. taxi_block_reason) — иначе комиссию можно было
-    не платить вообще, бесконечно нажимая кнопку."""
-    now = utcnow()
-    unpaid = _unpaid(session, driver_id)
-    total = 0
-    for d in unpaid:
-        d.status = DebtStatus.pending
-        d.paid_declared_at = now
-        d.declare_count = (d.declare_count or 0) + 1
-        session.add(d)
-        total += d.amount_kop
-    if unpaid:
+    не платить вообще, бесконечно нажимая кнопку.
+
+    В pending переводим одним UPDATE с условием «долг всё ещё unpaid» прямо в WHERE (лист 1.2d),
+    тем же приёмом, что у админа (`_apply_to_batch`, 1.2c). Раньше долги читали, а потом
+    перезаписывали вслепую: если между чтением и записью долг закрыла карта, кошелёк или
+    «простить» админа, он снова становился pending — висел на подтверждении, а «Отклонить»
+    возвращал его в неоплаченные, и водитель платил второй раз. Двойной тап заодно тратил
+    обещание дважды. Закрытое в этом окне в заявку не попадает; закрыто всё → DebtAlreadySettled."""
+    ids = [d.id for d in _unpaid(session, driver_id)]
+    if not ids:
+        return 0
+    moved = session.execute(
+        update(CommissionDebt)
+        .where(CommissionDebt.id.in_(ids), CommissionDebt.status == DebtStatus.unpaid)
+        .values(status=DebtStatus.pending, paid_declared_at=utcnow(),
+                declare_count=func.coalesce(CommissionDebt.declare_count, 0) + 1)
+        .returning(CommissionDebt.amount_kop)
+    ).scalars().all()
+    if moved:
         session.commit()
-    return total
+        return sum(int(a or 0) for a in moved)
+    session.rollback()
+    statuses = session.exec(select(CommissionDebt.status).where(CommissionDebt.id.in_(ids))).all()
+    if statuses and all(s == DebtStatus.paid for s in statuses):
+        raise DebtAlreadySettled()
+    return 0                       # их уже заявили (второй тап) — новой заявки нет
 
 
-def mark_all_paid(session: Session, driver_id: int, up_to: Optional[datetime] = None, *,
-                  commit: bool = True) -> int:
-    """Погасить долг водителя (unpaid + pending) → paid. Используется при оплате картой
-    (ЮKassa): подтверждение приходит вебхуком, деньги уже у платформы, админ не нужен.
-    Идемпотентно (уже paid не трогаем). Возврат: погашенная сумма (копейки).
+def legacy_taxi_debt_bill_ids(session: Session, driver_id: int, up_to: datetime) -> tuple[int, ...]:
+    """Состав старого счёта картой, у которого снимка нет (создан до листа 1.1): не оплаченный
+    долг, начисленный ДО создания платежа (`created_at <= up_to`). Иначе долг, накопленный в окне
+    между «жму оплатить» и подтверждением, погасился бы бесплатно.
 
-    up_to (граница снапшота): гасим только долг, начисленный ДО момента создания платежа
-    (created_at <= up_to). Иначе долг, накопленный в окне между «жму оплатить» и подтверждением,
-    погасился бы бесплатно. None → без границы (весь долг).
-    commit=False: вызывающий сохраняет погашение и Payment в общей транзакции."""
-    now = utcnow()
-    conds = [
-        CommissionDebt.driver_id == driver_id,
-        CommissionDebt.status != DebtStatus.paid,
-    ]
-    if up_to is not None:
-        conds.append(CommissionDebt.created_at <= up_to)
-    rows = session.exec(select(CommissionDebt).where(*conds)).all()
-    total = 0
-    for d in rows:
-        d.status = DebtStatus.paid
-        d.confirmed_at = now
-        session.add(d)
-        total += d.amount_kop
-    if rows and commit:
-        session.commit()
-    return total
+    Раньше такой счёт гасился отдельной `mark_all_paid`: прочитать долги, потом записать «оплачено»
+    вслепую. Если между чтением и записью долг простили или закрыли кошельком, карта молча брала
+    деньги второй раз (лист 1.2d). Теперь эти ID идут тем же путём, что снимок (`_activate_payment`):
+    условие «ещё не оплачен» в UPDATE и возврат за то, что успели закрыть раньше карты."""
+    return tuple(session.exec(
+        select(CommissionDebt.id).where(
+            CommissionDebt.driver_id == driver_id,
+            CommissionDebt.status != DebtStatus.paid,
+            CommissionDebt.created_at <= up_to,
+        ).order_by(CommissionDebt.id)
+    ).all())
 
 
 class DebtChanged(Exception):
@@ -1276,11 +1294,13 @@ class DebtChanged(Exception):
 
 
 class DebtAlreadySettled(Exception):
-    """Весь батч, который видел админ, закрыт другим путём между «увидел» и «нажал».
+    """Весь батч, который видел админ (или водитель, нажавший «Я оплатил»), закрыт другим путём
+    между «увидел» и «нажал».
 
     Живой случай — вебхук карты (`_activate_payment`, purpose=taxi_debt): водитель заявил
     перевод по СБП, а потом оплатил тот же долг картой. Подтверждать или отклонять тут нечего,
-    и админ должен это УВИДЕТЬ: деньги за эти долги пришли дважды (leaf-1.2c)."""
+    и админ должен это УВИДЕТЬ: деньги за эти долги пришли дважды (leaf-1.2c). Водителю —
+    заявлять нечего, долг уже оплачен (leaf-1.2d)."""
 
 
 def _nothing_pending(debt: CommissionDebt) -> int:
