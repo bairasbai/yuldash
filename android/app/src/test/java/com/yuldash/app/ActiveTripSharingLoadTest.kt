@@ -59,6 +59,8 @@ class ActiveTripSharingLoadTest {
     private var noContacts = false
     private var missingBooking = false
     private var dropMutationBody = false
+    private var mutationErrorBody = "{}"
+    private var listErrorBody = "{}"
     private val rows = linkedMapOf<Int, String>()
     private val listCalls = java.util.concurrent.atomic.AtomicInteger()
     private var listFailures = 0
@@ -89,7 +91,7 @@ class ActiveTripSharingLoadTest {
                             listReplied.countDown()
                         }
                         return MockResponse().setResponseCode(if (ordinal <= listFailures) 503 else 200)
-                            .setBody(if (ordinal <= listFailures) "{}" else snapshot)
+                            .setBody(if (ordinal <= listFailures) listErrorBody else snapshot)
                     }
                     if (key == createPath || key.startsWith("DELETE /bookings/42/share/")) {
                         val shareId = if (key == createPath) 91 else path.substringAfterLast('/').toInt()
@@ -100,7 +102,7 @@ class ActiveTripSharingLoadTest {
                             started.countDown()
                             if (!release.await(40, TimeUnit.SECONDS)) timeouts += key
                         }
-                        val response = MockResponse().setResponseCode(code).setBody(if (key == createPath) dto else "{}")
+                        val response = MockResponse().setResponseCode(code).setBody(if (code != 200) mutationErrorBody else if (key == createPath) dto else "{}")
                         return if (dropMutationBody) response.setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY) else response
                     }
                     val body = when (path) {
@@ -306,6 +308,27 @@ class ActiveTripSharingLoadTest {
     }
     @Test fun truncatedCommittedRevokeBodyKeepsSiblingToken() {
         dropMutationBody = true; reconcile("revoke", true, 200)
+    }
+    // Ревью 12.10: 429 «слишком много SMS» превращался в «Не получилось подтвердить результат», и
+    // человек не узнавал причину. Объяснение сервера показываем как есть, а доступ всё так же
+    // сверяется GET-ом; при обрыве связи (ответа нет) — свой текст.
+    @Test fun createRejectionShowsServerExplanationThenOwnTextForLostAnswer() {
+        code = 429; mutationErrorBody = """{"detail":{"ru":"Слишком много SMS. Попробуй через час.","ba":"SMS бик күп. Бер сәғәттән ҡабатла."}}"""
+        mount(); action("create").performClick(); waitFor { mutations() == 1 }; pump()
+        // Причина от сервера — и наше «не подтверждено»: доступ мог уже открыться, его сверит GET.
+        compose.onNodeWithTag("tripSharesError").assertTextEquals("Слишком много SMS. Попробуй через час.\nНе получилось подтвердить результат. Обнови список ссылок.")
+        code = 200; retry(); waitFor { listCalls.get() == 2 }; pump()
+        compose.onNodeWithText("Близкий").assertIsDisplayed(); assertEquals(1, mutations())
+        dropMutationBody = true; action("create").performClick(); waitFor { mutations() == 2 }; pump()
+        compose.onNodeWithTag("tripSharesError").assertTextEquals("Не получилось подтвердить результат. Обнови список ссылок.")
+        dropMutationBody = false; retry(); waitFor { listCalls.get() == 3 }; pump()
+        compose.onNodeWithText(link(91)).assertIsDisplayed()
+    }
+    @Test fun listRejectionShowsServerExplanation() {
+        listFailures = 1; listErrorBody = """{"detail":{"ru":"Поездка уже завершена — ссылки закрыты.","ba":"Сәфәр тамамланған — һылтанмалар ябыҡ."}}"""
+        mount(); compose.onNodeWithTag("tripSharesError").assertTextEquals("Поездка уже завершена — ссылки закрыты.")
+        retry(); waitFor { listCalls.get() == 2 }; pump()
+        compose.onNodeWithTag("tripSharesError").assertDoesNotExist()
     }
     @Test fun reconciliationGetFailureStillBlocksMutation() {
         code = 429; commitBeforeFailure = true; mount(); val old = click("create")

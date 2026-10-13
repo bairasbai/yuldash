@@ -25,17 +25,18 @@ import java.io.File
 class FileSizeRatchetTest {
 
     private val ceilings = mapOf(
-        "InstantOrderScreen.kt" to 8254,
+        "InstantOrderScreen.kt" to 8258,   // 13.10.2026: +4 — шторка «Куда едем?» не прячется, пока уходит смена адреса
         "data/ApiClient.kt" to 8044,
         "ProfileScreen.kt" to 4834,
-        "BookingActiveTripScreen.kt" to 3989,
-        "RidesRequestsChatScreens.kt" to 3556,
+        // 13.10.2026, ревью Android: +2 (поля кнопок брони, текст сервера в шторке ссылок) — правка на месте, не новый домен.
+        "BookingActiveTripScreen.kt" to 3991,
+        "RidesRequestsChatScreens.kt" to 3558,   // 13.10.2026: +2 — запись после «Разрешить» (withResumed)
         "ParcelsScreen.kt" to 3044,
         "YuldashApp.kt" to 2788,
         "CourierScreen.kt" to 2553,
         "SecondaryScreens.kt" to 2507,
         "MapScreen.kt" to 2292,
-        "AccessibilityScreens.kt" to 2149,
+        "AccessibilityScreens.kt" to 2150,   // 13.10.2026: +1 — импорт withResumed для того же фикса микрофона
         "TaxiTripScreen.kt" to 1629,
         "FairnessScreens.kt" to 1611,
         "LoginScreen.kt" to 1330,

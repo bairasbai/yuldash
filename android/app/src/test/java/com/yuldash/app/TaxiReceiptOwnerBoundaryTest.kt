@@ -158,6 +158,11 @@ class TaxiReceiptOwnerBoundaryTest {
     @Test fun nextAccountRetiresPrivateDocument() { mount(); compose.runOnIdle { ApiClient.saveToken(tokenB) }; pump(); compose.onAllNodesWithText("Водитель 91").assertCountEquals(0) }
     @Test fun oldShareCannotRouteForNextOwnerBeforeFrame() { mount(); nextOwner(share()); assertNull(Shadows.shadowOf(app).nextStartedActivity) }
     @Test fun oldBackCannotNavigateNextOwner() { mount(); nextOwner(back()); assertEquals(0, backs) }
+    // Ревью 12.10 (P3): уход с чека гасил экран раньше, чем тот уезжал анимацией, — мелькал пустой
+    // фон. Чек остаётся нарисованным до снятия родителем; его действия при этом уже отсечены.
+    @Test fun backKeepsReceiptDrawnWhileScreenLeaves() { mount(); val b = back(); compose.runOnIdle { dispatch(b) }; pump(); assertEquals(1, backs); compose.onNodeWithText("Водитель 91").assertExists() }
+    @Test fun parentSwitchHidesOpenDialogButKeepsReceipt() { mount(); click("Проблема с поездкой"); compose.onNodeWithText("Сообщить о нарушении").assertExists(); compose.runOnIdle { parentCurrent.value = false }; pump(); compose.onAllNodesWithText("Сообщить о нарушении").assertCountEquals(0); compose.onNodeWithText("Водитель 91").assertExists() }
+    @Test fun parentSwitchKeepsReceiptDrawnWhileScreenLeaves() { mount(); compose.runOnIdle { parentCurrent.value = false }; pump(); compose.onNodeWithText("Водитель 91").assertExists() }
     @Test fun backRetiresActionsBeforeParentFrame() { mount(); val a = text("Сказать «рәхмәт»"); val b = back(); compose.runOnIdle { dispatch(b); dispatch(a); dispatch(b) }; pump(); assertEquals(1, backs); assertEquals(0, count("/thanks")) }
     @Test fun oldStarCannotUseNextAccount() { mount(); nextOwner(star()); assertEquals(0, count("/rate")) }
     @Test fun oldStarCannotUseGuest() { mount(); nextOwner(star(), true); assertEquals(0, count("/rate")) }

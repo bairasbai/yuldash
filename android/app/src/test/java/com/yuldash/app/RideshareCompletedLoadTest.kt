@@ -51,6 +51,7 @@ class RideshareCompletedLoadTest {
     private var thanksCode = 200
     private var commitBeforeFailure = false
     private var dropThanksBody = false
+    private var thanksErrorBody = "{}"
     @Volatile private var thanked = false
     private var receiptNavigations = 0
     private var closes = 0
@@ -84,7 +85,7 @@ class RideshareCompletedLoadTest {
                         "tip" -> """{"driver_name":"Водитель$id","already_thanked":$previousThanks}"""
                         else -> "{}"
                     }
-                    val response = MockResponse().setResponseCode(code).setBody(if (code == 200) body else "{}")
+                    val response = MockResponse().setResponseCode(code).setBody(if (code == 200) body else if (kind == "thanks") thanksErrorBody else "{}")
                     return if (kind == "thanks" && dropThanksBody) response.setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY) else response
                 }
             }; start()
@@ -208,6 +209,18 @@ class RideshareCompletedLoadTest {
         if (saved) { scroll(hasText(sentLabel())); compose.onNodeWithText(sentLabel()).assertIsDisplayed() }
         else { scroll(hasText(thanksLabel())); thanks().assertIsEnabled() }
         assertEquals(1, posts())
+    }
+    // Ревью 12.10: отказ сервера с объяснением (429 и т.п.) превращался в общее «Не получилось
+    // подтвердить благодарность». Текст сервера показываем как есть; ответ не дошёл — свой текст.
+    @Test fun thanksRejectionShowsServerExplanationAndLostAnswerOwnText() {
+        thanksCode = 429; thanksErrorBody = """{"detail":{"ru":"Слишком часто. Попробуй через минуту.","ba":"Бик йыш. Бер минуттан ҡабатла."}}"""
+        mount(); val old = clickThanks(); compose.runOnIdle { old() }; waitFor { posts() == 1 }; pump()
+        scroll(hasTestTag("rideshareThanksError"))
+        compose.onNodeWithText("Слишком часто. Попробуй через минуту.\nНе получилось подтвердить благодарность. Обнови статус.").assertIsDisplayed()
+        thanksCode = 200; dropThanksBody = true; retry("tip").performClick(); waitFor { tipCalls.get() == 2 }; pump()
+        scroll(hasText(thanksLabel())); thanks().performClick(); waitFor { posts() == 2 }; pump()
+        scroll(hasTestTag("rideshareThanksError"))
+        compose.onNodeWithText("Не получилось подтвердить благодарность. Обнови статус.").assertIsDisplayed()
     }
     @Test fun committedThanks503ReconcilesWithoutSecondPost() = uncertain(true, false)
     @Test fun uncommittedThanks503ReconcilesToEnabledAction() = uncertain(false, false)

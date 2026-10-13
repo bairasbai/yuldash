@@ -215,7 +215,7 @@ private fun RideshareCompletedSession(
                 thanked = it.alreadyThanked
                 thanksError = null
                 thanksStatusKnown = true
-            }.onFailure { thanksError = thanksLoadFail }
+            }.onFailure { thanksError = serverSaid(it, thanksLoadFail) }
             thanksLoading = false
         } else {
             thanksLoading = false
@@ -334,7 +334,7 @@ private fun RideshareCompletedSession(
                     result
                         .onSuccess { thanked = true }
                         // Commit/notification or transport may outlive the answer: settle with GET, not POST.
-                        .onFailure { thanksStatusKnown = false; thanksError = thanksFail }
+                        .onFailure { thanksStatusKnown = false; thanksError = listOfNotNull(serverText(it), thanksFail).joinToString("\n") }
                     thanksBusy = false
                 }
             }
