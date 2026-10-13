@@ -1399,13 +1399,14 @@ internal fun FileIncidentDialog(
     onFiled: (IncidentDto) -> Unit,
     ownerGeneration: Long? = null,
     isCurrentParent: () -> Boolean = { true },
+    initialType: String = "",   // тип, с которого начать («Пассажир не вышел» по брони «в пути»); пусто — выбор открыт
 ) {
     val generation = remember { ownerGeneration ?: ApiClient.queueSessionGeneration() }
     val session by ApiClient.sessionChanges.collectAsState()
     if (session != generation || !ApiClient.isCurrentSession(generation) ||
         (ownerGeneration != null && ownerGeneration != generation)) return
     key(respondentId, bookingId, orderId, generation) {
-        FileIncidentContent(respondentId, respondentName, bookingId, orderId, onDismiss, onFiled, generation, isCurrentParent)
+        FileIncidentContent(respondentId, respondentName, bookingId, orderId, onDismiss, onFiled, generation, isCurrentParent, initialType)
     }
 }
 
@@ -1413,7 +1414,7 @@ internal fun FileIncidentDialog(
 private fun FileIncidentContent(
     respondentId: Int, respondentName: String, bookingId: Int?, orderId: Int?,
     onDismiss: () -> Unit, onFiled: (IncidentDto) -> Unit,
-    generation: Long, isCurrentParent: () -> Boolean,
+    generation: Long, isCurrentParent: () -> Boolean, initialType: String,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1421,7 +1422,7 @@ private fun FileIncidentContent(
     var closed by remember { mutableStateOf(false) }
     fun isCurrent(): Boolean = !closed && scope.isActive && ApiClient.isCurrentSession(generation) && currentParent()
     fun commit(action: () -> Unit) { ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() } }
-    var type by remember { mutableStateOf("") }
+    var type by remember { mutableStateOf(initialType) }
     var description by remember { mutableStateOf("") }
     var photos by remember { mutableStateOf<List<String>>(emptyList()) }
     var uploading by remember { mutableStateOf(false) }
@@ -1430,7 +1431,7 @@ private fun FileIncidentContent(
     // Девять типов подряд превращали диалог в двухэкранную простыню: поле рассказа и кнопка
     // «Открыть разбор» уезжали далеко вниз. Выбрал тип — список сворачивается в одну строку,
     // и всё нужное снова помещается на один экран. Передумал — нажал строку, список вернулся.
-    var typesOpen by remember { mutableStateOf(true) }
+    var typesOpen by remember { mutableStateOf(initialType.isBlank()) }
 
     val errFallback = appText("Не получилось открыть разбор. Проверь сеть.", "Ҡарауҙы асып булманы. Селтәрҙе тикшер.")
     val uploadFail = appText("Фото не загрузилось, попробуй ещё раз", "Фото йөкләнмәне, тағы ҡабатла")

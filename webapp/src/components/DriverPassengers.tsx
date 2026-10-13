@@ -22,11 +22,15 @@ import {
 } from "../api/bookings";
 import { LoadingList } from "./States";
 import { IconProfile, IconStar } from "./Icons";
+import FileIncidentCard from "./FileIncidentCard";
 
 /** Бронь ещё ждёт слова водителя. */
 const PENDING = "pending";
-/** Живая бронь — по ней можно отметить неявку. */
-const LIVE = ["confirmed", "onboard"];
+/** Подтверждённая бронь — по ней можно отметить неявку. */
+const CONFIRMED = "confirmed";
+/** Пассажир сам нажал «Я сел». Неявку сервер не примет (409, решение 14.10.2026):
+ *  слово против слова решает разбор, а не кнопка водителя. */
+const ONBOARD = "onboard";
 
 export default function DriverPassengers() {
   const { appText } = useLang();
@@ -34,6 +38,9 @@ export default function DriverPassengers() {
   const [rows, setRows] = useState<DriverBookingRow[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [note, setNote] = useState("");
+  /** По какой брони открыт «Сообщить о проблеме» и по каким разбор уже открыт. */
+  const [disputeId, setDisputeId] = useState<number | null>(null);
+  const [filedIds, setFiledIds] = useState<number[]>([]);
 
   const load = useCallback((signal?: AbortSignal) => {
     fetchDriverBookings(signal)
@@ -64,6 +71,9 @@ export default function DriverPassengers() {
       load();
     } catch (e) {
       setNote(e instanceof ApiError && e.message ? e.message : appText(fail.ru, fail.ba));
+      // 409 — состояние брони ушло вперёд (пассажир нажал «Я сел», пока список висел):
+      // перечитываем, и вместо «Не вышел» появляется «Сообщить о проблеме».
+      if (e instanceof ApiError && e.status === 409) load();
     } finally {
       setBusyId(null);
     }
@@ -101,7 +111,7 @@ export default function DriverPassengers() {
 
               {/* Не вышел. Отдельно от обычной отмены: это сигнал доверия, и водитель
                   не должен выбирать между «соврать, что отменил сам» и «промолчать». */}
-              {LIVE.includes(st) && (
+              {st === CONFIRMED && (
                 <button
                   type="button"
                   className="btn-soft btn-soft--sm"
@@ -115,6 +125,52 @@ export default function DriverPassengers() {
                 >
                   {appText("Не вышел", "Сыҡманы")}
                 </button>
+              )}
+
+              {/* В пути: пассажир сам отметил «Я сел». Неявку не ставим — если посадки
+                  не было, водитель открывает двусторонний разбор, решает админ. */}
+              {st === ONBOARD && (
+                <div className="list-row__sub" role="note">
+                  {appText(
+                    "Пассажир отметил «Я сел». Если он не садился — сообщи о проблеме, разберёмся.",
+                    "Юлсы «Ултырҙым» тип билдәләне. Ултырмаһа — проблема тураһында хәбәр ит, тикшерербеҙ."
+                  )}
+                </div>
+              )}
+              {st === ONBOARD && filedIds.includes(b.booking_id) && (
+                <div className="notice" role="status">
+                  {appText(
+                    "Разбор открыт. Позовём пассажира объясниться, а решение объясним обеим сторонам.",
+                    "Ҡарау асылды. Юлсыны аңлатырға саҡырабыҙ, ә ҡарарҙы ике яҡҡа ла аңлатабыҙ."
+                  )}
+                </div>
+              )}
+              {st === ONBOARD && !filedIds.includes(b.booking_id) && b.passenger_id != null && (
+                disputeId === b.booking_id ? (
+                  <FileIncidentCard
+                    respondentId={b.passenger_id}
+                    respondentName={b.passenger_name}
+                    bookingId={b.booking_id}
+                    initialType="passenger_no_show"
+                    onCancel={() => setDisputeId(null)}
+                    onFiled={() => {
+                      setDisputeId(null);
+                      setFiledIds((ids) => [...ids, b.booking_id]);
+                    }}
+                    onError={setNote}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-soft btn-soft--sm"
+                    onClick={() => {
+                      setNote("");
+                      setDisputeId(b.booking_id);
+                    }}
+                  >
+                    {appText("Сообщить о проблеме", "Проблема тураһында хәбәр итергә")}
+                  </button>
+                )
               )}
 
               {/* Оценка пассажира. Ноль звёзд = ещё не оценивал; оценку можно поменять. */}

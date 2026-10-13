@@ -205,6 +205,15 @@ class ProfileDeep4ContentTest {
         composeRule.onNodeWithText("Пассажиры — оцените после поездки").assertDoesNotExist()
         composeRule.onNodeWithText("Едут с тобой").assertIsDisplayed()
         composeRule.onNodeWithText("Гульнара").assertIsDisplayed()
+        // Пассажир сам нажал «Я сел» — неявку кабинет не предлагает (решение 14.10.2026).
+        composeRule.onNodeWithText("Пассажир не явился").assertDoesNotExist()
+        composeRule.onNodeWithText("Пассажир отметил «Я сел»", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun driver_confirmedBooking_stillOffersNoShow() {
+        driverContent(driverBookings = listOf(booking(status = "confirmed")))
+        composeRule.onNodeWithText("Пассажир не явился").assertIsDisplayed()
     }
 
     @Test

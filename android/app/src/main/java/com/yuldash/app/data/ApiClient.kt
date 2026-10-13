@@ -6677,6 +6677,7 @@ data class DriverBookingDto(
     // Сколько звёзд водитель уже поставил по этой брони: 0 = ещё не оценивал.
     // Без этого после перезагрузки экрана звёзды снова были пустые, и человек оценивал повторно.
     val myStars: Int = 0,
+    val passengerId: Int = 0,   // вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»); 0 — старый сервер
 )
 
 /** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */
@@ -6905,6 +6906,7 @@ internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
         route = o.optString("route"),
         status = o.optString("status"),
         myStars = o.optInt("my_stars"),
+        passengerId = o.optInt("passenger_id"),
     )
 }
 

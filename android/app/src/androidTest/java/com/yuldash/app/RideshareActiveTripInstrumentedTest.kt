@@ -52,7 +52,7 @@ class RideshareActiveTripInstrumentedTest {
     @Test
     fun activeTripOptionB_submitsRealNextPassengerStatus() {
         var submitted = ""
-        render(onPrimary = { submitted = activeTripNextStatus("passenger", "departed", null) })
+        render(onPrimary = { submitted = activeTripNextStatus("passenger", "departed", null, "confirmed") })
 
         composeRule.onNodeWithText("Я сел").performClick()
         assertEquals("sat", submitted)
