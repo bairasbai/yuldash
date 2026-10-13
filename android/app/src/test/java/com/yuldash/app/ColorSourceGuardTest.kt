@@ -18,10 +18,12 @@ import org.junit.Test
  * Тест упал — заведи цвет в `CanonTokens.kt`: адаптивный (`if (appIsDark()) … else …`), если он
  * красит интерфейс, или плоский, если это часть рисунка или картинки, которая от темы не зависит.
  *
- * Чего сторож НЕ видит (честно): `Color.White`/`Color.Black` и прочие именованные цвета Compose;
- * число, спрятанное в константу (`const val G = 0xFF…` → `Color(G)`); `android.graphics.Color.parseColor("#…")`
- * и числа `0xFF….toInt()` в рисовании картинок (значки карты в `MapPins.kt`/`MapCluster.kt`, цвет линии
- * маршрута в `MapScreen.kt`, картинка-открытка в `MyStatsScreen.kt`).
+ * И в рисовании картинок на Canvas (значки карты, открытка «Мой Юлдаш»): `parseColor("#…")`,
+ * `android.graphics.Color.rgb/argb(…)` и числа вида `0xAARRGGBB` — там цвет берут из плоского токена
+ * через `.toArgb()`. Битовая маска (`x and 0x00FFFFFF`) — не цвет, её сторож не трогает.
+ *
+ * Чего сторож НЕ видит (честно): `Color.White`/`Color.Black` и прочие именованные цвета
+ * (в том числе `android.graphics.Color.WHITE`); цвет, собранный из частей (`(a shl 24) or rgb`).
  */
 class ColorSourceGuardTest {
 
@@ -32,7 +34,9 @@ class ColorSourceGuardTest {
     private val exceptions: Map<String, String> = emptyMap()
 
     private val numericColor = Regex(
-        """\bColor\(\s*(?:(?:color|red|green|blue|alpha)\s*=\s*)?[-+]?\.?\d|\bColor\.hs[vl]\("""
+        """\bColor\(\s*(?:(?:color|red|green|blue|alpha)\s*=\s*)?[-+]?\.?\d|\bColor\.hs[vl]\(""" +
+            // Canvas: «#…» строкой, rgb/argb числами и голое ARGB-число (не после and/or/xor — то маска).
+            """|\bparseColor\(|\bColor\.a?rgb\(\s*\d|(?<!\b(?:and|or|xor)\s)\b0[xX][0-9A-Fa-f]{8}\b"""
     )
 
     private fun allowedPlace(rel: String) = rel == "CanonTokens.kt" || rel.startsWith("ui/theme/")
@@ -92,6 +96,10 @@ class ColorSourceGuardTest {
             "val g = Color(.5f, .5f, .5f)",
             "val h = Color.hsv(140f, 0.9f, 0.4f)",
             "val i = androidx.compose.ui.graphics.Color(0xFF0B6B3A)",
+            "paint.color = android.graphics.Color.parseColor(\"#0B6B3A\")",
+            "setShadowLayer(4f, 0f, 2f, 0x40000000)",
+            "val white = 0xFFFFFFFF.toInt()",
+            "val j = android.graphics.Color.rgb(11, 107, 58)",
             "Text(\"https://yulbash.ru\", color = Color(0xFF000000))",
         )
         caught.forEach { assertEquals("не поймал: $it", 1, ownColors(it).size) }
@@ -102,6 +110,10 @@ class ColorSourceGuardTest {
             "val t = \"цвет: \${name}\" // Color(0x1)",
             "val c = Color(argb)",
             "val d = CanonText.copy(alpha = 0.5f)",
+            "val e = (gold and 0x00FFFFFF) or (218 shl 24)",
+            "val id = System.currentTimeMillis().toInt() and 0x7FFFFFFF",
+            "paint.color = CanonMapTaxi.toArgb()",
+            "paint.color = android.graphics.Color.WHITE",
         )
         passed.forEach { assertEquals("ложная тревога: $it", 0, ownColors(it).size) }
         // На самом CanonTokens.kt разбор обязан увидеть десятки цветов — иначе он ослеп.

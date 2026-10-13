@@ -58,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -424,17 +425,17 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bmp)
 
-    // Фон-градиент (тот же зелёный, что у экранной карточки).
+    // Цвета — те же токены CanonStatsCard*, что у экранной карточки: открытка и экран не расходятся.
     val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        shader = LinearGradient(0f, 0f, 0f, h.toFloat(), 0xFF0B6B3A.toInt(), 0xFF063A20.toInt(), Shader.TileMode.CLAMP)
+        shader = LinearGradient(0f, 0f, 0f, h.toFloat(), CanonStatsCardTop.toArgb(), CanonStatsCardBottom.toArgb(), Shader.TileMode.CLAMP)
     }
     canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), bg)
 
     val bold = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
     val regular = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
     val pad = 80f
-    val white = 0xFFFFFFFF.toInt()
-    val mint = 0xFFCDEBD9.toInt()
+    val white = CanonOnAccent.toArgb()
+    val mint = CanonStatsCardMint.toArgb()
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     fun text(str: String, x: Float, y: Float, size: Float, color: Int, tf: Typeface, spacing: Float = 0f) {
@@ -443,7 +444,7 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     }
 
     // Кикер.
-    text(appTextFor(language, "МОЙ ЮЛДАШ", "МИНЕҢ ЮЛДАШ"), pad, 150f, 34f, 0xFFBFE8CF.toInt(), bold, 0.18f)
+    text(appTextFor(language, "МОЙ ЮЛДАШ", "МИНЕҢ ЮЛДАШ"), pad, 150f, 34f, mint, bold, 0.18f)
     paint.letterSpacing = 0f
 
     // Звание (крупно).
@@ -452,7 +453,7 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     if (name.isNotBlank()) text(name, pad, 300f, 40f, mint, regular)
 
     // Кубок в правом верхнем углу.
-    val badge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF }
+    val badge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CanonStatsCardGlassStrong.toArgb() }
     canvas.drawCircle(w - pad - 40f, 150f, 70f, badge)
     text("🏆", w - pad - 78f, 172f, 66f, white, regular)
 
@@ -465,7 +466,7 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     val boxW = (w - pad * 2 - gap * 2) / 3f
     val boxTop = 720f
     val boxH = 220f
-    val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1FFFFFFF }
+    val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CanonStatsCardGlassSoft.toArgb() }
     data class Mini(val value: String, val label: String)
     val minis = listOf(
         Mini(fmtInt(s.trips), appTextFor(language, "поездок", "сәфәр")),
@@ -486,7 +487,7 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     // Подпись бренда внизу.
     text(
         appTextFor(language, "Юлдаш · поездки между своими", "Юлдаш · үҙебеҙҙекеләр менән"),
-        pad, h - 150f, 36f, 0xFF9FD6B4.toInt(), bold,
+        pad, h - 150f, 36f, CanonStatsCardMintBright.toArgb(), bold,
     )
     text("yulbash.ru", pad, h - 95f, 34f, mint, regular)
     return bmp

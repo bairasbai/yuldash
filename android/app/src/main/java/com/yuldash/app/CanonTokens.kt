@@ -212,6 +212,18 @@ internal val CanonIntroMoteGold: Color = Color(0xFFF0C840)
 // зелёный основной путь и серый объездной должны совпадать во всех местах, где рисуется карта.
 internal const val CANON_ROUTE_MAIN_ARGB: Int = 0xCC0B6B3A.toInt()
 internal const val CANON_ROUTE_ALT_ARGB: Int = 0x55757575.toInt()
+// Значки на карте и рисунки на Canvas (MapPins, MapCluster, DirectionGlyph, TaxiLocationMark).
+// Плоские: значок лежит на карте, а не на поверхности приложения, тема его не меняет.
+// В рисовании брать через `.toArgb()` — своё число в коде картинки ловит ColorSourceGuardTest.
+internal val CanonMapTaxi: Color = Color(0xFFF5B301)            // такси-жёлтый: кружок машин, пилюля «≈N мин»
+internal val CanonMapRing: Color = Color(0xFFFFFFFF)            // белое кольцо — отрыв значка от карты
+internal val CanonMapRequest: Color = Color(0xFFE07B00)         // оранжевый = заявка (не поездка)
+internal val CanonMapBoosted: Color = Color(0xFFC98A00)         // ценник поднятой (Boost) поездки
+internal val CanonMapShadow: Color = Color(0x40000000)          // мягкая тень значка
+internal val CanonMapGround: Color = Color(0x1A000000)          // пятно у основания флажка
+internal val CanonGlyphShadowSoft: Color = Color(0x26000000)    // тень платформы стрелки направления
+internal val CanonGlyphShadow: Color = Color(0x30000000)        // тень корпуса стрелки направления
+internal val CanonTaxiMarkShadow: Color = Color(0x3D000000)     // тень метки «я здесь» на карте такси
 // Лестница скруглений. Замер 2026-08-04: по экранам жило 18 разных радиусов (2,4,6,8,9,10,12,13,
 // 14,15,16,17,18,20,22,24,26 dp) — глаз читает такой разнобой как несобранность, даже когда
 // не может назвать причину. Четыре ступени: чем крупнее элемент, тем мягче угол.

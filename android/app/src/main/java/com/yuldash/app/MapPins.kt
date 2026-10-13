@@ -20,7 +20,7 @@ import androidx.compose.ui.graphics.toArgb
 // на самой заливке: маркер как будто лежит НАД картой. Радиус держим маленьким — он должен помещаться
 // в запас `pad` по краям битмапа, иначе тень обрежется краем картинки.
 private fun Paint.softShadow(radius: Float = 3f, dy: Float = 2f) = apply {
-    setShadowLayer(radius, 0f, dy, 0x40000000)
+    setShadowLayer(radius, 0f, dy, CanonMapShadow.toArgb())
 }
 
 internal enum class MapVehicleIcon {
@@ -78,7 +78,7 @@ internal fun userPuckBitmap(): Bitmap {
     val cy = size / 2f
     // белое кольцо с мягкой тенью (радиус тени 5 ≤ запас 16px до края) + зелёное ядро
     c.drawCircle(cx, cy, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }.softShadow(radius = 5f, dy = 2f))
-    c.drawCircle(cx, cy, 11f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") })
+    c.drawCircle(cx, cy, 11f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CanonGreenInk.toArgb() })
     return bmp.also { userPuckCache = it }
 }
 
@@ -91,12 +91,12 @@ internal fun destFlagBitmap(): Bitmap {
     val h = 62
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
-    val green = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.parseColor("#0B6B3A") }
+    val green = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CanonGreenInk.toArgb() }
     // Флагшток и полотнище отбрасывают мягкую тень (радиус 3 помещается в поля битмапа) —
     // флажок «стоит» на карте, а не наклеен на неё.
     val greenLifted = Paint(green).softShadow(radius = 3f, dy = 2f)
     val white = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
-    val ground = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1A000000 }
+    val ground = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CanonMapGround.toArgb() }
     c.drawOval(RectF(4f, h - 12f, 22f, h - 2f), ground)                    // мягкое пятно у земли
     c.drawRect(11f, 8f, 14.5f, h - 6f, greenLifted)                        // флагшток
     // полотнище: белая кайма (она же отбрасывает тень флага) + зелёный вымпел
@@ -114,7 +114,7 @@ internal fun requestPinBitmap(): Bitmap {
     val s = 46
     val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
-    val accent = android.graphics.Color.parseColor("#E07B00")   // оранжевый = заявка (не поездка)
+    val accent = CanonMapRequest.toArgb()   // оранжевый = заявка (не поездка)
     val white = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
     val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
     val cx = s / 2f; val cy = s / 2f
@@ -154,7 +154,7 @@ private val ridePinCache = HashMap<String, Bitmap>()
 internal fun ridePinBitmap(price: String, boosted: Boolean): Bitmap {
     val cacheKey = "$price|$boosted"
     ridePinCache[cacheKey]?.let { return it }
-    val accent = android.graphics.Color.parseColor(if (boosted) "#C98A00" else "#0B6B3A")
+    val accent = (if (boosted) CanonMapBoosted else CanonGreenInk).toArgb()
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = accent
         textSize = 34f
@@ -208,8 +208,8 @@ private val carEtaCache = HashMap<String, Bitmap>()
  *  Показывает только правду: рядом есть машина на линии и примерное время подачи. */
 internal fun carEtaBitmap(eta: String): Bitmap {
     carEtaCache[eta]?.let { return it }
-    val taxi = android.graphics.Color.parseColor("#F5B301")   // CanonGold (такси-жёлтый)
-    val ink = android.graphics.Color.parseColor("#3A2A00")    // тёмный текст на жёлтом (читаем)
+    val taxi = CanonMapTaxi.toArgb()   // такси-жёлтый
+    val ink = CanonTaxiInk.toArgb()    // тёмный текст на жёлтом (читаем)
     val label = "🚕 $eta"
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ink; textSize = 30f

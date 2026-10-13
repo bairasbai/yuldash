@@ -32,6 +32,7 @@ description: "Дизайн-система и правила UI Юлдаша — 
 - Шапка-градиент с белым текстом → **только** `CanonGreenInk` / `CanonGreenInkDark`. `CanonGreen`/`CanonGreen2` в тёмной теме становятся светлой мятой, белый текст пропадает.
 - `CanonGreen2`, `CanonWarn`, `CanonRed` уже затемнены ради контраста. **Не осветлять обратно.**
 - В `Canvas`/`DrawScope` нельзя звать `@Composable`-геттеры. Там работают только обычные `val`: `CanonStar`, `CanonGoldInk`, `CanonGreenInk`, `CanonHairlineGreen`, `CanonDangerBorder`.
+- Картинка на Android `Canvas` (значок карты, открытка) — плоский токен через `.toArgb()` (`CanonMapTaxi.toArgb()`), не `parseColor("#…")` и не `0xFF…`: их тоже ловит `ColorSourceGuardTest`.
 
 ## 2. Два языка — всегда
 

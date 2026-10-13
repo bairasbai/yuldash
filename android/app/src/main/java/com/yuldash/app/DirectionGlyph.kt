@@ -202,7 +202,7 @@ internal fun yuldashDirectionBitmap(
             radius,
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = surface
-                setShadowLayer(size * 0.04f, 0f, size * 0.018f, 0x26000000)
+                setShadowLayer(size * 0.04f, 0f, size * 0.018f, CanonGlyphShadowSoft.toArgb())
             },
         )
         canvas.drawCircle(
@@ -230,7 +230,7 @@ internal fun yuldashDirectionBitmap(
                 style = Paint.Style.STROKE
                 strokeWidth = size * 0.055f
                 strokeJoin = Paint.Join.ROUND
-                setShadowLayer(size * 0.035f, 0f, size * 0.018f, 0x30000000)
+                setShadowLayer(size * 0.035f, 0f, size * 0.018f, CanonGlyphShadow.toArgb())
             },
         )
     }
