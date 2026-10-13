@@ -1929,10 +1929,11 @@ def courier_pay_commission(user: User = Depends(current_user), session: Session 
     После оплаты доставки помечаются commission_paid=True. Идемпотентно: есть pending — вернём его.
     Нет комиссии к оплате (owed==0) → 409. Гейт курьера."""
     _guard_courier(user, session, for_work=False)
+    from ..payments import payments_closed
     from .payments import _activate_payment, _start_yookassa, _sync_provider_status
     yk = settings.payments_provider == "yookassa"
-    # В проде mock = «оплата» без денег → не даём гасить комиссию бесплатно.
-    if settings.is_prod and settings.payments_provider == "mock":
+    # В проде mock = «оплата» без денег, неизвестный провайдер — тоже → не даём гасить комиссию бесплатно.
+    if payments_closed():
         raise herr(503, "Оплата скоро будет доступна", "Түләү тиҙҙән асыла")
     # Идемпотентность: висящий pending — возвращаем его (yookassa: с актуальным confirmation_url).
     existing = session.exec(

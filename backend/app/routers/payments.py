@@ -17,7 +17,7 @@ from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action, log
 from ..models import Ad, Payment, Ride, RideStatus, User, UserRole
-from ..payments import BOOST_PLANS, BOOST_WEIGHT as _BOOST_WEIGHT, create_payment, fetch_payment
+from ..payments import BOOST_PLANS, BOOST_WEIGHT as _BOOST_WEIGHT, create_payment, fetch_payment, payments_closed
 from ..security import current_user
 from ..services import notify_admin_telegram
 from ..timeutil import utcnow
@@ -591,8 +591,8 @@ def boost_create(body: BoostIn, user: User = Depends(current_user), session: Ses
         raise herr(403, "Поднять можно только свою поездку", "Тик үҙ сәфәреңде күтәреп була")
     if ride.status != RideStatus.active:
         raise herr(400, "Поездка неактивна", "Сәфәр актив түгел")
-    # В проде mock = «оплата» без денег → не выдаём бесплатный boost.
-    if settings.is_prod and settings.payments_provider == "mock":
+    # В проде mock = «оплата» без денег, неизвестный провайдер — тоже → не выдаём бесплатный boost.
+    if payments_closed():
         raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
 
     title, amount_kop, _hours = plan
@@ -665,7 +665,7 @@ def donate_create(body: DonateIn, user: User = Depends(current_user), session: S
     amount = body.amount
     if amount < 10 or amount > 100000:
         raise herr(400, "Сумма доната — от 10 до 100000 ₽", "Ярҙам суммаһы — 10-дан 100000 ₽-ға тиклем")
-    if settings.is_prod and settings.payments_provider == "mock":
+    if payments_closed():
         raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
 
     payment = _reuse_fresh_pending(session, user.id, "donate", amount * 100)
@@ -718,7 +718,7 @@ def support_donate(body: SupportDonateIn, user: User = Depends(current_user), se
         raise herr(400,
                    f"Сумма поддержки — от {SUPPORT_MIN_KOP // 100} до {SUPPORT_MAX_KOP // 100} ₽",
                    f"Ярҙам суммаһы — {SUPPORT_MIN_KOP // 100} һумдан {SUPPORT_MAX_KOP // 100} һумға тиклем")
-    if settings.is_prod and settings.payments_provider == "mock":
+    if payments_closed():
         raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
 
     payment = _reuse_fresh_pending(session, user.id, "support", amount_kop)
