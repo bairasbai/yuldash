@@ -24,7 +24,7 @@ from ..security import current_user
 from ..services import (
     DOC_DIR, clear_driver_docs, enforce_upload_quota, notify_admin_telegram, push_notification, read_upload,
     revoke_verification_on_car_change, secure_docs_url, set_driver_docs_verdict,
-    set_user_gender, short_name, user_rating,
+    set_user_gender, tell_driver_docs_verdict, short_name, user_rating,
 )
 from ..storage import get_storage
 from ..timeutil import utcnow
@@ -398,6 +398,10 @@ def submit_driver_verify(body: DriverVerifyIn, user: User = Depends(current_user
     session.add(dp)
     session.commit()
     session.refresh(dp)
+    # Статус выше только что стал 'pending'; другой здесь — значит вердикт вынесла
+    # авто-проверка. Итог водителю — после commit (services.tell_driver_docs_verdict).
+    if dp.docs_status in ("verified", "rejected"):
+        tell_driver_docs_verdict(session, user.id, approved=dp.docs_status == "verified")
     # Прежние фото прав и авто больше не нужны — стираем, чтобы не копить чужие ПДн навсегда.
     drop_replaced_doc(prev_license, dp.license_url)
     drop_replaced_doc(prev_car, dp.car_photo_url)
@@ -631,7 +635,7 @@ def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current
     dp = _get_or_create_profile(session, user_id)
     # Вердикт по документам — общим хелпером: отказ там же гасит подтверждение пола
     # (подтверждали его по этим самым правам).
-    set_driver_docs_verdict(session, target, dp, approved=bool(body.approve))
+    changed = set_driver_docs_verdict(session, target, dp, approved=bool(body.approve))
     if body.gender_verified is not None:
         # Подтверждать нечего, если водитель ничего не заявил: пустой пол нигде не показывается.
         # Заявление читаем с `User.gender` — в профиле водителя это поле устарело и не пишется,
@@ -642,6 +646,8 @@ def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current
     session.commit()
     admin_action(user.id, "driver.moderate", target_user=user_id, approve=bool(body.approve),
                  gender_verified=dp.gender_verified)
+    if changed:   # итог водителю — только записанный вердикт (после commit)
+        tell_driver_docs_verdict(session, user_id, approved=bool(body.approve))
     return {
         "user_id": user_id, "verified": target.verified, "docs_status": dp.docs_status,
         "gender_verified": dp.gender_verified,

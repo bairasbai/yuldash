@@ -7,6 +7,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -387,11 +388,31 @@ class TripStatusIn(BaseModel):
 
 @router.post("/bookings/{booking_id}/trip-status", response_model=List[TripShare])
 def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    booking, _ = booking_and_ride_for_user(session, booking_id, user)
+    booking, trip_ride = booking_and_ride_for_user(session, booking_id, user)
     if booking.passenger_id != user.id:
         raise herr(403, "Статус семейного контроля меняет только пассажир", "Ғаилә күҙәтеү хәлен тик пассажир үҙгәртә")
     if body.status not in {"sat", "arrived", "done"}:
         raise herr(400, "Недопустимый статус поездки", "Ярамаған сәфәр хәле")
+    # «Я сел» / «Доехал» → бронь «в пути» (onboard). Раньше «Я сел» уходил только близким: без
+    # доверенных контактов сервер не записывал НИЧЕГО, бронь до конца оставалась «подтверждена».
+    # Итог (сквозная проверка волны 1, 13.10.2026): водитель не видел, что человек уже в машине;
+    # переоткрытое приложение теряло посадку; у мамы по ссылке до самого конца висело «Машина
+    # едет к точке посадки», хотя дочь давно в пути. Статус onboard давно знают все клиенты,
+    # ссылка близкого, чат и живая позиция — его просто никто не ставил.
+    # Три условия:
+    # * только из confirmed — посадку без подтверждения водителем не изобретаем;
+    # * только когда поездка началась (та же планка, что у «Завершить», DONE_EARLY_GRACE). Кнопку
+    #   «Я сел» видно сразу после подтверждения, и нажатие за несколько дней делало бронь
+    #   «в пути»: пауза водителя такие брони не снимает («человек в машине»), и пассажир
+    #   оставался «в пути» на отменённом рейсе (ревью Opus волны 1). Раньше времени — как
+    #   прежде: сообщение близким без смены брони;
+    # * условный UPDATE — одновременное «Завершить» водителя или отмена не откатываются в «в пути».
+    if (body.status in ("sat", "arrived") and booking.status == BookingStatus.confirmed
+            and not (trip_ride.depart_at and utcnow() < trip_ride.depart_at - DONE_EARLY_GRACE)):
+        session.execute(update(Booking).where(
+            Booking.id == booking.id, Booking.status == BookingStatus.confirmed,
+        ).values(status=BookingStatus.onboard))
+        session.commit()
     # «Завершил поездку» → реально закрываем бронь на сервере (раньше статус уходил только близким,
     # а бронь висела активной). Идемпотентно: повторный done/отменённую не трогаем.
     if body.status == "done" and booking.status not in (BookingStatus.done, BookingStatus.cancelled):

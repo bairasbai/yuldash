@@ -557,11 +557,13 @@ def close_past_rides(now=None) -> tuple:
     cut = now - timedelta(hours=RIDE_CLOSE_GRACE_HOURS)
     done = expired = 0
     with engine.begin() as conn:
-        # done: прошедшие активные, у которых была хотя бы одна подтверждённая бронь
+        # done: прошедшие активные, у которых была хотя бы одна подтверждённая бронь.
+        # «В пути» (onboard — пассажир нажал «Я сел») — тем более поездка состоялась
+        # (13.10.2026: onboard стал реально ставиться, без этого такие рейсы уходили в expired).
         done = conn.execute(text(
             "UPDATE ride SET status = 'done' "
             "WHERE status = 'active' AND depart_at < :cut AND EXISTS ("
-            "  SELECT 1 FROM booking b WHERE b.ride_id = ride.id AND b.status = 'confirmed')"
+            "  SELECT 1 FROM booking b WHERE b.ride_id = ride.id AND b.status IN ('confirmed', 'onboard'))"
         ), {"cut": cut}).rowcount or 0
         # expired: всё остальное прошедшее и активное — никто не поехал
         ride_victims = [(r[0], r[1]) for r in conn.execute(text(
@@ -578,7 +580,7 @@ def close_past_rides(now=None) -> tuple:
         # всё остальное живое → cancelled: человек не поехал, «выполненной» её звать нечестно.
         conn.execute(text(
             "UPDATE booking SET status = 'done' "
-            "WHERE status = 'confirmed' AND EXISTS ("
+            "WHERE status IN ('confirmed', 'onboard') AND EXISTS ("
             "  SELECT 1 FROM ride r WHERE r.id = booking.ride_id "
             "  AND r.status = 'done' AND r.depart_at < :cut)"
         ), {"cut": cut})
