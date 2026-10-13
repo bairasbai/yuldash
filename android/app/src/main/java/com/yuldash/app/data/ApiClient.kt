@@ -2502,15 +2502,15 @@ object ApiClient {
      *
      * Сервер сверяет её с текущей и при расхождении отвечает 409, ничего не меняя. Между
      * «увидел строку» и «нажал кнопку» проходит время, и водитель успевает заявить оплату по
-     * новым поездкам: раньше одно нажатие закрывало обе заявки (волна 220).
+     * новым поездкам: раньше одно нажатие закрывало обе заявки (волна 220). `true` — долг уже оплачен.
      */
-    suspend fun confirmDebt(debtId: Int, amountKop: Int): Result<Unit> =
+    suspend fun confirmDebt(debtId: Int, amountKop: Int): Result<Boolean> =
         call("POST", "/admin/debts/$debtId/confirm",
-             JSONObject().put("amount_kop", amountKop), auth = true).map { }
+             JSONObject().put("amount_kop", amountKop), auth = true).map { it.optBoolean("already") }
 
-    suspend fun rejectDebt(debtId: Int, amountKop: Int): Result<Unit> =
+    suspend fun rejectDebt(debtId: Int, amountKop: Int): Result<Boolean> =
         call("POST", "/admin/debts/$debtId/reject",
-             JSONObject().put("amount_kop", amountKop), auth = true).map { }
+             JSONObject().put("amount_kop", amountKop), auth = true).map { it.optBoolean("already") }
 
     // ---------- Быстрый заказ (такси-режим, Фаза 2) ----------
     // Отдельный поток от плановых поездок (Ride/Booking) — те не трогаем. Приватность: телефоны/имя
@@ -5206,9 +5206,9 @@ object ApiClient {
     suspend fun adminSosHandle(eventId: Int, note: String = ""): Result<Unit> =
         call("POST", "/admin/sos/$eventId/handle", JSONObject().put("note", note.take(500)), auth = true).map { }
 
-    /** Админ: списать долг по-человечески (пассажир не заплатил, поездка сорвалась). */
-    suspend fun adminForgiveDebt(debtId: Int, reason: String = ""): Result<Unit> =
-        call("POST", "/admin/debts/$debtId/forgive", JSONObject().put("reason", reason.take(300)), auth = true).map { }
+    /** Админ: списать долг по-человечески (пассажир не заплатил, поездка сорвалась). `true` — уже оплачен. */
+    suspend fun adminForgiveDebt(debtId: Int, reason: String = ""): Result<Boolean> =
+        call("POST", "/admin/debts/$debtId/forgive", JSONObject().put("reason", reason.take(300)), auth = true).map { it.optBoolean("already") }
 
     /** Админ: отменить посылку (курьер пропал, отправитель просит закрыть). */
     suspend fun adminParcelCancel(parcelId: Int, reason: String = ""): Result<Unit> =

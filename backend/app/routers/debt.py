@@ -117,7 +117,19 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
                 "amount_kop": owed_kop, "confirmation_url": res["confirmation_url"]}
 
     # СБП «на доверии» (по умолчанию): долг → pending, админ подтверждает.
-    paid_kop = debt_mod.declare_paid(session, user.id)
+    try:
+        paid_kop = debt_mod.declare_paid(session, user.id)
+    except debt_mod.DebtAlreadySettled:
+        # Пока водитель жал кнопку, долг закрыли другим путём (карта, кошелёк, админ) —
+        # заявлять нечего (leaf-1.2d). Но перевод по СБП он, скорее всего, уже отправил:
+        # без этого сообщения лишние деньги никто бы не заметил (ревью Opus 1.2d, P2).
+        # Поле `already` аддитивное; приложение водителя пока его не различает.
+        notify_admin_telegram(
+            f"⚠️ Водитель нажал «Я оплатил», но долг уже закрыт\n"
+            f"Кто: {user.name or '—'} (id {user.id})\n"
+            f"Если пришёл перевод по СБП — его надо вернуть водителю."
+        )
+        return {"ok": True, "method": "sbp_manual", "pending_kop": 0, "already": True}
     if paid_kop > 0:
         # Телефон сюда не кладём (найдено независимым ревью Opus, 2026-10-02): Telegram —
         # сторонний зарубежный сервис, а шапка модуля обещает «суммы не логируем с привязкой
