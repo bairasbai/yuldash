@@ -45,6 +45,26 @@
 `state`). Такси-диалог «поделиться» (`InstantOrderScreen.kt`, `InstantShareOperations.contacts`) читает
 тот же репозиторий. Сторож размера файлов — `FileSizeRatchetTest`.
 
+## Чат попутки — отдельный экран `Screen.TripChat` (13.10.2026)
+
+Жалоба: строка ввода и микрофон стояли посреди экрана. Чат был пунктом списка «Моя поездка», поле
+ввода — обычным элементом под последним сообщением. Теперь переписка — полноэкранный вид, как в
+мессенджерах; на экране поездки — карточка «Чат по поездке» (последнее сообщение, бейдж новых).
+
+| Что | Где |
+|---|---|
+| Логика чата (лента, WS→REST, очередь без сети, правка/удаление, голос, фото, черновик, непрочитанные) | `TripChatState.kt` → `TripChatState`, `TripChatConnection` (перенесено из `ActiveTripContent` 1:1) |
+| Полноэкранный чат, шапка (собеседник, маршрут, «Открыть поездку»), карточка на экране поездки | `TripChatScreen.kt` → `TripChatScreen`, `TripChatCard` |
+| Каркас мессенджера: лента `reverseLayout` прижата к низу, строка ввода внизу, отступ снизу = max(клавиатура, навигация), кнопка «к новым», adjustResize только пока чат на экране | `TripChatScreen.kt` → `ChatLayout`; на нём же двойник `ChatContent` (`RidesRequestsChatScreens.kt`) и чаты такси, посылки, поддержки (`InstantChatScreen.kt`, `ParcelChatScreen.kt`, `SupportChatScreen.kt`: отступ Scaffold гасится `consumeWindowInsets`) |
+| Навигация | `Screen.TripChat` — второй вид `ActiveTrip`: `YuldashApp` анимирует их как один экран (`Screen.contentScreen()`), ветка `Screen.ActiveTrip, Screen.TripChat ->`; вид задаёт `chatOpen = screen.tripChatView()`, переход — `YuldashViewModel.showTripChat` (возврат к поездке заменяет чат, «Назад» не ходит по кругу) |
+| Входы | вкладка «Чат» → диалог (`AppNavHome.onOpenChat`, имя собеседника — `Ride.chatPeer`) сразу в чат; «Написать» в нижней панели и карточка на экране поездки |
+
+Один экземпляр `TripChatState` на оба вида: сокет, опрос статуса и черновик не пересоздаются при
+переходе «поездка ↔ чат». Завершение/отмена/смена входа обрабатываются экраном поездки, как раньше;
+с навигацией чат на закрытой поездке заменяется видом поездки. Без навигации (тесты) вид
+переключается внутри экрана. Тесты: `TripChatBottomComposerTest`, `TripChatNavigationTest`,
+обновлённые `ActiveTripChat*` и `ChatContentTest`.
+
 ## Terminal HTTP и отправитель очереди (07.10.2026, QA-B02-003)
 
 `ActiveTripContent` использует `isTripChatActive` перед/после initial history/code/details, flush follow-up и REST send success. Начатый same-owner send при сетевой ошибке всё ещё сохраняет Outbox action/key; terminal блокирует только поздние UI/Toast. `Outbox.flush(context, expectedGeneration, shouldContinue={true})` сохраняет global default и проверяет динамический caller predicate после mutex и перед новым действием. Predicate выполняется вне монитора Outbox; не брать sessionLock из него. Ответ уже отправленного действия подтверждается merge по action.id/owner generation, остальные действия сохраняются; затем predicate останавливает следующие POST. Terminal не является глобальной политикой удаления очереди или запрета history: backend сохраняет after-trip/lost-item окно, YuldashApp startup flush независим.
@@ -133,6 +153,7 @@ B01, 20.09.2026: commitAuth возвращает отдельную SessionPersi
 | весь кабинет админа (21 шт., все начинаются на `Admin*`) | `AppNavAdmin.kt` |
 | главный экран | `AppNavHome.kt` |
 | заказ такси, его чат, поездка водителя, чек, история, документы и фото машины, посылки, курьер | `AppNavOrders.kt` |
+| «Моя поездка» и её чат (`ActiveTrip`, `TripChat` — один экран с двумя видами, см. «Чат попутки — отдельный экран») | `YuldashApp.kt`, `when (scr)` → `BookingActiveTripScreen.kt` + `TripChatScreen.kt` |
 | всё остальное | `YuldashApp.kt`, `when (scr)` |
 
 Добавляешь новый экран — заведи его в `enum Screen`, добавь ветку в нужный файл И убедись,

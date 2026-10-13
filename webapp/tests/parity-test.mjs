@@ -24,6 +24,7 @@ const ROUTES = {
   Boost: "/boost",
   Booking: "/booking/:id",
   ActiveTrip: "/trip/:id",
+  TripChat: "/trip/:id/chat",
   Sos: "/sos",
   CreateRequest: "/request",
   VerifyDriver: "/verify-driver",

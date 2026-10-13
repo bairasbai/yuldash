@@ -123,8 +123,7 @@ class ActiveTripChatActionsInstrumentedTest {
         compose.onNodeWithText("private-history-A").performTouchInput { longClick() }
         if (edit) {
             compose.onNodeWithText(if (language == AppLanguage.Ba) "Үҙгәртеү" else "Редактировать").performClick()
-            compose.onNode(hasScrollToNodeAction() and SemanticsMatcher.keyIsDefined(
-                androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)).performScrollToNode(hasSetTextAction())
+            // Строка ввода прибита под лентой чата — прокручивать к ней не нужно.
             compose.onNode(hasSetTextAction()).performTextReplacement("native-edit")
             compose.onNodeWithContentDescription(if (language == AppLanguage.Ba) "Ебәреү" else "Отправить").performClick()
         } else compose.onNodeWithText(if (language == AppLanguage.Ba) "Барыһында юйыу" else "Удалить у всех").performClick()

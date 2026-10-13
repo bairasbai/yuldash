@@ -190,16 +190,9 @@ class ActiveTripChatTerminalHttpTest {
         val message = field("onMessage") as (ChatSocket.Incoming) -> Unit
         val connected = field("onConnected") as (Boolean) -> Unit
         val rejected = field("onRejected") as (Int, String) -> Unit
-        // Kotlin's invokedynamic lambdas name captures arg$N; select the unique semantic value type.
-        fun state(callback: Any, name: String) = callback.javaClass.declaredFields.mapNotNull {
-            it.isAccessible = true; it.get(callback) as? MutableState<*>
-        }.single { when (name) {
-            "messages" -> it.value is List<*>
-            "failedIds" -> it.value is Set<*>
-            "wsConnected" -> it.value is Boolean
-            else -> false
-        } }
-        return Callbacks(message, connected, rejected, state(message, "messages"), state(rejected, "failedIds"), state(connected, "wsConnected"))
+        // The socket callbacks belong to the screen's TripChatState (shared by the trip card and the chat view).
+        val chat = message.javaClass.declaredFields.firstNotNullOf { it.isAccessible = true; it.get(message) as? TripChatState }
+        return Callbacks(message, connected, rejected, chat.messagesState, chat.failedIdsState, chat.wsConnectedState)
     }
     private fun mount(openChat: Boolean = !holdInitialHistory): Callbacks {
         val before = listeners()
@@ -335,7 +328,6 @@ class ActiveTripChatTerminalHttpTest {
         assertTrue(sockets.first().close(1008, "REST fallback"))
         waitFor { cb.connection.value == false }
         holdPostBooking = 42; postReply = "network"
-        tripList().performScrollToNode(hasSetTextAction())
         compose.onNode(hasSetTextAction()).performTextInput("held-send")
         compose.onNodeWithContentDescription("Отправить").performClick()
         waitFor { postHeld.count == 0L }
@@ -357,7 +349,6 @@ class ActiveTripChatTerminalHttpTest {
         val cb = mount()
         assertTrue(sockets.first().close(1008, "REST fallback"))
         waitFor { cb.connection.value == false }
-        tripList().performScrollToNode(hasSetTextAction())
         compose.onNode(hasSetTextAction()).performTextInput("ordinary-send")
         compose.onNodeWithContentDescription("Отправить").performClick()
         waitFor { postCount() == 1 && requests.count { it.first == "GET /bookings/42/messages" } >= 2 }
@@ -378,7 +369,6 @@ class ActiveTripChatTerminalHttpTest {
         assertTrue(sockets.first().close(1008, "REST fallback"))
         waitFor { cb.connection.value == false }
         holdPostBooking = 42
-        tripList().performScrollToNode(hasSetTextAction())
         compose.onNode(hasSetTextAction()).performTextInput("held-success")
         compose.onNodeWithContentDescription("Отправить").performClick()
         waitFor { postHeld.count == 0L }

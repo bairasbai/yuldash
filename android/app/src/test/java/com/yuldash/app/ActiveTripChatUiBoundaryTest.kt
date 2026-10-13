@@ -149,16 +149,9 @@ class ActiveTripChatUiBoundaryTest {
         val message = field("onMessage") as (ChatSocket.Incoming) -> Unit
         val connected = field("onConnected") as (Boolean) -> Unit
         val rejected = field("onRejected") as (Int, String) -> Unit
-        // Kotlin's invokedynamic lambdas name captures arg$N; select the unique semantic value type.
-        fun state(callback: Any, name: String) = callback.javaClass.declaredFields.mapNotNull {
-            it.isAccessible = true; it.get(callback) as? MutableState<*>
-        }.single { when (name) {
-            "messages" -> it.value is List<*>
-            "failedIds" -> it.value is Set<*>
-            "wsConnected" -> it.value is Boolean
-            else -> false
-        } }
-        return Callbacks(message, connected, rejected, state(message, "messages"), state(rejected, "failedIds"), state(connected, "wsConnected"))
+        // The socket callbacks belong to the screen's TripChatState (shared by the trip card and the chat view).
+        val chat = message.javaClass.declaredFields.firstNotNullOf { it.isAccessible = true; it.get(message) as? TripChatState }
+        return Callbacks(message, connected, rejected, chat.messagesState, chat.failedIdsState, chat.wsConnectedState)
     }
     private fun mount(): Callbacks {
         val before = listeners()
