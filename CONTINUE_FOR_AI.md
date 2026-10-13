@@ -1,7 +1,7 @@
 # CONTINUE_FOR_AI.md — архив
 
 > Этот файл больше не основной. Содержимое перенесено в «второй мозг» (`docs/`).
-> Старт для агента: **[docs/00-INDEX.md](docs/00-INDEX.md)**.
+> Старт для агента: правила — **[AGENTS.md](AGENTS.md)**; знания — поиском по `docs/` (§1 там же).
 
 Куда что ушло:
 
@@ -10,4 +10,4 @@
 - Задачи, бэклог, что уже сделано → [docs/tasks.md](docs/tasks.md)
 - Решения (в т.ч. «не трогать старую копию OneDrive») → [docs/decisions.md](docs/decisions.md)
 
-Правила работы агента: [../CLAUDE.md](CLAUDE.md).
+Правила работы агента: [AGENTS.md](AGENTS.md) (Claude — ещё [CLAUDE.md](CLAUDE.md)).

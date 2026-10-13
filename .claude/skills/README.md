@@ -15,7 +15,10 @@
 Рядом — автоматика в `.claude/settings.json`: после каждой правки хук
 `.claude/hooks/yuldash-post-edit.mjs` ловит мёртвые импорты в бэкенде (ruff, как CI),
 захардкоженный `Color(0x…)` и одноязычный `Text("…")` в экранах; правки в `mobile/` и чтение
-ключей (`local.properties`, `google-services.json`, keystore) запрещены.
+ключей (`local.properties`, `google-services.json`, keystore) запрещены в любой папке, а хук
+`.claude/hooks/yuldash-secrets-guard.mjs` — сетка от случайного чтения: не даёт команде терминала прочитать,
+скопировать или упаковать их (по имени, маске, конвейеру, рекурсивному поиску). Не стена; граница — запрет Read и классификатор.
+Таблица случаев — `yuldash-secrets-guard.test.mjs` рядом.
 
 ## Чужие (скопированы из открытых репозиториев)
 
@@ -78,7 +81,12 @@
 ```bash
 git clone --depth 1 https://github.com/emilkowalski/skills.git /tmp/emil
 cp -r /tmp/emil/skills/* .claude/skills/
+# их animate у нас живёт как emil-animate (глобальный animate его перекрывает):
+rm -rf .claude/skills/emil-animate && mv .claude/skills/animate .claude/skills/emil-animate
+sed -i 's/^name: animate$/name: emil-animate/' .claude/skills/emil-animate/SKILL.md
 ```
+
+После копирования заново нанеси врезки «правила Юлдаша важнее» (см. ниже) — копия их стирает.
 
 ## Правило для любого чужого скилла
 
