@@ -19,7 +19,7 @@
 - Сборка — из СВОЕГО чекаута (в worktree — его): Set-Location "$(git rev-parse --show-toplevel)\android"; $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'; $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"; .\gradlew.bat :app:assembleDebug --no-daemon
 - ADB: C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe
 - Эмулятор: AVD `Pixel_5` (API 37, экран 1080x2340). Запуск: emulator -avd Pixel_5 (если занят — фича «multiinstance», добавь -read-only). Ждать boot_completed=1.
-- local.properties НЕТ в worktree (в .gitignore) и НЕ копируй его: там ключи (§11 AGENTS.md). Сборке хватает ANDROID_HOME. Новые worktree получают ключ карты сами (.worktreeinclude) — карта работает; в старых она пустая, остальное проверяется. Свой сервер для эмулятора — docs/qa.md, «Локальный стенд».
+- local.properties НЕТ в worktree (в .gitignore) и НЕ копируй его: там ключи (§11 AGENTS.md). Сборке хватает ANDROID_HOME. Ключ карты — только в основной папке, копий не делаем: в worktree карта пустая, остальное проверяется; карту — сборкой из основной папки, когда ветка туда влита. Свой сервер для эмулятора — docs/qa.md, «Локальный стенд».
 - Бэкенд LIVE: https://yulbash.ru (health: {"status":"ok","db":"ok"}). SSH: ssh root@85.239.52.55 (ключ на ноуте). pytest: cd /opt/yuldash && ./.venv/bin/python -m pytest tests/ -q.
 - Токен для API-тестов без телефона: ssh ... "cd /opt/yuldash && ./.venv/bin/python -c 'from app.security import make_token; print(make_token(<user_id>))'". Юзеры: 1-4 водители (Ильдар/Айгуль/Рустам/Гүзәл), 27 водитель codex, 28 пассажир Codex.
 
@@ -57,6 +57,6 @@
 
 - **Espresso @Ignore на API 37** — эмулятор `Pixel_5` = Android 17/API 37 (будущий). `InputManager.getInstance` удалён → `createComposeRule` падает `NoSuchMethodException`. Поэтому Compose-UI-тесты скипаются, E2E делаем через `adb`+`uiautomator`. Снять `@Ignore` на эмуляторе API ≤36.
 - **Кириллица в консоли** — Windows-консоль cp1251, `uiautomator dump` содержит `→`/кириллицу. Парсить bounds через `python` с `export PYTHONIOENCODING=utf-8`, иначе `UnicodeEncodeError`.
-- **local.properties** — в `.gitignore`. Не копировать и не читать (§11 `AGENTS.md`): сборке хватает `ANDROID_HOME` (`build.gradle.kts` терпит отсутствие файла, CI так и собирает). Ключ в новые worktree кладёт сам Claude Code по `.worktreeinclude`; в старых карта пустая.
+- **local.properties** — в `.gitignore`. Не копировать и не читать (§11 `AGENTS.md`): сборке хватает `ANDROID_HOME` (`build.gradle.kts` терпит отсутствие файла, CI так и собирает). Ключ карты — только в основной папке (копий не делаем); в worktree карта пустая, карту проверяют из основной папки.
 - **API-токены для тестов** — `make_token(user_id)` минует SMS/Telegram-вход. Быстрый способ гонять E2E-потоки поездок без реального логина.
 - **LIVE-трекинг код-тестом** — 2 телефона не нужны: WS-стрим водителя запускается скриптом на сервере, пассажир смотрится на эмуляторе. Так проверяется реле `/ws/trip/{id}/location` + баннер статуса + плавная нав-стрелка.
