@@ -169,7 +169,7 @@ export default function MyRidesScreen() {
                   else if (opensActiveTrip) navigate(`/trip/${b.id}`);
                   else navigate(`/booking/${b.id}`);
                 }}
-                onSecondary={() => (opensActiveTrip ? navigate(`/trip/${b.id}`) : navigate("/chat"))}
+                onSecondary={() => (opensActiveTrip ? navigate(`/trip/${b.id}/chat`) : navigate("/chat"))}
               />
             );
           })}
