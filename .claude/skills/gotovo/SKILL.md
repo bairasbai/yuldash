@@ -1,6 +1,6 @@
 ---
 name: gotovo
-description: Проверка Юлдаша перед словом «готово» — по изменённым частям (Android / бэкенд / PWA / лендинг) запускает те же проверки, что CI (лендинг — только здесь, в CI его нет), и выдаёт таблицу с выводом. Бери перед любым отчётом «сделано» и когда Александр пишет /gotovo.
+description: Проверка Юлдаша перед словом «готово» — по изменённым частям (Android / бэкенд / PWA / лендинг) запускает те же проверки, что CI, и выдаёт таблицу с выводом. Бери перед любым отчётом «сделано» и когда Александр пишет /gotovo.
 ---
 
 # /gotovo — гейт «готово»
@@ -38,11 +38,12 @@ $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"     # local.properties не н
 .\gradlew.bat :app:compileDebugAndroidTestKotlin --no-daemon
 .\gradlew.bat :app:testDebugUnitTest --no-daemon --tests "*GuardTest" --tests "<тесты затронутых экранов>"
 ```
-- `*GuardTest` — ~30 сторожей правил, читают исходники и идут быстро: двуязычие, шкалы `Canon*`,
-  контраст, тон «ты», тач-цели, деньги, приватность. Полный набор (3 600+ тестов Robolectric, долго,
+- `*GuardTest` — ~30 сторожей правил, читают исходники и идут быстро: двуязычие (`Text`, `text =`,
+  `contentDescription`, `Icon`/`Image`, `Toast`), шкалы `Canon*`, свой цвет `Color(0x…)` (`ColorSourceGuardTest`),
+  храповик `padding(N.dp)` (`SpacingRatchetGuardTest`), контраст, тон «ты», тач-цели, деньги, приватность. Полный набор (3 600+ тестов Robolectric, долго,
   с порогом покрытия) гоняет CI; локально — сторожа и тесты затронутых экранов.
-- `compileDebugAndroidTestKotlin` — инструментальные тесты (`androidTest`) не собирает больше никто,
-  ни CI, ни unit-прогон: без этой строки они тихо ломаются.
+- `compileDebugAndroidTestKotlin` — инструментальные тесты (`androidTest`) не собирают ни `assembleDebug`,
+  ни unit-прогон; CI компилирует их в `android-build` (с 13.10.2026), локально — чтобы не ждать CI.
 - Трогал зависимости, правила R8/ProGuard, сериализацию или рефлексию — ещё
   `.\gradlew.bat :app:assembleRelease -Pyuldash.unsignedRelease --no-daemon` (как CI: проверка R8).
 - Открыта Android Studio на этой папке — добавь `-x bundleDebugClassesToRuntimeJar`, иначе тесты упадут
@@ -64,7 +65,7 @@ python -m pytest tests/ -q --maxfail=25
 **PWA** — `npm ci --prefix webapp` (если нет `webapp/node_modules`, в worktree его нет), затем
 `npm run check --prefix webapp` и `npm run build --prefix webapp`.
 **Лендинг** — `npm ci --prefix web` (если нет `node_modules`), затем `npm run lint --prefix web`
-и `npm run build --prefix web`. В CI лендинга нет — эта проверка единственная.
+и `npm run build --prefix web`. В CI то же самое — джоба `web-build` (с 13.10.2026).
 
 ## 3. Правила проекта (не проверяются компилятором)
 

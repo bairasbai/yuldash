@@ -866,7 +866,7 @@ private fun YuldashAppContent() {
     // и сессии; уход со страницы отменяет загрузчик. Live-гео включается лишь для активной поездки.
     // Не нашлась текущая бронь / нет сети → Home (прежнее поведение).
     LaunchedEffect(screen, activeBookingId, navigationSession) {
-        if ((screen == Screen.Booking || screen == Screen.ActiveTrip) && selectedRide == null && activeTrip == null) {
+        if ((screen == Screen.Booking || screen.contentScreen() == Screen.ActiveTrip) && selectedRide == null && activeTrip == null) {
             val bid = activeBookingId
             val requestedScreen = screen
             val requestedSession = navigationSession
@@ -902,7 +902,7 @@ private fun YuldashAppContent() {
                     // Live-гео и карта гейтятся на activeTrip: ставим его только для активной поездки.
                     activeTrip = if (bookingStatusAllowsBoarding(b.status)) restoredRide else null
                     // Отменённая бронь → детали; done остаётся на экране завершения и оценки.
-                    if (screen == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status)) screen = Screen.Booking
+                    if (screen.contentScreen() == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status)) screen = Screen.Booking
                     restored = true
                 }
             }
@@ -1154,7 +1154,7 @@ private fun YuldashAppContent() {
             if (offlineNow || updateVisible) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier
         )) {
         AnimatedContent(
-            targetState = if (missingRootDestination) Screen.Notifications else screen,
+            targetState = if (missingRootDestination) Screen.Notifications else screen.contentScreen(),   // TripChat = вид ActiveTrip
             transitionSpec = {
                 (fadeIn(animationSpec = tween(CanonMotion.NORMAL)) +
                     slideInHorizontally(animationSpec = tween(CanonMotion.SLOW)) { it / 12 })
@@ -1432,12 +1432,10 @@ private fun YuldashAppContent() {
                 }
             )
             }
-            Screen.ActiveTrip -> ActiveTripScreen(
-                ride = selectedRide,
-                contacts = trustedContacts,
-                bookingId = activeBookingId,
-                onBack = { goBack() },
-                onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
+            Screen.ActiveTrip, Screen.TripChat -> ActiveTripScreen(
+                ride = selectedRide, contacts = trustedContacts, bookingId = activeBookingId,
+                chatOpen = screen.tripChatView(), onChatOpenChange = vm::showTripChat,
+                onBack = { if (screen.contentScreen() == Screen.ActiveTrip) goBack() }, onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
                 // Дежурный должен узнать из сигнала, с кем и куда человек уехал (аудит 2026-08-06).
                 onSos = { openSos(bookingId = activeBookingId ?: 0) },
                 onSupport = { screen = Screen.Support },

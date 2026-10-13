@@ -40,7 +40,10 @@ internal data class Ride(
     val pickupLat: Double? = null,
     val pickupLng: Double? = null,
     val receiverName: String = "",   // посылка: кому отдать
-    val parcelSize: String = ""      // посылка: габарит/вес
+    val parcelSize: String = "",     // посылка: габарит/вес
+    // С кем переписка, когда поездку открыли из вкладки «Чат» (там сервер отдаёт имя
+    // собеседника). Пусто — шапка чата берёт водителя брони или роль.
+    val chatPeer: String = "",
 )
 
 internal data class PopularRoute(

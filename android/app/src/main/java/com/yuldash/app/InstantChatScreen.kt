@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -171,7 +171,10 @@ internal fun InstantChatScreen(orderId: Int, onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
+        // Строку ввода к низу прибивает ChatContent (ChatLayout): отступ под навигацию/клавиатуру
+        // даёт он сам. Отступ Scaffold гасим как уже выданный — иначе снизу их было бы два и над
+        // клавиатурой висела бы щель высотой с навигационную полосу.
+        Column(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
             // WS восстанавливается → сообщения уходят по REST, честно показываем (не ошибка).
             AnimatedVisibility(visible = !wsConnected && !readOnly && !historyLoading) {
                 Row(

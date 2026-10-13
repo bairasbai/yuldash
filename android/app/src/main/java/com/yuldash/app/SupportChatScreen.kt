@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -397,7 +398,9 @@ internal fun SupportTicketScreen(ticketId: Int, onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
+        // Строку ввода к низу прибивает ChatContent (ChatLayout) и сам даёт отступ под навигацию и
+        // клавиатуру. Отступ Scaffold гасим как выданный — иначе снизу их было бы два.
+        Column(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
             // Закрытое обращение → мягкий баннер; писать всё ещё можно (сервер переоткроет).
             AnimatedVisibility(visible = closed && !loading) {
                 Row(
@@ -423,6 +426,17 @@ internal fun SupportTicketScreen(ticketId: Int, onBack: () -> Unit) {
                     )
                 }
                 else -> {
+                    // «Закрыть обращение» — только у открытого, только если уже есть переписка. Над лентой,
+                    // а не под строкой ввода: та прибита к низу экрана, и кнопка ушла бы под неё.
+                    val canClose = !closed && !loading && messages.isNotEmpty()
+                    AnimatedVisibility(visible = canClose) {
+                        TextButton(
+                            onClick = { scope.launch { ApiClient.closeSupportTicket(ticketId).onSuccess { status = "closed" } } },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        ) {
+                            Text(appText("Закрыть обращение", "Мөрәжәғәтте ябыу"), color = CanonMuted, fontSize = 14.sp)
+                        }
+                    }
                     ChatContent(
                         messages = messages,
                         input = input,
@@ -433,15 +447,6 @@ internal fun SupportTicketScreen(ticketId: Int, onBack: () -> Unit) {
                         onSend = { send() },
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                     )
-                    // «Закрыть обращение» — только у открытого, только если уже есть переписка.
-                    AnimatedVisibility(visible = !closed && !loading && messages.isNotEmpty()) {
-                        TextButton(
-                            onClick = { scope.launch { ApiClient.closeSupportTicket(ticketId).onSuccess { status = "closed" } } },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                        ) {
-                            Text(appText("Закрыть обращение", "Мөрәжәғәтте ябыу"), color = CanonMuted, fontSize = 14.sp)
-                        }
-                    }
                 }
             }
         }

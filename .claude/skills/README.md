@@ -72,7 +72,7 @@
 - шести «про интерфейс» (`apple-design`, `emil-design-eng`, `emil-animate`,
   `find-animation-opportunities`, `improve-animations`, `review-animations`) — напоминание,
   что мы пишем Compose, а не веб: **принцип и число брать можно, код — нет**; длительности
-  со шкалы `CanonMotion`, цвета `Canon*`, иначе падает `CanonSourceGuardTest`;
+  со шкалы `CanonMotion` (иначе падает `CanonSourceGuardTest`), цвета `Canon*` (иначе `ColorSourceGuardTest`);
 - двум «про веб» (`pick-ui-library`, `prototype`) — что они применимы к лендингу в `web/`,
   а не к приложению в `android/`.
 
