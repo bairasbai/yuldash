@@ -60,6 +60,8 @@ const SUITES = [
   { test: "taxi-origin-picker-test", src: null, out: null, bundle: false },
   { test: "ride-booking-path-test", src: null, out: null, bundle: false },
   { test: "commission-label-test", src: null, out: null, bundle: false },
+  // На «долг уже оплачен» (already: true) админка не рисует обычное «подтверждено».
+  { test: "debt-already-test", src: null, out: null, bundle: false },
   { test: "map-lifecycle-test", src: null, out: null, bundle: false },
   { test: "logout-without-worker-test", src: null, out: null, bundle: false },
   { test: "st-test", src: "src/utils/serverTime.ts", out: "st-bundle.mjs", bundle: true },
