@@ -814,24 +814,70 @@ def admin_pending_payments(user: User = Depends(current_user), session: Session 
     return out
 
 
+def confirm_manual_payment(session: Session, payment_id: int) -> tuple[str, Payment | None]:
+    """Ядро ручного подтверждения перевода — одно на обе двери: админку и кнопку ✅ в Telegram.
+
+    Кнопка в Telegram жила своей копией: без блокировки строки и без проверки статуса. Админ
+    жал ✅ по уже отменённому платежу и получал «Подтверждена оплата #N», хотя ничего не
+    применилось (ревью 2026-10-12, P2); админка в том же случае честно отвечала 409.
+
+    Исход: not_found | already | closed | provider | failed | confirmed.
+    """
+    payment = session.get(Payment, payment_id, with_for_update=True, populate_existing=True)
+    if not payment:
+        return "not_found", None
+    if payment.status == "succeeded":
+        return "already", payment
+    if payment.status != "pending":
+        return "closed", payment
+    # Карточный платёж (создан у провайдера) вручную не подтверждаем — его подтверждает вебхук
+    # после реального списания. Ручной confirm здесь = начисление без денег (фантом в ledger).
+    if payment.provider_id or payment.method == "yookassa":
+        return "provider", payment
+    _activate_payment(session, payment)
+    if payment.status != "succeeded":
+        return "failed", payment
+    return "confirmed", payment
+
+
+def reject_manual_payment(session: Session, payment_id: int) -> tuple[str, Payment | None]:
+    """Ядро отклонения перевода — одно на админку и кнопку ❌ в Telegram.
+
+    Кнопка в Telegram читала статус без блокировки: в узком окне она могла «отклонить» платёж,
+    который в ту же секунду провёл вебхук, и отвечала «Отклонена оплата» по проведённым деньгам.
+    И плательщику ничего не сообщала — в отличие от админки (волна 84).
+
+    Исход: not_found | closed | already | rejected.
+    """
+    payment = session.get(Payment, payment_id, with_for_update=True, populate_existing=True)
+    if not payment:
+        return "not_found", None
+    if payment.status not in ("pending", "canceled"):
+        return "closed", payment
+    if payment.status == "canceled":
+        return "already", payment
+    payment.status = "canceled"
+    session.add(payment)
+    session.commit()
+    _tell_about_payment(session, payment, ok=False)   # молчащий отказ = человек ждёт вечно (волна 84)
+    return "rejected", payment
+
+
 @router.post("/admin/payments/{payment_id}/confirm")
 def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Подтвердить получение СБП-перевода → активировать (boost). Для админа."""
     _require_admin(user)
-    payment = session.get(Payment, payment_id, with_for_update=True, populate_existing=True)
-    if not payment:
+    outcome, payment = confirm_manual_payment(session, payment_id)
+    if outcome == "not_found":
         raise herr(404, "Платёж не найден", "Түләү табылманы")
-    if payment.status == "succeeded":
+    if outcome == "already":
         return {"payment_id": payment.id, "status": "succeeded"}
-    if payment.status != "pending":
+    if outcome == "closed":
         raise herr(409, "Этот платёж уже закрыт. Обнови список.",
                    "Был түләү инде ябылған. Исемлекте яңырт.")
-    # Карточный платёж (создан у провайдера) вручную не подтверждаем — его подтверждает вебхук
-    # после реального списания. Ручной confirm здесь = начисление без денег (фантом в ledger).
-    if payment.provider_id or payment.method == "yookassa":
+    if outcome == "provider":
         raise herr(409, "Платёж у провайдера — подтвердится автоматически после оплаты", "Түләү провайдерҙа — түләгәс үҙе раҫлана")
-    _activate_payment(session, payment)
-    if payment.status != "succeeded":
+    if outcome == "failed":
         raise herr(409, "Не удалось подтвердить платёж. Обнови список.",
                    "Түләүҙе раҫлап булманы. Исемлекте яңырт.")
     admin_action(user.id, "payment.confirm", payment_id=payment.id, user=payment.user_id,
@@ -843,17 +889,12 @@ def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), s
 def admin_reject_payment(payment_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Отклонить платёж (деньги не пришли). Для админа."""
     _require_admin(user)
-    payment = session.get(Payment, payment_id, with_for_update=True, populate_existing=True)
-    if not payment:
+    outcome, payment = reject_manual_payment(session, payment_id)
+    if outcome == "not_found":
         raise herr(404, "Платёж не найден", "Түләү табылманы")
-    if payment.status not in ("pending", "canceled"):
+    if outcome == "closed":
         raise herr(409, "Этот платёж уже закрыт. Обнови список.",
                    "Был түләү инде ябылған. Исемлекте яңырт.")
-    if payment.status == "pending":
-        payment.status = "canceled"
-        session.add(payment)
-        session.commit()
-        _tell_about_payment(session, payment, ok=False)   # молчащий отказ = человек ждёт вечно (волна 84)
     admin_action(user.id, "payment.reject", payment_id=payment.id, user=payment.user_id)
     return {"payment_id": payment.id, "status": payment.status}
 
