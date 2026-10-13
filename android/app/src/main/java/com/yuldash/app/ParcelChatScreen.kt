@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -196,7 +196,9 @@ internal fun ParcelChatScreen(
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
+        // Строку ввода к низу прибивает ChatContent (ChatLayout) и сам даёт отступ под навигацию и
+        // клавиатуру. Отступ Scaffold гасим как выданный — иначе снизу их было бы два.
+        Column(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
             // WS восстанавливается → сообщения уходят по REST, честно показываем (это не ошибка).
             AnimatedVisibility(visible = !wsConnected && !readOnly && !historyLoading) {
                 Row(

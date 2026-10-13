@@ -213,10 +213,11 @@ internal fun HomeRoute(
             onOpenChat = { bid, peer, route ->
                 openHomeDestination {
                 val parts = route.split("→").map { it.trim() }
-                selectedRide = Ride(id = bid.toString(), from = parts.getOrElse(0) { "" }, to = parts.getOrElse(1) { "" }, time = "", driver = peer, car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
+                selectedRide = Ride(id = bid.toString(), from = parts.getOrElse(0) { "" }, to = parts.getOrElse(1) { "" }, time = "", driver = peer, car = "", price = 0, seats = 1, rating = 0.0, verified = false, boosted = false, chatPeer = peer)
                 activeBookingId = bid
                 onBookingStatus("")
-                screen = Screen.ActiveTrip
+                // Диалог открывается сразу перепиской (как в мессенджерах), а не экраном поездки.
+                screen = Screen.TripChat
                 }
             },
             onOpenResponses = { id ->

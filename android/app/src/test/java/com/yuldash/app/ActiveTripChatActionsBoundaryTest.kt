@@ -238,7 +238,7 @@ class ActiveTripChatActionsBoundaryTest {
     private data class Callbacks(
         val message: (ChatSocket.Incoming) -> Unit, val connected: (Boolean) -> Unit,
         val rejected: (Int, String) -> Unit, val messages: MutableState<*>,
-        val failures: MutableState<*>, val connection: MutableState<*>,
+        val failures: MutableState<*>, val connection: MutableState<*>, val chat: TripChatState,
     )
     @Suppress("UNCHECKED_CAST")
     private fun callbacks(socket: ChatSocket): Callbacks {
@@ -246,16 +246,9 @@ class ActiveTripChatActionsBoundaryTest {
         val message = field("onMessage") as (ChatSocket.Incoming) -> Unit
         val connected = field("onConnected") as (Boolean) -> Unit
         val rejected = field("onRejected") as (Int, String) -> Unit
-        // Kotlin's invokedynamic lambdas name captures arg$N; select the unique semantic value type.
-        fun state(callback: Any, name: String) = callback.javaClass.declaredFields.mapNotNull {
-            it.isAccessible = true; it.get(callback) as? MutableState<*>
-        }.single { when (name) {
-            "messages" -> it.value is List<*>
-            "failedIds" -> it.value is Set<*>
-            "wsConnected" -> it.value is Boolean
-            else -> false
-        } }
-        return Callbacks(message, connected, rejected, state(message, "messages"), state(rejected, "failedIds"), state(connected, "wsConnected"))
+        // The socket callbacks belong to the screen's TripChatState (shared by the trip card and the chat view).
+        val chat = message.javaClass.declaredFields.firstNotNullOf { it.isAccessible = true; it.get(message) as? TripChatState }
+        return Callbacks(message, connected, rejected, chat.messagesState, chat.failedIdsState, chat.wsConnectedState, chat)
     }
     private fun mount(openChat: Boolean = !holdInitialHistory): Callbacks {
         val before = listeners()
@@ -281,10 +274,9 @@ class ActiveTripChatActionsBoundaryTest {
             pump(1000)
             tripList().performScrollToNode(hasText("initial-history"))
             compose.onNodeWithText("initial-history").assertIsDisplayed()
-            tripList().performScrollToNode(hasContentDescription("Записать голос"))
-            val click = compose.onNodeWithContentDescription("Записать голос").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
-            composerScope = captures(result.connected, CoroutineScope::class.java).distinct().single()
-            tripList().performScrollToNode(hasText("initial-history"))
+            // The composer is pinned under the feed (not a list item): reachable without scrolling.
+            compose.onNodeWithContentDescription("Записать голос").assertIsDisplayed()
+            composerScope = result.chat.scope
         }
         return result
     }
@@ -344,12 +336,10 @@ class ActiveTripChatActionsBoundaryTest {
             compose.onNodeWithText("initial-history").performTouchInput { longClick() }
             if (kind == "edit") {
                 compose.onNodeWithText("Редактировать").performClick()
-                tripList().performScrollToNode(hasSetTextAction())
                 compose.onNode(hasSetTextAction()).performTextReplacement("edited-message")
                 compose.onNodeWithContentDescription("Отправить").performClick()
             } else compose.onNodeWithText(if (deleteScope == "me") "Удалить у себя" else "Удалить у всех").performClick()
         } else {
-            tripList().performScrollToNode(hasContentDescription("Записать голос"))
             if (kind == "photo") compose.onNodeWithContentDescription("Прикрепить фото").performClick()
             else {
                 Shadows.shadowOf(context as Application).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
@@ -443,7 +433,7 @@ class ActiveTripChatActionsBoundaryTest {
         }
     }
     private fun savedVoiceFinish(boundary: String) {
-        mount(); tripList().performScrollToNode(hasContentDescription("Записать голос"))
+        val cb = mount()
         Shadows.shadowOf(context as Application).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
         val mic = compose.onNodeWithContentDescription("Записать голос").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
         val recorder = captures(mic, VoiceRecorder::class.java).single()
@@ -452,7 +442,7 @@ class ActiveTripChatActionsBoundaryTest {
         val finish = compose.onNodeWithContentDescription("Отправить запись").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
         @Suppress("UNCHECKED_CAST")
         val completed = captures(finish, Function2::class.java).single {
-            captures(it, CoroutineScope::class.java).contains(composerScope)
+            captures(it, TripChatState::class.java).contains(cb.chat)
         } as (String, Int) -> Unit
         // Transfer the completed file before the boundary. Disposal must not own this file anymore.
         val path = requireNotNull(recorder.stop())
@@ -472,7 +462,6 @@ class ActiveTripChatActionsBoundaryTest {
         mount(); tripList().performScrollToNode(hasText("initial-history"))
         compose.onNodeWithText("initial-history").performTouchInput { longClick() }
         compose.onNodeWithText("Редактировать").performClick()
-        tripList().performScrollToNode(hasSetTextAction())
         compose.onNode(hasSetTextAction()).performTextReplacement("retained-edit")
         val send = compose.onNodeWithContentDescription("Отправить").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
         changeBoundary(boundary); ShadowToast.reset(); val before = requests.size
@@ -494,7 +483,7 @@ class ActiveTripChatActionsBoundaryTest {
     @Test fun retainedEditSendAtBack() = savedEditSend("back")
 
     private fun recordingBoundary(boundary: String) {
-        mount(); tripList().performScrollToNode(hasContentDescription("Записать голос"))
+        mount()
         Shadows.shadowOf(context as Application).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
         val mic = compose.onNodeWithContentDescription("Записать голос").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
         val recorder = captures(mic, VoiceRecorder::class.java).single()
@@ -517,8 +506,7 @@ class ActiveTripChatActionsBoundaryTest {
         assertTrue(sibling.exists())
         assertFalse(requests.drop(before).any { it.first == "POST /voice" || it.first == "POST /bookings/42/messages" })
         if (boundary == "cancelled") {
-            // LazyColumn may dispose the old offscreen item. A remounted terminal composer must stay disabled too.
-            tripList().performScrollToNode(hasContentDescription("Записать голос"))
+            // The terminal composer gets a fresh recorder (recordingAllowed changed); it must stay disabled too.
             val newMic = compose.onNodeWithContentDescription("Записать голос").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
             val newRecorder = captures(newMic, VoiceRecorder::class.java).single()
             compose.onNodeWithContentDescription("Записать голос").performSemanticsAction(SemanticsActions.OnClick) { it() }
