@@ -321,6 +321,10 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         # и единственная запись, заведённая ради таких споров, показывала старую цифру.
         for b in live:
             b.price = body.price * b.seats
+            # И в договорённость об оплате: квитанция и карта берут именно её. Без этого
+            # скидка доходила до цены брони, а списали бы прежнюю сумму (ревью 2026-10-13).
+            if b.pay_amount is not None and b.pay_amount > b.price:
+                b.pay_amount = b.price
             session.add(b)
     if body.comment is not None and body.comment != ride.comment:
         moderate_open_text(body.comment, user.id, check_contact=False, place="ride_comment", ref_id=ride.id, session=session)   # правка — тот же путь, что публикация
