@@ -1,0 +1,5 @@
+# Какие файлы из .gitignore Claude Code сам копирует в новый worktree (синтаксис .gitignore).
+# Ключ карты MapKit — чтобы в worktree на эмуляторе была карта (решение Александра, 13.10.2026).
+# Агенты этот файл не читают и не копируют сами (§11 AGENTS.md, хук yuldash-secrets-guard.mjs);
+# собирать можно и без него — ANDROID_HOME (§5).
+android/local.properties
