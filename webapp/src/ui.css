@@ -20129,3 +20129,22 @@ button.settings-row:active {
   min-height: 48px;
   margin-top: var(--space-md);
 }
+
+/* ---- Опции мест в машине (SeatOptions.kt): «сзади двое», «переднее свободно». ---- */
+.seat-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-md);
+  padding: var(--space-sm) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.seat-options > .field__label {
+  padding: 0 var(--space-md);
+}
+.seat-options__hint {
+  margin: 0;
+  padding: 0 var(--space-md);
+}

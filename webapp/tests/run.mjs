@@ -71,6 +71,7 @@ const SUITES = [
   { test: "pay-test", src: "src/utils/pendingPayment.ts", out: "pay-bundle.mjs", bundle: true },
   { test: "client-test", src: "src/api/client.ts", out: "client-bundle.mjs", bundle: true },
   { test: "fmt-test", src: "src/utils/format.ts", out: "fmt-bundle.mjs", bundle: true },
+  { test: "seat-options-test", src: "src/utils/seatOptions.ts", out: "seat-options-bundle.mjs", bundle: true },
   // Хук трогает react — оставляем импорт нетронутым, набор подменяет его сам.
   { test: "vis-test", src: "src/utils/useVisibleInterval.ts", out: "vis-bundle.mjs", bundle: false },
   // Словарь читает исходники напрямую — собирать нечего.

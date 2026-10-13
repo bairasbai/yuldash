@@ -967,6 +967,7 @@ object ApiClient {
         quiet: Boolean = false,      // тихая поездка (в конце — чтобы не сдвигать позиционные вызовы)
         waypoints: String = "",     // остановки по пути (названия через " | ")
         noMinors: Boolean = false,  // не беру пассажиров младше 18 без сопровождения взрослого
+        backMaxTwo: Boolean = false, frontSeatAvailable: Boolean = true,   // опции мест; потолок мест держит сервер
     ): Result<Int> = call(
         "POST", "/rides",
         JSONObject()
@@ -985,6 +986,7 @@ object ApiClient {
             .put("air_conditioner", airConditioner)
             .put("quiet", quiet)
             .put("no_minors", noMinors)
+            .put("back_max_two", backMaxTwo).put("front_seat_available", frontSeatAvailable)
             .put("waypoints", waypoints)
             .put("recurrence", recurrence)
             .put("pickup", pickup)
@@ -1034,15 +1036,15 @@ object ApiClient {
      * Способ по умолчанию — "negotiate" (договоримся); сумма опц. (null = сервер возьмёт цену поездки). */
     suspend fun book(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
-        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "",
-    ): Result<Int> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone)
+        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false,
+    ): Result<Int> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat)
         .map { it.optInt("id") }
 
     /** Preserve the server status: a newly requested seat is not yet confirmed by the driver. */
     suspend fun bookWithStatus(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
-        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "",
-    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone)
+        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false,
+    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat)
         .mapCatching { response ->
             val id = response.getInt("id")
             val status = response.getString("status")
@@ -1055,12 +1057,14 @@ object ApiClient {
         // Едет несовершеннолетний: взрослый обязателен (имя + телефон) — это и запись согласия,
         // и водителю есть кому позвонить. Сервер без них бронь не создаст.
         minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "",
+        frontSeat: Boolean = false,   // «хочу переднее»: одно на поездку, гонку разводит сервер
     ): Result<JSONObject> = call(
         "POST", "/bookings",
         JSONObject().put("ride_id", rideId).put("seats", seats)
             .put("pay_method", payMethod)
             .put("pay_amount", payAmount ?: JSONObject.NULL)
             .apply {
+                if (frontSeat) put("front_seat", true)
                 if (minorPassenger) {
                     put("minor_passenger", true)
                     put("minor_guardian_name", guardianName)
@@ -2382,10 +2386,11 @@ object ApiClient {
 
     /** F3: правка своей поездки (null = поле не менять). POST-алиас /edit: HttpURLConnection не умеет PATCH.
      *  С активными бронями сервер разрешит только комментарий и цену ВНИЗ (иначе 409 с понятным текстом). */
-    suspend fun editRide(rideId: Int, price: Int? = null, comment: String? = null): Result<Unit> {
+    suspend fun editRide(rideId: Int, price: Int? = null, comment: String? = null, backMaxTwo: Boolean? = null, frontSeatAvailable: Boolean? = null): Result<Unit> {
         val body = JSONObject()
         price?.let { body.put("price", it) }
         comment?.let { body.put("comment", it) }
+        backMaxTwo?.let { body.put("back_max_two", it) }; frontSeatAvailable?.let { body.put("front_seat_available", it) }
         return call("POST", "/rides/$rideId/edit", body, auth = true).map { }
     }
 
@@ -6471,6 +6476,8 @@ internal fun JSONObject.toRideDto() = RideDto(
     airConditioner = optBoolean("air_conditioner"),
     quiet = optBoolean("quiet"),
     noMinors = optBoolean("no_minors"),
+    // Старый сервер полей не знает — переднее тогда свободно, как было всегда.
+    backMaxTwo = optBoolean("back_max_two"), frontSeatAvailable = optBoolean("front_seat_available", true), frontSeatTaken = optBoolean("front_seat_taken"),
     waypoints = optString("waypoints").split(" | ").map { it.trim() }.filter { it.isNotBlank() },
     pickup = optString("pickup"),
     pickupLat = if (isNull("pickup_lat")) null else optDouble("pickup_lat"),
@@ -6546,6 +6553,7 @@ data class RideDto(
     val airConditioner: Boolean = false,
     val quiet: Boolean = false,
     val noMinors: Boolean = false,   // водитель не берёт младше 18 без взрослого
+    val backMaxTwo: Boolean = false, val frontSeatAvailable: Boolean = true, val frontSeatTaken: Boolean = false,   // опции мест
     val waypoints: List<String> = emptyList(),
     val pickup: String = "",          // где водитель забирает (точка сбора)
     val pickupLat: Double? = null,    // координаты точки сбора (пин на карте)
@@ -6677,6 +6685,7 @@ data class DriverBookingDto(
     // Сколько звёзд водитель уже поставил по этой брони: 0 = ещё не оценивал.
     // Без этого после перезагрузки экрана звёзды снова были пустые, и человек оценивал повторно.
     val myStars: Int = 0,
+    val frontSeat: Boolean = false,   // просит переднее место — водитель видит до решения
 )
 
 /** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */
@@ -6726,6 +6735,7 @@ data class BookingDetailsDto(
     val minorPassenger: Boolean = false,
     val minorGuardianName: String = "",
     val minorGuardianPhone: String = "",
+    val frontSeat: Boolean = false,   // пассажир просил переднее место
     val pickup: String,
     val pickupLat: Double?,
     val pickupLng: Double?,
@@ -6905,6 +6915,7 @@ internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
         route = o.optString("route"),
         status = o.optString("status"),
         myStars = o.optInt("my_stars"),
+        frontSeat = o.optBoolean("front_seat"),
     )
 }
 
@@ -6975,6 +6986,7 @@ internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
         minorPassenger = o.optBoolean("minor_passenger"),
         minorGuardianName = o.optString("minor_guardian_name"),
         minorGuardianPhone = o.optString("minor_guardian_phone"),
+        frontSeat = o.optBoolean("front_seat"),
         pickup = o.optString("pickup"),
         pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
         pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),

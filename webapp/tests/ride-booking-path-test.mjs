@@ -62,6 +62,16 @@ tree=render(Sheet,{ride,onClose(){}});
 assert.ok(all(tree).some(n=>n.props.className==='auth__error'),'Ошибка видна');
 assert.equal(button(tree).props.disabled,false,'После ошибки можно повторить');
 h.booking=async()=>({id:74});await button(tree).props.onClick();assert.equal(h.routes[0][0],'/trip/74');
+// Переднее место (2026-10-14): просьба из шторки уходит в бронь; без неё тело брони прежнее (выше).
+const byName=(tree,name)=>all(tree).find(n=>n.type?.name===name);
+assert.ok(byName(render(Card,{ride,index:0}),'SeatBadges'),'Карточка в ленте показывает места: переднее, «сзади двое»');
+h.reset();h.booking=async()=>({id:75});
+const choice=byName(render(Sheet,{ride,onClose(){}}),'FrontSeatChoice');
+assert.ok(choice&&choice.props.checked===false,'Шторка предлагает переднее место, по умолчанию выключено');
+choice.props.onChange(true);
+tree=render(Sheet,{ride,onClose(){}});assert.equal(byName(tree,'FrontSeatChoice').props.checked,true);
+await button(tree).props.onClick();
+assert.equal(h.calls[0].front_seat,true,'Просьба о переднем месте доходит до сервера');
 const Detail=await component('src/screens/RideDetailScreen.tsx');
 h.reset();h.fetchRide=async id=>{assert.equal(id,42);return ride};
 tree=render(Detail);assert.ok(all(tree).some(n=>n.type==='loading'));

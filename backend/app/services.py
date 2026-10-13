@@ -1504,7 +1504,20 @@ def _women_only_in_force(ride, drv, prof) -> bool:
     return bool(drv is not None and prof is not None and women_only_in_force(ride, drv, prof))
 
 
-def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, trips_agg: dict | None = None) -> RideOut:
+def front_seats_taken(session: Session, ride_ids) -> set:
+    """Поездки, где переднее место уже обещано живой брони. Одним запросом на всю страницу."""
+    ids = [i for i in ride_ids if i is not None]
+    if not ids:
+        return set()
+    return set(session.exec(select(Booking.ride_id).where(
+        Booking.ride_id.in_(ids),
+        Booking.front_seat == True,  # noqa: E712
+        Booking.status.in_((BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)),
+    )).all())
+
+
+def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, trips_agg: dict | None = None,
+                  front_taken: set | None = None) -> RideOut:
     """RideOut из предзагруженных батчей (без запросов в БД)."""
     drv = users.get(ride.driver_id)
     prof = profiles.get(ride.driver_id)
@@ -1520,6 +1533,7 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
         # в базе остаётся — и карточка продолжала обещать то, чего никто уже не проверял
         # (волна 219). Спрашиваем у того же правила, что и бейдж строкой ниже.
         women_only=_women_only_in_force(ride, drv, prof),
+        front_seat_taken=ride.id in (front_taken or ()),
         boosted=(ride.boosted_until is not None and ride.boosted_until > utcnow()),
         driver_name=(drv.name if drv else "Водитель"),
         driver_rating=rating,
@@ -1544,7 +1558,8 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
 def rides_out(rides: list, session: Session) -> list:
     """Список поездок → list[RideOut] одним батчем (4 запроса вместо 4×N)."""
     users, profiles, rating_agg, trips_agg = drivers_bundle(session, {r.driver_id for r in rides})
-    return [ride_out_with(r, users, profiles, rating_agg, trips_agg) for r in rides]
+    front_taken = front_seats_taken(session, [r.id for r in rides])
+    return [ride_out_with(r, users, profiles, rating_agg, trips_agg, front_taken) for r in rides]
 
 
 def ride_out(ride: Ride, session: Session) -> RideOut:

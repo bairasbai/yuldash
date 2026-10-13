@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .. import livepos            # модулем, а не функцией: так подмена в тестах цепляет вызов
@@ -95,6 +96,20 @@ class BookIn(BaseModel):
     minor_passenger: bool = False
     minor_guardian_name: str = Field("", max_length=120)
     minor_guardian_phone: str = Field("", max_length=32)
+    # «Хочу переднее место». Одна живая такая бронь на поездку — держит индекс в базе.
+    front_seat: bool = False
+
+
+# Отказ, когда переднее уже обещано другому пассажиру. Один текст на проверку и на барьер базы.
+FRONT_SEAT_TAKEN = ("Переднее место уже занято", "Алғы урын инде алынған")
+
+
+def _front_seat_is_taken(session: Session, ride_id: int) -> bool:
+    return session.exec(select(Booking.id).where(
+        Booking.ride_id == ride_id,
+        Booking.front_seat == True,  # noqa: E712
+        Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
+    )).first() is not None
 
 
 class BookingDetailsOut(BaseModel):
@@ -124,6 +139,7 @@ class BookingDetailsOut(BaseModel):
     minor_passenger: bool = False
     minor_guardian_name: str = ""
     minor_guardian_phone: str = ""
+    front_seat: bool = False          # пассажир просил переднее место — видят обе стороны
     pickup: str = ""
     pickup_lat: Optional[float] = Field(None, ge=-90, le=90)
     pickup_lng: Optional[float] = Field(None, ge=-180, le=180)
@@ -203,11 +219,24 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         )
     ).first()
     if existing:
+        # Повтор с просьбой о переднем, а бронь уже есть без него: молча вернуть старую — значит
+        # потерять просьбу (ревью Opus 2026-10-14). Говорим прямо, что делать.
+        if body.front_seat and not existing.front_seat:
+            raise herr(409, "У тебя уже есть бронь без переднего места. Отмени её и забронируй заново с передним",
+                       "Һинең алғы урынһыҙ бронең бар инде. Уны кире ал да алғы урын менән яңынан бронла")
         return existing
     # Быстрая понятная проверка «мест нет» — чтобы не гонять человека через остальные шаги.
     # Настоящая защита ниже: между этой строкой и списанием мест может вклиниться чужая бронь.
     if ride.seats_left < body.seats:
         raise herr(400, "Не хватает мест", "Урын етмәй")
+    # Переднее место: водитель его предлагает и оно не обещано другому. Это быстрая понятная
+    # проверка; настоящий барьер — уникальный индекс броней ниже, при сохранении.
+    if body.front_seat:
+        if not ride.front_seat_available:
+            raise herr(409, "Водитель не предлагает переднее место — забронируй без него",
+                       "Йөрөтөүсе алғы урынды тәҡдим итмәй — уныһыҙ бронла")
+        if _front_seat_is_taken(session, ride.id):
+            raise herr(409, *FRONT_SEAT_TAKEN)
     # Несовершеннолетний пассажир: взрослый обязателен и назван поимённо. Это не бюрократия —
     # без имени и телефона взрослого никто не отвечает за ребёнка в дороге, а водитель узнаёт
     # о подростке только когда тот сядет в машину. Проверяем ДО списания мест.
@@ -246,6 +275,7 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         pay_method=pay_method, pay_amount=pay_amount,
         minor_passenger=bool(body.minor_passenger),
         minor_guardian_name=guardian_name, minor_guardian_phone=guardian_phone,
+        front_seat=bool(body.front_seat),
     )
     # Место занимаем АТОМАРНО: «мест хватает» и вычитание — одним запросом к базе.
     #
@@ -270,7 +300,15 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         session.rollback()
         raise herr(409, "Места только что разобрали", "Урындар хәҙер генә алынды")
     session.add(booking)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        # Две заявки на переднее в одно мгновение: проверку выше обе прошли, а вторую
+        # отсекла база (uq_booking_front_seat_live). Откат возвращает и списанные места.
+        session.rollback()
+        if body.front_seat:
+            raise herr(409, *FRONT_SEAT_TAKEN)
+        raise
     session.refresh(booking)
     session.refresh(ride)   # объект в памяти помнит прежнее число мест — перечитываем
     notify_map_changed()   # места убыли → если 0, поездка уходит с карты live
@@ -290,11 +328,13 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     minor_ba = " · 18-ҙән кесе, оло кеше бәйләнештә" if booking.minor_passenger else ""
     women_hint_ru = " · поездка «только женщины» — подтверди, если подходит" if ride.women_only else ""
     women_hint_ba = " · «тик ҡатын-ҡыҙ» сәфәре — тура килһә, раҫла" if ride.women_only else ""
+    front_ru = " · просит переднее место" if booking.front_seat else ""
+    front_ba = " · алғы урынды һорай" if booking.front_seat else ""
     push_notification(
         session, ride.driver_id, "booking",
         "Новая бронь", "Яңы бронь",
-        f"{pax_name}: {route}, мест {body.seats}{minor_ru}{women_hint_ru}",
-        f"{pax_name}: {route}, {body.seats} урын{minor_ba}{women_hint_ba}",
+        f"{pax_name}: {route}, мест {body.seats}{front_ru}{minor_ru}{women_hint_ru}",
+        f"{pax_name}: {route}, {body.seats} урын{front_ba}{minor_ba}{women_hint_ba}",
         ref_kind="booking", ref_id=booking.id,
     )
     return booking
@@ -362,6 +402,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "minor_passenger": bool(booking.minor_passenger),
         "minor_guardian_name": (booking.minor_guardian_name if guardian_visible else ""),
         "minor_guardian_phone": (booking.minor_guardian_phone if guardian_visible else ""),
+        "front_seat": bool(booking.front_seat),
         "pickup": (ride.pickup if unlocked else ""),
         "pickup_lat": (ride.pickup_lat if unlocked else None),
         "pickup_lng": (ride.pickup_lng if unlocked else None),
@@ -827,6 +868,7 @@ def my_bookings(
             "boarding_code": b.boarding_code,
             "pay_method": b.pay_method.value if hasattr(b.pay_method, "value") else b.pay_method,
             "pay_amount": b.pay_amount,
+            "front_seat": bool(b.front_seat),
             "from_city": r.from_city if r else "",
             "to_city": r.to_city if r else "",
             "depart_at": r.depart_at.isoformat() if r and r.depart_at else "",
@@ -872,6 +914,7 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             "status": b.status,
             # 0 = ещё не оценивал. Иначе — сколько звёзд поставил (оценку можно изменить).
             "my_stars": my_stars.get(b.id, 0),
+            "front_seat": bool(b.front_seat),   # «просит переднее место» в карточке заявки
         })
     return out
 

@@ -14,6 +14,7 @@ import type { Ride } from "../api/rides";
 import { formatWhen, priceLabel } from "../utils/format";
 import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
+import { FrontSeatChoice, SeatBadges } from "./SeatOptions";
 
 export default function RideSheet({
   ride,
@@ -51,6 +52,8 @@ export default function RideSheet({
   const [minor, setMinor] = useState(false);
   const [guardName, setGuardName] = useState("");
   const [guardPhone, setGuardPhone] = useState("");
+  /** «Хочу переднее место»: одно на машину, гонку двух нажатий разводит сервер. */
+  const [frontSeat, setFrontSeat] = useState(false);
 
   async function book() {
     if (bookingInFlight.current) return;
@@ -78,6 +81,8 @@ export default function RideSheet({
         minor_passenger: minor || undefined,
         minor_guardian_name: minor ? guardName.trim() : undefined,
         minor_guardian_phone: minor ? guardPhone.trim() : undefined,
+        // Только когда просили: обычная бронь уходит тем же телом, что и раньше.
+        ...(frontSeat ? { front_seat: true } : {}),
       });
       track("booking_done");
       onClose();
@@ -148,6 +153,7 @@ export default function RideSheet({
               {appText("Детское кресло", "Бала урыны")}
             </span>
           )}
+          <SeatBadges ride={ride} />
         </div>
 
         {ride.comment && <p className="sheet__comment">{ride.comment}</p>}
@@ -183,6 +189,15 @@ export default function RideSheet({
           </button>
           <div className="ride-card__price">{priceLabel(ride.price, ru)}</div>
         </div>
+
+        <FrontSeatChoice
+          ride={ride}
+          checked={frontSeat}
+          onChange={(v) => {
+            setFrontSeat(v);
+            setError(null);
+          }}
+        />
 
         {/* Подросток за рулём чужой машины — отдельный разговор, а не галочка мелким шрифтом.
             Водитель, который таких не берёт, сказал это заранее: тогда мы не предлагаем
