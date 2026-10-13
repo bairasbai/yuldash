@@ -1752,7 +1752,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
     // а не третьей кнопкой в ряду: случайный тап тут стоит дороже лишнего нажатия.
     var forgiveTarget by remember { mutableStateOf<com.yuldash.app.data.AdminDebtDto?>(null) }
     var forgiveReason by remember { mutableStateOf("") }
-    val forgivenMsg = appText("Долг списан", "Бурыс һүндерелде")
+    val debtNotice = rememberAdminDebtNotice()   // «долг уже оплачен» — окном, не тостом (AdminDebtMsgs.kt)
     val confirmedMsg = appText("Оплата подтверждена", "Түләү раҫланды")
     val rejectedMsg = appText("Отклонено", "Кире ҡағылды")
     val loadErr = appText("Не удалось загрузить. Проверь интернет.", "Йөкләп булманы. Интернетты тикшер.")
@@ -1827,8 +1827,8 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                             Text((g.driverName.ifBlank { noName }) + (if (g.driverPhone.isNotBlank()) " · ${g.driverPhone}" else ""), color = CanonMuted, fontSize = 14.sp)
                             if (g.weeks.isNotEmpty()) Text(appText("Недели: ", "Аҙналар: ") + g.weeks.joinToString(", "), color = CanonMuted, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { val id = g.debtId; val k = "debt-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmDebt(id, g.amountKop).onSuccess { Toast.makeText(ctx, confirmedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-ok-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                                OutlinedButton(onClick = { val id = g.debtId; val k = "debt-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectDebt(id, g.amountKop).onSuccess { Toast.makeText(ctx, rejectedMsg, Toast.LENGTH_SHORT).show(); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-no-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                                Button(onClick = { val id = g.debtId; val k = "debt-ok-$id"; if (busy.add(k)) scope.launch { ApiClient.confirmDebt(id, g.amountKop).onSuccess { debtNotice.after(ctx, it, debtNotice.msgs.alreadyConfirm, confirmedMsg); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-ok-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
+                                OutlinedButton(onClick = { val id = g.debtId; val k = "debt-no-$id"; if (busy.add(k)) scope.launch { ApiClient.rejectDebt(id, g.amountKop).onSuccess { debtNotice.after(ctx, it, debtNotice.msgs.alreadyReject, rejectedMsg); reload() }.onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }; busy.remove(k) } }, enabled = "debt-no-${g.debtId}" !in busy, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
                             }
                             // Бывает, что долга по-человечески быть не должно: пассажир не заплатил,
                             // поездка сорвалась не по вине водителя. Раньше это делалось запросом
@@ -1911,8 +1911,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
                         forgiveTarget = null
                         val k = "debt-forgive-$id"
                         if (busy.add(k)) scope.launch {
-                            ApiClient.adminForgiveDebt(id, reason)
-                                .onSuccess { Toast.makeText(ctx, forgivenMsg, Toast.LENGTH_SHORT).show(); reload() }
+                            ApiClient.adminForgiveDebt(id, reason).onSuccess { debtNotice.after(ctx, it, debtNotice.msgs.alreadyForgive, debtNotice.msgs.forgiven); reload() }
                                 .onFailure { Toast.makeText(ctx, serverSaid(it, actionErrMsg), Toast.LENGTH_LONG).show() }
                             busy.remove(k)
                         }
@@ -1924,6 +1923,7 @@ internal fun AdminPaymentRequestsScreen(onBack: () -> Unit) {
             },
         )
     }
+    AdminDebtAlreadyDialog(debtNotice)
 }
 
 /** Админ: создать заявку ЗА пользователя по телефону (после звонка «перезвоните мне»). */

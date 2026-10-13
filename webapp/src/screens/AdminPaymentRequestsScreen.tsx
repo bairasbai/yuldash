@@ -28,6 +28,7 @@ import {
 import { SubHeader } from "./ConsentsScreen";
 import { AdminIntro, ListedEmpty, ListedError, ListedLoading } from "../components/adminUi";
 import { kopExactLabel } from "../utils/format";
+import { DEBT_ALREADY, isDebtAlreadySettled, type DebtAction } from "../utils/debtAlready";
 
 type State = "loading" | "error" | "ready";
 
@@ -58,15 +59,18 @@ export function DebtCard({
   const [error, setError] = useState<string | null>(null);
   const [lock, setLock] = useState(false);
 
-  async function run(fn: () => Promise<unknown>, ok: string) {
+  async function run(fn: () => Promise<unknown>, ok: string, action: DebtAction) {
     if (lock || busy) return;
     setLock(true);
     setError(null);
     try {
-      await fn();
+      const res = await fn();
       setForgiving(false);
       setReason("");
-      onDone(ok);
+      // «Уже оплачено» — не «подтверждено»: долг закрыли другим путём, пока админ смотрел
+      // на строку, и ничего не изменилось (лист 1.2c, ответ `already: true`).
+      const already = DEBT_ALREADY[action];
+      onDone(isDebtAlreadySettled(res) ? appText(already.ru, already.ba) : ok);
     } catch (e) {
       setError(
         e instanceof ApiError && e.message
@@ -124,7 +128,7 @@ export function DebtCard({
               className="btn-ghost settings-confirm__danger"
               disabled={!reason.trim() || disabled}
               onClick={() =>
-                run(() => forgiveDebt(debt.debt_id, reason.trim()), appText("Долг списан", "Бурыс һүндерелде"))
+                run(() => forgiveDebt(debt.debt_id, reason.trim()), appText("Долг списан", "Бурыс һүндерелде"), "forgive")
               }
             >
               {appText("Списать", "Һүндереү")}
@@ -138,7 +142,7 @@ export function DebtCard({
               type="button"
               className="abtn"
               disabled={disabled}
-              onClick={() => run(() => confirmDebt(debt.debt_id), appText("Оплата подтверждена", "Түләү раҫланды"))}
+              onClick={() => run(() => confirmDebt(debt.debt_id), appText("Оплата подтверждена", "Түләү раҫланды"), "confirm")}
             >
               {appText("Подтвердить", "Раҫлау")}
             </button>
@@ -146,7 +150,7 @@ export function DebtCard({
               type="button"
               className="abtn abtn--outline abtn--red"
               disabled={disabled}
-              onClick={() => run(() => rejectDebt(debt.debt_id), appText("Отклонено", "Кире ҡағылды"))}
+              onClick={() => run(() => rejectDebt(debt.debt_id), appText("Отклонено", "Кире ҡағылды"), "reject")}
             >
               {appText("Отклонить", "Кире ҡағыу")}
             </button>

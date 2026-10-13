@@ -47,7 +47,7 @@ if not log.handlers and not logging.getLogger().handlers:
 log.setLevel(getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO))
 
 
-def admin_action(admin_id: int, what: str, **fields) -> None:
+def admin_action(admin_id: int | str, what: str, **fields) -> None:
     """След админского действия: КТО и ЧТО сделал.
 
     Зачем (аудит 2026-08-06). Из 41 пишущего админского действия след оставляли два.

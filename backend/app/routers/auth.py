@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
+from starlette.concurrency import run_in_threadpool
 
 from ..account import delete_user_account, guard_can_delete
 from ..antifraud import (MESSAGE_FLAG_CONTACT, guard_device_not_banned, moderate_open_text,
@@ -20,9 +21,10 @@ from ..config import _phone_key, settings
 from ..db import engine, get_session
 from ..errors import herr
 from ..logs import admin_action, log
+from ..observability import scrub_exc
 from ..models import (
     Ad, Booking, DeviceToken, DriverProfile, InstantOrder, Message, Notification, OtpCode,
-    Payment, Rating, RequestResponse, Ride, SosEvent, TgAuth, User, UserRole,
+    Rating, RequestResponse, Ride, SosEvent, TgAuth, User, UserRole,
     WebPushSubscription,
 )
 from ..security import (
@@ -197,6 +199,19 @@ def _is_owner_telegram(frm: dict) -> bool:
     if not owner:
         return False
     return str(frm.get("id") or "").strip() == owner
+
+
+def _telegram_admin(frm: dict) -> int | str:
+    """КТО решил кнопкой в Telegram — для журнала админа (ревью #123).
+
+    Раньше в поле «кто» шёл id цели — водителя, объявления, платежа: журнал говорил, что платёж
+    #14 подтвердил «админ 14». Если Telegram владельца привязан к аккаунту админа — его id в
+    базе, как у решений из админки; иначе `tg:<id>` — по нему владелец находится через
+    `ADMIN_TELEGRAM_CHAT_ID`."""
+    tid = str(frm.get("id") or "").strip()
+    with Session(engine) as s:
+        admin_id = s.exec(select(User.id).where(User.telegram_id == tid, User.role == UserRole.admin)).first()
+    return admin_id if admin_id is not None else f"tg:{tid}"
 
 
 def _norm_phone(raw: str) -> str:
@@ -589,7 +604,10 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         return {"ok": True}
     callback = telegram_update.get("callback_query") or {}
     if callback:
-        return _handle_admin_callback(callback)
+        # Нажатие кнопки идёт в синхронные ядра с блокировкой строки (FOR UPDATE платежа) и в
+        # синхронный HTTP к Telegram — не на потоке event loop (ревью #123): пока строка занята,
+        # иначе стоял бы весь воркер. Тот же приём, что у вебхука ЮKassa.
+        return await run_in_threadpool(_handle_admin_callback, callback)
     msg = telegram_update.get("message") or {}
     text = msg.get("text") or ""
     frm = msg.get("from") or {}
@@ -749,7 +767,8 @@ def _handle_admin_callback(callback: dict):
     #
     # Владелец у бота один (`_is_owner_telegram` выше), но в этом и смысл следа: он нужен
     # не чтобы ловить чужого, а чтобы через год можно было ответить, кто и когда решил.
-    admin_action(user_id, f"telegram.{parts[0]}", decision=parts[1], target=user_id, via="telegram")
+    admin_action(_telegram_admin(frm), f"telegram.{parts[0]}", decision=parts[1], target=user_id,
+                 via="telegram")
     # Решение по рекламе приходит и отсюда, и из админки — текст один на оба входа
     # (локальный импорт: роутеры друг друга на старте не тянут).
     from .ads import notify_ad_decision
@@ -809,29 +828,38 @@ def _handle_admin_callback(callback: dict):
                 except HTTPException as e:
                     text = f"Не удалось принять отклик #{resp.id}: {e.detail}"
         else:
-            payment = s.get(Payment, user_id)
-            if not payment:
-                text = f"Платёж #{user_id} не найден"
-            elif approve:
-                if payment.status == "succeeded":
-                    text = f"Платёж #{payment.id} уже подтверждён"
-                elif payment.provider_id:
-                    # Карточный платёж (создан у провайдера) руками не активируем — его подтвердит
-                    # вебхук после реального списания (иначе тап ✅ = начисление без денег).
-                    text = f"Платёж #{payment.id} у провайдера — подтвердится сам после оплаты"
+            # То же ядро, что у админки (payments.py): блокировка строки, проверка статуса,
+            # единый активатор всех назначений, сообщение плательщику при отказе. Своя копия
+            # здесь отвечала «Подтверждена оплата» по уже отменённому платежу и «Отклонена» —
+            # по проведённому (ревью 2026-10-12, P2).
+            from .payments import confirm_manual_payment, reject_manual_payment   # без цикла на старте
+            try:
+                if approve:
+                    outcome, payment = confirm_manual_payment(s, user_id)
                 else:
-                    # ЕДИНЫЙ активатор из payments.py: знает ВСЕ назначения (boost/ad/partner_sub/
-                    # courier_commission/…). Локальная копия здесь знала только boost/ad — Telegram-✅
-                    # «подтверждал» подписку бизнеса и комиссию курьера, не применяя эффект.
-                    from .payments import _activate_payment   # локальный импорт — без цикла на старте
-                    _activate_payment(s, payment)
-                    text = f"Подтверждена оплата #{payment.id}: {payment.purpose} {payment.amount_kop // 100} ₽"
-            else:
-                if payment.status == "pending":
-                    payment.status = "canceled"
-                    s.add(payment)
-                    s.commit()
-                text = f"Отклонена оплата #{payment.id}: {payment.purpose} {payment.amount_kop // 100} ₽"
+                    outcome, payment = reject_manual_payment(s, user_id)
+            except Exception as e:  # noqa: BLE001 — 500 Telegram повторяет, админ ответа не видит
+                # Ревью #123: поломка при проведении (например, повреждённый снимок долга в
+                # `_activate_payment`) уходила 500-м, и Telegram слал то же нажатие снова и снова.
+                # Откат и честный ответ; что именно сломалось — в журнале сервера.
+                s.rollback()
+                log.warning(f"[PAY] кнопка {parts[1]} по платежу #{user_id}: {type(e).__name__}: {scrub_exc(e)}")
+                outcome, payment = "error", None
+            what = (f"{payment.purpose} {payment.amount_kop // 100} ₽" if payment else "")
+            text = {
+                "not_found": f"Платёж #{user_id} не найден",
+                "already": (f"Платёж #{user_id} уже подтверждён" if approve
+                            else f"Платёж #{user_id} уже отклонён"),
+                "closed": (f"Платёж #{user_id} уже закрыт ({payment.status if payment else ''}) — "
+                           + ("подтверждать нечего" if approve else "отклонить нельзя")),
+                "provider": (f"Платёж #{user_id} у провайдера — подтвердится сам после оплаты" if approve
+                             else f"Платёж #{user_id} картой — вручную не отклоняется, проверь его в ЮKassa"),
+                "failed": f"Не удалось подтвердить платёж #{user_id} — проверь в админке",
+                "error": (f"Не получилось {'подтвердить' if approve else 'отклонить'} платёж #{user_id}: "
+                          "ошибка на сервере. Проверь его в админке"),
+                "confirmed": f"Подтверждена оплата #{user_id}: {what}",
+                "rejected": f"Отклонена оплата #{user_id}: {what}",
+            }[outcome]
 
     if cb_id:
         _telegram_api("answerCallbackQuery", {"callback_query_id": cb_id, "text": text})
