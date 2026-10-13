@@ -2,9 +2,11 @@
 // PostToolUse-хук Юлдаша: сразу после правки ловит то, что иначе всплывёт только в CI
 // через 10–40 минут. Ничего не правит сам — только говорит агенту, что поправить.
 //
-//   backend/**.py        → ruff --select F (мёртвые импорты/переменные) — тот же гейт, что в CI.
+//   backend/app/**.py    → ruff --select F (мёртвые импорты/переменные) — тот же гейт, что в CI
+//                          (CI гоняет ruff только по app/; в tests/ свои старые F-ошибки — не наши).
 //   android/app/src/main → захардкоженный Color(0x…) и одноязычный Text("…") в НОВЫХ строках.
-//                          Полную шкалу Canon* держит CanonSourceGuardTest; тут — быстрая подсказка.
+//                          Кегль, радиус, длительность, тень держит CanonSourceGuardTest; цвет и
+//                          одноязычный Text не ловит ни один тест — только этот хук.
 //
 // Любая неожиданность (нет ruff, кривой JSON) → молча выходим: хук не должен мешать работе.
 import { spawnSync } from 'node:child_process';
@@ -29,8 +31,9 @@ const added = pairs.flatMap(([oldText, newText]) => {
 });
 
 const problems = [];
+let oneLanguageText = false;
 
-if (/(^|\/)backend\/.+\.py$/.test(file)) {
+if (/(^|\/)backend\/app\/.+\.py$/.test(file)) {
   const args = ['check', '--select', 'F', '--output-format', 'concise', '--no-cache', file];
   let r = spawnSync('ruff', args, { encoding: 'utf8', timeout: 20000 });
   if (r.error) r = spawnSync('python', ['-m', 'ruff', ...args], { encoding: 'utf8', timeout: 20000 });
@@ -46,13 +49,15 @@ if (isScreenKotlin) {
   for (const line of added) {
     const code = line.trim();
     if (code.startsWith('//')) continue;
-    if (/\bColor\(\s*0x/i.test(code)) {
+    // Цвет — по коду без хвостового комментария: `foo() // было Color(0x…)` — не нарушение.
+    if (/\bColor\(\s*0x/i.test(code.split('//')[0])) {
       problems.push(`цвет захардкожен → возьми Canon* из CanonTokens.kt (нет нужного — заведи там):\n  ${code}`);
     }
     // Имя бренда и госномер («Х123УХ102») одинаковы на обоих языках — их не трогаем.
     const literal = code.match(/(?<![\w.])Text\(\s*(?:text\s*=\s*)?"([^"]*)"/)?.[1] ?? '';
     if (/[а-яё]/.test(literal.replace(/Юлдаш/g, ''))) {
       problems.push(`надпись на одном языке → appText("рус", "баш"), черновой башкирский — в docs/tasks.md:\n  ${code}`);
+      oneLanguageText = true;
     }
   }
 }
@@ -61,7 +66,9 @@ if (problems.length) {
   const reason = [
     `Проверка правки ${file.split('/').pop()}:`,
     ...problems.slice(0, 10).map(p => `• ${p}`),
-    'Если это не видимый пользователю текст (превью, тест, лог) — оставь и скажи об этом в отчёте.',
+    ...(oneLanguageText
+      ? ['Если надпись не видна пользователю (превью, тест, лог) — оставь и скажи об этом в отчёте.']
+      : []),
   ].join('\n');
   process.stdout.write(JSON.stringify({ decision: 'block', reason }));
 }

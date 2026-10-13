@@ -2,14 +2,26 @@
   "permissions": {
     "deny": [
       "Edit(/mobile/**)",
-      "Read(local.properties)",
-      "Read(google-services.json)",
-      "Read(keystore.properties)",
-      "Read(*.jks)",
-      "Read(*.keystore)"
+      "Read(//**/local.properties)",
+      "Read(//**/google-services.json)",
+      "Read(//**/keystore.properties)",
+      "Read(//**/*.jks)",
+      "Read(//**/*.keystore)"
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/yuldash-secrets-guard.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",

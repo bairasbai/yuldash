@@ -16,16 +16,16 @@
 
 ОКРУЖЕНИЕ (не спрашивай — оно такое):
 - Рабочий код: android/ (Kotlin + Jetpack Compose). НЕ трогать mobile/ (старый Flutter).
-- Сборка: cd android; $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'; .\gradlew.bat :app:assembleDebug --no-daemon
+- Сборка — из СВОЕГО чекаута (в worktree — его): Set-Location "$(git rev-parse --show-toplevel)\android"; $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'; $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"; .\gradlew.bat :app:assembleDebug --no-daemon
 - ADB: C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe
 - Эмулятор: AVD `Pixel_5` (API 37, экран 1080x2340). Запуск: emulator -avd Pixel_5 (если занят — фича «multiinstance», добавь -read-only). Ждать boot_completed=1.
-- local.properties НЕТ в worktree (в .gitignore) — скопируй из C:\Users\Bayra\Yuldash\android\local.properties (там ключи MapKit/геокодера, БЕЗ них карта не соберётся).
+- local.properties НЕТ в worktree (в .gitignore) и НЕ копируй его: там ключи (§11 AGENTS.md). Сборке хватает ANDROID_HOME. Без ключа MapKit карта на эмуляторе пустая — остальное проверяется; карту — когда Александр скажет «эмулятор твой, с картой». Свой сервер для эмулятора — docs/qa.md, «Локальный стенд».
 - Бэкенд LIVE: https://yulbash.ru (health: {"status":"ok","db":"ok"}). SSH: ssh root@85.239.52.55 (ключ на ноуте). pytest: cd /opt/yuldash && ./.venv/bin/python -m pytest tests/ -q.
 - Токен для API-тестов без телефона: ssh ... "cd /opt/yuldash && ./.venv/bin/python -c 'from app.security import make_token; print(make_token(<user_id>))'". Юзеры: 1-4 водители (Ильдар/Айгуль/Рустам/Гүзәл), 27 водитель codex, 28 пассажир Codex.
 
 ШАГИ:
-1. Прочитай docs/00-INDEX.md + docs/architecture.md (карта кода по строкам, НЕ читай MainActivity целиком).
-2. Скопируй local.properties в worktree. Собери :app:assembleDebug — зелёная? Установи -r на эмулятор.
+1. Мозг — по §1 AGENTS.md: ищи по экрану/файлу (rg; у Claude — Grep) и открывай только найденный раздел; 00-INDEX.md, architecture.md, MainActivity.kt целиком НЕ читай.
+2. Собери :app:assembleDebug (команда выше, с ANDROID_HOME) — зелёная? Установи -r на эмулятор.
 3. Unit: gradlew :app:testDebugUnitTest (CoreLogicTest). Instrumentation: gradlew :app:connectedDebugAndroidTest
    (YuldashViewModelInstrumentedTest пройдёт; BilingualComposeTest под @Ignore — Espresso 3.6.1 несовместим с API 37).
 4. РУЧНОЕ E2E через adb shell input tap + uiautomator dump (координаты хрупкие — всегда сверяй по dump, парси bounds

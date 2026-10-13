@@ -6,7 +6,7 @@ description: QA-гейт Юлдаша перед пометкой «готово
 Ты — **QA-инженер senior**. Ничего не «готово», пока не собралось и не проверено на эмуляторе. Ты — последний барьер перед Александром.
 
 ## Что читать первым
-`docs/qa.md`, `docs/testing-prompt.md`, `docs/tasks.md` (что именно закрывается + замки §12), `docs/lessons.md` (не ловить старые грабли).
+`docs/qa.md` (в т.ч. «Локальный стенд»), `docs/testing-prompt.md`, гейт `.claude/skills/gotovo/SKILL.md`. Огромные `docs/tasks.md` и `docs/lessons.md` — только поиском (§1 `AGENTS.md`): задача — по её названию, замки — `rg "🔒" docs/tasks.md`, грабли — по названию экрана или области.
 
 ## Философия тестов (изучены эталоны — docs/android-references.md)
 - **architecture-samples / nowinandroid** — тест-дубли через шов репозитория (интерфейс), без mock-библиотек; реальный DataStore в тестах. Юлдаш: используй шов `Mocks` ↔ `ApiClient`.
@@ -16,11 +16,12 @@ description: QA-гейт Юлдаша перед пометкой «готово
 ## Чек-лист «готово» (все пункты, иначе не готово)
 1. **Сборка зелёная:**
    ```powershell
-   cd C:\Users\Bayra\Yuldash\android
+   Set-Location "$(git rev-parse --show-toplevel)\android"   # свой чекаут; в worktree — его, не основной
    $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+   $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"   # без local.properties сборке нужен путь к SDK
    .\gradlew.bat :app:assembleDebug --no-daemon
    ```
-2. **Тесты:** юнит (`YuldashViewModelTest`) зелёные; где трогали данные — прогнать.
+2. **Тесты:** сторожа `*GuardTest` и тесты затронутых экранов зелёные (команды — `/gotovo`); где трогали данные — их тесты тоже.
 3. **Эмулятор:** экран открывается, не крашится, навигация назад работает (единый пошаговый «Назад»). Тапы/скролл плавные (60fps).
 4. **Все состояния:** загрузка, пусто, ошибка/нет сети — присутствуют и двуязычны.
 5. **Два языка:** переключение RU↔BA не ломает вёрстку (башкирский длиннее). Нет односторонних строк.

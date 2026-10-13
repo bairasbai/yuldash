@@ -6,6 +6,7 @@
 ## 11. 🚫 Стоп-правила
 - Не трогать `mobile/` (старый Flutter, заброшен).
 - **Не коммитить ключи/секреты** в git — в т.ч. в `docs/`, `AGENTS.md`, `CLAUDE.md`.
+- Не читать и не копировать файлы с ключами (`local.properties`, `google-services.json`, `keystore.properties`, `*.jks`) — сборке хватает `ANDROID_HOME` (§5).
 - Не добавлять односторонние строки (только RU или только BA).
 - Не помечать «готово» без зелёной сборки и проверок (⭐ «Готово»).
 - Не переписывать работающие экраны без явной просьбы.
@@ -34,8 +35,8 @@
 1. Каждая надпись — на двух языках через `appText(ru, ba)` (§3).
 2. UI — только со шкал `Canon*` (§4).
 3. Анимации в коде Compose: появление, нажатие, смена экрана, счётчики — уровень iPhone (§4).
-4. Новый экран → `enum Screen` + ветка в `when` внутри `YuldashApp()` + строка в `docs/architecture.md`.
-5. Зелёные проверки затронутых частей: Android `:app:assembleDebug` (§5) + `*GuardTest` и тесты экранов; бэкенд `ruff --select F` + `pytest`; `webapp/`, `web/` — `check`/`lint` + `build`. Гейт — `.claude/skills/gotovo/SKILL.md` (Claude: `/gotovo`). Не смог запустить — скажи что и почему; без зелёной сборки — не «готово».
+4. Новый экран → `enum Screen` (в `MainActivity.kt`) + ветка в `YuldashApp.kt` или `AppNav*.kt` (раздел «Навигация разрезана» в `docs/architecture.md`) + строка в `docs/architecture.md`.
+5. Зелёные проверки затронутых частей: Android `:app:assembleDebug` (§5) + `*GuardTest` и тесты экранов; бэкенд (из `backend/`) `ruff check app/ --select F` + `pytest`; `webapp/`, `web/` — `check`/`lint` + `build`. Гейт — `.claude/skills/gotovo/SKILL.md` (Claude: `/gotovo`). Не смог запустить — скажи что и почему; без зелёной сборки — не «готово».
 6. Второй мозг обновлён (§1).
 
 ## 0. Что за проект
@@ -47,7 +48,8 @@
 ## 1. 🧠 Второй мозг (`docs/`) — точечно
 - Файлы мозга огромные (0.2–2.4 МБ) — **целиком не читать**. Ищи по экрану, файлу, ID: `rg -n "<имя>" docs/architecture.md docs/00-INDEX.md` → открой только найденный раздел (offset/limit). Оглавление — `rg -n "^## " docs/architecture.md`, где какой экран — раздел «Навигация разрезана».
 - Большой код (`MainActivity.kt` и др.) тоже не читай целиком — найди место поиском.
-- После работы: новый экран → `architecture.md`, решение → `decisions.md`, грабли → `lessons.md`, прогресс → `tasks.md`. Дописывай раздел, файл не переписывай.
+- Команды `rg` в правилах — у Claude это инструмент Grep.
+- После работы: новый экран → `architecture.md`, решение → `decisions.md`, грабли → `lessons.md`, прогресс → `tasks.md`. Новое — туда же, где самые свежие записи этого файла; файл целиком не переписывай.
 
 ## 2. 💬 Как отвечать Александру
 - **Только русский.** Александр — вайбкодер, не программист: как школьнику, без жаргона, термин — сразу расшифровка в скобках.
@@ -69,8 +71,8 @@
 ## 4. ✨ Дизайн и анимация (уровень iPhone)
 - **Дорого, плавно, лаконично**, без «самоделки». Эталоны — Яндекс Такси, inDrive, Uber, Maxim (карта, заказ, карточки, онбординг): изучай, но делай красивее и дороже, не копию.
 - **Анимации — в коде Compose** (`animate*AsState`, `AnimatedVisibility`, `AnimatedContent`, переходы): появления карточек, нажатия, смена экранов и вкладок.
-- **Стиль — только шкалы `CanonTokens.kt`:** цвет `Canon*`, кегль (`CanonBody`, `CanonTitle`…), отступ `CanonSpace`, радиус (`CanonCardShape`, `CanonItemShape`, `CanonFieldShape`, `CanonTinyShape`), тень `CanonDepth`, длительность `CanonMotion`. **Своё число нельзя** — падает `CanonSourceGuardTest`. Правила и чек-лист новой вкладки — `docs/design.md`.
-- Справочники дизайна — `.claude/skills/` (под веб: принцип и число брать, код — нет; `Canon*` важнее). Stitch (`mcp__stitch__*`) — макеты, в Compose вручную; генерация картинок — иконки/фоны; `magic` (21st.dev) — веб-референсы.
+- **Стиль — только шкалы `CanonTokens.kt`:** цвет `Canon*`, кегль (`CanonBody`, `CanonTitle`…), отступ `CanonSpace`, радиус (`CanonCardShape`, `CanonItemShape`, `CanonFieldShape`, `CanonTinyShape`), тень `CanonDepth`, длительность `CanonMotion`. **Своё число нельзя.** Сторож `CanonSourceGuardTest` ловит кегль, радиус, длительность и тень; цвет — только хук и ревью; отступы не ловит никто — следи сам. Правила и чек-лист новой вкладки — `docs/design.md`.
+- Справочники дизайна — `.claude/skills/` (под веб: принцип и число брать, код — нет; `Canon*` важнее). Stitch (`mcp__stitch__*`) — макеты, в Compose вручную; генерация картинок — иконки/фоны; 21st.dev (MCP `21st`, если подключён) — веб-референсы.
 - **Карта — Яндекс MapKit** (бесплатный тариф): зелёный маршрут, жёлтая точка назначения, спокойный фон. Ключ — в `local.properties`, **не в git**. Детали — `docs/map-design.md`.
 
 ## 4.5 🧩 UI-качество (на каждом экране)
@@ -88,10 +90,11 @@
 5. Баг-репорт — чини сам, без «поводи меня за руку».
 6. Ошибка дважды — правило в `docs/lessons.md`.
 
-Сборка (PowerShell):
+Сборка (PowerShell, из своего чекаута — в worktree собирай его код, не основной):
 ```powershell
-cd C:\Users\Bayra\Yuldash\android   # в worktree — его android\, не основной
+Set-Location "$(git rev-parse --show-toplevel)\android"
 $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"   # local.properties не нужен и не копируется
 .\gradlew.bat :app:assembleDebug --no-daemon
 ```
 
