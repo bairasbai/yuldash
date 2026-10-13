@@ -73,16 +73,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// Фикс-палитра шеринг-открытки (StatsShareCard) — независима от темы: карточка уходит картинкой в
-// мессенджеры «как есть», у получателя может быть любая тема. Поэтому цвета жёстко зашиты, а НЕ берутся
-// из Canon* (которые меняются со светлой/тёмной темой). Здесь собраны в одном месте, чтобы не размазывать.
-private val StatsCardTop = Color(0xFF0B6B3A)      // верх зелёного градиента карточки
-private val StatsCardBottom = Color(0xFF063A20)   // низ зелёного градиента карточки
-private val StatsMint = Color(0xFFCDEBD9)         // мятные подписи на зелёном
-private val StatsMintBright = Color(0xFFDDF3E5)   // светлее — имя и подпись бренда (запас по контрасту)
-private val StatsGold = Color(0xFFF5D07A)         // золото кубка (звание)
-private val StatsGlassStrong = Color(0x33FFFFFF)  // «стеклянный» кружок под кубком
-private val StatsGlassSoft = Color(0x1FFFFFFF)    // «стеклянный» фон мини-плиток
+// Палитра карточки — плоские токены CanonStatsCard* в CanonTokens.kt: от темы не зависят,
+// потому что карточка уходит картинкой в мессенджер, а у получателя может быть любая тема.
 
 /**
  * F18 «Мой Юлдаш» — личная статистика попутчика.
@@ -245,13 +237,13 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = CanonCardShape,
-        colors = CardDefaults.cardColors(containerColor = StatsCardTop),
+        colors = CardDefaults.cardColors(containerColor = CanonStatsCardTop),
         elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(StatsCardTop, StatsCardBottom)))
+                .background(Brush.verticalGradient(listOf(CanonStatsCardTop, CanonStatsCardBottom)))
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -259,7 +251,7 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         appTextFor(language, "МОЙ ЮЛДАШ", "МИНЕҢ ЮЛДАШ"),
-                        color = StatsMint, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp,
+                        color = CanonStatsCardMint, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -267,13 +259,13 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                         color = Color.White, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
                     )
                     if (name.isNotBlank()) {
-                        Text(name, color = StatsMintBright, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(name, color = CanonStatsCardMintBright, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
                 }
-                Surface(color = StatsGlassStrong, shape = CircleShape) {
+                Surface(color = CanonStatsCardGlassStrong, shape = CircleShape) {
                     Icon(
                         Icons.Default.EmojiEvents, contentDescription = null,
-                        tint = StatsGold, modifier = Modifier.padding(12.dp).size(30.dp),
+                        tint = CanonStatsCardGold, modifier = Modifier.padding(12.dp).size(30.dp),
                     )
                 }
             }
@@ -286,7 +278,7 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                 )
                 Text(
                     appTextFor(language, "километров вместе", "километр бергә"),
-                    color = StatsMint, fontSize = 14.sp,
+                    color = CanonStatsCardMint, fontSize = 14.sp,
                 )
             }
 
@@ -300,9 +292,9 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
 
             Text(
                 // Была 0xFF9FD6B4 11sp — на светлом верху градиента контраст падал ниже 4.5:1;
-                // берём светлее (StatsMintBright) и 12sp для читаемости мелкой подписи.
+                // берём светлее (CanonStatsCardMintBright) и 12sp для читаемости мелкой подписи.
                 appTextFor(language, "Юлдаш · поездки между своими · yulbash.ru", "Юлдаш · үҙебеҙҙекеләр менән · yulbash.ru"),
-                color = StatsMintBright, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                color = CanonStatsCardMintBright, fontSize = 12.sp, fontWeight = FontWeight.Medium,
             )
         }
     }
@@ -313,13 +305,13 @@ private fun MiniStat(modifier: Modifier, value: String, label: String) {
     Column(
         modifier
             .clip(CanonItemShape)
-            .background(StatsGlassSoft)
+            .background(CanonStatsCardGlassSoft)
             .padding(vertical = 12.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
-        Text(label, color = StatsMint, fontSize = 12.sp, textAlign = TextAlign.Center)
+        Text(label, color = CanonStatsCardMint, fontSize = 12.sp, textAlign = TextAlign.Center)
     }
 }
 

@@ -5,9 +5,10 @@
 //   backend/app/**.py    → ruff --select F (мёртвые импорты/переменные) — тот же гейт, что в CI
 //                          (CI гоняет ruff только по app/; в tests/ свои старые F-ошибки — не наши).
 //   android/app/src/main → захардкоженный Color(0x…) и одноязычный Text("…") в НОВЫХ строках.
-//                          Кегль, радиус, длительность, тень держит CanonSourceGuardTest, одноязычный
-//                          Text — BilingualSourceGuardTest (но только при прогоне тестов); цвет не ловит
-//                          ни один тест — только этот хук. Хук — быстрая подсказка сразу после правки.
+//                          Хук — быстрая подсказка сразу после правки; договор держат тесты, но только
+//                          при прогоне: цвет — ColorSourceGuardTest, кегль/радиус/длительность/тень —
+//                          CanonSourceGuardTest, padding(N.dp) — храповик SpacingRatchetGuardTest,
+//                          один язык (Text, text =, contentDescription, Toast) — BilingualSourceGuardTest.
 //
 // Любая неожиданность (нет ruff, кривой JSON) → молча выходим: хук не должен мешать работе.
 import { spawnSync } from 'node:child_process';

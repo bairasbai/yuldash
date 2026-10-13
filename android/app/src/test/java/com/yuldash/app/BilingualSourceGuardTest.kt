@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -18,6 +19,8 @@ import java.io.File
  *  • **не пускает пустой башкирский** — таких сейчас ноль, пусть так и остаётся;
  *  • **не пускает русский текст мимо `appText`** — надпись прямо в `Text("Привет")`
  *    непереводима в принципе, её не увидит даже переводчик;
+ *  • **то же для `text = "…"`, `contentDescription = "…"` и `Toast.makeText(…, "…", …)`** —
+ *    подпись для TalkBack и всплывающая подсказка тоже надписи (с 13.10.2026, планка нулевая);
  *  • **не даёт расти долгу** по скопированным словам: сегодняшние 143 зафиксированы,
  *    144-я уронит сборку.
  *
@@ -210,5 +213,96 @@ class BilingualSourceGuardTest {
             f.readLines().forEach { line -> found += appTextCall.findAll(line).count() }
         }
         assertTrue("Из экранов вынули всего $found надписей — разбор сломался", found > 1000)
+    }
+
+    // ---------- надписи вне Text(...): text =, contentDescription =, Toast (13.10.2026) ----------
+    //
+    // Сторож выше видел только `Text("…")` в одной строке. Мимо шли `Text(text = "…")`, подпись
+    // для TalkBack (её слышит незрячий человек — это тоже надпись) и всплывающие Toast. Сейчас
+    // одноязычных среди них ноль — планка нулевая. Разбор — через SourceScan: комментарии
+    // и `?text=` внутри адреса в кавычках не считаются.
+
+    /** Выбор языка в выражении: `appText(…)` или ветка по `AppLanguage`. */
+    private val languageSwitch = Regex("""\bappText(?:For)?\(|\bAppLanguage\b""")
+
+    /** Строка-литерал сразу после `<name> =`: номер строки и текст в кавычках. */
+    private fun literalAssignments(src: String, name: String): List<Pair<Int, String>> {
+        val code = SourceScan.scrub(src, blankStrings = true)
+        val plain = SourceScan.scrub(src, blankStrings = false)
+        return Regex("""\b$name\s*=\s*"""").findAll(code).map { m ->
+            val open = m.range.last
+            SourceScan.lineOf(code, open) to plain.substring(open + 1, SourceScan.stringEnd(plain, open))
+        }.toList()
+    }
+
+    /** Все `Toast.makeText`: номер строки, текст сообщения и есть ли в нём русский без выбора языка. */
+    private fun toastMessages(src: String): List<Triple<Int, String, Boolean>> {
+        val code = SourceScan.scrub(src, blankStrings = true)
+        val plain = SourceScan.scrub(src, blankStrings = false)
+        return Regex("""\bToast\.makeText\(""").findAll(code).mapNotNull { m ->
+            val msg = SourceScan.callArgs(code, m.range.last).getOrNull(1) ?: return@mapNotNull null
+            val text = plain.substring(msg.first, msg.last + 1)
+            // Русский — только внутри кавычек (там, где в `code` текст стёрт): имя переменной
+            // `текст` в `serverSaid(it, текст)` — не надпись, сама надпись собрана выше по языку.
+            val russianText = msg.any { i -> code[i] == ' ' && cyrillic.matches(plain[i].toString()) }
+            val oneLanguage = russianText && !languageSwitch.containsMatchIn(code.substring(msg.first, msg.last + 1))
+            Triple(SourceScan.lineOf(code, m.range.first), text.trim().replace(Regex("""\s+"""), " "), oneLanguage)
+        }.toList()
+    }
+
+    private fun oneLanguageAssignments(src: String, name: String, allowed: Set<String>) =
+        literalAssignments(src, name).filter { (_, s) -> cyrillic.containsMatchIn(s) && s !in allowed }
+
+    private fun assertNone(what: String, find: (String) -> List<String>) {
+        val bad = mutableListOf<String>()
+        SourceScan.appSources().forEach { f -> find(f.readText()).forEach { bad += "${SourceScan.relPath(f)}:$it" } }
+        assertTrue(
+            "$what — ${bad.size} шт. Нужен appText(\"рус\", \"баш\"), черновой башкирский — в docs/tasks.md:\n" +
+                bad.take(20).joinToString("\n") { "    $it" },
+            bad.isEmpty(),
+        )
+    }
+
+    @Test
+    fun `text = «…» с русским — мимо appText`() = assertNone("Надпись text = «…» на одном языке") { src ->
+        oneLanguageAssignments(src, "text", hardcodedExceptions).map { (line, s) -> "$line  «$s»" }
+    }
+
+    @Test
+    fun `подпись для TalkBack — на двух языках`() = assertNone("contentDescription на одном языке") { src ->
+        oneLanguageAssignments(src, "contentDescription", emptySet()).map { (line, s) -> "$line  «$s»" }
+    }
+
+    @Test
+    fun `всплывающая подсказка Toast — на двух языках`() = assertNone("Toast на одном языке") { src ->
+        toastMessages(src).filter { it.third }.map { (line, s, _) -> "$line  $s" }
+    }
+
+    @Test
+    fun `разбор text, contentDescription и Toast вообще работает`() {
+        val ru = "Привет"
+        assertEquals(1, oneLanguageAssignments("Text(text = \"$ru\")", "text", hardcodedExceptions).size)
+        assertEquals(1, oneLanguageAssignments("Icon(i, contentDescription = \"Назад\")", "contentDescription", emptySet()).size)
+        assertEquals(1, toastMessages("Toast.makeText(ctx, \"Скопировано\", Toast.LENGTH_SHORT)").count { it.third })
+        assertEquals(1, toastMessages("Toast.makeText(\n    context,\n    \"Ошибка: \${e.message}\",\n    Toast.LENGTH_LONG,\n)").count { it.third })
+        // Двуязычное, служебное и не-надписи — не тревога.
+        assertEquals(0, oneLanguageAssignments("Text(text = appText(\"$ru\", \"Сәләм\"))", "text", hardcodedExceptions).size)
+        assertEquals(0, oneLanguageAssignments("Text(text = \"Юлдаш\")", "text", hardcodedExceptions).size)
+        assertEquals(0, oneLanguageAssignments("Uri.parse(\"https://yandex.ru/maps/?text=\" + q)", "text", hardcodedExceptions).size)
+        assertEquals(0, oneLanguageAssignments("// Text(text = \"$ru\")", "text", hardcodedExceptions).size)
+        assertEquals(0, oneLanguageAssignments("Modifier.semantics { contentDescription = \"\$title. \$subtitle\" }", "contentDescription", emptySet()).size)
+        assertEquals(0, toastMessages("Toast.makeText(ctx, if (language == AppLanguage.Ba) \"Сәләм\" else \"$ru\", Toast.LENGTH_SHORT)").count { it.third })
+        assertEquals(0, toastMessages("Toast.makeText(ctx, appText(\"$ru\", \"Сәләм\"), Toast.LENGTH_SHORT)").count { it.third })
+        assertEquals(0, toastMessages("Toast.makeText(context, serverSaid(it, текст), Toast.LENGTH_LONG)").count { it.third })
+        // На живом коде разбор обязан видеть сотни Toast и хоть какие-то contentDescription = "…".
+        var toasts = 0
+        var descriptions = 0
+        SourceScan.appSources().forEach { f ->
+            val src = f.readText()
+            toasts += toastMessages(src).size
+            descriptions += literalAssignments(src, "contentDescription").size
+        }
+        assertTrue("нашёл всего $toasts Toast — разбор ослеп", toasts > 200)
+        assertTrue("не нашёл ни одного contentDescription = \"…\" — разбор ослеп", descriptions > 0)
     }
 }

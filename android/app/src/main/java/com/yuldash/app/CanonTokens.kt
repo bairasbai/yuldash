@@ -195,6 +195,18 @@ internal val CanonScrim: Color = Color(0xE6000000)
 // на снимке, а не на поверхности приложения, и следовать теме им не за чем.
 internal val CanonGlassDark: Color = Color(0x66000000)
 internal val CanonGlassOnPhoto: Color = Color(0x66FFFFFF)
+// Карточка «Мой Юлдаш» (MyStatsScreen) — плоская палитра: та же карточка уходит картинкой
+// в мессенджер, у получателя может быть любая тема, поэтому цвета от темы не зависят.
+internal val CanonStatsCardTop: Color = Color(0xFF0B6B3A)          // верх зелёного градиента
+internal val CanonStatsCardBottom: Color = Color(0xFF063A20)       // низ зелёного градиента
+internal val CanonStatsCardMint: Color = Color(0xFFCDEBD9)         // мятные подписи на зелёном
+internal val CanonStatsCardMintBright: Color = Color(0xFFDDF3E5)   // имя и подпись бренда (запас по контрасту)
+internal val CanonStatsCardGold: Color = Color(0xFFF5D07A)         // золото кубка (звание)
+internal val CanonStatsCardGlassStrong: Color = Color(0x33FFFFFF)  // «стеклянный» кружок под кубком
+internal val CanonStatsCardGlassSoft: Color = Color(0x1FFFFFFF)    // «стеклянный» фон мини-плиток
+// Золотая «пыльца» на заставке (IntroHero) — часть рисунка, а не интерфейса: небо там тёмное
+// всегда, и адаптивный CanonGold в светлой теме сделал бы искорки блеклыми.
+internal val CanonIntroMoteGold: Color = Color(0xFFF0C840)
 // Цвета линий на карте Яндекса. MapKit принимает ARGB-число, а не Compose-цвет, поэтому это
 // не `Color`, а Int — но объявлены здесь, чтобы маршрут не красили числом прямо в экране:
 // зелёный основной путь и серый объездной должны совпадать во всех местах, где рисуется карта.
