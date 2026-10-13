@@ -26,7 +26,7 @@ function isIos(): boolean {
  * Android/десктоп: перехват beforeinstallprompt + кнопка «Установить».
  * Не назойлива: закрытие запоминается в localStorage.
  */
-export default function InstallPrompt() {
+export default function InstallPrompt({ hidden = false }: { hidden?: boolean }) {
   const { t } = useLang();
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [show, setShow] = useState(false);
@@ -60,7 +60,9 @@ export default function InstallPrompt() {
     if (show) trackOnce("install_prompt_shown", "install_prompt_shown");
   }, [show]);
 
-  if (!show) return null;
+  // Полноэкранный чат: подсказка не должна лежать поверх строки ввода. Состояние не теряем —
+  // событие установки браузер шлёт один раз за загрузку, вернёмся из чата — подсказка на месте.
+  if (!show || hidden) return null;
 
   const dismiss = () => {
     localStorage.setItem(DISMISS_KEY, "1");

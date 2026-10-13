@@ -24,8 +24,7 @@ const ROUTES = {
   Boost: "/boost",
   Booking: "/booking/:id",
   ActiveTrip: "/trip/:id",
-  // Android вынес чат поездки на отдельный экран (13.10.2026); в PWA чат пока внутри страницы поездки.
-  TripChat: "/trip/:id",
+  TripChat: "/trip/:id/chat",
   Sos: "/sos",
   CreateRequest: "/request",
   VerifyDriver: "/verify-driver",

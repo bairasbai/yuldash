@@ -241,7 +241,7 @@ export default function ChatInboxScreen() {
                 message={c.last_message ?? ""}
                 time={c.depart_at ? formatDepart(c.depart_at) : ""}
                 verified={!!c.peer_verified}
-                onClick={() => navigate(`/trip/${c.booking_id}`)}
+                onClick={() => navigate(`/trip/${c.booking_id}/chat`)}
               />
             ))
           ) : status === "loading" ? (

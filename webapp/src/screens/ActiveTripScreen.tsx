@@ -3,7 +3,8 @@
 //  - Live-статус: поллинг GET /bookings/{id}/role (status + driver_phase).
 //  - Карта: маршрут A→B + live-точка водителя (WS /ws/trip/{id}/location).
 //  - Код посадки: GET /bookings/{id}/boarding-code (для confirmed/onboard).
-//  - Чат брони: REST-история + живой WS /ws/bookings/{id} (иначе поллинг).
+//  - Чат брони — отдельная страница /trip/:id/chat (TripChatScreen.tsx);
+//    здесь только карточка «Чат по поездке» (последнее сообщение + новые).
 //  - Оценка при завершении: POST /bookings/{id}/rate.
 //  - Договорённость об оплате: POST /bookings/{id}/pay-agreement —
 //    запись «как решили платить», её правит любая сторона. SOS ведёт на /sos.
@@ -29,16 +30,7 @@ import {
   type BookingStatus,
   type TripState,
 } from "../api/bookings";
-import {
-  fetchMessages,
-  sendMessageRest,
-  openBookingChat,
-  openTripLocation,
-  editMessage,
-  deleteMessage,
-  type ChatMessage,
-} from "../api/chat";
-import { ChatFlagPlate, ChatSafetyDisclaimer } from "../components/ChatSafety";
+import { openTripLocation } from "../api/chat";
 import { winterCheck, winterCheckOk } from "../api/safety";
 import RoadsideHelp from "../components/RoadsideHelp";
 import { dropTripPass, loadTripPass, saveTripPass, type TripPass } from "../utils/tripPass";
@@ -47,16 +39,14 @@ import { setDriverStatus, type DriverPhase } from "../api/driver";
 import { LoadingList, ErrorState } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
 import { StatusPill } from "../components/StatusPill";
-import QuickReplies from "../components/QuickReplies";
 import { SubHeader } from "./ConsentsScreen";
 import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarningCard";
 import ShareTripCard from "../components/ShareTripCard";
-import { ChatPhotoButton, ChatMessageBody } from "../components/ChatPhoto";
-import { ChatVoiceButton, VoiceBubble } from "../components/ChatVoice";
-import { IconArrow, IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet } from "../components/Icons";
+import TripChatCard from "../components/TripChatCard";
+import { IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
-import { createOutboxId, enqueue, outboxCount, subscribeOutbox, watchOutbox } from "../utils/outbox";
+import { enqueue } from "../utils/outbox";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
 import {
   forgetWinterCheck,
@@ -640,6 +630,13 @@ export default function ActiveTripScreen() {
         )}
       </div>
 
+      {/* Чат по поездке — отдельная страница, как в мессенджерах (строка ввода внизу экрана) */}
+      <TripChatCard
+        bookingId={bookingId}
+        myId={user?.id ?? -1}
+        onOpen={() => navigate(`/trip/${bookingId}/chat`, { state: { fromTrip: true } })}
+      />
+
       {/* Как договорились платить. Это ЗАПИСЬ, а не платёж: деньги через приложение не идут.
           Менять может любая сторона — запись видна обоим и служит опорой в споре
           «мы же договаривались о 400». Раньше на сайте её можно было только читать. */}
@@ -850,363 +847,6 @@ export default function ActiveTripScreen() {
         </button>
       )}
 
-      {/* Чат брони */}
-      <TripChat bookingId={bookingId} myId={user?.id ?? -1} />
     </>
-  );
-}
-
-/** «1 сообщение ждёт» / «2 сообщения ждут» / «5 сообщений ждут». */
-function queuedWordRu(n: number): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return "сообщение ждёт";
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "сообщения ждут";
-  return "сообщений ждут";
-}
-
-// ---- Чат: REST-история + живой WS, поллинг как фолбэк ----
-function TripChat({ bookingId, myId }: { bookingId: number; myId: number }) {
-  const { appText } = useLang();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [text, setText] = useState("");
-  const [textBusy, setTextBusy] = useState(false);
-  const textSending = useRef(false);
-  const [live, setLive] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const endRef = useRef<HTMLDivElement | null>(null);
-  const chatRef = useRef<ReturnType<typeof openBookingChat> | null>(null);
-
-  /** Правка/удаление: id сообщения, которое сейчас в работе. */
-  const [menuId, setMenuId] = useState<number | null>(null);
-  const [editId, setEditId] = useState<number | null>(null);
-  const [editText, setEditText] = useState("");
-  const [busyId, setBusyId] = useState<number | null>(null);
-
-  /** Сколько сообщений ждёт сети (плашка «отправим, когда появится связь»). */
-  const [queued, setQueued] = useState(() => outboxCount(bookingId));
-  /** Вложение (голосовое или фото) не ушло — говорим об этом человеку. */
-  const [attachNote, setAttachNote] = useState("");
-
-  const upsert = useCallback((m: ChatMessage) => {
-    setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-  }, []);
-
-  /** Сервер вернул обновлённое сообщение — подменяем его на месте, не дёргая всю историю. */
-  const replace = useCallback((m: ChatMessage) => {
-    setMessages((prev) => prev.map((x) => (x.id === m.id ? m : x)));
-  }, []);
-
-  // История + WS.
-  useEffect(() => {
-    if (!bookingId) return;
-    let alive = true;
-    fetchMessages(bookingId)
-      .then((list) => {
-        if (alive) {
-          setMessages(list);
-          setLoaded(true);
-        }
-      })
-      .catch(() => alive && setLoaded(true));
-
-    const chat = openBookingChat(bookingId, {
-      onMessage: upsert,
-      onOpen: () => setLive(true),
-      onClose: () => setLive(false),
-      onError: () => setLive(false),
-    });
-    chatRef.current = chat;
-    return () => {
-      alive = false;
-      chat.close();
-      chatRef.current = null;
-    };
-  }, [bookingId, upsert]);
-
-  // Сеть вернулась → досылаем накопленное и забираем историю с сервера (она авторитетная).
-  useEffect(() => {
-    if (!bookingId) return;
-    const stop = watchOutbox(() => {
-      setQueued(outboxCount(bookingId));
-      fetchMessages(bookingId)
-        .then(setMessages)
-        .catch(() => {});
-    });
-    const unsub = subscribeOutbox(() => setQueued(outboxCount(bookingId)));
-    return () => {
-      stop();
-      unsub();
-    };
-  }, [bookingId]);
-
-  // Поллинг-фолбэк, когда живого WS нет.
-  useEffect(() => {
-    if (live || !loaded) return;
-    const iv = window.setInterval(() => {
-      fetchMessages(bookingId)
-        .then(setMessages)
-        .catch(() => {});
-    }, 7000);
-    return () => window.clearInterval(iv);
-  }, [live, loaded, bookingId]);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages]);
-
-  // Общая отправка (поле ввода и быстрые ответы): живой сокет, фолбэк — REST.
-  async function sendText(t: string): Promise<boolean> {
-    if (!t || textSending.current) return false;
-    const generation = getSessionGeneration();
-    const currentSession = () => generation === getSessionGeneration();
-    textSending.current = true;
-    setTextBusy(true);
-    setAttachNote("");
-    try {
-      const sentLive = chatRef.current?.send(t);
-      if (sentLive) return true;
-      const requestId = createOutboxId();
-      try {
-        const m = await sendMessageRest(bookingId, t, undefined, requestId);
-        if (!currentSession()) return false;
-        upsert(m);
-        return true;
-      } catch (e) {
-        if (!currentSession()) return false;
-        if (e instanceof ApiError && e.status === 0) {
-          // Сети нет (трасса) — не теряем: отправим сами, когда связь вернётся.
-          try {
-            await enqueue(bookingId, "message", t, requestId);
-            if (!currentSession()) return false;
-            setQueued(outboxCount(bookingId));
-            return true;
-          } catch {
-            if (!currentSession()) return false;
-          }
-        }
-        setText((current) => current || t);
-        setAttachNote(appText("Не получилось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер."));
-        return false;
-      }
-    } finally {
-      textSending.current = false;
-      if (currentSession()) setTextBusy(false);
-    }
-  }
-
-  /** Голос уходит по REST: сокет передаёт только текст, а ссылку надо положить в поле. */
-  async function sendVoice(voiceUrl: string) {
-    try {
-      const m = await sendMessageRest(bookingId, "", voiceUrl);
-      upsert(m);
-      setAttachNote("");
-    } catch {
-      // Раньше голосовое пропадало молча: человек говорил в трубку, отпускал —
-      // и не знал, что записи никто не получил. В очередь его не положить
-      // (запись живёт на сервере ограниченно), поэтому честно просим повторить.
-      setAttachNote(
-        appText("Голосовое не ушло. Запиши ещё раз.", "Тауыш китмәне. Тағы яҙып ҡара.")
-      );
-    }
-  }
-
-  /** Сохранить правку своего сообщения. Пустой текст = отмена, а не «стереть текст». */
-  async function saveEdit(id: number) {
-    const t = editText.trim();
-    if (!t || busyId) {
-      setEditId(null);
-      return;
-    }
-    setBusyId(id);
-    try {
-      replace(await editMessage(bookingId, id, t));
-      setEditId(null);
-    } catch {
-      // Поле остаётся открытым — текст не потерян. Но человек не знает, что
-      // правка не ушла: он видит своё новое сообщение и думает, что сохранил.
-      setAttachNote(
-        appText("Правка не сохранилась. Попробуй ещё раз.", "Төҙәтеү һаҡланманы. Тағы ҡабатла.")
-      );
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  /** Удалить: у всех (только своё) или скрыть у себя. */
-  async function removeMessage(id: number, scope: "all" | "me") {
-    if (busyId) return;
-    setMenuId(null);
-    setBusyId(id);
-    try {
-      const m = await deleteMessage(bookingId, id, scope);
-      // «У себя» сервер не возвращает пустой текст — просто убираем из своего списка.
-      if (scope === "me") setMessages((prev) => prev.filter((x) => x.id !== id));
-      else replace(m);
-    } catch {
-      // Сообщение осталось на месте — но человек нажал «удалить» и ждёт,
-      // что оно исчезнет. Молчание он прочитает как «кнопка не работает».
-      setAttachNote(
-        appText("Не получилось удалить. Попробуй ещё раз.", "Юйып булманы. Тағы ҡабатла.")
-      );
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function send() {
-    const t = text.trim();
-    if (!t) return;
-    const generation = getSessionGeneration();
-    if (await sendText(t)) {
-      if (generation === getSessionGeneration()) setText((current) => current.trim() === t ? "" : current);
-    }
-  }
-
-  return (
-    <div className="chat">
-      <div className="chat__title">{appText("Чат с водителем", "Йөрөтөүсе менән чат")}</div>
-      <div className="chat__body">
-        <ChatSafetyDisclaimer />
-        {!loaded && (
-          <div className="chat__loading" aria-live="polite">
-            <span className="skeleton chat__skeleton" />
-            <span className="skeleton chat__skeleton chat__skeleton--mine" />
-            <span className="skeleton chat__skeleton" />
-          </div>
-        )}
-        {loaded && messages.length === 0 && (
-          <p className="chat__empty">
-            {appText("Напиши первым — обсудите детали встречи.", "Беренсе булып яҙ — осрашыуҙы һөйләшегеҙ.")}
-          </p>
-        )}
-        {messages.map((m) => {
-          const mine = m.sender_id === myId;
-          // Своё текстовое можно поправить, удалить у всех или скрыть у себя.
-          // Чужое — только скрыть у себя: чужие слова не наши.
-          const canEdit = mine && !m.deleted && !m.voice_url;
-          if (m.deleted) {
-            return (
-              <div key={m.id} className={"bubble bubble--gone" + (mine ? " bubble--mine" : "")}>
-                {appText("Сообщение удалено", "Хәбәр юйылды")}
-              </div>
-            );
-          }
-          return (
-            <div key={m.id} className={"msg" + (mine ? " msg--mine" : "")}>
-            <div className={"bubble" + (mine ? " bubble--mine" : "")}>
-              {m.from_admin && <span className="bubble__admin">Юлдаш ✓</span>}
-
-              {editId === m.id ? (
-                <div className="bubble__edit">
-                  <input
-                    value={editText}
-                    autoFocus
-                    onChange={(e) => setEditText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void saveEdit(m.id);
-                      if (e.key === "Escape") setEditId(null);
-                    }}
-                    aria-label={appText("Поправить сообщение", "Хәбәрҙе төҙәтеү")}
-                  />
-                  <button type="button" onClick={() => void saveEdit(m.id)} disabled={busyId === m.id}>
-                    {appText("Сохранить", "Һаҡлау")}
-                  </button>
-                  <button type="button" onClick={() => setEditId(null)}>
-                    {appText("Отмена", "Баш тартыу")}
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {m.voice_url ? (
-                    <VoiceBubble url={m.voice_url} />
-                  ) : (
-                    <ChatMessageBody text={m.text} />
-                  )}
-                  {m.edited && (
-                    <span className="bubble__edited">{appText("изменено", "төҙәтелгән")}</span>
-                  )}
-                  <button
-                    type="button"
-                    className="bubble__more"
-                    aria-label={appText("Действия с сообщением", "Хәбәр менән эштәр")}
-                    onClick={() => setMenuId(menuId === m.id ? null : m.id)}
-                  >
-                    ⋯
-                  </button>
-                </>
-              )}
-
-              {menuId === m.id && (
-                <div className="bubble__menu" role="menu">
-                  {canEdit && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setEditText(m.text);
-                        setEditId(m.id);
-                        setMenuId(null);
-                      }}
-                    >
-                      {appText("Поправить", "Төҙәтергә")}
-                    </button>
-                  )}
-                  {mine && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="bubble__menu-danger"
-                      onClick={() => void removeMessage(m.id, "all")}
-                    >
-                      {appText("Удалить у всех", "Барыһынан юйырға")}
-                    </button>
-                  )}
-                  <button type="button" role="menuitem" onClick={() => void removeMessage(m.id, "me")}>
-                    {appText("Скрыть у себя", "Үҙемдән йәшерергә")}
-                  </button>
-                </div>
-              )}
-            </div>
-              <ChatFlagPlate flag={m.flag} mine={mine} />
-            </div>
-          );
-        })}
-        <div ref={endRef} />
-      </div>
-      {/* Написал на трассе без связи — сообщение не пропало, ждёт сети */}
-      {queued > 0 && (
-        <div className="chat__queued" role="status">
-          {appText(
-            `${queued} ${queuedWordRu(queued)} сети — отправим сами`,
-            `${queued} хат селтәрҙе көтә — үҙебеҙ ебәрербеҙ`
-          )}
-        </div>
-      )}
-      {attachNote && (
-        <div className="chat__queued" role="status">
-          {attachNote}
-        </div>
-      )}
-      {/* Быстрые ответы — один тап отправляет готовую фразу */}
-      <QuickReplies onPick={(t) => void sendText(t)} />
-      <div className="chat__input">
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") send();
-          }}
-          placeholder={appText("Сообщение…", "Хат…")}
-          maxLength={4000}
-          aria-label={appText("Сообщение", "Хәбәр")}
-        />
-        <ChatPhotoButton onReady={(t) => void sendText(t)} onProblem={setAttachNote} />
-                <ChatVoiceButton onSend={(u) => void sendVoice(u)} onProblem={setAttachNote} />
-        <button type="button" onClick={send} disabled={textBusy} aria-label={appText("Отправить", "Ебәреү")}>
-          <IconArrow size={20} />
-        </button>
-      </div>
-    </div>
   );
 }
