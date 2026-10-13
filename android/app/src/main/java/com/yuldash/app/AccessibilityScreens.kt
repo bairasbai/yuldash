@@ -233,6 +233,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.withResumed
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yandex.mapkit.MapKitFactory
@@ -597,8 +598,8 @@ internal fun VoiceRequestScreen(
         titleBa = "Заявканы тауыш менән әйтеү",
         whyRu = "Микрофон нужен, чтобы записать заявку голосом — не придётся набирать текст.",
         whyBa = "Заявканы тауыш менән яҙыр өсөн микрофон кәрәк — текст яҙырға тура килмәй.",
-        onGranted = { begin() },
-        onDenied = { if (canRecord()) Toast.makeText(context, deniedMicText, Toast.LENGTH_LONG).show() },
+        onGranted = { scope.launch { lifecycleOwner.withResumed { begin() } } },   // ответ приходит до onResume (STARTED)
+        onDenied = { if (!recorder.isClosed) Toast.makeText(context, deniedMicText, Toast.LENGTH_LONG).show() },
     )
     var recognizedText by remember { mutableStateOf<String?>(null) }
     val sttLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
