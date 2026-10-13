@@ -6,7 +6,8 @@
 // Это сетка, а не стена: по тексту команды нельзя предусмотреть всё (склейка строк, хитрые переменные).
 // Граница — запрет Read(//**/…) в settings.json и классификатор Claude Code; хук закрывает частые пути,
 // которых они не видят: PowerShell, скрипты, рекурсивный поиск и копирование папок, маски вроде local* и
-// *.properties, rg -g, чтение списка файлов через «|», ссылки на файл, git clean -x. Полностью этот класс
+// *.properties, rg -g, чтение списка файлов через «|», ссылки на файл, удаление и перезапись (rm, Remove-Item, >),
+// поиск в папке сборки (BuildConfig.java), git clean -x. Полностью этот класс
 // утечек уйдёт, когда ключи переедут из папки проекта (решение Александра).
 //
 // Пропускаем: проверки «есть ли файл / в .gitignore ли он» (Test-Path, ls, git status / ls-files /
@@ -29,8 +30,14 @@ const COPIERS = set('cp copy xcopy robocopy mv move ren rename rename-item copy-
   'tar zip 7z compress-archive curl invoke-webrequest iwr invoke-restmethod irm certutil keytool diff cmp fc');
 const COPY_FAMILY = set('cp copy xcopy robocopy mv move copy-item move-item rsync scp');
 const SCRIPTS = set('python python3 py node ruby perl php deno bun');
-// Читают файлы, пришедшие по «|» (список файлов из ls / Get-ChildItem / find).
-const PIPE_READERS = set('get-content gc select-string sls xargs cat type foreach-object % sort');
+// Удаляют или перезаписывают — удаление данных ждёт «да» Александра (§8).
+const WRITERS = set('rm del erase unlink shred truncate remove-item ri set-content sc clear-content clc out-file add-content tee');
+// Читают файлы, пришедшие по «|» (список файлов из ls / Get-ChildItem / find). ForEach-Object — только
+// если внутри блока есть читатель (см. pipeReads).
+const PIPE_READERS = set('get-content gc select-string sls xargs');
+const BLOCK_READERS = /\b(get-content|gc|cat|type|select-string|sls|readall(text|lines|bytes)|copy-item|cp)\b/i;
+// Папка сборки: там сгенерированный BuildConfig.java с ключом карты и Sentry DSN.
+const BUILD_DIR = /(^|[\\/])(build|\.gradle)([\\/]|$)/i;
 const LISTERS = set('get-childitem gci ls dir find fd');
 const SHELLS = set('bash sh zsh powershell pwsh cmd');
 // Рекурсивное копирование/упаковка — источник папка, а не файл.
@@ -106,6 +113,10 @@ const tokens = s => (s.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map(unquote);
 const words = s => s.toLowerCase().split(/[\s"'`(){}$;,=|@<>]+/).map(w => w.split(/[\\/]/).pop().replace(/\.exe$/, '')).filter(Boolean);
 const firstWord = s => (tokens(s)[0] ?? '').split(/[\\/]/).pop().replace(/\.exe$/i, '').toLowerCase();
 const readsSomething = s => firstWord(s) !== 'git' && words(s).some(w => READERS.has(w) || COPIERS.has(w) || SCRIPTS.has(w));
+// Звено конвейера читает файлы, пришедшие по «|»: Get-Content, Select-String, xargs, или ForEach-Object
+// с читателем внутри блока. `| sort`, `| ForEach-Object { $_.Name }` получают имена — это не чтение.
+const pipeReads = s => words(s).some(w => PIPE_READERS.has(w))
+  || (/\b(foreach-object|%)\s*\{/i.test(s) && BLOCK_READERS.test(s.slice(s.indexOf('{'))));
 
 function checkSearcher(verb, args) {
   let paths = [];
@@ -131,6 +142,7 @@ function checkSearcher(verb, args) {
   }
   if (paths.some(p => mentionsSecret(p))) deny('Поиск по файлу с ключом выводит ключ.');
   if (paths.some(hasDotDot)) deny('Пути с «..» не разбираю.');
+  if (paths.some(p => BUILD_DIR.test(norm(p)))) deny('Поиск по папке сборки выведет ключ из сгенерированного BuildConfig.java.');
   const recursive = (/^[ef]?grep$/.test(verb) && args.some(f => /^-[a-zA-Z]*[rR][a-zA-Z]*$|^--(dereference-)?recursive$/.test(f)))
     || (verb === 'findstr' && args.some(f => /^\/s$/i.test(f)));
   if (recursive && !(paths.length && paths.every(p => SAFE_DIR.test(norm(p))))) {
@@ -159,7 +171,10 @@ function checkRg(args) {
   const usesE = args.some(a => /^(-e|--regexp|-f|--file)$/.test(a));
   const valueFlag = /^(-e|--regexp|-f|--file|-g|--glob|--iglob|-t|--type|-T|--type-not|-m|--max-count|-A|-B|-C|--context)$/;
   const pos = args.filter((a, k) => !isFlag(a) && !valueFlag.test(args[k - 1] ?? ''));
-  if ((usesE ? pos : pos.slice(1)).some(a => mentionsSecret(a))) deny('Поиск по файлу с ключом выводит ключ.');
+  const rgPaths = usesE ? pos : pos.slice(1);
+  if (rgPaths.some(a => mentionsSecret(a))) deny('Поиск по файлу с ключом выводит ключ.');
+  // Папку, названную явно, rg читает без учёта .gitignore: rg X android/app/build выведет BuildConfig.java.
+  if (rgPaths.some(a => BUILD_DIR.test(norm(a)))) deny('Поиск по папке сборки выведет ключ из сгенерированного BuildConfig.java.');
 }
 
 function checkGit(args) {
@@ -211,8 +226,14 @@ function checkStatement(stages, depth) {
     const safeMasks = masks.length > 0 && masks.every(m => !mentionsSecret(m) && !/^\*?\.?\*$/.test(m));
     const unsafe = paths.some(p => mentionsSecret(p) || hasDotDot(p)) || masks.some(m => mentionsSecret(m))
       || (!safeMasks && (paths.length === 0 || paths.some(p => !SAFE_DIR.test(norm(p)))));
-    const downstreamReads = stages.slice(i + 1).some(s => words(s).some(w => PIPE_READERS.has(w)));
+    const downstreamReads = stages.slice(i + 1).some(pipeReads);
     if (unsafe && downstreamReads) deny('Конвейер читает файлы из папки, где могут лежать ключи.');
+  }
+  // Имя файла с ключом уходит по «|» в читателя: echo …local.properties | xargs cat, Get-Item … | Get-Content.
+  for (let i = 0; i < stages.length - 1; i++) {
+    if (firstWord(stages[i]) !== 'git' && mentionsSecret(stages[i]) && stages.slice(i + 1).some(pipeReads)) {
+      deny('Имя файла с ключом передаётся по «|» в команду, которая его прочитает.');
+    }
   }
   for (const stage of stages) checkStage(stage, depth);
 }
@@ -237,6 +258,16 @@ function checkStage(stage, depth) {
     if (k >= 0) { checkCommand(args.slice(k + 1).join(' '), depth + 1); return; }
   }
   if (verb === 'git') { checkGit(args); return; }
+  // gh читает с диска только --body-file / -F; остальное — текст описания PR, он не опасен.
+  if (verb === 'gh') {
+    const k = args.findIndex(a => /^(--body-file|-F)$/.test(a));
+    if (k >= 0 && mentionsSecret(args[k + 1] ?? '')) deny('gh отправит файл с ключом на GitHub.');
+    return;
+  }
+  // Удаление и перезапись файла с ключом — удаление данных, ждёт «да» Александра (§8).
+  if (words(stage).some(x => WRITERS.has(x)) && (t.some(a => mentionsSecret(a)) || SECRET.test(stage))) {
+    deny('Удаление или перезапись файла с ключом ждёт «да» Александра (§8).');
+  }
   if (verb === 'rg') { checkRg(args); return; }
   if (/^([ef]?grep|findstr|select-string|sls)$/.test(verb)) { checkSearcher(verb, args); return; }
   if (verb === 'find' && args.some(a => /^-(exec|execdir|ok)$/.test(a))) {
@@ -261,18 +292,24 @@ function checkStage(stage, depth) {
   if (recursive && sources.some(a => a !== '-' && unsafeDir(a))) deny('Копирование или упаковка папки, где могут лежать ключи.');
 }
 
-function checkCommand(command, depth) {
+const KEY_NAME = '(local\\.properties|google-services\\.json|keystore\\.properties|BuildConfig\\.java|\\.jks\\b|\\.keystore\\b)';
+
+function checkCommand(raw, depth) {
+  // Тело heredoc (<<'EOF' … EOF) — это текст (описание PR, коммита), а не команды: вырезаем.
+  const command = raw.replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2\b/g, '<<$2');
   // Чтение через перенаправление: $(<file), while read … < file.
-  if (/(^|[^<])<\s*\(?\s*["']?[^\s|;&]*(local\.properties|google-services\.json|keystore\.properties|BuildConfig\.java|\.jks\b|\.keystore\b)/i.test(command)) {
-    deny('Команда читает файл с ключом через «<».');
+  if (new RegExp(`(^|[^<])<\\s*\\(?\\s*["']?[^\\s|;&]*${KEY_NAME}`, 'i').test(command)) deny('Команда читает файл с ключом через «<».');
+  // Перезапись через перенаправление: … > android/local.properties.
+  if (new RegExp(`>{1,2}\\s*["']?[^\\s|;&]*${KEY_NAME}`, 'i').test(command)) {
+    deny('Перезапись файла с ключом ждёт «да» Александра (§8).');
   }
   const all = statements(command);
   // Имя файла в переменной, чтение — в соседней команде: $p='…local.properties'; Get-Content $p.
+  // Передачей считаем только присваивание — упоминание имени в поиске или проверке ею не считается.
   const flat = all.map(st => st.join(' | '));
-  if (flat.some(s => firstWord(s) !== 'git' && mentionsSecret(s)) && flat.some(readsSomething)
-      && !flat.every(s => !readsSomething(s) || firstWord(s) === 'git')) {
-    const readerOnlyElsewhere = flat.some((s, k) => readsSomething(s) && !mentionsSecret(s) && flat.some((o, j) => j !== k && mentionsSecret(o) && firstWord(o) !== 'git'));
-    if (readerOnlyElsewhere) deny('Имя файла с ключом передаётся в соседнюю команду, которая его прочитает.');
+  const assignsSecret = flat.some(s => /^\s*(\$?[\w:]+\s*=|export\s|set\s)/i.test(s) && mentionsSecret(s));
+  if (assignsSecret && flat.some(s => readsSomething(s) && !mentionsSecret(s))) {
+    deny('Имя файла с ключом передаётся в соседнюю команду, которая его прочитает.');
   }
   for (const stages of all) checkStatement(stages, depth);
 }
