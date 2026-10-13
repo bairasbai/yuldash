@@ -56,9 +56,11 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
     иначе → «Я оплатил» по СБП «на доверии» (долг → pending, админ подтверждает в /admin/debts)."""
     from ..config import settings
     from ..models import Payment
+    from ..payments import payments_closed
     from .payments import _activate_payment, _start_yookassa, _sync_provider_status
 
-    if settings.is_prod and settings.payments_provider == "mock":
+    # Прод на mock или неизвестный провайдер → «скоро», долг не трогаем (ни «оплачен», ни «ждёт админа»).
+    if payments_closed():
         raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
 
     # Кошелёк гасит долг раньше карты: платить картой то, что уже покрыто своими деньгами,

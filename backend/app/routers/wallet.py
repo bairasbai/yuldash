@@ -30,6 +30,7 @@ from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus,
     LedgerEntry, LedgerKind, Payment, User, UserRole,
 )
+from ..payments import payments_closed
 from ..security import current_user
 from ..timeutil import utcnow
 from .payments import _activate_payment, _start_yookassa, _sync_provider_status
@@ -79,7 +80,8 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
     # Онлайн-оплата поездки идёт ТОЛЬКО через реальный yookassa. В проде любой другой провайдер
     # (mock/sbp_manual) вернул бы «succeeded» без денег → начисление фантома. Блокируем 503:
     # клиент по 503 прячет карту (OnlinePayGate), остаётся нал / перевод «на доверии».
-    if settings.is_prod and settings.payments_provider != "yookassa":
+    # Неизвестный провайдер — то же «скоро» и вне прода: иначе строка платежа зависала бы pending.
+    if payments_closed() or (settings.is_prod and settings.payments_provider != "yookassa"):
         raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
     # Дедуп pending: уже есть висящий платёж на этот заказ/бронь → возвращаем его, НЕ создаём второй
     # (иначе два тапа «Оплатить» / ретрай при задержке вебхука = два реальных списания). Образец — debt.py.
