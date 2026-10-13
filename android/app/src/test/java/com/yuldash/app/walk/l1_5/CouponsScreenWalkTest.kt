@@ -3,6 +3,7 @@ package com.yuldash.app.walk.l1_5
 import android.app.Application
 import android.content.Context
 import android.os.Looper
+import android.view.ViewGroup
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.platform.LocalDensity
@@ -29,6 +30,7 @@ import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -37,6 +39,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowDialog
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -272,35 +275,18 @@ class CouponsScreenWalkTest {
         waitForText("Кафе Тестовое")
         compose.onNodeWithText("Кафе Тестовое").performClick()
         waitForText("Тут что-то не так — сообщить")
-        // AlertDialog имеет собственную анимацию появления (как бесконечный спиннер в
-        // AppReviewFormContentTest) — под авточасами Compose остаётся «занято» и ПЕРВЫЙ же
-        // waitForText после открытия диалога висит до таймаута Espresso. Гасим авточасы ДО
-        // открытия (без скролла в этом диалоге — дедлока, как предупреждают там же, не будет) и
-        // дальше сверяемся через settle()/fetchSemanticsNodes() напрямую, а не через waitUntil.
-        compose.mainClock.autoAdvance = false
-        compose.onNodeWithText("Тут что-то не так — сообщить").performClick()
-        repeat(30) { settle(); compose.mainClock.advanceTimeByFrame() }
-        assertTrue(compose.onAllNodesWithText("Что не так с этой скидкой?").fetchSemanticsNodes().isNotEmpty())
+        openDialogWithTextField { compose.onNodeWithText("Тут что-то не так — сообщить").performClick() }
+        waitForText("Что не так с этой скидкой?")
         // Единственное поле ввода на экране в этот момент — диалог жалобы, его детали (плейсхолдер)
         // необязательно попадают в семантику так же, как подпись; ищем по способности принимать текст.
         val reasonField = compose.onNode(hasSetTextAction())
         reasonField.performTextInput("Скидку не дали")
         compose.onNodeWithText("Отправить").performClick()
-        // Ответ на жалобу приходит из Dispatchers.IO в реальном времени, а не по тестовым часам:
-        // фиксированные 30 кадров на загруженной машине CI кончались раньше ответа (тест падал на
-        // проверке ниже). Сначала, как и раньше, 30 кадров: при остановленных часах первая же
-        // проверка семантики до них ждёт «простоя», которого анимация диалога без хода часов не
-        // даёт (60 с и AppNotIdleException). Затем крутим кадры, пока ошибка не появится, ≤10 с.
-        repeat(30) { settle(); compose.mainClock.advanceTimeByFrame() }
-        val deadline = System.nanoTime() + 10_000_000_000L
-        while (compose.onAllNodesWithText("Ошибка сервера. Попробуй позже.").fetchSemanticsNodes().isEmpty() &&
-            System.nanoTime() < deadline
-        ) {
-            settle(); compose.mainClock.advanceTimeByFrame(); Thread.sleep(10)
-        }
+        // Ждём сам текст ошибки на экране (ответ идёт из Dispatchers.IO в реальном времени),
+        // а не фиксированное число кадров.
         // Сервер не прислал detail.ru/ba — общий текст по коду 500 (ApiClient.genericByStatus),
         // НЕ «activate»-текст.
-        assertTrue(compose.onAllNodesWithText("Ошибка сервера. Попробуй позже.").fetchSemanticsNodes().isNotEmpty())
+        waitForText("Ошибка сервера. Попробуй позже.")
         // Чужой текст («...активировать») не должен появляться на экране ошибки жалобы.
         assertEquals(0, compose.onAllNodesWithText("Не получилось активировать", substring = true).fetchSemanticsNodes().size)
         // Диалог остался открытым, набранный текст не потерян.
@@ -336,6 +322,29 @@ class CouponsScreenWalkTest {
     private fun settle() {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         Snapshot.sendApplyNotifications()
+    }
+
+    /**
+     * Robolectric-only (тот же приём, что ParcelCreationDeliveryJourneyTest): диалог платформенной
+     * ширины (WRAP_CONTENT) с полем ввода здесь пересчитывает раскладку бесконечно, как только в нём
+     * меняется содержимое (появилась ошибка), и Compose не становится idle — AppNotIdleException
+     * через 60 с (CI PR #122, 13.10.2026). Прежняя версия гасила авточасы и крутила кадры вручную;
+     * зависание оставалось, когда ответ приходил позже первых 30 кадров. На устройстве такое окно
+     * спокойно, поэтому продукт не трогаем: только что открытое окно растягиваем на MATCH_PARENT
+     * до первого ожидания. Поле, кнопки и ответ сервера остаются настоящими.
+     */
+    private fun openDialogWithTextField(open: () -> Unit) {
+        val previous = ShadowDialog.getLatestDialog()
+        open()
+        repeat(10) {
+            val dialog = ShadowDialog.getLatestDialog()
+            if (dialog != null && dialog !== previous && dialog.isShowing) {
+                dialog.window!!.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                return
+            }
+            compose.mainClock.advanceTimeByFrame()
+        }
+        fail("report dialog with a text field did not open")
     }
 
     private fun waitForText(text: String) {

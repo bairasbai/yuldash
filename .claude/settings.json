@@ -6,7 +6,8 @@
       "Read(//**/google-services.json)",
       "Read(//**/keystore.properties)",
       "Read(//**/*.jks)",
-      "Read(//**/*.keystore)"
+      "Read(//**/*.keystore)",
+      "Read(//**/BuildConfig.java)"
     ]
   },
   "hooks": {

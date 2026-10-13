@@ -73,6 +73,7 @@ python -m pytest tests/ -q --maxfail=25
 - Новый экран — `enum Screen` (в `MainActivity.kt`) + ветка в `YuldashApp.kt` или `AppNav*.kt`
   (раздел «Навигация разрезана» в `docs/architecture.md`) + строка в `docs/architecture.md`.
 - Второй мозг: решение → `docs/decisions.md`, грабли → `docs/lessons.md`, прогресс → `docs/tasks.md`.
+- Меняли `.claude/hooks/` — `node .claude/hooks/yuldash-secrets-guard.test.mjs` зелёный.
 - `mobile/` не тронут: `git diff --name-only $(git merge-base origin/main HEAD) -- mobile` — пусто.
 - Ключей нет — обе команды выводят пусто (хук-сторож их пропускает):
   `git diff --name-only $(git merge-base origin/main HEAD) -- '*local.properties' '*google-services.json' '*keystore.properties' '*.jks' '*.keystore' '*.env'`
@@ -83,7 +84,7 @@ python -m pytest tests/ -q --maxfail=25
 
 - **Когда:** новый экран или функция, деньги, безопасность и личные данные, прод-база, правила агентов.
   Мелкую правку (текст, отступ, одна строка) — не гоняй: дорого и медленно.
-- **Кто:** свежий агент сильнейшей модели — у Claude субагент `model: "opus"` (Opus 5.5), у Codex `gpt-5.6-sol`.
+- **Кто:** свежий агент сильнейшей модели — у Claude субагент `model: "opus"` (Opus 5.5), у Codex `gpt-6.1-sol`.
   Не автор плана и без его рассуждений — иначе это «проверил сам себя».
 - **Бриф** (цель + ограничения + критерий, не пошаговый план): задача Александра дословно; что изменено
   (`git diff $(git merge-base origin/main HEAD)` и новые файлы); вывод проверок шага 2. Проверить против задачи,
