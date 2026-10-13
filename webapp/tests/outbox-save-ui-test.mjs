@@ -1,11 +1,11 @@
-// Actual TripChat function exported only in an in-memory bundle. No browser/network/IndexedDB.
+// Actual TripChat function (src/screens/TripChatScreen.tsx) exported only in an in-memory bundle. No browser/network/IndexedDB.
 // Hooks and external dependencies are deterministic fixtures; enqueue settlement is controlled.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
-const source = await readFile(new URL('../src/screens/ActiveTripScreen.tsx', import.meta.url), 'utf8');
+const source = await readFile(new URL('../src/screens/TripChatScreen.tsx', import.meta.url), 'utf8');
 const mocks = {};
 // Stub unrelated screen imports while retaining the full, unchanged production source.
 for (const match of source.matchAll(/import\s+([\s\S]*?)\s+from\s+"([^"]+)";/g)) {
@@ -20,6 +20,7 @@ mocks.react = `const h=()=>globalThis.__outboxUI;
   export function useRef(initial){const s=h(),i=s.cursor++;return s.slots[i]??={current:initial};}
   export function useCallback(fn){h().cursor++;return fn;}
   export function useEffect(){h().cursor++;}
+  export function useLayoutEffect(){h().cursor++;}
 `;
 mocks['react/jsx-runtime'] = `export const Fragment='fragment';export const jsx=(type,props)=>({type,props});export const jsxs=jsx;`;
 mocks['../i18n/lang'] = `export const useLang=()=>({appText:ru=>ru});`;
