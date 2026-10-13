@@ -17,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -156,6 +157,7 @@ internal fun AppButton(
     enabled: Boolean = true,
     fillWidth: Boolean = true,
     height: Dp = 54.dp,
+    contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
 ) {
     val shape = RoundedCornerShape(14.dp)
     val base = modifier
@@ -180,11 +182,13 @@ internal fun AppButton(
         OutlinedButton(
             onClick = onClick, enabled = realEnabled, modifier = base, shape = shape,
             border = BorderStroke(1.5.dp, if (realEnabled) CanonGreen2 else CanonBorder),
+            contentPadding = contentPadding,
         ) { AppButtonContent(text, icon, loading, contentColor) }
     } else {
         Button(
             onClick = onClick, enabled = realEnabled, modifier = base, shape = shape,
             colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = contentColor),
+            contentPadding = contentPadding,
         ) { AppButtonContent(text, icon, loading, contentColor) }
     }
 }
@@ -573,5 +577,8 @@ internal fun ConnectionBanner(modifier: Modifier = Modifier) {
  *
  * [fallback] остаётся для настоящих сетевых сбоев — там ответа от сервера нет вообще.
  */
-fun serverSaid(e: Throwable, fallback: String): String =
-    (e as? com.yuldash.app.data.ApiException)?.message?.takeIf { it.isNotBlank() } ?: fallback
+fun serverSaid(e: Throwable, fallback: String): String = serverText(e) ?: fallback
+
+/** То же объяснение сервера, но без запасного текста: null — ответа не было (обрыв сети). */
+fun serverText(e: Throwable?): String? =
+    (e as? com.yuldash.app.data.ApiException)?.message?.takeIf { it.isNotBlank() }

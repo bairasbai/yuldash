@@ -70,7 +70,7 @@ internal fun ForceUpdateScreen(storeUrl: String) {
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .heightIn(min = maxHeight)
-                .padding(horizontal = 32.dp, vertical = 24.dp)
+                .padding(horizontal = CanonSpace.xxl, vertical = CanonSpace.xl)
                 .graphicsLayer { this.alpha = alpha; translationY = lift },
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -80,7 +80,7 @@ internal fun ForceUpdateScreen(storeUrl: String) {
                     Text("🙌", fontSize = 46.sp)
                 }
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(CanonSpace.xl))
             Text(
                 appText("Обнови Юлдаш", "Юлдашты яңырт"),
                 color = CanonText,
@@ -88,7 +88,7 @@ internal fun ForceUpdateScreen(storeUrl: String) {
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(CanonSpace.md))
             Text(
                 appText(
                     "Вышла новая версия — эта уже не поддерживается. Обнови приложение, и поехали дальше 🚗",
@@ -99,7 +99,7 @@ internal fun ForceUpdateScreen(storeUrl: String) {
                 lineHeight = 23.sp,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(CanonSpace.xl))
             if (storeUrl.isNotBlank()) {
                 Button(
                     onClick = {

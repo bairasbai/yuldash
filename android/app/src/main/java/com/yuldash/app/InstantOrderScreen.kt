@@ -91,6 +91,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
@@ -4696,6 +4698,7 @@ private fun InstantShareContent(
     fun close() { commit { closed = true; dismiss() } }
     var contacts by remember { mutableStateOf<List<com.yuldash.app.data.ContactDto>?>(null) }
     var loadError by remember { mutableStateOf(false) }
+    var loadErrorText by remember { mutableStateOf<String?>(null) }   // объяснение сервера; null — обрыв сети
     // Это единственный путь дать близкому live-ссылку во время поездки: ошибка без «Повторить»
     // была тупиком прямо посреди дороги (аудит P1-7).
     var contactsTick by remember { mutableIntStateOf(0) }
@@ -4756,18 +4759,18 @@ private fun InstantShareContent(
     LaunchedEffect(contactsTick) {
         if (!isCurrent()) { retireLoad(); return@LaunchedEffect }
         val parentRevision = parentContext.revision
-        commit { loading = true; contacts = null; loadError = false }
+        commit { loading = true; contacts = null; loadError = false; loadErrorText = null }
         val loaded = currentOperations.contacts(generation)
         if (!isCurrent() || parentContext.revision != parentRevision) { retireLoad(); return@LaunchedEffect }
         if (loaded.isFailure) {
-            commit { loadError = true; contacts = emptyList(); loading = false }
+            commit { loadError = true; loadErrorText = serverText(loaded.exceptionOrNull()); contacts = emptyList(); loading = false }
             return@LaunchedEffect
         }
         val shares = currentReadShares(orderId, generation)
         if (!isCurrent() || parentContext.revision != parentRevision) { retireLoad(); return@LaunchedEffect }
         commitContext(parentRevision) {
             contacts = loaded.getOrThrow()
-            shares.onSuccess { activeShares = it }.onFailure { loadError = true }
+            shares.onSuccess { activeShares = it }.onFailure { loadError = true; loadErrorText = serverText(it) }
             loading = false
         }
     }
@@ -4805,7 +4808,7 @@ private fun InstantShareContent(
                     loadError -> AppErrorState(
                         onRetry = { commit { if (!loading && !busy && loadError) { loading = true; contactsTick++ } } },
                         title = appText("Не удалось загрузить близких", "Яҡындарҙы йөкләп булманы"),
-                        text = appText(
+                        text = loadErrorText ?: appText(
                             "Проверь интернет и повтори — список никуда не пропал.",
                             "Интернетты тикшереп ҡабатла — исемлек юғалманы.",
                         ),
@@ -7668,7 +7671,9 @@ private fun ChangeDestinationContent(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = { commit { if (!busy) onDismiss() } }, containerColor = CanonSurface) {
+    // Смена адреса уже ушла (busy при готовой цене) — не прячем, итог надо увидеть; иначе закрываем всегда (без невидимого окна поверх SOS).
+    val sheetState = rememberModalBottomSheetState(confirmValueChange = { it != SheetValue.Hidden || !(busy && quote != null) })
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = CanonSurface) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
@@ -7764,7 +7769,6 @@ private fun ChangeDestinationContent(
         }
     }
 }
-
 
 // ------------------------------ остановки по пути ------------------------------
 // Смысл остановки в том, что за неё платят. Без этого водитель везёт лишние километры даром,

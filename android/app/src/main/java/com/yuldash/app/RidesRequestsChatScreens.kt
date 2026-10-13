@@ -230,6 +230,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.withResumed
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yandex.mapkit.MapKitFactory
@@ -3231,6 +3232,7 @@ internal fun ChatComposer(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val recorder = remember(context, lifecycleOwner, recordingAllowed) { VoiceRecorder(context) }
+    val voiceScope = rememberCoroutineScope()
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             // Пережимаем перед отправкой: снимок с камеры весит 5-6 МБ, а в деревне это
@@ -3279,8 +3281,8 @@ internal fun ChatComposer(
         titleBa = "Тауыш яҙмаһы яҙырға",
         whyRu = "Микрофон нужен, чтобы записать короткое сообщение попутчику — это удобнее, чем набирать текст за рулём или на морозе.",
         whyBa = "Микрофон юлдашыңа ҡыҫҡа хәбәр яҙыр өсөн кәрәк — руль артында йәки һыуыҡта яҙғандан уңайлыраҡ.",
-        onGranted = { begin() },
-        onDenied = { if (canRecord()) Toast.makeText(context, deniedMic, Toast.LENGTH_LONG).show() },
+        onGranted = { voiceScope.launch { lifecycleOwner.withResumed { begin() } } },   // ответ приходит до onResume (STARTED)
+        onDenied = { if (recordingAllowed && !recorder.isClosed) Toast.makeText(context, deniedMic, Toast.LENGTH_LONG).show() },
     )
     fun requestVoice() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) begin()
