@@ -776,7 +776,7 @@ internal fun BookingScreen(
 }
 
 @Composable
-private fun BookingDecisionBar(
+internal fun BookingDecisionBar(
     primaryText: String,
     primaryEnabled: Boolean,
     primaryStyle: AppButtonStyle,

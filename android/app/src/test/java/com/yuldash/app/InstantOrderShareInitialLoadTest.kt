@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Config(sdk = [34], application = Application::class, qualifiers = "w411dp-h2600dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class InstantOrderShareInitialLoadTest : ShareHelpBoundaryHarness() {
-    private enum class Bad { HTTP, WRAPPER, WRONG_ORDER, DUPLICATE }
+    private enum class Bad { HTTP, EXPLAINED, WRAPPER, WRONG_ORDER, DUPLICATE }
     private enum class Op { CONTACTS, SHARES, REVOKE }
     private data class Attempt(val op: Op, val generation: Long, val job: Job,
         val returned: AtomicBoolean = AtomicBoolean(false), val completed: CountDownLatch = CountDownLatch(1))
@@ -75,6 +75,7 @@ class InstantOrderShareInitialLoadTest : ShareHelpBoundaryHarness() {
             if (holdFresh) { freshStarted.countDown(); assertTrue(freshRelease.await(30, TimeUnit.SECONDS)) }
             when (bad) {
                 Bad.HTTP -> response("{}", 503)
+                Bad.EXPLAINED -> response("""{"detail":{"ru":"Ссылки для этой поездки закрыты.","ba":"Был сәфәр өсөн һылтанмалар ябыҡ."}}""", 409)
                 Bad.WRAPPER -> response("""{"items":{}}""")
                 Bad.WRONG_ORDER -> response("[${row(92)}]")
                 Bad.DUPLICATE -> response("[${row()},${row()}]")
@@ -184,6 +185,17 @@ class InstantOrderShareInitialLoadTest : ShareHelpBoundaryHarness() {
         assertSame(publication, TaxiNavigationState.currentTrip()); assertTrue(TaxiNavigationState.isScreenOwner(publication.generation, publication.publisher))
     }
     @After fun releaseFresh() { freshRelease.countDown() }
+    // Ревью 12.10: сбой GET /shares с объяснением сервера показывал «Проверь интернет» — неправду.
+    private fun serverExplains(lang: AppLanguage) {
+        ApiClient.setUiLanguageBashkir(lang == AppLanguage.Ba)
+        try {
+            bad = Bad.EXPLAINED; mount(lang); failed(1)
+            assertTrue(visible(if (lang == AppLanguage.Ru) "Ссылки для этой поездки закрыты." else "Был сәфәр өсөн һылтанмалар ябыҡ."))
+            assertFalse(visible(if (lang == AppLanguage.Ru) "Проверь интернет и повтори — список никуда не пропал." else "Интернетты тикшереп ҡабатла — исемлек юғалманы."))
+        } finally { ApiClient.setUiLanguageBashkir(false) }
+    }
+    @Test fun sharesRejectionShowsServerExplanationRu() = serverExplains(AppLanguage.Ru)
+    @Test fun sharesRejectionShowsServerExplanationBa() = serverExplains(AppLanguage.Ba)
     @Test fun http503RecoversWithCachedContactsRu() = recover(Bad.HTTP, AppLanguage.Ru)
     @Test fun http503RecoversWithCachedContactsBa() = recover(Bad.HTTP, AppLanguage.Ba)
     @Test fun wrongWrapperRecoversWithCachedContactsRu() = recover(Bad.WRAPPER, AppLanguage.Ru)

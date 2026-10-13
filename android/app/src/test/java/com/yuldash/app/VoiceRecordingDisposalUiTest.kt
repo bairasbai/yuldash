@@ -33,6 +33,7 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowMediaRecorder
+import org.robolectric.shadows.ShadowToast
 
 /** Actual Compose semantic clicks/disposal; recorder bytes and failures are synthetic. */
 @RunWith(RobolectricTestRunner::class)
@@ -164,6 +165,41 @@ class VoiceRecordingDisposalUiTest {
     @Test fun requestActualPermissionGrantWhilePausedDoesNotStart() = permission(true, "pause")
     @Test fun chatActualPermissionGrantAfterUnmountIsUnregistered() = permission(false, "unmount")
     @Test fun requestActualPermissionGrantAfterUnmountIsUnregistered() = permission(true, "unmount")
+
+    /**
+     * Real Android order: the permission answer arrives in onActivityResult, before onResume, while
+     * the screen is only STARTED (the system dialog covered it). The grant used to be dropped there,
+     * so "Разрешить" did nothing until a second tap; a refusal showed no explanation either.
+     */
+    private fun answerBeforeResume(request: Boolean, granted: Boolean) {
+        Shadows.shadowOf(context as Application).denyPermissions(Manifest.permission.RECORD_AUDIO)
+        mount(request)
+        if (request) compose.onNodeWithText("Сказать заявку").performSemanticsAction(SemanticsActions.OnClick) { it() }
+        else compose.onNodeWithContentDescription("Записать голос").performSemanticsAction(SemanticsActions.OnClick) { it() }
+        compose.onNodeWithText("Разрешить").performSemanticsAction(SemanticsActions.OnClick) { it() }
+        assertNotNull(permissionCode)
+        compose.runOnIdle { owner.registry.currentState = Lifecycle.State.STARTED }
+        compose.waitForIdle()
+        if (granted) Shadows.shadowOf(context as Application).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        compose.runOnIdle { permissionOwner.activityResultRegistry.dispatchResult(permissionCode!!, granted) }
+        compose.waitForIdle()
+        if (granted) {
+            assertTrue("Recording must not start before the screen is resumed", RecordingFailureShadow.instances.isEmpty())
+            compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
+            compose.waitForIdle()
+            assertEquals("Allow must start recording on resume, without a second tap",
+                ShadowMediaRecorder.STATE_RECORDING, RecordingFailureShadow.instances.single().state)
+        } else {
+            val denied = if (request) "Без микрофона заявку голосом не записать. Можно набрать текстом или попросить близкого помочь 💚"
+                else "Без микрофона голосовое не записать. Напиши текстом — так тоже дойдёт 💚"
+            assertEquals("Refusal must be explained even before onResume", denied, ShadowToast.getTextOfLatestToast())
+            assertTrue(RecordingFailureShadow.instances.isEmpty())
+        }
+    }
+    @Test fun chatGrantBeforeResumeStartsRecordingOnResume() = answerBeforeResume(false, granted = true)
+    @Test fun requestGrantBeforeResumeStartsRecordingOnResume() = answerBeforeResume(true, granted = true)
+    @Test fun chatRefusalBeforeResumeIsExplained() = answerBeforeResume(false, granted = false)
+    @Test fun requestRefusalBeforeResumeIsExplained() = answerBeforeResume(true, granted = false)
 
     private fun retainedMic(request: Boolean) {
         mount(request)
