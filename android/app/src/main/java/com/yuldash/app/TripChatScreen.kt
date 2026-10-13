@@ -130,7 +130,7 @@ internal fun ChatLayout(
                 verticalArrangement = Arrangement.spacedBy(CanonSpace.sm, Alignment.Bottom),
                 content = feed,
             )
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(   // не ColumnScope-вариант: кнопка лежит в Box над лентой
                 visible = showJump,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(CanonSpace.lg),
                 enter = fadeIn(tween(CanonMotion.QUICK)) + scaleIn(tween(CanonMotion.QUICK)),

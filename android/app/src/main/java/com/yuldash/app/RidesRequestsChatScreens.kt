@@ -3384,7 +3384,9 @@ private fun QuickReplyChip(text: String, onClick: () -> Unit) {
         border = BorderStroke(1.dp, CanonHairlineGreen),
         modifier = Modifier.heightIn(min = 48.dp).bounceClick(onClick = onClick),
     ) {
-        Box(Modifier.fillMaxHeight().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+        // Без fillMaxHeight: под лентой строка ввода получает ограниченную высоту, и чип растянулся бы
+        // на весь экран. Surface сама держит минимум 48dp и центрирует содержимое.
+        Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
             Text(text, color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }

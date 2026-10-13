@@ -173,9 +173,15 @@ class TripChatNavigationTest {
 
     @Test fun tripChatCardOpensTheChat() {
         openTripFromRides()
-        val list = compose.onNode(hasScrollToNodeAction() and SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
-        list.performScrollToNode(hasTestTag("tripChatCard")); pump()
-        compose.onNodeWithTag("tripChatCard").performClick(); pump(1000)
+        // Часы теста ручные: performScrollToNode здесь крутился бы вечно (docs/lessons.md, 12.10).
+        // Листаем ограниченным числом жестов и ждём сам узел карточки.
+        val list = compose.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+        repeat(12) {
+            if (compose.onAllNodesWithTag("tripChatCard").fetchSemanticsNodes().isEmpty()) { list.performTouchInput { swipeUp() }; pump() }
+        }
+        await { compose.onAllNodesWithTag("tripChatCard").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("tripChatCard").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        pump(1000)
         assertFullScreenChat()
     }
 }

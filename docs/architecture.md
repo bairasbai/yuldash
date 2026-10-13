@@ -27,7 +27,7 @@
 |---|---|
 | Логика чата (лента, WS→REST, очередь без сети, правка/удаление, голос, фото, черновик, непрочитанные) | `TripChatState.kt` → `TripChatState`, `TripChatConnection` (перенесено из `ActiveTripContent` 1:1) |
 | Полноэкранный чат, шапка (собеседник, маршрут, «Открыть поездку»), карточка на экране поездки | `TripChatScreen.kt` → `TripChatScreen`, `TripChatCard` |
-| Каркас мессенджера: лента `reverseLayout` прижата к низу, строка ввода внизу, отступ снизу = max(клавиатура, навигация) | `TripChatScreen.kt` → `ChatLayout`; на нём же двойник `ChatContent` (`RidesRequestsChatScreens.kt`) и чат такси (`InstantChatScreen.kt`, отступ Scaffold гасится `consumeWindowInsets`) |
+| Каркас мессенджера: лента `reverseLayout` прижата к низу, строка ввода внизу, отступ снизу = max(клавиатура, навигация), кнопка «к новым», adjustResize только пока чат на экране | `TripChatScreen.kt` → `ChatLayout`; на нём же двойник `ChatContent` (`RidesRequestsChatScreens.kt`) и чаты такси, посылки, поддержки (`InstantChatScreen.kt`, `ParcelChatScreen.kt`, `SupportChatScreen.kt`: отступ Scaffold гасится `consumeWindowInsets`) |
 | Навигация | `Screen.TripChat` — второй вид `ActiveTrip`: `YuldashApp` анимирует их как один экран (`Screen.contentScreen()`), ветка `Screen.ActiveTrip, Screen.TripChat ->`; вид задаёт `chatOpen = screen.tripChatView()`, переход — `YuldashViewModel.showTripChat` (возврат к поездке заменяет чат, «Назад» не ходит по кругу) |
 | Входы | вкладка «Чат» → диалог (`AppNavHome.onOpenChat`, имя собеседника — `Ride.chatPeer`) сразу в чат; «Написать» в нижней панели и карточка на экране поездки |
 

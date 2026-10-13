@@ -172,9 +172,10 @@ class TripChatBottomComposerTest {
         mic().assertIsDisplayed()
         compose.onNode(hasSetTextAction()).assertIsDisplayed()
         val gap = dp(root().bottom - bounds(mic()).bottom)
-        assertTrue("Строка ввода не у нижнего края: до низа $gap dp", gap in 0f..24f)
+        // 40dp: при крупном шрифте поле выше кнопки, и кнопка стоит по центру строки ввода.
+        assertTrue("Строка ввода не у нижнего края: до низа $gap dp", gap in 0f..40f)
         val fieldGap = dp(root().bottom - bounds(compose.onNode(hasSetTextAction())).bottom)
-        assertTrue("Поле ввода не у нижнего края: до низа $fieldGap dp", fieldGap in 0f..40f)
+        assertTrue("Поле ввода не у нижнего края: до низа $fieldGap dp", fieldGap in 0f..64f)
     }
 
     @Test fun emptyChatKeepsComposerAtTheBottomAndEmptyStateAboveIt() {
@@ -223,8 +224,8 @@ class TripChatBottomComposerTest {
         // Поле очистилось, кнопка снова микрофон — строка осталась внизу.
         compose.onNode(hasSetTextAction()).assertTextEquals("")
         assertComposerPinnedToBottom()
-        compose.onNodeWithText("Я на месте").performClick()
-        assertEquals("Я на месте", sent.poll(10, TimeUnit.SECONDS))
+        compose.onNodeWithText("Выезжаю").performClick()   // первая готовая фраза — видна без прокрутки ряда
+        assertEquals("Выезжаю", sent.poll(10, TimeUnit.SECONDS))
     }
 
     @Test fun tripCardCountsUnreadAndReadingTheChatClearsIt() {

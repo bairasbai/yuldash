@@ -28,8 +28,8 @@ class FileSizeRatchetTest {
         "InstantOrderScreen.kt" to 8258,   // 13.10.2026: +4 — шторка «Куда едем?» не прячется, пока уходит смена адреса
         "data/ApiClient.kt" to 8044,
         "ProfileScreen.kt" to 4834,
-        // 13.10.2026, ревью Android: +2 (поля кнопок брони, текст сервера в шторке ссылок) — правка на месте, не новый домен.
-        "BookingActiveTripScreen.kt" to 3991,
+        // 13.10.2026: чат поездки уехал в TripChatState.kt / TripChatScreen.kt — потолок опущен до нового размера.
+        "BookingActiveTripScreen.kt" to 3743,
         "RidesRequestsChatScreens.kt" to 3558,   // 13.10.2026: +2 — запись после «Разрешить» (withResumed)
         "ParcelsScreen.kt" to 3044,
         "YuldashApp.kt" to 2788,
