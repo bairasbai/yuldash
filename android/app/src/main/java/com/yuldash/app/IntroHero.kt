@@ -18,13 +18,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import kotlin.math.sin
 
-// Золото «пыльцы» на заставке. Единственный цвет мимо шкалы `Canon*` во всём приложении, и это
-// сознательно: он не оформляет интерфейс, а участвует в РИСУНКЕ — искорки на ночном небе поверх
-// иллюстрации курая. Брать сюда `CanonGold` нельзя: тот меняется по светлой/тёмной теме, а небо
-// на заставке тёмное всегда, и в светлой теме искорки стали бы блеклыми. Тот же принцип, что у
-// палитры открытки «Мой Юлдаш» (MyStatsScreen) — арт живёт по своим правилам, интерфейс по шкале.
-private val KuraiGold = Color(0xFFF0C840)
-
 /** Золотая «пыльца» неба: едва заметные тёплые искорки, медленный дрейф + мерцание. Премиум-жизнь без шума. */
 private class Mote(val x: Float, val y: Float, val r: Float, val spd: Float, val ph: Float)
 private val MOTES = listOf(
@@ -51,7 +44,7 @@ internal fun SkyMotes(modifier: Modifier = Modifier, sceneAlpha: () -> Float) {
             val ny = if (raw < 0f) raw + 1f else raw
             val tw = 0.5f + 0.5f * sin((t * 6.2832f * m.spd + m.ph).toDouble()).toFloat()
             drawCircle(
-                color = KuraiGold,
+                color = CanonIntroMoteGold,  // плоское золото: небо на заставке тёмное всегда
                 radius = m.r.dp.toPx(),
                 center = Offset(m.x * size.width, (0.06f + ny * 0.46f) * size.height),
                 alpha = ((0.12f + 0.40f * tw) * a).coerceIn(0f, 0.6f),

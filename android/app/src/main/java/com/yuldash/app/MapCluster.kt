@@ -14,6 +14,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
+import androidx.compose.ui.graphics.toArgb
 
 // Кеш по числу: кружков всего десяток-другой, а перерисовка идёт на каждом движении камеры.
 private val clusterCache = HashMap<Int, Bitmap>()
@@ -21,17 +22,17 @@ private val clusterCache = HashMap<Int, Bitmap>()
 /**
  * Кружок с числом машин.
  *
- * Цвета фирменные и заданы числами, а не токенами `Canon*`: это обычный Canvas, а не Compose,
- * и @Composable-значения тут не читаются. Те же коды, что у метки машины в MapPins.
+ * Цвета — плоские токены `CanonMap*` через `.toArgb()`: это обычный Canvas, а не Compose, и
+ * @Composable-значения тут не читаются. Те же токены, что у метки машины в MapPins.
  *
  * Больше 99 не пишем: три цифры не помещаются в кружок, который должен оставаться меткой,
  * а не плашкой. «99+» честнее мелкого нечитаемого числа.
  */
 internal fun carClusterBitmap(count: Int): Bitmap {
     clusterCache[count]?.let { return it }
-    val taxi = android.graphics.Color.parseColor("#F5B301")   // CanonGold (такси-жёлтый)
-    val ink = android.graphics.Color.parseColor("#3A2A00")    // тёмный текст на жёлтом
-    val ring = android.graphics.Color.parseColor("#FFFFFF")   // белое кольцо — отрыв от карты
+    val taxi = CanonMapTaxi.toArgb()     // такси-жёлтый
+    val ink = CanonTaxiInk.toArgb()      // тёмный текст на жёлтом
+    val ring = CanonMapRing.toArgb()     // белое кольцо — отрыв от карты
 
     val label = if (count > 99) "99+" else count.toString()
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -54,7 +55,7 @@ internal fun carClusterBitmap(count: Int): Bitmap {
     // жёлтый круг, белое кольцо ляжет поверх и тень пропадёт.
     val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = ring
-        setShadowLayer(4f, 0f, 2f, 0x40000000)
+        setShadowLayer(4f, 0f, 2f, CanonMapShadow.toArgb())
     }
     c.drawCircle(cx, cy, diameter / 2, ringPaint)
     val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = taxi }
