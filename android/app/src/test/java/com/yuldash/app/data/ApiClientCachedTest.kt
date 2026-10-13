@@ -120,7 +120,9 @@ class ApiClientCachedTest {
                    "phone":"+79991112233","notify_by_default":true}]}""",
             ),
         )
-        val res = ApiClient.getContacts()
+        // Parsing lives in ContactsApi since the layering pilot. The repository refuses guest reads
+        // without HTTP, so the DTO is checked one layer down, with the same unauthenticated GET as before.
+        val res = ContactsApi.list(ApiClient.queueSessionGeneration())
         assertTrue(res.isSuccess)
         val list = res.getOrThrow()
         assertEquals(1, list.size)

@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.content.SharedPreferences
+import com.yuldash.app.data.TestContacts
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.data.ApiClient
@@ -36,7 +37,7 @@ class CacheCancellationInstrumentedTest {
         }
         suspend fun read(): Result<Int> = when (this) {
             ME -> ApiClient.me().map { it.getInt("id") }
-            CONTACTS -> ApiClient.getContacts().map { it.single().id }
+            CONTACTS -> TestContacts.read().map { it.single().id }
             FEED -> ApiClient.getFeed().map { it.today }
             PACKAGES -> ApiClient.getAdPackages().map { it.single().amountKop }
             BOOST -> ApiClient.getBoostPlans().map { it.single().price }
@@ -111,7 +112,32 @@ class CacheCancellationInstrumentedTest {
         assertEquals(1, read(get)); assertEquals(listOf(get.path), server.records.toList()); assertTrue(server.errors.toString(), server.errors.isEmpty())
     }
     @Test fun lateMe() = afterFetch(Get.ME)
-    @Test fun lateContacts() = afterFetch(Get.CONTACTS)
+    // Was afterFetch(CONTACTS), which found a `cachedGet` frame BLOCKED on ApiClient's monitor in the worker's
+    // stack. Contacts are accepted by ContactsRepository on the caller after the HTTP returns, so the caller's
+    // continuation is paused instead: the HTTP has completed, the job is cancelled before the caller resumes,
+    // and nothing may reach the shared state.
+    @Test fun lateContacts() {
+        val paused = java.util.concurrent.LinkedBlockingQueue<Runnable>()
+        val caller = object : CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) { paused.add(block) }
+        }
+        val cancelled = AtomicBoolean(); val returned = AtomicBoolean(); val final = AtomicBoolean()
+        val job = scope.async(caller) {
+            try { Get.CONTACTS.read().also { returned.set(true) } }
+            catch (ce: CancellationException) { cancelled.set(true); throw ce }
+            finally { final.set(true) }
+        }
+        paused.poll(10, TimeUnit.SECONDS)!!.run()
+        val afterHttp = paused.poll(10, TimeUnit.SECONDS)!!
+        assertEquals(listOf(Get.CONTACTS.path), server.records.toList()); assertFalse(final.get())
+        job.cancel(); assertTrue(job.isCancelled); assertFalse(job.isCompleted)
+        afterHttp.run()
+        while (!job.isCompleted) paused.poll(10, TimeUnit.SECONDS)!!.run()
+        assertTrue(final.get())
+        server.version.set(2); assertEquals("Cancelled late response must not seed shared state", 2, read(Get.CONTACTS))
+        assertEquals(listOf(Get.CONTACTS.path, Get.CONTACTS.path), server.records.toList())
+        assertTrue("API must throw cancellation", cancelled.get()); assertFalse(returned.get()); assertTrue(server.errors.toString(), server.errors.isEmpty())
+    }
     @Test fun lateFeed() = afterFetch(Get.FEED)
     @Test fun latePackages() = afterFetch(Get.PACKAGES)
     @Test fun lateBoost() = afterFetch(Get.BOOST)

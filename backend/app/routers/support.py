@@ -103,6 +103,30 @@ def _msg_out(m: SupportMessage) -> TicketMessageOut:
     return TicketMessageOut(id=m.id, sender=sender, body=m.body, created_at=_iso(m.created_at))
 
 
+def _duplicate_open_ticket(session: Session, user_id: int, subject: str, first_body: str):
+    """То же обращение, а не новое — повторное нажатие «Отправить» (рваная связь в дороге,
+    волна 135) не должно плодить вторую карточку с тем же вопросом: по одному и тому же
+    нажатию заводились бы ДВА тикета, и дежурного в Telegram будило бы ДВА отдельных сигнала
+    (`_notify_admin_new_ticket` считает кулдаун на каждый ticket_id СВОЙ). Тот же приём, что
+    у `create_incident` («открытое» обращение возвращается, пока не разобрано): пока тикет ещё
+    открыт, совпадение темы и первого сообщения — это один и тот же вопрос, а не два разных."""
+    кандидаты = session.exec(
+        select(SupportTicket).where(
+            SupportTicket.user_id == user_id,
+            SupportTicket.subject == subject,
+            SupportTicket.status == SupportTicketStatus.open,
+        ).order_by(SupportTicket.id.desc())
+    ).all()
+    for t in кандидаты:
+        первое = session.exec(
+            select(SupportMessage).where(SupportMessage.ticket_id == t.id)
+            .order_by(SupportMessage.id.asc()).limit(1)
+        ).first()
+        if первое is not None and первое.body == first_body:
+            return t
+    return None
+
+
 # Анти-спам админ-канала: не чаще одного сигнала на тикет за это окно (человек может писать
 # несколько сообщений подряд — будить админа на каждое не нужно).
 _ADMIN_PING_COOLDOWN_MIN = 10
@@ -153,16 +177,32 @@ def create_ticket(body: CreateTicketIn, user: User = Depends(current_user),
         # Не «ошибка», а честная просьба: уже открытые обращения никуда не делись, ответим там.
         raise herr(429, "Слишком много обращений подряд. Ответим на уже открытые — напиши в них.",
                    "Артыҡ күп мөрәжәғәт. Асыҡ мөрәжәғәттәргә яуап бирәбеҙ — шунда яҙ.")
-    ticket = SupportTicket(user_id=user.id, subject=body.subject.strip()[:200],
+    subject = body.subject.strip()[:200]
+    first_body = body.body.strip()
+    # Двойной тап/авто-ретрай при обрыве связи не должен завести ВТОРОЙ тикет с тем же вопросом
+    # (нашлось при пофайловом обходе: /support/tickets — единственная «важная кнопка» без этой
+    # защиты, см. test_bad_connection_does_not_double_things.py, волна 135).
+    existing = _duplicate_open_ticket(session, user.id, subject, first_body)
+    if existing is not None:
+        msgs = session.exec(
+            select(SupportMessage).where(SupportMessage.ticket_id == existing.id)
+            .order_by(SupportMessage.id.asc())
+        ).all()
+        return TicketThreadOut(
+            id=existing.id, subject=existing.subject, status=existing.status.value,
+            created_at=_iso(existing.created_at), updated_at=_iso(existing.updated_at),
+            messages=[_msg_out(m) for m in msgs],
+        )
+    ticket = SupportTicket(user_id=user.id, subject=subject,
                            status=SupportTicketStatus.open)
     session.add(ticket)
     session.commit()
     session.refresh(ticket)
-    msg = SupportMessage(ticket_id=ticket.id, sender=SupportSender.user, body=body.body.strip())
+    msg = SupportMessage(ticket_id=ticket.id, sender=SupportSender.user, body=first_body)
     session.add(msg)
     session.commit()
     session.refresh(msg)
-    _notify_admin_new_ticket(ticket, user, body.body.strip())
+    _notify_admin_new_ticket(ticket, user, first_body)
     return TicketThreadOut(
         id=ticket.id, subject=ticket.subject, status=ticket.status.value,
         created_at=_iso(ticket.created_at), updated_at=_iso(ticket.updated_at),

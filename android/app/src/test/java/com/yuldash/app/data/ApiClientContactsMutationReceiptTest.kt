@@ -29,8 +29,8 @@ class ApiClientContactsMutationReceiptTest {
     private enum class Mutation(val method: String, val path: String, val after: List<Int>) {
         DELETE("DELETE", "/trusted-contacts/7", emptyList()), ADD("POST", "/trusted-contacts", listOf(7, 8));
         suspend fun execute(): Result<Unit> = when (this) {
-            DELETE -> ApiClient.deleteContact(7)
-            ADD -> ApiClient.addContact("Synthetic 8", "Synthetic", "+70000000008", true)
+            DELETE -> TestContacts.delete(7)
+            ADD -> TestContacts.add("Synthetic 8", "Synthetic", "+70000000008", true)
         }
     }
     private enum class Reply { MALFORMED, TRUNCATED, READ_TIMEOUT, REJECTED }
@@ -146,7 +146,7 @@ class ApiClientContactsMutationReceiptTest {
         runDispatch(dispatch); assertTrue(p.job.isCompleted); return finish(p)
     }
     private fun ids(): List<Int> = runBlocking {
-        ApiClient.getContacts(expectedGeneration = ApiClient.queueSessionGeneration()).getOrThrow().map { it.id }
+        TestContacts.read(owner = ApiClient.queueSessionGeneration()).getOrThrow().map { it.id }
     }
     private fun failure(result: Result<Unit>) {
         assertTrue(result.isFailure)
@@ -176,14 +176,14 @@ class ApiClientContactsMutationReceiptTest {
     }
     private fun retryFresh(m: Mutation) {
         assertEquals(listOf(7), ids()); failure(finishMutation(start(m))); failNextGet.set(true)
-        val failed = runBlocking { ApiClient.getContacts(expectedGeneration = generationA) }
+        val failed = runBlocking { TestContacts.read(owner = generationA) }
         assertTrue(failed.isFailure); assertEquals(503, (failed.exceptionOrNull() as ApiException).status)
         assertEquals(m.after, ids()); assertEquals(m.after, ids()); assertEquals(m.after, state.get())
         assertRequests(m, listOf("GET", m.method, "GET", "GET"))
     }
     private fun lateGet(m: Mutation, freshFirst: Boolean) {
         holdNextGet.set(true)
-        val old = startPending(Dispatchers.Default) { ApiClient.getContacts(expectedGeneration = generationA) }
+        val old = startPending(Dispatchers.Default) { TestContacts.read(owner = generationA) }
         assertTrue(oldGetStarted.await(10, TimeUnit.SECONDS)); assertFalse(old.job.isCompleted); assertFalse(old.returned.get())
         failure(finishMutation(start(m))); assertEquals(m.after, state.get())
         if (freshFirst) assertEquals(m.after, ids())

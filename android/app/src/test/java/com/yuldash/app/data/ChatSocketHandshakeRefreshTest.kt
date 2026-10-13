@@ -157,7 +157,7 @@ class ChatSocketHandshakeRefreshTest {
     }
     private fun refreshSameSession() = runBlocking {
         val generation = ApiClient.queueSessionGeneration()
-        assertTrue(ApiClient.getContacts().isSuccess)
+        assertTrue(TestContacts.read().isSuccess)
         assertEquals("access-A2", ApiClient.currentToken())
         assertEquals("Refresh is not a different login", generation, ApiClient.queueSessionGeneration())
         assertEquals(1, refreshes.get())

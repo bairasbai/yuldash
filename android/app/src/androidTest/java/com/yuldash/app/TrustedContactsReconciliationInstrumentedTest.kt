@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
@@ -11,6 +12,10 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.ContactsRepository
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.mapNotNull
 import com.yuldash.app.ui.theme.YuldashTheme
 import org.json.JSONObject
 import org.junit.*
@@ -68,7 +73,13 @@ class TrustedContactsReconciliationInstrumentedTest {
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides language) {
                 YuldashTheme {
-                    TrustedContactsScreen(contacts, onBack = {}, onContactsChanged = { contacts.clear(); contacts.addAll(it) })
+                    // The parent list mirrors ContactsRepository, as YuldashApp does: the screen no longer publishes itself.
+                    val owner = ApiClient.queueSessionGeneration()
+                    LaunchedEffect(owner) {
+                        ContactsRepository.shared.state.filter { it.owner == owner }.mapNotNull { it.contacts }.distinctUntilChanged()
+                            .collect { list -> contacts.clear(); contacts.addAll(list.map { it.toTrustedContact() }) }
+                    }
+                    TrustedContactsScreen(contacts, onBack = {})
                 }
             }
         }

@@ -15,7 +15,11 @@ from app.config import settings  # noqa: E402
 
 config = context.config
 if config.config_file_name:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: по умолчанию fileConfig ВЫКЛЮЧАЕТ все уже созданные логгеры,
+    # не названные в alembic.ini, — в том числе "yuldash". В отдельном процессе alembic это
+    # незаметно, но миграция, запущенная внутри процесса (тесты миграций), глушила лог сервера
+    # до конца прогона: проверки «телефон не попал в лог» после неё проходили вхолостую.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # URL: приоритет env DATABASE_URL → settings (тот же, что у приложения).
 config.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL") or settings.database_url)

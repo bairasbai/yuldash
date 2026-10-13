@@ -84,12 +84,21 @@ def test_отправитель_узнаёт_что_курьер_застрял(
 
 
 def test_посторонний_не_зовёт_помощь_по_чужой_доставке(client, user_factory, courier_on):
-    """Иначе кто угодно поднимает тревогу по чужой посылке и засоряет ленту сигналов."""
+    """Сигнал постороннего всё равно пишется (N5, независимое ревью — жизнь дороже проверки
+    участия), но к чужой посылке не привязывается: отправителю нет пуша, в note нет её номера."""
     sender, courier, pid = _parcel_in_transit(client, user_factory, "RoadForeign")
     outsider = user_factory("RoadOutsider")
+    before = _notes_count(sender["id"])
     r = client.post(f"/parcels/{pid}/stuck", headers=outsider["auth"], json=_WHERE)
-    assert r.status_code in (403, 404), (
-        f"посторонний поднял тревогу по чужой доставке: {r.status_code} {r.text[:200]}"
+    assert r.status_code == 200, (
+        f"сигнал постороннего не должен теряться: {r.status_code} {r.text[:200]}"
+    )
+    note = r.json().get("note") or ""
+    assert "Баймак" not in note and "Сибай" not in note, (
+        f"чужой маршрут доставки утёк в сигнал постороннего: {note!r}"
+    )
+    assert _notes_count(sender["id"]) == before, (
+        "отправитель чужой доставки не должен получать уведомление по сигналу постороннего"
     )
 
 

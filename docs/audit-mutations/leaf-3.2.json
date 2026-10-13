@@ -1,0 +1,412 @@
+{
+  "schema": 1,
+  "leaf": "leaf-3.2",
+  "mutations": [
+    {
+      "id": "M01",
+      "file": "backend/app/rating_service.py",
+      "rule": "R-RS1",
+      "description": "двойная отправка оценки: убрана сериализация check-then-insert (гонка создаёт 2 Rating)",
+      "find": "_lock_rating_slot(session, rater.id, booking_id, order_id)",
+      "replace": "pass  # mutated: lock removed",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l3_2/test_l3_2_rating_race_postgres.py::test_two_simultaneous_tabs_do_not_double_the_rating"
+      ],
+      "db": "postgres"
+    },
+    {
+      "id": "M02",
+      "file": "backend/app/rating_service.py",
+      "rule": "R-RS2",
+      "description": "срок на оценку (RATING_WINDOW_DAYS): сравнение перевёрнуто — старую поездку можно оценить, свежую нельзя",
+      "find": "if now - happened_at > timedelta(days=RATING_WINDOW_DAYS):",
+      "replace": "if now - happened_at < timedelta(days=RATING_WINDOW_DAYS):",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_rating_works_the_same_everywhere.py::test_поездку_годичной_давности_оценить_нельзя"
+      ]
+    },
+    {
+      "id": "M03",
+      "file": "backend/app/rating_service.py",
+      "rule": "R-RS3",
+      "description": "пауза+свежесть (FRESH_RATING_HOURS): порог свежести раздут — отстранённый оценивает архивную поездку",
+      "find": "FRESH_RATING_HOURS = 48",
+      "replace": "FRESH_RATING_HOURS = 48000",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_taxi_rating_recovery_contract.py",
+        "-k",
+        "test_pause_get_permission_matches_post"
+      ]
+    },
+    {
+      "id": "M04",
+      "file": "backend/app/rating_service.py",
+      "rule": "R-RS4",
+      "description": "правка оценки не теряет метки: гейт снят — пустые метки второго запроса ЗАТИРАЮТ прежние",
+      "find": "        if tags:\n            existing.tags = tags",
+      "replace": "        existing.tags = tags",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_rating_works_the_same_everywhere.py::test_правка_оценки_метки_не_теряет"
+      ]
+    },
+    {
+      "id": "M05",
+      "file": "backend/app/trust_service.py",
+      "rule": "R-TS1",
+      "description": "L1 требует И имя И фото — мутация меняет AND на OR (одного поля достаточно)",
+      "find": "if (user.name or \"\").strip() and (user.avatar_url or \"\").strip():",
+      "replace": "if (user.name or \"\").strip() or (user.avatar_url or \"\").strip():",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_trust.py::test_level_l1_needs_both_name_and_photo"
+      ]
+    },
+    {
+      "id": "M06",
+      "file": "backend/app/trust_service.py",
+      "rule": "R-TS2",
+      "description": "дарованный «свой» не замораживается на время паузы — цепочка доверия растёт от наказанного",
+      "find": "        if account_paused(session, user.id):\n            granted = 0\n",
+      "replace": "        if account_paused(session, user.id):\n            pass  # mutated: freeze removed\n",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_the_inner_circle_notices_punishment.py::test_отстранённый_свой_закрытых_поездок_не_видит"
+      ]
+    },
+    {
+      "id": "M07",
+      "file": "backend/app/trust_service.py",
+      "rule": "R-TS3",
+      "description": "can_invite: порог сдвинут на единицу (>= -> >) — L2 «Проверен» теряет право звать своих",
+      "find": "return trust_level(session, user) >= MIN_INVITER_LEVEL",
+      "replace": "return trust_level(session, user) > MIN_INVITER_LEVEL",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_trust.py::test_level_l2_verified"
+      ]
+    },
+    {
+      "id": "M08",
+      "file": "backend/app/trust_service.py",
+      "rule": "R-TS4",
+      "description": "can_invite не спрашивает паузу отдельно — отстранённый продолжает звать своих",
+      "find": "    if account_paused(session, user.id):\n        return False\n",
+      "replace": "    if account_paused(session, user.id):\n        pass  # mutated: pause check removed\n",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_the_inner_circle_notices_punishment.py::test_отстранённый_никого_в_круг_не_приводит"
+      ]
+    },
+    {
+      "id": "M09",
+      "file": "backend/app/trust_service.py",
+      "rule": "R-TS5",
+      "description": "GET /me/trust снова считает can_invite по памяти (без паузы) — витрина врёт против реального гейта",
+      "find": "\"can_invite\": can_invite(session, user),",
+      "replace": "\"can_invite\": level >= MIN_INVITER_LEVEL,",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l3_2/test_l3_2_trust_pause_invite.py::test_paused_l2_cannot_invite_and_trust_says_so"
+      ]
+    },
+    {
+      "id": "M10",
+      "file": "backend/app/trust_service.py",
+      "rule": "R-TS6",
+      "description": "согласие (152-ФЗ) перезаписывает таймстамп первого согласия при повторном вызове",
+      "find": "    if existing:\n        return existing",
+      "replace": "    if False:\n        return existing",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_trust.py::test_consent_idempotent_keeps_first_timestamp"
+      ]
+    },
+    {
+      "id": "M11",
+      "file": "backend/app/routers/trust.py",
+      "rule": "R-RT1",
+      "description": "нельзя активировать собственный код — проверка отключена",
+      "find": "if inv.owner_id == user.id:",
+      "replace": "if False and inv.owner_id == user.id:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_trust.py::test_cannot_redeem_own_code"
+      ]
+    },
+    {
+      "id": "M12",
+      "file": "backend/app/routers/trust.py",
+      "rule": "R-RT2",
+      "description": "код не бесконечен: атомарный декремент перевёрнут на инкремент — код никогда не кончается",
+      "find": ".values(uses_left=InviteCode.uses_left - 1)",
+      "replace": ".values(uses_left=InviteCode.uses_left + 1)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_trust.py::test_cannot_redeem_exhausted_code"
+      ]
+    },
+    {
+      "id": "M13",
+      "file": "backend/app/routers/trust.py",
+      "rule": "R-RT3",
+      "description": "нельзя стать «своим» дважды — проверка уже-инсайдера отключена",
+      "find": "if row and row.level >= INSIDER_LEVEL:",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_trust.py::test_cannot_redeem_twice_already_insider"
+      ]
+    },
+    {
+      "id": "M14",
+      "file": "backend/app/routers/trust.py",
+      "rule": "R-RT4",
+      "description": "код, выпущенный до наказания, продолжает работать (владелец не перепроверяется при активации)",
+      "find": "if owner is None or not can_invite(session, owner):",
+      "replace": "if owner is None:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_the_inner_circle_notices_punishment.py::test_код_выпущенный_до_наказания_тоже_не_работает"
+      ]
+    },
+    {
+      "id": "M15",
+      "file": "backend/app/routers/trust.py",
+      "rule": "R-RT5",
+      "description": "создать инвайт может даже L1/паузник — гейт can_invite отключён",
+      "find": "if not can_invite(session, user):",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_trust.py::test_invite_requires_l2"
+      ]
+    },
+    {
+      "id": "M16",
+      "file": "backend/app/routers/trust.py",
+      "rule": "R-RT6",
+      "description": "запас инвайтов не ограничен — кап MAX_INVITES_PER_USER обойдён",
+      "find": "if len(mine) >= MAX_INVITES_PER_USER:",
+      "replace": "if len(mine) >= 99999:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_trust.py::test_invite_quota"
+      ]
+    },
+    {
+      "id": "M17",
+      "file": "backend/app/routers/trust.py",
+      "rule": "R-RT7",
+      "description": "согласие любого вида принимается — белый список CONSENT_KINDS отключён",
+      "find": "if kind not in CONSENT_KINDS:",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_trust.py::test_consent_invalid_kind"
+      ]
+    },
+    {
+      "id": "M18",
+      "file": "backend/app/antifraud.py",
+      "rule": "R-AF1",
+      "description": "забаненное устройство больше не блокируется на входе",
+      "find": "if device_banned(session, device_id):",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_antifraud.py::test_device_ban_blocks_registration_and_login"
+      ]
+    },
+    {
+      "id": "M19",
+      "file": "backend/app/antifraud.py",
+      "rule": "R-AF2",
+      "description": "номер отвязывается от аккаунта сразу (без полугода молчания) — короткий перерыв = новый человек",
+      "find": "PHONE_RECYCLE_DAYS = 180",
+      "replace": "PHONE_RECYCLE_DAYS = 0",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_a_recycled_number_is_a_new_person.py::test_короткий_перерыв_не_считается_сменой_владельца"
+      ]
+    },
+    {
+      "id": "M20",
+      "file": "backend/app/antifraud.py",
+      "rule": "R-AF3",
+      "description": "вход с ТОГО ЖЕ устройства считается «новым» — ложный сигнал тревоги на каждый обычный вход",
+      "find": "if user.last_device_id == did:",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_antifraud.py::test_same_device_login_no_signal"
+      ]
+    },
+    {
+      "id": "M21",
+      "file": "backend/app/antifraud.py",
+      "rule": "R-AF4",
+      "description": "анти-телепорт выключен (порог поднят до абсурда) — спуфинг GPS больше не ловится",
+      "find": "TELEPORT_MAX_KMH = 200.0",
+      "replace": "TELEPORT_MAX_KMH = 999999.0",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_antifraud.py::test_teleport_filter_blocks_and_flags"
+      ]
+    },
+    {
+      "id": "M22",
+      "file": "backend/app/antifraud.py",
+      "rule": "R-AF5",
+      "description": "приоритет меток перепутан: фишинг (кража денег) больше не обгоняет метку «увод контакта»",
+      "find": "if phishing_flag(t):",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_moderation_text.py::test_moderate_priority_phishing_over_contact"
+      ]
+    },
+    {
+      "id": "M23",
+      "file": "backend/app/routers/antifraud.py",
+      "rule": "R-RA1",
+      "description": "админ-ручки банов устройств открыты не-админу",
+      "find": "if user.role != UserRole.admin:",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_antifraud.py::test_bans_endpoints_admin_only"
+      ]
+    },
+    {
+      "id": "M24",
+      "file": "backend/app/routers/reviews.py",
+      "rule": "R-RV1",
+      "description": "новый отзыв о приложении публикуется СРАЗУ, минуя модерацию админа",
+      "find": "published=False,",
+      "replace": "published=True,",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_reputation_abuse.py::test_отзыв_о_приложении_не_попадает_на_сайт_без_модерации"
+      ]
+    },
+    {
+      "id": "M25",
+      "file": "backend/app/routers/reviews.py",
+      "rule": "R-RV2",
+      "description": "очередь модерации текстовых отзывов о поездке открыта не-админу (условие перевёрнуто)",
+      "find": "    \"\"\"Текстовые отзывы, ждущие модерации: есть текст, но ещё не опубликован.\"\"\"\n    if user.role != UserRole.admin:\n",
+      "replace": "    \"\"\"Текстовые отзывы, ждущие модерации: есть текст, но ещё не опубликован.\"\"\"\n    if user.role == UserRole.admin:\n",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_reviews_driver_profile.py::test_pending_moderation_admin_only"
+      ]
+    },
+    {
+      "id": "M26",
+      "file": "backend/app/routers/sybil.py",
+      "rule": "R-SY1",
+      "description": "сигнал сговора открыт не-админу",
+      "find": "if user.role != UserRole.admin:",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_sybil.py::test_sybil_requires_admin"
+      ]
+    },
+    {
+      "id": "M27",
+      "file": "backend/app/collusion.py",
+      "rule": "R-CO1",
+      "description": "порог взаимных 5★ занижен (2->1) — одна обычная взаимная пятёрка соседей помечается сговором",
+      "find": "min_each: int = 2",
+      "replace": "min_each: int = 1",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_collusion_sees_all_three_services.py::test_one_five_star_each_way_is_not_collusion"
+      ]
+    },
+    {
+      "id": "M28",
+      "file": "backend/app/collusion.py",
+      "rule": "R-CO2",
+      "description": "взаимный реферал (A звал B и B звал A) больше не детектится",
+      "find": "if ref.get(rby) == uid:",
+      "replace": "if False:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_sybil.py::test_reciprocal_referral_flagged"
+      ]
+    },
+    {
+      "id": "M29",
+      "file": "backend/app/flood.py",
+      "rule": "R-FL1",
+      "description": "потолок открытых объектов пропускает на один больше заявленного лимита",
+      "find": "if n >= limit:",
+      "replace": "if n > limit:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_flood_limits.py::test_нельзя_забить_ленту_поездками"
+      ]
+    },
+    {
+      "id": "M30",
+      "file": "backend/app/flood.py",
+      "rule": "R-FL2",
+      "description": "потолок ТЕМПА создания (guard_burst) пропускает на одну заявку больше лимита",
+      "find": "if n >= per_minute:",
+      "replace": "if n > per_minute:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_you_cannot_flood_the_admin.py::test_поток_заявок_упирается_в_темп_а_не_в_отмену"
+      ]
+    },
+    {
+      "id": "M31",
+      "file": "backend/app/bodyguard.py",
+      "rule": "R-BG1",
+      "description": "потолок размера запроса ослаблен в 1000 раз — незалогиненный снова валит сервер гигабайтами",
+      "find": "if size > limit:",
+      "replace": "if size > limit * 1000:",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/test_one_request_cannot_flood_the_server.py::test_непомерный_запрос_отбивается_сразу"
+      ]
+    }
+  ]
+}

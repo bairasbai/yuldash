@@ -62,10 +62,14 @@ def _input(client, user_factory, kind):
         owner = user_factory("QA_MANUAL_LEGACY_PASSENGER")
         ride_id = _publish(client, driver, minutes=10)
         booked = client.post("/bookings", headers=owner["auth"], json={
-            "ride_id": ride_id, "seats": 1, "pay_method": "sbp", "pay_amount": 400,
+            "ride_id": ride_id, "seats": 1, "pay_method": "sbp",
         })
         assert booked.status_code == 200, booked.text
         booking_id = booked.json()["id"]
+        # Сумму ниже цены поездки записывает водитель (скидка), не пассажир при брони — 13.10.
+        agreed = client.post(f"/bookings/{booking_id}/pay-agreement", headers=driver["auth"],
+                             json={"pay_amount": 400})
+        assert agreed.status_code == 200 and agreed.json()["pay_amount"] == 400, agreed.text
         assert client.post(f"/bookings/{booking_id}/confirm", headers=driver["auth"]).status_code == 200
         done = client.post(f"/bookings/{booking_id}/driver-status", headers=driver["auth"], json={"status": "done"})
         assert done.status_code == 200 and done.json()["status"] == "done", done.text

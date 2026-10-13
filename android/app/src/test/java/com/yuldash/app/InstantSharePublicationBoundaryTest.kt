@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import com.yuldash.app.data.TestContacts
 import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.CompositionLocalProvider
@@ -103,7 +104,7 @@ class InstantSharePublicationBoundaryTest : ShareHelpBoundaryHarness() {
         return try { api() } finally { a.returned.set(true) }
     }
     private val operations = InstantShareOperations(
-        contacts = { gen -> observe(Op.CONTACTS) { ApiClient.getContacts(expectedGeneration = gen) } },
+        contacts = { gen -> observe(Op.CONTACTS) { TestContacts.read(owner = gen) } },
         create = { id, contact, gen -> observe(Op.CREATE) { ApiClient.shareInstantTrip(id, contact, expectedGeneration = gen) } },
         revoke = { id, shareId, gen -> observe(Op.REVOKE) { ApiClient.revokeInstantShare(id, shareId, expectedGeneration = gen) } },
     )

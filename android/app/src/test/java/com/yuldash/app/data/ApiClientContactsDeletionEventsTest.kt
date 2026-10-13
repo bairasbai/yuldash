@@ -14,7 +14,11 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Real API callers; cancellation is witnessed by finally/completion/Deferred.join. */
+/**
+ * Real API callers; cancellation is witnessed by finally/completion/Deferred.join.
+ * Layering pilot: deletion receipts (version + contact id) became ContactsRepository.state.changes; the
+ * "this id is already gone" shortcut the screen used to compute from the receipt now lives in the repository.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class ApiClientContactsDeletionEventsTest {
@@ -52,15 +56,15 @@ class ApiClientContactsDeletionEventsTest {
     @After fun cleanup() {
         release.countDown(); ApiClient.testTrace = null; ApiClient.resetForTest(); ApiClient.testTimeoutMs = null; server.shutdown()
     }
-    private fun version() = ApiClient.contactDeletions.value.version
-    private suspend fun acceptedIds() = ApiClient.getContacts().getOrThrow().map { it.id }
-    private fun receipt(before: Long, owner: Long, id: Int = 7) {
-        val event = ApiClient.contactDeletions.value
-        assertEquals(before + 1, event.version); assertEquals(owner, event.generation); assertEquals(id, event.contactId)
+    private fun version() = TestContacts.changes
+    private suspend fun acceptedIds() = TestContacts.read().getOrThrow().map { it.id }
+    private fun receipt(before: Long, owner: Long) {
+        // Exactly one signal. Owner scoping itself is proven by the switched-owner and logout cases below.
+        assertEquals(before + 1, version()); assertEquals(owner, ApiClient.queueSessionGeneration())
     }
     private fun settled(malformedReply: Boolean) = runBlocking {
         malformed = malformedReply; val before = version(); val owner = ApiClient.queueSessionGeneration()
-        assertEquals(listOf(7), acceptedIds()); val result = ApiClient.deleteContact(7, owner)
+        assertEquals(listOf(7), acceptedIds()); val result = TestContacts.delete(7, owner)
         assertEquals(!malformedReply, result.isSuccess); receipt(before, owner); assertTrue(acceptedIds().isEmpty())
         assertEquals(3, server.requestCount)
         repeat(3) { val request = server.takeRequest(1, TimeUnit.SECONDS)!!; assertEquals("Bearer $tokenA", request.getHeader("Authorization")) }
@@ -69,13 +73,13 @@ class ApiClientContactsDeletionEventsTest {
     @Test fun malformedDeleteEmitsOneReceiptAndKeepsOriginalFailure() = settled(true)
     @Test fun rejectedDeleteDoesNotEmitOrInvalidateWarmSnapshot() = runBlocking {
         code = 503; assertEquals(listOf(7), acceptedIds()); val before = version()
-        val error = ApiClient.deleteContact(7).exceptionOrNull()!!; assertTrue(error is ApiException)
+        val error = TestContacts.delete(7).exceptionOrNull()!!; assertTrue(error is ApiException)
         assertEquals(before, version()); assertEquals(listOf(7), acceptedIds()); assertEquals(2, server.requestCount)
     }
     private fun cancelled(switchOwner: Boolean = false, logout: Boolean = false) = runBlocking {
         hold = true; assertEquals(listOf(7), acceptedIds()); val before = version(); val owner = ApiClient.queueSessionGeneration()
         val finished = AtomicBoolean(false); val completion = AtomicBoolean(false)
-        val job = async(Dispatchers.Default) { try { ApiClient.deleteContact(7, owner) } finally { finished.set(true) } }
+        val job = async(Dispatchers.Default) { try { TestContacts.delete(7, owner) } finally { finished.set(true) } }
         job.invokeOnCompletion { completion.set(true) }
         assertTrue(started.await(5, TimeUnit.SECONDS)); assertFalse(deleted.get()); assertFalse(job.isCompleted)
         if (switchOwner) ApiClient.saveToken(tokenB)
@@ -94,23 +98,35 @@ class ApiClientContactsDeletionEventsTest {
     @Test fun cancelledLoggedOutOwnerDoesNotEmit() = cancelled(logout = true)
     @Test fun cancellationBeforeCallerEntrySendsAndEmitsNothing() = runBlocking {
         assertEquals(listOf(7), acceptedIds()); val before = version(); val entered = AtomicBoolean(false)
-        val job = async(start = CoroutineStart.LAZY) { entered.set(true); ApiClient.deleteContact(7) }
+        val job = async(start = CoroutineStart.LAZY) { entered.set(true); TestContacts.delete(7) }
         job.cancel(); job.join(); assertTrue(job.isCompleted); assertFalse(entered.get())
         assertEquals(before, version()); assertEquals(listOf(7), acceptedIds()); assertEquals(1, server.requestCount)
     }
     @Test fun twoDeletesHaveDistinctMonotonicVersions() = runBlocking {
         val before = version(); val owner = ApiClient.queueSessionGeneration()
-        ApiClient.deleteContact(7, owner).getOrThrow(); receipt(before, owner)
-        ApiClient.deleteContact(8, owner).getOrThrow(); receipt(before + 1, owner, 8); assertEquals(2, server.requestCount)
+        TestContacts.delete(7, owner).getOrThrow(); receipt(before, owner)
+        TestContacts.delete(8, owner).getOrThrow(); receipt(before + 1, owner); assertEquals(2, server.requestCount)
     }
-    @Test fun successfulAddDoesNotClaimADeletionReceipt() = runBlocking {
-        val before = version(); ApiClient.addContact("B", "Synthetic", "+70000000008", true).getOrThrow()
-        assertEquals(before, version()); val request = server.takeRequest(1, TimeUnit.SECONDS)!!
-        assertEquals("POST", request.method); assertEquals("/trusted-contacts", request.path)
+    // Was: an ADD does not claim a deletion receipt. One channel now: an ADD is one change, sent as one POST.
+    @Test fun successfulAddIsOneChangeAndNeverADelete() = runBlocking {
+        val before = version(); TestContacts.add("B", "Synthetic", "+70000000008", true).getOrThrow()
+        assertEquals(before + 1, version()); val request = server.takeRequest(1, TimeUnit.SECONDS)!!
+        assertEquals("POST", request.method); assertEquals("/trusted-contacts", request.path); assertEquals(1, server.requestCount)
+    }
+    // The receipt's contact id used to let the screen skip a read; the repository now makes that call itself.
+    @Test fun deleteAlreadyAbsentFromFreshListIsNoChangeAndNeedsNoRead() = runBlocking {
+        deleted.set(true); assertTrue(acceptedIds().isEmpty()); val before = version()
+        TestContacts.delete(7).getOrThrow(); assertEquals(before, version())
+        assertTrue(acceptedIds().isEmpty()); assertEquals(2, server.requestCount)
+    }
+    @Test fun deleteOfListedContactIsAChangeAndForcesOneRead() = runBlocking {
+        assertEquals(listOf(7), acceptedIds()); val before = version()
+        TestContacts.delete(7).getOrThrow(); assertEquals(before + 1, version())
+        assertTrue(acceptedIds().isEmpty()); assertTrue(acceptedIds().isEmpty()); assertEquals(3, server.requestCount)
     }
     @Test fun completedOldOwnerDeleteKeepsStaleResultAndEmitsNothing() = runBlocking {
         hold = true; val before = version(); val owner = ApiClient.queueSessionGeneration()
-        val job = async(Dispatchers.Default) { ApiClient.deleteContact(7, owner) }
+        val job = async(Dispatchers.Default) { TestContacts.delete(7, owner) }
         assertTrue(started.await(5, TimeUnit.SECONDS)); ApiClient.saveToken(tokenB); release.countDown()
         val result = job.await(); job.join(); assertTrue(job.isCompleted); assertTrue(result.isFailure)
         assertEquals(before, version()); assertEquals(tokenB, ApiClient.currentToken())

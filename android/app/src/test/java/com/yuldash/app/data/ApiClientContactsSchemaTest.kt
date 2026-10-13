@@ -28,7 +28,7 @@ class ApiClientContactsSchemaTest {
     @After fun cleanup() { ApiClient.resetForTest(); ApiClient.testTimeoutMs = null; server.shutdown() }
     private fun json(body: String) = MockResponse().setResponseCode(200).setBody(body)
     private suspend fun read(): Result<List<ContactDto>> {
-        val outer = runCatching { ApiClient.getContacts(expectedGeneration = generation) }
+        val outer = runCatching { TestContacts.read(owner = generation) }
         assertTrue("Decoder must return failure, not throw out of getContacts: ${outer.exceptionOrNull()}", outer.isSuccess)
         return outer.getOrThrow()
     }
@@ -87,13 +87,13 @@ class ApiClientContactsSchemaTest {
         val tokenB = "header.eyJzdWIiOiIxMiJ9.signature"
         ApiClient.saveToken(tokenB)
         server.enqueue(json(valid.replace("Fresh", "OwnerB")))
-        val current = ApiClient.getContacts(expectedGeneration = ApiClient.queueSessionGeneration()).getOrThrow()
+        val current = TestContacts.read(owner = ApiClient.queueSessionGeneration()).getOrThrow()
         assertEquals("OwnerB", current.single().name)
         val b = server.takeRequest(5, TimeUnit.SECONDS)!!
         assertEquals("/trusted-contacts", b.path); assertEquals("Bearer $tokenB", b.getHeader("Authorization"))
         assertEquals(2, server.requestCount)
         assertTrue(read().isFailure); assertEquals(2, server.requestCount)
-        assertEquals(current, ApiClient.getContacts(expectedGeneration = ApiClient.queueSessionGeneration()).getOrThrow())
+        assertEquals(current, TestContacts.read(owner = ApiClient.queueSessionGeneration()).getOrThrow())
         assertEquals(2, server.requestCount)
     }
 }

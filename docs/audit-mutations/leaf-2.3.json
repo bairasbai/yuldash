@@ -1,0 +1,258 @@
+{
+  "schema": 1,
+  "leaf": "leaf-2.3",
+  "mutations": [
+    {
+      "id": "M1",
+      "file": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
+      "rule": "R1",
+      "description": "Протухший отложенный СТАТУС (например «я на месте» 20-часовой давности) больше не выбрасывается из очереди — пассажиру ночью может уйти враньё о поездке, которая давно закончилась",
+      "find": "it.kind == \"message\" || now - it.createdAt <= STATUS_MAX_AGE_MS",
+      "replace": "true",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.OutboxStaleStatusTest"
+      ]
+    },
+    {
+      "id": "M2",
+      "file": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
+      "rule": "R2",
+      "description": "Отложенное СООБЩЕНИЕ (не статус) начинает протухать по возрасту как статус — слова человека («жду у второго подъезда») могут потеряться вместо гарантированной отправки",
+      "find": "it.kind == \"message\" || now - it.createdAt <= STATUS_MAX_AGE_MS",
+      "replace": "now - it.createdAt <= STATUS_MAX_AGE_MS",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.OutboxStaleStatusTest"
+      ]
+    },
+    {
+      "id": "M3",
+      "file": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
+      "rule": "R3",
+      "description": "Паспорт поездки сохраняется под общим ключом вместо ключа конкретной брони — последняя сохранённая поездка подменяет собой все остальные паспорта на телефоне",
+      "find": "commitOfflineString(store, KEY_PREFIX + pass.bookingId, pass.toJson().toString(), plainPrefs ?: return@runCatching false)",
+      "replace": "commitOfflineString(store, KEY_PREFIX, pass.toJson().toString(), plainPrefs ?: return@runCatching false)",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.TripPassTest"
+      ]
+    },
+    {
+      "id": "M4",
+      "file": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
+      "rule": "R4",
+      "description": "load() больше не проверяет отметку «паспорт удалён» — завершённая поездка (с именем и телефоном водителя) может на короткое время снова прочитаться, пока миграция не зачистила физическую копию",
+      "find": "if (TripPassDeletion.blocks(plainPrefs ?: return@runCatching null, bookingId)) return@runCatching null\n        migration?.read(KEY_PREFIX + bookingId)?.let { TripPass.fromJson(JSONObject(it)) }",
+      "replace": "migration?.read(KEY_PREFIX + bookingId)?.let { TripPass.fromJson(JSONObject(it)) }",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.data.OfflineMigrationCleanupTest"
+      ]
+    },
+    {
+      "id": "M5",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineMigration.kt",
+      "rule": "R5",
+      "description": "Перенос в зашифрованное хранилище помечается успешным, даже если запись в secure реально не прошла — следующий шаг стирает исходник, и данные (телефон водителя) исчезают НИОТКУДА: не в plain, не в secure",
+      "find": "if (!secure.edit().apply { values.forEach { (key, value) -> putString(key, value) } }.commit())\n                return select(plain, false, values)\n            copied = true",
+      "replace": "copied = true",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.data.OfflineMigrationCleanupTest"
+      ]
+    },
+    {
+      "id": "M6",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineMigration.kt",
+      "rule": "R6",
+      "description": "Повреждённый/нечитаемый журнал миграции (`offline_migration_v1`) помечается как безопасный для новых записей вместо того, чтобы заблокировать сохранение до выяснения",
+      "find": "select(if (copied) secure!! else plain, false, snapshot.orEmpty(), readable = snapshot != null)",
+      "replace": "select(if (copied) secure!! else plain, true, snapshot.orEmpty(), readable = snapshot != null)",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.data.OfflineMigrationCleanupTest"
+      ]
+    },
+    {
+      "id": "M7",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineStoreReset.kt",
+      "rule": "R7",
+      "description": "Отказ физической очистки открытого (plain) хранилища при выходе из аккаунта больше не останавливает процесс — карантин снимается, хотя чужие данные реально не стёрлись",
+      "find": "if (!plain.edit().clear().putBoolean(PENDING, true).commit()) return@runCatching false",
+      "replace": "plain.edit().clear().putBoolean(PENDING, true).commit()",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.data.TripPassSaveRetryTest"
+      ]
+    },
+    {
+      "id": "M8",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineStoreReset.kt",
+      "rule": "R8",
+      "description": "Метка «нужно дочистить secure» (secure_clear_pending) снимается, даже если физическая очистка зашифрованного хранилища предыдущего аккаунта реально не прошла",
+      "find": "if (!secure.edit().clear().commit()) return@runCatching false",
+      "replace": "secure.edit().clear().commit()",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.OfflineStoreResetFinishOrderTest"
+      ]
+    },
+    {
+      "id": "M9",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineWrites.kt",
+      "rule": "R9",
+      "description": "Неудачная запись больше не запоминает прежнее значение для отката — следующее чтение может вернуть наполовину записанное («грязное») значение вместо настоящего прежнего",
+      "find": "if (!saved) {\n            pending[scope] = Pending(prefs !== scope, mutableMapOf(key to previous))\n            restore(scope, prefs)\n        }\n        return saved",
+      "replace": "return saved",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.OfflineWritesRollbackTest"
+      ]
+    },
+    {
+      "id": "M10",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineWrites.kt",
+      "rule": "R10",
+      "description": "recoverOfflineWrites() всегда докладывает об успехе, даже если откат реально не прошёл — запись/отправка продолжатся поверх неподтверждённого состояния",
+      "find": "return restore(plain, target)",
+      "replace": "restore(plain, target); return true",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.OfflineWritesRollbackTest"
+      ]
+    },
+    {
+      "id": "M11",
+      "file": "android/app/src/main/java/com/yuldash/app/data/PersonalDataExports.kt",
+      "rule": "R11",
+      "description": "Выход из аккаунта перестаёт стирать текущие (с UUID в имени) выгрузки «Мои данные» и PNG-открытки — чистятся только файлы со старым фиксированным именем",
+      "find": "val files = listOf(File(dir, LEGACY_NAME), File(dir, LEGACY_PNG)) + currentFiles",
+      "replace": "val files = listOf(File(dir, LEGACY_NAME), File(dir, LEGACY_PNG))",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.data.PersonalDataExportCleanupTest"
+      ]
+    },
+    {
+      "id": "M12",
+      "file": "android/app/src/main/java/com/yuldash/app/data/PersonalDataExports.kt",
+      "rule": "R12",
+      "description": "Проверка «сессия ещё та же» снята со всех точек подготовки файла — экспорт/открытка старого аккаунта может дописаться и уйти в «Поделиться» уже после выхода/смены аккаунта",
+      "find": "        if (!ApiClient.isCurrentSession(generation)) return null\n        val dir = File(context.cacheDir, \"shared\")\n        if (!ApiClient.isCurrentSession(generation)) return null\n        check(dir.mkdirs() || dir.isDirectory)\n        val file = File(dir, \"$prefix${UUID.randomUUID()}$suffix\")\n        var keep = false\n        try {\n            write(file)\n            if (!ApiClient.isCurrentSession(generation)) return null\n            val uri = FileProvider.getUriForFile(context, \"${context.packageName}.fileprovider\", file, displayName)\n            if (!ApiClient.isCurrentSession(generation)) return null\n            keep = true\n",
+      "replace": "        val dir = File(context.cacheDir, \"shared\")\n        check(dir.mkdirs() || dir.isDirectory)\n        val file = File(dir, \"$prefix${UUID.randomUUID()}$suffix\")\n        var keep = false\n        try {\n            write(file)\n            val uri = FileProvider.getUriForFile(context, \"${context.packageName}.fileprovider\", file, displayName)\n            keep = true\n",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.data.PersonalDataExportCleanupTest"
+      ]
+    },
+    {
+      "id": "M13",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineLegacyStores.kt",
+      "rule": "R13",
+      "description": "Очистка старых (v1, без владельца) хранилищ паспортов/очереди всегда докладывает об успехе, даже не пытаясь физически стереть данные",
+      "find": "OfflineStoreReset.clear(plain, secure)",
+      "replace": "true",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.data.LegacyOfflineOwnerTest"
+      ]
+    },
+    {
+      "id": "M14",
+      "file": "android/app/src/main/java/com/yuldash/app/MyDataScreen.kt",
+      "rule": "R14",
+      "description": "Отказ сервера на удаление документов водителя (409 «на линии» / «на проверке») больше не показывается человеку — диалог тихо закрывается, будто всё получилось",
+      "find": ".onFailure {\n                                    deleting = false\n                                    docsError = it.message ?: appTextFor(\n                                        language,\n                                        \"Не получилось удалить. Попробуй ещё раз.\",\n                                        \"Юйып булманы. Тағы бер тапҡыр ҡара.\",\n                                    )\n                                }",
+      "replace": ".onFailure {\n                                    deleting = false\n                                    askDeleteDocs = false\n                                }",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.MyDataScreenStatesTest"
+      ]
+    },
+    {
+      "id": "M15",
+      "file": "android/app/src/main/java/com/yuldash/app/MyDataScreen.kt",
+      "rule": "R15",
+      "description": "Успешный ответ сервера больше не показывает карточки с данными (ни счётчики, ни геоданные, ни выгрузку) — человек не видит, что Юлдаш о нём хранит, даже когда всё загрузилось",
+      "find": "data != null -> {",
+      "replace": "data != null && false -> {",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.MyDataScreenStatesTest"
+      ]
+    },
+    {
+      "id": "M16",
+      "file": "android/app/src/main/java/com/yuldash/app/MyDataScreen.kt",
+      "rule": "R16",
+      "description": "Башкирский текст карточки «Чего у нас нет» подменяется русским — двуязычие экрана ломается именно там, где написано про отсутствие данных карты",
+      "find": "appText(\"Не храним\", \"Һаҡламайбыҙ\")",
+      "replace": "appText(\"Не храним\", \"Не храним\")",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.MyDataScreenStatesTest"
+      ]
+    },
+    {
+      "id": "M17",
+      "file": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
+      "rule": "R22",
+      "description": "Outbox.clearAll() при выходе из аккаунта перестаёт физически стирать очередь — UI думает, что очередь пуста (счётчик обновился), а неотправленные сообщения прошлого человека остаются на диске и уйдут от имени следующего",
+      "find": "    @Synchronized fun clearAll() {\n        queueGeneration++\n        plainPrefs?.let { plain ->\n            if (!OfflineStoreReset.clear(plain, securePrefs)) {\n                securePrefs = null\n                prefs = plain\n            }\n            migration = OfflineMigration.open(plain, securePrefs) { it == KEY }\n            prefs = migration!!.storage\n        }\n        version.value = version.value + 1\n    }",
+      "replace": "    @Synchronized fun clearAll() {\n        queueGeneration++\n        version.value = version.value + 1\n    }",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.data.OutboxTest"
+      ]
+    },
+    {
+      "id": "M18",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineWrites.kt",
+      "rule": "R11w",
+      "description": "Подтверждённое отсутствие значения (null в откате) перестаёт различаться от «в карте ничего нет» — чтение проваливается в дисковое значение, даже когда откат уже честно сказал «тут должно быть пусто»",
+      "find": "if (previous?.containsKey(key) == true) return previous[key]",
+      "replace": "if (previous?.get(key) != null) return previous[key]",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.OfflineWritesRollbackTest"
+      ]
+    },
+    {
+      "id": "M19",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineMigration.kt",
+      "rule": "R18",
+      "description": "Незакрытый откат записи по ОДНОМУ ключу больше не блокирует миграцию целиком — сохранение совершенно другой брони может проскочить, пока где-то рядом тихо висит неподтверждённая запись",
+      "find": "if (!recoverOfflineWrites(plain, secure)) return select(secure ?: plain, false)",
+      "replace": "if (false) return select(secure ?: plain, false)",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.OfflineMigrationGuardsTest"
+      ]
+    },
+    {
+      "id": "M20",
+      "file": "android/app/src/main/java/com/yuldash/app/data/OfflineStoreReset.kt",
+      "rule": "R8b",
+      "description": "Нечитаемый флаг secure_clear_pending трактуется как «долга нет» вместо «долг есть по умолчанию» — повреждённая отметка молча отдаёт secure-хранилище с недостёртыми данными предыдущего аккаунта как будто оно уже чистое",
+      "find": "val pending = incomplete.containsKey(plain) || runCatching { plain.getBoolean(PENDING, false) }.getOrDefault(true)",
+      "replace": "val pending = incomplete.containsKey(plain) || runCatching { plain.getBoolean(PENDING, false) }.getOrDefault(false)",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.OfflineStoreResetFinishOrderTest"
+      ]
+    },
+    {
+      "id": "M21",
+      "file": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
+      "rule": "R31",
+      "description": "В save() добавлена отладочная строка, печатающая в лог телефон водителя (pass.driverPhone) — ровно то, что 152-ФЗ запрещает оставлять в logcat",
+      "find": "    ): Boolean = runCatching {\n        if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) return@runCatching false\n        sp(context)",
+      "replace": "    ): Boolean = runCatching {\n        android.util.Log.d(\"TripPass\", \"saving pass for ${pass.driverPhone}\")\n        if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) return@runCatching false\n        sp(context)",
+      "runner": "gradle",
+      "tests": [
+        "com.yuldash.app.walk.l2_3.NoPersonalDataLoggingTest"
+      ]
+    }
+  ]
+}

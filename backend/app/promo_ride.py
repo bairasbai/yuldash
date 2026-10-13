@@ -108,6 +108,24 @@ def discountable_rub(order: InstantOrder) -> int:
     return max(int(rub or 0) - comp_mod.compensation_rub(order), 0)
 
 
+def discountable_rub_from_estimate(est: dict) -> int:
+    """То же самое (цена минус компенсации водителю), но ДО того, как завёлся заказ —
+    по словарю оценки цены (`instant_service.estimate()`), тем же тройкой полей, что
+    `app/compensation.py` (аудит leaf-1.3, B-1).
+
+    Раньше `preview()` (оценка ДО «Заказать») считал потолок доли от ПОЛНОЙ цены (с подачей,
+    креслом, зимней дорогой), а `consume()` (сам заказ) — уже отсюда, от цены БЕЗ них. На
+    любой поездке с компенсацией и сработавшим потолком доли человек видел одну скидку на
+    экране оценки и другую, меньшую, в заказе — ровно то, против чего сделана заморозка цены.
+    """
+    if not est:
+        return 0
+    price = int(est.get("price", 0) or 0)
+    comp = (int(est.get("pickup_fee", 0) or 0) + int(est.get("options_fee", 0) or 0)
+            + int(est.get("weather_fee", 0) or 0))
+    return max(price - comp, 0)
+
+
 def payable_kop(order: InstantOrder) -> int:
     """Сколько пассажир реально платит за поездку: цена минус зафиксированная скидка."""
     if order is None:
@@ -173,11 +191,17 @@ def note(discount_kop: int) -> Optional[dict]:
     }
 
 
-def preview(session: Session, user_id: int, price_rub: int) -> dict:
+def preview(session: Session, user_id: int, price_rub: int, discountable_rub: Optional[int] = None) -> dict:
     """Блок скидки для ответа оценки цены. Скидки нет → честные нули (поле всегда на месте,
-    чтобы клиенту не приходилось гадать, «не пришло» это или «не положено»)."""
+    чтобы клиенту не приходилось гадать, «не пришло» это или «не положено»).
+
+    `price_rub` — ПОЛНАЯ цена (ею же показываем «к оплате со скидкой» — компенсации человек
+    всё равно платит). `discountable_rub` — база ДЛЯ ПОТОЛКА ДОЛИ, та же, что считает `consume()`
+    (цена минус компенсации водителю, см. `discountable_rub_from_estimate`); не передан →
+    совпадает с `price_rub` (старое поведение, только для вызовов без компенсаций в цене)."""
+    base = price_rub if discountable_rub is None else discountable_rub
     red, promo = available(session, user_id)
-    disc = cap_for_price(red.discount_kop, price_rub) if red is not None else 0
+    disc = cap_for_price(red.discount_kop, base) if red is not None else 0
     return {
         "promo_code": (promo.code if (promo is not None and disc > 0) else ""),
         "promo_discount_kop": disc,
@@ -194,8 +218,13 @@ def consume(session: Session, user_id: int, order: InstantOrder) -> int:
     Захват ресурса — под row-lock И атомарным CAS-UPDATE: Postgres в проде держит строку
     (`with_for_update`), SQLite её игнорирует, поэтому условие «скидка всё ещё свободна»
     встроено в WHERE и решается rowcount — проигравший гонку просто едет без скидки.
-    Идемпотентно: заказ, на который скидка уже списана, второй раз её не тратит."""
-    if order is None or order.id is None:
+    Идемпотентно: заказ, на который скидка уже списана, второй раз её не тратит.
+
+    Сверка владельца — не формальность: без неё функция списала бы скидку ЛЮБОГО переданного
+    user_id на ЛЮБОЙ переданный заказ, доверяя это вызывающему коду. Сегодняшние два вызова
+    (routers/instant.py) безопасны, потому что сами создают заказ с passenger_id=user.id
+    непосредственно перед вызовом — но сама функция этого не требовала (аудит leaf-1.3)."""
+    if order is None or order.id is None or order.passenger_id != user_id:
         return 0
     held = _redemption(session, user_id, lock=True)
     if held is not None and held.used_order_id == order.id:

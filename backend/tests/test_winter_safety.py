@@ -77,13 +77,22 @@ def test_stuck_notifies_contacts_and_writes_sos_event(client, user_factory, monk
 
 
 def test_stuck_is_participant_only(client, user_factory, monkeypatch):
+    """N5 (независимое ревью): чужая/несуществующая бронь не топит сигнал «застрял».
+
+    Было: 403/404 ДО записи события — сигнал о помощи на трассе терялся вообще. Стало:
+    событие пишется всегда (200), привязка к чужой/несуществующей брони в него не попадает."""
     monkeypatch.setattr("app.routers.safety.send_text", lambda *a, **k: None)
     monkeypatch.setattr("app.routers.safety.notify_admin_telegram", lambda *a, **k: None)
 
     _drv, _pax, _ride, booking = _trip(client, user_factory)
     outsider = user_factory("StuckOutsider")
-    assert client.post(f"/bookings/{booking['id']}/stuck", headers=outsider["auth"], json={}).status_code == 403
-    assert client.post("/bookings/99999999/stuck", headers=outsider["auth"], json={}).status_code == 404
+    r = client.post(f"/bookings/{booking['id']}/stuck", headers=outsider["auth"], json={})
+    assert r.status_code == 200, "чужая бронь не должна топить сигнал «застрял»"
+    assert r.json()["booking_id"] is None, "чужая бронь не должна попасть в событие как своя"
+
+    r2 = client.post("/bookings/99999999/stuck", headers=outsider["auth"], json={})
+    assert r2.status_code == 200, "несуществующая бронь тоже не должна топить сигнал"
+    assert r2.json()["booking_id"] is None
 
 
 def test_stuck_without_coords_still_records(client, user_factory, monkeypatch):

@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import com.yuldash.app.data.TestContacts
 import android.content.Context
 import android.net.ConnectivityManager
 import android.os.Looper
@@ -315,7 +316,7 @@ class ActiveTripChatUiBoundaryTest {
         mount()
         compose.onNode(hasSetTextAction()).performTextInput("private-draft-A")
         val generation = ApiClient.queueSessionGeneration()
-        runBlocking { ApiClient.getContacts().getOrThrow() }
+        runBlocking { TestContacts.read().getOrThrow() }
         assertEquals(tokenA2, ApiClient.currentToken())
         assertEquals(generation, ApiClient.queueSessionGeneration())
         assertEquals(generation, ApiClient.sessionChanges.value)

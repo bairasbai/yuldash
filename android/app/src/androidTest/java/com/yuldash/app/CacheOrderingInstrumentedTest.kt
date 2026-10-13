@@ -1,6 +1,11 @@
 package com.yuldash.app
 
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.ContactsRepository
+import com.yuldash.app.data.TestContacts
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.mapNotNull
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -40,7 +45,7 @@ class CacheOrderingInstrumentedTest {
         }
         suspend fun read(): Result<Int> = when (this) {
             ME -> ApiClient.me().map { it.getString("name").substringAfterLast(' ').toInt() }
-            CONTACTS -> ApiClient.getContacts().map { it.single().id }
+            CONTACTS -> TestContacts.read().map { it.single().id }
             REFERRAL -> ApiClient.getReferral().map { it.credits }
             POPULAR -> ApiClient.getPopularRoutes().map { it.single().count }
             MY_ROUTES -> ApiClient.getMyRoutes().map { it.single().count }
@@ -118,32 +123,40 @@ class CacheOrderingInstrumentedTest {
             finish(second, 2); assertEquals(2, read(get)); wire(get, 2)
         } finally { firstLeaveTrace.countDown(); ApiClient.testTrace = null }
     }
+    // Layering pilot: publication is an accepted list of this account appearing in ContactsRepository.state
+    // (what every screen observes), not ApiClient calling back into one caller.
     private fun published(emptyLater: Boolean, fresh: Boolean = false) {
         if (emptyLater) emptyIndex = 2
-        val old = scope.async { ApiClient.loadContactsForPublication(owner) { publications += it.map { row -> row.id } } }
-        assertTrue(started.await(10, TimeUnit.SECONDS)); assertFalse(old.isCompleted)
-        val expected = if (emptyLater) emptyList() else listOf(2)
-        assertEquals(expected, runBlocking { ApiClient.loadContactsForPublication(owner, forceRefresh = fresh) { publications += it.map { row -> row.id } }.getOrThrow().map { it.id } })
-        release.countDown(); runBlocking { withTimeout(10000) { old.join() } }; assertFalse(old.isCancelled)
-        assertEquals(listOf(1), runBlocking { old.await().getOrThrow().map { it.id } })
-        assertEquals(listOf(expected), publications.toList())
-        assertEquals(expected, runBlocking { ApiClient.getContacts().getOrThrow().map { it.id } }); wire(Get.CONTACTS, 2)
+        val recorder = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        recorder.launch {
+            ContactsRepository.shared.state.filter { it.owner == owner }.mapNotNull { it.contacts }.distinctUntilChanged()
+                .collect { list -> publications += list.map { row -> row.id } }
+        }
+        try {
+            val old = scope.async { TestContacts.read(owner) }
+            assertTrue(started.await(10, TimeUnit.SECONDS)); assertFalse(old.isCompleted)
+            val expected = if (emptyLater) emptyList() else listOf(2)
+            assertEquals(expected, runBlocking { TestContacts.read(owner, force = fresh).getOrThrow().map { it.id } })
+            release.countDown(); runBlocking { withTimeout(10000) { old.join() } }; assertFalse(old.isCancelled)
+            assertEquals(listOf(1), runBlocking { old.await().getOrThrow().map { it.id } })
+            assertEquals(listOf(expected), publications.toList())
+            assertEquals(expected, runBlocking { TestContacts.read().getOrThrow().map { it.id } }); wire(Get.CONTACTS, 2)
+        } finally { recorder.cancel() }
     }
-    private fun ageContacts(ageMs: Long) {
-        val cache = ApiClient::class.java.getDeclaredField("respCache").apply { isAccessible = true }.get(ApiClient) as Map<*, *>
-        val entry = cache["contacts"]!!
-        entry.javaClass.getDeclaredField("ts").apply { isAccessible = true }.setLong(entry, System.currentTimeMillis() - ageMs)
-    }
+    // Was: reflection into ApiClient's private respCache entry to age it. Now the repository takes a clock.
+    private var now = 1_000_000L
+    private val clocked by lazy { ContactsRepository(clock = { now }) }
+    private fun clockedRead() = runBlocking { clocked.read(owner).getOrThrow().single().id }
     private fun ttl(expired: Boolean, failure: Boolean = false) {
-        holdIndex = 0; assertEquals(1, read(Get.CONTACTS)); if (failure) failureIndex = 2
-        // Synthetic timestamp only, real System.currentTimeMillis and actual cache path. 10s margin avoids timing guesses.
-        ageContacts(if (expired) 100_000 else 80_000)
-        val result = runBlocking { ApiClient.getContacts() }
+        holdIndex = 0; assertEquals(1, clockedRead()); if (failure) failureIndex = 2
+        // Synthetic clock only, actual cache path. 10s margin around the 90s personal TTL.
+        now += if (expired) 100_000 else 80_000
+        val result = runBlocking { clocked.read(owner) }
         if (failure) {
-            assertTrue(result.isFailure); assertEquals(3, read(Get.CONTACTS)); wire(Get.CONTACTS, 3)
+            assertTrue(result.isFailure); assertEquals(3, clockedRead()); wire(Get.CONTACTS, 3)
         } else {
             assertEquals(if (expired) 2 else 1, result.getOrThrow().single().id)
-            assertEquals(if (expired) 2 else 1, read(Get.CONTACTS)); wire(Get.CONTACTS, if (expired) 2 else 1)
+            assertEquals(if (expired) 2 else 1, clockedRead()); wire(Get.CONTACTS, if (expired) 2 else 1)
         }
     }
     @Test fun reverseMe() = reverse(Get.ME)

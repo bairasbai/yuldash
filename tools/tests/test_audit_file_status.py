@@ -1,0 +1,382 @@
+"""Exercise the per-file mark registry CLI against a separate synthetic Git repository."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+SCRIPT = Path(__file__).resolve().parents[1] / "audit_file_status.py"
+KT = "android/app/src/main/java/com/yuldash/app/Wallet.kt"
+PY = "backend/app/ledger.py"
+MIGRATION = "backend/alembic/versions/0001_init.py"
+TOOL = "tools/helper.py"
+OUT_OF_SCOPE = ("webapp/src/main.ts", "web/index.html", "promo/ad.html", "backend/tests/test_other.py",
+                "mobile/lib/main.dart", "android/app/src/test/java/com/yuldash/app/WalletTest.kt",
+                "android/app/src/androidTest/java/com/yuldash/app/WalletInstrumentedTest.kt")
+
+
+def card(path, status="verified", leaf="leaf-1.1", rules=None, mutations="| M1 | сломал сумму | упал |",
+         remainder="Остатка нет."):
+    rules = rules if rules is not None else "| R1 | сумма сходится | backend/tests/test_ledger.py::test_sum | да, M1 |"
+    return (f"# Карточка: `{path}`\n\n- Статус: {status}\n- Лист: {leaf}\n\n"
+            "## Назначение\nСчитает деньги.\n\n"
+            "## Функции и разбор\n| Функция | Строки | Что делает | Ошибки | Вердикт |\n|---|---|---|---|---|\n"
+            "| total | 1-3 | сумма | нет | ок |\n\n"
+            "## Связи\nЭкран кошелька.\n\n"
+            f"## Важные правила и тесты\n| ID | Правило | Тесты | Ловит |\n|---|---|---|---|\n{rules}\n\n"
+            "## Найденные ошибки\nОшибок не найдено.\n\n"
+            f"## Проверка нарочной поломкой\n| ID | Что сломали | Результат |\n|---|---|---|\n{mutations}\n\n"
+            f"## Остаток и ограничения\n{remainder}\n")
+
+
+class FileStatusCliTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="yuldash-file-status-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.git("init", "--quiet")
+        self.git("config", "user.email", "audit@example.invalid")
+        self.git("config", "user.name", "audit")
+        self.git("config", "core.autocrlf", "false")
+        self.put(KT, b"class Wallet\n")
+        self.put(PY, b"def total(a, b):\n    return a + b\n")
+        self.put(MIGRATION, b"revision = '0001'\n")
+        self.put(TOOL, b"print('ok')\n")
+        self.put(".gitignore", b"*.tmp\n")
+        self.put("backend/tests/test_ledger.py", b"def test_sum():\n    assert True\n")
+        for path in OUT_OF_SCOPE:
+            self.put(path, b"x\n")
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "-m", "base")
+
+    def git(self, *args):
+        return subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True, text=True).stdout
+
+    def put(self, path, data):
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        return target
+
+    def run_cli(self, *args, ok=True):
+        env = {**os.environ, "AUDIT_PYTHON": sys.executable}
+        env.pop("DATABASE_URL", None)
+        proc = subprocess.run([sys.executable, str(SCRIPT), "--root", str(self.root), *args],
+                              capture_output=True, text=True, encoding="utf-8", env=env)
+        if ok:
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        return proc
+
+    def registry(self):
+        return {e["path"]: e for e in json.loads((self.root / "docs/audit-file-status.json").read_text(encoding="utf-8"))["files"]}
+
+    def spec(self, leaf="leaf-1.1", file=PY):
+        spec = {"schema": 1, "leaf": leaf, "mutations": [
+            {"id": "M1", "file": file, "find": "a + b", "replace": "a - b", "runner": "pytest",
+             "args": ["tests/test_ledger.py"]}]}
+        self.put(f"docs/audit-mutations/{leaf}.json", json.dumps(spec).encode("utf-8"))
+
+    def test_init_takes_exactly_the_agreed_scope(self):
+        self.run_cli("init")
+        reg = self.registry()
+        self.assertEqual(set(reg), {KT, PY, MIGRATION, TOOL, ".gitignore"})
+        self.assertTrue(all(e["status"] == "not_read" for e in reg.values()))
+        self.assertEqual((reg[PY]["block"], reg[PY]["group"]), ("B07", "G1"))
+        self.assertEqual((reg[KT]["block"], reg[KT]["group"]), ("B07", "G1"))
+        self.assertEqual((reg[MIGRATION]["block"], reg[MIGRATION]["group"]), ("B10", "G7"))
+
+    def test_verified_card_needs_resolvable_tests_and_recorded_breakage(self):
+        self.run_cli("init")
+        self.put(f"docs/audit-files/{PY}.md", card(PY).encode("utf-8"))
+        bad = self.run_cli("check-cards", "--files", PY, ok=False)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertIn("нет файла docs/audit-mutations/leaf-1.1.json", bad.stdout)
+        self.spec()
+        good = self.run_cli("check-cards", "--files", PY, "--leaf", "leaf-1.1")
+        self.assertIn("CARDS OK 1", good.stdout)
+
+    def test_card_is_refused_while_a_breakage_is_still_in_the_source(self):
+        self.run_cli("init")
+        self.spec()
+        self.put(f"docs/audit-files/{PY}.md", card(PY).encode("utf-8"))
+        self.put(PY + ".audit-original", b"def total(a, b):\n    return a + b\n")
+        proc = self.run_cli("check-cards", "--files", PY, ok=False)
+        self.assertIn("незавершённая нарочная поломка", proc.stdout)
+        self.assertNotIn("CARDS OK", proc.stdout)
+
+    def test_reference_to_missing_test_function_is_rejected(self):
+        self.run_cli("init")
+        self.spec()
+        rules = "| R1 | сумма | backend/tests/test_ledger.py::test_does_not_exist | да |"
+        self.put(f"docs/audit-files/{PY}.md", card(PY, rules=rules).encode("utf-8"))
+        proc = self.run_cli("check-cards", "--files", PY, ok=False)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("нет функции/класса test_does_not_exist", proc.stdout)
+        self.assertNotIn("CARDS OK", proc.stdout)
+
+    def test_kotlin_reference_with_spaces_resolves(self):
+        self.run_cli("init")
+        test_kt = "android/app/src/test/java/com/yuldash/app/WalletTest.kt"
+        self.put(test_kt, b"class WalletTest {\n  @Test fun `balance never negative`() {}\n}\n")
+        self.put("docs/audit-mutations/leaf-1.1.json", json.dumps({"mutations": [
+            {"id": "M1", "file": KT, "find": "Wallet", "replace": "Purse", "runner": "gradle",
+             "tests": ["com.yuldash.app.WalletTest"]}]}).encode("utf-8"))
+        rules = f'| R1 | баланс | {test_kt}::"balance never negative" | да |'
+        self.put(f"docs/audit-files/{KT}.md", card(KT, rules=rules).encode("utf-8"))
+        self.assertIn("CARDS OK 1", self.run_cli("check-cards", "--files", KT).stdout)
+
+    def test_verified_without_breakage_is_rejected(self):
+        self.run_cli("init")
+        self.spec()
+        self.put(f"docs/audit-files/{PY}.md", card(PY, mutations="").encode("utf-8"))
+        proc = self.run_cli("check-cards", "--files", PY, ok=False)
+        self.assertIn("нужна хотя бы одна нарочная поломка", proc.stdout)
+
+    def test_inactive_needs_a_reason(self):
+        self.run_cli("init")
+        self.put(f"docs/audit-files/{MIGRATION}.md", card(MIGRATION, status="inactive").encode("utf-8"))
+        proc = self.run_cli("check-cards", "--files", MIGRATION, ok=False)
+        self.assertIn("Причина", proc.stdout)
+        remainder = "Причина: архивный SQL, нигде не вызывается — проверено поиском по репозиторию."
+        self.put(f"docs/audit-files/{MIGRATION}.md", card(MIGRATION, status="inactive", remainder=remainder).encode("utf-8"))
+        self.assertIn("CARDS OK 1", self.run_cli("check-cards", "--files", MIGRATION).stdout)
+
+    def test_apply_stamps_hash_and_edit_makes_mark_stale(self):
+        self.run_cli("init")
+        self.spec()
+        self.put(f"docs/audit-files/{PY}.md", card(PY).encode("utf-8"))
+        self.assertIn("APPLIED 1", self.run_cli("apply", "--files", PY, "--leaf", "leaf-1.1").stdout)
+        entry = self.registry()[PY]
+        self.assertEqual(entry["status"], "verified")
+        self.assertEqual(entry["tests"], ["backend/tests/test_ledger.py::test_sum"])
+        self.assertIn("REGISTRY CONSISTENT", self.run_cli("check").stdout)
+        self.put(PY, b"def total(a, b):\n    return b + a\n")
+        stale = self.run_cli("check", "--strict", ok=False)
+        self.assertNotEqual(stale.returncode, 0)
+        self.assertIn(PY, stale.stdout)
+
+    def test_crlf_checkout_does_not_make_mark_stale(self):
+        self.run_cli("init")
+        self.spec()
+        self.put(f"docs/audit-files/{PY}.md", card(PY).encode("utf-8"))
+        self.run_cli("apply", "--files", PY, "--leaf", "leaf-1.1")
+        self.put(PY, b"def total(a, b):\r\n    return a + b\r\n")
+        self.assertIn("REGISTRY CONSISTENT", self.run_cli("check", "--strict").stdout)
+
+    def test_final_gate_only_passes_when_every_file_is_final_and_fresh(self):
+        self.run_cli("init")
+        incomplete = self.run_cli("progress", "--require-final", ok=False)
+        self.assertIn("FILE WALK INCOMPLETE", incomplete.stdout)
+        self.assertNotIn("FILE WALK COMPLETE", incomplete.stdout)
+        reason = "Причина: синтетический файл теста, исполнять нечего — проверено чтением."
+        for path in (KT, PY, MIGRATION, TOOL, ".gitignore"):
+            self.put(f"docs/audit-files/{path}.md", card(path, status="inactive", remainder=reason).encode("utf-8"))
+        self.run_cli("apply", "--files", KT, PY, MIGRATION, TOOL, ".gitignore", "--leaf", "leaf-1.1")
+        self.assertIn("FILE WALK COMPLETE 5", self.run_cli("progress", "--require-final").stdout)
+        self.put("backend/app/new_module.py", b"x = 1\n")
+        drift = self.run_cli("progress", "--require-final", ok=False)
+        self.assertIn("новых 1", drift.stdout)
+
+    def test_report_lists_every_file_with_its_mark(self):
+        self.run_cli("init")
+        self.assertIn("REPORT WRITTEN", self.run_cli("report").stdout)
+        text = (self.root / "docs/audit-file-status.md").read_text(encoding="utf-8")
+        for path in (KT, PY, MIGRATION, TOOL):
+            self.assertIn(f"`{path}`", text)
+        self.assertIn("Готово (🟩/⚪/⛔): 0 из 5", text)
+
+    def test_run_tests_is_green_only_when_referenced_tests_pass(self):
+        self.run_cli("init")
+        self.spec()
+        self.put(f"docs/audit-files/{PY}.md", card(PY).encode("utf-8"))
+        green = self.run_cli("run-tests", "--files", PY, "--leaf", "leaf-1.1")
+        self.assertIn("LEAF TESTS GREEN 1", green.stdout)
+        self.put("backend/tests/test_ledger.py", b"def test_sum():\n    assert False\n")
+        red = self.run_cli("run-tests", "--files", PY, "--leaf", "leaf-1.1", ok=False)
+        self.assertNotEqual(red.returncode, 0)
+        self.assertIn("LEAF TESTS RED", red.stdout)
+        self.assertNotIn("LEAF TESTS GREEN", red.stdout)
+
+    def test_run_tests_refuses_a_card_without_test_references(self):
+        self.run_cli("init")
+        self.put(f"docs/audit-files/{PY}.md", card(PY, status="read", rules="", mutations="").encode("utf-8"))
+        proc = self.run_cli("run-tests", "--files", PY, ok=False)
+        self.assertIn("LEAF TESTS RED", proc.stdout)
+
+    def test_run_tests_also_runs_the_tests_a_bug_card_lists(self):
+        self.run_cli("init")
+        self.spec()
+        self.put(f"docs/audit-files/{PY}.md", card(PY).encode("utf-8"))
+        coupons = "backend/app/coupons.py"
+        self.put(coupons, b"LIMIT = 1\n")
+        self.put("backend/tests/test_coupons.py", b"def test_redeem_once():\n    assert False\n")
+        rules = "| R1 | купон гасится один раз | backend/tests/test_coupons.py::test_redeem_once | нет |"
+        self.put(f"docs/audit-files/{coupons}.md",
+                 card(coupons, status="bug", rules=rules, mutations="").encode("utf-8"))
+        red = self.run_cli("run-tests", "--files", PY, coupons, "--leaf", "leaf-1.1", ok=False)
+        self.assertIn("LEAF TESTS RED", red.stdout)
+        self.assertNotIn("LEAF TESTS GREEN", red.stdout)
+        self.put("backend/tests/test_coupons.py", b"def test_redeem_once():\n    assert True\n")
+        green = self.run_cli("run-tests", "--files", PY, coupons, "--leaf", "leaf-1.1")
+        self.assertIn(f"🟥 открытая ошибка {coupons}: тестов 1", green.stdout)
+        self.assertIn("LEAF TESTS GREEN 2 ref(s)", green.stdout)
+        self.assertIn("by status: verified 1 (1 card(s)), bug 1 (1 card(s))", green.stdout)
+
+    def test_bug_card_tests_are_optional_but_must_resolve(self):
+        self.run_cli("init")
+        target = f"docs/audit-files/{PY}.md"
+        self.put(target, card(PY, status="bug", rules="| R1 | сумма | теста пока нет | — |", mutations="").encode("utf-8"))
+        self.assertIn(f"✓ {PY}: bug, тестов 0, поломок 0", self.run_cli("check-cards", "--files", PY).stdout)
+        broken = "| R1 | сумма | backend/tests/test_ledger.py::test_does_not_exist | да |"
+        self.put(target, card(PY, status="bug", rules=broken, mutations="").encode("utf-8"))
+        proc = self.run_cli("check-cards", "--files", PY, ok=False)
+        self.assertIn("нет функции/класса test_does_not_exist", proc.stdout)
+        self.assertIn("CARDS INVALID 1/1", proc.stdout)
+        red = self.run_cli("run-tests", "--files", PY, ok=False)
+        self.assertIn("LEAF TESTS RED (карточки неверны)", red.stdout)
+
+    def test_bug_card_breakages_must_be_described_for_its_file(self):
+        self.run_cli("init")
+        rules = "| R1 | сумма | backend/tests/test_ledger.py::test_sum | да, M1 |"
+        self.put(f"docs/audit-files/{PY}.md", card(PY, status="bug", rules=rules).encode("utf-8"))
+        self.assertIn("нет файла docs/audit-mutations/leaf-1.1.json",
+                      self.run_cli("check-cards", "--files", PY, ok=False).stdout)
+        self.spec(file=TOOL)
+        self.assertIn("поломка M1 не описана для этого файла",
+                      self.run_cli("check-cards", "--files", PY, ok=False).stdout)
+        self.spec()
+        self.assertIn(f"✓ {PY}: bug, тестов 1, поломок 1", self.run_cli("check-cards", "--files", PY).stdout)
+        self.run_cli("apply", "--files", PY, "--leaf", "leaf-1.1")
+        entry = self.registry()[PY]
+        self.assertEqual((entry["status"], entry["tests"], entry["mutations"]),
+                         ("bug", ["backend/tests/test_ledger.py::test_sum"], ["M1"]))
+
+    def test_shorthand_reference_reuses_the_path_of_its_cell_and_runs(self):
+        self.run_cli("init")
+        self.spec()
+        tests = (b"def test_sum():\n    assert True\n\n\ndef test_diff():\n    assert True\n\n\n"
+                 b"class TestLedger:\n    def test_zero(self):\n        assert True\n")
+        self.put("backend/tests/test_ledger.py", tests)
+        rules = ("| R1 | сумма и разность | backend/tests/test_ledger.py::test_sum, ::test_diff, "
+                 "::TestLedger::test_zero | да, M1 |")
+        self.put(f"docs/audit-files/{PY}.md", card(PY, rules=rules).encode("utf-8"))
+        self.assertIn(f"✓ {PY}: verified, тестов 3", self.run_cli("check-cards", "--files", PY).stdout)
+        self.assertIn("LEAF TESTS GREEN 3 ref(s)", self.run_cli("run-tests", "--files", PY, "--leaf", "leaf-1.1").stdout)
+        self.put("backend/tests/test_ledger.py", tests.replace(b"assert True\n\n\nclass", b"assert False\n\n\nclass"))
+        red = self.run_cli("run-tests", "--files", PY, "--leaf", "leaf-1.1", ok=False)
+        self.assertIn("LEAF TESTS RED", red.stdout)
+
+    def test_shorthand_with_a_missing_test_or_no_path_in_its_cell_is_rejected(self):
+        self.run_cli("init")
+        self.spec()
+        target = f"docs/audit-files/{PY}.md"
+        self.put(target, card(PY, rules="| R1 | сумма | backend/tests/test_ledger.py::test_sum, ::test_gone | да |").encode("utf-8"))
+        self.assertIn("нет функции/класса test_gone", self.run_cli("check-cards", "--files", PY, ok=False).stdout)
+        for rules in ("| R1 | сумма | ::test_sum | да |",
+                      "| R1 | backend/tests/test_ledger.py::test_sum | ::test_sum |"):
+            self.put(target, card(PY, rules=rules).encode("utf-8"))
+            proc = self.run_cli("check-cards", "--files", PY, ok=False)
+            self.assertIn("«::test_sum» без пути к файлу теста", proc.stdout)
+            self.assertNotIn("CARDS OK", proc.stdout)
+
+    def test_addresses_and_qualified_names_are_not_taken_for_shorthand(self):
+        self.run_cli("init")
+        self.spec()
+        rules = "| R1 | слушает [::]:80 и ::1, вызывает Foo::class | backend/tests/test_ledger.py::test_sum | да |"
+        self.put(f"docs/audit-files/{PY}.md", card(PY, rules=rules).encode("utf-8"))
+        self.assertIn(f"✓ {PY}: verified, тестов 1", self.run_cli("check-cards", "--files", PY).stdout)
+
+    def test_test_path_not_from_the_repository_root_is_rejected(self):
+        self.run_cli("init")
+        self.spec()
+        target = f"docs/audit-files/{PY}.md"
+        for cited in ("test_ledger.py::test_sum", "tests/test_ledger.py::test_sum", "LedgerTest.kt::\"sum holds\"",
+                      "my_backend/tests/test_ledger.py::test_sum"):
+            self.put(target, card(PY, rules=f"| R1 | сумма | backend/tests/test_ledger.py::test_sum, {cited} | да |")
+                     .encode("utf-8"))
+            proc = self.run_cli("check-cards", "--files", PY, ok=False)
+            self.assertIn(f"«{cited}»: путь к тесту не от корня репозитория", proc.stdout)
+            self.assertNotIn("CARDS OK", proc.stdout)
+
+    def test_shorthand_after_a_path_from_elsewhere_borrows_no_older_path(self):
+        # test_diff also exists in the first file: inheriting its path would silently run the wrong test.
+        self.run_cli("init")
+        self.spec()
+        self.put("backend/tests/test_ledger.py", b"def test_sum():\n    assert True\n\n\ndef test_diff():\n    assert True\n")
+        target = f"docs/audit-files/{PY}.md"
+        for between in ("test_other.py::test_a", "`routers/ledger.py::total`"):
+            rules = f"| R1 | сумма | backend/tests/test_ledger.py::test_sum (+ {between}, ::test_diff) | да |"
+            self.put(target, card(PY, rules=rules).encode("utf-8"))
+            proc = self.run_cli("check-cards", "--files", PY, ok=False)
+            self.assertIn("«::test_diff» без пути к файлу теста", proc.stdout)
+            self.assertNotIn("CARDS OK", proc.stdout)
+
+    def test_function_of_a_source_file_is_a_mention_not_a_test(self):
+        self.run_cli("init")
+        self.spec()
+        rules = ("| R1 | как `routers/ledger.py::total` и `WalletScreen.kt::Balance` | "
+                 "backend/tests/test_ledger.py::test_sum | да, поломка в `ledger.py::total` |")
+        self.put(f"docs/audit-files/{PY}.md", card(PY, rules=rules).encode("utf-8"))
+        self.assertIn(f"✓ {PY}: verified, тестов 1", self.run_cli("check-cards", "--files", PY).stdout)
+
+    def test_kotlin_shorthand_with_quoted_names_resolves(self):
+        self.run_cli("init")
+        test_kt = "android/app/src/test/java/com/yuldash/app/WalletTest.kt"
+        self.put(test_kt, b"class WalletTest {\n  @Test fun `balance never negative`() {}\n"
+                          b"  @Test fun `balance survives restart`() {}\n}\n")
+        self.put("docs/audit-mutations/leaf-1.1.json", json.dumps({"mutations": [
+            {"id": "M1", "file": KT, "find": "Wallet", "replace": "Purse", "runner": "gradle",
+             "tests": ["com.yuldash.app.WalletTest"]}]}).encode("utf-8"))
+        rules = f'| R1 | баланс | {test_kt}::"balance never negative", ::"balance survives restart" | да |'
+        self.put(f"docs/audit-files/{KT}.md", card(KT, rules=rules).encode("utf-8"))
+        self.assertIn(f"✓ {KT}: verified, тестов 2", self.run_cli("check-cards", "--files", KT).stdout)
+
+    def test_progress_can_be_limited_to_one_group(self):
+        self.run_cli("init")
+        data = json.loads(self.run_cli("progress", "--group", "G7").stdout)
+        self.assertEqual(data["total"], 3)
+        self.assertEqual(data["by_status"]["not_read"], 3)
+
+    def test_owns_guard_on_a_finished_branch_ignores_local_edits(self):
+        base = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "--quiet", "-b", "leaf")
+        self.put(KT, b"class Wallet2\n")
+        self.git("commit", "--quiet", "-am", "leaf work")
+        self.git("checkout", "--quiet", "-")
+        self.put(PY, b"# local, not part of the leaf\n")
+        ok = self.run_cli("owns-guard", "--base", base, "--head", "leaf", "--owns", "android/**")
+        self.assertIn("OWNS RESPECTED 1", ok.stdout)
+        bad = self.run_cli("owns-guard", "--base", base, "--head", "leaf", "--owns", "backend/**", ok=False)
+        self.assertIn("OWNS VIOLATED 1", bad.stdout)
+
+    def test_file_and_glob_lists_can_come_from_files(self):
+        self.run_cli("init")
+        self.spec()
+        self.put(f"docs/audit-files/{PY}.md", card(PY).encode("utf-8"))
+        self.put("lists/files.txt", f"{PY}\n\n".encode("utf-8"))
+        self.assertIn("CARDS OK 1", self.run_cli("check-cards", "--files-from", "lists/files.txt").stdout)
+        base = self.git("rev-parse", "HEAD").strip()
+        self.put(PY, b"def total(a, b):\n    return a + b  # touched\n")
+        self.put("lists/owns.txt", b"backend/app/**\nlists/**\ndocs/**\n")
+        self.assertIn("OWNS RESPECTED", self.run_cli("owns-guard", "--base", base, "--owns-from", "lists/owns.txt").stdout)
+        missing = self.run_cli("check-cards", ok=False)
+        self.assertNotEqual(missing.returncode, 0)
+
+    def test_owns_guard_flags_edits_outside_the_leaf(self):
+        base = self.git("rev-parse", "HEAD").strip()
+        self.put(PY, b"def total(a, b):\n    return a + b  # ok\n")
+        ok = self.run_cli("owns-guard", "--base", base, "--owns", "backend/app/ledger.py,docs/audit-files/**")
+        self.assertIn("OWNS RESPECTED 1", ok.stdout)
+        self.put(KT, b"class Wallet2\n")
+        bad = self.run_cli("owns-guard", "--base", base, "--owns", "backend/app/ledger.py", ok=False)
+        self.assertIn(KT, bad.stdout)
+        self.assertIn("OWNS VIOLATED 1", bad.stdout)
+        ignored = self.run_cli("owns-guard", "--base", base, "--owns", "backend/app/ledger.py", "--ignore", "android/**")
+        self.assertIn("OWNS RESPECTED", ignored.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

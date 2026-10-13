@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import com.yuldash.app.data.TestContacts
 import android.content.Context
 import android.os.Looper
 import androidx.activity.ComponentActivity
@@ -79,7 +80,7 @@ class TrustedContactsCacheReentryTest {
     }
     private fun scenario(language: AppLanguage, noContacts: Boolean) {
         empty = noContacts; val expected = if (empty) emptyList() else listOf(7)
-        assertEquals(expected, runBlocking { ApiClient.getContacts().getOrThrow().map { it.id } })
+        assertEquals(expected, runBlocking { TestContacts.read().getOrThrow().map { it.id } })
         val owner = ApiClient.queueSessionGeneration(); rejectContacts = true
         compose.runOnIdle { vm.trustedContacts.add(TrustedContact("Sentinel", "Synthetic", "+70000000777", true, 777)) }
         vm.language.value = language; AppPrefs.setLanguage(context, language); compose.mainClock.autoAdvance = false
@@ -96,7 +97,7 @@ class TrustedContactsCacheReentryTest {
         assertEquals(listOf("GET /trusted-contacts"), requests.filter { it.contains("/trusted-contacts") })
         assertEquals(owner, ApiClient.queueSessionGeneration()); assertEquals(token, ApiClient.currentToken())
         assertSame(vm, ViewModelProvider(actor.get())[YuldashViewModel::class.java]); assertEquals(Screen.Home, vm.screen.value)
-        assertEquals(expected, runBlocking { ApiClient.getContacts().getOrThrow().map { it.id } })
+        assertEquals(expected, runBlocking { TestContacts.read().getOrThrow().map { it.id } })
         assertEquals(1, requests.count { it == "GET /trusted-contacts" })
     }
     @Test fun warmNonemptyAfterManualVmClearAndAppReentryRu() = scenario(AppLanguage.Ru, false)
