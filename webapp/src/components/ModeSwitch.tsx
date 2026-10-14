@@ -48,7 +48,7 @@ export default function ModeSwitch({
               type="button"
               role="tab"
               aria-selected={m.key === mode}
-              className={"mode-switch__seg" + (m.key === mode ? " is-on" : "")}
+              className={`mode-switch__seg mode-switch__seg--${m.key}${m.key === mode ? " is-on" : ""}`}
               onClick={() => onSelect(m.key)}
             >
               <img
