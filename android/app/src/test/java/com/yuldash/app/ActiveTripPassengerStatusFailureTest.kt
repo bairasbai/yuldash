@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
@@ -20,6 +21,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowToast
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** DESIGN062: actual passenger CTA and controlled HTTP, not the legacy status component. */
@@ -36,6 +38,7 @@ class ActiveTripPassengerStatusFailureTest {
 
     @Before fun setup() {
         ApiClient.resetForTest()
+        ShadowToast.reset()
         ApiClient.logout() // No WebSocket; REST still goes to the owned HTTP recorder.
         TripPassStore.initStores(MemoryDiskPreferences(), null)
         Outbox.initStores(MemoryDiskPreferences(), null)
@@ -86,10 +89,15 @@ class ActiveTripPassengerStatusFailureTest {
         waitFor("Я сел")
     }
 
-    private fun waitFor(text: String) {
+    private fun settle() {
+        Snapshot.sendApplyNotifications()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun waitFor(text: String, expectedPosts: Int? = null) {
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-            compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+            settle()
+            compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() && (expectedPosts == null || posted.size == expectedPosts)
         }
     }
 
@@ -98,8 +106,8 @@ class ActiveTripPassengerStatusFailureTest {
         open()
         compose.onNodeWithText("Я сел").performClick()
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-            posted.size == 1
+            settle()
+            posted.size == 1 && ShadowToast.getTextOfLatestToast() == "Переход отклонён"
         }
         // The retry action must still be boarding, rather than the next false arrival step.
         waitFor("Я сел")
@@ -107,7 +115,7 @@ class ActiveTripPassengerStatusFailureTest {
         assertEquals(0, Outbox.count(context, 42))
         responseCode = 200
         compose.onNodeWithText("Я сел").performClick()
-        waitFor("Доехал")
+        waitFor("Доехал", expectedPosts = 2)
         assertEquals(2, posted.size)
         posted.forEach { assertEquals("sat", org.json.JSONObject(it).getString("status")) }
     }
@@ -119,7 +127,7 @@ class ActiveTripPassengerStatusFailureTest {
     @Test fun acceptedBoardingAdvancesThePassengerAction() {
         open()
         compose.onNodeWithText("Я сел").performClick()
-        waitFor("Доехал")
+        waitFor("Доехал", expectedPosts = 1)
         assertEquals(1, posted.size)
         assertEquals("sat", org.json.JSONObject(posted.single()).getString("status"))
     }

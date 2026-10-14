@@ -1,6 +1,8 @@
 package com.yuldash.app
 
+import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -18,6 +20,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.concurrent.TimeUnit
@@ -81,6 +84,11 @@ class AuditBe29MyDataLocationTest {
             """.trimIndent(),
         )
 
+    private fun settle() {
+        Snapshot.sendApplyNotifications()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+    }
+
     private fun showAndVerifyLoaded(language: AppLanguage, loadedAnchor: String) {
         server.enqueue(response())
         composeRule.setContent {
@@ -90,9 +98,9 @@ class AuditBe29MyDataLocationTest {
         }
 
         composeRule.waitUntil(timeoutMillis = 10_000) {
+            settle()
             composeRule.onAllNodesWithText(loadedAnchor).fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.mainClock.advanceTimeBy(1_000)
         composeRule.waitForIdle()
 
         val request = server.takeRequest(5, TimeUnit.SECONDS)
@@ -101,6 +109,11 @@ class AuditBe29MyDataLocationTest {
     }
 
     private fun assertVisibleTexts(expected: List<String>) {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            settle()
+            expected.all { composeRule.onAllNodesWithText(it).fetchSemanticsNodes().isNotEmpty() }
+        }
+        composeRule.waitForIdle()
         val missing = expected.filter { text ->
             composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isEmpty()
         }
