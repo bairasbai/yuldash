@@ -45,6 +45,7 @@ const SUITES = [
   { test: "refresh-outage-test", src: null, out: null, bundle: false },
   { test: "refresh-replay-test", src: null, out: null, bundle: false },
   { test: "auth-unavailable-gate-test", src: null, out: null, bundle: false },
+  { test: "taxi-unavailable-gate-test", src: null, out: null, bundle: false },
   { test: "draft-owner-test", src: null, out: null, bundle: false },
   { test: "consent-mirror-owner-test", src: null, out: null, bundle: false },
   { test: "sos-account-boundary-test", src: null, out: null, bundle: false },
