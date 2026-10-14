@@ -1549,8 +1549,9 @@ private fun InstantOrderContent(
     }
     var checking by remember { mutableStateOf(loggedIn) }   // первичная загрузка: есть ли активный заказ
     // Гейт такси (волна 2): доступно ли такси в моей точке (глобальный флаг + города на сервере).
-    // Сеть упала → фолбэк «доступно» (обычный пикер): сервер всё равно гейтит оценку и заказ.
+    // Ответа нет (гость, сбой сети) — решает общий флаг запуска волнами: выключен → «скоро».
     var availability by remember { mutableStateOf<com.yuldash.app.data.TaxiAvailabilityDto?>(null) }
+    val taxiOff = taxiOffByFlag()
     // Восстановление входа упало по сети → показываем retry вместо тихого падения в пикер (могли потерять живой заказ).
     var restoreError by remember { mutableStateOf(false) }
 
@@ -1635,7 +1636,7 @@ private fun InstantOrderContent(
         // человек на морозе не понимает, ждать ему или закрывать приложение.
         val restored = withTimeoutOrNull(BOOT_BUDGET_MS) {
             coroutineScope {
-                // Доступность: сеть упала → фолбэк «доступно» (сервер всё равно гейтит).
+                // Доступность: сеть упала → решает общий флаг (taxiOffByFlag); сервер всё равно гейтит.
                 val availabilityJob = async { ApiClient.getTaxiAvailability(lat, lng) }
                 // А вот список заказов важен: не загрузился — НЕ роняем в пикер молча, вдруг есть живой заказ.
                 val ordersJob = async { ApiClient.getMyInstantOrders(limit = 5, expectedGeneration = generation) }
@@ -1726,12 +1727,12 @@ private fun InstantOrderContent(
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             val current = order
-            val av = availability
+            val av = taxiOff ?: availability
             // Фаза заказа как ОДНО значение: и порядок веток тот же, что был, и есть чем кормить
             // AnimatedContent. Раньше `when` менял полэкрана мгновенно — человек, который стоит
             // на морозе, видел рывок вместо перехода «ищем → нашли».
             val phase = when {
-                !loggedIn -> "login"
+                !loggedIn -> if (taxiOff != null) "comingSoon" else "login"   // гостю незачем входить ради «скоро»
                 checking -> "checking"
                 scheduledConfirmId != 0 -> "scheduled"
                 current == null && restoreError -> "restoreError"
@@ -3695,7 +3696,6 @@ private fun InstantChosenOptionsRow(selected: Set<String>, onRemove: (String) ->
         }
     }
 }
-
 
 @Composable
 private fun InstantOptionsBlock(

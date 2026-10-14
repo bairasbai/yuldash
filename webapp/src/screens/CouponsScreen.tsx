@@ -38,6 +38,7 @@ import {
   IconFlag,
 } from "../components/Icons";
 import { track } from "../analytics";
+import ComingSoon from "../components/ComingSoon";
 
 type Tab = "near" | "mine";
 type Status = "loading" | "error" | "soon" | "ready";
@@ -54,12 +55,14 @@ function categoryIcon(cat: string): typeof IconStore {
   return IconTicket;
 }
 
-export default function CouponsScreen() {
+const ALWAYS_CURRENT = () => true;
+
+export default function CouponsScreen({ historyOnly = false, isCurrent = ALWAYS_CURRENT }: { historyOnly?: boolean; isCurrent?: () => boolean } = {}) {
   const { appText } = useLang();
   const navigate = useNavigate();
   const { user, isAuthed } = useAuth();
 
-  const [tab, setTab] = useState<Tab>("near");
+  const [tab, setTab] = useState<Tab>(historyOnly ? "mine" : "near");
   const [status, setStatus] = useState<Status>("loading");
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [city, setCity] = useState<string>(() => (user?.city || "").trim());
@@ -119,29 +122,31 @@ export default function CouponsScreen() {
   }, []);
 
   useEffect(() => {
+    if (historyOnly) return;
     const ac = new AbortController();
     loadNear(ac.signal);
     return () => ac.abort();
-  }, [loadNear]);
+  }, [loadNear, historyOnly]);
 
   // ---- «Мои купоны» ----
   const loadMine = useCallback(
     (signal?: AbortSignal) => {
-      if (!isAuthed) return;
+      if (!isAuthed || (historyOnly && !isCurrent())) return;
       setMineStatus("loading");
       fetchMyCoupons(signal)
         .then((list) => {
+          if (signal?.aborted || (historyOnly && !isCurrent())) return;
           setMine(list);
           setMineStatus("ready");
         })
         .catch((e) => {
-          if (signal?.aborted || e?.name === "AbortError") return;
+          if (signal?.aborted || e?.name === "AbortError" || (historyOnly && !isCurrent())) return;
           setMineStatus(
             e instanceof ApiError && (e.status === 404 || e.status === 405) ? "soon" : "error"
           );
         });
     },
-    [isAuthed]
+    [isAuthed, historyOnly, isCurrent]
   );
 
   useEffect(() => {
@@ -166,6 +171,7 @@ export default function CouponsScreen() {
   }, [coupons, city]);
 
   async function onActivate(c: Coupon) {
+    if (historyOnly) return;
     if (!isAuthed) {
       navigate("/login");
       return;
@@ -198,6 +204,8 @@ export default function CouponsScreen() {
   }
 
   // ---- Экран успеха активации (крупный код) ----
+  if (historyOnly && !isCurrent()) return <ComingSoon kind="business" variant="inline" />;
+
   if (activated) {
     const c = activated.coupon;
     return (
@@ -303,11 +311,12 @@ export default function CouponsScreen() {
   return (
     <>
       <ScreenHeader
-        title={appText("Скидки по пути", "Юлда ташламалар")}
-        subtitle={appText("Приятные скидки от своих заведений", "Үҙ заведениеларҙан рәхәт ташламалар")}
+        title={historyOnly ? appText("Мои купоны", "Купондарым") : appText("Скидки по пути", "Юлда ташламалар")}
+        subtitle={historyOnly ? appText("Уже выданные коды", "Алдан бирелгән кодтар") : appText("Приятные скидки от своих заведений", "Үҙ заведениеларҙан рәхәт ташламалар")}
       />
 
       <div className="seg" style={{ marginTop: 4 }}>
+        {!historyOnly && (
         <button
           type="button"
           className={"seg__item" + (tab === "near" ? " is-active" : "")}
@@ -315,6 +324,7 @@ export default function CouponsScreen() {
         >
           {appText("Скидки рядом", "Яҡындағы ташламалар")}
         </button>
+        )}
         <button
           type="button"
           className={"seg__item" + (tab === "mine" ? " is-active" : "")}
@@ -325,7 +335,7 @@ export default function CouponsScreen() {
       </div>
 
       {/* ===== Вкладка: скидки рядом ===== */}
-      {tab === "near" && (
+      {!historyOnly && tab === "near" && (
         <>
           {status === "loading" && <LoadingList count={3} />}
 
@@ -483,7 +493,7 @@ export default function CouponsScreen() {
 
               {mineStatus === "ready" && (
                 <>
-                  {mine.length === 0 ? (
+                  {mine.length === 0 ? (historyOnly ? <ComingSoon kind="business" variant="inline" /> : (
                     <div className="state" style={{ paddingTop: 24 }}>
                       <div className="state__icon"><IconTicket size={34} /></div>
                       <h2>{appText("Пока нет купонов", "Әле купондар юҡ")}</h2>
@@ -492,7 +502,7 @@ export default function CouponsScreen() {
                         {appText("К скидкам", "Ташламаларға")}
                       </button>
                     </div>
-                  ) : (
+                  )) : (
                     <div className="list">
                       {mine.map((m) => {
                         const redeemed = m.status === "redeemed";
@@ -534,7 +544,7 @@ export default function CouponsScreen() {
         </>
       )}
 
-      <button
+      {!historyOnly && <button
         type="button"
         className="list-row list-row--link"
         style={{ marginTop: 16 }}
@@ -550,7 +560,7 @@ export default function CouponsScreen() {
         <span className="list-row__chev">
           <IconChevron size={20} />
         </span>
-      </button>
+      </button>}
     </>
   );
 }

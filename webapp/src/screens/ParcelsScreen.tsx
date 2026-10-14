@@ -56,6 +56,10 @@ import { kopExactLabel } from "../utils/format";
 import { IconBox, IconCheck, IconChat, IconProfile, IconShield } from "../components/Icons";
 import { useAuth } from "../auth/AuthProvider";
 import { canOpenParcelDispute } from "../utils/parcelDispute.js";
+import ComingSoon from "../components/ComingSoon";
+import { useFeatures } from "../features";
+import { deliveryTypes, isCarryOpen, isOpen } from "../featureRules";
+import { CarryOrders } from "./CourierScreen";
 
 type Tab = "send" | "mine" | "carry";
 
@@ -81,7 +85,12 @@ const cancelPartsBa = (p: Parcel) => cancelParts(p, ["кире алыу", "ку�
 export default function ParcelsScreen() {
   const { appText } = useLang();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>("send");
+  const features = useFeatures();
+  // Запуск волнами: пока доставка выключена, «Отправить» говорит «скоро», а «Мои» работает —
+  // начатое доживает. Открываемся на том, что живо; вкладку, которую человек выбрал сам, не трогаем.
+  const canSend = isOpen("delivery", features);
+  const [picked, setPicked] = useState<Tab | null>(null);
+  const tab: Tab = picked ?? (canSend ? "send" : "mine");
 
   return (
     <>
@@ -102,7 +111,7 @@ export default function ParcelsScreen() {
             role="tab"
             aria-selected={tab === id}
             className={"parcel-tabs__tab" + (tab === id ? " is-active" : "")}
-            onClick={() => setTab(id)}
+            onClick={() => setPicked(id)}
           >
             {label}
           </button>
@@ -111,7 +120,12 @@ export default function ParcelsScreen() {
 
       {/* Смена вкладки — с затуханием (AnimatedContent), а не одним кадром. */}
       <div className="parcel-tab-body" key={tab}>
-        {tab === "send" && <ParcelSendWizard onSent={() => setTab("mine")} />}
+        {tab === "send" &&
+          (canSend ? (
+            <ParcelSendWizard allowed={deliveryTypes(features)} onSent={() => setPicked("mine")} />
+          ) : (
+            <ComingSoon kind="delivery" variant="inline" />
+          ))}
         {tab === "mine" && <MineTab />}
         {tab === "carry" && <CarryTab />}
       </div>
@@ -127,6 +141,7 @@ function MineTab() {
   const ru = lang !== "ba";
   const { user } = useAuth();
   const navigate = useNavigate();
+  const features = useFeatures();
   const [boot, setBoot] = useState<Boot>("loading");
   const [items, setItems] = useState<Parcel[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -181,6 +196,10 @@ function MineTab() {
 
   if (boot === "loading") return <LoadingList count={3} />;
   if (boot === "error") return <ErrorState onRetry={() => load()} />;
+  if (items.length === 0 && !isOpen("delivery", features)) {
+    // «Создай заявку» звучало бы приглашением туда, где сервер откажет: говорим «скоро».
+    return <ComingSoon kind="delivery" variant="inline" />;
+  }
   if (items.length === 0) {
     return (
       <div className="state" style={{ paddingTop: 28 }}>
@@ -361,18 +380,28 @@ function MineTab() {
 // ============================ Вкладка «Возить» («по пути») ============================
 function CarryTab() {
   const { appText } = useLang();
-  const [sub, setSub] = useState<"available" | "carrying">("available");
+  const features = useFeatures();
+  // Взять посылку «по пути» сервер разрешает, только пока включены посылки. Уже взятые
+  // («Везу») доезжают и при выключенных: нового там просто нет.
+  const carryOpen = isCarryOpen(features);
+  const [picked, setPicked] = useState<"available" | "carrying" | null>(null);
+  const sub = picked ?? (carryOpen ? "available" : "carrying");
   return (
     <>
       <div className="chips" style={{ marginTop: 14 }}>
-        <button type="button" className={"chip" + (sub === "available" ? " chip--on" : "")} onClick={() => setSub("available")}>
+        <button type="button" className={"chip" + (sub === "available" ? " chip--on" : "")} onClick={() => setPicked("available")}>
           {appText("Доступные", "Асыҡ")}
         </button>
-        <button type="button" className={"chip" + (sub === "carrying" ? " chip--on" : "")} onClick={() => setSub("carrying")}>
+        <button type="button" className={"chip" + (sub === "carrying" ? " chip--on" : "")} onClick={() => setPicked("carrying")}>
           {appText("Везу", "Йөрөтәм")}
         </button>
       </div>
-      {sub === "available" ? <AvailableList /> : <CarryingList onGoAvailable={() => setSub("available")} />}
+      {sub === "available" ? (
+        carryOpen ? <AvailableList /> : <ComingSoon kind="delivery" variant="inline" />
+      ) : (
+        carryOpen ? <CarryingList onGoAvailable={() => setPicked("available")} /> :
+          <CarryOrders onGoAvailable={() => setPicked("available")} emptyContent={<ComingSoon kind="delivery" variant="inline" />} />
+      )}
     </>
   );
 }

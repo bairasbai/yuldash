@@ -755,7 +755,7 @@ private fun PlanCard(plan: PartnerPlanDto, current: Boolean, busy: Boolean, onSe
 // ─────────────────────────── Погашение кода клиента ───────────────────────────
 
 @Composable
-private fun RedeemDialog(onDismiss: () -> Unit) {
+internal fun RedeemDialog(onDismiss: () -> Unit, owner: BenefitOwner? = null) {
     val scope = rememberCoroutineScope()
     var code by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -798,10 +798,10 @@ private fun RedeemDialog(onDismiss: () -> Unit) {
             } else {
                 TextButton(
                     onClick = {
-                        if (busy || code.isBlank()) return@TextButton
+                        if (busy || code.isBlank() || owner?.isCurrent() == false) return@TextButton
                         busy = true; err = null
-                        scope.launch {
-                            ApiClient.redeemCoupon(code.trim())
+                        launchBenefitOperation(scope, owner, { ApiClient.redeemCoupon(code.trim()) }) { reply ->
+                            reply
                                 .onSuccess { result = it }
                                 .onFailure { err = (it as? com.yuldash.app.data.ApiException)?.message ?: errDefault }
                             busy = false

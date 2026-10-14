@@ -24,6 +24,10 @@ import { YuModeTaxi, YuWomenOnly, YuChildSeat, YuPet, YuLuggage, YuAc, YuSmokeFr
 import { PartnerAdSlot } from "../components/PartnerAd";
 import { fetchPopularRoutes, type PopularRoute } from "../api/geo";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
+import ComingSoon from "../components/ComingSoon";
+import { LoadingList } from "../components/States";
+import { useFeatures } from "../features";
+import { isOpen } from "../featureRules";
 
 type Status = "loading" | "error" | "ready";
 
@@ -42,6 +46,19 @@ export default function HomeScreen() {
   const { isAuthed } = useAuth();
 
   const { user } = useAuth();
+
+  // Запуск волнами: пока доставка выключена, вкладка «Курьер» остаётся на главной и говорит
+  // «скоро» на месте, а не ведёт в экран посылок, где всё упирается в отказ сервера.
+  const features = useFeatures();
+  const deliveryOpen = isOpen("delivery", features);
+  const [deliveryTab, setDeliveryTab] = useState(false);
+  useEffect(() => {
+    // Доставку включили, пока человек смотрел на «скоро», — пускаем его туда, куда он шёл.
+    if (deliveryTab && deliveryOpen) {
+      setDeliveryTab(false);
+      navigate("/parcels");
+    }
+  }, [deliveryTab, deliveryOpen, navigate]);
 
   /**
    * Приветствие по времени суток. Мелочь, но именно с неё начинается разговор:
@@ -232,15 +249,35 @@ export default function HomeScreen() {
   }, [reqs]);
 
 
+  const selectMode = (m: "pooling" | "taxi" | "courier") => {
+    if (m === "taxi") navigate("/taxi");
+    else if (m === "courier") {
+      if (deliveryOpen) navigate("/parcels");
+      else setDeliveryTab(true);
+    } else setDeliveryTab(false);
+  };
+
+  // Доставка закрыта: вместо карты — «Скоро в Юлдаше». Переключатель режимов остаётся,
+  // чтобы вернуться на попутку одним касанием.
+  if (deliveryTab) {
+    return (
+      <>
+        <ModeSwitch mode="courier" onSelect={selectMode} showExplain={false} />
+        {features.ready ? (
+          <ComingSoon kind="delivery" variant="inline" onFindRide={() => setDeliveryTab(false)} />
+        ) : (
+          <LoadingList count={2} />
+        )}
+      </>
+    );
+  }
+
   return (
     <>
       {/* Как в Android: ModeSwitchBar над всем, затем HomeHeader — приветствие мелким и «Куда поедем?». */}
       <ModeSwitch
         mode="pooling"
-        onSelect={(m) => {
-          if (m === "taxi") navigate("/taxi");
-          else if (m === "courier") navigate("/parcels");
-        }}
+        onSelect={selectMode}
         onExplain={() => {
           const hint = document.querySelector<HTMLDetailsElement>(".modes-hint");
           if (hint) {

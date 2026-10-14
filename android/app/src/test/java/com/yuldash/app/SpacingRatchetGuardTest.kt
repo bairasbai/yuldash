@@ -27,7 +27,7 @@ import org.junit.Test
 class SpacingRatchetGuardTest {
 
     /** Потолок: сколько вызовов `padding(N.dp)` сейчас в коде. Расти нельзя, снижать — нужно. */
-    private val ceiling = 996
+    private val ceiling = 985
 
     /**
      * На сколько число может опуститься ниже потолка, прежде чем тест попросит опустить и потолок.

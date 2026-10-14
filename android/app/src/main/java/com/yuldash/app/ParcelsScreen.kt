@@ -1199,8 +1199,8 @@ internal fun ParcelRateDialog(parcel: ParcelDto, raterIsCourier: Boolean, onDism
 // ─────────────────────────── Экран ───────────────────────────
 
 @Composable
-internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
-    var tab by rememberSaveable { mutableStateOf(0) }   // 0 = отправить, 1 = мои
+internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false, onFindRide: () -> Unit = onBack) {
+    var tab by rememberSaveable { mutableStateOf(if (FeatureFlags.current.deliveryOn) 0 else 1) }   // 0 = отправить, 1 = мои (отправка закрыта — сразу «Мои»)
 
     // embedded = экран открыт внутри хаба режимов (над ним уже есть переключатель Попутка/Такси/Курьер),
     // поэтому своя шапка с «назад» была бы вторым заголовком подряд. Тот же приём, что в InstantOrderScreen.
@@ -1213,20 +1213,7 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
         contentWindowInsets = if (embedded) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            Surface(
-                color = CanonSurface,
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, CanonBorder),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    ParcelTab(appText("Отправить", "Ебәреү"), tab == 0, Modifier.weight(1f)) { tab = 0 }
-                    ParcelTab(appText("Мои", "Минеке"), tab == 1, Modifier.weight(1f)) { tab = 1 }
-                }
-            }
+            DeliveryParcelTabs(tab) { tab = it }
             AnimatedContent(
                 targetState = tab,
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -1234,8 +1221,9 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
                 label = "parcel-tab",
             ) { t ->
                 when (t) {
-                    0 -> SendParcelTab(onSent = { tab = 1 })
-                    else -> MyParcelsTab(onGoSend = { tab = 0 })
+                    0 -> ParcelsSendOrSoon(onSent = { tab = 1 }, onFindRide = onFindRide)   // запуск волнами: DeliveryGate.kt
+                    1 -> MyParcelsTab(onGoSend = { tab = 0 })
+                    else -> DeliveryCarryContent(onFindRide)
                 }
             }
         }
@@ -1243,7 +1231,7 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false) {
 }
 
 @Composable
-private fun ParcelTab(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun ParcelTab(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "ptab-bg")
     val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "ptab-line")
     val ink by animateColorAsState(if (active) CanonGreen2 else CanonMutedStrong, tween(CanonMotion.QUICK), label = "ptab-ink")
@@ -1270,7 +1258,7 @@ private fun ParcelTab(label: String, active: Boolean, modifier: Modifier = Modif
 // ─────────────────────────── Вкладка «Отправить» ───────────────────────────
 
 @Composable
-private fun SendParcelTab(onSent: () -> Unit) {
+internal fun SendParcelTab(onSent: () -> Unit, poputkaOn: Boolean = true, courierOn: Boolean = true) {
     val scope = rememberCoroutineScope()
     // Keep the post-create receipt across Activity recreation. Saving the whole DTO is unsafe
     // and unnecessary; these are exactly the fields rendered on the success screen.
@@ -1280,7 +1268,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
     var createdTo by rememberSaveable { mutableStateOf("") }
     var createdReceiver by rememberSaveable { mutableStateOf("") }
 
-    var deliveryType by rememberSaveable { mutableStateOf("poputka") }   // poputka | courier | buy_bring
+    var deliveryType by rememberSaveable { mutableStateOf(if (poputkaOn) "poputka" else "courier") }   // poputka | courier | buy_bring
     var fromCity by rememberSaveable { mutableStateOf("") }
     var toCity by rememberSaveable { mutableStateOf("") }
     // Где именно забрать и куда привезти. Города мало: курьер брал заказ и ехал «в Баймак» —
@@ -1362,7 +1350,7 @@ private fun SendParcelTab(onSent: () -> Unit) {
         createdReceiver = parcel.receiverName
 
         // A successful submit starts a fresh draft, preventing accidental duplicate orders.
-        deliveryType = "poputka"
+        deliveryType = if (poputkaOn) "poputka" else "courier"
         fromCity = ""; toCity = ""; fromAddress = ""; toAddress = ""; size = ""; description = ""
         weightInput = ""; cargoType = ""; fragile = false
         receiverName = ""; receiverPhone = ""; rulesAccepted = false
@@ -1420,19 +1408,19 @@ private fun SendParcelTab(onSent: () -> Unit) {
         // Тип доставки
         if (step == stepRoute) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                DeliveryTypeCard(
+                if (poputkaOn) DeliveryTypeCard(
                     "poputka", deliveryType == "poputka",
                     appText("По пути", "Юл ыңғайы"),
                     appText("Попутчик, который и так едет. Дёшево, по-соседски.", "Юл ыңғайы бараған юлдаш. Арзан, күршеләрсә."),
                     Icons.Default.LocalShipping,
                 ) { deliveryType = "poputka"; estimate = null }
-                DeliveryTypeCard(
+                if (courierOn) DeliveryTypeCard(
                     "courier", deliveryType == "courier",
                     appText("Заказать курьера", "Курьер заказлау"),
                     appText("Проверенный курьер Юлдаша заберёт и доставит. Цена — сразу.", "Юлдаштың тикшерелгән курьеры алып илтер. Хаҡы — шунда уҡ."),
                     Icons.Default.DeliveryDining,
                 ) { deliveryType = "courier"; estimate = null }
-                DeliveryTypeCard(
+                if (courierOn) DeliveryTypeCard(
                     "buy_bring", deliveryType == "buy_bring",
                     appText("Купи и привези", "Ал да килтер"),
                     appText("Курьер купит товар за тебя и привезёт. До 5000 ₽.", "Курьер һинең өсөн тауар алып килтерер. 5000 ₽-ға тиклем."),

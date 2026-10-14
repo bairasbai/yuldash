@@ -466,7 +466,7 @@ private fun PremiumBadge() {
 // ─────────────────────────── Вкладка «Мои купоны» ───────────────────────────
 
 @Composable
-private fun MyCouponsTab(onGoNearby: () -> Unit = {}) {
+internal fun MyCouponsTab(onGoNearby: () -> Unit = {}, allowNewCoupons: Boolean = true, owner: BenefitOwner? = null) {
     val scope = rememberCoroutineScope()
     var list by remember { mutableStateOf<List<MyCouponDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -474,9 +474,10 @@ private fun MyCouponsTab(onGoNearby: () -> Unit = {}) {
     val loadErr = appText("Не удалось загрузить купоны. Проверь интернет.", "Купондарҙы йөкләп булманы. Интернетты тикшер.")
 
     fun reload() {
+        if (owner != null && !owner.isCurrent()) return
         loading = true; error = null
-        scope.launch {
-            ApiClient.getMyCoupons()
+        launchBenefitOperation(scope, owner, { ApiClient.getMyCoupons() }) { reply ->
+            reply
                 .onSuccess { list = it }
                 .onFailure { error = (it as? com.yuldash.app.data.ApiException)?.message ?: loadErr }
             loading = false
@@ -503,20 +504,9 @@ private fun MyCouponsTab(onGoNearby: () -> Unit = {}) {
                 item { SkeletonCard(lines = 2) }
             }
             error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
-            list.isEmpty() -> item {
-                // Текст указывал дорогу («активируй на вкладке «Скидки рядом»»), но идти туда
-                // человек должен был сам. Экран, который знает, что делать дальше, обязан вести,
-                // а не подсказывать: кнопка переключает на ту же вкладку, о которой говорит текст.
-                AppEmptyState(
-                    title = appText("Пока нет купонов", "Әлегә купондар юҡ"),
-                    text = appText("Активируй скидку на вкладке «Скидки рядом» — код появится здесь.", "«Яҡындағы ташламалар» бүлегендә ташламаны активлаштыр — код бында күренер."),
-                    icon = Icons.Default.LocalOffer,
-                    actionLabel = appText("Посмотреть скидки", "Ташламаларҙы ҡарау"),
-                    onAction = onGoNearby,
-                )
-            }
+            list.isEmpty() -> item { CouponHistoryEmpty(allowNewCoupons, onGoNearby) }
             else -> items(list.size, key = { "myc-" + list[it].code }) { i ->
-                Box(Modifier.appearIn(i.coerceAtMost(6))) { MyCouponCard(list[i]) }
+                Box(Modifier.appearIn(i.coerceAtMost(6))) { MyCouponCard(list[i], owner) }
             }
         }
     }
@@ -524,7 +514,7 @@ private fun MyCouponsTab(onGoNearby: () -> Unit = {}) {
 }
 
 @Composable
-private fun MyCouponCard(m: MyCouponDto) {
+private fun MyCouponCard(m: MyCouponDto, owner: BenefitOwner? = null) {
     val clipboard = LocalClipboardManager.current
     val c = m.coupon
     // Сервер никогда не проставляет статус "expired" у брони купона (leaf-1.3, «вечные брони» —
@@ -551,7 +541,7 @@ private fun MyCouponCard(m: MyCouponDto) {
                 Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonGreen2)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(m.code, color = CanonGreen, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 24.sp, modifier = Modifier.weight(1f))
-                        Surface(onClick = { clipboard.setText(AnnotatedString(m.code)) }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonSurface, shape = RoundedCornerShape(14.dp)) {
+                        Surface(onClick = { if (owner == null) clipboard.setText(AnnotatedString(m.code)) else owner.publish { clipboard.setText(AnnotatedString(m.code)) } }, modifier = Modifier.minimumInteractiveComponentSize(), color = CanonSurface, shape = RoundedCornerShape(14.dp)) {
                             Icon(Icons.Default.ContentCopy, contentDescription = appText("Скопировать код", "Кодты күсереп алыу"), tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(20.dp))
                         }
                     }

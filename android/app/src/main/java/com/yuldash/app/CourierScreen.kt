@@ -212,8 +212,8 @@ internal fun CourierScreen(
     var loading by remember { mutableStateOf(true) }
     var meError by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(reloadKey) {
+    val courierOn = rememberFeatures().isOn(Feature.Courier)   // запуск волнами: DeliveryGate.kt
+    LaunchedEffect(reloadKey, courierOn) {
         loading = true
         meError = false
         applicationRefreshFailed = false
@@ -221,7 +221,7 @@ internal fun CourierScreen(
             .onSuccess { latestApplication ->
                 application = latestApplication
                 applicationChecked = true
-                if (latestApplication?.status == "approved") {
+                if (latestApplication?.status == "approved" && courierOn) {   // режим выключен — кабинет сервер не отдаст
                     ApiClient.getCourierMe()
                         .onSuccess { me = it }
                         .onFailure { meError = true }
@@ -268,16 +268,12 @@ internal fun CourierScreen(
                 // значит убить главный сценарий доставки «между своими». Сервер этого и не
                 // требовал — `/parcels/available` открыт любому вошедшему; запрет жил только
                 // в приложении. Профи-лента («Курьерские») по-прежнему за заявкой.
-                application?.status != "approved" -> Column(Modifier.fillMaxSize()) {
-                    CourierNotApprovedView(
-                        application = application,
-                        refreshFailed = applicationRefreshFailed,
-                        onRetry = { reloadKey++ },
-                        onBecomeCourier = onBecomeCourier,
-                        compact = true,
-                    )
-                    PoputkaDeliveryTabs()
-                }
+                !courierOn || application?.status != "approved" -> CourierPoputkaOrApply(
+                    application = application,
+                    refreshFailed = applicationRefreshFailed,
+                    onRetry = { reloadKey++ },
+                    onBecomeCourier = onBecomeCourier,
+                )
                 m == null -> Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
                     AppErrorState(onRetry = { reloadKey++ })
                 }
@@ -290,8 +286,8 @@ internal fun CourierScreen(
 
 /** Попутные доставки доступны независимо от заявки профессионального курьера. */
 @Composable
-private fun PoputkaDeliveryTabs() {
-    var sub by rememberSaveable { mutableIntStateOf(0) }
+internal fun PoputkaDeliveryTabs(allowNewOrders: Boolean = true) {
+    var sub by rememberSaveable { mutableIntStateOf(if (allowNewOrders) 0 else 1) }
     var carrying by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
     Column(Modifier.fillMaxSize()) {
         Surface(
@@ -312,7 +308,8 @@ private fun PoputkaDeliveryTabs() {
             transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
             label = "poputka-delivery-sub",
         ) { selected ->
-            if (selected == 0) {
+            if (selected == 0 && !allowNewOrders) ComingSoonContent(ComingSoonKind.Delivery, { sub = 1 })
+            else if (selected == 0) {
                 CourierAvailableTab(
                     online = false, lineBusy = false, zone = "region", workCity = "",
                     onGoOnline = {}, poputkaOnly = true,
@@ -320,7 +317,7 @@ private fun PoputkaDeliveryTabs() {
             } else {
                 CourierCarryingTab(
                     online = false, list = carrying, onList = { carrying = it },
-                    onGoOrders = { sub = 0 },
+                    onGoOrders = { sub = 0 }, allowNewOrders = allowNewOrders,
                 )
             }
         }
@@ -330,7 +327,7 @@ private fun PoputkaDeliveryTabs() {
 
 // ─────────────────────────── Не одобрен → CTA ───────────────────────────
 @Composable
-private fun CourierNotApprovedView(
+internal fun CourierNotApprovedView(
     application: CourierApplicationDto?,
     refreshFailed: Boolean,
     onRetry: () -> Unit,
@@ -960,7 +957,8 @@ private fun CourierAvailableTab(
     val actionErr = appText("Не получилось взять. Проверь сеть.", "Алып булманы. Селтәрҙе тикшер.")
     val tookMsg = appText("Заказ у тебя. Он во вкладке «Везу».", "Заказ һиндә. Ул «Илтәм» бүлегендә.")
 
-    val poputka = feed == COURIER_FEED_POPUTKA
+    val parcelsOn = rememberFeatures().isOn(Feature.Parcels)   // посылки выключены — только профи-лента
+    val poputka = feed == COURIER_FEED_POPUTKA && (poputkaOnly || parcelsOn)
     // Линия нужна только профи-ленте: «по пути» человек берёт заодно со своей дорогой.
     val feedReady = poputka || online
     val queryKey = "$feed|$zone|${workCity.trim()}|${cityFilter.trim()}|${toCityFilter.trim()}"
@@ -1040,7 +1038,7 @@ private fun CourierAvailableTab(
                     ),
                 )
             }
-            if (!poputkaOnly) {
+            if (!poputkaOnly && parcelsOn) {
                 item {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CourierPickChip(appText("Курьерские", "Курьер заказдары"), !poputka) { feed = COURIER_FEED_PRO }
@@ -1258,8 +1256,9 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, canTake: Boolean, 
  * отправка GPS, которая живёт выше уровнем и не должна умирать вместе с этой вкладкой.
  */
 @Composable
-private fun CourierCarryingTab(
+internal fun CourierCarryingTab(
     onGoOrders: () -> Unit = {},
+    allowNewOrders: Boolean = true,
     online: Boolean,
     list: List<ParcelDto>,
     onList: (List<ParcelDto>) -> Unit,
@@ -1348,17 +1347,7 @@ private fun CourierCarryingTab(
                     item { SkeletonCard(lines = 3) }
                 }
                 error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
-                list.isEmpty() -> item {
-                    // Текст указывал дорогу, но идти по ней человек должен был сам.
-                    // Кнопка ведёт ровно туда, куда указывает текст — на вкладку «Заказы».
-                    AppEmptyState(
-                        title = appText("Ты пока ничего не везёшь", "Әлегә бер нәмә лә илтмәйһең"),
-                        text = appText("Возьми заказ во вкладке «Заказы» — он появится здесь.", "«Заказдар» бүлегендә заказ ал — ул бында күренер."),
-                        icon = Icons.Default.LocalShipping,
-                        actionLabel = appText("Смотреть заказы", "Заказдарҙы ҡарау"),
-                        onAction = onGoOrders,
-                    )
-                }
+                list.isEmpty() -> item { CourierCarryEmpty(allowNewOrders, onGoOrders) }
                 else -> {
                     // Онлайн-трекинг: карта активной доставки (курьер шлёт свой GPS отправителю).
                     // Карта одна — MapKit тяжёлый, три карты в одном списке подвесят прокрутку.

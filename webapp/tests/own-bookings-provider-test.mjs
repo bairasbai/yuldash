@@ -32,6 +32,8 @@ const mocks = {
     export const rateBooking=async()=>({}),ratingTags=()=>[],setPayAgreement=async()=>({});`,
   medical: `export const fetchMedicalPartners=async()=>[{id:8,name:"Клиника",city:"Уфа"}];export const fetchClinicRides=async()=>({items:[globalThis.__ownBookingsHarness.ride,{...globalThis.__ownBookingsHarness.ride,id:43,front_seat_taken:false}]});`,
   cabinet: `export const SettingSwitchRow="switch";`,
+  features: `const flags={parcels:true,ready:true};export const useFeatures=()=>flags,getFeatures=()=>flags;`,
+  soon: `export default ()=>null;`,
   analytics: `export const track=()=>{};`,
   states: `export const LoadingList="loading",ErrorState="retry";`,
   header: `export const SubHeader="header";`,
@@ -55,6 +57,7 @@ const icons = [...readFileSync(root+"src/components/Icons.tsx","utf8").matchAll(
 mocks.icons=icons.map(name=>`export const ${name}="icon";`).join("\n");
 const suffixes = {
   "/api/client":"client", "/api/bookings":"bookings", "/api/medical":"medical", "/auth/AuthProvider":"auth", "/i18n/lang":"lang",
+  "/features":"features", "/ComingSoon":"soon",
   "/analytics":"analytics", "/cabinetUi":"cabinet", "/Icons":"icons", "/components/States":"states",
   "/ConsentsScreen":"header", "/components/YandexMap":"map", "/components/StatusPill":"status",
   "/components/PartnerAd":"partner", "/utils/tripPass":"pass", "/api/driver":"driver", "/api/chat":"chat",

@@ -369,6 +369,7 @@ internal fun BookingScreen(
         }
         return
     }
+    if (bookingId == null && RideCategoryBlocked(ride.category, onBack, onFindAnotherRide)) return
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
     val context = LocalContext.current
     var details by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
@@ -543,6 +544,7 @@ internal fun BookingScreen(
                 primaryIcon = primaryIcon,
                 onMessage = onMessage,
                 onPrimary = {
+                    if (bookingId == null && rideCategoryClosed(ride.category)) return@BookingDecisionBar
                     when {
                         bookingPending -> showCancelConfirmation = true
                         bookingCancelled -> onFindAnotherRide()

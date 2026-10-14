@@ -5,16 +5,18 @@
 - `/health/ready` — гейт готовности для деплоя/оркестратора: 200 если БД доступна,
                   иначе 503 (не пускать трафик на инстанс без БД).
 - `/version`    — версия сборки.
+- `/config/features` — какие направления включены (запуск волнами, app/features.py).
 
 Ни одна проба не бросает исключение: недоступный компонент → его статус «fail»,
 а не 500. Секретов в ответ не кладём.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from ..config import settings
 from ..db import engine
+from ..features import features_state
 
 router = APIRouter(tags=["health"])
 
@@ -137,3 +139,18 @@ def version_min():
             "ba": settings.whats_new("ba"),
         },
     }
+
+
+@router.get("/config/features")
+def config_features(response: Response):
+    """Какие направления включены — запуск волнами (13.10.2026, app/features.py).
+
+    Приложение и сайт решают по этому ответу, показать вход в направление или аккуратное
+    «Скоро в Юлдаше». Ручка публичная: гость тоже видит главный экран, а в ответе только
+    флаги — ни личных данных, ни городов, ни цен.
+
+    HTTP-кеш на минуту: сервер не отвечает каждому открытию экрана заново. Клиенты
+    проверяют свежесть своего подтверждения без обновления приложения.
+    """
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return features_state()

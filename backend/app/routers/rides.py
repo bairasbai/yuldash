@@ -14,6 +14,7 @@ from ..antifraud import moderate_open_text
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
+from ..features import guard_delivery_ride
 from ..flood import TOO_MANY_RIDES, guard_open_items
 from ..geo import name_variants
 from ..logs import log
@@ -152,6 +153,7 @@ def seat_cap(back_max_two: bool, front_seat_available: bool) -> int:
 @router.post("/rides", response_model=Ride)
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует публикацию
+    guard_delivery_ride(body.category)
     # Отдых водителя (волна 2, §8): во время блока такси разрешена ОДНА попутка «домой»
     # (первая публикация проходит и помечает return_ride_used, вторая → мягкий 403).
     # ВНЕ блока попутка не ограничена вообще — guard мгновенно пропускает.

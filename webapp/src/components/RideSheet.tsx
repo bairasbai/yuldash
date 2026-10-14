@@ -4,6 +4,8 @@
 //  Бронь: POST /bookings → переход на активную поездку /trip/{id}.
 // ================================================================
 import { useEffect, useRef, useState } from "react";
+import { getFeatures, useFeatures } from "../features";
+import ComingSoon from "./ComingSoon";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
@@ -28,6 +30,8 @@ export default function RideSheet({
   const ru = lang !== "ba";
   const navigate = useNavigate();
   const { isAuthed } = useAuth();
+  const features = useFeatures();
+  const parcelCategory = ride.category === "parcel" || ride.category === "cargo";
   const ownBooking = useOwnBooking(ride.id);
   const refreshOwnBookings = useRefreshOwnBookings();
   const ownerGeneration = getSessionGeneration();
@@ -70,6 +74,7 @@ export default function RideSheet({
       navigate(`${ownBooking.status === "pending" ? "/booking" : "/trip"}/${ownBooking.id}`);
       return;
     }
+    if (parcelCategory && !getFeatures().parcels) return;
     if (minor && (!guardName.trim() || !guardPhone.trim())) {
       setError(
         appText(
@@ -133,6 +138,7 @@ export default function RideSheet({
         <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
           {appText("Закрыть", "Ябырға")}
         </button>
+        {parcelCategory && !features.parcels && !ownBooking && !bookingInFlight.current ? <ComingSoon kind="delivery" variant="inline" /> : <>
         <div className="ride-card__route" style={{ fontSize: "var(--font-heading)" }}>
           <span>{ride.from_city}</span>
           <span className="ride-card__arrow">
@@ -302,6 +308,7 @@ export default function RideSheet({
             "Телефон һәм осрашыу урыны йөрөтөүсе раҫлағас асыла."
           )}
         </p>
+        </>}
       </div>
     </div>
   );

@@ -17,6 +17,7 @@ export const useCallback=(fn,deps)=>{const s=h(),i=s.cursor++,old=s.slots[i];if(
 export const useEffect=(fn,deps)=>{const s=h(),i=s.cursor++,old=s.slots[i];if(!old||!same(old.deps,deps)){s.effects.push(()=>{old?.cleanup?.();s.slots[i]={deps,cleanup:fn()};});}};`;
 mocks['react/jsx-runtime']=`export const Fragment='fragment';export const jsx=(type,props)=>({type,props});export const jsxs=jsx;`;
 mocks['../i18n/lang']=`export const useLang=()=>({lang:'ru',appText:globalThis.__taxiBoot.appText});`;
+mocks['../features']=`export const useFeatures=()=>({taxi:globalThis.__taxiBoot.taxi!==false,ready:true});`;
 mocks['react-router-dom']=`export const useNavigate=()=>()=>{};`;
 mocks['../api/client']=`export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}`;
 mocks['../api/instant']+=`
@@ -45,4 +46,6 @@ await check('explicitly disabled city keeps the waitlist gate',async h=>{h.avail
 await check('empty orders and enabled city allow composing',async h=>{await start(h);assert.ok(screen(h,'ComposeView'));});
 await check('geocoder updates the unchanged GPS pickup',async h=>{await start(h,true);h.address.resolve({title:'Адрес GPS'});await settle(h);assert.deepEqual(screen(h,'ComposeView').props.from,{lat:54,lng:55,text:'Адрес GPS'});});
 await check('late geocoder cannot replace manually chosen pickup',async h=>{await start(h,true);const chosen={lat:56,lng:57,text:'Другой адрес'};screen(h,'ComposeView').props.setFrom(chosen);await settle(h);h.address.resolve({title:'Старый GPS-адрес'});await settle(h);assert.deepEqual(screen(h,'ComposeView').props.from,chosen);});
+await check('global off closes a previously enabled city form',async h=>{await start(h);assert.ok(screen(h,'ComposeView'));h.taxi=false;h.dirty=true;await settle(h);assert.equal(screen(h,'ComposeView'),undefined);assert.match(text(h.tree),/Такси скоро/);});
+await check('global off keeps the active trip visible',async h=>{h.taxi=false;h.orders=async()=>[{id:42,status:'onboard'}];await start(h);assert.equal(screen(h,'TrackingView')?.props.order.id,42);});
 console.log(`Taxi bootstrap: ${total-failed}/${total} passed`);if(failed)process.exitCode=1;

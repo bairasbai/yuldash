@@ -328,8 +328,6 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
     var publishing by remember { mutableStateOf(false) }   // ждём ответ сервера, блок двойного нажатия
     var publishError by remember { mutableStateOf<String?>(null) }
     val publishScope = rememberCoroutineScope()
-    // Популярные направления из справочника географии — чипы над формой (тап заполняет оба поля).
-    // Ошибка сети → чипов просто нет, форма работает как раньше.
     var geoRoutes by remember { mutableStateOf<List<SettlementRouteDto>>(emptyList()) }
     LaunchedEffect(Unit) { ApiClient.getSettlementPopularRoutes().onSuccess { geoRoutes = it } }
     LaunchedEffect(from, to) {
@@ -343,6 +341,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
     val dropPinLabel = appText("Точка на карте", "Картала нөктә")
     val errPublish = appText("Не удалось опубликовать. Проверь сеть и повтори.", "Баҫтырып булманы. Селтәрҙе тикшереп ҡабатла.")
     val ctxDt = LocalContext.current
+    if (RideCategoryBlocked(category, onBack, onBack) { category = "regular" }) return
     Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -376,7 +375,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
             onAirConditioner = { airConditioner = it }, onSmoking = { smoking = it },
             onOnlyTrusted = { onlyTrusted = it }, onQuiet = { quiet = it }, onNoMinors = { noMinors = it }, onWaypointsChange = { waypoints = it },
             onPublish = {
-                if (publishing) return@CreateRideFormContent
+                if (publishing || rideCategoryClosed(category)) return@CreateRideFormContent
                 val fromVal = from.ifBlank { "Баймаҡ" }
                 val toVal = to.ifBlank { "Сибай" }
                 val priceVal = price.toIntOrNull() ?: 300
@@ -390,7 +389,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
                     isoWithOffset(picked!!.time)
                 }.getOrElse { isoWithOffset(System.currentTimeMillis() + 3 * 3600_000L) }
                 val ride = Ride(
-                    id = "local-${System.currentTimeMillis()}",
+                    id = "local-${System.currentTimeMillis()}", category = category,
                     from = fromVal, to = toVal,
                     time = dateTime.ifBlank { defaultTime }, timeBa = dateTime.ifBlank { defaultTime },
                     driver = ApiClient.cachedName() ?: "Я",
@@ -405,6 +404,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
                 publishing = true
                 // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                 publishScope.launch {
+                    if (rideCategoryClosed(category)) { publishing = false; return@launch }
                     ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, waypoints.filter { it.isNotBlank() }.joinToString(" | "), noMinors, backMaxTwo, frontSeatAvailable)
                         .onSuccess { id -> publishing = false; onPublish(ride.copy(id = id.toString())) }
                         // Сервер объясняет отказ по-человечески («время выезда уже прошло»,

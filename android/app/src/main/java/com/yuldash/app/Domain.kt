@@ -48,6 +48,7 @@ internal data class Ride(
     // С кем переписка, когда поездку открыли из вкладки «Чат» (там сервер отдаёт имя
     // собеседника). Пусто — шапка чата берёт водителя брони или роль.
     val chatPeer: String = "",
+    val category: String = "regular",
 )
 
 internal data class PopularRoute(

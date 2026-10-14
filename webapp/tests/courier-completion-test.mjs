@@ -27,7 +27,8 @@ async function loadScreen(file,name){
  mocks['../api/client']=`export class ApiError extends Error {}`;
  for(const name of ['parcelAttemptFailed','parcelDispute','parcelReturnDone','parcelReturnStart','releaseParcel'])if(!mocks['../api/parcels'].includes('function '+name))mocks['../api/parcels']+='\nexport '+fixture(name);
  for(const name of ['IconArrow','IconFlag','IconWarn'])if(!mocks['../components/Icons'].includes('function '+name))mocks['../components/Icons']+='\nexport '+fixture(name);
- const result=await build({stdin:{contents:source+`\nexport {${name}};`,resolveDir:root+'src/screens',loader:'tsx'},bundle:true,write:false,platform:'node',format:'esm',jsx:'automatic',plugins:[{name:'fixtures',setup(b){b.onResolve({filter:/.*/},a=>{
+ const exposed=new RegExp(`\\bexport\\s+(?:async\\s+)?function\\s+${name}\\b`).test(source)?source:source+`\nexport {${name}};`;
+ const result=await build({stdin:{contents:exposed,resolveDir:root+'src/screens',loader:'tsx'},bundle:true,write:false,platform:'node',format:'esm',jsx:'automatic',plugins:[{name:'fixtures',setup(b){b.onResolve({filter:/.*/},a=>{
   if(['/CompletedParcelCard','/ParcelProblemActions','/parcelDispute.js'].some(end=>a.path.endsWith(end)))return undefined;
   const shared=Object.keys(mocks).find(k=>a.path.startsWith('./')&&k.split('/').at(-1)===a.path.split('/').at(-1));if(shared)return{path:shared,namespace:'fixture'};
   if(a.path in mocks)return{path:a.path,namespace:'fixture'};

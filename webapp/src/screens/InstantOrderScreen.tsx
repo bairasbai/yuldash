@@ -12,9 +12,10 @@
 //  release-2026-07 → до этого 404/405 → «Такси скоро».
 // ================================================================
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, type NavigateFunction } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
+import { useFeatures } from "../features";
 import {
   fetchTaxiAvailability,
   instantEstimate,
@@ -83,6 +84,58 @@ function categoryLabel(cat: string, appText: (ru: string, ba: string) => string)
 type Point = { lat: number; lng: number; text: string };
 type View = "boot" | "error" | "gate" | "compose" | "tracking";
 
+/**
+ * «Такси скоро в твоём городе» — карточка закрытого такси. Обычная функция, а не компонент:
+ * экран вызывает её на месте (хуки у него свои), а App показывает ту же карточку гостю,
+ * когда такси выключено целиком, — вместо просьбы войти ради «скоро».
+ */
+export function taxiGateView({
+  appText,
+  ru,
+  navigate,
+  message,
+  city,
+}: {
+  appText: (ru: string, ba: string) => string;
+  ru: boolean;
+  navigate: NavigateFunction;
+  message: { ru: string; ba: string } | null;
+  city: string;
+}) {
+  return (
+    <>
+      <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
+      <div className="state" style={{ paddingTop: 40 }}>
+        <div className="state__icon"><IconCar size={34} /></div>
+        <h2>{appText("Такси скоро в твоём городе 🚕", "Такси тиҙҙән ҡалаңда 🚕")}</h2>
+        <p>
+          {message
+            ? (ru ? message.ru : message.ba)
+            : appText(
+                "Мы уже готовим быстрый заказ в твоём городе. Загляни чуть позже — а пока попутки ждут на карте.",
+                "Тиҙ заказды әҙерләйбеҙ. Аҙыраҡ һуңынан кил — әлегә юлдаштар картала көтә."
+              )}
+        </p>
+        {/* Почему именно тут пусто. Иначе выглядит как «до нас не дошли руки»,
+            а причина обратная: пускаем город, только когда машины реально рядом. */}
+        <p className="demand__quiet">
+          {appText(
+            "Мы подключаем города по очереди, чтобы машины точно были рядом. А попутка уже работает по всей республике.",
+            "Ҡалаларҙы сиратлап тоташтырабыҙ — машиналар яҡында булһын өсөн. Ә юлдаш инде бөтә республикала эшләй."
+          )}
+        </p>
+        {/* Дверь вместо тупика: город включают, когда в нём набирается достаточно людей.
+            Оставленный номер — это и есть тот набор, а для человека — обещание позвать. */}
+        <WaitlistForm city={city} />
+
+        <button type="button" className="btn-primary" onClick={() => navigate("/map")}>
+          {appText("К попуткам", "Юлдаштарға")}
+        </button>
+      </div>
+    </>
+  );
+}
+
 const POLL_MS = 3500;
 /** Насколько вперёд сервер принимает предзаказ (`scheduled_max_days` в конфиге). */
 const SCHEDULE_MAX_DAYS = 7;
@@ -96,6 +149,7 @@ export default function InstantOrderScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
+  const features = useFeatures();
 
   const [view, setView] = useState<View>("boot");
   const [gateMsg, setGateMsg] = useState<{ ru: string; ba: string } | null>(null);
@@ -230,6 +284,12 @@ export default function InstantOrderScreen() {
       .catch(() => {});
   }, [order]);
 
+  // Живой заказ сохраняется; отсутствие флага закрывает только новую форму.
+  if (view === "compose" && !features.taxi) {
+    if (!features.ready) return <LoadingList count={2} />;
+    return taxiGateView({ appText, ru, navigate, message: null, city: gateCity });
+  }
+
   // ---------------- Рендер по фазам ----------------
   if (view === "boot") {
     return (
@@ -255,38 +315,7 @@ export default function InstantOrderScreen() {
   }
 
   if (view === "gate") {
-    return (
-      <>
-        <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
-        <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__icon"><IconCar size={34} /></div>
-          <h2>{appText("Такси скоро в твоём городе 🚕", "Такси тиҙҙән ҡалаңда 🚕")}</h2>
-          <p>
-            {gateMsg
-              ? (ru ? gateMsg.ru : gateMsg.ba)
-              : appText(
-                  "Мы уже готовим быстрый заказ в твоём городе. Загляни чуть позже — а пока попутки ждут на карте.",
-                  "Тиҙ заказды әҙерләйбеҙ. Аҙыраҡ һуңынан кил — әлегә юлдаштар картала көтә."
-                )}
-          </p>
-          {/* Почему именно тут пусто. Иначе выглядит как «до нас не дошли руки»,
-              а причина обратная: пускаем город, только когда машины реально рядом. */}
-          <p className="demand__quiet">
-            {appText(
-              "Мы подключаем города по очереди, чтобы машины точно были рядом. А попутка уже работает по всей республике.",
-              "Ҡалаларҙы сиратлап тоташтырабыҙ — машиналар яҡында булһын өсөн. Ә юлдаш инде бөтә республикала эшләй."
-            )}
-          </p>
-          {/* Дверь вместо тупика: город включают, когда в нём набирается достаточно людей.
-              Оставленный номер — это и есть тот набор, а для человека — обещание позвать. */}
-          <WaitlistForm city={gateCity} />
-
-          <button type="button" className="btn-primary" onClick={() => navigate("/map")}>
-            {appText("К попуткам", "Юлдаштарға")}
-          </button>
-        </div>
-      </>
-    );
+    return taxiGateView({ appText, ru, navigate, message: gateMsg, city: gateCity });
   }
 
   if (view === "tracking" && order) {

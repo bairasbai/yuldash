@@ -100,6 +100,7 @@ object ApiClient {
     internal fun resetForTest() {
         bg.coroutineContext.cancelChildren()
         testBaseUrl = null
+        com.yuldash.app.FeatureFlags.resetForTest()   // в тестах все направления открыты, без сети
     }
 
     /**
@@ -795,6 +796,7 @@ object ApiClient {
     /** Минимальная поддерживаемая версия приложения (force-update, B9b-1). Без авторизации.
      *  min_version_code=0 → проверка выключена. Ошибка/офлайн → вызывающий НЕ блокирует. */
     suspend fun minAppVersion(): Result<JSONObject> = call("GET", "/version/min", null, auth = false)
+    suspend fun features(): Result<JSONObject> = com.yuldash.app.FeatureFlagTransport.fetch("$BASE/config/features", (testTimeoutMs ?: com.yuldash.app.FeatureFlags.ANSWER_WAIT_MS.toInt()).toLong())   // флаги направлений, без входа (FeatureFlags.kt)
 
     /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
     suspend fun me(): Result<JSONObject> = cachedGet("me", TTL_PERSONAL, onValue = { o: JSONObject ->
@@ -1457,8 +1459,6 @@ object ApiClient {
     /** Принять цену, которая сейчас на столе → booking_id. Принимает тот, чей ход. */
     suspend fun acceptResponse(responseId: Int): Result<Int> =
         call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).map { it.optInt("booking_id") }.onSuccess { Analytics.log("accept_response") }
-
-
 
     /** Водитель отзывает свой отклик — пока пассажир его не принял (после accept сервер вернёт 409). */
     suspend fun deleteResponse(responseId: Int): Result<Unit> =

@@ -19814,6 +19814,89 @@ button.settings-row:active {
   line-height: var(--line-micro);
 }
 
+/* ================================================================
+   «Скоро в Юлдаше» (ComingSoon.tsx) — направление ещё не включено сервером.
+   Зеркало Android ComingSoon.kt: знак направления в мягком круге, метка, заголовок,
+   объяснение и кнопки. Доставка — синий курьерский акцент, остальное — зелёный.
+   Появление — каскадом (.appear) и popIn; при prefers-reduced-motion движения нет.
+   ================================================================ */
+.coming-soon {
+  --soon-accent: var(--green2);
+  --soon-ink: var(--green);
+  --soon-bg: var(--mint);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: var(--space-xxl) 0 var(--space-xl);
+  text-align: center;
+}
+.coming-soon--courier {
+  --soon-accent: var(--courier);
+  --soon-ink: var(--courier);
+  --soon-bg: var(--courier-bg);
+}
+.coming-soon__badge {
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border-radius: var(--radius-pill);
+  background: var(--soon-bg);
+  color: var(--soon-accent);
+  animation: popIn var(--motion-entry) ease both;
+}
+.coming-soon__text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-xl);
+}
+.coming-soon__name {
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-tiny);
+  background: var(--soon-bg);
+  color: var(--soon-ink);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  font-weight: var(--weight-micro);
+}
+.coming-soon__title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-title);
+}
+.coming-soon__body {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.coming-soon__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  width: 100%;
+  margin-top: var(--space-xxl);
+}
+.coming-soon__actions .btn-primary,
+.coming-soon__actions .btn-soft {
+  flex: none;
+  width: 100%;
+  margin-top: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .coming-soon__badge,
+  .coming-soon__text,
+  .coming-soon__actions {
+    animation: none;
+  }
+}
+
 /* ============================================================
    Чат поездки на отдельной странице (/trip/:id/chat)
 

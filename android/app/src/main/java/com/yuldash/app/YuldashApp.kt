@@ -937,6 +937,7 @@ private fun YuldashAppContent() {
         startHomeTab = tab
         screen = Screen.Home
     }
+    val findRide = { RideModeRequest.pooling(); openHome(HomeTab.Map) }   // «Найти попутку» с заглушки «Скоро в Юлдаше»
     fun openProtectedScreen(destination: Screen) {
         if (ApiClient.isLoggedIn()) screen = destination
         else {
@@ -1228,6 +1229,7 @@ private fun YuldashAppContent() {
                 onOpenTaxiChat = { id -> instantChatOrderId = id; screen = Screen.InstantChat },
                 onOpenReceipt = { id -> taxiReceiptOrderId = id; screen = Screen.TaxiReceipt },
                 onOpenCarPhoto = { mode -> carPhotoMode = mode; screen = Screen.CarPhoto },
+                onFindRide = findRide,
             )
             Screen.Splash -> {
                 // Зелёный «мост» — продолжение СИСТЕМНОГО сплэша, БЕЗ повторной анимации лого.
@@ -1623,16 +1625,13 @@ private fun YuldashAppContent() {
                 }
             )
             }
-            Screen.AdsCabinet -> AdsCabinetScreen(
+            Screen.AdsCabinet -> ScreenGate(Feature.Ads, ComingSoonKind.Ads, { goBack() }, findRide) { AdsCabinetScreen(
                 onBack = { goBack() },
                 onCreateAd = { adEditorTarget = null; screen = Screen.AdEditor },
                 onEditAd = { dto -> adEditorTarget = dto; screen = Screen.AdEditor },
-            )
-            Screen.AdEditor -> AdEditorScreen(
-                initial = adEditorTarget,
-                onBack = { goBack() },
-                onSaved = { goBack() },   // сохранил → назад в кабинет (не оставляем редактор в трейле)
-            )
+            ) }
+            Screen.AdEditor -> ScreenGate(Feature.Ads, ComingSoonKind.Ads, { goBack() }, findRide) {   // сохранил → назад в кабинет (не оставляем редактор в трейле)
+                AdEditorScreen(initial = adEditorTarget, onBack = { goBack() }, onSaved = { goBack() }) }
             Screen.SimpleMode -> SimpleModeScreen(
                 latestRequests = localRequests,
                 onBack = { goBack() },
@@ -1739,8 +1738,8 @@ private fun YuldashAppContent() {
                     screen = Screen.Booking
                 }
             )
-            Screen.Coupons -> CouponsScreen(onBack = { goBack() })
-            Screen.PartnerCabinet -> PartnerCabinetScreen(onBack = { goBack() })
+            Screen.Coupons -> ScreenGate(Feature.Business, ComingSoonKind.Business, { goBack() }, findRide, closedContent = { ExistingCouponHistoryScreen({ goBack() }, findRide) }) { CouponsScreen(onBack = { goBack() }) }
+            Screen.PartnerCabinet -> ScreenGate(Feature.Business, ComingSoonKind.Business, { goBack() }, findRide, appText("Мой бизнес", "Минең бизнес"), closedContent = { ExistingPartnerRedeemScreen({ goBack() }, findRide) }) { PartnerCabinetScreen(onBack = { goBack() }) }
             Screen.PromoCode -> PromoCodeScreen(onBack = { goBack() })
         }
         }
