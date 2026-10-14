@@ -4715,3 +4715,16 @@ ApiClient.cacheRevisions хранит invalidation version по фиксиров
 - PWA: `utils/seatOptions.ts` (потолок, подсказки), `components/SeatOptions.tsx` (`SeatOptionsFields`,
   `SeatBadges`, `FrontSeatChoice`) в `CreateRideScreen`, `RideEditActions`, `RideCard`, `RideSheet`;
   «просит переднее» — `DriverCabinetScreen`, «переднее место» — `BookingScreen`.
+
+## Полировка волны 1: карта без ключа, лента «Найти попутку», код посадки (14.10.2026)
+
+Новых `Screen` нет — три маленьких файла рядом с существующими экранами.
+- `MapKitGate.kt` — единственный шов «есть ли живая карта»: `mapKitKeyAvailable()` (читает `BuildConfig.YANDEX_MAPKIT_KEY`),
+  `MapKitUnavailable(modifier)` — первая строка любого composable, что создаёт `MapView` (`if (MapKitUnavailable(modifier)) return`),
+  `PickupPickerUnavailable` (полноэкранная заглушка «Отметить на карте»), `ensureMapKit` (переехал из `MapScreen.kt`).
+  Места: `YandexMapCard`, `PickupPickerOverlay` (`MapScreen.kt`), `InstantRouteMap` (`InstantOrderScreen.kt`; им пользуются такси,
+  курьер, поиск, поездка, навигация водителя), `BookingRouteMapPreview` (`BookingActiveTripScreen.kt`). Держит `MapKitGateGuardTest`.
+- `NearbyFeedSearch.kt` — «Найти попутку» на вкладке «Карта» (`MapScreen`): `rememberNearbyFeedState` (плавно ставит
+  «Ближайшие поездки» наверх), `NearbyRouteReset` («Все маршруты»). Колбэка `onOpenPopular` и состояния «пресет вкладки Поездки» больше нет.
+- `BoardingCodeRules.kt` — `boardingDone` / `showBoardingCode` (карточка «Код посадки» уходит после «Я сел») и
+  `needsOfflineCodeCopy` (плашка «Код не сохранён» — только пассажиру с офлайн-паспортом).
