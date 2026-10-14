@@ -227,4 +227,36 @@ check(
 check(simple.includes('to: "/repeat"'), "простой режим содержит частые маршруты");
 check(cabinet.includes('navigate("/wallet")'), "кошелёк пассажира открывает настоящий экран");
 
+// Опции мест (2026-10-14): одно и то же в приложении и в вебе — водитель задаёт, пассажир
+// просит переднее, обе стороны видят. Иначе в вебе «переднее» молча терялось бы.
+const ak = (f) => readFileSync(join(ROOT, "android/app/src/main/java/com/yuldash/app", f), "utf8");
+const web = (f) => readFileSync(join(ROOT, "webapp/src", f), "utf8");
+const aCreate = ak("CreateRideScreen.kt");
+const wCreate = web("screens/CreateRideScreen.tsx");
+check(
+  aCreate.includes('mutableStateOf("4")') && aCreate.includes("SeatOptionsCard(") &&
+    wCreate.includes("useState(SEATS_DEFAULT)") && wCreate.includes("<SeatOptionsFields") &&
+    wCreate.includes("back_max_two: backMaxTwo") && wCreate.includes("front_seat_available: frontSeatAvailable"),
+  "создание поездки: 4 места по умолчанию и тумблеры «сзади двое» / «переднее свободно» в обоих клиентах"
+);
+check(
+  ak("BookingActiveTripScreen.kt").includes("frontSeatItem(") &&
+    ak("SeatOptions.kt").includes("FrontSeatRequestBlock(") &&
+    web("components/RideSheet.tsx").includes("<FrontSeatChoice") &&
+    web("components/RideSheet.tsx").includes("front_seat: true"),
+  "пассажир просит переднее место и в приложении, и в вебе"
+);
+check(
+  ak("RidesRequestsChatScreens.kt").includes("Переднее занято") &&
+    web("components/RideCard.tsx").includes("<SeatBadges") &&
+    web("components/SeatOptions.tsx").includes("Переднее занято"),
+  "лента показывает «переднее свободно / занято» и «сзади двое» в обоих клиентах"
+);
+check(
+  ak("ProfileScreen.kt").includes("FrontSeatRequestBadge()") &&
+    web("screens/DriverCabinetScreen.tsx").includes("b.front_seat") &&
+    web("screens/BookingScreen.tsx").includes("d.front_seat"),
+  "водитель видит «просит переднее место», в деталях брони — «переднее место»"
+);
+
 if (bad) process.exit(1);

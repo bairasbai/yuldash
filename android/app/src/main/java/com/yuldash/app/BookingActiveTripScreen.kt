@@ -346,7 +346,7 @@ internal fun BookingScreen(
     // (аудит сценариев 30.08, два P0). Пусто = состояние неизвестно, ведём себя как раньше.
     bookingStatus: String = "",
     onCancelBooking: () -> Unit = {},
-    onFindAnotherRide: () -> Unit = {},
+    onFindAnotherRide: () -> Unit = {}, frontSeat: Boolean = false, onFrontSeatChange: (Boolean) -> Unit = {},   // + «хочу переднее» (SeatOptions.kt)
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
     // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
@@ -731,7 +731,7 @@ internal fun BookingScreen(
                     onAmount = { payAmountText = it },
                 )
             }
-            // Едет подросток: до брони — форма со взрослым, после — только подтверждённая пометка.
+            frontSeatItem(ride, bookingId, details, frontSeat, onFrontSeatChange)   // переднее место; ниже подросток: до брони форма со взрослым, после — пометка
             if (bookingId == null) {
                 item {
                     if (!ride.noMinors) {

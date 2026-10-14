@@ -35,6 +35,10 @@ internal data class Ride(
     val airConditioner: Boolean = false,
     val quiet: Boolean = false,
     val noMinors: Boolean = false,   // водитель не берёт пассажиров младше 18 без взрослого
+    // Опции мест: «сзади максимум двое», переднее предлагается / уже обещано другому.
+    val backMaxTwo: Boolean = false,
+    val frontSeatAvailable: Boolean = true,
+    val frontSeatTaken: Boolean = false,
     val waypoints: List<String> = emptyList(),   // остановки по пути (A→точки→B)
     val pickup: String = "",
     val pickupLat: Double? = null,

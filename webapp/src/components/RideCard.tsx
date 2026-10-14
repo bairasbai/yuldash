@@ -4,6 +4,7 @@ import type { Ride } from "../api/rides";
 import { IconArrow, IconCheck } from "./Icons";
 import { serverDate } from "../utils/serverTime";
 import { YuStar, YuWomenOnly } from "./BrandIcons";
+import { SeatBadges } from "./SeatOptions";
 
 import { dayMonthShort, hhmm, pluralRu } from "../utils/format";
 function initials(name: string): string {
@@ -70,6 +71,8 @@ export default function RideCard({ ride, index, to }: { ride: Ride; index: numbe
             {appText("За рулём женщина", "Рулдә ҡатын-ҡыҙ")}
           </span>
         )}
+        {/* Места: «переднее свободно / занято», «сзади двое» — то, что хотят знать до брони. */}
+        <SeatBadges ride={ride} />
         {ride.boosted && (
           <span className="badge badge--boost">
             {appText("Поднято", "Күтәрелгән")}

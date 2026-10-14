@@ -4701,3 +4701,17 @@ ApiClient.cachedGet связывает cold-read с монотонным readOrd
 ## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
 
 ApiClient.cacheRevisions хранит invalidation version по фиксированному ключу под sessionLock. invalidate increment-before-remove; cachedGet capturesversionbeforefetch ипроверяетприacceptance вместе с readOrder/owner/cancel. Contacts revision теперь тот же generic key mechanism; session generation отдельна. Direct caller Result не изменён. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).
+
+## Опции мест в машине (14.10.2026)
+
+Не экран, а блоки внутри существующих экранов (новых `Screen` нет).
+- Сервер: `Ride.back_max_two`, `Ride.front_seat_available`, `Booking.front_seat`; `rides.py::seat_cap`
+  (потолок мест), `services.front_seats_taken` → `RideOut.front_seat_taken`; `bookings.py::book` — проверка
+  и отказ «Переднее место уже занято»; барьер — индекс `uq_booking_front_seat_live` (`models.FRONT_SEAT_LIVE_WHERE`).
+  Поле `front_seat` отдают `/bookings/{id}/details`, `/bookings/mine`, `/driver/bookings`.
+- Android: `SeatOptions.kt` — `SeatOptionsCard` (форма «Создать поездку», под числом мест), `FrontSeatRequestBlock`
+  (бронь, `BookingScreen`), `FrontSeatRequestBadge` (заявка в кабинете водителя); значки — `RidePrefChips`;
+  правка поездки — диалог в `DriverCabinetContent`. Состояние «хочу переднее» держит `YuldashApp` (ветка `Screen.Booking`).
+- PWA: `utils/seatOptions.ts` (потолок, подсказки), `components/SeatOptions.tsx` (`SeatOptionsFields`,
+  `SeatBadges`, `FrontSeatChoice`) в `CreateRideScreen`, `RideEditActions`, `RideCard`, `RideSheet`;
+  «просит переднее» — `DriverCabinetScreen`, «переднее место» — `BookingScreen`.
