@@ -109,4 +109,39 @@ class FindRideButtonTest {
         compose.onAllNodesWithText("Все маршруты").assertCountEquals(0)
     }
 
+    @Test fun allRoutesRemovesSearchFilterEvenWhenThereIsAnActiveTrip() {
+        val activeTrip = Ride(
+            id = "101", from = "Уфа", to = "Белорецк", time = "18:00",
+            driver = "Тестовый водитель", car = "Авто", price = 0, seats = 1,
+            rating = 5.0, verified = true, boosted = false,
+        )
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                MapScreen(
+                    rides = emptyList(), activeTrip = activeTrip, ads = emptyList(), adStats = emptyMap(),
+                    onBookRide = {}, onShareRide = {}, onAdImpression = {}, onAdClick = {}, onSos = {},
+                    onDriver = {}, onBoost = {}, onClinicRides = {},
+                )
+            }
+        }
+        // Начальное поведение сохраняем: до явного поиска показывается маршрут активной поездки.
+        waitFor("лента активной поездки") {
+            nearRequests().any { "from_city=Уфа" in it && "to_city=Белорецк" in it }
+        }
+        compose.onAllNodesWithText("Все маршруты").assertCountEquals(0)
+
+        compose.onNodeWithText("Найти попутку").performClick()
+        waitFor("выбранный популярный маршрут") {
+            nearRequests().any { "from_city=Баймаҡ" in it && "to_city=Сибай" in it }
+        }
+        compose.onNodeWithText("Все маршруты").assertIsDisplayed()
+
+        val beforeReset = nearRequests().size
+        compose.onNodeWithText("Все маршруты").performClick()
+        waitFor("все маршруты при существующей активной поездке") {
+            nearRequests().drop(beforeReset).any { "from_city=" !in it && "to_city=" !in it }
+        }
+        compose.onAllNodesWithText("Все маршруты").assertCountEquals(0)
+    }
+
 }

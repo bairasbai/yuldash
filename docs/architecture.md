@@ -4755,5 +4755,6 @@ ApiClient.cacheRevisions хранит invalidation version по фиксиров
 - `BoardingCodeRules.kt` — `boardingDone` / `showBoardingCode` (карточка «Код посадки» уходит после «Я сел») и
   `needsOfflineCodeCopy` (плашка «Код не сохранён» — только пассажиру с офлайн-паспортом).
 
+14.10 — дополнение к MapKitGate: no-key пикер перехватывает системный Back и safeDrawing; NearbyFeedSearch хранит явный выбор маршрута отдельно от первоначального activeTrip fallback. MapScreen имеет прежнее число строк. CI RED/текущие пределы — docs/tasks.md.
 ## Переднее место своей брони в PWA, 14.10.2026
 `booking/OwnBookingsProvider.tsx` получает один `/bookings/mine` на страницу потребителей карточек/шторки, связывает snapshot с session generation+user.id, отменяет прежний read и отбрасывает поздние версии. `utils/ownBookings.ts` принимает только живую бронь того же ride_id с явным front_seat=true. Card/Sheet показывают собственное переднее место; собственная бронь открывается по её id. После успешных create/cancel выполняется owner-bound invalidation. ActiveTripScreen использует уже полученное BookingDetails.front_seat для RU/BA блока «Место». API-функции и backend не изменены. Проверки: own-front-seat-test.mjs, own-bookings-provider-test.mjs, прежний ride-booking-path-test.mjs.
