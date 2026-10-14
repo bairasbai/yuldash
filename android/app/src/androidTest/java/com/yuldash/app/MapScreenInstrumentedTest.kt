@@ -65,7 +65,6 @@ class MapScreenInstrumentedTest {
                     onAdImpression = {},
                     onAdClick = {},
                     onSos = {},
-                    onOpenPopular = {},
                     onDriver = onDriver,
                     onBoost = {},
                     onClinicRides = {},

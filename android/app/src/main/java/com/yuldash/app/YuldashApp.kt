@@ -2470,20 +2470,11 @@ internal fun HomeScreen(
     onOpenInstantOrder: () -> Unit = {},
     onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() }
 ) {
-    var ridesPresetTo by remember { mutableStateOf("") }
-    var ridesPresetToday by remember { mutableStateOf(false) }
-
     // Шелл (таб-стейт + нижнее меню + смена вкладок) вынесен в чистый HomeShell — тестируется на JVM.
     // HomeScreen остаётся «умной» обёрткой: раздаёт данные/колбэки в тело конкретной вкладки.
     HomeShell(initialTab = initialTab, onTabChange = onTabChange, onSelectTab = onSelectTab,
         onOpenInstantOrder = onOpenInstantOrder) { tab, selectTab ->
             val gate = LocalHomeTabActionGate.current
-            fun openRides(to: String = "", today: Boolean = false) {
-                gate.select(HomeTab.Rides) {
-                    ridesPresetTo = to
-                    ridesPresetToday = today
-                }
-            }
             when (tab) {
                 HomeTab.Map -> PassengerModeHome(
                     rides = rides,
@@ -2495,7 +2486,6 @@ internal fun HomeScreen(
                     onAdImpression = onAdImpression,
                     onAdClick = onAdClick,
                     onSos = gate.guard(onSos),
-                    onOpenPopular = { route -> openRides(to = route.to, today = true) },
                     onDriver = gate.guard(onCreateRide),
                     onBoost = gate.guard(onBoost),
                     onInstantLogin = gate.guard(onInstantLogin),
@@ -2513,8 +2503,6 @@ internal fun HomeScreen(
                     rides = rides,
                     ads = ads,
                     adStats = adStats,
-                    presetTo = ridesPresetTo,
-                    presetToday = ridesPresetToday,
                     onBookRide = gate.guard(onBookRide),
                     onOpenBookingDetails = gate.guard(onOpenBookingDetails),
                     onOpenActiveTrip = gate.guard(onOpenActiveTrip),

@@ -29,7 +29,7 @@ class YuldashApplication : Application() {
         FcmService.ensureChannels(this)
         TaxiOfferNotifier.ensureChannel(this, AppPrefs.language(this))
         ApiClient.registerCurrentPushToken()   // если уже вошли — зарегистрировать устройство для push
-        if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank()) {
+        if (mapKitKeyAvailable()) {
             MapKitFactory.setApiKey(BuildConfig.YANDEX_MAPKIT_KEY)
         }
     }
