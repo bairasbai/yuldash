@@ -4765,3 +4765,5 @@ ApiClient.cacheRevisions хранит invalidation version по фиксиров
 Уточнение после GREEN: ComingSoonKind дополнен Taxi с существующей иконкой и прежним текстом RU/BA; runtime24/24 и сборка прошли. Повтор офлайн на устройстве ожидает освобождения общего эмулятора.
 
 17:00 — фактический повтор офлайн на APK8496a39d завершён: RU/BA, cold start, ручной retry и возврат к попуткам. Доказательства64–67,71–72 и taxi-offline-emulator-evidence.json в игнорируемой QA-папке; все шесть CI product8496a39d зелёные. Новых Screen и маршрутов нет.
+
+18:02 — режимные yuldash_mode_ride/taxi/courier сохраняют символические имена R.drawable, упакованы в WebP lossless/exact вместо PNG. Pixel/size/source-metadata identity подтверждена независимо; общий вес1594КиБ под прежним лимитом. Native57806588 показал режимные иконки, офлайн-гейт и возврат к попуткам;73/74 и final-integration-emulator-evidence.json в QA-папке.
