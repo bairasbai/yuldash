@@ -6686,6 +6686,7 @@ data class DriverBookingDto(
     // Без этого после перезагрузки экрана звёзды снова были пустые, и человек оценивал повторно.
     val myStars: Int = 0,
     val frontSeat: Boolean = false,   // просит переднее место — водитель видит до решения
+    val passengerId: Int = 0,   // вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»); 0 — старый сервер
 )
 
 /** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */
@@ -6916,6 +6917,7 @@ internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
         status = o.optString("status"),
         myStars = o.optInt("my_stars"),
         frontSeat = o.optBoolean("front_seat"),
+        passengerId = o.optInt("passenger_id"),
     )
 }
 

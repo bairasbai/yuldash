@@ -3,7 +3,7 @@
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
@@ -750,6 +750,11 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
                                .with_for_update().execution_options(populate_existing=True)).first()
         if booking.status in (BookingStatus.cancelled, BookingStatus.done):
             return booking                     # другая параллельная отмена опередила — места уже возвращены
+        # Та же неявка другой дверью: водитель отменяет бронь «в пути» с причиной «не пришёл».
+        # Правило одно (решение 14.10.2026): пассажир сам отметил «Я сел» — спор решает разбор.
+        if (booking.status == BookingStatus.onboard and user.id == ride.driver_id
+                and body is not None and (body.reason or "").strip() == "no_show"):
+            raise _no_show_onboard_refusal()
         contact_opened = booking.status in (BookingStatus.confirmed, BookingStatus.onboard) or (
             session.exec(select(Message.id).where(Message.booking_id == booking_id).limit(1)).first()
             is not None
@@ -792,15 +797,34 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
     return booking
 
 
+def _no_show_onboard_refusal() -> HTTPException:
+    """Отказ «неявки» по брони «в пути»: что случилось и что делать дальше — на двух языках.
+    `code` — машинная причина: по ней клиент сразу меняет «Не пришёл» на «Сообщить о проблеме»."""
+    return HTTPException(status_code=409, detail={
+        "ru": "Пассажир уже отметил «Я сел» — неявку не отметить. Если он не садился, сообщи о проблеме: разберёмся.",
+        "ba": "Юлсы «Ултырҙым» тип билдәләне инде — килмәүҙе билдәләп булмай. Ултырмаһа, проблема тураһында хәбәр ит: тикшерербеҙ.",
+        "code": "passenger_onboard",
+    })
+
+
 @router.post("/bookings/{booking_id}/no-show", response_model=Booking)
 def mark_no_show(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель отмечает, что пассажир НЕ ЯВИЛСЯ (no-show): бронь → cancelled, места возвращаются,
-    ставим no_show + cancel_reason='no_show'. Только водитель этой поездки и только по подтверждённой/в-пути
-    брони. Идемпотентно. Сигнал доверия «между своими» (отдельно от обычной отмены)."""
+    ставим no_show + cancel_reason='no_show'. Только водитель этой поездки и только по ПОДТВЕРЖДЁННОЙ
+    брони. Идемпотентно. Сигнал доверия «между своими» (отдельно от обычной отмены).
+
+    «В пути» (onboard) — отказ 409 (решение 14.10.2026, docs/decisions.md). Пассажир сам нажал
+    «Я сел»: слово против слова, и одним тапом водителя его не перечеркнуть — неявка снимает
+    бронь и возвращает места в продажу. Если отметка «Я сел» нечестная, водитель сообщает
+    о проблеме — двусторонний разбор (POST /incidents по брони, тип passenger_no_show):
+    пассажир объясняется, решает админ, и только подтверждённая неявка бьёт по Надёжности.
+    Сторож — `test_no_show_refused_onboard.py`."""
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if user.id != ride.driver_id:
         raise herr(403, "Отметить неявку может только водитель поездки", "Килмәүҙе тик сәфәр йөрөтөүсеһе генә билдәләй ала")
-    if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
+    if booking.status == BookingStatus.onboard:
+        raise _no_show_onboard_refusal()
+    if booking.status != BookingStatus.confirmed:
         raise herr(409, "Неявку можно отметить только по подтверждённой брони", "Килмәүҙе тик раҫланған бронь буйынса ғына билдәләп була")
     # Порядок локов Ride → Booking — ЕДИНЫЙ с cancel_booking/cancel_ride (V4, без deadlock).
     # populate_existing — по той же причине, что в cancel_booking: обе строки уже загружены выше,
@@ -809,7 +833,10 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
                         .with_for_update().execution_options(populate_existing=True)).first()
     booking = session.exec(select(Booking).where(Booking.id == booking_id)
                            .with_for_update().execution_options(populate_existing=True)).first()
-    if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
+    if booking.status == BookingStatus.onboard:
+        # Пассажир нажал «Я сел» между первой проверкой и замком — то же правило, что выше.
+        raise _no_show_onboard_refusal()
+    if booking.status != BookingStatus.confirmed:
         return booking                         # параллельная отмена/неявка опередила — места уже возвращены
     booking.status = BookingStatus.cancelled
     booking.cancelled_at = utcnow()
@@ -908,6 +935,9 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
         avg, cnt = user_rating(session, b.passenger_id)
         out.append({
             "booking_id": b.id,
+            # Вторая сторона для «Сообщить о проблеме» (разбор POST /incidents ждёт respondent_id):
+            # по брони «в пути» неявку не отметить, спорную посадку разбирает админ (14.10.2026).
+            "passenger_id": b.passenger_id,
             "passenger_name": (passenger.name if passenger else "Пассажир"),
             "passenger_rating": (round(avg, 1) if cnt > 0 else None),
             "route": (f"{ride.from_city} → {ride.to_city}" if ride else ""),

@@ -59,6 +59,12 @@ def test_driver_publishes_sees_booking_confirms_drives_and_completes(api, kit):
     assert kit.trip_status(passenger, bid, "sat").status_code == 200
     # Водитель видит, что человек в машине: бронь «в пути», а не просто «подтверждена».
     assert kit.role(driver, bid)["status"] == "onboard"
+    # Неявку по брони «в пути» не отметить (решение 14.10.2026): понятный отказ, а в списке
+    # водителя — вторая сторона для «Сообщить о проблеме» (разбор).
+    refused = api.post(f"/bookings/{bid}/no-show", headers=driver.auth)
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "passenger_onboard", refused.text
+    riding = next(b for b in api.get("/driver/bookings", headers=driver.auth).json() if b["booking_id"] == bid)
+    assert riding["status"] == "onboard" and riding["passenger_id"] == passenger.id
 
     # 6. Завершение водителем; повтор — тот же итог, без ошибки.
     done = kit.driver_status(driver, bid, "done")

@@ -59,6 +59,7 @@ const SUITES = [
   { test: "taxi-wait-cancel-test", src: null, out: null, bundle: false },
   { test: "taxi-origin-picker-test", src: null, out: null, bundle: false },
   { test: "ride-booking-path-test", src: null, out: null, bundle: false },
+  { test: "driver-noshow-onboard-test", src: null, out: null, bundle: false },
   { test: "commission-label-test", src: null, out: null, bundle: false },
   // На «долг уже оплачен» (already: true) админка не рисует обычное «подтверждено».
   { test: "debt-already-test", src: null, out: null, bundle: false },
