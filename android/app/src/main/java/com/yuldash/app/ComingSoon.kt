@@ -51,11 +51,12 @@ import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.TaxiAvailabilityDto
 
 /** О каком направлении «скоро». Доставка — одна на посылки «по пути» и курьеров. */
-internal enum class ComingSoonKind { Delivery, Ads, Business }
+internal enum class ComingSoonKind { Taxi, Delivery, Ads, Business }
 
 /** Название направления — шапка экрана и метка над заголовком. */
 @Composable
 internal fun comingSoonName(kind: ComingSoonKind): String = when (kind) {
+    ComingSoonKind.Taxi -> appText("Такси", "Такси")
     ComingSoonKind.Delivery -> appText("Доставка", "Илтеү")
     ComingSoonKind.Ads -> appText("Реклама", "Реклама")
     ComingSoonKind.Business -> appText("Скидки по пути", "Юл буйынса ташламалар")
@@ -63,6 +64,10 @@ internal fun comingSoonName(kind: ComingSoonKind): String = when (kind) {
 
 @Composable
 private fun comingSoonBody(kind: ComingSoonKind): String = when (kind) {
+    ComingSoonKind.Taxi -> appText(
+        "Мы подключаем города по очереди, чтобы машины точно были рядом. А попутка уже работает по всей республике.",
+        "Ҡалаларҙы сиратлап тоташтырабыҙ — машиналар яҡында булһын өсөн. Ә юлдаш инде бөтә республикала эшләй.",
+    )
     ComingSoonKind.Delivery -> appText(
         "Посылки и курьеры скоро появятся в Юлдаше. Пока Юлдаш — это попутки: найди машину по пути или предложи свою.",
         "Бандеролдәр һәм курьерҙар тиҙҙән Юлдашта булыр. Әлегә Юлдаш — юлдаш менән сәфәр: юл ыңғайындағы машина тап йәки үҙ сәфәреңде тәҡдим ит.",
@@ -79,6 +84,7 @@ private fun comingSoonBody(kind: ComingSoonKind): String = when (kind) {
 
 @Composable
 private fun comingSoonIcon(kind: ComingSoonKind): Painter = when (kind) {
+    ComingSoonKind.Taxi -> painterResource(R.drawable.yu_mode_taxi)
     ComingSoonKind.Delivery -> painterResource(R.drawable.yu_mode_courier)
     ComingSoonKind.Ads -> rememberVectorPainter(Icons.Default.Campaign)
     ComingSoonKind.Business -> rememberVectorPainter(Icons.Default.LocalOffer)

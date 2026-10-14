@@ -1790,10 +1790,10 @@ private fun InstantOrderContent(
                         onBack = onBack,
                     )
                     // Вход не загрузился по сети → не роняем в пикер молча (мог быть живой заказ), даём «Повторить».
-                    "restoreError" -> InstantRetryCard(
+                    "restoreError" -> TaxiRestoreFailure(
                         onRetry = { restoreTick++ },
                         onBack = onBack,
-                    )
+                    ) { InstantRetryCard(onRetry = { restoreTick++ }, onBack = onBack) }
                     // Гейт (a): такси выключено глобально или в этом городе → тёплая заглушка «Скоро».
                     // Активный заказ (если вдруг успел создаться до выключения) показываем как обычно.
                     "comingSoon" -> av?.let {
