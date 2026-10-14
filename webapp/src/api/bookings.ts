@@ -134,6 +134,7 @@ export interface TripReceipt {
 export interface MyBooking {
   id: number;
   ride_id: number;
+  front_seat?: boolean;
   seats: number;
   price: number;
   status: BookingStatus;
