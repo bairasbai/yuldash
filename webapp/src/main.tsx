@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { LangProvider } from "./i18n/lang";
 import { AuthProvider } from "./auth/AuthProvider";
+import { OwnBookingsProvider } from "./booking/OwnBookingsProvider";
 import { applyFontScale } from "./fontScale";
 import { applyTheme } from "./theme";
 import "./index.css";
@@ -21,7 +22,9 @@ createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <LangProvider>
         <AuthProvider>
-          <App />
+          <OwnBookingsProvider>
+            <App />
+          </OwnBookingsProvider>
         </AuthProvider>
       </LangProvider>
     </BrowserRouter>

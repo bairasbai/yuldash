@@ -14,7 +14,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -1160,15 +1162,9 @@ internal fun BookingRouteMapPreview(   // internal: живой MapKit-ренде
     showPrivacyNotice: Boolean = true,
     liveBookingId: Int? = null,
 ) {
-    // Без ключа MapKit (сборка в чистом worktree/CI, где local.properties нет) `MapKitFactory.initialize`
-    // роняет приложение: «You need to set the API key before using MapKit!». Это экран брони —
-    // единственный путь пассажира к «Забронировать», падать здесь нельзя. Ключ читает только
-    // `YuldashApplication` (setApiKey), поэтому на вкладке «Карта» стоит такая же проверка. Показываем
-    // заглушку маршрута; ключ в сборке есть → поведение прежнее.
-    if (BuildConfig.YANDEX_MAPKIT_KEY.isBlank()) {
-        RouteMapUnavailableCard(modifier)
-        return
-    }
+    // Экран брони — единственный путь пассажира к «Забронировать»: без ключа MapKit (чистый worktree, CI)
+    // он не падает, а показывает заглушку маршрута. Шов — MapKitGate.kt.
+    if (!mapKitKeyAvailable()) { RouteMapUnavailableCard(modifier); return }
     val context = LocalContext.current
     val mapView = remember(fromPoint, toPoint) {
         ensureMapKit(context)   // русская локаль ставится тут же: голый initialize оставлял логотип «Yandex Maps» по-английски
@@ -1627,9 +1623,11 @@ private fun ActiveTripContent(
     var codeSaveFailed by remember(bookingId) { mutableStateOf(false) }
     var codeSaveBusy by remember(bookingId) { mutableStateOf(false) }
     var codeSaveRetry by remember(bookingId) { mutableIntStateOf(0) }
-    LaunchedEffect(bookingId, boardingCode, codeSaveRetry, terminalBooking) {
+    LaunchedEffect(bookingId, boardingCode, codeSaveRetry, terminalBooking, role) {
         val id = bookingId ?: return@LaunchedEffect
-        if (boardingCode.isBlank() || terminalBooking != null || tripSession != ApiClient.queueSessionGeneration()) {
+        // Копию кода просим только там, где её есть куда класть и кому она нужна (BoardingCodeRules.kt).
+        if (boardingCode.isBlank() || terminalBooking != null || tripSession != ApiClient.queueSessionGeneration() ||
+            !needsOfflineCodeCopy(role, hasPass = tripPass != null)) {
             codeSaveFailed = false
             return@LaunchedEffect
         }
@@ -2741,7 +2739,12 @@ internal fun ActiveTripOptionBHero(
             phoneUnlocked = phoneUnlocked,
             onCall = onCall,
         )
-        if (bookingStatusAllowsBoarding(bookingStatus) || bookingStatus.isBlank()) {
+        // Села — код больше не нужен: карточка плавно уходит, а не висит над «В пути».
+        AnimatedVisibility(
+            visible = showBoardingCode(passengerStatus, bookingStatus),
+            enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL)),
+            exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.NORMAL)),
+        ) {
             ActiveTripBoardingCodeCard(code = boardingCode, role = role,
                 loadFailed = boardingCodeLoadFailed, onRetry = onRetryBoardingCode)
         }
@@ -2922,8 +2925,7 @@ private fun ActiveTripProgressCard(
     passengerStatus: String?,
     bookingStatus: String,
 ) {
-    val afterBoarding = passengerStatus == "sat" || passengerStatus == "arrived" ||
-        bookingStatus == "onboard" || bookingStatus == "done"
+    val afterBoarding = boardingDone(passengerStatus, bookingStatus)
     val labels = if (afterBoarding) {
         listOf(
             appText("Посадка", "Ултырыу"),

@@ -4742,3 +4742,18 @@ ApiClient.cacheRevisions хранит invalidation version по фиксиров
 - `ExistingBenefits.kt`, `webapp/src/benefitOwner.ts`, `BenefitHistoryScreen.tsx`: ранее выданные купоны при OFF, owner/session boundary для приватных чтений и действий.
 - `webapp/src/screens/CourierHistoryScreen.tsx`, `DeliveryGate.kt`: продолжение старых доставок при закрытых новых входах.
 - `backend/app/features.py::guard_delivery_ride`: категории parcel/cargo закрываются до создания поездки или новой брони; старые брони продолжаются.
+## Полировка волны 1: карта без ключа, лента «Найти попутку», код посадки (14.10.2026)
+
+Новых `Screen` нет — три маленьких файла рядом с существующими экранами.
+- `MapKitGate.kt` — единственный шов «есть ли живая карта»: `mapKitKeyAvailable()` (читает `BuildConfig.YANDEX_MAPKIT_KEY`),
+  `MapKitUnavailable(modifier)` — первая строка любого composable, что создаёт `MapView` (`if (MapKitUnavailable(modifier)) return`),
+  `PickupPickerUnavailable` (полноэкранная заглушка «Отметить на карте»), `ensureMapKit` (переехал из `MapScreen.kt`).
+  Места: `YandexMapCard`, `PickupPickerOverlay` (`MapScreen.kt`), `InstantRouteMap` (`InstantOrderScreen.kt`; им пользуются такси,
+  курьер, поиск, поездка, навигация водителя), `BookingRouteMapPreview` (`BookingActiveTripScreen.kt`). Держит `MapKitGateGuardTest`.
+- `NearbyFeedSearch.kt` — «Найти попутку» на вкладке «Карта» (`MapScreen`): `rememberNearbyFeedState` (плавно ставит
+  «Ближайшие поездки» наверх), `NearbyRouteReset` («Все маршруты»). Колбэка `onOpenPopular` и состояния «пресет вкладки Поездки» больше нет.
+- `BoardingCodeRules.kt` — `boardingDone` / `showBoardingCode` (карточка «Код посадки» уходит после «Я сел») и
+  `needsOfflineCodeCopy` (плашка «Код не сохранён» — только пассажиру с офлайн-паспортом).
+
+## Переднее место своей брони в PWA, 14.10.2026
+`booking/OwnBookingsProvider.tsx` получает один `/bookings/mine` на страницу потребителей карточек/шторки, связывает snapshot с session generation+user.id, отменяет прежний read и отбрасывает поздние версии. `utils/ownBookings.ts` принимает только живую бронь того же ride_id с явным front_seat=true. Card/Sheet показывают собственное переднее место; собственная бронь открывается по её id. После успешных create/cancel выполняется owner-bound invalidation. ActiveTripScreen использует уже полученное BookingDetails.front_seat для RU/BA блока «Место». API-функции и backend не изменены. Проверки: own-front-seat-test.mjs, own-bookings-provider-test.mjs, прежний ride-booking-path-test.mjs.

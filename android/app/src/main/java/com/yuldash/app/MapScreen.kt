@@ -275,7 +275,6 @@ internal fun MapScreen(
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
     onSos: () -> Unit,
-    onOpenPopular: (PopularRoute) -> Unit,
     onDriver: () -> Unit,
     onBoost: () -> Unit,
     onClinicRides: () -> Unit,   // F22: раздел «Поездки к клинике»
@@ -310,8 +309,11 @@ internal fun MapScreen(
     // F4: «когда едем» — null = все дни, иначе YYYY-MM-DD. Поездки в РБ планируют за 1-3 дня;
     // чипы Сегодня/Завтра режут ленту до нужного дня (фильтрует сервер по depart_at).
     var dateFilter by remember { mutableStateOf<String?>(null) }
-    val focusFrom = activeTrip?.from
-    val focusTo = activeTrip?.to
+    // «Найти попутку»: выбранный на карусели маршрут сужает ленту ниже, лента выезжает на экран (NearbyFeedSearch.kt).
+    var searchRoute by remember { mutableStateOf<PopularRoute?>(null) }
+    var findTick by remember { mutableIntStateOf(0) }
+    val focusFrom = searchRoute?.from ?: activeTrip?.from
+    val focusTo = searchRoute?.to ?: activeTrip?.to
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
     val userLng = LocationPrefs.lastLng
     // Огрублённый ключ позиции (~1.1 км, 2 знака): перезапрашиваем «рядом» только при заметном
@@ -396,7 +398,7 @@ internal fun MapScreen(
                         activeTrip = activeTrip,
                         rides = mapPins,
                         onRideTap = { selectedRide = it },
-                        onFind = onOpenPopular,
+                        onFind = { route -> searchRoute = route; findTick++ },
                         onDriver = onDriver,
                         adRoute = adRoute,
                         onClearRoute = { adRoute = null },
@@ -417,8 +419,10 @@ internal fun MapScreen(
                 .fillMaxSize()
         ) {
             if (pinHeader) header(Modifier.padding(horizontal = 16.dp))
+            val feedState = rememberNearbyFeedState(findTick, compactHeader = !pinHeader, seasonalShown = seasonalEvent != null && !seasonalDismissed)
             // Прокручиваемый низ: простой режим, ближайшие поездки, реклама.
             LazyColumn(
+                state = feedState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -458,6 +462,7 @@ internal fun MapScreen(
                                 if (focusFrom != null && focusTo != null) {
                                     Text("$focusFrom → $focusTo", color = CanonGreen2, style = CanonMicro, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
+                                if (searchRoute != null) NearbyRouteReset { searchRoute = null }
                             }
                             // Счётчик — пилюля с мягкой сменой цифры (фильтры/обновление ленты меняют её на лету).
                             AnimatedVisibility(
@@ -701,7 +706,7 @@ private fun MapHero(
     activeTrip: Ride?,
     rides: List<Ride> = emptyList(),
     onRideTap: (Ride) -> Unit,
-    onFind: (PopularRoute) -> Unit,
+    onFind: (PopularRoute?) -> Unit,   // null — маршрут на карусели не выбран: ищем по всей ленте
     onDriver: () -> Unit,
     adRoute: PartnerAd? = null,        // активный «Маршрут до партнёра» (из рекламы) → показываем на карте
     onClearRoute: () -> Unit = {},
@@ -741,7 +746,7 @@ private fun MapHero(
     val adRoutePoint = remember(adRoute) { adRoute?.let { parseMapPoint(it.mapPoint) } }
     var nativeMapVisible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        if (BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank()) {
+        if (mapKitKeyAvailable()) {
             androidx.compose.runtime.withFrameNanos { }
             delay(700)
             nativeMapVisible = true
@@ -765,7 +770,7 @@ private fun MapHero(
                 // на экран (первая карточка выглядывает снизу и сама говорит «листай дальше»).
                 .height(280.dp)   // сетка 4dp
         ) {
-            if (LocalPoolingNativeMapEnabled.current && BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank() && nativeMapVisible) {
+            if (LocalPoolingNativeMapEnabled.current && mapKitKeyAvailable() && nativeMapVisible) {
                 YandexMapCard(
                     modifier = Modifier.matchParentSize(),
                     activeTrip = activeTrip,
@@ -850,7 +855,7 @@ private fun MapHero(
             // не меняет — там обе подписи и так в одну строку. Высоты у пары остаются равными:
             // Row тянет обе кнопки по самой высокой.
             Button(
-                onClick = { onFind(activeRoute ?: popular.firstOrNull() ?: demoPopularRoutes.first()) },
+                onClick = { onFind(activeRoute) },
                 modifier = Modifier.weight(1.25f).heightIn(min = 56.dp),
                 shape = RoundedCornerShape(22.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
@@ -1208,15 +1213,6 @@ private val MapMidPoint = Point(52.55, 58.49) // южнее центра мар�
  * Приватность: точную точку не показываем — рисуем приблизительные зоны (круги ~600 м)
  * у старта (зелёный) и финиша (золотой), как обещает плашка.
  */
-// MapKit init: setLocale ДО initialize и ТОЛЬКО один раз на процесс.
-// Повторный setLocale после initialize → AssertionError (краш при возврате на карту с подэкрана).
-private var mapKitReady = false
-internal fun ensureMapKit(context: Context) {
-    if (mapKitReady) return
-    mapKitReady = true
-    runCatching { MapKitFactory.setLocale("ru_RU") }   // если уже инициализирован — пропускаем, не крашим
-    MapKitFactory.initialize(context)
-}
 
 // Маршрут по дорогам from→to на карте. Общий рисователь для активной поездки И превью выбранной.
 // Сразу кладёт прямую линию (мгновенный фидбэк), затем DrivingRouter заменяет её реальной дорожной геометрией;
@@ -1296,6 +1292,7 @@ private fun YandexMapCard(
     requests: List<com.yuldash.app.data.RequestNearDto> = emptyList(),  // заявки рядом → маркеры «ищет попутку»
     showPrivacyNotice: Boolean = true
 ) {
+    if (MapKitUnavailable(modifier)) return   // без ключа MapKit — заглушка (шов MapKitGate.kt)
     val context = LocalContext.current
     // Геолокация управляется из Профиль → Конфиденциальность (общий LocationPrefs); FAB «к себе» тоже включает.
     var lastUserPoint by remember { mutableStateOf<Point?>(null) }
@@ -2052,6 +2049,7 @@ internal fun PickupPickerOverlay(
     // так пикер зовут из создания поездки, и там это правда.
     hint: String? = null,
 ) {
+    if (!mapKitKeyAvailable()) { PickupPickerUnavailable(onDismiss); return }   // без ключа MapKit initialize роняет приложение
     val ctx = LocalContext.current
     val mapView = remember {
         ensureMapKit(ctx)   // русская локаль + initialize, ровно один раз на процесс
