@@ -5,6 +5,7 @@ import { IconArrow, IconCheck } from "./Icons";
 import { serverDate } from "../utils/serverTime";
 import { YuStar, YuWomenOnly } from "./BrandIcons";
 import { SeatBadges } from "./SeatOptions";
+import { useOwnBooking } from "../booking/OwnBookingsProvider";
 
 import { dayMonthShort, hhmm, pluralRu } from "../utils/format";
 function initials(name: string): string {
@@ -33,6 +34,7 @@ function formatWhen(iso: string, ru: boolean): string {
 export default function RideCard({ ride, index, to }: { ride: Ride; index: number; to?: string }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
+  const ownBooking = useOwnBooking(ride.id);
 
   const priceLabel =
     ride.price > 0
@@ -72,7 +74,7 @@ export default function RideCard({ ride, index, to }: { ride: Ride; index: numbe
           </span>
         )}
         {/* Места: «переднее свободно / занято», «сзади двое» — то, что хотят знать до брони. */}
-        <SeatBadges ride={ride} />
+        <SeatBadges ride={ride} ownBooking={ownBooking} />
         {ride.boosted && (
           <span className="badge badge--boost">
             {appText("Поднято", "Күтәрелгән")}

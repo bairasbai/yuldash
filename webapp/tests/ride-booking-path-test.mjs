@@ -16,7 +16,8 @@ const modules = {
   auth: `export const useAuth=()=>({isAuthed:globalThis.__ridePath.authed});`,
   bookings: `export const createBooking=body=>{globalThis.__ridePath.calls.push(body);return globalThis.__ridePath.booking(body)};`,
   rides: `export const fetchRide=(id,signal)=>globalThis.__ridePath.fetchRide(id,signal);`,
-  client: `export class ApiError extends Error {}`,
+  client: `export class ApiError extends Error {} export const getSessionGeneration=()=>"same-session";`,
+  ownBookings: `export const useOwnBooking=()=>null,useRefreshOwnBookings=()=>()=>{};`,
   analytics: `export const track=()=>{};`,
   states: `export const LoadingList='loading'; export const ErrorState='retry';`,
   header: `export default 'header';`,
@@ -26,7 +27,7 @@ async function component(path) {
     plugins:[{name:"local-ui",setup(b){
       b.onResolve({filter:/.*/}, args=>{
         const p=args.path;
-        const key=Object.hasOwn(modules,p)?p:p.endsWith('/i18n/lang')?'lang':p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/api/bookings')?'bookings':p.endsWith('/api/rides')?'rides':p.endsWith('/api/client')?'client':p.endsWith('/analytics')?'analytics':p.endsWith('/components/States')?'states':p.endsWith('/components/ScreenHeader')?'header':null;
+        const key=Object.hasOwn(modules,p)?p:p.endsWith('/i18n/lang')?'lang':p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/api/bookings')?'bookings':p.endsWith('/api/rides')?'rides':p.endsWith('/api/client')?'client':p.endsWith('/booking/OwnBookingsProvider')?'ownBookings':p.endsWith('/analytics')?'analytics':p.endsWith('/components/States')?'states':p.endsWith('/components/ScreenHeader')?'header':null;
         return key?{path:key,namespace:'mock'}:null;
       });
       b.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:modules[args.path],loader:'js'}));

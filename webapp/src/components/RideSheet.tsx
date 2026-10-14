@@ -7,7 +7,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
+import { useOwnBooking, useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { createBooking } from "../api/bookings";
 import { track } from "../analytics";
 import type { Ride } from "../api/rides";
@@ -27,6 +28,9 @@ export default function RideSheet({
   const ru = lang !== "ba";
   const navigate = useNavigate();
   const { isAuthed } = useAuth();
+  const ownBooking = useOwnBooking(ride.id);
+  const refreshOwnBookings = useRefreshOwnBookings();
+  const ownerGeneration = getSessionGeneration();
   const [busy, setBusy] = useState(false);
   const bookingInFlight = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -56,9 +60,14 @@ export default function RideSheet({
   const [frontSeat, setFrontSeat] = useState(false);
 
   async function book() {
-    if (bookingInFlight.current) return;
+    if (bookingInFlight.current || ownerGeneration !== getSessionGeneration()) return;
     if (!isAuthed) {
       navigate("/login", { state: { from: `/rides/${ride.id}` } });
+      return;
+    }
+    if (ownBooking) {
+      onClose();
+      navigate(`${ownBooking.status === "pending" ? "/booking" : "/trip"}/${ownBooking.id}`);
       return;
     }
     if (minor && (!guardName.trim() || !guardPhone.trim())) {
@@ -84,6 +93,8 @@ export default function RideSheet({
         // Только когда просили: обычная бронь уходит тем же телом, что и раньше.
         ...(frontSeat ? { front_seat: true } : {}),
       });
+      if (ownerGeneration !== getSessionGeneration()) return;
+      refreshOwnBookings();
       track("booking_done");
       onClose();
       navigate(`/trip/${b.id}`);
@@ -153,7 +164,7 @@ export default function RideSheet({
               {appText("Детское кресло", "Бала урыны")}
             </span>
           )}
-          <SeatBadges ride={ride} />
+          <SeatBadges ride={ride} ownBooking={ownBooking} />
         </div>
 
         {ride.comment && <p className="sheet__comment">{ride.comment}</p>}
@@ -192,6 +203,7 @@ export default function RideSheet({
 
         <FrontSeatChoice
           ride={ride}
+          ownBooking={ownBooking}
           checked={frontSeat}
           onChange={(v) => {
             setFrontSeat(v);
@@ -279,7 +291,9 @@ export default function RideSheet({
           {busy
             ? appText("Бронируем…", "Бронлайбыҙ…")
             : isAuthed
-              ? appText("Забронировать место", "Урын бронларға")
+              ? ownBooking
+                ? appText("Открыть поездку", "Сәфәрҙе асыу")
+                : appText("Забронировать место", "Урын бронларға")
               : appText("Войти и забронировать", "Инеп бронларға")}
         </button>
         <p className="sheet__note">
