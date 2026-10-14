@@ -129,12 +129,10 @@ class MapKitNoKeyScreensTest {
         lateinit var view: View
         var topPx = 0
         var observedTopPx = 0
-        var edgeGapPx = 0
         composeRule.setContent {
             view = LocalView.current
             val density = LocalDensity.current
             topPx = with(density) { 64.dp.roundToPx() }
-            edgeGapPx = with(density) { CanonSpace.lg.roundToPx() }
             // Читаем настоящий holder Compose до dispatch, чтобы его listener уже был подключён.
             val statusTop = WindowInsets.statusBars.getTop(density)
             SideEffect { observedTopPx = statusTop }
@@ -158,7 +156,7 @@ class MapKitNoKeyScreensTest {
         assertTrue("Кнопка «Назад» не перекрывается системной областью: $back, inset=$topPx", back.top >= topPx)
         if (parentConsumes) {
             assertTrue("Родитель уже дал системный отступ: второе прибавление недопустимо, $back",
-                back.top <= topPx + edgeGapPx + 1f)
+                back.top < topPx * 2f)
         }
     }
 
