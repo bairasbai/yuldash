@@ -1751,7 +1751,7 @@ private fun ActiveTripContent(
     val activeFromPoint = routeFromPoint ?: activeFromCity.takeIf { it.isNotBlank() }?.let(::cityPoint)
     val activeToPoint = routeToPoint ?: activeToCity.takeIf { it.isNotBlank() }?.let(::cityPoint)
     val canChangeTripStatus = bookingId == null || (role.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus))
-    val nextTripStatus = activeTripNextStatus(role = role, driverPhase = driverPhase, passengerStatus = status)
+    val nextTripStatus = activeTripNextStatus(role = role, driverPhase = driverPhase, passengerStatus = status, bookingStatus = bookingStatus)
     val activeTripListState = rememberLazyListState()
 
     // Один шов для всех status-CTA: новая закреплённая кнопка B и старые сценарии используют
@@ -2681,22 +2681,6 @@ internal fun RoadsideHelpButton(sending: Boolean, sent: Boolean, onClick: () -> 
         }
     }
 }
-
-/** Следующий РЕАЛЬНЫЙ серверный переход для одной закреплённой CTA варианта B. */
-internal fun activeTripNextStatus(role: String, driverPhase: String, passengerStatus: String?): String =
-    if (role == "driver") {
-        when (driverPhase) {
-            "departed" -> "arriving"
-            "arriving", "done" -> "done"
-            else -> "departed"
-        }
-    } else {
-        when (passengerStatus) {
-            "sat" -> "arrived"
-            "arrived", "done" -> "done"
-            else -> "sat"
-        }
-    }
 
 @Composable
 internal fun activeTripActionLabel(status: String): String = when (status) {

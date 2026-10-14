@@ -415,10 +415,14 @@ def reliability_for(session: Session, user_id: int) -> int:
     completed = 0
     failed_weight = 0
     for b in bookings:
-        if b.status == BookingStatus.done and not b.no_show:
-            completed += 1
-        elif b.id in noshow_ids:
+        # Подтверждённая неявка — раньше «выполнена»: бронь «в пути» (пассажир нажал «Я сел»)
+        # по правилу 14.10.2026 неявкой не отменить, она закрывается как done. Если админ по
+        # разбору признал, что человек не садился, поездка ему не засчитывается, а бьёт по
+        # Надёжности (ревью Opus волны 1). Иначе один тап «Я сел» снимал бы любые последствия.
+        if b.id in noshow_ids:
             failed_weight += 1                 # подтверждённая неявка (инцидент, вина на этом юзере)
+        elif b.status == BookingStatus.done and not b.no_show:
+            completed += 1
         elif not b.no_show and b.cancelled_by == user_id and is_late_cancel(b, rides.get(b.ride_id)):
             failed_weight += 1                 # обычная поздняя отмена этим юзером
     denom = completed + failed_weight

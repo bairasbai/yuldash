@@ -3291,8 +3291,8 @@ internal fun DriverCabinetContent(
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         PassengerRow(b)
-                        // «Не явился» — пассажир не пришёл на посадку.
-                        NoShowButton(bookingId = b.bookingId)
+                        // «Не явился» — пассажир не пришёл на посадку; «в пути» — только разбор (RideshareNoShow.kt).
+                        NoShowButton(b.bookingId, b.status, passengerId = b.passengerId, passengerName = b.passengerName)
                     }
                 }
             }

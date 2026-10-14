@@ -26,21 +26,27 @@ export default function FileIncidentCard({
   respondentId,
   respondentName,
   orderId,
+  bookingId,
+  initialType = "",
   onCancel,
   onFiled,
   onError,
 }: {
   respondentId: number;
   respondentName: string;
-  orderId: number;
+  /** Тип, с которого начать (например, «Пассажир не вышел» по брони «в пути»). */
+  initialType?: string;
   onCancel: () => void;
   onFiled: () => void;
   /** Ошибку показывает экран — там же, где остальные сообщения. */
   onError: (text: string) => void;
-}) {
+} & (
+  /** Контекст спора — ровно один: такси-заказ или бронь попутки (без него сервер ответит 400). */
+  { orderId: number; bookingId?: never } | { bookingId: number; orderId?: never }
+)) {
   const { appText } = useLang();
-  const [type, setType] = useState("");
-  const [typesOpen, setTypesOpen] = useState(true);
+  const [type, setType] = useState(initialType);
+  const [typesOpen, setTypesOpen] = useState(!initialType);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -48,7 +54,12 @@ export default function FileIncidentCard({
     if (busy || !type || !text.trim()) return;
     setBusy(true);
     try {
-      await createIncident({ respondent_id: respondentId, type, description: text.trim(), order_id: orderId });
+      await createIncident({
+        respondent_id: respondentId,
+        type,
+        description: text.trim(),
+        ...(orderId != null ? { order_id: orderId } : { booking_id: bookingId }),
+      });
       onFiled();
     } catch (e) {
       onError(

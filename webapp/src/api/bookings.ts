@@ -260,6 +260,8 @@ export function fetchReceipt(id: number, signal?: AbortSignal): Promise<TripRece
  */
 export interface DriverBookingRow {
   booking_id: number;
+  /** Вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»). Старый сервер — нет. */
+  passenger_id?: number;
   passenger_name: string;
   passenger_rating: number | null;
   route: string;
