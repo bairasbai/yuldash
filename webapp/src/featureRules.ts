@@ -23,6 +23,9 @@ export const FEATURES_MAX_AGE_MS = 5 * 60 * 1000;
 /** После неудачной попытки не стучимся снова раньше этого срока (сеть лежит — не молотим). */
 export const FEATURES_RETRY_GAP_MS = 15 * 1000;
 
+/** Общий срок запроса; затем показываем «скоро», даже если fetch не завершился. */
+export const FEATURES_ANSWER_WAIT_MS = 8 * 1000;
+
 export interface Features {
   /** Попутки: всегда включены. */
   readonly rides: true;
@@ -72,7 +75,7 @@ export function parseFeatures(raw: unknown): Features {
 
 /**
  * Ответ сервера → флаги, либо `null`, если это вообще не объект (HTML от упавшего прокси,
- * строка, массив). `null` считается сбоем запроса: хорошее запомненное им не затирают.
+ * строка, массив). `null` считается сбоем запроса: новые действия закрываются.
  */
 export function parseFeaturesResponse(raw: unknown): Features | null {
   return isRecord(raw) ? parseFeatures(raw) : null;
@@ -221,7 +224,11 @@ export interface FeatureStoreDeps {
   storage: () => StorageLike | null;
   now: () => number;
   /** Сырой ответ GET /config/features (без токена). Отказ = сбой запроса. */
-  fetchRaw: () => Promise<unknown>;
+  fetchRaw: (signal?: AbortSignal) => Promise<unknown>;
+  /** Браузер уже знает об отсутствии сети. */
+  online?: () => boolean;
+  /** Короткий реальный срок для проверок зависшего ответа. */
+  timeoutMs?: number;
 }
 
 export interface FeatureStore {
@@ -229,61 +236,76 @@ export interface FeatureStore {
   subscribe: (listener: () => void) => () => void;
   /** Спросить сервер. Без `force` — только если запомненное устарело. Не бросает. */
   refresh: (opts?: { force?: boolean }) => Promise<void>;
+  /** Обрыв сети закрывает новые действия сразу и отменяет текущий запрос. */
+  disable: () => void;
 }
 
 /**
- * Хранилище флагов. Объект-снимок меняется только при изменении состояния (нужно
- * `useSyncExternalStore`: новый объект на каждый вызов зациклил бы отрисовку).
- *
- *  • холодный старт: есть запомненное → `ready` сразу; нет → всё выключено, `ready: false`;
- *  • ответ сервера → новый снимок + запись в хранилище;
- *  • сбой без запомненного → `ready: true` и всё выключено (неизвестное = «скоро», а не
- *    вечный спиннер); сбой с запомненным → прежнее состояние, метка времени не обновляется,
- *    поэтому следующее открытие спросит снова;
- *  • два одновременных вопроса — один запрос.
+ * Холодный процесс не доверяет enabled из кеша. Только живой ответ открывает направление.
+ * Сбой/таймаут/обрыв сети закрывают новые действия; поздний ответ отменённого запроса
+ * больше не публикуется. Одновременные читатели используют одну попытку.
  */
 export function createFeatureStore(deps: FeatureStoreDeps): FeatureStore {
   const listeners = new Set<() => void>();
   let at = 0;
   let lastAttemptAt = 0;
   let inflight: Promise<void> | null = null;
-
-  const cached = readFeaturesCache(deps.storage());
-  let snapshot: FeatureState = cached
-    ? Object.freeze({ ...cached.flags, ready: true })
-    : Object.freeze({ ...FEATURES_OFF, ready: false });
-  if (cached) at = cached.at;
+  let active: AbortController | null = null;
+  let revision = 0;
+  let snapshot: FeatureState = Object.freeze({ ...FEATURES_OFF, ready: false });
 
   function commit(next: FeatureState): void {
     snapshot = next;
     listeners.forEach((listener) => listener());
   }
 
-  /** Ответа нет: если до этого не было ни запомненного, ни ответа — «неизвестно» разрешилось в «выключено». */
-  function settleUnknown(): void {
-    if (!snapshot.ready) commit(Object.freeze({ ...FEATURES_OFF, ready: true }));
+  function close(): void {
+    at = 0;
+    writeFeaturesCache(deps.storage(), FEATURES_OFF, deps.now());
+    commit(Object.freeze({ ...FEATURES_OFF, ready: true }));
+  }
+
+  function disable(): void {
+    revision++;
+    active?.abort();
+    active = null;
+    inflight = null;
+    close();
   }
 
   function refresh(opts?: { force?: boolean }): Promise<void> {
+    if (deps.online?.() === false) { disable(); return Promise.resolve(); }
     if (inflight) return inflight;
     const now = deps.now();
     if (!opts?.force && !shouldRefresh(at, now, lastAttemptAt)) return Promise.resolve();
     lastAttemptAt = now;
-    inflight = Promise.resolve()
-      .then(() => deps.fetchRaw())
+    const controller = new AbortController();
+    active = controller;
+    const capturedRevision = revision;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error("Feature request timed out"));
+      }, deps.timeoutMs ?? FEATURES_ANSWER_WAIT_MS);
+    });
+    const aborted = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener("abort", () => reject(new Error("Feature request cancelled")), { once: true });
+    });
+    const reply = Promise.resolve().then(() => deps.fetchRaw(controller.signal));
+    inflight = Promise.race([reply, expired, aborted])
       .then((raw) => {
+        if (controller.signal.aborted || capturedRevision !== revision) return;
         const flags = parseFeaturesResponse(raw);
-        if (!flags) {
-          settleUnknown();
-          return;
-        }
+        if (!flags) { close(); return; }
         at = deps.now();
         writeFeaturesCache(deps.storage(), flags, at);
         commit(Object.freeze({ ...flags, ready: true }));
       })
-      .catch(() => settleUnknown())
+      .catch(() => { if (capturedRevision === revision) close(); })
       .finally(() => {
-        inflight = null;
+        clearTimeout(timer);
+        if (active === controller) { active = null; inflight = null; }
       });
     return inflight;
   }
@@ -292,10 +314,9 @@ export function createFeatureStore(deps: FeatureStoreDeps): FeatureStore {
     getSnapshot: () => snapshot,
     subscribe(listener) {
       listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
+      return () => { listeners.delete(listener); };
     },
     refresh,
+    disable,
   };
 }

@@ -1213,20 +1213,7 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false, onFind
         contentWindowInsets = if (embedded) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            Surface(
-                color = CanonSurface,
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, CanonBorder),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    ParcelTab(appText("Отправить", "Ебәреү"), tab == 0, Modifier.weight(1f)) { tab = 0 }
-                    ParcelTab(appText("Мои", "Минеке"), tab == 1, Modifier.weight(1f)) { tab = 1 }
-                }
-            }
+            DeliveryParcelTabs(tab) { tab = it }
             AnimatedContent(
                 targetState = tab,
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -1235,7 +1222,8 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false, onFind
             ) { t ->
                 when (t) {
                     0 -> ParcelsSendOrSoon(onSent = { tab = 1 }, onFindRide = onFindRide)   // запуск волнами: DeliveryGate.kt
-                    else -> MyParcelsTab(onGoSend = { tab = 0 })
+                    1 -> MyParcelsTab(onGoSend = { tab = 0 })
+                    else -> DeliveryCarryContent(onFindRide)
                 }
             }
         }
@@ -1243,7 +1231,7 @@ internal fun ParcelsScreen(onBack: () -> Unit, embedded: Boolean = false, onFind
 }
 
 @Composable
-private fun ParcelTab(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun ParcelTab(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val bg by animateColorAsState(if (active) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "ptab-bg")
     val line by animateColorAsState(if (active) CanonGreen2 else CanonBorder, tween(CanonMotion.QUICK), label = "ptab-line")
     val ink by animateColorAsState(if (active) CanonGreen2 else CanonMutedStrong, tween(CanonMotion.QUICK), label = "ptab-ink")

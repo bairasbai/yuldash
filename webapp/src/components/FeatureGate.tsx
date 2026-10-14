@@ -12,11 +12,17 @@
 //    у него может быть начатое (посылка в пути), а сервер сам откажет в новом.
 // ================================================================
 import type { ReactNode } from "react";
+import { useLocation } from "react-router-dom";
+import { getSessionGeneration } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { useFeatures } from "../features";
 import { soonKind, type Need } from "../featureRules";
 import ComingSoon from "./ComingSoon";
 import { LoadingList } from "./States";
+import { lazyScreen } from "../lazyScreen";
+
+const BenefitHistoryScreen = lazyScreen(() => import("../screens/BenefitHistoryScreen"));
+const CourierHistoryScreen = lazyScreen(() => import("../screens/CourierHistoryScreen"));
 
 export default function FeatureGate({
   need,
@@ -28,11 +34,14 @@ export default function FeatureGate({
   children: ReactNode;
 }) {
   const features = useFeatures();
+  const { pathname } = useLocation();
   const { status } = useAuth();
 
   const enforce = !guestOnly || status === "guest";
   const kind = enforce ? soonKind(need, features) : null;
   if (!kind) return <>{children}</>;
   if (!features.ready) return <LoadingList count={2} />;
+  if (need === "courier" && status === "authed") return <CourierHistoryScreen />;
+  if (need === "business" && status === "authed") return <BenefitHistoryScreen key={getSessionGeneration()} partner={pathname === "/partner"} />;
   return <ComingSoon kind={kind} variant="screen" />;
 }

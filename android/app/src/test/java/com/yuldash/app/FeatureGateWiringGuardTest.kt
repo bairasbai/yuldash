@@ -103,4 +103,16 @@ class FeatureGateWiringGuardTest {
         val wrongly = Regex("""Screen\.(Admin\w+)\s*->\s*(?:FeatureGate|ScreenGate)\(""").findAll(app).map { it.groupValues[1] }.toList()
         assertTrue("админские экраны спрятаны за выключателем: $wrongly", wrongly.isEmpty())
     }
+
+    @Test fun `старые купоны и погашение идут через owner adapters при закрытом бизнесе`() {
+        val app = src("YuldashApp.kt")
+        assertTrue(app.contains("closedContent = { ExistingCouponHistoryScreen("))
+        assertTrue(app.contains("closedContent = { ExistingPartnerRedeemScreen("))
+        val owners = src("ExistingBenefits.kt")
+        assertTrue(owners.contains("MyCouponsTab(onFindRide, allowNewCoupons = false, owner = owner)"))
+        assertTrue(owners.contains("RedeemDialog(onDismiss = { owner.publish { redeem = false } }, owner = owner)"))
+        assertTrue(src("CouponsScreen.kt").contains("launchBenefitOperation(scope, owner, { ApiClient.getMyCoupons() })"))
+        assertTrue(src("PartnerCabinetScreen.kt").contains("launchBenefitOperation(scope, owner, { ApiClient.redeemCoupon(code.trim()) })"))
+        assertTrue(src("ProfileScreen.kt").contains("ExistingBenefitActions(onCoupons, onPartnerCabinet)"))
+    }
 }

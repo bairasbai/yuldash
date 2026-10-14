@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, type NavigateFunction } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
+import { useFeatures } from "../features";
 import {
   fetchTaxiAvailability,
   instantEstimate,
@@ -148,6 +149,7 @@ export default function InstantOrderScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
+  const features = useFeatures();
 
   const [view, setView] = useState<View>("boot");
   const [gateMsg, setGateMsg] = useState<{ ru: string; ba: string } | null>(null);
@@ -281,6 +283,12 @@ export default function InstantOrderScreen() {
       .then(setOrder)
       .catch(() => {});
   }, [order]);
+
+  // Живой заказ сохраняется; отсутствие флага закрывает только новую форму.
+  if (view === "compose" && !features.taxi) {
+    if (!features.ready) return <LoadingList count={2} />;
+    return taxiGateView({ appText, ru, navigate, message: null, city: gateCity });
+  }
 
   // ---------------- Рендер по фазам ----------------
   if (view === "boot") {

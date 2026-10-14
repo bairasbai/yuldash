@@ -11,12 +11,16 @@ package com.yuldash.app
 // незнакомое поле — человек увидит «скоро», а не экран, который упрётся в отказ сервера.
 // Попутки флага не имеют и не выключаются никогда.
 //
-// Кеш — в своём ящике настроек: последнее известное состояние видно сразу на холодном
-// старте, а свежее подтягивается с сервера при запуске и при входе в закрытое направление,
-// если запомненному больше пяти минут. Это не личные данные: флаги одинаковы для всех.
+// Кеш — только последнее подтверждение: новый процесс не открывает направления без сети.
+// Ошибка и таймаут закрывают всё, кроме попуток, даже после прежнего enabled-ответа.
+// Флаги одинаковы для всех; обновление не содержит токена и личных данных.
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,7 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 
 /** Направление, которое сервер включает отдельно. `key` — имя поля в ответе /config/features. */
@@ -40,7 +44,7 @@ internal enum class Feature(val key: String) {
 }
 
 /**
- * Снимок флагов. `known = false` — сервер не ответил ни разу (ни сейчас, ни в кеше):
+ * Снимок флагов. `known = false` — живого подтверждения сейчас нет:
  * тогда всё, кроме попуток, считается выключенным.
  */
 internal data class FeatureSet(
@@ -84,6 +88,12 @@ internal object FeatureFlags {
      *  не съел ответ, приготовленный тестом для другого адреса. */
     @Volatile private var autoRefresh = true
     private val refreshLock = Mutex()
+    @Volatile private var completedAttempt = 0L
+    private var lastCompletedNetwork = -1L
+    @Volatile private var networkRevision = 0L
+    internal val automaticRefreshEnabled: Boolean get() = autoRefresh
+    private var lastAttemptAt = 0L
+    private const val RETRY_GAP_MS = 15_000L
 
     val current: FeatureSet get() = mutableState.value
 
@@ -104,61 +114,105 @@ internal object FeatureFlags {
     fun isStale(set: FeatureSet, nowMs: Long): Boolean =
         !set.known || nowMs - set.fetchedAtMs !in 0..MAX_AGE_MS
 
-    /** Поднять запомненное с диска. Один раз за процесс; дальше живём в памяти. */
+    /** Кеш с диска никогда не служит разрешением: сначала нужен живой ответ сервера. */
     fun ensureLoaded(context: Context) {
         if (loaded) return
         synchronized(this) {
             if (loaded) return
+            runCatching { context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
             loaded = true
-            val prefs = runCatching { context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }.getOrNull()
-                ?: return
-            val raw = prefs.getString(KEY_FEATURES_JSON, null) ?: return
-            val at = prefs.getLong(KEY_FEATURES_AT, 0L)
-            val cached = runCatching { parse(JSONObject(raw), at) }.getOrNull() ?: return
-            // Сеть могла ответить раньше, чем мы дочитали диск: свежее не затираем старым.
-            if (!mutableState.value.known) mutableState.value = cached
+            if (autoRefresh) FeatureConnectivity.init(context.applicationContext)
         }
     }
 
-    /** Спросить сервер. Сбой сети оставляет прежнее состояние (кеш или «неизвестно»). */
-    suspend fun refresh(context: Context, nowMs: () -> Long = System::currentTimeMillis) {
+    private fun remember(context: Context, json: JSONObject, at: Long) {
+        runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_FEATURES_JSON, json.toString()).putLong(KEY_FEATURES_AT, at).apply()
+        }
+    }
+
+    /** Сбой закрывает новые действия сразу и убирает enabled из сохранённого ответа. */
+    private fun closeAfterFailure(context: Context) {
+        mutableState.value = FeatureSet.UNKNOWN
+        remember(context, JSONObject(), 0L)
+    }
+
+    /** Системный обрыв сети имеет приоритет над поздним enabled-ответом. */
+    internal fun markOffline(context: Context) {
+        synchronized(this) {
+            networkRevision++
+            closeAfterFailure(context)
+            mutableSettled.value = true
+        }
+        FeatureFlagTransport.cancelPending()
+    }
+
+    /** Общая попытка: ожидавшие тот же запрос не запускают второй, даже после его отказа. */
+    private suspend fun update(context: Context, onlyStale: Boolean, nowMs: () -> Long) {
+        val observedAttempt = completedAttempt
+        val requestedNetwork = networkRevision
         ensureLoaded(context)
         refreshLock.withLock {
+            if (observedAttempt != completedAttempt && lastCompletedNetwork == requestedNetwork) return
+            val now = nowMs()
+            if (onlyStale && (!isStale(current, now) ||
+                    (lastAttemptAt > 0 && now >= lastAttemptAt && now - lastAttemptAt < RETRY_GAP_MS))) return
+            lastAttemptAt = now
+            val capturedNetwork = networkRevision
             try {
-                withTimeoutOrNull(ANSWER_WAIT_MS) { ApiClient.features() }?.onSuccess { json ->
-                    val fresh = parse(json, nowMs())
-                    mutableState.value = fresh
-                    runCatching {
-                        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                            .putString(KEY_FEATURES_JSON, json.toString())
-                            .putLong(KEY_FEATURES_AT, fresh.fetchedAtMs)
-                            .apply()
+                val reply = ApiClient.features()
+                reply.onSuccess { json ->
+                    synchronized(this) {
+                        if (capturedNetwork == networkRevision) {
+                            val fresh = parse(json, nowMs())
+                            mutableState.value = fresh
+                            remember(context, json, fresh.fetchedAtMs)
+                        }
                     }
+                }.onFailure {
+                    synchronized(this) { if (capturedNetwork == networkRevision) closeAfterFailure(context) }
                 }
+            } catch (cancelled: CancellationException) {
+                synchronized(this) { if (capturedNetwork == networkRevision) closeAfterFailure(context) }
+                throw cancelled
+            } catch (_: Exception) {
+                synchronized(this) { if (capturedNetwork == networkRevision) closeAfterFailure(context) }
             } finally {
+                lastCompletedNetwork = capturedNetwork
+                completedAttempt++
                 mutableSettled.value = true
             }
         }
     }
 
-    /** Спросить сервер, только если запомненное устарело. */
+    suspend fun refresh(context: Context, nowMs: () -> Long = System::currentTimeMillis) =
+        update(context, onlyStale = false, nowMs = nowMs)
+
     suspend fun refreshIfStale(context: Context, nowMs: () -> Long = System::currentTimeMillis) {
-        ensureLoaded(context)
-        if (autoRefresh && isStale(mutableState.value, nowMs())) refresh(context, nowMs)
+        if (autoRefresh) update(context, onlyStale = true, nowMs = nowMs)
     }
 
     /** Тест-хук: подставить состояние, не трогая сеть и диск. */
-    internal fun setForTest(set: FeatureSet) {
+    internal fun setForTest(set: FeatureSet, automatic: Boolean = false) {
         loaded = true
-        autoRefresh = false
+        lastAttemptAt = 0L
+        completedAttempt = 0L
+        lastCompletedNetwork = -1L
+        networkRevision = 0L
+        autoRefresh = automatic
         mutableSettled.value = true
         mutableState.value = set
     }
 
-    /** Тест-хук: «холодный старт процесса» — память пуста, следующий `ensureLoaded` читает диск. */
-    internal fun coldStartForTest() {
+    /** Тест-хук: память пуста; старый enabled-кеш не заменяет живое подтверждение. */
+    internal fun coldStartForTest(auto: Boolean = false) {
         loaded = false
-        autoRefresh = false
+        lastAttemptAt = 0L
+        completedAttempt = 0L
+        lastCompletedNetwork = -1L
+        networkRevision = 0L
+        autoRefresh = auto
         mutableSettled.value = false
         mutableState.value = FeatureSet.UNKNOWN
     }
@@ -168,14 +222,18 @@ internal object FeatureFlags {
 }
 
 /**
- * Текущие флаги для экрана. Читает запомненное с диска и, если оно устарело, тихо
- * спрашивает сервер — экран перерисуется сам, когда ответ придёт.
+ * Текущие флаги: первая проверка и возврат из фона. TTL и mutex удерживают лишние GET.
  */
 @Composable
-internal fun rememberFeatures(): FeatureSet {
+internal fun rememberFeatures(nowMs: () -> Long = System::currentTimeMillis): FeatureSet {
     val context = LocalContext.current
     FeatureFlags.ensureLoaded(context)
     val set by FeatureFlags.state.collectAsState()
-    LaunchedEffect(Unit) { FeatureFlags.refreshIfStale(context) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentClock by rememberUpdatedState(nowMs)
+    LaunchedEffect(lifecycleOwner) {
+        FeatureFlags.refreshIfStale(context, currentClock)
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { FeatureFlags.refreshIfStale(context, currentClock) }
+    }
     return set
 }

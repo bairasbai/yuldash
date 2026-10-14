@@ -1738,8 +1738,8 @@ private fun YuldashAppContent() {
                     screen = Screen.Booking
                 }
             )
-            Screen.Coupons -> ScreenGate(Feature.Business, ComingSoonKind.Business, { goBack() }, findRide) { CouponsScreen(onBack = { goBack() }) }
-            Screen.PartnerCabinet -> ScreenGate(Feature.Business, ComingSoonKind.Business, { goBack() }, findRide, appText("Мой бизнес", "Минең бизнес")) { PartnerCabinetScreen(onBack = { goBack() }) }
+            Screen.Coupons -> ScreenGate(Feature.Business, ComingSoonKind.Business, { goBack() }, findRide, closedContent = { ExistingCouponHistoryScreen({ goBack() }, findRide) }) { CouponsScreen(onBack = { goBack() }) }
+            Screen.PartnerCabinet -> ScreenGate(Feature.Business, ComingSoonKind.Business, { goBack() }, findRide, appText("Мой бизнес", "Минең бизнес"), closedContent = { ExistingPartnerRedeemScreen({ goBack() }, findRide) }) { PartnerCabinetScreen(onBack = { goBack() }) }
             Screen.PromoCode -> PromoCodeScreen(onBack = { goBack() })
         }
         }

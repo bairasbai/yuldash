@@ -25,10 +25,17 @@ function deviceStorage(): Storage | null {
 const store = createFeatureStore({
   storage: deviceStorage,
   now: Date.now,
-  fetchRaw: () => apiGet<unknown>("/config/features", { auth: false }),
+  fetchRaw: (signal) => apiGet<unknown>("/config/features", { auth: false, signal }),
+  online: () => navigator.onLine,
 });
 
-/** Спросить сервер, если запомненное устарело. Ошибок наружу не бросает. */
+/** Текущий снимок для сохранённого callback до следующего React render. */
+export function getFeatures(): FeatureState { return store.getSnapshot(); }
+
+/** Мгновенно закрыть новые действия при потере сети. */
+export function disableFeatures(): void { store.disable(); }
+
+/** Спросить сервер, если подтверждение устарело. Ошибок наружу не бросает. */
 export function refreshFeatures(opts?: { force?: boolean }): Promise<void> {
   return store.refresh(opts);
 }

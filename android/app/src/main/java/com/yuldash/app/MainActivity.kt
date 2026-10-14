@@ -750,7 +750,7 @@ internal fun formatDepart(iso: String): String = try {
 
 /** Поездка с сервера → UI-модель (для карточек/брони). Один шов RideDto→Ride. */
 internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
-    id = id.toString(),
+    id = id.toString(), category = category,
     from = fromCity,
     to = toCity,
     time = formatDepart(departAt),

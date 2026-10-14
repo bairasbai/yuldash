@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from .config import settings
 from .errors import herr
+from .models import RideCategory
 
 # Тексты отказа — оба языка (башкирский — черновик, финал за Александром, docs/tasks.md).
 # Тон тот же, что у такси: не «запрещено», а «скоро, а пока — попутка».
@@ -58,6 +59,12 @@ def guard_parcels() -> None:
     """Посылки «по пути» выключены → новая посылка, лента «возьму» и приём — «скоро»."""
     if not settings.parcels_enabled:
         raise herr(403, *MSG_PARCELS_OFF)
+
+
+def guard_delivery_ride(category: RideCategory) -> None:
+    """Новые поездки с посылками и грузом подчиняются выключателю посылок."""
+    if category in (RideCategory.parcel, RideCategory.cargo):
+        guard_parcels()
 
 
 def guard_ads() -> None:

@@ -777,7 +777,7 @@ function SubscribeView({ partner, onBack, onSubscribed }: { partner: Partner; on
 
 // ─────────────────────────── Погашение кода клиента ───────────────────────────
 
-function RedeemCard({ onDismiss, onRedeemed }: { onDismiss: () => void; onRedeemed: () => void }) {
+export function RedeemCard({ onDismiss, onRedeemed, isCurrent = () => true }: { onDismiss: () => void; onRedeemed: () => void; isCurrent?: () => boolean }) {
   const { appText } = useLang();
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -785,18 +785,20 @@ function RedeemCard({ onDismiss, onRedeemed }: { onDismiss: () => void; onRedeem
   const [err, setErr] = useState<string | null>(null);
 
   async function redeem() {
-    if (busy || !code.trim()) return;
+    if (busy || !code.trim() || !isCurrent()) return;
     setBusy(true);
     setErr(null);
     try {
       const res = await redeemCoupon(code.trim());
+      if (!isCurrent()) return;
       track("coupon_redeem");
       setResult(res);
       onRedeemed();
     } catch (e) {
+      if (!isCurrent()) return;
       setErr(e instanceof ApiError && e.message ? e.message : appText("Не получилось. Проверь код.", "Булманы. Кодты тикшер."));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   }
 
@@ -827,6 +829,7 @@ function RedeemCard({ onDismiss, onRedeemed }: { onDismiss: () => void; onRedeem
               maxLength={12}
               value={code}
               onChange={(e) => {
+                if (!isCurrent()) return;
                 setCode(e.target.value.toUpperCase().replace(/\s/g, ""));
                 setErr(null);
               }}

@@ -59,6 +59,7 @@ import { canOpenParcelDispute } from "../utils/parcelDispute.js";
 import ComingSoon from "../components/ComingSoon";
 import { useFeatures } from "../features";
 import { deliveryTypes, isCarryOpen, isOpen } from "../featureRules";
+import { CarryOrders } from "./CourierScreen";
 
 type Tab = "send" | "mine" | "carry";
 
@@ -398,7 +399,8 @@ function CarryTab() {
       {sub === "available" ? (
         carryOpen ? <AvailableList /> : <ComingSoon kind="delivery" variant="inline" />
       ) : (
-        <CarryingList onGoAvailable={() => setPicked("available")} />
+        carryOpen ? <CarryingList onGoAvailable={() => setPicked("available")} /> :
+          <CarryOrders onGoAvailable={() => setPicked("available")} emptyContent={<ComingSoon kind="delivery" variant="inline" />} />
       )}
     </>
   );

@@ -236,3 +236,35 @@ def test_скидки_выключены_уже_выданный_код_гаси
     _off(monkeypatch, "business_enabled")
     r = client.post("/coupons/redeem", headers=owner["auth"], json={"code": code})
     assert r.status_code == 200, r.text
+
+
+
+def test_выключенный_бизнес_не_публикует_старый_черновик(client, user_factory, monkeypatch):
+    owner, _admin, _pid, _ = _register_active_partner(client, user_factory, city="Баймак")
+    response = client.post("/partner/coupons", headers=owner["auth"],
+                           json={"title": "Гостинцы", "discount_text": "10 процентов"})
+    assert response.status_code == 200, response.text
+    cid = response.json()["id"]
+    _off(monkeypatch, "business_enabled")
+    _soon(client.post(f"/partner/coupons/{cid}/status", headers=owner["auth"], json={"status": "active"}))
+    # Пауза старого купона остаётся доступной: выключатель не мешает убрать своё.
+    assert client.post(f"/partner/coupons/{cid}/status", headers=owner["auth"], json={"status": "paused"}).status_code == 200
+
+
+def test_курьер_выключен_уже_взятый_заказ_доезжает(client, user_factory, monkeypatch):
+    from test_courier import _make_courier, _order
+    monkeypatch.setattr(settings, "courier_enabled", True)
+    courier = _make_courier(client, user_factory)
+    sender = user_factory("WaveProfessionalSender")
+    created = _order(client, sender)
+    assert created.status_code == 200, created.text
+    pid, code = created.json()["id"], created.json()["confirm_code"]
+    assert client.post(f"/parcels/{pid}/accept", headers=courier["auth"]).status_code == 200
+    _off(monkeypatch, "courier_enabled", "parcels_enabled")
+    _soon(_order(client, sender))
+    _soon(client.get("/courier/available", headers=courier["auth"]))
+    carrying = client.get("/parcels/carrying", headers=courier["auth"])
+    assert carrying.status_code == 200 and any(p["id"] == pid for p in carrying.json())
+    assert client.post(f"/parcels/{pid}/status", headers=courier["auth"], json={"status": "in_transit"}).status_code == 200
+    delivered = client.post(f"/parcels/{pid}/status", headers=courier["auth"], json={"status": "delivered", "code": code})
+    assert delivered.status_code == 200 and delivered.json()["status"] == "delivered", delivered.text

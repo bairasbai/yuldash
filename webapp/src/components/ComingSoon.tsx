@@ -15,6 +15,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
+import { useAuth } from "../auth/AuthProvider";
 import type { SoonKind } from "../featureRules";
 import { SubHeader } from "../screens/ConsentsScreen";
 import { IconMegaphone, IconTicket } from "./Icons";
@@ -71,6 +72,7 @@ interface Props {
 export default function ComingSoon({ kind, variant = "screen", onFindRide }: Props) {
   const { appText } = useLang();
   const navigate = useNavigate();
+  const { isAuthed } = useAuth();
 
   const name = appText(...NAME[kind]);
   const title = appText("Скоро в Юлдаше", "Тиҙҙән Юлдашта");
@@ -104,6 +106,10 @@ export default function ComingSoon({ kind, variant = "screen", onFindRide }: Pro
         <button type="button" className="btn-primary" onClick={primary.go}>
           {primary.label}
         </button>
+        {kind === "business" && <>
+          <button type="button" className="btn-soft" onClick={() => navigate(isAuthed ? "/coupons" : "/login")}>{appText("Мои купоны", "Минең купондар")}</button>
+          <button type="button" className="btn-soft" onClick={() => navigate(isAuthed ? "/partner" : "/login")}>{appText("Погасить код клиента", "Клиент кодын һүндереү")}</button>
+        </>}
         {secondary && (
           <button type="button" className="btn-soft" onClick={secondary.go}>
             {secondary.label}

@@ -12,7 +12,7 @@
 //  Мягкая деградация: courier/* появятся после мержа release
 //  (404/405 → «скоро», 403 → онбординг/пауза).
 // ================================================================
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import PriorityCard from "../components/PriorityCard";
 import { useLang } from "../i18n/lang";
@@ -466,7 +466,7 @@ function AvailableOrders({
 }
 
 // ============================ Везу ============================
-function CarryOrders({ onGoAvailable }: { onGoAvailable: () => void }) {
+export function CarryOrders({ onGoAvailable, emptyContent }: { onGoAvailable: () => void; emptyContent?: ReactNode }) {
   const { appText } = useLang();
   const [boot, setBoot] = useState<"loading" | "error" | "ready">("loading");
   const [items, setItems] = useState<Parcel[]>([]);
@@ -568,6 +568,7 @@ function CarryOrders({ onGoAvailable }: { onGoAvailable: () => void }) {
   if (boot === "loading") return <LoadingList count={2} />;
   if (boot === "error") return <ErrorState onRetry={() => load()} />;
   if (items.length === 0) {
+    if (emptyContent) return <>{emptyContent}</>;
     return (
       <div className="state" style={{ paddingTop: 28 }}>
         <div className="state__icon">

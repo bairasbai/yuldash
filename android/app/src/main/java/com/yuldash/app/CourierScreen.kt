@@ -286,8 +286,8 @@ internal fun CourierScreen(
 
 /** Попутные доставки доступны независимо от заявки профессионального курьера. */
 @Composable
-internal fun PoputkaDeliveryTabs() {
-    var sub by rememberSaveable { mutableIntStateOf(0) }
+internal fun PoputkaDeliveryTabs(allowNewOrders: Boolean = true) {
+    var sub by rememberSaveable { mutableIntStateOf(if (allowNewOrders) 0 else 1) }
     var carrying by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
     Column(Modifier.fillMaxSize()) {
         Surface(
@@ -308,7 +308,8 @@ internal fun PoputkaDeliveryTabs() {
             transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
             label = "poputka-delivery-sub",
         ) { selected ->
-            if (selected == 0) {
+            if (selected == 0 && !allowNewOrders) ComingSoonContent(ComingSoonKind.Delivery, { sub = 1 })
+            else if (selected == 0) {
                 CourierAvailableTab(
                     online = false, lineBusy = false, zone = "region", workCity = "",
                     onGoOnline = {}, poputkaOnly = true,
@@ -316,7 +317,7 @@ internal fun PoputkaDeliveryTabs() {
             } else {
                 CourierCarryingTab(
                     online = false, list = carrying, onList = { carrying = it },
-                    onGoOrders = { sub = 0 },
+                    onGoOrders = { sub = 0 }, allowNewOrders = allowNewOrders,
                 )
             }
         }
@@ -1255,8 +1256,9 @@ private fun CourierAvailableCard(p: ParcelDto, busy: Boolean, canTake: Boolean, 
  * отправка GPS, которая живёт выше уровнем и не должна умирать вместе с этой вкладкой.
  */
 @Composable
-private fun CourierCarryingTab(
+internal fun CourierCarryingTab(
     onGoOrders: () -> Unit = {},
+    allowNewOrders: Boolean = true,
     online: Boolean,
     list: List<ParcelDto>,
     onList: (List<ParcelDto>) -> Unit,
@@ -1345,17 +1347,7 @@ private fun CourierCarryingTab(
                     item { SkeletonCard(lines = 3) }
                 }
                 error != null && list.isEmpty() -> item { ListedError(error ?: "") { reload() } }
-                list.isEmpty() -> item {
-                    // Текст указывал дорогу, но идти по ней человек должен был сам.
-                    // Кнопка ведёт ровно туда, куда указывает текст — на вкладку «Заказы».
-                    AppEmptyState(
-                        title = appText("Ты пока ничего не везёшь", "Әлегә бер нәмә лә илтмәйһең"),
-                        text = appText("Возьми заказ во вкладке «Заказы» — он появится здесь.", "«Заказдар» бүлегендә заказ ал — ул бында күренер."),
-                        icon = Icons.Default.LocalShipping,
-                        actionLabel = appText("Смотреть заказы", "Заказдарҙы ҡарау"),
-                        onAction = onGoOrders,
-                    )
-                }
+                list.isEmpty() -> item { CourierCarryEmpty(allowNewOrders, onGoOrders) }
                 else -> {
                     // Онлайн-трекинг: карта активной доставки (курьер шлёт свой GPS отправителю).
                     // Карта одна — MapKit тяжёлый, три карты в одном списке подвесят прокрутку.

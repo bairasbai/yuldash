@@ -97,6 +97,7 @@ internal fun ComingSoonContent(
     kind: ComingSoonKind,
     onFindRide: () -> Unit,
     modifier: Modifier = Modifier,
+    scrollable: Boolean = true,
     secondaryLabel: String? = null,
     onSecondary: (() -> Unit)? = null,
 ) {
@@ -114,8 +115,9 @@ internal fun ComingSoonContent(
     val body = comingSoonBody(kind)
     val findRide = appText("Найти попутку", "Юлдаш табыу")
     val icon = comingSoonIcon(kind)
+    val bodyModifier = if (scrollable) modifier.fillMaxSize().verticalScroll(rememberScrollState()) else modifier.fillMaxWidth()
     Box(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        bodyModifier,
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(
@@ -155,6 +157,10 @@ internal fun ComingSoonContent(
                 verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
             ) {
                 AppButton(text = findRide, onClick = onFindRide)
+                if (kind == ComingSoonKind.Business) {
+                    AppButton(appText("Мои купоны", "Минең купондар"), { DeepLink.pendingApplicationScreen.value = Screen.Coupons }, style = AppButtonStyle.Secondary)
+                    AppButton(appText("Погасить код клиента", "Клиент кодын һүндереү"), { DeepLink.pendingApplicationScreen.value = Screen.PartnerCabinet }, style = AppButtonStyle.Secondary)
+                }
                 if (secondaryLabel != null && onSecondary != null) {
                     AppButton(text = secondaryLabel, onClick = onSecondary, style = AppButtonStyle.Secondary)
                 }
@@ -211,6 +217,7 @@ internal fun FeatureGate(
     title: String? = null,
     secondaryLabel: String? = null,
     onSecondary: (() -> Unit)? = null,
+    closedContent: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     val features = rememberFeatures()
@@ -230,7 +237,9 @@ internal fun FeatureGate(
                     GateSkeleton(Modifier.padding(padding))
                 }
             }
-            GatePhase.Soon -> if (embedded) {
+            GatePhase.Soon -> if (closedContent != null) {
+                closedContent()
+            } else if (embedded) {
                 ComingSoonContent(kind, onFindRide, secondaryLabel = secondaryLabel, onSecondary = onSecondary)
             } else {
                 ComingSoonScreen(
@@ -254,8 +263,9 @@ internal fun ScreenGate(
     onBack: () -> Unit,
     onFindRide: () -> Unit,
     title: String? = null,
+    closedContent: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
-) = FeatureGate(open = { it.isOn(feature) }, kind = kind, onBack = onBack, onFindRide = onFindRide, title = title, content = content)
+) = FeatureGate(open = { it.isOn(feature) }, kind = kind, onBack = onBack, onFindRide = onFindRide, title = title, closedContent = closedContent, content = content)
 
 /** Первый запуск, сервер ещё не ответил: скелет вместо «скоро», чтобы не мигнуть неправдой. */
 @Composable

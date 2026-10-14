@@ -8,13 +8,27 @@ package com.yuldash.app
 // Флаг сменился, пока форма открыта, — форму не перестраиваем: сервер ответит двуязычным
 // «скоро», а при следующем открытии закрытого способа уже не будет.
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.ParcelDto
 import com.yuldash.app.data.CourierApplicationDto
 
 /**
@@ -71,6 +85,64 @@ internal fun CourierPoputkaOrApply(
                 modifier = Modifier.padding(horizontal = CanonSpace.lg, vertical = CanonSpace.md),
             )
         }
-        if (parcelsOn) PoputkaDeliveryTabs()
+        PoputkaDeliveryTabs(allowNewOrders = parcelsOn)
+    }
+}
+
+
+/** Три безопасные двери: новая отправка, свои посылки и уже взятые доставки. */
+@Composable
+internal fun DeliveryParcelTabs(tab: Int, onSelect: (Int) -> Unit) {
+    Surface(
+        color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg, vertical = CanonSpace.md),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(CanonSpace.xs), horizontalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+            ParcelTab(appText("Отправить", "Ебәреү"), tab == 0, Modifier.weight(1f)) { onSelect(0) }
+            ParcelTab(appText("Мои", "Минеке"), tab == 1, Modifier.weight(1f)) { onSelect(1) }
+            ParcelTab(appText("Везу", "Илтәм"), tab == 2, Modifier.weight(1f)) { onSelect(2) }
+        }
+    }
+}
+
+/** Без кабинета и линии: старую доставку можно завершить при любых выключателях. */
+@Composable
+internal fun DeliveryCarryContent(onFindRide: () -> Unit) {
+    var carrying by remember { mutableStateOf<List<ParcelDto>>(emptyList()) }
+    if (!ApiClient.isLoggedIn()) {
+        ComingSoonContent(ComingSoonKind.Delivery, onFindRide)
+        return
+    }
+    CourierCarryingTab(
+        online = false, list = carrying, onList = { carrying = it },
+        allowNewOrders = false, onGoOrders = onFindRide,
+    )
+    CourierLiveLocationLink(carrying)
+}
+
+@Composable
+internal fun ClosedCourierDeliveryScreen(onBack: () -> Unit, onFindRide: () -> Unit, onApply: () -> Unit) {
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Режим курьера", "Курьер режимы"), onBack) }) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize()) {
+            AppButton(
+                text = becomeCourierEarlyLabel(), onClick = onApply, style = AppButtonStyle.Secondary,
+                modifier = Modifier.padding(CanonSpace.lg),
+            )
+            DeliveryCarryContent(onFindRide)
+        }
+    }
+}
+
+@Composable
+internal fun CourierCarryEmpty(allowNewOrders: Boolean, onGoOrders: () -> Unit) {
+    if (!allowNewOrders) {
+        ComingSoonContent(ComingSoonKind.Delivery, onGoOrders, scrollable = false)
+    } else {
+        AppEmptyState(
+            title = appText("Ты пока ничего не везёшь", "Әлегә бер нәмә лә илтмәйһең"),
+            text = appText("Возьми заказ во вкладке «Заказы» — он появится здесь.", "«Заказдар» бүлегендә заказ ал — ул бында күренер."),
+            icon = Icons.Default.LocalShipping,
+            actionLabel = appText("Смотреть заказы", "Заказдарҙы ҡарау"), onAction = onGoOrders,
+        )
     }
 }

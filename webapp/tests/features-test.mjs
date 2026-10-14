@@ -159,7 +159,7 @@ check(R.isOpen("business", { ...ALL_OFF, ads: true }) === false && R.isOpen("ads
 check(R.isTaxiOpen(R.FEATURES_OFF) === false && R.isTaxiOpen({ ...ALL_OFF, taxi: true }) === true, "такси для гостя: закрыто, пока не включено");
 
 // ---------------------------------------------------------------- 5. хранилище
-function rig({ cache, fetchRaw, startAt = AT } = {}) {
+function rig({ cache, fetchRaw, startAt = AT, timeoutMs, online } = {}) {
   const clock = { t: startAt };
   const storage = memory();
   if (cache) storage.map.set("yuldash.features", cache);
@@ -167,9 +167,10 @@ function rig({ cache, fetchRaw, startAt = AT } = {}) {
   const store = R.createFeatureStore({
     storage: () => storage,
     now: () => clock.t,
-    fetchRaw: () => {
+    timeoutMs, online,
+    fetchRaw: (signal) => {
       calls.n++;
-      return fetchRaw();
+      return fetchRaw(signal);
     },
   });
   return { clock, storage, calls, store };
@@ -185,9 +186,9 @@ const fail = () => Promise.reject(new Error("offline"));
 {
   const r = rig({ cache: R.serializeFeatures({ ...ALL_OFF, ads: true }, AT), fetchRaw: ok(ALL_OFF), startAt: AT + MIN });
   const s = r.store.getSnapshot();
-  check(s.ready === true && s.ads === true && s.parcels === false, "холодный старт с запомненным: сразу известно, без сети");
+  check(s.ready === false && eq(flagsOf(s), ALL_OFF), "enabled-кеш не открывает холодный процесс без живого ответа");
   await r.store.refresh();
-  check(r.calls.n === 0, "запомненное свежее — на старте сеть не трогаем");
+  check(r.calls.n === 1 && eq(flagsOf(r.store.getSnapshot()), ALL_OFF), "холодный старт требует живого подтверждения даже при свежем кеше");
 }
 {
   const r = rig({ cache: R.serializeFeatures({ ...ALL_OFF, ads: true }, AT), fetchRaw: ok({ ...ALL_OFF, business: true }), startAt: AT + 6 * MIN });
@@ -205,20 +206,20 @@ const fail = () => Promise.reject(new Error("offline"));
   await r.store.refresh();
   const s = r.store.getSnapshot();
   check(s.ready === true && eq(flagsOf(s), ALL_OFF), "сеть упала, запомненного нет → «известно: выключено», а не вечная загрузка");
-  check(R.readFeaturesCache(r.storage) === null, "сбой ничего не записывает в хранилище");
+  check(eq(R.readFeaturesCache(r.storage).flags, ALL_OFF), "сбой записывает безопасное OFF в хранилище");
 }
 {
   const r = rig({ cache: R.serializeFeatures({ ...ALL_OFF, parcels: true }, AT), fetchRaw: fail, startAt: AT + 6 * MIN });
   await r.store.refresh();
   const s = r.store.getSnapshot();
-  check(s.parcels === true && s.ready === true, "сеть упала, но запомненное есть → остаётся оно");
-  check(R.readFeaturesCache(r.storage).at === AT, "после сбоя метка времени не обновляется — следующее открытие спросит снова");
+  check(eq(flagsOf(s), ALL_OFF) && s.ready === true, "сеть упала — даже прежний enabled-кеш закрывается");
+  check(eq(R.readFeaturesCache(r.storage).flags, ALL_OFF), "сбой очищает все enabled в запомненном");
 }
 for (const [label, payload] of [["HTML", "<html>502</html>"], ["массив", []], ["null", null]]) {
   const r = rig({ cache: R.serializeFeatures({ ...ALL_OFF, parcels: true }, AT), fetchRaw: ok(payload), startAt: AT + 6 * MIN });
   await r.store.refresh();
-  check(r.store.getSnapshot().parcels === true && R.readFeaturesCache(r.storage).at === AT,
-    `ответ-мусор (${label}) не затирает хорошее запомненное`);
+  check(eq(flagsOf(r.store.getSnapshot()), ALL_OFF) && eq(R.readFeaturesCache(r.storage).flags, ALL_OFF),
+    `ответ-мусор (${label}) закрывает прежние enabled`);
 }
 {
   const r = rig({ fetchRaw: ok({ taxi: true, parcels: "yes", courier: 1 }) });
@@ -271,6 +272,44 @@ for (const [label, payload] of [["HTML", "<html>502</html>"], ["массив", [
   const r = rig({ cache: R.serializeFeatures({ ...ALL_OFF, parcels: true }, AT), fetchRaw: ok({ ...ALL_OFF }), startAt: AT + 10 * MIN });
   await r.store.refresh();
   check(r.store.getSnapshot().parcels === false, "направление выключили на сервере → через пять минут экран закрывается");
+}
+
+{
+  let response = ALL_ON;
+  const r = rig({ fetchRaw: () => response instanceof Error ? Promise.reject(response) : Promise.resolve(response) });
+  await r.store.refresh();
+  check(eq(flagsOf(r.store.getSnapshot()), ALL_ON), "живой ответ открывает направления");
+  response = new Error("network lost");
+  await r.store.refresh({ force: true });
+  check(eq(flagsOf(r.store.getSnapshot()), ALL_OFF) && r.store.getSnapshot().ready, "сбой после живого enabled закрывает всё, кроме попуток");
+}
+{
+  let signal;
+  const r = rig({ cache: R.serializeFeatures(ALL_ON, AT), timeoutMs: 10,
+    fetchRaw: (seen) => { signal = seen; return new Promise(() => {}); } });
+  await r.store.refresh();
+  check(signal.aborted && r.store.getSnapshot().ready && eq(flagsOf(r.store.getSnapshot()), ALL_OFF),
+    "реальный таймер отменяет молчащий запрос и завершает загрузку с OFF");
+  check(eq(R.readFeaturesCache(r.storage).flags, ALL_OFF), "таймаут очищает enabled-кеш");
+}
+{
+  let resolveOld;
+  let turn = 0;
+  const r = rig({ fetchRaw: () => ++turn === 1 ? new Promise((resolve) => { resolveOld = resolve; }) : Promise.resolve(ALL_ON) });
+  const old = r.store.refresh();
+  await Promise.resolve();
+  r.store.disable();
+  check(r.store.getSnapshot().ready && eq(flagsOf(r.store.getSnapshot()), ALL_OFF), "системный offline немедленно закрывает направления");
+  await r.store.refresh({ force: true });
+  resolveOld(ALL_OFF);
+  await old;
+  check(eq(flagsOf(r.store.getSnapshot()), ALL_ON) && r.calls.n === 2, "поздний отменённый ответ не затирает новое живое подтверждение");
+}
+{
+  const r = rig({ cache: R.serializeFeatures(ALL_ON, AT), online: () => false, fetchRaw: ok(ALL_ON) });
+  await r.store.refresh();
+  check(r.calls.n === 0 && r.store.getSnapshot().ready && eq(flagsOf(r.store.getSnapshot()), ALL_OFF),
+    "браузер offline: нет HTTP и enabled-кеш не открывает направления");
 }
 
 // ---------------------------------------------------------------- 6. проводка на экранах
@@ -428,6 +467,25 @@ for (const tag of ["CouponsScreen", "PartnerCabinetScreen", "AdsCabinetScreen", 
   const css = read("ui.css");
   check(css.includes(".coming-soon__actions") && /\.coming-soon__actions \.btn-primary,\s*\.coming-soon__actions \.btn-soft/.test(css),
     "кнопки заглушки — штатные .btn-primary / .btn-soft (54px, не меньше 48)");
+}
+
+
+
+// Старые доставки доступны отдельным путём без новой ленты и линии.
+{
+  const gate = read("components/FeatureGate.tsx");
+  check(gate.includes('need === "courier" && status === "authed"') && gate.includes("<CourierHistoryScreen />"), "закрытый курьер сохраняет вошедшему безопасный экран «Везу»");
+  const history = read("screens/CourierHistoryScreen.tsx");
+  check(history.includes("<CarryOrders") && !history.includes("courierOnline") && !history.includes("fetchCourierAvailable"), "история переиспользует доставку без линии и новой ленты");
+  check(read("screens/ProfileScreen.tsx").includes('key: "delivery-history"'), "история доставки доступна из профиля при выключенных направлениях");
+}
+
+{
+  const gate = read("components/FeatureGate.tsx");
+  check(gate.includes('need === "business" && status === "authed"') && gate.includes("<BenefitHistoryScreen"), "закрытый бизнес сохраняет только старые коды и погашение вошедшему");
+  const profile = read("screens/ProfileScreen.tsx"), soon = read("components/ComingSoon.tsx");
+  check(profile.includes('key: "coupon-history"') && profile.includes('key: "coupon-redeem"'), "старые коды и погашение имеют безопасные входы в профиле");
+  check(soon.includes('navigate(isAuthed ? "/coupons" : "/login")') && soon.includes('navigate(isAuthed ? "/partner" : "/login")'), "заглушка ведёт к старому коду и погашению, гостю сначала вход");
 }
 
 console.log(bad === 0 ? "\nВСЁ СОШЛОСЬ" : `\nПРОВАЛЕНО: ${bad}`);

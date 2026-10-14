@@ -5,6 +5,8 @@
 //  Тип «В больницу» → GET /medical-partners (выбор клиники-назначения).
 // ================================================================
 import { useEffect, useState } from "react";
+import { getFeatures, useFeatures } from "../features";
+import ComingSoon from "../components/ComingSoon";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
@@ -44,6 +46,7 @@ export default function CreateRideScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
+  const features = useFeatures();
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -191,7 +194,7 @@ export default function CreateRideScreen() {
     from.trim().length > 0 && to.trim().length > 0 && when.length > 0 && !busy;
 
   async function submit() {
-    if (!canSubmit) return;
+    if (!canSubmit || ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
     setBusy(true);
     setError(null);
     const body: RideCreateInput = {
@@ -284,6 +287,11 @@ export default function CreateRideScreen() {
       </>
     );
   }
+
+  if ((category === "parcel" || category === "cargo") && !features.parcels && !busy) return <>
+    <ComingSoon kind="delivery" />
+    <button type="button" className="btn-soft" onClick={() => setCategory("regular")}>{appText("Обычная", "Ябай")}</button>
+  </>;
 
   return (
     <>

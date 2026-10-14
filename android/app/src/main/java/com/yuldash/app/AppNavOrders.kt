@@ -117,6 +117,7 @@ internal fun OrdersNav(
             title = appText("Режим курьера", "Курьер режимы"),
             secondaryLabel = becomeCourierEarlyLabel(),
             onSecondary = { onOpen(Screen.CourierOnboarding) },
+            closedContent = { ClosedCourierDeliveryScreen(onBack, onFindRide, { onOpen(Screen.CourierOnboarding) }) },
         ) {
             CourierScreen(
                 onBack = { onBack() },

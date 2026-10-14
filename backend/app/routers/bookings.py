@@ -14,6 +14,7 @@ from ..config import settings
 from ..flood import TOO_FAST_CREATING, guard_burst
 from ..db import get_session
 from ..errors import herr
+from ..features import guard_delivery_ride
 from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Payment, Rating, Ride, RideStatus, User
 from ..cancel_reason_text import cancel_reason_text
 from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
@@ -225,6 +226,7 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
             raise herr(409, "У тебя уже есть бронь без переднего места. Отмени её и забронируй заново с передним",
                        "Һинең алғы урынһыҙ бронең бар инде. Уны кире ал да алғы урын менән яңынан бронла")
         return existing
+    guard_delivery_ride(ride.category)
     # Быстрая понятная проверка «мест нет» — чтобы не гонять человека через остальные шаги.
     # Настоящая защита ниже: между этой строкой и списанием мест может вклиниться чужая бронь.
     if ride.seats_left < body.seats:

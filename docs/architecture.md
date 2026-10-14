@@ -4735,3 +4735,10 @@ ApiClient.cacheRevisions хранит invalidation version по фиксиров
 - PWA: `utils/seatOptions.ts` (потолок, подсказки), `components/SeatOptions.tsx` (`SeatOptionsFields`,
   `SeatBadges`, `FrontSeatChoice`) в `CreateRideScreen`, `RideEditActions`, `RideCard`, `RideSheet`;
   «просит переднее» — `DriverCabinetScreen`, «переднее место» — `BookingScreen`.
+
+
+### 14.10.2026 — Выключатели волны 1
+- `FeatureFlagTransport.kt`, `FeatureConnectivity.kt`, `FeatureFlags.kt`: публичное подтверждение флагов, общий таймаут, отмена при смене сети, TTL при RESUMED.
+- `ExistingBenefits.kt`, `webapp/src/benefitOwner.ts`, `BenefitHistoryScreen.tsx`: ранее выданные купоны при OFF, owner/session boundary для приватных чтений и действий.
+- `webapp/src/screens/CourierHistoryScreen.tsx`, `DeliveryGate.kt`: продолжение старых доставок при закрытых новых входах.
+- `backend/app/features.py::guard_delivery_ride`: категории parcel/cargo закрываются до создания поездки или новой брони; старые брони продолжаются.

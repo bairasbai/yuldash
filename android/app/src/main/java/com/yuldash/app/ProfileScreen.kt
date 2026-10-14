@@ -855,9 +855,11 @@ internal fun ProfileScreen(
             item {
                 ProfileSectionLabel(appText("Сервисы", "Хеҙмәттәр"))
             }
+            if (!features.isOn(Feature.Business)) item(key = "old_benefits") { ExistingBenefitActions(onCoupons, onPartnerCabinet) }
             if (features.isOn(Feature.Business)) item(key = "svc_coupons") { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Скидки по пути", "Юл буйынса ташламалар"), appText("Скидки от местных заведений по маршруту", "Маршрут буйынса ерле урындарҙан ташлама"), Icons.Default.LocalOffer, onCoupons) } }
             item { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Промокод", "Промокод"), appText("Ввести код друга или акции", "Дуҫ йәки акция кодын индереү"), Icons.Default.Redeem, onPromo) } }
             if (features.deliveryOn) item(key = "svc_parcels") { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Посылки", "Бандеролдәр"), appText("Отправить с попутчиком или подвезти", "Юлдаш менән ебәреү йәки илтеү"), R.drawable.yu_mode_parcel, onParcels) } }
+            if (!features.deliveryOn) item(key = "delivery_history") { ProfileActionCard(appText("Мои доставки", "Минең илтеүҙәр"), appText("Посылки и история доставки", "Бандеролдәр һәм илтеү тарихы"), R.drawable.yu_mode_parcel, onParcels) }
             if (features.deliveryOn) item(key = "svc_courier") { Box(Modifier.appearIn(1)) { ProfileActionCard(appText("Режим курьера", "Курьер режимы"), appText("Возить заказы или стать курьером", "Заказ илтеү йәки курьер булыу"), R.drawable.yu_mode_courier, onCourier) } }
             item {
                 ProfileSectionLabel(appText("Мои кабинеты", "Минең кабинеттар"))

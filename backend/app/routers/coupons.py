@@ -979,6 +979,8 @@ def partner_coupon_status(coupon_id: int, body: CouponStatusIn, user: User = Dep
     if new_status not in ("draft", "active", "paused", "archived"):
         raise herr(422, "Недопустимый статус", "Ярамаған статус")
     if new_status == "active":
+        if coupon.status != "active":
+            guard_business()  # новая публикация старого черновика — тоже закрытая дверь
         # Смотрим СОСТОЯНИЕ проверки, а не пересчитываем текст заново. Пересчёт здесь был бы
         # дырой: текст с прошлой правки не менялся, значит чистый купон, снятый админом
         # вручную, тем же пересчётом молча воскресал бы обратно в витрину.

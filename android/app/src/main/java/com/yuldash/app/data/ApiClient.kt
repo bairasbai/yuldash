@@ -796,7 +796,7 @@ object ApiClient {
     /** Минимальная поддерживаемая версия приложения (force-update, B9b-1). Без авторизации.
      *  min_version_code=0 → проверка выключена. Ошибка/офлайн → вызывающий НЕ блокирует. */
     suspend fun minAppVersion(): Result<JSONObject> = call("GET", "/version/min", null, auth = false)
-    suspend fun features(): Result<JSONObject> = call("GET", "/config/features", null, auth = false)   // флаги направлений, без входа (FeatureFlags.kt)
+    suspend fun features(): Result<JSONObject> = com.yuldash.app.FeatureFlagTransport.fetch("$BASE/config/features", (testTimeoutMs ?: com.yuldash.app.FeatureFlags.ANSWER_WAIT_MS.toInt()).toLong())   // флаги направлений, без входа (FeatureFlags.kt)
 
     /** Текущий пользователь по токену (проверка валидности сессии). Освежает имя клиента. */
     suspend fun me(): Result<JSONObject> = cachedGet("me", TTL_PERSONAL, onValue = { o: JSONObject ->

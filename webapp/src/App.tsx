@@ -32,7 +32,7 @@ import { useTaxiOrderOnScreen } from "./navSignals";
 import { useAuth } from "./auth/AuthProvider";
 import { useLang } from "./i18n/lang";
 import { fetchDriverDebt } from "./api/driver";
-import { refreshFeatures, useFeatures } from "./features";
+import { disableFeatures, refreshFeatures, useFeatures } from "./features";
 import { isTaxiOpen } from "./featureRules";
 
 
@@ -215,8 +215,15 @@ export default function App() {
     const onVisible = () => {
       if (document.visibilityState === "visible") void refreshFeatures();
     };
+    const onOnline = () => { void refreshFeatures({ force: true }); };
+    window.addEventListener("offline", disableFeatures);
+    window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("offline", disableFeatures);
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   // Накопленные без сети «выехал»/«доехал» и сообщения досылаем на СТАРТЕ, а не

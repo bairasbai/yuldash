@@ -160,6 +160,8 @@ export default function ProfileScreen() {
       authed: true,
       need: "delivery",
     },
+    ...(!isOpen("delivery", features) ? [{ key: "delivery-history", to: "/parcels", icon: <YuModeParcel size={22} />,
+      title: appText("Мои доставки", "Минең илтеүҙәр"), sub: appText("Посылки и история доставки", "Бандеролдәр һәм илтеү тарихы"), authed: true }] : []),
     {
       key: "places",
       to: "/places",
@@ -192,6 +194,10 @@ export default function ProfileScreen() {
       sub: appText("Купоны от своих заведений", "Үҙ заведениеларҙан купондар"),
       need: "business",
     },
+    ...(!features.business ? [
+      { key: "coupon-history", to: "/coupons", icon: <IconTicket size={22} />, title: appText("Мои купоны", "Минең купондар"), sub: appText("Уже выданные коды", "Алдан бирелгән кодтар"), authed: true },
+      { key: "coupon-redeem", to: "/partner", icon: <IconStore size={22} />, title: appText("Погасить код клиента", "Клиент кодын һүндереү"), sub: appText("Ранее выданные купоны", "Алдан бирелгән купондар"), authed: true },
+    ] : []),
     {
       key: "promo",
       to: "/promo",
@@ -460,7 +466,7 @@ export default function ProfileScreen() {
           },
           {
             label: appText("Мои поездки", "Сәфәрҙәрем"),
-            keys: ["cabinet", "watch", "filters", "places", "stats"],
+            keys: ["cabinet", "delivery-history", "watch", "filters", "places", "stats"],
           },
           {
             label: appText("Заработок", "Табыш"),
@@ -468,7 +474,7 @@ export default function ProfileScreen() {
           },
           {
             label: appText("Выгода и бизнес", "Файҙа һәм бизнес"),
-            keys: ["coupons", "promo", "invites", "partner", "ads", "payment-methods", "payment-info"],
+            keys: ["coupons", "coupon-history", "coupon-redeem", "promo", "invites", "partner", "ads", "payment-methods", "payment-info"],
           },
           {
             label: appText("Безопасность и доверие", "Именлек һәм ышаныс"),

@@ -1726,7 +1726,7 @@ private fun InstantOrderContent(
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             val current = order
-            val av = availability ?: taxiOff
+            val av = taxiOff ?: availability
             // Фаза заказа как ОДНО значение: и порядок веток тот же, что был, и есть чем кормить
             // AnimatedContent. Раньше `when` менял полэкрана мгновенно — человек, который стоит
             // на морозе, видел рывок вместо перехода «ищем → нашли».
