@@ -4763,3 +4763,5 @@ ApiClient.cacheRevisions хранит invalidation version по фиксиров
 `TaxiRestoreFailure.kt` — маленькая обёртка существующей пустой фазы restoreError в `InstantOrderScreen.kt`. Переиспользует FeatureGate/ComingSoon: OFF/UNKNOWN закрывает новый вход и оставляет ручной повтор чтения старого заказа; ON рисует прежнюю InstantRetryCard. Фазы принятого/найденного старого заказа проходят прежним путём. Навигация и enum Screen не расширялись; число строк InstantOrderScreen.kt не увеличено. Runtime GREEN/повтор устройства пока ожидаются.
 
 Уточнение после GREEN: ComingSoonKind дополнен Taxi с существующей иконкой и прежним текстом RU/BA; runtime24/24 и сборка прошли. Повтор офлайн на устройстве ожидает освобождения общего эмулятора.
+
+17:00 — фактический повтор офлайн на APK8496a39d завершён: RU/BA, cold start, ручной retry и возврат к попуткам. Доказательства64–67,71–72 и taxi-offline-emulator-evidence.json в игнорируемой QA-папке; все шесть CI product8496a39d зелёные. Новых Screen и маршрутов нет.
