@@ -1158,6 +1158,15 @@ internal fun BookingRouteMapPreview(   // internal: живой MapKit-ренде
     showPrivacyNotice: Boolean = true,
     liveBookingId: Int? = null,
 ) {
+    // Без ключа MapKit (сборка в чистом worktree/CI, где local.properties нет) `MapKitFactory.initialize`
+    // роняет приложение: «You need to set the API key before using MapKit!». Это экран брони —
+    // единственный путь пассажира к «Забронировать», падать здесь нельзя. Ключ читает только
+    // `YuldashApplication` (setApiKey), поэтому на вкладке «Карта» стоит такая же проверка. Показываем
+    // заглушку маршрута; ключ в сборке есть → поведение прежнее.
+    if (BuildConfig.YANDEX_MAPKIT_KEY.isBlank()) {
+        RouteMapUnavailableCard(modifier)
+        return
+    }
     val context = LocalContext.current
     val mapView = remember(fromPoint, toPoint) {
         ensureMapKit(context)   // русская локаль ставится тут же: голый initialize оставлял логотип «Yandex Maps» по-английски

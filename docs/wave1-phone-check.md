@@ -54,3 +54,7 @@ DATABASE_URL=postgresql+psycopg2://…/db python -m pytest tests/journeys -q   #
 JOURNEY_BASE_URL=http://127.0.0.1:<порт> JOURNEY_SERVER_LOG=<лог сервера> \
 JOURNEY_ADMIN_PHONE=<тот же номер> python -m pytest tests/journeys -q
 ```
+
+### Проверка на эмуляторе (когда нет телефона)
+
+Тот же путь можно пройти на эмуляторе: свой сервер на временной PostgreSQL 16 (`ENV=dev`, `SMS_PROVIDER=mock`, пустой `TELEGRAM_WEBHOOK_SECRET`), `adb reverse tcp:8000 tcp:8000`, debug-сборка с `YULDASH_DEBUG_API_BASE_URL=http://127.0.0.1:8000`. Бота играет вебхук (как в `backend/tests/journeys`). Подвохи и обходы — `docs/lessons.md`, раздел «Проверка на эмуляторе без телефона…». Сборка без `local.properties` теперь проходит весь путь: имя бота имеет дефолт, карта без ключа показывает заглушку.

@@ -41,10 +41,14 @@ curl "https://api.telegram.org/bot<ТОКЕН>/setWebhook?url=https://yulbash.ru
 Ответ `{"ok":true,...}` = готово.
 
 ## Шаг 4. Прописать имя бота в приложении
-В `android/local.properties` (на ноуте, в git не попадает) добавь:
-```
-YULDASH_TELEGRAM_BOT=yuldash_bot
-```
+Имя бота — не секрет (публичный username), поэтому в `android/app/build.gradle.kts` у него есть
+значение по умолчанию `yuldash_sms_bot` — сборка без `local.properties` уже открывает настоящего бота.
+Если бот другой, задай имя (без «@») одним из способов; порядок — сверху вниз, побеждает первый:
+1. `gradlew.bat :app:assembleDebug -PyuldashTelegramBot=другой_бот`
+2. переменная окружения `YULDASH_TELEGRAM_BOT=другой_бот`
+3. строка `YULDASH_TELEGRAM_BOT=другой_бот` в `android/local.properties` (на ноуте, в git не попадает)
+
+Пустое значение (`-PyuldashTelegramBot=`) — осознанно выключить кнопку (тост «скоро»).
 Пересобери приложение — кнопка «Войти через Telegram» заработает по-настоящему.
 
 ---
