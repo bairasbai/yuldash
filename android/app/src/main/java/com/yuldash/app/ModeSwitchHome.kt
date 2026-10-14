@@ -7,6 +7,7 @@ package com.yuldash.app
 // Смена — плавная (AnimatedContent). Цвета — токены CanonTaxi*/CanonPooling* (жёлтый/зелёный).
 // Деревне-дружелюбно: крупные сегменты ≥64dp, эмодзи+подпись, простой bottom-sheet «Чем отличается?».
 
+import androidx.compose.foundation.Image
 import androidx.compose.material3.Icon
 import androidx.compose.ui.res.painterResource
 import com.yuldash.app.R
@@ -14,7 +15,6 @@ import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
@@ -67,7 +67,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -293,9 +295,9 @@ private fun ModeSwitchBar(
     showCourierWork: Boolean = true,
 ) {
     val items = listOf(
-        Triple(RideMode.Pooling, R.drawable.yu_mode_rideshare, appText("Попутка", "Юлдаш")),
-        Triple(RideMode.Taxi, R.drawable.yu_mode_taxi, appText("Такси", "Такси")),
-        Triple(RideMode.Courier, R.drawable.yu_mode_courier, appText("Курьер", "Курьер")),
+        Triple(RideMode.Pooling, R.drawable.yuldash_mode_ride, appText("Попутка", "Юлдаш")),
+        Triple(RideMode.Taxi, R.drawable.yuldash_mode_taxi, appText("Такси", "Такси")),
+        Triple(RideMode.Courier, R.drawable.yuldash_mode_courier, appText("Курьер", "Курьер")),
     )
     val index = items.indexOfFirst { it.first == mode }.coerceAtLeast(0)
     val accent = when (mode) {
@@ -353,7 +355,6 @@ private fun ModeSwitchBar(
                 Row(Modifier.fillMaxWidth()) {
                     items.forEachIndexed { i, (m, iconRes, title) ->
                         val on = i == index
-                        val tint by animateColorAsState(if (on) accent else CanonMuted, tween(CanonMotion.QUICK), label = "mode_tint")
                         val cd = appText(
                             if (on) "$title, выбрано" else "$title, выбрать",
                             if (on) "$title, һайланды" else "$title, һайлау",
@@ -368,8 +369,7 @@ private fun ModeSwitchBar(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(painterResource(iconRes), contentDescription = null,
-                                tint = tint, modifier = Modifier.size(16.dp))
+                            ModeVehicleIcon(iconRes = iconRes, mode = m, active = on)
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 title,
@@ -431,6 +431,24 @@ private fun ModeSwitchBar(
           }
       }
     }
+}
+
+@Composable
+private fun ModeVehicleIcon(iconRes: Int, mode: RideMode, active: Boolean) {
+    val width = when (mode) {
+        RideMode.Pooling -> 34.dp
+        RideMode.Taxi -> 38.dp
+        RideMode.Courier -> 32.dp
+    }
+    Image(
+        painter = painterResource(iconRes),
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .width(width)
+            .height(26.dp)
+            .alpha(if (active) 1f else 0.78f),
+    )
 }
 
 // Высота сегмента = высота тач-цели, потому что кликабелен именно сегмент.
