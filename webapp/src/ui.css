@@ -9653,9 +9653,18 @@ select.field__input {
   color: var(--text);
   font-weight: var(--weight-semibold);
 }
-.mode-switch--pooling .mode-switch__seg.is-on svg { color: var(--pooling); }
-.mode-switch--taxi .mode-switch__seg.is-on svg { color: var(--taxi); }
-.mode-switch--courier .mode-switch__seg.is-on svg { color: var(--courier); }
+.mode-switch__icon {
+  display: block;
+  width: 34px;
+  height: 26px;
+  flex: 0 0 auto;
+  object-fit: contain;
+  opacity: .78;
+  transition: opacity var(--motion-quick) ease;
+}
+.mode-switch__icon--taxi { width: 38px; }
+.mode-switch__icon--courier { width: 32px; }
+.mode-switch__seg.is-on .mode-switch__icon { opacity: 1; }
 .mode-switch__divider {
   width: 1px;
   height: 20px;

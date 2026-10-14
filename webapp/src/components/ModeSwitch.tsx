@@ -1,5 +1,4 @@
 import { useLang } from "../i18n/lang";
-import { YuModeCourier, YuModeRideshare, YuModeTaxi } from "./BrandIcons";
 
 export type RideMode = "pooling" | "taxi" | "courier";
 
@@ -20,10 +19,10 @@ export default function ModeSwitch({
   showExplain?: boolean;
 }) {
   const { appText } = useLang();
-  const modes: { key: RideMode; icon: JSX.Element; title: string }[] = [
-    { key: "pooling", icon: <YuModeRideshare size={16} />, title: appText("Попутка", "Юлдаш") },
-    { key: "taxi", icon: <YuModeTaxi size={16} />, title: appText("Такси", "Такси") },
-    { key: "courier", icon: <YuModeCourier size={16} />, title: appText("Курьер", "Курьер") },
+  const modes: { key: RideMode; iconSrc: string; title: string }[] = [
+    { key: "pooling", iconSrc: "/modes/yuldash_mode_ride.webp", title: appText("Попутка", "Юлдаш") },
+    { key: "taxi", iconSrc: "/modes/yuldash_mode_taxi.webp", title: appText("Такси", "Такси") },
+    { key: "courier", iconSrc: "/modes/yuldash_mode_courier.webp", title: appText("Курьер", "Курьер") },
   ];
   const index = modes.findIndex((m) => m.key === mode);
   const subtitle =
@@ -52,7 +51,12 @@ export default function ModeSwitch({
               className={"mode-switch__seg" + (m.key === mode ? " is-on" : "")}
               onClick={() => onSelect(m.key)}
             >
-              {m.icon}
+              <img
+                className={`mode-switch__icon mode-switch__icon--${m.key}`}
+                src={m.iconSrc}
+                alt=""
+                aria-hidden="true"
+              />
               <span>{m.title}</span>
             </button>
           ))}
