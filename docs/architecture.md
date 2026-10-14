@@ -4728,3 +4728,5 @@ ApiClient.cacheRevisions хранит invalidation version по фиксиров
   «Ближайшие поездки» наверх), `NearbyRouteReset` («Все маршруты»). Колбэка `onOpenPopular` и состояния «пресет вкладки Поездки» больше нет.
 - `BoardingCodeRules.kt` — `boardingDone` / `showBoardingCode` (карточка «Код посадки» уходит после «Я сел») и
   `needsOfflineCodeCopy` (плашка «Код не сохранён» — только пассажиру с офлайн-паспортом).
+
+14.10 — дополнение к MapKitGate: no-key пикер перехватывает системный Back и safeDrawing; NearbyFeedSearch хранит явный выбор маршрута отдельно от первоначального activeTrip fallback. MapScreen имеет прежнее число строк. CI RED/текущие пределы — docs/tasks.md.
