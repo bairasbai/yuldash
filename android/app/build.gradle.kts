@@ -91,14 +91,23 @@ val supportPhone: String = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }.getProperty("YULDASH_SUPPORT_PHONE", "")
 
-// OAuth-вход: имя Telegram-бота и VK app_id. Реальные значения — в local.properties (НЕ в git):
-//   YULDASH_TELEGRAM_BOT=yuldash_bot
+// Имя Telegram-бота для входа — НЕ секрет: это публичный username (t.me/yuldash_sms_bot), его видит
+// каждый, кто открывает ссылку. Секретен только токен бота, он живёт на сервере (`.env`), в APK его нет.
+// Поэтому у имени есть дефолт в коде: сборка в чистом чекауте/worktree/CI (без local.properties,
+// который агентам читать нельзя) получает рабочую кнопку «Войти через Telegram», а не пустую строку
+// и тост «скоро». Порядок: -PyuldashTelegramBot=… → переменная окружения YULDASH_TELEGRAM_BOT →
+// local.properties → дефолт. Значение — без «@» (в коде оно подставляется в `t.me/<имя>`).
+// Пустая строка в любом источнике (например `-PyuldashTelegramBot=`) = осознанно выключить кнопку.
+val telegramBot: String = providers.gradleProperty("yuldashTelegramBot").orNull
+    ?: System.getenv("YULDASH_TELEGRAM_BOT")
+    ?: Properties().apply {
+        val f = rootProject.file("local.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }.getProperty("YULDASH_TELEGRAM_BOT", "yuldash_sms_bot")
+
+// OAuth-вход: VK app_id. Реальное значение — в local.properties (НЕ в git):
 //   YULDASH_VK_APP_ID=51234567
 // Пусто → кнопка показывает «скоро», ломаный поток не открываем.
-val telegramBot: String = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
-}.getProperty("YULDASH_TELEGRAM_BOT", "")
 
 val vkAppId: String = Properties().apply {
     val f = rootProject.file("local.properties")

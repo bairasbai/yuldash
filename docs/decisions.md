@@ -6549,3 +6549,18 @@ Telegram помнит номер годами. Новый владелец си�
 
 Сторожа: `backend/tests/test_no_show_refused_onboard.py`, Android `NoShowOnboardTest`,
 PWA `tests/driver-noshow-onboard-test.mjs`.
+## 2026-10-14 — Имя Telegram-бота для входа лежит в коде по умолчанию, а не только в local.properties
+
+**Что было.** `BuildConfig.TELEGRAM_BOT` брался только из `android/local.properties`. Агентам этот файл
+читать и создавать нельзя (там ключ карты), поэтому сборка в чистом worktree и в CI получала пустое имя, и
+«Войти через Telegram» отвечала тостом «скоро». Проверить настоящий вход на эмуляторе было нечем.
+
+**Что решили.** Имя бота — публичный username (`t.me/yuldash_sms_bot` видит любой, кто открыл ссылку), не секрет.
+Секретен токен бота, он на сервере в `.env` и в APK не попадает. Поэтому в `android/app/build.gradle.kts`
+дефолт `yuldash_sms_bot` (без «@»: в коде это `https://t.me/${имя}`). Порядок источников:
+`-PyuldashTelegramBot=…` → переменная окружения `YULDASH_TELEGRAM_BOT` → `local.properties` → дефолт.
+Пустое значение в любом источнике = осознанно выключить кнопку (как раньше). Debug и release получают
+одно и то же поле `buildConfigField`, CI (`assembleDebug`, `assembleRelease -Pyuldash.unsignedRelease`) ничего
+не меняет. Сторож: `TelegramBotBuildConfigTest` (имя непустое и без «@»).
+
+**Что НЕ поменялось.** VK `app_id`, ключ карты, телефон поддержки — по-прежнему только из `local.properties`.

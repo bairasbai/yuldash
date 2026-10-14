@@ -23,7 +23,7 @@ import org.robolectric.annotation.GraphicsMode
  * loading), переключение шага телефон↔код. Это то, что раньше жило внутри монолита и не тестировалось.
  *
  * Заголовок класса — как в AdminReviewsContentTest. autoAdvance=false только там, где крутится спиннер.
- * В тестовом BuildConfig SMS_LOGIN_ENABLED=false и TELEGRAM_BOT="" (нет local.properties), поэтому
+ * В тестовом BuildConfig SMS_LOGIN_ENABLED=false и TELEGRAM_BOT = дефолт из build.gradle.kts, поэтому
  * поле кода в UI берём из Telegram-потока (tgMode=true) — SMS-блок в этой сборке скрыт флагом.
  */
 @RunWith(RobolectricTestRunner::class)
