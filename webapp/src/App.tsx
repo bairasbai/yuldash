@@ -195,7 +195,7 @@ function TaxiGuestGate({ children }: { children: ReactNode }) {
   const { status } = useAuth();
   const { appText, lang } = useLang();
   const navigate = useNavigate();
-  if (status !== "guest" || isTaxiOpen(features)) return <>{children}</>;
+  if ((status !== "guest" && status !== "unavailable") || isTaxiOpen(features)) return <>{children}</>;
   if (!features.ready) return <LoadingList count={2} />;
   return taxiGateView({ appText, ru: lang !== "ba", navigate, message: null, city: "" });
 }

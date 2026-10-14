@@ -1,0 +1,5 @@
+/* Full-screen chat also reserves the actual, language/font-dependent banner height. */
+.app-shell .tchat {
+  top: calc(var(--tchat-top, 0px) + var(--offline-banner-height, 0px));
+  height: max(0px, calc(var(--tchat-h, 100dvh) - var(--offline-banner-height, 0px)));
+}

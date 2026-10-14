@@ -4767,3 +4767,9 @@ ApiClient.cacheRevisions хранит invalidation version по фиксиров
 17:00 — фактический повтор офлайн на APK8496a39d завершён: RU/BA, cold start, ручной retry и возврат к попуткам. Доказательства64–67,71–72 и taxi-offline-emulator-evidence.json в игнорируемой QA-папке; все шесть CI product8496a39d зелёные. Новых Screen и маршрутов нет.
 
 18:02 — режимные yuldash_mode_ride/taxi/courier сохраняют символические имена R.drawable, упакованы в WebP lossless/exact вместо PNG. Pixel/size/source-metadata identity подтверждена независимо; общий вес1594КиБ под прежним лимитом. Native57806588 показал режимные иконки, офлайн-гейт и возврат к попуткам;73/74 и final-integration-emulator-evidence.json в QA-папке.
+
+## PWA — офлайн-оболочка и недоступная проверка входа (14.10.2026)
+
+- TaxiGuestGate в webapp/src/App.tsx: публичный taxiGateView для guest/unavailable при OFF/закрытом UNKNOWN. authed/OFF сохраняет восстановление заказа; ON идёт через прежний RequireAuth. Регрессия webapp/tests/taxi-unavailable-gate-test.mjs,18 случаев RU/BA, включена в общий check.
+- OfflineBanner.tsx сохраняет DOM/тексты; webapp/src/ui.css размещает плашку в потоке app-shell с flex-shrink:0. Браузерный сценарий webapp/tests/browser/offline-banner.playwright.js выполняется инструментом Playwright с локальной собранной PWA, подготовленной на /map, offline и действующим SW; новых зависимостей нет. Доказательства test-results/wave1-pwa-manual-20261014.
+- 14.10.2026, дополнение PWA: OfflineBanner.tsx измеряет высоту через ResizeObserver и задаёт --offline-banner-height на app-shell; offlineLayout.css согласует её с существующими --tchat-top/--tchat-h фиксированного чата. Cleanup снимает переменную при скрытии/размонтировании. Проверки: offline-banner-measure-test.mjs (7), фактический браузерный offline-chat.playwright.js (header/composer/Back), оба без новых зависимостей.

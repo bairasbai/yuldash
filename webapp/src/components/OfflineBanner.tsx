@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
+import "../offlineLayout.css";
 
 /**
  * Индикатор офлайна. Слушает navigator.onLine + события online/offline.
@@ -11,6 +12,21 @@ export default function OfflineBanner() {
   const { appText } = useLang();
   const [online, setOnline] = useState(() => navigator.onLine);
   const [justBack, setJustBack] = useState(false);
+  const bannerRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const banner = bannerRef.current;
+    const shell = banner?.parentElement;
+    if (!banner || !shell) return;
+    const measure = () => shell.style.setProperty("--offline-banner-height", `${banner.offsetHeight}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(banner);
+    return () => {
+      observer.disconnect();
+      shell.style.removeProperty("--offline-banner-height");
+    };
+  }, [online, justBack]);
 
   useEffect(() => {
     const goOffline = () => {
@@ -36,6 +52,7 @@ export default function OfflineBanner() {
 
   return (
     <div
+      ref={bannerRef}
       className={"offline-banner" + (online ? " offline-banner--back" : "")}
       role="status"
       aria-live="polite"

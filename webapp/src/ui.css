@@ -6294,10 +6294,8 @@ select.field__input {
 
 /* ---- Баннер «Нет сети» ---- */
 .offline-banner {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  position: static;
+  flex-shrink: 0;
   z-index: 80;
   display: flex;
   align-items: center;
