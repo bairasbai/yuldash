@@ -21,12 +21,14 @@ import { PartnerAdSlot } from "../components/PartnerAd";
 
 import { ApiError } from "../api/client";
 import { track } from "../analytics";
+import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 export default function BookingScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
   const { id } = useParams();
   const bookingId = Number(id);
+  const refreshOwnBookings = useRefreshOwnBookings();
 
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [d, setD] = useState<BookingDetails | null>(null);
@@ -67,6 +69,7 @@ export default function BookingScreen() {
     setCancelNote("");
     try {
       await cancelBooking(bookingId);
+      refreshOwnBookings();
       track("booking_cancel");
       load();
     } catch (e) {
