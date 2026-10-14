@@ -960,6 +960,7 @@ internal fun InstantRouteMap(
     followFocusY: Float = 0.34f,
     onFollowInterrupted: () -> Unit = {},
 ) {
+    if (MapKitUnavailable(modifier)) return   // без ключа MapKit — заглушка (шов MapKitGate.kt)
     val ctx = LocalContext.current
     // Цвет маршрута берём из токена темы, а не из константы: в тёмной теме CanonGreen2 светлее,
     // иначе линия сливается с тёмной картой. Альфа 0.8 = прежняя 0xCC.

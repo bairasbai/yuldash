@@ -284,8 +284,6 @@ internal fun RidesScreen(
     rides: List<Ride>,
     ads: List<PartnerAd>,
     adStats: Map<String, AdStats>,
-    presetTo: String,
-    presetToday: Boolean,
     onBookRide: (Ride) -> Unit,
     onOpenBookingDetails: (Ride, String) -> Unit,
     onOpenActiveTrip: (Ride, String) -> Unit,
@@ -315,9 +313,6 @@ internal fun RidesScreen(
     }
     val sponsoredAd = remember(ads) { ads.forPlacement(AdPlacement.RidesList).firstOrNull { it.id == "ad-service-rides" } }
     val inlineAd = routeAd ?: sponsoredAd
-    LaunchedEffect(presetTo, presetToday) {
-        if (presetTo.isNotBlank() || presetToday) selectedStatus = "active"
-    }
     // Реальные брони пользователя (раньше тут были захардкоженные «Рамиль/12 мая»).
     var bookings by remember { mutableStateOf<List<com.yuldash.app.data.BookingMineDto>>(emptyList()) }
     var bookingsLoading by remember { mutableStateOf(true) }

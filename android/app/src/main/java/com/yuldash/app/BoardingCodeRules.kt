@@ -1,0 +1,31 @@
+package com.yuldash.app
+
+// Код посадки: когда он нужен на экране и кому нужна его офлайн-копия.
+// Смысл кода — «та самая машина». Пассажир называет цифры, водитель сверяет; нужен он ДО посадки.
+// Правила вынесены из BookingActiveTripScreen.kt, чтобы их можно было проверить без экрана.
+
+/**
+ * Пассажир уже в машине. Один признак на всё: карточка «Как едет машина» и код посадки читают
+ * его вместе, иначе экран говорит «В пути», а сверху всё ещё просит назвать код.
+ * Пассажир нажал «Я сел» → локальный статус `sat` (виден сразу, ещё до ответа сервера);
+ * после перезапуска — статус брони с сервера `onboard`.
+ */
+internal fun boardingDone(passengerStatus: String?, bookingStatus: String): Boolean =
+    passengerStatus == "sat" || passengerStatus == "arrived" ||
+        bookingStatus == "onboard" || bookingStatus == "done"
+
+/** Показывать ли карточку «Код посадки»: поездка живая и посадка ещё впереди. */
+internal fun showBoardingCode(passengerStatus: String?, bookingStatus: String): Boolean =
+    (bookingStatusAllowsBoarding(bookingStatus) || bookingStatus.isBlank()) &&
+        !boardingDone(passengerStatus, bookingStatus)
+
+/**
+ * Нужна ли офлайн-копия кода на телефоне, а значит и тревога «Код не сохранён», если не вышло.
+ * Копия живёт в офлайн-паспорте поездки (`TripPassStore`) — его создаёт пассажир при брони
+ * («без сети назову код водителю»). Водителю копия не нужна: он код сверяет, а не называет,
+ * и паспорта у него нет вовсе. Пассажиру, открывшему бронь из списка «Поездки» в обход экрана
+ * брони, класть код некуда — паспорта нет, и пугать его нечем: код виден и так.
+ * Неизвестная роль (ответ сервера ещё не пришёл) водителем не считается.
+ */
+internal fun needsOfflineCodeCopy(role: String, hasPass: Boolean): Boolean =
+    role != "driver" && hasPass
