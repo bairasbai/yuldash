@@ -9616,7 +9616,7 @@ select.field__input {
   position: relative;
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .mode-switch__thumb {
   position: absolute;
@@ -9634,6 +9634,7 @@ select.field__input {
 .mode-switch__seg {
   position: relative;
   z-index: 1;
+  min-width: 0;
   height: 48px;
   display: inline-flex;
   align-items: center;
@@ -9653,6 +9654,10 @@ select.field__input {
   color: var(--text);
   font-weight: var(--weight-semibold);
 }
+.mode-switch__seg--pooling {
+  padding-left: 2px;
+  padding-right: 6px;
+}
 .mode-switch__icon {
   display: block;
   width: 34px;
@@ -9664,6 +9669,7 @@ select.field__input {
 }
 .mode-switch__icon--taxi { width: 38px; }
 .mode-switch__icon--courier { width: 32px; }
+.mode-switch__icon--pooling { width: 30px; }
 .mode-switch__seg.is-on .mode-switch__icon { opacity: 1; }
 .mode-switch__divider {
   width: 1px;
