@@ -26,8 +26,8 @@ const KB = 1024;
 
 /** Ни один файл в public не должен быть тяжелее этого. */
 const MAX_ONE_FILE_KB = 200;
-/** Все картинки public вместе. */
-const MAX_IMAGES_KB = 600;
+/** Все картинки public вместе. Три фирменные иконки режимов в 2x добавляют 4,5 КБ. */
+const MAX_IMAGES_KB = 605;
 
 function listFiles(dir, out = []) {
   for (const name of readdirSync(dir)) {
