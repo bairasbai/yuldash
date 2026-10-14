@@ -18784,3 +18784,13 @@ Current402JVM/31/0+90native/обаAPK; source/Gradle/adb locks сняты. Rootd
 14.10.2026: PR #137 влит после шести SUCCESS и fresh origin/main (ba414e32). Независимое чтение нашло три дополнительных дефекта: BackDispatcher в заглушке пикера, системные отступы кнопки и сброс обоих HTTP-фильтров при activeTrip. В отдельной ветке добавлены реальные UI/HTTP regression tests, продукт пока прежний. Локальный RED пока не запускался: свободная память ниже обязательных 3,5ГБ для Gradle и 5ГБ для эмулятора; чужих Java/emulator нет. Подготовлен свой PG16 cluster, сервер не запущен. Дальнейший RED допускается в CI draft PR; это не результат теста и не готовая починка.
 
 14.10: meaningful RED подтверждён CI38537515714/898a11ca —3709 completed,3 failed,2 skipped: AllRoutes на reset wait141; Back parent0vs1; inset top19<64. Consumed control passed. Productminimal3files изменены, тесты из RED не ослаблены/не изменены. Ждём fresh source review и GREEN; эмулятор пока не запускался (нет5ГБ).
+## CODEX-HANDOFF — переднее место на сайте, 14.10.2026
+План поручения: показать уже известное front_seat на активной поездке; отличать собственную живую бронь в ленте от занятого другим места по /bookings/mine, с очисткой при смене входа и обновлением после броней; meaningful regression checks, npm check/build и независимое ревью; отдельный PR, свежий main и зелёный CI перед слиянием. Root единственный Git/GitHub/docs/общие ресурсы, flakes_inspect владелец webapp кода и тестов этой фичи. Backend/денежные пути/версии/зависимости не менять.
+
+14.10.2026 — PWA source stage проверен локально: npm run check exit0 («ВСЕ НАБОРЫ ПРОШЛИ»), npm run build exit0 (TypeScript/Vite/PWA). Новые 20+39=59 case evaluations и неизменённый booking-path прошли; worker сохранил RED→GREEN и in-memory mutation controls (6/2/1 failures). Независимое source review ещё идёт, визуальная проверка и CI/слияние ещё не выполнены. Логи test-results/wave1-polish-20261014/seats-check.log и seats-build.log.
+
+### Переводы на проверку — собственное переднее место, 14.10.2026
+- «Переднее место — твоё» → «Алғы урын — һинеке» (черновик).
+- «Переднее место уже занято. Сзади места есть.» → «Алғы урын инде алынған. Артта урын бар.» (нейтральный текст без утверждения о другом пассажире, черновик).
+
+Независимая source-приёмка PWA: дефектов в согласованном scope не найдено. Предел доказательств: контролируемый renderer с заменёнными hooks/API; шесть route-case проверяют provider predicate и общий Card/Sheet, не шесть реальных экранов браузера. Actual Clinic component проверяется отдельно. NearbyRideCard на /map не имел значка свободного/занятого переднего места и не менялся; собственная бронь там доступна в RideSheet.

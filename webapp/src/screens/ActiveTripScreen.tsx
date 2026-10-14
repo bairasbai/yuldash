@@ -584,6 +584,16 @@ export default function ActiveTripScreen() {
 
       {/* Оплата (read-only) + контакт */}
       <div className="info-list">
+        {details.front_seat && (
+          <div className="info-row">
+            <span className="info-row__k">{appText("Место", "Урын")}</span>
+            <span className="info-row__v">
+              {details.role === "driver"
+                ? appText("Пассажир просит переднее место", "Юлсы алғы урынды һорай")
+                : appText("Переднее место", "Алғы урын")}
+            </span>
+          </div>
+        )}
         <div className="info-row">
           <span className="info-row__k">{appText("Оплата", "Түләү")}</span>
           <span className="info-row__v">

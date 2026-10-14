@@ -7,6 +7,7 @@
 import { useLang } from "../i18n/lang";
 import type { Ride } from "../api/rides";
 import { frontSeatState, seatHint } from "../utils/seatOptions";
+import { hasOwnFrontSeat, type OwnSeatBooking } from "../utils/ownBookings";
 import { SettingSwitchRow } from "./cabinetUi";
 import { IconCar, IconUsers } from "./Icons";
 
@@ -49,15 +50,22 @@ export function SeatOptionsFields({
 }
 
 /** Значки в карточке поездки: «сзади двое», «переднее свободно / занято». */
-export function SeatBadges({ ride }: { ride: Pick<Ride, "back_max_two" | "front_seat_available" | "front_seat_taken"> }) {
+export function SeatBadges({ ride, ownBooking }: {
+  ride: Pick<Ride, "id" | "back_max_two" | "front_seat_available" | "front_seat_taken">;
+  ownBooking?: OwnSeatBooking | null;
+}) {
   const { appText } = useLang();
   const front = frontSeatState(ride);
+  const ownFront = hasOwnFrontSeat(ride.id, ownBooking);
   return (
     <>
-      {front === "free" && (
+      {ownFront && (
+        <span className="badge badge--mint">{appText("Переднее место — твоё", "Алғы урын — һинеке")}</span>
+      )}
+      {!ownFront && front === "free" && (
         <span className="badge badge--mint">{appText("Переднее свободно", "Алғы урын буш")}</span>
       )}
-      {front === "taken" && (
+      {!ownFront && front === "taken" && (
         <span className="badge">{appText("Переднее занято", "Алғы урын алынған")}</span>
       )}
       {ride.back_max_two && (
@@ -73,15 +81,20 @@ export function SeatBadges({ ride }: { ride: Pick<Ride, "back_max_two" | "front_
  */
 export function FrontSeatChoice({
   ride,
+  ownBooking,
   checked,
   onChange,
 }: {
-  ride: Pick<Ride, "front_seat_available" | "front_seat_taken">;
+  ride: Pick<Ride, "id" | "front_seat_available" | "front_seat_taken">;
+  ownBooking?: OwnSeatBooking | null;
   checked: boolean;
   onChange: (v: boolean) => void;
 }) {
   const { appText } = useLang();
   const state = frontSeatState(ride);
+  if (hasOwnFrontSeat(ride.id, ownBooking)) {
+    return <p className="sheet__note">{appText("Переднее место — твоё", "Алғы урын — һинеке")}</p>;
+  }
   if (state === "none") {
     return (
       <p className="sheet__note">
@@ -96,8 +109,8 @@ export function FrontSeatChoice({
     return (
       <p className="sheet__note">
         {appText(
-          "Переднее место уже занято — его попросил другой пассажир. Сзади места есть.",
-          "Алғы урын инде алынған — уны башҡа юлсы һораны. Артта урын бар."
+          "Переднее место уже занято. Сзади места есть.",
+          "Алғы урын инде алынған. Артта урын бар."
         )}
       </p>
     );
