@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
@@ -97,7 +99,8 @@ internal fun MapKitUnavailablePlaceholder(modifier: Modifier = Modifier) {
  */
 @Composable
 internal fun PickupPickerUnavailable(onDismiss: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(CanonBg)) {
+    BackHandler(onBack = onDismiss)
+    Box(Modifier.fillMaxSize().background(CanonBg).safeDrawingPadding()) {
         MapKitUnavailablePlaceholder(Modifier.fillMaxSize())
         Surface(
             modifier = Modifier.align(Alignment.TopStart).padding(CanonSpace.lg).minimumInteractiveComponentSize(),

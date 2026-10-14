@@ -310,10 +310,10 @@ internal fun MapScreen(
     // чипы Сегодня/Завтра режут ленту до нужного дня (фильтрует сервер по depart_at).
     var dateFilter by remember { mutableStateOf<String?>(null) }
     // «Найти попутку»: выбранный на карусели маршрут сужает ленту ниже, лента выезжает на экран (NearbyFeedSearch.kt).
-    var searchRoute by remember { mutableStateOf<PopularRoute?>(null) }
+    val routeSearch = remember { NearbyRouteSearchState() }
     var findTick by remember { mutableIntStateOf(0) }
-    val focusFrom = searchRoute?.from ?: activeTrip?.from
-    val focusTo = searchRoute?.to ?: activeTrip?.to
+    val focusFrom = routeSearch.from(activeTrip)
+    val focusTo = routeSearch.to(activeTrip)
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
     val userLng = LocationPrefs.lastLng
     // Огрублённый ключ позиции (~1.1 км, 2 знака): перезапрашиваем «рядом» только при заметном
@@ -398,7 +398,7 @@ internal fun MapScreen(
                         activeTrip = activeTrip,
                         rides = mapPins,
                         onRideTap = { selectedRide = it },
-                        onFind = { route -> searchRoute = route; findTick++ },
+                        onFind = { route -> routeSearch.choose(route); findTick++ },
                         onDriver = onDriver,
                         adRoute = adRoute,
                         onClearRoute = { adRoute = null },
@@ -462,7 +462,7 @@ internal fun MapScreen(
                                 if (focusFrom != null && focusTo != null) {
                                     Text("$focusFrom → $focusTo", color = CanonGreen2, style = CanonMicro, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
-                                if (searchRoute != null) NearbyRouteReset { searchRoute = null }
+                                if (routeSearch.route != null) NearbyRouteReset(routeSearch::clear)
                             }
                             // Счётчик — пилюля с мягкой сменой цифры (фильтры/обновление ленты меняют её на лету).
                             AnimatedVisibility(
