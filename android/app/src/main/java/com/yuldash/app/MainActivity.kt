@@ -603,7 +603,8 @@ internal enum class Screen {
     ScheduledOrders, // «Мои предзаказы» — такси «на время»: список, обратный отсчёт, начать поиск/отменить
     DriverResponses, // «Мои отклики» (водитель): торг о цене — принять встречную или предложить свою
     MyTaxiTrips,    // «Мои поездки на такси» (пассажир): история + чек за каждую (чек больше не теряется)
-    ParcelChat      // Чат по посылке: отправитель ↔ курьер (до этого была только кнопка «позвонить»)
+    ParcelChat,     // Чат по посылке: отправитель ↔ курьер (до этого была только кнопка «позвонить»)
+    TripChat        // Чат попутки во весь экран (TripChatScreen.kt) — второй вид ActiveTrip: общие сокет и черновик
 }
 
 /** Действие «открыть публичный профиль водителя» — прокинуто из YuldashApp,
@@ -774,7 +775,7 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     baggage = baggage,
     airConditioner = airConditioner,
     quiet = quiet,
-    noMinors = noMinors,
+    noMinors = noMinors, backMaxTwo = backMaxTwo, frontSeatAvailable = frontSeatAvailable, frontSeatTaken = frontSeatTaken,
     waypoints = waypoints,
     pickup = pickup,
     pickupLat = pickupLat,
@@ -922,7 +923,6 @@ internal fun Modifier.appearIn(index: Int = 0): Modifier {
     LaunchedEffect(Unit) { shown = true }
     return this.graphicsLayer { this.alpha = alpha; translationY = ty }
 }
-
 
 
 // Перевод по СБП на номер телефона (без мерчанта). Копировать номер + инструкция + «я перевёл».

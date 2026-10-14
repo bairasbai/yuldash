@@ -84,9 +84,25 @@ def main() -> int:
         say(f"{DIM}Файла {env_path} нет — смотрю только переменные окружения{RESET}")
     say()
 
-    from app.config import Settings   # импорт после подстановки окружения
+    from pydantic import ValidationError
 
-    settings = Settings()
+    try:
+        from app.config import Settings   # импорт после подстановки окружения
+        settings = Settings()
+    except ValidationError as e:
+        # Значение, которое сервер не примет вовсе (например, PAYMENTS_PROVIDER пустой или с
+        # опечаткой): настройки не создаются, сервер падает ещё на импорте. Говорим об этом
+        # как о любом другом блокере, а не простынёй трассировки.
+        say(LINE)
+        say("1. БЕЗ ЭТОГО СЕРВЕР НЕ ЗАПУСТИТСЯ")
+        say(LINE)
+        for err in e.errors():
+            say(f"  {RED}{BAD}{RESET} {str(err.get('msg', '')).removeprefix('Value error, ')}")
+        say()
+        say(THICK)
+        say(f"{RED}ВЫКАТЫВАТЬ НЕЛЬЗЯ{RESET}: сервер не запустится. Исправь строку в .env и запусти проверку снова.")
+        say(THICK)
+        return 1
     env_name = settings.env.strip().lower()
     say(f"Режим: {env_name}")
     if not settings.is_prod:

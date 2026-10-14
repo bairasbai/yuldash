@@ -260,9 +260,6 @@ import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// Цвет линии маршрута на карте MapKit (ARGB): фирменный зелёный Юлдаша с прозрачностью.
-private const val ROUTE_STROKE_ARGB: Long = 0xCC0B6B3A
-
 // The native MapKit surface cannot run in JVM UI journeys. Keep all list/API/navigation logic real.
 internal val LocalPoolingNativeMapEnabled = androidx.compose.runtime.staticCompositionLocalOf { true }
 
@@ -1234,7 +1231,7 @@ private fun drawRoadRoute(
     onRoutePoints: (List<Point>, Double) -> Unit = { _, _ -> }   // геометрия маршрута + полное время (сек) — для живого ETA
 ): com.yandex.mapkit.directions.driving.DrivingSession? {
     val straightLine = map.mapObjects.addPolyline(Polyline(listOf(from, to))).apply {
-        setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 4f
+        setStrokeColor(CANON_ROUTE_MAIN_ARGB); strokeWidth = 4f
     }
     added += straightLine
     val session = runCatching {
@@ -1260,7 +1257,7 @@ private fun drawRoadRoute(
                         }
                         // Основной (оптимальный по Яндексу — он сам учитывает пробки и закрытия дорог) — зелёным, поверх.
                         added += map.mapObjects.addPolyline(r.geometry).apply {
-                            setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 5f
+                            setStrokeColor(CANON_ROUTE_MAIN_ARGB); strokeWidth = 5f
                         }
                     }
                     runCatching { onEta(r.metadata.weight.time.text) }   // «45 мин» — время в пути
@@ -1632,7 +1629,7 @@ private fun YandexMapCard(
             val origin = lastUserPoint
             if (origin != null) {
                 val straightLine = map.mapObjects.addPolyline(Polyline(listOf(origin, dest))).apply {
-                    setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 4f
+                    setStrokeColor(CANON_ROUTE_MAIN_ARGB); strokeWidth = 4f
                 }
                 added += straightLine
                 // Дорога по дорогам (DrivingRouter). Нет квоты/ошибка → остаётся прямая линия (фоллбэк).
@@ -1654,7 +1651,7 @@ private fun YandexMapCard(
                                     map.mapObjects.remove(straightLine)
                                     added.remove(straightLine)
                                     added += map.mapObjects.addPolyline(r.geometry).apply {
-                                        setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 5f
+                                        setStrokeColor(CANON_ROUTE_MAIN_ARGB); strokeWidth = 5f
                                     }
                                 }
                             }
@@ -1876,7 +1873,7 @@ private fun YandexMapCard(
                         // Длины сегментов + полная длина → едем с ПОСТОЯННОЙ скоростью по длине (а не по вершинам).
                         val seg = DoubleArray(road.size - 1) { geoMeters(road[it], road[it + 1]) }
                         val total = seg.sum().coerceAtLeast(1.0)
-                        val line = simMap.mapObjects.addPolyline(Polyline(road)).apply { setStrokeColor(ROUTE_STROKE_ARGB.toInt()); strokeWidth = 5f }
+                        val line = simMap.mapObjects.addPolyline(Polyline(road)).apply { setStrokeColor(CANON_ROUTE_MAIN_ARGB); strokeWidth = 5f }
                         try {
                             simMap.move(CameraPosition(road.first(), 11.5f, 0f, 0f), Animation(Animation.Type.SMOOTH, 0.5f), null)
                             val durMs = 30000.0      // весь маршрут ~30с (спокойный круиз)

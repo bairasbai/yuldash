@@ -292,7 +292,9 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
     var to by rememberSaveable { mutableStateOf("") }
     // F15: если открыли из баннера «на праздник» — дата события уже стоит (можно поменять пикером).
     var dateTime by rememberSaveable { mutableStateOf(prefillDate.orEmpty()) }
-    var seats by rememberSaveable { mutableStateOf("2") }
+    var seats by rememberSaveable { mutableStateOf("4") }   // обычная легковая: 1 спереди + 3 сзади (14.10.2026)
+    var backMaxTwo by rememberSaveable { mutableStateOf(false) }
+    var frontSeatAvailable by rememberSaveable { mutableStateOf(true) }
     var price by rememberSaveable { mutableStateOf("300") }
     var comment by rememberSaveable { mutableStateOf("") }
     var petsAllowed by rememberSaveable { mutableStateOf(false) }
@@ -354,11 +356,13 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
             womenOnly = womenOnly, childSeat = childSeat, petsAllowed = petsAllowed,
             baggage = baggage, airConditioner = airConditioner, smoking = smoking,
             onlyTrusted = onlyTrusted, quiet = quiet, noMinors = noMinors, waypoints = waypoints,
+            backMaxTwo = backMaxTwo, frontSeatAvailable = frontSeatAvailable, onBackMaxTwo = { backMaxTwo = it; seats = clampSeatsText(seats, it, frontSeatAvailable) },
+            onFrontSeatAvailable = { frontSeatAvailable = it; seats = clampSeatsText(seats, backMaxTwo, it) },
             priceHint = priceHint,
             fuelDistanceKm = priceHintDto?.distanceKm, fuelEstimateKop = priceHintDto?.fuelEstimateKop,
             loading = publishing, error = publishError,
             onFromChange = { from = it }, onToChange = { to = it },
-            onSeatsChange = { seats = it.filter(Char::isDigit) },
+            onSeatsChange = { seats = clampSeatsText(it.filter(Char::isDigit), backMaxTwo, frontSeatAvailable) },
             onPriceChange = { price = it.filter(Char::isDigit) },
             onCommentChange = { comment = it },
             onSelectType = { category = it }, onSelectRecurrence = { recurrence = it },
@@ -376,7 +380,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
                 val fromVal = from.ifBlank { "Баймаҡ" }
                 val toVal = to.ifBlank { "Сибай" }
                 val priceVal = price.toIntOrNull() ?: 300
-                val seatsVal = (seats.toIntOrNull() ?: 2).coerceAtLeast(1)   // мест не меньше 1
+                val seatsVal = (seats.toIntOrNull() ?: 4).coerceIn(1, seatCap(backMaxTwo, frontSeatAvailable))   // мест не меньше 1 и не больше, чем позволяют опции
                 // Берём выбранную дату из пикера ("dd.MM.yyyy, HH:mm"); если пусто/не распарсилось — now+3ч.
                 // Время выезда шлём С ЧАСОВЫМ ПОЯСОМ. Раньше уходила голая строка «10:00», и сервер
                 // считал её десятью часами UTC — поездка уезжала на 5 часов (разбор №2). Пояс
@@ -394,13 +398,14 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
                     price = priceVal, seats = seatsVal, rating = 5.0, verified = false, boosted = false,
                     petsAllowed = petsAllowed, childSeat = childSeat, womenOnly = womenOnly,
                     smoking = smoking, baggage = baggage, airConditioner = airConditioner, quiet = quiet,
+                    backMaxTwo = backMaxTwo, frontSeatAvailable = frontSeatAvailable,
                     waypoints = waypoints.filter { it.isNotBlank() },
                 )
                 publishError = null
                 publishing = true
                 // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                 publishScope.launch {
-                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, waypoints.filter { it.isNotBlank() }.joinToString(" | "), noMinors)
+                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, waypoints.filter { it.isNotBlank() }.joinToString(" | "), noMinors, backMaxTwo, frontSeatAvailable)
                         .onSuccess { id -> publishing = false; onPublish(ride.copy(id = id.toString())) }
                         // Сервер объясняет отказ по-человечески («время выезда уже прошло»,
                         // «слишком много активных поездок»). Показываем именно его слова:
@@ -470,6 +475,8 @@ internal fun CreateRideFormContent(
     noMinors: Boolean = false,
     waypoints: List<String>,
     smoking: Boolean,
+    backMaxTwo: Boolean = false, frontSeatAvailable: Boolean = true,   // опции мест (SeatOptions.kt)
+    onBackMaxTwo: (Boolean) -> Unit = {}, onFrontSeatAvailable: (Boolean) -> Unit = {},
     onlyTrusted: Boolean,
     priceHint: Int,
     fuelDistanceKm: Float? = null,
@@ -643,6 +650,8 @@ internal fun CreateRideFormContent(
                 OutlinedTextField(value = price, onValueChange = onPriceChange, label = { Text(appText("Цена, ₽", "Хаҡ, ₽")) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp))
             }
         }
+        // Опции мест — сразу под числом мест: тумблер меняет это число, и связь видна глазами.
+        item(key = "seat-options") { SeatOptionsCard(backMaxTwo, frontSeatAvailable, onBackMaxTwo, onFrontSeatAvailable) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (priceHint > 0) {

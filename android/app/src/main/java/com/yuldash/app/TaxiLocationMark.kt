@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -86,7 +87,7 @@ internal fun taxiUserLocationBitmap(
     fun dp(value: Float): Float = value * density
     fun liftedPaint(color: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color
-        setShadowLayer(dp(3.5f), 0f, dp(1.5f), 0x3D000000)
+        setShadowLayer(dp(3.5f), 0f, dp(1.5f), CanonTaxiMarkShadow.toArgb())
     }
     fun drawPlatform(canvas: AndroidCanvas, cx: Float, cy: Float, radius: Float) {
         canvas.drawCircle(cx, cy, radius, liftedPaint(surface))

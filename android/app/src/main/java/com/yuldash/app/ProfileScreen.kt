@@ -1753,9 +1753,9 @@ internal fun DriverCabinetScreen(
                         .onFailure { Toast.makeText(ctx, serverSaid(it, rideActionFailMsg), Toast.LENGTH_LONG).show() }
                 }
             },
-            onEditRide = { rideId, price, comment ->
+            onEditRide = { rideId, price, comment, backMaxTwo, frontSeatAvailable ->
                 rateScope.launch {
-                    ApiClient.editRide(rideId, price, comment)
+                    ApiClient.editRide(rideId, price, comment, backMaxTwo, frontSeatAvailable)
                         .onSuccess {
                             Toast.makeText(ctx, editSavedMsg, Toast.LENGTH_SHORT).show()
                             ridesReload++
@@ -1764,7 +1764,7 @@ internal fun DriverCabinetScreen(
                             // Понятная причина под ошибку: 409 — цена вверх при бронях, 400 — поездка уже неактивна,
                             // остальное (нет сети и т.п.) — общий текст с «повтори».
                             val msg = when ((e as? ApiException)?.status) {
-                                409 -> editPriceDownMsg
+                                409 -> serverSaid(e, editPriceDownMsg)   // не только цена: и обещанные места
                                 400 -> editNotActiveMsg
                                 // Всё остальное (403 «не твоя поездка», 422) сервер объясняет
                                 // сам — своё «проверь сеть» тут врало бы при работающей сети.
@@ -2930,7 +2930,7 @@ internal fun DriverCabinetContent(
     onRejectBooking: (Int) -> Unit = {},    // F2: отклонить бронь (id) — места вернутся в поездку
     onCancelRide: (Int) -> Unit = {},     // F1: снять поездку (id) — сервер уведомит пассажиров
     onCompleteRide: (Int) -> Unit = {},   // F1: завершить рейс (id)
-    onEditRide: (Int, Int?, String?) -> Unit = { _, _, _ -> },
+    onEditRide: (Int, Int?, String?, Boolean?, Boolean?) -> Unit = { _, _, _, _, _ -> },   // id, цена, текст, «сзади двое», «переднее»; null — не менялось
     modifier: Modifier = Modifier,
     debt: com.yuldash.app.data.DriverDebtDto? = null,
     onDeclareDebtPaid: () -> Unit = {},
@@ -3254,6 +3254,7 @@ internal fun DriverCabinetContent(
                                 Text(String.format(java.util.Locale.US, "%.1f", r), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = CanonText)
                             }
                         }
+                        if (b.frontSeat) FrontSeatRequestBadge()   // до решения: водитель знает, кого куда посадит
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onConfirmBooking(b.bookingId) },
@@ -3288,8 +3289,8 @@ internal fun DriverCabinetContent(
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         PassengerRow(b)
-                        // «Не явился» — пассажир не пришёл на посадку.
-                        NoShowButton(bookingId = b.bookingId)
+                        // «Не явился» — пассажир не пришёл на посадку; «в пути» — только разбор (RideshareNoShow.kt).
+                        NoShowButton(b.bookingId, b.status, passengerId = b.passengerId, passengerName = b.passengerName)
                     }
                 }
             }
@@ -3476,6 +3477,8 @@ internal fun DriverCabinetContent(
     editing?.let { ride ->
         var priceText by remember(ride.id) { mutableStateOf(ride.price.toString()) }
         var commentText by remember(ride.id) { mutableStateOf("") }
+        var backMaxTwo by remember(ride.id) { mutableStateOf(ride.backMaxTwo) }
+        var frontSeatAvailable by remember(ride.id) { mutableStateOf(ride.frontSeatAvailable) }
         AlertDialog(
             onDismissRequest = { editing = null },
             containerColor = CanonSurface,
@@ -3505,6 +3508,7 @@ internal fun DriverCabinetContent(
                         appText("Если поездку уже забронировали — цену можно только снизить.", "Әгәр сәфәр брондалған булһа — хаҡты кәметергә генә була."),
                         color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp
                     )
+                    SeatOptionsToggles(backMaxTwo, frontSeatAvailable, { backMaxTwo = it }, { frontSeatAvailable = it })
                 }
             },
             confirmButton = {
@@ -3514,7 +3518,7 @@ internal fun DriverCabinetContent(
                         if (id != null) {
                             val newPrice = priceText.toIntOrNull()?.takeIf { it != ride.price }
                             val newComment = commentText.trim().takeIf { it.isNotEmpty() }
-                            onEditRide(id, newPrice, newComment)
+                            onEditRide(id, newPrice, newComment, backMaxTwo.takeIf { it != ride.backMaxTwo }, frontSeatAvailable.takeIf { it != ride.frontSeatAvailable })
                         }
                         editing = null
                     },

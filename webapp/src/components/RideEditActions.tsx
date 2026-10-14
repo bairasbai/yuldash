@@ -17,6 +17,7 @@ import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import { cancelRide, editRide, type Ride } from "../api/rides";
 import { IconWarn } from "./Icons";
+import { SeatOptionsFields } from "./SeatOptions";
 
 export default function RideEditActions({
   ride,
@@ -34,6 +35,9 @@ export default function RideEditActions({
   const [sheet, setSheet] = useState<"none" | "edit" | "cancel">("none");
   const [price, setPrice] = useState(String(ride.price ?? ""));
   const [comment, setComment] = useState("");
+  // Опции мест — те же, что при публикации. Обещанное пассажирам сервер забрать не даст.
+  const [backMaxTwo, setBackMaxTwo] = useState(Boolean(ride.back_max_two));
+  const [frontSeatAvailable, setFrontSeatAvailable] = useState(ride.front_seat_available !== false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
 
@@ -45,11 +49,13 @@ export default function RideEditActions({
     setBusy(true);
     setNote("");
     try {
-      const body: { price?: number; comment?: string } = {};
+      const body: { price?: number; comment?: string; back_max_two?: boolean; front_seat_available?: boolean } = {};
       const p = Math.round(Number(price));
       if (price.trim() && Number.isFinite(p) && p !== ride.price) body.price = Math.max(0, p);
       if (comment.trim()) body.comment = comment.trim().slice(0, 2000);
-      if (!body.price && !body.comment) {
+      if (backMaxTwo !== Boolean(ride.back_max_two)) body.back_max_two = backMaxTwo;
+      if (frontSeatAvailable !== (ride.front_seat_available !== false)) body.front_seat_available = frontSeatAvailable;
+      if (!body.price && !body.comment && body.back_max_two === undefined && body.front_seat_available === undefined) {
         setNote(appText("Нечего менять", "Үҙгәртер нәмә юҡ"));
         setBusy(false);
         return;
@@ -140,6 +146,12 @@ export default function RideEditActions({
               placeholder={appText("«Выезжаю от автовокзала»", "«Автовокзалдан сығам»")}
             />
           </label>
+          <SeatOptionsFields
+            backMaxTwo={backMaxTwo}
+            frontSeatAvailable={frontSeatAvailable}
+            onBackMaxTwo={setBackMaxTwo}
+            onFrontSeatAvailable={setFrontSeatAvailable}
+          />
           <div className="act-card__actions">
             <button type="button" className="btn-primary" onClick={() => void save()} disabled={busy}>
               {appText("Сохранить", "Һаҡлау")}

@@ -37,7 +37,7 @@ from ..visibility import (FEED_MAX, hide_blocked, hide_health_hint, hide_suspend
                           hide_trusted_only, is_ride_insider, may_see_ride_by_id, visible_rides)
 from ..services import (
     CITY_COORDS, apply_boost_credit, boost_then_depart_order, cache_get_json, cache_set_json,
-    drivers_bundle, stash_boost_credit,
+    drivers_bundle, front_seats_taken, stash_boost_credit,
     geocode_city, haversine_km, notify_map_changed, notify_route_watchers, public_ride_payload,
     public_rides_payload, push_notification, record_pickup_choice, ride_out, ride_out_with,
     rides_out, send_push,
@@ -134,6 +134,21 @@ def _recent_twin_ride(session: Session, driver_id: int, body: RideIn):
     return None
 
 
+SEATS_MAX = 8   # минивэн; больше в попутку не берут
+
+
+def seat_cap(back_max_two: bool, front_seat_available: bool) -> int:
+    """Сколько пассажирских мест можно предложить при таких опциях.
+
+    «Сзади максимум двое» — обещание пассажирам, что третьего на заднем ряду не будет.
+    Тогда мест не больше 3: двое сзади и одно спереди. А если спереди едет свой человек
+    (переднее не предлагается) — только 2, иначе обещание нарушится уже при третьей брони.
+    Без этой опции потолок обычный — 8 (минивэн)."""
+    if not back_max_two:
+        return SEATS_MAX
+    return 2 + (1 if front_seat_available else 0)
+
+
 @router.post("/rides", response_model=Ride)
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует публикацию
@@ -162,7 +177,10 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
         # только женщин, а они едут, думая, что кто-то это проверил.
         guard_women_only_publish(session, user)
     # Санити-границы (анти-мусор в ленте): мест 1..8, цена 0..100000 ₽. Клампим, а не падаем.
-    body.seats_total = max(1, min(8, body.seats_total))
+    body.seats_total = max(1, min(SEATS_MAX, body.seats_total))
+    # «Сзади максимум двое»: больше 3 мест (или 2, если переднее занято своим) не бывает.
+    # Клампим, как и диапазон выше: форма уже показала это водителю подсказкой.
+    body.seats_total = min(body.seats_total, seat_cap(body.back_max_two, body.front_seat_available))
     body.price = max(0, min(100_000, body.price))
     # Города: обрезаем пробелы и требуем непустые. Клампить тут нечего — «поездка из ниоткуда»
     # не чинится подстановкой. Проверка ввода 2026-08-05 показала, что строка из пробелов
@@ -285,6 +303,8 @@ class RideEditIn(BaseModel):
     comment: Optional[str] = Field(None, max_length=2000)
     depart_at: Optional[datetime] = None
     seats_total: Optional[int] = Field(None, ge=1, le=8)
+    back_max_two: Optional[bool] = None          # «сзади максимум двое»
+    front_seat_available: Optional[bool] = None  # «переднее место свободно»
 
 
 @router.patch("/rides/{ride_id}", response_model=RideOut)
@@ -341,12 +361,43 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
             raise herr(409, "С активными бронями время не меняют — отмените рейс и создайте новый", "Актив брондар менән ваҡытты үҙгәртеп булмай — рейсты кире алып, яңыһын төҙө")
         ride.depart_at = body.depart_at
         changed.append("время")
-    if body.seats_total is not None and body.seats_total != ride.seats_total:
+    # Опции мест. Обещание, на которое уже рассчитывают пассажиры, не забираем: переднее,
+    # которое кто-то попросил, не закрываем, и «сзади двое» при живых бронях не снимаем.
+    # Улучшить условия (открыть переднее, пообещать «сзади двое») можно всегда.
+    new_front = ride.front_seat_available if body.front_seat_available is None else body.front_seat_available
+    new_back = ride.back_max_two if body.back_max_two is None else body.back_max_two
+    if new_front != ride.front_seat_available:
+        if not new_front and any(b.front_seat for b in live):
+            raise herr(409, "Переднее место уже обещано пассажиру — договорись с ним в чате",
+                       "Алғы урын юлсыға вәғәҙә ителгән — уның менән чатта һөйләш")
+        ride.front_seat_available = new_front
+        changed.append("переднее место")
+    if new_back != ride.back_max_two:
+        if not new_back and live:
+            raise herr(409, "Пассажиры уже рассчитывают, что сзади будет двое — это не отменить",
+                       "Юлсылар артта икәү генә булыр тип иҫәпләй — быны кире алып булмай")
+        ride.back_max_two = new_back
+        changed.append("места сзади")
+    cap = seat_cap(new_back, new_front)
+    # Прислали то же число мест (клиент шлёт форму целиком) — это не правка мест: потолок ниже
+    # срежет лишнее сам, и при бронях это не должно давать 409 (ревью Opus 2026-10-14).
+    if (body.seats_total is not None and body.seats_total != ride.seats_total
+            and min(body.seats_total, cap) != ride.seats_total):
         if live:
             raise herr(409, "С активными бронями число мест не меняют", "Актив брондар менән урын һанын үҙгәртеп булмай")
-        ride.seats_total = body.seats_total
-        ride.seats_left = body.seats_total - booked_seats   # броней нет → просто новое число мест
+        ride.seats_total = min(body.seats_total, cap)
+        ride.seats_left = ride.seats_total - booked_seats   # броней нет → просто новое число мест
         changed.append("места")
+    if ride.seats_total > cap:
+        # Опцию включили, а мест в объявлении больше, чем она позволяет: срезаем до потолка.
+        # Уже занятые места не трогаем — если их больше потолка, обещание не выполнить.
+        if booked_seats > cap:
+            raise herr(409, "Мест уже забронировано больше, чем поместится при этих условиях",
+                       "Был шарттарҙа һыйғандан күберәк урын брондалған инде")
+        ride.seats_total = cap
+        ride.seats_left = cap - booked_seats
+        if "места" not in changed:
+            changed.append("места")
     if not changed:
         return public_ride_payload(ride_out(ride, session), full=True)   # нечего менять; свой рейс — свой текст
     session.add(ride)
@@ -657,9 +708,10 @@ def rides_near(
     )
     page = [by_id[i] for i in page_ids if i in by_id]   # порядок страницы сохраняем
     users_map, profiles, rating_agg, trips_agg = drivers_bundle(session, {r.driver_id for r in page})
+    front_taken = front_seats_taken(session, page_ids)
     items = []
     for r in page:
-        out = public_ride_payload(ride_out_with(r, users_map, profiles, rating_agg, trips_agg)).model_dump()
+        out = public_ride_payload(ride_out_with(r, users_map, profiles, rating_agg, trips_agg, front_taken)).model_dump()
         out["distance_km"] = dist_by_id.get(r.id)
         items.append(out)
     # Связку с клиникой прячем ЗДЕСЬ, а не выше вместе с соседними фильтрами: там в руках

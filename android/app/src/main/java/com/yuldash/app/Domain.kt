@@ -35,12 +35,19 @@ internal data class Ride(
     val airConditioner: Boolean = false,
     val quiet: Boolean = false,
     val noMinors: Boolean = false,   // водитель не берёт пассажиров младше 18 без взрослого
+    // Опции мест: «сзади максимум двое», переднее предлагается / уже обещано другому.
+    val backMaxTwo: Boolean = false,
+    val frontSeatAvailable: Boolean = true,
+    val frontSeatTaken: Boolean = false,
     val waypoints: List<String> = emptyList(),   // остановки по пути (A→точки→B)
     val pickup: String = "",
     val pickupLat: Double? = null,
     val pickupLng: Double? = null,
     val receiverName: String = "",   // посылка: кому отдать
-    val parcelSize: String = ""      // посылка: габарит/вес
+    val parcelSize: String = "",     // посылка: габарит/вес
+    // С кем переписка, когда поездку открыли из вкладки «Чат» (там сервер отдаёт имя
+    // собеседника). Пусто — шапка чата берёт водителя брони или роль.
+    val chatPeer: String = "",
 )
 
 internal data class PopularRoute(

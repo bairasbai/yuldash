@@ -16,7 +16,9 @@ class RideIn(BaseModel):
     from_city: str = Field(..., max_length=120)   # города — короткие; отсекаем мусорную строку в БД
     to_city: str = Field(..., max_length=120)
     depart_at: datetime
-    seats_total: int = 3   # диапазон 1..8 клампится в create_ride («клампим, а не падаем»)
+    # Диапазон 1..8 клампится в create_ride («клампим, а не падаем»). По умолчанию 4 — обычная
+    # легковая: 1 спереди + 3 сзади (решение Александра 2026-10-14; раньше было 3).
+    seats_total: int = 4
     price: int = 0         # диапазон 0..100000 клампится в create_ride
     category: RideCategory = RideCategory.regular
     comment: str = Field("", max_length=2000)
@@ -33,6 +35,8 @@ class RideIn(BaseModel):
     only_trusted: bool = False        # «только для своих» — поездку увидят/забронируют лишь L3
     quiet: bool = False
     no_minors: bool = False           # не беру пассажиров младше 18 без сопровождения взрослого
+    back_max_two: bool = False        # сзади максимум двое → мест не больше 3 (клампит create_ride)
+    front_seat_available: bool = True  # переднее место свободно для пассажира
     # Остановки по пути одной строкой. Потолок обязателен: без него сюда влезали сотни тысяч
     # символов, и такая поездка раздувала КАЖДЫЙ ответ ленты — на сельском интернете это
     # мегабайты трафика и зависший экран у всех подряд (аудит 2026-08-08, волна 96).
@@ -71,6 +75,11 @@ class RideOut(BaseModel):
     only_trusted: bool = False        # «только для своих» — клиент рисует бейдж «круг своих»
     quiet: bool = False
     no_minors: bool = False           # клиент прячет кнопку брони «за подростка» и объясняет почему
+    back_max_two: bool = False        # значок «сзади двое»
+    front_seat_available: bool = True  # водитель предлагает переднее место
+    # Переднее уже обещано другому пассажиру (живая бронь с front_seat). Считается при выдаче,
+    # в базе поездки не хранится: правду держит индекс броней, а не копия флага.
+    front_seat_taken: bool = False
     waypoints: str = ""
     status: RideStatus
     boosted: bool = False             # активный Boost (для подсветки/бейджа на клиенте)

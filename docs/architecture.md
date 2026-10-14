@@ -20,6 +20,33 @@
 - **PWA:** `webapp/src/featureRules.ts` (чистая логика, кеш `yuldash.features`), `features.ts` (сеть и
   `useFeatures()`), `components/ComingSoon.tsx`, `components/FeatureGate.tsx` — гейты на маршрутах в `App.tsx`;
   проверки — `webapp/tests/features-test.mjs`.
+## Чат поездки в PWA — страница `/trip/:id/chat` (14.10.2026)
+
+Та же жалоба, что в Android (PR #131): строка ввода стояла посреди экрана — чат был куском длинной
+страницы поездки `/trip/:id`. Теперь переписка — отдельная страница, как в мессенджерах; на странице
+поездки осталась карточка «Чат по поездке» (последнее сообщение, бейдж новых) и кнопка «Написать».
+
+| Что | Где |
+|---|---|
+| Страница чата: рамка на видимый экран, шапка (собеседник, маршрут, «Назад», «Открыть поездку», SOS), лента на всю высоту прижата к низу, низ со строкой ввода, кнопка «к новым» с числом | `webapp/src/screens/TripChatScreen.tsx` → `TripChatScreen` (адрес, вход, шапка) и `TripChat` (сам чат) |
+| Логика переписки (WS → REST, очередь без сети, правка/удаление, голос, фото, быстрые фразы, дисклеймер) | перенесена из `ActiveTripScreen.tsx` без переписывания, в `TripChat` |
+| Карточка на странице поездки: превью последнего сообщения, бейдж новых, «Написать» | `webapp/src/components/TripChatCard.tsx` (опрос раз в 10 с, пока экран виден; сокет не держит) |
+| Чистая логика (непрочитанные, «лента внизу», рамка по visualViewport) | `webapp/src/utils/tripChat.js` (+ `.d.ts`) |
+| Стили | `webapp/src/ui.css`, блок «Чат поездки на отдельной странице» (`.tchat*`, `.tchat-card*`) |
+| Маршрут | `webapp/src/App.tsx`: `/trip/:id/chat` (в оболочке `Shell`, закрыт `RequireAuth`, подгружается `lazyScreen`); `Screen.TripChat` Android ↔ этот маршрут в `tests/parity-test.mjs` |
+| Входы | карточка и «Написать» на `/trip/:id` (с `state.fromTrip`), вкладка «Чат» (`ChatInboxScreen.tsx`) и «Чат» в «Моих поездках» (`MyRidesScreen.tsx`) — сразу в чат |
+| Тесты | `tests/trip-chat-test.mjs` (логика), `tests/trip-chat-page-test.mjs` (структура: строка ввода внизу, маршрут, входы, два языка, токены, тач-цели), `tests/outbox-save-ui-test.mjs` (отправка/очередь — теперь на `TripChat` из нового файла) |
+
+Как держится «строка ввода всегда внизу»: рамка `.tchat` — `position: fixed` с высотой `--tchat-h` и сдвигом
+`--tchat-top`, которые `TripChatScreen` ставит из `window.visualViewport`; без них — `100dvh`. Когда на
+телефоне выезжает клавиатура, `visualViewport` становится ниже окна, рамка садится на видимую часть, поле
+оказывается над клавиатурой. Отступ под «домой»-полоску один — `env(safe-area-inset-bottom)` у блока
+`.tchat__foot`; пока клавиатура открыта (`data-kb="1"`) его нет, подсказка безопасности и быстрые фразы
+прячутся (мало места). Лента — `flex: 1; overflow-y: auto`, список в ней `margin: auto auto 0`: короткая
+переписка прижата к низу, длинная листается. Открывается на последнем сообщении; чужое новое подтягивает
+ленту только если человек внизу; листаешь старое — лента стоит, кнопка «к новым» показывает число.
+Непрочитанные — как в Android: считаются локально (метка в памяти, привязана ко входу и поездке; первый показ —
+вся история уже прочитана). Подсказка «Установи на экран» на этой странице скрыта (`InstallPrompt hidden`).
 
 ## Слои экрана: пилот «Доверенные контакты» (12.10.2026)
 
@@ -37,6 +64,26 @@
 `YuldashApp.kt`: `vm.trustedContacts` — зеркало репозитория для текущего входа (стартовое чтение + сбор
 `state`). Такси-диалог «поделиться» (`InstantOrderScreen.kt`, `InstantShareOperations.contacts`) читает
 тот же репозиторий. Сторож размера файлов — `FileSizeRatchetTest`.
+
+## Чат попутки — отдельный экран `Screen.TripChat` (13.10.2026)
+
+Жалоба: строка ввода и микрофон стояли посреди экрана. Чат был пунктом списка «Моя поездка», поле
+ввода — обычным элементом под последним сообщением. Теперь переписка — полноэкранный вид, как в
+мессенджерах; на экране поездки — карточка «Чат по поездке» (последнее сообщение, бейдж новых).
+
+| Что | Где |
+|---|---|
+| Логика чата (лента, WS→REST, очередь без сети, правка/удаление, голос, фото, черновик, непрочитанные) | `TripChatState.kt` → `TripChatState`, `TripChatConnection` (перенесено из `ActiveTripContent` 1:1) |
+| Полноэкранный чат, шапка (собеседник, маршрут, «Открыть поездку»), карточка на экране поездки | `TripChatScreen.kt` → `TripChatScreen`, `TripChatCard` |
+| Каркас мессенджера: лента `reverseLayout` прижата к низу, строка ввода внизу, отступ снизу = max(клавиатура, навигация), кнопка «к новым», adjustResize только пока чат на экране | `TripChatScreen.kt` → `ChatLayout`; на нём же двойник `ChatContent` (`RidesRequestsChatScreens.kt`) и чаты такси, посылки, поддержки (`InstantChatScreen.kt`, `ParcelChatScreen.kt`, `SupportChatScreen.kt`: отступ Scaffold гасится `consumeWindowInsets`) |
+| Навигация | `Screen.TripChat` — второй вид `ActiveTrip`: `YuldashApp` анимирует их как один экран (`Screen.contentScreen()`), ветка `Screen.ActiveTrip, Screen.TripChat ->`; вид задаёт `chatOpen = screen.tripChatView()`, переход — `YuldashViewModel.showTripChat` (возврат к поездке заменяет чат, «Назад» не ходит по кругу) |
+| Входы | вкладка «Чат» → диалог (`AppNavHome.onOpenChat`, имя собеседника — `Ride.chatPeer`) сразу в чат; «Написать» в нижней панели и карточка на экране поездки |
+
+Один экземпляр `TripChatState` на оба вида: сокет, опрос статуса и черновик не пересоздаются при
+переходе «поездка ↔ чат». Завершение/отмена/смена входа обрабатываются экраном поездки, как раньше;
+с навигацией чат на закрытой поездке заменяется видом поездки. Без навигации (тесты) вид
+переключается внутри экрана. Тесты: `TripChatBottomComposerTest`, `TripChatNavigationTest`,
+обновлённые `ActiveTripChat*` и `ChatContentTest`.
 
 ## Terminal HTTP и отправитель очереди (07.10.2026, QA-B02-003)
 
@@ -126,6 +173,7 @@ B01, 20.09.2026: commitAuth возвращает отдельную SessionPersi
 | весь кабинет админа (21 шт., все начинаются на `Admin*`) | `AppNavAdmin.kt` |
 | главный экран | `AppNavHome.kt` |
 | заказ такси, его чат, поездка водителя, чек, история, документы и фото машины, посылки, курьер | `AppNavOrders.kt` |
+| «Моя поездка» и её чат (`ActiveTrip`, `TripChat` — один экран с двумя видами, см. «Чат попутки — отдельный экран») | `YuldashApp.kt`, `when (scr)` → `BookingActiveTripScreen.kt` + `TripChatScreen.kt` |
 | всё остальное | `YuldashApp.kt`, `when (scr)` |
 
 Добавляешь новый экран — заведи его в `enum Screen`, добавь ветку в нужный файл И убедись,
@@ -1479,6 +1527,9 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
   голосовой заявки просится через `rememberPermissionGate` (объяснение «зачем» + `onDenied`
   с человеческим текстом + ветка «система больше не спросит» → подсказка про настройки).
   Запрос уведомлений — намеренное исключение. Сторож — `PermissionRefusalIsAnsweredTest`.
+  13.10.2026: ответ системы приходит в `onActivityResult` ДО `onResume` (экран ещё STARTED),
+  поэтому запись после «Разрешить» стартует через `withResumed`, а подсказка об отказе
+  показывается сразу (`VoiceRecordingDisposalUiTest.*BeforeResume*`).
 - **Ответ «файл слишком большой» человеку понятен (2026-08-08, волна 101).** `genericByStatus`
   знает код 413: такой отказ приходит и от nginx (до нашего кода), поэтому текст живёт
   в приложении. Сторож — `ErrorTextsTellWhatToDoTest` (объяснение + оба языка).
@@ -2978,8 +3029,9 @@ TTL, отзыве ссылки и удалении координат.
 ## 🎚 Шкалы дизайн-системы (`CanonTokens.kt`, 2026-08-03/04)
 
 Одна шкала на всё приложение. Экран НЕ заводит свой кегль, радиус или длительность —
-берёт ступень. Держит `CanonSourceGuardTest`: он читает исходники экранов и падает
-на любом значении мимо шкалы.
+берёт ступень. Держат сторожа, читающие исходники: `CanonSourceGuardTest` — кегль, радиус,
+длительность, тень; `ColorSourceGuardTest` — цвет числом; отступы `padding(N.dp)` — храповик
+`SpacingRatchetGuardTest` (старый долг заморожен, расти не может; потолок — в тесте).
 
 | объект | ступени | где |
 |---|---|---|
@@ -3830,7 +3882,11 @@ TTL, отзыве ссылки и удалении координат.
 
 `BookingDecisionBar` закрепляет «Написать» и главное действие над системной навигацией.
 При обычном шрифте действия стоят рядом; при `fontScale >= 1.2` перестраиваются в две
-полноширинные строки, чтобы длинные RU/BA-подписи не рвались внутри слова. Оплата,
+полноширинные строки, чтобы длинные RU/BA-подписи не рвались внутри слова. С 13.10.2026
+столбик включается при любом увеличенном шрифте (`fontScale > 1`: при 1.15 на 320 dp рвалось
+«Забронировать»), а в строке «Написать» занимает ровно ширину подписи (`IntrinsicSize.Max`),
+главная кнопка — остальное; поля кнопок `CanonSpace.md/sm` (параметр `AppButton.contentPadding`).
+Слова целые на 320 dp — `BookingDecisionBarNarrowTest` и `BookingDecisionBarNarrowInstrumentedTest`. Оплата,
 подросток, реклама, загрузка/ошибка деталей и переход в активную поездку используют
 прежние состояния и API — переработана только композиция.
 
@@ -4665,3 +4721,17 @@ ApiClient.cachedGet связывает cold-read с монотонным readOrd
 ## B02 — инвалидация общего кеша и передача Claude Code, 12.10.2026
 
 ApiClient.cacheRevisions хранит invalidation version по фиксированному ключу под sessionLock. invalidate increment-before-remove; cachedGet capturesversionbeforefetch ипроверяетприacceptance вместе с readOrder/owner/cancel. Contacts revision теперь тот же generic key mechanism; session generation отдельна. Direct caller Result не изменён. [Критерии и доказательства](audit-blocks.md#b02-cache-invalidation-20261012).
+
+## Опции мест в машине (14.10.2026)
+
+Не экран, а блоки внутри существующих экранов (новых `Screen` нет).
+- Сервер: `Ride.back_max_two`, `Ride.front_seat_available`, `Booking.front_seat`; `rides.py::seat_cap`
+  (потолок мест), `services.front_seats_taken` → `RideOut.front_seat_taken`; `bookings.py::book` — проверка
+  и отказ «Переднее место уже занято»; барьер — индекс `uq_booking_front_seat_live` (`models.FRONT_SEAT_LIVE_WHERE`).
+  Поле `front_seat` отдают `/bookings/{id}/details`, `/bookings/mine`, `/driver/bookings`.
+- Android: `SeatOptions.kt` — `SeatOptionsCard` (форма «Создать поездку», под числом мест), `FrontSeatRequestBlock`
+  (бронь, `BookingScreen`), `FrontSeatRequestBadge` (заявка в кабинете водителя); значки — `RidePrefChips`;
+  правка поездки — диалог в `DriverCabinetContent`. Состояние «хочу переднее» держит `YuldashApp` (ветка `Screen.Booking`).
+- PWA: `utils/seatOptions.ts` (потолок, подсказки), `components/SeatOptions.tsx` (`SeatOptionsFields`,
+  `SeatBadges`, `FrontSeatChoice`) в `CreateRideScreen`, `RideEditActions`, `RideCard`, `RideSheet`;
+  «просит переднее» — `DriverCabinetScreen`, «переднее место» — `BookingScreen`.

@@ -192,6 +192,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -345,7 +346,7 @@ internal fun BookingScreen(
     // (аудит сценариев 30.08, два P0). Пусто = состояние неизвестно, ведём себя как раньше.
     bookingStatus: String = "",
     onCancelBooking: () -> Unit = {},
-    onFindAnotherRide: () -> Unit = {},
+    onFindAnotherRide: () -> Unit = {}, frontSeat: Boolean = false, onFrontSeatChange: (Boolean) -> Unit = {},   // + «хочу переднее» (SeatOptions.kt)
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
     // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
@@ -730,7 +731,7 @@ internal fun BookingScreen(
                     onAmount = { payAmountText = it },
                 )
             }
-            // Едет подросток: до брони — форма со взрослым, после — только подтверждённая пометка.
+            frontSeatItem(ride, bookingId, details, frontSeat, onFrontSeatChange)   // переднее место; ниже подросток: до брони форма со взрослым, после — пометка
             if (bookingId == null) {
                 item {
                     if (!ride.noMinors) {
@@ -776,7 +777,7 @@ internal fun BookingScreen(
 }
 
 @Composable
-private fun BookingDecisionBar(
+internal fun BookingDecisionBar(
     primaryText: String,
     primaryEnabled: Boolean,
     primaryStyle: AppButtonStyle,
@@ -784,7 +785,7 @@ private fun BookingDecisionBar(
     onMessage: () -> Unit,
     onPrimary: () -> Unit,
 ) {
-    val largeText = LocalDensity.current.fontScale >= 1.2f
+    val largeText = LocalDensity.current.fontScale > 1f   // уже при 1.15 на 320 dp «Забронировать» рвалось в строке
     Surface(color = CanonSurface, shadowElevation = CanonDepth.sheet) {
         val barModifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)
         if (largeText) {
@@ -804,6 +805,7 @@ private fun BookingDecisionBar(
                 )
             }
         } else {
+            val compactPadding = PaddingValues(horizontal = CanonSpace.md, vertical = CanonSpace.sm)
             Row(
                 barModifier.height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -811,18 +813,18 @@ private fun BookingDecisionBar(
                 AppButton(
                     text = appText("Написать", "Яҙырға"),
                     onClick = onMessage,
-                    modifier = Modifier.weight(0.9f).fillMaxHeight(),
+                    modifier = Modifier.width(IntrinsicSize.Max).fillMaxHeight(),   // по ширине подписи: доля weight на 320 dp рвала «Написа/ть»
                     style = AppButtonStyle.Secondary,
-                    fillWidth = false,
+                    fillWidth = false, contentPadding = compactPadding,
                 )
                 AppButton(
                     text = primaryText,
                     onClick = onPrimary,
-                    modifier = Modifier.weight(1.35f).fillMaxHeight(),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                     enabled = primaryEnabled,
                     style = primaryStyle,
                     icon = primaryIcon,
-                    fillWidth = false,
+                    fillWidth = false, contentPadding = compactPadding,
                 )
             }
         }
@@ -1156,6 +1158,15 @@ internal fun BookingRouteMapPreview(   // internal: живой MapKit-ренде
     showPrivacyNotice: Boolean = true,
     liveBookingId: Int? = null,
 ) {
+    // Без ключа MapKit (сборка в чистом worktree/CI, где local.properties нет) `MapKitFactory.initialize`
+    // роняет приложение: «You need to set the API key before using MapKit!». Это экран брони —
+    // единственный путь пассажира к «Забронировать», падать здесь нельзя. Ключ читает только
+    // `YuldashApplication` (setApiKey), поэтому на вкладке «Карта» стоит такая же проверка. Показываем
+    // заглушку маршрута; ключ в сборке есть → поведение прежнее.
+    if (BuildConfig.YANDEX_MAPKIT_KEY.isBlank()) {
+        RouteMapUnavailableCard(modifier)
+        return
+    }
     val context = LocalContext.current
     val mapView = remember(fromPoint, toPoint) {
         ensureMapKit(context)   // русская локаль ставится тут же: голый initialize оставлял логотип «Yandex Maps» по-английски
@@ -1440,18 +1451,25 @@ internal fun ActiveTripScreen(
     onTripEnd: () -> Unit,
     onSos: () -> Unit,
     onSupport: () -> Unit = {},
-    onOpenReceipt: (Int) -> Unit = {}
+    onOpenReceipt: (Int) -> Unit = {},
+    // Чат — второй вид этого же экрана (Screen.TripChat): общие сокет, опрос и черновик.
+    // null — экран уже не наш (идёт анимация ухода): держим тот вид, что был на экране.
+    chatOpen: Boolean? = null,
+    // null — без навигации (тесты, превью): вид переключается внутри экрана.
+    onChatOpenChange: ((Boolean) -> Unit)? = null,
 ) {
     val currentSession by ApiClient.sessionChanges.collectAsState()
     val tripSession = remember(bookingId) { currentSession }
     val leave by rememberUpdatedState(onBack)
     if (currentSession != tripSession) {
         // Remove all remembered state, sheets, coroutine scopes and subscriptions before navigation.
-        LaunchedEffect(tripSession) { leave() }
+        // chatOpen в ключе: «Назад» из чата приводит на этот же экран поездки — уходим и с него.
+        // null — экран уже уезжает: второй уход снял бы со стека «Назад» чужой экран.
+        LaunchedEffect(tripSession, chatOpen) { if (onChatOpenChange == null || chatOpen != null) leave() }
         return
     }
     key(bookingId, tripSession) {
-        ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession)
+        ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession, chatOpen, onChatOpenChange)
     }
 }
 
@@ -1461,15 +1479,13 @@ private fun ActiveTripContent(
     ride: Ride?, contacts: List<TrustedContact>, bookingId: Int?,
     onBack: () -> Unit, onTripEnd: () -> Unit, onSos: () -> Unit,
     onSupport: () -> Unit, onOpenReceipt: (Int) -> Unit, tripSession: Long,
+    chatOpen: Boolean?, onChatOpenChange: ((Boolean) -> Unit)?,
 ) {
     val context = LocalContext.current
-    var messages by remember(bookingId) { mutableStateOf<List<MessageDto>>(emptyList()) }
     val voiceScope = rememberCoroutineScope()
     // Русский тут на «ты», башкирский был на «вы» (тикшерегеҙ) — тон обязан совпадать в обоих языках.
     val statusErrMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшер.")
     val driverNotifiedMsg = appText("Пассажир уведомлён", "Пассажир хәбәрҙар ителде")
-    val chatSendFailMsg = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла.")
-    val chatActionFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
     // Роль в этой брони: водитель видит «Я выехал/Подъезжаю» (push пассажиру), пассажир — «сел/доехал/завершить».
     // Ключуем по bookingId (как driverPhase/bookingStatus ниже): иначе при открытии ДРУГОЙ брони до первого
     // опроса видны кнопки чужой роли (водительские «Я выехал» у пассажира).
@@ -1594,9 +1610,7 @@ private fun ActiveTripContent(
         isCurrentTarget = ::isWinterBookingCurrent,
         onArm = { owner -> ApiClient.winterCheck(bookingId!!, expectedGeneration = owner) },
     )
-    // Ключуем по bookingId: черновик/режим редактирования/выбранный статус не должны утекать в другую бронь.
-    var draft by remember(bookingId) { mutableStateOf("") }
-    var editingId by remember(bookingId) { mutableStateOf<Int?>(null) }   // id редактируемого сообщения (null — обычная отправка)
+    // Ключуем по bookingId: выбранный статус не должен утекать в другую бронь (черновик — в TripChatState).
     var status by remember(bookingId) { mutableStateOf<String?>(null) }
     var showDriverFinishConfirmation by rememberSaveable(bookingId) { mutableStateOf(false) }
     var showShare by remember { mutableStateOf(false) }
@@ -1604,16 +1618,7 @@ private fun ActiveTripContent(
     val tripSharedPrefix = appText("Ссылка готова", "Һылтанма әҙер")
     val shareRevokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
 
-    val myId = remember { ApiClient.myUserId() ?: -1 }
     val frostyNight = remember { isFrostyWinterNight() }   // F12: морозная ночь — считаем один раз (LazyListScope не @Composable)
-    var wsConnected by remember { mutableStateOf(false) }
-    // Оптимистичные (ещё не подтверждённые сервером) сообщения получают уникальный
-    // отрицательный id (-2, -3, …). failedIds — те, что не доставились (показываем «Повторить»).
-    var failedIds by remember(bookingId) { mutableStateOf(setOf<Int>()) }
-    // F11: сообщения, поставленные в очередь при отсутствии сети (уйдут авто-ретраем).
-    var queuedIds by remember(bookingId) { mutableStateOf(setOf<Int>()) }
-    var tempSeq by remember(bookingId) { mutableStateOf(-2) }
-    val restAttempts = remember(bookingId) { mutableMapOf<Int, com.yuldash.app.data.OutboxAction>() }
     var boardingCode by remember(bookingId) { mutableStateOf("") }
     var codeLoadFailed by remember(bookingId) { mutableStateOf(false) }
     var codeLoadRetry by remember(bookingId) { mutableStateOf(0) }
@@ -1648,29 +1653,31 @@ private fun ActiveTripContent(
     // старый сервер их не отдаёт, ниже остаётся безопасный фолбэк на публичные центры городов.
     var routeFromPoint by remember(bookingId) { mutableStateOf<Point?>(null) }
     var routeToPoint by remember(bookingId) { mutableStateOf<Point?>(null) }
-    val sendFailMsg = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне")
-    val tooFastMsg = appText("Слишком быстро. Подожди минуту и продолжи.",
-                             "Артыҡ тиҙ. Бер минут көт тә дауам ит.")
     val queuedMsg = appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ")
     val queueSaveFailMsg = appText("Не получилось сохранить. Повтори попытку.", "Һаҡлап булманы. Ҡабатлап ҡара.")
-    // Состояние первой загрузки истории чата: спиннер, ошибка (с «Повторить»), пусто.
-    var historyLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
-    var historyError by remember(bookingId) { mutableStateOf(false) }
-    var historyTick by remember(bookingId) { mutableStateOf(0) }   // bump → перезагрузить историю (кнопка «Повторить»)
+    // Чат поездки: лента, сокет, отправка, голос, фото (TripChatState.kt). Один экземпляр на оба
+    // вида — карточку здесь и полноэкранный чат, поэтому переход между ними ничего не теряет.
+    val chatTexts = rememberTripChatTexts(queuedMsg, queueSaveFailMsg)
+    val chat = remember(bookingId) {
+        TripChatState(context, bookingId, tripSession, voiceScope, ::isTripChatActive, ::isTripSessionCurrent, chatTexts)
+    }
+    val chatListState = rememberLazyListState()
+    // Вид поездки уходит из композиции, пока открыт чат: его сохраняемое состояние (закрытые
+    // подсказки, позиции внутри списка) держим здесь, чтобы при возврате всё было как было.
+    val viewStates = rememberSaveableStateHolder()
+    // Вид экрана: поездка или чат. С навигацией вид задаёт Screen.TripChat (chatOpen), а пока
+    // экран уезжает (chatOpen == null) — держим последний, чтобы чат не мигнул поездкой.
+    var localChat by rememberSaveable(bookingId) { mutableStateOf(chatOpen == true) }
+    val lastChatView = remember { booleanArrayOf(chatOpen == true) }
+    if (chatOpen != null) lastChatView[0] = chatOpen
+    val showChat = if (onChatOpenChange == null) localChat else lastChatView[0]
+    fun showChatView(open: Boolean) { if (onChatOpenChange == null) localChat = open else onChatOpenChange(open) }
 
     // История — по REST (один раз, + повтор по кнопке). + код посадки брони.
-    LaunchedEffect(bookingId, historyTick) {
-        val id = bookingId ?: run { historyLoading = false; return@LaunchedEffect }
+    LaunchedEffect(bookingId, chat.historyTick) {
+        val id = bookingId ?: run { chat.historyLoading = false; return@LaunchedEffect }
         if (!isTripChatActive()) return@LaunchedEffect
-        historyLoading = true
-        historyError = false
-        val historyResult = ApiClient.getMessages(id)
-        // Каждый запрос защищён отдельно, но следующий иначе захватит уже новый аккаунт.
-        if (!isTripChatActive()) return@LaunchedEffect
-        historyResult
-            .onSuccess { messages = it }
-            .onFailure { historyError = true }
-        historyLoading = false
+        if (!chat.loadHistory(id)) return@LaunchedEffect
         val codeResult = ApiClient.getBoardingCode(id)
         if (!isTripChatActive()) return@LaunchedEffect
         if (bookingStatus != "done" && bookingStatus != "cancelled") {
@@ -1703,59 +1710,13 @@ private fun ActiveTripContent(
         result.onSuccess { code -> if (code.isNotBlank()) boardingCode = code }
     }
 
-    // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
-    val chatSocket = remember(bookingId) {
-        bookingId?.let { id ->
-            ChatSocket(
-                bookingId = id,
-                expectedGeneration = tripSession,
-                onMessage = { inc ->
-                    // WS-колбэк приходит с фонового потока OkHttp → правку Compose-state делаем на main
-                    // (read-modify-write `messages` иначе может потерять обновление при гонке потоков).
-                    voiceScope.launch {
-                        if (!isTripChatActive()) return@launch
-                        // оптимистичное = отрицательный id, не помеченное как «не доставлено», моё, тот же текст
-                        val optIdx = messages.indexOfFirst { it.id < 0 && it.id !in failedIds && it.senderId == myId && it.text == inc.text }
-                        val dto = MessageDto(inc.id, inc.text, inc.senderId, flag = inc.flag, fromAdmin = inc.fromAdmin)
-                        messages = when {
-                            optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = dto }
-                            inc.id > 0 && messages.any { it.id == inc.id } -> messages   // дубль по id — пропустить
-                            else -> messages + dto
-                        }
-                    }
-                },
-                onConnected = { connected ->
-                    voiceScope.launch { if (isTripChatActive()) wsConnected = connected }
-                },
-                // Сервер не принял сообщение (слишком быстрый поток). Помечаем его
-                // «Не доставлено · Повторить» — тем же способом, что и отказ по обычному
-                // запросу. Молча оставить нельзя: оно висело бы как отправленное.
-                onRejected = { tempId, _ ->
-                    voiceScope.launch {
-                        if (!isTripChatActive()) return@launch
-                        failedIds = failedIds + tempId
-                        Toast.makeText(context, tooFastMsg, Toast.LENGTH_SHORT).show()
-                    }
-                },
-            )
-        }
-    }
-    DisposableEffect(bookingId, terminalBooking) {
-        if (terminalBooking == null) chatSocket?.connect()
-        else { wsConnected = false; chatSocket?.close() }
-        onDispose { chatSocket?.close() }
-    }
-    // После авто-реконнекта WS (был обрыв → связь вернулась) дотягиваем пропущенные сообщения по REST:
-    // живой приём мог простоять, пока сокет был мёртв. Первый коннект не трогаем — историю уже грузит эффект выше.
-    var wasEverConnected by remember(bookingId) { mutableStateOf(false) }
-    LaunchedEffect(wsConnected) {
-        if (!isTripChatActive()) return@LaunchedEffect
-        if (wsConnected) {
-            if (wasEverConnected) {
-                bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { if (isTripChatActive()) messages = it } }
-            }
-            wasEverConnected = true
-        }
+    // Realtime по WebSocket и дотяжка пропущенного после обрыва — у владельца, не у вида чата.
+    TripChatConnection(chat, terminalBooking)
+    // С навигацией закрытая поездка показывается видом поездки (экран завершения, очистка):
+    // заменяем чат поездкой, чтобы «Назад» не водил по двум одинаковым экранам. Только пока чат
+    // действительно на экране (chatOpen == true), а не во время ухода с него.
+    LaunchedEffect(terminalBooking, chatOpen) {
+        if (terminalBooking != null && chatOpen == true && onChatOpenChange != null) onChatOpenChange(false)
     }
 
     // F11: авто-ретрай очереди исходящих при появлении сети. Слушаем ConnectivityManager: сеть вернулась →
@@ -1768,8 +1729,8 @@ private fun ActiveTripContent(
             val changed = Outbox.flush(context, expectedGeneration = tripSession, shouldContinue = ::isTripChatActive)
             if (!isTripChatActive()) return@launch
             if (changed) {
-                queuedIds = emptySet()
-                ApiClient.getMessages(id).onSuccess { if (isTripChatActive()) messages = it }
+                chat.queuedIds = emptySet()
+                ApiClient.getMessages(id).onSuccess { if (isTripChatActive()) chat.messages = it }
                 if (!isTripChatActive()) return@launch
                 ApiClient.getTripState(id).onSuccess { st ->
                     if (!isTripChatActive()) return@onSuccess
@@ -1794,64 +1755,12 @@ private fun ActiveTripContent(
         }
     }
 
-    // Доставка одного сообщения. Сперва WS (если жив), иначе REST. Ошибку НЕ глотаем:
-    // - сетевой сбой (нет связи на трассе) → кладём в очередь (Outbox), помечаем «в очереди» —
-    //   отправится само при появлении сети (F11), ничего не теряется;
-    // - ошибка сервера → «Не доставлено · Повторить» (ручной повтор, как прежде).
-    fun deliver(tempId: Int, text: String) {
-        val bid = bookingId ?: return
-        if (!isTripChatActive()) return
-        val queueSession = tripSession
-        val ws = chatSocket
-        // tempId уходит на сервер: если он откажется принять сообщение, вернёт этот же номер,
-        // и мы пометим «Не доставлено» именно это сообщение (см. onRejected).
-        val sentViaWs = tempId !in restAttempts && wsConnected && ws != null && ws.send(text, tempId)
-        if (sentViaWs) return   // эхо WS заменит оптимистичное сообщение настоящим
-        val action = restAttempts.getOrPut(tempId) { Outbox.newMessage(bid, text) }
-        voiceScope.launch {
-            if (!isTripChatActive()) return@launch
-            ApiClient.sendMessage(bid, action.payload, Outbox.messageRequestKey(action))
-                .onSuccess { if (isTripChatActive()) ApiClient.getMessages(bid).onSuccess { if (isTripChatActive()) messages = it } }
-                .onFailure { e ->
-                    if (!isTripSessionCurrent()) return@onFailure
-                    if (e is ApiException) {
-                        if (!isTripChatActive()) return@onFailure
-                        failedIds = failedIds + tempId
-                        // Сервер знает причину: чат закрылся после поездки, собеседник в блокировке.
-                        // «Не отправилось» об этом молчало, и человек писал в пустоту.
-                        Toast.makeText(context, serverSaid(e, sendFailMsg), Toast.LENGTH_LONG).show()
-                    } else {
-                        // Нет сети → в очередь на авто-ретрай. Сообщение остаётся на экране с меткой «в очереди».
-                        val saved = withContext(Dispatchers.IO) { Outbox.enqueue(context, action, queueSession) }
-                        if (!isTripChatActive()) return@onFailure
-                        if (saved) queuedIds = queuedIds + tempId else failedIds = failedIds + tempId
-                        Toast.makeText(context, if (saved) queuedMsg else queueSaveFailMsg, Toast.LENGTH_SHORT).show()
-                    }
-                }
-        }
-    }
-
-    fun sendText(text: String) {
-        val t = text.trim()
-        if (t.isEmpty() || bookingId == null || !isTripChatActive()) return
-        val tempId = tempSeq
-        tempSeq -= 1
-        messages = messages + MessageDto(tempId, t, myId)   // показываем сразу (оптимистично)
-        deliver(tempId, t)
-    }
-
-    fun retry(tempId: Int, text: String) {
-        if (!isTripChatActive()) return
-        failedIds = failedIds - tempId
-        deliver(tempId, text)
-    }
-    val visibleMessages = messages.filter { it.deleted || it.voiceUrl != null || it.text.isNotBlank() }
     val activeFromCity = ride?.from ?: tripPass?.fromCity.orEmpty()
     val activeToCity = ride?.to ?: tripPass?.toCity.orEmpty()
     val activeFromPoint = routeFromPoint ?: activeFromCity.takeIf { it.isNotBlank() }?.let(::cityPoint)
     val activeToPoint = routeToPoint ?: activeToCity.takeIf { it.isNotBlank() }?.let(::cityPoint)
     val canChangeTripStatus = bookingId == null || (role.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus))
-    val nextTripStatus = activeTripNextStatus(role = role, driverPhase = driverPhase, passengerStatus = status)
+    val nextTripStatus = activeTripNextStatus(role = role, driverPhase = driverPhase, passengerStatus = status, bookingStatus = bookingStatus)
     val activeTripListState = rememberLazyListState()
 
     // Один шов для всех status-CTA: новая закреплённая кнопка B и старые сценарии используют
@@ -1995,22 +1904,34 @@ private fun ActiveTripContent(
         )
     }
 
-    Scaffold(
+    // Шапка чата — с кем переписка. Имя из вкладки «Чат» известно сразу; пассажиру собеседник —
+    // водитель брони; имя пассажира водительский экран не получает — тогда пишем роль.
+    val chatPeer = ride?.chatPeer?.takeIf { it.isNotBlank() } ?: if (role != "passenger") null
+        else ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() }.takeIf { it.isNotBlank() }
+    val chatTitle = chatPeer ?: when (role) {
+        "driver" -> appText("Чат с пассажиром", "Пассажир менән чат")
+        "passenger" -> appText("Чат с водителем", "Йөрөтөүсе менән чат")
+        else -> appText("Чат по поездке", "Сәфәр буйынса чат")
+    }
+    val chatRoute = "$activeFromCity → $activeToCity".takeIf { activeFromCity.isNotBlank() && activeToCity.isNotBlank() }
+    // Без навигации системное «Назад» из чата возвращает к поездке (с навигацией — общий goBack).
+    BackHandler(enabled = showChat && onChatOpenChange == null) { localChat = false }
+    AnimatedContent(targetState = showChat, transitionSpec = { tripChatTransition(opening = targetState) }, label = "trip-chat") { chatShown ->
+    if (chatShown) TripChatScreen(
+        chat = chat, title = chatTitle, peerInitial = chatPeer?.let(::firstGrapheme), subtitle = chatRoute,
+        listState = chatListState,
+        onBack = { if (onChatOpenChange == null) localChat = false else onBack() },
+        onOpenTrip = { showChatView(false) },
+        onSos = onSos,
+    ) else viewStates.SaveableStateProvider("trip-view") { Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Моя поездка", "Минең сәфәр"), onBack) },
         bottomBar = {
             if (canChangeTripStatus) {
                 ActiveTripDecisionBar(
                     primaryText = activeTripActionLabel(nextTripStatus),
-                    onMessage = {
-                        voiceScope.launch {
-                            val total = activeTripListState.layoutInfo.totalItemsCount
-                            if (total > 0) {
-                                val trailing = 1 + if (bookingId != null && bookingStatusAllowsBoarding(bookingStatus)) 1 else 0
-                                activeTripListState.animateScrollToItem((total - trailing - 1).coerceAtLeast(0))
-                            }
-                        }
-                    },
+                    onMessage = { showChatView(true) },   // переписка — отдельным экраном, как в мессенджерах
+                    unread = chat.unread,
                     onPrimary = {
                         if (isTripSessionCurrent()) {
                             if (role == "driver" && nextTripStatus == "done") showDriverFinishConfirmation = true
@@ -2026,7 +1947,7 @@ private fun ActiveTripContent(
         },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp).imePadding(),  // поднимаем контент над клавиатурой (композер чата не перекрывается)
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp).imePadding(),  // поле отзыва (демо без брони) не прячется за клавиатурой
             state = activeTripListState,
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 24.dp)
@@ -2463,176 +2384,9 @@ private fun ActiveTripContent(
                     )
                 }
             }
-            item { Text(appText("Чат по поездке", "Сәфәр буйынса чат"), fontWeight = FontWeight.Bold, modifier = Modifier.appearIn(4)) }
-            // WS лежит → сообщения уходят по REST. Спокойно сообщаем, что связь восстанавливается (не ошибка).
-            item {
-                AnimatedVisibility(visible = bookingId != null && !wsConnected) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
-                            .background(CanonMint, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = CanonGreen2)
-                        Spacer(Modifier.width(8.dp))
-                        Text(appText("Соединение восстанавливается…", "Бәйләнеш тергеҙелә…"), color = CanonGreen2, fontSize = 14.sp)
-                    }
-                }
-            }
-            // Состояния первой загрузки истории: спиннер / ошибка с «Повторить» / пусто.
-            // Оптимистично отправленное сообщение уже наполняет messages → состояния гаснут.
-            if (visibleMessages.isEmpty()) {
-                when {
-                    historyLoading -> item {
-                        Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp, color = CanonGreen2)
-                        }
-                    }
-                    historyError -> item {
-                        Column(
-                            Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                appText("Не удалось загрузить чат", "Чатты йөкләп булманы"),
-                                color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center
-                            )
-                            OutlinedButton(
-                                onClick = { historyTick++ },
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, CanonGreen2)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                    bookingId != null -> item {
-                        Column(
-                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(30.dp))
-                            Text(
-                                appText("Пока нет сообщений. Напиши первым", "Әлегә хәбәрҙәр юҡ. Беренсе булып яҙ"),
-                                color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
-            }
-            // B8-6: дисклеймер безопасности при первом открытии чата (закрывается «Понятно»).
-            item { ChatSafetyDisclaimer() }
-            items(visibleMessages, key = { it.id }) { m ->
-                val saved = m.id > 0   // оптимистичные (id<0) ещё не на сервере — без меню
-                Box(Modifier.fillMaxWidth().animateItem()) {   // плавное появление/перестановка пузыря в списке
-                MessageBubble(
-                    text = m.text,
-                    voiceUrl = m.voiceUrl,
-                    mine = m.senderId == myId,
-                    failed = m.id in failedIds,
-                    queued = m.id in queuedIds,
-                    deleted = m.deleted,
-                    edited = m.edited,
-                    flag = m.flag,
-                    fromAdmin = m.fromAdmin,
-                    canEdit = saved && m.senderId == myId && m.voiceUrl == null && !m.deleted,
-                    canDeleteAll = saved && m.senderId == myId && !m.deleted,
-                    canDeleteMine = saved && !m.deleted,
-                    onRetry = { retry(m.id, m.text) },
-                    onEdit = { if (isTripChatActive()) { editingId = m.id; draft = m.text } },
-                    onDelete = { scope ->
-                        if (bookingId != null && isTripChatActive()) voiceScope.launch {
-                            if (!isTripChatActive()) return@launch
-                            val result = ApiClient.deleteMessage(bookingId, m.id, scope)
-                            if (!isTripChatActive()) return@launch
-                            result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
-                                .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
-                        }
-                    },
-                )
-                }
-            }
-            item {
-                val voiceSoon = appText("Голос записан", "Тауыш яҙылды")
-                if (editingId != null) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
-                            .background(CanonWarnBg, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(appText("Редактирование сообщения", "Хәбәрҙе үҙгәртеү"), color = CanonWarn, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                        Text(
-                            appText("Отмена", "Кире алыу"), color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-                            modifier = Modifier.bounceClick { editingId = null; draft = "" }
-                        )
-                    }
-                }
-                ChatComposer(
-                    draft = draft,
-                    recordingAllowed = isTripChatActive(),
-                    onDraftChange = { if (isTripChatActive()) draft = it },
-                    onSend = {
-                        val t = draft.trim()
-                        if (t.isNotEmpty() && bookingId != null && isTripChatActive()) {
-                            val eid = editingId
-                            if (eid != null) {
-                                voiceScope.launch {
-                                    if (!isTripChatActive()) return@launch
-                                    val result = ApiClient.editMessage(bookingId, eid, t)
-                                    if (!isTripChatActive()) return@launch
-                                    result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
-                                        .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatActionFailMsg), Toast.LENGTH_LONG).show() }
-                                }
-                                editingId = null
-                            } else {
-                                sendText(t)   // единый надёжный путь: WS→REST, ошибка не теряется
-                            }
-                            draft = ""
-                        }
-                    },
-                    onVoiceRecorded = { path, _ ->
-                        if (bookingId == null || !isTripChatActive()) {
-                            ApiClient.dropVoiceFile(path)
-                        } else {
-                            Toast.makeText(context, voiceSoon, Toast.LENGTH_SHORT).show()
-                            voiceScope.launch {
-                                if (!isTripChatActive()) return@launch
-                                val bytes = withContext(Dispatchers.IO) { runCatching { File(path).readBytes() }.getOrNull() }
-                                    ?: return@launch
-                                if (!isTripChatActive()) return@launch
-                                val upload = ApiClient.uploadVoice(bytes)
-                                if (!isTripChatActive()) return@launch
-                                upload.onSuccess { url ->
-                                    val result = ApiClient.sendVoiceMessage(bookingId, url)
-                                    if (!isTripChatActive()) return@launch
-                                    result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
-                                        .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                                }.onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                            // Completion also runs for a launch cancelled before its body starts.
-                            }.invokeOnCompletion { ApiClient.dropVoiceFile(path) }
-                        }
-                    },
-                    onPhotoPicked = { bytes ->
-                        if (bookingId != null && isTripChatActive()) voiceScope.launch {
-                            if (!isTripChatActive()) return@launch
-                            val upload = ApiClient.uploadChatPhoto(bytes)
-                            if (!isTripChatActive()) return@launch
-                            upload.onSuccess { url ->
-                                val result = ApiClient.sendPhotoMessage(bookingId, url)
-                                if (!isTripChatActive()) return@launch
-                                result.onSuccess { ApiClient.getMessages(bookingId).onSuccess { if (isTripChatActive()) messages = it } }
-                                    .onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                            }.onFailure { if (isTripChatActive()) Toast.makeText(context, serverSaid(it, chatSendFailMsg), Toast.LENGTH_LONG).show() }
-                        }
-                    },
-                    onQuickSend = { phrase -> sendText(phrase) }   // готовая фраза — тот же надёжный путь (WS→REST)
-                )
-            }
+            // Чат по поездке — карточкой: последнее сообщение и новые. Сама переписка — отдельным
+            // экраном (TripChatScreen): там строка ввода прибита к низу, как в мессенджерах.
+            item(key = "trip-chat") { TripChatCard(chat, onOpen = { showChatView(true) }, modifier = Modifier.appearIn(4)) }
             // F12 «Застрял на трассе» — уровень мягче паники SOS: зовём своих на помощь в дороге.
             // Только в реальной активной поездке (есть бронь и посадка подтверждена).
             if (bookingId != null && bookingStatusAllowsBoarding(bookingStatus)) {
@@ -2659,6 +2413,7 @@ private fun ActiveTripContent(
                 }
             }
         }
+    } }
     }
 
     WinterArrivalDialog(showArrivalCheck, bookingId, tripSession, ::isWinterBookingCurrent) { owner ->
@@ -2679,6 +2434,7 @@ private fun ActiveTripContent(
             var listLoading by remember { mutableStateOf(true) }
             var listError by remember { mutableStateOf(false) }
             var mutationUncertain by remember { mutableStateOf(false) }
+            var listErrorText by remember { mutableStateOf<String?>(null) }   // объяснение сервера (429 и т.п.); null — обрыв сети
             var mutationBusy by remember { mutableStateOf(false) }
             var listRequest by remember { mutableIntStateOf(0) }
             fun canMutate() = isShareCurrent() && !listLoading && !listError && !mutationBusy
@@ -2686,13 +2442,13 @@ private fun ActiveTripContent(
                 if (!isShareCurrent() || listLoading || mutationBusy) return
                 // Set before launch: retained callbacks in the same frame must see the lock.
                 listLoading = true
-                listError = false
+                listError = false; listErrorText = null
                 listRequest++
             }
-            fun reconcileShares() {
+            fun reconcileShares(cause: Throwable?) {
                 // A failed POST/DELETE can follow a committed server change. Only GET settles access.
                 mutationUncertain = true
-                listError = true
+                listError = true; listErrorText = serverText(cause)
             }
             LaunchedEffect(bookingId, listRequest) {
                 if (!isShareCurrent()) return@LaunchedEffect
@@ -2710,29 +2466,29 @@ private fun ActiveTripContent(
                     liveLink = srv.firstNotNullOfOrNull { it.link?.takeIf(String::isNotBlank) }
                     showContacts = srv.isEmpty()
                     mutationUncertain = false
-                    listError = false
+                    listError = false; listErrorText = null
                 }.onFailure {
-                    if (isShareCurrent()) listError = true
+                    if (isShareCurrent()) { listError = true; listErrorText = serverText(it) }
                 }
                 if (isShareCurrent()) listLoading = false
             }
-            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl)) {
                 val link = liveLink
                 if (listLoading) {
-                    Text(appText("Проверяем ссылки…", "Һылтанмаларҙы тикшерәбеҙ…"), color = CanonText, modifier = Modifier.padding(vertical = 16.dp))
+                    Text(appText("Проверяем ссылки…", "Һылтанмаларҙы тикшерәбеҙ…"), color = CanonText, modifier = Modifier.padding(vertical = CanonSpace.lg))
                     LinearProgressIndicator(Modifier.fillMaxWidth().testTag("tripSharesLoading"), color = CanonGreen2)
                 } else if (listError) {
                     Text(
                         if (bookingId == null) appText("Не удалось открыть ссылки. Открой поездку заново.", "Һылтанмаларҙы асып булманы. Сәфәрҙе яңынан ас.")
-                        else if (mutationUncertain) appText("Не получилось подтвердить результат. Обнови список ссылок.", "Һөҙөмтәне раҫлап булманы. Һылтанмалар исемлеген яңырт.")
-                        else appText("Не удалось загрузить ссылки. Проверь сеть и повтори.", "Һылтанмаларҙы йөкләп булманы. Селтәрҙе тикшереп ҡабатла."),
-                        color = CanonText, modifier = Modifier.padding(vertical = 16.dp).testTag("tripSharesError"),
+                        else if (mutationUncertain) listOfNotNull(listErrorText, appText("Не получилось подтвердить результат. Обнови список ссылок.", "Һөҙөмтәне раҫлап булманы. Һылтанмалар исемлеген яңырт.")).joinToString("\n")
+                        else listErrorText ?: appText("Не удалось загрузить ссылки. Проверь сеть и повтори.", "Һылтанмаларҙы йөкләп булманы. Селтәрҙе тикшереп ҡабатла."),
+                        color = CanonText, modifier = Modifier.padding(vertical = CanonSpace.lg).testTag("tripSharesError"),
                     )
                     TextButton(onClick = { if (bookingId == null) { if (isShareCurrent()) showShare = false } else reloadShares() }, modifier = Modifier.heightIn(min = 48.dp).testTag("tripSharesRetry")) {
                         Text(if (bookingId == null) appText("Закрыть", "Ябыу") else if (mutationUncertain) appText("Обновить список", "Исемлекте яңыртыу") else appText("Повторить", "Ҡабатлау"), color = CanonGreen2)
                     }
                 } else if (activeShares.isNotEmpty() && !showContacts) {
-                    Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+                    Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = CanonSpace.sm))
                     if (!link.isNullOrBlank()) LiveLinkCard(link, ownerGeneration = tripSession,
                         isCurrentParent = { isShareCurrent() && !listLoading && !listError && !mutationBusy &&
                             !showContacts && liveLink == link && activeShares.any { it.first.link == link } })
@@ -2750,12 +2506,12 @@ private fun ActiveTripContent(
                                     if (activeShares.isEmpty()) showContacts = true
                                     Toast.makeText(context, shareRevokedMsg, Toast.LENGTH_SHORT).show()
                                 }
-                                .onFailure { if (isShareCurrent()) reconcileShares() }
+                                .onFailure { if (isShareCurrent()) reconcileShares(it) }
                                 } finally { if (isShareCurrent()) mutationBusy = false }
                             }
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(CanonSpace.md))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         TextButton(enabled = !mutationBusy, onClick = { if (canMutate()) showContacts = true }) {
                             Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
@@ -2765,7 +2521,7 @@ private fun ActiveTripContent(
                         }
                     }
                 } else {
-                Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+                Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = CanonSpace.sm))
                 if (contacts.isEmpty()) {
                     Text(appText("Сначала добавь доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтә"), color = CanonMuted)
                 }
@@ -2785,22 +2541,22 @@ private fun ActiveTripContent(
                                             liveLink = share.link?.takeIf(String::isNotBlank)
                                             showContacts = false
                                             Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
-                                        } else reconcileShares()
+                                        } else reconcileShares(null)
                                     }
                                     .onFailure {
                                         if (!isShareCurrent()) return@onFailure
-                                        reconcileShares()
+                                        reconcileShares(it)
                                     }
                                     } finally { if (isShareCurrent()) mutationBusy = false }
                                 }
                             }
-                        }.padding(vertical = 12.dp),
+                        }.padding(vertical = CanonSpace.md),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(Modifier.size(44.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
                             Text(c.name.take(1), fontWeight = FontWeight.Bold)
                         }
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(CanonSpace.md))
                         Column(Modifier.weight(1f)) {
                             Text(c.name, fontWeight = FontWeight.Bold)
                             Text(c.relation, color = CanonMuted, fontSize = 14.sp)
@@ -2934,22 +2690,6 @@ internal fun RoadsideHelpButton(sending: Boolean, sent: Boolean, onClick: () -> 
         }
     }
 }
-
-/** Следующий РЕАЛЬНЫЙ серверный переход для одной закреплённой CTA варианта B. */
-internal fun activeTripNextStatus(role: String, driverPhase: String, passengerStatus: String?): String =
-    if (role == "driver") {
-        when (driverPhase) {
-            "departed" -> "arriving"
-            "arriving", "done" -> "done"
-            else -> "departed"
-        }
-    } else {
-        when (passengerStatus) {
-            "sat" -> "arrived"
-            "arrived", "done" -> "done"
-            else -> "sat"
-        }
-    }
 
 @Composable
 internal fun activeTripActionLabel(status: String): String = when (status) {
@@ -3344,28 +3084,35 @@ internal fun ActiveTripDecisionBar(
     onPrimary: () -> Unit,
     finishText: String? = null,
     onFinish: () -> Unit = {},
+    unread: Int = 0,   // новые сообщения собеседника — бейдж на «Написать», чтобы не пропустить
 ) {
     val largeText = LocalDensity.current.fontScale >= 1.2f
     Surface(color = CanonSurface, shadowElevation = CanonDepth.sheet) {
         val barModifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)
         Column(barModifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (largeText) {
-                AppButton(
-                    text = appText("Написать", "Яҙырға"),
-                    onClick = onMessage,
-                    style = AppButtonStyle.Secondary,
-                    icon = Icons.Default.ChatBubbleOutline,
-                )
-                AppButton(text = primaryText, onClick = onPrimary, icon = Icons.Default.KeyboardArrowRight)
-            } else {
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.fillMaxWidth()) {
                     AppButton(
                         text = appText("Написать", "Яҙырға"),
                         onClick = onMessage,
-                        modifier = Modifier.weight(0.9f).fillMaxHeight(),
                         style = AppButtonStyle.Secondary,
-                        fillWidth = false,
+                        icon = Icons.Default.ChatBubbleOutline,
                     )
+                    if (unread > 0) UnreadBadge(unread, Modifier.align(Alignment.TopEnd).offset(x = CanonSpace.xs, y = -CanonSpace.xs))
+                }
+                AppButton(text = primaryText, onClick = onPrimary, icon = Icons.Default.KeyboardArrowRight)
+            } else {
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.weight(0.9f).fillMaxHeight()) {
+                        AppButton(
+                            text = appText("Написать", "Яҙырға"),
+                            onClick = onMessage,
+                            modifier = Modifier.fillMaxSize(),
+                            style = AppButtonStyle.Secondary,
+                            fillWidth = false,
+                        )
+                        if (unread > 0) UnreadBadge(unread, Modifier.align(Alignment.TopEnd).offset(x = CanonSpace.xs, y = -CanonSpace.xs))
+                    }
                     AppButton(
                         text = primaryText,
                         onClick = onPrimary,

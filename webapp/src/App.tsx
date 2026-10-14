@@ -125,6 +125,7 @@ const MyTaxiTripsScreen = lazyScreen(() => import("./screens/MyTaxiTripsScreen")
 const MyRequestsScreen = lazyScreen(() => import("./screens/MyRequestsScreen"));
 const NotificationsScreen = lazyScreen(() => import("./screens/NotificationsScreen"));
 const ParcelChatScreen = lazyScreen(() => import("./screens/ParcelChatScreen"));
+const TripChatScreen = lazyScreen(() => import("./screens/TripChatScreen"));
 const ParcelsScreen = lazyScreen(() => import("./screens/ParcelsScreen"));
 const PassengerCabinetScreen = lazyScreen(() => import("./screens/PassengerCabinetScreen"));
 const RequestResponsesScreen = lazyScreen(() => import("./screens/RequestResponsesScreen"));
@@ -148,6 +149,8 @@ function Shell() {
   const [debtBadge, setDebtBadge] = useState(false);
   const onMainTab = ["/map", "/rides", "/my-requests", "/chat", "/profile"].includes(pathname);
   const showBottomNav = onMainTab && !taxiOrderOnScreen;
+  /** Чат поездки занимает весь экран: плавающим подсказкам над строкой ввода там не место. */
+  const inTripChat = /^\/trip\/[^/]+\/chat\/?$/.test(pathname);
 
   useEffect(() => {
     if (status !== "authed" || user?.role !== "driver") {
@@ -175,7 +178,7 @@ function Shell() {
           <Outlet />
         </Suspense>
       </main>
-      <InstallPrompt />
+      <InstallPrompt hidden={inTripChat} />
       {showBottomNav && <BottomNav debtBadge={debtBadge} />}
     </div>
   );
@@ -396,6 +399,15 @@ export default function App() {
           element={
             <RequireAuth>
               <ActiveTripScreen />
+            </RequireAuth>
+          }
+        />
+        {/* Чат поездки — отдельная страница (как Screen.TripChat в Android): строка ввода внизу */}
+        <Route
+          path="/trip/:id/chat"
+          element={
+            <RequireAuth>
+              <TripChatScreen />
             </RequireAuth>
           }
         />

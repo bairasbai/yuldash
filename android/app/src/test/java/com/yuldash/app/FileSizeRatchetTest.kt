@@ -25,23 +25,24 @@ import java.io.File
 class FileSizeRatchetTest {
 
     private val ceilings = mapOf(
-        "InstantOrderScreen.kt" to 8254,
-        "data/ApiClient.kt" to 8044,
-        "ProfileScreen.kt" to 4834,
-        "BookingActiveTripScreen.kt" to 3989,
-        "RidesRequestsChatScreens.kt" to 3556,
+        "InstantOrderScreen.kt" to 8258,   // 13.10.2026: +4 — шторка «Куда едем?» не прячется, пока уходит смена адреса
+        "data/ApiClient.kt" to 8058,   // 14.10.2026: +12 опции мест (поля DTO и параметры запросов; UI — SeatOptions.kt), +2 passenger_id в DriverBookingDto (разбор по брони «в пути»)
+        "ProfileScreen.kt" to 4838,   // 14.10.2026: +4 — опции мест в правке поездки и «просит переднее» (UI — SeatOptions.kt)
+        // 13.10.2026: чат поездки уехал в TripChatState.kt / TripChatScreen.kt — потолок опущен до нового размера.
+        "BookingActiveTripScreen.kt" to 3743,
+        "RidesRequestsChatScreens.kt" to 3558,   // 13.10.2026: +2 — запись после «Разрешить» (withResumed)
         "ParcelsScreen.kt" to 3044,
         "YuldashApp.kt" to 2788,
         "CourierScreen.kt" to 2553,
         "SecondaryScreens.kt" to 2507,
         "MapScreen.kt" to 2292,
-        "AccessibilityScreens.kt" to 2149,
+        "AccessibilityScreens.kt" to 2150,   // 13.10.2026: +1 — импорт withResumed для того же фикса микрофона
         "TaxiTripScreen.kt" to 1629,
-        "FairnessScreens.kt" to 1611,
+        "FairnessScreens.kt" to 1612,   // 14.10.2026: +1 — initialType у FileIncidentDialog (разбор «Пассажир не вышел» сразу с типом)
         "LoginScreen.kt" to 1330,
         "TaxiDocsScreens.kt" to 1200,
         "SosVerifyScreens.kt" to 1188,
-        "CreateRideScreen.kt" to 1158,
+        "CreateRideScreen.kt" to 1167,   // 14.10.2026: +9 — состояние и проводка опций мест (карточка — SeatOptions.kt)
         "TaxiOnboardingScreen.kt" to 1108,
         "TaxiReceiptScreen.kt" to 1070,
         "RideshareCompletedScreen.kt" to 1064,

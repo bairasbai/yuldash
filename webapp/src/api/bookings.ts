@@ -33,6 +33,8 @@ export interface CreateBookingInput {
   minor_passenger?: boolean;
   minor_guardian_name?: string;
   minor_guardian_phone?: string;
+  /** «Хочу переднее место». Одно на поездку — гонку двух нажатий разводит сервер (409). */
+  front_seat?: boolean;
 }
 
 /** Полная строка брони (ответ POST /bookings). */
@@ -48,6 +50,7 @@ export interface BookingRow {
   paid: boolean;
   pay_method: PayMethod;
   pay_amount?: number | null;
+  front_seat?: boolean;
   created_at: string;
 }
 
@@ -82,6 +85,8 @@ export interface BookingDetails {
   minor_passenger?: boolean;
   minor_guardian_name?: string;
   minor_guardian_phone?: string;
+  /** Пассажир просил переднее место — видят обе стороны. */
+  front_seat?: boolean;
   pickup: string; // пусто до разблокировки
   pickup_lat?: number | null;
   pickup_lng?: number | null;
@@ -260,12 +265,16 @@ export function fetchReceipt(id: number, signal?: AbortSignal): Promise<TripRece
  */
 export interface DriverBookingRow {
   booking_id: number;
+  /** Вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»). Старый сервер — нет. */
+  passenger_id?: number;
   passenger_name: string;
   passenger_rating: number | null;
   route: string;
   status: BookingStatus | string;
   /** 0 = ещё не оценивал. Иначе — сколько звёзд поставил (оценку можно изменить). */
   my_stars: number;
+  /** Пассажир просит переднее место — водитель видит это в заявке до решения. */
+  front_seat?: boolean;
 }
 
 /** Брони на поездки текущего водителя — чтобы оценить пассажиров после поездки. */

@@ -22,6 +22,8 @@ import PickupChips from "../components/PickupChips";
 import { priceLabel, rubLabel } from "../utils/format";
 import { useDraftSync, clearDraft } from "../utils/formDraft";
 import { minDateTimeNow } from "../utils/dateInput";
+import { SEATS_DEFAULT, clampSeats, seatCap } from "../utils/seatOptions";
+import { SeatOptionsFields } from "../components/SeatOptions";
 
 type Amenity =
   | "baggage"
@@ -70,7 +72,12 @@ export default function CreateRideScreen() {
     };
   }, [from, to]);
   const [when, setWhen] = useState(""); // datetime-local
-  const [seats, setSeats] = useState(3);
+  // Обычная легковая — 4 места: 1 спереди + 3 сзади (решение Александра, 2026-10-14).
+  const [seats, setSeats] = useState(SEATS_DEFAULT);
+  // Опции мест: «сзади максимум двое» режет число мест до 3 (до 2, если спереди свой человек).
+  const [backMaxTwo, setBackMaxTwo] = useState(false);
+  const [frontSeatAvailable, setFrontSeatAvailable] = useState(true);
+  const maxSeats = seatCap(backMaxTwo, frontSeatAvailable);
   const [price, setPrice] = useState("");
   const [category, setCategory] = useState<RideCategory>("regular");
   /** Только для «возьму посылку»: кому отдать и что за груз. */
@@ -115,7 +122,7 @@ export default function CreateRideScreen() {
   useDraftSync(
     RIDE_DRAFT,
     { from, to, when, seats, price, category, amen, onlyTrusted, recurrence, comment, pickup,
-      receiverName, parcelSize, waypoints },
+      receiverName, parcelSize, waypoints, backMaxTwo, frontSeatAvailable },
     (d) => {
       if (d.from) setFrom(d.from);
       if (d.to) setTo(d.to);
@@ -131,6 +138,8 @@ export default function CreateRideScreen() {
       if (d.recurrence) setRecurrence(d.recurrence);
       if (d.comment) setComment(d.comment);
       if (d.pickup) setPickup(d.pickup);
+      if (typeof d.backMaxTwo === "boolean") setBackMaxTwo(d.backMaxTwo);
+      if (typeof d.frontSeatAvailable === "boolean") setFrontSeatAvailable(d.frontSeatAvailable);
     }
   );
   const [done, setDone] = useState(false);
@@ -189,7 +198,9 @@ export default function CreateRideScreen() {
       from_city: from.trim(),
       to_city: to.trim(),
       depart_at: new Date(when).toISOString(),
-      seats_total: seats,
+      seats_total: clampSeats(seats, backMaxTwo, frontSeatAvailable),
+      back_max_two: backMaxTwo,
+      front_seat_available: frontSeatAvailable,
       price: price ? Math.max(0, parseInt(price, 10) || 0) : 0,
       category,
       comment: comment.trim(),
@@ -330,7 +341,8 @@ export default function CreateRideScreen() {
               <b>{seats}</b>
               <button
                 type="button"
-                onClick={() => setSeats((s) => Math.min(8, s + 1))}
+                onClick={() => setSeats((s) => Math.min(maxSeats, s + 1))}
+                disabled={seats >= maxSeats}
                 aria-label={appText("Больше", "Күберәк")}
               >
                 +
@@ -353,6 +365,20 @@ export default function CreateRideScreen() {
             />
           </label>
         </div>
+
+        {/* Опции мест — сразу под числом мест: тумблер меняет это число, и связь видна глазами. */}
+        <SeatOptionsFields
+          backMaxTwo={backMaxTwo}
+          frontSeatAvailable={frontSeatAvailable}
+          onBackMaxTwo={(v) => {
+            setBackMaxTwo(v);
+            setSeats((s) => clampSeats(s, v, frontSeatAvailable));
+          }}
+          onFrontSeatAvailable={(v) => {
+            setFrontSeatAvailable(v);
+            setSeats((s) => clampSeats(s, backMaxTwo, v));
+          }}
+        />
 
         {/* Ориентир цены: сколько в среднем берут по этому маршруту и сколько уйдёт бензина.
             Подсказка, а не правило — цену решает водитель. */}

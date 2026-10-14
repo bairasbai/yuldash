@@ -153,6 +153,47 @@ class TaxiTripActionBoundaryTest {
     @Test fun duplicateRemoveStopWhileHeldSendsOnce(){holdPath="/instant/orders/91/waypoints";mount();val a=desc("Убрать остановку");compose.runOnIdle{dispatch(a);dispatch(a)};await{started.count==0L};pump();assertEquals(1,posts("waypoints"));finishHeld()}
     @Test fun currentDestinationQuoteThenConfirmSendsExactOwnedPayload(){val a=destinationAction();compose.runOnIdle{dispatch(a)};await{posts("destination")==2};val rows=records.filter{it[1]!!.endsWith("/destination")};assertTrue(rows.all{it[2]=="Bearer $tokenA"});assertTrue(JSONObject(rows[0][3]!!).getBoolean("preview"));val body=JSONObject(rows[1][3]!!);assertFalse(body.getBoolean("preview"));assertEquals("Новая точка",body.getString("to_text"));assertEquals(54.8,body.getDouble("to_lat"),0.0001);await{compose.onAllNodesWithText("Куда едем?").fetchSemanticsNodes().isEmpty()}}
     @Test fun retainedDestinationConfirmCannotUseNextOwner(){val a=destinationAction();nextOwner(listOf(a));assertEquals(1,posts("destination"))}
+    // Смахнул шторку «Куда едем?», пока считается цена: раньше busy запрещал onDismiss, и невидимое
+    // окно шторки оставалось поверх поездки (вместе с SOS) до системной «Назад». Сам баг ловит
+    // исчезновение окна шторки; вызов SOS через семантику лишь подтверждает, что экран жив.
+    @Test fun swipingSheetAwayWhilePriceIsCountedRemovesItsWindow(){
+        holdPath="/instant/orders/91/destination"
+        mount("onboard");click("Изменить адрес");pump()
+        compose.onNode(hasSetTextAction()).performTextInput("Уфа "+System.nanoTime())
+        click("Новая точка")
+        await{started.count==0L}
+        await{compose.onAllNodesWithText("Считаем цену…").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithText("Куда едем?").performTouchInput{swipe(center,center.copy(y=center.y+2400f),150)}
+        pump(1500)
+        await{compose.onAllNodesWithText("Куда едем?").fetchSemanticsNodes().isEmpty()}
+        finishHeld()
+        compose.onAllNodesWithText("Куда едем?").assertCountEquals(0)
+        assertEquals("only the preview may reach the server",1,posts("destination"))
+        val sos=text("SOS");compose.runOnIdle{dispatch(sos)};pump()
+        assertEquals(91,NavSignals.openSosForOrder.value)
+    }
+    // Смена адреса уже ушла на сервер: шторку нельзя смахнуть, пока не придёт ответ, — иначе человек
+    // не узнает итог (успех или отказ). Ответ пришёл — шторка закрывается сама.
+    @Test fun sheetStaysWhileAddressChangeIsSentThenClosesOnAnswer(){
+        val a=destinationAction();holdPath="/instant/orders/91/destination"
+        compose.runOnIdle{dispatch(a)};await{started.count==0L}
+        compose.onNodeWithText("Куда едем?").performTouchInput{swipe(center,center.copy(y=center.y+2400f),150)}
+        pump(1500)
+        compose.onNodeWithText("Куда едем?").assertIsDisplayed()
+        finishHeld()
+        await{compose.onAllNodesWithText("Куда едем?").fetchSemanticsNodes().isEmpty()}
+        assertEquals(2,posts("destination"))
+    }
+    // Фаза поездки сменилась, пока шторка открыта: закрыть её всё равно можно (иначе тот же
+    // невидимый слой поверх экрана).
+    @Test fun sheetStillClosesAfterTripPhaseChanged(){
+        mount("onboard");click("Изменить адрес");pump()
+        compose.runOnIdle{shown.value=shown.value.copy(status="done")};pump()
+        compose.onNodeWithText("Куда едем?").performTouchInput{swipe(center,center.copy(y=center.y+2400f),150)}
+        pump(1500)
+        await{compose.onAllNodesWithText("Куда едем?").fetchSemanticsNodes().isEmpty()}
+        assertEquals(0,posts("destination"))
+    }
     @Test fun duplicateDestinationConfirmWhileHeldSendsOnce(){val a=destinationAction();holdPath="/instant/orders/91/destination";compose.runOnIdle{dispatch(a);dispatch(a)};await{started.count==0L};pump();assertEquals(2,posts("destination"));finishHeld()}
     @Test fun currentAddStopUsesOwnedRouteAndActualPickedAddress(){mount("onboard");click("Ещё остановка");pump();compose.onNode(hasSetTextAction()).performTextInput("Стоп "+System.nanoTime());click("Новая точка");await{posts("waypoints")==1};val body=JSONObject(records.single{it[1]!!.endsWith("/waypoints")}[3]!!).getJSONArray("waypoints");assertEquals(3,body.length());assertEquals("Новая точка",body.getJSONObject(2).getString("text"));assertEquals("Bearer $tokenA",records.single{it[1]!!.endsWith("/waypoints")}[2])}
     @Test fun retainedPickedStopCannotUseNextOwner(){mount("onboard");click("Ещё остановка");pump();compose.onNode(hasSetTextAction()).performTextInput("Стоп "+System.nanoTime());val a=text("Новая точка");nextOwner(listOf(a));assertEquals(0,posts("waypoints"))}

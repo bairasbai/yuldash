@@ -59,6 +59,7 @@ const SUITES = [
   { test: "taxi-wait-cancel-test", src: null, out: null, bundle: false },
   { test: "taxi-origin-picker-test", src: null, out: null, bundle: false },
   { test: "ride-booking-path-test", src: null, out: null, bundle: false },
+  { test: "driver-noshow-onboard-test", src: null, out: null, bundle: false },
   { test: "commission-label-test", src: null, out: null, bundle: false },
   // На «долг уже оплачен» (already: true) админка не рисует обычное «подтверждено».
   { test: "debt-already-test", src: null, out: null, bundle: false },
@@ -71,6 +72,7 @@ const SUITES = [
   { test: "pay-test", src: "src/utils/pendingPayment.ts", out: "pay-bundle.mjs", bundle: true },
   { test: "client-test", src: "src/api/client.ts", out: "client-bundle.mjs", bundle: true },
   { test: "fmt-test", src: "src/utils/format.ts", out: "fmt-bundle.mjs", bundle: true },
+  { test: "seat-options-test", src: "src/utils/seatOptions.ts", out: "seat-options-bundle.mjs", bundle: true },
   // Хук трогает react — оставляем импорт нетронутым, набор подменяет его сам.
   { test: "vis-test", src: "src/utils/useVisibleInterval.ts", out: "vis-bundle.mjs", bundle: false },
   // Словарь читает исходники напрямую — собирать нечего.
@@ -103,6 +105,10 @@ const SUITES = [
   { test: "driver-cancelled-order-test", src: null, out: null, bundle: false },
   // Медленный accept не сопровождается противоречивым decline от таймера.
   { test: "driver-offer-accept-race-test", src: null, out: null, bundle: false },
+  // Чат поездки — отдельная страница: непрочитанные, «лента внизу», клавиатура (логика)…
+  { test: "trip-chat-test", src: null, out: null, bundle: false },
+  // …и структура: строка ввода прибита к низу экрана, входы из поездки и списка чатов.
+  { test: "trip-chat-page-test", src: null, out: null, bundle: false },
   // Экран Android без маршрута PWA теперь ломает проверку в том же коммите.
   { test: "parity-test", src: null, out: null, bundle: false },
   // Токены сайта читаются из CanonTokens.kt: цвет, радиус, отступ, кегль разошлись — набор красный.

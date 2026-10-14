@@ -19896,3 +19896,338 @@ button.settings-row:active {
     animation: none;
   }
 }
+
+/* ============================================================
+   Чат поездки на отдельной странице (/trip/:id/chat)
+
+   Жалоба: строка ввода стояла посреди экрана, а не внизу, как в мессенджерах. Теперь
+   страница — рамка ровно на видимую часть экрана: шапка сверху, лента на всю высоту
+   (прижата к низу), строка ввода прибита к нижнему краю. Высоту и сдвиг рамки ставит
+   TripChatScreen из visualViewport (--tchat-h / --tchat-top), поэтому при экранной
+   клавиатуре поле ввода едет вверх вместе с ней. Пока ничего не поставлено — всё окно.
+   Отступ под «домой»-полоску один: safe-area; клавиатура открыта (data-kb="1") — его нет.
+   ============================================================ */
+.tchat {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--tchat-top, 0px);
+  height: var(--tchat-h, 100dvh);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overscroll-behavior: contain;
+}
+
+/* Шапка */
+.tchat__head {
+  flex: none;
+  padding-top: env(safe-area-inset-top);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.tchat__head-in {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-sm) var(--space-md);
+}
+.tchat__iconbtn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  transition: transform var(--motion-quick) ease, background var(--motion-quick) ease;
+}
+.tchat__iconbtn:active {
+  transform: scale(0.94);
+  background: var(--surface-2);
+}
+.tchat__flip {
+  display: inline-flex;
+  transform: rotate(180deg);
+}
+.tchat__sos {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.tchat__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--green2);
+  font-size: var(--font-body);
+  font-weight: var(--weight-bold);
+}
+.tchat__who {
+  flex: 1;
+  min-width: 0;
+}
+.tchat__who h1 {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-semibold);
+}
+.tchat__who p {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* Узкий экран (до 390, в том числе 320): аватар уступает место имени и двум кнопкам по 48 */
+@media (max-width: 389px) {
+  .tchat__head-in {
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+  }
+  .tchat__avatar {
+    display: none;
+  }
+}
+
+/* Лента: на всю высоту, короткая переписка прижата к низу, длинная листается */
+.tchat__main {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tchat__feed {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  background: var(--surface-2);
+}
+.tchat__list {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 640px;
+  margin: auto auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+}
+.tchat__retry {
+  min-height: 48px;
+  margin-top: var(--space-sm);
+}
+/* «⋯» на телефоне нет наведения — кнопка видна всегда, зона нажатия 48×48 */
+.tchat .bubble {
+  padding-right: calc(var(--space-xl) + var(--space-xs));
+}
+.tchat .bubble__more {
+  opacity: 0.6;
+}
+.tchat .bubble__more::after {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--space-md));
+}
+
+/* «К новым»: листаешь старое — лента стоит, кнопка с числом ведёт вниз */
+.tchat__jump {
+  position: absolute;
+  right: var(--space-lg);
+  bottom: var(--space-md);
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--green2);
+  box-shadow: var(--depth-raised);
+  animation: fadeUp var(--motion-quick) ease both;
+  transition: transform var(--motion-quick) ease;
+}
+.tchat__jump:active {
+  transform: scale(0.94);
+}
+.tchat__jump-ico {
+  display: inline-flex;
+  transform: rotate(90deg);
+}
+.tchat__jump .tchat__badge {
+  position: absolute;
+  top: calc(-1 * var(--space-sm));
+  right: calc(-1 * var(--space-xs));
+}
+.tchat__badge {
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-pill);
+  background: var(--green-btn);
+  color: var(--on-filled);
+  font-size: var(--font-micro);
+  line-height: 1;
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Низ: прибит к нижнему краю рамки. Всё, что над полем, сидит в этом же блоке */
+.tchat__foot {
+  flex: none;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+.tchat[data-kb="1"] .tchat__foot {
+  padding-bottom: 0;
+}
+.tchat__foot-in {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.tchat__foot .chat-disclaimer {
+  margin: var(--space-sm) var(--space-md) 0;
+}
+.tchat__foot .quick-replies {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md) 0;
+}
+.tchat__strip {
+  border-top: 0;
+}
+/* Клавиатура открыта: видимой высоты мало — прячем то, без чего можно писать
+   (подсказку и быстрые фразы). Закрыл клавиатуру — они на месте. */
+.tchat[data-kb="1"] .tchat__foot .chat-disclaimer,
+.tchat[data-kb="1"] .tchat__foot .quick-replies {
+  display: none;
+}
+.tchat__foot .chat__input {
+  align-items: center;
+  padding: var(--space-sm) var(--space-md);
+  border-top: 0;
+  background: transparent;
+}
+.tchat__foot .chat__input input {
+  min-width: 0;
+  min-height: 48px;
+}
+.tchat__foot .chat__input button {
+  width: 48px;
+  height: 48px;
+}
+
+/* Карточка «Чат по поездке» на странице поездки */
+.tchat-card {
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--depth-card);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.tchat-card__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 56px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-family: inherit;
+}
+.tchat-card__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--green2);
+}
+.tchat-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tchat-card__title {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-semibold);
+}
+.tchat-card__preview {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.tchat-card__preview.is-unread {
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}
+.tchat-card__go {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+}
+.tchat-card__write {
+  width: 100%;
+  min-height: 48px;
+  margin-top: var(--space-md);
+}
+
+/* ---- Опции мест в машине (SeatOptions.kt): «сзади двое», «переднее свободно». ---- */
+.seat-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-md);
+  padding: var(--space-sm) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-item);
+  background: var(--surface);
+}
+.seat-options > .field__label {
+  padding: 0 var(--space-md);
+}
+.seat-options__hint {
+  margin: 0;
+  padding: 0 var(--space-md);
+}

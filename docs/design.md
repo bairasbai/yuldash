@@ -271,7 +271,7 @@
 
 ## Так нельзя
 
-- ❌ `Color(0xFF…)` прямо в экране.
+- ❌ `Color(0xFF…)` прямо в экране — **упадёт `ColorSourceGuardTest`**.
 - ❌ Новый оттенок «почти как `CanonGreen`, но чуть светлее».
 - ❌ Надпись на одном языке.
 - ❌ Экран без состояний загрузки / пусто / ошибка.
@@ -414,5 +414,10 @@ MSYS_NO_PATHCONV=1 adb pull /sdcard/s.png shot.png
 | `items(list) { ... }` без `key` | залипнет анимация | `items(list, key = { it.id })` |
 | свой `Scaffold` во вкладке | двойной отступ сверху | `contentWindowInsets = WindowInsets(0,0,0,0)` |
 
-> Первые семь строк проверяет `CanonSourceGuardTest` автоматически — он читает исходники
-> и падает на нарушении. Остальное пока держится на глазах.
+> `CanonSourceGuardTest` читает исходники и падает на своём кегле, радиусе, длительности,
+> темпе пульса, тени и весе `Black`. `Color(0x…)` вне `CanonTokens.kt` и `ui/theme/` валит
+> `ColorSourceGuardTest` (с 13.10.2026; цвет рисунка, не зависящий от темы, — плоский токен
+> в `CanonTokens.kt`). `padding(10.dp)` держит храповик `SpacingRatchetGuardTest`: таких вызовов
+> около тысячи (потолок — в тесте), число не растёт — в новой строке бери `CanonSpace` (`PaddingValues`,
+> `spacedBy`, `Spacer` и отступ через переменную он не считает). Надпись на одном языке в `Text`, `text =`,
+> `contentDescription`, `Icon`/`Image` и `Toast` валит `BilingualSourceGuardTest`. Остальное (`key` в списках, `Scaffold` во вкладке) — на глазах.

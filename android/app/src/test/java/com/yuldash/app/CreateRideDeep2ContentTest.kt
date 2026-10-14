@@ -47,6 +47,9 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class CreateRideDeep2ContentTest {
 
+    /** Тумблеры карточки «Места в машине», стоящие в форме раньше «Условий поездки». */
+    private val SEAT_TOGGLES = 2
+
     @get:Rule
     val composeRule = createComposeRule()
 
@@ -217,12 +220,15 @@ class CreateRideDeep2ContentTest {
     // ─────────── Тумблеры условий: клик по Switch дёргает колбэк (тумблер обязан что-то делать) ───────────
     // 6 PrefToggleRow → 6 Switch. Кликаем по конкретному по индексу в onAllNodes(isToggleable()),
     // порядок в дереве = порядок в коде (women, child, pets, baggage, AC, smoking).
+    // Перед ними теперь карточка «Места в машине» (2026-10-14): два тумблера — «сзади максимум
+    // двое» и «переднее место свободно». Она стоит под числом мест намеренно (переключатель
+    // меняет это число), поэтому индексы условий сдвинуты на SEAT_TOGGLES.
 
     @Test
     fun womenOnlyToggle_off_click_firesTrue() {
         var v: Boolean? = null
         composeRule.setContent { Content(language = AppLanguage.Ru, womenOnly = false, onWomenOnly = { v = it }) }
-        composeRule.onAllNodes(isToggleable())[0].performClick()   // 1-й тумблер = «Только женщины»
+        composeRule.onAllNodes(isToggleable())[SEAT_TOGGLES + 0].performClick()   // 1-й тумблер = «Только женщины»
         assertEquals(true, v)
     }
 
@@ -230,7 +236,7 @@ class CreateRideDeep2ContentTest {
     fun childSeatToggle_off_click_firesTrue() {
         var v: Boolean? = null
         composeRule.setContent { Content(language = AppLanguage.Ru, childSeat = false, onChildSeat = { v = it }) }
-        composeRule.onAllNodes(isToggleable())[1].performClick()   // 2-й = «Детское кресло / бустер»
+        composeRule.onAllNodes(isToggleable())[SEAT_TOGGLES + 1].performClick()   // 2-й = «Детское кресло / бустер»
         assertEquals(true, v)
     }
 
@@ -238,7 +244,7 @@ class CreateRideDeep2ContentTest {
     fun petsToggle_off_click_firesTrue() {
         var v: Boolean? = null
         composeRule.setContent { Content(language = AppLanguage.Ru, petsAllowed = false, onPetsAllowed = { v = it }) }
-        composeRule.onAllNodes(isToggleable())[2].performClick()   // 3-й = «Можно с животным»
+        composeRule.onAllNodes(isToggleable())[SEAT_TOGGLES + 2].performClick()   // 3-й = «Можно с животным»
         assertEquals(true, v)
     }
 
@@ -246,7 +252,7 @@ class CreateRideDeep2ContentTest {
     fun baggageToggle_off_click_firesTrue() {
         var v: Boolean? = null
         composeRule.setContent { Content(language = AppLanguage.Ru, baggage = false, onBaggage = { v = it }) }
-        composeRule.onAllNodes(isToggleable())[3].performClick()   // 4-й = «Есть место под багаж»
+        composeRule.onAllNodes(isToggleable())[SEAT_TOGGLES + 3].performClick()   // 4-й = «Есть место под багаж»
         assertEquals(true, v)
     }
 
@@ -254,7 +260,7 @@ class CreateRideDeep2ContentTest {
     fun airConditionerToggle_off_click_firesTrue() {
         var v: Boolean? = null
         composeRule.setContent { Content(language = AppLanguage.Ru, airConditioner = false, onAirConditioner = { v = it }) }
-        composeRule.onAllNodes(isToggleable())[4].performClick()   // 5-й = «Кондиционер»
+        composeRule.onAllNodes(isToggleable())[SEAT_TOGGLES + 4].performClick()   // 5-й = «Кондиционер»
         assertEquals(true, v)
     }
 
@@ -266,7 +272,7 @@ class CreateRideDeep2ContentTest {
         // 2 животное · 3 багаж · 4 кондиционер · 5 ТИХАЯ ПОЕЗДКА · 6 можно курить · 7 только для своих.
         // «Тихая поездка» добавлена между кондиционером и курением — индекс курения уехал с 5 на 6,
         // поэтому тест жал не тот тумблер и onSmoking не вызывался (было null вместо false).
-        composeRule.onAllNodes(isToggleable())[6].performClick()   // 7-й = «Можно курить», включён → просит false
+        composeRule.onAllNodes(isToggleable())[SEAT_TOGGLES + 6].performClick()   // 7-й = «Можно курить», включён → просит false
         assertEquals(false, v)
     }
 

@@ -78,7 +78,9 @@ def health():
         # Включена ли онлайн-оплата ("off" = нет). Приложение спрашивает это ДО того, как
         # показать кнопку «Оплатить онлайн»: раньше кнопка была живой при выключенном
         # эквайринге, и человек узнавал правду, только нажав на неё.
-        "payments": (settings.payments_provider or "off") if settings.payments_provider != "mock" else "off",
+        # Имя провайдера — только если это настоящий приём денег (sbp_manual / yookassa);
+        # mock и непонятное значение — "off" (раньше пустое значение давало "off", а опечатка — себя).
+        "payments": settings.payments_provider if settings.payments_provider in ("sbp_manual", "yookassa") else "off",
         "components": {"db": db_status, "redis": redis_status, "fcm": fcm_status},
     }
 

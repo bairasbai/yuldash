@@ -58,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -73,16 +74,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// Фикс-палитра шеринг-открытки (StatsShareCard) — независима от темы: карточка уходит картинкой в
-// мессенджеры «как есть», у получателя может быть любая тема. Поэтому цвета жёстко зашиты, а НЕ берутся
-// из Canon* (которые меняются со светлой/тёмной темой). Здесь собраны в одном месте, чтобы не размазывать.
-private val StatsCardTop = Color(0xFF0B6B3A)      // верх зелёного градиента карточки
-private val StatsCardBottom = Color(0xFF063A20)   // низ зелёного градиента карточки
-private val StatsMint = Color(0xFFCDEBD9)         // мятные подписи на зелёном
-private val StatsMintBright = Color(0xFFDDF3E5)   // светлее — имя и подпись бренда (запас по контрасту)
-private val StatsGold = Color(0xFFF5D07A)         // золото кубка (звание)
-private val StatsGlassStrong = Color(0x33FFFFFF)  // «стеклянный» кружок под кубком
-private val StatsGlassSoft = Color(0x1FFFFFFF)    // «стеклянный» фон мини-плиток
+// Палитра карточки — плоские токены CanonStatsCard* в CanonTokens.kt: от темы не зависят,
+// потому что карточка уходит картинкой в мессенджер, а у получателя может быть любая тема.
 
 /**
  * F18 «Мой Юлдаш» — личная статистика попутчика.
@@ -245,13 +238,13 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = CanonCardShape,
-        colors = CardDefaults.cardColors(containerColor = StatsCardTop),
+        colors = CardDefaults.cardColors(containerColor = CanonStatsCardTop),
         elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card),
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(StatsCardTop, StatsCardBottom)))
+                .background(Brush.verticalGradient(listOf(CanonStatsCardTop, CanonStatsCardBottom)))
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -259,7 +252,7 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         appTextFor(language, "МОЙ ЮЛДАШ", "МИНЕҢ ЮЛДАШ"),
-                        color = StatsMint, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp,
+                        color = CanonStatsCardMint, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -267,13 +260,13 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                         color = Color.White, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,
                     )
                     if (name.isNotBlank()) {
-                        Text(name, color = StatsMintBright, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(name, color = CanonStatsCardMintBright, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
                 }
-                Surface(color = StatsGlassStrong, shape = CircleShape) {
+                Surface(color = CanonStatsCardGlassStrong, shape = CircleShape) {
                     Icon(
                         Icons.Default.EmojiEvents, contentDescription = null,
-                        tint = StatsGold, modifier = Modifier.padding(12.dp).size(30.dp),
+                        tint = CanonStatsCardGold, modifier = Modifier.padding(12.dp).size(30.dp),
                     )
                 }
             }
@@ -286,7 +279,7 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
                 )
                 Text(
                     appTextFor(language, "километров вместе", "километр бергә"),
-                    color = StatsMint, fontSize = 14.sp,
+                    color = CanonStatsCardMint, fontSize = 14.sp,
                 )
             }
 
@@ -300,9 +293,9 @@ private fun StatsShareCard(s: MyStatsDto, name: String, language: AppLanguage) {
 
             Text(
                 // Была 0xFF9FD6B4 11sp — на светлом верху градиента контраст падал ниже 4.5:1;
-                // берём светлее (StatsMintBright) и 12sp для читаемости мелкой подписи.
+                // берём светлее (CanonStatsCardMintBright) и 12sp для читаемости мелкой подписи.
                 appTextFor(language, "Юлдаш · поездки между своими · yulbash.ru", "Юлдаш · үҙебеҙҙекеләр менән · yulbash.ru"),
-                color = StatsMintBright, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                color = CanonStatsCardMintBright, fontSize = 12.sp, fontWeight = FontWeight.Medium,
             )
         }
     }
@@ -313,13 +306,13 @@ private fun MiniStat(modifier: Modifier, value: String, label: String) {
     Column(
         modifier
             .clip(CanonItemShape)
-            .background(StatsGlassSoft)
+            .background(CanonStatsCardGlassSoft)
             .padding(vertical = 12.dp, horizontal = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
-        Text(label, color = StatsMint, fontSize = 12.sp, textAlign = TextAlign.Center)
+        Text(label, color = CanonStatsCardMint, fontSize = 12.sp, textAlign = TextAlign.Center)
     }
 }
 
@@ -432,17 +425,17 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bmp)
 
-    // Фон-градиент (тот же зелёный, что у экранной карточки).
+    // Цвета — те же токены CanonStatsCard*, что у экранной карточки: открытка и экран не расходятся.
     val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        shader = LinearGradient(0f, 0f, 0f, h.toFloat(), 0xFF0B6B3A.toInt(), 0xFF063A20.toInt(), Shader.TileMode.CLAMP)
+        shader = LinearGradient(0f, 0f, 0f, h.toFloat(), CanonStatsCardTop.toArgb(), CanonStatsCardBottom.toArgb(), Shader.TileMode.CLAMP)
     }
     canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), bg)
 
     val bold = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
     val regular = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
     val pad = 80f
-    val white = 0xFFFFFFFF.toInt()
-    val mint = 0xFFCDEBD9.toInt()
+    val white = CanonOnAccent.toArgb()
+    val mint = CanonStatsCardMint.toArgb()
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     fun text(str: String, x: Float, y: Float, size: Float, color: Int, tf: Typeface, spacing: Float = 0f) {
@@ -451,7 +444,7 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     }
 
     // Кикер.
-    text(appTextFor(language, "МОЙ ЮЛДАШ", "МИНЕҢ ЮЛДАШ"), pad, 150f, 34f, 0xFFBFE8CF.toInt(), bold, 0.18f)
+    text(appTextFor(language, "МОЙ ЮЛДАШ", "МИНЕҢ ЮЛДАШ"), pad, 150f, 34f, mint, bold, 0.18f)
     paint.letterSpacing = 0f
 
     // Звание (крупно).
@@ -460,7 +453,7 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     if (name.isNotBlank()) text(name, pad, 300f, 40f, mint, regular)
 
     // Кубок в правом верхнем углу.
-    val badge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF }
+    val badge = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CanonStatsCardGlassStrong.toArgb() }
     canvas.drawCircle(w - pad - 40f, 150f, 70f, badge)
     text("🏆", w - pad - 78f, 172f, 66f, white, regular)
 
@@ -473,7 +466,7 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     val boxW = (w - pad * 2 - gap * 2) / 3f
     val boxTop = 720f
     val boxH = 220f
-    val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1FFFFFFF }
+    val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CanonStatsCardGlassSoft.toArgb() }
     data class Mini(val value: String, val label: String)
     val minis = listOf(
         Mini(fmtInt(s.trips), appTextFor(language, "поездок", "сәфәр")),
@@ -494,7 +487,7 @@ private fun drawStatsBitmap(s: MyStatsDto, name: String, language: AppLanguage):
     // Подпись бренда внизу.
     text(
         appTextFor(language, "Юлдаш · поездки между своими", "Юлдаш · үҙебеҙҙекеләр менән"),
-        pad, h - 150f, 36f, 0xFF9FD6B4.toInt(), bold,
+        pad, h - 150f, 36f, CanonStatsCardMintBright.toArgb(), bold,
     )
     text("yulbash.ru", pad, h - 95f, 34f, mint, regular)
     return bmp

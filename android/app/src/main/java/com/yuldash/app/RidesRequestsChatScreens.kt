@@ -63,6 +63,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -77,6 +78,8 @@ import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
 import androidx.compose.material.icons.filled.SmokingRooms
+import androidx.compose.material.icons.filled.AirlineSeatReclineNormal
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.SmokeFree
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.AcUnit
@@ -230,6 +233,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.withResumed
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yandex.mapkit.MapKitFactory
@@ -1169,13 +1173,21 @@ private fun PrefChip(iconRes: Int, label: String) {
 // Лента чипов с условиями поездки (показывается только если есть хоть одно).
 @Composable
 private fun RidePrefChips(ride: Ride, modifier: Modifier = Modifier) {
-    if (!(ride.petsAllowed || ride.childSeat || ride.womenOnly || ride.smoking || ride.baggage || ride.airConditioner || ride.quiet)) return
+    // Опции мест показываем всегда: «переднее свободно / занято» — то, что человек хочет знать
+    // до брони (2026-10-14). Поэтому ранний выход только когда переднего нет и сзади без обещаний.
+    val seatChips = ride.backMaxTwo || ride.frontSeatAvailable
+    if (!(seatChips || ride.petsAllowed || ride.childSeat || ride.womenOnly || ride.smoking || ride.baggage || ride.airConditioner || ride.quiet)) return
     Row(
         modifier = modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (ride.womenOnly) PrefChip(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
+        if (ride.frontSeatAvailable) {
+            if (ride.frontSeatTaken) PrefChip(Icons.Default.AirlineSeatReclineNormal, appText("Переднее занято", "Алғы урын алынған"))
+            else PrefChip(Icons.Default.AirlineSeatReclineNormal, appText("Переднее свободно", "Алғы урын буш"))
+        }
+        if (ride.backMaxTwo) PrefChip(Icons.Default.People, appText("Сзади двое", "Артта икәү"))
         if (ride.childSeat) PrefChip(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"))
         if (ride.petsAllowed) PrefChip(R.drawable.yu_pet, appText("С животным", "Хайуан менән"))
         if (ride.baggage) PrefChip(R.drawable.yu_luggage, appText("Багаж", "Йөк"))
@@ -1901,18 +1913,14 @@ internal fun ChatScreen(
 }
 
 /**
- * Чистый рендер ЛЕНТЫ СООБЩЕНИЙ чата по брони + поле ввода. Всё состояние — параметрами,
- * а сокет/отправка/голос/фото — колбэками. Умная обёртка (WebSocket `ChatSocket`, история по REST,
- * оптимистичная отправка, MediaPlayer) остаётся в `BookingActiveTripScreen` — сюда не тянем.
- * Благодаря чистоте (без сети/эффектов/state) лента тестируется на JVM (Robolectric).
+ * Чистый рендер переписки + поле ввода: всё состояние — параметрами, сеть — колбэками. Боевой
+ * чат такси (InstantChatScreen) рисуется им; чат попутки — TripChatScreen на ТОМ ЖЕ каркасе
+ * [ChatLayout], поэтому двойник и боевой экран не расходятся. Без сети/эффектов → тестируется на JVM.
  *
- * Поведение ленты 1:1 с боевым экраном:
- *  - loading (первая загрузка истории, сообщений ещё нет) → спиннер;
- *  - пусто → дружелюбная заглушка «Пока нет сообщений. Напиши первым»;
- *  - список → пузыри своих (справа, зелёный) и чужих (слева, светлый);
- *  - поле ввода + кнопка «Отправить» с гардом: пустой ввод или идёт отправка → кнопка выключена
- *    (нельзя слать пустое и нельзя дважды нажать во время отправки).
- * Голос/фото и WebSocket — в умной обёртке; сюда прокидываются опционально (`onEmoji` — вставка эмодзи).
+ *  - лента прижата к низу (новое внизу), строка ввода прибита к нижнему краю и едет с клавиатурой;
+ *  - loading (первая загрузка, сообщений ещё нет) → спиннер; пусто → «Пока нет сообщений. Напиши первым»;
+ *  - свои пузыри справа (зелёный), чужие слева (светлый);
+ *  - «Отправить» с гардом: пустой ввод или идёт отправка → выключена (нельзя слать пустое и дважды).
  */
 @Composable
 internal fun ChatContent(
@@ -1929,47 +1937,12 @@ internal fun ChatContent(
     // Как на боевом экране: удалённые/голос/непустой текст видимы, «пустые» технические — нет.
     val visibleMessages = messages.filter { it.deleted || it.voiceUrl != null || it.text.isNotBlank() }
     val canSend = input.isNotBlank() && !sending   // гард: пустое не шлём, во время отправки — тоже
-    Column(modifier = modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            item { Spacer(Modifier.height(8.dp)) }
-            // B8-6: дисклеймер безопасности при первом открытии чата (закрывается «Понятно»).
-            item { ChatSafetyDisclaimer() }
-            if (visibleMessages.isEmpty()) {
-                when {
-                    loading -> item {
-                        Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp, color = CanonGreen2)
-                        }
-                    }
-                    else -> item {
-                        Column(
-                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(30.dp))
-                            Text(
-                                appText("Пока нет сообщений. Напиши первым", "Әлегә хәбәрҙәр юҡ. Беренсе булып яҙ"),
-                                color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
-            }
-            items(visibleMessages, key = { it.id }) { m ->
-                Box(Modifier.fillMaxWidth().animateItem()) {   // плавное появление/перестановка пузыря в списке
-                    ChatFeedBubble(
-                        text = m.text, voiceUrl = m.voiceUrl, deleted = m.deleted, mine = m.senderId == myId,
-                        flag = m.flag, fromAdmin = m.fromAdmin,
-                    )
-                }
-            }
-        }
+    val listState = rememberLazyListState()
+    ChatLayout(listState = listState, messages = visibleMessages, myId = myId, modifier = modifier, composer = {
+        // B8-6: дисклеймер безопасности при первом открытии чата (закрывается «Понятно») — над полем ввода.
+        ChatSafetyDisclaimer()
         Card(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = CanonSurface),
             shape = RoundedCornerShape(28.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
@@ -2008,6 +1981,29 @@ internal fun ChatContent(
                     // disabled: фон = CanonBorder (светлый) → белая иконка исчезала. Гасим иконку в CanonMuted.
                     Icon(Icons.Default.Send, contentDescription = appText("Отправить", "Ебәреү"), tint = if (canSend) Color.White else CanonMuted)
                 }
+            }
+        }
+    }) {
+        // Перевёрнутая лента: первый элемент — самый нижний (новейшее сообщение).
+        items(visibleMessages.asReversed(), key = { it.id }) { m ->
+            Box(Modifier.fillMaxWidth().animateItem()) {   // плавное появление/перестановка пузыря в списке
+                ChatFeedBubble(
+                    text = m.text, voiceUrl = m.voiceUrl, deleted = m.deleted, mine = m.senderId == myId,
+                    flag = m.flag, fromAdmin = m.fromAdmin,
+                )
+            }
+        }
+        if (visibleMessages.isEmpty()) item(key = "chat-state") {
+            if (loading) Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp, color = CanonGreen2)
+            } else Column(
+                Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(30.dp))
+                Text(appText("Пока нет сообщений. Напиши первым", "Әлегә хәбәрҙәр юҡ. Беренсе булып яҙ"),
+                    color = CanonMuted, fontSize = 14.sp, textAlign = TextAlign.Center)
             }
         }
     }
@@ -3231,6 +3227,7 @@ internal fun ChatComposer(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val recorder = remember(context, lifecycleOwner, recordingAllowed) { VoiceRecorder(context) }
+    val voiceScope = rememberCoroutineScope()
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             // Пережимаем перед отправкой: снимок с камеры весит 5-6 МБ, а в деревне это
@@ -3279,8 +3276,8 @@ internal fun ChatComposer(
         titleBa = "Тауыш яҙмаһы яҙырға",
         whyRu = "Микрофон нужен, чтобы записать короткое сообщение попутчику — это удобнее, чем набирать текст за рулём или на морозе.",
         whyBa = "Микрофон юлдашыңа ҡыҫҡа хәбәр яҙыр өсөн кәрәк — руль артында йәки һыуыҡта яҙғандан уңайлыраҡ.",
-        onGranted = { begin() },
-        onDenied = { if (canRecord()) Toast.makeText(context, deniedMic, Toast.LENGTH_LONG).show() },
+        onGranted = { voiceScope.launch { lifecycleOwner.withResumed { begin() } } },   // ответ приходит до onResume (STARTED)
+        onDenied = { if (recordingAllowed && !recorder.isClosed) Toast.makeText(context, deniedMic, Toast.LENGTH_LONG).show() },
     )
     fun requestVoice() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) begin()
@@ -3397,7 +3394,9 @@ private fun QuickReplyChip(text: String, onClick: () -> Unit) {
         border = BorderStroke(1.dp, CanonHairlineGreen),
         modifier = Modifier.heightIn(min = 48.dp).bounceClick(onClick = onClick),
     ) {
-        Box(Modifier.fillMaxHeight().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+        // Без fillMaxHeight: под лентой строка ввода получает ограниченную высоту, и чип растянулся бы
+        // на весь экран. Surface сама держит минимум 48dp и центрирует содержимое.
+        Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
             Text(text, color = CanonGreen2, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }

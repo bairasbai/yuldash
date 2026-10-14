@@ -156,6 +156,12 @@ jobs:
         # безопасные дефолты (пустые ключи, push выключен), так что сборка проходит без секретов.
         run: chmod +x ./gradlew && ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
+      # Инструментальные тесты (app/src/androidTest) не компилирует ни assembleDebug, ни прогон
+      # юнит-тестов — «уехавшая» сигнатура в них тихо ломала набор до первого запуска на эмуляторе.
+      # Только компиляция (быстро, без эмулятора): гоняют их на устройстве отдельно, по docs/qa.md.
+      - name: Компиляция инструментальных тестов (androidTest)
+        run: ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace
+
       # Релизная сборка с R8 (minify+shrink): ловит «в debug работало, в release упало» —
       # вырезанные R8 классы (рефлексия/JSON/MapKit). Без keystore → неподписанный APK, для проверки достаточно.
       #
@@ -291,3 +297,26 @@ jobs:
       - name: Build
         run: npm run build
         # tsc (типы) + vite build → dist/. Секреты не нужны: VITE_* пустые → мягкие плейсхолдеры.
+
+  # Лендинг yulbash.ru (web/, Next.js). Раньше его проверял только агент вручную перед «готово»:
+  # сломанная сборка или ошибка линтера всплывали лишь при выкладке. Параллельно остальным,
+  # своя папка; секреты не нужны (страница статическая).
+  web-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"     # Next 16 требует Node ≥ 20.9; та же версия, что у webapp-build
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install deps
+        run: npm ci
+      - name: Lint (ESLint, без предупреждений)
+        run: npm run lint
+      - name: Build
+        run: npm run build

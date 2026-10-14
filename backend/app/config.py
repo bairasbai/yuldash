@@ -1,6 +1,12 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "dev-secret-change-me"
+
+# Все допустимые значения PAYMENTS_PROVIDER. Другого не бывает: сервер с любым иным значением
+# не стартует (`Settings._known_payments_provider`), а адаптер платежей на неизвестное значение
+# отвечает отказом (`payments.payments_closed`).
+PAYMENTS_PROVIDERS = ("mock", "sbp_manual", "yookassa")
 
 
 def _phone_key(phone: str) -> str:
@@ -134,9 +140,10 @@ class Settings(BaseSettings):
     vapid_subject: str = "mailto:support@yulbash.ru"
 
     # --- Платежи (самозанятый: монетизация СВОИХ услуг — Boost/реклама) ---
-    # mock — платёж сразу «оплачен» (только dev).
+    # mock — в dev платёж сразу «оплачен»; в проде оплата выключена (кнопки: «Оплата скоро будет доступна»).
     # sbp_manual — перевод по СБП на номер, активирует админ вручную (интерим до ЮKassa).
     # yookassa — авто-приём + авто-чек (нужны ключи).
+    # Ровно эти три (PAYMENTS_PROVIDERS); пусто или опечатка → сервер не стартует.
     payments_provider: str = "mock"
     yookassa_shop_id: str = ""          # shopId из кабинета ЮKassa (для самозанятых). НЕ в git — в .env.
     yookassa_secret_key: str = ""       # секретный ключ ЮKassa (Basic-auth). НЕ в git — в .env.
@@ -971,6 +978,26 @@ class Settings(BaseSettings):
     s3_signed_url_ttl: int = 3600   # TTL подписанного (presigned) URL, сек (по умолч. 1 час)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("payments_provider", mode="before")
+    @classmethod
+    def _known_payments_provider(cls, value):
+        """PAYMENTS_PROVIDER — только одно из трёх, иначе сервер не стартует.
+
+        Раньше любое значение принималось молча, а вся логика оплаты сравнивала его с точными
+        строками: пусто (`PAYMENTS_PROVIDER=`) или опечатка (`sbp-manual`) не совпадали ни с
+        «mock» (кнопки «скоро»), ни с «sbp_manual» (ждём админа), и платёж уходил в ветку
+        «оплачено сразу» — поднятие, донат, оплата поездки включались без денег (13.10.2026).
+        Как с ENV (V10): регистр и пробел прощаем, неизвестное значение — нет.
+        """
+        provider = str(value if value is not None else "").strip().lower()
+        if provider not in PAYMENTS_PROVIDERS:
+            raise ValueError(
+                f"PAYMENTS_PROVIDER={value!r} не распознан — задай одно из: "
+                "mock (оплата выключена), sbp_manual (перевод по СБП, подтверждает админ), "
+                "yookassa (карта)"
+            )
+        return provider
 
     @property
     def is_prod(self) -> bool:

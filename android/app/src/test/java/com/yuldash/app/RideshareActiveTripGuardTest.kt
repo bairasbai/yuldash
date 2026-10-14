@@ -35,12 +35,31 @@ class RideshareActiveTripGuardTest {
 
     @Test
     fun `next action follows existing server state machine`() {
-        assertEquals("departed", activeTripNextStatus("driver", "", null))
-        assertEquals("arriving", activeTripNextStatus("driver", "departed", null))
-        assertEquals("done", activeTripNextStatus("driver", "arriving", null))
-        assertEquals("sat", activeTripNextStatus("passenger", "", null))
-        assertEquals("arrived", activeTripNextStatus("passenger", "", "sat"))
-        assertEquals("done", activeTripNextStatus("passenger", "", "arrived"))
+        assertEquals("departed", activeTripNextStatus("driver", "", null, "confirmed"))
+        assertEquals("arriving", activeTripNextStatus("driver", "departed", null, "confirmed"))
+        assertEquals("done", activeTripNextStatus("driver", "arriving", null, "onboard"))
+        assertEquals("sat", activeTripNextStatus("passenger", "", null, "confirmed"))
+        assertEquals("arrived", activeTripNextStatus("passenger", "", "sat", "confirmed"))
+        assertEquals("done", activeTripNextStatus("passenger", "", "arrived", "onboard"))
+    }
+
+    /**
+     * Перезапуск приложения: локальная отметка «Я сел» пропала (null), а сервер уже знает, что
+     * бронь «в пути». Раньше кнопка снова звала «Я сел», хотя заголовок говорил «Поездка идёт».
+     */
+    @Test
+    fun `after restart onboard booking never offers I sat again`() {
+        assertEquals("arrived", activeTripNextStatus("passenger", "", null, "onboard"))
+        assertEquals("arrived", activeTripNextStatus("passenger", "departed", null, "onboard"))
+        assertEquals("done", activeTripNextStatus("passenger", "", null, "done"))
+        // Свежий выбор в этом запуске сильнее старого ответа сервера: «Доехал» → «Завершить».
+        assertEquals("done", activeTripNextStatus("passenger", "", "arrived", "onboard"))
+        // Шов экрана: кнопка строится со статусом брони с сервера, а не только из памяти.
+        assertTrue(
+            source("BookingActiveTripScreen.kt").contains(
+                "activeTripNextStatus(role = role, driverPhase = driverPhase, passengerStatus = status, bookingStatus = bookingStatus)",
+            ),
+        )
     }
 
     @Test

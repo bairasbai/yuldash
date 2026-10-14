@@ -341,7 +341,7 @@ def set_user_gender(session: Session, user: User, gender: str) -> None:
         session.add(prof)
 
 
-def set_driver_docs_verdict(session: Session, user: User, profile: DriverProfile, approved: bool) -> None:
+def set_driver_docs_verdict(session: Session, user: User, profile: DriverProfile, approved: bool) -> bool:
     """ЕДИНСТВЕННОЕ место, где выносится вердикт по документам водителя.
 
     Вердикт ставят три двери: кнопка админа (`/admin/drivers/{id}/moderate`), кнопки в
@@ -350,13 +350,46 @@ def set_driver_docs_verdict(session: Session, user: User, profile: DriverProfile
     права признали негодными, подтверждать по ним нечего. Через две другие двери водитель
     с отклонёнными документами сохранял бейдж «женщина за рулём» и женские заказы.
     Сторож — `test_docs_verdicts_go_through_one_door`.
+
+    Возвращает True, если вердикт поменялся: тогда дверь ПОСЛЕ своего commit зовёт
+    `tell_driver_docs_verdict` (сторож — `test_every_verdict_door_tells_the_driver`).
     """
+    new_status = "verified" if approved else "rejected"
+    changed = profile.docs_status != new_status
     user.verified = approved
-    profile.docs_status = "verified" if approved else "rejected"
+    profile.docs_status = new_status
     if not approved and profile.gender_verified:
         profile.gender_verified = False
     session.add(user)
     session.add(profile)
+    return changed
+
+
+def tell_driver_docs_verdict(session: Session, user_id: int, approved: bool) -> None:
+    """Сказать водителю итог проверки документов (сквозная проверка волны 1, 13.10.2026).
+
+    Экран проверки обещает «Сообщим о результате», а сообщения не было ни из одной двери:
+    одобренный водитель не знал, что бейдж уже есть, отклонённый — что надо переснять фото.
+
+    Зовётся ТОЛЬКО после commit вердикта. Раньше — нельзя: сообщение «проверены» ушло бы до
+    того, как вердикт записан, а на SQLite отдельная сессия уведомления упиралась в блокировку
+    записи открытой транзакции двери и молча терялась (ревью Opus волны 1). Тип `docs` —
+    приватный на заблокированном экране, как остальные сообщения о документах.
+    """
+    if approved:
+        push_notification(
+            session, user_id, "docs",
+            "Документы проверены", "Документтар тикшерелде",
+            "Теперь у тебя бейдж «Проверен» — пассажиры видят его в ленте и в брони.",
+            "Хәҙер һинең «Тикшерелгән» билдәң бар — юлсылар уны таҫмала һәм бронда күрә.",
+        )
+    else:
+        push_notification(
+            session, user_id, "docs",
+            "Документы не приняты", "Документтар ҡабул ителмәне",
+            "Проверь фото прав и машины и отправь снова.",
+            "Права һәм машина фотоларын тикшереп, ҡабат ебәр.",
+        )
 
 
 def clear_driver_docs(session: Session, user: User, profile: DriverProfile) -> None:
@@ -1504,7 +1537,20 @@ def _women_only_in_force(ride, drv, prof) -> bool:
     return bool(drv is not None and prof is not None and women_only_in_force(ride, drv, prof))
 
 
-def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, trips_agg: dict | None = None) -> RideOut:
+def front_seats_taken(session: Session, ride_ids) -> set:
+    """Поездки, где переднее место уже обещано живой брони. Одним запросом на всю страницу."""
+    ids = [i for i in ride_ids if i is not None]
+    if not ids:
+        return set()
+    return set(session.exec(select(Booking.ride_id).where(
+        Booking.ride_id.in_(ids),
+        Booking.front_seat == True,  # noqa: E712
+        Booking.status.in_((BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)),
+    )).all())
+
+
+def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, trips_agg: dict | None = None,
+                  front_taken: set | None = None) -> RideOut:
     """RideOut из предзагруженных батчей (без запросов в БД)."""
     drv = users.get(ride.driver_id)
     prof = profiles.get(ride.driver_id)
@@ -1520,6 +1566,7 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
         # в базе остаётся — и карточка продолжала обещать то, чего никто уже не проверял
         # (волна 219). Спрашиваем у того же правила, что и бейдж строкой ниже.
         women_only=_women_only_in_force(ride, drv, prof),
+        front_seat_taken=ride.id in (front_taken or ()),
         boosted=(ride.boosted_until is not None and ride.boosted_until > utcnow()),
         driver_name=(drv.name if drv else "Водитель"),
         driver_rating=rating,
@@ -1544,7 +1591,8 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
 def rides_out(rides: list, session: Session) -> list:
     """Список поездок → list[RideOut] одним батчем (4 запроса вместо 4×N)."""
     users, profiles, rating_agg, trips_agg = drivers_bundle(session, {r.driver_id for r in rides})
-    return [ride_out_with(r, users, profiles, rating_agg, trips_agg) for r in rides]
+    front_taken = front_seats_taken(session, [r.id for r in rides])
+    return [ride_out_with(r, users, profiles, rating_agg, trips_agg, front_taken) for r in rides]
 
 
 def ride_out(ride: Ride, session: Session) -> RideOut:

@@ -30,7 +30,7 @@ import org.robolectric.annotation.GraphicsMode
  *
  * Не дублирует LoginFormContentTest (хелперы, disabled-кнопки, needPhone-баннер, шаг телефон↔код)
  * и LoginScreenContentTest (hero/divider/langToggle/footer). Заголовок и раннер — как в LoginFormContentTest.
- * В тестовом BuildConfig SMS_LOGIN_ENABLED=false, TELEGRAM_BOT="" → доступный UI ввода кода = Telegram-поток
+ * В тестовом BuildConfig SMS_LOGIN_ENABLED=false, TELEGRAM_BOT = дефолт → доступный UI ввода кода = Telegram-поток
  * (tgMode=true), SMS-блок скрыт флагом. autoAdvance трогаем только там, где крутится спиннер (loading).
  */
 @RunWith(RobolectricTestRunner::class)
