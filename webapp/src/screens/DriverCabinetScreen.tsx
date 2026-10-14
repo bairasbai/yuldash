@@ -485,6 +485,14 @@ export default function DriverCabinetScreen() {
                     {b.passenger_name || appText("Пассажир", "Юлаусы")}
                     {b.passenger_rating != null && ` · ★ ${b.passenger_rating.toFixed(1)}`}
                   </p>
+                  {/* Просьба о переднем месте — до решения: водитель знает, кого куда посадит. */}
+                  {b.front_seat && (
+                    <p className="act-card__text" style={{ margin: "0 0 10px" }}>
+                      <span className="badge badge--mint">
+                        {appText("Просит переднее место", "Алғы урынды һорай")}
+                      </span>
+                    </p>
+                  )}
                   <div className="act-card__actions">
                     <button
                       type="button"

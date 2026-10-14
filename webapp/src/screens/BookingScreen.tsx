@@ -153,6 +153,17 @@ export default function BookingScreen() {
                 <span className="info-row__v">{d.driver_plate}</span>
               </div>
             )}
+            {/* Переднее место, если просили: пассажир помнит, водитель видит в той же брони. */}
+            {d.front_seat && (
+              <div className="info-row">
+                <span className="info-row__k">{appText("Место", "Урын")}</span>
+                <span className="info-row__v">
+                  {d.role === "driver"
+                    ? appText("Пассажир просит переднее место", "Юлсы алғы урынды һорай")
+                    : appText("Переднее место", "Алғы урын")}
+                </span>
+              </div>
+            )}
             <div className="info-row">
               <span className="info-row__k">{appText("Оплата", "Түләү")}</span>
               <span className="info-row__v">

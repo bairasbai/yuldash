@@ -37,6 +37,10 @@ export interface RideCreateInput {
   only_trusted?: boolean;
   /** Не беру пассажиров младше 18 без взрослого рядом. */
   no_minors?: boolean;
+  /** «Сзади максимум двое» → мест не больше 3 (2, если переднее занято своим). */
+  back_max_two?: boolean;
+  /** Переднее место свободно для пассажира. */
+  front_seat_available?: boolean;
   recurrence?: string; // none | daily | weekdays | weekly
   /**
    * Поездка «везу посылку»: кому отдать и что за груз.

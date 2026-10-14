@@ -33,6 +33,12 @@ export interface Ride {
    * иначе подросток бронирует, а на месте выясняется, что везти его не будут.
    */
   no_minors?: boolean;
+  /** «Сзади максимум двое» — мест не больше 3 (сервер режет). */
+  back_max_two?: boolean;
+  /** Водитель предлагает переднее место (false — спереди едет свой человек). */
+  front_seat_available?: boolean;
+  /** Переднее уже обещано другому пассажиру (живая бронь с front_seat). */
+  front_seat_taken?: boolean;
   boosted?: boolean;
   status?: "active" | "done" | "cancelled" | string; // есть в /driver/rides (RideOut)
   driver_name: string;
@@ -105,6 +111,9 @@ export interface RideEditInput {
   comment?: string;
   depart_at?: string; // ISO
   seats_total?: number;
+  /** Опции мест. Обещанное пассажирам с бронью сервер забрать не даст (409). */
+  back_max_two?: boolean;
+  front_seat_available?: boolean;
 }
 
 /** POST /rides/{id}/edit — правка своей поездки. Пассажирам с бронью уйдёт уведомление. */

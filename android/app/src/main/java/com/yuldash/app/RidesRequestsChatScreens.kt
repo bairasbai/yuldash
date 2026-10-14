@@ -78,6 +78,8 @@ import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
 import androidx.compose.material.icons.filled.SmokingRooms
+import androidx.compose.material.icons.filled.AirlineSeatReclineNormal
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.SmokeFree
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.AcUnit
@@ -1171,13 +1173,21 @@ private fun PrefChip(iconRes: Int, label: String) {
 // Лента чипов с условиями поездки (показывается только если есть хоть одно).
 @Composable
 private fun RidePrefChips(ride: Ride, modifier: Modifier = Modifier) {
-    if (!(ride.petsAllowed || ride.childSeat || ride.womenOnly || ride.smoking || ride.baggage || ride.airConditioner || ride.quiet)) return
+    // Опции мест показываем всегда: «переднее свободно / занято» — то, что человек хочет знать
+    // до брони (2026-10-14). Поэтому ранний выход только когда переднего нет и сзади без обещаний.
+    val seatChips = ride.backMaxTwo || ride.frontSeatAvailable
+    if (!(seatChips || ride.petsAllowed || ride.childSeat || ride.womenOnly || ride.smoking || ride.baggage || ride.airConditioner || ride.quiet)) return
     Row(
         modifier = modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (ride.womenOnly) PrefChip(R.drawable.yu_women_only, appText("Только женщины", "Тик ҡатын-ҡыҙ"))
+        if (ride.frontSeatAvailable) {
+            if (ride.frontSeatTaken) PrefChip(Icons.Default.AirlineSeatReclineNormal, appText("Переднее занято", "Алғы урын алынған"))
+            else PrefChip(Icons.Default.AirlineSeatReclineNormal, appText("Переднее свободно", "Алғы урын буш"))
+        }
+        if (ride.backMaxTwo) PrefChip(Icons.Default.People, appText("Сзади двое", "Артта икәү"))
         if (ride.childSeat) PrefChip(R.drawable.yu_child_seat, appText("Детское кресло", "Балалар ултырғысы"))
         if (ride.petsAllowed) PrefChip(R.drawable.yu_pet, appText("С животным", "Хайуан менән"))
         if (ride.baggage) PrefChip(R.drawable.yu_luggage, appText("Багаж", "Йөк"))

@@ -1021,7 +1021,7 @@ private fun YuldashAppContent() {
                             baggage = d.baggage,
                             airConditioner = d.airConditioner,
                             quiet = d.quiet,
-                            noMinors = d.noMinors,
+                            noMinors = d.noMinors, backMaxTwo = d.backMaxTwo, frontSeatAvailable = d.frontSeatAvailable, frontSeatTaken = d.frontSeatTaken,
                             waypoints = d.waypoints,
                             pickup = d.pickup,
                             pickupLat = d.pickupLat,
@@ -1325,6 +1325,7 @@ private fun YuldashAppContent() {
                     activeBookingId == displayedBookingId && selectedBookingStatus == displayedStatus &&
                     vm.privateNavigationRevision == displayedRevision && ApiClient.queueSessionGeneration() == displayedSession
                 fun isDisplayedBookingCurrent() = isDisplayedBookingUnchanged() && ApiClient.isCurrentSession(displayedSession)
+                var frontSeat by remember(displayedRide?.id) { mutableStateOf(false) }   // «хочу переднее» — своё у каждой поездки
                 BookingScreen(
                 // null = бронировать нечего (лента пуста и ничего не выбрано): экран сам вернёт
                 // назад. Раньше тут подставлялась демо-поездка «вместо краша на пустом списке» —
@@ -1368,6 +1369,7 @@ private fun YuldashAppContent() {
                     }
                 },
                 onFindAnotherRide = { openHome(HomeTab.Rides) },
+                frontSeat = frontSeat, onFrontSeatChange = { frontSeat = it },
                 onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
                     if (!isDisplayedBookingUnchanged()) return@BookingScreen
                     if (!ApiClient.isLoggedIn()) {
@@ -1409,7 +1411,7 @@ private fun YuldashAppContent() {
                             appScope.launch {
                                 try {
                                     if (!isDisplayedBookingCurrent()) return@launch
-                                    val result = ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone)
+                                    val result = ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat)
                                     if (!isDisplayedBookingCurrent()) return@launch
                                     ApiClient.runIfCurrentSession(displayedSession) {
                                         result.onSuccess { booking ->

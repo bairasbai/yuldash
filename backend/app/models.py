@@ -2,7 +2,7 @@ from datetime import date as date_type, datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import BigInteger, Column, ForeignKey, Integer, Index, UniqueConstraint
+from sqlalchemy import BigInteger, Column, ForeignKey, Integer, Index, UniqueConstraint, text
 from sqlmodel import SQLModel, Field
 
 from .timeutil import utcnow
@@ -362,8 +362,11 @@ class Ride(SQLModel, table=True):
     from_city: str = Field(index=True)
     to_city: str = Field(index=True)
     depart_at: datetime = Field(index=True)   # сортировка выдачи /rides по времени выезда
-    seats_total: int = 3
-    seats_left: int = 3
+    # Обычная легковая — 4 пассажирских места: 1 спереди + 3 сзади (решение Александра,
+    # 2026-10-14). Раньше по умолчанию было 3. Это значение только для новых поездок без
+    # явного числа; старые строки в базе не трогаем.
+    seats_total: int = 4
+    seats_left: int = 4
     price: int = 0
     category: RideCategory = RideCategory.regular
     comment: str = ""
@@ -397,6 +400,12 @@ class Ride(SQLModel, table=True):
     # не хотят брать на себя ответственность за чужого ребёнка, и это нормально: лучше сказать
     # заранее, чем отказывать на месте, когда подросток уже стоит у дороги.
     no_minors: bool = False
+    # Опции мест, как у BlaBlaCar, без схемы кресел (2026-10-14). «Сзади максимум двое» —
+    # водитель обещает, что на заднем ряду не будет третьего: тогда мест не больше 3 (1+2),
+    # а если и переднее занято своим человеком — не больше 2. Потолок держит сервер.
+    back_max_two: bool = False
+    # Переднее место свободно для пассажира. Выключают, когда спереди едет свой человек.
+    front_seat_available: bool = True
     waypoints: str = ""               # остановки по пути (названия НП через " | "), A→точки→B
     status: RideStatus = Field(default=RideStatus.active, index=True)   # /rides и /rides/near фильтруют active
     # Boost (платное поднятие): пока boosted_until > now — поездка выше в выдаче.
@@ -500,10 +509,28 @@ class RecentPlace(SQLModel, table=True):
     used_at: datetime = Field(default_factory=utcnow, index=True)  # свежесть → сортировка/чистка
 
 
+# Условие барьера «одно переднее место»: живая бронь (ждёт, подтверждена, в пути) с переднем
+# местом. Одна строка на модель и миграцию bw_seat_options — расходиться им нельзя.
+FRONT_SEAT_LIVE_WHERE = "front_seat AND status IN ('pending', 'confirmed', 'onboard')"
+
+
 class Booking(SQLModel, table=True):
     # Композитный индекс под скан rate-reminder'а (status=done AND rate_reminded=false);
     # на проде добавляется миграцией m_audit_hardening, здесь — паритет для свежих БД (create_all).
-    __table_args__ = (Index("ix_booking_status_rate_reminded", "status", "rate_reminded"),)
+    #
+    # Второй индекс — барьер «одно переднее место на поездку» (2026-10-14): среди ЖИВЫХ броней
+    # одной поездки только одна может просить переднее. Две одновременные заявки на переднее
+    # сервер не разведёт проверкой «а не занято ли?» — между чтением и записью влезает чужая
+    # бронь. Уникальный частичный индекс отсекает вторую в самой базе, на SQLite и PostgreSQL
+    # одинаково. Отмена / отказ водителя / неявка переводят бронь в cancelled — и переднее
+    # освобождается само, без отдельного кода в каждой двери. Прод — миграция bw_seat_options.
+    __table_args__ = (
+        Index("ix_booking_status_rate_reminded", "status", "rate_reminded"),
+        Index(
+            "uq_booking_front_seat_live", "ride_id", unique=True,
+            sqlite_where=text(FRONT_SEAT_LIVE_WHERE), postgresql_where=text(FRONT_SEAT_LIVE_WHERE),
+        ),
+    )
     id: Optional[int] = Field(default=None, primary_key=True)
     ride_id: int = Field(index=True, foreign_key="ride.id")
     passenger_id: int = Field(index=True, foreign_key="user.id")
@@ -559,6 +586,8 @@ class Booking(SQLModel, table=True):
     # Видно обеим сторонам, помогает в споре. Способ по умолчанию — «договоримся».
     pay_method: PayMethod = PayMethod.negotiate
     pay_amount: Optional[int] = None  # сумма, о которой договорились, ₽ (опц.; None = не фиксировали)
+    # Пассажир просит переднее место. Одна живая такая бронь на поездку (индекс выше).
+    front_seat: bool = False
     # F12 «Зимний протокол»: авто-проверка «доехал?». sent_at — когда обеим сторонам ушёл пуш
     # «всё в порядке?»; ack_at — когда участник подтвердил, что доехал/всё хорошо (гасит эскалацию).
     winter_check_sent_at: Optional[datetime] = None
