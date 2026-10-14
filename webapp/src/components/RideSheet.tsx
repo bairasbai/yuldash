@@ -30,14 +30,11 @@ export default function RideSheet({
   const ru = lang !== "ba";
   const navigate = useNavigate();
   const { isAuthed } = useAuth();
-<<<<<<< HEAD
   const features = useFeatures();
   const parcelCategory = ride.category === "parcel" || ride.category === "cargo";
-=======
   const ownBooking = useOwnBooking(ride.id);
   const refreshOwnBookings = useRefreshOwnBookings();
   const ownerGeneration = getSessionGeneration();
->>>>>>> origin/main
   const [busy, setBusy] = useState(false);
   const bookingInFlight = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
