@@ -110,7 +110,11 @@ class FeatureDisabledCouponsTest {
         compose.waitForIdle()
         compose.onNodeWithText("A1B2C3").assertDoesNotExist()
         compose.onNodeWithText("Местное кафе").assertDoesNotExist()
-        assertFalse(requests.any { it.startsWith("POST ") || it == "GET /coupons" })
+        val logout = "POST /auth/logout"
+        if (transition == "logout") compose.waitUntil(10000) { requests.contains(logout) }
+        assertEquals("Only the explicit logout transition may revoke its token", if (transition == "logout") 1 else 0, requests.count { it == logout })
+        val allowed = if (transition == "logout") setOf(endpoint, logout) else setOf(endpoint)
+        assertTrue("No new business action or other mutation: $requests", requests.all { it in allowed })
     }
 
     private fun mount(language: AppLanguage, partner: Boolean) {
