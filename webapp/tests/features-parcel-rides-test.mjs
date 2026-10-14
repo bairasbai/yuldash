@@ -21,7 +21,8 @@ mocks["../features"]="export const getFeatures=()=>({parcels:globalThis.__parcel
 mocks["../utils/formDraft"]="export const clearDraft=()=>{};export const useDraftSync=(key,state,apply)=>{const h=globalThis.__parcelRide;if(!h.hydrated){h.hydrated=true;apply(h.draft);}};";
 mocks["../api/driver"]="export const fetchPriceHint=async()=>({});export const publishRide=async body=>{globalThis.__parcelRide.published.push(body);return{id:42};};";
 mocks["../api/bookings"]="export const createBooking=async body=>{globalThis.__parcelRide.booked.push(body);return{id:73};};";
-mocks["../api/client"]="export class ApiError extends Error{}";
+mocks["../api/client"]="export class ApiError extends Error{}export const getSessionGeneration=()=> 'same-owner';";
+mocks["../booking/OwnBookingsProvider"]="export const useOwnBooking=()=>globalThis.__parcelRide.ownBooking??null;export const useRefreshOwnBookings=()=>()=>{};";
 mocks["../utils/format"]="export const formatWhen=()=>'';export const priceLabel=()=>'';export const rubLabel=()=>'';";
 mocks["../components/WeatherWarningCard"]="export default function Weather(){return null;}export const useRouteWeather=()=>null;";
 mocks["../utils/seatOptions"]="export const SEATS_DEFAULT=4;export const clampSeats=n=>n;export const seatCap=()=>4;";
@@ -46,5 +47,17 @@ for(const category of ["parcel","cargo"]){
 for(const category of ["regular","urgent","hospital"]){
   const h=fresh(false,category);let tree=render(h,Create);assert.ok(!soon(tree));assert.ok(submit(tree));await submit(tree).props.onClick();assert.equal(h.published[0].category,category);total++;
   const s=fresh(false,category),ride={id:42,category};tree=render(s,Sheet,{ride,onClose(){}});assert.ok(!soon(tree));await book(tree).props.onClick();assert.equal(s.booked.length,1);assert.equal(s.routes[0][0],"/trip/73");total++;
+}
+for(const category of ["parcel","cargo"])for(const status of ["pending","confirmed","onboard"])for(const lang of ["ru","ba"]){
+  const h=fresh(false,category,lang),ride={id:42,category};
+  h.ownBooking={id:89,ride_id:42,status,front_seat:true};
+  let closed=0;const tree=render(h,Sheet,{ride,onClose(){closed++;}});
+  assert.ok(!soon(tree),`existing ${category}/${status}/${lang} stays accessible when OFF`);
+  assert.equal(text(book(tree)),lang==="ru"?"Открыть поездку":"Сәфәрҙе асыу");
+  await book(tree).props.onClick();
+  assert.equal(closed,1);
+  assert.deepEqual(h.booked,[],"Opening an existing booking must not POST a new one");
+  assert.equal(h.routes[0][0],status==="pending"?"/booking/89":"/trip/89");
+  total++;
 }
 console.log(`Parcel ride gates: ${total}/${total} passed`);
