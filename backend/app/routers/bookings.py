@@ -672,11 +672,14 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
         title_ru = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
         title_ba = {"departed": "Водитель юлға сыҡты", "arriving": "Водитель яҡынлаша"}[body.status]
         route = f"{ride.from_city} → {ride.to_city}"
+        # urgent: ранний рейс в 5 утра — обычное дело, а тихие часы глушили именно то уведомление,
+        # ради которого пассажир выходит к машине (приёмка волны 1, 16.10.2026).
         push_notification(
             session, booking.passenger_id, "ride",
             title_ru, title_ba,
             route, route,
             ref_kind="booking", ref_id=booking.id,
+            urgent=True,
         )
     return {"ok": True, "driver_phase": body.status}
 
