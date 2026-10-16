@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchRide, type Ride } from "../api/rides";
+import { ApiError } from "../api/client";
 import { useLang } from "../i18n/lang";
 import RideSheet from "../components/RideSheet";
 import ScreenHeader from "../components/ScreenHeader";
@@ -13,7 +14,7 @@ export default function RideDetailScreen() {
   const navigate = useNavigate();
   const { appText } = useLang();
   const [ride, setRide] = useState<Ride | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "error" | "gone">("loading");
   const requestVersion = useRef(0);
   const load = useCallback((signal?: AbortSignal) => {
     const version = ++requestVersion.current;
@@ -24,8 +25,12 @@ export default function RideDetailScreen() {
       if (signal?.aborted || version !== requestVersion.current) return;
       setRide(value);
       setStatus("ready");
-    }).catch(() => {
-      if (!signal?.aborted && version === requestVersion.current) setStatus("error");
+    }).catch(err => {
+      if (signal?.aborted || version !== requestVersion.current) return;
+      // «Нет такой / нет доступа / удалена» — повтор не поможет (так сервер отвечает и про поездку
+      // заблокированного водителя). Честно «недоступна», как в Android, а не «проверь связь».
+      const gone = err instanceof ApiError && [403, 404, 410].includes(err.status);
+      setStatus(gone ? "gone" : "error");
     });
   }, [rideId]);
   useEffect(() => {
@@ -39,6 +44,7 @@ export default function RideDetailScreen() {
     <ScreenHeader title={appText("Поездка", "Сәфәр")} />
     {status === "loading" && <LoadingList count={1} />}
     {status === "error" && <ErrorState onRetry={() => load()} />}
+    {status === "gone" && <p role="status" className="sheet__note">{appText("Поездка недоступна", "Сәфәрҙе асып булмай")}</p>}
     {status === "ready" && ride && (available
       ? <RideSheet key={ride.id} ride={ride} onClose={close} />
       : <p role="status" className="sheet__note">{appText("Поездка больше недоступна для бронирования.", "Сәфәрҙе бүтән бронлап булмай.")}</p>)}

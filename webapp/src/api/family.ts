@@ -95,7 +95,7 @@ export function revokeBookingShare(
   return apiDelete<{ ok: boolean }>(`/bookings/${bookingId}/share/${shareId}`);
 }
 
-/** «Села / доехала / завершила» — близкие получают SMS только при реальной смене статуса. */
+/** «Села / доехала / завершила» — близкие видят новый статус по ссылке; SMS — только если на сервере включён SMS-провайдер. */
 export function setTripStatus(bookingId: number, status: TripStatus): Promise<TripShare[]> {
   return apiPost<TripShare[]>(`/bookings/${bookingId}/trip-status`, { status });
 }
