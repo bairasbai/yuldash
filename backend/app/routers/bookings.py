@@ -829,6 +829,11 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
         raise herr(403, "Отметить неявку может только водитель поездки", "Килмәүҙе тик сәфәр йөрөтөүсеһе генә билдәләй ала")
     if booking.status == BookingStatus.onboard:
         raise _no_show_onboard_refusal()
+    if booking.status == BookingStatus.cancelled and booking.no_show:
+        # Повтор (двойное нажатие или повтор после потерянного ответа) — неявка уже отмечена, места
+        # возвращены один раз. Отвечаем как confirm/cancel/complete: тем же итогом, а не красной
+        # ошибкой после успеха (сквозной проход волны 1, 16.10.2026).
+        return booking
     if booking.status != BookingStatus.confirmed:
         raise herr(409, "Неявку можно отметить только по подтверждённой брони", "Килмәүҙе тик раҫланған бронь буйынса ғына билдәләп була")
     # Порядок локов Ride → Booking — ЕДИНЫЙ с cancel_booking/cancel_ride (V4, без deadlock).
