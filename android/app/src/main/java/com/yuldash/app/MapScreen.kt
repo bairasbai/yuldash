@@ -306,6 +306,7 @@ internal fun MapScreen(
     val filterCtx = LocalContext.current
     var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
     val verifiedOnly = remember { AppPrefs.verifiedOnly(filterCtx) }  // «Только проверенные» из раздела Безопасность
+    val cityFilter = rememberNearbyCityFilter(nearbyReload)   // «Откуда»/«Куда» (NearbyCityFilter.kt); города — вместе с лентой
     // F4: «когда едем» — null = все дни, иначе YYYY-MM-DD. Поездки в РБ планируют за 1-3 дня;
     // чипы Сегодня/Завтра режут ленту до нужного дня (фильтрует сервер по depart_at).
     var dateFilter by remember { mutableStateOf<String?>(null) }
@@ -322,12 +323,14 @@ internal fun MapScreen(
     val userLatKey = userLat?.let { kotlin.math.round(it * 100) }
     val userLngKey = userLng?.let { kotlin.math.round(it * 100) }
     // Сбрасываем страницу при смене маршрута/позиции/дня (новый контекст → снова с начала).
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter) { nearbyLimit = NEARBY_PAGE }
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter) {
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to) { nearbyLimit = NEARBY_PAGE }
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter, cityFilter.from, cityFilter.to) {
         if (nearby.isEmpty()) nearbyLoading = true   // спиннер только когда показывать нечего; авто-обновление с данными — молча, без мигания
-        // Радиус применяем только когда знаем позицию (иначе показываем все по маршруту/времени).
-        val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
-        ApiClient.getNearbyRidesPaged(focusFrom, focusTo, userLat, userLng, radius, nearbyLimit, date = dateFilter)
+        // Радиус — только когда знаем позицию. Выбран город «Откуда»/«Куда» — ни радиуса, ни маршрута с карусели:
+        // место задаёт сам человек, а «Куда · Сибай» из Уфы иначе дал бы ложное «поездок нет» (поездки — из Баймака).
+        val radius = if (userLat != null && userLng != null && !cityFilter.active) NEARBY_RADIUS_KM else null
+        ApiClient.getNearbyRidesPaged(focusFrom.takeUnless { cityFilter.active }, focusTo.takeUnless { cityFilter.active }, userLat, userLng, radius, nearbyLimit,
+            date = dateFilter, conditions = prefFilter, verifiedOnly = verifiedOnly, fromCities = cityFilter.from, toCities = cityFilter.to)
             .onSuccess { nearby = it.items; nearbyTotal = it.total; nearbyError = false }
             .onFailure { nearbyError = true }
         nearbyLoading = false
@@ -364,7 +367,7 @@ internal fun MapScreen(
         }).also { it.connect() }
         onDispose { sock.close() }
     }
-    // Клиентская фильтрация «Ближайших» по выбранным условиям (поля уже пришли в RideDto).
+    // Условия режет сервер (getNearbyRidesPaged); здесь — подстраховка на старый сервер, где их не знают.
     // remember: пересчитываем только при смене списка/фильтра, а не на каждой рекомпозиции экрана.
     val shownNearby = remember(nearby, prefFilter, verifiedOnly) {
         if (prefFilter.isEmpty() && !verifiedOnly) nearby else nearby.filter { d ->
@@ -459,7 +462,7 @@ internal fun MapScreen(
                                     color = CanonText, style = CanonHeading,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis
                                 )
-                                if (focusFrom != null && focusTo != null) {
+                                if (focusFrom != null && focusTo != null && !cityFilter.active) {
                                     Text("$focusFrom → $focusTo", color = CanonGreen2, style = CanonMicro, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 if (routeSearch.route != null) NearbyRouteReset(routeSearch::clear)
@@ -493,10 +496,10 @@ internal fun MapScreen(
                     // поездок нет → выдача пуста → строка фильтров исчезает ВМЕСТЕ с кнопкой «Все дни»,
                     // и снять фильтр нечем (в пустой заглушке только «Обновить», а он повторяет тот же
                     // запрос). То же с «Детским креслом» и любым другим условием.
-                    // Поэтому: фильтры видно, пока есть ЧТО фильтровать ИЛИ пока хоть один фильтр
-                    // включён. Второе слагаемое — и есть путь назад. Когда фильтров нет и поездок нет,
-                    // ряд прячем: пустой экран не должен начинаться с восьми неработающих кнопок.
-                    if (nearby.isNotEmpty() || dateFilter != null || prefFilter.isNotEmpty()) {
+                    // Поэтому: фильтры видно, пока есть ЧТО фильтровать, хоть один фильтр включён (путь назад)
+                    // ИЛИ на сервере есть города с поездками — тогда «Откуда» ведёт к ним, даже если рядом пусто.
+                    // Нет ни поездок, ни фильтров, ни городов — ряд прячем: кнопкам нечего делать.
+                    if (nearby.isNotEmpty() || dateFilter != null || prefFilter.isNotEmpty() || cityFilter.offered) {
                       // Тач-цель ≥48dp (§4.5) + зазор справа у каждого чипа. Зазор ИМЕННО у чипа, а не
                       // spacedBy у Row: скрытый «Сбросить» тогда не оставляет пустой отступ слева.
                       val chipTouch = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
@@ -509,6 +512,7 @@ internal fun MapScreen(
                         // а экран стал ниже на целый ряд. Группы разделены тонкой чертой, чтобы
                         // «Сегодня» и «Детское кресло» не читались как один список.
                         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                            NearbyCityChips(cityFilter, chipTouch)   // «Откуда»/«Куда» — первыми: сначала где, потом когда
                             // F4: «Когда едем» — видим ВСЕГДА (даже при пустой выдаче: выбрал
                             // «Сегодня», пусто → должен смочь вернуться на «Все дни»).
                             val today = java.time.LocalDate.now()
@@ -574,7 +578,8 @@ internal fun MapScreen(
                     // мягкий (скелетоны не «хлопают» в карточки, а растворяются друг в друга).
                     val nearbyState = when {
                         nearbyLoading && nearby.isEmpty() -> "loading"
-                        nearby.isEmpty() -> if (nearbyError) "error" else "empty"
+                        // Пусто при включённом фильтре — «filtered» со сбросом (приёмка PR147). «Только проверенные» — не в счёт: их не снять здесь, честнее «пусто» с «Обновить».
+                        nearby.isEmpty() -> if (nearbyError) "error" else if (prefFilter.isNotEmpty() || cityFilter.active) "filtered" else "empty"
                         shownNearby.isEmpty() -> "filtered"
                         else -> "list"
                     }
@@ -599,9 +604,9 @@ internal fun MapScreen(
                                     appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал."),
                                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
                                 )
-                                if (prefFilter.isNotEmpty()) {
+                                if (prefFilter.isNotEmpty() || cityFilter.active) {
                                     Surface(
-                                        onClick = { prefFilter = emptySet() },
+                                        onClick = { prefFilter = emptySet(); cityFilter.clear() },
                                         shape = RoundedCornerShape(14.dp),
                                         color = CanonSurface,
                                         border = BorderStroke(1.dp, CanonBorder)
@@ -622,8 +627,8 @@ internal fun MapScreen(
                                 itemsIndexed(shownNearby, key = { i, dto -> "${dto.id}#$i" }) { i, dto ->
                                     NearbyRideCard(dto = dto, soonest = i == 0, onOpen = { onBookRide(dto.toUiRide()) })
                                 }
-                                // «Показать ещё» — когда сервер сообщил, что есть ещё (и фильтр не активен).
-                                if (prefFilter.isEmpty() && nearby.size < nearbyTotal) {
+                                // «Показать ещё» — когда сервер сообщил, что есть ещё: условия он уже учёл в count (DESIGN023).
+                                if (nearby.size < nearbyTotal) {
                                     item(key = "nearby_more") {
                                         NearbyMoreCard(loading = nearbyLoading) { nearbyLimit += NEARBY_PAGE }
                                     }

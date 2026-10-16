@@ -450,7 +450,26 @@ def by_exact_name(session: Session, name: str) -> Optional[SettlementRow]:
     raw = (name or "").strip()
     if not raw:
         return None
+    return _exact_in(_entry(session), raw)
+
+
+def by_exact_names(session: Session, names) -> dict:
+    """Много имён разом → {имя: НП или None}. Снимок справочника берём ОДИН раз.
+
+    `by_exact_name` на каждое имя каждый раз сверяет свежесть снимка запросом в базу. Для
+    списка из сотни городов (`/rides/cities` при каждом открытии карты) это сотня лишних
+    запросов — приёмка PR147 намерила 284 запроса против 8 у самой ленты.
+    """
     entry = _entry(session)
+    out: dict = {}
+    for name in names:
+        raw = (name or "").strip()
+        out[name] = _exact_in(entry, raw) if raw else None
+    return out
+
+
+def _exact_in(entry: dict, raw: str) -> Optional[SettlementRow]:
+    """Поиск точного имени в уже взятом снимке (без похода в базу)."""
     if raw.endswith(")") and "(" in raw:
         head, _, tail = raw.rpartition("(")
         hit = entry["with_district"].get((fold(head), fold(tail[:-1])))

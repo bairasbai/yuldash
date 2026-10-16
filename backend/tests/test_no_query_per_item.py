@@ -252,3 +252,38 @@ def _проверить_ленту(client, user_factory, _make_courier, _order):
         "на 2 посылках лента сходила в справочник городов %d раз, на 10 — уже %d. Значит "
         "название города переводится заново на каждую строку." % (мало, много)
     )
+
+
+def test_список_городов_берёт_справочник_одним_снимком(client, user_factory):
+    """`/rides/cities` сверяет справочник не больше пары раз — сколько бы ни было городов.
+
+    Приёмка PR147 (два прохода): поиск имени в справочнике ходит в базу (сверка свежести снимка).
+    Сначала это было по разу на каждую поездку, потом — по разу на каждое РАЗНОЕ имя: на 2000
+    поездках из 140 городов — 284 запроса против 8 у самой ленты, при каждом открытии карты.
+    Порог здесь честный: снимок берётся один раз на ответ, а города в шторке — десятки.
+    """
+    from datetime import timedelta
+
+    from app.config import settings
+    from app.models import UserRole
+    from app.timeutil import utcnow
+
+    водитель = user_factory("ГородаОднимСнимком", role=UserRole.driver)
+    # Шесть РАЗНЫХ мест в обе стороны: при поиске «по разу на имя» это было бы 12 походов.
+    for i, (откуда, куда) in enumerate([("Белебей", "Кумертау"), ("Давлеканово", "Агидель"),
+                                         ("Межгорье", "Благовещенск"), ("Чишмы", "Языково"),
+                                         ("Раевский", "Аскарово"), ("Мраково", "Бакалы")]):
+        when = (utcnow() + timedelta(hours=settings.local_tz_offset_hours, days=2, minutes=i)).replace(microsecond=0)
+        r = client.post("/rides", headers=водитель["auth"], json={
+            "from_city": откуда, "to_city": куда, "seats_total": 3, "price": 400,
+            "depart_at": when.isoformat(),
+        })
+        assert r.status_code == 200, r.text
+
+    with _Counter(table="settlement") as c:
+        assert client.get("/rides/cities").status_code == 200
+
+    assert c.n <= 2, (
+        "список городов сходил в справочник %d раз — ищет каждое имя отдельным запросом. "
+        "Он открывается с картой у каждого: бери снимок один раз (geo.by_exact_names)." % c.n
+    )
