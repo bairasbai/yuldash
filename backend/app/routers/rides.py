@@ -629,6 +629,36 @@ def ride_tips(ride_id: int, user: User = Depends(current_user), session: Session
     }
 
 
+# Условия пассажира из ленты «Ближайшие» (ключи — как в приложении) → условие на поездку.
+# Незнакомый ключ пропускаем: новая версия приложения не должна ронять ленту старому серверу.
+_RIDE_CONDITIONS = {
+    "child": lambda: Ride.child_seat.is_(True),
+    "pets": lambda: Ride.pets_allowed.is_(True),
+    "baggage": lambda: Ride.baggage.is_(True),
+    "ac": lambda: Ride.air_conditioner.is_(True),
+    "nosmoke": lambda: Ride.smoking.is_(False),   # некурящий = поездки, где курить нельзя
+    "quiet": lambda: Ride.quiet.is_(True),
+}
+
+
+def _with_passenger_conditions(q, session: Session, conditions: Optional[str], verified_only: bool):
+    """Сузить выборку ленты по условиям пассажира — теми же правилами, что бейджи на карточке."""
+    keys = {k.strip() for k in (conditions or "").split(",") if k.strip()}
+    for key in keys & _RIDE_CONDITIONS.keys():
+        q = q.where(_RIDE_CONDITIONS[key]())
+    if verified_only:
+        q = q.where(Ride.driver_id.in_(select(User.id).where(User.verified.is_(True))))
+    if "women" in keys:
+        # «Только для женщин» ИЛИ подтверждённая модератором женщина за рулём — как `driver_is_woman`
+        # на карточке. Подтверждённых немного: читаем их и проверяем тем же правилом в Python.
+        from ..safety_logic import is_verified_female_driver
+        rows = session.exec(select(User, DriverProfile).where(
+            DriverProfile.user_id == User.id, DriverProfile.gender_verified.is_(True))).all()
+        women_ids = [u.id for u, prof in rows if is_verified_female_driver(u, prof)]
+        q = q.where(or_(Ride.women_only.is_(True), Ride.driver_id.in_(women_ids)))
+    return q
+
+
 @router.get("/rides/near")
 def rides_near(
     from_city: Optional[str] = None,
@@ -639,6 +669,8 @@ def rides_near(
     date: Optional[date_type] = None,   # F4: «когда едем» — только поездки этого дня (YYYY-MM-DD)
     limit: Optional[int] = None,        # пагинация «показать ещё» (опц., None = все)
     offset: int = 0,
+    conditions: Optional[str] = None,   # условия пассажира через запятую: child,pets,baggage,ac,nosmoke,quiet,women
+    verified_only: bool = False,        # только проверенные водители
     user: Optional[User] = Depends(current_user_optional),   # есть токен → прячем заблокированных
     session: Session = Depends(get_session),
 ):
@@ -657,6 +689,10 @@ def rides_near(
     bounds = _date_bounds(date)
     if bounds:
         q = q.where(Ride.depart_at >= bounds[0], Ride.depart_at < bounds[1])
+    # Условия пассажира — ДО счёта `count` и разбивки на порции (DESIGN023, приёмка волны 1):
+    # раньше их применял телефон к уже полученной порции, и подходящая поездка двенадцатой
+    # в списке превращалась в «поездок нет», а «Показать ещё» при условии пряталась.
+    q = _with_passenger_conditions(q, session, conditions, verified_only)
     # PostGIS-префильтр по радиусу (только postgres + есть координаты): индекс GiST → быстро на больших
     # объёмах. Фолбэк (sqlite/без PostGIS/ошибка) — Python-haversine ниже даёт тот же результат.
     if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
