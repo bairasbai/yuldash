@@ -306,7 +306,7 @@ internal fun MapScreen(
     val filterCtx = LocalContext.current
     var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
     val verifiedOnly = remember { AppPrefs.verifiedOnly(filterCtx) }  // «Только проверенные» из раздела Безопасность
-    val cityFilter = rememberNearbyCityFilter()   // «Откуда»/«Куда» по городам (NearbyCityFilter.kt)
+    val cityFilter = rememberNearbyCityFilter(nearbyReload)   // «Откуда»/«Куда» (NearbyCityFilter.kt); города — вместе с лентой
     // F4: «когда едем» — null = все дни, иначе YYYY-MM-DD. Поездки в РБ планируют за 1-3 дня;
     // чипы Сегодня/Завтра режут ленту до нужного дня (фильтрует сервер по depart_at).
     var dateFilter by remember { mutableStateOf<String?>(null) }
@@ -496,9 +496,9 @@ internal fun MapScreen(
                     // поездок нет → выдача пуста → строка фильтров исчезает ВМЕСТЕ с кнопкой «Все дни»,
                     // и снять фильтр нечем (в пустой заглушке только «Обновить», а он повторяет тот же
                     // запрос). То же с «Детским креслом» и любым другим условием.
-                    // Поэтому: фильтры видно, пока есть ЧТО фильтровать ИЛИ пока хоть один фильтр
-                    // включён. Второе слагаемое — и есть путь назад. Когда фильтров нет и поездок нет,
-                    // ряд прячем: пустой экран не должен начинаться с восьми неработающих кнопок.
+                    // Поэтому: фильтры видно, пока есть ЧТО фильтровать, хоть один фильтр включён (путь назад)
+                    // ИЛИ на сервере есть города с поездками — тогда «Откуда» ведёт к ним, даже если рядом пусто.
+                    // Нет ни поездок, ни фильтров, ни городов — ряд прячем: кнопкам нечего делать.
                     if (nearby.isNotEmpty() || dateFilter != null || prefFilter.isNotEmpty() || cityFilter.offered) {
                       // Тач-цель ≥48dp (§4.5) + зазор справа у каждого чипа. Зазор ИМЕННО у чипа, а не
                       // spacedBy у Row: скрытый «Сбросить» тогда не оставляет пустой отступ слева.
@@ -578,8 +578,8 @@ internal fun MapScreen(
                     // мягкий (скелетоны не «хлопают» в карточки, а растворяются друг в друга).
                     val nearbyState = when {
                         nearbyLoading && nearby.isEmpty() -> "loading"
-                        // Пусто при включённом фильтре — «filtered» с кнопкой сброса, а не «поездок нет» (приёмка PR147).
-                        nearby.isEmpty() -> if (nearbyError) "error" else if (prefFilter.isNotEmpty() || verifiedOnly || cityFilter.active) "filtered" else "empty"
+                        // Пусто при включённом фильтре — «filtered» со сбросом (приёмка PR147). «Только проверенные» — не в счёт: их не снять здесь, честнее «пусто» с «Обновить».
+                        nearby.isEmpty() -> if (nearbyError) "error" else if (prefFilter.isNotEmpty() || cityFilter.active) "filtered" else "empty"
                         shownNearby.isEmpty() -> "filtered"
                         else -> "list"
                     }

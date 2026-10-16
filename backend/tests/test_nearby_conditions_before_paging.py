@@ -279,3 +279,16 @@ def test_список_городов_прячет_то_же_что_лента(cl
 
     она = {c["ru"] for c in client.get("/rides/cities", headers=пассажирка["auth"]).json()["from"]}
     assert "Благовещенск" not in она, "город заблокированного водителя висит в шторке"
+
+
+def test_город_с_запятой_не_попадает_в_шторку(client, user_factory, monkeypatch):
+    """Фильтр передаёт города через запятую: «Аскарово, ул. Ленина» сервер разрезал бы на два
+    города и показал бы лишнее. Такого имени в шторке быть не должно (приёмка PR147, P2)."""
+    monkeypatch.setattr("app.routers.rides._MAX_FILTER_CITIES", 10_000)
+    водитель = user_factory("ГородСЗапятой", role=UserRole.driver)
+    _из(client, водитель, "Аскарово, ул. Ленина", "Уфа")
+
+    откуда = {c["ru"] for c in client.get("/rides/cities").json()["from"]}
+
+    assert not any("," in name for name in откуда), f"имя с запятой в шторке: {откуда}"
+

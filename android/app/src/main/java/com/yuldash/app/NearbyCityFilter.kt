@@ -77,11 +77,15 @@ internal class NearbyCityFilterState {
     }
 }
 
-/** Состояние фильтров городов; список городов читает с сервера один раз. Старый сервер — чипов нет. */
+/**
+ * Состояние фильтров городов. Список городов перечитывает вместе с лентой ([reloadKey] — её «Обновить»
+ * и авто-обновление): город с новой поездкой появляется сам, сбой сети при открытии карты не прячет
+ * чипы до следующего входа. Старый сервер без `/rides/cities` — чипов нет.
+ */
 @Composable
-internal fun rememberNearbyCityFilter(): NearbyCityFilterState {
+internal fun rememberNearbyCityFilter(reloadKey: Int): NearbyCityFilterState {
     val state = remember { NearbyCityFilterState() }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(reloadKey) {
         ApiClient.getRideCities().onSuccess {
             state.fromOptions = it.from
             state.toOptions = it.to
