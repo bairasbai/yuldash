@@ -59,7 +59,10 @@ export function fetchRidesNear(
   if (params.date) q.set("date", params.date);
   if (params.offset) q.set("offset", String(params.offset));
   q.set("limit", String(params.limit ?? 30));
-  return apiGet(`/rides/near?${q.toString()}`, { auth: false, signal });
+  // Токен (если есть) уходит с запросом: сервер по нему прячет заблокированных водителей
+  // и показывает «только для своих» своим. Гость без токена получает то же, что и раньше —
+  // сервер на отсутствующий или негодный токен не отвечает 401, а считает человека гостем.
+  return apiGet(`/rides/near?${q.toString()}`, { signal });
 }
 
 /** Ближайшие заявки пассажиров (для водителя/карты). Требует вход. */

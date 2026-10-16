@@ -51,8 +51,33 @@ export function saveFilters(f: FilterPrefs): void {
   localStorage.setItem(KEY, JSON.stringify(f));
 }
 
-export function clearFilters(): void {
-  localStorage.removeItem(KEY);
+/**
+ * Сброс фильтров ленты: город, потолок цены, удобства.
+ *
+ * «Только проверенные» (`onlyTrusted`) — это настройка раздела «Безопасность», а не чип ленты
+ * (в приложении этого переключателя в ряду фильтров нет). Поэтому обычный сброс её оставляет:
+ * иначе одно нажатие «Сбросить» молча выключило бы защиту, которую человек включил сам.
+ * Полный сброс (`keepTrusted = false`) — только с экрана «Фильтры», где переключатель виден.
+ * Возвращает то, что осталось после сброса.
+ */
+export function clearFilters(keepTrusted = true): FilterPrefs {
+  const keep = keepTrusted && loadFilters().onlyTrusted;
+  const next: FilterPrefs = { ...emptyFilters, amenities: [], onlyTrusted: keep };
+  try {
+    if (keep) saveFilters(next);
+    else localStorage.removeItem(KEY);
+  } catch {
+    /* хранилище недоступно — фильтры живут только на экране */
+  }
+  return next;
+}
+
+/**
+ * Сколько условий ленты включено — для чипа «Сбросить · N».
+ * «Только проверенные» не считаем: сбросом она не снимается (см. `clearFilters`).
+ */
+export function feedFilterCount(f: FilterPrefs): number {
+  return f.amenities.length + (f.city.trim() ? 1 : 0) + (f.maxPrice != null ? 1 : 0);
 }
 
 /** Активен ли хоть один фильтр (для баннера «фильтры включены»). */

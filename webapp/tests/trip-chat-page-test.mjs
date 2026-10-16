@@ -98,8 +98,8 @@ for (const [label, re] of [
   check(head.includes('appText("Назад"') && head.includes("onClick={onBack}"), "шапка: «Назад»");
   check(/Открыть поездку/.test(head) && head.includes("onClick={onOpenTrip}"), "шапка: «Открыть поездку»");
   check(
-    head.includes("onClick={onSos}") && /Экстренный вызов/.test(head) && /onSos=\{\(\) => navigate\("\/sos"\)\}/.test(screenCode),
-    "шапка: SOS ведёт на /sos"
+    head.includes("onClick={onSos}") && /Экстренный вызов/.test(head) && /onSos=\{\(\) => navigate\(sosPath\(bookingId\)\)\}/.test(screenCode),
+    "шапка: SOS ведёт на /sos?booking=<id> (бронь уходит дежурному)"
   );
   check(/<h1>\{peer/.test(head) && /\{route && <p>\{route\}<\/p>\}/.test(head), "шапка: собеседник и маршрут");
 }

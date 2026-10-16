@@ -6743,6 +6743,33 @@ select.field__input {
   margin: 0;
 }
 
+/* Ссылка на живую поездку для близкого (ShareTripCard): видна целиком, выделяется одним тапом. */
+.share-link {
+  margin-bottom: var(--space-md);
+}
+.share-link__title {
+  display: block;
+  margin-bottom: var(--space-sm);
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+}
+.share-link__url {
+  margin-bottom: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--mint);
+  color: var(--green2);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-bold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: all;
+}
+
 /* ---- Номер заказа в шапке чека ---- */
 .receipt__num {
   float: right;

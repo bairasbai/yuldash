@@ -4,7 +4,7 @@
 //  GET/POST /trusted-contacts есть на бэке; DELETE — best-effort
 //  (появится на проде позже) → экран деградирует мягко на 404/405.
 // ================================================================
-import { apiGet, apiPost, apiDelete } from "./client";
+import { apiGet, apiPost, apiDelete, API_BASE } from "./client";
 
 /** Строка доверенного контакта (TrustedContact). */
 export interface TrustedContact {
@@ -60,6 +60,17 @@ export interface TripShare {
   last_status: string; // shared | sat | arrived | done
   created_at: string;
   expires_at: string | null;
+}
+
+/**
+ * Ссылка, которую человек отправляет близкому: `{адрес сервера}/t/{token}`.
+ * Собирается так же, как в Android (ApiClient.liveLinkOrNull). Нет токена — ссылки нет (null).
+ * Сервер SMS с этой ссылкой сам не гарантирует (на проде канал выключен), поэтому её показывают
+ * на экране, а отправляет человек.
+ */
+export function tripLiveLink(share: Pick<TripShare, "token"> | null | undefined): string | null {
+  const token = share?.token?.trim();
+  return token ? `${API_BASE.replace(/\/+$/, "")}/t/${token}` : null;
 }
 
 /** Статус поездки для близких: «села в машину» / «доехала» / «поездка завершена». */

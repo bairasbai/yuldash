@@ -30,9 +30,24 @@ export interface SosEvent {
   note: string;
   status: string; // open | handled
   created_at: string;
+  /** Скольким близким SMS РЕАЛЬНО уйдёт (на проде канал выключен — 0). */
+  contacts_notified?: number;
+  /** Сколько доверенных заведено вообще. */
+  contacts_total?: number;
+  /** Рассылка близким заглушена потолком «N сигналов в час». */
+  sms_suppressed?: boolean;
+  /**
+   * Честная подсказка сервера, когда близким ничего не уйдёт («Сигнал принят… SMS сейчас
+   * не работает — позвони им сама»). Пусто, если сказать нечего. Экран показывает как есть.
+   */
+  hint_ru?: string;
+  hint_ba?: string;
 }
 
-/** SOS: событие пишется всегда, доверенным уходит SMS (кеп на сервере). Требует входа. */
+/**
+ * SOS: событие пишется всегда, дежурный Юлдаша получает сигнал. SMS доверенным уходит только
+ * если канал включён (на проде выключен) — что дошло, говорит ответ (`hint_*`). Требует входа.
+ */
 export function sendSos(body: SosInput): Promise<SosEvent> {
   return apiPost<SosEvent>("/sos", {
     category: body.category,

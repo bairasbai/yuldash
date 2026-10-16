@@ -13,7 +13,7 @@ const mocks={
  export function useEffect(fn,deps){const x=h.current,i=x.i++,p=x.values[i];if(!p||!deps||deps.some((v,j)=>v!==p.deps[j])){x.values[i]={deps};h.effects.push(()=>{x.cleanups[i]?.();x.cleanups[i]=fn()});}}
  export const useMemo=fn=>fn();`,
  'react/jsx-runtime':`export const Fragment='fragment';export const jsx=(type,props,key)=>({type,props,key}),jsxs=jsx;`,
- 'react-router-dom':`export const useNavigate=()=> (...args)=>globalThis.__sosBoundary.nav.push(args);`,
+ 'react-router-dom':`export const useNavigate=()=> (...args)=>globalThis.__sosBoundary.nav.push(args); export const useSearchParams=()=>[new URLSearchParams(globalThis.__sosBoundary.search??'')];`,
  lang:`export const useLang=()=>({appText:ru=>ru,lang:'ru'});`,
  auth:`export const useAuth=()=>globalThis.__sosBoundary.auth;`,
  client:`export class ApiError extends Error {constructor(status){super('fixture');this.status=status;}} export const getSessionGeneration=()=>globalThis.__sosBoundary.generation;`,

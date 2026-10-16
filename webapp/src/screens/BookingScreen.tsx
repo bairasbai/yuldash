@@ -2,9 +2,13 @@
 //  Детали брони (GET /bookings/{id}/details). Требует вход (участник).
 //  Телефон и точная точка встречи открываются только после
 //  подтверждения водителем (contact_unlocked). Карта концов маршрута.
+//
+//  Экран — для ПАССАЖИРА. Водитель этой поездки, открывший ссылку на бронь (пуш «новая
+//  бронь»), уходит туда, где с ней можно что-то сделать: кабинет водителя («Подтвердить»)
+//  или экран поездки — см. utils/bookingLink.ts (зеркало Android BookingLinkDestination.kt).
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import {
   fetchBookingDetails,
@@ -22,6 +26,7 @@ import { PartnerAdSlot } from "../components/PartnerAd";
 import { ApiError } from "../api/client";
 import { track } from "../analytics";
 import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
+import { bookingLinkPath } from "../utils/bookingLink";
 export default function BookingScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
@@ -88,6 +93,10 @@ export default function BookingScreen() {
       setCancelling(false);
     }
   }
+
+  // Водитель по ссылке на бронь — не на пассажирскую «Бронь» с «Отменить бронь».
+  const driverPath = status === "ready" && d ? bookingLinkPath(d.role, d.status, bookingId) : null;
+  if (driverPath) return <Navigate to={driverPath} replace />;
 
   return (
     <>
