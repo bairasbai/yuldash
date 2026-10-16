@@ -1,6 +1,7 @@
 """Поездки: публикация (вкл. регулярные серии), поиск, ценовой ориентир,
 ближайшие по маршруту+гео, карточка поездки."""
 import re
+from collections import Counter
 from datetime import date as date_type, datetime, timedelta
 from functools import lru_cache
 from typing import List, Optional
@@ -971,14 +972,15 @@ def ride_cities(user: Optional[User] = Depends(current_user_optional),   # ес�
     rows = hide_trusted_only(hide_suspended(hide_blocked(rows, user, session), user, session), user, session)
 
     def _top(names) -> list[dict]:
+        # Сначала считаем имена, потом ищем каждое РАЗНОЕ имя в справочнике один раз: поиск ходит
+        # в базу, и по разу на поездку это 4000 запросов на открытие карты (приёмка PR147).
+        # Имя с запятой не берём: фильтр передаёт города через запятую и разрезал бы его на два.
+        имена = Counter(n for n in (bare_name((raw or "").strip()) for raw in names) if n and "," not in n)
         счёт: dict[tuple, int] = {}
-        for raw in names:
-            name = bare_name((raw or "").strip())
-            if not name:
-                continue
+        for name, n in имена.items():
             row = by_exact_name(session, name)
             key = ((row.name_ru or name), (row.name_ba or row.name_ru or name)) if row else (name, name)
-            счёт[key] = счёт.get(key, 0) + 1
+            счёт[key] = счёт.get(key, 0) + n
         лучшие = sorted(счёт.items(), key=lambda kv: (-kv[1], kv[0][0]))[:_MAX_FILTER_CITIES]
         return [{"ru": ru, "ba": ba} for (ru, ba), _ in лучшие]
 

@@ -252,3 +252,44 @@ def _проверить_ленту(client, user_factory, _make_courier, _order):
         "на 2 посылках лента сходила в справочник городов %d раз, на 10 — уже %d. Значит "
         "название города переводится заново на каждую строку." % (мало, много)
     )
+
+
+def test_список_городов_не_ходит_в_справочник_на_каждую_поездку(client, user_factory):
+    """`/rides/cities` спрашивает справочник по разу на каждое РАЗНОЕ имя, а не на поездку.
+
+    Приёмка PR147: поиск имени в справочнике ходит в базу (сверка свежести снимка), и по разу
+    на каждую из 2000 поездок это тысячи запросов на каждое открытие карты. Проверяем рост:
+    пять новых поездок из уже знакомых городов не должны добавить ни одного похода в справочник.
+    """
+    from datetime import timedelta
+
+    from app.config import settings
+    from app.models import UserRole
+    from app.timeutil import utcnow
+
+    водитель = user_factory("ГородаБезЛишнихЗапросов", role=UserRole.driver)
+
+    def _поездок(n: int) -> None:
+        for i in range(n):
+            when = (utcnow() + timedelta(hours=settings.local_tz_offset_hours, days=2, minutes=i)).replace(microsecond=0)
+            r = client.post("/rides", headers=водитель["auth"], json={
+                "from_city": "Белебей", "to_city": "Кумертау", "seats_total": 3, "price": 400,
+                "depart_at": when.isoformat(),
+            })
+            assert r.status_code == 200, r.text
+
+    def _походов_в_справочник() -> int:
+        with _Counter(table="settlement") as c:
+            assert client.get("/rides/cities").status_code == 200
+        return c.n
+
+    _поездок(1)
+    мало = _походов_в_справочник()
+    _поездок(5)                  # те же Белебей и Кумертау — новых имён нет
+    много = _походов_в_справочник()
+
+    assert много <= мало, (
+        "на тех же городах список сходил в справочник %d раз, после пяти новых поездок — %d. "
+        "Значит ищет имя на каждую поездку." % (мало, много)
+    )
+
