@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Icon
@@ -170,6 +171,10 @@ private fun ReceiptCard(r: TripReceiptDto) {
                 if (r.driverName.isNotBlank()) {
                     ReceiptDivider()
                     ReceiptDriverRow(r.driverName, r.driverVerified)
+                }
+                if (r.myStars in 1..5) {
+                    ReceiptDivider()
+                    ReceiptRow(Icons.Default.Star, appText("Твоя оценка", "Һинең баһаң"), starsText(r.myStars))
                 }
             }
         }

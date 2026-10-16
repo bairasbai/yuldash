@@ -3,12 +3,12 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
 // Юлдаш PWA. Service worker кеширует app shell (офлайн-оболочка).
-// registerType: autoUpdate — новая версия подтягивается сама.
+// Новая версия скачивается в фоне; применение — через UpdateBanner.
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: "autoUpdate",
+      registerType: "prompt",
       includeAssets: ["favicon.ico", "apple-touch-icon.png"],
       manifest: false, // используем свой public/manifest.webmanifest
       workbox: {
@@ -26,7 +26,7 @@ export default defineConfig({
         ],
         navigateFallback: "/index.html",
         // Подключаем наш обработчик Web Push (push / notificationclick) к
-        // сгенерированному Workbox SW. autoUpdate и кеш остаются как есть —
+        // сгенерированному Workbox SW. Ожидание выбора и кеш сохраняются —
         // мы лишь ДОБАВЛЯЕМ слушатели (см. public/push-sw.js).
         importScripts: ["push-sw.js"],
         // P1-1: приватные ленты (/rides, /feed — имена, маршруты, координаты попутчиков) НЕ

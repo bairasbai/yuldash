@@ -34,6 +34,7 @@ import com.yuldash.app.data.OutboxAction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -87,6 +88,8 @@ internal class TripChatState(
     var queuedIds: Set<Int> by mutableStateOf(emptySet())
     private var tempSeq = -2
     private val restAttempts = mutableMapOf<Int, OutboxAction>()
+    private val delivering = mutableMapOf<Int, Any>()
+    private val acknowledged = mutableSetOf<Int>()
     internal val wsConnectedState: MutableState<Boolean> = mutableStateOf(false)
     var wsConnected: Boolean by wsConnectedState
     private var wasEverConnected = false
@@ -146,13 +149,26 @@ internal class TripChatState(
                 // (read-modify-write `messages` иначе может потерять обновление при гонке потоков).
                 scope.launch {
                     if (!isActive()) return@launch
-                    // оптимистичное = отрицательный id, не помеченное как «не доставлено», моё, тот же текст
-                    val optIdx = messages.indexOfFirst { it.id < 0 && it.id !in failedIds && it.senderId == myId && it.text == inc.text }
-                    val dto = MessageDto(inc.id, inc.text, inc.senderId, flag = inc.flag, fromAdmin = inc.fromAdmin)
+                    // A repeated frame must never consume another same-text pending message.
+                    val pending = restAttempts.entries.firstOrNull {
+                        inc.senderId == myId && inc.requestId.isNotBlank() &&
+                            Outbox.messageRequestKey(it.value) == inc.requestId
+                    }
+                    if (pending != null) {
+                        acknowledged += pending.key
+                        failedIds = failedIds - pending.key
+                        queuedIds = queuedIds - pending.key
+                    }
+                    val optIdx = pending?.let { entry -> messages.indexOfFirst { it.id == entry.key } } ?: -1
+                    val dto = MessageDto(inc.id, inc.text, inc.senderId, voiceUrl = inc.voiceUrl, deleted = inc.deleted,
+                        edited = inc.edited, flag = inc.flag, fromAdmin = inc.fromAdmin)
                     messages = when {
+                        inc.id > 0 && messages.any { it.id == inc.id } -> messages.filterNot { it.id == pending?.key }
                         optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = dto }
-                        inc.id > 0 && messages.any { it.id == inc.id } -> messages   // дубль по id — пропустить
                         else -> messages + dto
+                    }
+                    if (pending != null) withContext(Dispatchers.IO) {
+                        Outbox.acknowledge(context, pending.value, tripSession)
                     }
                 }
             },
@@ -162,11 +178,21 @@ internal class TripChatState(
             // Сервер не принял сообщение (слишком быстрый поток). Помечаем его
             // «Не доставлено · Повторить» — тем же способом, что и отказ по обычному
             // запросу. Молча оставить нельзя: оно висело бы как отправленное.
-            onRejected = { tempId, _ ->
+            onRejectedDetailed = { tempId, key, status, _ ->
                 scope.launch {
                     if (!isActive()) return@launch
-                    failedIds = failedIds + tempId
-                    toast(texts.value.tooFast, long = false)
+                    val action = restAttempts[tempId] ?: return@launch
+                    if (key != Outbox.messageRequestKey(action)) return@launch
+                    val permanent = status in PERMANENT_REJECTIONS
+                    if (permanent) {
+                        // Invalidate the old timeout before permitting a manual same-key retry.
+                        delivering.remove(tempId)
+                        withContext(Dispatchers.IO) { Outbox.acknowledge(context, action, tripSession) }
+                        if (!isActive()) return@launch
+                        queuedIds = queuedIds - tempId
+                        failedIds = failedIds + tempId
+                    } else queuedIds = queuedIds + tempId
+                    toast(if (status == 429) texts.value.tooFast else texts.value.sendFail, long = false)
                 }
             },
         )
@@ -214,34 +240,43 @@ internal class TripChatState(
     // - ошибка сервера → «Не доставлено · Повторить» (ручной повтор, как прежде).
     private fun deliver(tempId: Int, text: String) {
         val bid = bookingId ?: return
-        if (!isActive()) return
-        val queueSession = tripSession
-        val ws = socket
-        // tempId уходит на сервер: если он откажется принять сообщение, вернёт этот же номер,
-        // и мы пометим «Не доставлено» именно это сообщение (см. onRejected).
-        val sentViaWs = tempId !in restAttempts && wsConnected && ws != null && ws.send(text, tempId)
-        if (sentViaWs) return   // эхо WS заменит оптимистичное сообщение настоящим
+        if (!isActive() || tempId in acknowledged || tempId in delivering) return
+        val attempt = Any()
+        delivering[tempId] = attempt
         val action = restAttempts.getOrPut(tempId) { Outbox.newMessage(bid, text) }
         scope.launch {
-            if (!isActive()) return@launch
-            ApiClient.sendMessage(bid, action.payload, Outbox.messageRequestKey(action))
-                .onSuccess { if (isActive()) ApiClient.getMessages(bid).onSuccess { if (isActive()) messages = it } }
-                .onFailure { e ->
-                    if (!isSessionCurrent()) return@onFailure
-                    if (e is ApiException) {
-                        if (!isActive()) return@onFailure
-                        failedIds = failedIds + tempId
-                        // Сервер знает причину: чат закрылся после поездки, собеседник в блокировке.
-                        // «Не отправилось» об этом молчало, и человек писал в пустоту.
-                        toast(serverSaid(e, texts.value.sendFail), long = true)
-                    } else {
-                        // Нет сети → в очередь на авто-ретрай. Сообщение остаётся на экране с меткой «в очереди».
-                        val saved = withContext(Dispatchers.IO) { Outbox.enqueue(context, action, queueSession) }
-                        if (!isActive()) return@onFailure
-                        if (saved) queuedIds = queuedIds + tempId else failedIds = failedIds + tempId
-                        toast(if (saved) texts.value.queued else texts.value.queueSaveFail, long = false)
-                    }
+            try {
+                // Commit before network: process death must not forget an accepted WS send.
+                val saved = withContext(Dispatchers.IO) { Outbox.enqueue(context, action, tripSession) }
+                if (!isActive()) return@launch
+                if (!saved) {
+                    failedIds = failedIds + tempId
+                    toast(texts.value.queueSaveFail, long = false)
+                    return@launch
                 }
+                val sentViaWs = wsConnected && socket?.send(action.payload, tempId, Outbox.messageRequestKey(action)) == true
+                if (sentViaWs) delay(WS_ACK_TIMEOUT_MS)
+                if (!isActive() || tempId in acknowledged || delivering[tempId] !== attempt) return@launch
+                // Same key for uncertain WS delivery, HTTP retry and startup queue flush.
+                ApiClient.sendQueuedAction(action, tripSession)
+                    .onSuccess {
+                        acknowledged += tempId
+                        withContext(Dispatchers.IO) { Outbox.acknowledge(context, action, tripSession) }
+                        if (isActive()) {
+                            failedIds = failedIds - tempId
+                            queuedIds = queuedIds - tempId
+                            ApiClient.getMessages(bid).onSuccess { if (isActive()) messages = it }
+                        }
+                    }
+                    .onFailure { e ->
+                        if (!isSessionCurrent() || tempId in acknowledged) return@onFailure
+                        val permanent = e is ApiException && e.status in PERMANENT_REJECTIONS
+                        if (permanent) withContext(Dispatchers.IO) { Outbox.acknowledge(context, action, tripSession) }
+                        if (!isActive()) return@onFailure
+                        if (permanent) failedIds = failedIds + tempId else queuedIds = queuedIds + tempId
+                        toast(if (permanent) serverSaid(e, texts.value.sendFail) else texts.value.queued, long = permanent)
+                    }
+            } finally { if (delivering[tempId] === attempt) delivering.remove(tempId) }
         }
     }
 
@@ -349,6 +384,8 @@ internal class TripChatState(
     }
 
     internal companion object {
+        private val PERMANENT_REJECTIONS = setOf(400, 403, 404, 405, 409, 410, 413, 415, 422)
+        internal const val WS_ACK_TIMEOUT_MS = 5_000L
         const val NO_MARK = Int.MIN_VALUE
         private val seenMarks = ConcurrentHashMap<String, Int>()
     }

@@ -18,7 +18,7 @@
 """
 from __future__ import annotations
 
-import re
+import ast
 from pathlib import Path
 
 import pytest
@@ -69,30 +69,73 @@ def test_обычное_сообщение_уходит(client, chat):
     assert r.status_code == 200, r.text
 
 
+def _chat_doors_without_empty_guard(source: str):
+    """Follow only real calls that pass this request body into a local helper."""
+    tree = ast.parse(source)
+    functions = {node.name: node for node in tree.body
+                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    doors = [node for node in functions.values() for decorator in node.decorator_list
+             if isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute)
+             and isinstance(decorator.func.value, ast.Name) and decorator.func.value.id == "router"
+             and decorator.func.attr == "post" and decorator.args
+             and isinstance(decorator.args[0], ast.Constant)
+             and isinstance(decorator.args[0].value, str) and "/messages" in decorator.args[0].value]
+
+    def trims_text(node, parameter):
+        return any(isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                   and call.func.attr == "strip" and any(
+                       isinstance(value, ast.Attribute) and value.attr == "text"
+                       and isinstance(value.value, ast.Name) and value.value.id == parameter
+                       for value in ast.walk(call.func.value)) for call in ast.walk(node))
+
+    def guarded(function, parameter, visited):
+        edge = (function.name, parameter)
+        if edge in visited:
+            return False
+        visited = visited | {edge}
+        for condition in (node for node in ast.walk(function) if isinstance(node, ast.If)):
+            aliases = {target.id for assignment in ast.walk(function)
+                       if isinstance(assignment, ast.Assign) and assignment.lineno < condition.lineno
+                       and trims_text(assignment.value, parameter)
+                       for target in assignment.targets if isinstance(target, ast.Name)}
+            empty_check = any(isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not)
+                              and (trims_text(node.operand, parameter)
+                                   or isinstance(node.operand, ast.Name) and node.operand.id in aliases)
+                              for node in ast.walk(condition.test))
+            refuses = any(isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call)
+                          and isinstance(node.exc.func, ast.Name) and node.exc.func.id == "herr"
+                          and node.exc.args and isinstance(node.exc.args[0], ast.Constant)
+                          and node.exc.args[0].value == 400 and any(
+                              isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                              and "пуст" in arg.value.lower() for arg in node.exc.args[1:])
+                          for statement in condition.body for node in ast.walk(statement))
+            if empty_check and refuses:
+                return True
+        for call in (node for node in ast.walk(function) if isinstance(node, ast.Call)):
+            helper = functions.get(call.func.id) if isinstance(call.func, ast.Name) else None
+            if helper is None:
+                continue
+            parameters = [arg.arg for arg in helper.args.posonlyargs + helper.args.args]
+            bindings = list(zip(parameters, call.args)) + [(arg.arg, arg.value) for arg in call.keywords]
+            for name, value in bindings:
+                if isinstance(value, ast.Name) and value.id == parameter and guarded(helper, name, visited):
+                    return True
+        return False
+
+    return doors, [node for node in doors if not guarded(node, "body", set())]
+
+
 def test_пустое_не_уходит_ни_в_одном_из_чатов():
-    """Чатов в Юлдаше три: бронь, мгновенный заказ и посылка. Двери должны быть закрыты все.
+    """All POST message doors, including editing, must reject trimmed empty text.
 
-    Тест выше проверяет поведением только чат брони. Пока я его писал, выяснилось, что
-    сломать можно любую другую дверь и никто не заметит — поэтому здесь читается исходник:
-    у каждой отправки сообщения обязана быть проверка на пустоту.
+    A shared helper counts only when this handler really calls it with its request body.
+    There is no filename/function exception list and no arbitrary line-window limit.
     """
-    src = CHAT.read_text(encoding="utf-8").splitlines()
-    doors = [i for i, line in enumerate(src)
-             if re.match(r"@router\.post\(.*/messages", line.strip())]
+    doors, unguarded = _chat_doors_without_empty_guard(CHAT.read_text(encoding="utf-8"))
     assert len(doors) >= 3, f"чатов стало {len(doors)} — проверь, не появилась ли новая дверь"
-
-    unguarded = []
-    for i in doors:
-        body = "\n".join(src[i: i + 40])
-        # Написано по-разному: где-то `if not (body.text or "").strip()`, где-то сначала
-        # `text = body.text.strip()`, а потом `if not text`. Важно не написание, а две вещи:
-        # пробелы схлопываются и на пустое приходит отказ.
-        trims = ".strip()" in body
-        refuses = bool(re.search(r"herr\(\s*400[^)]*[Пп]уст", body))
-        if not (trims and refuses):
-            unguarded.append(f"chat.py:{i + 1} → {src[i].strip()[:60]}")
     assert not unguarded, (
-        "здесь можно отправить пустое сообщение: " + "; ".join(unguarded)
+        "здесь можно отправить пустое сообщение: "
+        + "; ".join(f"chat.py:{node.lineno} → {node.name}" for node in unguarded)
         + ". Собеседнику зазвонит телефон «Новое сообщение», он откроет чат — пустой пузырь."
     )
 

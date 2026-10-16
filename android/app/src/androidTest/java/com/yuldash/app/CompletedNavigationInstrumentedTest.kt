@@ -60,7 +60,7 @@ class CompletedNavigationInstrumentedTest {
         server=Loopback();ApiClient.resetForTest();ApiClient.init(context)
         ApiClient.testBaseUrl=server.url;ApiClient.testTimeoutMs=60000;ApiClient.saveToken(token);assertFalse(ApiClient.secureStorageUnavailable)
         context.getSharedPreferences("yuldash_prefs",0).edit().putBoolean("onboarding_completed",false).commit();AppPrefs.setLanguage(context,AppLanguage.Ru)
-        DeepLink.pendingCompletedBookingId.value=null;DeepLink.pendingRideId.value=null
+        DeepLink.pendingCompletedBookingId.value=null;
         app.registerActivityLifecycleCallbacks(lifecycle)
     }
     @After fun cleanup() {

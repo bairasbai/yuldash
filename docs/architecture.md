@@ -1,5 +1,81 @@
 # 🗺️ Карта кода Юлдаш
 
+<!-- QA-ANDROID-PUBLIC-LINK-WARM-01-20261016 -->
+## Публичная ссылка принадлежит окну Android — 16.10.2026
+
+MainActivity передаёт URI через requestPublicRideIntent своему YuldashViewModel; PendingPublicRideNavigation(id,revision) сохраняется в SavedStateHandle. Сохраняются первая/последняя обработанные URI-доставки (id), поэтому копия исходного VIEW при восстановлении не создаёт новый переход; onNewIntent принимает новый показ того же id. YuldashApp читает только свою запись, а HTTP сверяет запись, экран, private revision, сессию и активность. PrivateNavigationBridges.kt держит слабые ссылки на публикующие VM для совместимых private сигналов; чужой host их не импортирует/не очищает, onCleared освобождает только свои. Личный HTTP связан с durable записью VM и не зависит от глобального поля. Manifest singleTop предотвращает второе верхнее окно при обычном VIEW; это не singleTask и не очистка всего стека. [Проверки](audit-blocks.md#wave1-warm-link-20261016).
+
+<!-- QA-ANDROID-PUBLIC-LINK-WARM-01-20261016 END -->
+
+<!-- QA-ANDROID-DARK-STATUS-01-20261016 -->
+## Системные панели и настройки темы Android — 16.10.2026
+
+MainActivity владеет одним AppSystemBars для своего Window, передаёт его YuldashTheme и оборачивает YuldashApp в AppStatusBarProtection. Часы/статусные значки всегда белые на CanonGreenInk: API<35 использует statusBarColor, API>=35 рисует поверх корня ровно WindowInsets.statusBars без изменения content insets/padding. XML Starting/base согласованы. Splash fade300ms/remove/release и владельцы Intro прежние; тема/владельцы продолжают управлять нижней навигацией. Семь M3 шторок в BookingActiveTripScreen/GeoUi/InstantOrderScreen/MainActivity/ModeSwitchHome/RidesRequestsChatScreens идут через AppModalBottomSheet, который задаёт белый статус до первого draw отдельного Window; нижняя навигация соответствует прежнему M3 default для нынешних непрозрачных цветов. ThemePreferences.kt/persistThemeChoice и cold restore формата yuldash_theme/dark_override не изменены. Проверки: lifecycle10, inset/pixel3, actual M3Window2, sourceGuard3, themePersistence7. [Результаты и пределы](audit-blocks.md#wave1-intro-contrast-20261016).
+<!-- QA-ANDROID-DARK-STATUS-01-20261016 END -->
+
+<!-- W1-REDIS-01 -->
+## Подтверждение исходящего чата — QA-B05-001, 16.10.2026
+
+Android TripChatState сохраняет OutboxAction до WS/REST, использует один request key и ждёт эхо5с; затем REST с тем же ключом. ChatSocket.Incoming переносит request_id/edited/deleted/voice_url; исходящее согласуется по владельцу и ключу, повтор ID не поглощает другую одинаковую фразу. Outbox.enqueue повтор action не добавляет; acknowledge снимает точное действие только исходного входа. Окончательный WS отказ передаёт ключ/статус, снимает действие до failed UI и отменяет старый таймер через ticket; ручной повтор сохраняет ключ. 429/408/5xx/сеть остаются в очереди.
+
+PWA api/chat ждёт подтверждение своего sender_id/request_id, сохраняет ранний ack, очищает таймеры; TripChatScreen сначала durable enqueue, затем WS→REST, поздний ack участвует в гонке с REST. outbox.acknowledgeMessage очищает только точное действие/вход. Подтверждённая доставка не превращается в ошибку из-за отказа очистки диска.
+
+Backend chat._persist_booking_message общий для WS/REST: MessageIn normalization/digest, существующая ChatMessageRequest и уникальность(sender,booking,key), commit в одной транзакции. Replay проверяет текущий доступ, возвращает прежнюю строку отправителю без повторного broadcast/push; старые keyless клиенты сохраняют прежнее поведение. Схема/версии/зависимости не менялись. [Проверки и границы](audit-blocks.md#wave1-ws-ack-20261016).
+
+## Локальная проверка межпроцессного чата — 16.10.2026
+
+Продуктовый путь не изменён: REST после commit вызывает services.notify_chat_message, WS вызывает manager.broadcast; Redis pubsub подписчики каждого процесса вызывают local_broadcast. На отдельном экземпляре шины общий yuldash:chat не пересекается с другими проектами; одного другого RedisDB недостаточно для изоляции pubsub. W1-REDIS-01 использует Memurai4.1.2 с reported redis_version7.2.5, свои63879/63880, два настоящих uvicorn PID на8006/8007, общий собственный PostgreSQL55436. Это два процесса с разными портами, не проверка общего балансировщика или LinuxRedis.
+
+QA-обёртки в test-results не меняют app/services: RESPproxy получает настоящий PUBLISH reply и только затем закрывает соединение до API. ASGIобёртка после настоящего send записывает безопасный ID/тип/QAtext/peer/UA, без authbody/token; во время UI-проверки удерживает настоящий GETистории до снятия флага. Благодаря этому кадры и появление сообщения наблюдаются отдельно от последующего чтения истории. Локальный REDIS_URL явно задаёт socket_timeout/connect_timeout3s; обычные настройки продукта не меняются. При потерянном reply bus1/DB1 может сопровождаться двумя локальными кадрами одного ID. Exactly-once транспорта не обещается; требуется дедупликация интерфейса. Текущий статус — реестр.
+<!-- W1-REDIS-01 --> END
+
+<!-- W1-STORAGE-01 -->
+## Полный отказ хранилища PWA — 16.10.2026
+
+main.tsx монтирует StorageBoundary до чтения темы/шрифта и провайдеров. components/StorageBoundary.tsx показывает независимый от Storage/LangProvider RU/BA-экран восстановления; обычная ошибка React при исправном хранилище не маскируется. utils/storageHealth.ts хранит карантин, runtime epoch, последнее известное/наблюдённое поколение и прямые уведомления критических ошибок. Карантин скрывает credentials, меняет виртуальное поколение и обесценивает старые API/refresh/save/enqueue; outbox сбрасывает память без обращения к диску. tripPass запоминает onboard/terminal до записи, terminal сильнее.
+
+utils/storageRecovery.ts объединяет Retry и сериализует подтверждённую очистку с login/refresh/logout/401 через WebLock yuldash-session-write. Capability permit привязан к попытке, глобального reentrant-флага нет. После каждого await проверяется владелец/epoch. Уже опубликованный новый B сохраняется и проходит новый /me; неизвестный холодный владелец не считается новым B без наблюдённого commit. Очистка касается yuldash private namespace, sessionStorage, outbox/actions/imported, refresh-intents и частных кешей; сохраняет настройки устройства, чужой namespace и публичный precache. Ожидание IDBblocked не освобождает lock; UIdeadline10s лишь оставляет закрытый экран. Без WebLocks recovery не начинает удаление.
+
+AuthProvider.login публикует сессию под lock и возвращает committed generation; loginFlow ожидает её и не меняет имя/маршрут сменившего пользователя. Legacy setters и фоновая очистка используют тот же протокол. После recovery offline-паспорт не доверяется до настоящей проверки пользователя. Это локальное закрытие/очистка; server logout и отзыв push при нечитаемых credentials не доказаны. При отказе всех долговременных записей факт локального выхода нельзя обещать после уничтожения всех JS-процессов. Текущие доказательства — W1-STORAGE-01 в audit-blocks.md; Kotlin/backend не менялись.
+<!-- W1-STORAGE-01 --> END
+
+## Ожидание обновления PWA — 16.10.2026
+
+VitePWA в webapp/vite.config.ts использует prompt: новая оболочка скачивается в waiting, UpdateBanner.onNeedRefresh показывает существующие RU/BAкнопки, update(true) применяет SW. «Позже» скрывает баннер только текущей страницы, не активируя worker; новое полное открытие может снова предложить выбор. Применение в одной вкладке обновляет контролируемые вкладки. Публичный precache сохраняется при выходе, личные snapshot/сессия очищаются прежним способом. Старый autoUpdate JS нельзя снабдить callback задним числом: для первого перехода проверено закрытие всех старых вкладок и новое открытие. W1-SW-01 в audit-blocks.md; без изменения Kotlin/backend и без заявления о WebAPK/реальном телефоне.
+
+## Места в карточке брони — 16.10.2026
+
+BookingActiveTripScreen.kt: BookingScreen передаёт hasBooking в BookingRouteDecisionCard (тело и закрытая BookingDecisionMetric вынесены без изменения в BookingDecisionCards.kt). Публичная карточка показывает свободный остаток RideDto.seatsLeft; после загрузки BookingDetailsDto число означает места конкретной брони и получает соответствующую RU/BA-подпись. canCreateBooking разрешает новую бронь только при положительном остатке; действия уже созданной брони сохранены. Схема/API/резервирование не меняются. Проверка — W1-PG-01 в audit-blocks.md.
+
+## Полный офлайн при повторном открытии PWA — 16.10.2026
+
+Только /trip/:id передаёт в RequireAuth отдельный OfflineTripFallback. При unavailable и navigator.onLine=false он показывает прежний OfflineTripPass, не монтируя ActiveTripScreen. Остальные приватные маршруты, AuthProvider.isAuthed, чат, карта и запись действий закрыты. utils/offlineTripPass.ts сохраняет снимок с user.id из проверенного AuthProvider, поколением входа и случайным ownershipId; отдельный маркер той же брони должен совпасть. Legacy/неполная пара/битые поля/ошибка чтения закрывают показ. Чтение повторно сверяет токен, поколение и обе записи. Тем же owner-bound reader ActiveTripScreen читает кеш при initial/reset/storage-event, поэтому verified B при403 не получает A. Fallback пересчитывается по online/offline/storage, при возврате сети /me проверяется обычным способом.
+
+tripPass.ts хранит необратимые метки onboard/terminal отдельно для брони и поколения; поздний save другой вкладки их не переписывает. Оба загрузчика учитывают метки, onboard скрывает код, terminal скрывает весь снимок. ActiveTripScreen учитывает их при рендере/ответе code и storage-событии. Контакты удаляются при завершении; метки без контактов остаются до очистки личного префикса при выходе. client.setSession сначала убирает access и меняет поколение, затем сохраняет пару и финальный маркер для других вкладок; частичный вход не связывает новый токен со старым паспортом. Ошибка login закрывает прежний private UI; удаление access без успешного маркера закрывает и другую вкладку, тихая ротация не вызывает нового входа. Критерии/доказательства — W1-LOCAL-F07 в audit-blocks.md; установленная на телефон PWA и обновление старого SW остаются отдельными.
+
+## Использованный код в офлайн-паспорте — 16.10.2026
+
+utils/tripPass.ts: clearTripPassBoardingCode синхронно убирает boardingCode только у заданной брони, сохраняя остальные поля и savedAt. Если перезапись storage невозможна, удаляется только этот снимок. ActiveTripScreen вызывает очистку по onboard из details или live role; роль пассажира/confirmed/тот же bookingId нужны для переноса старого кода в свежий снимок. Поздний code проверяет текущего владельца и оба наблюдённых статуса. tickTrip применяет прежний shouldApplyBookingDetails до изменения tripRef/setTrip, поэтому поздний confirmed не откатывает onboard/terminal и не запускает code заново. OfflineTripPass и его тексты не менялись; текущие гейты — W1-LOCAL-F06 в реестре. Полный offline-вход/SW не входят в эту проверку.
+
+## REST → открытый чат без Redis — 15.10.2026
+
+Синхронный обработчик messages после commit вызывает services.notify_chat_message. Успешный Redis publish сохраняет прежнюю межпроцессную доставку без второго локального сообщения. Без Redis/при ошибке publish AnyIO from_thread.run возвращает существующую manager.local_broadcast в event-loop REST worker. Это локальный fallback, не межпроцессная шина. Новые12 тестов и native driver REST→открытый passenger chat без GET истории приняты; real Redis/multiworker остаются отдельной границей.
+
+## PWA попутки: роль, посадка и код — 15.10.2026
+
+ShareTripCard показывает sat/done независимо от активной ссылки близкому; статус принимает только из последующего API-чтения. ActiveTripScreen: needsBoardingCode только passenger+confirmed, cleanup игнорирует поздний Promise при статусе/unmount/смене брони; водитель без своего контакта. StatusPill отдаёт onboard приоритет над arriving. TripReceiptScreen ограничивает pay/thanks/tip ролью passenger. Поздний .code-card в ui.css наследует var(--text), подписи с opacity0.85 проверены computedStyle. OfflineTripPass использует тот же CSS; сохранённый код закрыт F06, полный офлайн и межвкладочные метки — F07. Проверки/границы — в реестре.
+
+## Квитанция из истории попутки — 15.10.2026
+
+MyTripCard передаёт кнопки через TripCardActionLayout.kt: stackActions=true у завершённой карточки с квитанцией рисует две полные строки действий; прежние карточки сохраняют Row/веса. Text обеих кнопок fillMaxWidth/Center, основной допускает2строки. Проверка320dp/fontScale1.3 на RU/BA и4native-комбинации — QA W1-ANDROID-F05.
+
+RidesScreen передаёт onOpenReceipt только для done/id>0 через HomeScreen.gate.guard → HomeRoute.openHomeDestination → существующий отдельный receiptBookingId/Screen.TripReceipt в YuldashApp. Активная бронь, activeTrip и selectedRide не заменяются исторической поездкой. Фильтр RidesScreen хранится rememberSaveable внутри существующего owner scope; возврат через прежнюю историю навигации сохраняет вкладку/фильтр. Основное действие «Повторить маршрут» сохранено. Проверка и статус приёмки — W1-ANDROID-F05 в audit-blocks.md.
+
+## Пустой inbox попутки — 15.10.2026
+
+`GET /conversations` в backend/app/routers/chat.py сохраняет last_message и добавляет has_messages — наличие видимого данному пользователю сообщения. Android: data/Conversation.kt (parseConversationDto и nullable ConversationDto.hasMessages) → production ConversationCard.kt. ApiClient.getConversations и ChatScreen продолжают вызывать те же объявления; перенос сохраняет package/имена и контракт. Только явное false рисует appText пустого чата; отсутствие/неправильный тип сохраняет исходный текст. Миграции БД нет; другие preview и PWA не менялись.
+
+
 ## Выключатели направлений — запуск волнами (13.10.2026)
 
 - **Сервер:** флаги в `config.py` (`TAXI_ENABLED`, `COURIER_ENABLED`, `PARCELS_ENABLED`, `ADS_ENABLED`,
@@ -195,7 +271,7 @@ B01, 20.09.2026: commitAuth возвращает отдельную SessionPersi
 | `parseBookingDetailsDto`, `parseBookingMineDto`, `parseDriverBookingDto` | брони: полная карточка, моя, глазами водителя |
 | `parseRequestDto`, `parseRequestFeedDto`, `parseResponseDto` | заявки пассажира и отклики водителей |
 | `parseDriverStatusDto`, `parsePendingDriverDto` | допуск водителя и очередь на проверку |
-| `parseNotifDto`, `parseConversationDto`, `parseMessageDto` | уведомления и чаты |
+| `parseNotifDto`, `parseMessageDto` | уведомления и сообщения; `parseConversationDto`/`ConversationDto` — data/Conversation.kt |
 | `parseContactDto` | доверенные контакты — кому уходит SOS |
 | `parsePendingPaymentDto`, `parsePaymentsSummaryDto` | платежи в кабинете админа |
 | `parseFeedDto`, `parsePopularRouteDto` | живая лента карты и популярные маршруты |

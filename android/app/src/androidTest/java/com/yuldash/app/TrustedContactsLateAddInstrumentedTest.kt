@@ -54,7 +54,7 @@ class TrustedContactsLateAddInstrumentedTest {
         context.getSharedPreferences("yuldash_prefs", 0).edit().clear().putBoolean("onboarding_completed", false)
             .putString("mode_last", "pooling").putBoolean("mode_hint_shown", true).commit()
         NavSignals.openInstantOrder.value = false; NavSignals.openInstantChat.value = 0
-        DeepLink.pendingRideId.value = null; DeepLink.pendingBookingChatId.value = null
+        DeepLink.pendingBookingChatId.value = null
         server = Loopback(); ApiClient.testBaseUrl = server.url; ApiClient.testTimeoutMs = 60000
         ApiClient.testTrace = { line ->
             if (line.startsWith("ВЫШЛИ из вызова GET /trusted-contacts") && server.release.count == 0L) parsed.countDown()

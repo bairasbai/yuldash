@@ -55,6 +55,35 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     val hasHandledBookingIntent: Boolean get() = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) > 0L
     val privateNavigationRevision: Long get() = saved.get<Long>(KEY_PENDING_REVISION) ?: 0L
 
+    // Публичное назначение принадлежит окну, получившему Intent, а не всему процессу.
+    data class PendingPublicRideNavigation(val rideId: Int, val revision: Long)
+    val pendingPublicRideNavigation = mutableStateOf(
+        saved.get<Int>(KEY_PUBLIC_RIDE)?.takeIf { it > 0 }?.let { rideId ->
+            saved.get<Long>(KEY_PUBLIC_REVISION)?.takeIf { it > 0 }?.let { PendingPublicRideNavigation(rideId, it) }
+        }
+    )
+    fun requestPublicRideIntent(rideId: Int, restoring: Boolean = false) {
+        if (rideId <= 0) return
+        if (restoring && (saved.get<Int>(KEY_INITIAL_PUBLIC_RIDE) == rideId || saved.get<Int>(KEY_LAST_PUBLIC_RIDE) == rideId)) return
+        if (saved.get<Int>(KEY_INITIAL_PUBLIC_RIDE) == null) saved[KEY_INITIAL_PUBLIC_RIDE] = rideId
+        saved[KEY_LAST_PUBLIC_RIDE] = rideId
+        requestPublicRide(rideId)
+    }
+    fun requestPublicRide(rideId: Int) {
+        if (rideId <= 0) return
+        pendingBookingNavigation.value?.let(::clearPendingBooking)
+        pendingScreenNavigation.value?.let(::clearPendingScreen)
+        saved[KEY_PENDING_REVISION] = privateNavigationRevision + 1L
+        val revision = (saved.get<Long>(KEY_PUBLIC_REVISION) ?: 0L) + 1L
+        saved[KEY_PUBLIC_REVISION] = revision
+        saved[KEY_PUBLIC_RIDE] = rideId
+        pendingPublicRideNavigation.value = PendingPublicRideNavigation(rideId, revision)
+    }
+    fun clearPendingPublicRide() {
+        pendingPublicRideNavigation.value = null
+        saved.remove<Int>(KEY_PUBLIC_RIDE)
+    }
+
     // Первая и последняя принятые доставки переживают consume/logout и saved task.
     fun hasHandledNotificationDelivery(deliveryId: String): Boolean =
         saved.get<String>(KEY_INITIAL_DELIVERY) == deliveryId || saved.get<String>(KEY_LAST_DELIVERY) == deliveryId
@@ -89,7 +118,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
 
     fun requestScreenDestination(destination: Screen, ownerId: Int?, targetId: Int = 0) {
         if (destination !in PRIVATE_SCREENS || (destination in ID_SCREENS && targetId <= 0)) return
-        DeepLink.pendingRideId.value = null
+        clearPendingPublicRide()
         pendingBookingNavigation.value?.let(::clearPendingBooking)
         clearScreenBridges()
         val revision = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) + 1L
@@ -123,6 +152,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     }
 
     private fun clearScreenBridges() {
+        if (PrivateNavigationBridges.screen.isForeign(this)) return
         NavSignals.openInstantOrder.value = false
         NavSignals.openInstantChat.value = 0
         NavSignals.openDriverCabinet.value = false
@@ -134,8 +164,10 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         DeepLink.pendingRequestResponsesId.value = null
         DeepLink.pendingRequestsFeed.value = false
         DeepLink.pendingApplicationScreen.value = null
+        PrivateNavigationBridges.screen.release(this)
     }
     private fun publishPendingScreen(pending: PendingScreenNavigation) {
+        PrivateNavigationBridges.screen.claim(this)
         NavSignals.openInstantOrder.value = pending.destination == Screen.InstantOrder
         NavSignals.openInstantChat.value = if (pending.destination == Screen.InstantChat) pending.targetId else 0
         NavSignals.openDriverCabinet.value = pending.destination == Screen.DriverCabinet
@@ -162,7 +194,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
 
     fun requestBookingDestination(bookingId: Int, ownerId: Int?, completed: Boolean) {
         if (bookingId <= 0) return
-        DeepLink.pendingRideId.value = null
+        clearPendingPublicRide()
         pendingScreenNavigation.value?.let(::clearPendingScreen)
         clearScreenBridges()
         val revision = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) + 1L
@@ -206,6 +238,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     }
 
     private fun publishPendingBooking(pending: PendingBookingNavigation) {
+        PrivateNavigationBridges.booking.claim(this)
         DeepLink.pendingCompletedBookingId.value = pending.bookingId.takeIf { pending.completed }
         DeepLink.pendingBookingChatId.value = pending.bookingId.takeIf { !pending.completed }
     }
@@ -216,18 +249,33 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         saved.remove<Int>(KEY_PENDING_COMPLETED)
         saved.remove<Int>(KEY_PENDING_OWNER)
         saved.remove<Boolean>(KEY_PENDING_KIND)
-        if (DeepLink.pendingCompletedBookingId.value == expected.bookingId) DeepLink.pendingCompletedBookingId.value = null
-        if (DeepLink.pendingBookingChatId.value == expected.bookingId) DeepLink.pendingBookingChatId.value = null
+        if (!PrivateNavigationBridges.booking.isForeign(this)) {
+            if (DeepLink.pendingCompletedBookingId.value == expected.bookingId) DeepLink.pendingCompletedBookingId.value = null
+            if (DeepLink.pendingBookingChatId.value == expected.bookingId) DeepLink.pendingBookingChatId.value = null
+            PrivateNavigationBridges.booking.release(this)
+        }
+    }
+
+    private fun clearBookingBridges() {
+        if (PrivateNavigationBridges.booking.isForeign(this)) return
+        DeepLink.pendingCompletedBookingId.value = null
+        DeepLink.pendingBookingChatId.value = null
+        PrivateNavigationBridges.booking.release(this)
+    }
+
+    override fun onCleared() {
+        if (PrivateNavigationBridges.booking.belongsTo(this)) clearBookingBridges()
+        if (PrivateNavigationBridges.screen.belongsTo(this)) clearScreenBridges()
+        super.onCleared()
     }
 
     /** Явный выбор внутри приложения отменяет прежнее ожидающее назначение, не серверную операцию. */
     fun navigateLocally(applyRoute: () -> Unit) {
-        DeepLink.pendingRideId.value = null
+        clearPendingPublicRide()
         pendingBookingNavigation.value?.let(::clearPendingBooking)
         pendingScreenNavigation.value?.let(::clearPendingScreen)
         clearScreenBridges()
-        DeepLink.pendingCompletedBookingId.value = null
-        DeepLink.pendingBookingChatId.value = null
+        clearBookingBridges()
         saved[KEY_PENDING_REVISION] = privateNavigationRevision + 1L
         applyRoute()
         recordNavigationChange()
@@ -350,8 +398,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         saved.remove<Int>(KEY_TAXI_CHAT)
         saved.remove<Int>(KEY_SUPPORT_TICKET)
         pendingBookingNavigation.value?.let(::clearPendingBooking)
-        DeepLink.pendingCompletedBookingId.value = null
-        DeepLink.pendingBookingChatId.value = null
+        clearBookingBridges()
         selectedRide.value = null
         activeTrip.value = null
         activeBookingId.value = null
@@ -378,6 +425,10 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         const val KEY_PENDING_COMPLETED = "yuldash_pending_completed"
         const val KEY_PENDING_OWNER = "yuldash_pending_completed_owner"
         const val KEY_PENDING_REVISION = "yuldash_pending_completed_revision"
+        const val KEY_INITIAL_PUBLIC_RIDE = "yuldash_initial_public_ride"
+        const val KEY_LAST_PUBLIC_RIDE = "yuldash_last_public_ride"
+        const val KEY_PUBLIC_RIDE = "yuldash_pending_public_ride"
+        const val KEY_PUBLIC_REVISION = "yuldash_public_ride_revision"
         const val KEY_INITIAL_DELIVERY = "yuldash_initial_notification_delivery"
         const val KEY_LAST_DELIVERY = "yuldash_last_notification_delivery"
         // Старые ключи сохраняем; отсутствие kind означает ранее сохранённый booking_done.

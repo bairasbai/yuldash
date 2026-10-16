@@ -75,7 +75,7 @@ class TrustedContactsLifetimeTest {
         context.getSharedPreferences("yuldash_prefs", 0).edit().clear().putBoolean("onboarding_completed", false)
             .putString("mode_last", "pooling").putBoolean("mode_hint_shown", true).commit()
         NavSignals.openInstantOrder.value = false; NavSignals.openInstantChat.value = 0
-        DeepLink.pendingRideId.value = null; DeepLink.pendingBookingChatId.value = null
+        DeepLink.pendingBookingChatId.value = null
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {

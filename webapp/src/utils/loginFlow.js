@@ -46,7 +46,12 @@ export function createLoginFlow(deps) {
   const saveAndContinue = async (op, pair, method, name = "") => {
     if (!current(op)) return;
     try {
-      deps.login(pair.access_token, pair.refresh_token, pair.user);
+      const publication = deps.login(pair.access_token, pair.refresh_token, pair.user);
+      const syncGeneration = publication && typeof publication.then === "function" ? null : generation();
+      const committed = await publication;
+      const publishedGeneration = typeof committed === "string" ? committed : syncGeneration;
+      if (!publishedGeneration || generation() !== publishedGeneration) return;
+      op.generation = publishedGeneration;
     } catch {
       if (!disposed && op.id === serial) {
         freshCodeRequired = true;
@@ -54,7 +59,6 @@ export function createLoginFlow(deps) {
       }
       return;
     }
-    op.generation = generation();
     if (op.generation === null) {
       freshCodeRequired = true;
       if (!disposed && op.id === serial) deps.onError("save");

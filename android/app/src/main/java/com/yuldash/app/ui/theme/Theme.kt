@@ -1,5 +1,6 @@
 package com.yuldash.app.ui.theme
 
+import com.yuldash.app.CanonGreenInk
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -9,6 +10,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -59,29 +63,63 @@ private fun Context.findActivity(): Activity? {
     return null
 }
 
+/** One owner per Activity window; platform splash removal may overwrite both appearance flags. */
+class AppSystemBars(private val window: android.view.Window) {
+    private var darkTheme = false
+    private val lightIconOwners = mutableSetOf<Any>()
+
+    /** Fade and release in the same order as the Activity exit listener. */
+    fun fadeSplashExit(vp: androidx.core.splashscreen.SplashScreenViewProvider) {
+        // AndroidX also applies XML flags before this callback: keep the green fade readable.
+        val releaseSplashBars = withLightIcons()
+        vp.view.animate().alpha(0f).setDuration(300L).withEndAction {
+            vp.remove()
+            // remove() reapplies XML flags; release restores the latest theme/active Intro.
+            releaseSplashBars()
+        }.start()
+    }
+
+    fun updateTheme(dark: Boolean) {
+        darkTheme = dark
+        reapply()
+    }
+
+    /** A temporary dark scene restores the latest app theme, never a hard-coded light theme. */
+    fun withLightIcons(): () -> Unit {
+        val owner = Any()
+        lightIconOwners += owner
+        reapply()
+        return { if (lightIconOwners.remove(owner)) reapply() }
+    }
+
+    fun reapply() {
+        val dark = darkTheme || lightIconOwners.isNotEmpty()
+        val barColor = (if (dark) YuldashDarkColors.background else Color(0xFFF7F7F2)).toArgb()
+        window.statusBarColor = CanonGreenInk.toArgb()
+        window.navigationBarColor = barColor
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.isAppearanceLightStatusBars = false
+        controller.isAppearanceLightNavigationBars = !dark
+    }
+}
+
+internal val LocalAppSystemBars = staticCompositionLocalOf<AppSystemBars?> { null }
+
 @Composable
 fun YuldashTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    systemBars: AppSystemBars? = null,
     content: @Composable () -> Unit
 ) {
     val view = LocalView.current
-    if (!view.isInEditMode) {
-        // Красим системные статус/нав-бары под тему. Завязано на darkTheme (= appIsDark()),
-        // поэтому работает и для системной тёмной, и для ручного переключателя темы в приложении
-        // (values-night срабатывает только по системному режиму — здесь покрываем оба случая).
-        val barColor = (if (darkTheme) Color(0xFF0F1613) else Color(0xFFF7F7F2)).toArgb()
-        SideEffect {
-            view.context.findActivity()?.window?.let { window ->
-                window.statusBarColor = barColor
-                window.navigationBarColor = barColor
-                val controller = WindowCompat.getInsetsController(window, view)
-                controller.isAppearanceLightStatusBars = !darkTheme
-                controller.isAppearanceLightNavigationBars = !darkTheme
-            }
-        }
+    val bars = if (view.isInEditMode) null else systemBars ?: remember(view) {
+        view.context.findActivity()?.window?.let(::AppSystemBars)
     }
-    MaterialTheme(
-        colorScheme = if (darkTheme) YuldashDarkColors else YuldashLightColors,
-        content = content
-    )
+    SideEffect { bars?.updateTheme(darkTheme) }
+    CompositionLocalProvider(LocalAppSystemBars provides bars) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) YuldashDarkColors else YuldashLightColors,
+            content = content
+        )
+    }
 }

@@ -32,11 +32,14 @@ class ChatSocket(
     // и человек узнал бы об отказе только когда сообщение пропадёт при обновлении истории.
     private val onRejected: (tempId: Int, reason: String) -> Unit = { _, _ -> },
     expectedGeneration: Long = ApiClient.queueSessionGeneration(),
+    private val onRejectedDetailed: (Int, String, Int, String) -> Unit = { _, _, _, _ -> },
 ) {
     data class Incoming(
         val id: Int, val senderId: Int, val text: String, val timestamp: String,
         val flag: String = "",           // анти-фишинг (B8-6): "warn" → плашка получателю
         val fromAdmin: Boolean = false,  // официальность (B8-9): бейдж «Юлдаш ✓»
+        val requestId: String = "",
+        val deleted: Boolean = false, val edited: Boolean = false, val voiceUrl: String? = null,
     )
 
     private var ws: WebSocket? = null
@@ -136,10 +139,15 @@ class ChatSocket(
                                         id = o.optInt("id"), senderId = o.optInt("sender_id"),
                                         text = o.optString("text"), timestamp = o.optString("timestamp"),
                                         flag = o.optString("flag"), fromAdmin = o.optBoolean("from_admin"),
+                                        requestId = o.optString("request_id"),
+                                        deleted = o.optBoolean("deleted"), edited = o.optBoolean("edited"),
+                                        voiceUrl = o.optString("voice_url").takeIf { it.isNotBlank() },
                                     ))
                                 } else if (o.optString("type") == "rejected") {
                                     // Rejection belongs only to this connection and login.
                                     onRejected(o.optInt("temp_id"), o.optString("reason"))
+                                    onRejectedDetailed(o.optInt("temp_id"), o.optString("request_id"),
+                                        o.optInt("status_code", 503), o.optString("reason"))
                                 }
                             }
                         }
@@ -198,11 +206,13 @@ class ChatSocket(
      * Отправить сообщение. `tempId` — номер «оптимистичного» сообщения на экране: сервер вернёт
      * его обратно, если откажется принять (см. onRejected). Сервер поле игнорирует, если не знает.
      */
-    @Synchronized fun send(text: String, tempId: Int = 0): Boolean {
+    @Synchronized fun send(text: String, tempId: Int = 0, requestId: String? = null): Boolean {
         if (closed) return false
         var sent = false
         ApiClient.runIfCurrentSession(ownerSession) {
-            sent = ws?.send(JSONObject().put("type", "message").put("text", text).put("temp_id", tempId).toString()) ?: false
+            val frame = JSONObject().put("type", "message").put("text", text).put("temp_id", tempId)
+            if (requestId != null) frame.put("request_id", requestId)
+            sent = ws?.send(frame.toString()) ?: false
         }
         return sent
     }

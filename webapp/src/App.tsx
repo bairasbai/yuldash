@@ -5,6 +5,7 @@ import ActiveTaxiBar from "./components/ActiveTaxiBar";
 import InstallPrompt from "./components/InstallPrompt";
 import OfflineBanner from "./components/OfflineBanner";
 import RequireAuth from "./components/RequireAuth";
+import OfflineTripFallback from "./components/OfflineTripFallback";
 import RequireAdmin from "./components/RequireAdmin";
 import FeatureGate from "./components/FeatureGate";
 import { LoadingList } from "./components/States";
@@ -404,7 +405,7 @@ export default function App() {
         <Route
           path="/trip/:id"
           element={
-            <RequireAuth>
+            <RequireAuth unavailableContent={<OfflineTripFallback />}>
               <ActiveTripScreen />
             </RequireAuth>
           }

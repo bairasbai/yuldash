@@ -49,6 +49,7 @@ class ActiveTripChatUiBoundaryTest {
     private val sockets = CopyOnWriteArrayList<WebSocket>()
     private val auth = LinkedBlockingQueue<String>()
     private val sent = LinkedBlockingQueue<String>()
+    private val sentFrames = LinkedBlockingQueue<JSONObject>()
     private val closed = AtomicInteger()
     private val refreshed = AtomicInteger()
     private var backs = 0
@@ -57,6 +58,7 @@ class ActiveTripChatUiBoundaryTest {
     private var ownedNetworkCallbacks = emptyList<ConnectivityManager.NetworkCallback>()
     private lateinit var server: MockWebServer
     @Volatile private var remoteStatus = "confirmed"
+    @Volatile private var failMessageRest = false
     private val tokenA = "header.eyJzdWIiOiIxMSJ9.signature"
     private val tokenA2 = "header.eyJzdWIiOiIxMSJ9.refreshed"
     private val tokenB = "header.eyJzdWIiOiIzMyJ9.signature"
@@ -77,11 +79,13 @@ class ActiveTripChatUiBoundaryTest {
                         override fun onMessage(webSocket: WebSocket, text: String) {
                             val body = JSONObject(text)
                             if (body.getString("type") == "auth") auth.offer(body.getString("token"))
-                            else sent.offer(body.getString("text"))
+                            else { sent.offer(body.getString("text")); sentFrames.offer(body) }
                         }
                         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
                         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { closed.incrementAndGet() }
                     })
+                    if (failMessageRest && request.method == "POST" && path == "/bookings/42/messages")
+                        return MockResponse().setResponseCode(503).setBody("{}")
                     val body = when (path) {
                         "/auth/verify" -> {
                             val account = JSONObject(request.body.readUtf8()).getString("name")
@@ -140,7 +144,7 @@ class ActiveTripChatUiBoundaryTest {
     }.single()
     private data class Callbacks(
         val message: (ChatSocket.Incoming) -> Unit, val connected: (Boolean) -> Unit,
-        val rejected: (Int, String) -> Unit, val messages: MutableState<*>,
+        val rejected: (Int, String, Int, String) -> Unit, val messages: MutableState<*>,
         val failures: MutableState<*>, val connection: MutableState<*>,
     )
     @Suppress("UNCHECKED_CAST")
@@ -148,7 +152,7 @@ class ActiveTripChatUiBoundaryTest {
         fun field(name: String) = ChatSocket::class.java.getDeclaredField(name).apply { isAccessible = true }.get(socket)
         val message = field("onMessage") as (ChatSocket.Incoming) -> Unit
         val connected = field("onConnected") as (Boolean) -> Unit
-        val rejected = field("onRejected") as (Int, String) -> Unit
+        val rejected = field("onRejectedDetailed") as (Int, String, Int, String) -> Unit
         // The socket callbacks belong to the screen's TripChatState (shared by the trip card and the chat view).
         val chat = message.javaClass.declaredFields.firstNotNullOf { it.isAccessible = true; it.get(message) as? TripChatState }
         return Callbacks(message, connected, rejected, chat.messagesState, chat.failedIdsState, chat.wsConnectedState)
@@ -206,6 +210,15 @@ class ActiveTripChatUiBoundaryTest {
         }
     }
     private fun incoming(text: String) = ChatSocket.Incoming(77, 22, text, "")
+    private fun sendPendingMessage(text: String): JSONObject {
+        compose.onNode(hasSetTextAction()).performTextInput(text)
+        compose.onNodeWithContentDescription("Отправить").performClick()
+        waitFor { sentFrames.peek()?.optString("text") == text }
+        return requireNotNull(sentFrames.poll()).also {
+            assertTrue("Pending send needs its real request identity", it.getString("request_id").isNotBlank())
+            assertEquals(1, Outbox.count(context, 42))
+        }
+    }
     private fun assertOldScreenHidden() {
         compose.onAllNodesWithText("private-history-A").assertCountEquals(0)
         compose.onAllNodesWithText("1234").assertCountEquals(0)
@@ -263,9 +276,11 @@ class ActiveTripChatUiBoundaryTest {
     }
     @Test fun queuedRejectionCannotPublishOldFailuresOrToastAfterAccountSwitch() {
         val callback = mount()
+        val pending = sendPendingMessage("rejection-owner-boundary")
         val before = callback.failures.value
         ShadowToast.reset()
-        queuedOnMain({ callback.rejected(-77, "old refusal") }, ::switchAccount)
+        queuedOnMain({ callback.rejected(pending.getInt("temp_id"), pending.getString("request_id"),
+            422, "old refusal") }, ::switchAccount)
         pump()
         assertEquals(before, callback.failures.value)
         assertNull(ShadowToast.getTextOfLatestToast())
@@ -275,6 +290,9 @@ class ActiveTripChatUiBoundaryTest {
     @Test fun cancelledTripRejectsSavedMessageConnectionAndRejectionCallbacks() = terminalCallbacks("cancelled")
     private fun terminalCallbacks(status: String) {
         val callback = mount()
+        // Keep the real action pending while the trip-status poll reaches the terminal boundary.
+        failMessageRest = true
+        val pending = sendPendingMessage("rejection-terminal-boundary")
         remoteStatus = status
         pump(14000)
         if (status == "done") compose.onNodeWithText("Поездка завершена").assertIsDisplayed()
@@ -282,7 +300,8 @@ class ActiveTripChatUiBoundaryTest {
         val messagesBefore = callback.messages.value
         val failuresBefore = callback.failures.value
         ShadowToast.reset()
-        queuedOnMain({ callback.message(incoming("private-after-terminal")); callback.connected(true); callback.rejected(-77, "late refusal") })
+        queuedOnMain({ callback.message(incoming("private-after-terminal")); callback.connected(true)
+            callback.rejected(pending.getInt("temp_id"), pending.getString("request_id"), 422, "late refusal") })
         pump()
         assertEquals(messagesBefore, callback.messages.value)
         assertEquals(failuresBefore, callback.failures.value)
@@ -298,10 +317,18 @@ class ActiveTripChatUiBoundaryTest {
         compose.onNodeWithText("current-message").assertIsDisplayed()
         compose.onNode(hasSetTextAction()).performTextInput("current-reply")
         compose.onNodeWithContentDescription("Отправить").performClick()
-        assertEquals("current-reply", sent.poll(10, TimeUnit.SECONDS))
-        queuedOnMain({ callback.rejected(-2, "local refusal") })
-        pump()
+        // The durable queue write suspends on IO: keep the UI scheduler moving until real WS send.
+        waitFor { sent.peek() == "current-reply" }
+        assertEquals("current-reply", sent.poll())
+        val frame = requireNotNull(sentFrames.poll())
+        val key = frame.getString("request_id")
+        assertTrue(key.isNotBlank())
+        assertEquals(1, Outbox.count(context, 42))
+        assertTrue(sockets.last().send(JSONObject().put("type", "rejected").put("temp_id", frame.getInt("temp_id"))
+            .put("request_id", key).put("status_code", 422).put("reason", "invalid_request").toString()))
+        waitFor { (callback.failures.value as Set<*>).contains(-2) }
         assertTrue((callback.failures.value as Set<*>).contains(-2))
+        assertEquals(0, Outbox.count(context, 42))
         assertNotNull(ShadowToast.getTextOfLatestToast())
         assertEquals(0, backs)
     }

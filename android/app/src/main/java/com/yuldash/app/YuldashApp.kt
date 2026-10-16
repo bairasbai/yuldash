@@ -490,6 +490,7 @@ private fun YuldashAppContent() {
         NavSignals.openInstantChat.value, DeepLink.pendingParcels.value, DeepLink.pendingSupport.value,
         NavSignals.openAdsCabinet.value, NavSignals.openPartnerCabinet.value, DeepLink.pendingFairness.value,
         DeepLink.pendingRequestResponsesId.value, DeepLink.pendingRequestsFeed.value, DeepLink.pendingApplicationScreen.value, navigationSession) {
+        if (vm.pendingPublicRideNavigation.value != null || PrivateNavigationBridges.screen.isForeign(vm)) return@LaunchedEffect
         val previous = vm.pendingScreenNavigation.value
         val bridge = when {
             NavSignals.openInstantChat.value > 0 -> Screen.InstantChat to NavSignals.openInstantChat.value
@@ -641,6 +642,7 @@ private fun YuldashAppContent() {
     }
     // Старые внутренние producer/test bridge тоже принимаются, но HTTP читает durable record.
     LaunchedEffect(DeepLink.pendingCompletedBookingId.value, DeepLink.pendingBookingChatId.value, navigationSession) {
+        if (vm.pendingPublicRideNavigation.value != null || PrivateNavigationBridges.booking.isForeign(vm)) return@LaunchedEffect
         val owner = ApiClient.myUserId()
         val previous = vm.pendingBookingNavigation.value
         val completedBridge = DeepLink.pendingCompletedBookingId.value
@@ -658,8 +660,9 @@ private fun YuldashAppContent() {
         }
     }
     // Публичная ссылка: ошибка не должна молча терять назначение, повтор использует тот же id.
-    LaunchedEffect(DeepLink.pendingRideId.value, screen, vm.privateNavigationRevision, navigationSession) {
-        val rideId = DeepLink.pendingRideId.value ?: return@LaunchedEffect
+    LaunchedEffect(vm.pendingPublicRideNavigation.value, screen, vm.privateNavigationRevision, navigationSession) {
+        val publicDestination = vm.pendingPublicRideNavigation.value ?: return@LaunchedEffect
+        val rideId = publicDestination.rideId
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
         val requestedScreen = screen
         val requestedRevision = vm.privateNavigationRevision
@@ -670,9 +673,9 @@ private fun YuldashAppContent() {
         val result = ApiClient.getRide(rideId)
         // Не менять ключ LaunchedEffect до окончания запроса: это отменяло саму загрузку.
         ApiClient.runIfUnchangedSession(requestedSession) {
-            if (!isActive || DeepLink.pendingRideId.value != rideId || vm.screen.value != requestedScreen ||
+            if (!isActive || vm.pendingPublicRideNavigation.value != publicDestination || vm.screen.value != requestedScreen ||
                 vm.privateNavigationRevision != requestedRevision || publicLinkAttempt != requestedAttempt) return@runIfUnchangedSession
-            DeepLink.pendingRideId.value = null
+            vm.clearPendingPublicRide()
             result.onSuccess { dto ->
                 vm.navigateLocally {
                     selectedRide = dto.toUiRide()
@@ -689,8 +692,8 @@ private fun YuldashAppContent() {
         }
     }
     failedRideLink?.takeIf {
-        DeepLink.pendingRideId.value == null && DeepLink.pendingBookingChatId.value == null &&
-            DeepLink.pendingCompletedBookingId.value == null
+        vm.pendingPublicRideNavigation.value == null && vm.pendingBookingNavigation.value == null &&
+            vm.pendingScreenNavigation.value == null
     }?.let { rideId ->
         val failedKind = failedBookingDestination
         val failedOwner = failedCompletedOwner
@@ -708,6 +711,7 @@ private fun YuldashAppContent() {
             }
         }
         val tagPrefix = if (failedKind == null) "rideLink" else "bookingLink"
+        CompositionLocalProvider(LocalAppLanguage provides language) {
         AlertDialog(
             modifier = Modifier.testTag("${tagPrefix}Failure"),
             onDismissRequest = { closeDisplayedFailure() },
@@ -744,10 +748,10 @@ private fun YuldashAppContent() {
                             return@retry
                         }
                         ApiClient.runIfUnchangedSession(failedSession) {
-                            if (!isDisplayedFailureCurrent() || DeepLink.pendingRideId.value != null ||
+                            if (!isDisplayedFailureCurrent() || vm.pendingPublicRideNavigation.value != null ||
                                 vm.pendingBookingNavigation.value != null || vm.pendingScreenNavigation.value != null) return@runIfUnchangedSession
                             publicLinkAttempt++
-                            DeepLink.pendingRideId.value = rideId
+                            vm.requestPublicRide(rideId)
                             failedRideLink = null
                         }
                     }) { Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2) }
@@ -761,6 +765,7 @@ private fun YuldashAppContent() {
                 }
             },
         )
+        }
     }
     // Кнопка «Написать» из карточки посылки → чат с второй стороной доставки.
     LaunchedEffect(DeepLink.pendingParcelChat.value) {
@@ -773,9 +778,8 @@ private fun YuldashAppContent() {
     }
     // Личное назначение сохраняем до входа. Не устанавливаем бронь до проверки участника.
     listOf(false, true).forEach { completed ->
-        val pending = if (completed) DeepLink.pendingCompletedBookingId else DeepLink.pendingBookingChatId
         val revision = vm.pendingBookingNavigation.value?.takeIf { it.completed == completed }?.revision
-        LaunchedEffect(pending.value, revision, screen, bookingLinkAttempt, navigationSession) {
+        LaunchedEffect(revision, screen, bookingLinkAttempt, navigationSession) {
             val destination = vm.pendingBookingForOwner(ApiClient.myUserId())?.takeIf { it.completed == completed } ?: return@LaunchedEffect
             if (destination.revision != revision) return@LaunchedEffect
             val bid = destination.bookingId
@@ -785,7 +789,7 @@ private fun YuldashAppContent() {
             val requestedSession = navigationSession
             if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
             val result = ApiClient.getTripState(bid)
-            if (!isActive || pending.value != bid) return@LaunchedEffect
+            if (!isActive) return@LaunchedEffect
             if (vm.pendingBookingNavigation.value != destination || !ApiClient.isCurrentSession(requestedSession)) return@LaunchedEffect
             // В том числе после обновления токена: новый запрос проверит текущую сессию.
             if (sessionToken != ApiClient.currentToken()) {
@@ -1297,6 +1301,7 @@ private fun YuldashAppContent() {
                 },
                 onAdImpression = { trackAdImpression(it) },
                 onAdClick = { trackAdClick(it) },
+                onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt },
             )
             Screen.CreateRide -> CreateRideScreen(
                 prefillDate = createRidePrefillDate,   // F15: если пришли из баннера — дата праздника уже стоит
@@ -1475,7 +1480,7 @@ private fun YuldashAppContent() {
                 onOpenInstantOrder = { vm.requestScreenDestination(Screen.InstantOrder, ApiClient.myUserId()) },
                 // «Появилась поездка» / «Поездка завершена, оцени» → карточка поездки
                 // (тем же путём, что ссылка yulbash.ru/r/{id}).
-                onOpenRide = { rid -> DeepLink.pendingRideId.value = rid },
+                onOpenRide = { rid -> vm.requestPublicRide(rid) },
                 // «Открыт разбор» / «Решение по спору» → карточка разбора: там причина и срок.
                 onOpenIncident = { id -> vm.requestScreenDestination(Screen.IncidentDetail, ApiClient.myUserId(), id) },
                 // Долг, списанная комиссия, пауза такси → кабинет водителя: там это всё видно.
@@ -2467,7 +2472,8 @@ internal fun HomeScreen(
     onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → создать поездку с датой-шаблоном
     onTabChange: (HomeTab) -> Unit = {},
     onOpenInstantOrder: () -> Unit = {},
-    onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() }
+    onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() },
+    onOpenReceipt: (Int) -> Unit = {}
 ) {
     // Шелл (таб-стейт + нижнее меню + смена вкладок) вынесен в чистый HomeShell — тестируется на JVM.
     // HomeScreen остаётся «умной» обёрткой: раздаёт данные/колбэки в тело конкретной вкладки.
@@ -2512,6 +2518,7 @@ internal fun HomeScreen(
                     onAdImpression = onAdImpression,
                     onAdClick = onAdClick,
                     onDriverCabinet = gate.guard(onDriverCabinet),
+                    onOpenReceipt = gate.guard(onOpenReceipt),
                 )
                 HomeTab.Request -> MyRequestsScreen(
                     requests = requests,
@@ -2584,7 +2591,7 @@ internal fun HomeShell(
     tabContent: @Composable (tab: HomeTab, selectTab: (HomeTab) -> Unit) -> Unit,
 ) {
     val generation by ApiClient.sessionChanges.collectAsState()
-    var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }   // вкладка переживает поворот
+    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }   // поворот хранит vm.startHomeTab; старый снимок Home не подменяет явный переход
     val shellScope = rememberCoroutineScope()
     var selectionEpoch by remember { mutableIntStateOf(0) }
     val callbackEpoch = selectionEpoch

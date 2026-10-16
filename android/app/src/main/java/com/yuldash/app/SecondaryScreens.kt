@@ -823,7 +823,7 @@ internal fun SettingsScreen(
     // Крупный шрифт: текущий выбранный размер текста (единая точка правды FontScalePrefs).
     val fontLabel = fontScaleLabel(FontScalePrefs.option)
     if (showThemeDialog) {
-        ThemePickerDialog(current = ThemePrefs.darkOverride, onPick = { ThemePrefs.darkOverride = it; showThemeDialog = false }, onDismiss = { showThemeDialog = false })
+        ThemePickerDialog(current = ThemePrefs.darkOverride, onPick = { persistThemeChoice(ctx, it); showThemeDialog = false }, onDismiss = { showThemeDialog = false })
     }
     if (showFontDialog) {
         FontScalePickerDialog(

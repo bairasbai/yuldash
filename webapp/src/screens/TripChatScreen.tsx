@@ -16,7 +16,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObje
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
-import { ApiError, getSessionGeneration } from "../api/client";
+import { getSessionGeneration } from "../api/client";
 import { fetchBookingDetails, type BookingDetails } from "../api/bookings";
 import {
   fetchMessages,
@@ -31,7 +31,7 @@ import QuickReplies from "../components/QuickReplies";
 import { ChatPhotoButton, ChatMessageBody } from "../components/ChatPhoto";
 import { ChatVoiceButton, VoiceBubble } from "../components/ChatVoice";
 import { IconArrow, IconCar, IconChevron, IconWarn } from "../components/Icons";
-import { createOutboxId, enqueue, outboxCount, subscribeOutbox, watchOutbox } from "../utils/outbox";
+import { acknowledgeMessage, createOutboxId, enqueue, isPermanentRejection, outboxCount, subscribeOutbox, watchOutbox } from "../utils/outbox";
 import {
   NO_MARK,
   getSeen,
@@ -136,6 +136,7 @@ export default function TripChatScreen() {
 
   return (
     <TripChat
+      key={`${getSessionGeneration()}:${bookingId}`}
       bookingId={bookingId}
       myId={user?.id ?? -1}
       peer={peer}
@@ -179,6 +180,9 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   const [text, setText] = useState("");
   const [textBusy, setTextBusy] = useState(false);
   const textSending = useRef(false);
+  const ownerSession = useRef(getSessionGeneration()).current;
+  type Intent = { id: string; text: string; persisted: boolean; confirmed?: ChatMessage; acknowledgment: Promise<ChatMessage>; confirm: (m: ChatMessage) => void };
+  const intentRef = useRef<Intent | null>(null);
   const [live, setLive] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -196,6 +200,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   const [attachNote, setAttachNote] = useState("");
 
   const upsert = useCallback((m: ChatMessage) => {
+    if (ownerSession !== getSessionGeneration()) return;
     setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
   }, []);
 
@@ -205,33 +210,41 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   }, []);
 
   const loadHistory = useCallback(() => {
-    if (!bookingId) return () => {};
+    if (!bookingId || ownerSession !== getSessionGeneration()) return () => {};
     let alive = true;
     setLoadError(false);
     fetchMessages(bookingId)
       .then((list) => {
-        if (!alive) return;
+        if (!alive || ownerSession !== getSessionGeneration()) return;
         setMessages(list);
         setLoaded(true);
       })
       .catch(() => {
-        if (!alive) return;
+        if (!alive || ownerSession !== getSessionGeneration()) return;
         setLoadError(true);
         setLoaded(true);
       });
     return () => {
       alive = false;
     };
-  }, [bookingId]);
+  }, [bookingId, ownerSession]);
 
   // История + WS.
   useEffect(() => {
-    if (!bookingId) return;
+    if (!bookingId || ownerSession !== getSessionGeneration()) return;
     setMessages([]);
     setLoaded(false);
     setLive(false);
     const stopHistory = loadHistory();
     const chat = openBookingChat(bookingId, {
+      senderId: myId,
+      onAcknowledged: (message) => {
+        if (ownerSession !== getSessionGeneration() || !message.request_id) return;
+        const intent = intentRef.current;
+        if (intent?.id === message.request_id) { intent.confirmed = message; intent.confirm(message); }
+        // A late ACK can arrive during REST fallback. Cleanup failure never changes delivery success.
+        void acknowledgeMessage(bookingId, message.request_id, ownerSession).catch(() => {});
+      },
       onMessage: upsert,
       onOpen: () => setLive(true),
       onClose: () => setLive(false),
@@ -243,21 +256,23 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
       chat.close();
       chatRef.current = null;
     };
-  }, [bookingId, upsert, loadHistory]);
+  }, [bookingId, myId, ownerSession, upsert, loadHistory]);
 
   // Сеть вернулась → досылаем накопленное и забираем историю с сервера (она авторитетная).
   useEffect(() => {
-    if (!bookingId) return;
+    if (!bookingId || ownerSession !== getSessionGeneration()) return;
     const stop = watchOutbox(() => {
+      if (ownerSession !== getSessionGeneration()) return;
       setQueued(outboxCount(bookingId));
       fetchMessages(bookingId)
         .then((list) => {
+          if (ownerSession !== getSessionGeneration()) return;
           setMessages(list);
           setLoadError(false);
         })
         .catch(() => {});
     });
-    const unsub = subscribeOutbox(() => setQueued(outboxCount(bookingId)));
+    const unsub = subscribeOutbox(() => { if (ownerSession === getSessionGeneration()) setQueued(outboxCount(bookingId)); });
     return () => {
       stop();
       unsub();
@@ -266,10 +281,11 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
 
   // Поллинг-фолбэк, когда живого WS нет.
   useEffect(() => {
-    if (live || !loaded) return;
+    if (live || !loaded || ownerSession !== getSessionGeneration()) return;
     const iv = window.setInterval(() => {
       fetchMessages(bookingId)
         .then((list) => {
+          if (ownerSession !== getSessionGeneration()) return;
           setMessages(list);
           setLoadError(false);
         })
@@ -380,37 +396,64 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   // ---- Отправка ----
   // Общая отправка (поле ввода и быстрые ответы): живой сокет, фолбэк — REST.
   async function sendText(t: string): Promise<boolean> {
-    if (!t || textSending.current) return false;
-    const sessionAtStart = getSessionGeneration();
-    const currentSession = () => sessionAtStart === getSessionGeneration();
+    if (!t || textSending.current || ownerSession !== getSessionGeneration()) return false;
+    const currentSession = () => ownerSession === getSessionGeneration();
     textSending.current = true;
     setTextBusy(true);
     setAttachNote("");
+    // A manual retry of the rejected draft keeps its original identity. Editing creates a new intent.
+    let intent = intentRef.current;
+    if (!intent || intent.text !== t) {
+      let confirm!: (m: ChatMessage) => void;
+      const acknowledgment = new Promise<ChatMessage>(resolve => { confirm = resolve; });
+      intent = { id: createOutboxId(), text: t, persisted: false, acknowledgment, confirm };
+      intentRef.current = intent;
+    }
     try {
-      const sentLive = chatRef.current?.send(t);
-      if (sentLive) return true;
-      const requestId = createOutboxId();
-      try {
-        const m = await sendMessageRest(bookingId, t, undefined, requestId);
-        if (!currentSession()) return false;
-        upsert(m);
-        return true;
-      } catch (e) {
-        if (!currentSession()) return false;
-        if (e instanceof ApiError && e.status === 0) {
-          // Сети нет (трасса) — не теряем: отправим сами, когда связь вернётся.
-          try {
-            await enqueue(bookingId, "message", t, requestId);
-            if (!currentSession()) return false;
-            setQueued(outboxCount(bookingId));
-            return true;
-          } catch {
-            if (!currentSession()) return false;
-          }
+      if (!intent.persisted) {
+        try { await enqueue(bookingId, "message", t, intent.id); }
+        catch {
+          if (!currentSession()) return false;
+          setText(current => current || t);
+          setAttachNote(appText("Не получилось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер."));
+          return false;
         }
-        setText((current) => current || t);
-        setAttachNote(appText("Не получилось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер."));
-        return false;
+        if (!currentSession()) return false;
+        intent.persisted = true;
+      }
+      try {
+        const liveMessage = await chatRef.current?.send(t, intent.id);
+        if (!currentSession()) return false;
+        const message = liveMessage ?? intent.confirmed ?? await Promise.race([
+          sendMessageRest(bookingId, t, undefined, intent.id), intent.acknowledgment,
+        ]);
+        if (!currentSession()) return false;
+        upsert(message);
+        intent.confirmed = message;
+        // The server already committed: a failed local removal must not restore text/new UUID.
+        await acknowledgeMessage(bookingId, intent.id, ownerSession).catch(() => {});
+        if (!currentSession()) return false;
+        if (intentRef.current === intent) intentRef.current = null;
+        return true;
+      } catch (error) {
+        if (!currentSession()) return false;
+        if (intent.confirmed) {
+          if (intentRef.current === intent) intentRef.current = null;
+          return true;
+        }
+        if (isPermanentRejection(error)) {
+          // Preserve the existing rejection policy; same-screen manual retry retains this UUID.
+          try { await acknowledgeMessage(bookingId, intent.id, ownerSession); intent.persisted = false; }
+          catch { /* Same durable key remains if cleanup cannot commit. */ }
+          if (!currentSession()) return false;
+          setText(current => current || t);
+          setAttachNote(appText("Не получилось отправить. Проверь сеть.", "Ебәреп булманы. Селтәрҙе тикшер."));
+          return false;
+        }
+        // No confirmation (network, timeout, 429 or 5xx): the saved action survives restart.
+        setQueued(outboxCount(bookingId));
+        if (intentRef.current === intent) intentRef.current = null;
+        return true;
       }
     } finally {
       textSending.current = false;

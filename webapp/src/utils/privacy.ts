@@ -1,3 +1,4 @@
+import { reportStorageFailure } from "./storageHealth";
 // ================================================================
 //  Что стирается с телефона при выходе из аккаунта.
 //
@@ -32,7 +33,7 @@ const PERSONAL_KEYS = [
 const PERSONAL_PREFIXES = [
   "yuldash.winterAsk.", // «доехал?» по конкретным броням
   "yuldash.winterAskOrder.", // то же по такси-заказам: чей это был заказ — личное
-  "yuldash.tracked.", // какие события у него уже отправлены
+  "yuldash.tracked.", // события и временная проба yuldash.tracked.storageProbe. — чистятся вместе
   "yuldash.scroll.", // где он остановился в ленте — след его просмотра
   // Офлайн-паспорт поездки: телефон водителя, госномер, код посадки. После выхода
   // из аккаунта это чужие персональные данные на общем телефоне — стираем целиком.
@@ -62,6 +63,7 @@ export function syncPersonalSession(generation: string): void {
     clearByPrefix(sessionStorage);
     sessionStorage.setItem("yuldash.session", generation);
   } catch {
+    reportStorageFailure();
     /* Хранилище может быть недоступно в приватном режиме. */
   }
 }
@@ -71,11 +73,13 @@ export function clearPersonalLocal(): void {
     PERSONAL_KEYS.forEach((k) => localStorage.removeItem(k));
     clearByPrefix(localStorage);
   } catch {
+    reportStorageFailure();
     /* хранилище недоступно (приватный режим) — стирать нечего */
   }
   try {
     clearByPrefix(sessionStorage);
   } catch {
+    reportStorageFailure();
     /* то же самое для сессионного */
   }
 }

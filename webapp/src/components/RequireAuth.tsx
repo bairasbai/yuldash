@@ -7,7 +7,7 @@ import { useLang } from "../i18n/lang";
  * Обёртка приватных маршрутов. Публичное (лента поездок, карта) доступно без входа —
  * их сюда не заворачиваем. Приватное без токена уводит на /login (с запоминанием, куда шли).
  */
-export default function RequireAuth({ children }: { children: ReactNode }) {
+export default function RequireAuth({ children, unavailableContent }: { children: ReactNode; unavailableContent?: ReactNode }) {
   const { status, retrySession } = useAuth();
   const location = useLocation();
   const { appText } = useLang();
@@ -22,12 +22,13 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
   }
 
   if (status === "unavailable") {
-    return (
+    const retry = (
       <div className="center-fill" role="status" aria-live="polite">
         <p>{appText("Не получилось проверить вход. Попробуй ещё раз.", "Инеүҙе тикшереп булманы. Ҡабатлап ҡара.") /* DRAFT */}</p>
         <button className="btn-primary" onClick={retrySession}>{appText("Повторить", "Ҡабатлау")}</button>
       </div>
     );
+    return unavailableContent ? <>{unavailableContent}{retry}</> : retry;
   }
 
   if (status === "guest") {

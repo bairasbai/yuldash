@@ -8287,7 +8287,7 @@ select.field__input {
 }
 .update-banner__later,
 .update-banner__go {
-  min-height: 44px;
+  min-height: var(--space-huge);
   padding: 0 var(--space-sm);
   border: 0;
   border-radius: var(--radius-tiny);
@@ -11299,6 +11299,7 @@ select.field__input {
   border: 1px solid var(--green2);
   border-radius: var(--radius-item);
   background: var(--surface);
+  color: var(--text);
 }
 .code-card small {
   color: var(--muted);
@@ -20244,3 +20245,15 @@ button.settings-row:active {
   margin: 0;
   padding: 0 var(--space-md);
 }
+
+/* Storage fault screen runs before ordinary preferences/providers. */
+.storage-unavailable {
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xl);
+  padding: calc(env(safe-area-inset-top) + var(--space-xl)) var(--space-lg)
+    calc(env(safe-area-inset-bottom) + var(--space-xl));
+}
+.storage-unavailable .state { width: 100%; max-width: 640px; }
+.storage-unavailable .login-lang { position: static; }
+.storage-unavailable .login-lang__chip { min-height: var(--space-huge); min-width: var(--space-huge); }

@@ -89,7 +89,7 @@ class TaxiOrderBridgeRestorationTest {
         NavSignals.openAdsCabinet.value = false; NavSignals.openPartnerCabinet.value = false
         DeepLink.pendingParcels.value = false; DeepLink.pendingSupport.value = false
         DeepLink.pendingBookingChatId.value = null; DeepLink.pendingCompletedBookingId.value = null
-        DeepLink.pendingRideId.value = null; DeepLink.pendingFairness.value = false
+        DeepLink.pendingFairness.value = false
         DeepLink.pendingRequestResponsesId.value = null; DeepLink.pendingRequestsFeed.value = false
         DeepLink.pendingApplicationScreen.value = null
     }

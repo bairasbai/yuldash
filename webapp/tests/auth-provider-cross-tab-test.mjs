@@ -67,6 +67,16 @@ await test('external logout immediately removes authenticated A UI',async()=>{
   await readyA();externalSession(null,2);
   const v=render();assert.equal(v.user,null,'External logout must remove A profile');assert.equal(v.status,'guest');assert.equal(v.isAuthed,false);
 });
+await test('partial external login removes A UI even when generation write failed',async()=>{
+  await readyA();h.token=null;
+  const event=new Event('storage');Object.assign(event,{key:'yuldash.token',newValue:null,oldValue:'A',storageArea:localStorage});window.dispatchEvent(event);
+  assert.equal(render().status,'guest');assert.equal(render().user,null);assert.equal(render().isAuthed,false);
+});
+await test('obsolete access removal cannot hide committed B profile',async()=>{
+  await readyA();externalSession('B',2);requireRequest('B').resolve(B);await flush();
+  const event=new Event('storage');Object.assign(event,{key:'yuldash.token',newValue:null,oldValue:'A',storageArea:localStorage});window.dispatchEvent(event);
+  assert.equal(render().status,'authed');assert.equal(render().user.id,B.id);
+});
 await test('external B then C login accepts only latest profile',async()=>{
   await readyA();externalSession('B',2);const b=requireRequest('B');
   externalSession('C',3);const c=requireRequest('C');

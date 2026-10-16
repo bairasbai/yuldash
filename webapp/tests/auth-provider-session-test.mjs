@@ -18,7 +18,7 @@ const mocks = {
   'react/jsx-runtime': `export const jsx=(type,props)=>({type,props}),jsxs=jsx;`,
   client: `const h=globalThis.__authProviderSession;
     export const getToken=()=>h.token,getSessionGeneration=()=>h.generation;
-    export const setSession=(token,refresh)=>{h.token=token;h.refresh=refresh;h.generation++;};
+    export const setSession=(token,refresh)=>{if(h.sessionFailure){h.token=null;throw Error('session storage unavailable');}h.token=token;h.refresh=refresh;h.generation++;};
     export const setRefreshHandler=fn=>h.refreshHandler=fn,setUnauthorizedHandler=fn=>h.unauthorizedHandler=fn;`,
   auth: `const h=globalThis.__authProviderSession;
     export const fetchMe=()=>{const request=h.makeDeferred();h.requests.push(request);return request.promise;};
@@ -34,7 +34,7 @@ const result = await build({entryPoints:[root+'src/auth/AuthProvider.tsx'],bundl
   b.onLoad({filter:/.*/,namespace:'boundary'},a=>({contents:mocks[a.path],loader:'js'}));
 }}]});
 const {AuthProvider} = await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
-function reset(){delete globalThis.caches;Object.assign(h,{states:[],refs:[],callbacks:[],effectDeps:[],effects:[],cleanups:[],requests:[],token:'A',refresh:'refresh-A',generation:1,makeDeferred:deferred,disable:deferred(),serverLogout:deferred(),logoutBearers:[],clears:[]});}
+function reset(){delete globalThis.caches;Object.assign(h,{states:[],refs:[],callbacks:[],effectDeps:[],effects:[],cleanups:[],requests:[],token:'A',refresh:'refresh-A',generation:1,sessionFailure:false,makeDeferred:deferred,disable:deferred(),serverLogout:deferred(),logoutBearers:[],clears:[]});}
 function render(){h.si=h.ri=h.ei=h.ci=0;return AuthProvider({children:null}).props.value;}
 function mount(){reset();const value=render();for(const fn of h.effects.splice(0))h.cleanups.push(fn());return value;}
 const A={id:101,name:'Account A'}, B={id:202,name:'Account B'};
@@ -46,6 +46,14 @@ async function test(label,fn){total++;try{await fn();console.log('PASS '+label);
 
 await test('startup success from A cannot replace login B',async()=>{
   mount();loginB();h.requests[0].resolve(A);await flush();assertB();
+});
+await test('failed local login closes A UI and ignores late startup A',async()=>{
+  mount();h.sessionFailure=true;assert.throws(loginB);assert.equal(render().status,'guest');assert.equal(render().user,null);
+  h.requests[0].resolve(A);await flush();assert.equal(render().status,'guest');assert.equal(render().user,null);
+});
+await test('failed local login ignores late manual refresh A',async()=>{
+  await readyA();const pending=render().refresh();h.sessionFailure=true;assert.throws(loginB);
+  h.requests[1].resolve(A);await pending;assert.equal(render().status,'guest');assert.equal(render().user,null);
 });
 await test('startup rejected request from A cannot make B a guest',async()=>{
   mount();loginB();h.requests[0].reject(new Error('session changed / old request failed'));await flush();assertB();

@@ -251,7 +251,6 @@ import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.Typeface
 import android.view.MotionEvent
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
@@ -485,14 +484,17 @@ internal fun BookingScreen(
     val bookingPending = bookingId != null && normalizedBookingStatus == "pending"
     val bookingCancelled = bookingId != null && normalizedBookingStatus == "cancelled"
     var showCancelConfirmation by rememberSaveable(bookingId, normalizedBookingStatus) { mutableStateOf(false) }
+    val canCreateBooking = bookingId == null && displayRide.seats > 0
     val primaryLabel = when {
+        bookingId == null && !canCreateBooking -> appText("Мест нет", "Урын юҡ")
         bookingId == null -> appText("Забронировать место", "Урынды бронләү")
         bookingPending -> appText("Отменить бронь", "Бронде кире алыу")
         bookingCancelled -> appText("Найти другую поездку", "Башҡа сәфәр табыу")
         canOpenActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
         else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
     }
-    val primaryEnabled = bookingId == null || bookingPending || bookingCancelled || canOpenActiveTrip
+    val primaryEnabled = if (bookingId == null) canCreateBooking
+        else bookingPending || bookingCancelled || canOpenActiveTrip
     val primaryStyle = if (bookingPending) AppButtonStyle.Danger else AppButtonStyle.Primary
     val primaryIcon = when {
         bookingPending -> Icons.Default.Close
@@ -671,6 +673,7 @@ internal fun BookingScreen(
             item {
                 BookingRouteDecisionCard(
                     ride = displayRide,
+                    hasBooking = bookingId != null,
                     distanceText = distanceText,
                     fromPoint = routeFromPoint,
                     toPoint = routeToPoint,
@@ -917,98 +920,6 @@ private fun BookingDriverHeroCard(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun BookingRouteDecisionCard(
-    ride: Ride,
-    distanceText: String?,
-    fromPoint: Point?,
-    toPoint: Point?,
-    contactUnlocked: Boolean,
-    onShare: () -> Unit,
-) {
-    AppCard {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        "${ride.from} → ${ride.to}",
-                        color = CanonText,
-                        fontSize = 24.sp,
-                        lineHeight = 30.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(17.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            listOfNotNull(ride.timeText(), distanceText).filter { it.isNotBlank() }.joinToString(" · "),
-                            color = CanonMuted,
-                            fontSize = 14.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                IconButton(onClick = onShare) {
-                    Icon(Icons.Default.Share, contentDescription = appText("Поделиться", "Бүлешеү"), tint = CanonGreen2)
-                }
-            }
-            if (fromPoint != null && toPoint != null) {
-                BookingRouteMapPreview(
-                    modifier = Modifier.height(184.dp),
-                    from = ride.from,
-                    to = ride.to,
-                    fromPoint = fromPoint,
-                    toPoint = toPoint,
-                    contactUnlocked = contactUnlocked,
-                    showPrivacyNotice = false,
-                )
-            } else {
-                RouteMapUnavailableCard(Modifier.height(148.dp))
-            }
-            Row(
-                Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                BookingDecisionMetric(
-                    icon = Icons.Default.Payments,
-                    value = "${ride.price} ₽",
-                    label = appText("Цена за место", "Урын хаҡы"),
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                )
-                BookingDecisionMetric(
-                    icon = Icons.Default.EventSeat,
-                    value = ride.seats.toString(),
-                    label = appText("Свободных мест", "Буш урын"),
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BookingDecisionMetric(
-    icon: ImageVector,
-    value: String,
-    label: String,
-    modifier: Modifier = Modifier,
-) {
-    Surface(modifier = modifier, color = CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 13.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(19.dp))
-            Text(value, color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(label, color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp, textAlign = TextAlign.Center, maxLines = 2)
         }
     }
 }
@@ -2424,7 +2335,7 @@ private fun ActiveTripContent(
         // A fresh scope for each opening rejects its predecessor's results and retained callbacks.
         val sharingScope = rememberCoroutineScope()
         fun isShareCurrent() = sharingScope.isActive && showShare && isTripChatActive()
-        ModalBottomSheet(onDismissRequest = { if (isShareCurrent()) showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
+        AppModalBottomSheet(onDismissRequest = { if (isShareCurrent()) showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
             // Ссылка live-поездки (B7c): после выбора близкого показываем её тут же —
             // скопировать или отправить самому через системный share-sheet.
             var liveLink by remember { mutableStateOf<String?>(null) }

@@ -72,3 +72,74 @@ def test_concurrent_retries_commit_one_message(client, user_factory, monkeypatch
         assert len(messages) == len(receipts) == 1
         assert messages[0].id == receipts[0].message_id == next(iter(accepted_ids))
         assert messages[0].text in ('fixture first', 'fixture second')
+
+
+@pytest.mark.parametrize('different_payload', [False, True], ids=['same-payload', 'different-payload'])
+def test_ws_persistence_races_rest_retry(client, user_factory, monkeypatch, different_payload):
+    """Two real PG transactions, through the WS persistence seam and the REST handler.
+
+    This checks the common atomic receipt, not live network delivery; the WS endpoint
+    replay/broadcast behavior is exercised separately by test_chat_ws_idempotency.
+    """
+    _, passenger, booking_id = _confirmed_booking(client, user_factory, 'PgWsRestRetry')
+    barrier = Barrier(2)
+    state = local()
+    events = []
+    event_lock = Lock()
+    real_replay = chat._replay_message
+
+    def replay_after_both_missed(*args):
+        result = real_replay(*args)
+        if not getattr(state, 'checked', False):
+            state.checked = True
+            assert result is None
+            barrier.wait(timeout=10)
+        return result
+
+    def record(kind):
+        def callback(*args, **kwargs):
+            with event_lock:
+                events.append(kind)
+        return callback
+
+    monkeypatch.setattr(chat, '_replay_message', replay_after_both_missed)
+    monkeypatch.setattr(chat, 'notify_chat_message', record('rest_live'))
+    monkeypatch.setattr(chat, 'push_notification', record('rest_push'))
+
+    def worker(transport, payload):
+        with Session(engine) as session:
+            session.execute(text("SET lock_timeout = '4s'"))
+            session.execute(text("SET statement_timeout = '8s'"))
+            pid = session.execute(text('SELECT pg_backend_pid()')).scalar_one()
+            user = session.get(User, passenger['id'])
+            try:
+                if transport == 'rest':
+                    message = chat.send_message(booking_id, chat.MessageIn(text=payload), user=user,
+                                                session=session, idempotency_key='pg-ws-rest-key')
+                    created = None
+                else:
+                    booking, ride = chat.booking_and_ride_for_user(session, booking_id, user)
+                    message, created = chat._persist_booking_message(
+                        session, booking, ride, user, chat.MessageIn(text=payload), 'pg-ws-rest-key')
+                return transport, pid, 200, message.id, created
+            except HTTPException as error:
+                return transport, pid, error.status_code, None, False
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(worker, transport, payload) for transport, payload in
+                   [('ws', 'fixture first'), ('rest', 'fixture second' if different_payload else 'fixture first')]]
+        results = [future.result(timeout=20) for future in futures]
+
+    print(f'PG shared WS-persistence/REST different_payload={different_payload}: '
+          f'pids={[row[1] for row in results]}, statuses={[row[2] for row in results]}')
+    assert len({row[1] for row in results}) == 2
+    assert sorted(row[2] for row in results) == ([200, 409] if different_payload else [200, 200])
+    accepted_ids = {row[3] for row in results if row[2] == 200}
+    assert len(accepted_ids) == 1
+    ws_created = next(row[4] for row in results if row[0] == 'ws')
+    assert sorted(events) == ([] if ws_created else ['rest_live', 'rest_push'])
+    with Session(engine) as session:
+        messages = session.exec(select(Message).where(Message.booking_id == booking_id)).all()
+        receipts = session.exec(select(ChatMessageRequest).where(ChatMessageRequest.booking_id == booking_id)).all()
+        assert len(messages) == len(receipts) == 1
+        assert messages[0].id == receipts[0].message_id == next(iter(accepted_ids))

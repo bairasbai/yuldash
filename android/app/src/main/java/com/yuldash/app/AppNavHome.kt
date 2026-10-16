@@ -58,6 +58,7 @@ internal fun HomeRoute(
     onTrustedContacts: () -> Unit,
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
+    onOpenReceipt: (Int) -> Unit = {},
 ) {
     val context = LocalContext.current
     // Те же самые поля мозга, что и в `YuldashApp` — экран читает и пишет их напрямую,
@@ -172,6 +173,9 @@ internal fun HomeRoute(
                 onBookingStatus(status)
                 screen = if (bookingStatusAllowsActiveTrip(status)) Screen.ActiveTrip else Screen.Booking
                 }
+            },
+            onOpenReceipt = { bookingId ->
+                if (bookingId > 0) openHomeDestination { onOpenReceipt(bookingId) }
             },
             onShareRide = { ride ->
                 val rideTime = if (language == AppLanguage.Ba) ride.timeBa ?: ride.time else ride.time

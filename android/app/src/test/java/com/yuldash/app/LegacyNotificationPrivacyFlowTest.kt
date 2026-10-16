@@ -55,7 +55,7 @@ class LegacyNotificationPrivacyFlowTest {
         vm=ViewModelProvider(actor.get())[YuldashViewModel::class.java];vm.screen.value=Screen.Notifications;vm.persistNav()
     }
     private fun clear() {
-        DeepLink.pendingBookingChatId.value=null;DeepLink.pendingCompletedBookingId.value=null;DeepLink.pendingRideId.value=null
+        DeepLink.pendingBookingChatId.value=null;DeepLink.pendingCompletedBookingId.value=null;
         NavSignals.openInstantChat.value=0;NavSignals.openInstantOrder.value=false;NavSignals.openDriverCabinet.value=false
         DeepLink.pendingParcels.value=false;DeepLink.pendingSupport.value=false;NavSignals.openAdsCabinet.value=false;NavSignals.openPartnerCabinet.value=false
         DeepLink.pendingFairness.value=false;DeepLink.pendingRequestResponsesId.value=null;DeepLink.pendingRequestsFeed.value=false;DeepLink.pendingApplicationScreen.value=null

@@ -102,7 +102,7 @@ class AccountDeletionBoundaryTest {
     private fun ride(id:Int,from:String)="""{"id":$id,"from_city":"$from","to_city":"Пункт Б","depart_at":"2030-01-02T10:00:00+03:00","seats_total":3,"seats_left":3,"price":750,"category":"regular","driver_id":9,"driver_name":"Тестовый водитель","driver_verified":true}"""
     private fun json(body:String,status:Int=200)=MockResponse().setResponseCode(status).setHeader("Content-Type","application/json").setBody(body)
     private fun clear() {
-        DeepLink.pendingRideId.value=null;DeepLink.pendingBookingChatId.value=null;DeepLink.pendingCompletedBookingId.value=null
+        DeepLink.pendingBookingChatId.value=null;DeepLink.pendingCompletedBookingId.value=null
         NavSignals.openInstantChat.value=0;NavSignals.openInstantOrder.value=false;NavSignals.openDriverCabinet.value=false
         DeepLink.pendingParcels.value=false;DeepLink.pendingSupport.value=false;NavSignals.openAdsCabinet.value=false;NavSignals.openPartnerCabinet.value=false
         DeepLink.pendingFairness.value=false;DeepLink.pendingRequestResponsesId.value=null;DeepLink.pendingRequestsFeed.value=false;DeepLink.pendingApplicationScreen.value=null
@@ -127,7 +127,7 @@ class AccountDeletionBoundaryTest {
     private fun failure(id:Int=42) {link(id);await {compose.onAllNodesWithTag("rideLinkFailure").fetchSemanticsNodes().isNotEmpty()};pump()}
     private fun selected(id:Int,from:String="Новый пункт А") {
         assertEquals(Screen.Booking,vm.screen.value);assertEquals(id.toString(),vm.selectedRide.value?.id);assertEquals(from,vm.selectedRide.value?.from)
-        assertNull(vm.activeBookingId.value);assertNull(DeepLink.pendingRideId.value);compose.onAllNodesWithTag("rideLinkFailure").assertCountEquals(0)
+        assertNull(vm.activeBookingId.value);assertNull(vm.pendingPublicRideNavigation.value?.rideId);compose.onAllNodesWithTag("rideLinkFailure").assertCountEquals(0)
         assertFalse(records.any {it.first!="GET" && it.second.startsWith("/bookings")})
     }
     @After fun cleanup() {deleteRelease.countDown();release.countDown();compose.runOnIdle {mounted.value=false};pump(300);actor.destroy();vm.clearUserData();clear();ApiClient.resetForTest();ApiClient.testTimeoutMs=null;server.shutdown()}
@@ -205,6 +205,6 @@ class AccountDeletionBoundaryTest {
         holdDelete=true;val confirm=confirmation();heldId=42;link();await {started.count==0L}
         compose.runOnIdle {confirm()};await {deleteStarted.count==0L};deleteRelease.countDown()
         await {vm.screen.value==Screen.Login};release.countDown();pump(1500)
-        assertEquals(Screen.Login,vm.screen.value);assertNull(DeepLink.pendingRideId.value);assertEquals(1,count(42));assertNull(ApiClient.currentToken())
+        assertEquals(Screen.Login,vm.screen.value);assertNull(vm.pendingPublicRideNavigation.value?.rideId);assertEquals(1,count(42));assertNull(ApiClient.currentToken())
     }
 }

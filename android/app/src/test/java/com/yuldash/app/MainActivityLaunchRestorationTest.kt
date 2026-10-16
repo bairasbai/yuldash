@@ -30,7 +30,7 @@ class MainActivityLaunchRestorationTest {
     }
     @After fun cleanup() {controllers.reversed().forEach {it.destroy()};clearSignals();ApiClient.resetForTest()}
     private fun clearSignals() {
-        DeepLink.pendingCompletedBookingId.value=null;DeepLink.pendingBookingChatId.value=null;DeepLink.pendingRideId.value=null
+        DeepLink.pendingCompletedBookingId.value=null;DeepLink.pendingBookingChatId.value=null;
     }
     private fun notification(id:Int=42)=Intent(context,MainActivity::class.java).putExtra("type","booking_done").putExtra("id",id.toString()).putExtra("recipient_user_id", "11")
     private fun ride(id:Int=9)=Intent(Intent.ACTION_VIEW,Uri.parse("https://yulbash.ru/r/$id"),context,MainActivity::class.java)
@@ -41,6 +41,7 @@ class MainActivityLaunchRestorationTest {
         val c=create(intent);val model=vm(c)
         // Fixture seeds an already consumed booking route; dispatch now has durable pending.
         if(screen !in setOf(Screen.Splash,Screen.Intro,Screen.Onboarding,Screen.Login)) {
+            model.clearPendingPublicRide() // Fixture seeds an already consumed public route.
             model.pendingCompletedNavigation.value?.let { model.consumePendingCompleted(it) {} }
         }
         model.screen.value=screen;model.activeBookingId.value=bookingId;model.startHomeTab.value=HomeTab.Profile
@@ -52,7 +53,7 @@ class MainActivityLaunchRestorationTest {
         MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply {isAccessible=true}.invoke(c.get(),intent)
     }
     @Test fun coldCompletedNotificationStillDispatches() {create(notification());assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
-    @Test fun coldRideLinkStillDispatches() {create(ride());assertEquals(9,DeepLink.pendingRideId.value)}
+    @Test fun coldRideLinkStillDispatches() {val c=create(ride());assertEquals(9,vm(c).pendingPublicRideNavigation.value?.rideId)}
     @Test fun emptySavedBundleDoesNotDiscardInitialDestination() {create(notification(),Bundle());assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
     @Test fun savedSplashKeepsPendingOriginalNotification() {val state=saved(Screen.Splash);create(notification(),state);assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
     @Test fun savedLoginKeepsPendingOriginalNotification() {val state=saved(Screen.Login);create(notification(),state);assertEquals(42,DeepLink.pendingCompletedBookingId.value)}
@@ -70,7 +71,7 @@ class MainActivityLaunchRestorationTest {
     }
     @Test fun restoredSupportDoesNotReplayCopiedOriginalRideUri() {
         val original=ride();val state=saved(Screen.Support,Intent(original));val c=create(Intent(original),state)
-        assertEquals(Screen.Support,vm(c).screen.value);assertNull(DeepLink.pendingRideId.value)
+        assertEquals(Screen.Support,vm(c).screen.value);assertNull(vm(c).pendingPublicRideNavigation.value?.rideId)
     }
     @Test fun newNotificationStillDispatchesAfterRestoredReceipt() {
         val state=saved(Screen.TripReceipt);val c=create(Intent(context,MainActivity::class.java),state)
@@ -78,6 +79,6 @@ class MainActivityLaunchRestorationTest {
     }
     @Test fun newRideLinkStillDispatchesAfterRestoredReceipt() {
         val state=saved(Screen.TripReceipt);val c=create(Intent(context,MainActivity::class.java),state)
-        newIntent(c,ride(10));assertEquals(10,DeepLink.pendingRideId.value)
+        newIntent(c,ride(10));assertEquals(10,vm(c).pendingPublicRideNavigation.value?.rideId)
     }
 }

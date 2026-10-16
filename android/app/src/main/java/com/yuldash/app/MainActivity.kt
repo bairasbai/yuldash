@@ -217,7 +217,6 @@ import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.Typeface
 import android.view.MotionEvent
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
@@ -249,18 +248,18 @@ import com.yuldash.app.data.RequestDto
 import com.yuldash.app.data.NotifDto
 import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
+import com.yuldash.app.ui.theme.AppSystemBars
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val systemBars by lazy { AppSystemBars(window) }
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         // Плавный уход системного сплэша: значок/фон мягко растворяются в интро (без резкого стыка).
         // withEndAction всегда снимает сплэш по завершении — экран не «залипнет».
-        splashScreen.setOnExitAnimationListener { vp ->
-            vp.view.animate().alpha(0f).setDuration(300L).withEndAction { vp.remove() }.start()
-        }
+        splashScreen.setOnExitAnimationListener(systemBars::fadeSplashExit)
         // Восстановить выбор темы день/ночь (если пользователь переключал тумблером в шапке).
         val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
         if (prefs.contains("dark_override")) ThemePrefs.darkOverride = prefs.getBoolean("dark_override", false)
@@ -305,10 +304,10 @@ class MainActivity : ComponentActivity() {
         if (freshPrivateDelivery) handleNavIntent(intent)
         if (!hasRestoredBooking && !hadSavedPending) {
             if (!freshPrivateDelivery && !unidentifiablePrivateRestore) handleNavIntent(intent, skipBookingIntent = copiedBookingIntent)
-            handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
+            handleDeepLink(intent, restoring = restoredNavigation != null)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         }
         setContent {
-            YuldashTheme(darkTheme = appIsDark()) {
+            YuldashTheme(darkTheme = appIsDark(), systemBars = systemBars) {
                 // Крупный шрифт: множим системный fontScale на выбранный пользователем множитель —
                 // весь sp-текст приложения масштабируется разом, системная настройка тоже уважается.
                 val base = LocalDensity.current
@@ -316,7 +315,7 @@ class MainActivity : ComponentActivity() {
                 CompositionLocalProvider(
                     LocalDensity provides Density(density = base.density, fontScale = base.fontScale * scaled)
                 ) {
-                    YuldashApp()
+                    AppStatusBarProtection { YuldashApp() }
                 }
             }
         }
@@ -428,7 +427,7 @@ class MainActivity : ComponentActivity() {
             // разбирал пять. Одно и то же событие вело в разные места в зависимости от того,
             // прочитал человек его в шторке или в ленте. Достраиваем до того же списка;
             // назначения уже есть, новых экранов не нужно.
-            "ride" -> DeepLink.pendingRideId.value = id               // событие по моему рейсу
+            "ride" -> ViewModelProvider(this)[YuldashViewModel::class.java].requestPublicRide(id)               // событие по моему рейсу
             else -> return
         }
         i.removeExtra(FcmService.EXTRA_PUSH_TYPE)   // не сработать повторно при пересоздании
@@ -437,16 +436,16 @@ class MainActivity : ComponentActivity() {
         i.removeExtra("id")
     }
 
-    /** F16 deep-link: из https://yulbash.ru/r/{id} достаём id поездки и кладём в DeepLink —
+    /** F16 deep-link: из https://yulbash.ru/r/{id} достаём id поездки и передаём своему ViewModel —
      *  YuldashApp подхватит его и откроет поездку. Кривые ссылки молча игнорим. */
-    private fun handleDeepLink(intent: Intent?) {
+    private fun handleDeepLink(intent: Intent?, restoring: Boolean = false) {
         val data = intent?.data ?: return
         if (!data.host.equals("yulbash.ru", ignoreCase = true)) return
         // путь вида /r/123 (+ возможный trailing slash) → берём числовой сегмент после "r"
         val segments = data.pathSegments
         val idx = segments.indexOf("r")
         val rideId = segments.getOrNull(idx + 1)?.toIntOrNull() ?: return
-        DeepLink.pendingRideId.value = rideId
+        ViewModelProvider(this)[YuldashViewModel::class.java].requestPublicRideIntent(rideId, restoring)
     }
 
     companion object {
@@ -463,7 +462,6 @@ internal object DeepLink {
     val pendingCompletedBookingId = mutableStateOf<Int?>(null)
     val pendingRequestsFeed = mutableStateOf(false)
     val pendingApplicationScreen = mutableStateOf<Screen?>(null)
-    val pendingRideId = mutableStateOf<Int?>(null)
     /** Тап по пушу о посылке → открыть «Посылки». Сбрасывается тем, кто открыл (одноразовый сигнал). */
     val pendingParcels = mutableStateOf(false)
 
@@ -940,7 +938,7 @@ internal fun SbpTransferSheet(amountKop: Int, onPaid: () -> Unit, onDismiss: () 
     val phone = payeePhone?.takeIf { it.isNotBlank() } ?: SBP_PHONE_DIGITS
     val bank = payeeBank?.takeIf { it.isNotBlank() } ?: SBP_BANK
     val name = payeeName?.takeIf { it.isNotBlank() } ?: SBP_NAME
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
+    AppModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)

@@ -1,3 +1,4 @@
+import { sessionMutation, assertSessionPermit, storageFenceEnabled, storageFenced, quarantineGeneration, rememberSession, storageOperation, reportStorageFailure, type SessionWritePermit } from "../utils/storageHealth";
 // ================================================================
 //  Базовый HTTP-клиент Юлдаша.
 //  Точка правды для API base и токена.
@@ -16,10 +17,10 @@ const SESSION_KEY = "yuldash.session";
 // creation across tabs even when Web Locks is unavailable.
 async function refreshIntentTransaction<T>(work: (store: IDBObjectStore, done: (value: T) => void) => void): Promise<T> {
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("yuldash-refresh-intents", 1);
+    const request = storageOperation(() => indexedDB.open("yuldash-refresh-intents", 1));
     let blocked = false;
     request.onupgradeneeded = () => request.result.createObjectStore("intents");
-    request.onerror = () => reject(request.error);
+    request.onerror = () => { reportStorageFailure(); reject(request.error); };
     request.onblocked = () => { blocked = true; reject(new Error("Refresh storage blocked")); };
     request.onsuccess = () => {
       if (blocked) request.result.close();
@@ -60,7 +61,7 @@ export function clearRefreshRotationId(generation: string, refresh: string): Pro
 }
 
 function discardPreviousRefreshIntents(): void {
-  void refreshIntentTransaction<void>((store, done) => {
+  try { void Promise.resolve(sessionMutation(() => refreshIntentTransaction<void>((store, done) => {
     const request = store.openCursor();
     request.onsuccess = () => {
       const cursor = request.result;
@@ -69,12 +70,14 @@ function discardPreviousRefreshIntents(): void {
       if (!Array.isArray(cursor.key) || cursor.key[0] !== getSessionGeneration()) cursor.delete();
       cursor.continue();
     };
-  }).catch(() => { /* Cleanup can retry at the next session boundary. */ });
+  }))).catch(() => { /* Cleanup can retry at the next session boundary. */ }); } catch { /* Already quarantined. */ }
 }
 
 /** Вход/выход меняет поколение, тихое продление токенов — нет. */
 export function getSessionGeneration(): string {
-  return localStorage.getItem(SESSION_KEY) ?? "";
+  if (storageFenced()) return quarantineGeneration();
+  try { const generation = storageOperation(() => localStorage.getItem(SESSION_KEY) ?? ""); rememberSession(generation); return generation; }
+  catch (error) { if (storageFenceEnabled()) return quarantineGeneration(); throw error; }
 }
 
 /**
@@ -101,51 +104,46 @@ export function isOwnApiUrl(url: string): boolean {
   }
 }
 
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+function readCredential(key: string): string | null {
+  if (storageFenced()) return null;
+  try { return storageOperation(() => localStorage.getItem(key)); }
+  catch (error) { if (storageFenceEnabled()) return null; throw error; }
 }
-
-export function setToken(token: string | null): void {
-  writeToken(token);
-  markNewSession();
-}
-
+export function getToken(): string | null { return readCredential(TOKEN_KEY); }
+function permitted(permit: SessionWritePermit): void { if (storageFenceEnabled()) assertSessionPermit(permit); }
 function markNewSession(): void {
-  // Маркер общий для вкладок; токены при тихом refresh его не меняют.
-  const generation = typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random()}`;
-  localStorage.setItem(SESSION_KEY, generation);
-  discardPreviousRefreshIntents();
+  const generation = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  storageOperation(() => localStorage.setItem(SESSION_KEY, generation));
+  rememberSession(generation);
+  if (!storageFenced()) discardPreviousRefreshIntents();
 }
-
 function writeToken(token: string | null): void {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+  storageOperation(() => token ? localStorage.setItem(TOKEN_KEY, token) : localStorage.removeItem(TOKEN_KEY));
 }
-
-export function getRefreshToken(): string | null {
-  return localStorage.getItem(REFRESH_KEY);
+function writeRefresh(token: string | null): void {
+  storageOperation(() => token ? localStorage.setItem(REFRESH_KEY, token) : localStorage.removeItem(REFRESH_KEY));
 }
-
-export function setRefreshToken(token: string | null): void {
-  if (token) localStorage.setItem(REFRESH_KEY, token);
-  else localStorage.removeItem(REFRESH_KEY);
+export function setToken(token: string | null): void | Promise<void> {
+  return sessionMutation(permit => { permitted(permit); writeToken(null); markNewSession(); writeToken(token); markNewSession(); });
 }
-
-/** Сохранить/очистить обе части сессии одним швом. */
-export function setSession(access: string | null, refresh?: string | null): void {
-  writeToken(access);
-  setRefreshToken(refresh ?? null);
-  markNewSession();
+export function getRefreshToken(): string | null { return readCredential(REFRESH_KEY); }
+export function setRefreshToken(token: string | null): void | Promise<void> {
+  return sessionMutation(permit => { permitted(permit); writeRefresh(token); });
 }
-
-/** Ответ refresh вправе обновить только ту сессию, которая его отправила. */
-export function rotateSession(access: string, refresh: string, generation: string): boolean {
-  if (generation !== getSessionGeneration() || !access || !refresh) return false;
-  writeToken(access);
-  setRefreshToken(refresh);
-  return true;
+/** Only an active lock capability may bypass the publication queue. */
+export function setSession(access: string | null, refresh?: string | null, permit?: SessionWritePermit): void | Promise<void> {
+  const commit = (p: SessionWritePermit) => {
+    permitted(p); writeToken(null); writeRefresh(null); markNewSession();
+    writeRefresh(refresh ?? null); writeToken(access); markNewSession();
+  };
+  return permit ? commit(permit) : sessionMutation(commit);
+}
+export function rotateSession(access: string, refresh: string, generation: string): boolean | Promise<boolean> {
+  return sessionMutation(permit => {
+    permitted(permit);
+    if (generation !== getSessionGeneration() || !access || !refresh) return false;
+    writeToken(access); writeRefresh(refresh); return true;
+  });
 }
 
 /** Ошибка API с кодом статуса — экраны решают, как показать. */
@@ -357,8 +355,10 @@ async function request<T>(
       if (refreshed) return request<T>(path, { ...init, _retried: true, _generation });
     }
     if (auth) {
-      setSession(null, null);
-      onUnauthorized?.();
+      await sessionMutation(permit => {
+        checkSession();
+        try { setSession(null, null, permit); } finally { onUnauthorized?.(); }
+      });
     }
     throw new ApiError(
       401,

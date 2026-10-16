@@ -44,9 +44,9 @@ class AccountDeletionReceiptTest {
             }
         };start()}
         ApiClient.testBaseUrl=server.url("/").toString().trimEnd('/');ApiClient.testTimeoutMs=10000
-        DeepLink.pendingRideId.value=null
+
     }
-    @After fun cleanup() {release.countDown();DeepLink.pendingRideId.value=null;ApiClient.resetForTest();ApiClient.testTimeoutMs=null;server.shutdown()}
+    @After fun cleanup() {release.countDown();ApiClient.resetForTest();ApiClient.testTimeoutMs=null;server.shutdown()}
     private fun receipt():Long=runBlocking {ApiClient.deleteAccount(ApiClient.queueSessionGeneration()).getOrThrow()}
     private fun logoutLocally() {
         ApiClient.logout()
@@ -60,10 +60,10 @@ class AccountDeletionReceiptTest {
             vm.activeBookingId.value=77;vm.supportTicketId.value=44;vm.responsesRequestId.value=43;vm.isAdmin.value=true
             vm.trustedContacts.add(TrustedContact("Локальный тест","друг","000",true));vm.navHistory.add(Screen.Settings);vm.persistNav()
             val ticket=receipt();assertEquals(ApiClient.queueSessionGeneration(),ticket);assertNull(ApiClient.currentToken())
-            vm.requestBookingDestination(45,11,completed=false);DeepLink.pendingRideId.value=42
+            vm.requestBookingDestination(45,11,completed=false);vm.requestPublicRide(42)
             assertTrue(completeAccountDeletion(context,vm,ticket))
             assertEquals(Screen.Login,vm.screen.value);assertEquals(HomeTab.Map,vm.startHomeTab.value)
-            assertNull(DeepLink.pendingRideId.value);assertNull(vm.pendingBookingNavigation.value);assertNull(vm.activeBookingId.value)
+            assertNull(vm.pendingPublicRideNavigation.value?.rideId);assertNull(vm.pendingBookingNavigation.value);assertNull(vm.activeBookingId.value)
             assertEquals(0,vm.supportTicketId.value);assertEquals(0,vm.responsesRequestId.value);assertFalse(vm.isAdmin.value);assertTrue(vm.trustedContacts.isEmpty());assertTrue(vm.navHistory.isEmpty())
             val bundle=Bundle();actor.saveInstanceState(bundle)
             val next=Robolectric.buildActivity(MainActivity::class.java).create(bundle)

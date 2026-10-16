@@ -169,6 +169,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -227,7 +228,6 @@ import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.Typeface
 import android.view.MotionEvent
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
@@ -296,8 +296,9 @@ internal fun RidesScreen(
     // Список показывает только БРОНИ — то, куда человек едет сам. Опубликованные им маршруты
     // живут в кабинете водителя, и пустой экран обязан уметь туда отправить.
     onDriverCabinet: () -> Unit = {},
+    onOpenReceipt: (Int) -> Unit = {},
 ) {
-    var selectedStatus by remember { mutableStateOf("active") }
+    var selectedStatus by rememberSaveable { mutableStateOf("active") }
     val activeLabel = appText("Активные", "Актив")
     val historyLabel = appText("История", "Тарих")
     val allLabel = appText("Все", "Бөтәһе")
@@ -438,6 +439,7 @@ internal fun RidesScreen(
                             boosted = false
                         )
                         val isHist = b.status in historyStatuses
+                        val canOpenReceipt = b.status == "done" && b.id > 0
                         val opensActiveTrip = bookingStatusAllowsActiveTrip(b.status)
                         val (statusLabel, statusColor, statusIcon) = when (b.status) {
                             "confirmed" -> Triple(appText("Подтверждена", "Раҫланды"), CanonMint, Icons.Default.DirectionsCar)
@@ -457,7 +459,13 @@ internal fun RidesScreen(
                                     opensActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
                                     else -> appText("Подробнее", "Ентекле")
                                 },
-                                secondaryAction = if (isHist) "" else if (opensActiveTrip) appText("Чат", "Чат") else appText("Написать", "Яҙыу"),
+                                secondaryAction = when {
+                                    canOpenReceipt -> appText("Квитанция", "Квитанция")
+                                    isHist -> ""
+                                    opensActiveTrip -> appText("Чат", "Чат")
+                                    else -> appText("Написать", "Яҙыу")
+                                },
+                                stackActions = canOpenReceipt,
                                 onPrimary = {
                                     when {
                                         isHist -> onCreateRequest()
@@ -465,7 +473,13 @@ internal fun RidesScreen(
                                         else -> onOpenBookingDetails(displayRide, b.status)
                                     }
                                 },
-                                onSecondary = { if (opensActiveTrip) onOpenActiveTrip(displayRide, b.status) else onMessage() }
+                                onSecondary = {
+                                    when {
+                                        canOpenReceipt -> onOpenReceipt(b.id)
+                                        opensActiveTrip -> onOpenActiveTrip(displayRide, b.status)
+                                        else -> onMessage()
+                                    }
+                                }
                             )
                         }
                     }
@@ -530,7 +544,8 @@ internal fun MyTripCard(
     primaryAction: String,
     secondaryAction: String,
     onPrimary: () -> Unit,
-    onSecondary: () -> Unit
+    onSecondary: () -> Unit,
+    stackActions: Boolean = false
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -568,23 +583,23 @@ internal fun MyTripCard(
                 DetailMeta(Icons.Default.Person, "${seatsText(ride.seats)} · ${ride.price} ₽")
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TripCardActionLayout(stackActions) { primaryModifier, secondaryModifier ->
                 Button(
                     onClick = onPrimary,
-                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                    modifier = primaryModifier.heightIn(min = 44.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                 ) {
-                    Text(primaryAction, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(primaryAction, modifier = Modifier.fillMaxWidth(), fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 if (secondaryAction.isNotBlank()) {
                     FilledTonalButton(
                         onClick = onSecondary,
-                        modifier = Modifier.weight(1.1f).heightIn(min = 44.dp),
+                        modifier = secondaryModifier.heightIn(min = 44.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(containerColor = CanonMint, contentColor = CanonGreen2)
                     ) {
-                        Text(secondaryAction, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(secondaryAction, modifier = Modifier.fillMaxWidth(), fontWeight = FontWeight.Bold, fontSize = 12.sp, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -1698,6 +1713,8 @@ private fun FullRideCard(
     }
 }
 
+
+
 @Composable
 internal fun ChatScreen(
     voiceMessages: List<LocalVoiceMessage>,
@@ -1862,17 +1879,7 @@ internal fun ChatScreen(
             if (conversations.isNotEmpty()) {
                 itemsIndexed(conversations, key = { _, c -> c.bookingId }) { i, c ->
                     Box(Modifier.appearIn(i)) {
-                        ChatCard(
-                            initial = c.peerName.take(1).uppercase(),
-                            name = c.peerName,
-                            subtitle = c.route,
-                            message = c.lastMessage,
-                            time = c.departAt?.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: "",   // время выезда — различать треды
-                            unread = 0,
-                            verified = c.peerVerified,   // реальный статус проверки собеседника (не фейк «проверен» у всех)
-                            onClick = { onOpenChat(c.bookingId, c.peerName, c.route) },
-                            avatarUrl = c.peerAvatar
-                        )
+                        ConversationCard(c, onOpenChat)
                     }
                 }
             } else {
@@ -2218,7 +2225,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
 
     target?.let { request ->
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
+        AppModalBottomSheet(
             onDismissRequest = { if (!responding) target = null },
             sheetState = sheetState,
             containerColor = CanonSurface,
