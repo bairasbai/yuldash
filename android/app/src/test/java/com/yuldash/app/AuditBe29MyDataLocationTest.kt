@@ -2,13 +2,16 @@ package com.yuldash.app
 
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import com.yuldash.app.data.ApiClient
 import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -23,7 +26,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * BE29: «Мои данные» должен объяснять три разных вида работы с координатами.
@@ -179,5 +184,52 @@ class AuditBe29MyDataLocationTest {
         assertEquals(0, data.openSosLocationEvents)
         assertEquals(0, data.sosLocationDaysFromSignal)
         assertEquals("/me/data", server.takeRequest(5, TimeUnit.SECONDS)?.path)
+    }
+
+    /** Реальный ответ удержан: проверяем, куда правило возвращает эффект после Dispatchers.IO. */
+    @Test
+    fun suspendedHttpReturnsEffectToCompositionThread() {
+        val received = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val completed = CountDownLatch(1)
+        val startedOn = AtomicReference<Thread>()
+        val resumedOn = AtomicReference<Thread>()
+        val rides = AtomicReference<Int>()
+        val failure = AtomicReference<Throwable>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                received.countDown()
+                check(release.await(10, TimeUnit.SECONDS)) { "synthetic response was not released" }
+                return response()
+            }
+        }
+        try {
+            composeRule.setContent {
+                LaunchedEffect(Unit) {
+                    startedOn.set(Thread.currentThread())
+                    try {
+                        val data = ApiClient.getMyData().getOrThrow()
+                        resumedOn.set(Thread.currentThread())
+                        rides.set(data.rides)
+                    } catch (error: Throwable) {
+                        failure.set(error)
+                    } finally {
+                        completed.countDown()
+                    }
+                }
+            }
+            composeRule.waitUntil(timeoutMillis = 10_000) { settle(); received.count == 0L }
+            assertEquals("HTTP ещё удержан", 1L, completed.count)
+            assertEquals(null, resumedOn.get())
+            release.countDown()
+            composeRule.waitUntil(timeoutMillis = 10_000) { settle(); completed.count == 0L }
+            assertEquals("реальный HTTP должен завершиться успешно", null, failure.get())
+            assertEquals(3, rides.get())
+            assertEquals("GET", server.takeRequest(5, TimeUnit.SECONDS)?.method)
+            assertTrue("эффект должен стартовать", startedOn.get() != null)
+            assertEquals("эффект после HTTP должен вернуться на поток композиции", startedOn.get(), resumedOn.get())
+        } finally {
+            release.countDown()
+        }
     }
 }
