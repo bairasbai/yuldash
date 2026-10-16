@@ -67,6 +67,17 @@ class AppSystemBars(private val window: android.view.Window) {
     private var darkTheme = false
     private val lightIconOwners = mutableSetOf<Any>()
 
+    /** Fade and release in the same order as the Activity exit listener. */
+    fun fadeSplashExit(vp: androidx.core.splashscreen.SplashScreenViewProvider) {
+        // AndroidX also applies XML flags before this callback: keep the green fade readable.
+        val releaseSplashBars = withLightIcons()
+        vp.view.animate().alpha(0f).setDuration(300L).withEndAction {
+            vp.remove()
+            // remove() reapplies XML flags; release restores the latest theme/active Intro.
+            releaseSplashBars()
+        }.start()
+    }
+
     fun updateTheme(dark: Boolean) {
         darkTheme = dark
         reapply()

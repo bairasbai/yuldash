@@ -219,13 +219,17 @@ class TripChatBottomComposerTest {
         mount(); openChat()
         compose.onNode(hasSetTextAction()).performTextInput("Выхожу через минуту")
         compose.onNodeWithContentDescription("Отправить").performClick()
-        assertEquals("Выхожу через минуту", sent.poll(10, TimeUnit.SECONDS))
+        // Outbox commits on IO before returning to the main looper for WS send.
+        waitFor { sent.isNotEmpty() }
+        assertEquals("Выхожу через минуту", sent.poll())
         waitFor { compose.onAllNodesWithText("Выхожу через минуту").fetchSemanticsNodes().isNotEmpty() }
         // Поле очистилось, кнопка снова микрофон — строка осталась внизу.
         compose.onNode(hasSetTextAction()).assertTextEquals("")
         assertComposerPinnedToBottom()
         compose.onNodeWithText("Выезжаю").performClick()   // первая готовая фраза — видна без прокрутки ряда
-        assertEquals("Выезжаю", sent.poll(10, TimeUnit.SECONDS))
+        // Outbox commits on IO before returning to the main looper for WS send.
+        waitFor { sent.isNotEmpty() }
+        assertEquals("Выезжаю", sent.poll())
     }
 
     @Test fun tripCardCountsUnreadAndReadingTheChatClearsIt() {

@@ -3,7 +3,7 @@
 <!-- QA-ANDROID-DARK-STATUS-01-20261016 -->
 ## Системные панели и настройки темы Android — 16.10.2026
 
-MainActivity владеет одним AppSystemBars для своего Window и передаёт его YuldashTheme; на время fade AndroidX splash берёт token светлых значков, после remove освобождает его с восстановлением актуальной политики. Theme.kt применяет appIsDark и предоставляет тот же объект через LocalAppSystemBars; превью без Activity остаётся допустимым. IntroScreen монтирует IntroSystemBars: отдельный временный token светлых значков, release возвращает текущую тему и не выключает другого владельца. SecondaryScreens persistThemeChoice сохраняет/удаляет существующий yuldash_theme/dark_override из picker; MainActivity cold start читает тот же формат, кнопка в шапке карты совместима. Новые тесты: SystemBarsLifecycleTest8, ThemeChoicePersistenceTest7. [Результаты и пределы](audit-blocks.md#wave1-system-bars-20261016).
+MainActivity владеет одним AppSystemBars для своего Window и передаёт его YuldashTheme; на время fade AndroidX splash берёт token светлых значков, после remove освобождает его с восстановлением актуальной политики. Сам обработчик вынесен без изменения порядка в AppSystemBars.fadeSplashExit (Theme.kt), MainActivity только устанавливает его. Theme.kt применяет appIsDark и предоставляет тот же объект через LocalAppSystemBars; превью без Activity остаётся допустимым. IntroScreen монтирует IntroSystemBars: отдельный временный token светлых значков, release возвращает текущую тему и не выключает другого владельца. ThemePreferences.kt/persistThemeChoice сохраняет/удаляет существующий yuldash_theme/dark_override из picker; MainActivity cold start читает тот же формат, кнопка в шапке карты совместима. Новые тесты: SystemBarsLifecycleTest8, ThemeChoicePersistenceTest7. [Результаты и пределы](audit-blocks.md#wave1-system-bars-20261016).
 <!-- QA-ANDROID-DARK-STATUS-01-20261016 END -->
 
 <!-- W1-REDIS-01 -->
@@ -38,7 +38,7 @@ VitePWA в webapp/vite.config.ts использует prompt: новая обо�
 
 ## Места в карточке брони — 16.10.2026
 
-BookingActiveTripScreen.kt: BookingScreen передаёт hasBooking в BookingRouteDecisionCard. Публичная карточка показывает свободный остаток RideDto.seatsLeft; после загрузки BookingDetailsDto число означает места конкретной брони и получает соответствующую RU/BA-подпись. canCreateBooking разрешает новую бронь только при положительном остатке; действия уже созданной брони сохранены. Схема/API/резервирование не меняются. Проверка — W1-PG-01 в audit-blocks.md.
+BookingActiveTripScreen.kt: BookingScreen передаёт hasBooking в BookingRouteDecisionCard (тело и закрытая BookingDecisionMetric вынесены без изменения в BookingDecisionCards.kt). Публичная карточка показывает свободный остаток RideDto.seatsLeft; после загрузки BookingDetailsDto число означает места конкретной брони и получает соответствующую RU/BA-подпись. canCreateBooking разрешает новую бронь только при положительном остатке; действия уже созданной брони сохранены. Схема/API/резервирование не меняются. Проверка — W1-PG-01 в audit-blocks.md.
 
 ## Полный офлайн при повторном открытии PWA — 16.10.2026
 
