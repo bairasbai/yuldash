@@ -11,6 +11,8 @@
 """
 from __future__ import annotations
 
+import json
+
 from datetime import timedelta
 
 from sqlmodel import Session
@@ -122,3 +124,116 @@ def test_незнакомое_условие_не_ломает_ленту(client
     r = client.get("/rides/near?from_city=Стерлитамак&limit=50&conditions=hover,child")
 
     assert r.status_code == 200, r.text
+
+
+# ── Фильтр «Откуда» / «Куда» по городам (просьба Александра 16.10.2026) ──
+#
+# «Мне нужны только поездки из Баймака или из Сибая в любую сторону». Сервер умел один город
+# «откуда», а приложение — только готовые пары маршрутов из карусели. Теперь лента принимает
+# несколько городов «откуда» и «куда» (`from_cities`, `to_cities`), а `/rides/cities` отдаёт
+# города, где поездки сейчас есть, — на обоих языках, без чисел.
+
+def _из(client, водитель, откуда: str, куда: str) -> int:
+    when = (utcnow() + timedelta(hours=settings.local_tz_offset_hours, days=1)).replace(microsecond=0)
+    r = client.post("/rides", headers=водитель["auth"], json={
+        "from_city": откуда, "to_city": куда, "seats_total": 3, "price": 400,
+        "depart_at": when.isoformat(), "comment": f"{откуда}-{куда}",
+    })
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def test_из_баймака_или_сибая_в_любую_сторону(client, user_factory):
+    водитель = user_factory("ГородаВодитель", role=UserRole.driver)
+    из_баймака = _из(client, водитель, "Баймак", "Уфа")
+    из_сибая = _из(client, водитель, "Сибай", "Магнитогорск")
+    из_учалов = _из(client, водитель, "Учалы", "Уфа")
+
+    тело = client.get("/rides/near?from_cities=Баймак,Сибай&limit=50").json()
+    ids = {x["id"] for x in тело["items"]}
+
+    assert {из_баймака, из_сибая} <= ids, f"пропали поездки из выбранных городов: {ids}"
+    assert из_учалов not in ids, "поездка из Учалов попала в «из Баймака или Сибая»"
+
+
+def test_куда_несколько_городов_и_вместе_с_откуда(client, user_factory):
+    водитель = user_factory("ГородаКуда", role=UserRole.driver)
+    в_уфу = _из(client, водитель, "Белорецк", "Уфа")
+    в_мелеуз = _из(client, водитель, "Белорецк", "Мелеуз")
+    в_учалы = _из(client, водитель, "Белорецк", "Учалы")
+
+    тело = client.get("/rides/near?from_cities=Белорецк&to_cities=Уфа,Мелеуз&limit=50").json()
+    ids = {x["id"] for x in тело["items"]}
+
+    assert ids == {в_уфу, в_мелеуз}, f"«откуда Белорецк, куда Уфа или Мелеуз» отдал не то: {ids}"
+    assert в_учалы not in ids
+
+
+def test_башкирское_написание_города_находит_русское(client, user_factory):
+    """Волна 92: «Баймаҡ» и «Баймак» — один город. Фильтр «Откуда» обязан это помнить."""
+    водитель = user_factory("ГородаБаш", role=UserRole.driver)
+    рейс = _из(client, водитель, "Баймак", "Сибай")
+
+    тело = client.get("/rides/near?from_cities=Баймаҡ&limit=50").json()
+
+    assert рейс in {x["id"] for x in тело["items"]}, "башкирское написание не нашло поездку из Баймака"
+
+
+def test_список_городов_с_поездками_на_двух_языках(client, user_factory):
+    водитель = user_factory("ГородаСписок", role=UserRole.driver)
+    _из(client, водитель, "Баймак", "Уфа")
+    _из(client, водитель, "Баймак", "Сибай")
+
+    r = client.get("/rides/cities")
+    assert r.status_code == 200, r.text
+    тело = r.json()
+    откуда = {c["ru"]: c for c in тело["from"]}
+    куда = {c["ru"] for c in тело["to"]}
+
+    assert "Баймак" in откуда, f"Баймака нет среди «Откуда»: {list(откуда)}"
+    assert откуда["Баймак"]["ba"] == "Баймаҡ", f"нет башкирского написания: {откуда['Баймак']}"
+    assert {"Уфа", "Сибай"} <= куда, f"не все «Куда»: {куда}"
+    assert "count" not in json.dumps(тело), "витрине городов числа ни к чему — сколько у кого поездок"
+
+
+def test_список_городов_не_берёт_закрытые_поездки(client, user_factory):
+    водитель = user_factory("ГородаЗакрыт", role=UserRole.driver)
+    рейс = _из(client, водитель, "Акъяр", "Сибай")
+    from app.models import Ride, RideStatus
+    with Session(engine) as s:
+        ride = s.get(Ride, рейс)
+        ride.status = RideStatus.cancelled
+        s.add(ride)
+        s.commit()
+
+    тело = client.get("/rides/cities").json()
+
+    assert "Акъяр" not in {c["ru"] for c in тело["from"]}, "город отменённой поездки висит в «Откуда»"
+
+
+def test_снятое_подтверждение_убирает_поездку_из_фильтра_для_женщин(client, user_factory):
+    """Приёмка PR147, P1: отметка «только женщины» в базе осталась, а подтверждение сняли.
+
+    Карточка такую поездку уже не помечает, основная лента `/rides?women_only=1` её не отдаёт —
+    и лента «рядом» не должна: иначе женщина, которой небезопасно с незнакомым мужчиной,
+    получает в ответ на «только женщины» непроверенного водителя.
+    """
+    водительница = user_factory("ГорелоеПодтверждение", role=UserRole.driver)
+    with Session(engine) as s:
+        u = s.get(User, водительница["id"])
+        u.gender = "female"
+        s.add(u)
+        s.add(DriverProfile(user_id=водительница["id"], gender_verified=True))
+        s.commit()
+    рейс = _публикую(client, водительница, 1, город="Янаул", women_only=True)
+    with Session(engine) as s:                               # модератор снял подтверждение
+        from sqlmodel import select as sm_select
+        prof = s.exec(sm_select(DriverProfile).where(DriverProfile.user_id == водительница["id"])).first()
+        prof.gender_verified = False
+        s.add(prof)
+        s.commit()
+
+    тело = client.get("/rides/near?from_city=Янаул&limit=50&conditions=women").json()
+
+    assert рейс[0] not in {x["id"] for x in тело["items"]} and тело["count"] == 0, (
+        f"поездка водителя без действующего подтверждения попала в «только женщины»: {тело}")
