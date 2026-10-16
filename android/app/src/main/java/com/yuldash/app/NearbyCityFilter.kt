@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -68,6 +69,8 @@ internal class NearbyCityFilterState {
     var fromOptions by mutableStateOf<List<FilterCity>>(emptyList())
     var toOptions by mutableStateOf<List<FilterCity>>(emptyList())
     val active: Boolean get() = from.isNotEmpty() || to.isNotEmpty()
+    /** Когда список городов последний раз пришёл с сервера (elapsedRealtime, мс); 0 — ещё ни разу. */
+    var loadedAtMs = 0L
     /** Есть что выбрать или что снять: тогда чипы на месте, даже если рядом поездок нет. */
     val offered: Boolean get() = active || fromOptions.isNotEmpty() || toOptions.isNotEmpty()
 
@@ -77,18 +80,28 @@ internal class NearbyCityFilterState {
     }
 }
 
+/** Города меняются медленно, а ленту обновляют раз в ~25 с и по сигналу карты: список — не чаще раза в 2 минуты. */
+internal const val CITIES_REFRESH_MS = 120_000L
+
+/** Пора ли перечитать список городов: ещё ни разу не пришёл (в т.ч. после сбоя сети) или устарел. */
+internal fun citiesStale(loadedAtMs: Long, nowMs: Long): Boolean = loadedAtMs == 0L || nowMs - loadedAtMs >= CITIES_REFRESH_MS
+
 /**
- * Состояние фильтров городов. Список городов перечитывает вместе с лентой ([reloadKey] — её «Обновить»
- * и авто-обновление): город с новой поездкой появляется сам, сбой сети при открытии карты не прячет
- * чипы до следующего входа. Старый сервер без `/rides/cities` — чипов нет.
+ * Состояние фильтров городов. Список городов проверяет вместе с лентой ([reloadKey] — её «Обновить»
+ * и авто-обновление), а перечитывает с сервера не чаще раза в [CITIES_REFRESH_MS]: город с новой
+ * поездкой появляется сам, сбой сети при открытии карты не прячет чипы до следующего входа, а сервер
+ * не получает запрос от каждой открытой карты каждые 25 секунд (приёмка PR147).
+ * Старый сервер без `/rides/cities` — чипов нет.
  */
 @Composable
 internal fun rememberNearbyCityFilter(reloadKey: Int): NearbyCityFilterState {
     val state = remember { NearbyCityFilterState() }
     LaunchedEffect(reloadKey) {
+        if (!citiesStale(state.loadedAtMs, SystemClock.elapsedRealtime())) return@LaunchedEffect
         ApiClient.getRideCities().onSuccess {
             state.fromOptions = it.from
             state.toOptions = it.to
+            state.loadedAtMs = SystemClock.elapsedRealtime()
         }
     }
     return state

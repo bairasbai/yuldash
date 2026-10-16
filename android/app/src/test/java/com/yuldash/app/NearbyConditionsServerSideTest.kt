@@ -84,4 +84,11 @@ class NearbyConditionsServerSideTest {
         assertEquals("Откуда · Баймак", cityChipLabel("Откуда", listOf("Баймак")))
         assertEquals("Откуда · Баймак +2", cityChipLabel("Откуда", listOf("Баймак", "Сибай", "Учалы")))
     }
+
+    @Test
+    fun `города перечитываются не чаще раза в 2 минуты, а после сбоя — сразу`() {
+        assertTrue("ни разу не пришли — грузить", citiesStale(0L, 5_000L))
+        assertTrue("через 25 с после загрузки — не грузить", !citiesStale(10_000L, 35_000L))
+        assertTrue("через 2 минуты — грузить снова", citiesStale(10_000L, 10_000L + CITIES_REFRESH_MS))
+    }
 }

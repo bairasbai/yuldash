@@ -254,12 +254,13 @@ def _проверить_ленту(client, user_factory, _make_courier, _order):
     )
 
 
-def test_список_городов_не_ходит_в_справочник_на_каждую_поездку(client, user_factory):
-    """`/rides/cities` спрашивает справочник по разу на каждое РАЗНОЕ имя, а не на поездку.
+def test_список_городов_берёт_справочник_одним_снимком(client, user_factory):
+    """`/rides/cities` сверяет справочник не больше пары раз — сколько бы ни было городов.
 
-    Приёмка PR147: поиск имени в справочнике ходит в базу (сверка свежести снимка), и по разу
-    на каждую из 2000 поездок это тысячи запросов на каждое открытие карты. Проверяем рост:
-    пять новых поездок из уже знакомых городов не должны добавить ни одного похода в справочник.
+    Приёмка PR147 (два прохода): поиск имени в справочнике ходит в базу (сверка свежести снимка).
+    Сначала это было по разу на каждую поездку, потом — по разу на каждое РАЗНОЕ имя: на 2000
+    поездках из 140 городов — 284 запроса против 8 у самой ленты, при каждом открытии карты.
+    Порог здесь честный: снимок берётся один раз на ответ, а города в шторке — десятки.
     """
     from datetime import timedelta
 
@@ -267,29 +268,22 @@ def test_список_городов_не_ходит_в_справочник_н�
     from app.models import UserRole
     from app.timeutil import utcnow
 
-    водитель = user_factory("ГородаБезЛишнихЗапросов", role=UserRole.driver)
+    водитель = user_factory("ГородаОднимСнимком", role=UserRole.driver)
+    # Шесть РАЗНЫХ мест в обе стороны: при поиске «по разу на имя» это было бы 12 походов.
+    for i, (откуда, куда) in enumerate([("Белебей", "Кумертау"), ("Давлеканово", "Агидель"),
+                                         ("Межгорье", "Благовещенск"), ("Чишмы", "Языково"),
+                                         ("Раевский", "Аскарово"), ("Мраково", "Бакалы")]):
+        when = (utcnow() + timedelta(hours=settings.local_tz_offset_hours, days=2, minutes=i)).replace(microsecond=0)
+        r = client.post("/rides", headers=водитель["auth"], json={
+            "from_city": откуда, "to_city": куда, "seats_total": 3, "price": 400,
+            "depart_at": when.isoformat(),
+        })
+        assert r.status_code == 200, r.text
 
-    def _поездок(n: int) -> None:
-        for i in range(n):
-            when = (utcnow() + timedelta(hours=settings.local_tz_offset_hours, days=2, minutes=i)).replace(microsecond=0)
-            r = client.post("/rides", headers=водитель["auth"], json={
-                "from_city": "Белебей", "to_city": "Кумертау", "seats_total": 3, "price": 400,
-                "depart_at": when.isoformat(),
-            })
-            assert r.status_code == 200, r.text
+    with _Counter(table="settlement") as c:
+        assert client.get("/rides/cities").status_code == 200
 
-    def _походов_в_справочник() -> int:
-        with _Counter(table="settlement") as c:
-            assert client.get("/rides/cities").status_code == 200
-        return c.n
-
-    _поездок(1)
-    мало = _походов_в_справочник()
-    _поездок(5)                  # те же Белебей и Кумертау — новых имён нет
-    много = _походов_в_справочник()
-
-    assert много <= мало, (
-        "на тех же городах список сходил в справочник %d раз, после пяти новых поездок — %d. "
-        "Значит ищет имя на каждую поездку." % (мало, много)
+    assert c.n <= 2, (
+        "список городов сходил в справочник %d раз — ищет каждое имя отдельным запросом. "
+        "Он открывается с картой у каждого: бери снимок один раз (geo.by_exact_names)." % c.n
     )
-
