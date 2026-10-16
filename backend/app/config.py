@@ -1153,6 +1153,15 @@ class Settings(BaseSettings):
                         "не узнает, что водитель подъехал")
         if self.is_prod and not self.sentry_dsn.strip():
             warn.append("SENTRY_DSN пуст — падения у людей останутся невидимыми")
+        # SOS на проде доходит до живого человека ровно одним путём — Telegram дежурному
+        # (SMS заморожены). Без токена бота или chat_id `notify_admin_telegram` молча ничего
+        # не шлёт, и красная кнопка уходит в пустоту (приёмка волны 1, 16.10.2026).
+        if self.is_prod and not (self.telegram_bot_token.strip() and self.admin_telegram_chat_id.strip()):
+            warn.append("TELEGRAM_BOT_TOKEN/ADMIN_TELEGRAM_CHAT_ID пусты — SOS не дойдёт до дежурного, "
+                        "а вход через Telegram не работает")
+        if self.is_prod and self.sms_provider.strip().lower() == "mock":
+            warn.append("SMS_PROVIDER=mock — SMS не уходят: близкие не получат SOS и ссылку «поделиться» "
+                        "по SMS (в приложении есть «Скопировать/Отправить ссылку»); тексты не должны обещать SMS")
         # Публичные документы на yulbash.ru/terms прямо обещают: «Комиссия с поездок не берётся,
         # расчёты производятся напрямую между пользователями». Пока денежные флаги выключены —
         # это правда. Включили хоть один, не переписав документы, — сервис публично обещает одно,

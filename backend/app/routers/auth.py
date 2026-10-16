@@ -593,6 +593,11 @@ def tg_start(session: Session = Depends(get_session)):
 @router.post("/telegram/webhook")
 async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(default="")):
     """Telegram шлёт сюда апдейты. На /start <request_id> привязываем юзера и шлём код."""
+    # На проде без секрета дверь заперта, а не распахнута (приёмка волны 1, 16.10.2026):
+    # `validate_production` требует секрет только при заданном токене бота, а без проверки
+    # подделать апдейт «поделился номером» с чужим телефоном ничего не стоит.
+    if settings.is_prod and not settings.telegram_webhook_secret:
+        raise HTTPException(403, "webhook secret not configured")
     if settings.telegram_webhook_secret and not hmac.compare_digest(
         x_telegram_bot_api_secret_token or "", settings.telegram_webhook_secret
     ):
