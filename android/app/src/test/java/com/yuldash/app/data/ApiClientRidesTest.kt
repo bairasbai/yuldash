@@ -128,6 +128,47 @@ class ApiClientRidesTest {
         val path = recorded.path.orEmpty()
         assertTrue(path.startsWith("/rides/near?"))
         assertTrue(path.contains("limit=5"))
+        assertTrue("без условий лишних параметров нет", !path.contains("conditions=") && !path.contains("verified_only"))
+    }
+
+    @Test
+    fun getNearbyRidesPaged_sendsPassengerConditionsToServer() = runBlocking {
+        // DESIGN023: условия режет сервер ДО порций — иначе подходящая поездка дальше первой
+        // порции превращалась в «поездок нет», а «Показать ещё» при условии пряталась.
+        server.enqueue(json("""{"count":1,"items":[]}"""))
+        ApiClient.getNearbyRidesPaged("Баймак", null, limit = 5,
+            conditions = setOf("pets", "child"), verifiedOnly = true).getOrThrow()
+        val path = server.takeRequest().path.orEmpty()
+        assertTrue(path, path.contains("conditions=child%2Cpets") || path.contains("conditions=child,pets"))
+        assertTrue(path, path.contains("verified_only=true"))
+    }
+
+    @Test
+    fun getNearbyRidesPaged_sendsChosenCitiesToServer() = runBlocking {
+        // «Нужны только поездки из Баймака или Сибая в любую сторону» (16.10.2026).
+        server.enqueue(json("""{"count":0,"items":[]}"""))
+        ApiClient.getNearbyRidesPaged(null, null, limit = 5,
+            fromCities = setOf("Сибай", "Баймак"), toCities = setOf("Уфа")).getOrThrow()
+        val path = java.net.URLDecoder.decode(server.takeRequest().path.orEmpty(), "UTF-8")
+        assertTrue(path, path.contains("from_cities=Баймак,Сибай"))
+        assertTrue(path, path.contains("to_cities=Уфа"))
+    }
+
+    @Test
+    fun getNearbyRidesPaged_withoutCities_sendsNoCityParams() = runBlocking {
+        server.enqueue(json("""{"count":0,"items":[]}"""))
+        ApiClient.getNearbyRidesPaged("Уфа", null, limit = 5).getOrThrow()
+        val path = server.takeRequest().path.orEmpty()
+        assertFalse(path, path.contains("from_cities") || path.contains("to_cities"))
+    }
+
+    @Test
+    fun getRideCities_parsesBothLanguages() = runBlocking {
+        server.enqueue(json("""{"from":[{"ru":"Баймак","ba":"Баймаҡ"},{"ru":"Сибай","ba":""},{"ru":" ","ba":"x"}],"to":[{"ru":"Уфа","ba":"Өфө"}]}"""))
+        val cities = ApiClient.getRideCities().getOrThrow()
+        assertEquals("/rides/cities", server.takeRequest().path)
+        assertEquals(listOf(FilterCity("Баймак", "Баймаҡ"), FilterCity("Сибай", "Сибай")), cities.from)
+        assertEquals(listOf(FilterCity("Уфа", "Өфө")), cities.to)
     }
 
     // ---------- getNearbyRequests ----------
