@@ -1189,6 +1189,7 @@ internal fun PassengerCabinetScreen(
     }
     val activeBookings = bookings.filter { it.status == "pending" || it.status == "confirmed" || it.status == "onboard" }
     val activeBooking = activeBookings.firstOrNull()
+    val taxiOn = rememberFeatures().isOn(Feature.Taxi)   // запуск волнами: такси выключено → без предзаказов и такси-поездок
     // Готовим отображаемую поездку в @Composable-обёртке (тут доступен appText/язык), передаём в чистый Content.
     val activeRide = activeBooking?.let { b ->
         Ride(
@@ -1230,6 +1231,7 @@ internal fun PassengerCabinetScreen(
             onSafety = onSafety,
             modifier = Modifier.padding(padding),
             restrictions = restrictions,
+            taxiOn = taxiOn,
         )
     }
 }
@@ -1262,6 +1264,7 @@ internal fun PassengerCabinetContent(
     modifier: Modifier = Modifier,
     // Ограничения качества (§9): карточка «Мои ограничения» (пусто → не показывается).
     restrictions: com.yuldash.app.data.RestrictionsDto? = null,
+    taxiOn: Boolean = true,   // такси включено на сервере; нет → предзаказы и поездки такси спрятаны
 ) {
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -1371,10 +1374,10 @@ internal fun PassengerCabinetContent(
         item {
             SettingsGroup {
                 SettingsNavRow(Icons.Default.Search, appText("Найти поездку", "Сәфәр табыу"), appText("Открыть список ближайших маршрутов", "Яҡындағы маршруттарҙы асыу"), onClick = onFindRide)
-                SettingsNavRow(Icons.Default.Schedule, appText("Мои предзаказы", "Минең алдан заказдар"), appText("Такси «на время»: обратный отсчёт и поиск", "«Ваҡытҡа» такси: кире иҫәп һәм эҙләү"), onClick = onScheduledOrders)
+                if (taxiOn) SettingsNavRow(Icons.Default.Schedule, appText("Мои предзаказы", "Минең алдан заказдар"), appText("Такси «на время»: обратный отсчёт и поиск", "«Ваҡытҡа» такси: кире иҫәп һәм эҙләү"), onClick = onScheduledOrders)
                 // Чек за такси раньше жил ровно до закрытия экрана заказа. А нужен он позже:
                 // справка на работу, спор по сумме, «забыл вещь в машине».
-                SettingsNavRow(Icons.Default.History, appText("Мои поездки на такси", "Такситағы сәфәрҙәрем"), appText("История и чек за каждую поездку", "Тарих һәм һәр сәфәр өсөн чек"), onClick = onMyTaxiTrips)
+                if (taxiOn) SettingsNavRow(Icons.Default.History, appText("Мои поездки на такси", "Такситағы сәфәрҙәрем"), appText("История и чек за каждую поездку", "Тарих һәм һәр сәфәр өсөн чек"), onClick = onMyTaxiTrips)
                 SettingsNavRow(Icons.Default.AddRoad, appText("Создать заявку", "Заявка булдырыу"), appText("Если готовой поездки нет", "Әҙер сәфәр булмаһа"), onClick = onCreateRequest)
                 SettingsNavRow(Icons.Default.Bookmark, appText("Мои адреса", "Минең адрестар"), appText("Дом, работа и любимые места", "Өй, эш һәм яратҡан урындар"), onClick = onSavedPlaces)
                 SettingsNavRow(Icons.Default.AccountBalanceWallet, appText("Кошелёк", "Янсыҡ"), appText("Баланс и история операций", "Баланс һәм операциялар тарихы"), onClick = onWallet)
@@ -1400,7 +1403,9 @@ internal fun DriverCabinetScreen(
     onTaxiDocs: () -> Unit = {},         // 580-ФЗ: сроки ОСАГО/разрешения/техосмотра + продление
     onPretrip: () -> Unit = {},          // 580-ФЗ: готовность к работе на сегодня
     onMyResponses: () -> Unit = {},      // «Мои отклики»: торг о цене по заявкам пассажиров
+    onOpenTrip: (Int) -> Unit = {},      // «Едут с тобой» → экран поездки этой брони (id брони)
 ) {
+    val taxiOn = rememberFeatures().isOn(Feature.Taxi)   // запуск волнами: такси выключено → без линии, панели и поездок такси
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
     var driverRides by remember { mutableStateOf<List<Ride>>(emptyList()) }
     // Отличаем «маршрутов нет» от «сеть упала»: иначе при обрыве водитель видит ложное «нет маршрутов».
@@ -1785,7 +1790,7 @@ internal fun DriverCabinetScreen(
             restrictions = restrictions,
             scheduleSection = { DriverScheduleSection() },
             // Спрос рядом — только одобренному таксисту; читает online как State (реагирует на тумблер).
-            demandSection = if (!taxiAppLoaded || taxiApp?.status == "approved") {
+            demandSection = if (taxiOn && (!taxiAppLoaded || taxiApp?.status == "approved")) {
                 { Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
                     PrioritySection()
                     DriverDemandSection(online = online)
@@ -1797,6 +1802,7 @@ internal fun DriverCabinetScreen(
             onTaxiDocs = onTaxiDocs,
             onPretrip = onPretrip,
             pretripNeeded = pretripNeeded,
+            taxiOn = taxiOn, onOpenTrip = onOpenTrip,
         )
         }
     }
@@ -1810,7 +1816,7 @@ internal fun DriverCabinetScreen(
     }
     // Пока водитель «на линии» — presence-heartbeat + опрос входящего оффера; оффер рисуется поверх.
     // Гейт (580-ФЗ): точно знаем, что заявки-approved нет → зря сервер не дёргаем (там всё равно 403).
-    val taxiAllowed = !taxiAppLoaded || taxiApp?.status == "approved"
+    val taxiAllowed = taxiOn && (!taxiAppLoaded || taxiApp?.status == "approved")
     InstantDriverOnlineController(
         online = online && taxiAllowed,
         workday = workday,
@@ -2960,6 +2966,8 @@ internal fun DriverCabinetContent(
     tipsSbp: String = "",            // СБП водителя для чаевых; "" = не принимает
     onSaveTips: (String) -> Unit = {},
     pretripNeeded: Boolean = false,  // сегодня ещё не отмечался → без этого на линию не пустят
+    taxiOn: Boolean = true,          // такси включено на сервере; нет → линия, панель и поездки такси спрятаны
+    onOpenTrip: (Int) -> Unit = {},  // «Едут с тобой»: открыть экран поездки этой брони (id брони)
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
     val ridesDone = archive.count { it.status == "done" }
@@ -3021,7 +3029,7 @@ internal fun DriverCabinetContent(
         // Что мешает выйти на линию — ОДНОЙ карточкой и до тумблера (аудит сценариев 30.08).
         // Раньше кабинет молчал: про снятый допуск человек узнавал из пуша, который мог не
         // дойти, а про неотмеченную готовность — только упёршись в закрытую линию.
-        item {
+        if (taxiOn) item {
             DriverBlockersCard(
                 app = taxiApplication,
                 pretripNeeded = pretripNeeded,
@@ -3029,10 +3037,11 @@ internal fun DriverCabinetContent(
                 onPretrip = onPretrip,
             )
         }
-        item {
-            // Гейт такси (580-ФЗ): «на линию» может выйти только одобренный таксист.
-            // Пока статус заявки не загружен — тумблер как раньше (сервер всё равно гейтит).
-            if (!taxiAppLoaded || taxiApplication?.status == "approved") {
+        // Гейт такси (580-ФЗ): «на линию» может выйти только одобренный таксист.
+        // Пока статус заявки не загружен — тумблер как раньше (сервер всё равно гейтит).
+        val taxiApproved = !taxiAppLoaded || taxiApplication?.status == "approved"
+        if (taxiOn || !taxiApproved) item {   // такси выключено: тумблера нет, а анкета таксиста открыта — набор идёт и до запуска
+            if (taxiOn && taxiApproved) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SettingsGroup {
                         SettingSwitchRow(
@@ -3058,7 +3067,7 @@ internal fun DriverCabinetContent(
         // Смена такси (волна 2, §8 Отдых): блок отдыха («8 часов за рулём» + «один попутчик
         // домой») или прогресс к лимиту — показываем только одобренному таксисту и только
         // когда есть что показать (на линии / время уже капало / отдых).
-        if (workday != null && (!taxiAppLoaded || taxiApplication?.status == "approved")) {
+        if (taxiOn && workday != null && taxiApproved) {
             // Дашборд: заработок за сегодня + лесенка комиссии — когда таксист активен сегодня.
             if (online || workday.secondsOnline > 0 || workday.ordersToday > 0) {
                 item { TaxiDashboardCard(workday) }
@@ -3291,6 +3300,7 @@ internal fun DriverCabinetContent(
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         PassengerRow(b)
+                        AppButton(text = appText("Открыть поездку", "Сәфәрҙе асыу"), onClick = { onOpenTrip(b.bookingId) })
                         // «Не явился» — пассажир не пришёл на посадку; «в пути» — только разбор (RideshareNoShow.kt).
                         NoShowButton(b.bookingId, b.status, passengerId = b.passengerId, passengerName = b.passengerName)
                     }
@@ -3455,7 +3465,7 @@ internal fun DriverCabinetContent(
             SettingsGroup {
                 SettingsNavRow(Icons.Default.Insights, appText("Мой заработок", "Минең табыш"), appText("Заработок по неделям, месяцам и дням", "Аҙна, ай һәм көн буйынса табыш"), onClick = onEarnings)
                 // Расшифровка по каждой поездке — закрывает «Юлдаш говорит 4200, я насчитал 4600».
-                SettingsNavRow(Icons.Default.ReceiptLong, appText("Мои поездки такси", "Такси сәфәрҙәрем"), appText("Цена, комиссия и сколько осталось тебе", "Хаҡ, комиссия һәм һиңә күпме ҡалды"), onClick = onTaxiRides)
+                if (taxiOn) SettingsNavRow(Icons.Default.ReceiptLong, appText("Мои поездки такси", "Такси сәфәрҙәрем"), appText("Цена, комиссия и сколько осталось тебе", "Хаҡ, комиссия һәм һиңә күпме ҡалды"), onClick = onTaxiRides)
                 SettingsNavRow(Icons.Default.AccountBalanceWallet, appText("Кошелёк", "Янсыҡ"), appText("Баланс и история операций", "Баланс һәм операциялар тарихы"), onClick = onWallet)
             }
         }
@@ -3469,7 +3479,7 @@ internal fun DriverCabinetContent(
                 SettingsNavRow(Icons.Default.Verified, appText("Проверка водителя", "Йөрөтөүсене тикшереү"), appText("Права, машина, фото и госномер", "Права, машина, фото һәм номер"), onClick = onVerifyDriver)
                 // 580-ФЗ: проверка перестала быть разовой — сроки живут и напоминают о себе сами.
                 SettingsNavRow(Icons.Default.Shield, appText("Документы и сроки", "Документтар һәм ваҡыттар"), appText("ОСАГО, разрешение, техосмотр — продлить без новой заявки", "ОСАГО, рөхсәт, техник ҡарау — яңы заявкаһыҙ оҙайтыу"), onClick = onTaxiDocs)
-                SettingsNavRow(Icons.Default.MonitorHeart, appText("Готовность к работе", "Эшкә әҙерлек"), appText("Отметить перед выходом на линию: самочувствие, машина", "Линияға сығыр алдынан билдәләү: һаулыҡ, машина"), onClick = onPretrip)
+                if (taxiOn) SettingsNavRow(Icons.Default.MonitorHeart, appText("Готовность к работе", "Эшкә әҙерлек"), appText("Отметить перед выходом на линию: самочувствие, машина", "Линияға сығыр алдынан билдәләү: һаулыҡ, машина"), onClick = onPretrip)
                 SettingsNavRow(Icons.Default.TrendingUp, appText("Поднять маршрут", "Маршрутты күтәреү"), appText("Показать выше в списке поездок", "Сәфәрҙәр исемлегендә өҫтәрәк күрһәтеү"), onClick = onBoost)
             }
         }

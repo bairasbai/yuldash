@@ -726,8 +726,13 @@ def push_notification(
     ref_id: "int | None" = None,
     push: bool = True,
     data: "dict | None" = None,
+    urgent: bool = False,
 ) -> None:
     """Единая точка события: пишет строку в Центр уведомлений (двуязычно RU+BA) И шлёт FCM-push.
+
+    `urgent=True` — звонить и в тихие часы, хотя тип сам по себе «новостной». Для событий
+    идущей поездки, которые делят тип с новостями: «Водитель выехал/подъезжает» уходят типом
+    "ride", как и «оцените поездку», но ждать до утра не могут (приёмка волны 1, 16.10.2026).
 
     Ставится в тех же местах, где раньше был голый send_push → лента уведомлений и пуш всегда
     синхронны. Запись идёт в СВОЕЙ сессии: commit в переданной session сбросил бы (expire) ORM-
@@ -738,7 +743,7 @@ def push_notification(
     """
     # Ночью не звоним по несрочному: запись в Центре уведомлений остаётся, человек увидит её
     # утром, а телефон молчит (волна 105). Беда, идущая поездка и чужое сообщение проходят.
-    if push and ntype not in _LOUD_AT_NIGHT and _is_quiet_hour():
+    if push and not urgent and ntype not in _LOUD_AT_NIGHT and _is_quiet_hour():
         push = False
     try:
         with Session(engine) as s:

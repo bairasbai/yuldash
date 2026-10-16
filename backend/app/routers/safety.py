@@ -21,6 +21,7 @@ from ..security import current_user
 from ..services import (booking_and_ride_for_user, notify_admin_telegram, pick_lang, push_bilingual,
                         sms_lang_of, push_notification, send_text, sms_will_reach)
 from ..timeutil import utcnow
+from ..visibility import booking_contacts_open
 from .. import quality
 
 router = APIRouter(tags=["safety"])
@@ -68,20 +69,30 @@ class SosIn(BaseModel):
     lng: Optional[float] = Field(None, ge=-180, le=180)
 
 
-def _car_of(session: Session, driver_id: "int | None") -> str:
+def _car_of(session: Session, driver_id: "int | None", *, with_plate: bool = True) -> str:
     """Описание машины: «белая Лада Гранта А123БВ102». Пусто, если анкета не заполнена.
 
     Черта, по которой мы делим данные водителя при SOS (решение 2026-08-06):
     ЧТО ВИДНО СНАРУЖИ МАШИНЫ — можно отдать близким; ЧТО ЗАПИСАНО В АНКЕТЕ (имя, телефон) —
     только дежурному. Госномер висит на машине ровно затем, чтобы посторонний мог её опознать,
     и это первое, что спросит полиция. Имя и телефон родным действовать не помогают.
+
+    `with_plate=False` — без госномера: близким по брони, которую водитель ещё не подтвердил
+    (решение Александра 16.10.2026, см. вызов в `sos`).
     """
     if not driver_id:
         return ""
     prof = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver_id)).first()
     if not prof:
         return ""
-    return " ".join(x for x in (prof.car_color, prof.car_model, prof.car_plate) if x).strip()
+    # Марку раньше теряли: анкета хранит её отдельно от модели, и «Лада» + «Гранта» доходила
+    # родным как «белая Гранта». Но часть водителей вписывает марку и в модель — не задваиваем.
+    марка = prof.car_make or ""
+    модель = prof.car_model or ""
+    if марка and модель.lower().startswith(марка.lower()):
+        марка = ""
+    номер = prof.car_plate if with_plate else ""
+    return " ".join(x for x in (prof.car_color, марка, модель, номер) if x).strip()
 
 
 def _ride_context_line(session: Session, ride: "Ride | None") -> str:
@@ -232,11 +243,11 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     # ни Telegram дежурному, ни SMS близким, эскалатору нечего повторять. Красная кнопка не
     # имеет права отказывать из-за неверной привязки: пишем сигнал ВСЕГДА, а чужой контекст
     # (не свою машину, не чужой маршрут) просто не берём и помечаем в событии.
-    ride = None
+    booking = ride = None
     отклонено: list[str] = []
     if body.booking_id is not None:
         try:
-            _, ride = booking_and_ride_for_user(session, body.booking_id, user)
+            booking, ride = booking_and_ride_for_user(session, body.booking_id, user)
         except HTTPException:
             отклонено.append(f"бронь #{body.booking_id} не подошла")
     order = None
@@ -274,7 +285,16 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     # дежурный читает Telegram. «Уехала на попутке в Сибай» действовать не помогает, «белая Лада
     # А123БВ102» — помогает, и это же первое, что спросит полиция (решение 2026-08-06).
     # Имя и телефон водителя сюда НЕ идут: родным они не нужны, это уже данные из анкеты.
-    car = _car_of(session, ride.driver_id if ride is not None else (order.driver_id if order else None))
+    # Госномер — не больше, чем видно в самом приложении (решение Александра 16.10.2026, N13):
+    # пассажиру он открыт только после подтверждения брони (`booking_contacts_open`). Иначе SOS
+    # был обходным ходом: забронировал чужую поездку, нажал SOS — номер машины пришёл SMS-кой.
+    # До подтверждения родным уходят цвет, марка и модель. Водитель жмёт в своей поездке —
+    # машина его собственная, номер его родным отдаём всегда. Дежурному — всё (`_ride_context_line`).
+    if ride is not None:
+        номер_открыт = ride.driver_id == user.id or booking_contacts_open(booking, ride)
+        car = _car_of(session, ride.driver_id, with_plate=номер_открыт)
+    else:
+        car = _car_of(session, order.driver_id if order else None)
     # Телефоны доверенных контактов собираем ПОКА сессия открыта, рассылку SMS — в фон (после ответа).
     contacts = session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()
     phones_all = [c.phone for c in contacts if c.phone]

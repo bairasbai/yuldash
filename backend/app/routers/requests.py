@@ -29,6 +29,7 @@ from ..services import (
 from ..safety_logic import (account_paused, ensure_active, may_ride_together,
                             MSG_WOMEN_ONLY_RESPOND, guard_women_only)
 from ..antifraud import moderate_open_text
+from ..features import guard_delivery_ride
 from ..timeutil import client_dt_to_utc, utcnow
 from .. import workday as workday_mod
 from ..trust_service import INSIDER_LEVEL, trust_level
@@ -131,6 +132,9 @@ def _recent_twin_request(session: Session, passenger_id: int, body: RequestIn):
 
 @router.post("/requests", response_model=RideRequest)
 def create_request(body: RequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    # Заявка «посылка/груз» — та же новая доставка, что и поездка этой категории: выключатель
+    # посылок закрывает и её (приёмка волны 1, 16.10.2026; замок — `features.py`).
+    guard_delivery_ride(body.category)
     ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует новую заявку
     # Анти-флуд: каждая заявка будит пушем водителей, караулящих это направление
     # (notify_request_watchers ниже). Без потолка один человек рассылал их сотнями (аудит 2026-08-06).
@@ -584,6 +588,7 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     req = session.exec(select(RideRequest).where(RideRequest.id == request_id).with_for_update()).first()
     if not req or req.status != "active":
         raise herr(404, "Заявка не найдена или закрыта", "Заявка табылманы йәки ябылған")
+    guard_delivery_ride(req.category)   # откликнуться на посылку = взять доставку: при выключенных — «скоро»
     # И время не должно быть прошедшим: из ленты такая заявка уже ушла, но прямая ссылка
     # (старый пуш, открытый экран) обходила бы фильтр — водитель звонил бы человеку, который
     # уехал месяц назад (аудит 2026-08-06).
@@ -970,6 +975,9 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
     ).first()
     if not req:
         raise herr(404, "Заявка не найдена", "Заявка табылманы")
+    # Приём отклика сам создаёт поездку категории заявки с подтверждённой бронью — мимо замка
+    # в rides.py/bookings.py. Одна общая точка для приложения, админа, автоподбора и Telegram ✅.
+    guard_delivery_ride(req.category)
     # Быстрый понятный отказ; настоящая защита — атомарный захват заявки ниже.
     if req.status != "active":
         raise herr(400, "Заявка уже закрыта", "Заявка инде ябылған")

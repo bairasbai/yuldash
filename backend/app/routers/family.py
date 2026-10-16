@@ -2,7 +2,7 @@
 статусы поездки (сел/доехал/завершил) с SMS-уведомлением, оценки после поездки."""
 import re
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import List
 
 from fastapi import APIRouter, Depends
@@ -141,9 +141,21 @@ class ShareIn(BaseModel):
     contact_id: int
 
 
+def _trip_share_expires(ride) -> datetime:
+    """Когда гаснет ссылка близкому: сутки от выезда, а не от того, когда поделились.
+
+    Приёмка волны 1 (16.10.2026). Попутку бронируют заранее — в пятницу на воскресенье — и
+    делятся сразу. Сутки от «поделился» истекали в субботу, и в день поездки мама видела
+    «Ссылка не найдена». Выезд уже был (поделились в пути) — отсчёт от «сейчас», как раньше.
+    """
+    now = utcnow()
+    start = ride.depart_at if ride is not None and ride.depart_at and ride.depart_at > now else now
+    return start + _SHARE_TTL
+
+
 @router.post("/bookings/{booking_id}/share", response_model=TripShare)
 def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    booking, _ = booking_and_ride_for_user(session, booking_id, user)
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if booking.passenger_id != user.id:
         raise herr(403, "Расшарить поездку может только пассажир", "Сәфәрҙе тик пассажир уртаҡлаша ала")
     contact = session.get(TrustedContact, body.contact_id)
@@ -155,9 +167,18 @@ def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user
     ).first()
     if existing:
         _ensure_share_token(session, existing)   # строка до w2_livelink → догенерировать токен
+        # Повторное «поделиться» оживляет ТУ ЖЕ ссылку — ту, что у близкого уже есть. Раньше
+        # возвращалась строка с истёкшим сроком: человек жал ещё раз, а ссылка оставалась мёртвой.
+        # Срок только продлеваем, не укорачиваем. Отозванной ссылки здесь нет: отзыв удаляет строку.
+        срок = _trip_share_expires(ride)
+        if existing.expires_at is None or existing.expires_at < срок:
+            existing.expires_at = срок
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
         return existing
     share = TripShare(booking_id=booking_id, contact_id=body.contact_id,
-                      token=secrets.token_urlsafe(16), expires_at=utcnow() + _SHARE_TTL)
+                      token=secrets.token_urlsafe(16), expires_at=_trip_share_expires(ride))
     session.add(share)
     session.commit()
     session.refresh(share)

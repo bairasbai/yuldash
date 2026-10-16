@@ -761,13 +761,9 @@ internal fun CreatePassengerRequestScreen(
     var nonSmoking by remember { mutableStateOf(false) }
     var airConditioner by remember { mutableStateOf(false) }
     var onlyTrusted by remember { mutableStateOf(false) }   // «только для своих» (L3)
-    val categories = listOf(
-        "regular" to LocalizedText("Обычная", "Ғәҙәти"),
-        "urgent" to LocalizedText("Срочно", "Ашығыс"),
-        "parcel" to LocalizedText("Посылка", "Бандероль"),
-        "cargo" to LocalizedText("Груз", "Йөк"),
-        "kids" to LocalizedText("С детьми", "Балалар менән")
-    )
+    val features = rememberFeatures()
+    val categories = requestCategories(features)   // без «Посылки» и «Груза», пока доставка закрыта
+    LaunchedEffect(features) { if (rideCategoryClosed(category, features)) category = "regular" }   // закрыли, пока была выбрана
     val selectedCategoryText = categories.firstOrNull { it.first == category }?.second?.text() ?: categories.first().second.text()
     val waitingStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
     val context = LocalContext.current

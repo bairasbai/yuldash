@@ -165,6 +165,11 @@ def is_ride_insider(ride, user: Optional[User], session: Session) -> bool:
 
     Отменённая бронь сюда не входит: человек передумал ехать, и адрес водителя ему больше
     не нужен — а вот собрать чужие адреса, забронировав и сразу отменив, было бы слишком легко.
+
+    Неподтверждённая («ожидает») — тоже (приёмка волны 1, 16.10.2026): водитель её ещё не
+    видел, а точку встречи, телефон и госномер приложение раскрывает только после
+    подтверждения (`booking_contacts_open`). Иначе «забронировал и жду» открывало тот же
+    адрес и телефон, что прятали за подтверждением.
     """
     from .models import Booking, BookingStatus
 
@@ -175,8 +180,7 @@ def is_ride_insider(ride, user: Optional[User], session: Session) -> bool:
     живая = session.exec(select(Booking.id).where(
         Booking.ride_id == ride.id,
         Booking.passenger_id == user.id,
-        Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed,
-                            BookingStatus.onboard, BookingStatus.done]),
+        Booking.status.in_([BookingStatus.confirmed, BookingStatus.onboard, BookingStatus.done]),
     ).limit(1)).first()
     return живая is not None
 

@@ -98,6 +98,49 @@ class FeatureGateWiringGuardTest {
     }
 
     @Test
+    fun `кабинеты прячут рабочие двери такси при выключенном такси`() {
+        val code = src("ProfileScreen.kt")
+        val profile = code.lines()
+        fun lineWith(text: String) = profile.firstOrNull { it.contains(text) }.orEmpty()
+        listOf(
+            "appText(\"Мои предзаказы\"",
+            "appText(\"Мои поездки на такси\"",
+            "appText(\"Мои поездки такси\"",
+            "appText(\"Готовность к работе\"",
+        ).forEach { title ->
+            assertTrue(
+                "строка $title видна при выключенном такси",
+                lineWith(title).trimStart().startsWith("if (taxiOn) SettingsNavRow("),
+            )
+        }
+        assertTrue(
+            "карточка блокеров линии видна при выключенном такси",
+            Regex("""if \(taxiOn\) item \{\s*DriverBlockersCard\(""").containsMatchIn(code),
+        )
+        assertTrue(
+            "тумблер «Я на линии» виден при выключенном такси",
+            code.contains("if (taxiOn && taxiApproved) {"),
+        )
+        assertTrue(
+            "панель такси (заработок, смена) видна при выключенном такси",
+            code.contains("if (taxiOn && workday != null && taxiApproved) {"),
+        )
+        assertTrue(
+            "фоновая слежка линии (TaxiLineService) может запуститься при выключенном такси",
+            code.contains("val taxiAllowed = taxiOn && (!taxiAppLoaded || taxiApp?.status == \"approved\")"),
+        )
+        assertTrue(
+            "оба кабинета обязаны знать флаг такси",
+            code.contains("taxiOn = taxiOn,") && code.contains("val taxiOn = rememberFeatures().isOn(Feature.Taxi)"),
+        )
+        assertTrue(
+            "анкету таксиста закрывать нельзя: набор идёт и до запуска",
+            code.contains("if (taxiOn || !taxiApproved) item {") &&
+                code.contains("TaxiOnboardingCta(taxiApplication, onTaxiOnboarding)"),
+        )
+    }
+
+    @Test
     fun `админка выключателями не закрывается`() {
         val app = src("YuldashApp.kt") + src("AppNavAdmin.kt")
         val wrongly = Regex("""Screen\.(Admin\w+)\s*->\s*(?:FeatureGate|ScreenGate)\(""").findAll(app).map { it.groupValues[1] }.toList()
