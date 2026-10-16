@@ -78,3 +78,22 @@ def test_старый_отклик_на_посылку_не_принять(clien
     monkeypatch.setattr(settings, "parcels_enabled", False)
     r = client.post(f"/responses/{resp_id}/accept", headers=pax["auth"])
     assert r.status_code == 403, f"посылка поехала мимо выключателя через приём отклика: {r.text}"
+
+
+def test_старые_заявки_посылок_не_висят_в_ленте_водителя(client, user_factory, посылки_выключены):
+    """Откликнуться на них уже нельзя (403) — значит, и показывать их водителю незачем.
+
+    Приёмка волны 1, P2: водитель видел в ленте «посылку», жал «Откликнуться» и получал «скоро».
+    Обычная заявка рядом с ней — на месте.
+    """
+    pax = user_factory("ReqFeedPax")
+    drv = user_factory("ReqFeedDrv", role=UserRole.driver)
+    посылка = _old_parcel_request(pax["id"])
+    обычная = client.post("/requests", headers=pax["auth"], json=_request_body("regular")).json()["id"]
+
+    лента = {r["id"] for r in client.get("/requests/feed", headers=drv["auth"]).json()}
+    рядом = client.get("/requests/near", headers=drv["auth"]).json()
+    рядом_ids = {r["id"] for r in (рядом if isinstance(рядом, list) else рядом.get("items", []))}
+
+    assert посылка not in лента and посылка not in рядом_ids, "в ленте висит посылка, на которую нельзя откликнуться"
+    assert обычная in лента and обычная in рядом_ids, "выключатель посылок спрятал обычную заявку"

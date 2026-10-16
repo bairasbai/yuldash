@@ -28,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 from ..config import settings
 from ..db import get_session
 from ..routers.parcels import _FINAL_STATUSES as PARCEL_FINAL_STATUSES
-from ..visibility import visible_rides
+from ..visibility import trip_is_live, visible_rides
 from ..errors import herr
 from ..livepos import livepos_get
 from ..models import (
@@ -156,10 +156,13 @@ def _booking_state(session: Session, share: TripShare) -> dict:
     first_name = _first_name(session, booking.passenger_id)
     if booking.status in (BookingStatus.done, BookingStatus.cancelled):
         return _finished(first_name)
+    # «Машина едет к точке посадки» — только когда поездка правда началась (`trip_is_live`):
+    # за три дня до выезда мама читала «едет», а машины на карте не было и быть не могло
+    # (проверка безопасности волны 1, 16.10.2026). До того — «Поездка скоро начнётся».
+    идёт = trip_is_live(booking, ride)
     phase = "onboard" if booking.status == BookingStatus.onboard else (
-        "to_pickup" if booking.status == BookingStatus.confirmed else "wait")
-    car = livepos_get("booking", booking.id) \
-        if booking.status in (BookingStatus.confirmed, BookingStatus.onboard) else None
+        "to_pickup" if booking.status == BookingStatus.confirmed and идёт else "wait")
+    car = livepos_get("booking", booking.id) if идёт else None
     return _live(first_name, phase,
                  frm={"lat": ride.from_lat, "lng": ride.from_lng, "text": ride.from_city},
                  to={"lat": ride.to_lat, "lng": ride.to_lng, "text": ride.to_city},

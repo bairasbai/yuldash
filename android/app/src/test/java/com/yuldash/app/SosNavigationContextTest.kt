@@ -99,7 +99,7 @@ class SosNavigationContextTest {
             compose.onAllNodes(isRoot()).fetchSemanticsNodes()
             vm.screen.value == Screen.Sos && NavSignals.openSosForOrder.value == 0
         }
-        val sendButton = hasText("Сообщить близким и поддержке") and hasClickAction()
+        val sendButton = hasText("Сообщить поддержке") and hasClickAction()
         compose.onAllNodes(hasScrollToNodeAction()).onFirst().performScrollToNode(sendButton)
         // Only the in-process MockWebServer sees this POST. It cannot notify anyone.
         compose.onNode(sendButton).performClick()

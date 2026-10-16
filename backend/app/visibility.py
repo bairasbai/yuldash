@@ -317,3 +317,34 @@ def booking_contacts_open(booking, ride, now=None) -> bool:
     if ride is None or ride.depart_at is None:
         return True                     # времени выезда нет — закрывать не по чему
     return сейчас <= ride.depart_at + timedelta(hours=settings.chat_after_trip_hours)
+
+
+# За сколько до выезда точка на карте открывается сама, даже если водитель ещё не нажал
+# «выехал». Час — чтобы пассажир видел, что машина собирается, а мама — что поездка близко.
+LIVE_GEO_LEAD_HOURS = 1
+
+
+def trip_is_live(booking, ride, now=None) -> bool:
+    """Пора ли передавать живую точку на карте по этой брони — обеим сторонам и близким.
+
+    Подтверждённая бронь — это договорённость, а не поездка. Раньше канал координат открывался
+    сразу после «подтвердить»: водитель открывал сообщение пассажира за три дня до выезда, и его
+    точка — чаще всего дом — уходила пассажиру и маме пассажира по ссылке (проверка безопасности
+    волны 1, 16.10.2026). Теперь точка идёт, когда поездка правда началась: пассажир сел, водитель
+    отметил «выехал/подъезжаю» или до выезда меньше `LIVE_GEO_LEAD_HOURS`.
+    """
+    from datetime import timedelta
+
+    from .timeutil import utcnow
+
+    if booking is None or ride is None:
+        return False
+    статус = booking.status.value if hasattr(booking.status, "value") else booking.status
+    if статус == "onboard":
+        return True
+    if статус != "confirmed":
+        return False
+    if (getattr(booking, "driver_phase", "") or "") in ("departed", "arriving"):
+        return True
+    сейчас = now or utcnow()
+    return ride.depart_at is not None and сейчас >= ride.depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS)

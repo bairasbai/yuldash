@@ -44,6 +44,10 @@ def test_trip_location_ignores_bad_frames_before_valid_location(client, user_fac
     passenger = user_factory("LocBadFramePassenger")
     booking_id = client.post("/bookings", headers=passenger["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{booking_id}/confirm", headers=driver["auth"]).status_code == 200
+    # Поездка идёт: водитель выехал. Без этого сервер не пересылает точку по брони за годы до
+    # выезда (`trip_is_live`, 16.10.2026), и канал молчит.
+    assert client.post(f"/bookings/{booking_id}/driver-status", headers=driver["auth"],
+                       json={"status": "departed"}).status_code == 200
 
     with client.websocket_connect(f"/ws/trip/{booking_id}/location") as driver_ws:
         driver_ws.send_text(json.dumps({"type": "auth", "token": driver["token"]}))

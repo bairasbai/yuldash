@@ -87,6 +87,10 @@ def test_booking_track_intact_alongside_instant(client, user_factory, fake_redis
     bpax = user_factory("WsMixBookPax")
     booking_id = client.post("/bookings", headers=bpax["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{booking_id}/confirm", headers=bdrv["auth"]).status_code == 200
+    # Поездка идёт: водитель выехал. Без этого сервер не пересылает точку по брони за годы до
+    # выезда (`trip_is_live`, 16.10.2026), и канал молчит.
+    assert client.post(f"/bookings/{booking_id}/driver-status", headers=bdrv["auth"],
+                       json={"status": "departed"}).status_code == 200
 
     with client.websocket_connect(f"/ws/instant/{order['id']}/location") as taxi_pax_ws:
         taxi_pax_ws.send_text(json.dumps({"type": "auth", "token": pax["token"]}))
