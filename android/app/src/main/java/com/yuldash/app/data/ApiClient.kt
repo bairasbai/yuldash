@@ -879,8 +879,8 @@ object ApiClient {
         }
     }
 
-    /** Города для чипов «Откуда»/«Куда»: только те, где сейчас есть поездки со свободными местами. */
-    suspend fun getRideCities(): Result<RideCitiesDto> = call("GET", "/rides/cities", null, auth = false).map(::parseRideCities)
+    /** Города для «Откуда»/«Куда», где есть поездки. auth: сервер прячет города заблокированных, как в ленте. */
+    suspend fun getRideCities(): Result<RideCitiesDto> = call("GET", "/rides/cities", null, auth = true).map(::parseRideCities)
 
     /** Заявки пассажиров рядом (для карты водителя — кто ищет попутку). Приватность: без телефона. */
     suspend fun getNearbyRequests(

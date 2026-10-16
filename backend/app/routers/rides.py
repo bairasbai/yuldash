@@ -949,17 +949,26 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
 
 
 @router.get("/rides/cities")
-def ride_cities(session: Session = Depends(get_session)):
+def ride_cities(user: Optional[User] = Depends(current_user_optional),   # есть токен → прячем заблокированных
+                session: Session = Depends(get_session)):
     """Города, откуда и куда сейчас есть поездки, — для шторок «Откуда» и «Куда» в ленте.
 
     Каждый город — на двух языках («Баймак» / «Баймаҡ»): приложение подставляет имя на языке
     человека, а ищет по любому написанию (`_city_match`). Чисел не отдаём — сколько у кого
     поездок, витрине знать незачем; порядок — от самых частых. Объявлен ДО `/rides/{ride_id}`,
     иначе «cities» читался бы как номер поездки.
+
+    Прячем то же, что лента `/rides/near`: заблокированных, водителей на паузе и «только для своих».
+    Иначе в шторке висел бы город, выбор которого даёт «поездок нет», а посторонний узнавал бы,
+    что оттуда кто-то едет «для своих». Считаем по ближайшим FEED_MAX×10 поездкам — один запрос
+    не тянет всю базу, а города дальних поездок всё равно уходят из топа.
     """
     rows = session.execute(
-        select(Ride.from_city, Ride.to_city).where(Ride.status == RideStatus.active, Ride.seats_left > 0)
+        select(Ride.id, Ride.driver_id, Ride.only_trusted, Ride.from_city, Ride.to_city)
+        .where(Ride.status == RideStatus.active, Ride.seats_left > 0)
+        .order_by(Ride.depart_at).limit(FEED_MAX * 10)
     ).all()
+    rows = hide_trusted_only(hide_suspended(hide_blocked(rows, user, session), user, session), user, session)
 
     def _top(names) -> list[dict]:
         счёт: dict[tuple, int] = {}
