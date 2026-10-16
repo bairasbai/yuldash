@@ -2585,3 +2585,36 @@ PWA/backend совпадают с принятыми SHA, новых строк 
 
 **Доставка:** локальные доказательства `C:/Users/Bayra/Yuldash/test-results/wave1-intro-contrast-fix-20261016`: source-before-extended/source-after, caller-before, red-window.xml, final-junit/green-counts, installed-final, native-matrix-final, popup-smoke-final, measurement-correction, review-evidence, cleanup. Независимая приёмка, итоговый commit SHA и6результатов полного CI фиксируются в [PR144](https://github.com/bairasbai/yuldash/pull/144); локальный результат сам по себе не заменяет итоговый CI. Main/deploy/production не выполняются.
 <!-- QA-ANDROID-INTRO-CONTRAST-01-20261016 END -->
+
+<!-- WAVE1-FINISH-20261016 -->
+<a id="wave1-finish-20261016"></a>
+## Волна 1 — приёмка попуток и доводка в облаке, 16.10.2026
+
+Ветка `claude/wave1-finish-20261016`, [PR145](https://github.com/bairasbai/yuldash/pull/145), база `45581b4e` (main после PR144). Облачная сессия Claude: эмулятора нет (нет `/dev/kvm`), Android SDK не скачивается — Android проверяет только CI. Сервер: локальные прогоны pytest на SQLite (Python 3.13; CI — 3.12 и PostgreSQL 16). Решения владельца 16.10 — `decisions.md`, «Волна 1: решения Александра…».
+
+**Как принимали.** Четыре независимых разведчика (сервер / Android / PWA / реестр) по 16 функциям волны 1 (F01 вход … F17 деньги); каждую находку ведущий перепроверил по коду до правки. Виды доказательств ниже: «RED→GREEN» — новый тест падал на `45581b4e` и проходит после правки; «код» — только чтение; «CI» — полный прогон GitHub.
+
+| ID | Что было | Правка | Доказательство | Остаток |
+|---|---|---|---|---|
+| W1-FIN-01 / N13 | SOS отдавал близким госномер по брони «ожидает»/отменённой; марка терялась | `safety.py` `_car_of(with_plate)`, номер — по `booking_contacts_open` | RED→GREEN `test_sos_plate_after_confirmation.py` 3/5→5/5; SOS/safety 649 passed | такси-заказ (`order_id`) не затронут — такси выключено |
+| W1-FIN-02 / F15 | Посылка обходила выключатель через заявку → отклик → приём (создавал Ride+Booking) | `requests.py`: `guard_delivery_ride` на создании, отклике, `accept_request_response` | RED→GREEN `test_wave_parcel_requests_gate.py` 5/6→6/6; выключатели 41, заявки 712 passed | Android прячет категории (W1-FIN-08) |
+| W1-FIN-03 / F06 | «Водитель выехал/подъезжает» с 22 до 07 приходили без звука | `push_notification(urgent=True)` только для них | RED→GREEN `test_driver_on_the_way_rings_at_night.py` 2/3→3/3; ночь/звонок 20 passed | реальный телефон и FCM не проверены |
+| W1-FIN-04 / F04 | Бронь «ожидает» открывала комментарий водителя с телефоном/адресом | `visibility.py` `is_ride_insider`: confirmed/onboard/done | RED→GREEN новый тест в `test_free_text_is_not_a_billboard.py`; journeys 5/5 | — |
+| W1-FIN-05 / F08 | Ссылка близкому гасла через сутки от «поделился»; повторный share возвращал мёртвую | `family.py` `_trip_share_expires` (сутки от выезда), продление той же строки | RED→GREEN `test_share_link_lives_through_the_trip.py` 2/3→3/3; шеринг+journeys 38 passed | — |
+| W1-FIN-06 / F01, F09 | Прод без секрета принимал поддельный апдейт вебхука; SOS молча не доходил без бота/chat_id | `auth.py` 403 на проде без секрета; `launch_warnings` (бот/chat_id, `SMS_PROVIDER=mock`) | RED→GREEN `test_telegram_door_closed_without_secret.py` 2/5→5/5; вебхук/запуск/journeys 246 passed | прод-конфиг не виден из облака |
+| W1-FIN-07 / F05 | Водитель по пушу «Новая бронь» попадал на пассажирскую «Бронь» с «Отменить бронь» | `BookingLinkDestination.kt` (`applyBookingLink`): pending → кабинет, confirmed/onboard → экран поездки | код + `BookingLinkDestinationTest`; CI | эмулятор/телефон |
+| W1-FIN-08 / F06 | В «Едут с тобой» не было входа в экран поездки; «Мои отклики» уводили водителя на главную | «Открыть поездку» → `openDriverTrip`; та же точка у `DriverResponses` | код + `DriverCabinetWave1Test`, source-guard; CI | маршрут на экране поездки водителя пустой (заглушка без from/to) — P2 |
+| W1-FIN-09 / F15 | При выключенном такси в кабинетах: тумблер линии (запуск `TaxiLineService`), панель, поездки/предзаказы такси; в заявке — «Посылка/Груз» | флаг `Feature.Taxi` в кабинетах, `requestCategories` без доставки | код + `DriverCabinetWave1Test`, `RequestCategoriesGateTest`, `FeatureGateWiringGuardTest`; CI | анкета таксиста открыта намеренно (решение 13.10) |
+| W1-FIN-10 / DESIGN043 | FAQ обещал «близким уйдёт SMS» при выключенном SMS | текст как у экрана SOS после отправки | код | диалог «Позвать помощь?» (`RoadsideHelp.kt:141`) ещё обещает SMS до отправки — после отправки показывает честный итог; решение по SMS — Александру |
+
+**Сверено по коду, в реестре выглядит открытым (кандидаты закрыть после прогона, статус не меняю):** DESIGN060/061/062/065/066/069, QA-B02-015 («Я сел» — решено владельцем оставить), «Найдено, не чинил» 14.10 (4 пункта — исправлены, `decisions.md` 14.10).
+
+**Открыто по волне 1 после этой ветки (кто нужен):**
+- выкладка `main` на сервер по `release-runbook.md` (Александр / специалист; агентам запрещено) — без неё люди видят код 04.07;
+- проход `wave1-phone-check.md` на двух телефонах, вкл. новые шаги «чат» и «SOS → Telegram дежурному» (Александр);
+- SMS на проде: включить провайдера (платно) или оставить «ссылку копирует сам пассажир» (решение Александра);
+- допуск водителя = только бейдж: публиковать может любой вошедший (`rides.py:153`) — решение Александра;
+- ~75 строк башкирского черновика волны 1 (`tasks.md`, разделы 13–16.10) — проверка носителем;
+- PWA в волну 1 не входит; её дыры (SOS без `booking_id`, «ссылка отправлена» без SMS, водитель по уведомлению на «Бронь», отмена подтверждённой брони) — до выкладки PWA;
+- P2: «Сообщить о проблеме» у пассажира в поездке нет (только общий Report); пуш чата ведёт в бронь, не в чат; уведомление «docs» никуда не ведёт.
+<!-- WAVE1-FINISH-20261016 END -->
