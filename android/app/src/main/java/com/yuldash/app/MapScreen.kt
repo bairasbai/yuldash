@@ -322,12 +322,12 @@ internal fun MapScreen(
     val userLatKey = userLat?.let { kotlin.math.round(it * 100) }
     val userLngKey = userLng?.let { kotlin.math.round(it * 100) }
     // Сбрасываем страницу при смене маршрута/позиции/дня (новый контекст → снова с начала).
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter) { nearbyLimit = NEARBY_PAGE }
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter) {
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter) { nearbyLimit = NEARBY_PAGE }
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter) {
         if (nearby.isEmpty()) nearbyLoading = true   // спиннер только когда показывать нечего; авто-обновление с данными — молча, без мигания
         // Радиус применяем только когда знаем позицию (иначе показываем все по маршруту/времени).
         val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
-        ApiClient.getNearbyRidesPaged(focusFrom, focusTo, userLat, userLng, radius, nearbyLimit, date = dateFilter)
+        ApiClient.getNearbyRidesPaged(focusFrom, focusTo, userLat, userLng, radius, nearbyLimit, date = dateFilter, conditions = prefFilter, verifiedOnly = verifiedOnly)
             .onSuccess { nearby = it.items; nearbyTotal = it.total; nearbyError = false }
             .onFailure { nearbyError = true }
         nearbyLoading = false
@@ -364,7 +364,7 @@ internal fun MapScreen(
         }).also { it.connect() }
         onDispose { sock.close() }
     }
-    // Клиентская фильтрация «Ближайших» по выбранным условиям (поля уже пришли в RideDto).
+    // Условия режет сервер (getNearbyRidesPaged); здесь — подстраховка на старый сервер, где их не знают.
     // remember: пересчитываем только при смене списка/фильтра, а не на каждой рекомпозиции экрана.
     val shownNearby = remember(nearby, prefFilter, verifiedOnly) {
         if (prefFilter.isEmpty() && !verifiedOnly) nearby else nearby.filter { d ->
@@ -622,8 +622,8 @@ internal fun MapScreen(
                                 itemsIndexed(shownNearby, key = { i, dto -> "${dto.id}#$i" }) { i, dto ->
                                     NearbyRideCard(dto = dto, soonest = i == 0, onOpen = { onBookRide(dto.toUiRide()) })
                                 }
-                                // «Показать ещё» — когда сервер сообщил, что есть ещё (и фильтр не активен).
-                                if (prefFilter.isEmpty() && nearby.size < nearbyTotal) {
+                                // «Показать ещё» — когда сервер сообщил, что есть ещё: условия он уже учёл в count (DESIGN023).
+                                if (nearby.size < nearbyTotal) {
                                     item(key = "nearby_more") {
                                         NearbyMoreCard(loading = nearbyLoading) { nearbyLimit += NEARBY_PAGE }
                                     }

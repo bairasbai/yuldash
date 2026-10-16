@@ -128,6 +128,19 @@ class ApiClientRidesTest {
         val path = recorded.path.orEmpty()
         assertTrue(path.startsWith("/rides/near?"))
         assertTrue(path.contains("limit=5"))
+        assertTrue("без условий лишних параметров нет", !path.contains("conditions=") && !path.contains("verified_only"))
+    }
+
+    @Test
+    fun getNearbyRidesPaged_sendsPassengerConditionsToServer() = runBlocking {
+        // DESIGN023: условия режет сервер ДО порций — иначе подходящая поездка дальше первой
+        // порции превращалась в «поездок нет», а «Показать ещё» при условии пряталась.
+        server.enqueue(json("""{"count":1,"items":[]}"""))
+        ApiClient.getNearbyRidesPaged("Баймак", null, limit = 5,
+            conditions = setOf("pets", "child"), verifiedOnly = true).getOrThrow()
+        val path = server.takeRequest().path.orEmpty()
+        assertTrue(path, path.contains("conditions=child%2Cpets") || path.contains("conditions=child,pets"))
+        assertTrue(path, path.contains("verified_only=true"))
     }
 
     // ---------- getNearbyRequests ----------

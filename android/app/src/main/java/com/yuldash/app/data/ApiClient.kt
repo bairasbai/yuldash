@@ -854,6 +854,8 @@ object ApiClient {
         radiusKm: Double? = null,
         limit: Int,
         date: String? = null,   // F4: «когда едем» — YYYY-MM-DD, только поездки этого дня
+        conditions: Set<String> = emptySet(),   // условия пассажира: сервер режет ДО порций и count (DESIGN023)
+        verifiedOnly: Boolean = false,
     ): Result<NearbyPage> {
         val params = buildList {
             fromCity?.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
@@ -862,6 +864,8 @@ object ApiClient {
             lng?.let { add("lng=$it") }
             radiusKm?.let { add("radius_km=$it") }
             date?.takeIf { it.isNotBlank() }?.let { add("date=$it") }
+            if (conditions.isNotEmpty()) add("conditions=" + enc(conditions.sorted().joinToString(",")))
+            if (verifiedOnly) add("verified_only=true")
             add("limit=$limit")
         }
         val path = "/rides/near?" + params.joinToString("&")
