@@ -8,29 +8,19 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -40,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
@@ -96,8 +87,8 @@ private fun chosenNames(chosen: Set<String>, options: List<FilterCity>): List<St
     options.filter { it.ru in chosen }.map { appText(it.ru, it.ba) } + chosen.filter { c -> options.none { it.ru == c } }
 
 /**
- * Чипы «Откуда» и «Куда» в общем ряду фильтров ленты + тонкая черта после них, как между «когда» и
- * «на чём». Нет городов с поездками (старый сервер, пустая база) — не рисуем ничего: пустая шторка хуже.
+ * Чипы «Откуда» и «Куда» в общем ряду фильтров ленты (дальше — «Когда» и «Фильтры», NearbyFiltersPanel.kt).
+ * Нет городов с поездками (старый сервер, пустая база) — не рисуем ничего: пустая шторка хуже.
  */
 @Composable
 internal fun RowScope.NearbyCityChips(state: NearbyCityFilterState, chipModifier: Modifier) {
@@ -115,7 +106,6 @@ internal fun RowScope.NearbyCityChips(state: NearbyCityFilterState, chipModifier
         state.to.isNotEmpty(),
         modifier = chipModifier,
     ) { sheetForFrom = false }
-    Box(Modifier.align(Alignment.CenterVertically).padding(end = CanonSpace.sm).width(1.dp).height(22.dp).background(CanonBorder))
     sheetForFrom?.let { isFrom ->
         NearbyCitySheet(
             title = if (isFrom) appText("Откуда", "Ҡайҙан") else appText("Куда", "Ҡайҙа"),
@@ -129,7 +119,6 @@ internal fun RowScope.NearbyCityChips(state: NearbyCityFilterState, chipModifier
 }
 
 /** Шторка выбора городов: «Все города» снимает выбор, остальные строки — галочки, можно несколько. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NearbyCitySheet(
     title: String,
@@ -139,34 +128,38 @@ private fun NearbyCitySheet(
     onChange: (Set<String>) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    AppModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = CanonBg) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).navigationBarsPadding().padding(bottom = CanonSpace.lg)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
-        ) {
-            Text(title, color = CanonText, style = CanonTitle, modifier = Modifier.padding(bottom = CanonSpace.sm))
-            CityRow(anyLabel, chosen.isEmpty()) { onChange(emptySet()) }
-            options.forEach { city ->
-                val on = city.ru in chosen
-                CityRow(appText(city.ru, city.ba), on) { onChange(if (on) chosen - city.ru else chosen + city.ru) }
-            }
-            AppButton(appText("Готово", "Әҙер"), onDismiss, modifier = Modifier.padding(top = CanonSpace.md))
+    NearbySheet(title, onDismiss = onDismiss) {
+        NearbyCheckRow(anyLabel, chosen.isEmpty()) { onChange(emptySet()) }
+        options.forEach { city ->
+            val on = city.ru in chosen
+            NearbyCheckRow(appText(city.ru, city.ba), on) { onChange(if (on) chosen - city.ru else chosen + city.ru) }
         }
+        AppButton(appText("Готово", "Әҙер"), onDismiss, modifier = Modifier.padding(top = CanonSpace.md))
     }
 }
 
-/** Строка-галочка: вся строка — цель нажатия ≥48dp, читалка экрана слышит «флажок, отмечен». */
+/**
+ * Строка-галочка шторок ленты (города, условия, день): вся строка — цель нажатия ≥48dp, читалка
+ * экрана слышит «флажок, отмечен» ([role] = RadioButton — «переключатель», для выбора одного из).
+ */
 @Composable
-private fun CityRow(label: String, selected: Boolean, onToggle: () -> Unit) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "city-row")
+internal fun NearbyCheckRow(
+    label: String,
+    selected: Boolean,
+    icon: ImageVector? = null,
+    role: Role = Role.Checkbox,
+    onToggle: () -> Unit,
+) {
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "check-row")
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).background(bg, CanonItemShape)
-            .toggleable(value = selected, role = Role.Checkbox, onValueChange = { onToggle() })
+            .toggleable(value = selected, role = role, onValueChange = { onToggle() })
             .padding(horizontal = CanonSpace.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(end = CanonSpace.md).size(20.dp))
+        }
         Text(label, color = CanonText, style = CanonBody, modifier = Modifier.weight(1f))
         AnimatedVisibility(
             visible = selected,

@@ -35,7 +35,7 @@ class FileSizeRatchetTest {
         "YuldashApp.kt" to 2788,
         "CourierScreen.kt" to 2553,
         "SecondaryScreens.kt" to 2507,
-        "MapScreen.kt" to 2292,
+        "MapScreen.kt" to 2233,   // 16.10.2026: ряд из 12 чипов → 4 вопроса, условия — в NearbyFiltersPanel.kt
         "AccessibilityScreens.kt" to 2150,   // 13.10.2026: +1 — импорт withResumed для того же фикса микрофона
         "TaxiTripScreen.kt" to 1629,
         "FairnessScreens.kt" to 1612,   // 14.10.2026: +1 — initialType у FileIncidentDialog (разбор «Пассажир не вышел» сразу с типом)
