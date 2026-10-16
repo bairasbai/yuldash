@@ -17,7 +17,7 @@ from ..db import get_session
 from ..errors import herr
 from ..features import guard_delivery_ride
 from ..flood import TOO_MANY_RIDES, guard_open_items
-from ..geo import bare_name, by_exact_name, name_variants
+from ..geo import bare_name, by_exact_names, name_variants
 from ..logs import log
 from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
                       RideStatus, User, UserRole)
@@ -972,13 +972,15 @@ def ride_cities(user: Optional[User] = Depends(current_user_optional),   # ес�
     rows = hide_trusted_only(hide_suspended(hide_blocked(rows, user, session), user, session), user, session)
 
     def _top(names) -> list[dict]:
-        # Сначала считаем имена, потом ищем каждое РАЗНОЕ имя в справочнике один раз: поиск ходит
-        # в базу, и по разу на поездку это 4000 запросов на открытие карты (приёмка PR147).
+        # Сначала считаем имена, потом ищем их в справочнике ОДНИМ снимком (by_exact_names): поиск
+        # по одному имени сверяет снимок запросом в базу, и по разу на поездку или даже на разное
+        # имя это сотни запросов на каждое открытие карты (приёмка PR147, два прохода).
         # Имя с запятой не берём: фильтр передаёт города через запятую и разрезал бы его на два.
         имена = Counter(n for n in (bare_name((raw or "").strip()) for raw in names) if n and "," not in n)
+        найдено = by_exact_names(session, имена)
         счёт: dict[tuple, int] = {}
         for name, n in имена.items():
-            row = by_exact_name(session, name)
+            row = найдено[name]
             key = ((row.name_ru or name), (row.name_ba or row.name_ru or name)) if row else (name, name)
             счёт[key] = счёт.get(key, 0) + n
         лучшие = sorted(счёт.items(), key=lambda kv: (-kv[1], kv[0][0]))[:_MAX_FILTER_CITIES]
