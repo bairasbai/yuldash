@@ -179,7 +179,9 @@ def test_башкирское_написание_города_находит_р�
     assert рейс in {x["id"] for x in тело["items"]}, "башкирское написание не нашло поездку из Баймака"
 
 
-def test_список_городов_с_поездками_на_двух_языках(client, user_factory):
+def test_список_городов_с_поездками_на_двух_языках(client, user_factory, monkeypatch):
+    # База общая на весь прогон: чужие поездки не должны вытеснять наш город из «топ-12».
+    monkeypatch.setattr("app.routers.rides._MAX_FILTER_CITIES", 10_000)
     водитель = user_factory("ГородаСписок", role=UserRole.driver)
     _из(client, водитель, "Баймак", "Уфа")
     _из(client, водитель, "Баймак", "Сибай")
@@ -196,9 +198,12 @@ def test_список_городов_с_поездками_на_двух_язы�
     assert "count" not in json.dumps(тело), "витрине городов числа ни к чему — сколько у кого поездок"
 
 
-def test_список_городов_не_берёт_закрытые_поездки(client, user_factory):
+def test_список_городов_не_берёт_закрытые_поездки(client, user_factory, monkeypatch):
+    # Агидель — город, которого нет в других тестах (база общая на весь прогон), а потолок снят:
+    # иначе тест прошёл бы и с ошибкой — город просто не влез бы в «топ-12».
+    monkeypatch.setattr("app.routers.rides._MAX_FILTER_CITIES", 10_000)
     водитель = user_factory("ГородаЗакрыт", role=UserRole.driver)
-    рейс = _из(client, водитель, "Акъяр", "Сибай")
+    рейс = _из(client, водитель, "Агидель", "Сибай")
     from app.models import Ride, RideStatus
     with Session(engine) as s:
         ride = s.get(Ride, рейс)
@@ -208,7 +213,7 @@ def test_список_городов_не_берёт_закрытые_поезд
 
     тело = client.get("/rides/cities").json()
 
-    assert "Акъяр" not in {c["ru"] for c in тело["from"]}, "город отменённой поездки висит в «Откуда»"
+    assert "Агидель" not in {c["ru"] for c in тело["from"]}, "город отменённой поездки висит в «Откуда»"
 
 
 def test_снятое_подтверждение_убирает_поездку_из_фильтра_для_женщин(client, user_factory):
