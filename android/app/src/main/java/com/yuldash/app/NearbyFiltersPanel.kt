@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -42,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import java.time.LocalDate
@@ -89,8 +92,8 @@ internal fun NearbySheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     AppModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = CanonBg) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).navigationBarsPadding().padding(bottom = CanonSpace.lg)
-                .verticalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).navigationBarsPadding().imePadding()
+                .padding(bottom = CanonSpace.lg).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
         ) {
             Row(Modifier.fillMaxWidth().padding(bottom = CanonSpace.sm), verticalAlignment = Alignment.CenterVertically) {
@@ -110,7 +113,7 @@ private fun whenLabel(dateFilter: String?, today: LocalDate): String {
         null -> base
         today.toString() -> "$base · ${appText("Сегодня", "Бөгөн")}"
         today.plusDays(1).toString() -> "$base · ${appText("Завтра", "Иртәгә")}"
-        else -> "$base · ${dateFilter.orEmpty().takeLast(5).split('-').reversed().joinToString(".")}"
+        else -> "$base · ${dayMonth(dateFilter.orEmpty())}"
     }
 }
 
@@ -127,7 +130,10 @@ internal fun NearbyWhenChip(dateFilter: String?, onChange: (String?) -> Unit, ch
     }
 }
 
-/** Варианты дня (YYYY-MM-DD или null — все дни). Отдельно от шторки — чтобы проверять тестом. */
+/**
+ * Варианты дня (YYYY-MM-DD или null — все дни) + «Другая дата…»: поездки в РБ планируют на
+ * выходные и на неделю вперёд, а не только на «завтра». Отдельно от шторки — чтобы проверять тестом.
+ */
 @Composable
 internal fun NearbyDayOptions(dateFilter: String?, today: LocalDate, onPick: (String?) -> Unit) {
     val days = listOf(
@@ -136,6 +142,32 @@ internal fun NearbyDayOptions(dateFilter: String?, today: LocalDate, onPick: (St
         today.plusDays(1).toString() to appText("Завтра", "Иртәгә"),
     )
     days.forEach { (value, label) -> NearbyCheckRow(label, dateFilter == value, role = Role.RadioButton) { onPick(value) } }
+    val other = dateFilter != null && days.none { it.first == dateFilter }
+    val context = LocalContext.current
+    NearbyCheckRow(
+        if (other) appText("Дата · ${dayMonth(dateFilter.orEmpty())}", "Көн · ${dayMonth(dateFilter.orEmpty())}")
+        else appText("Другая дата…", "Башҡа көн…"),
+        other,
+        role = Role.RadioButton,
+    ) { openDayPicker(context, today, dateFilter) { onPick(it.toString()) } }
+}
+
+/** «2026-10-18» → «18.10». */
+private fun dayMonth(isoDate: String): String = isoDate.takeLast(5).split('-').reversed().joinToString(".")
+
+/**
+ * Нативный календарь — только дата и только с сегодняшнего дня; тема и русские месяцы — как в
+ * публикации поездки (`openDateTimePicker`, MainActivity.kt), чтобы два календаря не отличались.
+ */
+private fun openDayPicker(context: Context, today: LocalDate, current: String?, onPicked: (LocalDate) -> Unit) {
+    val start = current?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: today
+    val cfg = android.content.res.Configuration(context.resources.configuration).apply { setLocale(java.util.Locale("ru")) }
+    val ctx = android.view.ContextThemeWrapper(context, 0).apply { applyOverrideConfiguration(cfg) }
+    android.app.DatePickerDialog(
+        ctx, com.yuldash.app.R.style.Theme_Yuldash_DatePicker,
+        { _, y, m, d -> onPicked(LocalDate.of(y, m + 1, d)) },
+        start.year, start.monthValue - 1, start.dayOfMonth,
+    ).apply { datePicker.minDate = System.currentTimeMillis() - 1000 }.show()
 }
 
 /** Кнопка шторки: сколько поездок покажет лента с этими условиями (сервер уже посчитал — `count`). */

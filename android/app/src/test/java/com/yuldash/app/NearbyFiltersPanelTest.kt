@@ -2,6 +2,7 @@ package com.yuldash.app
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.yuldash.app.data.FilterCity
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -116,4 +118,33 @@ class NearbyFiltersPanelTest {
         compose.setContent { NearbyWhenChip(tomorrow, {}, Modifier) }
         compose.onNodeWithText("Когда · Завтра").assertIsDisplayed()
     }
+
+    @Test
+    fun `своя дата — отмечена и подписана днём и месяцем`() {
+        val today = LocalDate.of(2026, 10, 16)
+        compose.setContent { Column { NearbyDayOptions("2026-10-20", today) {} } }
+        compose.onNodeWithText("Дата · 20.10").assertIsOn()
+        compose.onNodeWithText("Все дни").assertIsOff()
+    }
+
+    @Test
+    fun `без своей даты есть строка «Другая дата…»`() {
+        compose.setContent { Column { NearbyDayOptions(null, LocalDate.of(2026, 10, 16)) {} } }
+        compose.onNodeWithText("Другая дата…").assertIsOff()
+    }
+
+    @Test
+    fun `деревня из поиска подписана на языке человека`() {
+        // Аскарово нет в топе городов с поездками — её нашли поиском по справочнику.
+        val state = NearbyCityFilterState().apply {
+            fromOptions = listOf(FilterCity("Баймак", "Баймаҡ"))
+            found = listOf(FilterCity("Аскарово", "Асҡар"))
+            from = setOf("Аскарово")
+        }
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) { Row { NearbyCityChips(state, Modifier) } }
+        }
+        compose.onNodeWithText("Ҡайҙан · Асҡар").assertIsDisplayed()
+    }
 }
+

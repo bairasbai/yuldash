@@ -58,6 +58,8 @@ internal class NearbyCityFilterState {
     var to by mutableStateOf<Set<String>>(emptySet())
     var fromOptions by mutableStateOf<List<FilterCity>>(emptyList())
     var toOptions by mutableStateOf<List<FilterCity>>(emptyList())
+    /** Найденные поиском (город или деревня вне топа): их имя на двух языках — для подписи чипа. */
+    var found by mutableStateOf<List<FilterCity>>(emptyList())
     val active: Boolean get() = from.isNotEmpty() || to.isNotEmpty()
     /** Есть что выбрать или что снять: тогда чипы на месте, даже если рядом поездок нет. */
     val offered: Boolean get() = active || fromOptions.isNotEmpty() || toOptions.isNotEmpty()
@@ -85,10 +87,12 @@ internal fun rememberNearbyCityFilter(reloadKey: Int): NearbyCityFilterState {
     return state
 }
 
-/** Выбранные города на языке человека, в порядке списка (популярные — первыми). */
+/** Выбранные места на языке человека: сначала из списка (популярные — первыми), потом найденные поиском. */
 @Composable
-private fun chosenNames(chosen: Set<String>, options: List<FilterCity>): List<String> =
-    options.filter { it.ru in chosen }.map { appText(it.ru, it.ba) } + chosen.filter { c -> options.none { it.ru == c } }
+private fun chosenNames(chosen: Set<String>, options: List<FilterCity>, found: List<FilterCity>): List<String> {
+    val known = (options + found).distinctBy { it.ru }
+    return known.filter { it.ru in chosen }.map { appText(it.ru, it.ba) } + chosen.filter { c -> known.none { it.ru == c } }
+}
 
 /**
  * Чипы «Откуда» и «Куда» в общем ряду фильтров ленты (дальше — «Когда» и «Фильтры», NearbyFiltersPanel.kt).
@@ -100,13 +104,13 @@ internal fun RowScope.NearbyCityChips(state: NearbyCityFilterState, chipModifier
     var sheetForFrom by remember { mutableStateOf<Boolean?>(null) }   // true — «Откуда», false — «Куда»
     NearbyFilterChip(
         Icons.Default.Place,
-        cityChipLabel(appText("Откуда", "Ҡайҙан"), chosenNames(state.from, state.fromOptions)),
+        cityChipLabel(appText("Откуда", "Ҡайҙан"), chosenNames(state.from, state.fromOptions, state.found)),
         state.from.isNotEmpty(),
         modifier = chipModifier,
     ) { sheetForFrom = true }
     NearbyFilterChip(
         Icons.Default.Flag,
-        cityChipLabel(appText("Куда", "Ҡайҙа"), chosenNames(state.to, state.toOptions)),
+        cityChipLabel(appText("Куда", "Ҡайҙа"), chosenNames(state.to, state.toOptions, state.found)),
         state.to.isNotEmpty(),
         modifier = chipModifier,
     ) { sheetForFrom = false }
@@ -115,26 +119,40 @@ internal fun RowScope.NearbyCityChips(state: NearbyCityFilterState, chipModifier
             title = if (isFrom) appText("Откуда", "Ҡайҙан") else appText("Куда", "Ҡайҙа"),
             anyLabel = if (isFrom) appText("Все города", "Бөтә ҡалалар") else appText("Любое направление", "Теләһә ҡайҙа"),
             options = if (isFrom) state.fromOptions else state.toOptions,
+            found = state.found,
             chosen = if (isFrom) state.from else state.to,
             onChange = { if (isFrom) state.from = it else state.to = it },
+            onFound = { state.found = (state.found + it).distinctBy { c -> c.ru } },
             onDismiss = { sheetForFrom = null },
         )
     }
 }
 
-/** Шторка выбора городов: «Все города» снимает выбор, остальные строки — галочки, можно несколько. */
+/**
+ * Шторка выбора мест: поиск по справочнику (21 город, райцентры, деревни РБ и приграничья —
+ * та же строка, что в публикации поездки), «Все города» снимает выбор, ниже — галочки: сначала
+ * найденные поиском, потом города, где поездки есть сейчас. Можно несколько.
+ */
 @Composable
 private fun NearbyCitySheet(
     title: String,
     anyLabel: String,
     options: List<FilterCity>,
+    found: List<FilterCity>,
     chosen: Set<String>,
     onChange: (Set<String>) -> Unit,
+    onFound: (FilterCity) -> Unit,
     onDismiss: () -> Unit,
 ) {
     NearbySheet(title, onDismiss = onDismiss) {
+        SettlementPickField(appText("Найти город или деревню", "Ҡала йәки ауыл табыу"), picked = null) { s ->
+            if (s != null) {
+                onFound(FilterCity(s.nameRu, s.nameBa ?: s.nameRu))
+                onChange(chosen + s.nameRu)
+            }
+        }
         NearbyCheckRow(anyLabel, chosen.isEmpty()) { onChange(emptySet()) }
-        options.forEach { city ->
+        (found.filter { f -> f.ru in chosen && options.none { it.ru == f.ru } } + options).forEach { city ->
             val on = city.ru in chosen
             NearbyCheckRow(appText(city.ru, city.ba), on) { onChange(if (on) chosen - city.ru else chosen + city.ru) }
         }
