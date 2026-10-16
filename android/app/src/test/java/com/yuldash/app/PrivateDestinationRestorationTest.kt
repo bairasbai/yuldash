@@ -28,7 +28,7 @@ class PrivateDestinationRestorationTest {
     private fun clear() {
         NavSignals.openDriverCabinet.value = false; NavSignals.openInstantOrder.value = false; NavSignals.openInstantChat.value = 0
         DeepLink.pendingParcels.value = false; DeepLink.pendingSupport.value = false
-        DeepLink.pendingBookingChatId.value = null; DeepLink.pendingCompletedBookingId.value = null; DeepLink.pendingRideId.value = null
+        DeepLink.pendingBookingChatId.value = null; DeepLink.pendingCompletedBookingId.value = null;
     }
     private fun intent(type: String, id: Int = 43) = Intent(context, MainActivity::class.java).putExtra("type", type).putExtra("id", id.toString()).putExtra("recipient_user_id", "11")
     private fun create(i: Intent = Intent(context, MainActivity::class.java), state: Bundle? = null) =

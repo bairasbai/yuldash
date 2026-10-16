@@ -69,7 +69,7 @@ class PendingNotificationFlowTest {
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/'); ApiClient.testTimeoutMs = 60000; ApiClient.saveToken(token11)
         context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE).edit().putBoolean("onboarding_completed", true).commit()
-        DeepLink.pendingCompletedBookingId.value = null; DeepLink.pendingBookingChatId.value = null; DeepLink.pendingRideId.value = null
+        DeepLink.pendingCompletedBookingId.value = null; DeepLink.pendingBookingChatId.value = null;
         vm = ViewModelProvider(actor.get())[YuldashViewModel::class.java]
         vm.screen.value = Screen.ActiveTrip; vm.activeBookingId.value = 42; vm.persistNav()
     }
@@ -97,7 +97,7 @@ class PendingNotificationFlowTest {
     @After fun cleanup() {
         release.countDown(); compose.runOnIdle { mounted.value = false }; pump(300)
         actor.destroy(); ApiClient.resetForTest(); ApiClient.testTimeoutMs = null
-        DeepLink.pendingCompletedBookingId.value = null; DeepLink.pendingBookingChatId.value = null; DeepLink.pendingRideId.value = null
+        DeepLink.pendingCompletedBookingId.value = null; DeepLink.pendingBookingChatId.value = null;
         server.shutdown()
     }
     @Test fun newerBookingWinsAgainstHeldOldSuccess() {

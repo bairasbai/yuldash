@@ -33,7 +33,7 @@ class FreshNotificationRestorationTest {
     }
     private fun clearBridges() {
         DeepLink.pendingBookingChatId.value = null; DeepLink.pendingCompletedBookingId.value = null
-        DeepLink.pendingRideId.value = null; NavSignals.openInstantChat.value = 0
+        NavSignals.openInstantChat.value = 0
         NavSignals.openInstantOrder.value = false; NavSignals.openDriverCabinet.value = false
         DeepLink.pendingParcels.value = false; DeepLink.pendingSupport.value = false
         NavSignals.openAdsCabinet.value = false; NavSignals.openPartnerCabinet.value = false

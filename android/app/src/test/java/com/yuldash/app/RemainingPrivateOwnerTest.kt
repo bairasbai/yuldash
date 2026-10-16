@@ -31,7 +31,7 @@ class RemainingPrivateOwnerTest {
         c.get().onMessageReceived(RemoteMessage.Builder("local-only").addData("recipient_user_id","11").addData("title","Local event").addData("type",type).addData("id","43").build())
         val notification=shadowOf(manager).allNotifications.single();c.destroy();return Intent(shadowOf(notification.contentIntent).savedIntent)
     }
-    private fun dispatch(i:Intent) { val c=Robolectric.buildActivity(MainActivity::class.java).create();MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply { isAccessible=true }.invoke(c.get(),i);c.destroy() }
+    private fun dispatch(i:Intent, check:()->Unit={none()}) { val c=Robolectric.buildActivity(MainActivity::class.java).create();try {MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply { isAccessible=true }.invoke(c.get(),i);check()} finally {c.destroy()} }
     private fun none() { assertFalse(NavSignals.openAdsCabinet.value);assertFalse(NavSignals.openPartnerCabinet.value);assertFalse(DeepLink.pendingFairness.value);assertFalse(DeepLink.pendingRequestsFeed.value);assertNull(DeepLink.pendingRequestResponsesId.value);assertNull(DeepLink.pendingApplicationScreen.value) }
     private fun foreign(type:String) { val i=shown(type);ApiClient.saveToken(tokenB);dispatch(i);none() }
     @Test fun shownAdRejectsNextAccount()=foreign("ad")
@@ -41,6 +41,6 @@ class RemainingPrivateOwnerTest {
     @Test fun shownRequestWatchRejectsNextAccount()=foreign("request_watch")
     @Test fun shownTaxiApplicationRejectsNextAccount()=foreign("taxi_apply")
     @Test fun shownCourierApplicationRejectsNextAccount()=foreign("courier_apply")
-    @Test fun sameRecipientShownRequestKeepsId() { dispatch(shown("request"));assertEquals(43,DeepLink.pendingRequestResponsesId.value) }
+    @Test fun sameRecipientShownRequestKeepsId() { dispatch(shown("request")) {assertEquals(43,DeepLink.pendingRequestResponsesId.value)};assertNull(DeepLink.pendingRequestResponsesId.value) }
     @Test fun shownApplicationAfterLogoutNotUnbound() { val i=shown("taxi_apply");ApiClient.logout();dispatch(i);none() }
 }

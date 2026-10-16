@@ -109,7 +109,7 @@ class BookingCompletionDestinationTest {
         compose.runOnIdle { mounted.value = false }
         compose.waitForIdle()
         DeepLink.pendingCompletedBookingId.value = null
-        DeepLink.pendingRideId.value = null
+
         owner.viewModelStore.clear()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
@@ -205,7 +205,7 @@ class BookingCompletionDestinationTest {
 
     @Test fun rideDestinationIsNotConsumedBeforeStartupFinishes() {
         DeepLink.pendingCompletedBookingId.value = null
-        DeepLink.pendingRideId.value = 42
+        vm.requestPublicRide(42)
         compose.mainClock.autoAdvance = false
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
@@ -218,7 +218,7 @@ class BookingCompletionDestinationTest {
             assertTrue("Startup was unexpectedly bypassed: ${vm.screen.value}",
                 vm.screen.value == Screen.Intro || vm.screen.value == Screen.Onboarding)
             assertEquals("Ride destination was consumed before startup finished", 42,
-                DeepLink.pendingRideId.value)
+                vm.pendingPublicRideNavigation.value?.rideId)
         }
         compose.runOnIdle {
             ApiClient.saveToken("local-ride-test")
@@ -231,7 +231,7 @@ class BookingCompletionDestinationTest {
         compose.runOnIdle {
             assertEquals(Screen.Booking, vm.screen.value)
             assertEquals("42", vm.selectedRide.value?.id)
-            assertEquals(null, DeepLink.pendingRideId.value)
+            assertEquals(null, vm.pendingPublicRideNavigation.value?.rideId)
         }
     }
 }

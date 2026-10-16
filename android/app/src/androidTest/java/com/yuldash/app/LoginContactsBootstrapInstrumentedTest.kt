@@ -50,7 +50,7 @@ class LoginContactsBootstrapInstrumentedTest {
         context.getSharedPreferences("yuldash_prefs", 0).edit().clear().putBoolean("onboarding_completed", false)
             .putString("mode_last", "pooling").putBoolean("mode_hint_shown", true).commit()
         NavSignals.openInstantOrder.value = false; NavSignals.openInstantChat.value = 0
-        DeepLink.pendingRideId.value = null; DeepLink.pendingBookingChatId.value = null
+        DeepLink.pendingBookingChatId.value = null
         server = Loopback(); ApiClient.testBaseUrl = server.url; ApiClient.testTimeoutMs = 60000
         compose.runOnIdle { vm = ViewModelProvider(compose.activity)[YuldashViewModel::class.java]; vm.screen.value = Screen.Login; vm.persistNav() }
     }

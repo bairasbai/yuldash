@@ -31,7 +31,7 @@ class RemainingPrivateRestorationTest {
         DeepLink.pendingFairness.value=false; DeepLink.pendingRequestsFeed.value=false
         DeepLink.pendingRequestResponsesId.value=null; DeepLink.pendingApplicationScreen.value=null
         DeepLink.pendingParcels.value=false; DeepLink.pendingSupport.value=false
-        DeepLink.pendingBookingChatId.value=null; DeepLink.pendingCompletedBookingId.value=null; DeepLink.pendingRideId.value=null
+        DeepLink.pendingBookingChatId.value=null; DeepLink.pendingCompletedBookingId.value=null;
     }
     private fun intent(type:String,id:Int=43) = Intent(context,MainActivity::class.java).putExtra("type",type).putExtra("id",id.toString()).putExtra("recipient_user_id", "11")
     private fun create(i:Intent=Intent(context,MainActivity::class.java),state:Bundle?=null) =

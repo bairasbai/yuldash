@@ -31,7 +31,7 @@ class LegacyNotificationIntentTest {
     @Before fun setup() { ApiClient.resetForTest();ApiClient.init(context);ApiClient.saveToken(tokenA);clear() }
     @After fun cleanup() { controllers.reversed().forEach {it.destroy()};clear();ApiClient.resetForTest() }
     private fun clear() {
-        DeepLink.pendingBookingChatId.value=null;DeepLink.pendingCompletedBookingId.value=null;DeepLink.pendingRideId.value=null
+        DeepLink.pendingBookingChatId.value=null;DeepLink.pendingCompletedBookingId.value=null;
         NavSignals.openInstantChat.value=0;NavSignals.openInstantOrder.value=false;NavSignals.openDriverCabinet.value=false
         DeepLink.pendingParcels.value=false;DeepLink.pendingSupport.value=false;NavSignals.openAdsCabinet.value=false;NavSignals.openPartnerCabinet.value=false
         DeepLink.pendingFairness.value=false;DeepLink.pendingRequestResponsesId.value=null;DeepLink.pendingRequestsFeed.value=false;DeepLink.pendingApplicationScreen.value=null
@@ -52,8 +52,8 @@ class LegacyNotificationIntentTest {
     private fun deliver(c:ActivityController<MainActivity>,i:Intent) {
         MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply {isAccessible=true}.invoke(c.get(),i)
     }
-    private fun assertEmpty(c:ActivityController<MainActivity>) {
-        assertNull(vm(c).pendingBookingNavigation.value);assertNull(vm(c).pendingScreenNavigation.value);assertEquals(0L,vm(c).privateNavigationRevision)
+    private fun assertEmpty(c:ActivityController<MainActivity>, revision:Long=0L) {
+        assertNull(vm(c).pendingBookingNavigation.value);assertNull(vm(c).pendingScreenNavigation.value);assertEquals(revision,vm(c).privateNavigationRevision)
         assertNull(DeepLink.pendingBookingChatId.value);assertNull(DeepLink.pendingCompletedBookingId.value);assertEquals(0,NavSignals.openInstantChat.value)
         assertFalse(NavSignals.openInstantOrder.value);assertFalse(NavSignals.openDriverCabinet.value);assertFalse(DeepLink.pendingSupport.value)
         assertFalse(DeepLink.pendingParcels.value);assertFalse(NavSignals.openAdsCabinet.value);assertFalse(NavSignals.openPartnerCabinet.value)
@@ -167,11 +167,11 @@ class LegacyNotificationIntentTest {
     @Test fun publicRideUriRemainsAvailableWithoutRecipientAfterRestore() {
         val c=create();vm(c).screen.value=Screen.Home;vm(c).persistNav();val state=save(c);clear();ApiClient.logout()
         val next=create(Intent(Intent.ACTION_VIEW,Uri.parse("https://yulbash.ru/r/77"),context,MainActivity::class.java),state)
-        assertEquals(77,DeepLink.pendingRideId.value);assertNull(vm(next).pendingBookingNavigation.value);assertNull(vm(next).pendingScreenNavigation.value)
+        assertEquals(77,vm(next).pendingPublicRideNavigation.value?.rideId);assertNull(vm(next).pendingBookingNavigation.value);assertNull(vm(next).pendingScreenNavigation.value)
     }
     @Test fun rejectingPrivateExtrasDoesNotDiscardTheSeparatePublicUri() {
         ApiClient.logout();val c=create(intent("chat").setData(Uri.parse("https://yulbash.ru/r/77")))
-        assertEmpty(c);assertEquals(77,DeepLink.pendingRideId.value)
+        assertEmpty(c,1L);assertEquals(77,vm(c).pendingPublicRideNavigation.value?.rideId)
     }
     @Test fun malformedForeignOrWronglyTypedRecipientsDoNotSpendTheMarker() {
         for(value in listOf<Any>("","invalid","0","-1","12",11)) {

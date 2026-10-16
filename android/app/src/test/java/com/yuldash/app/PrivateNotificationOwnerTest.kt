@@ -32,7 +32,7 @@ class PrivateNotificationOwnerTest {
         val notification = shadowOf(manager).allNotifications.single(); c.destroy()
         return Intent(shadowOf(notification.contentIntent).savedIntent)
     }
-    private fun dispatch(i: Intent) { val c = Robolectric.buildActivity(MainActivity::class.java).create(); MainActivity::class.java.getDeclaredMethod("onNewIntent", Intent::class.java).apply { isAccessible = true }.invoke(c.get(), i); c.destroy() }
+    private fun dispatch(i: Intent, check: ()->Unit = {assertNone()}) { val c = Robolectric.buildActivity(MainActivity::class.java).create(); try { MainActivity::class.java.getDeclaredMethod("onNewIntent", Intent::class.java).apply { isAccessible = true }.invoke(c.get(), i); check() } finally { c.destroy() } }
     private fun assertNone() { assertFalse(NavSignals.openInstantOrder.value); assertEquals(0, NavSignals.openInstantChat.value); assertFalse(NavSignals.openDriverCabinet.value); assertFalse(DeepLink.pendingSupport.value); assertFalse(DeepLink.pendingParcels.value); assertNull(DeepLink.pendingBookingChatId.value); assertNull(DeepLink.pendingCompletedBookingId.value) }
     private fun foreign(type: String) { val intent = shown(type); ApiClient.saveToken(tokenB); dispatch(intent); assertNone() }
     @Test fun shownTaxiStatusDoesNotOpenForNextAccount() = foreign("instant_status")
@@ -43,8 +43,8 @@ class PrivateNotificationOwnerTest {
     @Test fun shownCompletedDoesNotOpenForNextAccount() = foreign("booking_done")
     @Test fun rawForeignRecipientDoesNotOpenTaxi() { ApiClient.saveToken(tokenB); dispatch(Intent().putExtra("type", "instant_status").putExtra("id", "43").putExtra("recipient_user_id", "11")); assertNone() }
     @Test fun rawInvalidRecipientDoesNotOpenSupport() { dispatch(Intent().putExtra("type", "support").putExtra("id", "43").putExtra("recipient_user_id", "invalid")); assertNone() }
-    @Test fun sameRecipientShownTaxiStillOpens() { dispatch(shown("instant_status")); assertTrue(NavSignals.openInstantOrder.value) }
+    @Test fun sameRecipientShownTaxiStillOpens() { dispatch(shown("instant_status")) { assertTrue(NavSignals.openInstantOrder.value) }; assertFalse(NavSignals.openInstantOrder.value) }
     @Test fun shownSupportAfterLogoutDoesNotBecomeUnbound() { val intent = shown("support"); ApiClient.logout(); dispatch(intent); assertNone() }
     @Test fun shownTaxiOfferDoesNotOpenForNextAccount() = foreign("instant_offer")
-    @Test fun sameRecipientShownTaxiOfferStillOpensCabinet() { dispatch(shown("instant_offer")); assertTrue(NavSignals.openDriverCabinet.value) }
+    @Test fun sameRecipientShownTaxiOfferStillOpensCabinet() { dispatch(shown("instant_offer")) { assertTrue(NavSignals.openDriverCabinet.value) }; assertFalse(NavSignals.openDriverCabinet.value) }
 }

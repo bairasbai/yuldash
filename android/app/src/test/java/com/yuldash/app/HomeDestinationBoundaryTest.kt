@@ -94,7 +94,7 @@ class HomeDestinationBoundaryTest {
     private fun ride(id:Int,from:String)="""{"id":$id,"from_city":"$from","to_city":"Пункт Б","depart_at":"2030-01-02T10:00:00+03:00","seats_total":3,"seats_left":3,"price":750,"category":"regular","driver_id":9,"driver_name":"Тестовый водитель","driver_verified":true}"""
     private fun json(body:String,status:Int=200)=MockResponse().setResponseCode(status).setHeader("Content-Type","application/json").setBody(body)
     private fun clear() {
-        DeepLink.pendingRideId.value=null;DeepLink.pendingBookingChatId.value=null;DeepLink.pendingCompletedBookingId.value=null
+        DeepLink.pendingBookingChatId.value=null;DeepLink.pendingCompletedBookingId.value=null
         NavSignals.openInstantChat.value=0;NavSignals.openInstantOrder.value=false;NavSignals.openDriverCabinet.value=false
         DeepLink.pendingParcels.value=false;DeepLink.pendingSupport.value=false;NavSignals.openAdsCabinet.value=false;NavSignals.openPartnerCabinet.value=false
         DeepLink.pendingFairness.value=false;DeepLink.pendingRequestResponsesId.value=null;DeepLink.pendingRequestsFeed.value=false;DeepLink.pendingApplicationScreen.value=null
@@ -119,7 +119,7 @@ class HomeDestinationBoundaryTest {
     private fun failure(id:Int=42) {link(id);await {compose.onAllNodesWithTag("rideLinkFailure").fetchSemanticsNodes().isNotEmpty()};pump()}
     private fun selected(id:Int,from:String="Новый пункт А") {
         assertEquals(Screen.Booking,vm.screen.value);assertEquals(id.toString(),vm.selectedRide.value?.id);assertEquals(from,vm.selectedRide.value?.from)
-        assertNull(vm.activeBookingId.value);assertNull(DeepLink.pendingRideId.value);compose.onAllNodesWithTag("rideLinkFailure").assertCountEquals(0)
+        assertNull(vm.activeBookingId.value);assertNull(vm.pendingPublicRideNavigation.value?.rideId);compose.onAllNodesWithTag("rideLinkFailure").assertCountEquals(0)
         assertFalse(records.any {it.first!="GET" && it.second.startsWith("/bookings")})
     }
     @After fun cleanup() {release.countDown();compose.runOnIdle {mounted.value=false};pump(300);actor.destroy();vm.clearUserData();clear();ApiClient.resetForTest();ApiClient.testTimeoutMs=null;server.shutdown()}
@@ -131,15 +131,15 @@ class HomeDestinationBoundaryTest {
     private fun assertNoRideFailure() {compose.onAllNodesWithTag("rideLinkFailure").assertCountEquals(0)}
     private fun publicLosesToProfileAction(text:String,destination:Screen,status:Int) {
         code=status;mount();val open=profileAction(text);held();compose.runOnIdle {open()};pump();finish()
-        assertEquals(destination,vm.screen.value);assertNull(DeepLink.pendingRideId.value);assertEquals(1,count(42));assertNoRideFailure()
+        assertEquals(destination,vm.screen.value);assertNull(vm.pendingPublicRideNavigation.value?.rideId);assertEquals(1,count(42));assertNoRideFailure()
     }
     @Test fun heldPublicSuccessCannotReplaceSettings()=publicLosesToProfileAction("Настройки",Screen.Settings,200)
     @Test fun heldPublicFailureCannotOverlaySupport()=publicLosesToProfileAction("Поддержать Юлдаш",Screen.Support,503)
     @Test fun settingsDestinationSavesBeforeAnotherComposeEffect() {
         mount();val open=profileAction("Настройки");val bundle=Bundle()
-        compose.runOnIdle {DeepLink.pendingRideId.value=42;open();actor.saveInstanceState(bundle);assertNull(DeepLink.pendingRideId.value)}
+        compose.runOnIdle {vm.requestPublicRide(42);open();actor.saveInstanceState(bundle);assertNull(vm.pendingPublicRideNavigation.value?.rideId)}
         val next=Robolectric.buildActivity(MainActivity::class.java).create(bundle)
-        try {val restored=ViewModelProvider(next.get())[YuldashViewModel::class.java];assertEquals(Screen.Settings,restored.screen.value);assertEquals(HomeTab.Profile,restored.startHomeTab.value);assertTrue(restored.navHistory.contains(Screen.Home));assertEquals(1L,restored.privateNavigationRevision)} finally {next.destroy()}
+        try {val restored=ViewModelProvider(next.get())[YuldashViewModel::class.java];assertEquals(Screen.Settings,restored.screen.value);assertEquals(HomeTab.Profile,restored.startHomeTab.value);assertTrue(restored.navHistory.contains(Screen.Home));assertEquals(2L,restored.privateNavigationRevision)} finally {next.destroy()}
     }
     @Test fun retainedSettingsCannotReplaceAnotherDestination() {
         mount();val open=profileAction("Настройки")
@@ -197,7 +197,7 @@ class HomeDestinationBoundaryTest {
         compose.runOnIdle {ApiClient.saveToken(tokenB);old();assertEquals(Screen.Home,vm.screen.value)}
     }
     @Test fun initialHomeTabSynchronizationDoesNotDiscardPublicIntent() {
-        DeepLink.pendingRideId.value=42;mount();await {vm.selectedRide.value?.id=="42"};pump();assertEquals(Screen.Booking,vm.screen.value);assertEquals(1,count(42))
+        vm.requestPublicRide(42);mount();await {vm.selectedRide.value?.id=="42"};pump();assertEquals(Screen.Booking,vm.screen.value);assertEquals(1,count(42))
     }
     @Test fun currentCallbackAfterSameOwnerTokenReplacementStillWorks() {
         mount();profileAction("Настройки");compose.runOnIdle {ApiClient.saveToken(tokenA+"new")};pump()

@@ -68,7 +68,7 @@ class PrivateDestinationFlowTest {
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/'); ApiClient.testTimeoutMs = 60000
         vm = ViewModelProvider(actor.get())[YuldashViewModel::class.java]; vm.screen.value = Screen.Notifications; vm.persistNav()
     }
-    private fun clear() { NavSignals.openDriverCabinet.value = false; NavSignals.openInstantOrder.value = false; NavSignals.openInstantChat.value = 0; DeepLink.pendingParcels.value = false; DeepLink.pendingSupport.value = false; DeepLink.pendingBookingChatId.value = null; DeepLink.pendingCompletedBookingId.value = null; DeepLink.pendingRideId.value = null }
+    private fun clear() { NavSignals.openDriverCabinet.value = false; NavSignals.openInstantOrder.value = false; NavSignals.openInstantChat.value = 0; DeepLink.pendingParcels.value = false; DeepLink.pendingSupport.value = false; DeepLink.pendingBookingChatId.value = null; DeepLink.pendingCompletedBookingId.value = null; }
     private fun json(body:String,status:Int=200) = MockResponse().setResponseCode(status).setHeader("Content-Type","application/json").setBody(body)
     private fun pump(ms:Long=500) { repeat((ms/100).toInt()) { Snapshot.sendApplyNotifications(); compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100)); Thread.sleep(10) }; compose.waitForIdle() }
     private fun await(check:()->Boolean) = compose.waitUntil(12000) { Snapshot.sendApplyNotifications(); compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idle(); check() }

@@ -1,5 +1,12 @@
 # 🗺️ Карта кода Юлдаш
 
+<!-- QA-ANDROID-PUBLIC-LINK-WARM-01-20261016 -->
+## Публичная ссылка принадлежит окну Android — 16.10.2026
+
+MainActivity передаёт URI через requestPublicRideIntent своему YuldashViewModel; PendingPublicRideNavigation(id,revision) сохраняется в SavedStateHandle. Сохраняются первая/последняя обработанные URI-доставки (id), поэтому копия исходного VIEW при восстановлении не создаёт новый переход; onNewIntent принимает новый показ того же id. YuldashApp читает только свою запись, а HTTP сверяет запись, экран, private revision, сессию и активность. PrivateNavigationBridges.kt держит слабые ссылки на публикующие VM для совместимых private сигналов; чужой host их не импортирует/не очищает, onCleared освобождает только свои. Личный HTTP связан с durable записью VM и не зависит от глобального поля. Manifest singleTop предотвращает второе верхнее окно при обычном VIEW; это не singleTask и не очистка всего стека. [Проверки](audit-blocks.md#wave1-warm-link-20261016).
+
+<!-- QA-ANDROID-PUBLIC-LINK-WARM-01-20261016 END -->
+
 <!-- QA-ANDROID-DARK-STATUS-01-20261016 -->
 ## Системные панели и настройки темы Android — 16.10.2026
 

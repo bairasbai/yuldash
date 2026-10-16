@@ -84,13 +84,13 @@ class RideDeepLinkFailureTest {
                 YuldashViewModel(SavedStateHandle(mapOf("yuldash_screen" to Screen.Login.name))) as T
         })[YuldashViewModel::class.java]
         vm.screen.value = Screen.Login
-        DeepLink.pendingRideId.value = 42
+        vm.requestPublicRide(42)
     }
 
     @After fun cleanup() {
         compose.runOnIdle { mounted.value = false }
         compose.waitForIdle()
-        DeepLink.pendingRideId.value = null
+
         owner.viewModelStore.clear()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
@@ -127,11 +127,11 @@ class RideDeepLinkFailureTest {
                 vm.screen.value == Screen.Booking
             }
         } catch (e: Throwable) {
-            throw AssertionError("screen=${vm.screen.value}; selected=${vm.selectedRide.value?.id}; pending=${DeepLink.pendingRideId.value}; requests=$rideRequests", e)
+            throw AssertionError("screen=${vm.screen.value}; selected=${vm.selectedRide.value?.id}; pending=${vm.pendingPublicRideNavigation.value?.rideId}; requests=$rideRequests", e)
         }
         compose.runOnIdle {
             assertEquals("42", vm.selectedRide.value?.id)
-            assertEquals(null, DeepLink.pendingRideId.value)
+            assertEquals(null, vm.pendingPublicRideNavigation.value?.rideId)
         }
         compose.onNodeWithTag("rideLinkFailure").assertDoesNotExist()
         assertEquals(listOf("/rides/42", "/rides/42"), rideRequests.toList())
@@ -140,7 +140,7 @@ class RideDeepLinkFailureTest {
     @Test fun newRideLinkReplacesTheOldFailure() {
         showFailure(503)
         responseCode.set(200)
-        compose.runOnIdle { DeepLink.pendingRideId.value = 43 }
+        compose.runOnIdle { vm.requestPublicRide(43) }
         try {
             compose.waitUntil(10_000) {
                 // Drive the host composition after the separate dialog window closes.
@@ -148,7 +148,7 @@ class RideDeepLinkFailureTest {
                 vm.screen.value == Screen.Booking
             }
         } catch (e: Throwable) {
-            throw AssertionError("screen=${vm.screen.value}; selected=${vm.selectedRide.value?.id}; pending=${DeepLink.pendingRideId.value}; requests=$rideRequests", e)
+            throw AssertionError("screen=${vm.screen.value}; selected=${vm.selectedRide.value?.id}; pending=${vm.pendingPublicRideNavigation.value?.rideId}; requests=$rideRequests", e)
         }
         compose.runOnIdle { assertEquals("43", vm.selectedRide.value?.id) }
         compose.onNodeWithTag("rideLinkFailure").assertDoesNotExist()
@@ -181,7 +181,7 @@ class RideDeepLinkFailureTest {
         compose.onNodeWithTag("rideLinkFailure").assertDoesNotExist()
         compose.runOnIdle {
             assertEquals(Screen.Login, vm.screen.value)
-            assertEquals(null, DeepLink.pendingRideId.value)
+            assertEquals(null, vm.pendingPublicRideNavigation.value?.rideId)
         }
         assertEquals("Closing a failure must not make another request", listOf("/rides/42"), rideRequests.toList())
     }

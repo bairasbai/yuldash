@@ -31,7 +31,7 @@ class PendingNotificationRestorationTest {
     private fun clearBridge() {
         DeepLink.pendingCompletedBookingId.value = null
         DeepLink.pendingBookingChatId.value = null
-        DeepLink.pendingRideId.value = null
+
     }
     private fun notification(id: Int) = Intent(context, MainActivity::class.java)
         .putExtra("type", "booking_done").putExtra("id", id.toString()).putExtra("recipient_user_id", "11")

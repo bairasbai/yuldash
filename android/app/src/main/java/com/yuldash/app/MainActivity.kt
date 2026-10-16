@@ -305,7 +305,7 @@ class MainActivity : ComponentActivity() {
         if (freshPrivateDelivery) handleNavIntent(intent)
         if (!hasRestoredBooking && !hadSavedPending) {
             if (!freshPrivateDelivery && !unidentifiablePrivateRestore) handleNavIntent(intent, skipBookingIntent = copiedBookingIntent)
-            handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
+            handleDeepLink(intent, restoring = restoredNavigation != null)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         }
         setContent {
             YuldashTheme(darkTheme = appIsDark(), systemBars = systemBars) {
@@ -428,7 +428,7 @@ class MainActivity : ComponentActivity() {
             // разбирал пять. Одно и то же событие вело в разные места в зависимости от того,
             // прочитал человек его в шторке или в ленте. Достраиваем до того же списка;
             // назначения уже есть, новых экранов не нужно.
-            "ride" -> DeepLink.pendingRideId.value = id               // событие по моему рейсу
+            "ride" -> ViewModelProvider(this)[YuldashViewModel::class.java].requestPublicRide(id)               // событие по моему рейсу
             else -> return
         }
         i.removeExtra(FcmService.EXTRA_PUSH_TYPE)   // не сработать повторно при пересоздании
@@ -437,16 +437,16 @@ class MainActivity : ComponentActivity() {
         i.removeExtra("id")
     }
 
-    /** F16 deep-link: из https://yulbash.ru/r/{id} достаём id поездки и кладём в DeepLink —
+    /** F16 deep-link: из https://yulbash.ru/r/{id} достаём id поездки и передаём своему ViewModel —
      *  YuldashApp подхватит его и откроет поездку. Кривые ссылки молча игнорим. */
-    private fun handleDeepLink(intent: Intent?) {
+    private fun handleDeepLink(intent: Intent?, restoring: Boolean = false) {
         val data = intent?.data ?: return
         if (!data.host.equals("yulbash.ru", ignoreCase = true)) return
         // путь вида /r/123 (+ возможный trailing slash) → берём числовой сегмент после "r"
         val segments = data.pathSegments
         val idx = segments.indexOf("r")
         val rideId = segments.getOrNull(idx + 1)?.toIntOrNull() ?: return
-        DeepLink.pendingRideId.value = rideId
+        ViewModelProvider(this)[YuldashViewModel::class.java].requestPublicRideIntent(rideId, restoring)
     }
 
     companion object {
@@ -463,7 +463,6 @@ internal object DeepLink {
     val pendingCompletedBookingId = mutableStateOf<Int?>(null)
     val pendingRequestsFeed = mutableStateOf(false)
     val pendingApplicationScreen = mutableStateOf<Screen?>(null)
-    val pendingRideId = mutableStateOf<Int?>(null)
     /** Тап по пушу о посылке → открыть «Посылки». Сбрасывается тем, кто открыл (одноразовый сигнал). */
     val pendingParcels = mutableStateOf(false)
 

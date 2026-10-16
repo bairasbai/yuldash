@@ -85,7 +85,7 @@ class PublicRideNavigationBoundaryTest {
     private fun ride(id:Int,from:String)="""{"id":$id,"from_city":"$from","to_city":"Пункт Б","depart_at":"2030-01-02T10:00:00+03:00","seats_total":3,"seats_left":3,"price":750,"category":"regular","driver_id":9,"driver_name":"Тестовый водитель","driver_verified":true}"""
     private fun json(body:String,status:Int=200)=MockResponse().setResponseCode(status).setHeader("Content-Type","application/json").setBody(body)
     private fun clear() {
-        DeepLink.pendingRideId.value=null;DeepLink.pendingBookingChatId.value=null;DeepLink.pendingCompletedBookingId.value=null
+        DeepLink.pendingBookingChatId.value=null;DeepLink.pendingCompletedBookingId.value=null
         NavSignals.openInstantChat.value=0;NavSignals.openInstantOrder.value=false;NavSignals.openDriverCabinet.value=false
         DeepLink.pendingParcels.value=false;DeepLink.pendingSupport.value=false;NavSignals.openAdsCabinet.value=false;NavSignals.openPartnerCabinet.value=false
         DeepLink.pendingFairness.value=false;DeepLink.pendingRequestResponsesId.value=null;DeepLink.pendingRequestsFeed.value=false;DeepLink.pendingApplicationScreen.value=null
@@ -110,7 +110,7 @@ class PublicRideNavigationBoundaryTest {
     private fun failure(id:Int=42) {link(id);await {compose.onAllNodesWithTag("rideLinkFailure").fetchSemanticsNodes().isNotEmpty()};pump()}
     private fun selected(id:Int,from:String="Новый пункт А") {
         assertEquals(Screen.Booking,vm.screen.value);assertEquals(id.toString(),vm.selectedRide.value?.id);assertEquals(from,vm.selectedRide.value?.from)
-        assertNull(vm.activeBookingId.value);assertNull(DeepLink.pendingRideId.value);compose.onAllNodesWithTag("rideLinkFailure").assertCountEquals(0)
+        assertNull(vm.activeBookingId.value);assertNull(vm.pendingPublicRideNavigation.value?.rideId);compose.onAllNodesWithTag("rideLinkFailure").assertCountEquals(0)
         assertFalse(records.any {it.first!="GET" && it.second.startsWith("/bookings")})
     }
     @After fun cleanup() {release.countDown();compose.runOnIdle {mounted.value=false};pump(300);actor.destroy();vm.clearUserData();clear();ApiClient.resetForTest();ApiClient.testTimeoutMs=null;server.shutdown()}
@@ -128,11 +128,11 @@ class PublicRideNavigationBoundaryTest {
         compose.runOnIdle {open();actor.saveInstanceState(bundle)}
         val next=Robolectric.buildActivity(MainActivity::class.java).create(bundle)
         try {val restored=ViewModelProvider(next.get())[YuldashViewModel::class.java];assertEquals(Screen.Booking,restored.screen.value);assertEquals(77,restored.activeBookingId.value);assertEquals(HomeTab.Rides,restored.startHomeTab.value);assertTrue(restored.navHistory.contains(Screen.Home))} finally {next.destroy()}
-        finish();assertEquals(Screen.Booking,vm.screen.value);assertEquals(77,vm.activeBookingId.value);assertEquals("77",vm.selectedRide.value?.id);assertNull(DeepLink.pendingRideId.value);assertEquals(1,count(42))
+        finish();assertEquals(Screen.Booking,vm.screen.value);assertEquals(77,vm.activeBookingId.value);assertEquals("77",vm.selectedRide.value?.id);assertNull(vm.pendingPublicRideNavigation.value?.rideId);assertEquals(1,count(42))
     }
     private fun privateWins(type:String,destination:Screen,status:Int) {
         code=status;mount();held();privateDestination(type);await {vm.screen.value==destination && vm.pendingScreenNavigation.value==null};finish()
-        assertEquals(destination,vm.screen.value);assertNull(DeepLink.pendingRideId.value);assertEquals(1,count(42));compose.onAllNodesWithTag("rideLinkFailure").assertCountEquals(0)
+        assertEquals(destination,vm.screen.value);assertNull(vm.pendingPublicRideNavigation.value?.rideId);assertEquals(1,count(42));compose.onAllNodesWithTag("rideLinkFailure").assertCountEquals(0)
     }
     @Test fun privateSupportSupersedesHeldPublicSuccess()=privateWins("support",Screen.SupportTickets,200)
     @Test fun privateRequestSupersedesHeldPublicFailure()=privateWins("request",Screen.RequestResponses,503)
@@ -146,7 +146,7 @@ class PublicRideNavigationBoundaryTest {
     @Test fun oldRetryCannotReturnAfterBackToTheSameHomeScreen() {
         code=503;val open=homeRow();failure();val retry=retainedTag("rideLinkRetry")
         compose.runOnIdle {open()};pump();compose.onNodeWithContentDescription("Назад").performClick();pump()
-        code=200;compose.runOnIdle {retry()};pump(1500);assertEquals(Screen.Home,vm.screen.value);assertEquals(1,count(42));assertNull(DeepLink.pendingRideId.value)
+        code=200;compose.runOnIdle {retry()};pump(1500);assertEquals(Screen.Home,vm.screen.value);assertEquals(1,count(42));assertNull(vm.pendingPublicRideNavigation.value?.rideId)
     }
     @Test fun oldRetryCannotSpendANewerFailureOfTheSameRide() {
         code=503;mount();failure();val old=retainedTag("rideLinkRetry");compose.onNodeWithTag("rideLinkRetry").performClick()
@@ -178,11 +178,11 @@ class PublicRideNavigationBoundaryTest {
     }
     @Test fun newAccountAndLocalChoiceRejectOldPublicFailure() {
         code=503;mount();held();compose.runOnIdle {ApiClient.saveToken(tokenB);vm.navigateLocally {vm.screen.value=Screen.Notifications}};finish()
-        assertEquals(Screen.Notifications,vm.screen.value);assertNull(DeepLink.pendingRideId.value);compose.onAllNodesWithTag("rideLinkFailure").assertCountEquals(0)
+        assertEquals(Screen.Notifications,vm.screen.value);assertNull(vm.pendingPublicRideNavigation.value?.rideId);compose.onAllNodesWithTag("rideLinkFailure").assertCountEquals(0)
     }
     @Test fun retainedRetryCannotCrossAccountInTheSameFrame() {
         code=503;mount();failure();val retry=retainedTag("rideLinkRetry");code=200
-        compose.runOnIdle {ApiClient.saveToken(tokenB);retry()};pump(1500);assertEquals(1,count(42));assertNull(DeepLink.pendingRideId.value)
+        compose.runOnIdle {ApiClient.saveToken(tokenB);retry()};pump(1500);assertEquals(1,count(42));assertNull(vm.pendingPublicRideNavigation.value?.rideId)
     }
     @Test fun sameOwnerTokenReplacementCanRetryWithCurrentCallback() {
         code=503;mount();failure();compose.runOnIdle {ApiClient.saveToken(tokenA+"new")};pump();code=200
@@ -202,28 +202,28 @@ class PublicRideNavigationBoundaryTest {
         selected(42,"Гостевой вариант");assertEquals(2,count(42))
     }
     @Test fun invalidPrivateBookingDoesNotDiscardPublicDestination() {
-        DeepLink.pendingRideId.value=42;vm.requestBookingDestination(0,11,false)
-        assertEquals(42,DeepLink.pendingRideId.value);assertNull(vm.pendingBookingNavigation.value);assertEquals(0L,vm.privateNavigationRevision)
+        vm.requestPublicRide(42);val revision=vm.privateNavigationRevision;vm.requestBookingDestination(0,11,false)
+        assertEquals(42,vm.pendingPublicRideNavigation.value?.rideId);assertNull(vm.pendingBookingNavigation.value);assertEquals(revision,vm.privateNavigationRevision)
     }
     @Test fun invalidPrivateScreenDoesNotDiscardPublicDestination() {
-        DeepLink.pendingRideId.value=42;vm.requestScreenDestination(Screen.InstantChat,11,0)
-        assertEquals(42,DeepLink.pendingRideId.value);assertNull(vm.pendingScreenNavigation.value);assertEquals(0L,vm.privateNavigationRevision)
+        vm.requestPublicRide(42);val revision=vm.privateNavigationRevision;vm.requestScreenDestination(Screen.InstantChat,11,0)
+        assertEquals(42,vm.pendingPublicRideNavigation.value?.rideId);assertNull(vm.pendingScreenNavigation.value);assertEquals(revision,vm.privateNavigationRevision)
     }
     @Test fun validPrivateBookingSupersedesPublicBeforeComposition() {
-        DeepLink.pendingRideId.value=42;vm.requestBookingDestination(77,11,false)
-        assertNull(DeepLink.pendingRideId.value);assertEquals(77,vm.pendingBookingNavigation.value?.bookingId);assertEquals(1L,vm.privateNavigationRevision)
+        vm.requestPublicRide(42);val revision=vm.privateNavigationRevision;vm.requestBookingDestination(77,11,false)
+        assertNull(vm.pendingPublicRideNavigation.value?.rideId);assertEquals(77,vm.pendingBookingNavigation.value?.bookingId);assertEquals(revision+1,vm.privateNavigationRevision)
     }
     @Test fun localChoiceClearsPublicAndPersistsBeforeComposition() {
         vm.recordNavigationChange() // Direct VM fixture: establish the Home entry normally tracked by the mounted App.
-        DeepLink.pendingRideId.value=42;vm.navigateLocally {vm.screen.value=Screen.Notifications};assertNull(DeepLink.pendingRideId.value)
+        vm.requestPublicRide(42);val revision=vm.privateNavigationRevision;vm.navigateLocally {vm.screen.value=Screen.Notifications};assertNull(vm.pendingPublicRideNavigation.value?.rideId)
         val bundle=Bundle();actor.saveInstanceState(bundle);val next=Robolectric.buildActivity(MainActivity::class.java).create(bundle)
-        try {val restored=ViewModelProvider(next.get())[YuldashViewModel::class.java];assertEquals(Screen.Notifications,restored.screen.value);assertEquals(1L,restored.privateNavigationRevision);assertTrue(restored.navHistory.contains(Screen.Home))} finally {next.destroy()}
+        try {val restored=ViewModelProvider(next.get())[YuldashViewModel::class.java];assertEquals(Screen.Notifications,restored.screen.value);assertEquals(revision+1,restored.privateNavigationRevision);assertTrue(restored.navHistory.contains(Screen.Home))} finally {next.destroy()}
         assertEquals(0,count(42))
     }
     @Test fun disposedPublicRetryCannotQueueWorkForANewHost() {
         code=503;mount();failure();val retry=retainedTag("rideLinkRetry")
         compose.runOnIdle {mounted.value=false};pump()
-        compose.runOnIdle {retry();assertNull("Disposed callback must not set global public intent",DeepLink.pendingRideId.value)}
+        compose.runOnIdle {retry();assertNull("Disposed callback must not set global public intent",vm.pendingPublicRideNavigation.value?.rideId)}
         compose.runOnIdle {mounted.value=true};pump(1500);assertEquals(1,count(42));assertEquals(Screen.Home,vm.screen.value)
     }
 }

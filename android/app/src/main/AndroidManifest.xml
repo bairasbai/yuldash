@@ -30,6 +30,7 @@
         android:theme="@style/Theme.Yuldash">
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTop"
             android:exported="true"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.Yuldash.Starting">

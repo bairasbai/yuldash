@@ -24,7 +24,7 @@ class BookingNotificationRestorationTest {
     private val a = "header.eyJzdWIiOiIxMSJ9.signature"; private val b = "header.eyJzdWIiOiIxMiJ9.signature"
     @Before fun setup() { ApiClient.resetForTest(); ApiClient.init(context); ApiClient.saveToken(a); clear() }
     @After fun cleanup() { controllers.reversed().forEach { it.destroy() }; clear(); ApiClient.resetForTest() }
-    private fun clear() { DeepLink.pendingBookingChatId.value = null; DeepLink.pendingCompletedBookingId.value = null; DeepLink.pendingRideId.value = null }
+    private fun clear() { DeepLink.pendingBookingChatId.value = null; DeepLink.pendingCompletedBookingId.value = null; }
     private fun intent(type: String, id: Int) = Intent(context, MainActivity::class.java).putExtra("type", type).putExtra("id", id.toString()).putExtra("recipient_user_id", "11")
     private fun create(i: Intent = Intent(context, MainActivity::class.java), s: Bundle? = null) = Robolectric.buildActivity(MainActivity::class.java, i).also { controllers += it }.create(s)
     private fun vm(c: ActivityController<MainActivity>) = ViewModelProvider(c.get())[YuldashViewModel::class.java]
@@ -100,8 +100,8 @@ class BookingNotificationRestorationTest {
     }
     @Test fun privateReplaySuppressionDoesNotBlockPublicRideUri() {
         val c = create(intent("chat", 43)); vm(c).clearUserData(); vm(c).screen.value = Screen.Login; vm(c).persistNav()
-        restore(saved(c), intent("chat", 43).setData(android.net.Uri.parse("https://yulbash.ru/r/77")))
-        assertNull(DeepLink.pendingBookingChatId.value); assertEquals(77, DeepLink.pendingRideId.value)
+        val next=restore(saved(c), intent("chat", 43).setData(android.net.Uri.parse("https://yulbash.ru/r/77")))
+        assertNull(DeepLink.pendingBookingChatId.value); assertEquals(77, vm(next).pendingPublicRideNavigation.value?.rideId)
     }
     @Test fun consumedNotificationDoesNotReplayOverSavedHomeWithoutBooking() {
         val c = create(intent("chat", 43)); val pending = vm(c).pendingBookingNavigation.value!!
