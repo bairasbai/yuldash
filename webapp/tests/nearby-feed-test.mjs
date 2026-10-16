@@ -295,9 +295,13 @@ await test("«Показать N поездок»: башкирский не с�
   for (const n of [1, 2, 5, 11, 21, 100]) assert.equal(m.showRidesLabel(n, ba), `${n} сәфәрҙе күрһәтергә`);
 });
 
-await test("ноль поездок — «Готово» / «Әҙер»", async ({ m }) => {
-  assert.equal(m.showRidesLabel(0, ru), "Готово");
-  assert.equal(m.showRidesLabel(0, ba), "Әҙер");
+await test("ноль поездок — честное «Нет поездок с такими условиями», как в Android", async ({ m }) => {
+  assert.equal(m.showRidesLabel(0, ru), "Нет поездок с такими условиями");
+  assert.equal(m.showRidesLabel(0, ba), "Был шарттар менән сәфәр юҡ");
+});
+
+await test("пусто на выбранный день — «filtered» со сбросом, а не «поездок нет»", async ({ m }) => {
+  assert.equal(m.nearbyFeedState({ ...S, dayOn: true }), "filtered");
 });
 
 // ---------------------------------------------------------------- «Когда»

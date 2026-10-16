@@ -212,9 +212,11 @@ await test("выбранный город, которого нет ни в сп�
 });
 
 await test("строки шторки: сначала найденные и выбранные вне списка, потом города с поездками", async ({ m }) => {
-  assert.deepEqual(m.cityRows([], options, found).map((c) => c.ru), ["Баймак", "Сибай"], "найденные, но не выбранные, в шторке не висят");
-  assert.deepEqual(m.cityRows(["Темясово"], options, found).map((c) => c.ru), ["Темясово", "Баймак", "Сибай"]);
-  assert.deepEqual(m.cityRows(["Сибай"], options, found).map((c) => c.ru), ["Баймак", "Сибай"], "из списка — не дублируем");
+  const foundOutside = found.filter((f) => !options.some((o) => o.ru === f.ru)).map((f) => f.ru);
+  assert.deepEqual(m.cityRows([], options, found).map((c) => c.ru), [...foundOutside, "Баймак", "Сибай"],
+    "найденные поиском остаются до закрытия шторки, даже со снятой галочкой (как в Android)");
+  assert.ok(m.cityRows(["Темясово"], options, found).map((c) => c.ru).includes("Темясово"));
+  assert.deepEqual(m.cityRows(["Сибай"], options, []).map((c) => c.ru), ["Баймак", "Сибай"], "из списка — не дублируем");
 });
 
 await test("выбранный город уехал из списка сервера — галочку всё равно можно снять", async ({ m }) => {

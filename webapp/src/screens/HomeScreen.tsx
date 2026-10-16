@@ -146,6 +146,7 @@ export default function HomeScreen() {
   function resetFeedFilters() {
     setConditions([]);
     cityFilter.clear();
+    setDay(null);
   }
 
   const feedState = nearbyFeedState({
@@ -155,6 +156,7 @@ export default function HomeScreen() {
     shown: shownRides.length,
     conditionsOn: conditions.length > 0,
     cityActive: cityFilter.active,
+    dayOn: day != null,
   });
 
   // Последний запрос ленты: новый отменяет прежний, и запоздавший ответ не затрёт свежий.
@@ -456,7 +458,7 @@ export default function HomeScreen() {
       {feedState === "filtered" && (
         <div className="nearby-filtered">
           <p role="status">{appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал.")}</p>
-          {(conditions.length > 0 || cityFilter.active) && (
+          {(conditions.length > 0 || cityFilter.active || day != null) && (
             <button type="button" className="nearby-filtered__reset" onClick={resetFeedFilters}>
               <IconClose size={20} /> {appText("Сбросить фильтры", "Фильтрҙы бушат")}
             </button>

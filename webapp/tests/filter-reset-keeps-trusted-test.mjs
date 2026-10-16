@@ -140,9 +140,11 @@ await test("сброс в ленте снимает условия и город
   assert.match(resetBody, /cityFilter\.clear\(\)/, "города сняты");
 });
 
-await test("сброс не трогает «Только проверенные», день и сохранённые настройки", async () => {
+await test("сброс не трогает «Только проверенные» и сохранённые настройки, а день снимает", async () => {
   assert.ok(!/verifiedOnly|onlyTrusted/.test(resetBody), "«проверенные» — настройка «Безопасности», сброс её не касается");
-  assert.ok(!/setDay|saveFilters|localStorage/.test(resetBody), "день остаётся, а «по умолчанию» меняют на экране «Фильтры»");
+  assert.ok(!/saveFilters|localStorage/.test(resetBody), "«по умолчанию» меняют на экране «Фильтры»");
+  // Пусто на выбранный день — тоже «Нет поездок с такими условиями», и сброс снимает день (как Android, приёмка PR148).
+  assert.match(resetBody, /setDay\(null\)/);
 });
 
 await test("кнопка «Сбросить фильтры» в ленте подключена к этому сбросу", async () => {

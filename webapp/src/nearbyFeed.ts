@@ -157,6 +157,8 @@ export function nearbyFeedState(a: {
   shown: number;
   conditionsOn: boolean;
   cityActive: boolean;
+  /** Выбран день («Сегодня», «Завтра», своя дата): пусто на этот день — тоже «с такими условиями». */
+  dayOn?: boolean;
 }): NearbyFeedState {
   // Пока грузим и показать нечего — скелетон. Приложение ждёт пустой список с сервера (`nearby.isEmpty()`);
   // здесь ещё и «старый список, который новые условия срезали целиком»: смена условия не должна
@@ -164,7 +166,7 @@ export function nearbyFeedState(a: {
   if (a.loading && a.shown === 0) return "loading";
   if (a.fetched === 0) {
     if (a.error) return "error";
-    return a.conditionsOn || a.cityActive ? "filtered" : "empty";
+    return a.conditionsOn || a.cityActive || a.dayOn ? "filtered" : "empty";
   }
   if (a.shown === 0) return "filtered";
   return "list";
@@ -283,10 +285,13 @@ export function chosenNames(
  * уже уехали из ленты, — иначе галочку было бы нечем снять), потом города, где поездки есть сейчас.
  */
 export function cityRows(chosen: readonly string[], options: readonly RideCity[], found: readonly RideCity[]): RideCity[] {
-  const extra = chosen
-    .filter((c) => !options.some((o) => o.ru === c))
-    .map((c) => found.find((f) => f.ru === c) ?? { ru: c, ba: c });
-  return [...extra, ...options];
+  // Найденные поиском — до закрытия шторки, даже со снятой галочкой (как в Android, приёмка PR148):
+  // иначе вернуть её можно только новым поиском.
+  const foundRows = found.filter((f) => !options.some((o) => o.ru === f.ru));
+  const chosenRows = chosen
+    .filter((c) => !options.some((o) => o.ru === c) && !found.some((f) => f.ru === c))
+    .map((c) => ({ ru: c, ba: c }));
+  return [...chosenRows, ...foundRows, ...options];
 }
 
 /** Добавить найденный поиском город (по русскому имени, без повторов). */
@@ -344,5 +349,5 @@ export function createRideCitiesLoader(
 export function showRidesLabel(total: number, appText: AppText): string {
   return total > 0
     ? appText(`Показать ${total} ${pluralRu(total, "поездку", "поездки", "поездок")}`, `${total} сәфәрҙе күрһәтергә`)
-    : appText("Готово", "Әҙер");
+    : appText("Нет поездок с такими условиями", "Был шарттар менән сәфәр юҡ");   // 0 — честно, как в Android (приёмка PR148)
 }
