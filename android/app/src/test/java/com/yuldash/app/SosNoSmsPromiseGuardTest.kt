@@ -37,7 +37,7 @@ class SosNoSmsPromiseGuardTest {
         return null
     }
 
-    /** Строки файла без целых строк-комментариев (`//`, `/*`, `*`). */
+    /** Строки файла без целых строк-комментариев: начинаются с двух слэшей, слэша со звёздочкой или звёздочки. */
     private fun codeLines(name: String): List<String> {
         val file = File(sourceDir() ?: return emptyList(), name)
         if (!file.isFile) return emptyList()
