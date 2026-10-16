@@ -216,4 +216,27 @@ class DriverCabinetWave1Test {
         assertTrue(present("Найти поездку"))
         assertTrue(present("Создать заявку"))
     }
+
+    @Test
+    fun `у пассажира такси включено — зелёная карточка Быстрый заказ на месте`() {
+        passenger(taxiOn = true)
+        composeRule.onNodeWithText("Быстрый заказ").assertIsDisplayed()
+        composeRule.onNodeWithText("Вызвать машину сейчас — цену видно заранее").assertIsDisplayed()
+    }
+
+    @Test
+    fun `у пассажира такси выключено — карточки Быстрый заказ нет а кабинет не пустой`() {
+        passenger(taxiOn = false)
+        composeRule.onNodeWithText("Быстрый заказ").assertDoesNotExist()
+        composeRule.onNodeWithText("Вызвать машину сейчас — цену видно заранее").assertDoesNotExist()
+        scrollTo("Создать заявку")
+        assertTrue(present("Найти поездку"))
+    }
+
+    @Test
+    fun `у пассажира такси выключено — по-башкирски карточки Тиҙ заказ тоже нет`() {
+        passenger(taxiOn = false, language = AppLanguage.Ba)
+        composeRule.onNodeWithText("Тиҙ заказ").assertDoesNotExist()
+        composeRule.onNodeWithText("Хәҙер машина саҡырыу — хаҡ алдан күренә").assertDoesNotExist()
+    }
 }

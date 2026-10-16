@@ -239,9 +239,9 @@ class SosVerifyDeepContentTest {
     @Test
     fun sos_loggedIn_showsSignalDescription() {
         setSos(loggedIn = true)
-        // Текст сменился 2026-08-06: теперь близким уходит ещё и машина, и экран об этом
-        // честно предупреждает — человек в панике не должен гадать, что именно ушло.
-        val expected = "SMS твоим доверенным контактам с местом и машиной, в которой ты едешь, + сигнал поддержке Юлдаш."
+        // Текст сменился 16.10.2026: на проде SMS близким выключены (SMS_PROVIDER=mock), поэтому экран
+        // обещает только то, что точно случится — сигнал поддержке с местом и машиной, — и просит позвонить самому.
+        val expected = "Поддержка Юлдаш сразу получит сигнал с твоим местом и машиной, в которой ты едешь. Близким позвони сам, если можешь."
         scrollTo(expected)
         composeRule.onNodeWithText(expected).assertIsDisplayed()
     }
@@ -249,8 +249,8 @@ class SosVerifyDeepContentTest {
     @Test
     fun sos_notLoggedIn_showsLoginRequiredHint() {
         setSos(loggedIn = false)
-        scrollTo("Для SMS близким и сигнала поддержке нужно войти. Звонок 112 работает без входа.")
-        composeRule.onNodeWithText("Для SMS близким и сигнала поддержке нужно войти. Звонок 112 работает без входа.").assertIsDisplayed()
+        scrollTo("Для сигнала поддержке нужно войти. Звонок 112 работает без входа.")
+        composeRule.onNodeWithText("Для сигнала поддержке нужно войти. Звонок 112 работает без входа.").assertIsDisplayed()
     }
 
     // ---------------- SosContent: состояния отправки сигнала (sent / failed / rateLimited) ----------------
@@ -290,9 +290,9 @@ class SosVerifyDeepContentTest {
     fun sos_signalButtonClick_firesOnSendSignal() {
         var sent = false
         setSos(onSendSignal = { sent = true })
-        scrollTo("Сообщить близким и поддержке")
+        scrollTo("Сообщить поддержке")
         // Кнопка сигнала (внизу) — жмём именно action-кнопку AppButton.
-        composeRule.onAllNodesWithText("Сообщить близким и поддержке").onLast().performClick()
+        composeRule.onAllNodesWithText("Сообщить поддержке").onLast().performClick()
         assertTrue(sent)
     }
 
