@@ -823,7 +823,7 @@ internal fun SettingsScreen(
     // Крупный шрифт: текущий выбранный размер текста (единая точка правды FontScalePrefs).
     val fontLabel = fontScaleLabel(FontScalePrefs.option)
     if (showThemeDialog) {
-        ThemePickerDialog(current = ThemePrefs.darkOverride, onPick = { ThemePrefs.darkOverride = it; showThemeDialog = false }, onDismiss = { showThemeDialog = false })
+        ThemePickerDialog(current = ThemePrefs.darkOverride, onPick = { persistThemeChoice(ctx, it); showThemeDialog = false }, onDismiss = { showThemeDialog = false })
     }
     if (showFontDialog) {
         FontScalePickerDialog(
@@ -940,6 +940,14 @@ internal fun SettingsScreen(
             }
         }
     }
+}
+
+/** The settings picker and cold start share the existing header-toggle preference. */
+internal fun persistThemeChoice(context: Context, dark: Boolean?) {
+    ThemePrefs.darkOverride = dark
+    val edit = context.getSharedPreferences("yuldash_theme", Context.MODE_PRIVATE).edit()
+    if (dark == null) edit.remove("dark_override") else edit.putBoolean("dark_override", dark)
+    edit.apply()
 }
 
 /** Выбор темы оформления (она же тема карты): системная / светлая / тёмная. */

@@ -1,3 +1,4 @@
+import { storageOperation, storageFenceEnabled, storageFenced } from "./storageHealth";
 // ================================================================
 //  Офлайн-паспорт поездки. Зеркало Android `data/TripPass.kt` (F11).
 //
@@ -26,9 +27,30 @@
 
 /** Ключ на бронь: паспортов может быть несколько (две поездки в один день). */
 const KEY = (bookingId: number) => `yuldash.tripPass.${bookingId}`;
+const STAGE_KEY = (id: number, generation: string, stage: string) => `${KEY(id)}.${stage}.${generation}`;
+
+const memoryStages = new Map<string, "onboard" | "terminal">();
+function rememberStage(id: number, generation: string | undefined, stage: "onboard" | "terminal"): void {
+  if (!storageFenceEnabled() || !generation) return;
+  const key = `${id}:${generation}`;
+  if (memoryStages.get(key) !== "terminal") memoryStages.set(key, stage);
+}
+/** Separate irreversible flags avoid a stale tab overwriting a newer stage. */
+export function tripPassStage(id: number, generation: string): "confirmed" | "onboard" | "terminal" {
+  const memory = memoryStages.get(`${id}:${generation}`);
+  if (memory === "terminal") return "terminal";
+  try {
+    if (storageOperation(() => localStorage.getItem(STAGE_KEY(id, generation, "terminal")))) return "terminal";
+    return memory === "onboard" || storageOperation(() => localStorage.getItem(STAGE_KEY(id, generation, "onboard"))) ? "onboard" : "confirmed";
+  } catch (error) { if (memory === "onboard") return "onboard"; throw error; }
+}
 
 /** Снимок брони для показа без сети. Только то, что нужно у машины. */
 export interface TripPass {
+  /** Only a fresh server-confirmed snapshot may be read before /me is reachable. */
+  ownerId?: number;
+  sessionGeneration?: string;
+  ownershipId?: string;
   bookingId: number;
   fromCity: string;
   toCity: string;
@@ -53,8 +75,9 @@ export interface TripPass {
  * нужны всё равно.
  */
 export function saveTripPass(p: Omit<TripPass, "savedAt">): void {
+  if (storageFenced()) return;
   try {
-    localStorage.setItem(KEY(p.bookingId), JSON.stringify({ ...p, savedAt: Date.now() }));
+    storageOperation(() => localStorage.setItem(KEY(p.bookingId), JSON.stringify({ ...p, savedAt: Date.now() })));
   } catch {
     /* приватный режим или переполнение — офлайн-паспорта просто не будет */
   }
@@ -62,13 +85,37 @@ export function saveTripPass(p: Omit<TripPass, "savedAt">): void {
 
 /** Достать паспорт. Нет или битый — null, экран просто не покажет карточку. */
 export function loadTripPass(bookingId: number): TripPass | null {
+  if (storageFenced()) return null;
   try {
-    const raw = localStorage.getItem(KEY(bookingId));
+    const raw = storageOperation(() => localStorage.getItem(KEY(bookingId)));
     if (!raw) return null;
     const v = JSON.parse(raw) as TripPass;
-    return v && typeof v === "object" && v.bookingId === bookingId ? v : null;
+    if (!v || typeof v !== "object" || v.bookingId !== bookingId) return null;
+    if (v.sessionGeneration) {
+      const stage = tripPassStage(bookingId, v.sessionGeneration);
+      if (stage === "terminal") return null;
+      if (stage === "onboard") return { ...v, boardingCode: "" };
+    }
+    return v;
   } catch {
     return null;
+  }
+}
+
+/** Посадка подтверждена: код больше не нужен, остальные данные ещё нужны в пути. */
+export function clearTripPassBoardingCode(bookingId: number, generation?: string): void {
+  rememberStage(bookingId, generation, "onboard");
+  try {
+    const raw = storageOperation(() => localStorage.getItem(KEY(bookingId)));
+    const pass = raw ? JSON.parse(raw) as TripPass : null;
+    const ownerGeneration = generation || pass?.sessionGeneration;
+    if (ownerGeneration) storageOperation(() => localStorage.setItem(STAGE_KEY(bookingId, ownerGeneration, "onboard"), "1"));
+    if (!pass?.boardingCode) return;
+    // Сохраняем время самого снимка, это не новое чтение данных с сервера.
+    storageOperation(() => localStorage.setItem(KEY(bookingId), JSON.stringify({ ...pass, boardingCode: "" })));
+  } catch {
+    // Если обновить снимок нельзя, не оставляем в нём использованный код.
+    dropTripPass(bookingId, generation);
   }
 }
 
@@ -78,9 +125,17 @@ export function loadTripPass(bookingId: number): TripPass | null {
  * Держать его дольше нельзя — это телефон живого человека и код посадки,
  * которые после поездки не нужны никому.
  */
-export function dropTripPass(bookingId: number): void {
+export function dropTripPass(bookingId: number, generation?: string): void {
+  rememberStage(bookingId, generation, "terminal");
   try {
-    localStorage.removeItem(KEY(bookingId));
+    const ownerGeneration = generation || loadTripPass(bookingId)?.sessionGeneration;
+    if (ownerGeneration) storageOperation(() => localStorage.setItem(STAGE_KEY(bookingId, ownerGeneration, "terminal"), "1"));
+  } catch {
+    /* Still try removing the private snapshot if a stage marker cannot be stored. */
+  }
+  try {
+    storageOperation(() => localStorage.removeItem(KEY(bookingId)));
+    storageOperation(() => localStorage.removeItem(`${KEY(bookingId)}.owner`));
   } catch {
     /* не критично */
   }

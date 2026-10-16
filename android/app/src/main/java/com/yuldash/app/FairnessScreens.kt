@@ -930,7 +930,7 @@ internal fun IncidentDetailScreen(incidentId: Int, onBack: () -> Unit) {
                         }
                     }
 
-                    if (i.appealStatus.isNotBlank()) {
+                    if (i.appealStatus == "requested" && i.status !in setOf("resolved", "closed")) {
                         item(key = "appeal-status") {
                             Box(Modifier.appearIn(7)) {
                                 FairNotice(

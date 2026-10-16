@@ -22,6 +22,11 @@ const OUT = join(HERE, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
 const SUITES = [
+  { test: "storage-boundary-test", src: null, out: null, bundle: false },
+  { test: "update-banner-test", src: null, out: null, bundle: false },
+  { test: "full-offline-trip-test", src: null, out: null, bundle: false },
+  { test: "boarding-code-contrast-test", src: null, out: null, bundle: false },
+  { test: "rideshare-local-regression-test", src: null, out: null, bundle: false },
   { test: "login-flow-test", src: null, out: null, bundle: false },
   { test: "onboarding-flow-test", src: null, out: null, bundle: false },
   { test: "intro-motion-test", src: null, out: null, bundle: false },
@@ -39,6 +44,9 @@ const SUITES = [
   { test: "outbox-id-test", src: null, out: null, bundle: false },
   { test: "outbox-idb-test", src: null, out: null, bundle: false },
   { test: "outbox-save-ui-test", src: null, out: null, bundle: false },
+  { test: "chat-ws-ack-test", src: null, out: null, bundle: false },
+  { test: "chat-intent-ui-test", src: null, out: null, bundle: false },
+  { test: "chat-ws-outbox-test", src: null, out: null, bundle: false },
   { test: "outbox-delivery-key-test", src: null, out: null, bundle: false },
   { test: "outbox-legacy-collision-test", src: null, out: null, bundle: false },
   { test: "outbox-transient-error-test", src: null, out: null, bundle: false },

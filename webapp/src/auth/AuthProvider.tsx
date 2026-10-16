@@ -1,3 +1,4 @@
+import { sessionMutation, sessionEpoch, storageFenced, confirmStorageSession, reportStorageFailure } from "../utils/storageHealth";
 import {
   createContext,
   useCallback,
@@ -35,7 +36,7 @@ interface AuthCtx {
   user: Me | null;
   isAuthed: boolean;
   /** Записать сессию после успешного входа (токены уже в localStorage). */
-  login: (access: string, refresh: string, user: Me) => void;
+  login: (access: string, refresh: string, user: Me) => void | string | Promise<void | string>;
   /** Выйти: гасим сервер (best-effort) и чистим локально. */
   logout: () => Promise<void>;
   /** Перечитать профиль (после правок). */
@@ -44,9 +45,10 @@ interface AuthCtx {
 }
 
 function clearSessionData(): void {
+  const clearedGeneration = getSessionGeneration();
   // Неотправленные сообщения прошлого человека нельзя оставлять: на общем телефоне
   // они ушли бы ОТ НОВОГО аккаунта при первом же появлении сети.
-  void Promise.resolve(clearOutbox()).catch(() => {});
+  void Promise.resolve(sessionMutation(() => clearedGeneration === getSessionGeneration() ? clearOutbox() : undefined)).catch(() => { if (clearedGeneration === getSessionGeneration()) reportStorageFailure(); });
   // Черновики анкет — тоже личное: на общем телефоне следующий не должен
   // увидеть чужой ИНН и номер разрешения.
   clearAllDrafts();
@@ -58,8 +60,7 @@ function clearSessionData(): void {
   // P1-1: чистим рантайм-кеши Service Worker — иначе приватные ответы (ленты/координаты)
   // переживают logout и доступны на общем устройстве через DevTools → Cache Storage.
   if (typeof caches !== "undefined") {
-    const clearedGeneration = getSessionGeneration();
-    void clearSessionCaches(() => clearedGeneration === getSessionGeneration()).catch(() => {});
+    void Promise.resolve(sessionMutation(() => clearSessionCaches(() => clearedGeneration === getSessionGeneration()))).catch(() => { if (clearedGeneration === getSessionGeneration()) reportStorageFailure(); });
   }
 }
 
@@ -119,7 +120,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const generation = getSessionGeneration();
       fetchMe(request.signal)
       .then((me) => {
-        if (!mounted.current || request.signal.aborted || generation !== getSessionGeneration()) return;
+        if (!mounted.current || request.signal.aborted || generation !== getSessionGeneration() || !getToken()) return;
+        confirmStorageSession(generation);
         setUser(me);
         setStatus("authed");
       })
@@ -137,6 +139,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     retrySessionRef.current = retry;
     const storageChanged = (event: StorageEvent) => {
       if (event.storageArea && event.storageArea !== localStorage) return;
+      // A failed login may remove access before its generation can be committed.
+      // Quiet rotations keep access present; an obsolete removal cannot clear B.
+      if (event.key === "yuldash.token" && event.newValue === null && !getToken()) {
+        loadSession();
+        return;
+      }
       if (event.key !== "yuldash.session" && event.key !== null) return;
       if (event.key !== null && event.newValue !== getSessionGeneration()) return;
       loadSession();
@@ -160,14 +168,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [applyGuest]);
 
   const login = useCallback((access: string, refresh: string, me: Me) => {
-    setSession(access, refresh);
-    syncPersonalSession(getSessionGeneration());
-    setUser(me);
-    setStatus("authed");
+    const generation = getSessionGeneration(), epoch = sessionEpoch();
+    return sessionMutation(permit => {
+      if (epoch !== sessionEpoch() || generation !== getSessionGeneration() || storageFenced()) throw new Error("Session operation superseded");
+      try {
+        setSession(access, refresh, permit);
+        syncPersonalSession(getSessionGeneration());
+      } catch (error) { setUser(null); setStatus("guest"); throw error; }
+      confirmStorageSession(getSessionGeneration()); setUser(me); setStatus("authed");
+      return getSessionGeneration();
+    });
   }, []);
 
   const logout = useCallback(async () => {
     const generation = getSessionGeneration();
+    if (storageFenced()) { setUser(null); setStatus("guest"); return; }
     // Пуши гасим ДО выхода: серверу нужен ещё живой токен, чтобы отвязать подписку.
     // Иначе на общем телефоне следующий вошедший получал бы чужие уведомления.
     try {
@@ -182,17 +197,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* нет сети / уже протух — всё равно чистим локально */
     }
     if (generation !== getSessionGeneration()) return;
-    setSession(null, null);
-    setUser(null);
-    setStatus("guest");
-    clearSessionData();
+    try { await sessionMutation(permit => {
+      if (generation !== getSessionGeneration()) return;
+      setSession(null, null, permit); setUser(null); setStatus("guest"); clearSessionData();
+    }); } catch (error) { if (!storageFenced()) throw error; }
   }, []);
 
   const refresh = useCallback(async () => {
     const generation = getSessionGeneration();
     try {
       const me = await fetchMe();
-      if (!mounted.current || generation !== getSessionGeneration()) return;
+      if (!mounted.current || generation !== getSessionGeneration() || !getToken()) return;
       setUser(me);
       setStatus("authed");
     } catch {

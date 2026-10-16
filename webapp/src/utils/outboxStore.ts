@@ -1,3 +1,4 @@
+import { storageOperation, reportStorageFailure } from "./storageHealth";
 import { getSessionGeneration } from "../api/client";
 import type { OutboxAction } from "./outbox";
 
@@ -7,7 +8,7 @@ let connection: Promise<IDBDatabase> | null = null;
 function open(): Promise<IDBDatabase> {
   if (!connection) {
     connection = new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(DATABASE, 1);
+      const request = storageOperation(() => indexedDB.open(DATABASE, 1));
       let blocked = false;
       request.onupgradeneeded = () => {
         const actions = request.result.createObjectStore("actions", { keyPath: "sequence", autoIncrement: true });
@@ -16,8 +17,8 @@ function open(): Promise<IDBDatabase> {
         // Квитанция импорта остаётся после отправки: старый снимок не воскресит сообщение.
         request.result.createObjectStore("imported");
       };
-      request.onblocked = () => { blocked = true; reject(new Error("Queue database blocked")); };
-      request.onerror = () => reject(request.error);
+      request.onblocked = () => { blocked = true; reportStorageFailure(); reject(new Error("Queue database blocked")); };
+      request.onerror = () => { reportStorageFailure(); reject(request.error); };
       request.onsuccess = () => {
         if (blocked) { request.result.close(); return; }
         request.result.onversionchange = () => { request.result.close(); connection = null; };
@@ -33,7 +34,7 @@ async function legacy(generation: string): Promise<Map<string, { action: OutboxA
   const groups = new Map<string, { action: OutboxAction; fingerprint: string; position: number }[]>();
   let rows: OutboxAction[];
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem("yuldash.outbox") ?? "[]");
+    const parsed: unknown = JSON.parse(storageOperation(() => localStorage.getItem("yuldash.outbox")) ?? "[]");
     if (!Array.isArray(parsed)) return groups;
     rows = parsed.filter((a): a is OutboxAction => a != null && a.session === generation &&
       (typeof a.id === "string" || typeof a.id === "number") && Number.isFinite(a.bookingId) &&
@@ -142,4 +143,10 @@ export async function clearActions(generation: string): Promise<void> {
       cursor.continue();
     };
   });
+}
+
+/** Recovery waits for this connection to settle/close before deleting both stores. */
+export async function closeOutboxStore(): Promise<void> {
+  const old = connection; connection = null;
+  if (old) { try { (await old).close(); } catch { /* Failed open has no connection. */ } }
 }

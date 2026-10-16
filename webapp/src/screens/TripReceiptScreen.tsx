@@ -71,8 +71,14 @@ export default function TripReceiptScreen() {
   const [thanked, setThanked] = useState(false);
   const [thanksBusy, setThanksBusy] = useState(false);
 
+  const passengerReceipt = state.kind === "ready" && state.r.role === "passenger";
+
   useEffect(() => {
-    if (!bookingId) return;
+    if (!bookingId || !passengerReceipt) {
+      setTip(null);
+      setThanked(false);
+      return;
+    }
     const ac = new AbortController();
     fetchBookingTip(bookingId, ac.signal)
       .then((t) => {
@@ -81,10 +87,10 @@ export default function TripReceiptScreen() {
       })
       .catch(() => setTip(null));
     return () => ac.abort();
-  }, [bookingId]);
+  }, [bookingId, passengerReceipt]);
 
   async function sayThanks() {
-    if (thanksBusy) return;
+    if (thanksBusy || !passengerReceipt) return;
     setThanksBusy(true);
     try {
       await thankBooking(bookingId);
@@ -218,7 +224,7 @@ ${priceLabel(r.amount, false)}`
           </button>
 
           {/* Неоплаченная поездка — способ рассчитаться. Оплачено: блока нет. */}
-          {!state.r.paid && (
+          {passengerReceipt && !state.r.paid && (
             <PayTripCard
               kind="booking"
               id={bookingId}
@@ -230,7 +236,7 @@ ${priceLabel(r.amount, false)}`
           {/* «Рәхмәт» и придумали для попуток: сосед подвёз бесплатно и заслуживает
               спасибо не меньше таксиста. Кнопка была только в чеке такси, а обе
               серверные ручки годами никто не звал. */}
-          <div className="act-card" style={{ marginTop: 14 }}>
+          {passengerReceipt && <div className="act-card" style={{ marginTop: 14 }}>
             <div className="act-card__title">
               <IconHeart size={18} />{" "}
               {thanked
@@ -266,7 +272,7 @@ ${priceLabel(r.amount, false)}`
                 <SbpPay phone={tip.money.sbp} name={tip.money.name} />
               </div>
             )}
-          </div>
+          </div>}
 
           <p className="receipt__foot">
             {appText(

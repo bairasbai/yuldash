@@ -249,17 +249,25 @@ import com.yuldash.app.data.RequestDto
 import com.yuldash.app.data.NotifDto
 import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
+import com.yuldash.app.ui.theme.AppSystemBars
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val systemBars by lazy { AppSystemBars(window) }
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         // Плавный уход системного сплэша: значок/фон мягко растворяются в интро (без резкого стыка).
         // withEndAction всегда снимает сплэш по завершении — экран не «залипнет».
         splashScreen.setOnExitAnimationListener { vp ->
-            vp.view.animate().alpha(0f).setDuration(300L).withEndAction { vp.remove() }.start()
+            // AndroidX also applies XML flags before this callback: keep the green fade readable.
+            val releaseSplashBars = systemBars.withLightIcons()
+            vp.view.animate().alpha(0f).setDuration(300L).withEndAction {
+                vp.remove()
+                // remove() reapplies XML flags; release restores the latest theme/active Intro.
+                releaseSplashBars()
+            }.start()
         }
         // Восстановить выбор темы день/ночь (если пользователь переключал тумблером в шапке).
         val prefs = getSharedPreferences("yuldash_theme", MODE_PRIVATE)
@@ -308,7 +316,7 @@ class MainActivity : ComponentActivity() {
             handleDeepLink(intent)    // холодный старт по ссылке yulbash.ru/r/{id} (F16)
         }
         setContent {
-            YuldashTheme(darkTheme = appIsDark()) {
+            YuldashTheme(darkTheme = appIsDark(), systemBars = systemBars) {
                 // Крупный шрифт: множим системный fontScale на выбранный пользователем множитель —
                 // весь sp-текст приложения масштабируется разом, системная настройка тоже уважается.
                 val base = LocalDensity.current

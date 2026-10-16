@@ -2033,13 +2033,21 @@ def notify_chat_message(booking_id: int, data: dict) -> None:
     """Разослать живым WS-подписчикам чата сообщение, отправленное по REST (голос/фото/текст-фолбэк).
     Иначе собеседник с открытым чатом видит его только после переполла истории. SYNC — зовём из
     REST-хендлера после commit; publish в общий Redis-канал, async-loop доставит локальным сокетам
-    всех воркеров. Без Redis — no-op (клиент подстрахуется опросом истории)."""
+    всех воркеров. Без Redis/при сбое publish — существующим локальным подписчикам.
+    Синхронные REST-хендлеры FastAPI выполняются в AnyIO-потоке: from_thread.run
+    возвращает доставку в ИХ event-loop, не запускает отдельный цикл для чужих сокетов.
+    Вне REST-потока доставка остаётся best-effort; async-код использует manager.broadcast."""
     client = _cache_client()
-    if client is None:
-        return
+    if client is not None:
+        try:
+            client.publish(_CHAT_CHANNEL, json.dumps({"booking_id": booking_id, "data": data}))
+            return   # Redis-подписчик доставит и этому воркеру: локально второй раз не шлём.
+        except Exception:  # noqa: BLE001 — Redis недоступен → только локальный воркер
+            pass
     try:
-        client.publish(_CHAT_CHANNEL, json.dumps({"booking_id": booking_id, "data": data}))
-    except Exception:  # noqa: BLE001 — Redis недоступен → молча, история подстрахует
+        from anyio import from_thread
+        from_thread.run(manager.local_broadcast, booking_id, data)
+    except Exception:  # noqa: BLE001 — уже сохранённое сообщение не превращаем в ошибку REST
         pass
 
 

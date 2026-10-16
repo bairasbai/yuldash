@@ -107,6 +107,40 @@ class BookingConfirmationJourneyTest {
         server.shutdown()
     }
 
+    @Test fun publicZeroSeatsCannotSubmitEvenWithDefaultActiveFlag() {
+        assertPublicCapacity(AppLanguage.Ru, "Мест нет", "Забронировать место")
+    }
+
+    @Test fun bashkirPublicZeroSeatsCannotSubmitEvenWithDefaultActiveFlag() {
+        assertPublicCapacity(AppLanguage.Ba, "Урын юҡ", "Урынды бронләү")
+    }
+
+    private fun assertPublicCapacity(language: AppLanguage, unavailable: String, book: String) {
+        val ride = mutableStateOf(Ride(
+            id = "7", from = "Пункт А", to = "Пункт Б", time = "",
+            driver = "Тестовый водитель", car = "", price = 750, seats = 0,
+            rating = 5.0, verified = true, boosted = false,
+        ))
+        var submitted = 0
+        compose.setContent {
+            YuldashTheme {
+                CompositionLocalProvider(LocalAppLanguage provides language) {
+                    BookingScreen(
+                        ride = ride.value, ads = emptyList(), adStats = emptyMap(),
+                        onBack = {}, onMessage = {}, onAdImpression = {}, onAdClick = {},
+                        // Omit canOpenActiveTrip: its default must not authorize a new booking.
+                        onConfirmRide = { _, _, _, _, _ -> submitted++ },
+                    )
+                }
+            }
+        }
+        compose.onNodeWithText(unavailable).assertIsDisplayed().assertIsNotEnabled()
+            .performTouchInput { click() }
+        compose.runOnIdle { assertEquals(0, submitted); ride.value = ride.value.copy(seats = 1) }
+        compose.onNodeWithText(book).assertIsDisplayed().assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(1, submitted) }
+    }
+
     @Test fun newBookingWaitsForDriverWhoConfirmsFromCabinet() {
         mount()
         choosePublicRide()

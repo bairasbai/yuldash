@@ -31,7 +31,7 @@ mocks['../api/chat'] = `import {ApiError} from '../api/client';
   export const openTripLocation=()=>null;export const editMessage=()=>null;export const deleteMessage=()=>null;`;
 mocks['../utils/outbox'] = `export const createOutboxId=()=>'intent-42';export const outboxCount=()=>globalThis.__outboxUI.saved;
   export const enqueue=(...args)=>{const h=globalThis.__outboxUI;h.enqueues.push(args);return h.pending.promise.then(()=>{h.saved++;});};
-  export const watchOutbox=()=>()=>{};export const subscribeOutbox=()=>()=>{};`;
+  export const watchOutbox=()=>()=>{};export const subscribeOutbox=()=>()=>{};export const acknowledgeMessage=async()=>{};export const isPermanentRejection=()=>false;`;
 const bundle = await build({
   stdin: { contents: source + '\nexport { TripChat as TestChat };', loader: 'tsx',
     resolveDir: fileURLToPath(new URL('../src/screens/', import.meta.url)) },
@@ -50,7 +50,7 @@ const text = node => typeof node === 'string' ? node : [node?.props?.children].f
 function render(h) { h.cursor=0; h.dirty=false; h.tree=TestChat({bookingId:42,myId:1}); }
 async function settle(h) { for(let i=0;i<12;i++){if(h.dirty)render(h);await Promise.resolve();}assert.equal(h.dirty,false); }
 async function type(h,value) { input(h).props.onChange({target:{value}}); await settle(h); }
-async function start(h) { await settle(h); await type(h,'Исходный текст'); h.completion=send(h).props.onClick(); await settle(h); assert.deepEqual(h.enqueues,[[42,'message','Исходный текст','intent-42']]); assert.deepEqual(h.sends,[[42,'Исходный текст','intent-42']]); }
+async function start(h) { await settle(h); await type(h,'Исходный текст'); h.completion=send(h).props.onClick(); await settle(h); assert.deepEqual(h.enqueues,[[42,'message','Исходный текст','intent-42']]); assert.deepEqual(h.sends,[],'Network started before durable commit'); }
 let cases=0,failed=0;
 async function check(name,fn){
   const h=globalThis.__outboxUI={slots:[],cursor:0,dirty:true,generation:'A',saved:0,enqueues:[],sends:[],pending:deferred()};cases++;

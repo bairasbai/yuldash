@@ -40,7 +40,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,9 +57,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.core.view.WindowCompat
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -125,6 +122,16 @@ internal fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit) {
     }
 }
 
+/** Keep the dark introduction readable and release only its own temporary window policy. */
+@Composable
+internal fun IntroSystemBars() {
+    val bars = com.yuldash.app.ui.theme.LocalAppSystemBars.current
+    DisposableEffect(bars) {
+        val release = bars?.withLightIcons()
+        onDispose { release?.invoke() }
+    }
+}
+
 /**
  * Кинематографичное интро ПЕРВОГО запуска (→ онбординг), уровень дорогого бренда.
  * Лого: bloom-сияние + золотое кольцо-ободок + сдержанная пружина (damping .72) + focus-blur (API 31+).
@@ -135,7 +142,6 @@ internal fun StaggerWord(text: String, visible: Boolean, fontSize: TextUnit) {
  */
 @Composable
 internal fun IntroScreen(onComplete: () -> Unit) {
-    val ctx = LocalContext.current
     // Ролик заставки — свой таймлайн на delay(), а не анимация Compose: фреймворк его не
     // видит и при «Удалить анимации» не гасит, поэтому гасим сами. Читаем ту же единую точку
     // правды, что и вся шкала движения (её выставляет MainActivity при старте) — раньше здесь
@@ -143,21 +149,7 @@ internal fun IntroScreen(onComplete: () -> Unit) {
     val reduceMotion = !CanonMotion.enabled
 
     val haptic = LocalHapticFeedback.current
-    // Светлые (белые) иконки статус/нав-бара поверх тёмного пейзажа; вернуть прежние при уходе из интро.
-    // SideEffect переустанавливает каждый recompose — переигрывает тему (windowLightStatusBar=true).
-    val barController = remember(ctx) {
-        ctx.findActivityCompat()?.let { act -> WindowCompat.getInsetsController(act.window, act.window.decorView) }
-    }
-    SideEffect {
-        barController?.isAppearanceLightStatusBars = false
-        barController?.isAppearanceLightNavigationBars = false
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            barController?.isAppearanceLightStatusBars = true   // вернуть тёмные иконки (светлая тема приложения)
-            barController?.isAppearanceLightNavigationBars = true
-        }
-    }
+    IntroSystemBars()
 
     var showMeaning by remember { mutableStateOf(false) }
     var showBrand by remember { mutableStateOf(reduceMotion) }

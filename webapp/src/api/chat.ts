@@ -4,7 +4,7 @@
 //  (POST) с живой доставкой через WebSocket /ws/bookings/{id}.
 //  WS-авторизация: первым кадром {"type":"auth","token":"<jwt>"}.
 // ================================================================
-import { API_BASE, apiGet, apiPost, apiDelete, apiUpload, getToken, isOwnApiUrl } from "./client";
+import { API_BASE, apiGet, apiPost, apiDelete, apiUpload, getToken, getSessionGeneration, ApiError, isOwnApiUrl } from "./client";
 
 /** Сообщение чата (строка Message + live-payload сокета). */
 export interface ChatMessage {
@@ -23,6 +23,8 @@ export interface ChatMessage {
   // REST отдаёт created_at, сокет — timestamp. Нормализуем в UI.
   created_at?: string;
   timestamp?: string;
+  /** Идентичность исходящей операции; подтверждаем только собственный sender_id. */
+  request_id?: string;
 }
 
 export function fetchMessages(
@@ -101,42 +103,72 @@ export function wsBase(): string {
 export function openBookingChat(
   bookingId: number,
   handlers: {
+    senderId: number;
     onMessage: (m: ChatMessage) => void;
+    onAcknowledged?: (m: ChatMessage) => void;
     onOpen?: () => void;
     onClose?: () => void;
     onError?: () => void;
   }
-): { send: (text: string) => boolean; close: () => void } {
-  const token = getToken();
+): { send: (text: string, requestId: string) => Promise<ChatMessage | null>; close: () => void } {
+  const token = getToken(), generation = getSessionGeneration();
   const ws = new WebSocket(`${wsBase()}/ws/bookings/${bookingId}`);
-
+  let closed = false;
+  const active = () => !closed && generation === getSessionGeneration();
+  type Waiter = { resolve: (m: ChatMessage | null) => void; reject: (e: ApiError) => void; timer: ReturnType<typeof setTimeout> };
+  const pending = new Map<string, Waiter>();
+  // A concurrent REST flush can acknowledge an intent before send() installs its waiter.
+  const acknowledged = new Map<string, ChatMessage>();
+  function finish(key: string, message: ChatMessage | null, error?: ApiError) {
+    const waiter = pending.get(key);
+    if (!waiter) return;
+    pending.delete(key); clearTimeout(waiter.timer);
+    if (error) waiter.reject(error); else waiter.resolve(message);
+  }
+  function disconnected() { for (const key of pending.keys()) finish(key, null); }
   ws.onopen = () => {
+    if (!active()) { ws.close(); disconnected(); return; }
     if (token) ws.send(JSON.stringify({ type: "auth", token }));
     handlers.onOpen?.();
   };
   ws.onmessage = (ev) => {
-    try {
-      const data = JSON.parse(ev.data);
-      if (data?.type === "message") handlers.onMessage(data as ChatMessage);
-    } catch {
-      /* не-JSON кадр — игнор */
+    if (!active()) { disconnected(); return; }
+    let data;
+    try { data = JSON.parse(ev.data); } catch { return; }
+    if (data?.type === "message") {
+      if (typeof data.request_id === "string" && data.sender_id === handlers.senderId && Number.isSafeInteger(data.id) && data.id > 0) {
+        acknowledged.set(data.request_id, data as ChatMessage);
+        if (acknowledged.size > 256) acknowledged.delete(acknowledged.keys().next().value!);
+        finish(data.request_id, data as ChatMessage);
+        handlers.onAcknowledged?.(data as ChatMessage);
+      }
+      handlers.onMessage(data as ChatMessage);
+    } else if (data?.type === "rejected" && typeof data.request_id === "string") {
+      const status = Number.isInteger(data.status_code) ? data.status_code : 503;
+      finish(data.request_id, null, new ApiError(status, String(data.reason ?? "message rejected")));
     }
   };
-  ws.onclose = () => handlers.onClose?.();
-  ws.onerror = () => handlers.onError?.();
-
+  ws.onclose = () => { disconnected(); if (active()) handlers.onClose?.(); };
+  ws.onerror = () => { disconnected(); if (active()) handlers.onError?.(); };
   return {
-    send: (text: string) => {
-      if (ws.readyState !== WebSocket.OPEN) return false;
-      ws.send(JSON.stringify({ type: "message", text }));
-      return true;
+    send: (text, requestId) => {
+      if (!active()) return Promise.resolve(null);
+      const known = acknowledged.get(requestId);
+      if (known) return Promise.resolve(known);
+      if (ws.readyState !== WebSocket.OPEN) return Promise.resolve(null);
+      // Register before send: a fast/queued acknowledgment must never be missed.
+      return new Promise<ChatMessage | null>((resolve, reject) => {
+        finish(requestId, null);
+        const timer = setTimeout(() => finish(requestId, null), 5000);
+        pending.set(requestId, { resolve, reject, timer });
+        try { ws.send(JSON.stringify({ type: "message", text, request_id: requestId })); }
+        catch { finish(requestId, null); }
+      });
     },
     close: () => {
-      try {
-        ws.close();
-      } catch {
-        /* уже закрыт */
-      }
+      closed = true; disconnected(); acknowledged.clear();
+      ws.onopen = null; ws.onmessage = null; ws.onclose = null; ws.onerror = null;
+      try { ws.close(); } catch { /* Уже закрыт. Очередь остаётся на диске. */ }
     },
   };
 }

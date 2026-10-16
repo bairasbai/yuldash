@@ -84,10 +84,24 @@ export async function clearOutbox(): Promise<void> {
   await clearActions(generation);
   changed();
 }
-function isPermanentRejection(error: unknown): boolean {
+export function isPermanentRejection(error: unknown): boolean {
   // Таймаут, ограничение частоты, 5xx и нечитаемый ответ не подтверждают отказ.
   // Сохраняем действие и его ключ до следующей попытки отправки.
   return error instanceof ApiError && [400, 403, 404, 405, 409, 410, 413, 415, 422].includes(error.status);
+}
+
+/** Remove only this persisted intent and its original login, never a newer account's action. */
+export async function acknowledgeMessage(bookingId: number, id: string, expectedGeneration: string): Promise<void> {
+  const cleared = clearVersion;
+  const active = () => expectedGeneration === getSessionGeneration() && cleared === clearVersion;
+  if (!active()) return;
+  const rows = await listActions(expectedGeneration, active);
+  if (!active()) return;
+  const action = rows.find(a => a.bookingId === bookingId && a.kind === "message" && String(a.id) === id);
+  if (action) await removeAction(action, active);
+  if (!active()) return;
+  changed();
+  await refreshOutbox().catch(() => {});
 }
 
 async function run(a: OutboxAction): Promise<void> {
@@ -159,3 +173,6 @@ export function watchOutbox(onFlushed: () => void): () => void {
   window.addEventListener("focus", visible);
   return () => { stopped = true; window.removeEventListener("online", tryFlush); window.removeEventListener("focus", visible); };
 }
+
+/** Revoke in-memory actions without touching an unavailable disk. */
+export function resetOutboxMemory(): void { clearVersion++; readVersion++; snapshot = []; snapshotSession = ""; notify(); }

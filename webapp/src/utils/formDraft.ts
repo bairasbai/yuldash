@@ -1,3 +1,4 @@
+import { storageOperation, storageFenced } from "./storageHealth";
 // ================================================================
 //  Черновик формы: заполненное не пропадает, если экран закрылся.
 //
@@ -23,14 +24,15 @@ interface Stored<T> {
 }
 
 export function readDraft<T>(key: string): T | null {
+  if (storageFenced()) return null;
   try {
-    const raw = localStorage.getItem(PREFIX + key);
+    const raw = storageOperation(() => localStorage.getItem(PREFIX + key));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Stored<T>;
     if (!parsed || typeof parsed.at !== "number") return null;
     if (parsed.session !== getSessionGeneration()) return null;
     if (Date.now() - parsed.at > MAX_AGE_MS) {
-      localStorage.removeItem(PREFIX + key);
+      storageOperation(() => localStorage.removeItem(PREFIX + key));
       return null;
     }
     return parsed.data;
@@ -40,8 +42,9 @@ export function readDraft<T>(key: string): T | null {
 }
 
 export function writeDraft<T>(key: string, data: T): void {
+  if (storageFenced()) return;
   try {
-    localStorage.setItem(PREFIX + key, JSON.stringify({ at: Date.now(), data, session: getSessionGeneration() }));
+    storageOperation(() => localStorage.setItem(PREFIX + key, JSON.stringify({ at: Date.now(), data, session: getSessionGeneration() })));
   } catch {
     /* переполнено / приватный режим — просто не сохраняем */
   }
@@ -49,7 +52,7 @@ export function writeDraft<T>(key: string, data: T): void {
 
 export function clearDraft(key: string): void {
   try {
-    localStorage.removeItem(PREFIX + key);
+    storageOperation(() => localStorage.removeItem(PREFIX + key));
   } catch {
     /* нечего чистить */
   }
@@ -59,11 +62,11 @@ export function clearDraft(key: string): void {
 export function clearAllDrafts(): void {
   try {
     const keys: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
+    for (let i = 0; i < storageOperation(() => localStorage.length); i++) {
+      const k = storageOperation(() => localStorage.key(i));
       if (k && k.startsWith(PREFIX)) keys.push(k);
     }
-    keys.forEach((k) => localStorage.removeItem(k));
+    keys.forEach((k) => storageOperation(() => localStorage.removeItem(k)));
   } catch {
     /* нечего чистить */
   }

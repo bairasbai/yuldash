@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+from jose import JWTError
 from sqlmodel import Session, select
 from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
@@ -81,7 +82,8 @@ def _guard_chat_burst(session: Session, sender_id: int, *scope) -> None:
         raise herr(429, TOO_FAST_MESSAGES[0], TOO_FAST_MESSAGES[1])
 
 
-async def _reject(websocket: WebSocket, payload: dict) -> None:
+async def _reject(websocket: WebSocket, payload: dict, *, reason: str = "too_fast",
+                  status_code: int = 429) -> None:
     """Сказать в сокет «сообщение не принято» вместо того, чтобы молча его выбросить.
 
     `temp_id` — номер, который приложение приложило к своему «оптимистичному» сообщению
@@ -92,11 +94,17 @@ async def _reject(websocket: WebSocket, payload: dict) -> None:
     Отправку заворачиваем в try: сокет мог закрыться прямо сейчас, и падать из-за
     невозможности доставить отказ — глупо."""
     try:
-        await websocket.send_json({
+        temp_id = payload.get("temp_id")
+        frame = {
             "type": "rejected",
-            "reason": "too_fast",
-            "temp_id": int(payload.get("temp_id") or 0),
-        })
+            "reason": reason,
+            "status_code": status_code,
+            "temp_id": temp_id if type(temp_id) is int else 0,
+        }
+        key = payload.get("request_id")
+        if isinstance(key, str) and 1 <= len(key) <= 128:
+            frame["request_id"] = key
+        await websocket.send_json(frame)
     except Exception:
         pass
 
@@ -276,72 +284,54 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
         ))(s2.get(Booking, booking_id),
            s2.get(Ride, s2.get(Booking, booking_id).ride_id) if s2.get(Booking, booking_id) else None),
         on_close=lambda: manager.disconnect(booking_id, websocket))
-    msgs = 0
     try:
         while True:
             data = await websocket.receive_text()
             try:
                 payload = json.loads(data)
             except (json.JSONDecodeError, ValueError):
-                continue   # битый (не-JSON) кадр — игнорируем, соединение НЕ роняем
-            if payload.get("type") == "message":
-                # Периодическая перепроверка токена (паритет с гео-WS, порт из notification-fixes):
-                # logout/ревокация должны рвать и ОТКРЫТЫЙ чат-сокет, иначе он живёт до разрыва сети.
-                msgs += 1
-                if msgs % 15 == 0:
-                    with Session(engine) as s2:
-                        try:
-                            authenticate_ws(token or "", s2)
-                        except Exception:
-                            await websocket.close(code=1008, reason="Token revoked")
-                            break
-                # `with` → коннект возвращается в пул сразу (без утечки сессий на каждое сообщение).
-                with Session(engine) as session:
-                    # Блокировка (как в REST send_message): заблокированный не пишет — тихо игнор.
-                    if is_blocked(session, user_id, other_id):
-                        continue
-                    # Окно переписки: после поездки чат закрывается на запись (см. REST-гейт).
-                    b2 = session.get(Booking, booking_id)
-                    r2 = session.get(Ride, b2.ride_id) if b2 else None
-                    if b2 is not None and r2 is not None and _booking_chat_closed(b2, r2):
-                        await _reject(websocket, payload)
-                        continue
-                    # Анти-флуд: тот же потолок, что в REST (иначе сокет обходил бы его в один тап).
-                    # Исключение здесь бросать нельзя — оно рвёт чат. Поэтому отвечаем кадром
-                    # «не принято» с номером сообщения: экран пометит его недоставленным.
-                    # Молча уронить нельзя: сообщение висело бы на экране как отправленное.
-                    if _chat_burst_reached(session, user_id, Message.booking_id == booking_id):
-                        await _reject(websocket, payload)
-                        continue
-                    sender = session.get(User, user_id)
-                    text = (payload.get("text") or "")[:4000]
-                    # B8-6: анти-фишинг (плашка получателю); B8-9: бейдж «Юлдаш ✓» у админа.
-                    msg = Message(booking_id=booking_id, sender_id=user_id, text=text,
-                                  flag=moderate_text(text, check_contact=False),
-                                  from_admin=bool(sender and sender.role == UserRole.admin))
-                    session.add(msg)
-                    session.commit()
-                    session.refresh(msg)
-                    await manager.broadcast(booking_id, {
-                        "type": "message",
-                        "id": msg.id,
-                        "sender_id": msg.sender_id,
-                        "text": msg.text,
-                        "flag": msg.flag,
-                        "from_admin": msg.from_admin,
-                        "timestamp": msg.created_at.isoformat()
-                    })
-                    # Push другой стороне (она может быть офлайн / не в чате). send_push — блокирующий
-                    # сетевой вызов к FCM; в async-WS гоним через threadpool, иначе залипший запрос к
-                    # Google морозит event-loop и ВСЕ WS-соединения воркера.
-                    # data.type=chat → клиент кладёт пуш в канал «Сообщения» (иначе чат звенел бы
-                    # в «Поездках» даже у заглушивших его) + extras для deep-link в нужный чат.
-                    await run_in_threadpool(
-                        send_push, session, other_id,
-                        (sender.name if sender else None) or "Новое сообщение",
-                        (msg.text or "Сообщение")[:120],
-                        {"type": "chat", "id": booking_id},
-                    )
+                continue
+            if not isinstance(payload, dict) or payload.get("type") != "message":
+                continue
+            with Session(engine) as session:
+                # A retry is a read of an existing private message: current access still matters.
+                try:
+                    sender = authenticate_ws(token or "", session)
+                    booking, ride = booking_and_ride_for_user(session, booking_id, sender)
+                    current_other = ride.driver_id if sender.id == booking.passenger_id else booking.passenger_id
+                    if is_blocked(session, sender.id, current_other):
+                        raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
+                except (HTTPException, JWTError):
+                    await websocket.close(code=1008, reason="Access ended")
+                    break
+                request_id = payload.get("request_id")
+                if "request_id" in payload and (not isinstance(request_id, str) or not 1 <= len(request_id) <= 128):
+                    await _reject(websocket, payload, reason="invalid_request", status_code=422)
+                    continue
+                try:
+                    body = MessageIn(text=payload.get("text", ""))
+                except ValidationError:
+                    await _reject(websocket, payload, reason="invalid_request", status_code=422)
+                    continue
+                try:
+                    msg, created = _persist_booking_message(session, booking, ride, sender, body, request_id)
+                except HTTPException as error:
+                    reason = {400: "empty_message", 422: "invalid_request", 429: "too_fast"}.get(error.status_code,
+                              "chat_closed" if _booking_chat_closed(booking, ride) else "request_conflict")
+                    await _reject(websocket, payload, reason=reason, status_code=error.status_code)
+                    continue
+                frame = _booking_message_frame(msg, request_id)
+                if not created:
+                    # Lost acknowledgement: confirm only to the retrying sender, without republish/push.
+                    await websocket.send_json(frame)
+                    continue
+                await manager.broadcast(booking_id, frame)
+                await run_in_threadpool(
+                    send_push, session, current_other,
+                    sender.name or "Новое сообщение",
+                    (msg.text or "Сообщение")[:120],
+                    {"type": "chat", "id": booking_id},
+                )
     except WebSocketDisconnect:
         pass
     finally:
@@ -708,19 +698,16 @@ def _replay_message(session: Session, booking_id: int, sender_id: int, key: str,
     return message
 
 
-@router.post("/bookings/{booking_id}/messages", response_model=Message)
-def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_user), session: Session = Depends(get_session),
-                 idempotency_key: Optional[str] = Header(None, min_length=1, max_length=128)):
-    booking, ride = booking_and_ride_for_user(session, booking_id, user)
-    other_party = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
-    if is_blocked(session, user.id, other_party):
-        raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
+def _persist_booking_message(session: Session, booking: Booking, ride: Ride, user: User,
+                             body: MessageIn, idempotency_key: Optional[str]) -> tuple[Message, bool]:
+    """Commit one Message and its receipt together; REST and WS use the same payload digest."""
+    booking_id = booking.id
     digest = hashlib.sha256(json.dumps(body.model_dump(), sort_keys=True, ensure_ascii=False,
                                        separators=(",", ":")).encode("utf-8")).hexdigest()
     if idempotency_key is not None:
         replay = _replay_message(session, booking_id, user.id, idempotency_key, digest)
         if replay is not None:
-            return replay
+            return replay, False
     _guard_booking_chat_open(booking, ride)
     _guard_chat_burst(session, user.id, Message.booking_id == booking_id)
     # Пустое сообщение (или одни пробелы) не отправляем: собеседник получал пуш «Новое
@@ -748,12 +735,14 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
         if idempotency_key is not None:
             replay = _replay_message(session, booking_id, user.id, idempotency_key, digest)
             if replay is not None:
-                return replay
+                return replay, False
         raise
     session.refresh(msg)
-    # Живая доставка собеседнику с открытым чатом (как в WS-хендлере) — иначе голос/фото/текст-фолбэк
-    # виден только после переполла истории. Поля совместимы с клиентским ChatSocket (id/sender_id/text/timestamp).
-    notify_chat_message(booking_id, {
+    return msg, True
+
+
+def _booking_message_frame(msg: Message, request_id: Optional[str] = None) -> dict:
+    frame = {
         "type": "message",
         "id": msg.id,
         "sender_id": msg.sender_id,
@@ -762,8 +751,26 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
         "transcript": msg.transcript or "",
         "flag": msg.flag,
         "from_admin": msg.from_admin,
+        "edited": msg.edited,
+        "deleted": msg.deleted,
         "timestamp": msg.created_at.isoformat(),
-    })
+    }
+    if request_id is not None:
+        frame["request_id"] = request_id
+    return frame
+
+
+@router.post("/bookings/{booking_id}/messages", response_model=Message)
+def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_user), session: Session = Depends(get_session),
+                 idempotency_key: Optional[str] = Header(None, min_length=1, max_length=128)):
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    other_party = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
+    if is_blocked(session, user.id, other_party):
+        raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
+    msg, created = _persist_booking_message(session, booking, ride, user, body, idempotency_key)
+    if not created:
+        return msg
+    notify_chat_message(booking_id, _booking_message_frame(msg, idempotency_key))
     # Уведомление + push другой стороне брони (кто не отправитель). REST-путь (в отличие от WS)
     # используется, когда получатель НЕ в живом сокете (голос/фото/фолбэк) — тогда запись в Центр
     # уведомлений осмысленна. Живой WS-обмен (оба в чате) уведомление не плодит.
@@ -865,6 +872,7 @@ class ConversationOut(BaseModel):
     peer_verified: bool = False            # реальный статус проверки собеседника (не фейк «проверен» у всех)
     route: str
     last_message: str
+    has_messages: bool  # visible messages for this viewer, not a test of preview text
     depart_at: Optional[datetime] = None   # время выезда — различать треды одного маршрута в инбоксе
 
 
@@ -917,6 +925,7 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
             peer_verified=(bool(peer.verified) if peer else False),
             route=(f"{ride.from_city} → {ride.to_city}" if ride else ""),
             last_message=("Чат открыт" if last is None else _message_preview(last)),
+            has_messages=last is not None,
             depart_at=(ride.depart_at if ride else None),
         ))
     return out

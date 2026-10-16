@@ -232,3 +232,30 @@ console.log("✓ generation read failures before and after response fail closed"
   assert.equal(u.events.logins.length, 0);
   console.log("✓ SMS shares busy and ignores changed-phone late responses");
 }
+
+{
+  const publication = deferred();
+  const t = fixture({ login: () => publication.promise });
+  const waiting = t.flow.verify("id", "123456", "");
+  await new Promise(setImmediate);
+  assert.equal(t.events.nav, 0);
+  t.setGeneration("published-A");
+  publication.resolve("published-A");
+  await waiting;
+  assert.equal(t.events.nav, 1);
+  console.log("✓ asynchronous session publication is awaited before navigation");
+}
+{
+  const publication = deferred();
+  let nameWrites = 0;
+  const t = fixture({ login: () => publication.promise, updateName: async () => { nameWrites++; } });
+  const waiting = t.flow.verify("id", "123456", "Old A name");
+  await new Promise(setImmediate);
+  t.setGeneration("published-B");
+  publication.resolve("published-A");
+  await waiting;
+  assert.equal(t.events.nav, 0);
+  assert.equal(nameWrites, 0);
+  assert(!t.events.tracks.includes("login_success"));
+  console.log("✓ late A publication cannot update B profile or navigate as A");
+}

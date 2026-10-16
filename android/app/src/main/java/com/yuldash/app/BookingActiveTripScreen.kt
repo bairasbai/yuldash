@@ -485,14 +485,17 @@ internal fun BookingScreen(
     val bookingPending = bookingId != null && normalizedBookingStatus == "pending"
     val bookingCancelled = bookingId != null && normalizedBookingStatus == "cancelled"
     var showCancelConfirmation by rememberSaveable(bookingId, normalizedBookingStatus) { mutableStateOf(false) }
+    val canCreateBooking = bookingId == null && displayRide.seats > 0
     val primaryLabel = when {
+        bookingId == null && !canCreateBooking -> appText("Мест нет", "Урын юҡ")
         bookingId == null -> appText("Забронировать место", "Урынды бронләү")
         bookingPending -> appText("Отменить бронь", "Бронде кире алыу")
         bookingCancelled -> appText("Найти другую поездку", "Башҡа сәфәр табыу")
         canOpenActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
         else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
     }
-    val primaryEnabled = bookingId == null || bookingPending || bookingCancelled || canOpenActiveTrip
+    val primaryEnabled = if (bookingId == null) canCreateBooking
+        else bookingPending || bookingCancelled || canOpenActiveTrip
     val primaryStyle = if (bookingPending) AppButtonStyle.Danger else AppButtonStyle.Primary
     val primaryIcon = when {
         bookingPending -> Icons.Default.Close
@@ -671,6 +674,7 @@ internal fun BookingScreen(
             item {
                 BookingRouteDecisionCard(
                     ride = displayRide,
+                    hasBooking = bookingId != null,
                     distanceText = distanceText,
                     fromPoint = routeFromPoint,
                     toPoint = routeToPoint,
@@ -924,6 +928,7 @@ private fun BookingDriverHeroCard(
 @Composable
 private fun BookingRouteDecisionCard(
     ride: Ride,
+    hasBooking: Boolean,
     distanceText: String?,
     fromPoint: Point?,
     toPoint: Point?,
@@ -985,7 +990,8 @@ private fun BookingRouteDecisionCard(
                 BookingDecisionMetric(
                     icon = Icons.Default.EventSeat,
                     value = ride.seats.toString(),
-                    label = appText("Свободных мест", "Буш урын"),
+                    label = if (hasBooking) appText("Мест в брони", "Брондәге урындар")
+                        else appText("Свободных мест", "Буш урын"),
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
             }

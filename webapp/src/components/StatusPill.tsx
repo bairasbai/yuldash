@@ -38,7 +38,7 @@ export function StatusPill({
   arrivalVerified?: boolean;
 }) {
   const { appText } = useLang();
-  if (phase && (status === "confirmed" || status === "onboard")) {
+  if (phase && status === "confirmed") {
     const p = PHASE[phase];
     const gps = arrivalVerified && phase === "arriving";
     return (

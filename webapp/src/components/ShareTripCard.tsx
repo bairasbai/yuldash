@@ -29,17 +29,23 @@ import {
 } from "../api/family";
 import { IconCheck, IconShare, IconTrash, IconUsers } from "./Icons";
 import { track } from "../analytics";
+import type { BookingStatus } from "../api/bookings";
 
 export default function ShareTripCard({
   bookingId,
   orderId,
   showStatuses = false,
+  bookingStatus = "confirmed",
+  onStatusChange,
 }: {
   /** Ровно одно из двух: бронь попутки или такси-заказ. */
   bookingId?: number;
   orderId?: number;
   /** Показывать ли кнопки статуса для близких (только у пассажира попутки). */
   showStatuses?: boolean;
+  bookingStatus?: BookingStatus;
+  /** После записи статуса перечитать авторитетное состояние брони. */
+  onStatusChange?: () => void | Promise<void>;
 }) {
   const { appText } = useLang();
 
@@ -77,7 +83,8 @@ export default function ShareTripCard({
     return () => ac.abort();
   }, [load]);
 
-  if (shares === null) return null;
+  if (shares === null && !showStatuses) return null;
+  const activeShares = shares ?? [];
 
   async function share(contactId: number) {
     if (busy) return;
@@ -123,7 +130,11 @@ export default function ShareTripCard({
       const updated = await setTripStatus(bookingId, status);
       if (!currentSession()) return;
       setShares(updated);
-      setNote(appText("Близкие получили сообщение", "Яҡындарға хәбәр китте"));
+      await onStatusChange?.();
+      if (!currentSession()) return;
+      setNote(updated.length > 0
+        ? appText("Близкие получили сообщение", "Яҡындарға хәбәр китте")
+        : appText("Сохранено", "Һаҡланды"));
     } catch (e) {
       if (!currentSession()) return;
       // Трасса без связи — это норма, а не сбой. «Я сел» и «доехал» — ровно те отметки,
@@ -158,6 +169,7 @@ export default function ShareTripCard({
 
   return (
     <div className="act-card">
+      {shares !== null && (<>
       <div className="act-card__title">
         <IconUsers size={18} /> {appText("Поделиться поездкой", "Сәфәр менән бүлешеү")}
       </div>
@@ -169,9 +181,9 @@ export default function ShareTripCard({
       </p>
 
       {/* Кому уже открыто + отзыв */}
-      {shares.length > 0 && (
+      {activeShares.length > 0 && (
         <div className="list" style={{ marginTop: 0, marginBottom: 12 }}>
-          {shares.map((s) => (
+          {activeShares.map((s) => (
             <div key={s.id} className="list-row">
               <span className="list-row__icon">
                 <IconCheck size={20} />
@@ -231,31 +243,33 @@ export default function ShareTripCard({
           disabled={busy}
         >
           <IconShare size={18} />{" "}
-          {shares.length > 0
+          {activeShares.length > 0
             ? appText("Поделиться ещё с кем-то", "Тағы кемгәлер ебәреү")
             : appText("Поделиться поездкой с близким", "Яҡын кешегә ебәреү")}
         </button>
       )}
 
-      {/* Статусы для близких — только если ссылка кому-то открыта */}
-      {showStatuses && shares.length > 0 && (
+      </>)}
+
+      {/* Посадка и завершение не требуют ссылки или доверенных контактов. */}
+      {showStatuses && bookingId && (bookingStatus === "confirmed" || bookingStatus === "onboard") && (
         <>
           <p className="act-card__text" style={{ margin: "14px 0 8px" }}>
             {appText(
-              "Сообщи близким, как идёт поездка:",
-              "Яҡындарға сәфәр нисек барғанын хәбәр ит:"
+              "Как идёт поездка?",
+              "Сәфәр нисек бара?"
             )}
           </p>
           <div className="chips">
-            <button type="button" className="chip" onClick={() => sendStatus("sat")} disabled={busy}>
+            {bookingStatus === "confirmed" && <button type="button" className="chip" onClick={() => sendStatus("sat")} disabled={busy}>
               {appText("Села в машину", "Машинаға ултырҙым")}
-            </button>
-            <button type="button" className="chip" onClick={() => sendStatus("arrived")} disabled={busy}>
+            </button>}
+            {bookingStatus === "onboard" && <button type="button" className="chip" onClick={() => sendStatus("arrived")} disabled={busy}>
               {appText("Доехала", "Барып еттем")}
-            </button>
-            <button type="button" className="chip" onClick={() => sendStatus("done")} disabled={busy}>
+            </button>}
+            {bookingStatus === "onboard" && <button type="button" className="chip" onClick={() => sendStatus("done")} disabled={busy}>
               {appText("Поездка завершена", "Сәфәр тамамланды")}
-            </button>
+            </button>}
           </div>
         </>
       )}

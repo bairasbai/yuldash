@@ -10,7 +10,7 @@ export interface LoginFlowDeps {
   tgVerify(requestId: string, code: string): Promise<{ access_token: string; refresh_token: string; user: unknown }>;
   smsRequest(phone: string): Promise<unknown>;
   smsVerify(phone: string, code: string, name: string): Promise<{ access_token: string; refresh_token: string; user: unknown }>;
-  login(access: string, refresh: string, user: any): void;
+  login(access: string, refresh: string, user: any): void | string | Promise<void | string>;
   updateName(name: string): Promise<unknown>;
   getStatus(error: unknown): number;
   telegramStartUrl(id: string): string;

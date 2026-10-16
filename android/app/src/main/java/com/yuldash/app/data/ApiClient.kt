@@ -6865,9 +6865,7 @@ data class MessageDto(
 )
 
 /** Диалог в инбоксе: бронь, с кем и последнее сообщение. */
-internal fun parseConversationDto(o: JSONObject): ConversationDto {
-    return ConversationDto(o.optInt("booking_id"), o.optString("peer_name"), o.optString("route"), o.optString("last_message"), o.optString("peer_avatar"), o.optString("depart_at").ifBlank { null }, o.optBoolean("peer_verified"))
-}
+
 
 /** Отзыв, ждущий модерации. */
 internal fun parseReviewItem(o: JSONObject): ReviewItem {
@@ -7192,15 +7190,7 @@ internal fun normalizeOptionalJsonString(hasValue: Boolean, isJsonNull: Boolean,
     return raw.takeIf { it.isNotBlank() && it != "null" }
 }
 
-data class ConversationDto(
-    val bookingId: Int,
-    val peerName: String,
-    val route: String,
-    val lastMessage: String,
-    val peerAvatar: String = "",
-    val departAt: String? = null,   // ISO времени выезда — различать треды одного маршрута
-    val peerVerified: Boolean = false,   // реальный статус проверки собеседника (с сервера)
-)
+
 
 data class PopularRouteDto(val from: String, val to: String, val count: Int)
 /** Зона спроса для водителя: где сейчас чаще ищут попутку. Анонимно — только агрегат, без личности. */

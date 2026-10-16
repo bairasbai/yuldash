@@ -1297,6 +1297,7 @@ private fun YuldashAppContent() {
                 },
                 onAdImpression = { trackAdImpression(it) },
                 onAdClick = { trackAdClick(it) },
+                onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt },
             )
             Screen.CreateRide -> CreateRideScreen(
                 prefillDate = createRidePrefillDate,   // F15: если пришли из баннера — дата праздника уже стоит
@@ -2467,7 +2468,8 @@ internal fun HomeScreen(
     onSeasonalPublish: (String) -> Unit = {},   // F15: баннер «на праздник» → создать поездку с датой-шаблоном
     onTabChange: (HomeTab) -> Unit = {},
     onOpenInstantOrder: () -> Unit = {},
-    onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() }
+    onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() },
+    onOpenReceipt: (Int) -> Unit = {}
 ) {
     // Шелл (таб-стейт + нижнее меню + смена вкладок) вынесен в чистый HomeShell — тестируется на JVM.
     // HomeScreen остаётся «умной» обёрткой: раздаёт данные/колбэки в тело конкретной вкладки.
@@ -2512,6 +2514,7 @@ internal fun HomeScreen(
                     onAdImpression = onAdImpression,
                     onAdClick = onAdClick,
                     onDriverCabinet = gate.guard(onDriverCabinet),
+                    onOpenReceipt = gate.guard(onOpenReceipt),
                 )
                 HomeTab.Request -> MyRequestsScreen(
                     requests = requests,
@@ -2584,7 +2587,7 @@ internal fun HomeShell(
     tabContent: @Composable (tab: HomeTab, selectTab: (HomeTab) -> Unit) -> Unit,
 ) {
     val generation by ApiClient.sessionChanges.collectAsState()
-    var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }   // вкладка переживает поворот
+    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }   // поворот хранит vm.startHomeTab; старый снимок Home не подменяет явный переход
     val shellScope = rememberCoroutineScope()
     var selectionEpoch by remember { mutableIntStateOf(0) }
     val callbackEpoch = selectionEpoch

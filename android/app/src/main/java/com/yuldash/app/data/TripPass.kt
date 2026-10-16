@@ -363,8 +363,18 @@ object Outbox {
     @Synchronized fun enqueue(context: Context, action: OutboxAction, expectedGeneration: Long? = null): Boolean {
         if (expectedGeneration != null && ApiClient.queueSessionGeneration() != expectedGeneration) return false
         val list = readAll(context) ?: return false
+        val existing = list.firstOrNull { it.id == action.id }
+        if (existing != null) return existing == action
         list.add(action)
         return writeAll(context, list)
+    }
+
+    /** Exact owner/action acknowledgement; a failed disk cleanup never undoes server delivery. */
+    @Synchronized fun acknowledge(context: Context, action: OutboxAction, expectedGeneration: Long): Boolean {
+        if (ApiClient.queueSessionGeneration() != expectedGeneration) return false
+        val current = readAll(context) ?: return false
+        val remaining = current.filterNot { it.id == action.id && it == action }
+        return remaining.size == current.size || writeAll(context, remaining)
     }
 
     /**
