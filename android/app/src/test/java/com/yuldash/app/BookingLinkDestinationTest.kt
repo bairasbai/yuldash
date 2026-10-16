@@ -178,4 +178,20 @@ class BookingLinkDestinationTest {
             src("ProfileScreen.kt").contains("AppButton(text = appText(\"Открыть поездку\", \"Сәфәрҙе асыу\"), onClick = { onOpenTrip(b.bookingId) })"),
         )
     }
+
+    @Test
+    fun `мои отклики водителя открывают поездку через ту же точку`() {
+        // Водительской брони нет в «Моих бронях» пассажира: открыть ActiveTrip без заглушки поездки
+        // значит отправить водителя восстановлением на главную (приёмка волны 1, 16.10.2026).
+        val app = src("YuldashApp.kt")
+        assertTrue(
+            "«Мои отклики» снова открывают поездку без заглушки",
+            !app.contains("onOpenTrip = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip }"),
+        )
+        assertTrue(
+            "«Мои отклики» не ведут через openDriverTrip",
+            Regex("""Screen\.DriverResponses -> DriverResponsesScreen\([\s\S]{0,600}?onOpenTrip = \{ bid -> vm\.openDriverTrip\(bid\) \}""")
+                .containsMatchIn(app),
+        )
+    }
 }

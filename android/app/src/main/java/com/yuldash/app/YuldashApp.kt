@@ -1609,7 +1609,9 @@ private fun YuldashAppContent() {
             Screen.DriverResponses -> DriverResponsesScreen(
                 onBack = { goBack() },
                 // Согласился на встречную цену → сразу в поездку, как при обычном accept у пассажира.
-                onOpenTrip = { bid -> activeBookingId = bid; activeTrip = null; screen = Screen.ActiveTrip },
+                // Через ту же точку, что «Едут с тобой»: без заглушки поездки восстановление искало бронь
+                // в «Моих бронях» пассажира (водительской там нет) и уводило на главную (приёмка волны 1).
+                onOpenTrip = { bid -> vm.openDriverTrip(bid) },
             )
             Screen.RequestResponses -> {
                 val displayedRequestId = responsesRequestId
