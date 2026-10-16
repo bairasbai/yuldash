@@ -1,10 +1,14 @@
 // ================================================================
 //  Home (вкладка «Карта») — витрина попуток. Публично (гость видит).
 //  Карта Яндекс + пины ближайших заявок пассажиров (для вошедших),
-//  карусель быстрых действий, фильтр «Ближайшие» (по геолокации),
-//  список поездок рядом. Тап по поездке → шторка с бронированием.
+//  ряд фильтров «Откуда · Куда · Когда · Фильтры», лента «Ближайшие поездки».
+//  Тап по поездке → шторка с бронированием.
+//
+//  Лента — зеркало MapScreen.kt: условия, города и день режет СЕРВЕР (до подсчёта `count`),
+//  «Показать ещё» держится на `count`, а браузерный фильтр остался только подстраховкой
+//  на старый сервер, который про условия не знает.
 // ================================================================
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
@@ -15,12 +19,27 @@ import RideSheet from "../components/RideSheet";
 import YandexMap, { type MapMarker, type GeoPoint } from "../components/YandexMap";
 import NearbyRideCard, { NearbySkeletonCard, NearbyMoreCard, NearbyEmptyCard } from "../components/NearbyRideCard";
 import { NearbyChip } from "../components/adminUi";
+import { NearbyCityChips, NearbyConditionsChip, NearbyWhenChip } from "../components/NearbyFilters";
 import CommunityFeedStrip from "../components/CommunityFeedStrip";
-import { fetchRidesNear, fetchRequestsNear, type NearRequest } from "../api/discovery";
+import { fetchRidesNear, fetchRequestsNear, type NearRequest, type NearRide } from "../api/discovery";
 import type { Ride } from "../api/rides";
-import { applyRideFilters, clearFilters, feedFilterCount, loadFilters, saveFilters, type Amenity, type FilterPrefs } from "../filterPrefs";
-import { IconRides, IconGift, IconPin, IconCalendar, IconClock, IconClose, IconHospital, IconChevron } from "../components/Icons";
-import { YuModeTaxi, YuWomenOnly, YuChildSeat, YuPet, YuLuggage, YuAc, YuSmokeFree, YuQuiet } from "../components/BrandIcons";
+import { loadFilters } from "../filterPrefs";
+import {
+  canShowMore,
+  filtersRowVisible,
+  matchesNearbyConditions,
+  NEARBY_MAX,
+  NEARBY_PAGE,
+  NEARBY_RADIUS_KM,
+  nearbyContextKey,
+  nearbyFeedState,
+  nearbyQuery,
+  type NearbyCondition,
+  type NearbyFilters,
+} from "../nearbyFeed";
+import { useNearbyCityFilter } from "../nearbyCityFilter";
+import { IconRides, IconGift, IconLocate, IconClose, IconHospital, IconChevron } from "../components/Icons";
+import { YuModeTaxi } from "../components/BrandIcons";
 import { PartnerAdSlot } from "../components/PartnerAd";
 import { fetchPopularRoutes, type PopularRoute } from "../api/geo";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
@@ -30,14 +49,6 @@ import { useFeatures } from "../features";
 import { isOpen } from "../featureRules";
 
 type Status = "loading" | "error" | "ready";
-
-/**
- * Сколько поездок показываем сразу. Остальное — по кнопке «Показать ещё».
- *
- * На сельском интернете длинный список это лишние секунды и лишний трафик,
- * а дальше третьего экрана всё равно почти никто не листает.
- */
-const PAGE = 30;
 
 export default function HomeScreen() {
   const { appText, lang } = useLang();
@@ -81,12 +92,14 @@ export default function HomeScreen() {
   const [season, setSeason] = useState<SeasonalEvent | null>(null);
   // Пресеты популярных маршрутов — чипы «Сибай → Уфа» в один тап.
   const [popular, setPopular] = useState<PopularRoute[]>([]);
-  const [rides, setRides] = useState<Ride[]>([]);
+  const [rides, setRides] = useState<NearRide[]>([]);
+  /** Сколько поездок подходит всего (`count` сервера, с учётом условий) — для «Показать ещё» и кнопки шторки. */
+  const [total, setTotal] = useState(0);
   const [reqs, setReqs] = useState<NearRequest[]>([]);
   const [me, setMe] = useState<GeoPoint | null>(null);
   /** Место не дали — говорим об этом словами, иначе кнопка выглядит сломанной. */
   const [geoNote, setGeoNote] = useState("");
-  const [nearOnly, setNearOnly] = useState(false);
+  const nearOnly = me != null;
   /**
    * «Когда едем»: пусто — все дни, иначе конкретный день (YYYY-MM-DD).
    *
@@ -94,84 +107,82 @@ export default function HomeScreen() {
    * сегодняшние поездки с теми, что через неделю, и нужную приходилось искать глазами.
    */
   const [day, setDay] = useState<string | null>(null);
-  /** Сколько поездок уже показали. Растёт кнопкой «Показать ещё». */
-  const [limit, setLimit] = useState(PAGE);
   const [sheet, setSheet] = useState<Ride | null>(null);
-  // Фильтры (локальные) — применяем к списку поездок рядом. Чипы переключают их на месте,
-  // а экран «Фильтры» видит те же значения: храним в одном месте (localStorage).
-  const [prefs, setPrefs] = useState<FilterPrefs>(() => loadFilters());
-  const shownRides = useMemo(() => applyRideFilters(rides, prefs), [rides, prefs]);
-  /** Сколько условий включено — для чипа «Сбросить · N». «Только проверенные» не считаем: сброс её оставляет. */
-  const filterCount = feedFilterCount(prefs);
-  function toggleAmenity(a: Amenity) {
-    setPrefs((cur) => {
-      const next = { ...cur, amenities: cur.amenities.includes(a) ? cur.amenities.filter((x) => x !== a) : [...cur.amenities, a] };
-      saveFilters(next);
-      return next;
-    });
-  }
-  function resetFilters() {
-    // «Только проверенные» — настройка «Безопасности»: сброс ленты её не трогает.
-    setPrefs(clearFilters());
-  }
-
   /**
-   * День в местной зоне, сдвиг в днях: 0 — сегодня, 1 — завтра.
-   *
-   * Считаем ЛОКАЛЬНО, а не через UTC: в Уфе разница пять часов, и после семи вечера
-   * «сегодня» по UTC — это уже завтра. Человек, ищущий вечернюю поездку, не должен
-   * получать пустой список из-за часового пояса сервера.
+   * Условия ленты. Стартуют из «Фильтров по умолчанию» и дальше живут на экране — как в приложении
+   * (`prefFilter` в MapScreen.kt): поменял на карте — это только для этого поиска, а то, что
+   * «по умолчанию», меняют на экране «Фильтры».
    */
-  function localDay(shift: number): string {
-    const d = new Date();
-    d.setDate(d.getDate() + shift);
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${d.getFullYear()}-${m}-${day}`;
+  const [conditions, setConditions] = useState<NearbyCondition[]>(() => loadFilters().conditions);
+  /** «Только проверенные» из раздела «Безопасность»: здесь её не переключают, только читают. */
+  const [verifiedOnly] = useState(() => loadFilters().onlyTrusted);
+  /** Растёт на каждое обновление ленты: по нему же проверяется список городов (не чаще раза в 2 минуты). */
+  const [reloadTick, setReloadTick] = useState(0);
+  /** «Откуда» и «Куда»: выбранные города и из чего выбирать. */
+  const cityFilter = useNearbyCityFilter(reloadTick);
+
+  const filters = useMemo<NearbyFilters>(
+    () => ({ coords: me, day, conditions, verifiedOnly, fromCities: cityFilter.from, toCities: cityFilter.to }),
+    [me, day, conditions, verifiedOnly, cityFilter.from, cityFilter.to]
+  );
+  /**
+   * Сколько поездок просим. Растёт кнопкой «Показать ещё» и сам возвращается к первой порции, когда
+   * поменялся день, место, условие или город: лимит помнит, для какого поиска он набран.
+   */
+  const contextKey = nearbyContextKey(filters);
+  const [pageState, setPageState] = useState({ key: contextKey, limit: NEARBY_PAGE });
+  // Другой поиск — снова первая порция. Меняем прямо при отрисовке (а не в эффекте), чтобы лента
+  // не просила сервер дважды: сначала со старым лимитом, потом с новым.
+  if (pageState.key !== contextKey) setPageState({ key: contextKey, limit: NEARBY_PAGE });
+  const limit = pageState.key === contextKey ? pageState.limit : NEARBY_PAGE;
+
+  /** Условия режет сервер; здесь — подстраховка на старый сервер, где их не знают (`shownNearby` в MapScreen.kt). */
+  const shownRides = useMemo(
+    () => (conditions.length === 0 && !verifiedOnly ? rides : rides.filter((r) => matchesNearbyConditions(r, conditions, verifiedOnly))),
+    [rides, conditions, verifiedOnly]
+  );
+
+  /** Сброс из пустой ленты: снимает условия и города. «Только проверенные» — настройка «Безопасности», её не трогаем. */
+  function resetFeedFilters() {
+    setConditions([]);
+    cityFilter.clear();
   }
 
-  /** Тот же день второй раз — снимаем фильтр. Отдельная кнопка «все дни» была бы лишней. */
-  function pickDay(value: string) {
-    setLimit(PAGE); // сменили день — список начинается заново
-    setDay((prev) => (prev === value ? null : value));
-  }
+  const feedState = nearbyFeedState({
+    loading: status === "loading",
+    error: status === "error",
+    fetched: rides.length,
+    shown: shownRides.length,
+    conditionsOn: conditions.length > 0,
+    cityActive: cityFilter.active,
+  });
 
+  // Последний запрос ленты: новый отменяет прежний, и запоздавший ответ не затрёт свежий.
+  const inflight = useRef<AbortController | null>(null);
   const load = useCallback(
-    (signal?: AbortSignal, coords?: GeoPoint | null, quiet = false) => {
+    (quiet = false) => {
+      inflight.current?.abort();
+      const ac = new AbortController();
+      inflight.current = ac;
       // Тихое обновление — для авто-перезагрузки: карта не должна моргать
       // скелетоном каждые полминуты у человека на глазах.
       if (!quiet) setStatus("loading");
-      const ridesP = fetchRidesNear(
-        {
-          ...(coords ? { lat: coords.lat, lng: coords.lng, radius_km: 200 } : {}),
-          ...(day ? { date: day } : {}),
-          limit,
-        },
-        signal
-      );
-      // Заявки рядом требуют вход — гостю не грузим (мягко).
-      const reqsP = isAuthed
-        ? fetchRequestsNear(
-            coords ? { lat: coords.lat, lng: coords.lng, radius_km: 200 } : {},
-            signal
-          ).catch(() => ({ count: 0, items: [] as NearRequest[] }))
-        : Promise.resolve({ count: 0, items: [] as NearRequest[] });
-
-      Promise.all([ridesP, reqsP])
-        .then(([r, q]) => {
+      fetchRidesNear(nearbyQuery(filters, limit), ac.signal)
+        .then((r) => {
+          if (ac.signal.aborted) return;
           setRides(r.items);
-          setReqs(q.items);
+          setTotal(r.count);
           setStatus("ready");
         })
         .catch((e) => {
-          if (signal?.aborted || e?.name === "AbortError") return;
+          if (ac.signal.aborted || e?.name === "AbortError") return;
           // Тихая перезагрузка не должна стирать уже показанную карту: сеть моргнула —
           // человек продолжает видеть поездки, а не экран ошибки.
           if (quiet) return;
           setStatus("error");
         });
     },
-    [isAuthed, day, limit]
+    [filters, limit]
   );
 
   useEffect(() => {
@@ -188,40 +199,60 @@ export default function HomeScreen() {
     return () => ac.abort();
   }, []);
 
+  // Поездки: заново при смене дня, места, условий, городов и «Показать ещё».
   useEffect(() => {
-    const ac = new AbortController();
-    load(ac.signal, null);
-    return () => ac.abort();
+    load();
+    return () => inflight.current?.abort();
   }, [load]);
+
+  // Заявки пассажиров рядом → пины на карте. Требуют вход — гостю не грузим. От условий ленты
+  // не зависят, поэтому свой запрос: смена фильтра не тянет их заново.
+  useEffect(() => {
+    if (!isAuthed) {
+      setReqs([]);
+      return;
+    }
+    const ac = new AbortController();
+    fetchRequestsNear(me ? { lat: me.lat, lng: me.lng, radius_km: NEARBY_RADIUS_KM } : {}, ac.signal)
+      .then((r) => setReqs(r.items))
+      .catch(() => {
+        if (!ac.signal.aborted) setReqs([]); // нет сети — пинов просто нет, лента живёт
+      });
+    return () => ac.abort();
+  }, [isAuthed, me, reloadTick]);
 
   // Карта — живой экран: поездки появляются и уезжают, пока человек смотрит.
   // Раньше сайт показывал снимок на момент открытия: уехавшие висели, новые не
   // приходили. Приложение обновляет пины раз в ~25 секунд и молчит в фоне.
   useVisibleInterval(25000, () => {
-    if (status !== "loading") load(undefined, me, true);
+    if (status === "loading") return;
+    setReloadTick((n) => n + 1);
+    load(true);
   });
 
-  // Фильтр «Ближайшие» — просим геолокацию и перегружаем по координатам.
+  /** «Повторить» / «Обновить» в пустой ленте: заново и поездки, и список городов (если прошлый раз не вышло). */
+  function retry() {
+    setReloadTick((n) => n + 1);
+    load();
+  }
+
+  // Фильтр «Ближайшие» — просим геолокацию; координаты сами перегружают ленту.
   function toggleNear() {
     if (nearOnly) {
-      setNearOnly(false);
       setMe(null);
-      load(undefined, null);
+      setGeoNote("");
       return;
     }
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (p) => {
-        const c = { lat: p.coords.latitude, lng: p.coords.longitude };
-        setMe(c);
-        setNearOnly(true);
+        setMe({ lat: p.coords.latitude, lng: p.coords.longitude });
         setGeoNote("");
-        load(undefined, c);
       },
       () => {
         // Отказ в гео — не падаем и НЕ молчим: человек нажал кнопку, она не
         // включилась, и без объяснения это выглядит поломкой, а не запретом.
-        setNearOnly(false);
+        setMe(null);
         setGeoNote(
           appText(
             "Не видим твоё место. Разреши доступ к геолокации в настройках браузера — покажем поездки рядом.",
@@ -305,35 +336,21 @@ export default function HomeScreen() {
         <YandexMap markers={markers} me={me} height={280} />
       </div>
 
-      {/* NearbyFilterChip-ряд как в приложении: «когда едем» | условия. Видно, пока есть что
-          фильтровать или включён хоть один фильтр — иначе снять его было бы нечем. */}
-      {(rides.length > 0 || day != null || filterCount > 0 || nearOnly) && (
+      {/* Ряд фильтров как в приложении: четыре вопроса вместо двенадцати чипов — где, куда, когда,
+          какие условия (NearbyFiltersPanel.kt). Выбирают в шторках, выбранное видно на чипе.
+          Ряд виден, пока есть что фильтровать, или включён хоть один фильтр (путь назад), или на
+          сервере есть города с поездками — «Откуда» ведёт к ним, даже если рядом пусто.
+          «Когда» видно ВСЕГДА: это путь назад со «Сегодня» на «Все дни». */}
+      {filtersRowVisible({ fetched: rides.length, day, conditionsOn: conditions.length > 0, citiesOffered: cityFilter.offered, nearOnly }) && (
         <div className="nearby-filters">
-          <div className="nearby-filters__row">
-            <NearbyChip icon={<IconCalendar size={15} />} label={appText("Все дни", "Бөтә көндәр")} active={day == null} onClick={() => { setLimit(PAGE); setDay(null); }} />
-            <NearbyChip icon={<IconClock size={15} />} label={appText("Сегодня", "Бөгөн")} active={day === localDay(0)} onClick={() => pickDay(localDay(0))} />
-            <NearbyChip icon={<IconClock size={15} />} label={appText("Завтра", "Иртәгә")} active={day === localDay(1)} onClick={() => pickDay(localDay(1))} />
-            <span className="nearby-filters__div" aria-hidden />
-            {filterCount > 0 && (
-              <NearbyChip icon={<IconClose size={15} />} label={appText(`Сбросить · ${filterCount}`, `Бушатырға · ${filterCount}`)} active={false} onClick={resetFilters} />
-            )}
-            <NearbyChip icon={<YuWomenOnly size={15} />} label={appText("Только женщины", "Тик ҡатын-ҡыҙ")} active={prefs.amenities.includes("women_only")} onClick={() => toggleAmenity("women_only")} />
-            <NearbyChip icon={<YuChildSeat size={15} />} label={appText("Детское кресло", "Балалар ултырғысы")} active={prefs.amenities.includes("child_seat")} onClick={() => toggleAmenity("child_seat")} />
-            <NearbyChip icon={<YuPet size={15} />} label={appText("С животным", "Хайуан менән")} active={prefs.amenities.includes("pets")} onClick={() => toggleAmenity("pets")} />
-            <NearbyChip icon={<YuLuggage size={15} />} label={appText("Багаж", "Йөк")} active={prefs.amenities.includes("baggage")} onClick={() => toggleAmenity("baggage")} />
-            <NearbyChip icon={<YuAc size={15} />} label={appText("Кондиционер", "Кондиционер")} active={prefs.amenities.includes("air_conditioner")} onClick={() => toggleAmenity("air_conditioner")} />
-            <NearbyChip icon={<YuSmokeFree size={15} />} label={appText("Некурящий", "Тартмаусы")} active={prefs.amenities.includes("non_smoking")} onClick={() => toggleAmenity("non_smoking")} />
-            <NearbyChip icon={<YuQuiet size={15} />} label={appText("Тихая поездка", "Тыныс сәфәр")} active={prefs.amenities.includes("quiet")} onClick={() => toggleAmenity("quiet")} />
+          <div className="nearby-filters__row" role="group" aria-label={appText("Фильтры ленты", "Таҫма фильтрҙары")}>
+            <NearbyCityChips filter={cityFilter} />
+            <NearbyWhenChip day={day} onChange={setDay} />
+            <NearbyConditionsChip chosen={conditions} onChange={setConditions} verifiedOnly={verifiedOnly} total={total} />
             {/* Только в вебе: браузер не знает место без разрешения — чип просит его и сужает выдачу. */}
             <span className="nearby-filters__div" aria-hidden />
-            <NearbyChip icon={<IconPin size={15} />} label={appText("Ближайшие", "Иң яҡындар")} active={nearOnly} onClick={toggleNear} />
+            <NearbyChip icon={<IconLocate size={15} />} label={appText("Ближайшие", "Иң яҡындар")} active={nearOnly} onClick={toggleNear} />
           </div>
-          {prefs.amenities.includes("women_only") && (
-            <p className="nearby-filters__hint">
-              <YuWomenOnly size={16} />
-              {appText("Женщины за рулём и поездки «только для женщин».", "Рулдә ҡатын-ҡыҙҙар һәм «тик ҡатын-ҡыҙ өсөн» сәфәрҙәр.")}
-            </p>
-          )}
         </div>
       )}
 
@@ -427,38 +444,44 @@ export default function HomeScreen() {
         )}
       </div>
 
-      {/* Состояния ленты: скелетоны → пусто/нет сети карточкой → фильтры всё срезали → карусель. */}
-      {status === "loading" && rides.length === 0 && (
+      {/* Состояния ленты: скелетоны → пусто/нет сети карточкой → условия или города всё срезали → карусель. */}
+      {feedState === "loading" && (
         <div className="nearby-row" aria-hidden>
           <NearbySkeletonCard />
           <NearbySkeletonCard />
         </div>
       )}
-      {status === "error" && rides.length === 0 && <NearbyEmptyCard error onRetry={() => load(undefined, me)} />}
-      {status === "ready" && rides.length === 0 && <NearbyEmptyCard error={false} onRetry={() => load(undefined, me)} />}
-      {rides.length > 0 && shownRides.length === 0 && (
+      {feedState === "error" && <NearbyEmptyCard error onRetry={retry} />}
+      {feedState === "empty" && <NearbyEmptyCard error={false} onRetry={retry} />}
+      {feedState === "filtered" && (
         <div className="nearby-filtered">
-          <p>{appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал.")}</p>
-          {filterCount > 0 && (
-            <button type="button" className="nearby-filtered__reset" onClick={resetFilters}>
+          <p role="status">{appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал.")}</p>
+          {(conditions.length > 0 || cityFilter.active) && (
+            <button type="button" className="nearby-filtered__reset" onClick={resetFeedFilters}>
               <IconClose size={20} /> {appText("Сбросить фильтры", "Фильтрҙы бушат")}
             </button>
           )}
-          {/* «Только проверенные» сбросом не снимается — если именно она всё срезала, говорим, где её выключить. */}
-          {filterCount === 0 && prefs.onlyTrusted && (
+          {/* «Только проверенные» сбросом не снимается — если именно она всё срезала (старый сервер),
+              говорим, где её выключить. */}
+          {conditions.length === 0 && !cityFilter.active && verifiedOnly && (
             <Link className="nearby-filtered__reset" to="/safety">
               {appText("Включено «Только проверенные участники». Выключить можно в «Безопасности»", "«Тик раҫланған ҡатнашыусылар» ҡабыҙылған. Һүндерергә «Хәүефһеҙлек» бүлегендә була")}
             </Link>
           )}
         </div>
       )}
-      {shownRides.length > 0 && (
+      {feedState === "list" && (
         <div className="nearby-row">
           {shownRides.map((ride, i) => (
             <NearbyRideCard key={`${ride.id}#${i}`} ride={ride} soonest={i === 0} onOpen={() => setSheet(ride)} />
           ))}
-          {/* «Показать ещё» — когда сервер отдал полную страницу: значит дальше ещё есть. */}
-          {filterCount === 0 && rides.length >= limit && <NearbyMoreCard loading={status === "loading"} onMore={() => setLimit((n) => n + PAGE)} />}
+          {/* «Показать ещё» — когда сервер сообщил, что подходящих больше, чем пришло (`count` уже учитывает условия). */}
+          {canShowMore(rides.length, total) && (
+            <NearbyMoreCard
+              loading={status === "loading"}
+              onMore={() => setPageState({ key: contextKey, limit: Math.min(limit + NEARBY_PAGE, NEARBY_MAX) })}
+            />
+          )}
         </div>
       )}
 

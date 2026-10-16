@@ -1,10 +1,14 @@
 // ================================================================
-//  «Сбросить» в ленте не выключает «Только проверенные».
+//  Фильтры по умолчанию и «Сбросить фильтры» в ленте.
 //
-//  «Только проверенные» — настройка раздела «Безопасность», а не чип ленты (в приложении в ряду
-//  фильтров её нет). Раньше «Сбросить · N» стирал и её: одно нажатие молча выключало защиту,
-//  которую человек включил сам. Теперь сброс чистит город, цену и удобства, а её оставляет;
-//  в счётчике «Сбросить · N» её тоже нет — иначе кнопка «сбросила», а число не изменилось.
+//  1. «Только проверенные» — настройка раздела «Безопасность», а не чип ленты (в приложении в ряду
+//     фильтров её нет). «Сбросить фильтры» в пустой ленте снимает условия и города, а её оставляет:
+//     иначе одно нажатие молча выключило бы защиту, которую человек включил сам.
+//  2. Условия — семь ключей приложения (women, child, pets, baggage, ac, nosmoke, quiet). «Город» и
+//     «Цена до» из прежней версии сайта убраны: в приложении их нет, город заменён чипом «Откуда»,
+//     а цену сервер не фильтрует — потолок в браузере давал бы ложное «поездок нет».
+//     Сохранённое прежней версией не ломает загрузку: старые имена условий переезжают на новые
+//     ключи, «город» и «цена» отбрасываются.
 //
 //  Исполняем настоящий filterPrefs.ts; localStorage подменён.
 // ================================================================
@@ -44,62 +48,110 @@ async function test(name, run) {
   }
 }
 
-const full = { city: "Сибай", maxPrice: 700, amenities: ["women_only", "pets"], onlyTrusted: true };
+const KEY = "yuldash.filterPrefs";
 
-await test("сброс ленты стирает город, цену и удобства, но оставляет «Только проверенные»", async ({ fp }) => {
-  fp.saveFilters(full);
-  const left = fp.clearFilters();
-  assert.deepEqual(left, { city: "", maxPrice: null, amenities: [], onlyTrusted: true });
-  assert.deepEqual(fp.loadFilters(), { city: "", maxPrice: null, amenities: [], onlyTrusted: true }, "в хранилище тоже");
+// ---------------------------------------------------------------- хранение
+
+await test("пусто → никаких условий, «проверенные» выключены", async ({ fp }) => {
+  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: false });
 });
 
-await test("«Только проверенные» не считается в «Сбросить · N»", async ({ fp }) => {
-  assert.equal(fp.feedFilterCount({ city: "", maxPrice: null, amenities: [], onlyTrusted: true }), 0);
-  assert.equal(fp.feedFilterCount(full), 4, "город + цена + 2 удобства");
-  assert.equal(fp.feedFilterCount({ ...full, onlyTrusted: false }), 4, "от неё число не зависит");
+await test("сохранили → загрузили то же; в хранилище только условия и «проверенные»", async ({ fp, store }) => {
+  fp.saveFilters({ conditions: ["quiet", "women"], onlyTrusted: true });
+  assert.deepEqual(fp.loadFilters(), { conditions: ["women", "quiet"], onlyTrusted: true }, "порядок — как в шторке");
+  assert.deepEqual(Object.keys(JSON.parse(store.get(KEY))).sort(), ["conditions", "onlyTrusted"]);
 });
 
-await test("после сброса счётчик 0, а лента всё ещё только от проверенных", async ({ fp }) => {
-  fp.saveFilters(full);
-  const left = fp.clearFilters();
-  assert.equal(fp.feedFilterCount(left), 0, "кнопки «Сбросить» больше нет");
-  const rides = [
-    { from_city: "Уфа", to_city: "Сибай", price: 500, driver_verified: true },
-    { from_city: "Уфа", to_city: "Сибай", price: 500, driver_verified: false },
-  ];
-  assert.deepEqual(fp.applyRideFilters(rides, left).map((r) => r.driver_verified), [true]);
+await test("прежнее сохранение (город, цена, старые имена условий) не ломает загрузку", async ({ fp, store }) => {
+  store.set(KEY, JSON.stringify({
+    city: "Сибай", maxPrice: 700, onlyTrusted: true,
+    amenities: ["women_only", "child_seat", "pets", "baggage", "air_conditioner", "non_smoking", "quiet"],
+  }));
+  assert.deepEqual(fp.loadFilters(), {
+    conditions: ["women", "child", "pets", "baggage", "ac", "nosmoke", "quiet"],
+    onlyTrusted: true,
+  });
 });
 
-await test("без «Только проверенные» сброс убирает запись целиком", async ({ fp, store }) => {
-  fp.saveFilters({ ...full, onlyTrusted: false });
-  const left = fp.clearFilters();
-  assert.equal(left.onlyTrusted, false);
-  assert.equal(store.size, 0, "в хранилище ничего не осталось");
+await test("прежнее: город и цена просто отбрасываются", async ({ fp, store }) => {
+  store.set(KEY, JSON.stringify({ city: "Уфа", maxPrice: 300, amenities: [], onlyTrusted: false }));
+  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: false });
+  fp.saveFilters(fp.loadFilters());
+  const saved = JSON.parse(store.get(KEY));
+  assert.ok(!("city" in saved) && !("maxPrice" in saved), "после первого сохранения прежних полей в хранилище нет");
 });
 
-await test("полный сброс (экран «Фильтры», переключатель на виду) выключает и её", async ({ fp, store }) => {
-  fp.saveFilters(full);
-  const left = fp.clearFilters(false);
-  assert.equal(left.onlyTrusted, false);
-  assert.equal(store.size, 0);
+await test("незнакомые ключи условий отбрасываются, остальные остаются", async ({ fp, store }) => {
+  store.set(KEY, JSON.stringify({ conditions: ["pets", "teleport", 7, null, "quiet", "pets"], onlyTrusted: false }));
+  assert.deepEqual(fp.loadFilters().conditions, ["pets", "quiet"]);
 });
 
-await test("хранилище недоступно — сброс не падает", async ({ fp }) => {
-  fp.saveFilters(full);
+await test("битое хранилище не роняет экран", async ({ fp, store }) => {
+  for (const raw of ["{oops", "null", "[]", '"x"', '{"conditions":"women"}', '{"amenities":{"a":1}}']) {
+    store.set(KEY, raw);
+    assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: false }, raw);
+  }
+});
+
+await test("хранилище недоступно — загрузка и сохранение не падают", async ({ fp }) => {
   globalThis.localStorage = {
     getItem: () => { throw new Error("blocked"); },
     setItem: () => { throw new Error("blocked"); },
     removeItem: () => { throw new Error("blocked"); },
   };
-  assert.doesNotThrow(() => fp.clearFilters());
+  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: false });
+  assert.doesNotThrow(() => fp.saveFilters({ conditions: ["pets"], onlyTrusted: false }));
 });
 
-// Экран: счётчик и сброс идут через эти функции, а не через свою арифметику.
+await test("«Безопасность» меняет только «проверенные»: условия по умолчанию остаются", async ({ fp }) => {
+  fp.saveFilters({ conditions: ["pets"], onlyTrusted: false });
+  fp.saveFilters({ ...fp.loadFilters(), onlyTrusted: true });
+  assert.deepEqual(fp.loadFilters(), { conditions: ["pets"], onlyTrusted: true });
+});
+
+// ---------------------------------------------------------------- вкладка «Поездки»: те же правила
+
+await test("вкладка «Поездки» режет по тем же условиям и по «проверенным»", async ({ fp }) => {
+  const rides = [
+    { id: 1, driver_verified: true, pets_allowed: true },
+    { id: 2, driver_verified: false, pets_allowed: true },
+    { id: 3, driver_verified: true },
+  ];
+  assert.deepEqual(fp.applyRideFilters(rides, { conditions: [], onlyTrusted: false }).map((r) => r.id), [1, 2, 3]);
+  assert.deepEqual(fp.applyRideFilters(rides, { conditions: ["pets"], onlyTrusted: false }).map((r) => r.id), [1, 2]);
+  assert.deepEqual(fp.applyRideFilters(rides, { conditions: ["pets"], onlyTrusted: true }).map((r) => r.id), [1]);
+  assert.deepEqual(fp.applyRideFilters(rides, { conditions: [], onlyTrusted: true }).map((r) => r.id), [1, 3]);
+  assert.equal(fp.isFilterActive({ conditions: [], onlyTrusted: false }), false);
+  assert.equal(fp.isFilterActive({ conditions: ["quiet"], onlyTrusted: false }), true);
+  assert.equal(fp.isFilterActive({ conditions: [], onlyTrusted: true }), true);
+});
+
+// ---------------------------------------------------------------- сброс в ленте (исходник экрана)
+
 const home = readFileSync(root + "src/screens/HomeScreen.tsx", "utf8");
-await test("HomeScreen считает «Сбросить · N» через feedFilterCount и сбрасывает через clearFilters()", async () => {
-  assert.match(home, /const filterCount = feedFilterCount\(prefs\);/);
-  assert.match(home, /setPrefs\(clearFilters\(\)\);/);
-  assert.ok(!/prefs\.onlyTrusted \? 1 : 0/.test(home), "«Только проверенные» снова попала в счётчик");
+const resetBody = (() => {
+  const start = home.indexOf("function resetFeedFilters()");
+  return home.slice(start, home.indexOf("\n  }\n", start));
+})();
+
+await test("сброс в ленте снимает условия и города, больше ничего", async () => {
+  assert.ok(resetBody.length > 30, "функция сброса найдена");
+  assert.match(resetBody, /setConditions\(\[\]\)/, "условия сняты");
+  assert.match(resetBody, /cityFilter\.clear\(\)/, "города сняты");
+});
+
+await test("сброс не трогает «Только проверенные», день и сохранённые настройки", async () => {
+  assert.ok(!/verifiedOnly|onlyTrusted/.test(resetBody), "«проверенные» — настройка «Безопасности», сброс её не касается");
+  assert.ok(!/setDay|saveFilters|localStorage/.test(resetBody), "день остаётся, а «по умолчанию» меняют на экране «Фильтры»");
+});
+
+await test("кнопка «Сбросить фильтры» в ленте подключена к этому сбросу", async () => {
+  assert.match(home, /onClick=\{resetFeedFilters\}/);
+});
+
+await test("лента читает «проверенные» из настроек, а переключать её не умеет", async () => {
+  assert.match(home, /const \[verifiedOnly\] = useState\(\(\) => loadFilters\(\)\.onlyTrusted\)/);
+  assert.ok(!/setVerifiedOnly/.test(home));
 });
 
 console.log(bad === 0 ? "\nВСЁ СОШЛОСЬ" : `\nПРОВАЛЕНО: ${bad}`);

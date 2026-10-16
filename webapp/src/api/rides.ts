@@ -26,6 +26,8 @@ export interface Ride {
   child_seat?: boolean;
   pets_allowed?: boolean;
   quiet?: boolean; // тихая поездка: без лишних разговоров и громкой музыки
+  air_conditioner?: boolean; // кондиционер в салоне
+  smoking?: boolean; // в поездке можно курить (нет поля = нельзя: так же читает приложение)
   /**
    * Водитель не берёт пассажиров младше 18 без сопровождения взрослого.
    *

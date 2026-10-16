@@ -19125,31 +19125,21 @@ button.settings-row:active {
   align-items: center;
   gap: var(--space-sm);
   overflow-x: auto;
-  padding-bottom: var(--space-xs);
+  /* Поле вокруг чипов, чтобы рамка фокуса с клавиатуры не обрезалась краем прокрутки;
+     отрицательный отступ возвращает ряд на прежнее место. */
+  padding: var(--space-xs);
+  margin: calc(var(--space-xs) * -1);
   scrollbar-width: none;
 }
 .nearby-filters__row::-webkit-scrollbar {
   display: none;
 }
-/* Черта между «когда» и «на чём»: две разные мысли в одном ряду. */
+/* Черта между чипами приложения и чипом «Ближайшие» (только веб): две разные мысли в одном ряду. */
 .nearby-filters__div {
   flex: none;
   width: 1px;
   height: 22px;
   background: var(--border);
-}
-.nearby-filters__hint {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  margin: var(--space-sm) 0 0;
-  color: var(--muted);
-  font-size: var(--font-micro);
-  line-height: var(--line-micro);
-}
-.nearby-filters__hint svg {
-  flex: none;
-  color: var(--woman);
 }
 /* Лента: карточки 286×152 с зазором 12, прокрутка вбок. */
 .nearby-row {
@@ -19448,6 +19438,142 @@ button.settings-row:active {
   font-size: var(--font-caption);
   line-height: var(--line-caption);
   font-weight: var(--weight-bold);
+}
+/* ---- Шторки ленты «Ближайшие поездки»: Откуда · Куда · Когда · Фильтры
+        (NearbyFiltersPanel.kt, NearbyCityFilter.kt). Шторка — тот же .sheet, что у поездки;
+        фон CanonBg (containerColor), строки — CanonSurface, выбранная — CanonMint. ---- */
+.sheet.nbs {
+  background: var(--bg);
+  overscroll-behavior: contain;
+}
+.sheet.nbs:focus {
+  outline: none;
+}
+.nbs__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+.nbs__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-title);
+  overflow-wrap: anywhere;
+}
+.nbs__reset {
+  min-height: 48px;
+  padding: 0 var(--space-md);
+  border: 0;
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-body-strong);
+  animation: fadeIn var(--motion-quick) ease both;
+}
+.nbs__close {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+}
+.nbs__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.nbs__cta {
+  width: 100%;
+  margin-top: var(--space-md);
+}
+.nbs__date {
+  margin-top: var(--space-xs);
+}
+/* Строка-галочка: вся строка — цель нажатия ≥48, галочка проявляется на выбранной. */
+.nbs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 48px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  text-align: left;
+  transition: background var(--motion-quick) ease;
+}
+.nbs-row.is-on {
+  background: var(--mint);
+}
+.nbs-row__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+}
+.nbs-row__label {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-sm) 0;
+  overflow-wrap: anywhere;
+}
+.nbs-row__check {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity var(--motion-quick) ease, transform var(--motion-quick) ease;
+}
+.nbs-row.is-on .nbs-row__check {
+  opacity: 1;
+  transform: none;
+}
+/* «Показываем только проверенных водителей» — мятная плашка над условиями. */
+.nbs-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin: 0 0 var(--space-xs);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.nbs-note svg {
+  flex: none;
+  color: var(--green2);
+}
+/* «Фильтры по умолчанию»: строка-пояснение над тумблерами (CanonCaption, CanonMuted). */
+.filters-intro {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* Пояснение под «Только женщины» (CanonMicro, CanonMuted). */
+.nbs-hint {
+  margin: 0;
+  padding: 0 var(--space-md);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  animation: fadeIn var(--motion-quick) ease both;
 }
 /* ClinicRidesEntryCard: AppCard 28 с рамкой, мятный круг с крестом, заголовок, подпись, шеврон. */
 .clinic-entry {
