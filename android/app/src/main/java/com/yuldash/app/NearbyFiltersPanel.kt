@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
@@ -141,15 +142,18 @@ internal fun NearbyDayOptions(dateFilter: String?, today: LocalDate, onPick: (St
         today.toString() to appText("Сегодня", "Бөгөн"),
         today.plusDays(1).toString() to appText("Завтра", "Иртәгә"),
     )
-    days.forEach { (value, label) -> NearbyCheckRow(label, dateFilter == value, role = Role.RadioButton) { onPick(value) } }
     val other = dateFilter != null && days.none { it.first == dateFilter }
     val context = LocalContext.current
-    NearbyCheckRow(
-        if (other) appText("Дата · ${dayMonth(dateFilter.orEmpty())}", "Көн · ${dayMonth(dateFilter.orEmpty())}")
-        else appText("Другая дата…", "Башҡа көн…"),
-        other,
-        role = Role.RadioButton,
-    ) { openDayPicker(context, today, dateFilter) { onPick(it.toString()) } }
+    // Одна группа переключателей: читалка экрана скажет «1 из 4», а не четыре отдельных кнопки.
+    Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+        days.forEach { (value, label) -> NearbyCheckRow(label, dateFilter == value, role = Role.RadioButton) { onPick(value) } }
+        NearbyCheckRow(
+            if (other) appText("Дата · ${dayMonth(dateFilter.orEmpty())}", "Көн · ${dayMonth(dateFilter.orEmpty())}")
+            else appText("Другая дата…", "Башҡа көн…"),
+            other,
+            role = Role.RadioButton,
+        ) { openDayPicker(context, today, dateFilter) { onPick(it.toString()) } }
+    }
 }
 
 /** «2026-10-18» → «18.10». */
@@ -174,7 +178,7 @@ private fun openDayPicker(context: Context, today: LocalDate, current: String?, 
 @Composable
 private fun showRidesLabel(total: Int): String =
     if (total > 0) appText("Показать $total ${pluralRu(total, "поездку", "поездки", "поездок")}", "$total сәфәрҙе күрһәтергә")
-    else appText("Готово", "Әҙер")
+    else appText("Нет поездок с такими условиями", "Был шарттар менән сәфәр юҡ")   // 0 — честно, а не «Готово»
 
 /**
  * Чип «Фильтры · N» + шторка условий. Условия применяются сразу (лента за шторкой обновляется),

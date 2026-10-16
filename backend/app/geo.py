@@ -397,17 +397,21 @@ def _entry(session: Session) -> dict:
     rows.sort(key=_sort_key)
     exact: dict[str, SettlementRow] = {}
     with_district: dict[tuple, SettlementRow] = {}
+    namesakes: dict[str, list] = {}     # имя → ВСЕ тёзки (у каждой деревни своё башкирское написание)
     for r in rows:                      # порядок важен: первым идёт город, потом деревня-тёзка
         exact.setdefault(r.key_ru, r)
+        namesakes.setdefault(r.key_ru, []).append(r)
         if r.key_ba:
             exact.setdefault(r.key_ba, r)
+            if r.key_ba != r.key_ru:
+                namesakes.setdefault(r.key_ba, []).append(r)
         if r.district:                  # «Берёзовка (Иглинский р-н)» — разные точки у тёзок
             dk = fold(r.district)
             with_district.setdefault((r.key_ru, dk), r)
             if r.key_ba:
                 with_district.setdefault((r.key_ba, dk), r)
     entry = {"stamp": time.monotonic(), "sig": sig, "rows": rows,
-             "exact": exact, "with_district": with_district}
+             "exact": exact, "with_district": with_district, "namesakes": namesakes}
     _cache[key] = entry
     return entry
 
@@ -719,12 +723,25 @@ def name_variants(session: Session, name: str) -> list[str]:
     лежит в памяти, а в SQL уходит обычный OR по двум подстрокам — индекс не ломается.
     Незнакомое имя (человек набрал руками) возвращаем как есть: искать по нему всё равно надо.
     """
-    raw = bare_name((name or "").strip())
+    full = (name or "").strip()
+    raw = bare_name(full)
     if not raw:
         return []
     out = [raw]
-    row = by_exact_name(session, raw)
-    if row is not None:
+    entry = _entry(session)
+    rows = None
+    if full != raw:                     # «Абзаково (Белорецкий р-н)» — ровно эта деревня
+        head, _, tail = full.rpartition("(")
+        hit = entry["with_district"].get((fold(head), fold(tail[:-1])))
+        if hit is not None:
+            rows = [hit]
+    if rows is None:
+        # Без района — ВСЕ тёзки, а не первая попавшаяся (приёмка PR148): водитель с башкирским
+        # интерфейсом публикует «Абҙаҡ (Белорецкий р-н)», а пассажир ищет «Абзаково», и первая
+        # Абзаково справочника — баймакская, без башкирского имени. Брали её — и поездка не
+        # находилась. Русское имя и так совпадает у всех тёзок подстрокой; добавляем их башкирские.
+        rows = entry["namesakes"].get(fold(raw), [])
+    for row in rows:
         for candidate in (row.name_ru, row.name_ba):
             candidate = (candidate or "").strip()
             # Сравниваем БУКВАЛЬНО, а не свёрнутым именем: нам нужны именно разные написания

@@ -8,8 +8,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -105,7 +107,7 @@ class NearbyFiltersPanelTest {
         val today = LocalDate.of(2026, 10, 16)
         var picked: String? = "unset"
         compose.setContent { Column { NearbyDayOptions(null, today) { picked = it } } }
-        compose.onNodeWithText("Все дни").assertIsOn()
+        compose.onNodeWithText("Все дни").assertIsSelected()
         compose.onNodeWithText("Завтра").performClick()
         assertEquals("2026-10-17", picked)
         compose.onNodeWithText("Все дни").performClick()
@@ -123,14 +125,14 @@ class NearbyFiltersPanelTest {
     fun `своя дата — отмечена и подписана днём и месяцем`() {
         val today = LocalDate.of(2026, 10, 16)
         compose.setContent { Column { NearbyDayOptions("2026-10-20", today) {} } }
-        compose.onNodeWithText("Дата · 20.10").assertIsOn()
-        compose.onNodeWithText("Все дни").assertIsOff()
+        compose.onNodeWithText("Дата · 20.10").assertIsSelected()
+        compose.onNodeWithText("Все дни").assertIsNotSelected()
     }
 
     @Test
     fun `без своей даты есть строка «Другая дата…»`() {
         compose.setContent { Column { NearbyDayOptions(null, LocalDate.of(2026, 10, 16)) {} } }
-        compose.onNodeWithText("Другая дата…").assertIsOff()
+        compose.onNodeWithText("Другая дата…").assertIsNotSelected()
     }
 
     @Test
@@ -146,5 +148,23 @@ class NearbyFiltersPanelTest {
         }
         compose.onNodeWithText("Ҡайҙан · Асҡар").assertIsDisplayed()
     }
-}
 
+    @Test
+    fun `«Сбросить» в шторке снимает только условия`() {
+        var chosen: Set<String>? = null
+        compose.setContent { Row { NearbyConditionsChip(setOf("pets", "child"), { chosen = it }, false, 5, Modifier) } }
+        compose.onNodeWithText("Фильтры · 2").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Сбросить").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Сбросить").performClick()
+        assertEquals(emptySet<String>(), chosen)
+    }
+
+    @Test
+    fun `ноль поездок — кнопка честно говорит, что их нет`() {
+        compose.setContent { Row { NearbyConditionsChip(setOf("child"), {}, false, 0, Modifier) } }
+        compose.onNodeWithText("Фильтры · 1").performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("Нет поездок с такими условиями").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+}

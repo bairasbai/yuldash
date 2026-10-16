@@ -57,9 +57,9 @@ class NearbyConditionsServerSideTest {
         val src = mapScreen()
         assertTrue(
             "пусто при включённом фильтре снова показывает «поездок нет»",
-            src.contains("""if (nearbyError) "error" else if (prefFilter.isNotEmpty() || cityFilter.active) "filtered" else "empty""""),
+            src.contains("""if (nearbyError) "error" else if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) "filtered" else "empty""""),
         )
-        assertTrue("кнопка «Сбросить фильтры» не снимает города", src.contains("onClick = { prefFilter = emptySet(); cityFilter.clear() }"))
+        assertTrue("кнопка «Сбросить фильтры» не снимает города", src.contains("onClick = { prefFilter = emptySet(); cityFilter.clear(); dateFilter = null }"))
         assertTrue("список городов не обновляется вместе с лентой", src.contains("rememberNearbyCityFilter(nearbyReload)"))
     }
 

@@ -69,12 +69,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.filled.Pets
-import androidx.compose.material.icons.filled.ChildCare
-import androidx.compose.material.icons.filled.Woman
 import androidx.compose.material.icons.filled.SmokingRooms
-import androidx.compose.material.icons.filled.Luggage
-import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.Bolt
@@ -87,8 +82,6 @@ import androidx.compose.material.icons.filled.AddRoad
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
@@ -127,7 +120,6 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Route
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
@@ -137,7 +129,6 @@ import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -520,7 +511,7 @@ internal fun MapScreen(
                     val nearbyState = when {
                         nearbyLoading && nearby.isEmpty() -> "loading"
                         // Пусто при включённом фильтре — «filtered» со сбросом (приёмка PR147). «Только проверенные» — не в счёт: их не снять здесь, честнее «пусто» с «Обновить».
-                        nearby.isEmpty() -> if (nearbyError) "error" else if (prefFilter.isNotEmpty() || cityFilter.active) "filtered" else "empty"
+                        nearby.isEmpty() -> if (nearbyError) "error" else if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) "filtered" else "empty"
                         shownNearby.isEmpty() -> "filtered"
                         else -> "list"
                     }
@@ -545,9 +536,9 @@ internal fun MapScreen(
                                     appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал."),
                                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
                                 )
-                                if (prefFilter.isNotEmpty() || cityFilter.active) {
+                                if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) {
                                     Surface(
-                                        onClick = { prefFilter = emptySet(); cityFilter.clear() },
+                                        onClick = { prefFilter = emptySet(); cityFilter.clear(); dateFilter = null },
                                         shape = RoundedCornerShape(14.dp),
                                         color = CanonSurface,
                                         border = BorderStroke(1.dp, CanonBorder)

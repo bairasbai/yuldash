@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -165,7 +166,8 @@ private fun NearbyCitySheet(
             }
         }
         NearbyCheckRow(anyLabel, chosen.isEmpty()) { onChange(emptySet()) }
-        (found.filter { f -> f.ru in chosen && options.none { it.ru == f.ru } } + options).forEach { city ->
+        // Найденные поиском — до закрытия шторки, даже со снятой галочкой: иначе вернуть её можно только новым поиском.
+        (found.filter { f -> options.none { it.ru == f.ru } } + options).forEach { city ->
             val on = city.ru in chosen
             NearbyCheckRow(appText(city.ru, city.ba), on) { onChange(if (on) chosen - city.ru else chosen + city.ru) }
         }
@@ -188,7 +190,10 @@ internal fun NearbyCheckRow(
     val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "check-row")
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).background(bg, CanonItemShape)
-            .toggleable(value = selected, role = role, onValueChange = { onToggle() })
+            .then(
+                if (role == Role.RadioButton) Modifier.selectable(selected = selected, role = role, onClick = onToggle)
+                else Modifier.toggleable(value = selected, role = role, onValueChange = { onToggle() })
+            )
             .padding(horizontal = CanonSpace.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {

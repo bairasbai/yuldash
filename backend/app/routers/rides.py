@@ -642,12 +642,13 @@ _RIDE_CONDITIONS = {
 }
 
 
-_MAX_FILTER_CITIES = 12   # больше в шторке «Откуда/Куда» не бывает; потолок — от склеенных запросов
+_MAX_FILTER_CITIES = 12   # сколько городов в списке шторки «Откуда/Куда» (`/rides/cities`)
+_MAX_QUERY_CITIES = 30    # сколько выбранных мест принимает фильтр: топ-12 + найденные поиском деревни
 
 
 def _with_any_city(q, column, session: Session, cities: Optional[str]):
     """Поездка подходит, если город — ЛЮБОЙ из выбранных (с русским и башкирским написанием)."""
-    names = [c.strip() for c in (cities or "").split(",") if c.strip()][:_MAX_FILTER_CITIES]
+    names = [c.strip() for c in (cities or "").split(",") if c.strip()][:_MAX_QUERY_CITIES]
     conds = [c for c in (_city_match(column, session, n) for n in names) if c is not None]
     return q.where(or_(*conds)) if conds else q
 
