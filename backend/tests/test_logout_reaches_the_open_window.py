@@ -61,7 +61,8 @@ def поездка(client, user_factory):
     client.post(f"/bookings/{bid}/confirm", headers=водитель["auth"])
     # Поездка идёт: водитель выехал. Подтверждённая бронь за годы до выезда — ещё договорённость,
     # и точку сервер не пересылает (`trip_is_live`, проверка безопасности волны 1, 16.10.2026).
-    client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"], json={"status": "departed"})
+    r = client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"], json={"status": "departed"})
+    assert r.status_code == 200, r.text
     return водитель, пассажирка, bid
 
 

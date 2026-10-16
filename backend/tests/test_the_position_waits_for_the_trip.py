@@ -18,9 +18,7 @@ import json
 from datetime import datetime, timedelta
 
 import pytest
-from sqlmodel import Session
 
-from app.db import engine
 from app.models import Booking, BookingStatus, Ride, UserRole
 from app.visibility import trip_is_live
 
@@ -91,3 +89,22 @@ NOW = datetime(2026, 10, 17, 3, 0)
 ])
 def test_правило_поездки(статус, фаза, через, пора):
     assert trip_is_live(_бронь(статус, фаза), _рейс(через, NOW), now=NOW) is пора
+
+
+def test_страница_близкого_не_пишет_едет_пока_не_поехали(client, договорились):
+    """Ссылка маме за три дня до выезда: не «Машина едет», а «Поездка скоро начнётся»."""
+    д = договорились
+    c = client.post("/trusted-contacts", headers=д["пассажир"]["auth"],
+                    json={"name": "Мама", "relation": "мама", "phone": "+79170000611"}).json()
+    share = client.post(f"/bookings/{д['booking']}/share", headers=д["пассажир"]["auth"],
+                        json={"contact_id": c["id"]}).json()
+
+    до = client.get(f"/t/{share['token']}/state.json").json()
+    assert до["status"] == "wait" and до["car"] is None, (
+        f"за годы до выезда мама читает «{до['phase_text']['ru']}» — машины на карте нет и быть не может")
+
+    r = client.post(f"/bookings/{д['booking']}/driver-status", headers=д["водитель"]["auth"],
+                    json={"status": "departed"})
+    assert r.status_code == 200, r.text
+    после = client.get(f"/t/{share['token']}/state.json").json()
+    assert после["status"] == "to_pickup", после

@@ -201,6 +201,10 @@ def test_ws_location_relay(client, user_factory):
     bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
     # Live-позиция разрешена только в активной поездке → подтверждаем бронь.
     assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+    # Поездка идёт: водитель выехал. Без этого сервер не пересылает точку по брони за годы до
+    # выезда (`trip_is_live`, 16.10.2026), и канал молчит.
+    assert client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"],
+                       json={"status": "departed"}).status_code == 200
     with client.websocket_connect(f"/ws/trip/{bid}/location") as ws_d:
         ws_d.send_text(json.dumps({"type": "auth", "token": drv["token"]}))
         with client.websocket_connect(f"/ws/trip/{bid}/location") as ws_p:

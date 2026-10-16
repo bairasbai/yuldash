@@ -43,7 +43,8 @@ def _подтверждённая_бронь(client, user_factory, метка: s
     client.post(f"/bookings/{bid}/confirm", headers=водитель["auth"])
     # Поездка идёт: без «выехал» сервер не пересылает точку по брони за годы до выезда
     # (`trip_is_live`, 16.10.2026) — и проверка «блокировка закрывает карту» прошла бы впустую.
-    client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"], json={"status": "departed"})
+    r = client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"], json={"status": "departed"})
+    assert r.status_code == 200, r.text
     return водитель, пассажирка, bid
 
 
