@@ -362,6 +362,7 @@ private fun YuldashAppContent() {
     val appScope = rememberCoroutineScope()
     var activeBookingId by vm.activeBookingId
     var activeTrip by vm.activeTrip   // подтверждённая поездка → маршрут на карте; исчезает при завершении
+    var driverCabinetEpoch by remember { mutableIntStateOf(0) }   // пересоздаёт кабинет водителя (см. applyResult)
     // Live-позиция: foreground-сервис стримит мой GPS попутчику ТОЛЬКО в активной поездке и ТОЛЬКО при
     // выданном гео-разрешении (приватность). Поездка кончилась / нет разрешения → глушим стрим.
     LaunchedEffect(activeBookingId, activeTrip, vm.language.value) {
@@ -797,14 +798,13 @@ private fun YuldashAppContent() {
                 return@LaunchedEffect
             }
             val state = result.getOrNull()
-            val applyResult = {
+            val applyResult: () -> Unit = {
                 if (state != null && state.role in listOf("driver", "passenger")) {
-                    selectedRide = Ride(id = bid.toString(), from = "", to = "", time = "", driver = "", car = "",
-                        price = 0, seats = 1, rating = 0.0, verified = false, boosted = false)
-                    activeBookingId = bid
-                    selectedBookingStatus = state.status
-                    if (completed) activeTrip = null
-                    screen = if (completed) Screen.ActiveTrip else Screen.Booking
+                    // Водителя не ведём на пассажирскую «Бронь»: кабинет или экран поездки (BookingLinkDestination.kt).
+                    val onCabinet = screen == Screen.DriverCabinet
+                    val target = vm.applyBookingLink(bid, state.role, state.status, completed)
+                    if (target != Screen.DriverCabinet) selectedBookingStatus = state.status
+                    else if (onCabinet) driverCabinetEpoch++   // уже в кабинете: пересоздаём, чтобы бронь появилась
                 } else {
                     rideLinkUnavailable = (result.exceptionOrNull() as? ApiException)?.status in listOf(403, 404, 410)
                     failedBookingDestination = completed
@@ -1575,7 +1575,7 @@ private fun YuldashAppContent() {
                 onSavedPlaces = { openProtectedScreen(Screen.SavedPlaces) },
                 onSafety = { screen = Screen.Safety }
             )
-            Screen.DriverCabinet -> DriverCabinetScreen(
+            Screen.DriverCabinet -> androidx.compose.runtime.key(driverCabinetEpoch) { DriverCabinetScreen(
                 rides = rides,
                 onBack = { goBack() },
                 onCreateRide = { openCreateRide(returnScreen = Screen.DriverCabinet) },
@@ -1590,7 +1590,8 @@ private fun YuldashAppContent() {
                 onTaxiDocs = { openProtectedScreen(Screen.TaxiDocuments) },
                 onPretrip = { openProtectedScreen(Screen.PretripCheck) },
                 onMyResponses = { openProtectedScreen(Screen.DriverResponses) },
-            )
+                onOpenTrip = { bid -> vm.openDriverTrip(bid) },   // «Едут с тобой» → экран поездки водителя
+            ) }
             Screen.ScheduledOrders -> ScheduledOrdersScreen(
                 onBack = { goBack() },
                 // Активировал предзаказ → в обычный экран заказа: он восстановит заказ в поиске.
