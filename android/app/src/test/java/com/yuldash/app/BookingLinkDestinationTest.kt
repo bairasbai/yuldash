@@ -22,7 +22,7 @@ import java.io.File
  */
 class BookingLinkDestinationTest {
 
-    private fun vm() = YuldashViewModel(SavedStateHandle())
+    private fun newVm() = YuldashViewModel(SavedStateHandle())
 
     private val earlier = Ride(
         id = "5", from = "Уфа", to = "Сибай", time = "", driver = "Айрат", car = "",
@@ -69,7 +69,7 @@ class BookingLinkDestinationTest {
 
     @Test
     fun `пуш водителю про ожидающую бронь открывает кабинет и не трогает бронь пассажира`() {
-        val vm = vm()
+        val vm = newVm()
         vm.selectedRide.value = earlier
         vm.activeBookingId.value = 5
         val target = vm.applyBookingLink(43, "driver", "pending", completed = false)
@@ -82,7 +82,7 @@ class BookingLinkDestinationTest {
 
     @Test
     fun `пуш водителю про подтверждённую бронь открывает экран поездки с живым гео`() {
-        val vm = vm()
+        val vm = newVm()
         val target = vm.applyBookingLink(43, "driver", "confirmed", completed = false)
         assertEquals(Screen.ActiveTrip, target)
         assertEquals(Screen.ActiveTrip, vm.screen.value)
@@ -93,7 +93,7 @@ class BookingLinkDestinationTest {
 
     @Test
     fun `завершённая бронь водителя открывает итог без живого гео`() {
-        val vm = vm()
+        val vm = newVm()
         vm.activeTrip.value = earlier
         vm.applyBookingLink(43, "driver", "done", completed = true)
         assertEquals(Screen.ActiveTrip, vm.screen.value)
@@ -103,7 +103,7 @@ class BookingLinkDestinationTest {
 
     @Test
     fun `пассажир по-прежнему попадает на Бронь и чужое живое гео не трогаем`() {
-        val vm = vm()
+        val vm = newVm()
         vm.activeTrip.value = earlier
         val target = vm.applyBookingLink(43, "passenger", "pending", completed = false)
         assertEquals(Screen.Booking, target)
@@ -115,7 +115,7 @@ class BookingLinkDestinationTest {
 
     @Test
     fun `завершённая бронь пассажира открывает итог и гасит живое гео`() {
-        val vm = vm()
+        val vm = newVm()
         vm.activeTrip.value = earlier
         vm.applyBookingLink(43, "passenger", "done", completed = true)
         assertEquals(Screen.ActiveTrip, vm.screen.value)
@@ -124,7 +124,7 @@ class BookingLinkDestinationTest {
 
     @Test
     fun `кнопка Открыть поездку в кабинете ведёт на экран поездки этой брони`() {
-        val vm = vm()
+        val vm = newVm()
         vm.openDriverTrip(77)
         assertEquals(Screen.ActiveTrip, vm.screen.value)
         assertEquals(77, vm.activeBookingId.value)
