@@ -36,13 +36,22 @@ class PushRoutingChainTest {
         DeepLink.pendingCompletedBookingId.value = null
     }
 
-    private fun dispatch(intent: Intent) {
+    private fun dispatch(intent: Intent, check: () -> Unit) {
         val controller = Robolectric.buildActivity(MainActivity::class.java).create()
-        val activity = controller.get()
-        MainActivity::class.java.getDeclaredMethod("handleNavIntent", Intent::class.java).apply {
-            isAccessible = true
-        }.invoke(activity, intent)
-        controller.destroy()
+        try {
+            MainActivity::class.java.getDeclaredMethod("handleNavIntent", Intent::class.java).apply {
+                isAccessible = true
+            }.invoke(controller.get(), intent)
+            check()
+        } finally {
+            controller.destroy()
+        }
+        assertFalse("Destroyed window must release its taxi destination", NavSignals.openInstantOrder.value)
+        assertNull(DeepLink.pendingApplicationScreen.value)
+        assertFalse(DeepLink.pendingRequestsFeed.value)
+        assertNull(DeepLink.pendingRequestResponsesId.value)
+        assertNull(DeepLink.pendingCompletedBookingId.value)
+        assertNull(DeepLink.pendingBookingChatId.value)
     }
 
     private fun checkLocalNotification(type: String, idField: String = "id") {
@@ -52,11 +61,13 @@ class PushRoutingChainTest {
             .addData("type", type).addData(idField, "42").build())
         val notification = shadowOf(manager).allNotifications.single()
         val intent = Intent(shadowOf(notification.contentIntent).savedIntent)
-        dispatch(intent)
-        assertTrue("Notification $type must open the taxi order", NavSignals.openInstantOrder.value)
+        dispatch(intent) {
+            assertTrue("Notification $type must open the taxi order", NavSignals.openInstantOrder.value)
+        }
         NavSignals.openInstantOrder.value = false
-        dispatch(intent)
-        assertFalse("Consumed notification must not reopen after recreation", NavSignals.openInstantOrder.value)
+        dispatch(intent) {
+            assertFalse("Consumed notification must not reopen after recreation", NavSignals.openInstantOrder.value)
+        }
     }
 
     @Test fun statusNotificationOpensOrder() = checkLocalNotification("instant_status")
@@ -65,38 +76,45 @@ class PushRoutingChainTest {
         service.onMessageReceived(RemoteMessage.Builder("local-test").addData("recipient_user_id", "2")
             .addData("title", "Trip completed").addData("type", "booking_done").addData("id", "42").build())
         val intent = Intent(shadowOf(shadowOf(manager).allNotifications.single().contentIntent).savedIntent)
-        dispatch(intent)
-        assertEquals(42, DeepLink.pendingCompletedBookingId.value)
-        assertNull(DeepLink.pendingBookingChatId.value)
+        dispatch(intent) {
+            assertEquals(42, DeepLink.pendingCompletedBookingId.value)
+            assertNull(DeepLink.pendingBookingChatId.value)
+        }
         DeepLink.pendingCompletedBookingId.value = null
-        dispatch(intent)
-        assertNull(DeepLink.pendingCompletedBookingId.value)
+        dispatch(intent) {
+            assertNull(DeepLink.pendingCompletedBookingId.value)
+        }
     }
     @Test fun requestWatcherOpensFeedAndAuthorStillOpensResponses() {
         val service = Robolectric.buildService(FcmService::class.java).create().get()
         service.onMessageReceived(RemoteMessage.Builder("local-test").addData("recipient_user_id", "2")
             .addData("title", "Passenger on route").addData("type", "request_watch").addData("id", "42").build())
         val intent = Intent(shadowOf(shadowOf(manager).allNotifications.single().contentIntent).savedIntent)
-        dispatch(intent)
-        assertTrue(DeepLink.pendingRequestsFeed.value)
-        assertNull(DeepLink.pendingRequestResponsesId.value)
+        dispatch(intent) {
+            assertTrue(DeepLink.pendingRequestsFeed.value)
+            assertNull(DeepLink.pendingRequestResponsesId.value)
+        }
         DeepLink.pendingRequestsFeed.value = false
-        dispatch(intent)
-        assertFalse(DeepLink.pendingRequestsFeed.value)
-        dispatch(Intent().putExtra("type", "request").putExtra("id", "42").putExtra("recipient_user_id", "2"))
-        assertEquals(42, DeepLink.pendingRequestResponsesId.value)
-        assertFalse(DeepLink.pendingRequestsFeed.value)
+        dispatch(intent) {
+            assertFalse(DeepLink.pendingRequestsFeed.value)
+        }
+        dispatch(Intent().putExtra("type", "request").putExtra("id", "42").putExtra("recipient_user_id", "2")) {
+            assertEquals(42, DeepLink.pendingRequestResponsesId.value)
+            assertFalse(DeepLink.pendingRequestsFeed.value)
+        }
     }
     private fun checkApplication(type: String, expected: Screen) {
         val service = Robolectric.buildService(FcmService::class.java).create().get()
         service.onMessageReceived(RemoteMessage.Builder("local-test").addData("recipient_user_id", "2")
             .addData("title", "Application decision").addData("type", type).addData("id", "42").build())
         val intent = Intent(shadowOf(shadowOf(manager).allNotifications.single().contentIntent).savedIntent)
-        dispatch(intent)
-        assertEquals(expected, DeepLink.pendingApplicationScreen.value)
+        dispatch(intent) {
+            assertEquals(expected, DeepLink.pendingApplicationScreen.value)
+        }
         DeepLink.pendingApplicationScreen.value = null
-        dispatch(intent)
-        assertNull(DeepLink.pendingApplicationScreen.value)
+        dispatch(intent) {
+            assertNull(DeepLink.pendingApplicationScreen.value)
+        }
     }
     @Test fun taxiApplicationOpensItsScreen() = checkApplication("taxi_apply", Screen.TaxiOnboarding)
     @Test fun courierApplicationOpensItsScreen() = checkApplication("courier_apply", Screen.CourierOnboarding)
@@ -113,8 +131,9 @@ class PushRoutingChainTest {
     @Test fun rawFcmExtrasOpenOrderForAllTaxiEvents() {
         for (type in listOf("instant_status", "instant_payment", "instant_im_coming")) {
             NavSignals.openInstantOrder.value = false
-            dispatch(Intent().putExtra("type", type).putExtra("id", "42").putExtra("recipient_user_id", "2"))
-            assertTrue("Raw FCM $type must open the taxi order", NavSignals.openInstantOrder.value)
+            dispatch(Intent().putExtra("type", type).putExtra("id", "42").putExtra("recipient_user_id", "2")) {
+                assertTrue("Raw FCM $type must open the taxi order", NavSignals.openInstantOrder.value)
+            }
         }
     }
 }
