@@ -1,3 +1,11 @@
+<!-- QA-ANDROID-INTRO-CONTRAST-01-20261016 -->
+## Часы: отдельные окна и честный ROI — 16.10.2026
+
+Цвет фона Window на API35 target36 не заменяет собственную защиту прозрачного inset. У M3 шторки своё Window и default dark status-icons от contentColor; изменение Activity не покрывает это окно. Проверять constructor properties настоящего окна и native open/close, сохраняя nav default.
+
+ROI x180..237 захватил первую цифру минут: их смена дала ложный4.149 вместо белого glyph. Сохранены исходные расчёты; исправлен только правый край до212, все строки/PTS/SHA тех же видео совпали, RED пересчитан таким же ROI. Шкала записанных кадров не доказывает точную длительность дефекта. В Robolectric PixelCopy forceRedraw timeout не равен отказу inset: public View.drawToBitmap оставляет реальные bounds/pixel assertions. Дважды не удалившийся из-за CRLF импорт разобран; обязательное правило UTF8/marker/readback добавлено в docs/qa.md.
+<!-- QA-ANDROID-INTRO-CONTRAST-01-20261016 END -->
+
 <!-- QA-ANDROID-CI-MYDATA-DISPATCHER-01 -->
 ## Проверка потока вместо увеличения ожидания — 16.10.2026
 

@@ -90,7 +90,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedTextField
@@ -7629,7 +7628,7 @@ private fun ChangeDestinationContent(
 
     // Смена адреса уже ушла (busy при готовой цене) — не прячем, итог надо увидеть; иначе закрываем всегда (без невидимого окна поверх SOS).
     val sheetState = rememberModalBottomSheetState(confirmValueChange = { it != SheetValue.Hidden || !(busy && quote != null) })
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = CanonSurface) {
+    AppModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = CanonSurface) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
@@ -7776,7 +7775,7 @@ private fun PickStopContent(
         commit { if (query == input) result.onSuccess { suggestions = it.take(6) } }
     }
 
-    ModalBottomSheet(onDismissRequest = { commit { consumed = true; onDismiss() } }, containerColor = CanonSurface) {
+    AppModalBottomSheet(onDismissRequest = { commit { consumed = true; onDismiss() } }, containerColor = CanonSurface) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.md),

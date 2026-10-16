@@ -251,7 +251,6 @@ import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.Typeface
 import android.view.MotionEvent
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
@@ -2336,7 +2335,7 @@ private fun ActiveTripContent(
         // A fresh scope for each opening rejects its predecessor's results and retained callbacks.
         val sharingScope = rememberCoroutineScope()
         fun isShareCurrent() = sharingScope.isActive && showShare && isTripChatActive()
-        ModalBottomSheet(onDismissRequest = { if (isShareCurrent()) showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
+        AppModalBottomSheet(onDismissRequest = { if (isShareCurrent()) showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
             // Ссылка live-поездки (B7c): после выбора близкого показываем её тут же —
             // скопировать или отправить самому через системный share-sheet.
             var liveLink by remember { mutableStateOf<String?>(null) }

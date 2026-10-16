@@ -228,7 +228,6 @@ import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.Typeface
 import android.view.MotionEvent
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
@@ -2226,7 +2225,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
 
     target?.let { request ->
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
+        AppModalBottomSheet(
             onDismissRequest = { if (!responding) target = null },
             sheetState = sheetState,
             containerColor = CanonSurface,

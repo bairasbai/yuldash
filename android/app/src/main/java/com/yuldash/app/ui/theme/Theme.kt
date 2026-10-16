@@ -1,5 +1,6 @@
 package com.yuldash.app.ui.theme
 
+import com.yuldash.app.CanonGreenInk
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -94,10 +95,10 @@ class AppSystemBars(private val window: android.view.Window) {
     fun reapply() {
         val dark = darkTheme || lightIconOwners.isNotEmpty()
         val barColor = (if (dark) YuldashDarkColors.background else Color(0xFFF7F7F2)).toArgb()
-        window.statusBarColor = barColor
+        window.statusBarColor = CanonGreenInk.toArgb()
         window.navigationBarColor = barColor
         val controller = WindowCompat.getInsetsController(window, window.decorView)
-        controller.isAppearanceLightStatusBars = !dark
+        controller.isAppearanceLightStatusBars = false
         controller.isAppearanceLightNavigationBars = !dark
     }
 }

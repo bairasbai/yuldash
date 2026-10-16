@@ -17,6 +17,9 @@ import com.yuldash.app.ui.theme.AppSystemBars
 import com.yuldash.app.ui.theme.YuldashTheme
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import java.io.File
+import javax.xml.parsers.DocumentBuilderFactory
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -59,10 +62,10 @@ class SystemBarsLifecycleTest {
     }
 
     @Suppress("DEPRECATION")
-    private fun assertAppearance(darkIcons: Boolean) {
+    private fun assertAppearance(darkIcons: Boolean, statusDarkIcons: Boolean = false) {
         val window = activity.get().window
         val controller = WindowCompat.getInsetsController(window, window.decorView)
-        assertEquals("Читаемые значки статус-бара", darkIcons, controller.isAppearanceLightStatusBars)
+        assertEquals("Читаемые значки статус-бара", statusDarkIcons, controller.isAppearanceLightStatusBars)
         assertEquals("Читаемые значки навигации", darkIcons, controller.isAppearanceLightNavigationBars)
 
         // AndroidX Core 1.18 Impl30 с Window пишет именно decorView.systemUiVisibility.
@@ -72,7 +75,7 @@ class SystemBarsLifecycleTest {
         val appearance = window.decorView.systemUiVisibility
         assertEquals(
             "Флаг Android для статус-бара",
-            darkIcons,
+            statusDarkIcons,
             appearance and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR != 0,
         )
         assertEquals(
@@ -98,12 +101,12 @@ class SystemBarsLifecycleTest {
     fun chosenThemeSetsBothIconAppearancesAndBarBackgrounds() {
         bars.updateTheme(false)
         assertAppearance(darkIcons = true)
-        assertEquals(0xFFF7F7F2.toInt(), activity.get().window.statusBarColor)
+        assertEquals(0xFF0B6B3A.toInt(), activity.get().window.statusBarColor)
         assertEquals(0xFFF7F7F2.toInt(), activity.get().window.navigationBarColor)
 
         bars.updateTheme(true)
         assertAppearance(darkIcons = false)
-        assertEquals(0xFF0F1613.toInt(), activity.get().window.statusBarColor)
+        assertEquals(0xFF0B6B3A.toInt(), activity.get().window.statusBarColor)
         assertEquals(0xFF0F1613.toInt(), activity.get().window.navigationBarColor)
     }
 
@@ -112,12 +115,12 @@ class SystemBarsLifecycleTest {
     fun reapplyRepairsWindowFlagsOverwrittenAfterComposition() {
         bars.updateTheme(true)
         overwriteAsLateLightWindow()
-        assertAppearance(darkIcons = true)
+        assertAppearance(darkIcons = true, statusDarkIcons = true)
 
         bars.reapply()
 
         assertAppearance(darkIcons = false)
-        assertEquals(0xFF0F1613.toInt(), activity.get().window.statusBarColor)
+        assertEquals(0xFF0B6B3A.toInt(), activity.get().window.statusBarColor)
         assertEquals(0xFF0F1613.toInt(), activity.get().window.navigationBarColor)
     }
 
@@ -250,5 +253,39 @@ class SystemBarsLifecycleTest {
             secondMounted = false
         }
         compose.runOnIdle { assertAppearance(darkIcons = true) }
+    }
+
+    @Suppress("DEPRECATION")
+    @Test
+    fun statusForegroundAndBackgroundStayBrandedAcrossThemeAndOwners() {
+        val window = activity.get().window
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        for (dark in listOf(false, true, false)) {
+            bars.updateTheme(dark)
+            val first = bars.withLightIcons()
+            val second = bars.withLightIcons()
+            first()
+            first()
+            second()
+            bars.reapply()
+            assertFalse("Часы не должны менять оттенок при смене темы и уходе интро", controller.isAppearanceLightStatusBars)
+            assertEquals(0xFF0B6B3A.toInt(), window.statusBarColor)
+            assertEquals(!dark, controller.isAppearanceLightNavigationBars)
+        }
+    }
+
+    @Test
+    fun startingAndPostSplashThemesKeepWhiteStatusIconsOnBrand() {
+        val root = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(File("src/main/res/values/styles.xml"))
+        val styles = root.getElementsByTagName("style")
+        for (name in listOf("Theme.Yuldash", "Theme.Yuldash.Starting")) {
+            val style = (0 until styles.length).map { styles.item(it) as org.w3c.dom.Element }
+                .single { it.getAttribute("name") == name }
+            val items = style.getElementsByTagName("item")
+            val status = (0 until items.length).map { items.item(it) as org.w3c.dom.Element }
+                .single { it.getAttribute("name") == "android:windowLightStatusBar" }
+            assertEquals("$name: фон заставки и сцены используют белые часы", "false", status.textContent)
+        }
     }
 }

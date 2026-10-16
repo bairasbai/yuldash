@@ -217,7 +217,6 @@ import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.Typeface
 import android.view.MotionEvent
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
@@ -316,7 +315,7 @@ class MainActivity : ComponentActivity() {
                 CompositionLocalProvider(
                     LocalDensity provides Density(density = base.density, fontScale = base.fontScale * scaled)
                 ) {
-                    YuldashApp()
+                    AppStatusBarProtection { YuldashApp() }
                 }
             }
         }
@@ -939,7 +938,7 @@ internal fun SbpTransferSheet(amountKop: Int, onPaid: () -> Unit, onDismiss: () 
     val phone = payeePhone?.takeIf { it.isNotBlank() } ?: SBP_PHONE_DIGITS
     val bank = payeeBank?.takeIf { it.isNotBlank() } ?: SBP_BANK
     val name = payeeName?.takeIf { it.isNotBlank() } ?: SBP_NAME
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
+    AppModalBottomSheet(onDismissRequest = onDismiss, containerColor = CanonSurface) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
