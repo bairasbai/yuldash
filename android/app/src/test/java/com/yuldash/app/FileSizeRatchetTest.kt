@@ -27,7 +27,7 @@ class FileSizeRatchetTest {
     private val ceilings = mapOf(
         "InstantOrderScreen.kt" to 8258,   // 13.10.2026: +4 — шторка «Куда едем?» не прячется, пока уходит смена адреса
         "data/ApiClient.kt" to 8058,   // 14.10.2026: +12 опции мест (поля DTO и параметры запросов; UI — SeatOptions.kt), +2 passenger_id в DriverBookingDto (разбор по брони «в пути»)
-        "ProfileScreen.kt" to 4838,   // 14.10.2026: +4 — опции мест в правке поездки и «просит переднее» (UI — SeatOptions.kt)
+        "ProfileScreen.kt" to 4847,   // 16.10.2026: +9 — флаг такси в кабинетах (волна 1) и «Открыть поездку» в «Едут с тобой»; 14.10.2026: +4 — опции мест (UI — SeatOptions.kt)
         // 13.10.2026: чат поездки уехал в TripChatState.kt / TripChatScreen.kt — потолок опущен до нового размера.
         "BookingActiveTripScreen.kt" to 3652,   // 16.10: маршрутная карточка вынесена без изменения поведения
         "RidesRequestsChatScreens.kt" to 3558,   // 13.10.2026: +2 — запись после «Разрешить» (withResumed)
