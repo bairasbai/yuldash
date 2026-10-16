@@ -90,6 +90,15 @@ def _visible_request_text(body: "RequestIn") -> str:
     return "\n".join(p for p in parts if p)
 
 
+def _open_category_conds():
+    """Заявки закрытых направлений водителю не показываем: откликнуться на них всё равно нельзя
+    (`guard_delivery_ride`, 403 «скоро»). Посылки выключены — «посылка/груз» уходят из ленты и
+    «заявок рядом» (приёмка волны 1, 16.10.2026)."""
+    if settings.parcels_enabled:
+        return []
+    return [RideRequest.category.notin_([RideCategory.parcel, RideCategory.cargo])]
+
+
 def live_request_conds():
     """Условия «заявка ещё живая»: активная И время не прошло.
 
@@ -217,7 +226,7 @@ def requests_near(
     """Активные заявки пассажиров рядом — водитель видит, кто ищет попутку на его маршруте (зеркало /rides/near).
     Координаты клиента (lat/lng) → дистанция до точки отправления заявки + опц. фильтр радиуса.
     Приватность: отдаём только город/точку отправления + имя, без телефона/точного адреса."""
-    q = select(RideRequest).where(*live_request_conds())   # прошедшие в ленту не попадают
+    q = select(RideRequest).where(*live_request_conds(), *_open_category_conds())   # прошедшие в ленту не попадают
     if from_city:
         cond = _city_match(RideRequest.from_city, session, from_city)
         if cond is not None:
@@ -508,7 +517,7 @@ def requests_feed(user: User = Depends(current_user), session: Session = Depends
     """Активные заявки пассажиров — для водителей (откликнуться). Без своих и заблокированных."""
     reqs = session.exec(
         select(RideRequest)
-        .where(*live_request_conds(), RideRequest.passenger_id != user.id)
+        .where(*live_request_conds(), *_open_category_conds(), RideRequest.passenger_id != user.id)
         .order_by(RideRequest.id.desc()).limit(200)
     ).all()
     if not reqs:

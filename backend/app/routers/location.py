@@ -18,6 +18,7 @@ from ..security import authenticate_ws
 from ..ws_guard import watch_ws_access
 from ..logs import log
 from ..services import MAP_FEED_KEY, haversine_km, manager
+from ..visibility import trip_is_live
 
 router = APIRouter(tags=["location"])
 
@@ -167,6 +168,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     )
     guard = TrackGuard(user_id)   # анти-телепорт (B8-3): фейковые скачки не ретранслируем
     msgs = 0
+    пора = False                  # поездка началась? (`trip_is_live`) — пока нет, точки не пересылаем
     try:
         while True:
             data = await websocket.receive_text()
@@ -193,6 +195,15 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                         if not b2 or b2.status not in (BookingStatus.confirmed, BookingStatus.onboard):
                             await websocket.close(code=1008, reason="Trip ended")
                             break
+                # Договорились ≠ поехали: пока поездка не началась, точку никому не пересылаем и в кэш
+                # для ссылки близкому не пишем (`trip_is_live`). Канал не рвём — экран поездки можно
+                # открыть заранее, и точки пойдут сами, как только станет пора.
+                if not пора:
+                    with Session(engine) as s3:
+                        b3 = s3.get(Booking, booking_id)
+                        пора = trip_is_live(b3, s3.get(Ride, b3.ride_id) if b3 else None)
+                    if not пора:
+                        continue
                 # Анти-телепорт (B8-3): скорость > 200 км/ч от прошлой точки → кадр игнорируем
                 # (счётчик подозрительности копится), соединение честного юзера не рвём.
                 if not guard.ok(float(lat), float(lng)):

@@ -1279,8 +1279,8 @@ internal fun PassengerCabinetContent(
         if (restrictions != null && restrictions.items.isNotEmpty()) {
             item { RestrictionsCard(restrictions) }
         }
-        item {
-            // Флагман Фазы 2 — вызвать машину сейчас (такси-режим). Заметная зелёная карточка.
+        if (taxiOn) item {
+            // Флагман Фазы 2 — вызвать машину сейчас (такси-режим). Такси выключено на сервере — карточки нет.
             Card(
                 onClick = onInstantOrder,
                 modifier = Modifier.fillMaxWidth().appearIn(0),

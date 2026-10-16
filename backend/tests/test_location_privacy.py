@@ -49,6 +49,10 @@ def _confirmed_booking(client, user_factory, tag: str):
     passenger = user_factory(f"{tag}Passenger")
     bid = client.post("/bookings", headers=passenger["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{bid}/confirm", headers=driver["auth"]).status_code == 200
+    # Поездка идёт: водитель выехал. Без этого сервер не пересылает точку по брони за годы до
+    # выезда (`trip_is_live`, 16.10.2026), и канал молчит.
+    assert client.post(f"/bookings/{bid}/driver-status", headers=driver["auth"],
+                       json={"status": "departed"}).status_code == 200
     return driver, passenger, bid
 
 

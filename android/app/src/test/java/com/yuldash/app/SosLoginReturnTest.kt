@@ -50,7 +50,7 @@ class SosLoginReturnTest {
     private val sentTokens = CopyOnWriteArrayList<String>()
     private lateinit var vm: YuldashViewModel
     private lateinit var server: MockWebServer
-    private val sendLabel = "Сообщить близким и поддержке"
+    private val sendLabel = "Сообщить поддержке"
 
     @Before fun prepare() {
         val context: Context = ApplicationProvider.getApplicationContext()
