@@ -103,7 +103,7 @@ class ExpiredSessionBackHistoryTest {
                 YuldashTheme { YuldashApp() }
             }
         }
-        val label = "Сообщить близким и поддержке"
+        val label = "Сообщить поддержке"
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(label))
         compose.onNode(hasText(label) and hasClickAction()).assertIsDisplayed().performClick()
         awaitState { vm.screen.value == Screen.Login }

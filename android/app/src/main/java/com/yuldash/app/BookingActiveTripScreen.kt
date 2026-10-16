@@ -1564,6 +1564,7 @@ private fun ActiveTripContent(
     // старый сервер их не отдаёт, ниже остаётся безопасный фолбэк на публичные центры городов.
     var routeFromPoint by remember(bookingId) { mutableStateOf<Point?>(null) }
     var routeToPoint by remember(bookingId) { mutableStateOf<Point?>(null) }
+    var detailsRoute by remember(bookingId) { mutableStateOf("" to "") }   // города из деталей брони: запас, пока в поездке-заглушке пусто (TripRouteLabel.kt)
     val queuedMsg = appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ")
     val queueSaveFailMsg = appText("Не получилось сохранить. Повтори попытку.", "Һаҡлап булманы. Ҡабатлап ҡара.")
     // Чат поездки: лента, сокет, отправка, голос, фото (TripChatState.kt). Один экземпляр на оба
@@ -1606,6 +1607,7 @@ private fun ActiveTripContent(
             if (d.departAt.isNotBlank()) departIso = d.departAt
             routeFromPoint = d.fromLat?.let { lat -> d.fromLng?.let { lng -> Point(lat, lng) } }
             routeToPoint = d.toLat?.let { lat -> d.toLng?.let { lng -> Point(lat, lng) } }
+            detailsRoute = d.fromCity to d.toCity
             armAfterMs = arrivalCheckAfterMs(d.fromLat, d.fromLng, d.toLat, d.toLng)
         }
     }
@@ -1666,8 +1668,8 @@ private fun ActiveTripContent(
         }
     }
 
-    val activeFromCity = ride?.from ?: tripPass?.fromCity.orEmpty()
-    val activeToCity = ride?.to ?: tripPass?.toCity.orEmpty()
+    val activeFromCity = tripRouteCity(ride?.from, detailsRoute.first, tripPass?.fromCity)
+    val activeToCity = tripRouteCity(ride?.to, detailsRoute.second, tripPass?.toCity)
     val activeFromPoint = routeFromPoint ?: activeFromCity.takeIf { it.isNotBlank() }?.let(::cityPoint)
     val activeToPoint = routeToPoint ?: activeToCity.takeIf { it.isNotBlank() }?.let(::cityPoint)
     val canChangeTripStatus = bookingId == null || (role.isNotBlank() && bookingStatusAllowsBoarding(bookingStatus))
@@ -1824,7 +1826,7 @@ private fun ActiveTripContent(
         "passenger" -> appText("Чат с водителем", "Йөрөтөүсе менән чат")
         else -> appText("Чат по поездке", "Сәфәр буйынса чат")
     }
-    val chatRoute = "$activeFromCity → $activeToCity".takeIf { activeFromCity.isNotBlank() && activeToCity.isNotBlank() }
+    val chatRoute = tripRouteLabel(activeFromCity, activeToCity)
     // Без навигации системное «Назад» из чата возвращает к поездке (с навигацией — общий goBack).
     BackHandler(enabled = showChat && onChatOpenChange == null) { localChat = false }
     AnimatedContent(targetState = showChat, transitionSpec = { tripChatTransition(opening = targetState) }, label = "trip-chat") { chatShown ->
@@ -1937,14 +1939,12 @@ private fun ActiveTripContent(
             }
             // Погода на маршруте — пока поездка не завершена. После неё предупреждать не о чем,
             // а до выезда это ровно тот момент, когда человек решает, ехать ли сегодня.
-            // Города берём из поездки или из офлайн-паспорта: сервер сам найдёт координаты.
+            // Города — из поездки, деталей брони или офлайн-паспорта (пустая заглушка не в счёт): сервер сам найдёт координаты.
             if (bookingStatus != "done" && bookingStatus != "cancelled") {
-                val wFrom = ride?.from ?: tripPass?.fromCity
-                val wTo = ride?.to ?: tripPass?.toCity
-                if (!wFrom.isNullOrBlank()) {
+                if (activeFromCity.isNotBlank()) {
                     item {
                         WeatherWarningCard(
-                            rememberRouteWeather(fromCity = wFrom, toCity = wTo),
+                            rememberRouteWeather(fromCity = activeFromCity, toCity = activeToCity),
                             modifier = Modifier.appearIn(1),
                         )
                     }
