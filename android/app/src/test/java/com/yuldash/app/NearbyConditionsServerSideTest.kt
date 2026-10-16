@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -36,7 +37,7 @@ class NearbyConditionsServerSideTest {
         )
         assertTrue(
             "смена условий не сбрасывает порцию и не перезапрашивает ленту",
-            src.contains("userLatKey, userLngKey, dateFilter, prefFilter) { nearbyLimit = NEARBY_PAGE }"),
+            src.contains("userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to) { nearbyLimit = NEARBY_PAGE }"),
         )
     }
 
@@ -48,5 +49,38 @@ class NearbyConditionsServerSideTest {
             !src.contains("prefFilter.isEmpty() && nearby.size < nearbyTotal"),
         )
         assertTrue("пропала кнопка «Показать ещё»", src.contains("if (nearby.size < nearbyTotal) {"))
+    }
+
+    @Test
+    fun `пусто при фильтре — подсказка со сбросом, а не «поездок нет»`() {
+        // Приёмка PR147: сервер вернул пусто из-за условия → экран писал «поездок нет» без пути назад.
+        val src = mapScreen()
+        assertTrue(
+            "пусто при включённом фильтре снова показывает «поездок нет»",
+            src.contains("""if (nearbyError) "error" else if (prefFilter.isNotEmpty() || verifiedOnly || cityFilter.active) "filtered" else "empty""""),
+        )
+        assertTrue("кнопка «Сбросить фильтры» не снимает города", src.contains("onClick = { prefFilter = emptySet(); cityFilter.clear() }"))
+    }
+
+    @Test
+    fun `города уходят на сервер, а радиус и маршрут карусели при них снимаются`() {
+        val src = mapScreen()
+        assertTrue("города не уходят на сервер", src.contains("fromCities = cityFilter.from, toCities = cityFilter.to"))
+        assertTrue(
+            "при выбранном городе остался радиус 50 км — «Куда · Сибай» из Уфы даст ложное «поездок нет»",
+            src.contains("userLng != null && !cityFilter.active) NEARBY_RADIUS_KM"),
+        )
+        assertTrue("чипов городов нет в ряду фильтров", src.contains("NearbyCityChips(cityFilter, chipTouch)"))
+        assertTrue(
+            "ряд фильтров прячется, когда рядом пусто, — до города «Откуда» не добраться",
+            src.contains("prefFilter.isNotEmpty() || cityFilter.offered) {"),
+        )
+    }
+
+    @Test
+    fun `подпись чипа города`() {
+        assertEquals("Откуда", cityChipLabel("Откуда", emptyList()))
+        assertEquals("Откуда · Баймак", cityChipLabel("Откуда", listOf("Баймак")))
+        assertEquals("Откуда · Баймак +2", cityChipLabel("Откуда", listOf("Баймак", "Сибай", "Учалы")))
     }
 }

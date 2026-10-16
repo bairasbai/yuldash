@@ -856,6 +856,7 @@ object ApiClient {
         date: String? = null,   // F4: «когда едем» — YYYY-MM-DD, только поездки этого дня
         conditions: Set<String> = emptySet(),   // условия пассажира: сервер режет ДО порций и count (DESIGN023)
         verifiedOnly: Boolean = false,
+        fromCities: Set<String> = emptySet(), toCities: Set<String> = emptySet(),   // «Откуда»/«Куда»: любой из городов (RideCities.kt)
     ): Result<NearbyPage> {
         val params = buildList {
             fromCity?.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
@@ -866,6 +867,8 @@ object ApiClient {
             date?.takeIf { it.isNotBlank() }?.let { add("date=$it") }
             if (conditions.isNotEmpty()) add("conditions=" + enc(conditions.sorted().joinToString(",")))
             if (verifiedOnly) add("verified_only=true")
+            if (fromCities.isNotEmpty()) add("from_cities=" + enc(fromCities.sorted().joinToString(",")))
+            if (toCities.isNotEmpty()) add("to_cities=" + enc(toCities.sorted().joinToString(",")))
             add("limit=$limit")
         }
         val path = "/rides/near?" + params.joinToString("&")
@@ -875,6 +878,9 @@ object ApiClient {
             NearbyPage((0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }, obj.optInt("count"))
         }
     }
+
+    /** Города для чипов «Откуда»/«Куда»: только те, где сейчас есть поездки со свободными местами. */
+    suspend fun getRideCities(): Result<RideCitiesDto> = call("GET", "/rides/cities", null, auth = false).map(::parseRideCities)
 
     /** Заявки пассажиров рядом (для карты водителя — кто ищет попутку). Приватность: без телефона. */
     suspend fun getNearbyRequests(
