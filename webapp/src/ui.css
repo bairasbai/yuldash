@@ -19456,11 +19456,18 @@ button.settings-row:active {
 .sheet.nbs:focus {
   outline: none;
 }
+/* Крестик прибит к правому верхнему углу, а «Сбросить» при нехватке места уходит строкой ниже:
+   на башкирском с «Крупным шрифтом» ряд «заголовок · Сбросить · крестик» не влезал, и крестик
+   уезжал за край (приёмка PR151, 2-й проход). */
 .nbs__head {
+  position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-sm);
+  min-height: 48px;
   margin-bottom: var(--space-sm);
+  padding-right: calc(48px + var(--space-sm));
 }
 .nbs__title {
   flex: 1;
@@ -19470,11 +19477,14 @@ button.settings-row:active {
   line-height: var(--line-title);
   font-weight: var(--weight-title);
   /* Слово не рвём: на 320 px по-башкирски «Фильтрҙар» иначе ломалось на «Фильтрҙа / р» (приёмка PR151).
-     Место уступает кнопка «Сбросить» — у неё поля поуже. */
+     Тесно — «Сбросить» переносится строкой ниже (.nbs__head). */
   overflow-wrap: break-word;
 }
 .nbs__reset {
   flex: none;
+  /* Перенеслась строкой ниже — текст встаёт ровно под заголовком (поле кнопки — --space-sm). В одну
+     строку заголовок (flex: 1) сам прижимает её к крестику. */
+  margin-left: calc(-1 * var(--space-sm));
   min-height: 48px;
   padding: 0 var(--space-sm);
   border: 0;
@@ -19486,7 +19496,9 @@ button.settings-row:active {
   animation: fadeIn var(--motion-quick) ease both;
 }
 .nbs__close {
-  flex: none;
+  position: absolute;
+  top: 0;
+  right: 0;
   display: inline-grid;
   place-items: center;
   width: 48px;
