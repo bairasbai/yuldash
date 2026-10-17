@@ -102,6 +102,13 @@ export interface ShareDeps {
   onState: (s: ShareState) => void;
   /** Сессия та же (не вышли и не сменили аккаунт)? Иначе — тихо останавливаемся. */
   isCurrent?: () => boolean;
+  /**
+   * Сервер отверг ключ входа: тихо обновить его тем же общим полётом, что у запросов после 401.
+   * true — ключ уже другой; false — обновление отказано (вход отозван); исключение — нет сети.
+   */
+  refreshToken?: (rejected: string) => Promise<boolean>;
+  /** Подписка на «сеть вернулась» (`window` «online»); возвращает отписку. */
+  subscribeOnline?: (fn: () => void) => () => void;
 }
 
 export interface ShareHandle {
@@ -127,6 +134,14 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
   let trail: unknown = null;
   let attempt = 0;
   let softAttempt = 0;
+  /** Повторы после отказа в ключе — отдельная лестница: её не сбрасывает открытие соединения,
+   *  после которого сервер тут же снова отказал. Сбрасывается, когда точки снова пошли. */
+  let tokenAttempt = 0;
+  /** Ключ, который сервер отверг: с ним больше не подключаемся — ждём обновлённый. */
+  let rejectedToken: string | null = null;
+  /** Чего ждёт назначенный повтор: обрыва сети, подтверждения брони или нового ключа. */
+  let waiting: "net" | "soft" | "token" | null = null;
+  let authedAt = 0;
   let lastSentAt = Number.NEGATIVE_INFINITY;
   let last: { lat: number; lng: number; bearing: number | null } | null = null;
   let state: ShareState | null = null;
@@ -174,6 +189,32 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
   function retire(final?: ShareState) {
     halt(final);
     stopped = true;
+    unsubscribeOnline?.();
+  }
+
+  const ladder = (n: number) => Math.min(MAX_RECONNECT_MS, 1000 * 2 ** Math.min(n - 1, 5));
+
+  /**
+   * Ключ входа отвергнут. Обычно он просто истёк (живёт 12 ч), и сайт берёт новый тихо — точка
+   * обязана пойти снова, иначе пассажир и близкие молча теряют машину (приёмка PR155). Отозван
+   * по-настоящему («Выйти со всех устройств») — обновление откажет, и тогда это конец. Как Android
+   * ChatSocket: отвергнутый ключ повторно не шлём, подключаемся только с уже другим.
+   */
+  function waitForFreshToken() {
+    const rejected = rejectedToken;
+    tokenAttempt++;
+    setState("reconnecting");
+    waiting = "token";
+    schedule(ladder(tokenAttempt));
+    if (!rejected || !deps.refreshToken) return;
+    deps.refreshToken(rejected).then(
+      (fresh) => {
+        if (!fresh && current() && deps.token() === rejected) retire("ended");
+      },
+      () => {
+        /* нет сети — обновим на следующем шаге лестницы */
+      }
+    );
   }
 
   /**
@@ -202,6 +243,8 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     try {
       socket.send(locationFrame(last.lat, last.lng, last.bearing, now));
       lastSentAt = now;
+      // Соединение пережило проверку ключа и шлёт дальше — лестница отказов в ключе с нуля.
+      if (now - authedAt >= SEND_EVERY_MS) tokenAttempt = 0;
     } catch {
       /* сокет закрывается прямо сейчас — onclose переподключит, точку отправим следующей */
     }
@@ -211,6 +254,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     clearTimerIfAny();
     timer = deps.setTimer(() => {
       timer = null;
+      waiting = null;
       if (current()) connect();
       else retire();
     }, ms);
@@ -229,6 +273,11 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
       retire("ended");
       return;
     }
+    if (token === rejectedToken) {
+      // Ключ ещё не обновился, а сервер его уже отверг — соединение не открываем, ждём новый.
+      waitForFreshToken();
+      return;
+    }
     let s: SocketLike;
     try {
       s = deps.openSocket();
@@ -236,7 +285,8 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
       // Сокет не создался (нет сети на уровне браузера) — пробуем позже, как при обрыве.
       attempt++;
       setState("reconnecting");
-      schedule(Math.min(MAX_RECONNECT_MS, 1000 * 2 ** Math.min(attempt - 1, 5)));
+      waiting = "net";
+      schedule(ladder(attempt));
       return;
     }
     socket = s;
@@ -248,6 +298,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
       }
       s.send(JSON.stringify({ type: "auth", token }));
       authed = true;
+      authedAt = deps.now();
       attempt = 0;
       setState("sharing");
       flush(true); // первая точка — сразу, не ждём следующего сдвига машины
@@ -276,20 +327,27 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
         }
         softAttempt++;
         setState("reconnecting");
+        waiting = "soft";
         schedule(SOFT_RETRY_MS);
+        return;
+      }
+      if (ev?.code === 1008 && /token/i.test(reason)) {
+        // «Invalid token» / «Token revoked»: ключ истёк или отозван — см. waitForFreshToken.
+        rejectedToken = token;
+        waitForFreshToken();
         return;
       }
       if (ev?.code === 1008 || (ev?.code >= 4000 && ev?.code <= 4999)) {
         // Отказ сервера — конец, как в Android LocationSocket: поездка закончилась («Trip ended»),
-        // бронь не наша («Forbidden»), ключ входа не принят или отозван («Invalid token»,
-        // «Token revoked» — «Выйти со всех устройств»). Повторять бессмысленно: точка больше
-        // не уходит, слежение за местом снято.
+        // бронь не наша («Forbidden»), доступ закрыт блокировкой («Access ended»). Повторять
+        // бессмысленно: точка больше не уходит, слежение за местом снято.
         retire("ended");
         return;
       }
       attempt++;
       setState("reconnecting");
-      schedule(Math.min(MAX_RECONNECT_MS, 1000 * 2 ** Math.min(attempt - 1, 5)));
+      waiting = "net";
+      schedule(ladder(attempt));
     };
   }
 
@@ -338,12 +396,24 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     );
   }
 
+  // Сеть вернулась — не ждём следующего шага лестницы (до 30 с), подключаемся сразу, как Android
+  // по NetworkMonitor. Мягкий повтор «бронь ещё не подтверждена» сеть не ускоряет.
+  const unsubscribeOnline = deps.subscribeOnline?.(() => {
+    if (!current() || socket || timer === null || (waiting !== "net" && waiting !== "token")) return;
+    attempt = 0;
+    tokenAttempt = 0;
+    clearTimerIfAny();
+    waiting = null;
+    connect();
+  });
+
   begin();
 
   return {
     stop() {
       stopped = true;
       halt();
+      unsubscribeOnline?.();
     },
     retry() {
       if (stopped) return;

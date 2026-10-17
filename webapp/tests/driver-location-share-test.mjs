@@ -207,7 +207,7 @@ async function shareView(lang, inTransit, state) {
     real: ["/utils/tripLocationShare"],
     mocks: {
       "/i18n/lang": langMock(lang),
-      "/api/client": `export const getSessionGeneration=()=>"A";export const getToken=()=>"tok";`,
+      "/api/client": `export const getSessionGeneration=()=>"A";export const getToken=()=>"tok";export const refreshRejectedToken=async()=>true;`,
       "/api/chat": `export const wsBase=()=>"ws://x";`,
     },
   });
