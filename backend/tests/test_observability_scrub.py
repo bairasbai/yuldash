@@ -338,19 +338,25 @@ print("EVENTS_JSON:" + json.dumps(events, ensure_ascii=False, default=str))
 '''
 
 
-def test_настоящий_sentry_не_уносит_тело_запроса(tmp_path):
+def _события_пробы(скрипт: str, tmp_path, **env_extra) -> list:
+    """Запустить пробу настоящего SDK отдельным процессом и вернуть собранные события."""
     env = dict(os.environ)
     env.update({
         "ENV": "dev",
         "DATABASE_URL": f"sqlite:///{(tmp_path / 'probe.db').as_posix()}",
         "SENTRY_DSN": "https://public@sentry.invalid/1",
         "PYTHONIOENCODING": "utf-8",
+        **env_extra,
     })
-    proc = subprocess.run([sys.executable, "-c", _SDK_PROBE], cwd=BACKEND, env=env,
+    proc = subprocess.run([sys.executable, "-c", скрипт], cwd=BACKEND, env=env,
                           capture_output=True, text=True, encoding="utf-8", timeout=180)
     lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("EVENTS_JSON:")]
     assert proc.returncode == 0 and lines, proc.stdout[-2000:] + proc.stderr[-3000:]
-    events = json.loads(lines[-1][len("EVENTS_JSON:"):])
+    return json.loads(lines[-1][len("EVENTS_JSON:"):])
+
+
+def test_настоящий_sentry_не_уносит_тело_запроса(tmp_path):
+    events = _события_пробы(_SDK_PROBE, tmp_path)
 
     errors = [e for e in events if "сбой в обработчике" in json.dumps(e, ensure_ascii=False)]
     assert errors, f"SDK не собрал событие о сбое — проверять нечего: {events!r}"[:2000]
@@ -362,3 +368,183 @@ def test_настоящий_sentry_не_уносит_тело_запроса(tmp
     for личное in ("Айгуль Хабибуллина", "582731", "Ленина 12", "9171234567", "52.9321",
                    "cookie-secret-value", "sekret-bearer-value"):
         assert личное not in blob, f"{личное!r} уехало бы в Sentry"
+
+
+# ---------- ключи сервера в исходящих запросах (приёмка #178, P2, 17.10.2026) ----------
+# Sentry сам записывает каждый исходящий HTTP-запрос сервера «хлебной крошкой» — с полным
+# адресом и строкой запроса. А в адресе Telegram лежит ТОКЕН БОТА (/bot<id>:<токен>/…), в строке
+# запроса sms.ru — ключ api_id и текст СМС с кодом входа. С токеном бота любой пишет от имени
+# Юлдаша всем, кто его запустил; с ключом sms.ru — шлёт СМС за наш счёт.
+# Выдуманный токен собираем по частям: целиком он похож на настоящий, и сторож секретов
+# (test_no_secrets_under_version_control) справедливо поднял бы тревогу на исходник теста.
+ТОКЕН_БОТА = "123456789:" + "FAKE-not-a-real-token_" + "0" * 13
+КЛЮЧ_SMS_RU = "7C2E1A9B-4D3F-4A1B-9C8D-0E1F2A3B4C5D"
+
+
+def test_мойка_прячет_токен_бота_в_адресе():
+    out = scrub_text(f"POST https://api.telegram.org/bot{ТОКЕН_БОТА}/sendMessage -> 502")
+    assert out == "POST https://api.telegram.org/bot<скрыто>/sendMessage -> 502", out
+
+
+def test_мойка_прячет_ключи_и_текст_смс_в_строке_запроса():
+    query = f"api_id={КЛЮЧ_SMS_RU}&to=%2B79171234567&msg=Yuldash%3A+kod+582731&json=1"
+    assert scrub_text(query) == "api_id=<скрыто>&to=%2B<телефон>&msg=<скрыто>&json=1"
+    assert scrub_text("chat_id=-1001234567890&text=SOS%3A+52.93%2C+58.66") == "chat_id=<скрыто>&text=<скрыто>"
+    assert scrub_text("geocode=Баймак&apikey=0f1e2d3c-aaaa&lang=ru_RU") == "geocode=Баймак&apikey=<скрыто>&lang=ru_RU"
+
+
+@pytest.mark.parametrize("s", [
+    "context=feed", "pretext=1", "msg_count=3", "textarea rows=4", "message=ok",
+    "https://api.telegram.org/getMe", "robot123:running", "/bots/12",
+])
+def test_новые_правила_не_задевают_похожее(s):
+    assert scrub_text(s) == s
+
+
+def test_хлебная_крошка_http_оставляет_только_схему_хост_метод_и_статус():
+    from app.observability import before_breadcrumb
+
+    crumb = {
+        "type": "http", "category": "httplib", "level": "info", "timestamp": "2026-10-17T15:07:18Z",
+        "message": f"GET https://sms.ru/sms/send?api_id={КЛЮЧ_SMS_RU}",
+        "data": {
+            "url": f"https://user:pass@api.telegram.org:443/bot{ТОКЕН_БОТА}/sendMessage",
+            "http.method": "POST", "http.response.status_code": 200, "reason": "OK",
+            "http.query": f"api_id={КЛЮЧ_SMS_RU}&msg=kod+582731", "http.fragment": "x",
+        },
+    }
+    out = before_breadcrumb(crumb, {})
+    assert out == {
+        "type": "http", "category": "httplib", "level": "info", "timestamp": "2026-10-17T15:07:18Z",
+        "data": {"url": "https://api.telegram.org:443", "http.method": "POST",
+                 "http.response.status_code": 200},
+    }, out
+
+
+def test_хлебная_крошка_лога_проходит_мойку_а_сломанная_выбрасывается():
+    from app.observability import before_breadcrumb
+
+    crumb = {"type": "log", "category": "yuldash", "level": "warning",
+             "message": f"[SMS] звонить 8–917–765–43–21, бот /bot{ТОКЕН_БОТА}/getMe",
+             "data": {"url": f"https://sms.ru/sms/send?api_id={КЛЮЧ_SMS_RU}"}}
+    out = before_breadcrumb(crumb, {})
+    assert out["message"] == "[SMS] звонить <телефон>, бот /bot<скрыто>/getMe", out
+    assert out["data"] == {"url": "https://sms.ru/sms/send?api_id=<скрыто>"}, out
+    assert crumb["message"].startswith("[SMS] звонить 8–917"), "исходную крошку не трогаем"
+
+    class Сломанная(dict):
+        def get(self, *a, **kw):
+            raise RuntimeError("чужая структура")
+    assert before_breadcrumb(Сломанная(), {}) is None   # лучше потерять крошку, чем отдать ключ
+
+
+def test_init_sentry_чистит_хлебные_крошки(monkeypatch):
+    import sentry_sdk
+
+    from app import observability
+    from app.config import settings
+
+    seen: dict = {}
+    monkeypatch.setattr(sentry_sdk, "init", lambda **kw: seen.update(kw))
+    monkeypatch.setattr(settings, "sentry_dsn", "https://public@sentry.invalid/1", raising=False)
+    monkeypatch.setattr(observability, "_sentry_ready", False, raising=False)
+
+    assert observability.init_sentry() is True
+    assert seen["before_breadcrumb"] is observability.before_breadcrumb
+
+
+# Длинная строка без единого совпадения не должна вешать мойку: она работает на логах,
+# трейсбеках и тексте от людей. Старые правила токена и почты пробовали начать совпадение
+# с каждой буквы — время росло как квадрат длины: 40 КБ «a-a-…» — 2,3 с, 100 КБ — десятки секунд.
+@pytest.mark.timeout(120)
+@pytest.mark.parametrize("кусок", ["a-", "x", "a_", "1.", "deadbeef-", "a.", "%+", "aaaaaaaa.", "a@"])
+def test_мойка_линейна_на_длинной_строке(кусок):
+    import time
+
+    s = (кусок * (100_000 // len(кусок) + 1))[:100_000]
+    t = time.perf_counter()
+    scrub_text(s)
+    прошло = time.perf_counter() - t
+    assert прошло < 1.0, f"100 КБ из {кусок!r}: {прошло:.2f} с"
+
+
+# Настоящий путь SDK: наш init_sentry(), сервер шлёт админу в Telegram и СМС с кодом через
+# sms.ru (сеть подменена — ответы отдаёт заглушка, Sentry видит обычный httpx), потом падает.
+_SDK_PROBE_OUTGOING = r'''
+import json, logging, os, sys
+import httpx
+import sentry_sdk
+
+# Худший случай: корневой логгер на INFO — тогда httpx сам пишет «HTTP Request: GET https://sms.ru/
+# sms/send?api_id=…&msg=…», и эта строка тоже становится хлебной крошкой (уже лога, не http).
+logging.getLogger().setLevel(logging.INFO)
+from sentry_sdk.transport import Transport
+
+events = []
+
+class Box(Transport):
+    def capture_envelope(self, envelope):
+        for item in envelope.items:
+            ev = item.get_event() or item.get_transaction_event()
+            if ev is not None:
+                events.append(ev)
+
+_real_init = sentry_sdk.init
+def _init(*a, **kw):
+    kw["transport"] = Box()
+    return _real_init(*a, **kw)
+sentry_sdk.init = _init
+
+PHONE = "+79171234567"
+def _fake_network(self, request):        # вместо интернета: ответы Telegram и sms.ru
+    if request.url.host == "sms.ru":
+        return httpx.Response(200, json={"status": "OK", "sms": {PHONE: {"status_code": 100}}},
+                              request=request)
+    return httpx.Response(200, json={"ok": True}, request=request)
+httpx.HTTPTransport.handle_request = _fake_network
+
+from app.observability import init_sentry
+assert init_sentry() is True
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from app import services
+from app.middleware import unhandled_exception_handler
+
+app = FastAPI()
+app.add_exception_handler(Exception, unhandled_exception_handler)
+
+@app.post("/otp")
+def otp():
+    assert services.notify_admin_telegram("новая заявка") is True
+    services.send_sms(PHONE, "582731")
+    raise RuntimeError("сбой после отправки")
+
+r = TestClient(app, raise_server_exceptions=False).post("/otp")
+assert r.status_code == 500, r.status_code
+sentry_sdk.flush()
+print("EVENTS_JSON:" + json.dumps(events, ensure_ascii=False, default=str))
+'''
+
+
+def test_настоящий_sentry_не_уносит_ключи_из_исходящих_запросов(tmp_path):
+    events = _события_пробы(
+        _SDK_PROBE_OUTGOING, tmp_path,
+        TELEGRAM_BOT_TOKEN=ТОКЕН_БОТА, ADMIN_TELEGRAM_CHAT_ID="-1001234567890",
+        SMS_PROVIDER="smsru", SMS_RU_API_ID=КЛЮЧ_SMS_RU,
+    )
+    errors = [e for e in events if "сбой после отправки" in json.dumps(e, ensure_ascii=False)]
+    assert errors, f"SDK не собрал событие о сбое — проверять нечего: {events!r}"[:2000]
+    crumbs = [c for e in errors for c in (e.get("breadcrumbs") or {}).get("values", [])
+              if c.get("category") == "httplib"]
+    hosts = {(c.get("data") or {}).get("url") for c in crumbs}
+    assert {"https://api.telegram.org", "https://sms.ru"} <= hosts, (
+        f"крошки исходящих запросов должны остаться — с хостом, без пути и запроса: {crumbs!r}"
+    )
+    for c in crumbs:
+        assert set(c.get("data") or {}) <= {"url", "http.method", "http.response.status_code"}, c
+    blob = json.dumps(events, ensure_ascii=False)
+    for секрет in (ТОКЕН_БОТА, ТОКЕН_БОТА.split(":")[1], КЛЮЧ_SMS_RU, "582731", "9171234567",
+                   "-1001234567890"):
+        assert секрет not in blob, f"{секрет!r} уехал бы в Sentry"
+    assert "http.query" not in blob
