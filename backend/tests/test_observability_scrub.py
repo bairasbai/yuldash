@@ -83,3 +83,15 @@ def test_bare_mobile_rule_spares_numbers_that_are_not_phones():
     for s in ("заказ 917123456", "счёт 91712345678", "цена 900, 3 места", "рейс 8123456789x",
               "id=a9171234567b", "год 1999, подъезд 9"):
         assert "<телефон>" not in scrub_text(s), s
+
+
+def test_tokens_and_coordinates_win_over_phone_rules():
+    """Телефонный шаблон не должен откусывать кусок координаты или токена раньше их правил:
+    «52.9123456789, 58.6612345» раньше становилось «52.<телефон>, 58.6612345» — долгота
+    оставалась открытой (приёмка PR169, 17.10)."""
+    out = scrub_text("точка 52.9123456789, 58.6612345 у дома")
+    assert out == "точка <коорд> у дома", out
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI5MTcxMjM0NTY3In0.ab-9171234567-cdefgh"
+    out = scrub_text(f"Bearer {jwt}")
+    assert jwt not in out and "<токен>" in out and "9171234567" not in out, out
+    assert scrub_text("/t/abcd-9171234567-efghijkl") == "/t/***"
