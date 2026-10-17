@@ -341,6 +341,11 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     // --- Транзитные/бизнес: переживают поворот, не переживают kill (как и было) ---
     val selectedRide = mutableStateOf<Ride?>(null)
     val activeTrip = mutableStateOf<Ride?>(null)
+    // Бронь, в которой я ВОДИТЕЛЬ (её поездку открыли из кабинета или по ссылке с ролью driver). Живому гео
+    // нужна роль: пульс стоянки шлёт только водитель (TripLocationService). Привязка к номеру, а не флаг:
+    // открыл потом свою пассажирскую бронь — номер другой, роль сама становится «пассажир».
+    val activeDriverBookingId = mutableStateOf<Int?>(null)
+    fun isDriverOf(bookingId: Int?): Boolean = bookingId != null && activeDriverBookingId.value == bookingId
     val callbackRequested = mutableStateOf(false)
     val isAdmin = mutableStateOf(false)
     // Реклама начинается ПУСТОЙ, а не с демо-партнёров. Раньше стартовым значением стоял
@@ -402,6 +407,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         selectedRide.value = null
         activeTrip.value = null
         activeBookingId.value = null
+        activeDriverBookingId.value = null
         isAdmin.value = false
         callbackRequested.value = false
         responsesRequestId.value = 0
