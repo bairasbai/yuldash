@@ -35,6 +35,7 @@ from .bookings import DONE_EARLY_GRACE
 # уже его ответственность: пуш о новой брони приходит сразу (волна 18).
 _CONFIRM_GRACE = timedelta(minutes=30)
 from ..workday import local_now
+from .. import trip_wake
 from ..visibility import (FEED_MAX, hide_blocked, hide_health_hint, hide_suspended,
                           hide_trusted_only, is_ride_insider, may_see_ride_by_id, visible_rides)
 from ..services import (
@@ -858,6 +859,8 @@ def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Sessi
         b.cancel_reason = "not_going"
         session.add(b)
     session.commit()                     # атомарно: поездка+брони одной транзакцией
+    for b in affected:
+        trip_wake.poke(b.id)             # каналы координат этих броней закрываются сразу
     session.refresh(ride)
     notify_map_changed()                 # пин уходит с карты live
     # Уведомления — ПОСЛЕ commit (сбой FCM не откатит отмену).
