@@ -123,6 +123,8 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
   let socket: SocketLike | null = null;
   let authed = false;
   let timer: unknown = null;
+  /** Отложенная отправка последней точки: сдвиг пришёл раньше 7 с — уйдёт, когда они пройдут. */
+  let trail: unknown = null;
   let attempt = 0;
   let softAttempt = 0;
   let lastSentAt = Number.NEGATIVE_INFINITY;
@@ -144,6 +146,8 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
   function clearTimerIfAny() {
     if (timer !== null) deps.clearTimer(timer);
     timer = null;
+    if (trail !== null) deps.clearTimer(trail);
+    trail = null;
   }
 
   function closeSocket() {
@@ -166,7 +170,11 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     if (final) setState(final);
   }
 
-  /** Отправить последнюю точку, если сокет готов и прошло ≥ 7 с. */
+  /**
+   * Отправить последнюю точку, если сокет готов и прошло ≥ 7 с. Раньше срока — не теряем её,
+   * а откладываем до конца паузы: машина остановилась у подъезда сразу после прошлого кадра —
+   * пассажир всё равно увидит, где она стоит, а не место в 100 метрах позади.
+   */
   function flush(force = false) {
     if (!current()) {
       halt();
@@ -175,7 +183,17 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     }
     if (!last || !socket || !authed || socket.readyState !== OPEN) return;
     const now = deps.now();
-    if (!force && now - lastSentAt < SEND_EVERY_MS) return;
+    if (!force && now - lastSentAt < SEND_EVERY_MS) {
+      if (trail === null) {
+        trail = deps.setTimer(() => {
+          trail = null;
+          flush();
+        }, SEND_EVERY_MS - (now - lastSentAt));
+      }
+      return;
+    }
+    if (trail !== null) deps.clearTimer(trail);
+    trail = null;
     try {
       socket.send(locationFrame(last.lat, last.lng, last.bearing, now));
       lastSentAt = now;

@@ -98,15 +98,21 @@ await t.test("спросили место → первая точка → сок
   assert.equal(r.states.at(-1), "sharing");
 });
 
-await t.test("не чаще раза в 7 секунд", () => {
+await t.test("не чаще раза в 7 секунд — но последняя точка не теряется", () => {
   const r = rig();
   r.fix(54.7, 55.9);
   const s = r.open();
+  const locs = () => s.sent.filter((f) => f.type === "loc");
   r.now += 3000; r.fix(54.71, 55.91);
-  assert.equal(s.sent.filter((f) => f.type === "loc").length, 1, "через 3 с — не шлём");
-  r.now += 4000; r.fix(54.72, 55.92);
-  assert.equal(s.sent.filter((f) => f.type === "loc").length, 2, "через 7 с — шлём");
-  assert.deepEqual(s.sent.at(-1).lat, 54.72);
+  assert.equal(locs().length, 1, "через 3 с — сразу не шлём");
+  const trail = r.timers.find((tm) => !tm.done);
+  assert.ok(trail && trail.ms === 4000, "точка отложена до конца паузы (ещё 4 с)");
+  r.now += 4000; r.runTimers();
+  assert.equal(locs().length, 2, "машина остановилась сразу после кадра — пассажир всё равно видит, где она стоит");
+  assert.equal(locs().at(-1).lat, 54.71);
+  r.now += 7000; r.fix(54.72, 55.92);
+  assert.equal(locs().length, 3, "через 7 с — шлём сразу");
+  assert.equal(locs().at(-1).lat, 54.72);
 });
 
 await t.test("доступ закрыт → «denied», слежение снято, соединения нет; «Повторить» спрашивает снова", () => {
