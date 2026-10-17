@@ -18,6 +18,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -33,6 +34,7 @@ import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Пульс стоянки сквозь настоящий сервис: GPS → [TripLocationService] → сокет → сервер.
@@ -40,7 +42,9 @@ import java.util.concurrent.TimeUnit
  * Проверка безопасности PR170: сервис просил у Android точки «не ближе 10 м». Стоящая машина
  * не получала ни одной, сервер через 120 с забывал её — и мама по ссылке, и сигнал SOS теряли
  * машину на стоянке. Правила темпа — `TripLocationPacerTest`; здесь — что они правда доходят
- * до канала, а после остановки сервиса или отзыва гео не уходит ничего.
+ * до канала, а после остановки сервиса или отзыва гео не уходит ничего. Пульс — только водителю
+ * (приёмка PR179): стоящий пассажир молчит, роль переживает воскрешение сервиса; после обрыва
+ * канала точка уходит сразу, а не через 45 с.
  *
  * Точки GPS подаёт Robolectric (он же применяет фильтры запроса, как Android), часы — тоже его:
  * сервис читает `SystemClock.elapsedRealtime()`. Кадры принимает локальный MockWebServer.
@@ -54,6 +58,7 @@ class TripLocationHeartbeatTest {
     private val manager get() = app.getSystemService(LocationManager::class.java)
     private val prefs get() = app.getSharedPreferences("trip_location_svc", Context.MODE_PRIVATE)
     private val frames = LinkedBlockingQueue<JSONObject>()   // кадры {type:loc}, дошедшие до сервера
+    private val serverSide = AtomicReference<WebSocket>()     // серверный конец последнего канала
 
     private val fixMs = TripLocationService.FIX_INTERVAL_MS
     private val lat0 = 54.7388
@@ -84,23 +89,41 @@ class TripLocationHeartbeatTest {
         TripLocationBus.peer = null
     }
 
-    /** Поездка началась: сервис поднят, канал открыт и кадр входа дошёл до сервера. */
-    private fun startTrip(bookingId: Int = 42): TripLocationService {
+    /** Сервер готов принять следующий канал; защёлка — кадр входа дошёл. */
+    private fun queueSocket(): CountDownLatch {
         val authenticated = CountDownLatch(1)
         server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val frame = JSONObject(text)
-                if (frame.optString("type") == "loc") frames.add(frame) else authenticated.countDown()
+                if (frame.optString("type") == "loc") frames.add(frame)
+                else { serverSide.set(webSocket); authenticated.countDown() }
             }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(code, reason)
             }
         }))
+        return authenticated
+    }
+
+    /**
+     * Поездка началась: сервис поднят, канал открыт и кадр входа дошёл до сервера.
+     * [revive] — Android воскресил сервис после смерти процесса: intent пустой, всё из prefs.
+     */
+    private fun startTrip(bookingId: Int = 42, isDriver: Boolean = true, revive: Boolean = false): TripLocationService {
+        val authenticated = queueSocket()
         val svc = Robolectric.buildService(TripLocationService::class.java).create().get().also { service = it }
-        svc.onStartCommand(Intent(app, TripLocationService::class.java)
-            .putExtra(TripLocationService.EXTRA_BOOKING, bookingId), 0, 1)
+        svc.onStartCommand(if (revive) null else Intent(app, TripLocationService::class.java)
+            .putExtra(TripLocationService.EXTRA_BOOKING, bookingId)
+            .putExtra(TripLocationService.EXTRA_DRIVER, isDriver), 0, 1)
         assertTrue("канал поездки не открылся", authenticated.await(5, TimeUnit.SECONDS))
+        settle()
         return svc
+    }
+
+    /** Канал вошёл → сервис из потока сокета ставит в главный поток сброс темпа. Даём ему дойти. */
+    private fun settle() = repeat(15) {
+        shadowOf(Looper.getMainLooper()).idle()
+        Thread.sleep(20)
     }
 
     /** Точка GPS «сейчас» по часам Robolectric; доставка слушателю идёт через главный поток. */
@@ -122,6 +145,7 @@ class TripLocationHeartbeatTest {
 
     @Test fun parkedCarStillReportsBeforeTheServerForgetsIt() {
         startTrip()
+        assertTrue("роль водителя не сохранена — после смерти процесса пульс пропадёт", prefs.getBoolean("last_driver", false))
         gps(lat0)
         assertNotNull("первая точка поездки должна уйти сразу", nextFrame())
 
@@ -175,5 +199,47 @@ class TripLocationHeartbeatTest {
         later(TripLocationService.HEARTBEAT_MS); gps(lat0)
         assertTrue("гео отозвали — пульс не должен уйти никому", noMoreFrames())
         assertTrue("без разрешения сервис с плашкой «показываем позицию» не держим", shadowOf(svc).isStoppedBySelf)
+    }
+
+    @Test fun parkedPassengerSendsNoHeartbeat() {
+        startTrip(isDriver = false)
+        assertFalse(prefs.getBoolean("last_driver", true))
+        gps(lat0)
+        assertNotNull("первая точка пассажира уходит, как раньше", nextFrame())
+
+        for (i in 1..30) { later(fixMs); gps(north(0.1 * i)) }   // полторы минуты стоим
+        assertTrue("стоящий пассажир шлёт пульс — его точку сервер не хранит, слать незачем", noMoreFrames())
+
+        later(fixMs); gps(north(50.0))   // пошёл
+        assertNotNull("в движении точка пассажира уходит, как раньше", nextFrame())
+    }
+
+    @Test fun revivedDriverServiceKeepsTheHeartbeat() {
+        // Android убил процесс посреди поездки и поднял сервис сам: intent пустой, роль — из prefs.
+        prefs.edit().putInt("last_booking", 42).putString("last_lang", "Ru").putBoolean("last_driver", true).apply()
+        startTrip(revive = true)
+        gps(lat0)
+        assertNotNull(nextFrame())
+        for (i in 1..14) { later(fixMs); gps(lat0) }
+        assertTrue(noMoreFrames())
+        later(fixMs); gps(lat0)
+        assertNotNull("воскрешённый сервис забыл, что он у водителя, — машина пропадёт на стоянке", nextFrame())
+    }
+
+    @Test fun reconnectedChannelSendsTheNextPointAtOnce() {
+        startTrip()
+        gps(lat0)
+        assertNotNull(nextFrame())
+        later(fixMs); gps(lat0)
+        assertTrue(noMoreFrames())
+
+        // Сервер перезапускался — канал оборвался, приложение само подключается заново.
+        val reconnected = queueSocket()
+        serverSide.get().close(1001, "restart")
+        assertTrue("канал не переподключился", reconnected.await(10, TimeUnit.SECONDS))
+        settle()
+
+        later(fixMs); gps(lat0)   // 6 с от прошлой отправки
+        assertNotNull("после обрыва стоящая машина молчала бы до 45 с", nextFrame())
     }
 }

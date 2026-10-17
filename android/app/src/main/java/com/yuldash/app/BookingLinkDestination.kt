@@ -48,6 +48,7 @@ internal fun YuldashViewModel.applyBookingLink(bookingId: Int, role: String, sta
         val stub = bookingLinkStubRide(bookingId)
         selectedRide.value = stub
         activeBookingId.value = bookingId
+        activeDriverBookingId.value = bookingId.takeIf { role == "driver" }   // роль для живого гео (пульс стоянки)
         if (completed) activeTrip.value = null
         else if (target == Screen.ActiveTrip) activeTrip.value = stub.takeIf { bookingStatusAllowsBoarding(status) }
     }
@@ -60,6 +61,7 @@ internal fun YuldashViewModel.openDriverTrip(bookingId: Int) {
     val stub = bookingLinkStubRide(bookingId)
     selectedRide.value = stub
     activeBookingId.value = bookingId
+    activeDriverBookingId.value = bookingId   // я водитель этой брони — живому гео нужен пульс стоянки
     activeTrip.value = stub
     screen.value = Screen.ActiveTrip
 }

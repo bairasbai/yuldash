@@ -36,8 +36,8 @@ class TripLocationPacerTest {
         durationMs: Long,
         latAt: (Long) -> Double,
         accepted: (Long) -> Boolean = { true },
+        pacer: TripLocationPacer = TripLocationPacer(),
     ): List<Long> {
-        val pacer = TripLocationPacer()
         val sent = mutableListOf<Long>()
         var t = 0L
         while (t <= durationMs) {
@@ -106,6 +106,28 @@ class TripLocationPacerTest {
             listOf(0L, 72_000L, 117_000L, 162_000L),
             sent,
         )
+    }
+
+    @Test
+    fun `пассажиру пульс не нужен — стоит молча, едет как водитель`() {
+        // Точку пассажира сервер не хранит, только пересылает водителю (приёмка PR179).
+        val passenger = { TripLocationPacer(heartbeatMs = TripLocationService.NO_HEARTBEAT_MS) }
+        assertEquals("стоящий пассажир шлёт только первую точку", listOf(0L), ride(10 * 60_000L, latAt = { lat0 }, pacer = passenger()))
+        val moving: (Long) -> Double = { t -> north(30.0 * (t / fixMs)) }
+        assertEquals(
+            "в движении пассажир шлёт точно как раньше",
+            ride(10 * 60_000L, latAt = moving),
+            ride(10 * 60_000L, latAt = moving, pacer = passenger()),
+        )
+    }
+
+    @Test
+    fun `после переподключения канала точка уходит сразу`() {
+        val pacer = TripLocationPacer()
+        pacer.sent(0L, lat0, lng0)
+        assertFalse("стоим: до пульса ещё 42 с", pacer.due(3_000L, lat0, lng0))
+        pacer.reset()   // так делает сервис, когда сокет снова вошёл
+        assertTrue("после обрыва стоящая машина молчала бы до 45 с", pacer.due(3_000L, lat0, lng0))
     }
 
     @Test

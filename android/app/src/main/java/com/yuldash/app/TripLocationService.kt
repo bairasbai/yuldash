@@ -26,7 +26,7 @@ import com.yuldash.app.data.TripLocationBus
 
 /**
  * Foreground-сервис live-позиции. Пока активна поездка: шлёт мой GPS в WS-канал брони
- * (в движении раз в ~7с, на стоянке раз в 45 с — см. [TripLocationPacer]) и принимает позицию
+ * (в движении раз в ~7с; водитель на стоянке — раз в 45 с, см. [TripLocationPacer]) и принимает позицию
  * ДРУГОГО участника (кладёт в TripLocationBus → карта рисует
  * маркер). Foreground = работает с погасшим экраном (Android не душит фоновую отправку).
  * Приватность: стрим только во время активной поездки; запускаем/глушим из YuldashApp по
@@ -40,7 +40,9 @@ class TripLocationService : Service() {
     private var socketGeneration = 0L
     private var lm: LocationManager? = null
     private var listener: LocationListener? = null
-    private val pacer = TripLocationPacer()       // когда слать: в движении ~7 с, на стоянке — пульс 45 с
+    private var isDriver = false                 // роль в этой брони: пульс стоянки нужен только водителю
+    private var pacer = TripLocationPacer(heartbeatMs = NO_HEARTBEAT_MS)   // когда слать (пересоздаётся под роль и бронь)
+    private var pacerForDriver = false
     private var currentLang = AppLanguage.Ru   // язык нотификации; приходит из YuldashApp по текущему AppLanguage
     private val watchdog = Handler(Looper.getMainLooper())   // сторож: сам глушит сервис, если YuldashApp упал и не позвал stop()
     private val autoStop = Runnable { stopSelf() }
@@ -53,14 +55,17 @@ class TripLocationService : Service() {
         if (intent != null) {
             bookingId = intent.getIntExtra(EXTRA_BOOKING, -1)
             intent.getStringExtra(EXTRA_LANG)?.let { currentLang = runCatching { AppLanguage.valueOf(it) }.getOrDefault(AppLanguage.Ru) }
+            isDriver = intent.getBooleanExtra(EXTRA_DRIVER, false)
             // H2: запоминаем активную бронь. Если Android убьёт процесс, при воскрешении (intent==null)
             // продолжим ИМЕННО эту поездку, а не погасим трекинг. Чистим в onDestroy при штатном стопе.
-            if (bookingId > 0) prefs.edit().putInt(KEY_BOOKING, bookingId).putString(KEY_LANG, currentLang.name).apply()
+            if (bookingId > 0) prefs.edit().putInt(KEY_BOOKING, bookingId).putString(KEY_LANG, currentLang.name)
+                .putBoolean(KEY_DRIVER, isDriver).apply()
         } else {
             // H2: START_STICKY воскресил сервис после смерти процесса с intent==null. Долгая поездка ещё идёт —
-            // перечитываем bookingId/язык из prefs и продолжаем трекинг (раньше тут bookingId=-1 → stopSelf, стрим гас).
+            // перечитываем bookingId/язык/роль из prefs и продолжаем трекинг (раньше тут bookingId=-1 → stopSelf, стрим гас).
             bookingId = prefs.getInt(KEY_BOOKING, -1)
             prefs.getString(KEY_LANG, null)?.let { currentLang = runCatching { AppLanguage.valueOf(it) }.getOrDefault(AppLanguage.Ru) }
+            isDriver = prefs.getBoolean(KEY_DRIVER, false)
         }
         // Нет брони ИЛИ нет гео-разрешения → не держим бесполезный foreground-сервис и ложную нотификацию
         // «показываем вашу позицию» (если юзер отозвал гео — стрим всё равно не пойдёт).
@@ -73,16 +78,27 @@ class TripLocationService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
         )
         TripLocationBus.bookingId = bookingId
+        // Пульс стоянки — только водителю: его точку сервер хранит для ссылки близким и для SOS. Точку пассажира
+        // сервер лишь пересылает водителю, а у того она и так остаётся на карте — стоящему пассажиру слать незачем.
+        // Новая бронь или роль — новый темп: первая точка уходит сразу, без паузы от прошлой поездки.
+        if (currentBookingId != bookingId || pacerForDriver != isDriver) {
+            pacer = TripLocationPacer(heartbeatMs = if (isDriver) HEARTBEAT_MS else NO_HEARTBEAT_MS)
+            pacerForDriver = isDriver
+        }
         // Смена брони (поездка A кончилась, тут же началась B) при переиспользовании живого сервиса:
         // пересоздаём канал. Иначе мой GPS продолжил бы литься в WS-канал СТАРОЙ брони A (приватность + не та поездка).
         if (currentBookingId != bookingId) {
             socket?.close()
-            pacer.reset()   // новая поездка: первая точка уходит сразу, без паузы от прошлой брони
             currentBookingId = bookingId
             val generation = ++socketGeneration
             socket = LocationSocket(
                 bookingId,
                 onPeer = { TripLocationBus.peer = it },
+                // Канал (пере)подключился — следующая точка GPS уходит сразу (≤ 3 с), а не ждёт остаток паузы:
+                // после обрыва связи стоящая машина иначе молчала бы до 45 с.
+                onConnected = { connected ->
+                    if (connected) watchdog.post { if (socketGeneration == generation) pacer.reset() }
+                },
                 onTerminated = {
                     watchdog.post {
                         if (socketGeneration == generation) {
@@ -177,7 +193,7 @@ class TripLocationService : Service() {
         // H2: поездка завершена штатно (stopService/stopSelf зовёт onDestroy) → стираем сохранённую бронь,
         // чтобы будущее воскрешение сервиса НЕ подняло уже законченную поездку (приватность + не тот стрим).
         // Если процесс убили без onDestroy (OOM) — prefs остаётся, и это правильно: поездка ещё шла.
-        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_BOOKING).remove(KEY_LANG).apply()
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_BOOKING).remove(KEY_LANG).remove(KEY_DRIVER).apply()
     }
 
     override fun onDestroy() {
@@ -188,10 +204,12 @@ class TripLocationService : Service() {
     companion object {
         const val EXTRA_BOOKING = "booking_id"
         const val EXTRA_LANG = "lang"
+        const val EXTRA_DRIVER = "is_driver"   // я водитель в этой брони (нет — значит пассажир)
         // H2: последняя активная бронь для воскрешения сервиса после смерти процесса (intent==null).
         private const val PREFS = "trip_location_svc"
         private const val KEY_BOOKING = "last_booking"
         private const val KEY_LANG = "last_lang"
+        private const val KEY_DRIVER = "last_driver"
         private const val CHANNEL = "trip_location"
         private const val NOTIF_ID = 4711
         internal const val FIX_INTERVAL_MS = 3_000L   // как часто просим точку у GPS
@@ -201,12 +219,14 @@ class TripLocationService : Service() {
         // 45 с: даже если один пульс пропал в сети, следующий придёт через ≤ 2·45 + 3 = 93 с — до срока.
         // 60 с уже не держит потерю одного кадра (123 с), 30 с — вдвое больше кадров без нужды.
         internal const val HEARTBEAT_MS = 45_000L
+        internal const val NO_HEARTBEAT_MS = Long.MAX_VALUE   // пассажир: на стоянке не шлём (см. onStartCommand)
         private const val MAX_LIFETIME_MS = 6 * 3600_000L   // 6ч — заведомо дольше любой реальной поездки; страховка от зависшего сервиса
 
-        internal fun start(ctx: Context, bookingId: Int, lang: AppLanguage) {
+        internal fun start(ctx: Context, bookingId: Int, lang: AppLanguage, isDriver: Boolean) {
             val i = Intent(ctx, TripLocationService::class.java)
                 .putExtra(EXTRA_BOOKING, bookingId)
                 .putExtra(EXTRA_LANG, lang.name)
+                .putExtra(EXTRA_DRIVER, isDriver)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i) else ctx.startService(i)
         }
 
@@ -222,14 +242,19 @@ class TripLocationService : Service() {
  *
  *  • Едем — как и раньше: не чаще раза в [minIntervalMs] и только если сдвинулись на [minDistanceM]
  *    от ПОСЛЕДНЕЙ ОТПРАВЛЕННОЙ точки (дрожание GPS на стоянке за езду не считаем).
- *  • Стоим — всё равно раз в [heartbeatMs]. Сервер держит машину для ссылки близким и для SOS
- *    120 с; без пульса стоящая машина пропадала через 2 минуты — ровно когда «встала в поле»
- *    и близким она нужнее всего (проверка безопасности PR170).
- *  • Отдельного таймера нет: пульс едет на свежей точке GPS. Нет точки (гео выключили, сервис
- *    остановлен) — нечего и слать; старое место за новое не выдаём. Таймер `Handler` в глубоком
- *    сне процессора опаздывает, а доставка точки будит процесс сама.
+ *  • Стоим — всё равно раз в [heartbeatMs] (только водитель; пассажиру — [TripLocationService.NO_HEARTBEAT_MS]).
+ *    Сервер держит машину для ссылки близким и для SOS 120 с; без пульса стоящая машина пропадала
+ *    через 2 минуты — ровно когда «встала в поле» и близким она нужнее всего (проверка безопасности PR170).
+ *  • Отдельного таймера нет: пульс уходит вместе с точкой, которую отдал Android. Сами мы старую
+ *    точку не повторяем. Но, по нашему пониманию (на телефоне не проверено), Android 12+ в глубоком
+ *    сне (Doze) может сам отдавать последнюю известную точку с новым временем — при пороге 0 м
+ *    именно она и держит пульс, и сервер примет её за свежую. Таймер `Handler` в глубоком сне
+ *    процессора опаздывает, а доставка точки будит процесс сама.
+ *  • Нет точки совсем (крытая парковка, навес АЗС, GPS не видит неба; гео выключили) — пульса нет,
+ *    и через 120 с машина у близких пропадает. Это осознанно: выдумывать место мы не будем.
  *  • Ушедшей считается только точка, которую принял сокет ([sent]): не принял — следующая точка
- *    (через ~3 с) повторит попытку, а не ждёт ещё 45 с.
+ *    (через ~3 с) повторит попытку, а не ждёт ещё 45 с. Канал переподключился — сервис зовёт
+ *    [reset], и следующая точка уходит сразу.
  */
 internal class TripLocationPacer(
     private val minIntervalMs: Long = TripLocationService.MIN_INTERVAL_MS,
@@ -257,7 +282,7 @@ internal class TripLocationPacer(
         sentLng = lng
     }
 
-    /** Новая поездка или стоп: следующая точка уходит сразу. */
+    /** Стоп или (пере)подключение канала: следующая точка уходит сразу. */
     fun reset() {
         hasSent = false
     }

@@ -365,10 +365,11 @@ private fun YuldashAppContent() {
     var driverCabinetEpoch by remember { mutableIntStateOf(0) }   // пересоздаёт кабинет водителя (см. applyResult)
     // Live-позиция: foreground-сервис стримит мой GPS попутчику ТОЛЬКО в активной поездке и ТОЛЬКО при
     // выданном гео-разрешении (приватность). Поездка кончилась / нет разрешения → глушим стрим.
-    LaunchedEffect(activeBookingId, activeTrip, vm.language.value) {
+    // Роль в брони (водитель / пассажир) — сервису: пульс стоянки шлёт только водитель.
+    LaunchedEffect(activeBookingId, activeTrip, vm.language.value, vm.activeDriverBookingId.value) {
         val bid = activeBookingId
         val hasLoc = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (bid != null && activeTrip != null && hasLoc) TripLocationService.start(context, bid, vm.language.value)
+        if (bid != null && activeTrip != null && hasLoc) TripLocationService.start(context, bid, vm.language.value, isDriver = vm.isDriverOf(bid))
         else TripLocationService.stop(context)
     }
     val voiceMessages = vm.voiceMessages
