@@ -29,6 +29,8 @@
     в базе ничего не меняется, код выхода 1.
   * Повторный запуск находит 0 — нечего чистить (идемпотентно).
   * Работает и на PostgreSQL (прод), и на SQLite (тесты): только SQLModel/ORM, без SQL диалекта.
+  * Нужен только общий код, который давно есть на сервере (подключение к базе, таблица заявок,
+    `scrub_text`). Если код на сервере старше и `scrub_text` в нём нет — отказ, база не тронута.
 
 Запуск на сервере (см. описание PR):
     cd /opt/yuldash && sudo -u yuldash ./.venv/bin/python ops/scrub_relative_phones.py           # примерка
@@ -55,7 +57,11 @@ from sqlmodel import Session, select  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.db import engine  # noqa: E402
 from app.models import RideRequest  # noqa: E402
-from app.observability import scrub_text  # noqa: E402
+
+try:   # общий скруб есть в коде с лета; на сервере может стоять код старше — тогда откажемся
+    from app.observability import scrub_text  # noqa: E402
+except ImportError:  # pragma: no cover — в репозитории он есть всегда
+    scrub_text = None
 
 # Ровно так писал старый экран сайта (webapp/src/screens/FamilyOrderScreen.tsx до PR #168):
 # appText(`Телефон близкого: ${phone}`, `Яҡындың телефоны: ${phone}`), части — через ". ".
@@ -137,7 +143,7 @@ def find_rows(session: Session, *, lock: bool = False) -> list[tuple[RideRequest
 def _when(row: RideRequest) -> str:
     if row.created_at is None:
         return "дата неизвестна"
-    local = row.created_at + timedelta(hours=settings.local_tz_offset_hours)
+    local = row.created_at + timedelta(hours=getattr(settings, "local_tz_offset_hours", 5))
     return local.strftime("%d.%m.%Y %H:%M") + " по Уфе"
 
 
@@ -229,6 +235,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--apply", action="store_true",
                         help="записать в базу (без флага — только примерка, база не меняется)")
     args = parser.parse_args(argv)
+    if scrub_text is None:
+        say("СТОП: код программы на сервере старше, чем нужен этому скрипту (нет общей функции")
+        say("app.observability.scrub_text). Запусти после выкладки нового кода. В базе ничего не изменено.")
+        return 1
     return run(apply=args.apply)
 
 

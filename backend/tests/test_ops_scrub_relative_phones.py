@@ -186,6 +186,15 @@ def test_apply_rolls_back_when_after_check_fails(seed, capsys, monkeypatch):
     assert _comments(old_ids) == [c for c, _, _ in OLD_ROWS[:2]], "откат не сработал"
 
 
+def test_refuses_on_server_code_without_scrub(seed, capsys, monkeypatch):
+    """На сервере код старше общего скруба → понятный отказ до любого чтения базы, ничего не меняем."""
+    old_ids = seed([OLD_ROWS[1][0]])
+    monkeypatch.setattr(scrub, "scrub_text", None)
+    assert scrub.main(["--apply"]) == 1
+    assert "Запусти после выкладки" in capsys.readouterr().out
+    assert _comments(old_ids) == [OLD_ROWS[1][0]]
+
+
 def test_runs_as_a_command_like_on_the_server(seed, tmp_path):
     """Так его запустит Александр: `python ops/scrub_relative_phones.py` — отдельным процессом."""
     [rid] = seed([OLD_ROWS[2][0]])
