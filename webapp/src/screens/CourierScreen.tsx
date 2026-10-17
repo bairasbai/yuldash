@@ -545,20 +545,22 @@ export function CarryOrders({ onGoAvailable, emptyContent }: { onGoAvailable: ()
     }
   }
 
-  async function onDeliver(code: string) {
-    if (!codeFor) return;
+  /** `true` — сервер принял код; шторка кода после этого уходит сама и по концу движения зовёт onClose. */
+  async function onDeliver(code: string): Promise<boolean> {
+    if (!codeFor) return false;
     setCodeBusy(true);
     setCodeErr(null);
     try {
       const completed = await setParcelStatus(codeFor.id, "delivered", code.trim(), photos[codeFor.id]);
       setItems((prev) => prev.map((x) => x.id === completed.id ? completed : x));
-      setCodeFor(null);
+      return true;
     } catch (e) {
       setCodeErr(
         e instanceof ApiError && e.message
           ? e.message
           : appText("Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп ҡабат ҡара.")
       );
+      return false;
     } finally {
       setCodeBusy(false);
     }
