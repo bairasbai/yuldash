@@ -385,7 +385,7 @@ def _entry(session: Session) -> dict:
     try:
         sig = tuple(session.exec(select(func.count(Settlement.id), func.max(Settlement.id))).one())
     except Exception:  # noqa: BLE001 — таблицы ещё нет → пустой справочник
-        return {"rows": [], "exact": {}, "with_district": {}}
+        return {"rows": [], "exact": {}, "with_district": {}, "namesakes": {}}
     hit = _cache.get(key)
     if hit and hit["sig"] == sig and (time.monotonic() - hit["stamp"]) < _CACHE_TTL_S:
         return hit
@@ -710,7 +710,12 @@ def popular_routes_payload(session: Session) -> list[dict]:
     return out
 
 
-def name_variants(session: Session, name: str) -> list[str]:
+def settlements_snapshot(session: Session) -> dict:
+    """Снимок справочника на один запрос — чтобы много имён искать без похода в базу на каждое."""
+    return _entry(session)
+
+
+def name_variants(session: Session, name: str, entry: Optional[dict] = None) -> list[str]:
     """Все написания этого населённого пункта: как спросили + русское + башкирское.
 
     Зачем (аудит 2026-08-08, волна 92). Приложение двуязычное, и в поле «Откуда» оно
@@ -728,7 +733,7 @@ def name_variants(session: Session, name: str) -> list[str]:
     if not raw:
         return []
     out = [raw]
-    entry = _entry(session)
+    entry = entry if entry is not None else _entry(session)
     rows = None
     if full != raw:                     # «Абзаково (Белорецкий р-н)» — ровно эта деревня
         head, _, tail = full.rpartition("(")
@@ -736,11 +741,15 @@ def name_variants(session: Session, name: str) -> list[str]:
         if hit is not None:
             rows = [hit]
     if rows is None:
-        # Без района — ВСЕ тёзки, а не первая попавшаяся (приёмка PR148): водитель с башкирским
-        # интерфейсом публикует «Абҙаҡ (Белорецкий р-н)», а пассажир ищет «Абзаково», и первая
-        # Абзаково справочника — баймакская, без башкирского имени. Брали её — и поездка не
-        # находилась. Русское имя и так совпадает у всех тёзок подстрокой; добавляем их башкирские.
-        rows = entry["namesakes"].get(fold(raw), [])
+        # Без района. Совпал город / райцентр — только он (иначе «Өфө» тянул бы деревню Уфимский за
+        # 400 км, а «Октябрьский» — Октябрьское; приёмка PR148, 2-й проход). Совпала деревня —
+        # ВСЕ тёзки: водитель с башкирским интерфейсом публикует «Абҙаҡ (Белорецкий р-н)», а первая
+        # Абзаково справочника — баймакская, без башкирского имени; бери её одну — поездка не найдётся.
+        first = entry["exact"].get(fold(raw))
+        if first is not None and first.kind != "village":
+            rows = [first]
+        else:
+            rows = entry.get("namesakes", {}).get(fold(raw), [])
     for row in rows:
         for candidate in (row.name_ru, row.name_ba):
             candidate = (candidate or "").strip()

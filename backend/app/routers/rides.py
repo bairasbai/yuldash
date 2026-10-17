@@ -17,7 +17,7 @@ from ..db import get_session
 from ..errors import herr
 from ..features import guard_delivery_ride
 from ..flood import TOO_MANY_RIDES, guard_open_items
-from ..geo import bare_name, by_exact_names, name_variants
+from ..geo import bare_name, by_exact_names, name_variants, settlements_snapshot
 from ..logs import log
 from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
                       RideStatus, User, UserRole)
@@ -62,14 +62,14 @@ DEFAULT_FEED_LIMIT = FEED_MAX   # общий потолок витрин (вол
 
 
 
-def _city_match(column, session, city: str):
+def _city_match(column, session, city: str, snapshot: Optional[dict] = None):
     """Условие «этот город» с учётом ОБОИХ написаний — русского и башкирского.
 
     Приложение подставляет название на языке человека: башкироязычный водитель публикует
     «Баймаҡ», русскоязычная пассажирка ищет «Баймак». Сравнение строк как есть их не сводило,
     и половина жителей района не видела поездки другой половины (аудит 2026-08-08, волна 92).
     """
-    variants = name_variants(session, city)
+    variants = name_variants(session, city, snapshot)
     if not variants:
         return None
     conds = [column.contains(v) for v in variants]
@@ -649,7 +649,10 @@ _MAX_QUERY_CITIES = 30    # сколько выбранных мест прин�
 def _with_any_city(q, column, session: Session, cities: Optional[str]):
     """Поездка подходит, если город — ЛЮБОЙ из выбранных (с русским и башкирским написанием)."""
     names = [c.strip() for c in (cities or "").split(",") if c.strip()][:_MAX_QUERY_CITIES]
-    conds = [c for c in (_city_match(column, session, n) for n in names) if c is not None]
+    if not names:
+        return q
+    snap = settlements_snapshot(session)   # один снимок на все места, а не сверка базы на каждое (приёмка PR148)
+    conds = [c for c in (_city_match(column, session, n, snap) for n in names) if c is not None]
     return q.where(or_(*conds)) if conds else q
 
 

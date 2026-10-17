@@ -60,7 +60,8 @@ internal class NearbyCityFilterState {
     var to by mutableStateOf<Set<String>>(emptySet())
     var fromOptions by mutableStateOf<List<FilterCity>>(emptyList())
     var toOptions by mutableStateOf<List<FilterCity>>(emptyList())
-    /** Найденные поиском (город или деревня вне топа): их имя на двух языках — для подписи чипа. */
+    /** Найденные поиском (город или деревня вне топа): имя на двух языках — для подписи чипа. Общие для
+     *  «Откуда» и «Куда» и живут, пока открыта карта: найденное в одной шторке видно и в другой. */
     var found by mutableStateOf<List<FilterCity>>(emptyList())
     val active: Boolean get() = from.isNotEmpty() || to.isNotEmpty()
     /** Когда список городов последний раз пришёл с сервера (elapsedRealtime, мс); 0 — ещё ни разу. */
@@ -166,7 +167,7 @@ private fun NearbyCitySheet(
             }
         }
         NearbyCheckRow(anyLabel, chosen.isEmpty()) { onChange(emptySet()) }
-        // Найденные поиском — до закрытия шторки, даже со снятой галочкой: иначе вернуть её можно только новым поиском.
+        // Найденные поиском остаются в шторке (пока открыта карта), даже со снятой галочкой: иначе вернуть её можно только новым поиском.
         (found.filter { f -> options.none { it.ru == f.ru } } + options).forEach { city ->
             val on = city.ru in chosen
             NearbyCheckRow(appText(city.ru, city.ba), on) { onChange(if (on) chosen - city.ru else chosen + city.ru) }
