@@ -30,3 +30,13 @@ internal fun activeTripNextStatus(role: String, driverPhase: String, passengerSt
             else -> "sat"
         }
     }
+
+/**
+ * Показывать ли «Отменить поездку» на экране активной попутки: только пассажиру и только по
+ * подтверждённой брони. Причины в окне — пассажирские («Водитель не отвечает»): нажатые водителем,
+ * они уходили пассажиру как «Водитель не выходил на связь» (паритет с сайтом, 17.10.2026).
+ * Водитель снимает поездку из кабинета, неявку отмечает «Не пришёл». Пока роль не пришла с
+ * сервера (`""`), кнопки нет. Без брони — прежнее поведение: кнопка просто закрывает экран.
+ */
+internal fun activeTripShowsCancel(role: String, hasBooking: Boolean, bookingStatus: String): Boolean =
+    !hasBooking || (role == "passenger" && bookingStatus == "confirmed")
