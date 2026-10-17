@@ -186,7 +186,26 @@ class TripChatAcknowledgementTest {
             assertTrue(failures.toString(), failures.isEmpty())
             Thread.sleep(5)
         } while (System.nanoTime() < deadline)
-        assertTrue("Expected bounded asynchronous boundary", condition())
+        // Work dispatched during the last sleep still counts as inside the bound.
+        clock.runCurrent()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        if (!condition()) fail("Expected bounded asynchronous boundary\n" + pendingWork())
+    }
+    /**
+     * Main went red once in cleanup (17.10, run 39009915095) and the cause was not visible from the log:
+     * name what is still running instead of a bare timeout.
+     */
+    private fun pendingWork(): String = buildString {
+        chats.forEachIndexed { i, c ->
+            val job = c.scope.coroutineContext[Job]
+            append("chat[$i] scope=$job children=${job?.children?.toList()}\n")
+        }
+        Thread.getAllStackTraces().forEach { (thread, stack) ->
+            if (stack.any { it.className.startsWith("com.yuldash") }) {
+                append("thread ${thread.name} ${thread.state}\n")
+                stack.take(25).forEach { append("    at $it\n") }
+            }
+        }
     }
     private fun connect() {
         chat.socket!!.connect()
