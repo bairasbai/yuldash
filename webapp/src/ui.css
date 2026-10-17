@@ -14692,7 +14692,10 @@ button.settings-row:active {
   line-height: var(--line-micro);
   font-weight: var(--weight-bold);
   white-space: nowrap;
-  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+  transition: transform var(--motion-quick) ease, background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.fchip:active {
+  transform: scale(0.97);
 }
 .fchip__icon {
   display: inline-flex;
@@ -19129,31 +19132,21 @@ button.settings-row:active {
   align-items: center;
   gap: var(--space-sm);
   overflow-x: auto;
-  padding-bottom: var(--space-xs);
+  /* Поле вокруг чипов, чтобы рамка фокуса с клавиатуры не обрезалась краем прокрутки;
+     отрицательный отступ возвращает ряд на прежнее место. */
+  padding: var(--space-xs);
+  margin: calc(var(--space-xs) * -1);
   scrollbar-width: none;
 }
 .nearby-filters__row::-webkit-scrollbar {
   display: none;
 }
-/* Черта между «когда» и «на чём»: две разные мысли в одном ряду. */
+/* Черта между чипами приложения и чипом «Ближайшие» (только веб): две разные мысли в одном ряду. */
 .nearby-filters__div {
   flex: none;
   width: 1px;
   height: 22px;
   background: var(--border);
-}
-.nearby-filters__hint {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  margin: var(--space-sm) 0 0;
-  color: var(--muted);
-  font-size: var(--font-micro);
-  line-height: var(--line-micro);
-}
-.nearby-filters__hint svg {
-  flex: none;
-  color: var(--woman);
 }
 /* Лента: карточки 286×152 с зазором 12, прокрутка вбок. */
 .nearby-row {
@@ -19452,6 +19445,165 @@ button.settings-row:active {
   font-size: var(--font-caption);
   line-height: var(--line-caption);
   font-weight: var(--weight-bold);
+}
+/* ---- Шторки ленты «Ближайшие поездки»: Откуда · Куда · Когда · Фильтры
+        (NearbyFiltersPanel.kt, NearbyCityFilter.kt). Шторка — тот же .sheet, что у поездки;
+        фон CanonBg (containerColor), строки — CanonSurface, выбранная — CanonMint. ---- */
+.sheet.nbs {
+  background: var(--bg);
+  overscroll-behavior: contain;
+}
+.sheet.nbs:focus {
+  outline: none;
+}
+/* Крестик прибит к правому верхнему углу, а «Сбросить» при нехватке места уходит строкой ниже:
+   на башкирском с «Крупным шрифтом» ряд «заголовок · Сбросить · крестик» не влезал, и крестик
+   уезжал за край (приёмка PR151, 2-й проход). */
+.nbs__head {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 48px;
+  margin-bottom: var(--space-sm);
+  padding-right: calc(48px + var(--space-sm));
+}
+.nbs__title {
+  flex: 1;
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  font-weight: var(--weight-title);
+  /* Слово не рвём: на 320 px по-башкирски «Фильтрҙар» иначе ломалось на «Фильтрҙа / р» (приёмка PR151).
+     Тесно — «Сбросить» переносится строкой ниже (.nbs__head). */
+  overflow-wrap: break-word;
+}
+.nbs__reset {
+  flex: none;
+  /* Перенеслась строкой ниже — текст встаёт ровно под заголовком (поле кнопки — --space-sm). В одну
+     строку заголовок (flex: 1) сам прижимает её к крестику. */
+  margin-left: calc(-1 * var(--space-sm));
+  min-height: 48px;
+  padding: 0 var(--space-sm);
+  border: 0;
+  background: transparent;
+  color: var(--green2);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-body-strong);
+  animation: fadeIn var(--motion-quick) ease both;
+}
+.nbs__close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+}
+.nbs__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.nbs__cta {
+  width: 100%;
+  margin-top: var(--space-md);
+}
+.nbs__date {
+  margin-top: var(--space-xs);
+}
+/* Подсказки поиска в шторке — в потоке, а не поверх: при одном-двух городах в списке шторка низкая,
+   и выпадающий список уходил за её край (приёмка PR151). */
+.nbs .city-field__list {
+  position: static;
+  box-shadow: none;
+}
+/* Строка-галочка: вся строка — цель нажатия ≥48, галочка проявляется на выбранной. */
+.nbs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 48px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  text-align: left;
+  transition: transform var(--motion-quick) ease, background var(--motion-quick) ease;
+}
+.nbs-row:active {
+  transform: scale(0.99);
+}
+.nbs-row.is-on {
+  background: var(--mint);
+}
+.nbs-row__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+}
+.nbs-row__label {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-sm) 0;
+  overflow-wrap: anywhere;
+}
+.nbs-row__check {
+  flex: none;
+  display: inline-flex;
+  color: var(--green2);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity var(--motion-quick) ease, transform var(--motion-quick) ease;
+}
+.nbs-row.is-on .nbs-row__check {
+  opacity: 1;
+  transform: none;
+}
+/* «Показываем только проверенных водителей» — мятная плашка над условиями. */
+.nbs-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin: 0 0 var(--space-xs);
+  padding: var(--space-md);
+  border-radius: var(--radius-item);
+  background: var(--mint);
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+.nbs-note svg {
+  flex: none;
+  color: var(--green2);
+}
+/* «Фильтры по умолчанию»: строка-пояснение над тумблерами (CanonCaption, CanonMuted). */
+.filters-intro {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
+/* Пояснение под «Только женщины» (CanonMicro, CanonMuted). */
+.nbs-hint {
+  margin: 0;
+  padding: 0 var(--space-md);
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  animation: fadeIn var(--motion-quick) ease both;
 }
 /* ClinicRidesEntryCard: AppCard 28 с рамкой, мятный круг с крестом, заголовок, подпись, шеврон. */
 .clinic-entry {

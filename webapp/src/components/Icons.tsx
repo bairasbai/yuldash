@@ -201,6 +201,16 @@ export const IconFilter = ({ size = 22 }: P) => (
   </svg>
 );
 
+/** Ползунки (Icons.Default.Tune): чип «Фильтры» в ленте «Ближайшие поездки». Воронка — другая вещь. */
+export const IconTune = ({ size = 22 }: P) => (
+  <svg {...base(size)}>
+    <path d="M4 7h9M17 7h3M4 17h3M11 17h9M4 12h5M13 12h7" />
+    <circle cx="15" cy="7" r="2" />
+    <circle cx="9" cy="17" r="2" />
+    <circle cx="11" cy="12" r="2" />
+  </svg>
+);
+
 export const IconRoute = ({ size = 22 }: P) => (
   <svg {...base(size)}>
     <circle cx="6" cy="18" r="2.4" />

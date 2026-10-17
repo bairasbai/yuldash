@@ -33,6 +33,10 @@ const MAP: Record<string, IconFn> = {
   women_only: YuWomenOnly,
   accessible: YuAccessible,
   multi_stop: YuMultiStop,
+  // Ключи условий ленты «Ближайшие» (nearbyFeed.ts) — те же, что в приложении и на сервере.
+  women: YuWomenOnly,
+  child: YuChildSeat,
+  nosmoke: YuSmokeFree,
 };
 
 /** Иконка удобства по ключу (или null, если нет соответствия). */
