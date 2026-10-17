@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -45,10 +46,10 @@ class AccessibilityFormsContentTest {
     ) {
         CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
             FamilyOrderFormContent(
-                passenger = passenger, phone = "", from = from, to = to,
+                passenger = passenger, from = from, to = to,
                 notifyContact = true, trustedName = "Айгуль",
                 loading = loading, error = error,
-                onPassengerChange = {}, onPhoneChange = {}, onNotifyContactChange = {},
+                onPassengerChange = {}, onNotifyContactChange = {},
                 onSubmit = onSubmit,
             )
         }
@@ -91,15 +92,38 @@ class AccessibilityFormsContentTest {
         composeRule.onNodeWithText("Имя пассажира").assertIsDisplayed()
     }
 
+    // Решение Александра 17.10.2026: поля «телефон близкого» нет — номер никуда не уходил.
+    @Test
+    fun familyForm_hasNoPhoneField() {
+        composeRule.setContent { FamilyContent() }
+        composeRule.onNodeWithText("Телефон пассажира").assertDoesNotExist()
+    }
+
+    @Test
+    fun familyForm_bashkir_hasNoPhoneField() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
+                FamilyOrderFormContent(
+                    passenger = "Әсәй", from = "Өфө", to = "Сибай",
+                    notifyContact = true, trustedName = null,
+                    loading = false, error = null,
+                    onPassengerChange = {}, onNotifyContactChange = {},
+                    onSubmit = {},
+                )
+            }
+        }
+        composeRule.onNodeWithText("Пассажир телефоны").assertDoesNotExist()
+    }
+
     @Test
     fun familyHeader_bashkir_isDisplayed() {
         composeRule.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
                 FamilyOrderFormContent(
-                    passenger = "Әсәй", phone = "", from = "Өфө", to = "Сибай",
+                    passenger = "Әсәй", from = "Өфө", to = "Сибай",
                     notifyContact = true, trustedName = null,
                     loading = false, error = null,
-                    onPassengerChange = {}, onPhoneChange = {}, onNotifyContactChange = {},
+                    onPassengerChange = {}, onNotifyContactChange = {},
                     onSubmit = {},
                 )
             }

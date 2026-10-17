@@ -296,7 +296,7 @@ Telegram); реквизиты бэкенд отдаёт при создании 
   `GET/POST /trusted-contacts` (`family.py`). DELETE — best-effort (на бэке пока нет): при 404/405
   контакт честно возвращается + мягкая подсказка «удаление появится позже».
 - `FamilyOrderScreen` → `/family-order` (RequireAuth): заявка «за близкого» (`POST /requests` с
-  `for_relative_name` + `assisted:true`; телефон близкого — в комментарии, у RequestIn нет поля phone).
+  `for_relative_name` + `assisted:true`; поля «телефон близкого» нет — убрано 17.10.2026, как и в Android).
 - `CallbackHelpScreen` → `/callback` (ПУБЛИЧНО): `POST /callback` (`safety.py`) — крупно, для пожилых.
   Ручка требует аккаунт (телефон берётся из профиля) → гостю мягко предлагаем войти. Показываем номер,
   на который перезвонят.
