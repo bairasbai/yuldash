@@ -37,6 +37,7 @@ const definitions = {
   setTripStatus: `async(id,status)=>{h.sent.push([id,status]);if(h.sendError!==null)throw new h.ApiError(h.sendError);if(status==='done')h.trip.status='done';h.details.status=h.trip.status;return h.shares??[]}`,
   // Посадку отмечает водитель (решение 17.10.2026): ответы его «Сел» / «Отменить».
   FileIncidentCard: `'FileIncidentCard'`,
+  DriverBoardedDispute: `'DriverBoardedDispute'`,
   markBoarded: `async id=>{h.boarded.push(id);h.trip.status='onboard';h.details.status='onboard';return {ok:true,status:'onboard',boarding_undo_sec:300}}`,
   undoBoarded: `async id=>{h.unboarded.push(id);h.trip.status='confirmed';h.details.status='confirmed';return {ok:true,status:'confirmed',boarding_undo_sec:0}}`,
   enqueue: `async(...v)=>h.queued.push(v)`,
@@ -201,6 +202,32 @@ await test('passenger «Сообщить о проблеме» opens a dispute w
   assert.ok(card, 'разбор не открылся');
   assert.equal(card.props.respondentId, 3, 'разбор — с водителем этой брони (peer_id из /role)');
   assert.equal(card.props.bookingId, 42); assert.equal(card.props.respondentName, 'QA Driver');
+});
+// Приёмка PR174: «Сообщить о проблеме» не пропадает тогда, когда оно нужнее всего.
+await test('passenger «в пути» keeps «Сообщить о проблеме» (marked) — cancel is refused there', async () => {
+  reset({ status: 'onboard' }); await settle(Active);
+  assert.ok(text(h.tree).includes('Водитель отметил посадку'), 'нет «Водитель отметил посадку» «в пути»');
+  assert.ok(text(h.tree).includes('Не садился — сообщи о проблеме.'));
+  await button('Сообщить о проблеме').props.onClick(); await settle(Active);
+  const card = all(h.tree).find(n => n.type === 'FileIncidentCard');
+  assert.ok(card, 'разбор не открылся'); assert.equal(card.props.initialType, 'driver_no_show'); assert.equal(card.props.respondentId, 3);
+});
+await test('completed trip: passenger reports a problem while the server window is open, not after', async () => {
+  reset({ status: 'done' }); h.trip.problem_report_sec = 3600; await settle(Active);
+  assert.ok(text(h.tree).includes('Не садился в машину?'), 'после поездки нет «Сообщить о проблеме»');
+  reset({ status: 'done' }); h.trip.problem_report_sec = 0; await settle(Active);
+  assert.ok(!text(h.tree).includes('Не садился в машину?'), 'окно вышло — кнопки нет');
+  reset({ role: 'driver', status: 'done' }); h.trip.problem_report_sec = 3600; await settle(Active);
+  assert.ok(!text(h.tree).includes('Не садился в машину?'), 'водителю — не его разбор');
+});
+await test('driver trip screen: after the undo window — the boarded dispute from the cabinet (Q4)', async () => {
+  reset({ role: 'driver', status: 'onboard' }); await settle(Active);
+  assert.ok(text(h.tree).includes('Пассажир в машине'));
+  const dispute = all(h.tree).find(n => n.type === 'DriverBoardedDispute');
+  assert.ok(dispute, 'на экране поездки водителя нет разбора после окна «Отменить»');
+  assert.equal(dispute.props.passengerId, 7); assert.equal(dispute.props.bookingId, 42);
+  reset({ role: 'driver', status: 'onboard' }); h.trip.boarding_undo_sec = 200; await settle(Active);
+  assert.ok(!all(h.tree).some(n => n.type === 'DriverBoardedDispute'), 'пока можно отменить, разбор не нужен');
 });
 await test('driver undo: a poll started before «Отменить» cannot bring «в пути» back', async () => {
   reset({ role: 'driver' }); await settle(Active);

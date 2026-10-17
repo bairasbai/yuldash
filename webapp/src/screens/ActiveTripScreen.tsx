@@ -63,6 +63,7 @@ import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarnin
 import ShareTripCard from "../components/ShareTripCard";
 import DriverBoarding from "../components/DriverBoarding";
 import BoardingWait from "../components/BoardingWait";
+import DriverBoardedDispute from "../components/DriverBoardedDispute";
 import TripChatCard from "../components/TripChatCard";
 import { IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet, IconClose } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
@@ -723,9 +724,15 @@ export default function ActiveTripScreen() {
         </div>
       )}
 
-      {/* Посадку отмечает водитель: пассажиру — «Водитель отметит посадку» и разбор, если что не так. */}
-      {details.role === "passenger" && st === "confirmed" && (
-        <BoardingWait bookingId={bookingId} driverId={trip?.peer_id} driverName={details.driver_name} />
+      {/* Посадку отмечает водитель: пассажиру — «Водитель отметит посадку» и разбор, если что не так.
+          «В пути» разбор не пропадает: отмены у пассажира нет, а не садился — путь только этот (PR174). */}
+      {details.role === "passenger" && (st === "confirmed" || st === "onboard") && (
+        <BoardingWait
+          bookingId={bookingId}
+          driverId={trip?.peer_id}
+          driverName={details.driver_name}
+          stage={st === "onboard" ? "marked" : "waiting"}
+        />
       )}
 
       {/* Оплата (read-only) + контакт */}
@@ -890,7 +897,10 @@ export default function ActiveTripScreen() {
               variant="chip"
               onChanged={applyBoarding}
               onError={setPhaseNote}
-            />
+            >
+              {/* Окно «Отменить» вышло — разбор, как в кабинете (Q4, приёмка PR174). */}
+              <DriverBoardedDispute bookingId={bookingId} passengerId={trip?.peer_id} onError={setPhaseNote} />
+            </DriverBoarding>
             <button
               type="button"
               className="chip"
@@ -1090,6 +1100,11 @@ export default function ActiveTripScreen() {
         >
           {appText("Квитанция поездки", "Сәфәр квитанцияһы")}
         </button>
+      )}
+      {/* После поездки — «Сообщить о проблеме», пока сервер держит окно (6 часов, приёмка PR174):
+          водитель мог отметить не того и сразу закрыть поездку. */}
+      {st === "done" && details.role === "passenger" && (trip?.problem_report_sec ?? 0) > 0 && (
+        <BoardingWait bookingId={bookingId} driverId={trip?.peer_id} driverName={details.driver_name} stage="after" />
       )}
 
     </>

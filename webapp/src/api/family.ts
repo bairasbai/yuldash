@@ -57,7 +57,7 @@ export interface TripShare {
   parcel_id: number | null;
   contact_id: number | null;
   token: string | null;
-  last_status: string; // shared | sat | arrived | done
+  last_status: string; // shared | sat | arrived | done (+ unsat / sat_again / unsat_quiet — отмена посадки водителем)
   created_at: string;
   expires_at: string | null;
 }

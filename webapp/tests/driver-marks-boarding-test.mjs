@@ -168,4 +168,75 @@ await t.test("старый сервер без peer_id — подпись ест
   assert.equal(all(view.tree).filter((n) => n.type === "FileIncidentCard").length, 0);
 });
 
+// ---------------- Приёмка PR174: разбор не пропадает тогда, когда нужнее всего ----------------
+async function openReport(view) {
+  button(view.tree, view.lang === "ba" ? "Проблема тураһында хәбәр итергә" : "Сообщить о проблеме").props.onClick();
+  await view.settle(3);
+  return ofType(view.tree, "FileIncidentCard")[0];
+}
+
+for (const lang of ["ru", "ba"]) {
+  const L = (ru, ba) => (lang === "ba" ? ba : ru);
+  await t.test(`${lang}: водитель отметил «Сел» — у пассажира «в пути» разбор остаётся, тип «Водитель не приехал»`, async () => {
+    const view = await wait(lang, { driverId: 7, stage: "marked" });
+    view.lang = lang;
+    assert.ok(text(view.tree).includes(L("Водитель отметил посадку", "Йөрөтөүсе ултырыуҙы билдәләне")));
+    assert.ok(text(view.tree).includes(L("Не садился — сообщи о проблеме.", "Ултырмаған булһаң — проблема тураһында хәбәр ит.")));
+    const card = await openReport(view);
+    assert.ok(card, "разбор не открылся");
+    assert.equal(card.props.initialType, "driver_no_show");
+    assert.equal(card.props.respondentId, 7);
+  });
+
+  await t.test(`${lang}: после поездки — «Не садился в машину?» и тот же разбор`, async () => {
+    const view = await wait(lang, { driverId: 7, stage: "after" });
+    view.lang = lang;
+    assert.ok(text(view.tree).includes(L("Не садился в машину?", "Машинаға ултырманыңмы?")));
+    const card = await openReport(view);
+    assert.equal(card.props.initialType, "driver_no_show");
+  });
+}
+
+await t.test("до посадки разбор тоже сразу с типом «Водитель не приехал»; без имени — «водителя»", async () => {
+  const view = await wait("ru", { driverId: 7, driverName: " " });
+  view.lang = "ru";
+  const card = await openReport(view);
+  assert.equal(card.props.initialType, "driver_no_show");
+  assert.equal(card.props.respondentName, "водителя");
+});
+
+// ---------------- Водитель на экране поездки: разбор после окна «Отменить» (Q4) ----------------
+async function dispute(lang, props) {
+  const Component = await bundleComponent("src/components/DriverBoardedDispute.tsx", { mocks: { "/i18n/lang": langMock(lang) } });
+  const errors = [];
+  const view = mount(Component, { bookingId: 42, onError: (e) => errors.push(e), ...props });
+  view.render();
+  await view.settle(3);
+  return { view, errors };
+}
+
+for (const lang of ["ru", "ba"]) {
+  const L = (ru, ba) => (lang === "ba" ? ba : ru);
+  await t.test(`${lang}: водитель после окна — «Если пассажир на самом деле не садился», разбор «Пассажир не вышел»`, async () => {
+    const { view } = await dispute(lang, { passengerId: 3 });
+    assert.ok(text(view.tree).includes(L("Если пассажир на самом деле не садился", "Пассажир ысынлап ултырмаған булһа")));
+    button(view.tree, L("Сообщить о проблеме", "Проблема тураһында хәбәр итергә")).props.onClick();
+    await view.settle(3);
+    const card = ofType(view.tree, "FileIncidentCard")[0];
+    assert.ok(card, "разбор не открылся");
+    assert.equal(card.props.initialType, "passenger_no_show");
+    assert.equal(card.props.respondentId, 3);
+    assert.equal(card.props.respondentName, L("пассажира", "юлсыны"), "имени нет — «пассажира», а не пустое место");
+    card.props.onFiled();
+    await view.settle(3);
+    assert.ok(text(view.tree).includes(L("Разбор открыт", "Ҡарау асылды")));
+  });
+}
+
+await t.test("водитель: старый сервер без peer_id — подпись есть, кнопки нет", async () => {
+  const { view } = await dispute("ru", { passengerId: undefined });
+  assert.ok(text(view.tree).includes("Если пассажир на самом деле не садился"));
+  assert.equal(button(view.tree, "Сообщить о проблеме"), undefined);
+});
+
 t.done();
