@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -25,7 +26,8 @@ import com.yuldash.app.data.TripLocationBus
 
 /**
  * Foreground-сервис live-позиции. Пока активна поездка: шлёт мой GPS в WS-канал брони
- * (раз в ~7с) и принимает позицию ДРУГОГО участника (кладёт в TripLocationBus → карта рисует
+ * (в движении раз в ~7с, на стоянке раз в 45 с — см. [TripLocationPacer]) и принимает позицию
+ * ДРУГОГО участника (кладёт в TripLocationBus → карта рисует
  * маркер). Foreground = работает с погасшим экраном (Android не душит фоновую отправку).
  * Приватность: стрим только во время активной поездки; запускаем/глушим из YuldashApp по
  * activeBookingId. Координаты на сервере НЕ хранятся (только ретрансляция).
@@ -38,7 +40,7 @@ class TripLocationService : Service() {
     private var socketGeneration = 0L
     private var lm: LocationManager? = null
     private var listener: LocationListener? = null
-    private var lastSent = 0L
+    private val pacer = TripLocationPacer()       // когда слать: в движении ~7 с, на стоянке — пульс 45 с
     private var currentLang = AppLanguage.Ru   // язык нотификации; приходит из YuldashApp по текущему AppLanguage
     private val watchdog = Handler(Looper.getMainLooper())   // сторож: сам глушит сервис, если YuldashApp упал и не позвал stop()
     private val autoStop = Runnable { stopSelf() }
@@ -75,6 +77,7 @@ class TripLocationService : Service() {
         // пересоздаём канал. Иначе мой GPS продолжил бы литься в WS-канал СТАРОЙ брони A (приватность + не та поездка).
         if (currentBookingId != bookingId) {
             socket?.close()
+            pacer.reset()   // новая поездка: первая точка уходит сразу, без паузы от прошлой брони
             currentBookingId = bookingId
             val generation = ++socketGeneration
             socket = LocationSocket(
@@ -107,10 +110,15 @@ class TripLocationService : Service() {
         lm = manager
         val l = object : LocationListener {
             override fun onLocationChanged(loc: Location) {
-                val now = System.currentTimeMillis()
-                if (now - lastSent < MIN_INTERVAL_MS) return   // не чаще ~раза в 7с (батарея/трафик)
-                lastSent = now
-                socket?.sendLoc(loc.latitude, loc.longitude, if (loc.hasBearing()) loc.bearing.toDouble() else null)
+                // Гео отозвали посреди поездки — точку не шлём и сервис не держим (тот же гейт, что на старте).
+                if (ContextCompat.checkSelfPermission(this@TripLocationService, android.Manifest.permission.ACCESS_FINE_LOCATION)
+                    != PackageManager.PERMISSION_GRANTED) { stopSelf(); return }
+                // Монотонные часы: перевод времени на телефоне назад не замораживает отправку на час.
+                val now = SystemClock.elapsedRealtime()
+                if (!pacer.due(now, loc.latitude, loc.longitude)) return
+                val bearing = if (loc.hasBearing()) loc.bearing.toDouble() else null
+                // Отмечаем только ушедшую точку: канал переподключался — следующая точка повторит сразу.
+                if (socket?.sendLoc(loc.latitude, loc.longitude, bearing) == true) pacer.sent(now, loc.latitude, loc.longitude)
             }
             override fun onProviderEnabled(p: String) {}
             override fun onProviderDisabled(p: String) {}
@@ -119,11 +127,14 @@ class TripLocationService : Service() {
         }
         listener = l
         // GPS основной; NETWORK — только если GPS выключен (иначе двойной расход батареи от двух провайдеров).
+        // Порог расстояния 0, а не 10 м: стоящая машина иначе не получала ни одной точки, сервер забывал её
+        // через 120 с, и близкие по ссылке и SOS теряли машину на стоянке (проверка PR170). GPS с интервалом
+        // 3 с работает непрерывно при любом пороге — порог лишь отсеивал точки; «10 м» теперь считает pacer.
         runCatching {
             if (manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3000L, 10f, l)
+                manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, FIX_INTERVAL_MS, 0f, l)
             } else if (manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3000L, 10f, l)
+                manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, FIX_INTERVAL_MS, 0f, l)
             }
         }
     }
@@ -156,6 +167,7 @@ class TripLocationService : Service() {
         watchdog.removeCallbacks(autoStop)
         listener?.let { runCatching { lm?.removeUpdates(it) } }
         listener = null
+        pacer.reset()
         lm = null
         socket?.close()
         socket = null
@@ -182,7 +194,13 @@ class TripLocationService : Service() {
         private const val KEY_LANG = "last_lang"
         private const val CHANNEL = "trip_location"
         private const val NOTIF_ID = 4711
-        private const val MIN_INTERVAL_MS = 7000L
+        internal const val FIX_INTERVAL_MS = 3_000L   // как часто просим точку у GPS
+        internal const val MIN_INTERVAL_MS = 7_000L   // в движении — не чаще раза в 7 с (батарея/трафик)
+        internal const val MIN_DISTANCE_M = 10.0      // меньше — дрожание GPS на месте, а не езда
+        // Пульс стоянки. Сервер держит точку машины 120 с (backend/app/livepos.py, LIVEPOS_TTL_SEC).
+        // 45 с: даже если один пульс пропал в сети, следующий придёт через ≤ 2·45 + 3 = 93 с — до срока.
+        // 60 с уже не держит потерю одного кадра (123 с), 30 с — вдвое больше кадров без нужды.
+        internal const val HEARTBEAT_MS = 45_000L
         private const val MAX_LIFETIME_MS = 6 * 3600_000L   // 6ч — заведомо дольше любой реальной поездки; страховка от зависшего сервиса
 
         internal fun start(ctx: Context, bookingId: Int, lang: AppLanguage) {
@@ -195,5 +213,60 @@ class TripLocationService : Service() {
         fun stop(ctx: Context) {
             ctx.stopService(Intent(ctx, TripLocationService::class.java))
         }
+    }
+}
+
+/**
+ * Когда отправлять свою точку. Чистая логика: часы и координаты приходят снаружи — её гоняют
+ * обычные JVM-тесты, без эмулятора (`TripLocationPacerTest`).
+ *
+ *  • Едем — как и раньше: не чаще раза в [minIntervalMs] и только если сдвинулись на [minDistanceM]
+ *    от ПОСЛЕДНЕЙ ОТПРАВЛЕННОЙ точки (дрожание GPS на стоянке за езду не считаем).
+ *  • Стоим — всё равно раз в [heartbeatMs]. Сервер держит машину для ссылки близким и для SOS
+ *    120 с; без пульса стоящая машина пропадала через 2 минуты — ровно когда «встала в поле»
+ *    и близким она нужнее всего (проверка безопасности PR170).
+ *  • Отдельного таймера нет: пульс едет на свежей точке GPS. Нет точки (гео выключили, сервис
+ *    остановлен) — нечего и слать; старое место за новое не выдаём. Таймер `Handler` в глубоком
+ *    сне процессора опаздывает, а доставка точки будит процесс сама.
+ *  • Ушедшей считается только точка, которую принял сокет ([sent]): не принял — следующая точка
+ *    (через ~3 с) повторит попытку, а не ждёт ещё 45 с.
+ */
+internal class TripLocationPacer(
+    private val minIntervalMs: Long = TripLocationService.MIN_INTERVAL_MS,
+    private val minDistanceM: Double = TripLocationService.MIN_DISTANCE_M,
+    private val heartbeatMs: Long = TripLocationService.HEARTBEAT_MS,
+) {
+    private var hasSent = false
+    private var sentAtMs = 0L
+    private var sentLat = 0.0
+    private var sentLng = 0.0
+
+    /** Пора ли отправить эту точку. Ничего не запоминает — запоминает [sent]. */
+    fun due(nowMs: Long, lat: Double, lng: Double): Boolean {
+        if (!hasSent) return true
+        val sinceMs = nowMs - sentAtMs
+        if (sinceMs < minIntervalMs) return false
+        return sinceMs >= heartbeatMs || metersBetween(sentLat, sentLng, lat, lng) >= minDistanceM
+    }
+
+    /** Точка ушла в канал — от неё считаем и паузу, и расстояние. */
+    fun sent(nowMs: Long, lat: Double, lng: Double) {
+        hasSent = true
+        sentAtMs = nowMs
+        sentLat = lat
+        sentLng = lng
+    }
+
+    /** Новая поездка или стоп: следующая точка уходит сразу. */
+    fun reset() {
+        hasSent = false
+    }
+
+    private fun metersBetween(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLng = Math.toRadians(lng2 - lng1)
+        val h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
+        return 2 * 6_371_000.0 * Math.asin(Math.min(1.0, Math.sqrt(h)))
     }
 }
