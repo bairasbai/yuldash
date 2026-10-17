@@ -1,8 +1,9 @@
 // «Не вышел» нельзя отметить пассажиру «в пути» (решение 14.10.2026, docs/decisions.md).
-// Пассажир сам нажал «Я сел» → бронь onboard. Раньше в «Мои пассажиры» у водителя и тут висела
-// «Не вышел»: тап отменял бронь человека, который уже в машине. Теперь — объяснение и
-// «Сообщить о проблеме» (двусторонний разбор по брони), а сервер такую неявку не принимает (409).
-// Исполняем настоящий компонент; заменены только хуки React, язык и сеть.
+// С 17.10.2026 посадку отмечает водитель: у подтверждённого пассажира «Сел» рядом с «Не вышел»
+// (DriverBoarding), «в пути» — «Пассажир в машине» и «Отменить» в первые 5 минут, а когда окно
+// прошло — объяснение и «Сообщить о проблеме» (двусторонний разбор по брони). Сервер неявку
+// «в пути» не принимает (409). Исполняем настоящий компонент; заменены только хуки React, язык,
+// сеть и сам DriverBoarding (его проверяет driver-marks-boarding-test.mjs).
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,7 @@ const modules = {
   states: `export const LoadingList='loading';`,
   icons: `export const IconProfile='icon'; export const IconStar='icon';`,
   card: `export default 'FileIncidentCard';`,
+  boarding: `export default 'DriverBoarding';`,
   cabinet: `export const SectionHeader='SectionHeader';`,
 };
 
@@ -36,6 +38,7 @@ const result = await build({
           : p.endsWith("/States") ? "states"
           : p.endsWith("/Icons") ? "icons"
           : p.endsWith("/FileIncidentCard") ? "card"
+          : p.endsWith("/DriverBoarding") ? "boarding"
           : p.endsWith("/cabinetUi") ? "cabinet"
           : null;
         return key ? { path: key, namespace: "mock" } : null;
@@ -58,8 +61,10 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 
 const rows = [
   { booking_id: 1, passenger_id: 11, passenger_name: "Айгуль", passenger_rating: null, route: "Уфа → Сибай", status: "confirmed", my_stars: 0 },
-  { booking_id: 2, passenger_id: 12, passenger_name: "Ринат", passenger_rating: 4.8, route: "Уфа → Сибай", status: "onboard", my_stars: 0 },
+  { booking_id: 2, passenger_id: 12, passenger_name: "Ринат", passenger_rating: 4.8, route: "Уфа → Сибай", status: "onboard", my_stars: 0, boarding_undo_sec: 0 },
 ];
+const boardingOf = (row) => all(row).find((n) => n.type === "DriverBoarding");
+const DISPUTE = /Если пассажир на самом деле не садился — сообщи о проблеме/;
 h.rows = rows;
 // Состояния компонента по порядку useState: boot, rows, busyId, note, disputeId, filedIds.
 h.states = ["ready", rows, null, "", null, []];
@@ -69,9 +74,19 @@ const confirmedRow = rowOf(tree, 1);
 const onboardRow = rowOf(tree, 2);
 assert.ok(confirmedRow && onboardRow, "обе брони видны в «Едут с тобой»");
 assert.ok(buttonIn(confirmedRow, "Не вышел"), "по подтверждённой брони неявку отметить можно");
+// «Сел» рядом с «Не вышел»: посадку отмечает водитель (решение 17.10.2026).
+const sat = boardingOf(confirmedRow);
+assert.ok(sat, "у подтверждённого пассажира нет «Сел»");
+assert.equal(sat.props.bookingId, 1);
+assert.equal(sat.props.status, "confirmed");
+const order = all(confirmedRow).filter((n) => n.type === "DriverBoarding" || (n.type === "button" && text(n).includes("Не вышел")));
+assert.equal(order[0].type, "DriverBoarding", "«Сел» стоит перед «Не вышел»");
 assert.equal(buttonIn(onboardRow, "Не вышел"), undefined, "пассажир «в пути» — «Не вышел» нет");
-assert.match(text(onboardRow), /Пассажир отметил «Я сел»/, "водителю объясняют, почему кнопки нет");
-const report = buttonIn(onboardRow, "Сообщить о проблеме");
+// «В пути»: отметка с её отменой, а разбор — внутри, на то время, когда отменить уже нельзя.
+const onboard = boardingOf(onboardRow);
+assert.ok(onboard && onboard.props.status === "onboard" && onboard.props.undoSec === 0, "«в пути» — отметка водителя с окном отмены");
+assert.match(text(onboard), DISPUTE, "водителю объясняют, почему «Не вышел» нет");
+const report = buttonIn(onboard, "Сообщить о проблеме");
 assert.ok(report, "вместо неявки — «Сообщить о проблеме»");
 
 // «Сообщить о проблеме» открывает существующий разбор по брони с выбранным типом.
@@ -87,22 +102,32 @@ tree = render();
 assert.match(text(rowOf(tree, 2)), /Разбор открыт/, "после отправки видно, что разбор открыт");
 assert.equal(buttonIn(rowOf(tree, 2), "Сообщить о проблеме"), undefined);
 
-// Гонка: список старый, а пассажир уже нажал «Я сел» — сервер отвечает 409, список перечитываем.
-h.noShowResult = () => Promise.reject(new ApiError(409, "Пассажир уже отметил «Я сел» — неявку не отметить."));
+// Гонка: список старый, а посадку уже отметили (второй телефон) — сервер отвечает 409, список перечитываем.
+h.noShowResult = () => Promise.reject(new ApiError(409, "Пассажир уже отмечен в машине — неявку не отметить."));
 const before = h.fetches;
 buttonIn(rowOf(tree, 1), "Не вышел").props.onClick();
 await tick(); await tick();
 assert.deepEqual(h.noShows, [1]);
-assert.equal(h.states[3], "Пассажир уже отметил «Я сел» — неявку не отметить.", "показан ответ сервера");
+assert.equal(h.states[3], "Пассажир уже отмечен в машине — неявку не отметить.", "показан ответ сервера");
 assert.equal(h.fetches, before + 1, "после 409 список перечитан — кнопка сменится на разбор");
 
-// Старый сервер без passenger_id: объяснение есть, «Не вышел» по-прежнему нет.
-h.states = ["ready", [{ ...rows[1], booking_id: 3, passenger_id: undefined }], null, "", null, []];
+// «Сел» / «Отменить» прошли — DriverBoarding просит перечитать: без аргументов (ответ действия —
+// не сигнал отмены запроса) и с показом ошибок в общем месте экрана.
+const beforeReload = h.fetches;
+boardingOf(rowOf(tree, 1)).props.onChanged({ ok: true, status: "onboard", boarding_undo_sec: 300 });
+assert.equal(h.fetches, beforeReload + 1, "после «Сел» список перечитан");
+boardingOf(rowOf(tree, 1)).props.onError("Посадку можно отметить за 30 минут до выезда — не раньше");
+assert.equal(h.states[3], "Посадку можно отметить за 30 минут до выезда — не раньше");
+
+// Старый сервер без passenger_id и без boarding_undo_sec: объяснение есть, «Не вышел» по-прежнему нет.
+h.states = ["ready", [{ ...rows[1], booking_id: 3, passenger_id: undefined, boarding_undo_sec: undefined }], null, "", null, []];
 tree = render();
 assert.equal(buttonIn(rowOf(tree, 3), "Не вышел"), undefined);
-assert.match(text(rowOf(tree, 3)), /Пассажир отметил «Я сел»/);
+assert.equal(boardingOf(rowOf(tree, 3)).props.undoSec, 0, "старый сервер — отменять нечего");
+assert.match(text(rowOf(tree, 3)), DISPUTE);
 
-console.log("✓ «в пути»: «Не вышел» спрятан, есть «Сообщить о проблеме»");
+console.log("✓ подтверждённый пассажир: «Сел» перед «Не вышел»");
+console.log("✓ «в пути»: «Не вышел» спрятан, отметка с окном отмены, разбор внутри неё");
 console.log("✓ разбор открывается по брони с типом passenger_no_show");
-console.log("✓ 409 от сервера перечитывает список");
+console.log("✓ 409 от сервера перечитывает список; «Сел»/«Отменить» перечитывают без аргументов");
 console.log("✓ старый сервер без passenger_id — неявки нет, объяснение есть");

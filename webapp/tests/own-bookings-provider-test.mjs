@@ -53,6 +53,8 @@ const mocks = {
   tripchat: `export default "tripchat";`,
   offline: `export default "offline";`,
   driverloc: `export default "driverloc";`,
+  driverboarding: `export default "driverboarding";`,
+  boardingwait: `export default "boardingwait";`,
   outbox: `export const enqueue=async()=>{};`,
 };
 const icons = [...readFileSync(root+"src/components/Icons.tsx","utf8").matchAll(/export (?:const|function) (Icon\w+)/g)].map(m=>m[1]);
@@ -67,6 +69,7 @@ const suffixes = {
   "/components/WeatherWarningCard":"weather", "/components/RoadsideHelp":"roadside",
   "/components/ShareTripCard":"share", "/components/TripChatCard":"tripchat",
   "/components/OfflineTripPass":"offline", "/utils/outbox":"outbox", "/components/DriverLocationShare":"driverloc",
+  "/components/DriverBoarding":"driverboarding", "/components/BoardingWait":"boardingwait",
 };
 const result=await build({
   stdin:{contents:`export {OwnBookingsProvider,useOwnBooking,useRefreshOwnBookings} from "./src/booking/OwnBookingsProvider.tsx";
