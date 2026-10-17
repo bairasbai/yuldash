@@ -59,6 +59,17 @@ class RideshareActiveTripGuardTest {
         assertEquals("done", activeTripNextStatus("passenger", "", "arrived", "onboard"))
     }
 
+    @Test
+    fun `driver can finish from the trip screen without marking boarding`() {
+        // «Подъезжаю» → главная «Пассажир сел», рядом «Завершить поездку»: забыл отметить — закрывает сам.
+        assertTrue(activeTripShowsDriverFinish("driver", "departed", "arriving"))
+        assertTrue(activeTripShowsDriverFinish("driver", "arriving", "boarded"))
+        assertFalse("главная уже «Завершить» — вторая не нужна", activeTripShowsDriverFinish("driver", "arriving", "done"))
+        assertFalse("до «Выехал» поездка не началась", activeTripShowsDriverFinish("driver", "", "departed"))
+        assertFalse(activeTripShowsDriverFinish("passenger", "arriving", "wait"))
+        assertTrue(source("BookingActiveTripScreen.kt").contains("finishText = if (activeTripShowsDriverFinish(role, driverPhase, nextTripStatus)) {"))
+    }
+
     /** Пассажирского «Я сел» нет ни при каком состоянии: его можно было нажать из дома. */
     @Test
     fun `passenger never gets I sat — the driver marks boarding`() {

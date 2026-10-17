@@ -1853,7 +1853,7 @@ private fun ActiveTripContent(
                             else updateTripStatus(nextTripStatus)
                         }
                     },
-                    finishText = if (role == "driver" && driverPhase == "departed" && nextTripStatus != "done") {
+                    finishText = if (activeTripShowsDriverFinish(role, driverPhase, nextTripStatus)) {
                         appText("Завершить поездку", "Сәфәрҙе тамамлау")
                     } else null,
                     onFinish = { if (isTripSessionCurrent()) showDriverFinishConfirmation = true },

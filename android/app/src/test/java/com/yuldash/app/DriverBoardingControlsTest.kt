@@ -6,7 +6,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -37,6 +37,10 @@ import java.util.concurrent.CopyOnWriteArrayList
  *  • водитель: «Сел» рядом с «Не пришёл» → «Пассажир в машине» и «Отменить · 5:00»;
  *    «Отменить» возвращает «Сел»; отказ сервера — его словами;
  *  • пассажир: «Водитель отметит посадку» и «Сообщить о проблеме» (разбор с водителем брони).
+ *
+ * Правило `v2`, как у остальных сетевых тестов Compose: корутина продолжается на главном потоке,
+ * как в приложении (там `rememberCoroutineScope` — на главном диспетчере). Старое правило
+ * продолжало её на потоке сети, и тост после ответа сервера падал «Can't toast… Looper» (CI PR174).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
