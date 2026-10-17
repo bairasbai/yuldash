@@ -170,6 +170,12 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     if (final) setState(final);
   }
 
+  /** Насовсем: слежение за местом снято, соединение закрыто, повторов не будет. */
+  function retire(final?: ShareState) {
+    halt(final);
+    stopped = true;
+  }
+
   /**
    * Отправить последнюю точку, если сокет готов и прошло ≥ 7 с. Раньше срока — не теряем её,
    * а откладываем до конца паузы: машина остановилась у подъезда сразу после прошлого кадра —
@@ -177,8 +183,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
    */
   function flush(force = false) {
     if (!current()) {
-      halt();
-      stopped = true;
+      retire();
       return;
     }
     if (!last || !socket || !authed || socket.readyState !== OPEN) return;
@@ -207,12 +212,23 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     timer = deps.setTimer(() => {
       timer = null;
       if (current()) connect();
+      else retire();
     }, ms);
   }
 
   function connect() {
-    if (!current() || socket) return;
+    if (!current()) {
+      retire();
+      return;
+    }
+    if (socket) return;
+    // Нет ключа входа — соединение не открываем вовсе (Android LocationSocket: currentToken() ?: return):
+    // без первого кадра {type:"auth"} точка ушла бы на сервер от неизвестно кого.
     const token = deps.token();
+    if (!token) {
+      retire("ended");
+      return;
+    }
     let s: SocketLike;
     try {
       s = deps.openSocket();
@@ -225,8 +241,12 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     }
     socket = s;
     s.onopen = () => {
-      if (socket !== s || !current()) return;
-      if (token) s.send(JSON.stringify({ type: "auth", token }));
+      if (socket !== s) return;
+      if (!current()) {
+        retire();
+        return;
+      }
+      s.send(JSON.stringify({ type: "auth", token }));
       authed = true;
       attempt = 0;
       setState("sharing");
@@ -243,24 +263,28 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
       if (socket !== s) return;
       socket = null;
       authed = false;
-      if (!current()) return;
-      const reason = String(ev?.reason ?? "");
-      if (ev?.code === 1008 && /ended|forbidden/i.test(reason)) {
-        // Поездку завершили или отменили, бронь не наша — точка больше никому не нужна.
-        halt("ended");
-        stopped = true;
+      if (!current()) {
+        retire();
         return;
       }
+      const reason = String(ev?.reason ?? "");
       if (ev?.code === 1008 && /not active/i.test(reason)) {
         // Бронь ещё не подтверждена — подождём, но не вечно (Android: ~10 минут).
         if (softAttempt >= MAX_SOFT_RETRIES) {
-          halt("ended");
-          stopped = true;
+          retire("ended");
           return;
         }
         softAttempt++;
         setState("reconnecting");
         schedule(SOFT_RETRY_MS);
+        return;
+      }
+      if (ev?.code === 1008 || (ev?.code >= 4000 && ev?.code <= 4999)) {
+        // Отказ сервера — конец, как в Android LocationSocket: поездка закончилась («Trip ended»),
+        // бронь не наша («Forbidden»), ключ входа не принят или отозван («Invalid token»,
+        // «Token revoked» — «Выйти со всех устройств»). Повторять бессмысленно: точка больше
+        // не уходит, слежение за местом снято.
+        retire("ended");
         return;
       }
       attempt++;
@@ -278,19 +302,29 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     setState("asking");
     watchId = deps.geolocation.watchPosition(
       (p) => {
-        if (!current()) return;
+        if (!current()) {
+          // Вышли из аккаунта или сменили его — слежение за местом снимаем сразу, а не «молчим».
+          retire();
+          return;
+        }
         const heading = p.coords.heading;
         last = {
           lat: p.coords.latitude,
           lng: p.coords.longitude,
           bearing: typeof heading === "number" && Number.isFinite(heading) ? heading : null,
         };
-        if (!socket) connect();
-        else flush();
+        // Соединения нет и повтор уже назначен — ждём его: новая точка GPS паузу 1-2-4…30 с
+        // не обходит (раньше каждая точка открывала соединение раз в секунду).
+        if (!socket) {
+          if (timer === null) connect();
+        } else flush();
         if (state === "unavailable") setState(authed ? "sharing" : "asking");
       },
       (e) => {
-        if (!current()) return;
+        if (!current()) {
+          retire();
+          return;
+        }
         if (e?.code === 1) {
           // Доступ закрыт: точку не шлём, соединение не держим. Экран живёт дальше.
           last = null;

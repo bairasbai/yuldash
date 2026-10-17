@@ -84,6 +84,15 @@ for (const lang of ["ru", "ba"]) {
     assert.equal(button(rowOf(tree, 3), L("Открыть поездку", "Сәфәрҙе асыу")), undefined, "завершённую не «открывают» отсюда");
   });
 
+  await t.test(`${lang}: во всём блоке звёзды есть только у завершённой — едущих нет и в разделе оценки`, async () => {
+    const { tree } = await open(lang);
+    const rated = all(tree).filter((n) => n.key != null && String(n.props.className ?? "").includes("list-row") && stars(n).length > 0);
+    assert.deepEqual(rated.map((n) => n.key), [3], "строки со звёздами: " + rated.map((n) => n.key).join(", "));
+    assert.equal(stars(tree).length, 5, "звёзд ровно пять — у одной завершённой поездки");
+    const rows = all(tree).filter((n) => n.key != null && String(n.props.className ?? "").includes("list-row"));
+    assert.deepEqual(rows.map((n) => n.key).sort(), [1, 2, 3], "каждая бронь — ровно в одном разделе");
+  });
+
   await t.test(`${lang}: отменённых и ждущих ответа в этом блоке нет`, async () => {
     const { tree } = await open(lang);
     assert.equal(rowOf(tree, 4), undefined, "отменённая не видна");

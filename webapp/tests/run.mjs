@@ -161,6 +161,9 @@ const SUITES = [
   { test: "booking-cancel-reason-test", src: null, out: null, bundle: false },
   // Точка водителя с сайта в канал /ws/trip/{id}/location: только в пути, без журнала и аналитики, отказ не роняет экран.
   { test: "driver-location-share-test", src: null, out: null, bundle: false },
+  // …и сторожа приёмки PR155: без шторма соединений (лестница 1-2-4…30 с), отказ в ключе — конец,
+  // без ключа — ни одного соединения, выход из аккаунта и уход со страницы останавливают отправку.
+  { test: "driver-location-share-guard-test", src: null, out: null, bundle: false },
   // Такси выключено (/config/features) — такси-пунктов нет в профиле и обоих кабинетах.
   { test: "taxi-flag-hides-test", src: null, out: null, bundle: false },
   // «Позвать помощь?» и «Завершить поездку?» — окно перед необратимым, как в Android.
