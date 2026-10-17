@@ -106,10 +106,173 @@ class LocationSocketLifecycleTest {
         networkReturned()
         assertEquals(2, factory.connections.size)
         factory.latest.open()
-        factory.latest.serverClose(1008, "Invalid token")
+        factory.latest.serverClose(1008, "Forbidden")
         while (scheduled.isNotEmpty()) scheduled.removeFirst().run()
         assertEquals("Old timers must not revive a terminal subscription", 2, factory.connections.size)
         assertEquals(1, terminated)
+    }
+
+    /** Канал с подставным ключом и обновлением — как ApiClient, но без сети. */
+    private fun tokenSocket(key: AtomicReference<String?>, refresh: suspend (String) -> Result<Unit>): LocationSocket {
+        socket.close()
+        return LocationSocket(
+            bookingId = 42,
+            onPeer = {},
+            onTerminated = { terminated++ },
+            socketFactory = factory,
+            scheduleTask = { task, delay, unit ->
+                delays.add(unit.toSeconds(delay))
+                scheduled.addLast(task)
+            },
+            currentToken = { key.get() },
+            refreshToken = { token, _ -> refresh(token) },
+        ).also { socket = it }
+    }
+
+    @Test
+    fun noGpsFrameLeavesBeforeTheAuthenticationFrame() {
+        // OkHttp sends queued frames before the one onOpen sends: a point written before onOpen
+        // reached the server first, was taken for a login attempt and closed the channel.
+        socket.connect()
+        assertFalse("No point may be queued before the authentication frame", socket.sendLoc(54.0, 56.0))
+        assertTrue(factory.latest.sent.isEmpty())
+        factory.latest.open()
+        assertEquals("auth", JSONObject(factory.latest.sent.first()).getString("type"))
+        assertTrue(socket.sendLoc(54.0, 56.0))
+        assertEquals("loc", JSONObject(factory.latest.sent.last()).getString("type"))
+    }
+
+    @Test
+    fun keyGoneWhileWaitingForAFreshOneStopsTheOwner() {
+        val key = AtomicReference<String?>("old")
+        tokenSocket(key) { Result.failure(IOException("offline")) }
+        socket.connect()
+        factory.latest.open()
+        factory.latest.serverClose(1008, "Token revoked")
+        key.set(null)   // signed out while the refresh was pending
+        scheduled.removeFirst().run()
+        assertEquals(1, factory.connections.size)
+        assertEquals("No key means no trip channel — GPS must stop", 1, terminated)
+    }
+
+    @Test
+    fun afterTheKeyIsReplacedNetworkReturnReconnectsInstantlyAgain() {
+        val key = AtomicReference<String?>("old")
+        tokenSocket(key) { key.set("fresh"); Result.success(Unit) }
+        socket.connect()
+        factory.latest.open()
+        factory.latest.serverClose(1008, "Token revoked")
+        scheduled.removeFirst().run()
+        factory.latest.open()
+        factory.latest.listener.onFailure(factory.latest, IOException("tunnel"), null)
+        networkReturned()
+        assertEquals("The waiting state must clear once the fresh key is in use", 3, factory.connections.size)
+        assertEquals("fresh", JSONObject(factory.latest.also { it.open() }.sent.first()).getString("token"))
+    }
+
+    @Test
+    fun anotherAccountWhileWaitingNeverOpensThisTripChannel() {
+        val key = AtomicReference<String?>("old")
+        tokenSocket(key) { Result.success(Unit) }
+        socket.connect()
+        factory.latest.open()
+        factory.latest.serverClose(1008, "Token revoked")
+        ApiClient.saveToken("someone-else")   // a different person signed in on this phone
+        key.set("someone-else")
+        scheduled.removeFirst().run()
+        assertEquals("Another account's key must never open this booking's channel", 1, factory.connections.size)
+        assertEquals(1, terminated)
+    }
+
+    @Test
+    fun networkReturnReplacingALiveChannelWaitsForAuthenticationAgain() {
+        socket.connect()
+        factory.latest.open()
+        assertTrue(socket.sendLoc(54.0, 56.0))
+        networkReturned()   // the live channel is replaced; its late close is dropped by generation
+        assertEquals(2, factory.connections.size)
+        assertFalse("The replacement must authenticate before any point", socket.sendLoc(54.0, 56.0))
+        assertTrue(factory.latest.sent.isEmpty())
+        factory.latest.open()
+        assertTrue(socket.sendLoc(54.0, 56.0))
+    }
+
+    @Test
+    fun signingOutStopsAnAlreadyOpenChannel() {
+        socket.connect()
+        factory.latest.open()
+        assertTrue(socket.sendLoc(54.0, 56.0))
+        ApiClient.saveToken("someone-else")   // another session on this phone
+        assertFalse("No point may leave after the owner session ended", socket.sendLoc(54.1, 56.1))
+        assertEquals("loc", JSONObject(factory.latest.sent.last()).getString("type"))
+        assertEquals(2, factory.latest.sent.size)
+        assertEquals("The trip service must stop", 1, terminated)
+    }
+
+    @Test
+    fun networkReturnWhileWaitingNeverResendsTheRejectedKey() {
+        val key = AtomicReference<String?>("old")
+        tokenSocket(key) { Result.failure(IOException("offline")) }
+        socket.connect()
+        factory.latest.open()
+        factory.latest.serverClose(1008, "Invalid token")
+        networkReturned()
+        assertEquals(1, factory.connections.size)
+    }
+
+    @Test
+    fun expiredKeyMidTripReconnectsWithTheRefreshedKey() {
+        // Ключ живёт 12 ч; в поездке с погасшим экраном запросов, которые обновили бы его по 401, нет.
+        val key = AtomicReference<String?>("old")
+        val asked = mutableListOf<String>()
+        tokenSocket(key) { rejected -> asked.add(rejected); key.set("fresh"); Result.success(Unit) }
+        socket.connect()
+        factory.latest.open()
+        factory.latest.serverClose(1008, "Token revoked")
+        assertEquals("The refused key must not be retried at once", 1, factory.connections.size)
+        assertEquals(listOf(1L), delays)
+        scheduled.removeFirst().run()
+        assertEquals("The rejected key is what gets refreshed", listOf("old"), asked)
+        assertEquals("A refreshed key must reopen the channel", 2, factory.connections.size)
+        factory.latest.open()
+        assertEquals("fresh", JSONObject(factory.latest.sent.first()).getString("token"))
+        assertTrue("GPS flows again after the refresh", socket.sendLoc(54.0, 56.0))
+        assertEquals("Key expiry must not stop the trip", 0, terminated)
+    }
+
+    @Test
+    fun refusedRefreshIsTheRealLogoutAndStopsTheOwner() {
+        val key = AtomicReference<String?>("old")
+        tokenSocket(key) { Result.failure(ApiException(401, "revoked")) }
+        socket.connect()
+        factory.latest.open()
+        factory.latest.serverClose(1008, "Invalid token")
+        scheduled.removeFirst().run()
+        assertEquals(1, factory.connections.size)
+        assertEquals("A refused refresh (sign-out everywhere) is terminal", 1, terminated)
+        assertTrue(scheduled.isEmpty())
+        networkReturned()
+        assertEquals("Network restoration must not revive a revoked session", 1, factory.connections.size)
+    }
+
+    @Test
+    fun refreshWithoutNetworkRetriesOnTheLadderAndNeverResendsTheRejectedKey() {
+        val key = AtomicReference<String?>("old")
+        var online = false
+        tokenSocket(key) { if (!online) Result.failure(IOException("offline")) else { key.set("fresh"); Result.success(Unit) } }
+        socket.connect()
+        factory.latest.open()
+        factory.latest.serverClose(1008, "Token revoked")
+        repeat(4) { scheduled.removeFirst().run() }
+        networkReturned()
+        assertEquals("The rejected key must not reach the server again", 1, factory.connections.size)
+        assertEquals(listOf(1L, 2L, 4L, 8L, 16L), delays)
+        assertEquals(0, terminated)
+        online = true
+        scheduled.removeFirst().run()
+        assertEquals(2, factory.connections.size)
+        factory.latest.open()
+        assertEquals("fresh", JSONObject(factory.latest.sent.first()).getString("token"))
     }
 
     @Test

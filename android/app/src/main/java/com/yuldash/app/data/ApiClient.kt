@@ -3754,7 +3754,7 @@ object ApiClient {
 
     /** Обновить пару токенов по refresh. Mutex: при пачке 401 рефреш идёт один раз.
      *  `staleToken` — access, с которым словили 401; если он уже сменился — другой поток обновил. */
-    private suspend fun tryRefresh(staleToken: String?, generation: Long): Result<Unit> = refreshMutex.withLock {
+    internal suspend fun tryRefresh(staleToken: String?, generation: Long): Result<Unit> = refreshMutex.withLock {
         val intent = synchronized(sessionLock) {
             if (!sameSession(generation)) return@withLock staleSession()
             if (token != null && token != staleToken) return@withLock Result.success(Unit)
