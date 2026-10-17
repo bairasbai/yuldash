@@ -22,12 +22,16 @@ import json
 import time
 from contextlib import contextmanager
 
+import anyio
 import pytest
 from sqlmodel import Session
 
 from app import ws_guard
 from app.db import engine
 from app.models import ParcelDelivery, UserRole
+from app.routers.chat import _parcel_chat_key
+from app.routers.location import PARCEL_LOC_BASE
+from app.services import manager
 
 from test_api import _ride
 
@@ -70,6 +74,44 @@ def _дошло(окно, кадр: dict) -> bool:
         return True
     except Exception:
         return False
+
+
+# Ниже — ожидания по условию, а не по часам (приёмка PR157: тест про снятого курьера падал).
+# Причина была не в «поспать 0,2 с при стороже 0,3 с», а в гонке на пороге: `_окно` возвращается,
+# как только ключ входа ОТПРАВЛЕН, а проверяет его сервер уже в своём потоке. Тест сразу снимал
+# курьера в базе — и если эта правка успевала раньше проверки, сервер честно не пускал снятого
+# курьера («Forbidden»), сторож не запускался вовсе. Тестовый клиент закрытия со стороны сервера
+# не замечает: пинги «уходили» в мёртвое окно, а чтение у отправителя ждало кадра, которого
+# не будет, — до таймаута в 60 с. Даже без нагрузки так кончались 7 прогонов из 40 (17.10.2026).
+
+def _впущен(client, ключ: int, было: int = 0) -> None:
+    """Дождаться, пока сервер проверит ключ входа и впустит окно в раздачу (`manager.register`)."""
+    async def ждать() -> None:
+        with anyio.fail_after(10):
+            while len(manager.active_connections.get(ключ, [])) <= было:
+                await anyio.sleep(0.01)
+
+    try:
+        client.portal.call(ждать)
+    except TimeoutError:
+        pytest.fail("сервер за 10 с так и не впустил окно в канал — дальше проверять нечего")
+
+
+def _приём(окно, секунд: float = 10.0):
+    """Следующее событие окна или None, если за `секунд` ничего не пришло.
+
+    Обычное `receive()` ждёт вечно: пропавший кадр превращал тест в зависание до таймаута, а не
+    в понятное падение. Очередь клиента читаем напрямую, как `test_rest_chat_local_delivery.py`.
+    """
+    async def ждать():
+        with anyio.move_on_after(секунд):
+            return await окно._send_rx.receive()
+        return None
+
+    return окно.portal.call(ждать)
+
+
+_ЗАКРЫЛ_СТОРОЖ = {"type": "websocket.close", "code": 1008, "reason": "Access ended"}
 
 
 def test_блокировка_закрывает_и_карту(client, user_factory, monkeypatch):
@@ -152,26 +194,28 @@ def test_снятый_курьер_уходит_с_карты_доставки(c
         s.refresh(p)
         pid = p.id
     дошло = None
+    ящик_курьера = -(PARCEL_LOC_BASE + pid * 2)          # куда сервер шлёт точки курьеру
+    ящик_отправителя = -(PARCEL_LOC_BASE + pid * 2 + 1)  # и отправителю (см. `parcel_location`)
 
     with _окно(client, f"/ws/parcel/{pid}/location", первый["token"]) as окно_снятого:
+        _впущен(client, ящик_курьера)           # курьер в канале — сторож запущен, теперь снимаем
         with Session(engine) as s:              # поддержка сняла курьера, посылку взял другой
             p = s.get(ParcelDelivery, pid)
             p.courier_id = второй["id"]
             s.add(p)
             s.commit()
-        # Ждём, пока сторож канала проснётся. В тестовом клиенте петля событий крутится только
-        # во время обмена, поэтому «поспать» мало — шлём в сокет пустые кадры, пока он не закроется.
-        for _ in range(20):
-            time.sleep(0.2)
-            if not _дошло(окно_снятого, {"type": "ping"}):
-                break
+        закрытие = _приём(окно_снятого)         # сторож просыпается и закрывает окно
+        assert закрытие == _ЗАКРЫЛ_СТОРОЖ, f"сторож не закрыл окно снятого курьера: {закрытие}"
 
         with _окно(client, f"/ws/parcel/{pid}/location", отправитель["token"]) as окно_отправителя:
+            _впущен(client, ящик_отправителя)
+            # Когда сторож закрыл окно, обработчик канала уже ждал следующий кадр — и примет ровно
+            # один. Это отдельная дыра в один кадр (docs/tasks.md); раньше её тратили пинги цикла
+            # ожидания, теперь — этот пустой кадр. Проверяем то же: дальше точки не идут.
+            _дошло(окно_снятого, {"type": "ping"})
             if _дошло(окно_снятого, {"type": "loc", "lat": 52.1111, "lng": 58.2222}):
-                try:
-                    дошло = json.loads(окно_отправителя.receive_text())
-                except Exception:
-                    дошло = None
+                кадр = _приём(окно_отправителя, 2.0)
+                дошло = json.loads(кадр["text"]) if кадр and кадр.get("text") else None
 
     assert дошло is None, (
         f"снятый курьер остался на карте чужой доставки, и отправитель следит за машиной "
@@ -194,26 +238,28 @@ def test_снятый_курьер_не_слышит_переписку(client, 
         s.refresh(p)
         pid = p.id
     услышал = None
+    ящик = _parcel_chat_key(pid)                # у чата посылки один ящик на обе стороны
 
     with _окно(client, f"/ws/parcel/{pid}/chat", первый["token"]) as окно_снятого:
+        # Та же гонка на пороге, что у карты: без этого ожидания в части прогонов сервер не пускал
+        # курьера вовсе, и тест проходил вхолостую — сторожа он при этом не проверял.
+        _впущен(client, ящик)
         with Session(engine) as s:              # курьера сняли, посылку взял другой
             p = s.get(ParcelDelivery, pid)
             p.courier_id = второй["id"]
             s.add(p)
             s.commit()
-        for _ in range(20):                     # ждём, пока сторож окна проснётся
-            time.sleep(0.2)
-            if not _дошло(окно_снятого, {"type": "ping"}):
-                break
+        закрытие = _приём(окно_снятого)         # сторож просыпается и закрывает окно
+        assert закрытие == _ЗАКРЫЛ_СТОРОЖ, f"сторож не закрыл окно снятого курьера: {закрытие}"
 
         with _окно(client, f"/ws/parcel/{pid}/chat", отправитель["token"]) as окно_отправителя:
+            _впущен(client, ящик)               # сторож вычеркнул курьера: в ящике только отправитель
             if _дошло(окно_отправителя, {
                     "type": "message",
                     "text": "Ключ под ковриком, свекровь глухая — стучите громко, дом 5 кв 3"}):
-                try:
-                    услышал = json.loads(окно_снятого.receive_text()).get("text", "")
-                except Exception:
-                    услышал = None
+                _приём(окно_отправителя)        # своё же сообщение вернулось — раздача прошла
+                кадр = _приём(окно_снятого, 2.0)
+                услышал = json.loads(кадр["text"]).get("text", "") if кадр and кадр.get("text") else None
 
     assert not услышал, (
         f"снятый курьер слышит переписку отправителя с НОВЫМ курьером: {услышал!r}. "
