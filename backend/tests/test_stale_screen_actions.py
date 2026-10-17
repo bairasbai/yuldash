@@ -45,8 +45,8 @@ def test_отменённую_бронь_нельзя_перевести_в_по
     driver, passenger, _, bid = _booking(client, user_factory, "ReviveStatus")
     client.post(f"/bookings/{bid}/cancel", headers=passenger["auth"])
 
-    r = client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "boarded"})
-    assert r.status_code != 200, "по отменённой брони прошёл статус «сел в машину»"
+    r = client.post(f"/bookings/{bid}/driver-status", headers=driver["auth"], json={"status": "boarded"})
+    assert r.status_code != 200, "по отменённой брони прошла отметка «сел в машину»"
 
 
 def test_чужую_бронь_нельзя_подтвердить(client, user_factory):
@@ -64,7 +64,7 @@ def test_завершённую_поездку_нельзя_отменить(cli
     иначе водитель теряет и поездку, и деньги задним числом."""
     driver, passenger, _, bid = _booking(client, user_factory, "DoneCancel", departed=True)
     client.post(f"/bookings/{bid}/confirm", headers=driver["auth"])
-    client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "boarded"})
+    client.post(f"/bookings/{bid}/driver-status", headers=driver["auth"], json={"status": "boarded"})
     done = client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "done"})
     # Раньше тут стоял тихий выход «если не 200 — проверять нечего», и тест проходил впустую
     # на опечатке в адресе. Молчаливый пропуск хуже отсутствия теста: он показывает зелёный.
@@ -84,11 +84,11 @@ def test_завершённую_поездку_нельзя_отменить(cli
 def test_нельзя_сесть_в_машину_после_завершения(client, user_factory):
     driver, passenger, _, bid = _booking(client, user_factory, "BackwardStatus", departed=True)
     client.post(f"/bookings/{bid}/confirm", headers=driver["auth"])
-    client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "boarded"})
+    client.post(f"/bookings/{bid}/driver-status", headers=driver["auth"], json={"status": "boarded"})
     done = client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "done"})
     assert done.status_code == 200, f"поездку не удалось завершить: {done.status_code} {done.text[:200]}"
 
-    r = client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "boarded"})
+    r = client.post(f"/bookings/{bid}/driver-status", headers=driver["auth"], json={"status": "boarded"})
     assert r.status_code != 200, "поездка отыграла назад: из «завершена» вернулась в «еду»"
 
 

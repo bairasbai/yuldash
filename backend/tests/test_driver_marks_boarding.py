@@ -10,7 +10,9 @@
 * старое приложение со своим «Я сел» получает 409 «Посадку теперь отмечает водитель»;
 * всё, что раньше запускал «Я сел», запускает отметка водителя: «в пути», толчок каналу
   координат, уведомление пассажиру, SMS близким, запрет отмены пассажиром и неявки водителем;
-* водитель забыл отметить — поездка закрывается его «Завершить», как раньше.
+* водитель забыл отметить — поездка закрывается его «Завершить», как раньше;
+* «Завершить» пассажира — только после «Сел» водителя, иначе 409 (решение лида по PR #174):
+  завершив подтверждённую бронь сам, пассажир закрывал водителю «Не пришёл».
 """
 from datetime import timedelta
 
@@ -274,6 +276,53 @@ def test_forgotten_mark_still_closes_with_drivers_finish(client, user_factory):
     r = client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": "done"})
     assert r.status_code == 200, r.text
     assert client.get(f"/bookings/{bid}/role", headers=pax["auth"]).json()["status"] == "done"
+
+
+# ── «Завершить» пассажира — только после отметки водителя ──
+
+def _departed(ride_id: int, hours_ago: int = 2):
+    """Время выезда прошло (через API поездку в прошлом не создать)."""
+    with Session(engine) as s:
+        r = s.get(Ride, ride_id)
+        r.depart_at = utcnow() - timedelta(hours=hours_ago)
+        s.add(r)
+        s.commit()
+
+
+def test_passenger_cannot_finish_before_the_driver_marks_boarding(client, user_factory):
+    """Та же неявка другой дверью: пассажир не пришёл, а после времени выезда сам «завершил»
+    подтверждённую бронь прямым запросом — и «Не пришёл» водителю уже не поставить
+    (решение лида по PR #174, 17.10.2026). Завершает пассажир только после «Сел» водителя."""
+    drv, pax, ride, bid = _trip(client, user_factory, "paxdone")
+    _departed(ride["id"])
+    r = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "done"})
+    assert r.status_code == 409, f"пассажир закрыл бронь без посадки: {r.text}"
+    detail = r.json()["detail"]
+    assert detail["ru"] == "Поездку завершит водитель после посадки"
+    assert detail["ba"].strip() and detail["ba"] != detail["ru"]
+    assert _booking(bid).status == BookingStatus.confirmed
+    # Дверь к неявке открыта: водитель по-прежнему может отметить «Не пришёл».
+    no_show = client.post(f"/bookings/{bid}/no-show", headers=drv["auth"])
+    assert no_show.status_code == 200 and no_show.json()["status"] == "cancelled", no_show.text
+
+
+def test_passenger_cannot_finish_an_unconfirmed_booking_either(client, user_factory):
+    _drv, pax, ride, bid = _trip(client, user_factory, "paxdonepending", confirm=False)
+    _departed(ride["id"])
+    r = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "done"})
+    assert r.status_code == 409, r.text
+    assert _booking(bid).status == BookingStatus.pending
+
+
+def test_passenger_finishes_after_the_driver_marks_boarding(client, user_factory):
+    drv, pax, _ride, bid = _trip(client, user_factory, "paxdoneok")
+    assert _board(client, drv, bid).status_code == 200
+    r = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "done"})
+    assert r.status_code == 200, r.text
+    assert _booking(bid).status == BookingStatus.done
+    # Повтор по закрытой брони — тот же итог, не ошибка (очередь без сети шлёт повторно).
+    again = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "done"})
+    assert again.status_code == 200, again.text
 
 
 @pytest.mark.parametrize("status", ["departed", "arriving"])

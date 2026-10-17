@@ -194,6 +194,10 @@ def test_завершение_водителем_пассажиром_и_все�
                        json={"status": "done"}).status_code == 200
     assert р1.наступила() is False and р1.кончилась is True, "«Завершить» у водителя не погасил канал"
 
+    # Пассажир завершает только после «Сел» водителя (решения 17.10.2026).
+    assert client.post(f"/bookings/{b2}/driver-status", headers=водитель["auth"],
+                       json={"status": "boarded"}).status_code == 200
+    assert р2.наступила() is True, "отметка «Сел» не должна гасить канал — поездка идёт"
     assert client.post(f"/bookings/{b2}/trip-status", headers=п2["auth"],
                        json={"status": "done"}).status_code == 200
     assert р2.наступила() is False and р2.кончилась is True, "«Завершил» у пассажира не погасил канал"

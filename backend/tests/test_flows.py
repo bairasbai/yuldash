@@ -40,6 +40,14 @@ def just_left() -> str:
     return (utcnow() - timedelta(minutes=1)).replace(microsecond=0).isoformat() + "+00:00"
 
 
+def _boarded(client, drv, booking_id: int) -> None:
+    """Водитель подтвердил бронь и отметил «Сел». Завершает пассажир только после посадки,
+    отмеченной водителем (решения 17.10.2026): иначе «Завершить» закрывал бы «Не пришёл»."""
+    assert client.post(f"/bookings/{booking_id}/confirm", headers=drv["auth"]).status_code == 200
+    assert client.post(f"/bookings/{booking_id}/driver-status", headers=drv["auth"],
+                       json={"status": "boarded"}).status_code == 200
+
+
 def _trip(client, user_factory, depart_at: str | None = None):
     """Готовая поездка: водитель, поездка, пассажир, бронь. Возвращает (drv, pax, ride, booking).
 
@@ -304,6 +312,7 @@ def test_no_duplicate_booking(client, user_factory):
 
 def test_finish_trip_closes_booking(client, user_factory):
     drv, pax, ride, booking = _trip(client, user_factory, depart_at=just_left())
+    _boarded(client, drv, booking["id"])
     r = client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "done"})
     assert r.status_code == 200
     mine = client.get("/bookings/mine", headers=pax["auth"]).json()
@@ -422,7 +431,8 @@ def test_two_way_rating(client, user_factory):
     bid = booking["id"]
     # Оценить можно только ЗАВЕРШЁННУЮ поездку (анти-накрутка): до завершения — 409, после — 200.
     assert client.post(f"/bookings/{bid}/rate", headers=pax["auth"], json={"stars": 5}).status_code == 409
-    client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "done"})
+    _boarded(client, drv, bid)
+    assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "done"}).status_code == 200
     r = client.post(f"/bookings/{bid}/rate", headers=pax["auth"], json={"stars": 5})
     assert r.status_code == 200 and r.json()["ratee_id"] == drv["id"] and r.json()["rating"] == 5.0
     # рейтинг водителя виден в /me

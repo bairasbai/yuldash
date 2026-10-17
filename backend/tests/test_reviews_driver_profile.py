@@ -29,13 +29,23 @@ def _book(client, pax, ride_id, seats=1):
     return r.json()
 
 
+def _finish(client, drv, pax, booking_id):
+    """Водитель подтвердил и отметил «Сел», пассажир завершил: завершает пассажир только после
+    посадки, отмеченной водителем (решения 17.10.2026). Без этого поездка не состоялась."""
+    assert client.post(f"/bookings/{booking_id}/confirm", headers=drv["auth"]).status_code == 200
+    assert client.post(f"/bookings/{booking_id}/driver-status", headers=drv["auth"],
+                       json={"status": "boarded"}).status_code == 200
+    r = client.post(f"/bookings/{booking_id}/trip-status", headers=pax["auth"], json={"status": "done"})
+    assert r.status_code == 200, r.text
+
+
 def _done_trip(client, user_factory):
     """Завершённая поездка: (drv, pax, ride, booking) со статусом done."""
     drv = user_factory("Ильдар", role=UserRole.driver)
     pax = user_factory("Гульназ")
     ride = _publish(client, drv)
     booking = _book(client, pax, ride["id"])
-    client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "done"})
+    _finish(client, drv, pax, booking["id"])
     return drv, pax, ride, booking
 
 
@@ -143,7 +153,7 @@ def test_aggregates_trips_and_rating(client, user_factory):
         pax = user_factory(f"Пасс{i}")
         ride = _publish(client, drv, frm="Учалы", to=f"Город{i}")
         b = _book(client, pax, ride["id"])
-        client.post(f"/bookings/{b['id']}/trip-status", headers=pax["auth"], json={"status": "done"})
+        _finish(client, drv, pax, b["id"])
         client.post(f"/bookings/{b['id']}/rate", headers=pax["auth"], json={"stars": 4 + i})  # 4 и 5
     pub = client.get(f"/drivers/{drv['id']}/public").json()
     assert pub["trips_count"] == 2
