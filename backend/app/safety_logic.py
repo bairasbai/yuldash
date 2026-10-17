@@ -12,6 +12,7 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from . import trip_wake
 from .config import settings
 from .errors import herr
 from .models import (Booking, BookingStatus, DriverProfile, Incident, Rating, Ride, RideStatus,
@@ -501,6 +502,10 @@ def cancel_upcoming_after_suspension(session: Session, user_id: int) -> int:
     if not пассажирам and not водителям:
         return 0
     session.commit()                   # атомарно: поездки и брони одной транзакцией
+    # Каналы координат снятых броней закрываются сразу, а не через сторож (≤ 30 с): водитель на паузе
+    # по разбору не должен и полминуты видеть точку пассажирки (приёмка PR157).
+    for _uid, _маршрут, bid in пассажирам + водителям:
+        trip_wake.poke(bid)
 
     # Уведомления — ПОСЛЕ commit: сбой отправки не должен откатывать отмену.
     for uid, маршрут, bid in пассажирам:

@@ -929,6 +929,8 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
             completed.append(b)
         session.add(b)
     session.commit()
+    for b in affected:
+        trip_wake.poke(b.id)             # каналы координат этих броней закрываются сразу
     session.refresh(ride)
     # Бонус пригласившему — четвёртая дверь к «поездка состоялась» (волна 127). Три другие
     # (бронь у водителя, семейный контроль, такси) начисляли его давно, а эта кнопка —

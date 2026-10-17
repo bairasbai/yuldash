@@ -106,6 +106,11 @@ def _канал_мой(session: Session, я: int, второй, *, живо: boo
     return not is_blocked(session, я, второй)
 
 
+def _заблокированы(session: Session, a: int, b: int) -> bool:
+    from ..services import is_blocked
+    return is_blocked(session, a, b)
+
+
 def _вторая_сторона(я: int, первый, второй):
     """Кто на другом конце канала. None — если меня среди сторон уже нет."""
     if первый is not None and я == первый:
@@ -134,7 +139,8 @@ class _Пора:
     def __init__(self, booking_id: int) -> None:
         self._id = booking_id
         self._да = False
-        self.кончилась = False   # толчок показал: бронь отменена или завершена — канал закрыть
+        self.кончилась = False   # толчок показал: сделки нет или блокировка — канал закрыть
+        self.причина = "Trip ended"   # с какой причиной закрыть: блокировка — как у сторожа
         self._спросили_в = 0.0   # стенные часы НАЧАЛА последней проверки — по ним сверяем толчки
         self._не_раньше = 0.0    # монотонные часы: до этого момента базу повторно не спрашиваем
 
@@ -150,12 +156,19 @@ class _Пора:
         self._спросили_в = time.time()
         with Session(engine) as s:
             b = s.get(Booking, self._id)
+            r = s.get(Ride, b.ride_id) if b else None
+            if b is not None and r is not None and _заблокированы(s, b.passenger_id, r.driver_id):
+                # Кто-то из двоих нажал «Заблокировать» (ручка толкает канал): закрываем сразу и с той
+                # же причиной, что сторож, — он закрыл бы этот канал через ≤ 30 с (приёмка PR157).
+                self.кончилась = True
+                self.причина = "Access ended"
+                return False
             if self._да:
                 # Толчок по идущей поездке («Подъезжаю», отмена, неявка, снятие): назад не откатываем,
                 # но если сделки больше нет — канал закрывается сразу.
                 self.кончилась = b is None or b.status not in (BookingStatus.confirmed, BookingStatus.onboard)
                 return not self.кончилась
-            self._да = trip_is_live(b, s.get(Ride, b.ride_id) if b else None)
+            self._да = trip_is_live(b, r)
         self._не_раньше = _monotonic() + PRE_TRIP_RECHECK_SEC
         return self._да
 
@@ -253,7 +266,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                 # спрашивается не на каждый кадр, а раз в `PRE_TRIP_RECHECK_SEC` или по толчку «Выехал».
                 if not пора.наступила():
                     if пора.кончилась:
-                        await websocket.close(code=1008, reason="Trip ended")
+                        await websocket.close(code=1008, reason=пора.причина)
                         break
                     continue
                 # Анти-телепорт (B8-3): скорость > 200 км/ч от прошлой точки → кадр игнорируем

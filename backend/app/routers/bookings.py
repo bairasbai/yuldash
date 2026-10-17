@@ -631,6 +631,7 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
             booking.driver_phase = ""        # поездка кончилась — фазу сбрасываем
             session.add(booking)
             session.commit()
+            trip_wake.poke(booking.id)       # канал координат закрывается сразу (см. cancel_booking)
             # B8-4: реферальный бонус пригласившему за раскатавшегося водителя (идемпотентно).
             from .referral import reward_driver_referral
             reward_driver_referral(session, ride.driver_id)
