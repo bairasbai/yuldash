@@ -295,6 +295,19 @@ await test("шторка уже поднялась — обычный уход �
   assert.equal(browser.timers.filter((t) => t.on).length, 1, "страховка, если конец движения не придёт");
 });
 
+await test("закрыли в первый же кадр, подъём ещё не начался, — убрана сразу: не мелькает во весь рост", async () => {
+  browser.reduced = false;
+  for (const rising of [anim("sheetUp", 0), Object.assign(anim("sheetUp", null), { pending: true })]) {
+    const fading = anim("fadeIn", 0);
+    const x = exitWith(sheetNode([rising], [fading]));
+    x.exit().close();
+    assert.equal(rising.reversed, 0, "разворот с нулевой точки прыгнул бы в конец появления");
+    assert.equal(fading.reversed, 0);
+    assert.equal(x.closes.length, 1, "закрыта в тот же миг");
+    assert.equal(x.sheet.inert, true);
+  }
+});
+
 await test("«Уменьшить движение» во время подъёма — закрывается сразу, ничего не разворачивая", async () => {
   browser.reduced = true;
   try {

@@ -75,10 +75,16 @@ export function useSheetExit(onClose: () => void, sheetRef: RefObject<HTMLElemen
       setMode("down");
       return;
     }
+    const elapsed = Number(rising.currentTime) || 0;
+    if (rising.pending || elapsed <= 0) {
+      // Подъём ещё не начался — шторки на экране нет. Разворот с нулевой точки браузер начинает с конца
+      // появления: шторка мелькнула бы во весь рост (второй проход приёмки PR154). Убираем сразу.
+      finish();
+      return;
+    }
     // Ещё поднимается: обратный ход того же движения — столько же, сколько она уже ехала вверх.
     const backdrop = sheet?.parentElement;
     const dimming = runningAnimation(backdrop, "fadeIn");
-    const elapsed = Number(rising.currentTime) || 0;
     rising.reverse();
     if (dimming) dimming.reverse();
     else backdrop?.animate?.([{ backgroundColor: "transparent" }], { duration: elapsed, easing: "ease", fill: "forwards" });
