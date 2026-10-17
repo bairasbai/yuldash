@@ -52,6 +52,12 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
    *  по брони (0 — ничего не выбрано). Бронь без оценки редактируется сразу, с оценкой —
    *  после «Изменить». */
   const [picked, setPicked] = useState<Record<number, number>>({});
+  /** Оценки, которые уходят прямо сейчас: блокировка у каждой карточки своя, как в Android. */
+  const [sendingIds, setSendingIds] = useState<number[]>([]);
+  /** «Спасибо» или причина отказа — у самой карточки, а не внизу блока (там её не видно). */
+  const [rateNote, setRateNote] = useState<{ id: number; text: string } | null>(null);
+  /** Куда вернуть фокус клавиатуры, когда нажатая кнопка исчезла. */
+  const [focusAfter, setFocusAfter] = useState<{ id: number; to: "stars" | "edit" } | null>(null);
   /** По какой брони открыт «Сообщить о проблеме» и по каким разбор уже открыт. */
   const [disputeId, setDisputeId] = useState<number | null>(null);
   const [filedIds, setFiledIds] = useState<number[]>([]);
@@ -69,6 +75,18 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
         setBoot("hidden");
       });
   }, []);
+
+  useEffect(() => {
+    if (!focusAfter || typeof document === "undefined") return;
+    const card = document.querySelector(`[data-rate-card="${focusAfter.id}"]`);
+    // На выбранную звезду (её стрелками можно сразу поменять), иначе на первую; после правки — на «Изменить».
+    const el =
+      focusAfter.to === "stars"
+        ? (card?.querySelector<HTMLElement>('.rate-star[aria-pressed="true"]') ?? card?.querySelector<HTMLElement>(".rate-star:not(:disabled)"))
+        : card?.querySelector<HTMLElement>(".rate-edit");
+    el?.focus();
+    setFocusAfter(null);
+  }, [focusAfter]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -94,25 +112,29 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
   }
 
   async function sendRating(b: DriverBookingRow, n: number) {
-    if (busyId) return;
     const id = b.booking_id;
-    setBusyId(id);
-    setNote("");
+    if (sendingIds.includes(id)) return;
+    setSendingIds((ids) => [...ids, id]);
+    setRateNote(null);
     try {
       await rateBooking(id, n);
       // Сразу показываем поставленную (сервер вернёт её же как my_stars при перечитывании).
       setRows((rs) => rs.map((r) => (r.booking_id === id ? { ...r, my_stars: n } : r)));
       setPicked(({ [id]: _sent, ...rest }) => rest);
-      setNote(appText("Спасибо за оценку", "Баһа өсөн рәхмәт"));
+      setRateNote({ id, text: appText("Спасибо за оценку", "Баһа өсөн рәхмәт") });
+      setFocusAfter({ id, to: "edit" });
       load();
     } catch (e) {
       // Не ушло — возвращаем как было: на экране не должна остаться «поставленная» оценка,
       // которой нет на сервере.
       setPicked((p) => ({ ...p, [id]: b.my_stars }));
-      setNote(e instanceof ApiError && e.message ? e.message : appText("Не получилось оценить", "Баһалап булманы"));
+      setRateNote({
+        id,
+        text: e instanceof ApiError && e.message ? e.message : appText("Не получилось оценить", "Баһалап булманы"),
+      });
       if (e instanceof ApiError && e.status === 409) load();
     } finally {
-      setBusyId(null);
+      setSendingIds((ids) => ids.filter((x) => x !== id));
     }
   }
 
@@ -255,9 +277,9 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
               const id = b.booking_id;
               const editing = b.my_stars === 0 || id in picked;
               const stars = editing ? (picked[id] ?? 0) : b.my_stars;
-              const sending = busyId === id;
+              const sending = sendingIds.includes(id);
               return (
-                <div key={id} className="list-row list-row--stack">
+                <div key={id} className="list-row list-row--stack" data-rate-card={id}>
                   {passengerMain(b)}
                   {/* Сервер разрешает оценку изменить — значит, и здесь это не тупик. */}
                   <div className="rate-row">
@@ -277,7 +299,15 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
                       ))}
                     </div>
                     {!editing && (
-                      <button type="button" className="btn-soft btn-soft--sm" onClick={() => setPicked((p) => ({ ...p, [id]: b.my_stars }))}>
+                      <button
+                        type="button"
+                        className="btn-soft btn-soft--sm rate-edit"
+                        onClick={() => {
+                          setPicked((p) => ({ ...p, [id]: b.my_stars }));
+                          setRateNote(null);
+                          setFocusAfter({ id, to: "stars" });
+                        }}
+                      >
                         {appText("Изменить", "Үҙгәртеү")}
                       </button>
                     )}
@@ -301,11 +331,19 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
                           type="button"
                           className="btn-soft"
                           disabled={sending}
-                          onClick={() => setPicked(({ [id]: _dropped, ...rest }) => rest)}
+                          onClick={() => {
+                            setPicked(({ [id]: _dropped, ...rest }) => rest);
+                            setFocusAfter({ id, to: "edit" });
+                          }}
                         >
                           {appText("Отмена", "Кире алыу")}
                         </button>
                       )}
+                    </div>
+                  )}
+                  {rateNote?.id === id && (
+                    <div className="notice" role="status">
+                      {rateNote.text}
                     </div>
                   )}
                 </div>

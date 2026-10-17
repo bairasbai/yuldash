@@ -23,11 +23,15 @@ async function open(lang, rows = [{ ...fresh }, { ...rated }]) {
     real: ["/utils/format"],
     mocks: {
       "/i18n/lang": langMock(lang),
-      "/api/bookings": `export const fetchDriverBookings=async()=>globalThis.__dpRows.map(r=>({...r}));
+      // ApiError — из той же заглушки клиента, что видит экран: класс из сборки другого языка
+      // экран не узнал бы (instanceof), и вместо текста сервера показал бы запасную фразу.
+      "/api/bookings": `import { ApiError } from "../api/client";
+        export const fetchDriverBookings=async()=>{globalThis.__loads=(globalThis.__loads??0)+1;return globalThis.__dpRows.map(r=>({...r}));};
         export const markNoShow=async()=>({});
-        export const rateBooking=async(id,n)=>{globalThis.__rated.push([id,n]);if(globalThis.__rateFail)throw new globalThis.__ApiError(500,"Сервер устал");
+        export const rateBooking=async(id,n)=>{globalThis.__rated.push([id,n]);if(globalThis.__rateHold)await globalThis.__rateHold;
+          const f=globalThis.__rateFail;if(f)throw new ApiError(f.status??500,f.message??"Сервер устал");
           const r=globalThis.__dpRows.find(x=>x.booking_id===id);if(r)r.my_stars=n;return {};};`,
-      "/api/client": `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}};globalThis.__ApiError=ApiError;`,
+      "/api/client": `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}}`,
     },
   });
   globalThis.__dpRows = rows;
@@ -94,7 +98,7 @@ for (const lang of ["ru", "ba"]) {
     await h.settle();
     stars(row(h, 8))[0].props.onClick();
     await h.settle();
-    globalThis.__rateFail = true;
+    globalThis.__rateFail = { status: 500, message: "Сервер устал" };
     button(row(h, 8), L("Отправить оценку", "Баһаны ебәреү")).props.onClick();
     await h.settle();
     assert.equal(globalThis.__rated.length, 1);
@@ -127,6 +131,85 @@ await t.test("пока отправляется — повторное нажа�
   again.props.onClick(); // даже если нажатие всё же дошло
   await h.settle();
   assert.deepEqual(globalThis.__rated, [[7, 3]]);
+});
+
+await t.test("во время отправки звёзды и «Отмена» заперты, «Изменить» не виден; aria-pressed — только при правке", async () => {
+  const h = await open("ru");
+  const group = all(row(h, 8)).find((n) => n.props?.role === "group");
+  assert.equal(group.props["aria-label"], "Оценка пассажира");
+  assert.ok(stars(row(h, 8)).every((s) => s.props["aria-pressed"] === undefined), "показанная оценка — не кнопки-переключатели");
+  button(row(h, 8), "Изменить").props.onClick();
+  await h.settle();
+  assert.equal(button(row(h, 8), "Изменить"), undefined, "во время правки «Изменить» не нужен");
+  stars(row(h, 8))[2].props.onClick();
+  await h.settle();
+  assert.deepEqual(stars(row(h, 8)).map((s) => s.props["aria-pressed"]), [false, false, true, false, false]);
+  let release;
+  globalThis.__rateHold = new Promise((r) => (release = r));
+  button(row(h, 8), "Отправить оценку").props.onClick();
+  h.render();
+  assert.ok(stars(row(h, 8)).every((s) => s.props.disabled), "пока уходит — звёзды не меняются");
+  assert.equal(button(row(h, 8), "Отмена").props.disabled, true);
+  release();
+  globalThis.__rateHold = null;
+  await h.settle();
+});
+
+await t.test("оценка соседней карточки не запирает эту — у каждой своя блокировка", async () => {
+  const h = await open("ru");
+  stars(row(h, 7))[3].props.onClick();
+  button(row(h, 8), "Изменить").props.onClick();
+  await h.settle();
+  stars(row(h, 8))[1].props.onClick();
+  await h.settle();
+  let release;
+  globalThis.__rateHold = new Promise((r) => (release = r));
+  button(row(h, 7), "Отправить оценку").props.onClick();
+  h.render();
+  const other = button(row(h, 8), "Отправить оценку");
+  assert.equal(other.props.disabled, false, "соседняя «Отправить оценку» не должна молча не работать");
+  other.props.onClick();
+  release();
+  globalThis.__rateHold = null;
+  await h.settle();
+  assert.deepEqual(globalThis.__rated.map((r) => r[0]).sort(), [7, 8]);
+});
+
+await t.test("«Спасибо» и причина отказа — у самой карточки; 409 перечитывает список; без текста — запасная фраза", async () => {
+  const h = await open("ru");
+  stars(row(h, 7))[4].props.onClick();
+  await h.settle();
+  button(row(h, 7), "Отправить оценку").props.onClick();
+  await h.settle();
+  assert.ok(text(row(h, 7)).includes("Спасибо за оценку"), "«Спасибо» видно у карточки, а не за краем экрана");
+  const loads = globalThis.__loads;
+  globalThis.__rateFail = { status: 409, message: "Эту поездку оценить уже нельзя" };
+  button(row(h, 8), "Изменить").props.onClick();
+  await h.settle();
+  stars(row(h, 8))[0].props.onClick();
+  await h.settle();
+  button(row(h, 8), "Отправить оценку").props.onClick();
+  await h.settle();
+  assert.ok(text(row(h, 8)).includes("Эту поездку оценить уже нельзя"));
+  assert.ok(!text(row(h, 7)).includes("Спасибо за оценку"), "старое «Спасибо» не висит у соседней карточки");
+  assert.ok(globalThis.__loads > loads, "409 — список перечитан");
+  globalThis.__rateFail = { status: 500, message: "" };
+  stars(row(h, 8))[0].props.onClick();
+  await h.settle();
+  button(row(h, 8), "Отправить оценку").props.onClick();
+  await h.settle();
+  assert.ok(text(row(h, 8)).includes("Не получилось оценить"));
+  globalThis.__rateFail = null;
+});
+
+await t.test("вёрстка: имя своей строкой во всю ширину, кнопки без отступа сверху, «Изменить» 48", () => {
+  const css = readFileSync(ROOT + "src/ui.css", "utf8");
+  const block = (sel) => css.slice(css.indexOf(sel)).split("}")[0];
+  assert.match(block(".list-row--stack > .list-row__main"), /flex-basis:\s*100%/, "имя сжималось до «Зу…» рядом со звёздами");
+  assert.match(block(".list-row--stack > .list-row__main"), /\.list-row--stack > \.rate-row/);
+  assert.match(block(".rate-confirm .btn-primary"), /margin-top:\s*0/, "у .btn-primary свой отступ сверху — кнопки стояли криво");
+  assert.match(block(".rate-row .rate-edit"), /min-height:\s*48px/);
+  assert.match(block(".rate-stars--sm .rate-star {"), /color:\s*var\(--muted\)/, "пустая звезда почти не видна на --border");
 });
 
 await t.test("надписи совпадают с Android слово в слово", () => {

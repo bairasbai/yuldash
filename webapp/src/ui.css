@@ -2694,7 +2694,8 @@ button.list-row:active {
 .rate-star:active {
   transform: scale(1.15);
 }
-.rate-star:hover,
+/* Наведение «зажигает» только звезду, которую можно нажать: на показанной оценке «4» курсор не рисует «5». */
+.rate-star:not(:disabled):hover,
 .rate-star:focus-visible {
   color: var(--canon-star);
 }
@@ -8938,14 +8939,27 @@ select.field__input {
   flex-wrap: wrap;
   row-gap: var(--space-sm);
 }
-/* Звёзды в списке — мельче, чем на экране оценки, но тач-цель остаётся 44. */
+/* Имя и маршрут — своей строкой во всю ширину, всё остальное ниже (Android PassengerRow в Column).
+   Иначе звёзды и кнопки в той же строке сжимали имя до «Зу…», а маршрут рвался посреди слова
+   (приёмка PR160). */
+.list-row--stack > .list-row__main,
+.list-row--stack > .rate-row,
+.list-row--stack > .list-row__sub,
+.list-row--stack > .rate-confirm,
+.list-row--stack > .notice {
+  flex-basis: 100%;
+}
+/* Звёзды в списке — мельче, чем на экране оценки, но тач-цель остаётся 44. Пустая звезда — CanonMuted,
+   как в приложении: на --border её почти не видно (контраст 1.3:1), и «2 из 5» не читается. */
 .rate-stars--sm .rate-star {
   min-width: 44px;
   min-height: 44px;
+  color: var(--muted);
+  transition-duration: var(--motion-normal);
 }
 
 /* Оценка пассажира в два шага (кабинет водителя, как ProfileScreen.kt): звёзды + «Изменить»
-   в одну строку; на узком экране «Изменить» переносится, а не давит звёзды. */
+   одной строкой под именем; на узком экране «Изменить» переносится под звёзды. */
 .rate-row {
   display: flex;
   flex-wrap: wrap;
@@ -8973,6 +8987,11 @@ select.field__input {
 }
 .rate-confirm .btn-primary {
   flex: 1;
+  margin-top: 0;
+}
+/* «Изменить» — тач-цель 48, как TextButton(heightIn(min = 48.dp)) в приложении. */
+.rate-row .rate-edit {
+  min-height: 48px;
 }
 
 /* ================================================================
