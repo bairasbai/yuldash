@@ -34,6 +34,7 @@ import { openTripLocation } from "../api/chat";
 import { winterCheck, winterCheckOk } from "../api/safety";
 import RoadsideHelp from "../components/RoadsideHelp";
 import { clearTripPassBoardingCode, dropTripPass, tripPassStage, type TripPass } from "../utils/tripPass";
+import { sosPath } from "../utils/sosLink";
 import { loadOfflineTripPass, saveVerifiedTripPass } from "../utils/offlineTripPass";
 import OfflineTripPass from "../components/OfflineTripPass";
 import { setDriverStatus, type DriverPhase } from "../api/driver";
@@ -819,9 +820,10 @@ export default function ActiveTripScreen() {
           люди жать стесняются — и не зовут никого вообще. */}
       {active && <RoadsideHelp target={{ kind: "booking", id: bookingId }} />}
 
-      {/* SOS — ведёт на настоящий экран помощи */}
+      {/* SOS — ведёт на настоящий экран помощи. Бронь едет в адресе: по ней дежурный
+          узнаёт, в какой машине человек (без неё сигнал «человеку плохо» без адреса). */}
       {active && (
-        <button type="button" className="sos-btn" onClick={() => navigate("/sos")}>
+        <button type="button" className="sos-btn" onClick={() => navigate(sosPath(bookingId))}>
           <IconWarn size={16} /> {appText("SOS — нужна помощь", "SOS — ярҙам")}
         </button>
       )}

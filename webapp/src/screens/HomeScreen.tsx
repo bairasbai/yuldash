@@ -5,7 +5,7 @@
 //  список поездок рядом. Тап по поездке → шторка с бронированием.
 // ================================================================
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import ScreenHeader from "../components/ScreenHeader";
@@ -18,7 +18,7 @@ import { NearbyChip } from "../components/adminUi";
 import CommunityFeedStrip from "../components/CommunityFeedStrip";
 import { fetchRidesNear, fetchRequestsNear, type NearRequest } from "../api/discovery";
 import type { Ride } from "../api/rides";
-import { applyRideFilters, clearFilters, loadFilters, saveFilters, type Amenity, type FilterPrefs } from "../filterPrefs";
+import { applyRideFilters, clearFilters, feedFilterCount, loadFilters, saveFilters, type Amenity, type FilterPrefs } from "../filterPrefs";
 import { IconRides, IconGift, IconPin, IconCalendar, IconClock, IconClose, IconHospital, IconChevron } from "../components/Icons";
 import { YuModeTaxi, YuWomenOnly, YuChildSeat, YuPet, YuLuggage, YuAc, YuSmokeFree, YuQuiet } from "../components/BrandIcons";
 import { PartnerAdSlot } from "../components/PartnerAd";
@@ -101,8 +101,8 @@ export default function HomeScreen() {
   // а экран «Фильтры» видит те же значения: храним в одном месте (localStorage).
   const [prefs, setPrefs] = useState<FilterPrefs>(() => loadFilters());
   const shownRides = useMemo(() => applyRideFilters(rides, prefs), [rides, prefs]);
-  /** Сколько условий включено — для чипа «Сбросить · N». */
-  const filterCount = prefs.amenities.length + (prefs.city.trim() ? 1 : 0) + (prefs.maxPrice != null ? 1 : 0) + (prefs.onlyTrusted ? 1 : 0);
+  /** Сколько условий включено — для чипа «Сбросить · N». «Только проверенные» не считаем: сброс её оставляет. */
+  const filterCount = feedFilterCount(prefs);
   function toggleAmenity(a: Amenity) {
     setPrefs((cur) => {
       const next = { ...cur, amenities: cur.amenities.includes(a) ? cur.amenities.filter((x) => x !== a) : [...cur.amenities, a] };
@@ -111,8 +111,8 @@ export default function HomeScreen() {
     });
   }
   function resetFilters() {
-    clearFilters();
-    setPrefs(loadFilters());
+    // «Только проверенные» — настройка «Безопасности»: сброс ленты её не трогает.
+    setPrefs(clearFilters());
   }
 
   /**
@@ -443,6 +443,12 @@ export default function HomeScreen() {
             <button type="button" className="nearby-filtered__reset" onClick={resetFilters}>
               <IconClose size={20} /> {appText("Сбросить фильтры", "Фильтрҙы бушат")}
             </button>
+          )}
+          {/* «Только проверенные» сбросом не снимается — если именно она всё срезала, говорим, где её выключить. */}
+          {filterCount === 0 && prefs.onlyTrusted && (
+            <Link className="nearby-filtered__reset" to="/safety">
+              {appText("Включено «Только проверенные участники». Выключить можно в «Безопасности»", "«Тик раҫланған ҡатнашыусылар» ҡабыҙылған. Һүндерергә «Хәүефһеҙлек» бүлегендә була")}
+            </Link>
           )}
         </div>
       )}

@@ -2,12 +2,18 @@
 //  «Поделиться поездкой с близким» — общая карточка для попутки
 //  и такси (зеркало Android: family.py + экраны поездки).
 //
-//  Близкий получает SMS со ссылкой и следит за поездкой в браузере —
-//  приложение ему не нужно. Ссылку можно отозвать: строка удаляется,
-//  токен «сгорает» (важно, когда ошиблись номером).
+//  Близкий следит за поездкой в браузере по ссылке — приложение ему не
+//  нужно. Ссылку можно отозвать: строка удаляется, токен «сгорает»
+//  (важно, когда ошиблись номером).
 //
-//  Плюс статусы для близких: «Села в машину» / «Доехала» / «Поездка
-//  завершена». SMS уходит только при реальной смене статуса.
+//  Честность: SMS на проде выключены, поэтому «отправлено» и «получили»
+//  здесь не пишем. После «Поделиться» ссылка показывается на экране, а
+//  отправляет её сам человек: «Скопировать» или «Отправить» (системное
+//  окно, если браузер его умеет). Как Android: TripLiveLink.kt и
+//  BookingActiveTripScreen.kt.
+//
+//  Плюс отметки для близких: «Села в машину» / «Доехала» / «Поездка
+//  завершена» — они сохраняются на сервере.
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -23,11 +29,12 @@ import {
   setTripStatus,
   shareBooking,
   shareOrder,
+  tripLiveLink,
   type TripShare,
   type TrustedContact,
   type TripStatus,
 } from "../api/family";
-import { IconCheck, IconShare, IconTrash, IconUsers } from "./Icons";
+import { IconCheck, IconCopy, IconShare, IconTrash, IconUsers } from "./Icons";
 import { track } from "../analytics";
 import type { BookingStatus } from "../api/bookings";
 
@@ -54,6 +61,8 @@ export default function ShareTripCard({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [open, setOpen] = useState(false);
+  /** Чья ссылка на экране: только что созданная, иначе первая из активных. */
+  const [focusId, setFocusId] = useState<number | null>(null);
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -91,11 +100,20 @@ export default function ShareTripCard({
     setBusy(true);
     setNote("");
     try {
-      if (bookingId) await shareBooking(bookingId, contactId);
-      else if (orderId) await shareOrder(orderId, contactId);
+      const created = bookingId
+        ? await shareBooking(bookingId, contactId)
+        : orderId
+          ? await shareOrder(orderId, contactId)
+          : null;
       setOpen(false);
+      if (created) {
+        // Ссылку показываем сразу, не дожидаясь перечитывания списка.
+        setShares((prev) => [...(prev ?? []).filter((s) => s.id !== created.id), created]);
+        setFocusId(created.id);
+      }
       load();
-      setNote(appText("Ссылка отправлена близкому", "Һылтанма яҡын кешегә ебәрелде"));
+      // Не «отправлена»: SMS близкому может не уйти. Отправляет сам человек.
+      setNote(appText("Ссылка готова — отправь её близкому сам", "Һылтанма әҙер — яҡын кешегә үҙең ебәр"));
     } catch (e) {
       setNote(
         e instanceof ApiError && e.message
@@ -110,6 +128,7 @@ export default function ShareTripCard({
   async function revoke(shareId: number) {
     const prev = shares ?? [];
     setShares(prev.filter((s) => s.id !== shareId)); // оптимистично
+    if (focusId === shareId) setFocusId(null);
     try {
       if (bookingId) await revokeBookingShare(bookingId, shareId);
       else if (orderId) await revokeOrderShare(orderId, shareId);
@@ -132,9 +151,8 @@ export default function ShareTripCard({
       setShares(updated);
       await onStatusChange?.();
       if (!currentSession()) return;
-      setNote(updated.length > 0
-        ? appText("Близкие получили сообщение", "Яҡындарға хәбәр китте")
-        : appText("Сохранено", "Һаҡланды"));
+      // Только «сохранено»: дошло ли сообщение близким, мы не знаем (SMS на проде выключены).
+      setNote(appText("Сохранено", "Һаҡланды"));
     } catch (e) {
       if (!currentSession()) return;
       // Трасса без связи — это норма, а не сбой. «Я сел» и «доехал» — ровно те отметки,
@@ -166,6 +184,32 @@ export default function ShareTripCard({
   }
 
   const withoutContacts = contacts.length === 0;
+
+  // Ссылка, которую человек отправит близкому сам.
+  const focusShare = activeShares.find((s) => s.id === focusId) ?? activeShares.find((s) => tripLiveLink(s));
+  const liveLink = tripLiveLink(focusShare);
+  const canSystemShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+  const shareText = (link: string) =>
+    appText("Следи за моей поездкой в Юлдаш: ", "Юлдашта минең сәфәремде күҙәт: ") + link;
+
+  async function copyLink(link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      setNote(appText("Ссылка скопирована", "Һылтанма күсерелде"));
+    } catch {
+      setNote(appText("Не получилось скопировать. Выдели ссылку и скопируй сам.", "Күсереп булманы. Һылтанманы һайлап, үҙең күсер."));
+    }
+  }
+
+  async function sendLink(link: string) {
+    try {
+      await navigator.share({ title: appText("Отправить ссылку", "Һылтанманы ебәреү"), text: shareText(link) });
+    } catch (e) {
+      // Закрыл окно «Отправить» сам — не ошибка. Окно не открылось — хотя бы скопируем.
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      await copyLink(link);
+    }
+  }
 
   return (
     <div className="act-card">
@@ -204,6 +248,24 @@ export default function ShareTripCard({
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Ссылка на живую поездку: её отправляет человек сам — SMS близкому мы не обещаем. */}
+      {liveLink && !open && (
+        <div className="share-link">
+          <strong className="share-link__title">{appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма")}</strong>
+          <div className="share-link__url">{liveLink}</div>
+          <div className="act-card__actions">
+            <button type="button" className="btn-soft" onClick={() => copyLink(liveLink)}>
+              <IconCopy size={18} /> {appText("Скопировать", "Күсереү")}
+            </button>
+            {canSystemShare && (
+              <button type="button" className="btn-primary" onClick={() => sendLink(liveLink)}>
+                <IconShare size={18} /> {appText("Отправить", "Ебәреү")}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

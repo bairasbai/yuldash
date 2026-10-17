@@ -129,6 +129,19 @@ const SUITES = [
   { test: "features-test", src: "src/featureRules.ts", out: "features-bundle.mjs", bundle: true },
   { test: "features-benefits-test", src: null, out: null, bundle: false },
   { test: "features-parcel-rides-test", src: null, out: null, bundle: false },
+  // Паритет с Android, P0 (16.10.2026): безопасность и честные обещания.
+  // Экраны SOS, контактов, «Поделиться» и помощи не обещают SMS близким (зеркало SosNoSmsPromiseGuardTest).
+  { test: "sos-no-sms-promise-test", src: null, out: null, bundle: false },
+  // Лента поездок идёт с токеном: заблокированных прячет сервер, «только для своих» видят свои.
+  { test: "feed-with-token-test", src: null, out: null, bundle: false },
+  // «Сбросить» в ленте не выключает «Только проверенные» и не считается в «Сбросить · N».
+  { test: "filter-reset-keeps-trusted-test", src: null, out: null, bundle: false },
+  // SOS из поездки передаёт бронь дежурному; после отправки показан ответ сервера (hint).
+  { test: "sos-booking-link-test", src: null, out: null, bundle: false },
+  // «Поделиться с близким»: ссылка на экране, «Скопировать» / «Отправить», без «отправлена» и «получили».
+  { test: "share-trip-link-test", src: null, out: null, bundle: false },
+  // Водитель по ссылке на бронь уходит в кабинет / на экран поездки, а не на пассажирскую «Бронь».
+  { test: "booking-link-driver-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.

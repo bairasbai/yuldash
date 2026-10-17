@@ -4,7 +4,7 @@
 //  GET/POST /trusted-contacts есть на бэке; DELETE — best-effort
 //  (появится на проде позже) → экран деградирует мягко на 404/405.
 // ================================================================
-import { apiGet, apiPost, apiDelete } from "./client";
+import { apiGet, apiPost, apiDelete, API_BASE } from "./client";
 
 /** Строка доверенного контакта (TrustedContact). */
 export interface TrustedContact {
@@ -62,6 +62,17 @@ export interface TripShare {
   expires_at: string | null;
 }
 
+/**
+ * Ссылка, которую человек отправляет близкому: `{адрес сервера}/t/{token}`.
+ * Собирается так же, как в Android (ApiClient.liveLinkOrNull). Нет токена — ссылки нет (null).
+ * Сервер SMS с этой ссылкой сам не гарантирует (на проде канал выключен), поэтому её показывают
+ * на экране, а отправляет человек.
+ */
+export function tripLiveLink(share: Pick<TripShare, "token"> | null | undefined): string | null {
+  const token = share?.token?.trim();
+  return token ? `${API_BASE.replace(/\/+$/, "")}/t/${token}` : null;
+}
+
 /** Статус поездки для близких: «села в машину» / «доехала» / «поездка завершена». */
 export type TripStatus = "sat" | "arrived" | "done";
 
@@ -84,7 +95,7 @@ export function revokeBookingShare(
   return apiDelete<{ ok: boolean }>(`/bookings/${bookingId}/share/${shareId}`);
 }
 
-/** «Села / доехала / завершила» — близкие получают SMS только при реальной смене статуса. */
+/** «Села / доехала / завершила» — близкие видят новый статус по ссылке; SMS — только если на сервере включён SMS-провайдер. */
 export function setTripStatus(bookingId: number, status: TripStatus): Promise<TripShare[]> {
   return apiPost<TripShare[]>(`/bookings/${bookingId}/trip-status`, { status });
 }
