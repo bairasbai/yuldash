@@ -168,6 +168,7 @@ const SUITES = [
   { test: "driver-rating-two-step-test", src: null, out: null, bundle: false },
   // Отмена: на «Брони» — только ждущая и своим окном; подтверждённая — на экране поездки с причиной {reason}; «в пути» — никак.
   { test: "booking-cancel-reason-test", src: null, out: null, bundle: false },
+  { test: "family-order-no-phone-test", src: null, out: null, bundle: false },
   // Точка водителя с сайта в канал /ws/trip/{id}/location: только в пути, без журнала и аналитики, отказ не роняет экран.
   { test: "driver-location-share-test", src: null, out: null, bundle: false },
   // …и сторожа приёмки PR155: без шторма соединений (лестница 1-2-4…30 с), отказ в ключе — ждём
