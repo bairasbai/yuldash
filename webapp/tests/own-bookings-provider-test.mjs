@@ -26,6 +26,7 @@ const mocks = {
     export const fetchMyBookings=signal=>{const req={...h().makeDeferred(),signal,generation:h().generation,userId:h().auth.user?.id};h().requests.push(req);return req.promise;};
     export const createBooking=body=>{h().posts.push(body);return h().book(body);};
     export const cancelBooking=id=>{h().cancels.push(id);return h().cancel(id);};
+    export const CANCEL_REASONS=[];
     export const fetchBookingDetails=(id,signal)=>h().details(id,signal);
     export const fetchTripState=async()=>({role:h().role,status:"confirmed",driver_phase:"departed"});
     export const fetchBoardingCode=async()=>({code:"1234"});
@@ -51,6 +52,7 @@ const mocks = {
   share: `export default "share";`,
   tripchat: `export default "tripchat";`,
   offline: `export default "offline";`,
+  driverloc: `export default "driverloc";`,
   outbox: `export const enqueue=async()=>{};`,
 };
 const icons = [...readFileSync(root+"src/components/Icons.tsx","utf8").matchAll(/export (?:const|function) (Icon\w+)/g)].map(m=>m[1]);
@@ -64,7 +66,7 @@ const suffixes = {
   "/api/safety":"safety", "/utils/winterCheck.js":"winter", "/utils/useVisibleInterval":"interval",
   "/components/WeatherWarningCard":"weather", "/components/RoadsideHelp":"roadside",
   "/components/ShareTripCard":"share", "/components/TripChatCard":"tripchat",
-  "/components/OfflineTripPass":"offline", "/utils/outbox":"outbox",
+  "/components/OfflineTripPass":"offline", "/utils/outbox":"outbox", "/components/DriverLocationShare":"driverloc",
 };
 const result=await build({
   stdin:{contents:`export {OwnBookingsProvider,useOwnBooking,useRefreshOwnBookings} from "./src/booking/OwnBookingsProvider.tsx";
@@ -143,6 +145,9 @@ const probe=h=>all(h.tree).find(n=>n.type==="probe").props;
 const card=h=>all(h.tree).find(n=>n.type==="article"&&n.props.className==="ride-card");
 const cta=h=>all(h.tree).find(n=>n.type==="button"&&n.props.className?.includes("sheet__cta"));
 const cancel=h=>all(h.tree).find(n=>n.type==="button"&&text(n)==="Отменить бронь");
+// Отмена на «Брони» — только ждущей брони и через своё окно «Отменить бронь?» (паритет с Android, 17.10.2026).
+const yes=h=>all(h.tree).find(n=>n.type==="button"&&text(n)==="Да, отменить");
+const pendingDetails=h=>{const details=h.details;h.details=async(...a)=>({...await details(...a),status:"pending"});};
 function asB(h){h.auth={isAuthed:true,user:{id:2},status:"authed"};h.generation="B";h.dirty=true;}
 async function ready(h,rows=[own]){render(h);await settle(h);assert.equal(h.requests.length,1);h.requests[0].resolve(rows);await settle(h);}
 let cases=0,failures=0;
@@ -221,13 +226,15 @@ await check("late booking success from A cannot refresh or navigate B",async h=>
   post.resolve({id:75});await action;await settle(h);assert.equal(h.requests.length,2);assert.equal(h.routes.length,0);
 });
 await check("successful cancellation invalidates own front reservation",async h=>{
-  h.mode="cancel";await ready(h);const post=deferred();h.cancel=()=>post.promise;
-  const action=cancel(h).props.onClick();assert.deepEqual(h.cancels,[73]);post.resolve({id:73,status:"cancelled"});
+  h.mode="cancel";pendingDetails(h);await ready(h);const post=deferred();h.cancel=()=>post.promise;
+  cancel(h).props.onClick();await settle(h);assert.deepEqual(h.cancels,[],"окно сначала, запрос — после «Да, отменить»");
+  const action=yes(h).props.onClick();assert.deepEqual(h.cancels,[73]);post.resolve({id:73,status:"cancelled"});
   await action;await settle(h);assert.equal(h.requests.length,2);h.requests[1].resolve([]);await settle(h);
   assert.equal(probe(h).booking,null);assert.ok(!text(card(h)).includes(label(h.lang)));
 });
 await check("failed cancellation retains own list and uses existing error",async h=>{
-  h.mode="cancel";await ready(h);h.cancel=async()=>{throw new Error("offline");};await cancel(h).props.onClick();await settle(h);
+  h.mode="cancel";pendingDetails(h);await ready(h);h.cancel=async()=>{throw new Error("offline");};cancel(h).props.onClick();await settle(h);
+  yes(h).props.onClick();await settle(h);
   assert.equal(h.requests.length,1);assert.equal(probe(h).booking.id,73);assert.ok(text(h.tree).includes("Не получилось отменить"));
 });
 await check("focus retries once; unmount aborts and ignores held response",async h=>{
@@ -250,7 +257,8 @@ await check("malformed private response leaves ownership unknown",async h=>{
   render(h);h.requests[0].resolve(null);await settle(h);assert.equal(probe(h).booking,null);
 });
 await check("late cancellation from A cannot clear B own front reservation",async h=>{
-  h.mode="cancel";await ready(h);const post=deferred();h.cancel=()=>post.promise;const action=cancel(h).props.onClick();
+  h.mode="cancel";pendingDetails(h);await ready(h);const post=deferred();h.cancel=()=>post.promise;cancel(h).props.onClick();await settle(h);
+  const action=yes(h).props.onClick();
   asB(h);await settle(h);h.requests[1].resolve([{...own,id:88}]);await settle(h);
   post.resolve({id:73,status:"cancelled"});await action;await settle(h);
   assert.equal(h.requests.length,2);assert.equal(probe(h).booking.id,88);

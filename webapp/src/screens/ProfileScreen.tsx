@@ -125,6 +125,8 @@ export default function ProfileScreen() {
       title: appText("Быстрый заказ", "Тиҙ заказ"),
       sub: appText("Вызвать такси между своими", "Үҙебеҙ араһында такси саҡырыу"),
       authed: true,
+      // Такси выключено на сервере — плитки нет (Android: taxiOn в кабинетах, ProfileScreen.kt).
+      need: "taxi",
     },
     {
       key: "taxi-drive",
@@ -133,6 +135,7 @@ export default function ProfileScreen() {
       title: appText("Я на линии (такси)", "Мин линияла (такси)"),
       sub: appText("Принимай быстрые заказы рядом", "Яҡындағы тиҙ заказдарҙы ал"),
       authed: true,
+      need: "taxi",
     },
     {
       key: "scheduled",
@@ -141,6 +144,7 @@ export default function ProfileScreen() {
       title: appText("Мои предзаказы", "Алдан заказдарым"),
       sub: appText("Такси на время — заранее", "Ваҡытҡа такси — алдан"),
       authed: true,
+      need: "taxi",
     },
     {
       key: "parcels",

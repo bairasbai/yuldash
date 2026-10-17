@@ -41,6 +41,8 @@ import RideEditActions from "../components/RideEditActions";
 import DriverPassengers from "../components/DriverPassengers";
 import { SubHeader } from "./ConsentsScreen";
 import { useAuth } from "../auth/AuthProvider";
+import { useFeatures } from "../features";
+import { isOpen } from "../featureRules";
 import {
   ArchiveRideRow,
   CabinetMetric,
@@ -128,6 +130,10 @@ export default function DriverCabinetScreen() {
   const { user } = useAuth();
   const ru = lang !== "ba";
   const navigate = useNavigate();
+  // Такси выключено на сервере (`/config/features`) — без линии, приоритета, поездок такси и
+  // готовности к работе, как в Android (taxiOn, ProfileScreen.kt). Анкета таксиста и сроки
+  // документов остаются: набор идёт и до запуска.
+  const taxiOn = isOpen("taxi", useFeatures());
 
   const [status, setStatus] = useState<Status>("loading");
   const [driver, setDriver] = useState<DriverStatus | null>(null);
@@ -352,20 +358,22 @@ export default function DriverCabinetScreen() {
 
           <VerifyBanner docs={driver.docs_status} />
 
-          <SettingsGroup>
-            <SettingSwitchRow
-              icon={<IconCar size={24} />}
-              title={appText("Я на линии", "Мин эштә")}
-              subtitle={
-                driver.online
-                  ? appText("Пассажиры видят, что ты сейчас на линии", "Пассажирҙар һинең линияла икәнеңде күрә")
-                  : appText("Включи, когда готов везти", "Йөрөтөргә әҙер булғас ҡабыҙ")
-              }
-              checked={driver.online}
-              onChange={() => void toggleOnline()}
-              disabled={onlineBusy}
-            />
-          </SettingsGroup>
+          {taxiOn && (
+            <SettingsGroup>
+              <SettingSwitchRow
+                icon={<IconCar size={24} />}
+                title={appText("Я на линии", "Мин эштә")}
+                subtitle={
+                  driver.online
+                    ? appText("Пассажиры видят, что ты сейчас на линии", "Пассажирҙар һинең линияла икәнеңде күрә")
+                    : appText("Включи, когда готов везти", "Йөрөтөргә әҙер булғас ҡабыҙ")
+                }
+                checked={driver.online}
+                onChange={() => void toggleOnline()}
+                disabled={onlineBusy}
+              />
+            </SettingsGroup>
+          )}
 
           {/* «Я — женщина за рулём». Заявка, а не подтверждение: бейдж и женские
               заказы такси включает модератор по фото прав. Без этого тумблера на
@@ -518,12 +526,13 @@ export default function DriverCabinetScreen() {
           )}
           {finishNote && <p className="taxi-note">{finishNote}</p>}
 
-          {/* Кто едет со мной: подтвердить бронь, отметить неявку, поставить оценку. */}
-          <DriverPassengers />
+          {/* Кто едет со мной: «Открыть поездку» (экран поездки водителя), неявка; оценка — после рейса. */}
+          <DriverPassengers onOpenTrip={(bookingId) => navigate(`/trip/${bookingId}`)} />
 
           {/* ⭐ Приоритет: кому заказ падает первым и за что. Показываем целиком —
-              скрытый приоритет человек читает как «заказы раздают по блату». */}
-          <PriorityCard />
+              скрытый приоритет человек читает как «заказы раздают по блату». Это про заказы
+              такси: такси выключено — блока нет (Android: PrioritySection только при taxiOn). */}
+          {taxiOn && <PriorityCard />}
 
           <SectionHeader title={appText("Архив", "Архив")} subtitle={appText("Что уже проехал", "Нимә үтелгән")} />
           <div className="cab-metrics">
@@ -561,12 +570,14 @@ export default function DriverCabinetScreen() {
               subtitle={appText("Заработок по неделям, месяцам и дням", "Аҙна, ай һәм көн буйынса табыш")}
               onClick={() => navigate("/earnings")}
             />
-            <SettingsNavRow
-              icon={<IconReceipt size={24} />}
-              title={appText("Мои поездки такси", "Такси сәфәрҙәрем")}
-              subtitle={appText("Цена, комиссия и сколько осталось тебе", "Хаҡ, комиссия һәм һиңә күпме ҡалды")}
-              onClick={() => navigate("/taxi-rides")}
-            />
+            {taxiOn && (
+              <SettingsNavRow
+                icon={<IconReceipt size={24} />}
+                title={appText("Мои поездки такси", "Такси сәфәрҙәрем")}
+                subtitle={appText("Цена, комиссия и сколько осталось тебе", "Хаҡ, комиссия һәм һиңә күпме ҡалды")}
+                onClick={() => navigate("/taxi-rides")}
+              />
+            )}
             <SettingsNavRow
               icon={<IconWallet size={24} />}
               title={appText("Кошелёк", "Янсыҡ")}
@@ -606,12 +617,14 @@ export default function DriverCabinetScreen() {
               subtitle={appText("ОСАГО, разрешение, техосмотр — продлить без новой заявки", "ОСАГО, рөхсәт, техник ҡарау — яңы заявкаһыҙ оҙайтыу")}
               onClick={() => navigate("/taxi-docs")}
             />
-            <SettingsNavRow
-              icon={<IconCheck size={24} />}
-              title={appText("Готовность к работе", "Эшкә әҙерлек")}
-              subtitle={appText("Отметить перед выходом на линию: самочувствие, машина", "Линияға сығыр алдынан билдәләү: һаулыҡ, машина")}
-              onClick={() => navigate("/pretrip")}
-            />
+            {taxiOn && (
+              <SettingsNavRow
+                icon={<IconCheck size={24} />}
+                title={appText("Готовность к работе", "Эшкә әҙерлек")}
+                subtitle={appText("Отметить перед выходом на линию: самочувствие, машина", "Линияға сығыр алдынан билдәләү: һаулыҡ, машина")}
+                onClick={() => navigate("/pretrip")}
+              />
+            )}
             <SettingsNavRow
               icon={<IconRocket size={24} />}
               title={appText("Поднять маршрут", "Маршрутты күтәреү")}
@@ -623,24 +636,28 @@ export default function DriverCabinetScreen() {
           {/* Есть только в вебе: линия такси, заявка таксиста, классы машины. Той же группой,
               чтобы дороги не пропали при выравнивании с приложением. */}
           <SettingsGroup>
-            <SettingsNavRow
-              icon={<IconCar size={24} />}
-              title={appText("Я на линии (такси)", "Мин линияла (такси)")}
-              subtitle={appText("Принимать быстрые заказы", "Тиҙ заказдар ҡабул итеү")}
-              onClick={() => navigate("/taxi-drive")}
-            />
+            {taxiOn && (
+              <SettingsNavRow
+                icon={<IconCar size={24} />}
+                title={appText("Я на линии (такси)", "Мин линияла (такси)")}
+                subtitle={appText("Принимать быстрые заказы", "Тиҙ заказдар ҡабул итеү")}
+                onClick={() => navigate("/taxi-drive")}
+              />
+            )}
             <SettingsNavRow
               icon={<IconRides size={24} />}
               title={appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу")}
               subtitle={appText("Заявка по 580-ФЗ: разрешение и документы", "580-ФЗ буйынса заявка: рөхсәт һәм документтар")}
               onClick={() => navigate("/taxi-onboarding")}
             />
-            <SettingsNavRow
-              icon={<IconCar size={24} />}
-              title={appText("Что я вожу", "Нимә йөрөтәм")}
-              subtitle={appText("Класс машины и опции салона", "Машина класы һәм салон опциялары")}
-              onClick={() => navigate("/taxi-classes")}
-            />
+            {taxiOn && (
+              <SettingsNavRow
+                icon={<IconCar size={24} />}
+                title={appText("Что я вожу", "Нимә йөрөтәм")}
+                subtitle={appText("Класс машины и опции салона", "Машина класы һәм салон опциялары")}
+                onClick={() => navigate("/taxi-classes")}
+              />
+            )}
           </SettingsGroup>
         </div>
       )}

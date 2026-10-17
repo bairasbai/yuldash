@@ -18,6 +18,7 @@ const modules = {
   states: `export const LoadingList='loading';`,
   icons: `export const IconProfile='icon'; export const IconStar='icon';`,
   card: `export default 'FileIncidentCard';`,
+  cabinet: `export const SectionHeader='SectionHeader';`,
 };
 
 const result = await build({
@@ -35,6 +36,7 @@ const result = await build({
           : p.endsWith("/States") ? "states"
           : p.endsWith("/Icons") ? "icons"
           : p.endsWith("/FileIncidentCard") ? "card"
+          : p.endsWith("/cabinetUi") ? "cabinet"
           : null;
         return key ? { path: key, namespace: "mock" } : null;
       });
@@ -46,7 +48,7 @@ const DriverPassengers = (await import("data:text/javascript;base64," +
   Buffer.from(result.outputFiles[0].text).toString("base64"))).default;
 const ApiError = h.ApiError;
 
-const render = () => { h.si = 0; h.effects = []; return DriverPassengers(); };
+const render = () => { h.si = 0; h.effects = []; return DriverPassengers({ onOpenTrip: () => {} }); };
 const all = (n) => (!n || typeof n !== "object") ? [] : [n, ...[n.props?.children].flat(Infinity).flatMap(all)];
 const text = (n) => (n == null || n === false) ? "" : typeof n !== "object" ? String(n)
   : [n.props?.children].flat(Infinity).map(text).join("");
@@ -65,7 +67,7 @@ h.states = ["ready", rows, null, "", null, []];
 let tree = render();
 const confirmedRow = rowOf(tree, 1);
 const onboardRow = rowOf(tree, 2);
-assert.ok(confirmedRow && onboardRow, "обе брони видны в «Мои пассажиры»");
+assert.ok(confirmedRow && onboardRow, "обе брони видны в «Едут с тобой»");
 assert.ok(buttonIn(confirmedRow, "Не вышел"), "по подтверждённой брони неявку отметить можно");
 assert.equal(buttonIn(onboardRow, "Не вышел"), undefined, "пассажир «в пути» — «Не вышел» нет");
 assert.match(text(onboardRow), /Пассажир отметил «Я сел»/, "водителю объясняют, почему кнопки нет");

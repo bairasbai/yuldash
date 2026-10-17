@@ -13,6 +13,8 @@ import { fetchMyBookings, type MyBooking } from "../api/bookings";
 import { fetchMyRequests } from "../api/requests";
 import { fetchMyRestrictions, type Restriction } from "../api/safety";
 import { useAuth } from "../auth/AuthProvider";
+import { useFeatures } from "../features";
+import { isOpen } from "../featureRules";
 import { SubHeader } from "./ConsentsScreen";
 import { LoadingList, EmptyStateCard } from "../components/States";
 import MyTripCard, { bookingStatusAllowsActiveTrip } from "../components/MyTripCard";
@@ -40,6 +42,9 @@ export default function PassengerCabinetScreen() {
   const { appText } = useLang();
   const navigate = useNavigate();
   const { user } = useAuth();
+  // Такси выключено на сервере (`/config/features`) — без «Быстрого заказа», предзаказов
+  // и поездок на такси: как в Android (taxiOn, ProfileScreen.kt). Включат — появятся сами.
+  const taxiOn = isOpen("taxi", useFeatures());
 
   const [status, setStatus] = useState<Status>("loading");
   const [bookings, setBookings] = useState<MyBooking[]>([]);
@@ -98,14 +103,16 @@ export default function PassengerCabinetScreen() {
         )}
 
         {/* Быстрый заказ такси: зелёная карточка CanonGreen2 с кругом и стрелкой. */}
-        <button type="button" className="quick-order" onClick={() => navigate("/taxi")}>
-          <span className="quick-order__icon" aria-hidden><IconCar size={24} /></span>
-          <span className="quick-order__text">
-            <strong>{appText("Быстрый заказ", "Тиҙ заказ")}</strong>
-            <small>{appText("Вызвать машину сейчас — цену видно заранее", "Хәҙер машина саҡырыу — хаҡ алдан күренә")}</small>
-          </span>
-          <span className="quick-order__chev" aria-hidden><IconChevron size={22} /></span>
-        </button>
+        {taxiOn && (
+          <button type="button" className="quick-order" onClick={() => navigate("/taxi")}>
+            <span className="quick-order__icon" aria-hidden><IconCar size={24} /></span>
+            <span className="quick-order__text">
+              <strong>{appText("Быстрый заказ", "Тиҙ заказ")}</strong>
+              <small>{appText("Вызвать машину сейчас — цену видно заранее", "Хәҙер машина саҡырыу — хаҡ алдан күренә")}</small>
+            </span>
+            <span className="quick-order__chev" aria-hidden><IconChevron size={22} /></span>
+          </button>
+        )}
 
         <div className="cab-metrics">
           <CabinetMetric label={appText("Активные", "Актив")} value={loading ? "—" : String(active.length)} />
@@ -162,18 +169,22 @@ export default function PassengerCabinetScreen() {
             subtitle={appText("Открыть список ближайших маршрутов", "Яҡындағы маршруттарҙы асыу")}
             onClick={() => navigate("/rides/feed")}
           />
-          <SettingsNavRow
-            icon={<IconClockCal size={24} />}
-            title={appText("Мои предзаказы", "Минең алдан заказдар")}
-            subtitle={appText("Такси «на время»: обратный отсчёт и поиск", "«Ваҡытҡа» такси: кире иҫәп һәм эҙләү")}
-            onClick={() => navigate("/scheduled")}
-          />
-          <SettingsNavRow
-            icon={<IconReceipt size={24} />}
-            title={appText("Мои поездки на такси", "Такситағы сәфәрҙәрем")}
-            subtitle={appText("История и чек за каждую поездку", "Тарих һәм һәр сәфәр өсөн чек")}
-            onClick={() => navigate("/my-taxi")}
-          />
+          {taxiOn && (
+            <SettingsNavRow
+              icon={<IconClockCal size={24} />}
+              title={appText("Мои предзаказы", "Минең алдан заказдар")}
+              subtitle={appText("Такси «на время»: обратный отсчёт и поиск", "«Ваҡытҡа» такси: кире иҫәп һәм эҙләү")}
+              onClick={() => navigate("/scheduled")}
+            />
+          )}
+          {taxiOn && (
+            <SettingsNavRow
+              icon={<IconReceipt size={24} />}
+              title={appText("Мои поездки на такси", "Такситағы сәфәрҙәрем")}
+              subtitle={appText("История и чек за каждую поездку", "Тарих һәм һәр сәфәр өсөн чек")}
+              onClick={() => navigate("/my-taxi")}
+            />
+          )}
           <SettingsNavRow
             icon={<IconRoute size={24} />}
             title={appText("Создать заявку", "Заявка булдырыу")}

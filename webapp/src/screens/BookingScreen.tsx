@@ -6,6 +6,11 @@
 //  Экран — для ПАССАЖИРА. Водитель этой поездки, открывший ссылку на бронь (пуш «новая
 //  бронь»), уходит туда, где с ней можно что-то сделать: кабинет водителя («Подтвердить»)
 //  или экран поездки — см. utils/bookingLink.ts (зеркало Android BookingLinkDestination.kt).
+//
+//  Отмена — как в Android (BookingActiveTripScreen.kt): здесь отменяют только бронь, которая
+//  ЖДЁТ ответа водителя, и только пассажир — через своё окно на двух языках, а не системное
+//  окно браузера. Подтверждённую поездку отменяют на экране поездки, с причиной; после
+//  «Я сел» отмены нет вовсе (паритет 16.10.2026).
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
@@ -22,6 +27,7 @@ import { StatusPill } from "../components/StatusPill";
 import { IconArrow, IconPhone, IconPin, IconCheck, IconLock } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { PartnerAdSlot } from "../components/PartnerAd";
+import AlertDialog from "../components/AlertDialog";
 
 import { ApiError } from "../api/client";
 import { track } from "../analytics";
@@ -38,6 +44,8 @@ export default function BookingScreen() {
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [d, setD] = useState<BookingDetails | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  /** Открыто окно «Отменить бронь?». */
+  const [confirmCancel, setConfirmCancel] = useState(false);
   /** Отмена не прошла — сказать обязательно: иначе место так и числится занятым. */
   const [cancelNote, setCancelNote] = useState("");
 
@@ -69,7 +77,7 @@ export default function BookingScreen() {
 
   async function onCancel() {
     if (!bookingId || cancelling) return;
-    if (!window.confirm(appText("Отменить бронь?", "Бронды кире алырғамы?"))) return;
+    setConfirmCancel(false);
     setCancelling(true);
     setCancelNote("");
     try {
@@ -217,20 +225,37 @@ export default function BookingScreen() {
               >
                 {appText("Открыть поездку", "Сәфәрҙе асырға")}
               </button>
-              <button
-                type="button"
-                className="logout-btn"
-                onClick={onCancel}
-                disabled={cancelling}
-              >
-                {cancelling ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить бронь", "Бронды кире алырға")}
-              </button>
+              {/* Пока водитель решает — бронь можно снять. Подтверждённую отменяют на экране
+                  поездки (с причиной), а «в пути» не отменяют вовсе. */}
+              {d.role === "passenger" && d.status === "pending" && (
+                <button
+                  type="button"
+                  className="logout-btn"
+                  onClick={() => setConfirmCancel(true)}
+                  disabled={cancelling}
+                >
+                  {cancelling ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить бронь", "Бронды кире алырға")}
+                </button>
+              )}
               {cancelNote && (
                 <div className="notice" role="status">
                   {cancelNote}
                 </div>
               )}
             </>
+          )}
+
+          {confirmCancel && (
+            <AlertDialog
+              title={appText("Отменить бронь?", "Бронде кире алырғамы?")}
+              text={appText(
+                "Место освободится, а водитель получит уведомление.",
+                "Урын бушаясаҡ, ә йөрөтөүсе хәбәр аласаҡ."
+              )}
+              onClose={() => setConfirmCancel(false)}
+              confirm={{ label: appText("Да, отменить", "Эйе, кире алырға"), tone: "danger", onClick: () => void onCancel() }}
+              dismiss={{ label: appText("Оставить бронь", "Бронде ҡалдырырға"), onClick: () => setConfirmCancel(false) }}
+            />
           )}
 
           <PartnerAdSlot placement="tripDetails" />

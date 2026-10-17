@@ -197,6 +197,16 @@ function runRefresh(generation: string, staleToken: string | null): Promise<bool
   return refreshInFlight.promise;
 }
 
+/**
+ * Живой канал (точка водителя) получил отказ в ключе — 1008 «Invalid token» / «Token revoked».
+ * Обновляем ключ тем же общим полётом, что запросы после 401: одна очередь на все вкладки, своё
+ * поколение сессии. true — ключ уже другой (обновили здесь или раньше), false — обновление отказано.
+ * Выход из аккаунта здесь не делаем: это решает ближайший запрос к серверу, как и раньше.
+ */
+export function refreshRejectedToken(rejected: string): Promise<boolean> {
+  return runRefresh(getSessionGeneration(), rejected);
+}
+
 function authHeaders(): Record<string, string> {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};

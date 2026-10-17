@@ -231,7 +231,6 @@ export default function CreateRideScreen() {
     try {
       const ride = await publishRide(body);
       track("publish_ride", { category });
-      track("publish_ride", { category });
       setCreatedId(ride.id);
       setDone(true);
       clearDraft(RIDE_DRAFT); // опубликовано — черновик больше не нужен

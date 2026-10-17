@@ -116,9 +116,9 @@ for (const status of ["pending", "confirmed", "onboard", "done", "cancelled"]) {
     const tree = await open("passenger", status);
     assert.notEqual(tree.type, "Navigate");
     assert.ok(text(tree).includes("Детали брони"), "рисуется экран «Бронь»");
-    if (status === "pending" || status === "confirmed" || status === "onboard") {
-      assert.ok(text(tree).includes("Отменить бронь"), "пассажиру отмена по-прежнему доступна");
-    }
+    // Паритет с Android (17.10.2026): здесь отменяют только ждущую бронь; подтверждённую —
+    // на экране поездки с причиной, «в пути» — никак (booking-cancel-reason-test).
+    assert.equal(text(tree).includes("Отменить бронь"), status === "pending", "отмена на «Брони» — только у ждущей");
   });
 }
 await test("пока ответ не пришёл, водитель не видит ничего пассажирского (загрузка, не вспышка)", () => {

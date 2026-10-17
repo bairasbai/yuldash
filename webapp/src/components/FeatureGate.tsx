@@ -16,7 +16,7 @@ import { useLocation } from "react-router-dom";
 import { getSessionGeneration } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { useFeatures } from "../features";
-import { soonKind, type Need } from "../featureRules";
+import { soonKind, type GateNeed } from "../featureRules";
 import ComingSoon from "./ComingSoon";
 import { LoadingList } from "./States";
 import { lazyScreen } from "../lazyScreen";
@@ -29,7 +29,7 @@ export default function FeatureGate({
   guestOnly = false,
   children,
 }: {
-  need: Need;
+  need: GateNeed;
   guestOnly?: boolean;
   children: ReactNode;
 }) {

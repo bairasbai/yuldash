@@ -396,8 +396,11 @@ for (const tag of ["CouponsScreen", "PartnerCabinetScreen", "AdsCabinetScreen", 
   for (const [key, need] of Object.entries(needOf)) {
     check(block(key).includes(`need: "${need}"`), `плитка профиля «${key}» зависит от «${need}»`);
   }
-  check(!block("taxi").includes("need:") && !block("driver").includes("need:") && !block("promo").includes("need:"),
-    "плитки такси, водителя и промокода флагами не прячутся (такси само скажет «скоро»)");
+  // Паритет с Android (17.10.2026): такси выключено — такси-плиток нет (taxiOn в ProfileScreen.kt).
+  check(["taxi", "taxi-drive", "scheduled"].every((k) => block(k).includes('need: "taxi"')),
+    "плитки «Быстрый заказ», «Я на линии (такси)», «Мои предзаказы» зависят от «taxi»");
+  check(!block("driver").includes("need:") && !block("promo").includes("need:"),
+    "плитки водителя и промокода флагами не прячутся");
   check(profile.includes("(!r.need || isOpen(r.need, features))"), "список плиток фильтруется по флагам");
   check(profile.includes("if (!items.length) return null;"), "заголовок раздела без единой плитки тоже прячется");
 }
