@@ -4,7 +4,9 @@
 //  (POST) с живой доставкой через WebSocket /ws/bookings/{id}.
 //  WS-авторизация: первым кадром {"type":"auth","token":"<jwt>"}.
 // ================================================================
-import { API_BASE, apiGet, apiPost, apiDelete, apiUpload, getToken, getSessionGeneration, ApiError, isOwnApiUrl } from "./client";
+import { API_BASE, apiGet, apiPost, apiDelete, apiUpload, getToken, getSessionGeneration, ApiError, isOwnApiUrl, refreshRejectedToken } from "./client";
+import { listenDriverLocation } from "../utils/tripLocationListen";
+import { tripLocationUrl, type SocketLike } from "../utils/tripLocationShare";
 
 /** Сообщение чата (строка Message + live-payload сокета). */
 export interface ChatMessage {
@@ -310,39 +312,29 @@ export function openParcelChat(
 /**
  * Live-позиция машины в поездке (WS /ws/trip/{id}/location).
  * Только пока бронь confirmed/onboard. onLoc — координаты водителя.
+ * Переподключение, обновление истёкшего ключа и «сеть вернулась» — utils/tripLocationListen.ts.
  */
 export function openTripLocation(
   bookingId: number,
   onLoc: (p: { lat: number; lng: number; bearing?: number }) => void
 ): { close: () => void } {
-  const token = getToken();
-  let ws: WebSocket | null = null;
-  try {
-    ws = new WebSocket(`${wsBase()}/ws/trip/${bookingId}/location`);
-    ws.onopen = () => {
-      if (token) ws?.send(JSON.stringify({ type: "auth", token }));
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const d = JSON.parse(ev.data);
-        if (d?.type === "loc" && d.role === "driver" && typeof d.lat === "number")
-          onLoc({ lat: d.lat, lng: d.lng, bearing: d.bearing });
-      } catch {
-        /* игнор */
-      }
-    };
-  } catch {
-    /* WS недоступен — не критично, экран работает без live-точки */
-  }
-  return {
-    close: () => {
-      try {
-        ws?.close();
-      } catch {
-        /* уже закрыт */
-      }
+  const generation = getSessionGeneration();
+  const h = listenDriverLocation({
+    // Настоящий WebSocket шире SocketLike (у его обработчиков this и Event) — логике хватает подмножества.
+    openSocket: () => new WebSocket(tripLocationUrl(wsBase(), bookingId)) as unknown as SocketLike,
+    token: getToken,
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+    onLoc,
+    isCurrent: () => generation === getSessionGeneration(),
+    refreshToken: refreshRejectedToken,
+    subscribeOnline: (fn) => {
+      if (typeof window === "undefined") return () => {};
+      window.addEventListener("online", fn);
+      return () => window.removeEventListener("online", fn);
     },
-  };
+  });
+  return { close: () => h.stop() };
 }
 
 /**

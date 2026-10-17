@@ -6,7 +6,7 @@ const { outputFiles } = await build({ entryPoints: [fileURLToPath(new URL('../sr
   b.onResolve({filter:/^\.\/client$/},()=>({path:'client',namespace:'fixture'}));
   b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:`export const API_BASE='http://local';export const getToken=()=>globalThis.wsFixture.token;export const getSessionGeneration=()=>globalThis.wsFixture.generation;
     export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}
-    export const apiGet=()=>{},apiPost=()=>{},apiDelete=()=>{},apiUpload=()=>{},isOwnApiUrl=()=>true;`}));
+    export const apiGet=()=>{},apiPost=()=>{},apiDelete=()=>{},apiUpload=()=>{},isOwnApiUrl=()=>true,refreshRejectedToken=async()=>true;`}));
 } }] });
 const api = await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text).toString('base64'));
 const realTimeout=globalThis.setTimeout,realClear=globalThis.clearTimeout;
