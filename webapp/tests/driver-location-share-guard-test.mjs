@@ -158,6 +158,18 @@ await t.test("вход отозван («Выйти со всех устройс
   assert.equal(r.states.at(-1), "ended");
 });
 
+await t.test("обновление отказано, но другая вкладка уже сменила ключ — не конец, подключаемся с новым", async () => {
+  let key = "old";
+  const r = rig({ token: () => key, refresh: async () => { key = "from-other-tab"; return false; } });
+  r.fix(54.7, 55.9);
+  r.open().onclose({ code: 1008, reason: "Token revoked" });
+  await tick();
+  assert.notEqual(r.states.at(-1), "ended", "вход жив — другая вкладка уже обновила ключ");
+  assert.deepEqual(r.cleared, []);
+  r.runTimers();
+  assert.deepEqual(r.open().sent[0], { type: "auth", token: "from-other-tab" });
+});
+
 await t.test("новый ключ тоже отвергли сразу после входа — лестница растёт, а не долбит раз в секунду", async () => {
   let n = 0;
   const r = rig({ token: () => "k" + n, refresh: async () => { n++; return true; } });
@@ -273,6 +285,26 @@ await t.test("канал открывается без ключа в адрес�
   assert.equal(d.isCurrent(), false, "смена сессии не останавливает отправку");
   assert.equal(typeof d.refreshToken, "function", "истёкший ключ экран не обновляет — точка погаснет до конца поездки");
   assert.equal(typeof d.subscribeOnline, "function", "«сеть вернулась» не подключено");
+});
+
+await t.test("экран подписывается на «online» окна и отписывается", async () => {
+  globalThis.__starts = [];
+  globalThis.__gen = "A";
+  const listeners = [];
+  globalThis.window = {
+    setTimeout,
+    clearTimeout,
+    addEventListener: (type, fn) => listeners.push([type, fn]),
+    removeEventListener: (type, fn) => { const i = listeners.findIndex(([t2, f]) => t2 === type && f === fn); if (i >= 0) listeners.splice(i, 1); },
+  };
+  const V = await view();
+  const h = mount(V, { bookingId: 42, inTransit: true });
+  h.render();
+  const fn = () => {};
+  const off = globalThis.__starts[0].deps.subscribeOnline(fn);
+  assert.deepEqual(listeners, [["online", fn]], "логика не узнает, что сеть вернулась");
+  off();
+  assert.equal(listeners.length, 0);
 });
 
 t.done();
