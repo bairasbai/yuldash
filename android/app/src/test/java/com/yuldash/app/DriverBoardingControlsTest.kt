@@ -51,6 +51,7 @@ class DriverBoardingControlsTest {
     private lateinit var server: MockWebServer
     @Volatile private var markReply: MockResponse = json("""{"ok":true,"status":"onboard","boarding_undo_sec":300}""")
     @Volatile private var undoReply: MockResponse = json("""{"ok":true,"status":"confirmed","boarding_undo_sec":0}""")
+    @Volatile private var noShowReply: MockResponse = json("""{"id":42,"status":"cancelled"}""")
 
     private fun json(body: String, code: Int = 200) =
         MockResponse().setResponseCode(code).setHeader("Content-Type", "application/json").setBody(body)
@@ -68,7 +69,7 @@ class DriverBoardingControlsTest {
                     return when (request.path) {
                         "/bookings/42/driver-status" -> markReply
                         "/bookings/42/boarded/undo" -> undoReply
-                        "/bookings/42/no-show" -> json("""{"id":42,"status":"cancelled"}""")
+                        "/bookings/42/no-show" -> noShowReply
                         else -> json("{}", 404)
                     }
                 }
@@ -155,6 +156,17 @@ class DriverBoardingControlsTest {
         assertEquals(1, calls.count { it.startsWith("POST /bookings/42/no-show") })
     }
 
+    /** Второй телефон водителя уже отметил «Сел»: «Не пришёл» отвечает 409 — карточка берёт у сервера,
+     *  сколько секунд ещё можно отменить, и показывает «Отменить», а не сразу разбор (приёмка PR174). */
+    @Test fun noShowOnABoardedPassengerOffersUndoWithTheServerSeconds() {
+        noShowReply = json("""{"detail":{"ru":"Пассажир уже отмечен в машине — неявку не отметить.","ba":"Пассажир машинала тип билдәләнгән инде.","code":"passenger_onboard","boarding_undo_sec":120}}""", 409)
+        card()
+        compose.onNodeWithText("Не пришёл").performClick()
+        waitFor("Пассажир в машине")
+        compose.onAllNodesWithText("Отменить ·", substring = true).assertCountEquals(1)
+        compose.onAllNodesWithText("Сообщить о проблеме").assertCountEquals(0)
+    }
+
     @Test fun bashkirLabelsForTheDriver() {
         card(language = AppLanguage.Ba)
         compose.onNodeWithText("Ултырҙы").assertIsDisplayed()
@@ -195,7 +207,8 @@ class DriverBoardingControlsTest {
         assertTrue(activeTripBoardingSlot("passenger", "confirmed", 42, 9, "Ринат", 0, noop) != null)
         assertTrue(activeTripBoardingSlot("driver", "onboard", 42, 7, "", 120, noop) != null)
         assertTrue(activeTripBoardingSlot("driver", "confirmed", 42, 7, "", 0, noop) == null)
-        assertTrue(activeTripBoardingSlot("passenger", "onboard", 42, 9, "Ринат", 0, noop) == null)
+        // «В пути» пассажиру — «Водитель отметил посадку. Не садился — сообщи о проблеме» (приёмка PR174).
+        assertTrue(activeTripBoardingSlot("passenger", "onboard", 42, 9, "Ринат", 0, noop) != null)
         assertTrue("без брони — демо, посадки нет", activeTripBoardingSlot("passenger", "confirmed", null, 0, "", 0, noop) == null)
     }
 }

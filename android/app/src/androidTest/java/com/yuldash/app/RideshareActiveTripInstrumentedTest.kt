@@ -89,7 +89,7 @@ class RideshareActiveTripInstrumentedTest {
                                 onPrimary = onPrimary,
                                 boarding = activeTripBoardingSlot(
                                     role = if (driver) "driver" else "passenger", bookingStatus = "confirmed",
-                                    bookingId = 42, peerId = 9, driverName = "Ринат Хабиров", undoSec = 0, onUndone = {},
+                                    bookingId = 42, peerId = 9, peerName = "Ринат Хабиров", undoSec = 0, onUndone = {},
                                 ),
                             )
                         },

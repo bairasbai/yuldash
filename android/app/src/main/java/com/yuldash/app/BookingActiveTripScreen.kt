@@ -1857,7 +1857,7 @@ private fun ActiveTripContent(
                         appText("Завершить поездку", "Сәфәрҙе тамамлау")
                     } else null,
                     onFinish = { if (isTripSessionCurrent()) showDriverFinishConfirmation = true },
-                    boarding = activeTripBoardingSlot(role, bookingStatus, bookingId, peerId, ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
+                    boarding = activeTripBoardingSlot(role, bookingStatus, bookingId, peerId, if (role == "driver") "" else ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
                         boardingUndoSec) { r -> if (isTripSessionCurrent()) { acceptBookingStatus(r.status); boardingUndoSec = r.undoSec } },
                 )
             }

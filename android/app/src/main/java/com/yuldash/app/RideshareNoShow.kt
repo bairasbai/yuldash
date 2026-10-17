@@ -50,13 +50,15 @@ internal fun noShowAllowed(bookingStatus: String): Boolean = bookingStatus == "c
  * «Не пришёл» — водитель отмечает неявку пассажира (no-show): /bookings/{id}/no-show, места
  * возвращаются на сервере. Что показать после ответа, решает карточка ([DriverBoardingControls]):
  * [onSent] — неявка отмечена, [onBoarded] — сервер ответил, что посадка уже отмечена (второй
- * телефон водителя, очередь без сети), и вместо кнопки нужен путь разбора.
+ * телефон водителя, очередь без сети): аргумент — сколько секунд ещё можно отменить отметку
+ * (`boarding_undo_sec` из отказа), чтобы карточка показала «Отменить» с верным отсчётом, а не
+ * сразу разбор (приёмка PR174).
  */
 @Composable
 internal fun NoShowButton(
     bookingId: Int,
     onSent: () -> Unit,
-    onBoarded: () -> Unit,
+    onBoarded: (undoSec: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -71,7 +73,9 @@ internal fun NoShowButton(
                 ApiClient.markNoShow(bookingId)
                     .onSuccess { onSent() }
                     .onFailure { e ->
-                        if (e is ApiException && e.detailCode == "passenger_onboard") onBoarded()
+                        if (e is ApiException && e.detailCode == "passenger_onboard") {
+                            onBoarded(e.detail?.optInt("boarding_undo_sec")?.coerceAtLeast(0) ?: 0)
+                        }
                         Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
                     }
                 sending = false

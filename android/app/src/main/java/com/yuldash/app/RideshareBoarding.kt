@@ -3,6 +3,7 @@ package com.yuldash.app
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,7 +19,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,11 +35,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.BoardingApi
 import com.yuldash.app.data.BoardingResult
+import com.yuldash.app.data.TripReceiptDto
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -103,7 +108,7 @@ internal fun DriverBoardingControls(
                 NoShowButton(
                     bookingId = bookingId,
                     onSent = { shown = "no_show" },
-                    onBoarded = { undoSec = 0; shown = "onboard" },
+                    onBoarded = { sec -> undoSec = sec; shown = "onboard" },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -187,27 +192,62 @@ internal fun BoardingInCarRow(
 }
 
 /**
- * Пассажир до посадки: «Водитель отметит посадку» и «Сообщить о проблеме» — разбор по брони с
- * водителем (водитель не приехал, отметил не того). [driverId] — вторая сторона брони с сервера;
- * 0 — старый сервер, разбора нет (не с кем).
+ * Где пассажиру показываем «Сообщить о проблеме» — разбор по брони с водителем (тип «Водитель
+ * не приехал» уже выбран): до посадки, после отметки водителя и после поездки (приёмка PR174).
+ */
+internal enum class PassengerReportStage { Waiting, Marked, AfterTrip }
+
+/**
+ * «Сообщить о проблеме» пассажира — разбор по брони с водителем (водитель не приехал, отметил
+ * не того, уехал без него). [driverId] — вторая сторона брони с сервера; 0 — старый сервер,
+ * разбора нет (не с кем).
+ *  • [PassengerReportStage.Waiting] — до посадки: «Водитель отметит посадку»;
+ *  • [PassengerReportStage.Marked] — водитель отметил «Сел»: отмены у пассажира «в пути» нет
+ *    (сервер отвечает `onboard_no_cancel`), и если он не садился — путь только этот;
+ *  • [PassengerReportStage.AfterTrip] — экран завершённой поездки, пока сервер держит окно
+ *    (`problem_report_sec`, 6 часов): водитель мог отметить не того и сразу закрыть поездку.
  */
 @Composable
-internal fun PassengerBoardingWait(bookingId: Int, driverId: Int, driverName: String, modifier: Modifier = Modifier) {
+internal fun PassengerBoardingWait(
+    bookingId: Int,
+    driverId: Int,
+    driverName: String,
+    modifier: Modifier = Modifier,
+    stage: PassengerReportStage = PassengerReportStage.Waiting,
+) {
     var open by remember(bookingId) { mutableStateOf(false) }
     var filed by remember(bookingId) { mutableStateOf(false) }
+    val title = when (stage) {
+        PassengerReportStage.Waiting -> appText("Водитель отметит посадку", "Йөрөтөүсе ултырыуҙы билдәләр")
+        PassengerReportStage.Marked -> appText("Водитель отметил посадку", "Йөрөтөүсе ултырыуҙы билдәләне")
+        PassengerReportStage.AfterTrip -> appText("Не садился в машину?", "Машинаға ултырманыңмы?")
+    }
+    val caption = when (stage) {
+        PassengerReportStage.Waiting -> appText(
+            "Сверь машину и назови код. Когда сядешь, водитель отметит посадку в приложении.",
+            "Машинаны тикшер һәм кодты әйт. Ултырғас, йөрөтөүсе ултырыуҙы ҡушымтала билдәләр.",
+        )
+        PassengerReportStage.Marked -> appText("Не садился — сообщи о проблеме.", "Ултырмаған булһаң — проблема тураһында хәбәр ит.")
+        PassengerReportStage.AfterTrip -> appText(
+            "Водитель отметил посадку без тебя или не приехал — сообщи о проблеме, разберёмся.",
+            "Йөрөтөүсе һинһеҙ ултырыуҙы билдәләгән йәки килмәгән булһа — проблема тураһында хәбәр ит, тикшерербеҙ.",
+        )
+    }
+    val respondent = driverName.ifBlank { appText("водителя", "йөрөтөүсене") }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
+            Icon(
+                when (stage) {
+                    PassengerReportStage.Waiting -> Icons.Default.DirectionsCar
+                    PassengerReportStage.Marked -> Icons.Default.CheckCircle
+                    PassengerReportStage.AfterTrip -> Icons.Default.Info
+                },
+                contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp),
+            )
             Spacer(Modifier.width(CanonSpace.sm))
-            Text(appText("Водитель отметит посадку", "Йөрөтөүсе ултырыуҙы билдәләр"), color = CanonText, style = CanonBodyStrong)
+            Text(title, color = CanonText, style = CanonBodyStrong)
         }
-        Text(
-            appText(
-                "Сверь машину и назови код. Когда сядешь, водитель отметит посадку в приложении.",
-                "Машинаны тикшер һәм кодты әйт. Ултырғас, йөрөтөүсе ултырыуҙы ҡушымтала билдәләр.",
-            ),
-            color = CanonMuted, style = CanonCaption,
-        )
+        Text(caption, color = CanonMuted, style = CanonCaption)
         AnimatedContent(targetState = filed, label = "boardingWaitReport") { done ->
             if (done) {
                 Text(
@@ -227,10 +267,35 @@ internal fun PassengerBoardingWait(bookingId: Int, driverId: Int, driverName: St
     if (open) {
         FileIncidentDialog(
             respondentId = driverId,
-            respondentName = driverName,
+            respondentName = respondent,
             bookingId = bookingId,
             onDismiss = { open = false },
             onFiled = { open = false; filed = true },
+            initialType = "driver_no_show",
+        )
+    }
+}
+
+/**
+ * Кому пассажир сообщит о проблеме с экрана завершённой поездки; 0 — кнопки нет: водитель, окно
+ * сервера (`problem_report_sec`, 6 часов) вышло или сервер старый и второй стороны не прислал.
+ */
+internal fun afterTripReportTo(receipt: TripReceiptDto?, isDriver: Boolean): Int =
+    receipt?.takeIf { !isDriver && it.problemReportSec > 0 }?.counterpartyId ?: 0
+
+/** Экран завершённой поездки: тот же «Сообщить о проблеме» в карточке, как соседние действия. */
+@Composable
+internal fun PassengerAfterTripReport(bookingId: Int, driverId: Int, driverName: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().testTag("rideshareProblemReport"),
+        color = CanonSurface,
+        shape = CanonItemShape,
+        border = BorderStroke(1.dp, CanonBorder),
+    ) {
+        PassengerBoardingWait(
+            bookingId, driverId, driverName,
+            modifier = Modifier.padding(CanonSpace.md),
+            stage = PassengerReportStage.AfterTrip,
         )
     }
 }
@@ -238,25 +303,33 @@ internal fun PassengerBoardingWait(bookingId: Int, driverId: Int, driverName: St
 /**
  * Что показать над кнопками экрана поездки про посадку:
  *  • пассажиру до посадки — «Водитель отметит посадку» и «Сообщить о проблеме»;
- *  • водителю «в пути» — «Пассажир в машине» и «Отменить · 4:59», пока можно.
+ *  • пассажиру «в пути» — «Водитель отметил посадку. Не садился — сообщи о проблеме» (приёмка PR174);
+ *  • водителю «в пути» — «Пассажир в машине» и «Отменить · 4:59», пока можно, потом — разбор
+ *    «Если пассажир на самом деле не садился» (как в кабинете, Q4).
  * null — ничего: водитель до посадки отмечает её главной кнопкой «Пассажир сел».
+ * [peerName] — имя второй стороны брони; пусто — в разборе «пассажира» / «водителя».
  */
 internal fun activeTripBoardingSlot(
     role: String,
     bookingStatus: String,
     bookingId: Int?,
     peerId: Int,
-    driverName: String,
+    peerName: String,
     undoSec: Int,
     onUndone: (BoardingResult) -> Unit,
 ): (@Composable () -> Unit)? {
     if (bookingId == null) return null
-    if (role == "passenger" && bookingStatus == "confirmed") {
-        val wait: @Composable () -> Unit = { PassengerBoardingWait(bookingId, peerId, driverName) }
+    if (role == "passenger" && (bookingStatus == "confirmed" || bookingStatus == "onboard")) {
+        val stage = if (bookingStatus == "onboard") PassengerReportStage.Marked else PassengerReportStage.Waiting
+        val wait: @Composable () -> Unit = { PassengerBoardingWait(bookingId, peerId, peerName, stage = stage) }
         return wait
     }
     if (role == "driver" && bookingStatus == "onboard") {
-        val inCar: @Composable () -> Unit = { BoardingInCarRow(bookingId, undoSec, onUndone) }
+        val inCar: @Composable () -> Unit = {
+            BoardingInCarRow(bookingId, undoSec, onUndone) {
+                BoardedDisputeBlock(bookingId, peerId, peerName.ifBlank { appText("пассажира", "юлсыны") })
+            }
+        }
         return inCar
     }
     return null

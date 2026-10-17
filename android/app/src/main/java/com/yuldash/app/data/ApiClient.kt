@@ -3651,7 +3651,7 @@ object ApiClient {
                     expireSession(generation)
                     Result.failure(ApiException(401, genericByStatus(401, langBa)))
                 } else {
-                    Result.failure(ApiException(code, errorMessage(code, text), detailCode(text)))
+                    Result.failure(ApiException(code, errorMessage(code, text), detailCode(text), runCatching { JSONObject(text).optJSONObject("detail") }.getOrNull()))
                 }
             } catch (ce: CancellationException) {
                 testTrace?.invoke("вызов $method $path ОТМЕНЁН (корутину закрыли снаружи)")
@@ -4871,7 +4871,7 @@ object ApiClient {
                 driverVerified = o.optBoolean("driver_verified"),
                 counterpartyName = o.optString("counterparty_name"),
                 myStars = o.optInt("my_stars"),
-                myRatingTags = o.optString("my_rating_tags"),
+                myRatingTags = o.optString("my_rating_tags"), counterpartyId = o.optInt("counterparty_id"), problemReportSec = o.optInt("problem_report_sec"),
             )
         }
 
@@ -5453,7 +5453,7 @@ object ApiClient {
  * «банк отклонил» и «ответ банка непонятен» выглядят одинаково (оба 400), а вести себя после
  * них надо ровно наоборот — начать новую попытку или не трогать её вовсе (волна 219).
  */
-class ApiException(val status: Int, message: String, val detailCode: String = "") : Exception(message)
+class ApiException(val status: Int, message: String, val detailCode: String = "", val detail: JSONObject? = null) : Exception(message)  // detail — сырое тело отказа (числа вроде boarding_undo_sec)
 
 /** The server accepted a single-use code, but local session storage could not commit it. */
 internal class SessionPersistenceException : IOException("Session was not persisted")
@@ -7433,7 +7433,7 @@ data class TripReceiptDto(
     val driverName: String, val driverVerified: Boolean,
     val counterpartyName: String = "",
     val myStars: Int = 0,
-    val myRatingTags: String = "",
+    val myRatingTags: String = "", val counterpartyId: Int = 0, val problemReportSec: Int = 0,  // «Сообщить о проблеме» пассажиру после поездки (PR174)
 )
 
 /** Ответ на «Подожду машину»: до какого времени ищем и обновлённый заказ. */
