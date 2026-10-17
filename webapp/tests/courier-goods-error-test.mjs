@@ -8,6 +8,7 @@ const h=globalThis.__courierGoods={};
 const mocks={
 'react':`const h=globalThis.__courierGoods;
 export function useState(v){const x=h.current,i=x.i++;if(!(i in x.values))x.values[i]=typeof v==='function'?v():v;return[x.values[i],v=>{if(x.live)x.values[i]=typeof v==='function'?v(x.values[i]):v}];}
+export function useRef(v){const x=h.current,i=x.i++;if(!(i in x.values))x.values[i]={current:v};return x.values[i];}
 export function useCallback(fn,deps){const x=h.current,i=x.i++,p=x.values[i];if(!p||deps.some((v,j)=>v!==p.deps[j]))x.values[i]={fn,deps};return x.values[i].fn;}
 export function useEffect(fn,deps){const x=h.current,i=x.i++,p=x.values[i];if(!p||!deps||deps.some((v,j)=>v!==p.deps[j])){x.values[i]={deps};h.effects.push(()=>{x.cleanups[i]?.();x.cleanups[i]=fn()});}}`,
 'react/jsx-runtime':`export const Fragment='fragment';export const jsx=(type,props,key)=>({type,props,key}),jsxs=jsx;`,
@@ -27,11 +28,13 @@ analytics:`export const track=()=>{};`,
 form:`export const ParcelAddressBlock=ParcelDeadlineNote=ParcelReturnNotice=ParcelRouteRow=()=>null;export const cargoTypeEmoji=cargoTypeLabel=sizeLabel=()=>'';`,
 progress:`export const CourierDeliveryProgress=()=>null;`,
 navigator:`export const openNavigator=()=>{};`,
+// Шторка кода вручения (CodeDialog) здесь не рисуется — ей нужен только импорт хука ухода.
+sheetExit:`export const useSheetExit=()=>({leaving:false,close(){},backdropClass:'sheet-backdrop',onAnimationEnd(){}});`,
 empty:`export default ()=>null;`,
 };
 // Chained export declarations require independently declared bindings in ES modules.
 for(const key of Object.keys(mocks))mocks[key]=mocks[key].replace(/export const ([A-Za-z][\w]*(?:=[A-Za-z][\w]*)+)=(?=\()/g,(_,names)=>'export const '+names.split('=').join('=()=>null,')+'=');
-const mapping={'/i18n/lang':'lang','/api/client':'client','/api/courier':'courier','/api/parcels':'parcels','/utils/format':'format','/ConsentsScreen':'header','/components/States':'states','/Icons':'icons','/BrandIcons':'brand','/utils/serverTime':'time','/utils/pendingPayment':'payment','/analytics':'analytics','/parcelForm':'form','/TaxiTripProgress':'progress','/utils/navigator':'navigator'};
+const mapping={'/i18n/lang':'lang','/api/client':'client','/api/courier':'courier','/api/parcels':'parcels','/utils/format':'format','/ConsentsScreen':'header','/components/States':'states','/Icons':'icons','/BrandIcons':'brand','/utils/serverTime':'time','/utils/pendingPayment':'payment','/analytics':'analytics','/parcelForm':'form','/TaxiTripProgress':'progress','/utils/navigator':'navigator','/useSheetExit':'sheetExit'};
 const source=await readFile(root+'src/screens/CourierScreen.tsx','utf8');
 const exposed=/\bexport\s+(?:async\s+)?function\s+CarryOrders\b/.test(source)?source:source+'\nexport { CarryOrders };';
 const b=await build({stdin:{contents:exposed,resolveDir:root+'src/screens',loader:'tsx'},bundle:true,write:false,format:'esm',platform:'node',jsx:'automatic',plugins:[{name:'controlled',setup(b){b.onResolve({filter:/.*/},a=>{if((a.path.endsWith('/parcelUi')||a.path.endsWith('/CompletedParcelCard')))return null;let k=Object.hasOwn(mocks,a.path)?a.path:Object.entries(mapping).find(([suffix])=>a.path.endsWith(suffix))?.[1];if(!k&&a.path.startsWith('.'))k='empty';return k?{path:k,namespace:'mock'}:null;});b.onLoad({filter:/.*/,namespace:'mock'},a=>({contents:mocks[a.path],loader:'js'}));}}]});

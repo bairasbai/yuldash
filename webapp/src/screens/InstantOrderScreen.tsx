@@ -64,6 +64,7 @@ import { setActiveTaxiOrder, setTaxiOrderOnScreen } from "../navSignals";
 import TaxiTripProgress from "../components/TaxiTripProgress";
 import TaxiPassengerCompleted from "./TaxiPassengerCompletedScreen";
 import TaxiSheet, { TaxiSheetOverlayButton, type TaxiSheetStop } from "../components/TaxiSheet";
+import { useSheetExit } from "../components/useSheetExit";
 
 /** Класс машины человеческой строкой (подписи живут в клиенте, коды — на сервере). */
 function categoryLabel(cat: string, appText: (ru: string, ba: string) => string): string {
@@ -1785,7 +1786,12 @@ const CANCEL_REASONS: Array<{ id: string; ru: string; ba: string }> = [
   { id: "other", ru: "Другая причина", ba: "Башҡа сәбәп" },
 ];
 
-function CancelSheet({
+/**
+ * Нижняя шторка «Почему отменяешь?». «Не отменять» / «Я выхожу» и тап по затемнению уводят её вниз
+ * (useSheetExit); `onClose` убирает шторку со страницы, когда она ушла. «Отменить» не ждёт движения:
+ * заказ отменён — экран меняется сам. Во время ухода отмена заперта.
+ */
+export function CancelSheet({
   feeRub,
   busy,
   reason,
@@ -1797,15 +1803,18 @@ function CancelSheet({
   busy: boolean;
   reason: string | null;
   onPick: (id: string) => void;
+  /** Шторка уже уехала — убери её со страницы. */
   onClose: () => void;
   onConfirm: () => void;
 }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const exit = useSheetExit(onClose, sheetRef);
 
   return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+    <div className={exit.backdropClass} onClick={exit.close}>
+      <div ref={sheetRef} className="sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
         <h2 className="sheet__title">{appText("Почему отменяешь?", "Ниңә кире алаһың?")}</h2>
 
         {/* Платная отмена объясняется до нажатия, а не приходит счётом после. */}
@@ -1838,14 +1847,21 @@ function CancelSheet({
           )}
         </p>
 
-        <button type="button" className="btn-danger" onClick={onConfirm} disabled={busy}>
+        <button
+          type="button"
+          className="btn-danger"
+          onClick={() => {
+            if (!exit.leaving) onConfirm(); // шторка уже уходит — отмену из неё не отправляем
+          }}
+          disabled={busy || exit.leaving}
+        >
           {busy
             ? appText("Отменяем…", "Кире алабыҙ…")
             : feeRub > 0
               ? appText("Всё равно отменить", "Барыбер кире алыу")
               : appText("Отменить заказ", "Заказды кире алыу")}
         </button>
-        <button type="button" className="btn-soft" style={{ marginTop: 8 }} onClick={onClose}>
+        <button type="button" className="btn-soft" style={{ marginTop: 8 }} onClick={exit.close}>
           {feeRub > 0 ? appText("Я выхожу", "Мин сығам") : appText("Не отменять", "Кире алмаҫҡа")}
         </button>
       </div>
