@@ -29,6 +29,7 @@ import { LoadingList } from "./States";
 import { IconProfile, IconStar } from "./Icons";
 import FileIncidentCard from "./FileIncidentCard";
 import { SectionHeader } from "./cabinetUi";
+import { pluralRu } from "../utils/format";
 
 /** Подтверждённая бронь — по ней можно отметить неявку. */
 const CONFIRMED = "confirmed";
@@ -45,6 +46,12 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
   const [rows, setRows] = useState<DriverBookingRow[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [note, setNote] = useState("");
+  /** Оценка в ДВА шага, как в Android (ProfileScreen.kt): выбрал звёзды → «Отправить оценку».
+   *  Раньше первое касание сразу уходило на сервер: промахнулся по первой звезде — человеку
+   *  упала единица, и вернуть было нечем. Здесь — выбранные, но ещё не отправленные звёзды
+   *  по брони (0 — ничего не выбрано). Бронь без оценки редактируется сразу, с оценкой —
+   *  после «Изменить». */
+  const [picked, setPicked] = useState<Record<number, number>>({});
   /** По какой брони открыт «Сообщить о проблеме» и по каким разбор уже открыт. */
   const [disputeId, setDisputeId] = useState<number | null>(null);
   const [filedIds, setFiledIds] = useState<number[]>([]);
@@ -85,6 +92,32 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
       setBusyId(null);
     }
   }
+
+  async function sendRating(b: DriverBookingRow, n: number) {
+    if (busyId) return;
+    const id = b.booking_id;
+    setBusyId(id);
+    setNote("");
+    try {
+      await rateBooking(id, n);
+      // Сразу показываем поставленную (сервер вернёт её же как my_stars при перечитывании).
+      setRows((rs) => rs.map((r) => (r.booking_id === id ? { ...r, my_stars: n } : r)));
+      setPicked(({ [id]: _sent, ...rest }) => rest);
+      setNote(appText("Спасибо за оценку", "Баһа өсөн рәхмәт"));
+      load();
+    } catch (e) {
+      // Не ушло — возвращаем как было: на экране не должна остаться «поставленная» оценка,
+      // которой нет на сервере.
+      setPicked((p) => ({ ...p, [id]: b.my_stars }));
+      setNote(e instanceof ApiError && e.message ? e.message : appText("Не получилось оценить", "Баһалап булманы"));
+      if (e instanceof ApiError && e.status === 409) load();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  /** «4 звезды» / «4 йондоҙ» — как `starsText` в Android. */
+  const starsText = (n: number) => appText(`${n} ${pluralRu(n, "звезда", "звезды", "звёзд")}`, `${n} йондоҙ`);
 
   if (boot === "hidden") return null;
   if (boot === "loading") return <LoadingList count={1} />;
@@ -218,31 +251,66 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
             )}
           />
           <div className="list">
-            {ratable.map((b) => (
-              <div key={b.booking_id} className="list-row list-row--stack">
-                {passengerMain(b)}
-                {/* Оценка пассажира. Ноль звёзд = ещё не оценивал; оценку можно поменять. */}
-                <div className="rate-stars rate-stars--sm">
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      className={"rate-star" + (n <= b.my_stars ? " is-on" : "")}
-                      aria-label={appText(`${n} звёзд`, `${n} йондоҙ`)}
-                      disabled={busyId === b.booking_id}
-                      onClick={() =>
-                        void act(b.booking_id, () => rateBooking(b.booking_id, n), {
-                          ru: "Оценка не ушла. Попробуй ещё раз.",
-                          ba: "Баһа китмәне. Тағы ҡабатла.",
-                        })
-                      }
-                    >
-                      <IconStar size={20} />
-                    </button>
-                  ))}
+            {ratable.map((b) => {
+              const id = b.booking_id;
+              const editing = b.my_stars === 0 || id in picked;
+              const stars = editing ? (picked[id] ?? 0) : b.my_stars;
+              const sending = busyId === id;
+              return (
+                <div key={id} className="list-row list-row--stack">
+                  {passengerMain(b)}
+                  {/* Сервер разрешает оценку изменить — значит, и здесь это не тупик. */}
+                  <div className="rate-row">
+                    <div className="rate-stars rate-stars--sm" role="group" aria-label={appText("Оценка пассажира", "Пассажир баһаһы")}>
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          className={"rate-star" + (n <= stars ? " is-on" : "")}
+                          aria-label={starsText(n)}
+                          aria-pressed={editing ? n === stars : undefined}
+                          disabled={!editing || sending}
+                          onClick={() => setPicked((p) => ({ ...p, [id]: n }))}
+                        >
+                          <IconStar size={20} />
+                        </button>
+                      ))}
+                    </div>
+                    {!editing && (
+                      <button type="button" className="btn-soft btn-soft--sm" onClick={() => setPicked((p) => ({ ...p, [id]: b.my_stars }))}>
+                        {appText("Изменить", "Үҙгәртеү")}
+                      </button>
+                    )}
+                  </div>
+                  {/* Подпись под звёздами — состояние словами; читалке экрана она же читает оценку. */}
+                  <div className="list-row__sub" aria-live="polite">
+                    {!editing
+                      ? appText(`Твоя оценка: ${starsText(stars)}`, `Һинең баһаң: ${starsText(stars)}`)
+                      : stars === 0
+                        ? appText("Выбери оценку", "Баһа һайла")
+                        : appText(`Выбрано ${starsText(stars)} — подтверди`, `${starsText(stars)} һайланды — раҫла`)}
+                  </div>
+                  {editing && stars > 0 && (
+                    <div className="rate-confirm">
+                      <button type="button" className="btn-primary" disabled={sending} onClick={() => void sendRating(b, stars)}>
+                        {sending ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Отправить оценку", "Баһаны ебәреү")}
+                      </button>
+                      {/* «Отмена» — только когда есть что вернуть: уже поставленную раньше оценку. */}
+                      {b.my_stars > 0 && (
+                        <button
+                          type="button"
+                          className="btn-soft"
+                          disabled={sending}
+                          onClick={() => setPicked(({ [id]: _dropped, ...rest }) => rest)}
+                        >
+                          {appText("Отмена", "Кире алыу")}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}

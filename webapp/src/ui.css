@@ -8944,6 +8944,37 @@ select.field__input {
   min-height: 44px;
 }
 
+/* Оценка пассажира в два шага (кабинет водителя, как ProfileScreen.kt): звёзды + «Изменить»
+   в одну строку; на узком экране «Изменить» переносится, а не давит звёзды. */
+.rate-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.rate-row .rate-stars {
+  margin-top: 0;
+  justify-content: flex-start;
+}
+/* Звезда «зажигается»: цвет и размер догоняют выбор — как animate*AsState в приложении. */
+.rate-stars--sm .rate-star.is-on {
+  transform: scale(1.14);
+}
+/* Уже оценено — звёзды только показывают оценку: без «нажимного» вида и без серости. */
+.rate-stars--sm .rate-star:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.rate-confirm {
+  display: flex;
+  gap: var(--space-sm);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.rate-confirm .btn-primary {
+  flex: 1;
+}
+
 /* ================================================================
    Волна П2 — классы машины у таксиста. Строка-переключатель:
    видно, что включено, что недоступно и ЧЕГО не хватает.

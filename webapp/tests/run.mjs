@@ -157,6 +157,8 @@ const SUITES = [
   // shallow-harness.mjs (экран поездки — active-trip-fixture.mjs).
   // «Едут с тобой» → «Открыть поездку»; звёзды только у завершённых; отменённых в блоке нет.
   { test: "driver-passengers-open-trip-test", src: null, out: null, bundle: false },
+  // Оценка пассажира в два шага, как в Android: выбрал → «Отправить оценку»; «Изменить» / «Отмена».
+  { test: "driver-rating-two-step-test", src: null, out: null, bundle: false },
   // Отмена: на «Брони» — только ждущая и своим окном; подтверждённая — на экране поездки с причиной {reason}; «в пути» — никак.
   { test: "booking-cancel-reason-test", src: null, out: null, bundle: false },
   // Точка водителя с сайта в канал /ws/trip/{id}/location: только в пути, без журнала и аналитики, отказ не роняет экран.
