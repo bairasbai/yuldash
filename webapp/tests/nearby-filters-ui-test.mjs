@@ -79,7 +79,10 @@ await test("«Есть N поездок непроверенных водите�
   assert.ok(block.length > 100, "блок стилей найден");
   assert.ok(!/#[0-9a-f]{3,8}\b|rgba?\(/i.test(block), "цвет числом");
   assert.ok(!/border-radius:\s*\d/.test(block) && !/font-size:\s*\d/.test(block), "радиус или кегль числом");
-  assert.ok(!/transition[^;]*\d+m?s\b/.test(block.replace(/var\(--motion-[\w-]+\)/g, "")), "время числом");
+  assert.ok(!/(?:transition|animation)[^;]*\d+m?s\b/.test(block.replace(/var\(--motion-[\w-]+\)/g, "")), "время числом");
+  // Появление — как смена состояния ленты в приложении (fadeIn, CanonMotion.NORMAL); «Уменьшить движение» — без него.
+  assert.match(block, /\.nrc-unverified \{\s*animation: fadeIn var\(--motion-normal\) ease both;/);
+  assert.match(block, /@media \(prefers-reduced-motion: reduce\) \{\s*\.nrc-unverified \{\s*animation: none;/);
   const h = block.match(/\.nrc-unverified__show\s*\{[^}]*min-height:\s*(\d+)px/);
   assert.ok(h && Number(h[1]) >= 48, "цель нажатия «Показать»");
 });

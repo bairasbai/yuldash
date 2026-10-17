@@ -238,6 +238,40 @@ await test("сменил день после «Показать» — снова
   assert.ok(hint(home), "на новый день — снова честная подсказка");
 });
 
+await test("Завтра → «Показать» → Все дни → Завтра: фильтр снова режет, карточка снова на месте (приёмка PR167)", async () => {
+  // На живом сайте после такого круга лента шла без фильтра — без карточки и без нажатия.
+  const { home, calls } = await homeVerifiedOnly(2, { offered: true, fromOptions: [{ ru: "Баймак", ba: "Баймаҡ" }] });
+  one(home.tree, "NearbyWhenChip").props.onChange("2030-01-02");
+  await settle(home);
+  hint(home).props.onShow();
+  await settle(home);
+  assert.equal(calls.at(-1).verified_only, undefined, "«Показать» на «Завтра» сработал");
+  one(home.tree, "NearbyWhenChip").props.onChange(null);
+  await settle(home);
+  assert.equal(calls.at(-1).verified_only, true, "«Все дни» — другой поиск, снова только проверенные");
+  one(home.tree, "NearbyWhenChip").props.onChange("2030-01-02");
+  await settle(home);
+  assert.equal(calls.at(-1).date, "2030-01-02");
+  assert.equal(calls.at(-1).verified_only, true, "вернулся на «Завтра» — нажатие не воскресло");
+  assert.ok(hint(home), "снова честная карточка «Есть N поездок…»");
+});
+
+await test("место уточнилось после «Показать» — непроверенные остаются: это тот же поиск (как в приложении)", async () => {
+  const { home, calls } = await homeVerifiedOnly(2);
+  hint(home).props.onShow();
+  await settle(home);
+  assert.equal(cards(home), 2);
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { geolocation: { getCurrentPosition: (yes) => yes({ coords: { latitude: 54.73, longitude: 55.95 } }) } },
+  });
+  one(home.tree, "NearbyChip").props.onClick();
+  await settle(home);
+  assert.equal(calls.at(-1).radius_km, 50, "запрос ушёл уже с местом");
+  assert.equal(calls.at(-1).verified_only, undefined, "место не вернуло фильтр, который человек снял");
+  assert.equal(cards(home), 2);
+});
+
 await test("при условиях подсказка даёт и «Сбросить фильтры» — путь назад, как в «с такими условиями»", async () => {
   // На сервере есть города с поездками — ряд фильтров виден и при пустой ленте (`filtersRowVisible`).
   const { home, calls } = await homeVerifiedOnly(1, { offered: true, fromOptions: [{ ru: "Баймак", ba: "Баймаҡ" }] });

@@ -19657,7 +19657,16 @@ button.settings-row:active {
   text-align: left;
 }
 /* NearbyUnverifiedCard (NearbyVerifiedOnly.kt): «Есть N поездок непроверенных водителей — показать?».
-   Щит — зелёный, как строка «Показываем только проверенных»; «Показать» — AppButton(Secondary): обводка. */
+   Щит — зелёный, как строка «Показываем только проверенных»; «Показать» — AppButton(Secondary): обводка.
+   Появляется спокойным проявлением, как смена состояния ленты в приложении (fadeIn, CanonMotion.NORMAL). */
+.nrc-unverified {
+  animation: fadeIn var(--motion-normal) ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nrc-unverified {
+    animation: none;
+  }
+}
 .nrc-unverified .nrc-unverified__icon {
   color: var(--green2);
 }

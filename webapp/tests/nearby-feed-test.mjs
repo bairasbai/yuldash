@@ -229,13 +229,36 @@ await test("«Показать» снимает фильтр только для
   assert.equal(m.nearbyVerifiedOnly(false, null, key), false, "выключено в «Безопасности»");
 });
 
-await test("«Есть N поездок непроверенных водителей — показать?»: русский склоняет оба слова", async ({ m }) => {
+await test("«Есть N поездок непроверенных водителей — показать?»: склоняется «поездка», «водителей» — всегда множественное", async ({ m }) => {
+  // Приёмка PR167: «Есть 21 поездка непроверенного водителя» читалось как один водитель.
   const label = (n) => m.unverifiedRidesLabel(n, ru);
-  assert.equal(label(1), "Есть 1 поездка непроверенного водителя — показать?");
+  assert.equal(label(1), "Есть 1 поездка непроверенных водителей — показать?");
   assert.equal(label(2), "Есть 2 поездки непроверенных водителей — показать?");
   assert.equal(label(5), "Есть 5 поездок непроверенных водителей — показать?");
   assert.equal(label(11), "Есть 11 поездок непроверенных водителей — показать?");
-  assert.equal(label(21), "Есть 21 поездка непроверенного водителя — показать?");
+  assert.equal(label(21), "Есть 21 поездка непроверенных водителей — показать?");
+  assert.equal(label(31), "Есть 31 поездка непроверенных водителей — показать?");
+  assert.equal(label(104), "Есть 104 поездки непроверенных водителей — показать?");
+});
+
+await test("ключ «Показать» — без места: уточнение координат не возвращает фильтр, а день, условия и города — возвращают", async ({ m }) => {
+  const base = { ...NO_FILTERS, verifiedOnly: true, coords: { lat: 54.73, lng: 55.95 } };
+  const key = m.nearbyRevealKey(base);
+  assert.equal(m.nearbyRevealKey({ ...base, coords: { lat: 54.7312, lng: 55.9581 } }), key, "место уточнилось — тот же поиск");
+  assert.equal(m.nearbyRevealKey({ ...base, coords: null }), key, "как в приложении: места в ключе нет");
+  assert.notEqual(m.nearbyRevealKey({ ...base, day: "2026-10-18" }), key);
+  assert.notEqual(m.nearbyRevealKey({ ...base, conditions: ["child"] }), key);
+  assert.notEqual(m.nearbyRevealKey({ ...base, fromCities: ["Баймак"] }), key);
+  assert.notEqual(m.nearbyRevealKey({ ...base, toCities: ["Уфа"] }), key);
+  assert.notEqual(m.nearbyContextKey({ ...base, coords: { lat: 54.7312, lng: 55.9581 } }), m.nearbyContextKey(base), "а лента с новым местом перезапрашивается");
+});
+
+await test("сменил поиск — «Показать» забыто; тот же поиск — помнится", async ({ m }) => {
+  const tomorrow = m.nearbyRevealKey({ ...NO_FILTERS, verifiedOnly: true, day: "2026-10-18" });
+  const allDays = m.nearbyRevealKey({ ...NO_FILTERS, verifiedOnly: true });
+  assert.equal(m.nearbyKeepReveal(tomorrow, tomorrow), tomorrow);
+  assert.equal(m.nearbyKeepReveal(tomorrow, allDays), null);
+  assert.equal(m.nearbyKeepReveal(null, tomorrow), null);
 });
 
 await test("…по-башкирски — как в приложении, без склонения", async ({ m }) => {

@@ -3,6 +3,9 @@ package com.yuldash.app
 import android.content.Context
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -86,6 +89,36 @@ class NearbyVerifiedOnlyTest {
     }
 
     @Test
+    fun `сменил поиск — «Показать» забыто, тот же поиск — помнится`() {
+        val state = NearbyVerifiedState(saved = true)
+        state.reveal(search(date = "2026-10-18"))
+        state.forgetUnless(search(date = "2026-10-18"))
+        assertFalse("тот же поиск (авто-обновление) — непроверенные остаются", state.verifiedOnly(search(date = "2026-10-18")))
+        state.forgetUnless(search())
+        assertEquals("ушёл на «Все дни» — нажатие забыто", null, state.revealedFor)
+        assertTrue("вернулся на «Завтра» — снова только проверенные", state.verifiedOnly(search(date = "2026-10-18")))
+    }
+
+    @Test
+    fun `Завтра, «Показать», Все дни, Завтра — фильтр снова режет, экран забывает нажатие сам`() {
+        // Приёмка PR167 (живой сайт): после такого круга лента снова шла без фильтра — без карточки и нажатия.
+        val state = NearbyVerifiedState(saved = true)
+        var current by mutableStateOf<Any>(search(date = "2026-10-18"))
+        var effective = true
+        compose.setContent { effective = state.verifiedOnlyFor(current) }
+        compose.runOnIdle { state.reveal(current) }
+        compose.waitForIdle()
+        assertFalse("«Показать» на «Завтра»", effective)
+        compose.runOnIdle { current = search() }
+        compose.waitForIdle()
+        assertTrue("«Все дни» — снова только проверенные", effective)
+        compose.runOnIdle { current = search(date = "2026-10-18") }
+        compose.waitForIdle()
+        assertTrue("вернулся на «Завтра» — нажатие не воскресло", effective)
+        assertEquals(null, state.revealedFor)
+    }
+
+    @Test
     fun `подсказка — только когда проверенных нет, а спрятанные есть`() {
         assertTrue(nearbyUnverifiedHint(fetched = 0, error = false, verifiedOnly = true, hidden = 2))
         assertFalse("сервер не насчитал спрятанных (или старый сервер) — обычная пустота", nearbyUnverifiedHint(0, false, true, 0))
@@ -112,15 +145,35 @@ class NearbyVerifiedOnlyTest {
     fun `при других фильтрах рядом есть «Сбросить фильтры»`() {
         var reset = 0
         compose.setContent { Column { NearbyUnverifiedCard(hidden = 1, onShow = {}, onReset = { reset++ }) } }
-        compose.onNodeWithText("Есть 1 поездка непроверенного водителя — показать?").assertIsDisplayed()
+        compose.onNodeWithText("Есть 1 поездка непроверенных водителей — показать?").assertIsDisplayed()
         compose.onNodeWithText("Сбросить фильтры").performClick()
         assertEquals(1, reset)
     }
 
     @Test
-    fun `русский склоняет число, пять — «поездок непроверенных водителей»`() {
-        compose.setContent { Column { NearbyUnverifiedCard(hidden = 5, onShow = {}) } }
-        compose.onNodeWithText("Есть 5 поездок непроверенных водителей — показать?").assertIsDisplayed()
+    fun `русский склоняет только «поездку», «водителей» — всегда множественное`() {
+        // Приёмка PR167: «Есть 21 поездка непроверенного водителя» читалось как один водитель.
+        val texts = mutableMapOf<Int, String>()
+        compose.setContent { listOf(1, 2, 5, 11, 21, 31).forEach { texts[it] = unverifiedRidesText(it) } }
+        compose.waitForIdle()
+        assertEquals("Есть 1 поездка непроверенных водителей — показать?", texts[1])
+        assertEquals("Есть 2 поездки непроверенных водителей — показать?", texts[2])
+        assertEquals("Есть 5 поездок непроверенных водителей — показать?", texts[5])
+        assertEquals("Есть 11 поездок непроверенных водителей — показать?", texts[11])
+        assertEquals("Есть 21 поездка непроверенных водителей — показать?", texts[21])
+        assertEquals("Есть 31 поездка непроверенных водителей — показать?", texts[31])
+    }
+
+    @Test
+    fun `башкирский счётное не склоняет — одна форма на любое число`() {
+        val texts = mutableMapOf<Int, String>()
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
+                listOf(1, 21, 5).forEach { texts[it] = unverifiedRidesText(it) }
+            }
+        }
+        compose.waitForIdle()
+        listOf(1, 21, 5).forEach { assertEquals("Тикшерелмәгән йөрөтөүселәрҙең $it сәфәре бар — күрһәтәйекме?", texts[it]) }
     }
 
     @Test

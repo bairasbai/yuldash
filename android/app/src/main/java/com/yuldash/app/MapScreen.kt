@@ -307,7 +307,7 @@ internal fun MapScreen(
     val focusFrom = routeSearch.from(activeTrip)
     val focusTo = routeSearch.to(activeTrip)
     val verifiedSearch = nearbySearch(focusFrom, focusTo, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verified.saved)
-    val verifiedOnly = verified.verifiedOnly(verifiedSearch)   // «Показать» под «Есть N поездок непроверенных» снимает его только для этого поиска
+    val verifiedOnly = verified.verifiedOnlyFor(verifiedSearch)   // «Показать» снимает его только для этого поиска; сменил поиск — забыто
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
     val userLng = LocationPrefs.lastLng
     // Огрублённый ключ позиции (~1.1 км, 2 знака): перезапрашиваем «рядом» только при заметном

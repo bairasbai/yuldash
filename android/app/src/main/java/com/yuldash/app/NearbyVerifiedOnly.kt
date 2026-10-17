@@ -14,6 +14,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +62,22 @@ internal class NearbyVerifiedState(val saved: Boolean) {
     fun reveal(search: Any) {
         revealedFor = search
     }
+
+    /**
+     * Поиск стал другим — «Показать» забыто. Иначе Завтра → «Показать» → Все дни → Завтра снова
+     * открывало непроверенных без карточки и без нажатия (приёмка PR167): «только этот поиск» — это
+     * этот раз, а не все будущие возвраты к тому же набору фильтров.
+     */
+    fun forgetUnless(search: Any) {
+        if (revealedFor != null && revealedFor != search) revealedFor = null
+    }
+}
+
+/** Режет ли фильтр поиск [search] сейчас; ушёл с поиска, где нажали «Показать», — нажатие забывается. */
+@Composable
+internal fun NearbyVerifiedState.verifiedOnlyFor(search: Any): Boolean {
+    LaunchedEffect(search) { forgetUnless(search) }
+    return verifiedOnly(search)
 }
 
 /** Состояние живёт, пока открыт экран; настройку читаем один раз — переключают её в «Безопасности». */
@@ -70,11 +87,14 @@ internal fun rememberNearbyVerified(): NearbyVerifiedState {
     return remember { NearbyVerifiedState(AppPrefs.verifiedOnly(ctx)) }
 }
 
-/** «Есть 3 поездки непроверенных водителей — показать?»: русский склоняет оба слова, башкирский — нет. */
+/**
+ * «Есть 3 поездки непроверенных водителей — показать?». Склоняется только «поездка»; «водителей» — всегда
+ * во множественном: «21 поездка непроверенного водителя» читалось как один водитель (приёмка PR167).
+ * Башкирский счётное не склоняет: «йөрөтөүселәрҙең N сәфәре» верно для любого N.
+ */
 @Composable
 internal fun unverifiedRidesText(n: Int): String = appText(
-    "Есть $n ${pluralRu(n, "поездка", "поездки", "поездок")} " +
-        "${pluralRu(n, "непроверенного водителя", "непроверенных водителей", "непроверенных водителей")} — показать?",
+    "Есть $n ${pluralRu(n, "поездка", "поездки", "поездок")} непроверенных водителей — показать?",
     "Тикшерелмәгән йөрөтөүселәрҙең $n сәфәре бар — күрһәтәйекме?",
 )
 

@@ -34,7 +34,9 @@ import {
   nearbyContextKey,
   nearbyFailure,
   nearbyFeedState,
+  nearbyKeepReveal,
   nearbyQuery,
+  nearbyRevealKey,
   nearbyVerifiedOnly,
   type NearbyCondition,
   type NearbyFilters,
@@ -132,13 +134,15 @@ export default function HomeScreen() {
   /** «Откуда» и «Куда»: выбранные города и из чего выбирать. */
   const cityFilter = useNearbyCityFilter(reloadTick);
 
-  /** Поиск с сохранённой настройкой: по его ключу «Показать» действует только здесь (`nearbyVerifiedOnly`). */
+  /** Поиск с сохранённой настройкой: по его ключу (без места) «Показать» действует только здесь. */
   const savedFilters = useMemo<NearbyFilters>(
     () => ({ coords: me, day, conditions, verifiedOnly: storedVerifiedOnly, fromCities: cityFilter.from, toCities: cityFilter.to }),
     [me, day, conditions, storedVerifiedOnly, cityFilter.from, cityFilter.to]
   );
-  const savedKey = nearbyContextKey(savedFilters);
-  const verifiedOnly = nearbyVerifiedOnly(storedVerifiedOnly, revealedFor, savedKey);
+  const revealKey = nearbyRevealKey(savedFilters);
+  const verifiedOnly = nearbyVerifiedOnly(storedVerifiedOnly, revealedFor, revealKey);
+  // Сменил день, условие или город — «Показать» забыто: вернулся к прежнему поиску — снова только проверенные.
+  useEffect(() => setRevealedFor((r) => nearbyKeepReveal(r, revealKey)), [revealKey]);
   const filters = useMemo<NearbyFilters>(() => ({ ...savedFilters, verifiedOnly }), [savedFilters, verifiedOnly]);
   /**
    * Сколько поездок просим. Растёт кнопкой «Показать ещё» и сам возвращается к первой порции, когда
@@ -490,7 +494,7 @@ export default function HomeScreen() {
       {feedState === "unverified" && (
         <NearbyUnverifiedCard
           hidden={hiddenUnverified}
-          onShow={() => setRevealedFor(savedKey)}
+          onShow={() => setRevealedFor(revealKey)}
           onReset={conditions.length > 0 || cityFilter.active || day != null ? resetFeedFilters : undefined}
         />
       )}

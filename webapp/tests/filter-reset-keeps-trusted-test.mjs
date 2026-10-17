@@ -190,8 +190,9 @@ await test("лента читает «проверенные» из настро
 
 await test("«проверенные» по умолчанию и у гостя (17.10.2026); «Показать» снимает их только для этого поиска", async () => {
   assert.ok(!/authStatus/.test(home), "гостю безопасный выбор тоже по умолчанию — тупика нет, есть «Показать»");
-  assert.match(home, /const verifiedOnly = nearbyVerifiedOnly\(storedVerifiedOnly, revealedFor, savedKey\);/);
-  assert.match(home, /onShow=\{\(\) => setRevealedFor\(savedKey\)\}/);
+  assert.match(home, /const verifiedOnly = nearbyVerifiedOnly\(storedVerifiedOnly, revealedFor, revealKey\);/);
+  assert.match(home, /onShow=\{\(\) => setRevealedFor\(revealKey\)\}/);
+  assert.match(home, /useEffect\(\(\) => setRevealedFor\(\(r\) => nearbyKeepReveal\(r, revealKey\)\), \[revealKey\]\);/, "сменил поиск — нажатие забыто");
 });
 
 await test("ссылка «выключить в Безопасности» — только когда больше нечего сбросить", async () => {
