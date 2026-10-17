@@ -9,29 +9,20 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -41,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
@@ -68,6 +60,9 @@ internal class NearbyCityFilterState {
     var to by mutableStateOf<Set<String>>(emptySet())
     var fromOptions by mutableStateOf<List<FilterCity>>(emptyList())
     var toOptions by mutableStateOf<List<FilterCity>>(emptyList())
+    /** Найденные поиском (город или деревня вне топа): имя на двух языках — для подписи чипа. Общие для
+     *  «Откуда» и «Куда» и живут, пока открыта карта: найденное в одной шторке видно и в другой. */
+    var found by mutableStateOf<List<FilterCity>>(emptyList())
     val active: Boolean get() = from.isNotEmpty() || to.isNotEmpty()
     /** Когда список городов последний раз пришёл с сервера (elapsedRealtime, мс); 0 — ещё ни разу. */
     var loadedAtMs = 0L
@@ -107,14 +102,16 @@ internal fun rememberNearbyCityFilter(reloadKey: Int): NearbyCityFilterState {
     return state
 }
 
-/** Выбранные города на языке человека, в порядке списка (популярные — первыми). */
+/** Выбранные места на языке человека: сначала из списка (популярные — первыми), потом найденные поиском. */
 @Composable
-private fun chosenNames(chosen: Set<String>, options: List<FilterCity>): List<String> =
-    options.filter { it.ru in chosen }.map { appText(it.ru, it.ba) } + chosen.filter { c -> options.none { it.ru == c } }
+private fun chosenNames(chosen: Set<String>, options: List<FilterCity>, found: List<FilterCity>): List<String> {
+    val known = (options + found).distinctBy { it.ru }
+    return known.filter { it.ru in chosen }.map { appText(it.ru, it.ba) } + chosen.filter { c -> known.none { it.ru == c } }
+}
 
 /**
- * Чипы «Откуда» и «Куда» в общем ряду фильтров ленты + тонкая черта после них, как между «когда» и
- * «на чём». Нет городов с поездками (старый сервер, пустая база) — не рисуем ничего: пустая шторка хуже.
+ * Чипы «Откуда» и «Куда» в общем ряду фильтров ленты (дальше — «Когда» и «Фильтры», NearbyFiltersPanel.kt).
+ * Нет городов с поездками (старый сервер, пустая база) — не рисуем ничего: пустая шторка хуже.
  */
 @Composable
 internal fun RowScope.NearbyCityChips(state: NearbyCityFilterState, chipModifier: Modifier) {
@@ -122,68 +119,88 @@ internal fun RowScope.NearbyCityChips(state: NearbyCityFilterState, chipModifier
     var sheetForFrom by remember { mutableStateOf<Boolean?>(null) }   // true — «Откуда», false — «Куда»
     NearbyFilterChip(
         Icons.Default.Place,
-        cityChipLabel(appText("Откуда", "Ҡайҙан"), chosenNames(state.from, state.fromOptions)),
+        cityChipLabel(appText("Откуда", "Ҡайҙан"), chosenNames(state.from, state.fromOptions, state.found)),
         state.from.isNotEmpty(),
         modifier = chipModifier,
     ) { sheetForFrom = true }
     NearbyFilterChip(
         Icons.Default.Flag,
-        cityChipLabel(appText("Куда", "Ҡайҙа"), chosenNames(state.to, state.toOptions)),
+        cityChipLabel(appText("Куда", "Ҡайҙа"), chosenNames(state.to, state.toOptions, state.found)),
         state.to.isNotEmpty(),
         modifier = chipModifier,
     ) { sheetForFrom = false }
-    Box(Modifier.align(Alignment.CenterVertically).padding(end = CanonSpace.sm).width(1.dp).height(22.dp).background(CanonBorder))
     sheetForFrom?.let { isFrom ->
         NearbyCitySheet(
             title = if (isFrom) appText("Откуда", "Ҡайҙан") else appText("Куда", "Ҡайҙа"),
             anyLabel = if (isFrom) appText("Все города", "Бөтә ҡалалар") else appText("Любое направление", "Теләһә ҡайҙа"),
             options = if (isFrom) state.fromOptions else state.toOptions,
+            found = state.found,
             chosen = if (isFrom) state.from else state.to,
             onChange = { if (isFrom) state.from = it else state.to = it },
+            onFound = { state.found = (state.found + it).distinctBy { c -> c.ru } },
             onDismiss = { sheetForFrom = null },
         )
     }
 }
 
-/** Шторка выбора городов: «Все города» снимает выбор, остальные строки — галочки, можно несколько. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Шторка выбора мест: поиск по справочнику (21 город, райцентры, деревни РБ и приграничья —
+ * та же строка, что в публикации поездки), «Все города» снимает выбор, ниже — галочки: сначала
+ * найденные поиском, потом города, где поездки есть сейчас. Можно несколько.
+ */
 @Composable
 private fun NearbyCitySheet(
     title: String,
     anyLabel: String,
     options: List<FilterCity>,
+    found: List<FilterCity>,
     chosen: Set<String>,
     onChange: (Set<String>) -> Unit,
+    onFound: (FilterCity) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    AppModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = CanonBg) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).navigationBarsPadding().padding(bottom = CanonSpace.lg)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
-        ) {
-            Text(title, color = CanonText, style = CanonTitle, modifier = Modifier.padding(bottom = CanonSpace.sm))
-            CityRow(anyLabel, chosen.isEmpty()) { onChange(emptySet()) }
-            options.forEach { city ->
-                val on = city.ru in chosen
-                CityRow(appText(city.ru, city.ba), on) { onChange(if (on) chosen - city.ru else chosen + city.ru) }
+    NearbySheet(title, onDismiss = onDismiss) {
+        SettlementPickField(appText("Найти город или деревню", "Ҡала йәки ауыл табыу"), picked = null) { s ->
+            if (s != null) {
+                onFound(FilterCity(s.nameRu, s.nameBa ?: s.nameRu))
+                onChange(chosen + s.nameRu)
             }
-            AppButton(appText("Готово", "Әҙер"), onDismiss, modifier = Modifier.padding(top = CanonSpace.md))
         }
+        NearbyCheckRow(anyLabel, chosen.isEmpty()) { onChange(emptySet()) }
+        // Найденные поиском остаются в шторке (пока открыта карта), даже со снятой галочкой: иначе вернуть её можно только новым поиском.
+        (found.filter { f -> options.none { it.ru == f.ru } } + options).forEach { city ->
+            val on = city.ru in chosen
+            NearbyCheckRow(appText(city.ru, city.ba), on) { onChange(if (on) chosen - city.ru else chosen + city.ru) }
+        }
+        AppButton(appText("Готово", "Әҙер"), onDismiss, modifier = Modifier.padding(top = CanonSpace.md))
     }
 }
 
-/** Строка-галочка: вся строка — цель нажатия ≥48dp, читалка экрана слышит «флажок, отмечен». */
+/**
+ * Строка-галочка шторок ленты (города, условия, день): вся строка — цель нажатия ≥48dp, читалка
+ * экрана слышит «флажок, отмечен» ([role] = RadioButton — «переключатель», для выбора одного из).
+ */
 @Composable
-private fun CityRow(label: String, selected: Boolean, onToggle: () -> Unit) {
-    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "city-row")
+internal fun NearbyCheckRow(
+    label: String,
+    selected: Boolean,
+    icon: ImageVector? = null,
+    role: Role = Role.Checkbox,
+    onToggle: () -> Unit,
+) {
+    val bg by animateColorAsState(if (selected) CanonMint else CanonSurface, tween(CanonMotion.QUICK), label = "check-row")
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).background(bg, CanonItemShape)
-            .toggleable(value = selected, role = Role.Checkbox, onValueChange = { onToggle() })
+            .then(
+                if (role == Role.RadioButton) Modifier.selectable(selected = selected, role = role, onClick = onToggle)
+                else Modifier.toggleable(value = selected, role = role, onValueChange = { onToggle() })
+            )
             .padding(horizontal = CanonSpace.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(end = CanonSpace.md).size(20.dp))
+        }
         Text(label, color = CanonText, style = CanonBody, modifier = Modifier.weight(1f))
         AnimatedVisibility(
             visible = selected,
