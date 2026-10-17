@@ -13,7 +13,7 @@ import { isNearbyCondition, matchesNearbyConditions, NEARBY_CONDITION_KEYS, type
 
 export interface FilterPrefs {
   conditions: NearbyCondition[]; // условия пассажира — стартовые для ленты «Ближайшие»
-  onlyTrusted: boolean; // «только проверенные» (раздел «Безопасность»)
+  onlyTrusted: boolean; // «Проверенные водители на карте» (раздел «Безопасность»), только для «Ближайших»
 }
 
 export const emptyFilters: FilterPrefs = {
@@ -64,16 +64,21 @@ export function saveFilters(f: FilterPrefs): void {
   }
 }
 
-/** Активен ли хоть один фильтр по умолчанию. */
+/**
+ * Включено ли хоть одно условие с экрана «Фильтры». «Только проверенные» сюда не входит: её
+ * переключатель живёт в «Безопасности» и, как в приложении (`AppPrefs.verifiedOnly`), режет только
+ * «Ближайшие» на карте. Иначе чип «Фильтры включены» вёл бы на экран, где выключить нечего
+ * (приёмка PR151).
+ */
 export function isFilterActive(f: FilterPrefs): boolean {
-  return f.conditions.length > 0 || f.onlyTrusted;
+  return f.conditions.length > 0;
 }
 
 /**
- * Клиентское применение фильтров к списку поездок на вкладке «Поездки» (ленту «Ближайшие»
- * режет сервер — HomeScreen.tsx). Правила те же, что у подстраховки для старого сервера.
+ * Клиентское применение условий к списку поездок на вкладке «Поездки» (ленту «Ближайшие»
+ * режет сервер — HomeScreen.tsx). Только условия: «проверенные» — настройка карты, см. выше.
  */
 export function applyRideFilters(rides: Ride[], f: FilterPrefs): Ride[] {
   if (!isFilterActive(f)) return rides;
-  return rides.filter((r) => matchesNearbyConditions(r, f.conditions, f.onlyTrusted));
+  return rides.filter((r) => matchesNearbyConditions(r, f.conditions, false));
 }

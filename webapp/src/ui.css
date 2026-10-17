@@ -14692,7 +14692,10 @@ button.settings-row:active {
   line-height: var(--line-micro);
   font-weight: var(--weight-bold);
   white-space: nowrap;
-  transition: background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+  transition: transform var(--motion-quick) ease, background var(--motion-quick) ease, color var(--motion-quick) ease, border-color var(--motion-quick) ease;
+}
+.fchip:active {
+  transform: scale(0.97);
 }
 .fchip__icon {
   display: inline-flex;
@@ -19461,17 +19464,19 @@ button.settings-row:active {
 }
 .nbs__title {
   flex: 1;
-  min-width: 0;
   margin: 0;
   color: var(--text);
   font-size: var(--font-title);
   line-height: var(--line-title);
   font-weight: var(--weight-title);
-  overflow-wrap: anywhere;
+  /* Слово не рвём: на 320 px по-башкирски «Фильтрҙар» иначе ломалось на «Фильтрҙа / р» (приёмка PR151).
+     Место уступает кнопка «Сбросить» — у неё поля поуже. */
+  overflow-wrap: break-word;
 }
 .nbs__reset {
+  flex: none;
   min-height: 48px;
-  padding: 0 var(--space-md);
+  padding: 0 var(--space-sm);
   border: 0;
   background: transparent;
   color: var(--green2);
@@ -19503,6 +19508,12 @@ button.settings-row:active {
 .nbs__date {
   margin-top: var(--space-xs);
 }
+/* Подсказки поиска в шторке — в потоке, а не поверх: при одном-двух городах в списке шторка низкая,
+   и выпадающий список уходил за её край (приёмка PR151). */
+.nbs .city-field__list {
+  position: static;
+  box-shadow: none;
+}
 /* Строка-галочка: вся строка — цель нажатия ≥48, галочка проявляется на выбранной. */
 .nbs-row {
   display: flex;
@@ -19518,7 +19529,10 @@ button.settings-row:active {
   font-size: var(--font-body);
   line-height: var(--line-body);
   text-align: left;
-  transition: background var(--motion-quick) ease;
+  transition: transform var(--motion-quick) ease, background var(--motion-quick) ease;
+}
+.nbs-row:active {
+  transform: scale(0.99);
 }
 .nbs-row.is-on {
   background: var(--mint);

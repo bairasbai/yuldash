@@ -54,7 +54,7 @@ export default function HomeScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
-  const { isAuthed } = useAuth();
+  const { isAuthed, status: authStatus } = useAuth();
 
   const { user } = useAuth();
 
@@ -114,8 +114,14 @@ export default function HomeScreen() {
    * «по умолчанию», меняют на экране «Фильтры».
    */
   const [conditions, setConditions] = useState<NearbyCondition[]>(() => loadFilters().conditions);
-  /** «Только проверенные» из раздела «Безопасность»: здесь её не переключают, только читают. */
-  const [verifiedOnly] = useState(() => loadFilters().onlyTrusted);
+  /**
+   * «Проверенные водители на карте» из раздела «Безопасность»: здесь её не переключают, только читают.
+   * У гостя не действует: «Безопасность» открывается только после входа, и флаг, оставшийся от прежней
+   * версии сайта, гостю было бы нечем выключить. Войдёт — настройка вернётся вместе с переключателем.
+   * Пока вход проверяется, считаем человека вошедшим: иначе лента на секунду покажет всех водителей.
+   */
+  const [storedVerifiedOnly] = useState(() => loadFilters().onlyTrusted);
+  const verifiedOnly = authStatus !== "guest" && storedVerifiedOnly;
   /** Растёт на каждое обновление ленты: по нему же проверяется список городов (не чаще раза в 2 минуты). */
   const [reloadTick, setReloadTick] = useState(0);
   /** «Откуда» и «Куда»: выбранные города и из чего выбирать. */
@@ -465,9 +471,9 @@ export default function HomeScreen() {
           )}
           {/* «Только проверенные» сбросом не снимается — если именно она всё срезала (старый сервер),
               говорим, где её выключить. */}
-          {conditions.length === 0 && !cityFilter.active && verifiedOnly && (
+          {conditions.length === 0 && !cityFilter.active && day == null && verifiedOnly && (
             <Link className="nearby-filtered__reset" to="/safety">
-              {appText("Включено «Только проверенные участники». Выключить можно в «Безопасности»", "«Тик раҫланған ҡатнашыусылар» ҡабыҙылған. Һүндерергә «Хәүефһеҙлек» бүлегендә була")}
+              {appText("Включено «Проверенные водители на карте». Выключить можно в «Безопасности»", "«Картала раҫланған йөрөтөүселәр» ҡабыҙылған. Һүндерергә «Хәүефһеҙлек» бүлегендә була")}
             </Link>
           )}
         </div>

@@ -27,7 +27,7 @@ import {
   type NearbyCondition,
 } from "../nearbyFeed";
 import CityField from "./CityField";
-import { AmenityIcon } from "./amenityIcons";
+import { ConditionIcon } from "./conditionIcons";
 import { IconCalendar, IconCheck, IconClose, IconFlag, IconPin, IconShield, IconTune } from "./Icons";
 
 // ---------------------------------------------------------------- шторка и строки
@@ -301,7 +301,7 @@ export function NearbyConditionsList({
           const on = chosen.includes(c.key);
           return (
             <div key={c.key} className="nbs__body">
-              <NearbyCheckRow label={appText(c.ru, c.ba)} selected={on} icon={<AmenityIcon amenity={c.key} size={20} />} onToggle={() => onChange(toggleCondition(chosen, c.key))} />
+              <NearbyCheckRow label={appText(c.ru, c.ba)} selected={on} icon={<ConditionIcon condition={c.key} size={20} />} onToggle={() => onChange(toggleCondition(chosen, c.key))} />
               {/* «Только женщины» — это и женщины за рулём, а не одни поездки с такой отметкой. */}
               {c.key === "women" && on && (
                 <p className="nbs-hint">{appText("Женщины за рулём и поездки «только для женщин».", "Рулдә ҡатын-ҡыҙҙар һәм «тик ҡатын-ҡыҙ өсөн» сәфәрҙәр.")}</p>

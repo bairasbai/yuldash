@@ -15,7 +15,7 @@ import { loadFilters, saveFilters, type FilterPrefs } from "../filterPrefs";
 import { NEARBY_CONDITIONS, toggleCondition, type NearbyCondition } from "../nearbyFeed";
 import { SubHeader } from "./ConsentsScreen";
 import { SettingsGroup, SettingSwitchRow } from "../components/cabinetUi";
-import { AmenityIcon } from "../components/amenityIcons";
+import { ConditionIcon } from "../components/conditionIcons";
 
 export default function FiltersScreen() {
   const { appText } = useLang();
@@ -44,7 +44,7 @@ export default function FiltersScreen() {
           {NEARBY_CONDITIONS.map((c) => (
             <SettingSwitchRow
               key={c.key}
-              icon={<AmenityIcon amenity={c.key} size={24} />}
+              icon={<ConditionIcon condition={c.key} size={24} />}
               title={appText(c.ru, c.ba)}
               subtitle={appText(c.hintRu, c.hintBa)}
               checked={prefs.conditions.includes(c.key)}

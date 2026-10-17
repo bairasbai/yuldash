@@ -111,7 +111,9 @@ await test("«Безопасность» меняет только «прове�
 
 // ---------------------------------------------------------------- вкладка «Поездки»: те же правила
 
-await test("вкладка «Поездки» режет по тем же условиям и по «проверенным»", async ({ fp }) => {
+// «Проверенные водители на карте», как в приложении, режут только «Ближайшие». Раньше они резали и
+// вкладку «Поездки», а её кнопка «Изменить фильтры» вела на экран без этого переключателя (приёмка PR151).
+await test("вкладка «Поездки» режет только по условиям, «проверенные» её не касаются", async ({ fp }) => {
   const rides = [
     { id: 1, driver_verified: true, pets_allowed: true },
     { id: 2, driver_verified: false, pets_allowed: true },
@@ -119,11 +121,11 @@ await test("вкладка «Поездки» режет по тем же усл
   ];
   assert.deepEqual(fp.applyRideFilters(rides, { conditions: [], onlyTrusted: false }).map((r) => r.id), [1, 2, 3]);
   assert.deepEqual(fp.applyRideFilters(rides, { conditions: ["pets"], onlyTrusted: false }).map((r) => r.id), [1, 2]);
-  assert.deepEqual(fp.applyRideFilters(rides, { conditions: ["pets"], onlyTrusted: true }).map((r) => r.id), [1]);
-  assert.deepEqual(fp.applyRideFilters(rides, { conditions: [], onlyTrusted: true }).map((r) => r.id), [1, 3]);
+  assert.deepEqual(fp.applyRideFilters(rides, { conditions: ["pets"], onlyTrusted: true }).map((r) => r.id), [1, 2]);
+  assert.deepEqual(fp.applyRideFilters(rides, { conditions: [], onlyTrusted: true }).map((r) => r.id), [1, 2, 3]);
   assert.equal(fp.isFilterActive({ conditions: [], onlyTrusted: false }), false);
   assert.equal(fp.isFilterActive({ conditions: ["quiet"], onlyTrusted: false }), true);
-  assert.equal(fp.isFilterActive({ conditions: [], onlyTrusted: true }), true);
+  assert.equal(fp.isFilterActive({ conditions: [], onlyTrusted: true }), false, "чип «Фильтры включены» не врёт");
 });
 
 // ---------------------------------------------------------------- сброс в ленте (исходник экрана)
@@ -152,8 +154,23 @@ await test("кнопка «Сбросить фильтры» в ленте по�
 });
 
 await test("лента читает «проверенные» из настроек, а переключать её не умеет", async () => {
-  assert.match(home, /const \[verifiedOnly\] = useState\(\(\) => loadFilters\(\)\.onlyTrusted\)/);
-  assert.ok(!/setVerifiedOnly/.test(home));
+  assert.match(home, /const \[storedVerifiedOnly\] = useState\(\(\) => loadFilters\(\)\.onlyTrusted\)/);
+  assert.ok(!/setVerifiedOnly|setStoredVerifiedOnly/.test(home));
+});
+
+await test("у гостя «проверенные» не действуют: «Безопасность» ему закрыта, выключить нечем", async () => {
+  assert.match(home, /const verifiedOnly = authStatus !== "guest" && storedVerifiedOnly;/);
+});
+
+await test("ссылка «выключить в Безопасности» — только когда больше нечего сбросить", async () => {
+  assert.match(home, /conditions\.length === 0 && !cityFilter\.active && day == null && verifiedOnly && \(/);
+});
+
+const safety = readFileSync(root + "src/screens/SafetyScreen.tsx", "utf8");
+await test("переключатель в «Безопасности» назван, как в приложении, и обещает только карту", async () => {
+  assert.ok(safety.includes('appText("Проверенные водители на карте", "Картала раҫланған йөрөтөүселәр")'));
+  assert.ok(safety.includes("В списке «Ближайшие» на карте показывать только проверенных водителей."));
+  assert.ok(!safety.includes("принимать поездки"), "настройка ничего не «принимает» за человека");
 });
 
 console.log(bad === 0 ? "\nВСЁ СОШЛОСЬ" : `\nПРОВАЛЕНО: ${bad}`);
