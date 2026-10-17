@@ -134,7 +134,8 @@ const SUITES = [
   { test: "sos-no-sms-promise-test", src: null, out: null, bundle: false },
   // Лента поездок идёт с токеном: заблокированных прячет сервер, «только для своих» видят свои.
   { test: "feed-with-token-test", src: null, out: null, bundle: false },
-  // «Сбросить» в ленте не выключает «Только проверенные» и не считается в «Сбросить · N».
+  // «Сбросить фильтры» в ленте снимает условия и города, но не «Только проверенные»; семь условий
+  // приложения; сохранённое прежней версией (город, цена, старые имена) не ломает загрузку.
   { test: "filter-reset-keeps-trusted-test", src: null, out: null, bundle: false },
   // SOS из поездки передаёт бронь дежурному; после отправки показан ответ сервера (hint).
   { test: "sos-booking-link-test", src: null, out: null, bundle: false },
@@ -142,6 +143,16 @@ const SUITES = [
   { test: "share-trip-link-test", src: null, out: null, bundle: false },
   // Водитель по ссылке на бронь уходит в кабинет / на экран поездки, а не на пассажирскую «Бронь».
   { test: "booking-link-driver-test", src: null, out: null, bundle: false },
+  // Паритет с Android, шаг 2 (16.10.2026): лента «Ближайшие поездки» как в приложении (PR #147/#148).
+  // Что уходит на сервер (условия, проверенные, города, день, радиус), «Показать ещё» по count, состояния
+  // ленты и сброс, «Показать N поездок» с плюралом, подписи чипов, подстраховка на старый сервер.
+  { test: "nearby-feed-test", src: null, out: null, bundle: false },
+  // «Откуда»/«Куда»: разбор /rides/cities, перечитывание не чаще раза в 2 минуты, подпись «Откуда · X +N».
+  { test: "nearby-cities-test", src: null, out: null, bundle: false },
+  // Ряд из четырёх чипов и шторки: роли для читалки, диалог с Esc, семь условий, стили только со шкалы, цель ≥ 48.
+  { test: "nearby-filters-ui-test", src: null, out: null, bundle: false },
+  // …и настоящая разметка этих компонентов (react-dom/server): строки-флажки, aria-checked, подписи чипов на двух языках.
+  { test: "nearby-filters-render-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.

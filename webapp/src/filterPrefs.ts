@@ -1,119 +1,84 @@
 // ================================================================
-//  Фильтры по умолчанию (localStorage) — зеркало FilterPrefs в приложении.
-//  Не персональные данные — только UX-настройка ленты/карты на устройстве.
-//  Применяются к списку поездок клиентски (мягко, без нового API).
+//  Фильтры по умолчанию (localStorage) — зеркало `FilterPrefs` в приложении (SecondaryScreens.kt)
+//  и `AppPrefs.verifiedOnly` («Только проверенные» из раздела «Безопасность»).
+//  Не персональные данные — только UX-настройка ленты на устройстве.
+//
+//  Условия — семь ключей приложения: women, child, pets, baggage, ac, nosmoke, quiet
+//  (список и подписи — nearbyFeed.ts). Ни «города», ни «потолка цены» здесь нет: в приложении
+//  их нет, город заменён чипом «Откуда» в ленте, а цену сервер не фильтрует — клиентский потолок
+//  давал бы ложную пустоту, когда подходящие поездки остались на следующих порциях.
 // ================================================================
 import type { Ride } from "./api/rides";
-
-export type Amenity =
-  | "women_only"
-  | "non_smoking"
-  | "air_conditioner"
-  | "baggage"
-  | "child_seat"
-  | "pets"
-  | "quiet";
+import { isNearbyCondition, matchesNearbyConditions, NEARBY_CONDITION_KEYS, type NearbyCondition } from "./nearbyFeed";
 
 export interface FilterPrefs {
-  city: string; // «мой город» — фильтр по совпадению в маршруте (откуда/куда)
-  maxPrice: number | null; // ₽, потолок цены
-  amenities: Amenity[]; // удобства
-  onlyTrusted: boolean; // «только свои» (проверенные)
+  conditions: NearbyCondition[]; // условия пассажира — стартовые для ленты «Ближайшие»
+  onlyTrusted: boolean; // «Проверенные водители на карте» (раздел «Безопасность»), только для «Ближайших»
 }
 
 export const emptyFilters: FilterPrefs = {
-  city: "",
-  maxPrice: null,
-  amenities: [],
+  conditions: [],
   onlyTrusted: false,
 };
 
 const KEY = "yuldash.filterPrefs";
 
+/**
+ * Старые имена условий из прежней версии сайта → ключи приложения. Человек, который однажды
+ * включил «Только женщины», не должен потерять это при обновлении. Всё незнакомое (в том числе
+ * прежние «город» и «цена до») при загрузке молча отбрасывается и не ломает её.
+ */
+const LEGACY_CONDITION: Record<string, NearbyCondition> = {
+  women_only: "women",
+  child_seat: "child",
+  non_smoking: "nosmoke",
+  air_conditioner: "ac",
+  pets_allowed: "pets",
+};
+
 export function loadFilters(): FilterPrefs {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { ...emptyFilters };
-    const o = JSON.parse(raw) as Partial<FilterPrefs>;
+    if (!raw) return { ...emptyFilters, conditions: [] };
+    const o = JSON.parse(raw) as { conditions?: unknown; amenities?: unknown; onlyTrusted?: unknown } | null;
+    const stored = Array.isArray(o?.conditions) ? o.conditions : Array.isArray(o?.amenities) ? o.amenities : [];
+    const keys = new Set<NearbyCondition>();
+    for (const k of stored) {
+      const key = typeof k === "string" ? LEGACY_CONDITION[k] ?? k : k;
+      if (isNearbyCondition(key)) keys.add(key);
+    }
     return {
-      city: typeof o.city === "string" ? o.city : "",
-      maxPrice:
-        typeof o.maxPrice === "number" && o.maxPrice > 0 ? o.maxPrice : null,
-      amenities: Array.isArray(o.amenities) ? (o.amenities as Amenity[]) : [],
-      onlyTrusted: !!o.onlyTrusted,
+      conditions: NEARBY_CONDITION_KEYS.filter((k) => keys.has(k)), // порядок — как в шторке
+      onlyTrusted: !!o?.onlyTrusted,
     };
   } catch {
-    return { ...emptyFilters };
+    return { ...emptyFilters, conditions: [] };
   }
 }
 
 export function saveFilters(f: FilterPrefs): void {
-  localStorage.setItem(KEY, JSON.stringify(f));
-}
-
-/**
- * Сброс фильтров ленты: город, потолок цены, удобства.
- *
- * «Только проверенные» (`onlyTrusted`) — это настройка раздела «Безопасность», а не чип ленты
- * (в приложении этого переключателя в ряду фильтров нет). Поэтому обычный сброс её оставляет:
- * иначе одно нажатие «Сбросить» молча выключило бы защиту, которую человек включил сам.
- * Полный сброс (`keepTrusted = false`) — только с экрана «Фильтры», где переключатель виден.
- * Возвращает то, что осталось после сброса.
- */
-export function clearFilters(keepTrusted = true): FilterPrefs {
-  const keep = keepTrusted && loadFilters().onlyTrusted;
-  const next: FilterPrefs = { ...emptyFilters, amenities: [], onlyTrusted: keep };
   try {
-    if (keep) saveFilters(next);
-    else localStorage.removeItem(KEY);
+    localStorage.setItem(KEY, JSON.stringify({ conditions: f.conditions, onlyTrusted: f.onlyTrusted }));
   } catch {
-    /* хранилище недоступно — фильтры живут только на экране */
+    /* хранилище недоступно (приватный режим) — настройка живёт, пока открыт экран */
   }
-  return next;
 }
 
 /**
- * Сколько условий ленты включено — для чипа «Сбросить · N».
- * «Только проверенные» не считаем: сбросом она не снимается (см. `clearFilters`).
+ * Включено ли хоть одно условие с экрана «Фильтры». «Только проверенные» сюда не входит: её
+ * переключатель живёт в «Безопасности» и, как в приложении (`AppPrefs.verifiedOnly`), режет только
+ * «Ближайшие» на карте. Иначе чип «Фильтры включены» вёл бы на экран, где выключить нечего
+ * (приёмка PR151).
  */
-export function feedFilterCount(f: FilterPrefs): number {
-  return f.amenities.length + (f.city.trim() ? 1 : 0) + (f.maxPrice != null ? 1 : 0);
-}
-
-/** Активен ли хоть один фильтр (для баннера «фильтры включены»). */
 export function isFilterActive(f: FilterPrefs): boolean {
-  return (
-    f.city.trim().length > 0 ||
-    f.maxPrice != null ||
-    f.amenities.length > 0 ||
-    f.onlyTrusted
-  );
+  return f.conditions.length > 0;
 }
 
 /**
- * Клиентское применение фильтров к списку поездок.
- * Проверяем только те поля, что есть в публичной карточке Ride
- * (non_smoking/air_conditioner в неё не входят — они для заявки пассажира,
- * поэтому к ленте не применяются, но сохраняются как дефолт формы).
+ * Клиентское применение условий к списку поездок на вкладке «Поездки» (ленту «Ближайшие»
+ * режет сервер — HomeScreen.tsx). Только условия: «проверенные» — настройка карты, см. выше.
  */
 export function applyRideFilters(rides: Ride[], f: FilterPrefs): Ride[] {
   if (!isFilterActive(f)) return rides;
-  const city = f.city.trim().toLowerCase();
-  return rides.filter((r) => {
-    if (city) {
-      const inRoute =
-        r.from_city.toLowerCase().includes(city) ||
-        r.to_city.toLowerCase().includes(city);
-      if (!inRoute) return false;
-    }
-    if (f.maxPrice != null && r.price > f.maxPrice) return false;
-    if (f.amenities.includes("women_only") && !r.women_only) return false;
-    if (f.amenities.includes("baggage") && !r.baggage) return false;
-    if (f.amenities.includes("child_seat") && !r.child_seat) return false;
-    if (f.amenities.includes("pets") && !r.pets_allowed) return false;
-    // Тихая поездка: условие водитель отмечал давно, а искать по нему было нельзя.
-    if (f.amenities.includes("quiet") && !r.quiet) return false;
-    if (f.onlyTrusted && !r.driver_verified) return false;
-    return true;
-  });
+  return rides.filter((r) => matchesNearbyConditions(r, f.conditions, false));
 }
