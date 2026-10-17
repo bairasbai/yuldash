@@ -267,7 +267,7 @@ ssh root@85.239.52.55 "hostname; systemctl is-active yuldash-api; curl -s http:/
 ```powershell
 cd C:\Users\Bayra\Yuldash
 git fetch origin main
-$COMMIT = '<<КОММИТ MAIN — проставит лид после слияния #148–#151>>'
+$COMMIT = 'e49c8b3d3f19dd1f027c49e91e13eaf33c1e5022'   # main после слияния #148–#151 (17.10.2026)
 if ($COMMIT -like '<<*') { 'СТОП: хеш коммита не подставлен — скажи разработчику' } else {
   git diff --stat $COMMIT origin/main -- backend/app backend/alembic backend/alembic.ini backend/requirements.txt backend/ops backend/scripts
   git archive --format=tar.gz -o "$env:USERPROFILE\yuldash-backend-release.tar.gz" $COMMIT backend/app backend/alembic backend/alembic.ini backend/requirements.txt backend/ops backend/scripts
