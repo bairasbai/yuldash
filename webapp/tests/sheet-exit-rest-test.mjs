@@ -753,6 +753,65 @@ await test("хук: «Уменьшить движение» — onClose сраз
   }
 });
 
+/** Поддельное CSS-движение: идёт, разворачивается; его конец (finished) выполняется или обрывается вручную. */
+function movement(name, currentTime) {
+  let settle;
+  const a = { animationName: name, playState: "running", currentTime, reversed: 0 };
+  a.finished = new Promise((resolve, reject) => (settle = { resolve, reject }));
+  a.finished.catch(() => {});
+  a.reverse = () => a.reversed++;
+  a.end = (how) => settle[how](a);
+  return a;
+}
+
+for (const how of ["resolve", "reject"]) {
+  await test(`хук: закрыли, пока шторка поднималась, и убрали до конца обратного хода — finished (${how}) onClose не зовёт`, async () => {
+    browser.reduced = false;
+    const rising = movement("sheetUp", 90);
+    const sheet = { getAnimations: () => [rising], parentElement: { getAnimations: () => [movement("fadeIn", 90)], animate() {} }, inert: false, contains: () => false };
+    const closes = [];
+    const host = mount(() => Hook.useSheetExit(() => closes.push(1), Hook.useRef(sheet)), {});
+    host.tree.close();
+    host.render();
+    assert.equal(rising.reversed, 1, "подъём пошёл обратно (разворот)");
+    assert.equal(closes.length, 0);
+    host.unmount(); // страницу закрыли, пока шторка ехала вниз
+    rising.end(how); // отменённое/доигранное движение отвечает уже после ухода шторки со страницы
+    await new Promise((r) => setImmediate(r));
+    assert.equal(closes.length, 0, "onClose после размонтирования не зовётся ни по выполненному, ни по оборванному движению");
+  });
+}
+
+await test("хук: после размонтирования молчат и запоздалый таймер, и запоздалый конец движения; до размонтирования всё работает", async () => {
+  browser.reduced = false;
+  browser.timers.length = 0;
+  const x = hostWithHook();
+  x.exit().close();
+  x.host.render();
+  x.host.unmount();
+  for (const t of browser.timers) t.fn(); // таймер уже снят, но если бы сработал
+  x.exit().onAnimationEnd({ target: "s", currentTarget: "s", animationName: "sheetDown" });
+  assert.equal(x.closes.length, 0);
+  // положительный контроль: без размонтирования те же два пути закрывают шторку
+  browser.timers.length = 0;
+  const y = hostWithHook();
+  y.exit().close();
+  y.host.render();
+  browser.timers.find((t) => t.on).fn();
+  assert.equal(y.closes.length, 1, "таймер-страховка закрывает живую шторку");
+});
+
+await test("хук: очистка и повторный запуск эффектов сразу после монтирования (StrictMode) шторку не ломают", async () => {
+  browser.reduced = false;
+  const x = hostWithHook();
+  x.host.hooks.forEach((slot) => slot && "ran" in slot && (slot.ran = false)); // как StrictMode: cleanup и эффект ещё раз
+  x.host.render();
+  x.exit().close();
+  x.host.render();
+  x.exit().onAnimationEnd({ target: "s", currentTarget: "s", animationName: "sheetDown" });
+  assert.equal(x.closes.length, 1, "после двойного запуска эффектов onClose работает как обычно");
+});
+
 await test("шторка оплаты: убрали со страницы во время ухода — onClose родителя не зовётся (иначе «Назад» уводило бы не туда)", async () => {
   reset();
   const x = open(Pay.PayMethodSheet, { value: "cash", onPick() {} });
