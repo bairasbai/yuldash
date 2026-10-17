@@ -174,11 +174,12 @@ def before_send(event, hint):   # noqa: ARG001 — hint нужен по конт
     """Последний рубеж перед отправкой. Любая ошибка чистки → событие НЕ отправляем:
     лучше потерять отчёт о сбое, чем отправить наружу чужой телефон."""
     try:
-        request = event.get("request")
+        cleaned = _scrub(event)   # новая копия: исходное событие не трогаем
+        request = cleaned.get("request")
         if isinstance(request, dict):
             for key in _REQUEST_DROP:
                 request.pop(key, None)
-        return _scrub(event)
+        return cleaned
     except Exception:  # noqa: BLE001
         return None
 

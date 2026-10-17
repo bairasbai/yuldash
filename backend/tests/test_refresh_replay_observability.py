@@ -34,9 +34,8 @@ def test_before_send_scrubs_nested_payload_and_stack_frame_locals():
     }
     cleaned = before_send(event, {})
     assert cleaned is not None
-    assert cleaned["request"]["data"] == {
-        "refresh_token": "<токен>", "rotation_id": "<токен>",
-    }
+    # Тело запроса не моется, а выбрасывается целиком (задача #42): строже, чем «<токен>» внутри.
+    assert "data" not in cleaned["request"]
     frame = cleaned["exception"]["values"][0]["stacktrace"]["frames"][0]
     assert frame["filename"] == "app/security.py"
     assert frame["vars"] == {"raw": "<токен>", "child_raw": "<токен>", "rotation_id": "<токен>"}
