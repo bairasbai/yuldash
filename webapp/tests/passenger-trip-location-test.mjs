@@ -134,6 +134,33 @@ await t.test("ключ ещё не обновился — со старым не
   assert.equal(r.sockets.length, 1);
 });
 
+await t.test("новый ключ тоже сразу отвергли — лестница растёт, а не долбит раз в секунду", async () => {
+  let n = 0;
+  const r = rig({ token: () => "k" + n, refresh: async () => { n++; return true; } });
+  r.open();
+  r.drop(1008, "Invalid token");
+  const pauses = [r.pending().at(-1).ms];
+  for (let i = 0; i < 4; i++) {
+    await tick();
+    r.runTimers();
+    r.open();
+    r.drop(1008, "Invalid token");
+    pauses.push(r.pending().at(-1).ms);
+  }
+  assert.deepEqual(pauses, [1000, 2000, 4000, 8000, 16000]);
+});
+
+await t.test("обновление отказано, но другая вкладка уже сменила ключ — не конец, подключаемся с новым", async () => {
+  let key = "old";
+  const r = rig({ token: () => key, refresh: async () => { key = "from-other-tab"; return false; } });
+  r.open();
+  r.drop(1008, "Token revoked");
+  await tick();
+  assert.equal(r.pending().length, 1, "вход жив — ждём шага лестницы, а не сдаёмся");
+  r.runTimers();
+  assert.deepEqual(r.open().sent[0], { type: "auth", token: "from-other-tab" });
+});
+
 for (const reason of ["Trip ended", "Forbidden", "Access ended"]) {
   await t.test(`1008 «${reason}» — конец: повторов нет`, () => {
     const r = rig({ online: true });
@@ -184,11 +211,13 @@ await t.test("openTripLocation: адрес без ключа, вход перв�
     exportName: "openTripLocation",
     real: ["/utils/tripLocationListen", "/utils/tripLocationShare"],
     mocks: {
-      "./client": `export const API_BASE="https://yulbash.ru";export const getToken=()=>"SECRET";export const getSessionGeneration=()=>"A";
-        export const refreshRejectedToken=async()=>true;export const apiGet=()=>{};export const apiPost=()=>{};export const apiDelete=()=>{};
+      "./client": `export const API_BASE="https://yulbash.ru";export const getToken=()=>globalThis.__ptKey;export const getSessionGeneration=()=>globalThis.__ptGen;
+        export const refreshRejectedToken=async(k)=>{(globalThis.__ptRefreshed??=[]).push(k);globalThis.__ptKey="FRESH";return true;};export const apiGet=()=>{};export const apiPost=()=>{};export const apiDelete=()=>{};
         export const apiUpload=()=>{};export const isOwnApiUrl=()=>true;export class ApiError extends Error{}`,
     },
   });
+  globalThis.__ptKey = "SECRET";
+  globalThis.__ptGen = "A";
   const points = [];
   const conn = openTripLocation(42, (p) => points.push(p));
   assert.equal(made.length, 1);
@@ -200,8 +229,21 @@ await t.test("openTripLocation: адрес без ключа, вход перв�
   made[0].onmessage({ data: JSON.stringify({ type: "loc", role: "driver", lat: 54.7, lng: 55.9 }) });
   assert.equal(points.length, 1);
   assert.equal(listeners.length, 1, "пассажир не узнает, что сеть вернулась");
+  // Ключ истёк — обёртка передаёт настоящее тихое обновление; следующее соединение — с новым ключом.
+  made[0].onclose({ code: 1008, reason: "Token revoked" });
+  assert.deepEqual(globalThis.__ptRefreshed, ["SECRET"], "обновление ключа не подключено — скрытая вкладка ждала бы возврата");
+  await tick();
+  await new Promise((ok) => setTimeout(ok, 1100));
+  assert.equal(made.length, 2);
+  made[1].readyState = 1;
+  made[1].onopen({});
+  assert.deepEqual(made[1].sent[0], { type: "auth", token: "FRESH" });
+  // Сменилась сессия — обёртка видит это и больше не подключается.
+  globalThis.__ptGen = "B";
+  made[1].onclose({ code: 1006, reason: "" });
+  await new Promise((ok) => setTimeout(ok, 1100));
+  assert.equal(made.length, 2, "после выхода/смены аккаунта новое соединение не открыто");
   conn.close();
-  assert.equal(made[0].closed, true);
   assert.equal(listeners.length, 0);
 });
 
