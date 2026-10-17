@@ -317,7 +317,7 @@ internal fun MapScreen(
     LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to) { nearbyLimit = NEARBY_PAGE }
     LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter, cityFilter.from, cityFilter.to) {
         if (nearby.isEmpty()) nearbyLoading = true   // спиннер только когда показывать нечего; авто-обновление с данными — молча, без мигания
-        val search = listOf(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to)
+        val search = nearbySearch(focusFrom, focusTo, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly)   // без позиции — см. nearbySearch
         // Радиус — только когда знаем позицию. Выбран город «Откуда»/«Куда» — ни радиуса, ни маршрута с карусели:
         // место задаёт сам человек, а «Куда · Сибай» из Уфы иначе дал бы ложное «поездок нет» (поездки — из Баймака).
         val radius = if (userLat != null && userLng != null && !cityFilter.active) NEARBY_RADIUS_KM else null

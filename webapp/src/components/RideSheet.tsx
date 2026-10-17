@@ -2,6 +2,8 @@
 //  Нижняя шторка с деталями поездки + бронирование.
 //  Открывается тапом по поездке на витрине (Home). Гость → на вход.
 //  Бронь: POST /bookings → переход на активную поездку /trip/{id}.
+//  «Закрыть», затемнение и Esc уводят шторку вниз (useSheetExit); бронь и «Открыть поездку»
+//  закрывают её сразу — их движение — переход на экран поездки, ждать нечего.
 // ================================================================
 import { useEffect, useRef, useState } from "react";
 import { getFeatures, useFeatures } from "../features";
@@ -18,6 +20,7 @@ import { formatWhen, priceLabel } from "../utils/format";
 import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
 import { FrontSeatChoice, SeatBadges } from "./SeatOptions";
+import { useSheetExit } from "./useSheetExit";
 
 export default function RideSheet({
   ride,
@@ -38,6 +41,7 @@ export default function RideSheet({
   const [busy, setBusy] = useState(false);
   const bookingInFlight = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const exit = useSheetExit(onClose, dialogRef);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -116,16 +120,17 @@ export default function RideSheet({
   }
 
   return (
-    <div className="sheet-backdrop" onClick={() => { if (!bookingInFlight.current) onClose(); }} role="presentation">
+    <div className={exit.backdropClass} onClick={() => { if (!bookingInFlight.current) exit.close(); }} role="presentation">
       <div
         ref={dialogRef}
         className="sheet"
         onClick={(e) => e.stopPropagation()}
+        onAnimationEnd={exit.onAnimationEnd}
         role="dialog"
         aria-modal="true"
         aria-label={appText("Поездка", "Сәфәр")}
         onKeyDown={(event) => {
-          if (event.key === "Escape" && !bookingInFlight.current) onClose();
+          if (event.key === "Escape" && !bookingInFlight.current) exit.close();
           if (event.key !== "Tab") return;
           const controls = dialogRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), a[href]");
           if (!controls?.length) return;
@@ -135,7 +140,7 @@ export default function RideSheet({
         }}
       >
         <div className="sheet__grip" aria-hidden />
-        <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
+        <button type="button" className="btn-ghost" onClick={exit.close} disabled={busy}>
           {appText("Закрыть", "Ябырға")}
         </button>
         {parcelCategory && !features.parcels && !ownBooking && !bookingInFlight.current ? <ComingSoon kind="delivery" variant="inline" /> : <>

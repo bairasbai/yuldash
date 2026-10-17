@@ -14,157 +14,7 @@
 // ================================================================
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { build } from "esbuild";
-import { fileURLToPath } from "node:url";
-
-const root = fileURLToPath(new URL("../", import.meta.url));
-
-// ---------------------------------------------------------------- заглушка React
-
-const rt = (globalThis.__rt = { cur: null });
-
-const REACT = `
-const R = globalThis.__rt;
-const same = (a, b) => !!a && !!b && a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
-const slot = () => { const c = R.cur; const i = c.i++; return (c.hooks[i] ??= {}); };
-export function useState(init) {
-  const c = R.cur, s = slot();
-  if (!("v" in s)) s.v = typeof init === "function" ? init() : init;
-  s.set ??= (v) => { const nv = typeof v === "function" ? v(s.v) : v; if (!Object.is(nv, s.v)) { s.v = nv; c.dirty = true; } };
-  return [s.v, s.set];
-}
-export function useRef(v) { const s = slot(); if (!("current" in s)) s.current = v; return s; }
-export function useMemo(fn, deps) { const s = slot(); if (!("v" in s) || !same(s.deps, deps)) { s.v = fn(); s.deps = deps; } return s.v; }
-export function useCallback(fn, deps) { return useMemo(() => fn, deps); }
-export function useEffect(fn, deps) {
-  const c = R.cur, s = slot();
-  if (s.ran && deps && same(s.deps, deps)) return;
-  c.pending.push(() => { s.cleanup?.(); s.cleanup = fn(); s.deps = deps; s.ran = true; });
-}
-export const useLayoutEffect = useEffect;
-let ids = 0;
-export function useId() { const s = slot(); return (s.id ??= ":r" + ids++ + ":"); }
-export default { useState, useRef, useMemo, useCallback, useEffect, useLayoutEffect, useId };
-`;
-const JSX = `export const Fragment = "Fragment"; export function jsx(type, props, key) { return { type, props: props ?? {}, key }; } export const jsxs = jsx;`;
-const LANG = `export const useLang = () => ({ lang: "ru", appText: (ru) => ru, t: (k) => k });`;
-const PORTAL = `export function createPortal(node) { return node; }`;
-
-/** Подмена модулей по пути импорта; остальное собирается настоящим. */
-function stubs(list) {
-  return {
-    name: "stubs",
-    setup(b) {
-      b.onResolve({ filter: /.*/ }, (a) => {
-        const i = list.findIndex(([re]) => re.test(a.path));
-        return i >= 0 ? { path: String(i), namespace: "stub" } : null;
-      });
-      b.onLoad({ filter: /.*/, namespace: "stub" }, (a) => ({ contents: list[Number(a.path)][1], loader: "js" }));
-    },
-  };
-}
-
-async function load(entry, list) {
-  const out = await build({
-    ...(entry.endsWith(".tsx") ? { entryPoints: [root + entry] } : { stdin: { contents: entry, resolveDir: root, loader: "ts" } }),
-    bundle: true,
-    write: false,
-    format: "esm",
-    platform: "node",
-    jsx: "automatic",
-    define: { "import.meta.env": "{}" },
-    plugins: [stubs(list)],
-  });
-  return import("data:text/javascript;base64," + Buffer.from(out.outputFiles[0].text).toString("base64"));
-}
-
-/** Один компонент со своими хуками: рисуем, пока состояние не перестанет меняться, потом эффекты. */
-function mount(fn, props) {
-  const c = { hooks: [], i: 0, pending: [], dirty: false, props, tree: null };
-  c.render = (p) => {
-    if (p !== undefined) c.props = p;
-    for (let n = 0; n < 40; n++) {
-      rt.cur = c;
-      c.i = 0;
-      c.pending = [];
-      c.dirty = false;
-      try {
-        c.tree = fn(c.props);
-      } finally {
-        rt.cur = null;
-      }
-      for (const run of c.pending) run();
-      if (!c.dirty) return c.tree;
-    }
-    throw new Error("перерисовка не останавливается");
-  };
-  c.unmount = () => c.hooks.forEach((s) => s?.cleanup?.());
-  c.render();
-  return c;
-}
-
-/** Дождаться ответов «сети» и перерисовать всё, что поменялось. */
-async function settle(...parts) {
-  for (let k = 0; k < 12; k++) {
-    await new Promise((r) => setImmediate(r));
-    for (const c of parts) if (c.dirty) c.render();
-  }
-}
-
-const flat = (node) =>
-  node == null || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(flat) : [node, ...flat(node.props?.children)];
-const named = (type, name) => type === name || (typeof type === "function" && new RegExp(`^${name}\\d*$`).test(type.name));
-const all = (tree, name) => flat(tree).filter((n) => named(n.type, name));
-const one = (tree, name) => {
-  const found = all(tree, name);
-  assert.equal(found.length, 1, `${name}: ждали один, нашли ${found.length}`);
-  return found[0];
-};
-const text = (node) =>
-  typeof node === "string" || typeof node === "number"
-    ? String(node)
-    : Array.isArray(node)
-      ? node.map(text).join("")
-      : node && typeof node === "object"
-        ? text(node.props?.children)
-        : "";
-
-let bad = 0;
-async function test(name, run) {
-  try {
-    await run();
-    console.log("✓ " + name);
-  } catch (e) {
-    bad++;
-    console.log("✗ " + name + "\n    " + (e?.message ?? e));
-  }
-}
-
-// ---------------------------------------------------------------- браузер
-
-class FakeEl {
-  constructor(name) {
-    this.name = name;
-    this.focused = 0;
-  }
-  focus() {
-    this.focused++;
-    globalThis.document.activeElement = this;
-  }
-}
-let reduced = false;
-const timers = [];
-globalThis.HTMLElement = FakeEl;
-globalThis.document = { activeElement: null, body: "body" };
-globalThis.window = {
-  matchMedia: (q) => ({ matches: reduced && q.includes("prefers-reduced-motion: reduce") }),
-  setTimeout: (fn, ms) => timers.push({ fn, ms, on: true }) - 1,
-  clearTimeout: (id) => {
-    if (timers[id]) timers[id].on = false;
-  },
-  getComputedStyle: () => ({ animationDuration: "0.26s" }),
-};
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+import { all, browser, FakeEl, finish, flat, JSX, LANG, load, mount, one, PORTAL, REACT, root, rt, settle, test, text } from "./fake-react.mjs";
 
 // ================================================================ 1. Сеть моргнула после смены фильтра
 
@@ -452,7 +302,7 @@ for (const [how, act] of [
   ["«Готово»", (s) => flat(s.sheet.tree).find((n) => n.props?.className === "btn-primary nbs__cta").props.onClick()],
 ]) {
   await test(`${how}: шторка сначала уезжает вниз (затемнение гаснет), и только потом пропадает`, async () => {
-    reduced = false;
+    browser.reduced = false;
     const s = sheetWithDone();
     act(s);
     s.sheet.render();
@@ -467,7 +317,7 @@ for (const [how, act] of [
 }
 
 await test("конец движения строки или кнопки внутри шторку не закрывает — только её собственное", async () => {
-  reduced = false;
+  browser.reduced = false;
   const s = sheetWithDone();
   s.backdrop().props.onClick();
   s.sheet.render();
@@ -478,12 +328,12 @@ await test("конец движения строки или кнопки вну�
 });
 
 await test("конец движения не пришёл (вкладка в фоне) — шторка всё равно закрывается по его длительности", async () => {
-  reduced = false;
-  timers.length = 0;
+  browser.reduced = false;
+  browser.timers.length = 0;
   const s = sheetWithDone();
   s.backdrop().props.onClick();
   s.sheet.render();
-  const pending = timers.filter((t) => t.on);
+  const pending = browser.timers.filter((t) => t.on);
   assert.equal(pending.length, 1, "есть страховочный таймер");
   pending[0].fn();
   assert.equal(s.closes.length, 1);
@@ -492,7 +342,7 @@ await test("конец движения не пришёл (вкладка в ф�
 });
 
 await test("«Уменьшить движение» — шторка закрывается сразу, без ухода вниз", async () => {
-  reduced = true;
+  browser.reduced = true;
   try {
     const s = sheetWithDone();
     s.backdrop().props.onClick();
@@ -500,12 +350,12 @@ await test("«Уменьшить движение» — шторка закры�
     assert.equal(s.closes.length, 1);
     assert.ok(!s.leaving());
   } finally {
-    reduced = false;
+    browser.reduced = false;
   }
 });
 
 await test("после закрытия фокус возвращается на чип, с которого открыли", async () => {
-  reduced = false;
+  browser.reduced = false;
   const chip = new FakeEl("chip");
   chip.focus();
   const s = sheetWithDone();
@@ -517,7 +367,7 @@ await test("после закрытия фокус возвращается на
 });
 
 await test("«Показать N поездок» в «Фильтрах» и выбор дня закрывают шторку тем же движением", async () => {
-  reduced = false;
+  browser.reduced = false;
   // «Фильтры»
   const cond = mount(F.NearbyConditionsChip, { chosen: ["child"], onChange() {}, verifiedOnly: false, total: 5 });
   one(cond.tree, "FeedChip").props.onClick();
@@ -539,7 +389,7 @@ await test("«Показать N поездок» в «Фильтрах» и в�
 });
 
 await test("«Готово» в шторке города — то же движение", async () => {
-  reduced = false;
+  browser.reduced = false;
   const { open } = await cityChips();
   const from = await open("Откуда");
   let closing = 0;
@@ -570,5 +420,4 @@ await test("стили: пара к sheetUp/fadeIn — шторка уезжае
   assert.match(index, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\*\s*\{\s*animation:\s*none !important;/, "при «Уменьшить движение» анимаций нет — NearbySheet закрывается сразу");
 });
 
-console.log(bad === 0 ? "\nВСЁ СОШЛОСЬ" : `\nПРОВАЛЕНО: ${bad}`);
-process.exit(bad === 0 ? 0 : 1);
+finish();

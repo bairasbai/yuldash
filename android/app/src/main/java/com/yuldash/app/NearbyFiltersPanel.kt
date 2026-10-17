@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +49,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 // Ряд фильтров «Ближайших поездок»: Откуда · Куда · Когда · Фильтры (Александр, 16.10.2026:
@@ -81,16 +83,23 @@ private fun conditionIcon(key: String): ImageVector = when (key) {
     else -> Icons.Default.VolumeOff
 }
 
-/** Шторка фильтров ленты: заголовок (+ действие справа, например «Сбросить») и содержимое. */
+/**
+ * Шторка фильтров ленты: заголовок (+ действие справа, например «Сбросить») и содержимое.
+ * Кнопки внутри («Готово», «Показать N поездок», выбор дня) закрывают её через `close` — тем же уходом
+ * вниз, что тап по затемнению и свайп, и только потом [onDismiss] убирает её. Раньше кнопка выдёргивала
+ * шторку из экрана без движения (решение лида, 17.10.2026; пара к сайту — NearbySheet в NearbyFilters.tsx).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NearbySheet(
     title: String,
     onDismiss: () -> Unit,
     action: @Composable () -> Unit = {},
-    content: @Composable ColumnScope.() -> Unit,
+    content: @Composable ColumnScope.(close: () -> Unit) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val close: () -> Unit = { scope.launch { sheetState.hide() }.invokeOnCompletion { if (!sheetState.isVisible) onDismiss() } }
     AppModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = CanonBg) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg).navigationBarsPadding().imePadding()
@@ -101,7 +110,7 @@ internal fun NearbySheet(
                 Text(title, color = CanonText, style = CanonTitle, modifier = Modifier.weight(1f))
                 action()
             }
-            content()
+            content(close)
         }
     }
 }
@@ -125,8 +134,8 @@ internal fun NearbyWhenChip(dateFilter: String?, onChange: (String?) -> Unit, ch
     val today = LocalDate.now()
     NearbyFilterChip(Icons.Default.CalendarMonth, whenLabel(dateFilter, today), dateFilter != null, modifier = chipModifier) { open = true }
     if (open) {
-        NearbySheet(appText("Когда едем", "Ҡасан барабыҙ"), onDismiss = { open = false }) {
-            NearbyDayOptions(dateFilter, today) { onChange(it); open = false }
+        NearbySheet(appText("Когда едем", "Ҡасан барабыҙ"), onDismiss = { open = false }) { close ->
+            NearbyDayOptions(dateFilter, today) { onChange(it); close() }
         }
     }
 }
@@ -206,9 +215,9 @@ internal fun NearbyConditionsChip(
                     }
                 }
             },
-        ) {
+        ) { close ->
             NearbyConditionsList(chosen, onChange, verifiedOnly)
-            AppButton(showRidesLabel(total), { open = false }, modifier = Modifier.padding(top = CanonSpace.md))
+            AppButton(showRidesLabel(total), close, modifier = Modifier.padding(top = CanonSpace.md))
         }
     }
 }

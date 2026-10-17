@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -88,28 +89,54 @@ class NearbyConditionsServerSideTest {
         // Приёмки PR147/148/151: сменил день, условие или город, запрос упал — под новым чипом оставались
         // поездки прежнего поиска. Теперь лента помнит, для какого поиска пришёл список, и чужой убирает.
         val src = mapScreen()
+        val searchLine = src.lines().firstOrNull { "val search = " in it }.orEmpty()
         assertTrue(
-            "в поиск ленты входят не все фильтры (маршрут, позиция, день, условия, города)",
-            src.contains("val search = listOf(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to)"),
+            "в поиск ленты входят не все выборы человека (маршрут, день, условия, города, «только проверенные»)",
+            searchLine.contains("nearbySearch(focusFrom, focusTo, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly)"),
         )
+        // Решение лида 17.10.2026: позиция меняется сама, пока человек едет, — это не его выбор.
+        assertFalse("позиция снова в поиске — человек в автобусе увидит «нет сети» вместо списка", "userLat" in searchLine || "userLng" in searchLine)
         assertTrue("лента не помнит, для какого поиска пришёл список", src.contains("nearbyError = false; nearbyFor = search }"))
         assertTrue(
             "сбой сети не сверяет поиск — старый список остаётся под новым фильтром",
             src.contains(".onFailure { if (nearbyDropsOnFailure(nearbyFor, search)) { nearby = emptyList(); nearbyTotal = 0 }; nearbyError = true }"),
         )
+        assertTrue(
+            "сдвиг позиции больше не обновляет ленту — список «рядом» устареет",
+            src.contains("LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter, cityFilter.from, cityFilter.to) {"),
+        )
+    }
+
+    /** Поиск «Уфа → Сибай, кресло, без дня и городов» — как его собирает MapScreen. */
+    private fun search(
+        from: String? = null,
+        to: String? = null,
+        date: String? = null,
+        conditions: Set<String> = setOf("child"),
+        fromCities: Set<String> = emptySet(),
+        toCities: Set<String> = emptySet(),
+        verifiedOnly: Boolean = false,
+    ) = nearbySearch(from, to, date, conditions, fromCities, toCities, verifiedOnly)
+
+    @Test
+    fun `сдвиг позиции при сбое держит список, смена дня — ошибка`() {
+        val shown = search()
+        // Человек едет в автобусе: позиция сдвинулась на километр, лента перезапросилась, сеть упала.
+        // Позиции в поиске нет — это тот же поиск, список остаётся.
+        assertFalse("сдвиг позиции — не новый поиск", nearbyDropsOnFailure(shown, search()))
+        assertTrue("сменили день — старый список под «Когда · Завтра» неправда", nearbyDropsOnFailure(shown, search(date = "2026-10-18")))
     }
 
     @Test
-    fun `тот же поиск при сбое держит список, другой — убирает`() {
-        val shown = listOf<Any?>(null, null, 5473.0, 5595.0, null, setOf("child"), emptySet<String>(), emptySet<String>())
-        fun changed(i: Int, v: Any?) = shown.toMutableList().also { it[i] = v }
+    fun `тот же поиск при сбое держит список, выбор человека — убирает`() {
+        val shown = search()
         assertTrue("ещё ничего не показано — ошибка, а не пустота", nearbyDropsOnFailure(null, shown))
-        assertTrue("авто-обновление раз в ~25 с и «Показать ещё» — тот же поиск, список остаётся", !nearbyDropsOnFailure(shown, shown.toList()))
-        assertTrue("сменили день", nearbyDropsOnFailure(shown, changed(4, "2026-10-18")))
-        assertTrue("сменили условие", nearbyDropsOnFailure(shown, changed(5, setOf("child", "pets"))))
-        assertTrue("выбрали город «Откуда»", nearbyDropsOnFailure(shown, changed(6, setOf("Баймак"))))
-        assertTrue("сдвинулись больше чем на ~1 км", nearbyDropsOnFailure(shown, changed(2, 5474.0)))
-        assertTrue("выбрали маршрут на карусели", nearbyDropsOnFailure(shown, changed(0, "Сибай")))
+        assertFalse("авто-обновление раз в ~25 с и «Показать ещё» — тот же поиск, список остаётся", nearbyDropsOnFailure(shown, search()))
+        assertTrue("сменили условие", nearbyDropsOnFailure(shown, search(conditions = setOf("child", "pets"))))
+        assertTrue("выбрали город «Откуда»", nearbyDropsOnFailure(shown, search(fromCities = setOf("Баймак"))))
+        assertTrue("выбрали город «Куда»", nearbyDropsOnFailure(shown, search(toCities = setOf("Уфа"))))
+        assertTrue("выбрали маршрут на карусели", nearbyDropsOnFailure(shown, search(from = "Сибай", to = "Уфа")))
+        assertTrue("включили «только проверенные»", nearbyDropsOnFailure(shown, search(verifiedOnly = true)))
     }
 
     @Test

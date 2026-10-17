@@ -165,10 +165,53 @@ class NearbyFiltersPanelTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Кипчак-Аскарово").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Кипчак-Аскарово").assertIsOff()   // пока шторка открыта — строка есть, вернуть одной галочкой
         compose.onNodeWithText("Готово").performSemanticsAction(SemanticsActions.OnClick)
-        compose.waitForIdle()
+        // Шторка уходит вниз, и только потом убирается — ждём конца движения.
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Кипчак-Аскарово").fetchSemanticsNodes().isEmpty() }
         assertEquals(listOf("Аскарово"), state.found.map { it.ru })
         compose.onNodeWithText("Откуда · Аскарово").assertIsDisplayed()
-        assertEquals(0, compose.onAllNodesWithText("Кипчак-Аскарово").fetchSemanticsNodes().size)
+    }
+
+    /** Кнопка нажата: в тот же миг шторка ещё на экране (уходит вниз), а дождались — её нет. */
+    private fun assertLeavesWithMotion(button: String, marker: String) {
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(button).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()   // шторка доехала до места
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithText(button).performSemanticsAction(SemanticsActions.OnClick)
+        compose.mainClock.advanceTimeBy(48)
+        assertEquals("шторку выдернули без движения ухода", 1, compose.onAllNodesWithText(marker).fetchSemanticsNodes().size)
+        compose.mainClock.autoAdvance = true
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(marker).fetchSemanticsNodes().isEmpty() }
+    }
+
+    @Test
+    fun `«Готово» в шторке города уводит её вниз, а не выдёргивает`() {
+        val state = NearbyCityFilterState().apply { fromOptions = listOf(FilterCity("Баймак", "Баймаҡ")) }
+        compose.setContent { Row { NearbyCityChips(state, Modifier) } }
+        compose.onNodeWithText("Откуда").performClick()
+        assertLeavesWithMotion("Готово", "Все города")
+    }
+
+    @Test
+    fun `«Показать N поездок» уводит шторку условий вниз`() {
+        compose.setContent { Row { NearbyConditionsChip(setOf("child"), {}, false, 5, Modifier) } }
+        compose.onNodeWithText("Фильтры · 1").performClick()
+        assertLeavesWithMotion("Показать 5 поездок", "Тихая поездка")
+    }
+
+    @Test
+    fun `выбор дня применяется сразу, а шторка уходит вниз`() {
+        var picked: String? = "unset"
+        compose.setContent { NearbyWhenChip(null, { picked = it }, Modifier) }
+        compose.onNodeWithText("Когда").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Завтра").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithText("Завтра").performSemanticsAction(SemanticsActions.OnClick)
+        compose.mainClock.advanceTimeBy(48)
+        assertEquals("день применился в тот же миг", java.time.LocalDate.now().plusDays(1).toString(), picked)
+        assertEquals("шторку выдернули без движения ухода", 1, compose.onAllNodesWithText("Все дни").fetchSemanticsNodes().size)
+        compose.mainClock.autoAdvance = true
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Все дни").fetchSemanticsNodes().isEmpty() }
     }
 
     @Test

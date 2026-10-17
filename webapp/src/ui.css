@@ -2278,13 +2278,15 @@ button.list-row:active {
   }
 }
 /* Уход шторки — пара к появлению: шторка уезжает вниз, затемнение гаснет (сама шторка не тает —
-   уходит целиком, как пришла). Со страницы её убирают по концу sheetDown (NearbySheet); при
-   «Уменьшить движение» анимаций нет (index.css), и шторка закрывается сразу. */
+   уходит целиком, как пришла). Со страницы её убирают по концу sheetDown (useSheetExit: NearbySheet,
+   RideSheet); при «Уменьшить движение» анимаций нет (index.css), и шторка закрывается сразу.
+   Уходящая шторка нажатий не принимает: «Забронировать» не должно сработать на полпути вниз. */
 .sheet-backdrop.is-leaving {
   animation: dimOut var(--motion-normal) ease both;
 }
 .sheet-backdrop.is-leaving .sheet {
   animation: sheetDown var(--motion-normal) cubic-bezier(0.4, 0, 0.2, 1) both;
+  pointer-events: none;
 }
 @keyframes sheetDown {
   from {

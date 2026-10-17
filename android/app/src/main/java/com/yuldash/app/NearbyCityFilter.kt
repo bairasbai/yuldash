@@ -168,7 +168,7 @@ private fun NearbyCitySheet(
     onFound: (FilterCity) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    NearbySheet(title, onDismiss = onDismiss) {
+    NearbySheet(title, onDismiss = onDismiss) { close ->
         SettlementPickField(appText("Найти город или деревню", "Ҡала йәки ауыл табыу"), picked = null) { s ->
             if (s != null) {
                 onFound(FilterCity(s.nameRu, s.nameBa ?: s.nameRu))
@@ -181,7 +181,7 @@ private fun NearbyCitySheet(
             val on = city.ru in chosen
             NearbyCheckRow(appText(city.ru, city.ba), on) { onChange(if (on) chosen - city.ru else chosen + city.ru) }
         }
-        AppButton(appText("Готово", "Әҙер"), onDismiss, modifier = Modifier.padding(top = CanonSpace.md))
+        AppButton(appText("Готово", "Әҙер"), close, modifier = Modifier.padding(top = CanonSpace.md))
     }
 }
 
