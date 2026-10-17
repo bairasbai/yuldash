@@ -29,12 +29,20 @@ def write(cls, text):
         f.write(text)
 
 
-if variant == "A":
+if variant in ("A", "AW"):
     src = read("TripChatAcknowledgementTest.kt")
+    if variant == "AW":
+        # HUNT: the app's socket pauses 20 ms before writing its close frame (see HuntSlowClose).
+        hook = "        ChatSocket.huntEvents = { clientSocketEvents += \"${us()}us $it\" }\n"
+        assert src.count(hook) == 1
+        src = src.replace(hook, hook + "        ChatSocket.huntClient = HuntSlowClose.client(20)\n")
+        reset = "        ChatSocket.huntEvents = null\n"
+        assert src.count(reset) == 1
+        src = src.replace(reset, reset + "        ChatSocket.huntClient = null\n")
     end = src.rstrip().rfind("}")
     extra = "".join(f"\n    @Test fun cleanupRace{j}() {{ connect() }}" for j in range(amplifiers))
     for i in range(copies):
-        cls = f"HuntA{i:03d}Test"
+        cls = f"Hunt{variant}{i:03d}Test"
         text = src[:end] + extra + "\n}\n"
         write(cls, text.replace("class TripChatAcknowledgementTest {", f"class {cls} {{", 1))
 elif variant in ("B", "BD"):

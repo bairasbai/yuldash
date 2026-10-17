@@ -58,6 +58,8 @@ class ChatSocket(
         private const val MAX_DELAY_SEC = 30L
         /** HUNT ONLY (disposable branch): client-side socket events for flaky-test diagnostics. */
         @Volatile internal var huntEvents: ((String) -> Unit)? = null
+        /** HUNT ONLY: replacement client (e.g. one whose socket pauses before writing a close frame). */
+        @Volatile internal var huntClient: OkHttpClient? = null
 
         /** Чат такси-заказа (B7b-1): тот же сокет-протокол, путь /ws/instant/{orderId}/chat. */
         fun forOrder(
@@ -116,7 +118,7 @@ class ChatSocket(
         huntEvents?.invoke("client openSocket connection=$currentConnection replacing=${ws != null}")
         ws?.close(4999, "replaced")
         val url = "${ApiClient.wsBase()}${path ?: "/ws/bookings/$bookingId"}"   // токен НЕ в URL — шлём первым сообщением
-        ws = client.newWebSocket(
+        ws = (huntClient ?: client).newWebSocket(
             Request.Builder().url(url).build(),
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
