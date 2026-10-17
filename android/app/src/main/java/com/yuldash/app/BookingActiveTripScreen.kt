@@ -2209,7 +2209,7 @@ private fun ActiveTripContent(
             if (bookingId == null || bookingStatusAllowsBoarding(bookingStatus)) item {
                 ShareTripRow(onClick = { showShare = true }, modifier = Modifier.appearIn(3))
             }
-            if (bookingId == null || bookingStatus == "confirmed") item {
+            if (activeTripShowsCancel(role, hasBooking = bookingId != null, bookingStatus = bookingStatus)) item {
                 var showCancel by remember { mutableStateOf(false) }
                 var cancelReason by remember { mutableStateOf("") }   // код причины отмены (по желанию пассажира)
                 val cancelOkMsg = appText("Поездка отменена", "Сәфәр кире алынды")
