@@ -27,6 +27,9 @@ from app.models import Booking, BookingStatus, UserRole
 
 from test_api import _ride
 
+# Сломанный «Выехал» должен краснеть за 30 с, а не держать CI до 40 мин (приёмка PR153).
+pytestmark = pytest.mark.timeout(30)
+
 КООРДИНАТА = {"type": "loc", "lat": 52.591, "lng": 58.317, "ts": 1}
 
 
