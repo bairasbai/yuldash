@@ -21,18 +21,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Round 3 (after the fix, cherry-picked from claude/fix-flaky-android-tests-20261017).
-          - { id: a1, variant: A, copies: 100, amp: 30, stress: 0, prefix: HuntA0 }
-          - { id: a2, variant: A, copies: 100, amp: 30, stress: 4, prefix: HuntA0 }
-          - { id: aw, variant: AW, copies: 10, amp: 0, stress: 0, prefix: HuntAW }
-          - { id: b1, variant: B, copies: 40, amp: 0, stress: 4, prefix: HuntB0 }
-          - { id: b2, variant: B, copies: 40, amp: 0, stress: 0, prefix: HuntB0 }
-          - { id: bs, variant: BS, copies: 20, amp: 0, stress: 0, prefix: HuntBS }
-          - { id: c1, variant: C, copies: 150, amp: 0, stress: 4, prefix: HuntC0 }
-          - { id: c2, variant: C, copies: 150, amp: 0, stress: 0, prefix: HuntC0 }
-          - { id: cd, variant: CD, copies: 20, amp: 0, stress: 0, prefix: HuntCD }
-          - { id: full1, variant: FULL, copies: 0, amp: 0, stress: 0, prefix: "" }
-          - { id: full2, variant: FULL, copies: 0, amp: 0, stress: 2, prefix: "" }
+          # Round 4: pre-fix B check with diagnostics (stale frame or link really gone?).
+          - { id: bx1, variant: BX, copies: 120, amp: 0, stress: 0, prefix: HuntBX }
+          - { id: bx2, variant: BX, copies: 120, amp: 0, stress: 4, prefix: HuntBX }
     name: hunt-${{ matrix.id }}
     defaults:
       run:
