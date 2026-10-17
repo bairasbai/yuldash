@@ -8,7 +8,7 @@
 //  · «Застрял на трассе» — помощь, которая мягче красной кнопки SOS.
 //  (сверка с Android, 2026-08-30)
 // ================================================================
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
@@ -23,6 +23,7 @@ import {
 import { IconCar, IconCheck, IconPin, IconClock, IconWallet } from "./Icons";
 import { RoadsideButton } from "./TaxiTripActions";
 import { PAY_METHODS_OPEN } from "./PayMethodPicker";
+import { useSheetExit } from "./useSheetExit";
 
 /** Почему не могу ехать дальше. Причина нужна пассажиру, а не отчётности. */
 const DECLINE_REASONS: { code: DeclineDestinationReason; ru: string; ba: string }[] = [
@@ -55,16 +56,18 @@ function DestinationChanged({ order, onDone }: { order: InstantOrder; onDone: ()
   const pending = order.pending_destination;
   const needAck = !pending && (order.destination_changes ?? 0) > 0 && !order.destination_ack;
 
-  async function run(fn: () => Promise<unknown>, fail: { ru: string; ba: string }) {
-    if (busy) return;
+  /** `true` — сервер принял; шторка «почему», если открыта, уходит после этого сама. */
+  async function run(fn: () => Promise<unknown>, fail: { ru: string; ba: string }): Promise<boolean> {
+    if (busy) return false;
     setBusy(true);
     setNote("");
     try {
       await fn();
-      setAskWhy(false);
       onDone();
+      return true;
     } catch (e) {
       setNote(e instanceof ApiError && e.message ? e.message : appText(fail.ru, fail.ba));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -171,37 +174,16 @@ function DestinationChanged({ order, onDone }: { order: InstantOrder; onDone: ()
       </div>
 
       {askWhy && (
-        <div className="sheet-backdrop" onClick={() => setAskWhy(false)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <h2 className="sheet__title">{appText("Почему не сможешь?", "Ниңә бара алмайһың?")}</h2>
-            <p className="sheet__comment">
-              {appText(
-                "Поездка завершится там, где стоит машина. Ты получишь деньги за проеденное — это не отмена, работа сделана. Пассажир увидит причину словами.",
-                "Сәфәр машина торған урында тамамлана. Үтелгән юл өсөн аҡса алаһың — был кире алыу түгел, эш башҡарылған. Юлаусы сәбәпте һүҙ менән күрә."
-              )}
-            </p>
-            {DECLINE_REASONS.map((r) => (
-              <button
-                key={r.code}
-                type="button"
-                className="btn-soft"
-                style={{ width: "100%", marginBottom: 8 }}
-                disabled={busy}
-                onClick={() =>
-                  void run(() => declineDestination(order.id, r.code), {
-                    ru: "Не получилось. Попробуй ещё раз.",
-                    ba: "Килеп сыҡманы. Тағы ҡабатла.",
-                  })
-                }
-              >
-                {appText(r.ru, r.ba)}
-              </button>
-            ))}
-            <button type="button" className="btn-ghost" onClick={() => setAskWhy(false)} disabled={busy}>
-              {appText("Всё-таки поеду", "Барам барыбер")}
-            </button>
-          </div>
-        </div>
+        <DeclineWhySheet
+          busy={busy}
+          onDecline={(code) =>
+            run(() => declineDestination(order.id, code), {
+              ru: "Не получилось. Попробуй ещё раз.",
+              ba: "Килеп сыҡманы. Тағы ҡабатла.",
+            })
+          }
+          onClose={() => setAskWhy(false)}
+        />
       )}
 
       {note && (
@@ -209,6 +191,63 @@ function DestinationChanged({ order, onDone }: { order: InstantOrder; onDone: ()
           {note}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Нижняя шторка «Почему не сможешь?». Причина, «Всё-таки поеду» и тап по затемнению уводят её вниз
+ * (useSheetExit); `onClose` убирает шторку со страницы, когда она ушла. Во время ухода причины
+ * заперты: отказ из уходящей шторки не уходит.
+ */
+export function DeclineWhySheet({
+  busy,
+  onDecline,
+  onClose,
+}: {
+  busy: boolean;
+  /** Отказаться по причине; `true` — сервер принял. */
+  onDecline: (code: DeclineDestinationReason) => Promise<boolean>;
+  /** Шторка уже уехала — убери её со страницы. */
+  onClose: () => void;
+}) {
+  const { appText } = useLang();
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const exit = useSheetExit(onClose, sheetRef);
+
+  function pick(code: DeclineDestinationReason) {
+    if (exit.leaving) return; // шторка уже уходит — отказ из неё не отправляем
+    void onDecline(code).then((ok) => {
+      if (ok) exit.close();
+    });
+  }
+
+  return (
+    <div className={exit.backdropClass} onClick={exit.close}>
+      <div ref={sheetRef} className="sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
+        <h2 className="sheet__title">{appText("Почему не сможешь?", "Ниңә бара алмайһың?")}</h2>
+        <p className="sheet__comment">
+          {appText(
+            "Поездка завершится там, где стоит машина. Ты получишь деньги за проеденное — это не отмена, работа сделана. Пассажир увидит причину словами.",
+            "Сәфәр машина торған урында тамамлана. Үтелгән юл өсөн аҡса алаһың — был кире алыу түгел, эш башҡарылған. Юлаусы сәбәпте һүҙ менән күрә."
+          )}
+        </p>
+        {DECLINE_REASONS.map((r) => (
+          <button
+            key={r.code}
+            type="button"
+            className="btn-soft"
+            style={{ width: "100%", marginBottom: 8 }}
+            disabled={busy || exit.leaving}
+            onClick={() => pick(r.code)}
+          >
+            {appText(r.ru, r.ba)}
+          </button>
+        ))}
+        <button type="button" className="btn-ghost" onClick={exit.close} disabled={busy}>
+          {appText("Всё-таки поеду", "Барам барыбер")}
+        </button>
+      </div>
     </div>
   );
 }

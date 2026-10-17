@@ -4,7 +4,7 @@
 //  (двигать статус + диалог кода вручения + «купи и привези»),
 //  диалог ввода кода. Переиспользуют Canon-токены и i18n appText.
 // ================================================================
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import type { Parcel } from "../api/parcels";
@@ -25,6 +25,7 @@ import {
   sizeLabel,
 } from "./parcelForm";
 import { CourierDeliveryProgress } from "./TaxiTripProgress";
+import { useSheetExit } from "./useSheetExit";
 
 // ------------------------------- Подписи -------------------------------
 export { sizeLabel } from "./parcelForm";
@@ -145,6 +146,12 @@ export function AvailableParcelCard({
 }
 
 // ------------------------------- Диалог кода вручения -------------------------------
+/**
+ * Нижняя шторка ввода кода вручения. «Отмена», тап по затемнению и верный код уводят её вниз
+ * (useSheetExit); `onClose` убирает шторку со страницы, когда она ушла. Верный код — это когда
+ * `onSubmit` ответил `true`: карточка за шторкой уже обновлена, шторка уезжает плавно, а не
+ * пропадает рывком. Во время ухода «Доставлено» заперто.
+ */
 export function CodeDialog({
   busy,
   error,
@@ -153,14 +160,23 @@ export function CodeDialog({
 }: {
   busy: boolean;
   error: string | null;
-  onSubmit: (code: string) => void;
+  /** Отправить код; ответ `true` — код принят, шторка уходит сама (другой ответ её не трогает). */
+  onSubmit: (code: string) => void | Promise<boolean | void>;
+  /** Шторка уже уехала — убери её со страницы. */
   onClose: () => void;
 }) {
   const { appText } = useLang();
   const [code, setCode] = useState("");
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const exit = useSheetExit(onClose, sheetRef);
+
+  async function submit() {
+    if (exit.leaving) return; // шторка уже уходит — код из неё не отправляем
+    if ((await onSubmit(code)) === true) exit.close();
+  }
   return (
-    <div className="sheet-backdrop" onClick={onClose} role="dialog" aria-modal="true">
-      <div className="sheet code-sheet" onClick={(e) => e.stopPropagation()}>
+    <div className={exit.backdropClass} onClick={exit.close} role="dialog" aria-modal="true">
+      <div ref={sheetRef} className="sheet code-sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
         <div className="sheet__grip" aria-hidden />
         <h2 className="section-title" style={{ marginTop: 4 }}>
           {appText("Код вручения", "Тапшырыу коды")}
@@ -186,12 +202,12 @@ export function CodeDialog({
           type="button"
           className="btn-primary submit-btn"
           style={{ marginTop: 12 }}
-          onClick={() => onSubmit(code)}
-          disabled={busy || code.length < 4}
+          onClick={() => void submit()}
+          disabled={busy || code.length < 4 || exit.leaving}
         >
           <IconCheck size={18} /> {busy ? appText("Проверяем…", "Тикшерәбеҙ…") : appText("Доставлено", "Тапшырылды")}
         </button>
-        <button type="button" className="btn-ghost" style={{ marginTop: 8 }} onClick={onClose}>
+        <button type="button" className="btn-ghost" style={{ marginTop: 8 }} onClick={exit.close}>
           {appText("Отмена", "Баш тартыу")}
         </button>
       </div>

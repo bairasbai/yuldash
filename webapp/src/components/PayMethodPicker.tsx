@@ -17,11 +17,12 @@
 //  В вебе выбора не было вовсе — заказ молча уезжал с «договоримся»
 //  (сверка с Android, 2026-08-30).
 // ================================================================
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
 import type { PaymentMethod } from "../api/instant";
 import { IconWallet } from "./Icons";
 import { track } from "../analytics";
+import { useSheetExit } from "./useSheetExit";
 
 /** Где лежит последний выбор. Человек платит одинаково почти всегда — спрашивать заново незачем. */
 const PREF_KEY = "yuldash.payMethod";
@@ -81,12 +82,6 @@ export default function PayMethodPicker({
   const [open, setOpen] = useState(false);
   const cur = PAY_METHODS_OPEN.find((m) => m.code === value) ?? PAY_METHODS_OPEN[2];
 
-  function pick(m: PaymentMethod) {
-    onChange(m);
-    rememberPayMethod(m);
-    setOpen(false);
-  }
-
   if (!open) {
     return (
       <button type="button" className="btn-soft trip-btn" onClick={() => setOpen(true)}>
@@ -96,8 +91,46 @@ export default function PayMethodPicker({
   }
 
   return (
-    <div className="sheet-backdrop" onClick={() => setOpen(false)}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+    <PayMethodSheet
+      value={value}
+      onPick={(m) => {
+        onChange(m);
+        rememberPayMethod(m);
+      }}
+      onClose={() => setOpen(false)}
+    />
+  );
+}
+
+/**
+ * Нижняя шторка выбора способа расчёта. Выбор, «Закрыть» и тап по затемнению уводят её вниз
+ * (useSheetExit); `onClose` убирает шторку со страницы, когда она ушла. Отдельный компонент:
+ * он живёт, пока шторка открыта, и каждое открытие начинается с чистого состояния.
+ */
+export function PayMethodSheet({
+  value,
+  onPick,
+  onClose,
+}: {
+  value: PaymentMethod;
+  /** Выбор сделан — запомнить его; шторка уходит сама. */
+  onPick: (m: PaymentMethod) => void;
+  /** Шторка уже уехала — убери её со страницы. */
+  onClose: () => void;
+}) {
+  const { appText } = useLang();
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const exit = useSheetExit(onClose, sheetRef);
+
+  function pick(m: PaymentMethod) {
+    if (exit.leaving) return; // шторка уже уходит — выбор из неё не принимаем
+    onPick(m);
+    exit.close();
+  }
+
+  return (
+    <div className={exit.backdropClass} onClick={exit.close}>
+      <div ref={sheetRef} className="sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
         <h2 className="sheet__title">{appText("Чем рассчитаемся", "Нимә менән түләйбеҙ")}</h2>
         <p className="sheet__comment">
           {appText(
@@ -144,7 +177,7 @@ export default function PayMethodPicker({
           )}
         </p>
 
-        <button type="button" className="btn-ghost" onClick={() => setOpen(false)}>
+        <button type="button" className="btn-ghost" onClick={exit.close}>
           {appText("Закрыть", "Ябыу")}
         </button>
       </div>
