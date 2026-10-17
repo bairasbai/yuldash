@@ -1301,7 +1301,7 @@ internal object FilterPrefs {
 /**
  * Настройки приложения — реальные тумблеры (Уведомления/Звуки/Безопасность), хранятся на диске.
  * Уведомления/Звуки читает [com.yuldash.app.data.FcmService] перед показом пуша (клиентское заглушение).
- * verifiedOnly применяется как фильтр выдачи «Ближайших» на карте.
+ * verifiedOnly применяется как фильтр выдачи «Ближайших» на карте; не выбирал — включён (Александр, 17.10.2026).
  */
 internal object AppPrefs {
     private const val PREF = "yuldash_settings"
@@ -1312,7 +1312,7 @@ internal object AppPrefs {
     fun language(ctx: Context): AppLanguage =
         runCatching { AppLanguage.valueOf(sp(ctx).getString("app_language", "") ?: "") }.getOrDefault(AppLanguage.Ru)
     fun setLanguage(ctx: Context, v: AppLanguage) = sp(ctx).edit().putString("app_language", v.name).apply()
-    fun verifiedOnly(ctx: Context) = sp(ctx).getBoolean("verified_only", false)
+    fun verifiedOnly(ctx: Context) = sp(ctx).getBoolean("verified_only", true)   // нет ключа = не выбирал; сам выключил — false
     fun setNotifications(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("notifications", v).apply()
     fun setSounds(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("sounds", v).apply()
     fun setVerifiedOnly(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("verified_only", v).apply()

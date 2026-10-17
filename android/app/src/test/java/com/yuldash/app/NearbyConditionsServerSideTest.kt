@@ -37,8 +37,8 @@ class NearbyConditionsServerSideTest {
             src.contains("conditions = prefFilter, verifiedOnly = verifiedOnly"),
         )
         assertTrue(
-            "смена условий не сбрасывает порцию и не перезапрашивает ленту",
-            src.contains("userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to) { nearbyLimit = NEARBY_PAGE }"),
+            "смена условий (и «Показать» непроверенных) не сбрасывает порцию и не перезапрашивает ленту",
+            src.contains("userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly) { nearbyLimit = NEARBY_PAGE }"),
         )
     }
 
@@ -102,8 +102,8 @@ class NearbyConditionsServerSideTest {
             src.contains(".onFailure { if (nearbyDropsOnFailure(nearbyFor, search)) { nearby = emptyList(); nearbyTotal = 0 }; nearbyError = true }"),
         )
         assertTrue(
-            "сдвиг позиции больше не обновляет ленту — список «рядом» устареет",
-            src.contains("LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter, cityFilter.from, cityFilter.to) {"),
+            "сдвиг позиции (или «Показать» непроверенных) больше не обновляет ленту — список «рядом» устареет",
+            src.contains("LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly) {"),
         )
     }
 

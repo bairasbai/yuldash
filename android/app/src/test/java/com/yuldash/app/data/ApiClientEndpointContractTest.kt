@@ -108,7 +108,7 @@ class ApiClientEndpointContractTest {
         "fee_per_redemption_kop", "fee_percent", "fee_today_kop", "fee_trips_to_next",
         "founder_limit", "founder_used",
         "from_lat", "from_lng", "fuel_estimate_kop", "goal", "goods_actual_kop", "gross_today_kop",
-        "hours", "id", "impressions", "invited", "invited_by", "k", "km", "lat", "level",
+        "hidden_unverified", "hours", "id", "impressions", "invited", "invited_by", "k", "km", "lat", "level",
         "limit_hours", "limit_per_user", "limit_sec", "limit_total", "lng", "max_kop", "max_price",
         "min_kop", "month", "my_response_id", "my_stars", "net_kop", "net_today_kop", "next_at",
         "night_k",

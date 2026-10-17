@@ -144,6 +144,23 @@ class ApiClientRidesTest {
     }
 
     @Test
+    fun getNearbyRidesPaged_readsHowManyUnverifiedRidesWereHidden() = runBlocking {
+        // 17.10.2026: «только проверенные» по умолчанию. Пустая лента проверенных говорит «Есть N поездок
+        // непроверенных водителей — показать?» — N присылает сервер в `hidden_unverified`.
+        server.enqueue(json("""{"count":0,"items":[],"hidden_unverified":3}"""))
+        val page = ApiClient.getNearbyRidesPaged("Баймак", null, limit = 5, verifiedOnly = true).getOrThrow()
+        assertEquals(3, page.hiddenUnverified)
+        assertEquals(0, page.total)
+    }
+
+    @Test
+    fun getNearbyRidesPaged_oldServerWithoutHiddenCount_meansZero() = runBlocking {
+        // Сервер до 17.10.2026 поля не знает — подсказки нет, лента говорит обычное «поездок нет».
+        server.enqueue(json("""{"count":0,"items":[]}"""))
+        assertEquals(0, ApiClient.getNearbyRidesPaged("Баймак", null, limit = 5, verifiedOnly = true).getOrThrow().hiddenUnverified)
+    }
+
+    @Test
     fun getNearbyRidesPaged_sendsChosenCitiesToServer() = runBlocking {
         // «Нужны только поездки из Баймака или Сибая в любую сторону» (16.10.2026).
         server.enqueue(json("""{"count":0,"items":[]}"""))

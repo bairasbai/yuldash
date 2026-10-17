@@ -11,6 +11,7 @@ import InviteDriverCallout from "./InviteDriverCallout";
 import { IconBolt, IconBox, IconCar, IconClock, IconHospital, IconIdCard, IconShield, IconStar } from "./Icons";
 import { YuRoute, YuWomenOnly } from "./BrandIcons";
 import { pluralRu } from "../utils/format";
+import { unverifiedRidesLabel } from "../nearbyFeed";
 import { serverDate } from "../utils/serverTime";
 
 /** «13.09, 08:30» — formatDepart из приложения: местное время человека. */
@@ -179,6 +180,34 @@ export function NearbyEmptyCard({ error, onRetry }: { error: boolean; onRetry: (
         {error ? appText("Повторить", "Ҡабатлау") : appText("Обновить", "Яңыртыу")}
       </button>
       {!error && <InviteDriverCallout />}
+    </div>
+  );
+}
+
+/**
+ * NearbyUnverifiedCard (NearbyVerifiedOnly.kt): лента проверенных пуста, а у непроверенных водителей
+ * на этот же поиск поездки есть. Говорим, почему пусто, и даём показать их — только для этого поиска,
+ * настройка «Безопасности» не меняется. «Показать» — обводкой: безопасный выбор уже сделан, второй —
+ * осознанный. Включены другие фильтры — ниже «Сбросить фильтры», путь назад, как в «с такими условиями».
+ */
+export function NearbyUnverifiedCard({ hidden, onShow, onReset }: { hidden: number; onShow: () => void; onReset?: () => void }) {
+  const { appText } = useLang();
+  return (
+    <div className="nrc-empty nrc-unverified">
+      <span className="nrc-empty__icon nrc-unverified__icon" aria-hidden><IconShield size={34} /></span>
+      <strong>{appText("Проверенных водителей пока нет", "Тикшерелгән йөрөтөүселәр әлегә юҡ")}</strong>
+      <span role="status">{unverifiedRidesLabel(hidden, appText)}</span>
+      <button type="button" className="nrc-unverified__show" onClick={onShow}>
+        {appText("Показать", "Күрһәтергә")}
+      </button>
+      <small className="nrc-unverified__note">
+        {appText("Только для этого поиска — настройка «Безопасности» не изменится.", "Тик ошо эҙләү өсөн — «Хәүефһеҙлек» көйләүе үҙгәрмәй.")}
+      </small>
+      {onReset && (
+        <button type="button" className="btn-ghost nrc-empty__retry" onClick={onReset}>
+          {appText("Сбросить фильтры", "Фильтрҙы бушат")}
+        </button>
+      )}
     </div>
   );
 }
