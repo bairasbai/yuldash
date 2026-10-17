@@ -698,7 +698,7 @@ await test("код вручения: оба экрана курьера отве
   }
 });
 
-// ---------------------------------------------------------------- хук: шторку убрали, пока она уходила
+// ---------------------------------------------------------------- хук: шторку убрали со страницы, пока она уходила (onClose не зовётся)
 
 const Hook = await load(`export { useSheetExit } from "./src/components/useSheetExit"; export { useRef } from "react";`, [
   [/^react$/, REACT],
@@ -712,19 +712,20 @@ function hostWithHook() {
   return { host, closes, sheet, exit: () => host.tree };
 }
 
-await test("хук: шторку убрали со страницы, пока она уходила, — onClose всё равно приходит, и один раз", async () => {
+await test("хук: шторку убрали со страницы, пока она уходила, — onClose НЕ зовётся (он может уводить на другой экран и перехватил бы «Назад»)", async () => {
   browser.reduced = false;
+  browser.timers.length = 0;
   const x = hostWithHook();
   x.exit().close();
   x.host.render();
   assert.equal(x.closes.length, 0, "ещё едет");
+  assert.equal(browser.timers.filter((t) => t.on).length, 1, "страховочный таймер ухода стоит");
   x.host.unmount();
-  assert.equal(x.closes.length, 1, "родитель узнал, что шторка ушла");
-  x.exit().onAnimationEnd({ target: "s", currentTarget: "s", animationName: "sheetDown" });
-  assert.equal(x.closes.length, 1, "запоздалый конец движения второй раз не зовёт");
+  assert.equal(x.closes.length, 0, "размонтирование во время ухода onClose не зовёт");
+  assert.equal(browser.timers.filter((t) => t.on).length, 0, "таймер снят вместе с шторкой: позже onClose тоже не придёт");
 });
 
-await test("хук: ушла сама, а потом размонтирована, — onClose не повторяется; не уходила — не зовётся вовсе", async () => {
+await test("хук: ушла сама, а потом размонтирована, — onClose ровно один раз; не уходила — не зовётся вовсе", async () => {
   browser.reduced = false;
   const a = hostWithHook();
   a.exit().close();
@@ -752,14 +753,14 @@ await test("хук: «Уменьшить движение» — onClose сраз
   }
 });
 
-await test("шторка оплаты: убрали со страницы во время ухода — родитель получает onClose", async () => {
+await test("шторка оплаты: убрали со страницы во время ухода — onClose родителя не зовётся (иначе «Назад» уводило бы не туда)", async () => {
   reset();
   const x = open(Pay.PayMethodSheet, { value: "cash", onPick() {} });
   x.tapBackdrop();
   x.s.render();
   assert.equal(x.closes.length, 0);
   x.s.unmount();
-  assert.equal(x.closes.length, 1);
+  assert.equal(x.closes.length, 0);
 });
 
 // ---------------------------------------------------------------- заявка в ленте: «1 место», «2 места», «5 мест»
