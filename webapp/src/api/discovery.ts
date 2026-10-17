@@ -80,6 +80,18 @@ export function nearQueryString(params: NearQuery = {}): string {
   return q.toString();
 }
 
+/** Ответ `/rides/near`: порция, всего подходящих и — при `verified_only` — сколько спрятал этот фильтр. */
+export interface NearRidesPage {
+  count: number;
+  items: NearRide[];
+  /**
+   * Сколько поездок ЭТОГО поиска спрятал «только проверенные» (сервер с 17.10.2026, только при
+   * `verified_only=true`). Пустая лента по нему говорит «Есть N поездок непроверенных водителей —
+   * показать?». Старый сервер поля не шлёт — считаем 0.
+   */
+  hidden_unverified?: number;
+}
+
 /**
  * Ближайшие поездки. Токен (если есть) уходит с запросом — см. комментарий в теле.
  *
@@ -94,7 +106,7 @@ export function nearQueryString(params: NearQuery = {}): string {
 export function fetchRidesNear(
   params: NearQuery = {},
   signal?: AbortSignal
-): Promise<{ count: number; items: NearRide[] }> {
+): Promise<NearRidesPage> {
   // Токен (если есть) уходит с запросом: сервер по нему прячет заблокированных водителей
   // и показывает «только для своих» своим. Гость без токена получает то же, что и раньше —
   // сервер на отсутствующий или негодный токен не отвечает 401, а считает человека гостем.

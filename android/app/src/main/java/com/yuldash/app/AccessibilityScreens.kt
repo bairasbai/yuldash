@@ -1464,7 +1464,6 @@ internal fun FamilyOrderScreen(
     val commentLabel = appText("Заказ за близкого", "Яҡын кеше өсөн заказ")
     val sendError = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Интернетте тикшереп ҡабатла.")
     var passenger by remember { mutableStateOf(defaultPassenger) }
-    var phone by remember { mutableStateOf("") }
     var fromCity by remember { mutableStateOf("") }
     var toCity by remember { mutableStateOf("") }
     var notifyContact by remember { mutableStateOf(true) }
@@ -1473,18 +1472,17 @@ internal fun FamilyOrderScreen(
     val trusted = contacts.firstOrNull()
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заказать за близкого", "Яҡын өсөн заказ"), onBack) }) { padding ->
         FamilyOrderFormContent(
-            passenger = passenger, phone = phone, from = fromCity, to = toCity,
+            passenger = passenger, from = fromCity, to = toCity,
             notifyContact = notifyContact, trustedName = trusted?.name,
             loading = submitting, error = submitError,
-            onPassengerChange = { passenger = it }, onPhoneChange = { phone = it },
+            onPassengerChange = { passenger = it },
             onNotifyContactChange = { notifyContact = it },
             onSubmit = {
                 if (submitting) return@FamilyOrderFormContent   // гард двойного нажатия
                 val f = fromCity.trim(); val t = toCity.trim()
-                // ПРИВАТНОСТЬ: телефон близкого НЕ кладём в публичный комментарий заявки —
-                // он виден всем водителям в ленте ДО подтверждения (утечка ПДн третьего лица).
-                // Комментарий — только нейтральная метка. Контакт раскрывается после матча (в чате брони).
-                // TODO(backend): отдельное поле relative_phone с раскрытием только матч-водителю — docs/tasks.md.
+                // ПРИВАТНОСТЬ: телефона близкого в форме нет совсем (решение Александра 17.10.2026):
+                // он никуда не уходил, а человек ждал звонка водителя маме. Комментарий заявки —
+                // только нейтральная метка, чужих данных в ленте водителей нет.
                 val comment = commentLabel
                 submitError = null
                 submitting = true
@@ -1527,7 +1525,6 @@ internal fun FamilyOrderScreen(
 @Composable
 internal fun FamilyOrderFormContent(
     passenger: String,
-    phone: String,
     from: String,
     to: String,
     notifyContact: Boolean,
@@ -1535,7 +1532,6 @@ internal fun FamilyOrderFormContent(
     loading: Boolean,
     error: String?,
     onPassengerChange: (String) -> Unit,
-    onPhoneChange: (String) -> Unit,
     onNotifyContactChange: (Boolean) -> Unit,
     onSubmit: () -> Unit,
     fromField: (@Composable () -> Unit)? = null,
@@ -1549,7 +1545,6 @@ internal fun FamilyOrderFormContent(
     ) {
         item { Text(appText("Кто поедет?", "Кем бара?"), color = CanonGreen, fontSize = 24.sp, fontWeight = FontWeight.Bold) }
         item { OutlinedTextField(value = passenger, onValueChange = onPassengerChange, label = { Text(appText("Имя пассажира", "Пассажир исеме")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) }
-        item { OutlinedTextField(value = phone, onValueChange = onPhoneChange, label = { Text(appText("Телефон пассажира", "Пассажир телефоны")) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) }
         item { Text(appText("Маршрут", "Юл"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
         item {
             if (fromField != null) fromField() else OutlinedTextField(
