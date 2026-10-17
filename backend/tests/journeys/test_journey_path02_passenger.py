@@ -67,8 +67,14 @@ def test_passenger_finds_books_waits_boards_completes_rates_and_gets_receipt(api
     assert kit.details(passenger, bid)["status"] == "onboard"
     assert kit.driver_status(driver, bid, "boarded").status_code == 200   # повтор — без ошибки
 
-    # 6. Завершение пассажиром.
-    done = kit.trip_status(passenger, bid, "done")
+    # 6. Завершение пассажиром — после окна «Отменить» водителя (5 минут, приёмка PR174): в первые
+    #    минуты отказ с понятным текстом. На живом сервере ждать некогда — завершает водитель.
+    early = kit.trip_status(passenger, bid, "done")
+    assert early.status_code == 409 and early.json()["detail"]["code"] == "boarding_undo_open", early.text
+    if kit.settle_boarding(bid):
+        done = kit.trip_status(passenger, bid, "done")
+    else:
+        done = kit.driver_status(driver, bid, "done")
     assert done.status_code == 200, done.text
     assert kit.role(passenger, bid)["status"] == "done"
     mine = api.get("/bookings/mine", headers=passenger.auth).json()

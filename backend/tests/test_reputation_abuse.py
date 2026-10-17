@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from app.models import UserRole
 
+from boarding_helpers import board
 from test_api import _ride, just_left
 
 
@@ -30,9 +31,8 @@ def _done_trip(client, user_factory, tag):
     passenger = user_factory(f"{tag}Passenger")
     bid = client.post("/bookings", headers=passenger["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{bid}/confirm", headers=driver["auth"]).status_code == 200
-    # Посадку отмечает водитель, пассажир завершает только после неё (решения 17.10.2026).
-    assert client.post(f"/bookings/{bid}/driver-status", headers=driver["auth"],
-                       json={"status": "boarded"}).status_code == 200
+    # Посадку отмечает водитель, пассажир завершает только после неё и окна её отмены (17.10.2026).
+    board(client, driver, bid)
     done = client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "done"})
     assert done.status_code == 200, f"поездку не удалось завершить: {done.text[:200]}"
     return driver, passenger, bid

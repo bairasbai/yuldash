@@ -55,10 +55,11 @@ def test_driver_mark_without_trusted_contacts_puts_booking_onboard(client, user_
 
 def test_arrived_from_the_passenger_no_longer_means_onboard(client, user_factory):
     """«Доехал» пассажира бронь не двигает: иначе это была бы та же посадка другой дверью
-    (старый клиент из очереди без сети шлёт «sat», получает 409, а следом «arrived»)."""
+    (старый клиент из очереди без сети шлёт «sat», получает 409, а следом «arrived»).
+    С приёмки PR174 «Доехал» до отметки водителя — 409: близким не уходит «доехал до места»."""
     _drv, pax, _ride, bid = _trip(client, user_factory)
-    assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"],
-                       json={"status": "arrived"}).status_code == 200
+    r = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "arrived"})
+    assert r.status_code == 409 and r.json()["detail"]["ba"].strip(), r.text
     assert _status(client, pax, bid) == "confirmed"
 
 

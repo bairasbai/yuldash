@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from app.models import UserRole
 
+from boarding_helpers import board
 from test_api import _ride, just_left
 
 
@@ -64,7 +65,7 @@ def test_завершённую_поездку_нельзя_отменить(cli
     иначе водитель теряет и поездку, и деньги задним числом."""
     driver, passenger, _, bid = _booking(client, user_factory, "DoneCancel", departed=True)
     client.post(f"/bookings/{bid}/confirm", headers=driver["auth"])
-    client.post(f"/bookings/{bid}/driver-status", headers=driver["auth"], json={"status": "boarded"})
+    board(client, driver, bid)
     done = client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "done"})
     # Раньше тут стоял тихий выход «если не 200 — проверять нечего», и тест проходил впустую
     # на опечатке в адресе. Молчаливый пропуск хуже отсутствия теста: он показывает зелёный.
@@ -84,7 +85,7 @@ def test_завершённую_поездку_нельзя_отменить(cli
 def test_нельзя_сесть_в_машину_после_завершения(client, user_factory):
     driver, passenger, _, bid = _booking(client, user_factory, "BackwardStatus", departed=True)
     client.post(f"/bookings/{bid}/confirm", headers=driver["auth"])
-    client.post(f"/bookings/{bid}/driver-status", headers=driver["auth"], json={"status": "boarded"})
+    board(client, driver, bid)
     done = client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"], json={"status": "done"})
     assert done.status_code == 200, f"поездку не удалось завершить: {done.status_code} {done.text[:200]}"
 

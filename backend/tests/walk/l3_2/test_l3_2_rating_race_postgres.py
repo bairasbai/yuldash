@@ -24,6 +24,7 @@ from app.db import engine
 from app.main import app
 from app.models import Rating, UserRole
 from app.timeutil import utcnow
+from boarding_helpers import settle_boarding
 
 pytestmark = pytest.mark.skipif(engine.dialect.name != "postgresql", reason="requires isolated PostgreSQL")
 
@@ -46,6 +47,7 @@ def _done_booking(client, user_factory):
     assert confirmed.status_code == 200, confirmed.text
     boarded = client.post(f"/bookings/{booking['id']}/driver-status", headers=drv["auth"], json={"status": "boarded"})
     assert boarded.status_code == 200, boarded.text
+    settle_boarding(booking["id"])   # пассажир завершает после окна «Отменить» водителя (PR174)
     done = client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "done"})
     assert done.status_code == 200, done.text
     return pax, drv, booking["id"]

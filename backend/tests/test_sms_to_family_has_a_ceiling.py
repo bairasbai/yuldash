@@ -30,7 +30,8 @@ ORIG = (54.7388, 55.9721)
 DEST = (54.7500, 55.9800)
 
 
-def _booking(session: Session, passenger_id: int, driver_id: int) -> int:
+def _booking(session: Session, passenger_id: int, driver_id: int,
+             status: BookingStatus = BookingStatus.confirmed) -> int:
     ride = Ride(driver_id=driver_id, from_city="Сибай", to_city="Уфа",
                 depart_at=utcnow() + timedelta(hours=2), seats_total=3, seats_left=2,
                 price=500, status=RideStatus.active)
@@ -38,7 +39,7 @@ def _booking(session: Session, passenger_id: int, driver_id: int) -> int:
     session.commit()
     session.refresh(ride)
     b = Booking(ride_id=ride.id, passenger_id=passenger_id, seats=1, price=500,
-                status=BookingStatus.confirmed, boarding_code="123456")
+                status=status, boarding_code="123456")
     session.add(b)
     session.commit()
     session.refresh(b)
@@ -143,7 +144,8 @@ def test_статусы_поездки_не_ругаются_а_просто_м�
     pax = user_factory("SmsStatusPax", role=UserRole.passenger)
     drv = user_factory("SmsStatusDrv", role=UserRole.driver)
     with Session(engine) as s:
-        bid = _booking(s, pax["id"], drv["id"])
+        # «Доехал» — только «в пути» (приёмка PR174): человек уже едет.
+        bid = _booking(s, pax["id"], drv["id"], status=BookingStatus.onboard)
 
     c = client.post("/trusted-contacts", headers=pax["auth"],
                     json={"name": "мама", "phone": "+79994440001"})

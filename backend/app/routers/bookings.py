@@ -89,6 +89,26 @@ def boarding_undo_left(booking: Booking, now=None) -> int:
     return max(0, int(left))
 
 
+# «Сообщить о проблеме» у пассажира на экране завершённой поездки (приёмка PR174). Спор этот —
+# про посадку: «водитель отметил „Сел“, а я не садился» или «водитель не приехал и закрыл
+# поездку». Случается он в момент выезда, и пуш «Водитель отметил посадку» приходит тогда же.
+# Шесть часов от позднего из «время выезда» и «отметка „Сел“» покрывают остаток дня поездки:
+# упустил машину, искал другую, добрался домой и только тогда открыл приложение. Ранний
+# «Завершить» водителя окно не сокращает — оно считается не от завершения. Позже — «Нужна
+# помощь?» (поддержка); сам сервер разбор по брони принимает и после окна.
+PROBLEM_REPORT_WINDOW = timedelta(hours=6)
+
+
+def problem_report_left(booking: Booking, ride: Ride, now=None) -> int:
+    """Сколько секунд пассажиру ещё показывать «Сообщить о проблеме» на завершённой поездке."""
+    if booking.status != BookingStatus.done:
+        return 0
+    anchor = max((t for t in (ride.depart_at, booking.onboard_at) if t is not None), default=None)
+    if anchor is None:
+        return 0
+    return max(0, int((anchor + PROBLEM_REPORT_WINDOW - (now or utcnow())).total_seconds()))
+
+
 def _clean_pay_amount(amount: Optional[int]) -> Optional[int]:
     """Проверка суммы договорённости. None → None (не фиксировали). Мусор → 400."""
     if amount is None:
@@ -533,6 +553,9 @@ def trip_receipt(booking_id: int, user: User = Depends(current_user), session: S
                               ("Пассажир" if role == "driver" else "Водитель")),
         "my_stars": int(my_rating.stars) if my_rating else 0,
         "my_rating_tags": (my_rating.tags or "") if my_rating else "",
+        # Вторая сторона — для «Сообщить о проблеме» пассажира (разбор по брони, POST /incidents).
+        "counterparty_id": counterparty.id if counterparty else 0,
+        "problem_report_sec": problem_report_left(booking, ride) if role == "passenger" else 0,
     }
 
 
@@ -588,6 +611,8 @@ def booking_role(booking_id: int, user: User = Depends(current_user), session: S
         "peer_id": booking.passenger_id if is_driver else ride.driver_id,
         # Сколько секунд водитель ещё может отменить свою отметку «Сел» (пассажиру всегда 0).
         "boarding_undo_sec": boarding_undo_left(booking) if is_driver else 0,
+        # Сколько ещё пассажиру показывать «Сообщить о проблеме» после завершения (водителю 0).
+        "problem_report_sec": 0 if is_driver else problem_report_left(booking, ride),
     }
 
 
@@ -759,13 +784,15 @@ def _mark_boarded(session: Session, booking: Booking, ride: Ride) -> dict:
     trip_wake.poke(booking.id)
     route = f"{ride.from_city} → {ride.to_city}"
     # Пассажиру — сразу: если водитель промахнулся карточкой, человек у подъезда узнает об этом
-    # из уведомления, а не когда машина уедет без него.
+    # из уведомления, а не когда машина уедет без него. urgent — как «Выехал / Подъезжаю»: ранний
+    # рейс в 5 утра попадает в тихие часы, а это ровно то уведомление, после которого действуют.
     push_notification(
         session, booking.passenger_id, "ride",
         "Водитель отметил посадку", "Йөрөтөүсе ултырыуҙы билдәләне",
         f"{route}. Хорошей дороги! Ещё не сел — открой поездку и сообщи о проблеме.",
         f"{route}. Хәйерле юл! Әле ултырмаһаң — сәфәрҙе ас та проблема тураһында хәбәр ит.",
         ref_kind="booking", ref_id=booking.id,
+        urgent=True,
     )
     # Близким — то же «сел в машину», что раньше уходило по «Я сел» (SMS только при смене статуса).
     from .family import notify_family_trip_status
@@ -811,7 +838,8 @@ def undo_boarded(booking_id: int, user: User = Depends(current_user), session: S
         raise herr(409, "Поездка уже изменилась — обнови экран",
                    "Сәфәр үҙгәргән инде — экранды яңырт")
     trip_wake.poke(booking.id)
-    # Пассажир уже получил «Водитель отметил посадку» — снимаем тревогу тем же каналом.
+    # Пассажир уже получил «Водитель отметил посадку» — снимаем тревогу тем же каналом (urgent:
+    # пришло в тихие часы первое — должно прийти и это).
     route = f"{ride.from_city} → {ride.to_city}"
     push_notification(
         session, booking.passenger_id, "ride",
@@ -819,7 +847,14 @@ def undo_boarded(booking_id: int, user: User = Depends(current_user), session: S
         f"{route}. Водитель отметил по ошибке — отметит снова, когда сядешь.",
         f"{route}. Йөрөтөүсе яңылыш билдәләгән — ултырғас, яңынан билдәләр.",
         ref_kind="booking", ref_id=booking.id,
+        urgent=True,
     )
+    # Близким, которым ушло «сел в машину», — «отметку посадки отменили» (не чаще раза на бронь,
+    # `family.notify_family_trip_status`, статус «unsat»).
+    from .family import notify_family_trip_status
+    passenger = session.get(User, booking.passenger_id)
+    if passenger is not None:
+        notify_family_trip_status(session, booking.id, passenger, "unsat")
     session.refresh(booking)
     return _boarding_out(booking)
 
@@ -914,7 +949,7 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
         # Правило одно (решения 14.10 и 17.10.2026): посадка отмечена — спор решает разбор.
         if (booking.status == BookingStatus.onboard and user.id == ride.driver_id
                 and body is not None and (body.reason or "").strip() == "no_show"):
-            raise _no_show_onboard_refusal()
+            raise _no_show_onboard_refusal(booking)
         # Пассажир уже в машине (водитель отметил «Сел») — отмены нет (как в приложении и на сайте:
         # кнопки «в пути» нет).
         # Иначе прямой запрос возвращал место в продажу, пока человек сидит в машине, а у брони
@@ -965,18 +1000,24 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
 
 
 def _onboard_cancel_refusal() -> HTTPException:
-    """Отказ отмены пассажиру «в пути»: что делать вместо отмены — на двух языках."""
+    """Отказ отмены пассажиру «в пути»: что делать вместо отмены — на двух языках.
+
+    «В пути» ставит водитель своей отметкой «Сел» (17.10.2026), и отказ видит прежде всего тот,
+    кто НЕ садился: водитель отметил не того или уехал без него. Поэтому текст говорит, что
+    случилось, и ведёт к разбору — «Сообщить о проблеме» есть на экране поездки (приёмка PR174)."""
     return HTTPException(status_code=409, detail={
-        "ru": "Ты уже в машине — отменить поездку нельзя. Если что-то не так, нажми SOS или сообщи о проблеме.",
-        "ba": "Һин машинала инде — сәфәрҙе кире алып булмай. Нимәлер дөрөҫ булмаһа, SOS-ҡа баҫ йәки проблема тураһында хәбәр ит.",
+        "ru": "Водитель отметил посадку. Не садился — сообщи о проблеме.",
+        "ba": "Йөрөтөүсе ултырыуҙы билдәләне. Ултырмаған булһаң — проблема тураһында хәбәр ит.",
         "code": "onboard_no_cancel",
     })
 
 
-def _no_show_onboard_refusal() -> HTTPException:
+def _no_show_onboard_refusal(booking: Booking) -> HTTPException:
     """Отказ «неявки» по брони «в пути»: что случилось и что делать дальше — на двух языках.
-    `code` — машинная причина: по ней клиент сразу меняет «Не пришёл» на «Сообщить о проблеме».
-    С 17.10.2026 посадку отмечает сам водитель: промахнулся — «Отменить» в первые минуты."""
+    `code` — машинная причина: по ней клиент сразу меняет «Не пришёл» на «Пассажир в машине».
+    С 17.10.2026 посадку отмечает сам водитель: промахнулся — «Отменить» в первые минуты.
+    `boarding_undo_sec` — сколько их осталось: карточка показывает «Отменить» с верным отсчётом,
+    а не сразу разбор (приёмка PR174)."""
     minutes = int(BOARDING_UNDO_WINDOW.total_seconds() // 60)
     return HTTPException(status_code=409, detail={
         "ru": f"Пассажир уже отмечен в машине — неявку не отметить. Отметил по ошибке — нажми «Отменить» "
@@ -984,6 +1025,7 @@ def _no_show_onboard_refusal() -> HTTPException:
         "ba": f"Пассажир машинала тип билдәләнгән инде — килмәүҙе билдәләп булмай. Яңылыш билдәләһәң — "
               f"тәүге {minutes} минутта «Кире алырға»ға баҫ, һуңыраҡ — проблема тураһында хәбәр ит: тикшерербеҙ.",
         "code": "passenger_onboard",
+        "boarding_undo_sec": boarding_undo_left(booking),
     })
 
 
@@ -1003,7 +1045,7 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
     if user.id != ride.driver_id:
         raise herr(403, "Отметить неявку может только водитель поездки", "Килмәүҙе тик сәфәр йөрөтөүсеһе генә билдәләй ала")
     if booking.status == BookingStatus.onboard:
-        raise _no_show_onboard_refusal()
+        raise _no_show_onboard_refusal(booking)
     if booking.status == BookingStatus.cancelled and booking.no_show:
         # Повтор (двойное нажатие или повтор после потерянного ответа) — неявка уже отмечена, места
         # возвращены один раз. Отвечаем как confirm/cancel/complete: тем же итогом, а не красной
@@ -1020,7 +1062,7 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
                            .with_for_update().execution_options(populate_existing=True)).first()
     if booking.status == BookingStatus.onboard:
         # Посадку отметили между первой проверкой и замком — то же правило, что выше.
-        raise _no_show_onboard_refusal()
+        raise _no_show_onboard_refusal(booking)
     if booking.status != BookingStatus.confirmed:
         return _booking_out(booking)           # параллельная отмена/неявка опередила — места уже возвращены
     booking.status = BookingStatus.cancelled

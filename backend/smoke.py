@@ -79,6 +79,8 @@ with TestClient(app) as c:
         "name": "Гульназ", "relation": "Сестра", "phone": "+79277778899",
     }).json()
     c.post(f"/bookings/{bk['id']}/share", headers=ph, json={"contact_id": contact["id"]})
+    # «Доехал» — только «в пути»: сначала водитель отмечает «Сел» (приёмка PR174).
+    c.post(f"/bookings/{bk['id']}/driver-status", headers=h, json={"status": "boarded"})
     shares = c.post(f"/bookings/{bk['id']}/trip-status", headers=ph, json={"status": "arrived"}).json()
     print("family share status:", shares[0]["last_status"])
     assert shares[0]["last_status"] == "arrived"

@@ -20,7 +20,8 @@ import pytest
 
 from app.models import UserRole
 
-from test_api import _ride
+from boarding_helpers import board
+from test_api import _ride, just_left
 
 
 @pytest.fixture
@@ -43,7 +44,7 @@ def _contact(client, who, name: str, phone: str, notify: bool) -> int:
 def _trip_with_contact(client, user_factory, tag: str, notify: bool):
     driver = user_factory(f"{tag}Водитель", role=UserRole.driver)
     passenger = user_factory(f"{tag}Пассажир")
-    ride_id = _ride(client, driver, comment=tag)
+    ride_id = _ride(client, driver, comment=tag, depart_at=just_left())
     booking_id = client.post("/bookings", headers=passenger["auth"],
                              json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{booking_id}/confirm", headers=driver["auth"]).status_code == 200
@@ -51,6 +52,8 @@ def _trip_with_contact(client, user_factory, tag: str, notify: bool):
     contact_id = _contact(client, passenger, "Мама", phone, notify)
     assert client.post(f"/bookings/{booking_id}/share", headers=passenger["auth"],
                        json={"contact_id": contact_id}).status_code == 200
+    # «Доехал» — только «в пути», после «Сел» водителя (приёмка PR174).
+    board(client, driver, booking_id, settled=False)
     return passenger, booking_id, phone
 
 

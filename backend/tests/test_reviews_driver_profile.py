@@ -7,6 +7,7 @@
 from datetime import timedelta
 
 from app.models import UserRole
+from boarding_helpers import board
 from app.timeutil import utcnow
 
 
@@ -31,10 +32,9 @@ def _book(client, pax, ride_id, seats=1):
 
 def _finish(client, drv, pax, booking_id):
     """Водитель подтвердил и отметил «Сел», пассажир завершил: завершает пассажир только после
-    посадки, отмеченной водителем (решения 17.10.2026). Без этого поездка не состоялась."""
+    посадки, отмеченной водителем, и после окна её отмены (решения 17.10.2026)."""
     assert client.post(f"/bookings/{booking_id}/confirm", headers=drv["auth"]).status_code == 200
-    assert client.post(f"/bookings/{booking_id}/driver-status", headers=drv["auth"],
-                       json={"status": "boarded"}).status_code == 200
+    board(client, drv, booking_id)
     r = client.post(f"/bookings/{booking_id}/trip-status", headers=pax["auth"], json={"status": "done"})
     assert r.status_code == 200, r.text
 

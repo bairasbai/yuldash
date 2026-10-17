@@ -664,7 +664,7 @@ class TripShare(SQLModel, table=True):
     # ≥16 случайных байт (secrets.token_urlsafe). NULL у строк до миграции w2_livelink —
     # догенерируется при следующем share. Отзыв share (DELETE) удаляет строку → токен «сгорает».
     token: Optional[str] = Field(default=None, index=True, unique=True)
-    last_status: str = "shared"             # shared / sat / arrived / done
+    last_status: str = "shared"             # shared / sat / arrived / done (+ unsat, sat_again, unsat_quiet — отмена посадки, family._family_step)
     created_at: datetime = Field(default_factory=utcnow)
     # Срок жизни live-ссылки (приватность): если поездка «зависла» в живом статусе (водитель не
     # нажал «Завершить»), ссылка иначе показывала бы гео бессрочно. Ставим щедрый TTL (24ч — дольше

@@ -28,6 +28,7 @@ from app.db import engine
 from app.models import (Booking, BookingStatus, Incident, Ride, RideStatus, SafetyProfile,
                         UserRole)
 from app.timeutil import utcnow
+from boarding_helpers import board
 
 
 def _suspend(user_id: int) -> None:
@@ -62,9 +63,8 @@ def _suspended_passenger_on_the_road(client, user_factory, tag):
 
 
 def _driver_marks_boarding(client, drv, bid) -> None:
-    """Пассажир завершает поездку только после «Сел» водителя (решения 17.10.2026)."""
-    assert client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"],
-                       json={"status": "boarded"}).status_code == 200
+    """Пассажир завершает поездку только после «Сел» водителя и окна его отмены (17.10.2026)."""
+    board(client, drv, bid)
 
 
 def test_на_паузе_можно_сообщить_об_опасном_водителе(client, user_factory):

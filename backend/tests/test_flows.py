@@ -13,6 +13,7 @@ from app.db import engine
 from app.models import Ride
 from app.models import UserRole
 from app.timeutil import utcnow
+from boarding_helpers import board
 
 
 # ----------------------------- helpers -----------------------------
@@ -41,11 +42,10 @@ def just_left() -> str:
 
 
 def _boarded(client, drv, booking_id: int) -> None:
-    """Водитель подтвердил бронь и отметил «Сел». Завершает пассажир только после посадки,
-    отмеченной водителем (решения 17.10.2026): иначе «Завершить» закрывал бы «Не пришёл»."""
+    """Водитель подтвердил бронь и отметил «Сел», окно отмены отметки прошло. Завершает пассажир
+    только после этого (решения 17.10.2026): иначе «Завершить» закрывал бы «Не пришёл»."""
     assert client.post(f"/bookings/{booking_id}/confirm", headers=drv["auth"]).status_code == 200
-    assert client.post(f"/bookings/{booking_id}/driver-status", headers=drv["auth"],
-                       json={"status": "boarded"}).status_code == 200
+    board(client, drv, booking_id)
 
 
 def _trip(client, user_factory, depart_at: str | None = None):
@@ -450,7 +450,9 @@ def test_rate_outsider_forbidden(client, user_factory):
 
 # ----------------------------- семейный контроль -----------------------------
 def test_trusted_contacts_and_share(client, user_factory):
-    drv, pax, ride, booking = _trip(client, user_factory)
+    # «Доехал» — только «в пути», после «Сел» водителя (приёмка PR174): поездка начинается сейчас.
+    drv, pax, ride, booking = _trip(client, user_factory, depart_at=just_left())
+    _boarded(client, drv, booking["id"])
     c = client.post("/trusted-contacts", headers=pax["auth"], json={"name": "Мама", "phone": "+79990001122"})
     assert c.status_code == 200
     cid = c.json()["id"]
