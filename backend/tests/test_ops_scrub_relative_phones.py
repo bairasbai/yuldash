@@ -6,8 +6,9 @@
 здесь проверяем ровно то, на что он опирается:
   * примерка ничего не меняет, а её вывод не несёт ни номера, ни текста заметки, ни имени близкого;
   * на старом коде сервера (без scrub_text) примерка считает, а запись отказывается;
-  * запись чистит только заявки старых клиентов; цифр номера в итоге не остаётся никогда;
-  * правленые комментарии (надпись не в начале) — только «проверить руками»;
+  * запись чистит только заявки старых клиентов; цифр номера в итоге не остаётся никогда —
+    с какими угодно разделителями (неразрывный пробел, тире, перевод строки, «/»…);
+  * правленые комментарии (надпись не в начале): длинные цепочки цифр механически → «<телефон>»;
   * повторный запуск находит 0; сбой — понятная строка «СТОП» без трассировки.
 """
 import importlib.util
@@ -59,13 +60,27 @@ OLD_ROWS = [
     # номер в заметке (свой, на всякий случай): заметка уходит целиком, цифр не остаётся
     ("Телефон близкого: +7 917 482 19 37. Если не ответит — звоните мне 8-937-156-23-48",
      RU, True, ["+7 917 482 19 37", "8-937-156-23-48", "ответит"]),
-    # случаи проверки безопасности (приёмка PR #173)
+    # случаи первой проверки безопасности (приёмка PR #173)
     ("Телефон близкого: 8 917 123. 45 67 мама. Встретить", RU, True, ["8 917 123", "45 67", "мама"]),
     ("Телефон близкого: 8 917. 1234567 мама", RU, True, ["1234567", "мама"]),
     ("Телефон близкого: +7 917 482 19 37. Или мне: 347 264 18 90", RU, True, ["347 264 18 90", "Или мне"]),
     ("Телефон близкого: +7 917 482 19 37. дом 2-64-18", RU, True, ["2-64-18", "64-18", "дом"]),
     ("Яҡындың телефоны: 89274813562. Если что 123-45-67", BA, True, ["123-45-67", "Если что"]),
+    # повторная проверка: необычные разделители между цифрами (неразрывный пробел, тире,
+    # перевод строки, «/»), в том числе номер САМОГО близкого ещё раз в заметке
+    ("Телефон близкого: 89274813562. звоните мне 8\xa0937\xa0156\xa023\xa048",
+     RU, True, ["8\xa0937\xa0156\xa023\xa048", "звоните"]),
+    ("Телефон близкого: 89274813562. Или 8–917–765–43–21", RU, True, ["8–917–765–43–21", "Или"]),
+    ("Яҡындың телефоны: 89274813562. Шылтыратығыҙ:\n8 917\n765 43 21", BA, True, ["765 43 21", "Шылтыратығыҙ"]),
+    ("Телефон близкого: +7 917 482 19 37. Её номер ещё раз: 917/482/19/37", RU, True, ["917/482/19/37", "Её номер"]),
 ]
+
+# Обычные заметки с цифрами: правило «5+ цифр подряд» их не трогает (буква или конец рвут цепочку).
+ORDINARY_NOTES = ["2 сумки, 1 кресло", "Выезд в 8:30, обратно в 17:45", "3-4 человека", "Цена до 1 500 руб"]
+
+# Любой разделитель между цифрами, кроме буквы, не спасает номер.
+SEPARATORS = [",", "/", "_", "–", "—", "‑", "−", "－",
+              "\xa0", " ", " ", "\n", "\t", " - ", ". "]
 
 # Эти комментарии скрипт не трогает и не называет.
 UNTOUCHED = [
@@ -77,12 +92,17 @@ UNTOUCHED = [
     "Заказ за близкого",
 ]
 
-# Надпись есть, но не в начале (человек правил комментарий): не трогаем, только называем номер.
+# Надпись есть, но не в начале (человек правил комментарий): текст не читаем — при записи
+# каждая цепочка из 5+ цифр механически → «<телефон>». (было, станет, сколько заменено)
 MANUAL = [
-    "Мой Телефон близкого: позвоню сам",
-    "Привет. Яҡындың телефоны: 8 917 000 11 22",
-    "Еду с мамой. Заказ за близкого · 8 917 000 33 44",
+    ("Мой Телефон близкого: позвоню сам", "Мой Телефон близкого: позвоню сам", 0),
+    ("Привет. Яҡындың телефоны: 8 917 000 11 22", "Привет. Яҡындың телефоны: <телефон>", 1),
+    ("Еду с мамой. Заказ за близкого · 8 917 000 33 44", "Еду с мамой. Заказ за близкого · <телефон>", 1),
+    ("Привет! Телефон близкого: 8\xa0917\xa0000\xa055\xa066, мой 8–937–000–77–88",
+     "Привет! Телефон близкого: <телефон>, мой <телефон>", 2),
 ]
+MANUAL_BEFORE = [m[0] for m in MANUAL]
+MANUAL_AFTER = [m[1] for m in MANUAL]
 
 
 @pytest.fixture(autouse=True)
@@ -94,7 +114,10 @@ def _no_phone_digits(text: str, phone: str) -> None:
     """В тексте нет ни самого номера, ни пяти его цифр подряд — в каком угодно написании."""
     assert phone not in text
     national = re.sub(r"\D", "", phone)[-10:]
-    runs = [re.sub(r"\D", "", m.group()) for m in re.finditer(r"\d(?:[ \-.()+]*\d)*", text)]
+    # Номера заявок и даты — разрешённые цифры вывода; без них цепочки не склеиваются с ними
+    # через « · » и проверка не зависит от того, какой номер достался заявке в общей базе.
+    allowed = re.sub(r"#\d+|\d\d\.\d\d\.\d{4} \d\d:\d\d", " | ", text)
+    runs = [re.sub(r"\D", "", m.group()) for m in re.finditer(r"\d(?:[\W_]{0,3}\d)*", allowed)]
     for i in range(len(national) - 4):
         window = national[i:i + 5]
         assert not any(window in run for run in runs), f"в выводе цифры номера ({window}):\n{text}"
@@ -107,8 +130,10 @@ def _no_personal_text(out: str) -> None:
             assert secret not in out, f"в выводе личное: {secret!r}\n{out}"
             if len(re.sub(r"\D", "", secret)) >= 5:
                 _no_phone_digits(out, secret)
-    for comment in MANUAL:
-        assert comment not in out
+    for before, after, _ in MANUAL:
+        assert before not in out and after not in out
+        for phone in re.findall(r"\d(?:[\W_]{0,3}\d){4,}", before):
+            _no_phone_digits(out, phone)
     assert "Галия" not in out, "в выводе имя близкого"
 
 
@@ -120,12 +145,12 @@ def seed(user_factory):
     with Session(engine) as s:
         assert scrub.find_rows(s) == [] and scrub.find_manual(s) == [], "в общей тестовой базе уже есть такие заявки"
 
-    def put(comments, relative="Галия"):
+    def put(comments, relative="Галия", status="active"):
         ids = []
         with Session(engine) as s:
             for c in comments:
                 r = RideRequest(passenger_id=passenger["id"], from_city="Баймак", to_city="Уфа",
-                                comment=c, created_at=WHEN, for_relative_name=relative)
+                                comment=c, created_at=WHEN, for_relative_name=relative, status=status)
                 s.add(r)
                 s.commit()
                 s.refresh(r)
@@ -146,6 +171,11 @@ def _comments(ids):
     return [got[i] for i in ids]
 
 
+def _line(out: str, rid: int) -> str:
+    [line] = [ln for ln in out.splitlines() if f"заявка #{rid} " in ln]
+    return line
+
+
 @pytest.mark.parametrize("comment, expected, dropped, _secrets", OLD_ROWS)
 def test_plan_old_comment(comment, expected, dropped, _secrets):
     plan = scrub.plan_comment(comment)
@@ -157,54 +187,84 @@ def test_plan_old_comment(comment, expected, dropped, _secrets):
     assert not scrub.is_manual(plan.result)
 
 
-@pytest.mark.parametrize("comment", UNTOUCHED + MANUAL)
+@pytest.mark.parametrize("sep", SEPARATORS, ids=[f"U+{ord(s[0]):04X}x{len(s)}" for s in SEPARATORS])
+def test_any_separator_between_digits_drops_the_note(sep):
+    """Свой номер и номер самого близкого в заметке — с любым не-буквенным разделителем."""
+    for note_phone in (f"8{sep}937{sep}156{sep}23{sep}48", f"917{sep}482{sep}19{sep}37"):
+        plan = scrub.plan_comment(f"Телефон близкого: +7 917 482 19 37. Звоните мне {note_phone}")
+        assert plan.result == RU and plan.dropped, (repr(sep), plan)
+        assert scrub.mask_long_digits(f"Привет. Телефон близкого: {note_phone}")[1] >= 1
+
+
+@pytest.mark.parametrize("note", ORDINARY_NOTES)
+def test_ordinary_notes_with_numbers_stay(note):
+    plan = scrub.plan_comment(f"Телефон близкого: 89274813562. {note}")
+    assert plan.result == f"{RU}. {note}" and not plan.dropped
+    assert scrub.mask_long_digits(note) == (note, 0)
+
+
+@pytest.mark.parametrize("comment", UNTOUCHED + MANUAL_BEFORE)
 def test_other_comments_are_not_cleaned(comment):
     assert scrub.plan_comment(comment) is None
-    assert scrub.is_manual(comment) is (comment in MANUAL)
+    assert scrub.is_manual(comment) is (comment in MANUAL_BEFORE)
+
+
+@pytest.mark.parametrize("before, after, count", MANUAL)
+def test_manual_rows_get_only_digit_chains_masked(before, after, count):
+    assert scrub.mask_long_digits(before) == (after, count)
+    assert scrub.mask_long_digits(after) == (after, 0)
+    assert scrub.is_manual(after)
 
 
 def test_dry_run_changes_nothing_and_prints_no_personal_text(seed, capsys):
     old_ids = seed([c for c, *_ in OLD_ROWS[1:]])
-    [no_name_id] = seed([OLD_ROWS[0][0]], relative=None)
+    [no_name_id] = seed([OLD_ROWS[0][0]], relative=None, status="closed")
     other_ids = seed(UNTOUCHED)
-    manual_ids = seed(MANUAL)
+    manual_ids = seed(MANUAL_BEFORE)
 
     assert scrub.main([]) == 0
     out = capsys.readouterr().out
 
     assert _comments([no_name_id] + old_ids) == [c for c, *_ in OLD_ROWS], "примерка изменила базу"
-    assert _comments(other_ids) == UNTOUCHED and _comments(manual_ids) == MANUAL
+    assert _comments(other_ids) == UNTOUCHED and _comments(manual_ids) == MANUAL_BEFORE
     assert "Режим: ПРИМЕРКА" in out and "в базе ничего не изменено" in out
     assert f"Найдено заявок: {len(OLD_ROWS)}" in out
     assert f"Проверить руками: {len(MANUAL)}" in out
     note = OLD_ROWS[0][1].split(". ", 1)[1]
-    assert f"заявка #{no_name_id} · 03.09.2026 13:15 по Уфе · сайт · имени близкого нет → станет: " \
-           f"метка + заметка ({len(note)} символов)" in out
+    assert _line(out, no_name_id) == (
+        f"  заявка #{no_name_id} · 03.09.2026 13:15 по Уфе · закрыта · сайт · имени близкого нет → станет: "
+        f"метка + заметка ({len(note)} символов)")
     for rid, (comment, expected, dropped, _) in zip(old_ids, OLD_ROWS[1:]):
-        line = next(ln for ln in out.splitlines() if f"заявка #{rid} " in ln)
+        line = _line(out, rid)
+        assert " · активна · " in line
         assert ("приложение" if comment.startswith(("Заказ", "Яҡын кеше")) else "сайт") in line
         assert "имени близкого нет" not in line
         assert ("метка + заметка" in line) is (". " in expected)
         assert ("только метка" in line) is (". " not in expected)
         assert ("заметку убираю" in line) is dropped
-    for rid in manual_ids:
-        assert sum(f"заявка #{rid} " in ln for ln in out.splitlines()) == 1
+    for rid, (_, _, count) in zip(manual_ids, MANUAL):
+        assert _line(out, rid).endswith(f"заменю цепочек цифр: {count}" if count
+                                        else "длинных цепочек цифр нет, не меняю")
     for rid in other_ids:
         assert f"#{rid} " not in out
     _no_personal_text(out)
 
 
-def test_apply_cleans_only_old_rows_and_is_idempotent(seed, capsys):
+def test_apply_cleans_old_rows_masks_manual_and_is_idempotent(seed, capsys):
     old_ids = seed([c for c, *_ in OLD_ROWS])
     other_ids = seed(UNTOUCHED)
-    manual_ids = seed(MANUAL)
+    manual_ids = seed(MANUAL_BEFORE)
+    masked = sum(1 for *_, n in MANUAL if n)
 
     assert scrub.main(["--apply"]) == 0
     out = capsys.readouterr().out
     assert _comments(old_ids) == [e for _, e, *_ in OLD_ROWS]
     assert _comments(other_ids) == UNTOUCHED, "скрипт тронул чужие комментарии"
-    assert _comments(manual_ids) == MANUAL, "правленые комментарии — только руками"
-    assert f"Изменено заявок: {len(OLD_ROWS)}" in out
+    assert _comments(manual_ids) == MANUAL_AFTER
+    assert (f"Изменено заявок: {len(OLD_ROWS) + masked} — по старой надписи: {len(OLD_ROWS)}, "
+            f"цифры заменены в «Проверить руками»: {masked}") in out
+    for rid, (_, _, count) in zip(manual_ids, MANUAL):
+        assert _line(out, rid).endswith(f"цифры заменены: {count}" if count else "длинных цепочек цифр нет, не меняю")
     assert "подходящих заявок осталось 0" in out and "Готово." in out
     _no_personal_text(out)
 
@@ -215,21 +275,31 @@ def test_apply_cleans_only_old_rows_and_is_idempotent(seed, capsys):
     assert scrub.main([]) == 0
     again = capsys.readouterr().out
     assert "Найдено заявок: 0" in again and f"Проверить руками: {len(MANUAL)}" in again
+    assert again.count("длинных цепочек цифр нет, не меняю") == len(MANUAL)
     assert _comments(old_ids) == [e for _, e, *_ in OLD_ROWS]
+    assert _comments(manual_ids) == MANUAL_AFTER
+
+
+def test_apply_masks_manual_rows_even_without_old_rows(seed, capsys):
+    ids = seed(MANUAL_BEFORE[1:2])
+    assert scrub.main(["--apply"]) == 0
+    out = capsys.readouterr().out
+    assert "Изменено заявок: 1 — по старой надписи: 0, цифры заменены в «Проверить руками»: 1" in out
+    assert _comments(ids) == MANUAL_AFTER[1:2]
 
 
 def test_old_server_code_counts_but_does_not_clean(seed, capsys, monkeypatch):
     """Код сервера от 04.07 без scrub_text: примерка — номера и даты, запись — отказ."""
     ids = seed([OLD_ROWS[0][0], OLD_ROWS[8][0]])
-    manual_ids = seed(MANUAL[:1])
+    manual_ids = seed(MANUAL_BEFORE[1:2])
     monkeypatch.setattr(scrub, "scrub_text", None)
 
     assert scrub.main([]) == 0
     out = capsys.readouterr().out
     assert "Найдено заявок: 2" in out and "Проверить руками: 1" in out
-    assert f"заявка #{ids[0]} · 03.09.2026 13:15 по Уфе · сайт" in out
-    assert f"заявка #{ids[1]} · 03.09.2026 13:15 по Уфе · приложение" in out
-    assert f"заявка #{manual_ids[0]} " in out
+    assert _line(out, ids[0]) == f"  заявка #{ids[0]} · 03.09.2026 13:15 по Уфе · активна · сайт"
+    assert _line(out, ids[1]) == f"  заявка #{ids[1]} · 03.09.2026 13:15 по Уфе · активна · приложение"
+    assert _line(out, manual_ids[0]).endswith("заменю цепочек цифр: 1")
     assert "→ станет" not in out and "после выкладки" in out
     _no_personal_text(out)
 
@@ -237,6 +307,7 @@ def test_old_server_code_counts_but_does_not_clean(seed, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "СТОП: чистка — после выкладки" in out
     assert _comments(ids) == [OLD_ROWS[0][0], OLD_ROWS[8][0]]
+    assert _comments(manual_ids) == MANUAL_BEFORE[1:2]
 
 
 def test_refuses_sqlite_without_the_switch(seed, capsys, monkeypatch):
@@ -253,17 +324,20 @@ def test_refuses_sqlite_without_the_switch(seed, capsys, monkeypatch):
 def test_apply_stops_when_final_check_fails(seed, capsys, monkeypatch):
     """Итог не прошёл проверку (ошибка скрипта) → СТОП с номерами, база как была."""
     ids = seed([OLD_ROWS[0][0]])
+    manual_ids = seed(MANUAL_BEFORE[1:2])
     monkeypatch.setattr(scrub, "plan_comment", lambda c: scrub.Plan(c) if scrub.match_old(c) else None)
     assert scrub.main(["--apply"]) == 1
     out = capsys.readouterr().out
     assert f"СТОП: 1 заявок не прошли итоговую проверку (номера: {ids[0]})" in out
     assert _comments(ids) == [OLD_ROWS[0][0]]
+    assert _comments(manual_ids) == MANUAL_BEFORE[1:2]
     _no_personal_text(out)
 
 
 def test_apply_rolls_back_when_after_check_fails(seed, capsys, monkeypatch):
     """Запись прошла, но сверка в той же транзакции не сошлась → откат всей транзакции."""
     ids = seed([c for c, *_ in OLD_ROWS[:2]])
+    manual_ids = seed(MANUAL_BEFORE[1:2])
     # «чистка» оставляет надпись старого сайта, а итоговую проверку выключили:
     # после записи подходящие заявки остаются — сверка обязана откатить ВСЁ.
     monkeypatch.setattr(scrub, "plan_comment", lambda c: scrub.Plan(c + " ") if scrub.match_old(c) else None)
@@ -271,7 +345,9 @@ def test_apply_rolls_back_when_after_check_fails(seed, capsys, monkeypatch):
     assert scrub.main(["--apply"]) == 1
     out = capsys.readouterr().out
     assert "СТОП: сверка после записи не сошлась" in out and "Всё откатилось" in out
+    assert "цифры заменены" not in out, "строки «заменены» печатаются только после записи"
     assert _comments(ids) == [c for c, *_ in OLD_ROWS[:2]], "откат не сработал"
+    assert _comments(manual_ids) == MANUAL_BEFORE[1:2], "откат не сработал"
 
 
 def test_unexpected_error_prints_only_its_type(seed, capsys, monkeypatch):
@@ -343,10 +419,10 @@ def test_waits_for_a_busy_row_at_most_five_seconds(seed, capsys):
 
 
 def test_runs_as_a_command_like_on_the_server(seed, tmp_path):
-    """Так его запустит Александр: `python ops/scrub_relative_phones.py` — отдельным процессом."""
+    """Так его запустит Александр: `python -u ops/scrub_relative_phones.py` — отдельным процессом."""
     [rid] = seed([OLD_ROWS[2][0]])
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", scrub.ALLOW_SQLITE_ENV: "1"}
-    proc = subprocess.run([sys.executable, str(SCRIPT)], cwd=tmp_path, env=env, capture_output=True,
+    proc = subprocess.run([sys.executable, "-u", str(SCRIPT)], cwd=tmp_path, env=env, capture_output=True,
                           text=True, encoding="utf-8", errors="replace", timeout=120)
     assert proc.returncode == 0, proc.stdout + proc.stderr[-2000:]
     assert "Режим: ПРИМЕРКА" in proc.stdout and "Найдено заявок: 1" in proc.stdout

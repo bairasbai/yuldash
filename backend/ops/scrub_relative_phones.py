@@ -12,43 +12,49 @@
     без заметки.
 Клиенты починены, но старые заявки в базе остались как были.
 
-Что ищет. Заявки (`riderequest`), у которых комментарий НАЧИНАЕТСЯ ровно с одной из четырёх
-надписей выше — буква в букву, как писал старый код. Заявки, где такая надпись есть, но не
-в начале (человек правил комментарий), скрипт не трогает: только называет их номера —
-«проверить руками».
+Что ищет.
+  * Заявки, у которых комментарий НАЧИНАЕТСЯ ровно с одной из четырёх надписей выше — буква
+    в букву, как писал старый код. Их чистит (см. ниже).
+  * Заявки, где такая надпись есть, но не в начале (человек правил комментарий), —
+    «проверить руками». Их текст никто не читает: при записи каждая цепочка из 5 и больше
+    цифр в них механически заменяется на «<телефон>», больше ничего не меняется.
 
 Как чистит. Надпись и номер → метка того же языка: «Заказ за близкого» или
 «Яҡын кеше өсөн заказ». Номер — всё до первого «. » (сайт) или до конца строки (приложение).
 Заметка человека с сайта остаётся и проходит через общий скруб `app.observability.scrub_text`.
 Цифр номера в итоге не остаётся никогда — заметка убирается целиком (остаётся только метка),
 если в ней:
-  * 5 и больше цифр подряд (пробелы, дефисы, точки и скобки между ними не в счёт) — до или
-    после скруба;
+  * 5 и больше цифр подряд — до или после скруба. Между цифрами может стоять до трёх любых
+    не-букв: пробел любой ширины (в т.ч. неразрывный), любое тире и минус, точка, запятая,
+    косая черта, подчёркивание, скобки, перевод строки, табуляция. Буква цепочку рвёт.
+    Поэтому уходят и заметки с датой с годом («17.10.2026»), промежутком времени
+    («10:00-12:00») и суммой от 10 000;
   * есть хоть одна цифра, а сам номер короче полного (меньше 10 цифр): номер, похоже, разорван;
   * снова одна из четырёх надписей;
   * что-то не прошло итоговую проверку.
-Кусок после «. » из одних цифр и знаков номера («. 347 264-18-90», «. 2», «. 15.30») считается
+Кусок после «. » из одних цифр и не-букв («. 347 264-18-90», «. 2», «. 15.30») считается
 продолжением номера и уходит вместе с ним. Про каждую заявку с убранной заметкой вывод говорит
 прямо.
 
 Безопасность запуска.
-  * Без флага — ПРИМЕРКА: только читает. Печатает число заявок, их номера и даты по Уфе и
-    каким станет комментарий — только «метка + заметка (N символов)» или «только метка».
+  * Без флага — ПРИМЕРКА: только читает. Печатает число заявок, их номера, даты по Уфе,
+    «активна»/«закрыта» и каким станет комментарий — только «метка + заметка (N символов)»
+    или «только метка»; у «проверить руками» — сколько цепочек цифр будет заменено.
     Ни телефона, ни текста комментария, ни имени близкого вывод не содержит.
-  * Примерка работает и на старом коде сервера, где нет `scrub_text`: тогда только номера
-    заявок и даты. `--apply` без `scrub_text` отказывается: чистка — после выкладки.
+  * Примерка работает и на старом коде сервера, где нет `scrub_text`: тогда без «станет».
+    `--apply` без `scrub_text` отказывается: чистка — после выкладки.
   * `--apply` — запись ОДНОЙ транзакцией: в ней заново вся проверка примерки (строки
     заблокированы, ждать блокировку — не дольше 5 секунд), запись, сверка до фиксации
     (подходящих не осталось, в базе ровно задуманное). Любой сбой до фиксации — откат.
-  * Повторный запуск находит 0 (идемпотентно).
+  * Повторный запуск находит 0 и ничего не меняет (идемпотентно).
   * SQLite — только с переменной окружения YULDASH_SCRUB_ALLOW_SQLITE=1 (её ставят тесты):
     без неё скрипт не откроет случайный файл ./yuldash.db, если файл настроек .env не прочитан.
   * Только SQLModel/ORM (PostgreSQL и SQLite); единственная строка под PostgreSQL —
     `SET LOCAL lock_timeout`.
 
 Запуск на сервере (подробно — в описании PR #173):
-    cd /opt/yuldash && sudo -u yuldash ./.venv/bin/python ops/scrub_relative_phones.py           # примерка
-    cd /opt/yuldash && sudo -u yuldash ./.venv/bin/python ops/scrub_relative_phones.py --apply   # запись
+    cd /opt/yuldash && sudo -u yuldash ./.venv/bin/python -u ops/scrub_relative_phones.py           # примерка
+    cd /opt/yuldash && sudo -u yuldash ./.venv/bin/python -u ops/scrub_relative_phones.py --apply   # запись
 
 Код выхода: 0 — всё в порядке; 1 — СТОП (см. строку «СТОП»); 2 — ЕЩЁ РАЗ (почищено,
 но за время чистки появились новые такие заявки — запустить ещё раз).
@@ -74,7 +80,7 @@ from app.config import settings  # noqa: E402
 from app.db import engine  # noqa: E402
 from app.models import RideRequest  # noqa: E402
 
-try:   # на сервере может стоять код старше общего скруба — тогда только примерка без текста
+try:   # на сервере может стоять код старше общего скруба — тогда только примерка без «станет»
     from app.observability import scrub_text  # noqa: E402
 except ImportError:
     scrub_text = None
@@ -89,16 +95,20 @@ APP_PREFIXES = {"Заказ за близкого · ": LABEL_RU, "Яҡын ке
 PREFIXES = (*SITE_PREFIXES, *APP_PREFIXES)
 # Надписи, которые ищем и не в начале: такие заявки — «проверить руками».
 MARKERS = ("Телефон близкого:", "Яҡындың телефоны:", "Заказ за близкого · ", "Яҡын кеше өсөн заказ · ")
+PHONE_MASK = "<телефон>"
 ALLOW_SQLITE_ENV = "YULDASH_SCRUB_ALLOW_SQLITE"
 FULL_PHONE_DIGITS = 10          # полный номер: 10 цифр без 8/+7 или 11 с ними
 LOCK_TIMEOUT_SEC = 5            # PostgreSQL: дольше не ждём строку, занятую другой операцией
 
-# Кусок из одних «телефонных» знаков (и хотя бы одна цифра) — продолжение номера, не заметка.
-_PHONE_ONLY = re.compile(r"[\d +\-().]*\d[\d +\-().]*")
-# 5 и больше цифр подряд; пробелы, дефисы, точки и скобки между ними не в счёт.
-_FIVE_DIGITS = re.compile(r"\d(?:[ \-.()]*\d){4,}")
-# Цепочка цифр с разделителями, как их пишут в номерах: для сверки «цифры номера не остались».
-_DIGIT_RUN = re.compile(r"\d(?:[ \-.()+]*\d)*")
+# Между цифрами номера человек ставит что угодно, кроме букв: пробел любой ширины (в т.ч.
+# неразрывный U+00A0, U+202F, U+2009), тире (– — ‑ − －), точку, запятую, «/», «_», скобки,
+# перевод строки, табуляцию. `[\W_]` — любая не-буква и не-цифра; до трёх подряд. Буква рвёт.
+# Кусок из одних цифр и не-букв (и хотя бы одна цифра) — продолжение номера, не заметка.
+_PHONE_ONLY = re.compile(r"[\W_]*\d[\W\d_]*")
+# 5 и больше цифр подряд — заметку убираем; в «проверить руками» такую цепочку заменяем.
+_FIVE_DIGITS = re.compile(r"\d(?:[\W_]{0,3}\d){4,}")
+# Цепочка цифр: для сверки «последних цифр номера в итоге нет».
+_DIGIT_RUN = re.compile(r"\d(?:[\W_]{0,3}\d)*")
 
 
 def say(text_: str = "") -> None:
@@ -151,8 +161,13 @@ def match_old(comment: Optional[str]) -> Optional[Old]:
 
 
 def is_manual(comment: Optional[str]) -> bool:
-    """Надпись про телефон близкого есть, но не в начале — руками, не автоматически."""
+    """Надпись про телефон близкого есть, но не в начале — «проверить руками»."""
     return bool(comment) and match_old(comment) is None and any(m in comment for m in MARKERS)
+
+
+def mask_long_digits(comment: str) -> tuple[str, int]:
+    """«Проверить руками»: каждая цепочка из 5+ цифр → «<телефон>». (новый текст, сколько заменено)."""
+    return _FIVE_DIGITS.subn(PHONE_MASK, comment)
 
 
 def plan_comment(comment: Optional[str]) -> Optional[Plan]:
@@ -184,6 +199,8 @@ def problems(original: str, cleaned: str) -> list[str]:
         out.append("в начале осталась старая надпись")
     if scrub_text is not None and scrub_text(cleaned) != cleaned:
         out.append("в тексте осталось похожее на телефон или адрес")
+    if _FIVE_DIGITS.search(cleaned):
+        out.append("в тексте 5 и больше цифр подряд")
     old = match_old(original)
     phone_digits = _digits(old.phone) if old else ""
     if len(phone_digits) >= 7:
@@ -208,9 +225,11 @@ def find_rows(session: Session, *, lock: bool = False) -> list[RideRequest]:
     return [r for r in session.exec(stmt).all() if match_old(r.comment) is not None]
 
 
-def find_manual(session: Session) -> list[RideRequest]:
+def find_manual(session: Session, *, lock: bool = False) -> list[RideRequest]:
     """Заявки, где надпись есть, но не в начале."""
     stmt = select(RideRequest).where(_any_like(MARKERS, at_start=False)).order_by(RideRequest.id)
+    if lock:
+        stmt = stmt.with_for_update()
     return [r for r in session.exec(stmt).all() if is_manual(r.comment)]
 
 
@@ -230,7 +249,8 @@ def _when(row: RideRequest) -> str:
 
 
 def _head(row: RideRequest, source: str = "") -> str:
-    parts = [f"заявка #{row.id}", _when(row)]
+    parts = [f"заявка #{row.id}", _when(row),
+             "активна" if getattr(row, "status", None) == "active" else "закрыта"]
     if source:
         parts.append(source)
     if hasattr(RideRequest, "for_relative_name") and not row.for_relative_name:
@@ -246,12 +266,24 @@ def _db_line() -> str:
             f" · порт: {url.port or 5432}")
 
 
-def _report_manual(manual: list[RideRequest]) -> None:
+def _manual_info(manual: list[RideRequest]) -> list[tuple[str, int]]:
+    """Строки «проверить руками» считаем заранее: после записи объекты строк уже не читаются."""
+    return [(_head(row), mask_long_digits(row.comment)[1]) for row in manual]
+
+
+def _report_manual(info: list[tuple[str, int]], *, done: bool) -> None:
     say()
-    say(f"Проверить руками: {len(manual)}"
-        + (" — надпись про телефон близкого есть, но не в начале; скрипт такие не трогает" if manual else ""))
-    for row in manual:
-        say(_head(row))
+    say(f"Проверить руками: {len(info)}"
+        + (" — надпись про телефон близкого есть, но не в начале. Текст не читаю: цепочки из 5+ цифр"
+           " при записи механически заменяются на <телефон>, больше ничего не меняется" if info else ""))
+    for head, n in info:
+        if not n:
+            what = "длинных цепочек цифр нет, не меняю"
+        elif done:
+            what = f"цифры заменены: {n}"
+        else:
+            what = f"заменю цепочек цифр: {n}"
+        say(f"{head} → {what}")
 
 
 def _report_plans(plans: list[tuple[RideRequest, Plan]]) -> None:
@@ -266,6 +298,11 @@ def _report_plans(plans: list[tuple[RideRequest, Plan]]) -> None:
         say(f"{_head(row, match_old(row.comment).source)} → станет: {what}")
 
 
+def _pending(session: Session) -> int:
+    """Сколько заявок ещё есть что чистить: со старой надписью и «руками» с длинными цифрами."""
+    return len(find_rows(session)) + sum(1 for r in find_manual(session) if mask_long_digits(r.comment)[1])
+
+
 def run(apply: bool, state: dict) -> int:
     say("Чистка телефонов близких в комментариях заявок «За близкого» (старый сайт и старое приложение)")
     say(_db_line())
@@ -276,16 +313,17 @@ def run(apply: bool, state: dict) -> int:
         if apply and engine.dialect.name == "postgresql":
             s.connection().execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT_SEC}s'"))
         rows = find_rows(s, lock=apply)
-        manual = find_manual(s)
+        manual = find_manual(s, lock=apply)
+        manual_info = _manual_info(manual)
 
         if scrub_text is None:      # старый код сервера: только примерка (--apply отсечён в main)
-            say("Код программы на сервере старый (нет общей функции скруба): показываю только номера")
-            say("заявок и даты. Каким станет текст — покажет примерка после выкладки. Чистка — тоже после неё.")
+            say("Код программы на сервере старый (нет общей функции скруба): показываю номера заявок")
+            say("и даты без «станет». Каким станет текст — покажет примерка после выкладки. Чистка — тоже после неё.")
             say()
             say(f"Найдено заявок: {len(rows)}")
             for row in rows:
                 say(_head(row, match_old(row.comment).source))
-            _report_manual(manual)
+            _report_manual(manual_info, done=False)
             say()
             say("Это была примерка: в базе ничего не изменено.")
             return 0
@@ -295,36 +333,46 @@ def run(apply: bool, state: dict) -> int:
         if bad:
             s.rollback()
             say(f"СТОП: {len(bad)} заявок не прошли итоговую проверку (номера: {', '.join(map(str, bad))}). "
-                "В базе ничего не изменено. Это ошибка скрипта — передай эту строку разработчику.")
+                "В базе ничего не изменено. Это ошибка скрипта — передай этот вывод разработчику.")
             return 1
-        _report_plans(plans)
-        _report_manual(manual)
-        say()
+        masked = {}
+        for row in manual:
+            new, n = mask_long_digits(row.comment)
+            if n:
+                masked[row.id] = new
 
+        _report_plans(plans)
         if not apply:
+            _report_manual(manual_info, done=False)
+            say()
             say("Это была примерка: в базе ничего не изменено.")
-            if plans:
+            if plans or masked:
                 say("Почистить — та же команда с --apply в конце, но только после полной выкладки (см. инструкцию).")
             return 0
-        if not plans:
+        if not plans and not masked:
+            _report_manual(manual_info, done=False)
+            say()
             say("Изменено заявок: 0 — чистить нечего.")
             return 0
 
-        say("Проверка перед записью пройдена. Записываю одной транзакцией…")
         planned = {row.id: plan.result for row, plan in plans}
-        for row, plan in plans:
-            row.comment = plan.result
-            s.add(row)
+        planned.update(masked)
+        say()
+        say("Проверка перед записью пройдена. Записываю одной транзакцией…")
+        for row in [*rows, *manual]:
+            if row.id in planned:
+                row.comment = planned[row.id]
+                s.add(row)
         s.flush()
 
         # Сверка ДО фиксации, в той же транзакции: подходящих не осталось, и в базе ровно задуманное.
-        left = find_rows(s)
+        left = _pending(s)
         stored = dict(s.exec(select(RideRequest.id, RideRequest.comment)
                              .where(RideRequest.id.in_(list(planned)))).all())
         if left or stored != planned:
             s.rollback()
-            say(f"СТОП: сверка после записи не сошлась (осталось подходящих: {len(left)}). "
-                "Всё откатилось, в базе ничего не изменено. Передай эту строку разработчику.")
+            say(f"СТОП: сверка после записи не сошлась (осталось подходящих: {left}). "
+                "Всё откатилось, в базе ничего не изменено. Передай этот вывод разработчику.")
             return 1
         try:
             s.commit()
@@ -334,9 +382,12 @@ def run(apply: bool, state: dict) -> int:
             return 1
         state["committed"] = True
 
-    say(f"Изменено заявок: {len(planned)}")
+    _report_manual(manual_info, done=True)
+    say()
+    say(f"Изменено заявок: {len(planned)} — по старой надписи: {len(plans)}, "
+        f"цифры заменены в «Проверить руками»: {len(masked)}")
     with Session(engine) as s:
-        rest = len(find_rows(s))
+        rest = _pending(s)
     say(f"Проверка после записи: подходящих заявок осталось {rest}.")
     if rest:
         say(f"ЕЩЁ РАЗ: пока шла чистка, появились новые такие заявки ({rest}). Найденные раньше уже "
