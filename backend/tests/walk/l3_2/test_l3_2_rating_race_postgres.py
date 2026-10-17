@@ -41,6 +41,11 @@ def _done_booking(client, user_factory):
     booking = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride["id"], "seats": 1})
     assert booking.status_code == 200, booking.text
     booking = booking.json()
+    # Посадку отмечает водитель (Q4, PR174): без его «Сел» пассажир поездку не завершит.
+    confirmed = client.post(f"/bookings/{booking['id']}/confirm", headers=drv["auth"])
+    assert confirmed.status_code == 200, confirmed.text
+    boarded = client.post(f"/bookings/{booking['id']}/driver-status", headers=drv["auth"], json={"status": "boarded"})
+    assert boarded.status_code == 200, boarded.text
     done = client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "done"})
     assert done.status_code == 200, done.text
     return pax, drv, booking["id"]
