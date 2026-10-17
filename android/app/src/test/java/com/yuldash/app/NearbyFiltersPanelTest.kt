@@ -171,6 +171,27 @@ class NearbyFiltersPanelTest {
         compose.onNodeWithText("Откуда · Аскарово").assertIsDisplayed()
     }
 
+    @Test
+    fun `«Сбросить фильтры» снимает и найденные поиском — деревни нет ни в «Откуда», ни в «Куда»`() {
+        // Приёмка PR154: нашёл «Кипчак-Аскарово», поездок нет, нажал «Сбросить фильтры» — деревня висела строкой в обеих шторках.
+        val state = NearbyCityFilterState().apply {
+            fromOptions = listOf(FilterCity("Баймак", "Баймаҡ"))
+            found = listOf(FilterCity("Кипчак-Аскарово", "Ҡыпсаҡ-Асҡар"))
+            from = setOf("Кипчак-Аскарово")
+        }
+        state.clear()
+        assertEquals(emptySet<String>(), state.from)
+        assertEquals(emptyList<FilterCity>(), state.found)
+        compose.setContent { Row { NearbyCityChips(state, Modifier) } }
+        for (chip in listOf("Откуда", "Куда")) {
+            compose.onNodeWithText(chip).performClick()
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("Готово").fetchSemanticsNodes().isNotEmpty() }
+            assertEquals("в «$chip» деревни нет", 0, compose.onAllNodesWithText("Кипчак-Аскарово").fetchSemanticsNodes().size)
+            compose.onNodeWithText("Готово").performSemanticsAction(SemanticsActions.OnClick)
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("Готово").fetchSemanticsNodes().isEmpty() }
+        }
+    }
+
     /** Кнопка нажата: в тот же миг шторка ещё на экране (уходит вниз), а дождались — её нет. */
     private fun assertLeavesWithMotion(button: String, marker: String) {
         compose.waitUntil(10_000) { compose.onAllNodesWithText(button).fetchSemanticsNodes().isNotEmpty() }

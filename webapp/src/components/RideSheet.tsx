@@ -45,7 +45,9 @@ export default function RideSheet({
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    dialogRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    // Фокус — на саму шторку, как в шторках ленты: читалка называет «Поездка», Esc и Tab работают в ней.
+    // Раньше фокус ставился на «Закрыть», и тот же Enter, которым открыли поездку с карточки, сразу её закрывал.
+    dialogRef.current?.focus();
     return () => previous?.focus();
   }, []);
 
@@ -68,6 +70,7 @@ export default function RideSheet({
   const [frontSeat, setFrontSeat] = useState(false);
 
   async function book() {
+    if (exit.leaving) return; // шторка уже уходит (Esc, затемнение) — бронь из неё не отправляем (приёмка PR154)
     if (bookingInFlight.current || ownerGeneration !== getSessionGeneration()) return;
     if (!isAuthed) {
       navigate("/login", { state: { from: `/rides/${ride.id}` } });
@@ -129,13 +132,15 @@ export default function RideSheet({
         role="dialog"
         aria-modal="true"
         aria-label={appText("Поездка", "Сәфәр")}
+        tabIndex={-1}
         onKeyDown={(event) => {
           if (event.key === "Escape" && !bookingInFlight.current) exit.close();
           if (event.key !== "Tab") return;
           const controls = dialogRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), a[href]");
           if (!controls?.length) return;
           const first = controls[0], last = controls[controls.length - 1];
-          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+          const active = document.activeElement;
+          if (event.shiftKey && (active === first || active === dialogRef.current)) { event.preventDefault(); last.focus(); }
           else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
         }}
       >

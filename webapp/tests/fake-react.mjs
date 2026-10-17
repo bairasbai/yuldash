@@ -86,6 +86,7 @@ export function mount(fn, props) {
       } finally {
         rt.cur = null;
       }
+      attachRefs(c.tree); // как React: ref-ы готовы до эффектов
       for (const run of c.pending) run();
       if (!c.dirty) return c.tree;
     }
@@ -145,7 +146,56 @@ export class FakeEl {
     this.focused++;
     globalThis.document.activeElement = this;
   }
+  blur() {
+    if (globalThis.document.activeElement === this) globalThis.document.activeElement = globalThis.document.body;
+  }
 }
+/**
+ * Узел «страницы» за ref-ом: фокус, кнопки внутри (`querySelectorAll` — кнопки, поля и ссылки по
+ * порядку разметки, без выключенных; узлы одни и те же между перерисовками), движения
+ * (`animations` для getAnimations) и `inert`.
+ */
+export class FakeNode extends FakeEl {
+  constructor(el) {
+    super(String(el.props?.className ?? el.type));
+    this.el = el;
+    this.kids = [];
+    this.animations = [];
+    this.inert = false;
+    this.parentElement = null;
+  }
+  getAnimations() {
+    return this.animations;
+  }
+  querySelectorAll() {
+    const found = flat(this.el.props?.children).filter(
+      (n) => (n.type === "button" || n.type === "input" || (n.type === "a" && n.props.href)) && !n.props.disabled
+    );
+    return found.map((n, i) => {
+      const k = (this.kids[i] ??= new FakeNode(n));
+      k.el = n;
+      return k;
+    });
+  }
+  querySelector(sel) {
+    return this.querySelectorAll(sel)[0] ?? null;
+  }
+  /** Сам узел или одна из его кнопок (те, что уже выдал querySelectorAll). */
+  contains(node) {
+    return node === this || this.kids.some((k) => k === node || k.contains(node));
+  }
+}
+
+/** Раздать ref-ам узлы: новый элемент — новый узел, тот же ref — тот же узел со свежей разметкой. */
+function attachRefs(tree) {
+  for (const n of flat(tree)) {
+    const ref = n.props?.ref;
+    if (!ref || typeof ref !== "object" || !("current" in ref)) continue;
+    if (ref.current == null) ref.current = new FakeNode(n);
+    else if (ref.current instanceof FakeNode) ref.current.el = n;
+  }
+}
+
 /** Поддельный браузер: `reduced` — «Уменьшить движение», `timers` — отложенные window.setTimeout. */
 export const browser = { reduced: false, timers: [] };
 globalThis.HTMLElement = FakeEl;

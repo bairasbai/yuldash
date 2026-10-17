@@ -69,9 +69,11 @@ internal class NearbyCityFilterState {
     /** Есть что выбрать или что снять: тогда чипы на месте, даже если рядом поездок нет. */
     val offered: Boolean get() = active || fromOptions.isNotEmpty() || toOptions.isNotEmpty()
 
+    /** «Сбросить фильтры»: снимает выбор и найденные поиском — иначе снятая деревня висела строкой в обеих шторках (приёмка PR154). */
     fun clear() {
         from = emptySet()
         to = emptySet()
+        found = emptyList()
     }
 
     /**

@@ -22,16 +22,30 @@ export function cssTimeMs(value: string): number {
   return Math.max(0, ...value.split(",").map((v) => (v.trim().endsWith("ms") ? parseFloat(v) : parseFloat(v) * 1000) || 0));
 }
 
+/** Идущее сейчас CSS-движение элемента с этим именем (появление шторки или затемнения). */
+function runningAnimation(el: Element | null | undefined, name: string): Animation | null {
+  const list = el?.getAnimations?.() ?? [];
+  return list.find((a) => (a as CSSAnimation).animationName === name && a.playState === "running") ?? null;
+}
+
 /**
  * Уход шторки. `close` просит её уйти (повторное нажатие во время ухода ничего не делает), а
- * `onClose` вызывается ровно один раз — когда шторка доехала вниз: по концу её `sheetDown` или,
- * если это событие не пришло (вкладка в фоне, стиль не применился), по длительности самого движения.
- * При «Уменьшить движение» `onClose` — сразу.
+ * `onClose` вызывается ровно один раз — когда шторка ушла: по концу её `sheetDown` или, если это
+ * событие не пришло (вкладка в фоне, стиль не применился), по длительности самого движения.
+ *
+ * - Уходящая шторка сразу становится `inert`: в ней ничего не нажать — ни пальцем, ни Enter с
+ *   клавиатуры или читалки — и по Tab в неё не попасть (приёмка PR154: Esc, а за ним Enter на
+ *   «Забронировать» отправлял бронь из исчезающей шторки).
+ * - Закрыли, пока шторка ещё поднимается, — её же появление разворачивается с того места, где она
+ *   сейчас: без рывка «вверх до конца — и вниз» (приёмка PR154).
+ * - «Уменьшить движение» — `onClose` сразу.
  *
  * `backdropClass` — на .sheet-backdrop, `onAnimationEnd` — на саму .sheet (её же держит `sheetRef`).
  */
 export function useSheetExit(onClose: () => void, sheetRef: RefObject<HTMLElement>) {
-  const [leaving, setLeaving] = useState(false);
+  /** «down» — уезжает вниз (sheetDown); «rewind» — разворачивает недоигранное появление. */
+  const [mode, setMode] = useState<"down" | "rewind" | null>(null);
+  const started = useRef(false);
   const closed = useRef(false);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -43,26 +57,51 @@ export function useSheetExit(onClose: () => void, sheetRef: RefObject<HTMLElemen
   }
 
   function close() {
-    if (leaving || closed.current) return;
-    if (prefersReducedMotion()) finish();
-    else setLeaving(true);
+    if (started.current || closed.current) return;
+    started.current = true;
+    const sheet = sheetRef.current;
+    if (sheet) sheet.inert = true;
+    // inert уводит фокус только к следующему кадру, а Enter или пробел, нажатые следом за Esc, приходят
+    // раньше — и доставались кнопке или галочке в уходящей шторке. Снимаем фокус сразу; когда шторка
+    // уйдёт, он вернётся туда, откуда её открыли.
+    const focused = document.activeElement;
+    if (sheet && focused instanceof HTMLElement && sheet.contains(focused)) focused.blur();
+    if (prefersReducedMotion()) {
+      finish();
+      return;
+    }
+    const rising = runningAnimation(sheet, "sheetUp");
+    if (!rising) {
+      setMode("down");
+      return;
+    }
+    // Ещё поднимается: обратный ход того же движения — столько же, сколько она уже ехала вверх.
+    const backdrop = sheet?.parentElement;
+    const dimming = runningAnimation(backdrop, "fadeIn");
+    const elapsed = Number(rising.currentTime) || 0;
+    rising.reverse();
+    if (dimming) dimming.reverse();
+    else backdrop?.animate?.([{ backgroundColor: "transparent" }], { duration: elapsed, easing: "ease", fill: "forwards" });
+    rising.finished.then(finish, finish);
+    setMode("rewind");
   }
 
   useEffect(() => {
-    if (!leaving) return;
+    if (!mode) return;
     const el = sheetRef.current;
     const timer = window.setTimeout(finish, (el ? cssTimeMs(window.getComputedStyle(el).animationDuration) : 0) + LEAVE_GRACE_MS);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leaving]);
+  }, [mode]);
 
   return {
-    leaving,
+    /** Шторка уходит: в ней уже ничего не нажимается (в том числе бронь). */
+    leaving: mode !== null,
     close,
-    backdropClass: "sheet-backdrop" + (leaving ? " is-leaving" : ""),
+    backdropClass: "sheet-backdrop" + (mode === "down" ? " is-leaving" : ""),
     /** Своё движение «вниз», а не всплывшее от строки или кнопки внутри шторки. */
     onAnimationEnd(e: AnimationEvent<HTMLElement>) {
-      if (leaving && e.target === e.currentTarget && e.animationName === "sheetDown") finish();
+      if (mode === "down" && e.target === e.currentTarget && e.animationName === "sheetDown") finish();
     },
   };
 }

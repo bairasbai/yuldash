@@ -273,6 +273,38 @@ await test("выбранная найденная деревня после за
   assert.ok(all(host.tree, "FeedChip").some((n) => n.props.label === "Откуда · Аскарово"));
 });
 
+await test("«Сбросить фильтры» снимает и найденные: деревни нет ни в «Откуда», ни в «Куда» (приёмка PR154)", async () => {
+  const { host, open } = await cityChips();
+  const from = await open("Откуда");
+  one(from.body(), "CityField").props.onPick({ name_ru: KIPCHAK.ru, name_ba: KIPCHAK.ba });
+  await from.sync();
+  from.nbs().props.onClose();
+  await settle(host);
+  assert.deepEqual(rt.f.found, [KIPCHAK], "выбранная после закрытия шторки осталась");
+  rt.f.clear(); // так зовёт «Сбросить фильтры» в ленте (resetFeedFilters в HomeScreen)
+  await settle(host);
+  assert.deepEqual(rt.f.from, []);
+  assert.deepEqual(rt.f.found, [], "найденные сброшены вместе с выбором");
+  for (const label of ["Откуда", "Куда"]) {
+    const sheet = await open(label);
+    assert.ok(!sheet.rows().some((r) => r.props.label === KIPCHAK.ru), `в «${label}» деревни нет`);
+    sheet.nbs().props.onClose();
+    await settle(host);
+  }
+});
+
+await test("в ленте «Сбросить фильтры» правда зовёт сброс городов", async () => {
+  let cleared = 0;
+  rt.city = cityState({ from: [KIPCHAK.ru], fromOptions: [{ ru: "Баймак", ba: "Баймаҡ" }], found: [KIPCHAK], active: true, offered: true, clear: () => cleared++ });
+  rt.fetchRides = () => Promise.resolve({ items: [], count: 0 });
+  const home = mount(Home, {});
+  await settle(home);
+  const reset = flat(home.tree).find((n) => n.type === "button" && n.props.className === "nearby-filtered__reset");
+  assert.ok(reset, "пусто из-за города — есть «Сбросить фильтры»");
+  reset.props.onClick();
+  assert.equal(cleared, 1);
+});
+
 // ---------------------------------------------------------------- 3. закрытие шторки движением
 
 /** Шторка с кнопкой «Готово» внутри; закрытия считаем. */
@@ -315,6 +347,20 @@ for (const [how, act] of [
     assert.equal(s.closes.length, 1, "второе нажатие во время ухода не закрывает дважды");
   });
 }
+
+await test("уходящая шторка ленты — inert: «Показать N поездок», «Готово», галочки и дни во время ухода не нажать (приёмка PR154)", async () => {
+  browser.reduced = false;
+  const s = sheetWithDone();
+  const node = s.dialog().props.ref.current;
+  node.querySelectorAll().at(-1).focus(); // фокус на «Готово»
+  s.dialog().props.onKeyDown(ESC);
+  s.sheet.render();
+  assert.equal(node.inert, true, "в уходящую шторку ни нажать, ни перейти по Tab");
+  assert.equal(globalThis.document.activeElement, globalThis.document.body, "фокус снят сразу: пробел следом за Esc галочку не переключит");
+  flat(s.sheet.tree).find((n) => n.props?.className === "btn-primary nbs__cta").props.onClick();
+  s.ended();
+  assert.equal(s.closes.length, 1, "«Готово» во время ухода не закрывает второй раз");
+});
 
 await test("конец движения строки или кнопки внутри шторку не закрывает — только её собственное", async () => {
   browser.reduced = false;

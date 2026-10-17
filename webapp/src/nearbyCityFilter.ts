@@ -82,6 +82,8 @@ export function useNearbyCityFilter(reloadKey: number): NearbyCityFilter {
     // Пустое не заменяем новым пустым: иначе лента перезапросилась бы без причины.
     setFromState((cur) => (cur.length ? [] : cur));
     setToState((cur) => (cur.length ? [] : cur));
+    // «Сбросить фильтры» снимает и найденные поиском: иначе снятая деревня висела строкой в обеих шторках (приёмка PR154).
+    setFound((cur) => (cur.length ? [] : cur));
   }, []);
 
   const active = from.length > 0 || to.length > 0;
