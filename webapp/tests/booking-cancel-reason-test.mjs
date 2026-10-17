@@ -91,7 +91,7 @@ async function openBooking(lang, role, status) {
 }
 
 for (const lang of ["ru", "ba"]) {
-  const cancelLabel = L(lang, "Отменить бронь", "Бронды кире алырға");
+  const cancelLabel = L(lang, "Отменить бронь", "Бронде кире алырға");
   await t.test(`${lang}: «Бронь», ждёт водителя — «Отменить бронь» открывает своё окно, а не окно браузера`, async () => {
     const realConfirm = globalThis.window;
     let browserConfirms = 0;

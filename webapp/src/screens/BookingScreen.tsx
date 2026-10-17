@@ -94,7 +94,7 @@ export default function BookingScreen() {
           ? e.message
           : appText(
               "Не получилось отменить бронь. Проверь связь и попробуй ещё раз.",
-              "Бронды кире алып булманы. Бәйләнеште тикшереп ҡабатла."
+              "Бронде кире алып булманы. Бәйләнеште тикшереп ҡабатла."
             )
       );
     } finally {
@@ -234,7 +234,7 @@ export default function BookingScreen() {
                   onClick={() => setConfirmCancel(true)}
                   disabled={cancelling}
                 >
-                  {cancelling ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить бронь", "Бронды кире алырға")}
+                  {cancelling ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить бронь", "Бронде кире алырға")}
                 </button>
               )}
               {cancelNote && (
