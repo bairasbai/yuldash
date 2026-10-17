@@ -143,6 +143,12 @@ class BoardingCodeVisibilityTest {
     @Test fun codeCardLeavesAfterISatIsTapped() {
         openScreen()
         waitForCodeLoaded()
+        // «Я сел» появляется, когда известна роль, — её приносит отдельный опрос /role, а не цепочка
+        // «история → код → детали». Ответ опроса может прийти позже деталей: ждём саму кнопку.
+        compose.waitUntil(15000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodesWithText("Я сел").fetchSemanticsNodes().isNotEmpty()
+        }
         // HUNT ONLY: name what was missing when the button is not there.
         if (compose.onAllNodesWithText("Я сел").fetchSemanticsNodes().isEmpty())
             org.junit.Assert.fail("HUNT: no 'Я сел' button; requests=$requests")
