@@ -684,13 +684,28 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     return {"ok": True, "driver_phase": body.status}
 
 
+def _booking_out(booking: Booking) -> dict:
+    """Бронь в ответ на действие (подтвердить / отменить / неявка) — без контактов взрослого за
+    подростка, если сделки больше нет. Правило то же, что в карточке брони (`guardian_visible`,
+    волна 53): отменили — телефона мамы у водителя нет. Ответ на действие его и не должен нести:
+    клиенты берут контакты только из `/details`, а повтор «Не пришёл» или «Отменить» по уже
+    закрытой брони иначе перечитывал бы чужой номер сколько угодно (приёмка PR150).
+    Копия, а не правка объекта сессии: пустые поля не должны записаться в базу. Поля читаем через
+    getattr: после commit объект «протухает», и чтение подтягивает их из базы, а не берёт умолчания."""
+    data = {name: getattr(booking, name) for name in Booking.model_fields}
+    if booking.status in (BookingStatus.cancelled, BookingStatus.done):
+        data["minor_guardian_name"] = ""
+        data["minor_guardian_phone"] = ""
+    return data
+
+
 @router.post("/bookings/{booking_id}/confirm", response_model=Booking)
 def confirm_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     if ride.driver_id != user.id:
         raise herr(403, "Подтвердить бронь может только водитель", "Броньды тик водитель генә раҫлай ала")
     if booking.status == BookingStatus.confirmed:
-        return booking                       # идемпотентно (повторный тап) — без побочек
+        return _booking_out(booking)         # идемпотентно (повторный тап) — без побочек
     # Подтверждать можно ТОЛЬКО ожидающую бронь: нельзя откатить onboard→confirmed или воскресить cancelled/done.
     if booking.status != BookingStatus.pending:
         raise herr(400, "Эту бронь уже нельзя подтвердить", "Был бронде инде раҫлап булмай")
@@ -721,7 +736,7 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
         f"{route}: водитель раҫланы. Телефон һәм йыйылыу урыны асыҡ.",
         ref_kind="booking", ref_id=booking.id,
     )
-    return booking
+    return _booking_out(booking)
 
 
 class CancelIn(BaseModel):
@@ -754,7 +769,7 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
         booking = session.exec(select(Booking).where(Booking.id == booking_id)
                                .with_for_update().execution_options(populate_existing=True)).first()
         if booking.status in (BookingStatus.cancelled, BookingStatus.done):
-            return booking                     # другая параллельная отмена опередила — места уже возвращены
+            return _booking_out(booking)       # другая параллельная отмена опередила — места уже возвращены
         # Та же неявка другой дверью: водитель отменяет бронь «в пути» с причиной «не пришёл».
         # Правило одно (решение 14.10.2026): пассажир сам отметил «Я сел» — спор решает разбор.
         if (booking.status == BookingStatus.onboard and user.id == ride.driver_id
@@ -799,7 +814,7 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
             тело_ru, тело_ba,
             ref_kind="booking", ref_id=booking.id,
         )
-    return booking
+    return _booking_out(booking)
 
 
 def _no_show_onboard_refusal() -> HTTPException:
@@ -833,7 +848,7 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
         # Повтор (двойное нажатие или повтор после потерянного ответа) — неявка уже отмечена, места
         # возвращены один раз. Отвечаем как confirm/cancel/complete: тем же итогом, а не красной
         # ошибкой после успеха (сквозной проход волны 1, 16.10.2026).
-        return booking
+        return _booking_out(booking)
     if booking.status != BookingStatus.confirmed:
         raise herr(409, "Неявку можно отметить только по подтверждённой брони", "Килмәүҙе тик раҫланған бронь буйынса ғына билдәләп була")
     # Порядок локов Ride → Booking — ЕДИНЫЙ с cancel_booking/cancel_ride (V4, без deadlock).
@@ -847,7 +862,7 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
         # Пассажир нажал «Я сел» между первой проверкой и замком — то же правило, что выше.
         raise _no_show_onboard_refusal()
     if booking.status != BookingStatus.confirmed:
-        return booking                         # параллельная отмена/неявка опередила — места уже возвращены
+        return _booking_out(booking)           # параллельная отмена/неявка опередила — места уже возвращены
     booking.status = BookingStatus.cancelled
     booking.cancelled_at = utcnow()
     booking.no_show = True
@@ -866,7 +881,7 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
         route, route,
         ref_kind="booking", ref_id=booking.id,
     )
-    return booking
+    return _booking_out(booking)
 
 
 @router.get("/bookings/mine")

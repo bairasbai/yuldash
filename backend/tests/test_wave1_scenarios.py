@@ -284,7 +284,7 @@ def test_рядом_со_мной_белебей_видит_свою_поезд�
     из_белебея = _near(client, lat=БЕЛЕБЕЙ[0], lng=БЕЛЕБЕЙ[1], **маршрут)
     из_уфы = _near(client, lat=УФА[0], lng=УФА[1], **маршрут)
     assert рейс in _ids(из_белебея["items"]), "человек стоит в Белебее, а поездка из Белебея не нашлась"
-    assert рейс not in _ids(из_уфы["items"]), "из Уфы (≈100 км) поездка из Белебея попала в радиус 50 км"
+    assert рейс not in _ids(из_уфы["items"]), "из Уфы (≈140 км) поездка из Белебея попала в радиус 50 км"
 
     # Контроль: расстояние считается честно, а не «Уфа сломана вообще».
     своя = next(x for x in из_белебея["items"] if x["id"] == рейс)
@@ -292,7 +292,8 @@ def test_рядом_со_мной_белебей_видит_свою_поезд�
     шире = _near(client, lat=УФА[0], lng=УФА[1], to_city="Кумертау", radius_km=300)
     assert рейс in _ids(шире["items"]), "с радиусом 300 км уфимец тоже должен её видеть"
     не_далее = next(x for x in шире["items"] if x["id"] == рейс)
-    assert 90 < (не_далее["distance_km"] or 0) < 140, f"Уфа ↔ Белебей: {не_далее['distance_km']} км"
+    # По прямой ≈139 км; запас в обе стороны — чтобы правка координат в справочнике не красила тест.
+    assert 120 < (не_далее["distance_km"] or 0) < 160, f"Уфа ↔ Белебей: {не_далее['distance_km']} км"
 
 
 # ---------------------------------------------------------------------------
@@ -808,15 +809,23 @@ def test_неявка_водитель_отмечает_пассажир_узн�
 
 
 def test_неявка_повторное_нажатие_отвечает_так_же_как_первое(client, user_factory):
+    """Повтор — тот же итог без побочек: места вернулись ОДИН раз, пассажир узнал ОДИН раз.
+    Три места и вторая живая бронь — иначе потолок `min(seats_total, …)` спрятал бы двойной
+    возврат (приёмка PR150)."""
     водитель = user_factory("НеявкаДваТапаВодитель", role=UserRole.driver)
-    рейс = _опубликовать(client, водитель, "Давлеканово", "Нефтекамск", _день(1, 7), seats_total=2)["id"]
-    пассажир = user_factory("НеявкаДваТапаПассажир")
+    рейс = _опубликовать(client, водитель, "Давлеканово", "Нефтекамск", _день(1, 7), seats_total=3)["id"]
+    пассажир, сосед = user_factory("НеявкаДваТапаПассажир"), user_factory("НеявкаДваТапаСосед")
     bid = _забронировать(client, пассажир, рейс).json()["id"]
+    _подтвердить(client, водитель, _забронировать(client, сосед, рейс).json()["id"])
     _подтвердить(client, водитель, bid)
+    assert client.get(f"/rides/{рейс}", headers=пассажир["auth"]).json()["seats_left"] == 1
     assert client.post(f"/bookings/{bid}/no-show", headers=водитель["auth"]).status_code == 200
     повтор = client.post(f"/bookings/{bid}/no-show", headers=водитель["auth"])
     assert повтор.status_code == 200, f"повторная неявка: {повтор.status_code} {повтор.text[:160]}"
-    assert client.get(f"/rides/{рейс}", headers=пассажир["auth"]).json()["seats_left"] == 2
+    assert повтор.json()["status"] == "cancelled" and повтор.json()["no_show"] is True
+    assert client.get(f"/rides/{рейс}", headers=пассажир["auth"]).json()["seats_left"] == 2, "место вернулось дважды"
+    неявки = [n for n in _уведомления(client, пассажир) if n["title_ru"] == "Отмечена неявка" and n.get("ref_id") == bid]
+    assert len(неявки) == 1, f"пассажир узнал о неявке {len(неявки)} раз(а)"
 
 
 # ---------------------------------------------------------------------------
@@ -888,6 +897,35 @@ def test_водитель_на_паузе_исчезает_из_ленты_и_б
     свои = _ids(client.get("/driver/rides", headers=водитель["auth"]).json())
     assert рейс in свои
     assert client.get(f"/rides/{рейс}", headers=водитель["auth"]).status_code == 200
+
+
+def _рейс_в_прошлом(водитель, откуда: str, куда: str, назад: timedelta) -> int:
+    """Поездка, которая уже выехала, а уборка её ещё не закрыла (статус active). Через API в прошлое
+    опубликовать нельзя — пишем в базу напрямую."""
+    with Session(engine) as s:
+        рейс = Ride(driver_id=водитель["id"], from_city=откуда, to_city=куда, depart_at=utcnow() - назад,
+                    seats_total=3, seats_left=3, price=300, status=RideStatus.active)
+        s.add(рейс)
+        s.commit()
+        s.refresh(рейс)
+        return рейс.id
+
+
+def test_ближайшие_и_список_городов_держат_выехавшую_два_часа_как_общая_лента(client, user_factory, monkeypatch):
+    """Окно то же, что у общей ленты и у брони (`RIDE_PAST_GRACE_HOURS`): водитель задержался —
+    поездку ещё видно и можно забронировать; ушла давно — её нет ни в «Ближайших», ни в «Откуда»."""
+    monkeypatch.setattr("app.routers.rides._MAX_FILTER_CITIES", 10_000)   # чужие поездки не вытесняют наши места
+    водитель = user_factory("ОкноВыездаВодитель", role=UserRole.driver)
+    час_назад = _рейс_в_прошлом(водитель, "Часназадово", "Нефтекамск", timedelta(hours=1))
+    давно = _рейс_в_прошлом(водитель, "Давноушлово", "Нефтекамск", timedelta(hours=3))
+    день_выезда = (datetime.now(TZ) - timedelta(hours=1)).date().isoformat()   # человек выбрал этот день в «Когда»
+
+    assert час_назад in _ids(_near(client, from_city="Часназадово", to_city="Нефтекамск")["items"])
+    assert час_назад in _ids(_near(client, from_city="Часназадово", date=день_выезда)["items"])
+    assert давно not in _ids(_near(client, from_city="Давноушлово", to_city="Нефтекамск")["items"])
+    города = {c["ru"] for c in client.get("/rides/cities").json()["from"]}
+    assert "Часназадово" in города, "водитель задержался на час — его город пропал из «Откуда»"
+    assert "Давноушлово" not in города, "поездка ушла три часа назад, а её город ещё в «Откуда»"
 
 
 def test_ближайшие_не_показывают_вчерашнюю_поездку_которую_уборка_ещё_не_закрыла(client, user_factory):
@@ -968,6 +1006,34 @@ def test_подросток_едет_один_телефон_взрослого_
     после = client.get(f"/bookings/{bid}/details", headers=водитель["auth"]).json()
     assert после["minor_guardian_phone"] == "" and после["minor_guardian_name"] == "", (
         "бронь отменена, а телефон взрослого остался у водителя")
+
+
+def test_подросток_повтор_неявки_и_отмены_не_отдаёт_водителю_телефон_взрослого(client, user_factory):
+    """Повтор «Не пришёл» и «Отменить» по уже закрытой брони отвечает самой бронью. Раньше — целиком,
+    с именем и телефоном мамы, хотя карточка брони их уже прятала: номер можно было перечитывать
+    сколько угодно (приёмка PR150). Ответ на действие контактов взрослого не несёт; в базе они
+    остаются — для разбора жалобы."""
+    водитель = user_factory("ПодростокНеявкаВодитель", role=UserRole.driver)
+    подросток = user_factory("ПодростокНеявкаСын")
+    телефон_мамы = "+79170000931"
+    рейс = _опубликовать(client, водитель, "Бакалы", "Нефтекамск", _день(2, 7))["id"]
+    bid = _забронировать(client, подросток, рейс, minor_passenger=True,
+                         minor_guardian_name="Гульнара Ринатовна", minor_guardian_phone=телефон_мамы).json()["id"]
+    подтверждено = _подтвердить(client, водитель, bid)
+    assert подтверждено["minor_guardian_phone"] == телефон_мамы, "контроль: живая бронь водителю их отдаёт"
+
+    ответы = {
+        "неявка": client.post(f"/bookings/{bid}/no-show", headers=водитель["auth"]),
+        "повтор неявки": client.post(f"/bookings/{bid}/no-show", headers=водитель["auth"]),
+        "повтор отмены водителем": client.post(f"/bookings/{bid}/cancel", headers=водитель["auth"], json={"reason": ""}),
+        "повтор отмены подростком": client.post(f"/bookings/{bid}/cancel", headers=подросток["auth"], json={"reason": ""}),
+    }
+    for имя, ответ in ответы.items():
+        assert ответ.status_code == 200, f"{имя}: {ответ.status_code} {ответ.text[:160]}"
+        assert телефон_мамы not in ответ.text and "Гульнара" not in ответ.text, f"{имя}: утекли данные взрослого"
+        assert ответ.json()["minor_guardian_phone"] == "", f"{имя}: поле должно остаться, пустым (старый клиент)"
+    with Session(engine) as s:
+        assert s.get(Booking, bid).minor_guardian_phone == телефон_мамы, "ответ — копия: в базе телефон не стёрт"
 
 
 # ---------------------------------------------------------------------------
