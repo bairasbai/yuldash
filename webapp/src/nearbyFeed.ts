@@ -173,6 +173,24 @@ export function nearbyFeedState(a: {
 }
 
 /**
+ * Запрос ленты упал — что делать со списком на экране (`nearbyDropsOnFailure` в NearbyFeedSearch.kt).
+ * Поиск — ключ `nearbyContextKey`: условия, день, города, место, «только проверенные».
+ *
+ * - `drop` — на экране список ДРУГОГО поиска: человек сменил фильтр, а сеть моргнула. На чипе уже новый
+ *   фильтр, под ним — поездки старого, которые ему не подходят. Список убираем, лента говорит «нет сети»
+ *   и даёт «Повторить» (приёмки PR147, PR148, PR151).
+ * - `keep` — тихое автообновление того же поиска (раз в ~25 с): показанный список верен, держим его.
+ * - `error` — тот же поиск, но человек нажал сам («Повторить», «Показать ещё»): показанное остаётся,
+ *   пустая лента скажет «нет сети».
+ */
+export type NearbyFailure = "drop" | "keep" | "error";
+
+export function nearbyFailure(requestKey: string, shownKey: string | null, quiet: boolean): NearbyFailure {
+  if (requestKey !== shownKey) return "drop";
+  return quiet ? "keep" : "error";
+}
+
+/**
  * Показывать ли «Показать ещё»: сервер сообщил, что подходящих больше, чем пришло (`count` уже
  * учитывает условия). Выше потолка порции просить бесполезно — сервер отдаст те же 200.
  */
@@ -292,6 +310,15 @@ export function cityRows(chosen: readonly string[], options: readonly RideCity[]
     .filter((c) => !options.some((o) => o.ru === c) && !found.some((f) => f.ru === c))
     .map((c) => ({ ru: c, ba: c }));
   return [...chosenRows, ...foundRows, ...options];
+}
+
+/**
+ * Шторку закрыли: из найденных поиском остаются только выбранные в «Откуда» или «Куда» — по ним подписан
+ * чип (`dropUnchosenFound` в NearbyCityFilter.kt). Иначе деревня, найденная и тут же снятая, висела
+ * строкой в «Откуда» и всплывала в «Куда» до ухода с карты.
+ */
+export function keepChosenFound(found: readonly RideCity[], from: readonly string[], to: readonly string[]): RideCity[] {
+  return found.filter((c) => from.includes(c.ru) || to.includes(c.ru));
 }
 
 /** Добавить найденный поиском город (по русскому имени, без повторов). */

@@ -217,7 +217,7 @@ class TaxiTripShareCallerTest : ShareHelpBoundaryHarness() {
     }
     private fun current(lang: AppLanguage) {
         createFails = false; mount(lang); openShare(); completed(read(1)); click("Контакт А"); await { visible(copy) }; pump(300)
-        assertEquals(if (lang == AppLanguage.Ru) "Близкий получит SMS о поездке: Контакт А" else "Яҡын кеше сәфәр тураһында SMS алыр: Контакт А", ShadowToast.getTextOfLatestToast())
+        assertEquals(if (lang == AppLanguage.Ru) "Ссылка готова: Контакт А" else "Һылтанма әҙер: Контакт А", ShadowToast.getTextOfLatestToast())
         routes(91, "active-91"); counts(false, 1)
         click(close); await { !visible(title) && !visible(share) }; assertFalse(visible(copy))
     }

@@ -244,14 +244,14 @@ class InstantOrderShareOperationsTest : ShareHelpBoundaryHarness() {
         await { visible(driver) && count("GET", "/orders/91") > 0 }
         assertSame(publication, TaxiNavigationState.currentTrip()); assertTrue(TaxiNavigationState.isScreenOwner(publication.generation, publication.publisher))
         assertFalse(a.job.isCompleted); unblock.countDown(); completed(a); assertFalse(a.job.isCancelled); counts(op, 1)
-        if (op == Op.CREATE) assertEquals("Близкий получит SMS о поездке: Контакт А", ShadowToast.getTextOfLatestToast())
+        if (op == Op.CREATE) assertEquals("Ссылка готова: Контакт А", ShadowToast.getTextOfLatestToast())
         else if (op == Op.REVOKE) assertEquals("Ссылка отозвана", ShadowToast.getTextOfLatestToast())
         else { assertTrue(visible("Контакт А")); noSideEffects() }
         assertFalse(visible(retry)); click(close); await { !visible(share) && !visible(copy) }
     }
     private fun current(lang: AppLanguage) {
         mount(lang); completed(attempt(Op.SHARES)); click("Контакт А"); completed(attempt(Op.CREATE))
-        assertEquals(if (lang == AppLanguage.Ru) "Близкий получит SMS о поездке: Контакт А" else "Яҡын кеше сәфәр тураһында SMS алыр: Контакт А", ShadowToast.getTextOfLatestToast())
+        assertEquals(if (lang == AppLanguage.Ru) "Ссылка готова: Контакт А" else "Һылтанма әҙер: Контакт А", ShadowToast.getTextOfLatestToast())
         click(copy); click(send); val url = ApiClient.apiBase() + "/t/operation-91"
         assertEquals(url, clipboard.primaryClip!!.getItemAt(0).text.toString())
         val chooser = Shadows.shadowOf(app).nextStartedActivity; assertEquals(Intent.ACTION_CHOOSER, chooser.action)

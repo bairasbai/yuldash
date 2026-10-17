@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import and_, or_
 from sqlmodel import Session, select
 from typing import List, Literal, Optional
 
@@ -22,7 +23,7 @@ from ..services import (booking_and_ride_for_user, notify_admin_telegram, pick_l
                         sms_lang_of, push_notification, send_text, sms_will_reach)
 from ..timeutil import utcnow
 from ..visibility import booking_contacts_open
-from .. import quality
+from .. import quality, trip_wake
 
 router = APIRouter(tags=["safety"])
 
@@ -1178,6 +1179,16 @@ def create_block(body: BlockIn, user: User = Depends(current_user), session: Ses
     session.add(block)
     session.commit()
     session.refresh(block)
+    # Живые брони между ними: канал координат закрывается сразу (`location._Пора` сверяет
+    # блокировку по толчку), а не через сторож — до 30 с точка ещё уходила бы тому, от кого
+    # человек только что закрылся (приёмка PR157).
+    a, b = user.id, body.blocked_user_id
+    for bid in session.exec(select(Booking.id).join(Ride, Ride.id == Booking.ride_id).where(
+        Booking.status.in_([BookingStatus.confirmed, BookingStatus.onboard]),
+        or_(and_(Booking.passenger_id == a, Ride.driver_id == b),
+            and_(Booking.passenger_id == b, Ride.driver_id == a)),
+    )).all():
+        trip_wake.poke(bid)
     return block
 
 

@@ -22,7 +22,14 @@ if config.config_file_name:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # URL: приоритет env DATABASE_URL → settings (тот же, что у приложения).
-config.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL") or settings.database_url)
+# «%» → «%%»: настройки alembic читает configparser, и для него «%» — знак подстановки. Пароль с
+# закодированным символом (`p%40ss`) без удвоения даёт «invalid interpolation syntax» ещё до
+# первого запроса к базе; при чтении configparser возвращает «%%» обратно в «%», так что движок
+# получает адрес ровно таким, каким он записан (test_alembic_url_with_percent.py).
+config.set_main_option(
+    "sqlalchemy.url",
+    (os.environ.get("DATABASE_URL") or settings.database_url).replace("%", "%%"),
+)
 
 target_metadata = SQLModel.metadata
 

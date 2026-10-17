@@ -1923,6 +1923,8 @@ def record_pickup_choice(
 # Снимает нагрузку full-table-scan при росте трафика. Без Redis — просто без кеша.
 _cache = None
 _cache_tried = False
+# Сколько ждать Redis, прежде чем считать, что его нет (см. `_cache_client`).
+REDIS_TIMEOUT_SEC = 1.0
 
 
 def _cache_client():
@@ -1933,7 +1935,12 @@ def _cache_client():
     if settings.redis_url:
         try:
             import redis
-            _cache = redis.from_url(settings.redis_url, decode_responses=True)
+            # Ограничение ожидания обязательно: клиент синхронный, а зовут его и из живых каналов
+            # (`trip_wake`, `livepos_set` — на каждом кадре). Redis, который не отвечает, но и не рвёт
+            # соединение, без таймаута замораживал бы весь процесс со всеми каналами (приёмка PR157).
+            # Все вызовы здесь best-effort и ловят ошибку, так что таймаут = «как будто Redis нет».
+            _cache = redis.from_url(settings.redis_url, decode_responses=True,
+                                    socket_timeout=REDIS_TIMEOUT_SEC, socket_connect_timeout=REDIS_TIMEOUT_SEC)
         except Exception as e:  # noqa: BLE001
             log.warning(f"[CACHE] redis init failed: {e}")
             _cache = None

@@ -2228,6 +2228,10 @@ button.list-row:active {
   max-height: 88dvh;
   overflow-y: auto;
 }
+/* Шторку-диалог фокусируют целиком (читалка называет её), рамка вокруг всей шторки не нужна. */
+.sheet:focus {
+  outline: none;
+}
 .sheet__grip {
   width: 40px;
   height: 4px;
@@ -2275,6 +2279,31 @@ button.list-row:active {
   }
   to {
     opacity: 1;
+  }
+}
+/* Уход шторки — пара к появлению: шторка уезжает вниз, затемнение гаснет (сама шторка не тает —
+   уходит целиком, как пришла). Со страницы её убирают по концу sheetDown (useSheetExit: NearbySheet,
+   RideSheet); при «Уменьшить движение» анимаций нет (index.css), и шторка закрывается сразу.
+   Закрыли, пока шторка ещё поднималась, — useSheetExit разворачивает само появление, без этих правил.
+   Уходящая шторка нажатий не принимает (и ещё она inert — для клавиатуры и читалки). */
+.sheet-backdrop.is-leaving {
+  animation: dimOut var(--motion-normal) ease both;
+}
+.sheet-backdrop.is-leaving .sheet {
+  animation: sheetDown var(--motion-normal) cubic-bezier(0.4, 0, 0.2, 1) both;
+  pointer-events: none;
+}
+@keyframes sheetDown {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes dimOut {
+  to {
+    background-color: transparent;
   }
 }
 

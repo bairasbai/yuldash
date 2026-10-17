@@ -227,7 +227,7 @@ class InstantSharePublicationBoundaryTest : ShareHelpBoundaryHarness() {
         await { visible(driver) && count("GET", "/orders/91") > 0 }
         assertSame(publication, TaxiNavigationState.currentTrip()); assertFalse(old.job.isCompleted)
         unblock.countDown(); completed(old, false); assertTrue(visible(copy))
-        assertEquals(if (lang == AppLanguage.Ru) "Близкий получит SMS о поездке: Контакт А" else "Яҡын кеше сәфәр тураһында SMS алыр: Контакт А", ShadowToast.getTextOfLatestToast())
+        assertEquals(if (lang == AppLanguage.Ru) "Ссылка готова: Контакт А" else "Һылтанма әҙер: Контакт А", ShadowToast.getTextOfLatestToast())
         ShadowToast.reset(); click(copy); click(send)
         val url = ApiClient.apiBase() + "/t/old-publication"
         assertEquals(url, clipboard.primaryClip!!.getItemAt(0).text.toString())
