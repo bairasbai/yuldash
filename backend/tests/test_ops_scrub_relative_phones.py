@@ -1,11 +1,14 @@
 """Разовая чистка `ops/scrub_relative_phones.py`: телефон близкого уходит из публичного комментария.
 
-Старый экран сайта «За близкого» (до PR #168) писал в комментарий заявки «Телефон близкого: +7…»
-(или «Яҡындың телефоны: +7…» по-башкирски), а комментарий видели все вошедшие в ленте заявок.
-Скрипт запускает Александр сам на сервере, поэтому здесь проверяем ровно то, на что он опирается:
-  * примерка ничего не меняет и не печатает ни одной цифры номера — вывод можно читать при ком угодно;
-  * запись чистит только заявки старого сайта, заметку человека оставляет, номер в заметке маскирует;
-  * повторный запуск находит 0; провал проверки — откат, в базе ничего не изменено.
+Старый сайт (до PR #168) писал в комментарий заявки «Телефон близкого: +7…» / «Яҡындың телефоны: +7…»,
+старое приложение (29.06–05.07.2026) — «Заказ за близкого · +7…» / «Яҡын кеше өсөн заказ · +7…».
+Комментарий видели все вошедшие в ленте заявок. Скрипт запускает Александр сам на сервере, поэтому
+здесь проверяем ровно то, на что он опирается:
+  * примерка ничего не меняет, а её вывод не несёт ни номера, ни текста заметки, ни имени близкого;
+  * на старом коде сервера (без scrub_text) примерка считает, а запись отказывается;
+  * запись чистит только заявки старых клиентов; цифр номера в итоге не остаётся никогда;
+  * правленые комментарии (надпись не в начале) — только «проверить руками»;
+  * повторный запуск находит 0; сбой — понятная строка «СТОП» без трассировки.
 """
 import importlib.util
 import os
@@ -13,6 +16,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime
 
 import pytest
@@ -26,44 +30,64 @@ SCRIPT = BACKEND / "ops" / "scrub_relative_phones.py"
 
 _spec = importlib.util.spec_from_file_location("scrub_relative_phones", SCRIPT)
 scrub = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = scrub      # dataclass ищет свой модуль в sys.modules
 _spec.loader.exec_module(scrub)
 
 WHEN = datetime(2026, 9, 3, 8, 15)   # фиксированная дата: вывод не зависит от дня прогона
+RU, BA = "Заказ за близкого", "Яҡын кеше өсөн заказ"
 
-# (комментарий в базе, каким должен стать, номера, которых не должно быть в выводе)
+# (комментарий в базе, каким станет, заметку убрали?, личное, чего не должно быть в выводе)
 OLD_ROWS = [
     ("Телефон близкого: +7 (917) 345-67-89. Бабушка с тростью, поможете с сумкой?",
-     "Заказ за близкого. Бабушка с тростью, поможете с сумкой?", ["+7 (917) 345-67-89"]),
-    ("Телефон близкого: 89274813562",
-     "Заказ за близкого", ["89274813562"]),
+     f"{RU}. Бабушка с тростью, поможете с сумкой?", False, ["+7 (917) 345-67-89", "Бабушка"]),
+    ("Телефон близкого: 89274813562", RU, False, ["89274813562"]),
     ("Яҡындың телефоны: 8 (347) 264-18-90. Өләсәйгә ярҙам кәрәк",
-     "Заказ за близкого. Өләсәйгә ярҙам кәрәк", ["8 (347) 264-18-90"]),
-    ("Яҡындың телефоны: 8.927.318.24.65",
-     "Заказ за близкого", ["8.927.318.24.65"]),
-    # номер в самой заметке (свой, на всякий случай) — тоже маскируется
-    ("Телефон близкого: +7 917 482 19 37. Если не ответит — звоните мне 8-937-156-23-48",
-     "Заказ за близкого. Если не ответит — звоните мне <телефон>",
-     ["+7 917 482 19 37", "8-937-156-23-48"]),
-    # номер набран с «. » внутри: «917 643 28 51» — продолжение номера, а не заметка
+     f"{BA}. Өләсәйгә ярҙам кәрәк", False, ["8 (347) 264-18-90", "Өләсәйгә"]),
+    ("Яҡындың телефоны: 8.927.318.24.65", BA, False, ["8.927.318.24.65"]),
+    # номер набран с «. » внутри — продолжение номера, а не заметка (мобильный и городской)
     ("Телефон близкого: 8. 917 643 28 51. Встретить у подъезда",
-     "Заказ за близкого. Встретить у подъезда", ["8. 917 643 28 51"]),
-    # то же с городским номером: «347 264-18-90» без 8 общий скруб не узнаёт — уходит с номером
-    ("Яҡындың телефоны: 8. 347 264-18-90. Подъезд 2",
-     "Заказ за близкого. Подъезд 2", ["8. 347 264-18-90"]),
-    # мобильный без +7/8 в самой заметке — общий скруб (с PR #169) маскирует и его
-    ("Телефон близкого: 89274813562. Не дозвонитесь — пишите на 917 555-44-33",
-     "Заказ за близкого. Не дозвонитесь — пишите на <телефон>", ["89274813562", "917 555-44-33"]),
+     f"{RU}. Встретить у подъезда", False, ["8. 917 643 28 51", "Встретить"]),
+    ("Яҡындың телефоны: 8. 347 264-18-90. Подъезд 2", f"{BA}. Подъезд 2", False, ["347 264-18-90", "Подъезд"]),
+    # заметка из одних цифр — тоже продолжение номера («. 15.30»)
+    ("Телефон близкого: 89173456789. 15.30", RU, False, ["89173456789", "15.30"]),
+    # общий скруб в заметке: почта → <почта>
+    ("Телефон близкого: 89173456789. Пишите на gulnara@mail.ru",
+     f"{RU}. Пишите на <почта>", False, ["89173456789", "gulnara", "Пишите"]),
+    # старое приложение: всё после «·» — номер, заметки нет; метка своего языка
+    ("Заказ за близкого · +7 (917) 222-33-44", RU, False, ["+7 (917) 222-33-44"]),
+    ("Яҡын кеше өсөн заказ · 8 927 111 22 33", BA, False, ["8 927 111 22 33"]),
+    # номер в заметке (свой, на всякий случай): заметка уходит целиком, цифр не остаётся
+    ("Телефон близкого: +7 917 482 19 37. Если не ответит — звоните мне 8-937-156-23-48",
+     RU, True, ["+7 917 482 19 37", "8-937-156-23-48", "ответит"]),
+    # случаи проверки безопасности (приёмка PR #173)
+    ("Телефон близкого: 8 917 123. 45 67 мама. Встретить", RU, True, ["8 917 123", "45 67", "мама"]),
+    ("Телефон близкого: 8 917. 1234567 мама", RU, True, ["1234567", "мама"]),
+    ("Телефон близкого: +7 917 482 19 37. Или мне: 347 264 18 90", RU, True, ["347 264 18 90", "Или мне"]),
+    ("Телефон близкого: +7 917 482 19 37. дом 2-64-18", RU, True, ["2-64-18", "64-18", "дом"]),
+    ("Яҡындың телефоны: 89274813562. Если что 123-45-67", BA, True, ["123-45-67", "Если что"]),
 ]
 
-# Эти комментарии скрипт не трогает ни при каких условиях.
+# Эти комментарии скрипт не трогает и не называет.
 UNTOUCHED = [
     "Еду с ребёнком, нужно кресло",
     "",
-    "телефон близкого: спрошу у вас в чате",          # регистр не тот — писал не старый сайт
-    "Мой Телефон близкого: позвоню сам",               # надпись не в начале
-    "Заказ за близкого. Позвоните заранее",            # уже чистый (новый сайт)
-    "Яҡын кеше өсөн заказ",                            # новый сайт по-башкирски
+    "телефон близкого: спрошу у вас в чате",          # регистр не тот — писал не старый клиент
+    "Заказ за близкого. Позвоните заранее",            # новый сайт
+    "Яҡын кеше өсөн заказ",                            # новое приложение / новый сайт по-башкирски
+    "Заказ за близкого",
 ]
+
+# Надпись есть, но не в начале (человек правил комментарий): не трогаем, только называем номер.
+MANUAL = [
+    "Мой Телефон близкого: позвоню сам",
+    "Привет. Яҡындың телефоны: 8 917 000 11 22",
+    "Еду с мамой. Заказ за близкого · 8 917 000 33 44",
+]
+
+
+@pytest.fixture(autouse=True)
+def _allow_sqlite(monkeypatch):
+    monkeypatch.setenv(scrub.ALLOW_SQLITE_ENV, "1")
 
 
 def _no_phone_digits(text: str, phone: str) -> None:
@@ -76,20 +100,32 @@ def _no_phone_digits(text: str, phone: str) -> None:
         assert not any(window in run for run in runs), f"в выводе цифры номера ({window}):\n{text}"
 
 
+def _no_personal_text(out: str) -> None:
+    for comment, _, _, secrets in OLD_ROWS:
+        assert comment not in out
+        for secret in secrets:
+            assert secret not in out, f"в выводе личное: {secret!r}\n{out}"
+            if len(re.sub(r"\D", "", secret)) >= 5:
+                _no_phone_digits(out, secret)
+    for comment in MANUAL:
+        assert comment not in out
+    assert "Галия" not in out, "в выводе имя близкого"
+
+
 @pytest.fixture
 def seed(user_factory):
     """Кладёт заявки одного пассажира и убирает их за собой."""
     passenger = user_factory("Пассажир")
     made: list[int] = []
     with Session(engine) as s:
-        assert scrub.find_rows(s) == [], "в общей тестовой базе уже лежат заявки старого сайта"
+        assert scrub.find_rows(s) == [] and scrub.find_manual(s) == [], "в общей тестовой базе уже есть такие заявки"
 
-    def put(comments):
+    def put(comments, relative="Галия"):
         ids = []
         with Session(engine) as s:
             for c in comments:
                 r = RideRequest(passenger_id=passenger["id"], from_city="Баймак", to_city="Уфа",
-                                comment=c, created_at=WHEN)
+                                comment=c, created_at=WHEN, for_relative_name=relative)
                 s.add(r)
                 s.commit()
                 s.refresh(r)
@@ -110,105 +146,210 @@ def _comments(ids):
     return [got[i] for i in ids]
 
 
-@pytest.mark.parametrize("comment, expected, _phones", OLD_ROWS)
-def test_clean_comment_old_site(comment, expected, _phones):
-    assert scrub.clean_comment(comment) == expected
-    assert scrub.problems(comment, expected) == []
+@pytest.mark.parametrize("comment, expected, dropped, _secrets", OLD_ROWS)
+def test_plan_old_comment(comment, expected, dropped, _secrets):
+    plan = scrub.plan_comment(comment)
+    assert plan.result == expected
+    assert bool(plan.dropped) is dropped
+    assert plan.note_len == (len(expected) - len(expected.split(". ", 1)[0]) - 2 if ". " in expected else 0)
+    assert scrub.problems(comment, plan.result) == []
+    assert scrub.plan_comment(plan.result) is None, "второй прогон снова нашёл бы заявку"
+    assert not scrub.is_manual(plan.result)
 
 
-@pytest.mark.parametrize("comment", UNTOUCHED)
-def test_clean_comment_leaves_other_comments(comment):
-    assert scrub.clean_comment(comment) is None
+@pytest.mark.parametrize("comment", UNTOUCHED + MANUAL)
+def test_other_comments_are_not_cleaned(comment):
+    assert scrub.plan_comment(comment) is None
+    assert scrub.is_manual(comment) is (comment in MANUAL)
 
 
-def test_dry_run_changes_nothing_and_prints_no_phone(seed, capsys):
-    old_ids = seed([c for c, _, _ in OLD_ROWS])
+def test_dry_run_changes_nothing_and_prints_no_personal_text(seed, capsys):
+    old_ids = seed([c for c, *_ in OLD_ROWS[1:]])
+    [no_name_id] = seed([OLD_ROWS[0][0]], relative=None)
     other_ids = seed(UNTOUCHED)
+    manual_ids = seed(MANUAL)
 
     assert scrub.main([]) == 0
     out = capsys.readouterr().out
 
-    assert _comments(old_ids) == [c for c, _, _ in OLD_ROWS], "примерка изменила базу"
-    assert _comments(other_ids) == UNTOUCHED
-    assert "Режим: ПРИМЕРКА" in out
+    assert _comments([no_name_id] + old_ids) == [c for c, *_ in OLD_ROWS], "примерка изменила базу"
+    assert _comments(other_ids) == UNTOUCHED and _comments(manual_ids) == MANUAL
+    assert "Режим: ПРИМЕРКА" in out and "в базе ничего не изменено" in out
     assert f"Найдено заявок: {len(OLD_ROWS)}" in out
-    for rid, (_, expected, _) in zip(old_ids, OLD_ROWS):
-        assert f"заявка #{rid} от 03.09.2026 13:15 по Уфе → станет: «{expected}»" in out
+    assert f"Проверить руками: {len(MANUAL)}" in out
+    note = OLD_ROWS[0][1].split(". ", 1)[1]
+    assert f"заявка #{no_name_id} · 03.09.2026 13:15 по Уфе · сайт · имени близкого нет → станет: " \
+           f"метка + заметка ({len(note)} символов)" in out
+    for rid, (comment, expected, dropped, _) in zip(old_ids, OLD_ROWS[1:]):
+        line = next(ln for ln in out.splitlines() if f"заявка #{rid} " in ln)
+        assert ("приложение" if comment.startswith(("Заказ", "Яҡын кеше")) else "сайт") in line
+        assert "имени близкого нет" not in line
+        assert ("метка + заметка" in line) is (". " in expected)
+        assert ("только метка" in line) is (". " not in expected)
+        assert ("заметку убираю" in line) is dropped
+    for rid in manual_ids:
+        assert sum(f"заявка #{rid} " in ln for ln in out.splitlines()) == 1
     for rid in other_ids:
         assert f"#{rid} " not in out
-    for original, _, phones in OLD_ROWS:
-        assert original not in out
-        for phone in phones:
-            _no_phone_digits(out, phone)
+    _no_personal_text(out)
 
 
 def test_apply_cleans_only_old_rows_and_is_idempotent(seed, capsys):
-    old_ids = seed([c for c, _, _ in OLD_ROWS])
+    old_ids = seed([c for c, *_ in OLD_ROWS])
     other_ids = seed(UNTOUCHED)
+    manual_ids = seed(MANUAL)
 
     assert scrub.main(["--apply"]) == 0
     out = capsys.readouterr().out
-    assert _comments(old_ids) == [e for _, e, _ in OLD_ROWS]
+    assert _comments(old_ids) == [e for _, e, *_ in OLD_ROWS]
     assert _comments(other_ids) == UNTOUCHED, "скрипт тронул чужие комментарии"
+    assert _comments(manual_ids) == MANUAL, "правленые комментарии — только руками"
     assert f"Изменено заявок: {len(OLD_ROWS)}" in out
     assert "подходящих заявок осталось 0" in out and "Готово." in out
-    for _, _, phones in OLD_ROWS:
-        for phone in phones:
-            _no_phone_digits(out, phone)
+    _no_personal_text(out)
 
     # второй запуск — и с записью, и примеркой — находит 0 и ничего не меняет
     assert scrub.main(["--apply"]) == 0
     again = capsys.readouterr().out
     assert "Найдено заявок: 0" in again and "Изменено заявок: 0" in again
     assert scrub.main([]) == 0
-    assert "Найдено заявок: 0" in capsys.readouterr().out
-    assert _comments(old_ids) == [e for _, e, _ in OLD_ROWS]
+    again = capsys.readouterr().out
+    assert "Найдено заявок: 0" in again and f"Проверить руками: {len(MANUAL)}" in again
+    assert _comments(old_ids) == [e for _, e, *_ in OLD_ROWS]
 
 
-def test_apply_refuses_when_check_fails(seed, capsys, monkeypatch):
-    """Проверка перед записью не прошла → отказ, база как была, номер не напечатан."""
-    old_ids = seed([OLD_ROWS[0][0]])
-    monkeypatch.setattr(scrub, "clean_comment", lambda c: c if c and c.startswith(scrub.PREFIXES) else None)
+def test_old_server_code_counts_but_does_not_clean(seed, capsys, monkeypatch):
+    """Код сервера от 04.07 без scrub_text: примерка — номера и даты, запись — отказ."""
+    ids = seed([OLD_ROWS[0][0], OLD_ROWS[8][0]])
+    manual_ids = seed(MANUAL[:1])
+    monkeypatch.setattr(scrub, "scrub_text", None)
+
+    assert scrub.main([]) == 0
+    out = capsys.readouterr().out
+    assert "Найдено заявок: 2" in out and "Проверить руками: 1" in out
+    assert f"заявка #{ids[0]} · 03.09.2026 13:15 по Уфе · сайт" in out
+    assert f"заявка #{ids[1]} · 03.09.2026 13:15 по Уфе · приложение" in out
+    assert f"заявка #{manual_ids[0]} " in out
+    assert "→ станет" not in out and "после выкладки" in out
+    _no_personal_text(out)
 
     assert scrub.main(["--apply"]) == 1
     out = capsys.readouterr().out
-    assert "НЕ ЧИЩУ АВТОМАТИЧЕСКИ" in out and "ничего не изменено" in out
-    assert _comments(old_ids) == [OLD_ROWS[0][0]]
-    _no_phone_digits(out, OLD_ROWS[0][2][0])
+    assert "СТОП: чистка — после выкладки" in out
+    assert _comments(ids) == [OLD_ROWS[0][0], OLD_ROWS[8][0]]
+
+
+def test_refuses_sqlite_without_the_switch(seed, capsys, monkeypatch):
+    """Не прочитан .env → SQLite по умолчанию: отказ до любого чтения базы."""
+    if engine.url.get_backend_name() != "sqlite":
+        pytest.skip("отказ касается только SQLite; этот прогон — на PostgreSQL")
+    ids = seed([OLD_ROWS[1][0]])
+    monkeypatch.delenv(scrub.ALLOW_SQLITE_ENV)
+    assert scrub.main(["--apply"]) == 1
+    assert "СТОП: скрипт смотрит в файл SQLite" in capsys.readouterr().out
+    assert _comments(ids) == [OLD_ROWS[1][0]]
+
+
+def test_apply_stops_when_final_check_fails(seed, capsys, monkeypatch):
+    """Итог не прошёл проверку (ошибка скрипта) → СТОП с номерами, база как была."""
+    ids = seed([OLD_ROWS[0][0]])
+    monkeypatch.setattr(scrub, "plan_comment", lambda c: scrub.Plan(c) if scrub.match_old(c) else None)
+    assert scrub.main(["--apply"]) == 1
+    out = capsys.readouterr().out
+    assert f"СТОП: 1 заявок не прошли итоговую проверку (номера: {ids[0]})" in out
+    assert _comments(ids) == [OLD_ROWS[0][0]]
+    _no_personal_text(out)
 
 
 def test_apply_rolls_back_when_after_check_fails(seed, capsys, monkeypatch):
     """Запись прошла, но сверка в той же транзакции не сошлась → откат всей транзакции."""
-    old_ids = seed([c for c, _, _ in OLD_ROWS[:2]])
-    # «чистка» оставляет надпись старого сайта, а проверку перед записью выключили:
+    ids = seed([c for c, *_ in OLD_ROWS[:2]])
+    # «чистка» оставляет надпись старого сайта, а итоговую проверку выключили:
     # после записи подходящие заявки остаются — сверка обязана откатить ВСЁ.
-    monkeypatch.setattr(scrub, "clean_comment",
-                        lambda c: c + " " if c and c.startswith(scrub.PREFIXES) else None)
+    monkeypatch.setattr(scrub, "plan_comment", lambda c: scrub.Plan(c + " ") if scrub.match_old(c) else None)
     monkeypatch.setattr(scrub, "problems", lambda original, cleaned: [])
-
     assert scrub.main(["--apply"]) == 1
     out = capsys.readouterr().out
-    assert "сверка после записи не сошлась" in out and "откатено" in out
-    assert _comments(old_ids) == [c for c, _, _ in OLD_ROWS[:2]], "откат не сработал"
+    assert "СТОП: сверка после записи не сошлась" in out and "Всё откатилось" in out
+    assert _comments(ids) == [c for c, *_ in OLD_ROWS[:2]], "откат не сработал"
 
 
-def test_refuses_on_server_code_without_scrub(seed, capsys, monkeypatch):
-    """На сервере код старше общего скруба → понятный отказ до любого чтения базы, ничего не меняем."""
-    old_ids = seed([OLD_ROWS[1][0]])
-    monkeypatch.setattr(scrub, "scrub_text", None)
+def test_unexpected_error_prints_only_its_type(seed, capsys, monkeypatch):
+    ids = seed([OLD_ROWS[1][0]])
+
+    def boom(*_a, **_k):
+        raise RuntimeError(OLD_ROWS[1][0])      # текст ошибки несёт номер — печатать его нельзя
+
+    monkeypatch.setattr(scrub, "find_manual", boom)
     assert scrub.main(["--apply"]) == 1
-    assert "Запусти после выкладки" in capsys.readouterr().out
-    assert _comments(old_ids) == [OLD_ROWS[1][0]]
+    out = capsys.readouterr().out
+    assert "СТОП: ошибка RuntimeError. Всё откатилось" in out and "Traceback" not in out
+    _no_personal_text(out)
+    assert _comments(ids) == [OLD_ROWS[1][0]]
+
+
+def test_commit_failure_says_unknown(seed, capsys, monkeypatch):
+    ids = seed([OLD_ROWS[1][0]])
+
+    class FailingCommit(scrub.Session):
+        def commit(self):
+            raise ConnectionError("связь оборвалась")
+
+    monkeypatch.setattr(scrub, "Session", FailingCommit)
+    assert scrub.main(["--apply"]) == 1
+    out = capsys.readouterr().out
+    assert "СТОП: ошибка ConnectionError в момент записи — неизвестно, записалось ли" in out
+    assert "Запусти примерку" in out
+    assert _comments(ids) == [OLD_ROWS[1][0]]
+
+
+def test_new_row_during_apply_asks_to_run_again(seed, capsys, monkeypatch):
+    """Пока шла чистка, старый клиент записал ещё одну такую заявку → «ЕЩЁ РАЗ», код 2."""
+    [first] = seed([OLD_ROWS[1][0]])
+    late: list[int] = []
+
+    class LateRow(scrub.Session):
+        def commit(self):
+            super().commit()
+            if not late:
+                late.extend(seed([OLD_ROWS[3][0]]))
+
+    monkeypatch.setattr(scrub, "Session", LateRow)
+    assert scrub.main(["--apply"]) == 2
+    out = capsys.readouterr().out
+    assert "Изменено заявок: 1" in out and "ЕЩЁ РАЗ:" in out and "СТОП" not in out
+    assert _comments([first]) == [RU]
+    monkeypatch.undo()
+    monkeypatch.setenv(scrub.ALLOW_SQLITE_ENV, "1")
+    assert scrub.main(["--apply"]) == 0
+    assert _comments(late) == [BA]
+
+
+def test_waits_for_a_busy_row_at_most_five_seconds(seed, capsys):
+    """PostgreSQL: строку держит другая операция → не висим, через 5 с «СТОП», база как была."""
+    if engine.url.get_backend_name() != "postgresql":
+        pytest.skip("блокировки строк и lock_timeout есть только в PostgreSQL")
+    ids = seed([OLD_ROWS[1][0]])
+    with Session(engine) as other:
+        other.exec(select(RideRequest).where(RideRequest.id == ids[0]).with_for_update()).one()
+        started = time.monotonic()
+        assert scrub.main(["--apply"]) == 1
+        waited = time.monotonic() - started
+        other.rollback()
+    out = capsys.readouterr().out
+    assert "СТОП: заявки заняты другой операцией дольше 5 секунд" in out, out
+    assert 4 < waited < 30, waited
+    assert _comments(ids) == [OLD_ROWS[1][0]]
 
 
 def test_runs_as_a_command_like_on_the_server(seed, tmp_path):
     """Так его запустит Александр: `python ops/scrub_relative_phones.py` — отдельным процессом."""
     [rid] = seed([OLD_ROWS[2][0]])
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", scrub.ALLOW_SQLITE_ENV: "1"}
     proc = subprocess.run([sys.executable, str(SCRIPT)], cwd=tmp_path, env=env, capture_output=True,
                           text=True, encoding="utf-8", errors="replace", timeout=120)
     assert proc.returncode == 0, proc.stdout + proc.stderr[-2000:]
     assert "Режим: ПРИМЕРКА" in proc.stdout and "Найдено заявок: 1" in proc.stdout
     assert f"заявка #{rid} " in proc.stdout
-    _no_phone_digits(proc.stdout + proc.stderr, OLD_ROWS[2][2][0])
+    _no_personal_text(proc.stdout + proc.stderr)
     assert _comments([rid]) == [OLD_ROWS[2][0]]
