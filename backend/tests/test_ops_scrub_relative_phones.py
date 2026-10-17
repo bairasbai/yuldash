@@ -73,6 +73,9 @@ OLD_ROWS = [
     ("Телефон близкого: 89274813562. Или 8–917–765–43–21", RU, True, ["8–917–765–43–21", "Или"]),
     ("Яҡындың телефоны: 89274813562. Шылтыратығыҙ:\n8 917\n765 43 21", BA, True, ["765 43 21", "Шылтыратығыҙ"]),
     ("Телефон близкого: +7 917 482 19 37. Её номер ещё раз: 917/482/19/37", RU, True, ["917/482/19/37", "Её номер"]),
+    # третья проверка: по два пробела вокруг тире — пять не-букв между цифрами
+    ("Телефон близкого: 89274813562. Или 8  —  917  —  765  —  43  —  21", RU, True,
+     ["8  —  917  —  765  —  43  —  21", "Или"]),
 ]
 
 # Обычные заметки с цифрами: правило «5+ цифр подряд» их не трогает (буква или конец рвут цепочку).
@@ -80,7 +83,7 @@ ORDINARY_NOTES = ["2 сумки, 1 кресло", "Выезд в 8:30, обра�
 
 # Любой разделитель между цифрами, кроме буквы, не спасает номер.
 SEPARATORS = [",", "/", "_", "–", "—", "‑", "−", "－",
-              "\xa0", " ", " ", "\n", "\t", " - ", ". "]
+              "\xa0", " ", " ", "\n", "\t", " - ", ". ", "  —  ", " –\xa0\n\t "]
 
 # Эти комментарии скрипт не трогает и не называет.
 UNTOUCHED = [
@@ -117,7 +120,7 @@ def _no_phone_digits(text: str, phone: str) -> None:
     # Номера заявок и даты — разрешённые цифры вывода; без них цепочки не склеиваются с ними
     # через « · » и проверка не зависит от того, какой номер достался заявке в общей базе.
     allowed = re.sub(r"#\d+|\d\d\.\d\d\.\d{4} \d\d:\d\d", " | ", text)
-    runs = [re.sub(r"\D", "", m.group()) for m in re.finditer(r"\d(?:[\W_]{0,3}\d)*", allowed)]
+    runs = [re.sub(r"\D", "", m.group()) for m in re.finditer(r"\d(?:[\W_]{0,6}\d)*", allowed)]
     for i in range(len(national) - 4):
         window = national[i:i + 5]
         assert not any(window in run for run in runs), f"в выводе цифры номера ({window}):\n{text}"
@@ -132,7 +135,7 @@ def _no_personal_text(out: str) -> None:
                 _no_phone_digits(out, secret)
     for before, after, _ in MANUAL:
         assert before not in out and after not in out
-        for phone in re.findall(r"\d(?:[\W_]{0,3}\d){4,}", before):
+        for phone in re.findall(r"\d(?:[\W_]{0,6}\d){4,}", before):
             _no_phone_digits(out, phone)
     assert "Галия" not in out, "в выводе имя близкого"
 
@@ -194,6 +197,13 @@ def test_any_separator_between_digits_drops_the_note(sep):
         plan = scrub.plan_comment(f"Телефон близкого: +7 917 482 19 37. Звоните мне {note_phone}")
         assert plan.result == RU and plan.dropped, (repr(sep), plan)
         assert scrub.mask_long_digits(f"Привет. Телефон близкого: {note_phone}")[1] >= 1
+
+
+def test_a_letter_breaks_the_chain():
+    """До шести не-букв между цифрами — одна цепочка; буква — две."""
+    assert scrub.mask_long_digits("12 этаж 345") == ("12 этаж 345", 0)
+    assert scrub.mask_long_digits("12 - - 345")[1] == 1
+    assert scrub.mask_long_digits("12 — э — 345")[1] == 0
 
 
 @pytest.mark.parametrize("note", ORDINARY_NOTES)
