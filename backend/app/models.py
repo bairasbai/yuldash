@@ -568,6 +568,14 @@ class Booking(SQLModel, table=True):
     # а подтверждение — встречный шаг. По статусу это не восстановить: отменённая после
     # подтверждения и отменённая из ожидания выглядят одинаково (аудит 2026-08-08, волна 158).
     confirmed_at: Optional[datetime] = None
+    # Когда ВОДИТЕЛЬ отметил «Сел» (решение 17.10.2026: посадку отмечает водитель, не пассажир).
+    # Нужна для «Отменить» в первые минуты — промахнулся карточкой (`bookings.BOARDING_UNDO_WINDOW`).
+    # Пусто у «в пути», поставленного старым пассажирским «Я сел»: такую посадку водитель не отменяет.
+    onboard_at: Optional[datetime] = None
+    # Когда поездку закрыл человек: «Завершить» водителя, «Завершил» пассажира, «Завершить рейс».
+    # От неё (и от выезда, и от «Сел») считается окно «Сообщить о проблеме» пассажира после поездки
+    # (`bookings.problem_report_left`). Ночная уборка не ставит: автозакрытие — не завершение.
+    done_at: Optional[datetime] = None
     cancelled_at: Optional[datetime] = None   # когда бронь отменили (для счётчиков за день)
     # Причина отмены (код: changed_mind/found_other/plans_changed/driver_no_response/car_problem/no_show/other)
     # и флаг неявки — сигнал доверия «между своими» и аргумент в споре. Пусто = причину не указали.
@@ -660,7 +668,7 @@ class TripShare(SQLModel, table=True):
     # ≥16 случайных байт (secrets.token_urlsafe). NULL у строк до миграции w2_livelink —
     # догенерируется при следующем share. Отзыв share (DELETE) удаляет строку → токен «сгорает».
     token: Optional[str] = Field(default=None, index=True, unique=True)
-    last_status: str = "shared"             # shared / sat / arrived / done
+    last_status: str = "shared"             # shared / sat / arrived / done (+ unsat, sat_again, unsat_quiet — отмена посадки, family._family_step)
     created_at: datetime = Field(default_factory=utcnow)
     # Срок жизни live-ссылки (приватность): если поездка «зависла» в живом статусе (водитель не
     # нажал «Завершить»), ссылка иначе показывала бы гео бессрочно. Ставим щедрый TTL (24ч — дольше

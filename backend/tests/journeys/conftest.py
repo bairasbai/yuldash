@@ -198,6 +198,15 @@ class Kit:
         return self.api.post(f"/bookings/{booking_id}/driver-status", json={"status": status},
                              headers=driver.auth)
 
+    def settle_boarding(self, booking_id: int) -> bool:
+        """Окно «Отменить» водителя (5 минут) прошло — пассажир может завершить (приёмка PR174).
+        В процессе — двигаем отметку «Сел» в базе; на живом сервере время не подвинуть: False."""
+        if LIVE_URL:
+            return False
+        from boarding_helpers import settle_boarding
+        settle_boarding(booking_id)
+        return True
+
     def trip_status(self, passenger: Person, booking_id: int, status: str) -> httpx.Response:
         return self.api.post(f"/bookings/{booking_id}/trip-status", json={"status": status},
                              headers=passenger.auth)

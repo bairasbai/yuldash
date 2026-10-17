@@ -87,7 +87,7 @@ class SharingCompletionInstrumentedTest {
             } }
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
-        compose.waitUntil(15000) { compose.onAllNodesWithText("Я сел").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
         scroll("Поделиться поездкой с близким"); touch("Поделиться поездкой с близким")
         compose.waitUntil(10000) { compose.onAllNodesWithText("Близкий").fetchSemanticsNodes().isNotEmpty() }
         shot("Ru-sharing", "Кому отправить поездку")

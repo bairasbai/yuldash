@@ -16,8 +16,11 @@
 //  - Паритет с Android (16.10.2026, BookingActiveTripScreen.kt):
 //    · «Завершить поездку» у водителя — через окно «Завершить поездку?»;
 //    · пассажир отменяет ПОДТВЕРЖДЁННУЮ поездку с причиной (POST /bookings/{id}/cancel {reason});
-//      после «Я сел» отмены нет — только SOS и разбор;
+//      после посадки отмены нет — только SOS и разбор;
 //    · водитель в пути отправляет свою точку в канал поездки (DriverLocationShare).
+//  - Посадку отмечает ВОДИТЕЛЬ (решение 17.10.2026): у него «Пассажир сел» и «Отменить» в первые
+//    5 минут (DriverBoarding), у пассажира — «Водитель отметит посадку» и «Сообщить о проблеме»
+//    (BoardingWait). Своего «Я сел» у пассажира нет: его можно было нажать из дома.
 // ================================================================
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -33,6 +36,7 @@ import {
   rateBooking,
   ratingTags,
   setPayAgreement,
+  type BoardingResult,
   type BookingDetails,
   type BookingStatus,
   type CancelReason,
@@ -57,6 +61,9 @@ import { StatusPill } from "../components/StatusPill";
 import { SubHeader } from "./ConsentsScreen";
 import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarningCard";
 import ShareTripCard from "../components/ShareTripCard";
+import DriverBoarding from "../components/DriverBoarding";
+import BoardingWait from "../components/BoardingWait";
+import DriverBoardedDispute from "../components/DriverBoardedDispute";
 import TripChatCard from "../components/TripChatCard";
 import { IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet, IconClose } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
@@ -155,6 +162,8 @@ export default function ActiveTripScreen() {
   const detailsStatusRef = useRef<BookingStatus | null>(null);
   const detailsSyncBusyRef = useRef(false);
   const lastDetailsAtRef = useRef(Date.now());
+  /** Счётчик «Сел» / «Отменить» водителя: опрос, начатый до действия, его ответ не перетирает. */
+  const boardingSeqRef = useRef(0);
 
   /** Один путь применения details: UI, форма оплаты и офлайн-паспорт не расходятся. */
   const applyBookingDetails = useCallback(
@@ -258,9 +267,12 @@ export default function ActiveTripScreen() {
   // открыл — и видишь, что водитель уже выехал, а не то, что было при уходе.
   const tickTrip = useCallback(() => {
     if (!bookingId) return;
+    const boardingSeq = boardingSeqRef.current;
     return fetchTripState(bookingId)
       .then((fresh) => {
         if (currentBookingIdRef.current !== bookingId) return;
+        // Опрос ушёл до «Сел» / «Отменить» водителя — его ответ старше ответа самого действия.
+        if (boardingSeq !== boardingSeqRef.current) return;
         const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;
         if (!shouldApplyBookingDetails(previousStatus, fresh.status)) return;
         tripRef.current = fresh;
@@ -291,6 +303,25 @@ export default function ActiveTripScreen() {
   }, [status, tickTrip]);
 
   useVisibleInterval(10000, tickTrip, !!bookingId && status === "ready");
+
+  /**
+   * Ответ на «Сел» / «Отменить» водителя — сразу на экран. Это ответ самого действия, а не
+   * опроса: «Отменить» возвращает бронь из «в пути» в «подтверждена», а опрос назад по шкале
+   * статусов не ходит (запоздавший ответ не должен откатывать посадку). Отказ сервера —
+   * перечитываем как обычно.
+   */
+  const applyBoarding = useCallback(
+    (result?: BoardingResult) => {
+      if (!result) return tickTrip();
+      boardingSeqRef.current += 1;
+      const current = tripRef.current;
+      if (!current) return tickTrip();
+      const next = { ...current, status: result.status, boarding_undo_sec: result.boarding_undo_sec };
+      tripRef.current = next;
+      setTrip(next);
+    },
+    [tickTrip]
+  );
 
   useEffect(() => {
     const changed = (event: StorageEvent) => {
@@ -693,6 +724,17 @@ export default function ActiveTripScreen() {
         </div>
       )}
 
+      {/* Посадку отмечает водитель: пассажиру — «Водитель отметит посадку» и разбор, если что не так.
+          «В пути» разбор не пропадает: отмены у пассажира нет, а не садился — путь только этот (PR174). */}
+      {details.role === "passenger" && (st === "confirmed" || st === "onboard") && (
+        <BoardingWait
+          bookingId={bookingId}
+          driverId={trip?.peer_id}
+          driverName={details.driver_name}
+          stage={st === "onboard" ? "marked" : "waiting"}
+        />
+      )}
+
       {/* Оплата (read-only) + контакт */}
       <div className="info-list">
         {details.front_seat && (
@@ -847,6 +889,18 @@ export default function ActiveTripScreen() {
             >
               {appText("Подъезжаю", "Килеп етәм")}
             </button>
+            {/* «Пассажир сел» → «Пассажир в машине» и «Отменить» в первые 5 минут. */}
+            <DriverBoarding
+              bookingId={bookingId}
+              status={st ?? ""}
+              undoSec={trip?.boarding_undo_sec ?? 0}
+              variant="chip"
+              onChanged={applyBoarding}
+              onError={setPhaseNote}
+            >
+              {/* Окно «Отменить» вышло — разбор, как в кабинете (Q4, приёмка PR174). */}
+              <DriverBoardedDispute bookingId={bookingId} passengerId={trip?.peer_id} onError={setPhaseNote} />
+            </DriverBoarding>
             <button
               type="button"
               className="chip"
@@ -902,7 +956,7 @@ export default function ActiveTripScreen() {
         <ShareTripCard bookingId={bookingId} showStatuses bookingStatus={st} onStatusChange={tickTrip} />
       )}
 
-      {/* Отменить подтверждённую поездку — только пассажиру и только до «Я сел» (Android:
+      {/* Отменить подтверждённую поездку — только пассажиру и только до посадки (Android:
           bookingStatus == "confirmed"). «В пути» отмены нет: человек уже в машине. */}
       {details.role === "passenger" && st === "confirmed" && (
         <div className="trip-cancel">
@@ -1046,6 +1100,11 @@ export default function ActiveTripScreen() {
         >
           {appText("Квитанция поездки", "Сәфәр квитанцияһы")}
         </button>
+      )}
+      {/* После поездки — «Сообщить о проблеме», пока сервер держит окно (6 часов, приёмка PR174):
+          водитель мог отметить не того и сразу закрыть поездку. */}
+      {st === "done" && details.role === "passenger" && (trip?.problem_report_sec ?? 0) > 0 && (
+        <BoardingWait bookingId={bookingId} driverId={trip?.peer_id} driverName={details.driver_name} stage="after" />
       )}
 
     </>

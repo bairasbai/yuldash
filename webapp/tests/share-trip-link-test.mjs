@@ -57,7 +57,7 @@ const byText = (tree, str) => all(tree).find((n) => n.type === "button" && JSON.
 const tick = () => new Promise(setImmediate);
 
 /** Открыть карточку: сервер знает контакты и уже выданные ссылки. */
-async function open({ shares = [], contacts = [mama], props = { bookingId: 42 }, ba = false, shareFails = null } = {}) {
+async function open({ shares = [], contacts = [mama], props = { bookingId: 42 }, ba = false, shareFails = null, statusFails = null } = {}) {
   Object.assign(h, { inst: { values: [], i: 0 }, effects: [], ba, calls: [], clip: [], sys: [] });
   h.api = async (method, path, body) => {
     h.calls.push([method, path, body]);
@@ -69,7 +69,10 @@ async function open({ shares = [], contacts = [mama], props = { bookingId: 42 },
       return share;
     }
     if (method === "DELETE") { shares = shares.filter((s) => !path.endsWith("/" + s.id)); return { ok: true }; }
-    if (method === "POST" && /trip-status$/.test(path)) return shares;
+    if (method === "POST" && /trip-status$/.test(path)) {
+      if (statusFails) throw statusFails;
+      return shares;
+    }
     throw new Error("unexpected " + method + " " + path);
   };
   render(props);
@@ -180,14 +183,36 @@ await test("отозвали ссылку — она пропадает с эк�
   await tick();
   assert.ok(!text(render()).includes(LINK));
 });
-await test("отметка «Села в машину»: пишем «Сохранено», а не «Близкие получили сообщение»", async () => {
-  const props = { bookingId: 42, showStatuses: true, bookingStatus: "confirmed" };
+await test("отметка «Доехала»: пишем «Сохранено», а не «Близкие получили сообщение»", async () => {
+  const props = { bookingId: 42, showStatuses: true, bookingStatus: "onboard" };
   const tree = await open({ shares: [share], props });
-  await byText(tree, "Села в машину").props.onClick();
+  await byText(tree, "Доехала").props.onClick();
   await tick();
+  assert.ok(h.calls.some(([m, p, b]) => m === "POST" && p === "/bookings/42/trip-status" && b?.status === "arrived"));
   const t = text(render(props));
   assert.ok(t.includes("Сохранено"));
   assert.ok(!/получили|китте/.test(t));
+});
+// Отказ сервера — его словами (приёмка PR174): «завершить можно через 4 мин» объясняет, что делать;
+// общее «Не получилось отправить статус» — неправда, сеть работает.
+await test("отказ сервера по отметке — его словами, а не «Не получилось отправить статус»", async () => {
+  const props = { bookingId: 42, showStatuses: true, bookingStatus: "onboard" };
+  const refusal = new h.ApiError(409, "Водитель только что отметил посадку — завершить поездку можно через 4 мин.");
+  const tree = await open({ shares: [share], props, statusFails: refusal });
+  await byText(tree, "Поездка завершена").props.onClick();
+  await tick();
+  const t = text(render(props));
+  assert.ok(t.includes("завершить поездку можно через 4 мин"), t);
+  assert.ok(!t.includes("Не получилось отправить статус"));
+});
+// Посадку отмечает водитель (решение 17.10.2026): до неё у пассажира нет ни «Села в машину»,
+// ни других отметок — нечего отправлять. Старый «sat» сервер и так отклоняет (409).
+await test("до посадки «Села в машину» нет — посадку отмечает водитель", async () => {
+  const props = { bookingId: 42, showStatuses: true, bookingStatus: "confirmed" };
+  const tree = await open({ shares: [share], props });
+  assert.equal(byText(tree, "Села в машину"), undefined);
+  assert.equal(byText(tree, "Доехала"), undefined);
+  assert.ok(!h.calls.some(([, p]) => /trip-status$/.test(p)));
 });
 await test("такси-заказ: та же ссылка (shareOrder)", async () => {
   const props = { orderId: 5 };

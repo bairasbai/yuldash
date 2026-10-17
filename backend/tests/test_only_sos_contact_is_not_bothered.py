@@ -20,7 +20,8 @@ import pytest
 
 from app.models import UserRole
 
-from test_api import _ride
+from boarding_helpers import board
+from test_api import _ride, just_left
 
 
 @pytest.fixture
@@ -43,7 +44,7 @@ def _contact(client, who, name: str, phone: str, notify: bool) -> int:
 def _trip_with_contact(client, user_factory, tag: str, notify: bool):
     driver = user_factory(f"{tag}Водитель", role=UserRole.driver)
     passenger = user_factory(f"{tag}Пассажир")
-    ride_id = _ride(client, driver, comment=tag)
+    ride_id = _ride(client, driver, comment=tag, depart_at=just_left())
     booking_id = client.post("/bookings", headers=passenger["auth"],
                              json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{booking_id}/confirm", headers=driver["auth"]).status_code == 200
@@ -51,6 +52,8 @@ def _trip_with_contact(client, user_factory, tag: str, notify: bool):
     contact_id = _contact(client, passenger, "Мама", phone, notify)
     assert client.post(f"/bookings/{booking_id}/share", headers=passenger["auth"],
                        json={"contact_id": contact_id}).status_code == 200
+    # «Доехал» — только «в пути», после «Сел» водителя и окна его отмены (приёмка PR174).
+    board(client, driver, booking_id)
     return passenger, booking_id, phone
 
 
@@ -58,8 +61,9 @@ def test_маму_с_пометкой_только_sos_не_дёргают_ст�
     passenger, booking_id, phone = _trip_with_contact(client, user_factory, "ТолькоSOS", notify=False)
     caught_sms.clear()   # разовая ссылка при шаринге уже ушла — она к статусам не относится
 
+    # «Доехал» — статус, который пассажир шлёт сам (посадку с 17.10.2026 отмечает водитель).
     r = client.post(f"/bookings/{booking_id}/trip-status", headers=passenger["auth"],
-                    json={"status": "sat"})
+                    json={"status": "arrived"})
     assert r.status_code == 200, r.text
 
     assert not [t for p, t in caught_sms if p == phone], \
@@ -71,13 +75,14 @@ def test_близкий_со_статусом_получает_как_прежд
     passenger, booking_id, phone = _trip_with_contact(client, user_factory, "СоСтатусом", notify=True)
     caught_sms.clear()
 
+    # «Доехал» — статус, который пассажир шлёт сам (посадку с 17.10.2026 отмечает водитель).
     r = client.post(f"/bookings/{booking_id}/trip-status", headers=passenger["auth"],
-                    json={"status": "sat"})
+                    json={"status": "arrived"})
     assert r.status_code == 200, r.text
 
     texts = [t for p, t in caught_sms if p == phone]
     assert texts, "близкий, которого просили держать в курсе, ничего не получил"
-    assert "сел в машину" in texts[0], texts
+    assert "доехал до места" in texts[0], texts
 
 
 def test_sos_приходит_всем_включая_пометку(client, user_factory, monkeypatch):

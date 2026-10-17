@@ -150,7 +150,7 @@ class TripChatBottomComposerTest {
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
         assertEquals(tokenA, auth.poll(10, TimeUnit.SECONDS))
-        waitFor { requests.contains("GET /bookings/42/details") && compose.onAllNodesWithText("Я сел").fetchSemanticsNodes().isNotEmpty() }
+        waitFor { requests.contains("GET /bookings/42/details") && compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
         pump(500)
     }
 
@@ -260,7 +260,7 @@ class TripChatBottomComposerTest {
         compose.onNodeWithContentDescription("Открыть поездку").performClick()
         pump(1000)
         compose.onAllNodesWithTag("tripChatScreen").assertCountEquals(0)
-        compose.onNodeWithText("Я сел").assertExists()
+        compose.onNodeWithText("Водитель отметит посадку").assertExists()
         openChat()
         compose.onNode(hasSetTextAction()).assertTextEquals("черновик")
     }

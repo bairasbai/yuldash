@@ -96,7 +96,7 @@ class ActiveTripRemovalDialogInstrumentedTest {
                 }
             }
         }
-        waitFor(if (ba) "Мин ултырҙым" else "Я сел")
+        waitFor(if (ba) "Йөрөтөүсе ултырыуҙы билдәләр" else "Водитель отметит посадку")
         val cancelLabel = if (ba) "Сәфәрҙе кире алыу" else "Отменить поездку"
         compose.onNode(hasScrollToNodeAction() and
             SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
