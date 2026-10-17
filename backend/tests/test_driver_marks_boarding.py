@@ -1,0 +1,286 @@
+"""Посадку отмечает ВОДИТЕЛЬ, а не пассажир (решение Александра 17.10.2026).
+
+Что было. Пассажир сам жал «Я сел» — за 30 минут до выезда, без всякой проверки. Нажать можно
+было из дома: бронь становилась «в пути», и водитель уже не мог отметить «Не пришёл» (решение
+14.10). А нажатое по ошибке было не вернуть.
+
+Что стало:
+* «Сел» жмёт водитель на карточке подтверждённого пассажира (`driver-status` «boarded»);
+* промахнулся карточкой — «Отменить» в первые 5 минут (`/boarded/undo`), бронь снова подтверждена;
+* старое приложение со своим «Я сел» получает 409 «Посадку теперь отмечает водитель»;
+* всё, что раньше запускал «Я сел», запускает отметка водителя: «в пути», толчок каналу
+  координат, уведомление пассажиру, SMS близким, запрет отмены пассажиром и неявки водителем;
+* водитель забыл отметить — поездка закрывается его «Завершить», как раньше.
+"""
+from datetime import timedelta
+
+import pytest
+from sqlmodel import Session, select
+
+from app.db import engine
+from app.models import Booking, BookingStatus, Notification, Ride, TripShare, UserRole
+from app.timeutil import utcnow
+
+
+def _trip(client, user_factory, tag, *, depart_in=timedelta(minutes=10), confirm=True):
+    drv = user_factory(f"DMB Driver {tag}", role=UserRole.driver)
+    pax = user_factory(f"DMB Passenger {tag}")
+    ride = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Сибай", "to_city": "Уфа", "comment": f"dmb-{tag}",
+        "depart_at": (utcnow() + depart_in).isoformat() + "+00:00",
+        "seats_total": 3, "price": 500}).json()
+    b = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride["id"], "seats": 1})
+    assert b.status_code == 200, b.text
+    bid = b.json()["id"]
+    if confirm:
+        assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+    return drv, pax, ride, bid
+
+
+def _board(client, who, bid):
+    return client.post(f"/bookings/{bid}/driver-status", headers=who["auth"], json={"status": "boarded"})
+
+
+def _undo(client, who, bid):
+    return client.post(f"/bookings/{bid}/boarded/undo", headers=who["auth"])
+
+
+def _booking(bid) -> Booking:
+    with Session(engine) as s:
+        return s.get(Booking, bid)
+
+
+def _notes(user_id: int, title: str) -> int:
+    with Session(engine) as s:
+        return len(s.exec(select(Notification).where(
+            Notification.user_id == user_id, Notification.title_ru == title)).all())
+
+
+def _age_mark(bid, minutes: int):
+    """Отметка «Сел» была `minutes` минут назад (через API время не отмотать)."""
+    with Session(engine) as s:
+        b = s.get(Booking, bid)
+        b.onboard_at = utcnow() - timedelta(minutes=minutes)
+        s.add(b)
+        s.commit()
+
+
+# ── Водитель отмечает «Сел» ──
+
+def test_driver_marks_boarding_and_booking_goes_onboard(client, user_factory):
+    drv, pax, _ride, bid = _trip(client, user_factory, "mark")
+    r = _board(client, drv, bid)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "onboard"
+    assert 290 <= body["boarding_undo_sec"] <= 300, body
+    b = _booking(bid)
+    assert b.status == BookingStatus.onboard and b.onboard_at is not None
+    # Обе стороны видят «в пути»; отменить отметку может только водитель — пассажиру 0.
+    drv_state = client.get(f"/bookings/{bid}/role", headers=drv["auth"]).json()
+    pax_state = client.get(f"/bookings/{bid}/role", headers=pax["auth"]).json()
+    assert drv_state["status"] == pax_state["status"] == "onboard"
+    assert drv_state["boarding_undo_sec"] > 0 and pax_state["boarding_undo_sec"] == 0
+    # Вторая сторона брони — для «Сообщить о проблеме» пассажира, который ждёт отметки.
+    assert pax_state["peer_id"] == drv["id"] and drv_state["peer_id"] == pax["id"]
+    # Карточка в кабинете водителя знает, сколько ещё можно отменить — и после перезапуска.
+    row = next(x for x in client.get("/driver/bookings", headers=drv["auth"]).json() if x["booking_id"] == bid)
+    assert row["status"] == "onboard" and row["boarding_undo_sec"] > 0
+
+
+def test_mark_is_idempotent_and_notifies_the_passenger_once(client, user_factory):
+    drv, pax, _ride, bid = _trip(client, user_factory, "twice")
+    assert _board(client, drv, bid).status_code == 200
+    first_mark = _booking(bid).onboard_at
+    again = _board(client, drv, bid)
+    assert again.status_code == 200 and again.json()["status"] == "onboard", again.text
+    assert _booking(bid).onboard_at == first_mark, "повтор не должен сдвигать окно отмены"
+    assert _notes(pax["id"], "Водитель отметил посадку") == 1, "повторный тап — второй пуш"
+
+
+def test_wrong_driver_and_passenger_cannot_mark(client, user_factory):
+    drv, pax, _ride, bid = _trip(client, user_factory, "who")
+    stranger = user_factory("DMB Stranger driver", role=UserRole.driver)
+    assert _board(client, stranger, bid).status_code in (403, 404)
+    r = _board(client, pax, bid)
+    assert r.status_code == 403, r.text
+    assert _booking(bid).status == BookingStatus.confirmed
+
+
+def test_only_confirmed_booking_can_be_marked(client, user_factory):
+    drv, _pax, _ride, bid = _trip(client, user_factory, "pending", confirm=False)
+    r = _board(client, drv, bid)
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["ru"].strip() and r.json()["detail"]["ba"].strip()
+    assert _booking(bid).status == BookingStatus.pending
+
+
+def test_mark_outside_the_window_is_refused(client, user_factory):
+    """Окно то же, что было у «Я сел»: не раньше чем за 30 минут до выезда."""
+    drv, _pax, _ride, bid = _trip(client, user_factory, "early", depart_in=timedelta(hours=3))
+    r = _board(client, drv, bid)
+    assert r.status_code == 409, r.text
+    assert "30 минут" in r.json()["detail"]["ru"]
+    assert _booking(bid).status == BookingStatus.confirmed
+    # Ровно на границе окна (за 25 минут) — уже можно.
+    drv2, _pax2, _ride2, bid2 = _trip(client, user_factory, "edge", depart_in=timedelta(minutes=25))
+    assert _board(client, drv2, bid2).status_code == 200
+
+
+# ── Старое приложение с «Я сел» ──
+
+def test_passenger_i_sat_from_an_old_app_gets_409(client, user_factory):
+    _drv, pax, _ride, bid = _trip(client, user_factory, "oldapp")
+    r = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "sat"})
+    assert r.status_code == 409, r.text
+    detail = r.json()["detail"]
+    assert detail["ru"] == "Посадку теперь отмечает водитель"
+    assert detail["ba"].strip() and detail["ba"] != detail["ru"]
+    assert detail["code"] == "driver_marks_boarding"
+    assert _booking(bid).status == BookingStatus.confirmed, "пассажир сам себя не посадил"
+
+
+# ── «Отменить» — промахнулся карточкой ──
+
+def test_undo_within_five_minutes_returns_booking_to_confirmed(client, user_factory):
+    drv, pax, _ride, bid = _trip(client, user_factory, "undo")
+    assert _board(client, drv, bid).status_code == 200
+    _age_mark(bid, 4)
+    r = _undo(client, drv, bid)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True, "status": "confirmed", "boarding_undo_sec": 0}
+    b = _booking(bid)
+    assert b.status == BookingStatus.confirmed and b.onboard_at is None
+    # Пассажиру снимают тревогу тем же каналом, что сообщили о посадке.
+    assert _notes(pax["id"], "Отметку посадки отменили") == 1
+    # Повтор после успешной отмены — тот же итог, не ошибка.
+    assert _undo(client, drv, bid).json()["status"] == "confirmed"
+    # Бронь снова обычная: пассажир может отменить, а водитель — отметить «Сел» ещё раз.
+    assert _board(client, drv, bid).json()["status"] == "onboard"
+
+
+def test_undo_after_the_window_is_refused(client, user_factory):
+    drv, _pax, _ride, bid = _trip(client, user_factory, "late")
+    assert _board(client, drv, bid).status_code == 200
+    _age_mark(bid, 6)
+    r = _undo(client, drv, bid)
+    assert r.status_code == 409, r.text
+    assert "5 минут" in r.json()["detail"]["ru"] and "сообщи о проблеме" in r.json()["detail"]["ru"]
+    assert r.json()["detail"]["ba"].strip()
+    assert _booking(bid).status == BookingStatus.onboard
+    row = next(x for x in client.get("/driver/bookings", headers=drv["auth"]).json() if x["booking_id"] == bid)
+    assert row["boarding_undo_sec"] == 0
+
+
+def test_only_the_driver_of_the_ride_can_undo(client, user_factory):
+    drv, pax, _ride, bid = _trip(client, user_factory, "undowho")
+    assert _board(client, drv, bid).status_code == 200
+    stranger = user_factory("DMB Undo stranger", role=UserRole.driver)
+    assert _undo(client, stranger, bid).status_code in (403, 404)
+    assert _undo(client, pax, bid).status_code == 403
+    assert _booking(bid).status == BookingStatus.onboard
+
+
+def test_legacy_passenger_boarding_cannot_be_undone(client, user_factory):
+    """«В пути» от прежнего «Я сел» (до 17.10, без onboard_at) — не отметка водителя."""
+    drv, _pax, _ride, bid = _trip(client, user_factory, "legacy")
+    with Session(engine) as s:
+        b = s.get(Booking, bid)
+        b.status = BookingStatus.onboard
+        s.add(b)
+        s.commit()
+    assert _undo(client, drv, bid).status_code == 409
+    assert _booking(bid).status == BookingStatus.onboard
+
+
+def test_undo_of_a_finished_trip_is_refused(client, user_factory):
+    drv, _pax, _ride, bid = _trip(client, user_factory, "undodone")
+    assert _board(client, drv, bid).status_code == 200
+    assert client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"],
+                       json={"status": "done"}).status_code == 200
+    assert _undo(client, drv, bid).status_code == 409
+    assert _booking(bid).status == BookingStatus.done
+
+
+# ── Всё, что запускал «Я сел», запускает отметка водителя ──
+
+def test_onboard_blocks_passenger_cancel_and_driver_no_show(client, user_factory):
+    drv, pax, ride, bid = _trip(client, user_factory, "locks")
+    assert _board(client, drv, bid).status_code == 200
+    with Session(engine) as s:
+        seats_before = s.get(Ride, ride["id"]).seats_left
+    cancel = client.post(f"/bookings/{bid}/cancel", headers=pax["auth"], json={"reason": "plans_changed"})
+    assert cancel.status_code == 409 and cancel.json()["detail"]["code"] == "onboard_no_cancel", cancel.text
+    no_show = client.post(f"/bookings/{bid}/no-show", headers=drv["auth"])
+    assert no_show.status_code == 409 and no_show.json()["detail"]["code"] == "passenger_onboard", no_show.text
+    # В отказе — путь вперёд: «Отменить» в первые минуты или разбор.
+    assert "Отменить" in no_show.json()["detail"]["ru"]
+    with Session(engine) as s:
+        assert s.get(Booking, bid).status == BookingStatus.onboard
+        assert s.get(Ride, ride["id"]).seats_left == seats_before
+
+
+def test_undo_reopens_the_no_show_path(client, user_factory):
+    """Промахнулся карточкой у того, кто так и не пришёл: «Отменить» → «Не пришёл» работает."""
+    drv, _pax, _ride, bid = _trip(client, user_factory, "undonoshow")
+    assert _board(client, drv, bid).status_code == 200
+    assert _undo(client, drv, bid).status_code == 200
+    r = client.post(f"/bookings/{bid}/no-show", headers=drv["auth"])
+    assert r.status_code == 200 and r.json()["status"] == "cancelled", r.text
+
+
+def test_mark_and_undo_poke_the_live_channel(client, user_factory, monkeypatch):
+    import app.routers.bookings as bookings_mod
+
+    pokes: list[int] = []
+    monkeypatch.setattr(bookings_mod.trip_wake, "poke", lambda booking_id: pokes.append(booking_id))
+    drv, _pax, _ride, bid = _trip(client, user_factory, "poke")
+    assert _board(client, drv, bid).status_code == 200
+    assert pokes == [bid], "«Сел» не толкнул канал координат"
+    assert _board(client, drv, bid).status_code == 200
+    assert pokes == [bid], "повторный тап толкать не должен — ничего не сменилось"
+    assert _undo(client, drv, bid).status_code == 200
+    assert pokes == [bid, bid], "«Отменить» не толкнул канал координат"
+
+
+def test_mark_tells_the_passenger_and_the_family(client, user_factory, monkeypatch):
+    import app.routers.family as fam
+
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(fam, "send_text", lambda phone, text: sent.append((phone, text)))
+    drv, pax, _ride, bid = _trip(client, user_factory, "family")
+    contact = client.post("/trusted-contacts", headers=pax["auth"], json={
+        "name": "Мама", "relation": "мать", "phone": "+79990001717", "notify_by_default": True})
+    assert contact.status_code == 200, contact.text
+    assert client.post(f"/bookings/{bid}/share", headers=pax["auth"],
+                       json={"contact_id": contact.json()["id"]}).status_code == 200
+    sent.clear()
+
+    assert _board(client, drv, bid).status_code == 200
+    assert _notes(pax["id"], "Водитель отметил посадку") == 1
+    texts = [t for p, t in sent if p == "+79990001717"]
+    assert texts and "сел в машину" in texts[0], sent
+    with Session(engine) as s:
+        shares = s.exec(select(TripShare).where(TripShare.booking_id == bid)).all()
+        assert [x.last_status for x in shares] == ["sat"]
+    # Повтор отметки — без второго SMS (статус у близкого не сменился).
+    assert _board(client, drv, bid).status_code == 200
+    assert len([t for p, t in sent if p == "+79990001717"]) == 1
+
+
+def test_forgotten_mark_still_closes_with_drivers_finish(client, user_factory):
+    """Водитель забыл отметить «Сел» — его «Завершить» закрывает поездку, как раньше."""
+    drv, pax, _ride, bid = _trip(client, user_factory, "forgot")
+    r = client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": "done"})
+    assert r.status_code == 200, r.text
+    assert client.get(f"/bookings/{bid}/role", headers=pax["auth"]).json()["status"] == "done"
+
+
+@pytest.mark.parametrize("status", ["departed", "arriving"])
+def test_other_driver_phases_still_work(client, user_factory, status):
+    """«Выехал / Подъезжаю» не задеты новой отметкой: фаза пишется, бронь остаётся подтверждённой."""
+    drv, pax, _ride, bid = _trip(client, user_factory, f"phase-{status}")
+    r = client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": status})
+    assert r.status_code == 200 and r.json()["driver_phase"] == status, r.text
+    state = client.get(f"/bookings/{bid}/role", headers=pax["auth"]).json()
+    assert state["status"] == "confirmed" and state["driver_phase"] == status

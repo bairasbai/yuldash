@@ -5,9 +5,8 @@ import secrets
 from datetime import datetime, timedelta
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import update
 from sqlmodel import Session, select
 
 from .. import trip_wake
@@ -405,36 +404,34 @@ def revoke_booking_share(booking_id: int, share_id: int, user: User = Depends(cu
 
 
 class TripStatusIn(BaseModel):
-    status: str  # sat / arrived / done
+    status: str  # arrived / done; «sat» — только старые версии приложения, отвечаем 409
+
+
+def _driver_marks_boarding_refusal() -> HTTPException:
+    """«Я сел» из старой версии приложения (решение 17.10.2026): посадку отмечает водитель.
+
+    `code` — машинная причина: по ней клиент понимает, что кнопку пора убрать, а не повторять."""
+    return HTTPException(status_code=409, detail={
+        "ru": "Посадку теперь отмечает водитель",
+        "ba": "Ултырыуҙы хәҙер йөрөтөүсе билдәләй",
+        "code": "driver_marks_boarding",
+    })
 
 
 @router.post("/bookings/{booking_id}/trip-status", response_model=List[TripShare])
 def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    booking, trip_ride = booking_and_ride_for_user(session, booking_id, user)
+    booking, _ride = booking_and_ride_for_user(session, booking_id, user)
     if booking.passenger_id != user.id:
         raise herr(403, "Статус семейного контроля меняет только пассажир", "Ғаилә күҙәтеү хәлен тик пассажир үҙгәртә")
     if body.status not in {"sat", "arrived", "done"}:
         raise herr(400, "Недопустимый статус поездки", "Ярамаған сәфәр хәле")
-    # «Я сел» / «Доехал» → бронь «в пути» (onboard). Раньше «Я сел» уходил только близким: без
-    # доверенных контактов сервер не записывал НИЧЕГО, бронь до конца оставалась «подтверждена».
-    # Итог (сквозная проверка волны 1, 13.10.2026): водитель не видел, что человек уже в машине;
-    # переоткрытое приложение теряло посадку; у мамы по ссылке до самого конца висело «Машина
-    # едет к точке посадки», хотя дочь давно в пути. Статус onboard давно знают все клиенты,
-    # ссылка близкого, чат и живая позиция — его просто никто не ставил.
-    # Три условия:
-    # * только из confirmed — посадку без подтверждения водителем не изобретаем;
-    # * только когда поездка началась (та же планка, что у «Завершить», DONE_EARLY_GRACE). Кнопку
-    #   «Я сел» видно сразу после подтверждения, и нажатие за несколько дней делало бронь
-    #   «в пути»: пауза водителя такие брони не снимает («человек в машине»), и пассажир
-    #   оставался «в пути» на отменённом рейсе (ревью Opus волны 1). Раньше времени — как
-    #   прежде: сообщение близким без смены брони;
-    # * условный UPDATE — одновременное «Завершить» водителя или отмена не откатываются в «в пути».
-    if (body.status in ("sat", "arrived") and booking.status == BookingStatus.confirmed
-            and not (trip_ride.depart_at and utcnow() < trip_ride.depart_at - DONE_EARLY_GRACE)):
-        session.execute(update(Booking).where(
-            Booking.id == booking.id, Booking.status == BookingStatus.confirmed,
-        ).values(status=BookingStatus.onboard))
-        session.commit()
+    # Посадку отмечает ВОДИТЕЛЬ (решение Александра 17.10.2026, `bookings._mark_boarded`).
+    # Пассажирский «Я сел» позволял нажать из дома, чтобы водитель уже не отметил «Не пришёл»,
+    # а нажатие по ошибке было не вернуть. Старые версии приложения кнопку ещё показывают —
+    # отвечаем понятным отказом. «Доехал» бронь тоже больше не двигает: иначе это была бы та же
+    # посадка другой дверью (очередь без сети у старого клиента отправляет «sat», затем «arrived»).
+    if body.status == "sat":
+        raise _driver_marks_boarding_refusal()
     # «Завершил поездку» → реально закрываем бронь на сервере (раньше статус уходил только близким,
     # а бронь висела активной). Идемпотентно: повторный done/отменённую не трогаем.
     if body.status == "done" and booking.status not in (BookingStatus.done, BookingStatus.cancelled):
@@ -455,26 +452,35 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
         if ride:
             from .referral import reward_driver_referral
             reward_driver_referral(session, ride.driver_id)
-    contact_ids = [c.id for c in session.exec(select(TrustedContact).where(TrustedContact.user_id == user.id)).all()]
+    return notify_family_trip_status(session, booking_id, user, body.status)
+
+
+def notify_family_trip_status(session: Session, booking_id: int, passenger: User, status: str) -> List[TripShare]:
+    """Статус поездки — близким пассажира, с кем он поделился этой бронью (SMS при смене статуса).
+
+    Зовут оба пути: пассажир («Доехал», «Завершил») и водитель — его отметка «Сел» шлёт «sat»
+    (`bookings._mark_boarded`, решение 17.10.2026). Имя, язык и счёт SMS — пассажира: это его
+    близкие, и потолок SMS один на все его входы. Возвращает строки шаринга этой брони."""
+    contact_ids = [c.id for c in session.exec(select(TrustedContact).where(TrustedContact.user_id == passenger.id)).all()]
     if not contact_ids:
         return []
     shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id, TripShare.contact_id.in_(contact_ids))).all()
     # SMS шлём ТОЛЬКО тем, у кого статус реально сменился — иначе повторный вызов того же
     # статуса (sat→sat) = бесконечные SMS за счёт платформы (у SOS троттл есть, тут не было).
-    changed_ids = [s.contact_id for s in shares if s.last_status != body.status]
+    changed_ids = [s.contact_id for s in shares if s.last_status != status]
     for share in shares:
-        share.last_status = body.status
+        share.last_status = status
         session.add(share)
     session.commit()
     for share in shares:
         session.refresh(share)  # после commit объекты «обнуляются» — перечитываем
     # Реально уведомляем близких по SMS о статусе поездки.
-    status_text = {"sat": "сел в машину", "arrived": "доехал до места", "done": "завершил поездку"}.get(body.status, body.status)
+    status_text = {"sat": "сел в машину", "arrived": "доехал до места", "done": "завершил поездку"}.get(status, status)
     # То же по-башкирски: SMS близким уходили только по-русски (волна 95). Язык берём у того,
     # кто завёл контакт: про язык его мамы мы ничего не знаем, а он знает.
     status_text_ba = {"sat": "машинаға ултырҙы", "arrived": "урынына етте",
-                      "done": "сәфәрҙе тамамланы"}.get(body.status, status_text)
-    who = user.name or user.phone
+                      "done": "сәфәрҙе тамамланы"}.get(status, status_text)
+    who = passenger.name or passenger.phone
     for cid in changed_ids:
         c = session.get(TrustedContact, cid)
         # «Только SOS» — не украшение списка, а обещание. В приложении у контакта с выключенным
@@ -487,8 +493,8 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
         if c and c.phone and c.notify_by_default:
             # Тихо: статус едет автоматом по ходу поездки, и красная ошибка «слишком много
             # сообщений» посреди дороги человеку не поможет. Потолок всё равно общий.
-            if may_send_family_sms(session, user.id, "status"):
-                lang = sms_lang_of(session, user.id)
+            if may_send_family_sms(session, passenger.id, "status"):
+                lang = sms_lang_of(session, passenger.id)
                 send_text(c.phone, pick_lang(
                     lang, f"Юлдаш: {who} {status_text}.", f"Юлдаш: {who} {status_text_ba}.",
                 ))

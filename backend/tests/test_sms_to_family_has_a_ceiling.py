@@ -137,7 +137,7 @@ def test_обычному_человеку_потолок_не_мешает(clie
 
 
 def test_статусы_поездки_не_ругаются_а_просто_молчат(client, user_factory, monkeypatch):
-    """Потолок исчерпан, человек едет. «Сел в машину» не должно падать красной ошибкой
+    """Потолок исчерпан, человек едет. «Доехал» не должно падать красной ошибкой
     посреди дороги — сообщение просто не уходит, а поездка живёт дальше."""
     sent = _catch_sms(monkeypatch)
     pax = user_factory("SmsStatusPax", role=UserRole.passenger)
@@ -154,9 +154,9 @@ def test_статусы_поездки_не_ругаются_а_просто_м�
         _share_to_new_number(client, pax["auth"], bid, 2000 + i)
     before = len(sent)
 
-    st = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "sat"})
+    st = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "arrived"})
     assert st.status_code == 200
-    assert st.json()[0]["last_status"] == "sat"   # поездка живёт, ответ целый
+    assert st.json()[0]["last_status"] == "arrived"   # поездка живёт, ответ целый
     assert len(sent) == before                    # но SMS сверх потолка не ушла
 
 

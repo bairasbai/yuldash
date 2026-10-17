@@ -73,14 +73,15 @@ with TestClient(app) as c:
     print("messages:", len(msgs))
     assert len(msgs) >= 1
 
-    # семейный контроль: контакт пассажира -> шаринг поездки -> статус «сел»
+    # семейный контроль: контакт пассажира -> шаринг поездки -> статус «доехал»
+    # (посадку с 17.10.2026 отмечает водитель; пассажирский «sat» сервер отклоняет 409)
     contact = c.post("/trusted-contacts", headers=ph, json={
         "name": "Гульназ", "relation": "Сестра", "phone": "+79277778899",
     }).json()
     c.post(f"/bookings/{bk['id']}/share", headers=ph, json={"contact_id": contact["id"]})
-    shares = c.post(f"/bookings/{bk['id']}/trip-status", headers=ph, json={"status": "sat"}).json()
+    shares = c.post(f"/bookings/{bk['id']}/trip-status", headers=ph, json={"status": "arrived"}).json()
     print("family share status:", shares[0]["last_status"])
-    assert shares[0]["last_status"] == "sat"
+    assert shares[0]["last_status"] == "arrived"
 
     # безопасность: SOS от пассажира
     sos = c.post("/sos", headers=ph, json={"category": "medical", "note": "нужна помощь"}).json()

@@ -558,7 +558,7 @@ def close_past_rides(now=None) -> tuple:
     done = expired = 0
     with engine.begin() as conn:
         # done: прошедшие активные, у которых была хотя бы одна подтверждённая бронь.
-        # «В пути» (onboard — пассажир нажал «Я сел») — тем более поездка состоялась
+        # «В пути» (onboard — водитель отметил «Сел»; до 17.10.2026 — «Я сел» пассажира) — тем более поездка состоялась
         # (13.10.2026: onboard стал реально ставиться, без этого такие рейсы уходили в expired).
         done = conn.execute(text(
             "UPDATE ride SET status = 'done' "

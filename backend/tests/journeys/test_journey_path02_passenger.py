@@ -4,8 +4,9 @@
 Как это видит пассажир: нашла «Баймак → Уфа», нажала «Забронировать» (связь моргнула — нажала
 ещё раз, бронь одна). Пока водитель не подтвердил, его телефона и точки сбора не видно, а чека
 ещё нет. Пришло «Бронь подтверждена» — открылись телефон, машина и место встречи, код посадки
-совпадает с тем, что видит водитель. «Водитель подъезжает», она села («Я сел»), доехала,
-нажала «Завершить», поставила пять звёзд — в чеке маршрут, сумма и её оценка, без телефона.
+совпадает с тем, что видит водитель. «Водитель подъезжает», она села — посадку отметил водитель
+(«Сел», решение 17.10.2026; своего «Я сел» у неё больше нет), доехала, нажала «Завершить»,
+поставила пять звёзд — в чеке маршрут, сумма и её оценка, без телефона.
 """
 
 
@@ -54,13 +55,17 @@ def test_passenger_finds_books_waits_boards_completes_rates_and_gets_receipt(api
     assert kit.role(passenger, bid)["driver_phase"] == "arriving"
     assert kit.notified(passenger, "Водитель подъезжает", ref_id=bid)
 
-    # 5. Посадка: «Я сел» сохраняется на сервере — переоткрытое приложение и водитель видят
-    #    «в пути», а не снова «ждём посадку».
-    sat = kit.trip_status(passenger, bid, "sat")
+    # 5. Посадка: отмечает водитель («Сел»). Старое приложение с «Я сел» получает понятный отказ.
+    #    Отметка сохраняется на сервере — переоткрытое приложение видит «в пути», а не «ждём посадку».
+    old_app = kit.trip_status(passenger, bid, "sat")
+    assert old_app.status_code == 409 and old_app.json()["detail"]["code"] == "driver_marks_boarding", old_app.text
+    assert kit.role(passenger, bid)["status"] == "confirmed"
+    sat = kit.driver_status(driver, bid, "boarded")
     assert sat.status_code == 200, sat.text
+    assert kit.notified(passenger, "Водитель отметил посадку", ref_id=bid)
     assert kit.role(passenger, bid)["status"] == "onboard"
     assert kit.details(passenger, bid)["status"] == "onboard"
-    assert kit.trip_status(passenger, bid, "sat").status_code == 200   # повтор — без ошибки
+    assert kit.driver_status(driver, bid, "boarded").status_code == 200   # повтор — без ошибки
 
     # 6. Завершение пассажиром.
     done = kit.trip_status(passenger, bid, "done")

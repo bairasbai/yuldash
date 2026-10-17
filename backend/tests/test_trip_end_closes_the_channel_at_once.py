@@ -61,8 +61,9 @@ def _вход(человек: dict) -> str:
 def test_пассажир_в_пути_отменить_не_может_а_место_не_уходит_в_продажу(client, user_factory):
     водитель, ride = _поездка(client, user_factory, "сел")
     пассажир, bid = _бронь(client, user_factory, водитель, ride, "сел")
-    assert client.post(f"/bookings/{bid}/trip-status", headers=пассажир["auth"],
-                       json={"status": "sat"}).status_code == 200
+    # Посадку отмечает водитель («Сел», решение 17.10.2026).
+    assert client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"],
+                       json={"status": "boarded"}).status_code == 200
     with Session(engine) as s:
         мест_было = s.get(Ride, ride["id"]).seats_left
 
@@ -81,8 +82,9 @@ def test_водителю_в_пути_отмена_с_другой_причин�
     """Решение 14.10 запрещает водителю только «не пришёл» по «в пути»; остальное не трогаем."""
     водитель, ride = _поездка(client, user_factory, "водитель")
     пассажир, bid = _бронь(client, user_factory, водитель, ride, "водитель")
-    assert client.post(f"/bookings/{bid}/trip-status", headers=пассажир["auth"],
-                       json={"status": "sat"}).status_code == 200
+    # Посадку отмечает водитель («Сел», решение 17.10.2026).
+    assert client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"],
+                       json={"status": "boarded"}).status_code == 200
     r = client.post(f"/bookings/{bid}/cancel", headers=водитель["auth"], json={"reason": "other"})
     assert r.status_code == 200 and r.json()["status"] == "cancelled", r.text
 

@@ -447,8 +447,8 @@ def test_trusted_contacts_and_share(client, user_factory):
     assert any(x["id"] == cid for x in client.get("/trusted-contacts", headers=pax["auth"]).json())
     sh = client.post(f"/bookings/{booking['id']}/share", headers=pax["auth"], json={"contact_id": cid})
     assert sh.status_code == 200
-    st = client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "sat"})
-    assert st.status_code == 200 and st.json()[0]["last_status"] == "sat"
+    st = client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "arrived"})
+    assert st.status_code == 200 and st.json()[0]["last_status"] == "arrived"
 
 
 def test_share_only_passenger(client, user_factory):

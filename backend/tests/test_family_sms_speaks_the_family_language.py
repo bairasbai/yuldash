@@ -16,11 +16,14 @@
 """
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from sqlmodel import Session
 
 from app.db import engine
 from app.models import User, UserRole
+from app.timeutil import utcnow
 
 from test_api import _ride
 
@@ -46,7 +49,10 @@ def _trip_shared_with_mother(client, user_factory, tag: str, lang: str):
     passenger = user_factory(f"{tag}Пассажир")
     _set_language(passenger["id"], lang)
 
-    ride_id = _ride(client, driver, comment=tag)
+    # Выезд через 10 минут: «сел в машину» уходит по отметке водителя «Сел» (решение 17.10.2026),
+    # а она открыта за 30 минут до выезда.
+    ride_id = _ride(client, driver, comment=tag,
+                    depart_at=(utcnow() + timedelta(minutes=10)).isoformat() + "+00:00")
     booking_id = client.post("/bookings", headers=passenger["auth"],
                              json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{booking_id}/confirm", headers=driver["auth"]).status_code == 200
@@ -57,7 +63,13 @@ def _trip_shared_with_mother(client, user_factory, tag: str, lang: str):
     }).json()["id"]
     assert client.post(f"/bookings/{booking_id}/share", headers=passenger["auth"],
                        json={"contact_id": contact_id}).status_code == 200
-    return passenger, booking_id, phone
+    return driver, booking_id, phone
+
+
+def _driver_marks_boarding(client, driver, booking_id):
+    r = client.post(f"/bookings/{booking_id}/driver-status", headers=driver["auth"],
+                    json={"status": "boarded"})
+    assert r.status_code == 200, r.text
 
 
 def _texts_for(sms: list[tuple[str, str]], phone: str) -> list[str]:
@@ -65,16 +77,14 @@ def _texts_for(sms: list[tuple[str, str]], phone: str) -> list[str]:
 
 
 def test_башкироязычной_семье_пишут_по_башкирски(client, user_factory, caught_sms):
-    passenger, booking_id, phone = _trip_shared_with_mother(client, user_factory, "СемьяБа", "ba")
+    driver, booking_id, phone = _trip_shared_with_mother(client, user_factory, "СемьяБа", "ba")
 
     share_sms = _texts_for(caught_sms, phone)
     assert share_sms, "ссылка слежения не ушла вовсе"
     assert "Сәфәрҙе күҙәт" in share_sms[0], f"ссылка близкому пришла по-русски: {share_sms[0]}"
 
     caught_sms.clear()
-    r = client.post(f"/bookings/{booking_id}/trip-status", headers=passenger["auth"],
-                    json={"status": "sat"})
-    assert r.status_code == 200, r.text
+    _driver_marks_boarding(client, driver, booking_id)
 
     status_sms = _texts_for(caught_sms, phone)
     assert status_sms, "статус поездки не ушёл близкому"
@@ -83,13 +93,12 @@ def test_башкироязычной_семье_пишут_по_башкирс�
 
 def test_русскоязычной_семье_пишут_по_русски(client, user_factory, caught_sms):
     """Обратная сторона: сделав башкирский возможным, нельзя навязать его всем."""
-    passenger, booking_id, phone = _trip_shared_with_mother(client, user_factory, "СемьяРу", "ru")
+    driver, booking_id, phone = _trip_shared_with_mother(client, user_factory, "СемьяРу", "ru")
 
     assert "Следи за поездкой" in _texts_for(caught_sms, phone)[0]
 
     caught_sms.clear()
-    client.post(f"/bookings/{booking_id}/trip-status", headers=passenger["auth"],
-                json={"status": "sat"})
+    _driver_marks_boarding(client, driver, booking_id)
 
     status_sms = _texts_for(caught_sms, phone)
     assert status_sms and "сел в машину" in status_sms[0], status_sms

@@ -387,9 +387,10 @@ def test_пауза_не_бросает_пассажира_в_начатой_п�
     bid = client.post("/bookings", headers=passenger["auth"],
                       json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{bid}/confirm", headers=driver["auth"]).status_code == 200
-    sat = client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"],
-                      json={"status": "sat"})
-    assert sat.status_code == 200, f"«сел в машину» не прошло: {sat.status_code} {sat.text[:200]}"
+    # Посадку отмечает водитель («Сел», решение 17.10.2026) — до паузы, человек уже в машине.
+    sat = client.post(f"/bookings/{bid}/driver-status", headers=driver["auth"],
+                      json={"status": "boarded"})
+    assert sat.status_code == 200, f"«Сел» не прошло: {sat.status_code} {sat.text[:200]}"
 
     _suspend(driver["id"])
     done = client.post(f"/bookings/{bid}/trip-status", headers=passenger["auth"],

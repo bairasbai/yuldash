@@ -20,7 +20,14 @@ def test_participant_can_validate_private_booking_link(client, user_factory, sta
     assert response.status_code == 200, response.text
     assert response.json()["role"] == role
     assert response.json()["status"] == status.value
-    assert set(response.json()) == {"role", "status", "driver_phase", "alone_with_driver", "arrival_verified"}
+    # peer_id — вторая сторона брони (её id и так знают оба: водитель — из /driver/bookings,
+    # пассажир — из карточки поездки); boarding_undo_sec — окно отмены «Сел» (решение 17.10.2026).
+    # Ни телефонов, ни координат: набор полей по-прежнему закрыт.
+    assert set(response.json()) == {"role", "status", "driver_phase", "alone_with_driver", "arrival_verified",
+                                    "peer_id", "boarding_undo_sec"}
+    other = (passenger, driver)[participant]
+    assert response.json()["peer_id"] == other["id"]
+    assert response.json()["boarding_undo_sec"] == 0
 
 
 def test_other_account_cannot_validate_private_booking_link(client, user_factory):

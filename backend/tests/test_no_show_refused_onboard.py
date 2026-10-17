@@ -1,10 +1,13 @@
 """«Не пришёл» нельзя отметить пассажиру, который уже «в пути» (решение 14.10.2026).
 
-С волны 1 «Я сел» реально переводит бронь в onboard (`test_boarding_is_recorded.py`). А неявка
-по-прежнему принималась и для onboard: водитель одним тапом перечёркивал отметку человека
-«я в машине» — бронь отменялась, места возвращались в продажу, неявка ложилась в Надёжность
-пассажира. Слово против слова решает не кнопка, а разбор: водитель сообщает о проблеме
-(`POST /incidents` по брони, тип passenger_no_show), пассажир объясняется, решает админ.
+С волны 1 посадка реально переводит бронь в onboard (`test_boarding_is_recorded.py`). А неявка
+по-прежнему принималась и для onboard: одним тапом перечёркивалась отметка «человек в машине» —
+бронь отменялась, места возвращались в продажу, неявка ложилась в Надёжность пассажира.
+
+С 17.10.2026 посадку отмечает сам водитель («Сел»), но правило то же: «в пути» неявкой не снять.
+Промахнулся карточкой — «Отменить» в первые минуты (`test_driver_marks_boarding.py`), позже —
+разбор: водитель сообщает о проблеме (`POST /incidents` по брони, тип passenger_no_show),
+пассажир объясняется, решает админ.
 """
 from datetime import timedelta
 
@@ -27,10 +30,15 @@ def _boarded(client, user_factory, tag):
     return drv, pax, ride, b["id"]
 
 
+def _board(client, drv, bid):
+    """Водитель отмечает «Сел» (решение 17.10.2026)."""
+    r = client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": "boarded"})
+    assert r.status_code == 200, r.text
+
+
 def test_no_show_refused_for_onboard_booking(client, user_factory):
     drv, pax, ride, bid = _boarded(client, user_factory, "a")
-    assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"],
-                       json={"status": "sat"}).status_code == 200
+    _board(client, drv, bid)
     with Session(engine) as s:
         assert s.get(Booking, bid).status == BookingStatus.onboard
         seats_before = s.get(Ride, ride["id"]).seats_left
@@ -38,8 +46,8 @@ def test_no_show_refused_for_onboard_booking(client, user_factory):
     r = client.post(f"/bookings/{bid}/no-show", headers=drv["auth"])
     assert r.status_code == 409, r.text
     detail = r.json()["detail"]
-    # Понятный отказ на двух языках: что случилось и что делать (сообщить о проблеме).
-    assert "Я сел" in detail["ru"] and "сообщи о проблеме" in detail["ru"]
+    # Понятный отказ на двух языках: что случилось и что делать («Отменить» или сообщить о проблеме).
+    assert "в машине" in detail["ru"] and "Отменить" in detail["ru"] and "сообщи о проблеме" in detail["ru"]
     assert detail["ba"].strip() and detail["ba"] != detail["ru"]
     # Машинная причина: клиент по ней сразу меняет «Не пришёл» на «Сообщить о проблеме».
     assert detail["code"] == "passenger_onboard"
@@ -56,15 +64,14 @@ def test_driver_opens_dispute_for_admin_instead(client, user_factory):
     """Путь вместо неявки — существующий двусторонний разбор по брони («Сообщить о проблеме»):
     пассажира зовут объясниться, решает админ. Вторую сторону клиент берёт из /driver/bookings."""
     drv, pax, _ride, bid = _boarded(client, user_factory, "b")
-    assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"],
-                       json={"status": "sat"}).status_code == 200
+    _board(client, drv, bid)
     rows = client.get("/driver/bookings", headers=drv["auth"]).json()
     row = next(r for r in rows if r["booking_id"] == bid)
     assert row["status"] == "onboard" and row["passenger_id"] == pax["id"]
 
     r = client.post("/incidents", headers=drv["auth"], json={
         "respondent_id": row["passenger_id"], "type": "passenger_no_show", "booking_id": bid,
-        "description": "Нажал «Я сел», но в машину не садился"})
+        "description": "Отметил «Сел» по ошибке, в машину он не садился"})
     assert r.status_code == 200, r.text
     with Session(engine) as s:
         inc = s.get(Incident, r.json()["id"])
@@ -76,7 +83,7 @@ def test_driver_opens_dispute_for_admin_instead(client, user_factory):
 
 
 def test_confirmed_booking_still_takes_no_show(client, user_factory):
-    """Обычный случай не сломан: человек не пришёл и «Я сел» не жал — неявка проходит."""
+    """Обычный случай не сломан: человек не пришёл, посадку не отмечали — неявка проходит."""
     drv, _pax, ride, bid = _boarded(client, user_factory, "c")
     with Session(engine) as s:
         seats_before = s.get(Ride, ride["id"]).seats_left
@@ -88,8 +95,8 @@ def test_confirmed_booking_still_takes_no_show(client, user_factory):
 
 
 def test_boarding_between_check_and_lock_is_refused_too(client, user_factory, monkeypatch):
-    """Пассажир нажал «Я сел», пока водитель жал «Не пришёл»: перепроверка под замком
-    тоже отказывает, а не отменяет бронь человека, который уже в машине."""
+    """Посадку отметили (второй телефон водителя, старая очередь), пока водитель жал «Не пришёл»:
+    перепроверка под замком тоже отказывает, а не отменяет бронь человека, который уже в машине."""
     import app.routers.bookings as bookings_mod
 
     drv, _pax, ride, bid = _boarded(client, user_factory, "d")
@@ -122,13 +129,12 @@ def test_boarding_between_check_and_lock_is_refused_too(client, user_factory, mo
 def test_admin_confirmed_no_show_counts_against_reliability(client, user_factory):
     """Разбор вместо кнопки должен иметь те же последствия: бронь «в пути» закрывается как done,
     но если админ признал, что пассажир не садился, поездка ему не засчитывается, а бьёт по
-    Надёжности. Раньше ветка «выполнена» стояла первой — и один тап «Я сел» снимал всё (ревью Opus)."""
+    Надёжности. Раньше ветка «выполнена» стояла первой — и одна отметка посадки снимала всё (ревью Opus)."""
     from app.safety_logic import reliability_for
 
     drv, pax, _ride, bid = _boarded(client, user_factory, "e")
     admin = user_factory("NSO Admin", role=UserRole.admin)
-    assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"],
-                       json={"status": "sat"}).status_code == 200
+    _board(client, drv, bid)
     inc = client.post("/incidents", headers=drv["auth"], json={
         "respondent_id": pax["id"], "type": "passenger_no_show", "booking_id": bid,
         "description": "В машину не садился"}).json()
@@ -147,8 +153,7 @@ def test_admin_confirmed_no_show_counts_against_reliability(client, user_factory
 def test_driver_cannot_cancel_onboard_booking_as_no_show(client, user_factory):
     """Та же неявка другой дверью — отмена брони «в пути» с причиной «не пришёл» — тоже 409."""
     drv, pax, ride, bid = _boarded(client, user_factory, "f")
-    assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"],
-                       json={"status": "sat"}).status_code == 200
+    _board(client, drv, bid)
     with Session(engine) as s:
         seats_before = s.get(Ride, ride["id"]).seats_left
     r = client.post(f"/bookings/{bid}/cancel", headers=drv["auth"], json={"reason": "no_show"})

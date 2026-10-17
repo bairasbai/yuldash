@@ -58,8 +58,9 @@ def test_маму_с_пометкой_только_sos_не_дёргают_ст�
     passenger, booking_id, phone = _trip_with_contact(client, user_factory, "ТолькоSOS", notify=False)
     caught_sms.clear()   # разовая ссылка при шаринге уже ушла — она к статусам не относится
 
+    # «Доехал» — статус, который пассажир шлёт сам (посадку с 17.10.2026 отмечает водитель).
     r = client.post(f"/bookings/{booking_id}/trip-status", headers=passenger["auth"],
-                    json={"status": "sat"})
+                    json={"status": "arrived"})
     assert r.status_code == 200, r.text
 
     assert not [t for p, t in caught_sms if p == phone], \
@@ -71,13 +72,14 @@ def test_близкий_со_статусом_получает_как_прежд
     passenger, booking_id, phone = _trip_with_contact(client, user_factory, "СоСтатусом", notify=True)
     caught_sms.clear()
 
+    # «Доехал» — статус, который пассажир шлёт сам (посадку с 17.10.2026 отмечает водитель).
     r = client.post(f"/bookings/{booking_id}/trip-status", headers=passenger["auth"],
-                    json={"status": "sat"})
+                    json={"status": "arrived"})
     assert r.status_code == 200, r.text
 
     texts = [t for p, t in caught_sms if p == phone]
     assert texts, "близкий, которого просили держать в курсе, ничего не получил"
-    assert "сел в машину" in texts[0], texts
+    assert "доехал до места" in texts[0], texts
 
 
 def test_sos_приходит_всем_включая_пометку(client, user_factory, monkeypatch):
