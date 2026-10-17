@@ -60,7 +60,18 @@ export default function NearbyRideCard({ ride, soonest, onOpen }: { ride: NearRi
   const trust = trustLine(ride.driver_trips, ride.driver_since, ru);
   const km = ride.distance_km;
   return (
-    <article className="nrc" onClick={onOpen} role="button" tabIndex={0} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onOpen()}>
+    <article
+      className="nrc"
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        // Нажатие своё: без этого тот же Enter «доставался» кнопке в открывшейся шторке, а пробел листал страницу.
+        e.preventDefault();
+        onOpen();
+      }}
+    >
       <div className="nrc__route">
         <strong>
           {ride.from_city} → {ride.to_city}

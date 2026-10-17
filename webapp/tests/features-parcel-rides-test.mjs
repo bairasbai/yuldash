@@ -28,6 +28,8 @@ mocks["../components/WeatherWarningCard"]="export default function Weather(){ret
 mocks["../utils/seatOptions"]="export const SEATS_DEFAULT=4;export const clampSeats=n=>n;export const seatCap=()=>4;";
 mocks["../components/ComingSoon"]="export default function ComingSoon(){return null;}";
 mocks["./ComingSoon"]=mocks["../components/ComingSoon"];
+// Уход шторки — настоящий (useSheetExit): ему хватает useState/useRef/useEffect подменённого React.
+delete mocks["./useSheetExit"];
 async function compile(entry){const out=await build({entryPoints:[entry],bundle:true,write:false,format:"esm",platform:"node",jsx:"automatic",plugins:[{name:"parcel-fixtures",setup(b){b.onResolve({filter:/.*/},a=>a.path in mocks?{path:a.path,namespace:"fixture"}:undefined);b.onLoad({filter:/.*/,namespace:"fixture"},a=>({contents:mocks[a.path],loader:"js"}));}}]});return(await import("data:text/javascript;base64,"+Buffer.from(out.outputFiles[0].text).toString("base64"))).default;}
 const [Create,Sheet]=await Promise.all(entries.map(compile));
 function fresh(parcels,category,lang="ru"){return globalThis.__parcelRide={parcels,lang,cursor:0,slots:[],dirty:true,hydrated:false,published:[],booked:[],routes:[],draft:{category,from:"Уфа",to:"Сибай",when:"2030-01-01T10:00",price:"300"}};}

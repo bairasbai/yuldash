@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlmodel import Session, select
 
+from .. import trip_wake
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
@@ -449,6 +450,7 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
         booking.status = BookingStatus.done
         session.add(booking)
         session.commit()
+        trip_wake.poke(booking.id)   # канал координат закрывается сразу (bookings.cancel_booking)
         # B8-4: пассажир завершил поездку → проверяем реферальный бонус за водителя (идемпотентно).
         if ride:
             from .referral import reward_driver_referral

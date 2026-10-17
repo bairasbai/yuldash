@@ -61,7 +61,7 @@ internal class NearbyCityFilterState {
     var fromOptions by mutableStateOf<List<FilterCity>>(emptyList())
     var toOptions by mutableStateOf<List<FilterCity>>(emptyList())
     /** Найденные поиском (город или деревня вне топа): имя на двух языках — для подписи чипа. Общие для
-     *  «Откуда» и «Куда» и живут, пока открыта карта: найденное в одной шторке видно и в другой. */
+     *  «Откуда» и «Куда»; живут, пока шторка открыта, а после закрытия — только выбранные ([dropUnchosenFound]). */
     var found by mutableStateOf<List<FilterCity>>(emptyList())
     val active: Boolean get() = from.isNotEmpty() || to.isNotEmpty()
     /** Когда список городов последний раз пришёл с сервера (elapsedRealtime, мс); 0 — ещё ни разу. */
@@ -69,9 +69,20 @@ internal class NearbyCityFilterState {
     /** Есть что выбрать или что снять: тогда чипы на месте, даже если рядом поездок нет. */
     val offered: Boolean get() = active || fromOptions.isNotEmpty() || toOptions.isNotEmpty()
 
+    /** «Сбросить фильтры»: снимает выбор и найденные поиском — иначе снятая деревня висела строкой в обеих шторках (приёмка PR154). */
     fun clear() {
         from = emptySet()
         to = emptySet()
+        found = emptyList()
+    }
+
+    /**
+     * Шторку закрыли: найденные поиском и не выбранные ни в «Откуда», ни в «Куда» уходят (как `keepChosenFound`
+     * на сайте). Иначе деревня, найденная и тут же снятая, висела строкой в «Откуда» и всплывала в «Куда»
+     * до ухода с карты (приёмки PR148, PR151). Выбранные остаются — по ним подписан чип.
+     */
+    fun dropUnchosenFound() {
+        found = found.filter { it.ru in from || it.ru in to }
     }
 }
 
@@ -138,7 +149,7 @@ internal fun RowScope.NearbyCityChips(state: NearbyCityFilterState, chipModifier
             chosen = if (isFrom) state.from else state.to,
             onChange = { if (isFrom) state.from = it else state.to = it },
             onFound = { state.found = (state.found + it).distinctBy { c -> c.ru } },
-            onDismiss = { sheetForFrom = null },
+            onDismiss = { sheetForFrom = null; state.dropUnchosenFound() },
         )
     }
 }
@@ -159,7 +170,7 @@ private fun NearbyCitySheet(
     onFound: (FilterCity) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    NearbySheet(title, onDismiss = onDismiss) {
+    NearbySheet(title, onDismiss = onDismiss) { close ->
         SettlementPickField(appText("Найти город или деревню", "Ҡала йәки ауыл табыу"), picked = null) { s ->
             if (s != null) {
                 onFound(FilterCity(s.nameRu, s.nameBa ?: s.nameRu))
@@ -167,12 +178,12 @@ private fun NearbyCitySheet(
             }
         }
         NearbyCheckRow(anyLabel, chosen.isEmpty()) { onChange(emptySet()) }
-        // Найденные поиском остаются в шторке (пока открыта карта), даже со снятой галочкой: иначе вернуть её можно только новым поиском.
+        // Найденные поиском остаются в шторке, пока она открыта, даже со снятой галочкой: иначе вернуть её можно только новым поиском.
         (found.filter { f -> options.none { it.ru == f.ru } } + options).forEach { city ->
             val on = city.ru in chosen
             NearbyCheckRow(appText(city.ru, city.ba), on) { onChange(if (on) chosen - city.ru else chosen + city.ru) }
         }
-        AppButton(appText("Готово", "Әҙер"), onDismiss, modifier = Modifier.padding(top = CanonSpace.md))
+        AppButton(appText("Готово", "Әҙер"), close, modifier = Modifier.padding(top = CanonSpace.md))
     }
 }
 

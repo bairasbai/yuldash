@@ -48,6 +48,31 @@ internal fun NearbyRouteReset(onClick: () -> Unit) {
     }
 }
 
+/**
+ * Поиск ленты — то, что выбрал сам человек: маршрут с карусели, день, условия, города, «только проверенные»
+ * (без «Обновить» и порции «Показать ещё»). Позиции здесь нет нарочно: она меняется сама, пока человек едет
+ * (ключ огрублён до ~1 км), и сбой сети после такого сдвига не должен прятать почти верный список за
+ * «нет сети» — человек ничего не менял (решение лида, 17.10.2026). На сайте место меняется только нажатием
+ * чипа «Ближайшие» — это действие человека, и там оно в поиске есть (`nearbyContextKey`).
+ */
+internal fun nearbySearch(
+    from: String?,
+    to: String?,
+    date: String?,
+    conditions: Set<String>,
+    fromCities: Set<String>,
+    toCities: Set<String>,
+    verifiedOnly: Boolean,
+): Any = listOf(from, to, date, conditions, fromCities, toCities, verifiedOnly)
+
+/**
+ * Запрос ленты упал: убрать ли показанный список (зеркало `nearbyFailure` в nearbyFeed.ts сайта).
+ * Тот же [nearbySearch] (авто-обновление раз в ~25 с, сдвиг позиции, «Показать ещё») — нет: сеть моргнула,
+ * поездки остаются. Другой (человек сменил день, условие, город, маршрут) — да: старый список под новым
+ * чипом фильтру не соответствует, лента покажет «нет сети» с «Повторить» (приёмки PR147, PR148, PR151).
+ */
+internal fun nearbyDropsOnFailure(shownFor: Any?, requested: Any): Boolean = shownFor != requested
+
 /** До явного выбора лента следует активной поездке; «Все маршруты» снимает и её ограничение. */
 internal class NearbyRouteSearchState {
     var route by mutableStateOf<PopularRoute?>(null)
