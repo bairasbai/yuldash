@@ -4828,6 +4828,12 @@ ApiClient.cacheRevisions хранит invalidation version по фиксиров
   курьер, поиск, поездка, навигация водителя), `BookingRouteMapPreview` (`BookingActiveTripScreen.kt`). Держит `MapKitGateGuardTest`.
 - `NearbyFeedSearch.kt` — «Найти попутку» на вкладке «Карта» (`MapScreen`): `rememberNearbyFeedState` (плавно ставит
   «Ближайшие поездки» наверх), `NearbyRouteReset` («Все маршруты»). Колбэка `onOpenPopular` и состояния «пресет вкладки Поездки» больше нет.
+- `NearbyFiltersPanel.kt` — ряд фильтров «Ближайших» (`MapScreen`): чип «Когда» (`NearbyWhenChip`, шторка дня
+  с «Другая дата…»), чип «Фильтры · N» (`NearbyConditionsChip`, шторка условий с «Показать N поездок»), общая шторка
+  `NearbySheet`. Тест — `NearbyFiltersPanelTest`. (16.10.2026, PR148)
+- `NearbyCityFilter.kt` — чипы «Откуда»/«Куда» (`NearbyCityChips`), шторка городов с поиском по справочнику
+  (`SettlementPickField`), строка-галочка `NearbyCheckRow`, состояние `NearbyCityFilterState` (список `/rides/cities`
+  не чаще раза в 2 минуты). Разбор ответа — `data/RideCities.kt`. (16.10.2026, PR147/148)
 - `BoardingCodeRules.kt` — `boardingDone` / `showBoardingCode` (карточка «Код посадки» уходит после «Я сел») и
   `needsOfflineCodeCopy` (плашка «Код не сохранён» — только пассажиру с офлайн-паспортом).
 
