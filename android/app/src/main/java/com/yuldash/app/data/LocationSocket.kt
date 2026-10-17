@@ -1,5 +1,6 @@
 package com.yuldash.app.data
 
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -16,6 +17,9 @@ import java.util.concurrent.TimeUnit
  * {type:loc,role,...}. Токен — первым сообщением {type:auth,token} (как чат, не в URL).
  * Сервер ретранслирует ТОЛЬКО в активной поездке; координаты НЕ хранит (приватность).
  * Авто-реконнект с backoff (как ChatSocket): обрыв сети/сон/туннель → сам переподключится.
+ * Отказ в ключе («Invalid token» / «Token revoked») — не конец: ключ живёт 12 ч, а запросов, которые
+ * обновили бы его по 401, в поездке с погасшим экраном может не быть. Обновляем сами тем же путём,
+ * что запросы, и подключаемся только с новым ключом; обновление отказано (вход отозван) — конец.
  */
 class LocationSocket(
     private val bookingId: Int,
@@ -24,6 +28,9 @@ class LocationSocket(
     private val socketFactory: WebSocket.Factory = client,
     private val scheduleTask: (Runnable, Long, TimeUnit) -> Unit = { task, delay, unit -> scheduler.schedule(task, delay, unit); Unit },
     private val onTerminated: () -> Unit = {},
+    private val currentToken: () -> String? = { ApiClient.currentToken() },
+    // Тот же mutex, intent и поколение, что у запросов после 401; явный отказ в продлении завершает вход так же.
+    private val refreshToken: suspend (String) -> Result<Unit> = { ApiClient.tryRefresh(it, ApiClient.queueSessionGeneration()) },
 ) {
     data class Peer(val role: String, val lat: Double, val lng: Double, val bearing: Double?, val ts: Long)
 
@@ -32,11 +39,13 @@ class LocationSocket(
     @Volatile private var generation = 0L
     @Volatile private var attempt = 0
     @Volatile private var softAttempt = 0        // мягкий ретрай «поездка не активна» — с потолком MAX_SOFT_ATTEMPTS
+    @Volatile private var tokenAttempt = 0       // повторы после отказа в ключе — своя лестница 1…30 с
+    @Volatile private var rejectedToken: String? = null   // ключ, который сервер отверг: с ним не подключаемся
 
     // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:
     // NetworkMonitor хранит слушателей через WeakReference, ссылку не даём собрать GC.
     private val netListener = NetworkMonitor.Listener {
-        if (!closed) { attempt = 0; openSocket() }
+        if (!closed && rejectedToken == null) { attempt = 0; openSocket() }
     }
 
     companion object {
@@ -54,12 +63,15 @@ class LocationSocket(
     }
 
     @Synchronized
-    fun connect() { closed = false; attempt = 0; softAttempt = 0; NetworkMonitor.subscribe(netListener); openSocket() }
+    fun connect() {
+        closed = false; attempt = 0; softAttempt = 0; tokenAttempt = 0; rejectedToken = null
+        NetworkMonitor.subscribe(netListener); openSocket()
+    }
 
     @Synchronized
     private fun openSocket() {
         if (closed) return
-        val token = ApiClient.currentToken() ?: return
+        val token = currentToken() ?: return
         val connection = ++generation
         ws?.close(4999, "replaced")   // закрываем старый сокет перед новым (гонка reconnect↔connect → двойной GPS-канал); 4999 = терминал, без churn
         val url = "${ApiClient.wsBase()}/ws/trip/$bookingId/location"   // токен НЕ в URL — первым сообщением
@@ -81,6 +93,7 @@ class LocationSocket(
                             val o = JSONObject(text)
                             if (o.optString("type") == "loc") {
                                 softAttempt = 0
+                                tokenAttempt = 0
                                 onPeer(
                                     Peer(
                                         role = o.optString("role"),
@@ -108,7 +121,12 @@ class LocationSocket(
                         // Это НЕ терминал: бронь станет confirmed → подключимся. Мягкий ретрай раз в 15с (сервис
                         // живёт только во время поездки → не вечный цикл). Иначе сразу после брони стрим бы не запускался.
                         if (code == 1008 && reason.contains("not active", ignoreCase = true)) { softReconnect(); return }
-                        // Forbidden / Invalid token / прочие 1008|4xxx — настоящий терминал, не долбимся.
+                        // Ключ истёк или отозван — ждём обновлённый (см. awaitFreshToken), а не гасим точку до конца
+                        // поездки: пассажир и близкие молча теряли машину (приёмка PR155).
+                        if (code == 1008 && reason.contains("token", ignoreCase = true)) {
+                            rejectedToken = token; awaitFreshToken(); return
+                        }
+                        // Forbidden / Trip ended / Access ended / прочие 1008|4xxx — настоящий терминал, не долбимся.
                         if (code != 1008 && code !in 4000..4999) scheduleReconnect() else terminate()
                     }
                 }
@@ -141,6 +159,34 @@ class LocationSocket(
         if (softAttempt >= MAX_SOFT_ATTEMPTS) { terminate(); return }
         softAttempt++
         scheduleReconnectAfter(SOFT_RETRY_SEC)
+    }
+
+    /**
+     * Отвергнутый ключ повторно не шлём (как ChatSocket): по лестнице 1…30 с просим обновление тем же
+     * путём, что запросы после 401, и подключаемся, как только ключ другой. Явный отказ в продлении
+     * (401/403 — «Выйти со всех устройств») — конец; нет сети — следующий шаг лестницы.
+     */
+    private fun awaitFreshToken() {
+        if (closed) return
+        val rejected = rejectedToken ?: return
+        tokenAttempt++
+        val delay = minOf(MAX_DELAY_SEC, 1L shl minOf(tokenAttempt - 1, 5))
+        val connection = generation
+        scheduleTask(Runnable {
+            if (closed || generation != connection) return@Runnable
+            // Сеть — вне замка: обновление ключа может идти секунды.
+            val failure = runCatching { runBlocking { refreshToken(rejected) } }
+                .getOrElse { Result.failure<Unit>(it) }.exceptionOrNull()
+            synchronized(this) {
+                if (closed || generation != connection) return@Runnable
+                val fresh = currentToken()
+                when {
+                    fresh != null && fresh != rejected -> { rejectedToken = null; openSocket() }
+                    fresh == null || (failure is ApiException && failure.status in setOf(401, 403)) -> terminate()
+                    else -> awaitFreshToken()
+                }
+            }
+        }, delay, TimeUnit.SECONDS)
     }
 
     private fun scheduleReconnectAfter(delay: Long) {
