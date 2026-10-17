@@ -875,7 +875,7 @@ object ApiClient {
         // auth=true: токен (если есть) → сервер прячет заблокированных. Аноним по-прежнему видит всё.
         return call("GET", path, null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            NearbyPage((0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }, obj.optInt("count"))
+            NearbyPage((0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }, obj.optInt("count"), obj.optInt("hidden_unverified"))
         }
     }
 
@@ -6433,7 +6433,7 @@ data class PriceHintDto(
 )
 
 /** Страница «Ближайших»: показанные + всего на маршруте (для кнопки «Показать ещё»). */
-data class NearbyPage(val items: List<RideDto>, val total: Int)
+data class NearbyPage(val items: List<RideDto>, val total: Int, val hiddenUnverified: Int = 0)   // hidden_unverified: спрятал «только проверенные» (17.10.2026; старый сервер — 0)
 
 /** F14: точка сбора по ориентиру (публичный справочник). titleRu/titleBa — двуязычное название. */
 data class PickupPointDto(
