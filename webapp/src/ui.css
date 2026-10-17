@@ -2625,6 +2625,43 @@ button.list-row:active {
 .sos-btn:active {
   transform: scale(0.98);
 }
+/* «Отменить поездку» пассажира (подтверждённая бронь): красная рамка + тихая подпись под ней,
+   как OutlinedButton(CanonRed) в Android BookingActiveTripScreen.kt. */
+.trip-cancel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: 14px;
+}
+.trip-cancel__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  width: 100%;
+  min-height: 52px;
+  padding: 0 var(--space-md);
+  border: 1.5px solid var(--danger);
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: var(--danger);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-bold);
+  transition: transform var(--motion-quick) ease;
+}
+.trip-cancel__btn:active {
+  transform: scale(0.98);
+}
+.trip-cancel__btn:disabled {
+  opacity: 0.5;
+}
+.trip-cancel__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
 .rate-card {
   margin-top: 16px;
   padding: 20px;
@@ -8779,6 +8816,75 @@ select.field__input {
   align-items: center;
   gap: var(--space-xs);
   color: var(--green2);
+}
+
+/* ---- Точка водителя для пассажира (DriverLocationShare): зачем / отправляем / беда ---- */
+.trip-geo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: var(--space-md) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-field);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  animation: fadeIn var(--motion-normal) ease both;
+}
+.trip-geo--idle {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: 0;
+  background: transparent;
+}
+.trip-geo--idle svg,
+.trip-geo__line svg {
+  flex: none;
+  margin-top: 2px;
+}
+.trip-geo--live {
+  background: var(--mint);
+  color: var(--green2);
+}
+.trip-geo--warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.trip-geo__line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  margin: 0;
+}
+.trip-geo__line > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* Живая точка «дышит», пока уходит; в остальных состояниях стоит спокойно. */
+.trip-geo__dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+.trip-geo--live .trip-geo__dot {
+  animation: schedBreath var(--motion-pulse) ease-in-out infinite alternate;
+}
+.trip-geo__retry {
+  align-self: flex-start;
+  padding: 0;
+  color: inherit;
+  font-weight: var(--weight-bold);
+}
+@media (prefers-reduced-motion: reduce) {
+  .trip-geo,
+  .trip-geo--live .trip-geo__dot {
+    animation: none;
+  }
 }
 
 /* ---- Список остановок ---- */
@@ -18857,7 +18963,8 @@ button.settings-row:active {
   gap: var(--space-sm);
 }
 .adlg__btn {
-  min-height: 40px;
+  /* Тач-цель 48, как TextButton(heightIn(min = 48.dp)) в диалогах приложения. */
+  min-height: 48px;
   padding: 0 var(--space-md);
   border: 0;
   border-radius: var(--radius-pill);
@@ -18871,6 +18978,9 @@ button.settings-row:active {
 }
 .adlg__btn--danger {
   color: var(--danger);
+}
+.adlg__btn--warn {
+  color: var(--warn);
 }
 .adlg__btn:disabled {
   opacity: 0.5;
@@ -18909,6 +19019,53 @@ button.settings-row:active {
   color: var(--muted);
   font-size: var(--font-micro);
   line-height: var(--line-micro);
+}
+/* Причина отмены поездки (по желанию): строки-переключатели в окне «Отменить поездку?».
+   Выбранная — мятная с галочкой, повторное касание снимает выбор (Android BookingActiveTripScreen.kt). */
+.adlg__reasons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.adlg__reasons-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.adlg__reason {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  min-height: 48px;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+  font-weight: var(--weight-medium);
+  text-align: left;
+  transition: background-color var(--motion-quick) ease, border-color var(--motion-quick) ease, transform var(--motion-quick) ease;
+}
+.adlg__reason:active {
+  transform: scale(0.98);
+}
+.adlg__reason.is-on {
+  border-color: var(--green2);
+  background: var(--mint);
+  color: var(--green2);
+  font-weight: var(--weight-bold);
+}
+.adlg__reason svg {
+  flex: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .adlg__reason {
+    transition: none;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .tdw-pill__dot i,

@@ -14,6 +14,9 @@
 //  Числа в ответе честные. Экран, который писал «близкие получили
 //  твои координаты» всегда, врал тому, кто доверенных не добавлял:
 //  человек на морозе читал это и переставал звонить сам.
+//
+//  Перед отправкой — окно «Позвать помощь?», как в Android (паритет 16.10.2026): раньше
+//  сигнал уходил с первого касания, и случайный тап в кармане поднимал дежурного.
 // ================================================================
 import { useState } from "react";
 import { useLang } from "../i18n/lang";
@@ -24,6 +27,7 @@ import {
 } from "../api/safety";
 import { IconWarn } from "./Icons";
 import { track } from "../analytics";
+import AlertDialog from "./AlertDialog";
 
 type Where = { kind: "booking"; id: number } | { kind: "parcel"; id: number };
 
@@ -35,6 +39,8 @@ export default function RoadsideHelp({ target }: { target: Where }) {
   const { appText } = useLang();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  /** Открыто окно «Позвать помощь?». */
+  const [confirm, setConfirm] = useState(false);
 
   function describe(r: RoadsideResult): string {
     if (r.contacts_total === 0) {
@@ -57,6 +63,7 @@ export default function RoadsideHelp({ target }: { target: Where }) {
 
   function call() {
     if (busy) return;
+    setConfirm(false);
     setBusy(true);
     setNote("");
     const send = (lat?: number, lng?: number) => {
@@ -96,9 +103,24 @@ export default function RoadsideHelp({ target }: { target: Where }) {
 
   return (
     <>
-      <button type="button" className="btn-soft trip-btn trip-btn--warn" onClick={call} disabled={busy}>
+      <button type="button" className="btn-soft trip-btn trip-btn--warn" onClick={() => setConfirm(true)} disabled={busy}>
         <IconWarn size={18} /> {appText("Застряли на трассе", "Юлда ҡалдыҡ")}
       </button>
+      {/* Текст окна — из Android RoadsideHelp.kt, кроме одного слова: там «Кому из близких ушло
+          SMS — покажем сразу после». SMS на проде выключены, поэтому здесь «сообщение» — то же
+          слово, что в ответе после отправки («Близким отправлено: N»). */}
+      {confirm && (
+        <AlertDialog
+          title={appText("Позвать помощь?", "Ярҙам саҡырырғамы?")}
+          text={appText(
+            "Поддержка Юлдаша увидит сигнал с координатами. Кому из близких ушло сообщение — покажем сразу после. Если угрожает опасность — звони 112.",
+            "Юлдаш ярҙамы координаталар менән сигналды күрә. Яҡындарыңдың ҡайһыһына хәбәр киткәнен шунда уҡ күрһәтербеҙ. Хәүеф янаһа — 112-гә шылтырат."
+          )}
+          onClose={() => setConfirm(false)}
+          confirm={{ label: appText("Позвать помощь", "Ярҙам саҡырыу"), tone: "warn", onClick: call }}
+          dismiss={{ label: appText("Отмена", "Кире алыу"), tone: "muted", onClick: () => setConfirm(false) }}
+        />
+      )}
       {note && (
         <div className="notice" role="status">
           {note}

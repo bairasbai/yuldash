@@ -133,7 +133,6 @@ export default function ShareTripCard({
       if (bookingId) await revokeBookingShare(bookingId, shareId);
       else if (orderId) await revokeOrderShare(orderId, shareId);
       track("revoke_share");
-      track("revoke_share");
     } catch {
       setShares(prev); // откат
       setNote(appText("Не получилось отозвать доступ.", "Рөхсәтте кире алып булманы."));

@@ -153,6 +153,20 @@ const SUITES = [
   { test: "nearby-filters-ui-test", src: null, out: null, bundle: false },
   // …и настоящая разметка этих компонентов (react-dom/server): строки-флажки, aria-checked, подписи чипов на двух языках.
   { test: "nearby-filters-render-test", src: null, out: null, bundle: false },
+  // Паритет с Android, шаги 3–4 (17.10.2026). Наборы исполняют настоящие экраны на общем стенде
+  // shallow-harness.mjs (экран поездки — active-trip-fixture.mjs).
+  // «Едут с тобой» → «Открыть поездку»; звёзды только у завершённых; отменённых в блоке нет.
+  { test: "driver-passengers-open-trip-test", src: null, out: null, bundle: false },
+  // Отмена: на «Брони» — только ждущая и своим окном; подтверждённая — на экране поездки с причиной {reason}; «в пути» — никак.
+  { test: "booking-cancel-reason-test", src: null, out: null, bundle: false },
+  // Точка водителя с сайта в канал /ws/trip/{id}/location: только в пути, без журнала и аналитики, отказ не роняет экран.
+  { test: "driver-location-share-test", src: null, out: null, bundle: false },
+  // Такси выключено (/config/features) — такси-пунктов нет в профиле и обоих кабинетах.
+  { test: "taxi-flag-hides-test", src: null, out: null, bundle: false },
+  // «Позвать помощь?» и «Завершить поездку?» — окно перед необратимым, как в Android.
+  { test: "confirm-before-action-test", src: null, out: null, bundle: false },
+  // Одно действие — одно событие аналитики (было: publish_ride, revoke_share, courier_online дважды).
+  { test: "analytics-no-double-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.

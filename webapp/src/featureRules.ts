@@ -152,7 +152,13 @@ export function shouldRefresh(at: number, now: number, lastAttemptAt: number): b
 // ---------------- решения гейтов ----------------
 
 /** Какой вход закрывают флаги. */
-export type Need = "delivery" | "courier" | "business" | "ads";
+export type Need = "delivery" | "courier" | "business" | "ads" | "taxi";
+
+/**
+ * Входы, у которых есть свой экран «Скоро в Юлдаше» (ComingSoon). У такси заглушка своя —
+ * «Такси скоро» на маршруте /taxi (`taxiGateView`), поэтому гейт маршрута такси не берёт.
+ */
+export type GateNeed = Exclude<Need, "taxi">;
 
 /** О чём «скоро»: у доставки две половины (посылки «по пути» и курьер), у курьера — своя. */
 export type SoonKind = "delivery" | "courier" | "business" | "ads";
@@ -162,7 +168,9 @@ export type SoonKind = "delivery" | "courier" | "business" | "ads";
  *  • delivery — работает хоть одна половина доставки (посылки «по пути» или курьер);
  *  • courier  — только курьерский режим (заказы, линия, заработок);
  *  • business — «Скидки по пути» (купоны и кабинет бизнеса);
- *  • ads      — реклама.
+ *  • ads      — реклама;
+ *  • taxi     — такси-пункты кабинетов и профиля: «Быстрый заказ», предзаказы, поездки на такси,
+ *               линия, готовность к работе (зеркало Android `Feature.Taxi`, ProfileScreen.kt).
  */
 export function isOpen(need: Need, f: Features): boolean {
   switch (need) {
@@ -174,6 +182,8 @@ export function isOpen(need: Need, f: Features): boolean {
       return f.business;
     case "ads":
       return f.ads;
+    case "taxi":
+      return f.taxi;
   }
 }
 
@@ -182,7 +192,7 @@ export function isOpen(need: Need, f: Features): boolean {
  * Курьерский режим при включённых посылках «по пути» не должен говорить «и посылок нет»:
  * тогда «скоро» — только про курьера, а попутная доставка работает.
  */
-export function soonKind(need: Need, f: Features): SoonKind | null {
+export function soonKind(need: GateNeed, f: Features): SoonKind | null {
   if (isOpen(need, f)) return null;
   if (need === "courier") return f.parcels ? "courier" : "delivery";
   return need;

@@ -52,6 +52,8 @@ export interface BookingRow {
   pay_amount?: number | null;
   front_seat?: boolean;
   created_at: string;
+  /** Отмена после того, как телефон/чат уже открывались (B8-8) — мягкое напоминание пассажиру. */
+  contact_then_cancel?: boolean;
 }
 
 /** Детали брони — экран Booking (GET /bookings/{id}/details). */
@@ -174,8 +176,28 @@ export function fetchMyBookings(signal?: AbortSignal): Promise<MyBooking[]> {
   return apiGet<MyBooking[]>("/bookings/mine", { signal });
 }
 
-export function cancelBooking(id: number): Promise<BookingRow> {
-  return apiPost<BookingRow>(`/bookings/${id}/cancel`);
+/**
+ * Причины отмены поездки пассажиром — те же три кода и подписи, что в Android
+ * (BookingActiveTripScreen.kt, диалог «Отменить поездку?»). Коды — из белого списка сервера
+ * `safety_logic.CANCEL_REASONS`: незнакомый код сервер свёл бы к «other», и водитель не узнал бы,
+ * почему место освободилось. Причина по желанию: пустая строка = «не указана».
+ */
+export const CANCEL_REASONS = [
+  { code: "plans_changed", ru: "Планы поменялись", ba: "Пландар үҙгәрҙе" },
+  { code: "found_other", ru: "Нашёл другой вариант", ba: "Башҡа юл таптым" },
+  { code: "driver_no_response", ru: "Водитель не отвечает", ba: "Йөрөтөүсе яуап бирмәй" },
+] as const;
+
+export type CancelReason = (typeof CANCEL_REASONS)[number]["code"] | "";
+
+/**
+ * Отменить бронь — POST /bookings/{id}/cancel {reason}. Как Android ApiClient.cancelBooking:
+ * тело уходит всегда, причина — код из CANCEL_REASONS или пусто. Ответ — строка брони: если
+ * статус в ней не `cancelled`, сервер отменять отказался (поездку уже завершили, пока окно было
+ * открыто), и говорить «отменено» нельзя.
+ */
+export function cancelBooking(id: number, reason: CancelReason = ""): Promise<BookingRow> {
+  return apiPost<BookingRow>(`/bookings/${id}/cancel`, { reason });
 }
 
 /** Зафиксировать договорённость об оплате (способ/сумма). */
