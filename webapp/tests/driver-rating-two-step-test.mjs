@@ -210,6 +210,9 @@ await t.test("вёрстка: имя своей строкой во всю ши�
   assert.match(block(".rate-confirm .btn-primary"), /margin-top:\s*0/, "у .btn-primary свой отступ сверху — кнопки стояли криво");
   assert.match(block(".rate-row .rate-edit"), /min-height:\s*48px/);
   assert.match(block(".rate-stars--sm .rate-star {"), /color:\s*var\(--muted\)/, "пустая звезда почти не видна на --border");
+  assert.match(block(".rate-stars--sm .rate-star.is-on {"), /color:\s*var\(--canon-star\)/, "горящая звезда стала такой же серой, как пустая");
+  assert.ok(css.indexOf(".rate-stars--sm .rate-star.is-on {") > css.indexOf(".rate-stars--sm .rate-star {"), "горящая — ниже по каскаду, чем пустая");
+  assert.match(css, /\.rate-star:not\(:disabled\):hover/, "наведение не зажигает звезду, которую нельзя нажать");
 });
 
 await t.test("надписи совпадают с Android слово в слово", () => {

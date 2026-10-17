@@ -79,12 +79,19 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
   useEffect(() => {
     if (!focusAfter || typeof document === "undefined") return;
     const card = document.querySelector(`[data-rate-card="${focusAfter.id}"]`);
+    // Только если фокус был в этой карточке или потерян: человек уже в соседней — не уводим его
+    // и не прокручиваем страницу (ответ по первой оценке пришёл, пока он выбирал звёзды во второй).
+    const active = document.activeElement;
+    if (active && active !== document.body && !card?.contains(active)) {
+      setFocusAfter(null);
+      return;
+    }
     // На выбранную звезду (её стрелками можно сразу поменять), иначе на первую; после правки — на «Изменить».
     const el =
       focusAfter.to === "stars"
         ? (card?.querySelector<HTMLElement>('.rate-star[aria-pressed="true"]') ?? card?.querySelector<HTMLElement>(".rate-star:not(:disabled)"))
         : card?.querySelector<HTMLElement>(".rate-edit");
-    el?.focus();
+    el?.focus({ preventScroll: true });
     setFocusAfter(null);
   }, [focusAfter]);
 
@@ -128,6 +135,7 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
       // Не ушло — возвращаем как было: на экране не должна остаться «поставленная» оценка,
       // которой нет на сервере.
       setPicked((p) => ({ ...p, [id]: b.my_stars }));
+      setFocusAfter({ id, to: "stars" });   // нажатая «Отправить» исчезла — фокус не улетает в начало страницы
       setRateNote({
         id,
         text: e instanceof ApiError && e.message ? e.message : appText("Не получилось оценить", "Баһалап булманы"),
