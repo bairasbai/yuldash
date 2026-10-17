@@ -4621,8 +4621,8 @@ private fun InstantSafetyRow(orderId: Int, onShare: (() -> Unit)? = null) {
     }
 }
 
-/** Выбор близкого для шаринга такси-заказа: близкий получит SMS со ссылкой live-поездки (B7c),
- *  а пассажиру тут же показываем ссылку — скопировать или отправить самому (share-sheet).
+/** Выбор близкого для шаринга такси-заказа: сервер заводит ссылку live-поездки (B7c), а пассажиру
+ *  тут же показываем её — скопировать или отправить самому (share-sheet). SMS не обещаем: на проде они выключены.
  *  Состояния честные: загрузка / пусто (подсказка добавить контакт) / список / ошибка / ссылка. */
 @Composable
 internal fun InstantShareDialog(
@@ -4706,7 +4706,8 @@ private fun InstantShareContent(
     // Приватность: активные ссылки этого заказа (сервер отдаёт GET shares) + отозвать.
     var activeShares by remember { mutableStateOf<List<com.yuldash.app.data.TripShareDto>>(emptyList()) }
     var pending by remember { mutableStateOf<PendingInstantShareMutation?>(null) }
-    val sharedMsg = appText("Близкий получит SMS о поездке", "Яҡын кеше сәфәр тураһында SMS алыр")
+    // SMS на проде выключены, поэтому не обещаем их: ссылка готова, а отправляет её сам пассажир (как в попутке).
+    val sharedMsg = appText("Ссылка готова", "Һылтанма әҙер")
     val shareFailMsg = appText("Не получилось. Повтори.", "Булманы. Ҡабатла.")
     val revokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
     // A failed mutation may already be committed. Read the full list before allowing another action.

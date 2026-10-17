@@ -8,7 +8,7 @@
 // ================================================================
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
-import { getSessionGeneration, getToken } from "../api/client";
+import { getSessionGeneration, getToken, refreshRejectedToken } from "../api/client";
 import { wsBase } from "../api/chat";
 import {
   startDriverLocationShare,
@@ -41,6 +41,13 @@ export default function DriverLocationShare({ bookingId, inTransit }: { bookingI
       clearTimer: (t) => window.clearTimeout(t as number),
       onState: setState,
       isCurrent: () => generation === getSessionGeneration(),
+      // Ключ входа истёк посреди поездки — обновить тихо и продолжить (приёмка PR155).
+      refreshToken: refreshRejectedToken,
+      subscribeOnline: (fn) => {
+        if (typeof window === "undefined") return () => {};
+        window.addEventListener("online", fn);
+        return () => window.removeEventListener("online", fn);
+      },
     });
     handle.current = h;
     return () => {

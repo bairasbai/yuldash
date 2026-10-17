@@ -37,4 +37,19 @@ await check('late refresh failure cannot alter replacement account',async({api,c
  const pending=api.apiGet('/private').catch(e=>e);await ready;api.setSession('B','refresh-B');release();await pending;
  assert.equal(api.getToken(),'B');assert.equal(api.getRefreshToken(),'refresh-B');assert.equal(cleared(),0);
 });
+// Живой канал точки (refreshRejectedToken, приёмка PR155): тот же общий полёт, что у запросов после 401.
+await check('live channel: key already replaced elsewhere — no second refresh, answers true',async({api})=>{
+ let calls=0;globalThis.fetch=async()=>{calls++;return response(500);};
+ await api.rotateSession('A-other-tab','refresh-A2',api.getSessionGeneration());
+ assert.equal(await api.refreshRejectedToken('A'),true);assert.equal(calls,0,'ключ уже новый — менять его ещё раз нельзя');assert.equal(api.getToken(),'A-other-tab');
+});
+await check('live channel: current key rejected — one refresh in the same session',async({api,cleared})=>{
+ const generation=api.getSessionGeneration();let calls=0;
+ globalThis.fetch=async url=>{assert.ok(String(url).includes('/auth/refresh'));calls++;return response(200,{access_token:'A-new',refresh_token:'refresh-A-new'});};
+ assert.equal(await api.refreshRejectedToken('A'),true);assert.equal(calls,1);assert.equal(api.getToken(),'A-new');assert.equal(api.getSessionGeneration(),generation);assert.equal(cleared(),0);
+});
+await check('live channel: refresh refused — false, and the channel itself does not log out',async({api,cleared})=>{
+ globalThis.fetch=async()=>response(401);
+ assert.equal(await api.refreshRejectedToken('A'),false);assert.equal(cleared(),0,'выход делает ближайший запрос, а не канал точки');
+});
 console.log(`Refresh outage: ${passed} passed, ${failed} failed`);if(failed)process.exitCode=1;

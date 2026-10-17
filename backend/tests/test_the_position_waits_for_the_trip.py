@@ -24,6 +24,9 @@ from app.visibility import trip_is_live
 
 from test_api import _ride
 
+# Сломанный «Выехал» должен краснеть за 30 с, а не держать CI до 40 мин (приёмка PR153).
+pytestmark = pytest.mark.timeout(30)
+
 
 @pytest.fixture
 def договорились(client, user_factory):

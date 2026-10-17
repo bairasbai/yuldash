@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .. import livepos            # модулем, а не функцией: так подмена в тестах цепляет вызов
+from .. import trip_wake
 from ..config import settings
 from ..flood import TOO_FAST_CREATING, guard_burst
 from ..db import get_session
@@ -630,6 +631,7 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
             booking.driver_phase = ""        # поездка кончилась — фазу сбрасываем
             session.add(booking)
             session.commit()
+            trip_wake.poke(booking.id)       # канал координат закрывается сразу (см. cancel_booking)
             # B8-4: реферальный бонус пригласившему за раскатавшегося водителя (идемпотентно).
             from .referral import reward_driver_referral
             reward_driver_referral(session, ride.driver_id)
@@ -668,6 +670,9 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     booking.driver_phase = body.status       # сохраняем «выехал/подъезжает» → пассажир увидит live, не только пушем
     session.add(booking)
     session.commit()
+    # Живой канал координат помнит «ещё не поехали» до 30 с (`location._Пора`). «Выехал» — ровно тот
+    # момент, когда точка обязана пойти сразу, поэтому толкаем канал: его следующий кадр идёт в базу.
+    trip_wake.poke(booking.id)
     if phase_changed:
         title_ru = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
         title_ba = {"departed": "Водитель юлға сыҡты", "arriving": "Водитель яҡынлаша"}[body.status]
@@ -775,6 +780,11 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
         if (booking.status == BookingStatus.onboard and user.id == ride.driver_id
                 and body is not None and (body.reason or "").strip() == "no_show"):
             raise _no_show_onboard_refusal()
+        # Пассажир уже нажал «Я сел» — отмены нет (как в приложении и на сайте: кнопки «в пути» нет).
+        # Иначе прямой запрос возвращал место в продажу, пока человек сидит в машине, а у брони
+        # пропадали чат, «поделиться с близким» и SOS по ней (приёмка PR155, 17.10.2026).
+        if booking.status == BookingStatus.onboard and user.id == booking.passenger_id:
+            raise _onboard_cancel_refusal()
         contact_opened = booking.status in (BookingStatus.confirmed, BookingStatus.onboard) or (
             session.exec(select(Message.id).where(Message.booking_id == booking_id).limit(1)).first()
             is not None
@@ -792,6 +802,7 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
         session.add(ride)
         session.commit()
         session.refresh(booking)
+        trip_wake.poke(booking.id)   # канал координат закрывается сразу, а не через сторож (≤ 30 с)
         notify_map_changed()   # места вернулись → поездка снова видна на карте live
         # Уведомление ДРУГОЙ стороне: кто не отменял (пассажир отменил → водителю, и наоборот).
         other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
@@ -815,6 +826,15 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
             ref_kind="booking", ref_id=booking.id,
         )
     return _booking_out(booking)
+
+
+def _onboard_cancel_refusal() -> HTTPException:
+    """Отказ отмены пассажиру «в пути»: что делать вместо отмены — на двух языках."""
+    return HTTPException(status_code=409, detail={
+        "ru": "Ты уже в машине — отменить поездку нельзя. Если что-то не так, нажми SOS или сообщи о проблеме.",
+        "ba": "Һин машинала инде — сәфәрҙе кире алып булмай. Нимәлер дөрөҫ булмаһа, SOS-ҡа баҫ йәки проблема тураһында хәбәр ит.",
+        "code": "onboard_no_cancel",
+    })
 
 
 def _no_show_onboard_refusal() -> HTTPException:
@@ -873,6 +893,7 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
     session.add(ride)
     session.commit()
     session.refresh(booking)
+    trip_wake.poke(booking.id)   # канал координат закрывается сразу (см. cancel_booking)
     notify_map_changed()
     route = f"{ride.from_city} → {ride.to_city}"
     push_notification(
