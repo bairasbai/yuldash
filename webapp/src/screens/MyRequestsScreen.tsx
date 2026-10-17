@@ -295,7 +295,7 @@ export function CancelRequestSheet({
     }
   }
 
-  return (
+  return exit.portal(
     <div className={exit.backdropClass} onClick={closeDialog}>
       <section
         ref={dialogRef}

@@ -222,7 +222,7 @@ export function DeclineWhySheet({
     });
   }
 
-  return (
+  return exit.portal(
     <div className={exit.backdropClass} onClick={exit.close}>
       <div ref={sheetRef} className="sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
         <h2 className="sheet__title">{appText("Почему не сможешь?", "Ниңә бара алмайһың?")}</h2>
@@ -244,7 +244,7 @@ export function DeclineWhySheet({
             {appText(r.ru, r.ba)}
           </button>
         ))}
-        <button type="button" className="btn-ghost" onClick={exit.close} disabled={busy}>
+        <button type="button" className="btn-ghost sheet__dismiss" onClick={exit.close} disabled={busy}>
           {appText("Всё-таки поеду", "Барам барыбер")}
         </button>
       </div>

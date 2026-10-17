@@ -114,7 +114,8 @@ await test("шторка — диалог: заголовок связан, Esc 
   assert.match(panel, /event\.key === "Escape"/);
   assert.match(panel, /previous\?\.focus\(\)/);
   assert.match(panel, /event\.key !== "Tab"/);
-  assert.match(panel, /createPortal\(/, "шторка вынесена в body: никакой предок не обрежет и не сдвинет её");
+  // Портал в body теперь общий для всех нижних шторок — useSheetExit (exit.portal), см. sheet-exit-rest-test.
+  assert.match(panel, /return exit\.portal\(/, "шторка вынесена в body: никакой предок не обрежет и не сдвинет её");
 });
 
 await test("у шторки есть крестик на двух языках", async () => {

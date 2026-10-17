@@ -41,7 +41,10 @@ export default { useState, useRef, useMemo, useCallback, useEffect, useLayoutEff
 `;
 export const JSX = `export const Fragment = "Fragment"; export function jsx(type, props, key) { return { type, props: props ?? {}, key }; } export const jsxs = jsx;`;
 export const LANG = `export const useLang = () => ({ lang: "ru", appText: (ru) => ru, t: (k) => k });`;
-export const PORTAL = `export function createPortal(node) { return node; }`;
+/** react-dom: портал отдаёт разметку как есть и запоминает, куда её просили вынести (`portals()`). */
+export const PORTAL = `export function createPortal(node, container) { (globalThis.__portals ??= []).push({ node, container }); return node; }`;
+/** Вызовы createPortal по порядку: { node, container }. */
+export const portals = () => (globalThis.__portals ??= []);
 
 /** Подмена модулей по пути импорта; остальное собирается настоящим. */
 export function stubs(list) {

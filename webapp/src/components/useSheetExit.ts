@@ -5,9 +5,18 @@
 //
 //  Шторка, которая пользуется уходом, — отдельный компонент: он живёт, пока шторка открыта,
 //  поэтому каждое открытие начинается с чистого состояния. Хук — только на useState/useRef/useEffect:
-//  тесты бронирования подменяют React ровно этими тремя.
+//  тесты бронирования подменяют React ровно этими тремя (и react-dom — заглушкой createPortal).
+//
+//  Шторка рисуется прямо в <body> (`exit.portal(…)`), а не там, где её открыли. Затемнение — это
+//  `position: fixed; inset: 0`, и оно накрывает экран, только пока ни у одного предка нет transform,
+//  filter или will-change. А они есть: карточка после своего появления (fadeUp … both) так и держит
+//  transform, панель такси двигается transform-ом. Внутри такой карточки «почему не сможешь» у
+//  водителя такси рисовалась в её рамке: затемнение 356×158 вместо всего экрана, заголовок и первая
+//  причина — под картой, снизу торчали кнопки поездки (живая проверка 17.10.2026). В <body> предков
+//  с transform нет — шторка всегда во весь экран, где бы её ни открыли.
 // ================================================================
-import { useEffect, useRef, useState, type AnimationEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type AnimationEvent, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 /** Запас к длительности ухода, после которого шторка закрывается и без события о конце движения. */
 const LEAVE_GRACE_MS = 80;
@@ -40,7 +49,8 @@ function runningAnimation(el: Element | null | undefined, name: string): Animati
  *   сейчас: без рывка «вверх до конца — и вниз» (приёмка PR154).
  * - «Уменьшить движение» — `onClose` сразу.
  *
- * `backdropClass` — на .sheet-backdrop, `onAnimationEnd` — на саму .sheet (её же держит `sheetRef`).
+ * `backdropClass` — на .sheet-backdrop, `onAnimationEnd` — на саму .sheet (её же держит `sheetRef`),
+ * а всю разметку от затемнения вниз компонент отдаёт через `portal`: `return exit.portal(<div className={exit.backdropClass}>…)`.
  */
 export function useSheetExit(onClose: () => void, sheetRef: RefObject<HTMLElement>) {
   /** «down» — уезжает вниз (sheetDown); «rewind» — разворачивает недоигранное появление. */
@@ -121,6 +131,14 @@ export function useSheetExit(onClose: () => void, sheetRef: RefObject<HTMLElemen
     leaving: mode !== null,
     close,
     backdropClass: "sheet-backdrop" + (mode === "down" ? " is-leaving" : ""),
+    /**
+     * Затемнение со шторкой — в <body>: ни один предок с transform не сожмёт затемнение до своей рамки.
+     * События React идут по-прежнему через того, кто открыл шторку (портал так устроен), фокус и Tab —
+     * внутри самой шторки, как и были.
+     */
+    portal(node: ReactNode) {
+      return createPortal(node, document.body);
+    },
     /** Своё движение «вниз», а не всплывшее от строки или кнопки внутри шторки. */
     onAnimationEnd(e: AnimationEvent<HTMLElement>) {
       if (mode === "down" && e.target === e.currentTarget && e.animationName === "sheetDown") finish();

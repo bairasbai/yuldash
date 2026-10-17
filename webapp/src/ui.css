@@ -388,8 +388,10 @@
   width: 21px;
   height: 21px;
 }
+/* Значок на золотой плашке — CanonGoldInk, как в приложении (YuldashBottomItem): --text в тёмной теме
+   светлый, и светлый значок на светлом золоте сливался (1.48). */
 .nav-item.is-active .nav-pill {
-  color: var(--text);
+  color: var(--gold-ink);
   background: var(--canon-gold);
   transform: scale(1.12);
 }
@@ -401,9 +403,11 @@
   white-space: nowrap;
   color: var(--muted-strong);
 }
+/* Подпись активной вкладки — CanonGreen, как в приложении. Золотом по белому «Карта» читалась на 1.77
+   при норме 4.5 (живая проверка 17.10.2026); золото остаётся у плашки над подписью. */
 .nav-item.is-active .nav-item__label {
   font-weight: var(--weight-bold);
-  color: var(--canon-gold);
+  color: var(--green);
 }
 
 .nav-debt-badge {
@@ -2117,6 +2121,14 @@ button.list-row:active {
 .chip {
   /* Фильтры и зоны нажимают на ходу, часто одной рукой — 44px минимум. */
   min-height: 44px;
+  /* Надпись и значок — по центру высоты сами, а не только у <button> (кнопка центрует содержимое
+     даром). Чип-статус «Пассажир в машине» — <span>, и без этого галочка с надписью липли к верху
+     (живая проверка 17.10.2026). gap — вместо пробела между значком и словом: во flex пробел пропадает. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  text-align: center;
   padding: 0 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
@@ -2257,6 +2269,15 @@ button.list-row:active {
 .sheet__cta {
   width: 100%;
   margin-top: 18px;
+}
+/* Второе действие внизу шторки — «Не отменять», «Закрыть», «Всё-таки поеду», «Отмена»: текстовая
+   кнопка (.btn-ghost) во всю ширину, надпись по центру, прямо под главным действием. Одинаково во всех
+   шторках: узкая рамочная кнопка, прижатая влево под красной во всю ширину, выглядела забытой
+   (живая проверка 17.10.2026). Как «Отмена» под опасным действием в шторках iOS. */
+.sheet__dismiss {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-sm);
 }
 .sheet__note {
   margin: 12px 0 0;
@@ -4312,7 +4333,7 @@ button.list-row:active {
   padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-field);
   background: var(--canon-gold-soft);
-  color: var(--warn);
+  color: var(--canon-gold-ink);
   font-size: var(--font-caption);
   line-height: var(--line-caption);
   font-weight: var(--weight-semibold);
@@ -4330,7 +4351,7 @@ button.list-row:active {
   padding: var(--space-sm) var(--space-lg);
   border-radius: var(--radius-pill);
   background: var(--canon-gold-soft);
-  color: var(--warn);
+  color: var(--canon-gold-ink);
   font-size: var(--font-caption);
   font-weight: var(--weight-semibold);
   text-align: center;
@@ -4550,7 +4571,9 @@ button.list-row:active {
 
 /* Спокойная плашка «так вышло»: не ошибка и не успех, а объяснение —
    сообщение ждёт сети, место не дали, отмена не прошла. Тёплый тон, не красный:
-   человек ничего не сломал, ему просто нужно знать, что происходит. */
+   человек ничего не сломал, ему просто нужно знать, что происходит.
+   Надпись — --canon-gold-ink, пара именно к этой плашке: --warn на ней в светлой теме давал 4.07
+   при норме 4.5 («Пассажир в машине», «Нет связи…» под отменой брони — живая проверка 17.10.2026). */
 .notice,
 .chat__queued {
   display: flex;
@@ -4559,7 +4582,7 @@ button.list-row:active {
   gap: var(--space-xs);
   padding: 10px 14px;
   font-size: var(--font-caption);
-  color: var(--warn);
+  color: var(--canon-gold-ink);
   background: var(--canon-gold-soft);
   border-top: 1px solid var(--border);
   animation: fadeUp var(--motion-normal) ease-out both;
@@ -6502,7 +6525,7 @@ select.field__input {
 }
 .badge--taxi {
   background: var(--taxi-bg);
-  color: var(--taxi);
+  color: var(--taxi-text); /* текст на подложке такси; --taxi (акцент) на ней — 1.91 */
 }
 .badge--pooling {
   background: var(--pooling-bg);
@@ -9645,7 +9668,7 @@ select.field__input {
 .segmented__item.is-selected {
   border-color: transparent;
   background: var(--green2);
-  color: var(--on-accent);
+  color: var(--on-filled); /* не белый: --green2 в тёмной теме светлеет (3.19), см. .my-trip-card__primary */
   font-weight: var(--weight-bold);
 }
 
@@ -9756,9 +9779,11 @@ select.field__input {
   text-overflow: ellipsis;
   transition: transform var(--motion-quick) ease;
 }
+/* Надпись — --on-filled, как у .btn-primary: --green2 в тёмной теме светлеет, белое «Поднять» на нём
+   давало 3.19 (решение 2026-08-13, живая проверка 17.10.2026). */
 .my-trip-card__primary {
   background: var(--green2);
-  color: var(--on-accent);
+  color: var(--on-filled);
 }
 .my-trip-card__tonal {
   flex: 1.1;
@@ -17146,7 +17171,7 @@ button.settings-row:active {
 }
 .tdash__tier.is-on {
   background: var(--green2);
-  color: var(--on-accent);
+  color: var(--on-filled); /* не белый: --green2 в тёмной теме светлеет (3.19), см. .my-trip-card__primary */
 }
 .tdash__fee p {
   margin: 0;
@@ -19997,7 +20022,7 @@ button.settings-row:active {
   padding: 0 var(--space-xs);
   border-radius: var(--radius-pill);
   background: var(--danger);
-  color: var(--on-accent);
+  color: var(--on-filled); /* --danger в тёмной теме светлеет: белая цифра давала 3.31, эта — 5.54 */
   font-size: var(--font-micro);
   line-height: var(--line-micro);
   font-weight: var(--weight-bold);
@@ -20561,7 +20586,9 @@ button.settings-row:active {
   height: 22px;
   padding: 0 var(--space-xs);
   border-radius: var(--radius-pill);
-  background: var(--green-btn);
+  /* Пара CanonGreen2 + CanonOnFilled, как у кнопки: на --green-btn (он под белую надпись) тёмная цифра
+     в тёмной теме давала 3.69. */
+  background: var(--green2);
   color: var(--on-filled);
   font-size: var(--font-micro);
   line-height: 1;

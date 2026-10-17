@@ -236,7 +236,7 @@ export function RespondSheet({
     }
   }
 
-  return (
+  return exit.portal(
     <div className={exit.backdropClass} onClick={exit.close} role="presentation">
       <div
         ref={sheetRef}

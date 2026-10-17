@@ -174,7 +174,7 @@ export function CodeDialog({
     if (exit.leaving) return; // шторка уже уходит — код из неё не отправляем
     if ((await onSubmit(code)) === true) exit.close();
   }
-  return (
+  return exit.portal(
     <div className={exit.backdropClass} onClick={exit.close} role="dialog" aria-modal="true">
       <div ref={sheetRef} className="sheet code-sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
         <div className="sheet__grip" aria-hidden />
@@ -207,7 +207,7 @@ export function CodeDialog({
         >
           <IconCheck size={18} /> {busy ? appText("Проверяем…", "Тикшерәбеҙ…") : appText("Доставлено", "Тапшырылды")}
         </button>
-        <button type="button" className="btn-ghost" style={{ marginTop: 8 }} onClick={exit.close}>
+        <button type="button" className="btn-ghost sheet__dismiss" onClick={exit.close}>
           {appText("Отмена", "Баш тартыу")}
         </button>
       </div>

@@ -122,7 +122,7 @@ export default function RideSheet({
     }
   }
 
-  return (
+  return exit.portal(
     <div className={exit.backdropClass} onClick={() => { if (!bookingInFlight.current) exit.close(); }} role="presentation">
       <div
         ref={dialogRef}

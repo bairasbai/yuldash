@@ -128,7 +128,7 @@ export function PayMethodSheet({
     exit.close();
   }
 
-  return (
+  return exit.portal(
     <div className={exit.backdropClass} onClick={exit.close}>
       <div ref={sheetRef} className="sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
         <h2 className="sheet__title">{appText("Чем рассчитаемся", "Нимә менән түләйбеҙ")}</h2>
@@ -177,7 +177,7 @@ export function PayMethodSheet({
           )}
         </p>
 
-        <button type="button" className="btn-ghost" onClick={exit.close}>
+        <button type="button" className="btn-ghost sheet__dismiss" onClick={exit.close}>
           {appText("Закрыть", "Ябыу")}
         </button>
       </div>

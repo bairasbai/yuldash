@@ -131,7 +131,7 @@ export function PriceComplaintSheet({
     void onSend(reason).then(() => exit.close());
   }
 
-  return (
+  return exit.portal(
     <div className={exit.backdropClass} onClick={exit.close}>
       <div ref={sheetRef} className="sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
         <h2 className="sheet__title">{appText("Что не так с ценой?", "Хаҡта нимә дөрөҫ түгел?")}</h2>
@@ -156,7 +156,7 @@ export function PriceComplaintSheet({
             maxLength={300}
           />
         </label>
-        <button type="button" className="btn-ghost" onClick={exit.close} disabled={busy}>
+        <button type="button" className="btn-ghost sheet__dismiss" onClick={exit.close} disabled={busy}>
           {appText("Закрыть", "Ябыу")}
         </button>
       </div>

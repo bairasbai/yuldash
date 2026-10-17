@@ -8,7 +8,6 @@
 //  «Когда · Завтра», «Фильтры · 2»).
 // ================================================================
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { useLang } from "../i18n/lang";
 import type { NearbyCityFilter } from "../nearbyCityFilter";
 import {
@@ -67,7 +66,7 @@ export function NearbySheet({
     return () => previous?.focus();
   }, []);
 
-  return createPortal(
+  return exit.portal(
     <div className={exit.backdropClass} onClick={close} role="presentation">
       <div
         ref={dialogRef}
@@ -111,8 +110,7 @@ export function NearbySheet({
         </div>
         <div className="nbs__body">{typeof children === "function" ? children(close) : children}</div>
       </div>
-    </div>,
-    document.body
+    </div>
   );
 }
 
