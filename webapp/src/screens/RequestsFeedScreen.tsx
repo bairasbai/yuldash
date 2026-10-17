@@ -3,7 +3,7 @@
 //  Отклик на заявку (POST /requests/{id}/respond) — цена + комментарий.
 //  Водительская зона, но по контракту requests.py — доступна вошедшим.
 // ================================================================
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
@@ -13,6 +13,7 @@ import {
   type RequestFeedItem,
 } from "../api/requests";
 import { LoadingList, ErrorState } from "../components/States";
+import { useSheetExit } from "../components/useSheetExit";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow, IconRequest, IconCheck } from "../components/Icons";
 import { formatWhen } from "../utils/format";
@@ -174,12 +175,12 @@ export default function RequestsFeedScreen() {
           item={respondTo}
           onClose={() => setRespondTo(null)}
           onDone={(id) => {
+            // Шторку не убираем: она уходит сама и по концу движения зовёт onClose.
             setItems((prev) =>
               prev.map((x) =>
                 x.id === respondTo.id ? { ...x, responded: true, my_response_id: id } : x
               )
             );
-            setRespondTo(null);
           }}
         />
       )}
@@ -187,13 +188,20 @@ export default function RequestsFeedScreen() {
   );
 }
 
-function RespondSheet({
+/**
+ * Нижняя шторка отклика. «Отправить отклик» (при успехе), тап по затемнению уводят её вниз
+ * (useSheetExit); `onClose` убирает шторку со страницы, когда она ушла. Во время ухода отправка
+ * заперта: отклик из уходящей шторки не уходит.
+ */
+export function RespondSheet({
   item,
   onClose,
   onDone,
 }: {
   item: RequestFeedItem;
+  /** Шторка уже уехала — убери её со страницы. */
   onClose: () => void;
+  /** Сервер принял отклик — обнови ленту (шторка уходит сама). */
   onDone: (responseId: number) => void;
 }) {
   const { appText } = useLang();
@@ -201,8 +209,11 @@ function RespondSheet({
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const exit = useSheetExit(onClose, sheetRef);
 
   async function submit() {
+    if (exit.leaving) return; // шторка уже уходит — отклик из неё не отправляем
     setBusy(true);
     setError(null);
     try {
@@ -213,6 +224,7 @@ function RespondSheet({
       );
       track("respond_request");
       onDone(res.id);
+      exit.close(); // кнопка остаётся «Отправляем…» (busy не сбрасываем), пока шторка уходит
     } catch (e) {
       setError(
         e instanceof ApiError && e.message
@@ -224,8 +236,15 @@ function RespondSheet({
   }
 
   return (
-    <div className="sheet-backdrop" onClick={onClose} role="presentation">
-      <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+    <div className={exit.backdropClass} onClick={exit.close} role="presentation">
+      <div
+        ref={sheetRef}
+        className="sheet"
+        onClick={(e) => e.stopPropagation()}
+        onAnimationEnd={exit.onAnimationEnd}
+        role="dialog"
+        aria-modal="true"
+      >
         <div className="sheet__grip" aria-hidden />
         <h2 style={{ margin: "0 0 4px", fontSize: "var(--font-heading)", fontWeight: "var(--weight-bold)" }}>
           {appText("Твой отклик", "Яуабың")}
@@ -255,7 +274,7 @@ function RespondSheet({
           />
         </label>
         {error && <div className="auth__error">{error}</div>}
-        <button type="button" className="btn-primary sheet__cta" onClick={submit} disabled={busy}>
+        <button type="button" className="btn-primary sheet__cta" onClick={submit} disabled={busy || exit.leaving}>
           {busy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Отправить отклик", "Яуап ебәрергә")}
         </button>
       </div>
