@@ -32,12 +32,14 @@ RU, BA = "Заказ за близкого", "Яҡын кеше өсөн зак�
 # Цифры номера близкого во всех примерах ниже: +7 917 864-20-53. Хвост из семи цифр —
 # его не должно остаться нигде: ни в базе, ни в Telegram, ни в логах.
 TAIL = "8642053"
-_LONG_RUN = re.compile(r"\d(?:[\s\-.()+]*\d){4,}")
+# Разделитель между цифрами — любой не-буквенный знак (пробел, неразрывный пробел, тире,
+# слэш, перевод строки…): номер пишут как угодно, и проверка не должна быть уже чистки.
+_LONG_RUN = re.compile(r"\d(?:[\W_]{0,3}\d){4,}")
 
 
-def _assert_no_phone_digits(text: str) -> None:
+def _assert_no_phone_digits(text: str, tail: str = TAIL) -> None:
     text = re.sub(r"#\d+", "#", text or "")   # «Отклики по заявке #57» — номер заявки, не телефон
-    assert TAIL not in re.sub(r"\D", "", text), "цифры номера близкого остались в тексте"
+    assert tail not in re.sub(r"\D", "", text), "цифры номера близкого остались в тексте"
     assert not _LONG_RUN.search(text), "в тексте осталась длинная цепочка цифр"
 
 
@@ -138,6 +140,39 @@ def test_номер_с_точкой_внутри_уходит_целиком(cli
     assert r.json()["comment"] == stored
     assert "2053" not in re.sub(r"\D", "", r.json()["comment"])
     _assert_no_phone_digits(telegram[0])
+
+
+# Необычные разделители (находка ревью PR #173): общая мойка `scrub_text` знает только пробел,
+# дефис, точку и скобки — номер через неразрывный пробел, тире, слэш или перевод строки она
+# пропускает. Здесь номер близкого повторён и в заметке: его ловит запасное правило «5+ цифр».
+# Саму мойку в этом PR не расширяем — это отдельная задача со своей проверкой ложных срабатываний.
+@pytest.mark.parametrize("sent, stored, tail", [
+    ("Телефон близкого: 8\xa0937\xa0156\xa023\xa048. Если не дозвонитесь — 8\xa0937\xa0156\xa023\xa048",
+     RU, "1562348"),
+    ("Яҡындың телефоны: 8–917–765–43–21. Уның номеры 8–917–765–43–21", BA, "7654321"),
+    ("Заказ за близкого · 8 917 765 43 21. Её номер:\n8 917\n765 43 21", RU, "7654321"),
+    ("Яҡын кеше өсөн заказ · 8/917/765/43/21. Шылтырат: 8/917/765/43/21", BA, "7654321"),
+], ids=["nbsp", "en-dash", "newline", "slash"])
+def test_номер_через_необычные_разделители_не_проходит(client, user_factory, telegram,
+                                                        sent, stored, tail):
+    pax = user_factory("СтарыйКлиентРазделитель")
+    r = _create(client, pax["auth"], sent)
+    assert r.status_code == 200, r.text
+    assert r.json()["comment"] == stored
+    _assert_no_phone_digits(r.json()["comment"], tail)
+    _assert_no_phone_digits(telegram[0], tail)
+
+
+@pytest.mark.parametrize("sep", ["\xa0", " ", " ", "–", "—", "‑", "−", "－",
+                                 "/", ",", "_", "\n", "\t"],
+                         ids=["nbsp", "nnbsp", "thin", "en", "em", "nb-hyphen", "minus", "fw-hyphen",
+                              "slash", "comma", "underscore", "newline", "tab"])
+def test_любой_разделитель_в_заметке_не_спасает_номер(sep):
+    clean = _clean()
+    num = sep.join(["8", "917", "765", "43", "21"])
+    assert clean(f"Телефон близкого: {num}. Её номер {num}") == RU
+    # …и номер, разрезанный «. » с хвостом короче пяти цифр, тоже уходит целиком
+    assert clean(f"Телефон близкого: 8{sep}917{sep}765. 43{sep}21") == RU
 
 
 @pytest.mark.parametrize("path", ["patch", "edit"])
