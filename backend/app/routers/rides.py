@@ -43,7 +43,7 @@ from ..services import (
     drivers_bundle, front_seats_taken, stash_boost_credit,
     geocode_city, haversine_km, notify_map_changed, notify_route_watchers, public_ride_payload,
     public_rides_payload, push_notification, record_pickup_choice, ride_out, ride_out_with,
-    rides_out, send_push,
+    rides_out,
 )
 
 router = APIRouter(tags=["rides"])
@@ -138,6 +138,7 @@ def _recent_twin_ride(session: Session, driver_id: int, body: RideIn):
 
 
 SEATS_MAX = 8   # минивэн; больше в попутку не берут
+SEATS_CHANGED = ("места", "урындар")   # пункт «что изменилось» в уведомлении о правке рейса
 
 
 def seat_cap(back_max_two: bool, front_seat_available: bool) -> int:
@@ -320,7 +321,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     - без живых броней — можно всё (цена/комментарий/время/места);
     - есть живые брони — только комментарий и цену ВНИЗ (условия «купленного» не ухудшаем);
       время/места при бронях менять нельзя (409) — отмени рейс (пассажиры получат push) и создай новый.
-    Пассажиров с бронью уведомляем push «Поездка обновлена»."""
+    Пассажиров с бронью уведомляем «Поездка обновлена» — пуш и запись в Центре уведомлений, на двух языках."""
     ride = session.exec(select(Ride).where(Ride.id == ride_id).with_for_update()).first()
     if not ride:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
@@ -333,12 +334,12 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         Booking.status.in_((BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)),
     )).all()
     booked_seats = sum(b.seats for b in live)
-    changed: list[str] = []
+    changed: list[tuple[str, str]] = []   # что изменилось: (по-русски, по-башкирски)
     if body.price is not None and body.price != ride.price:
         if live and body.price > ride.price:
             raise herr(409, "С активными бронями цену можно только снижать", "Актив брондар менән хаҡты кәметергә генә була")
         ride.price = body.price
-        changed.append("цена")
+        changed.append(("цена", "хаҡ"))
         # Скидку доводим до тех, кому она сделана (волна 119). Раньше правка меняла только
         # цену объявления: водитель по-соседски снижал с 500 до 300, пассажирке приходил пуш
         # «цена изменена», а в её брони и в квитанции оставалось 500. У подъезда спор,
@@ -353,7 +354,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     if body.comment is not None and body.comment != ride.comment:
         moderate_open_text(body.comment, user.id, check_contact=False, place="ride_comment", ref_id=ride.id, session=session)   # правка — тот же путь, что публикация
         ride.comment = body.comment
-        changed.append("комментарий")
+        changed.append(("комментарий", "аңлатма"))
     if body.depart_at is not None:
         body.depart_at = client_dt_to_utc(body.depart_at)
         # Та же проверка, что и при публикации: правкой нельзя увести поездку в прошлое.
@@ -364,7 +365,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         if live:
             raise herr(409, "С активными бронями время не меняют — отмените рейс и создайте новый", "Актив брондар менән ваҡытты үҙгәртеп булмай — рейсты кире алып, яңыһын төҙө")
         ride.depart_at = body.depart_at
-        changed.append("время")
+        changed.append(("время", "ваҡыт"))
     # Опции мест. Обещание, на которое уже рассчитывают пассажиры, не забираем: переднее,
     # которое кто-то попросил, не закрываем, и «сзади двое» при живых бронях не снимаем.
     # Улучшить условия (открыть переднее, пообещать «сзади двое») можно всегда.
@@ -375,13 +376,13 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
             raise herr(409, "Переднее место уже обещано пассажиру — договорись с ним в чате",
                        "Алғы урын юлсыға вәғәҙә ителгән — уның менән чатта һөйләш")
         ride.front_seat_available = new_front
-        changed.append("переднее место")
+        changed.append(("переднее место", "алғы урын"))
     if new_back != ride.back_max_two:
         if not new_back and live:
             raise herr(409, "Пассажиры уже рассчитывают, что сзади будет двое — это не отменить",
                        "Юлсылар артта икәү генә булыр тип иҫәпләй — быны кире алып булмай")
         ride.back_max_two = new_back
-        changed.append("места сзади")
+        changed.append(("места сзади", "арттағы урындар"))
     cap = seat_cap(new_back, new_front)
     # Прислали то же число мест (клиент шлёт форму целиком) — это не правка мест: потолок ниже
     # срежет лишнее сам, и при бронях это не должно давать 409 (ревью Opus 2026-10-14).
@@ -391,7 +392,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
             raise herr(409, "С активными бронями число мест не меняют", "Актив брондар менән урын һанын үҙгәртеп булмай")
         ride.seats_total = min(body.seats_total, cap)
         ride.seats_left = ride.seats_total - booked_seats   # броней нет → просто новое число мест
-        changed.append("места")
+        changed.append(SEATS_CHANGED)
     if ride.seats_total > cap:
         # Опцию включили, а мест в объявлении больше, чем она позволяет: срезаем до потолка.
         # Уже занятые места не трогаем — если их больше потолка, обещание не выполнить.
@@ -400,18 +401,29 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
                        "Был шарттарҙа һыйғандан күберәк урын брондалған инде")
         ride.seats_total = cap
         ride.seats_left = cap - booked_seats
-        if "места" not in changed:
-            changed.append("места")
+        if SEATS_CHANGED not in changed:
+            changed.append(SEATS_CHANGED)
     if not changed:
         return public_ride_payload(ride_out(ride, session), full=True)   # нечего менять; свой рейс — свой текст
     session.add(ride)
     session.commit()
     session.refresh(ride)
     notify_map_changed()   # карточка на карте/в ленте обновится live
-    for b in live:         # пуши после commit
-        send_push(session, b.passenger_id, "Поездка обновлена",
-                  f"{ride.from_city} → {ride.to_city}: изменено — {', '.join(changed)}. Загляни в детали.",
-                  data={"type": "booking", "id": str(b.id)})
+    # Уведомления — после commit. Через push_notification, как отмена рейса: пуш уходит на языке
+    # человека, а запись остаётся в Центре уведомлений. Раньше был голый пуш только по-русски:
+    # пассажирка с башкирским в приложении читала русский текст, а не дошёл пуш (телефон выключен,
+    # нет сети) — о новой цене или времени она узнавала только у машины (аудит BlaBlaCar, 17.10.2026).
+    route = f"{ride.from_city} → {ride.to_city}"
+    what_ru = ", ".join(ru for ru, _ba in changed)
+    what_ba = ", ".join(ba for _ru, ba in changed)
+    for b in live:
+        push_notification(
+            session, b.passenger_id, "booking",
+            "Поездка обновлена", "Сәфәр яңыртылды",
+            f"{route}: изменено — {what_ru}. Загляни в детали.",
+            f"{route}: үҙгәртелде — {what_ba}. Ентекләп ҡара.",
+            ref_kind="booking", ref_id=b.id,
+        )
     return public_ride_payload(ride_out(ride, session), full=True)  # свой рейс — свой текст
 
 
