@@ -189,8 +189,8 @@ android {
         applicationId = "com.yuldash.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.0"      // первый публичный релиз
+        versionCode = 3            // 17.10.2026: выпуск волны 1 — магазин принимает только больший номер, чем в прошлой загрузке
+        versionName = "1.1.0"      // 1.0.0 — июльский APK с лендинга; 1.1.0 — волна 1 (17.10.2026)
         // Рунер инструментальных тестов (без него AGP берёт легаси android.test.* → краш Compose-тестов).
         testInstrumentationRunner = providers.gradleProperty("storageAuditRunner").orNull
             ?: "androidx.test.runner.AndroidJUnitRunner"
