@@ -84,6 +84,35 @@ class NearbyConditionsServerSideTest {
     }
 
     @Test
+    fun `сбой сети после смены фильтра не оставляет старый список`() {
+        // Приёмки PR147/148/151: сменил день, условие или город, запрос упал — под новым чипом оставались
+        // поездки прежнего поиска. Теперь лента помнит, для какого поиска пришёл список, и чужой убирает.
+        val src = mapScreen()
+        assertTrue(
+            "в поиск ленты входят не все фильтры (маршрут, позиция, день, условия, города)",
+            src.contains("val search = listOf(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to)"),
+        )
+        assertTrue("лента не помнит, для какого поиска пришёл список", src.contains("nearbyError = false; nearbyFor = search }"))
+        assertTrue(
+            "сбой сети не сверяет поиск — старый список остаётся под новым фильтром",
+            src.contains(".onFailure { if (nearbyDropsOnFailure(nearbyFor, search)) { nearby = emptyList(); nearbyTotal = 0 }; nearbyError = true }"),
+        )
+    }
+
+    @Test
+    fun `тот же поиск при сбое держит список, другой — убирает`() {
+        val shown = listOf<Any?>(null, null, 5473.0, 5595.0, null, setOf("child"), emptySet<String>(), emptySet<String>())
+        fun changed(i: Int, v: Any?) = shown.toMutableList().also { it[i] = v }
+        assertTrue("ещё ничего не показано — ошибка, а не пустота", nearbyDropsOnFailure(null, shown))
+        assertTrue("авто-обновление раз в ~25 с и «Показать ещё» — тот же поиск, список остаётся", !nearbyDropsOnFailure(shown, shown.toList()))
+        assertTrue("сменили день", nearbyDropsOnFailure(shown, changed(4, "2026-10-18")))
+        assertTrue("сменили условие", nearbyDropsOnFailure(shown, changed(5, setOf("child", "pets"))))
+        assertTrue("выбрали город «Откуда»", nearbyDropsOnFailure(shown, changed(6, setOf("Баймак"))))
+        assertTrue("сдвинулись больше чем на ~1 км", nearbyDropsOnFailure(shown, changed(2, 5474.0)))
+        assertTrue("выбрали маршрут на карусели", nearbyDropsOnFailure(shown, changed(0, "Сибай")))
+    }
+
+    @Test
     fun `подпись чипа города`() {
         assertEquals("Откуда", cityChipLabel("Откуда", emptyList()))
         assertEquals("Откуда · Баймак", cityChipLabel("Откуда", listOf("Баймак")))

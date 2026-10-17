@@ -1,0 +1,574 @@
+// ================================================================
+//  Три хвоста ленты «Ближайшие поездки» (приёмки PR147, PR148, PR151) — зеркало MapScreen.kt,
+//  NearbyFeedSearch.kt и NearbyCityFilter.kt:
+//   1. сменил фильтр (день, условие, город, место), а сеть моргнула — под новым чипом не остаётся
+//      старый список: лента говорит «нет сети» и даёт «Повторить». Тихое обновление ТОГО ЖЕ поиска
+//      раз в ~25 с при сбое список держит;
+//   2. найденная поиском и не выбранная деревня уходит, когда шторку закрыли; выбранная остаётся;
+//   3. шторка закрывается движением: уезжает вниз, затемнение гаснет — и только потом пропадает.
+//      Esc, тап по затемнению, крестик и «Готово» закрывают одинаково; «Уменьшить движение» — сразу.
+//
+//  Исполняем настоящие HomeScreen.tsx, NearbyFilters.tsx, nearbyCityFilter.ts и nearbyFeed.ts.
+//  React заменён крошечной заглушкой хуков (как в ride-booking-path-test): компонент рисуется на
+//  один уровень, но состояние, мемо и эффекты настоящие. Сеть, карта и соседние экраны подменены.
+// ================================================================
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { build } from "esbuild";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL("../", import.meta.url));
+
+// ---------------------------------------------------------------- заглушка React
+
+const rt = (globalThis.__rt = { cur: null });
+
+const REACT = `
+const R = globalThis.__rt;
+const same = (a, b) => !!a && !!b && a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
+const slot = () => { const c = R.cur; const i = c.i++; return (c.hooks[i] ??= {}); };
+export function useState(init) {
+  const c = R.cur, s = slot();
+  if (!("v" in s)) s.v = typeof init === "function" ? init() : init;
+  s.set ??= (v) => { const nv = typeof v === "function" ? v(s.v) : v; if (!Object.is(nv, s.v)) { s.v = nv; c.dirty = true; } };
+  return [s.v, s.set];
+}
+export function useRef(v) { const s = slot(); if (!("current" in s)) s.current = v; return s; }
+export function useMemo(fn, deps) { const s = slot(); if (!("v" in s) || !same(s.deps, deps)) { s.v = fn(); s.deps = deps; } return s.v; }
+export function useCallback(fn, deps) { return useMemo(() => fn, deps); }
+export function useEffect(fn, deps) {
+  const c = R.cur, s = slot();
+  if (s.ran && deps && same(s.deps, deps)) return;
+  c.pending.push(() => { s.cleanup?.(); s.cleanup = fn(); s.deps = deps; s.ran = true; });
+}
+export const useLayoutEffect = useEffect;
+let ids = 0;
+export function useId() { const s = slot(); return (s.id ??= ":r" + ids++ + ":"); }
+export default { useState, useRef, useMemo, useCallback, useEffect, useLayoutEffect, useId };
+`;
+const JSX = `export const Fragment = "Fragment"; export function jsx(type, props, key) { return { type, props: props ?? {}, key }; } export const jsxs = jsx;`;
+const LANG = `export const useLang = () => ({ lang: "ru", appText: (ru) => ru, t: (k) => k });`;
+const PORTAL = `export function createPortal(node) { return node; }`;
+
+/** Подмена модулей по пути импорта; остальное собирается настоящим. */
+function stubs(list) {
+  return {
+    name: "stubs",
+    setup(b) {
+      b.onResolve({ filter: /.*/ }, (a) => {
+        const i = list.findIndex(([re]) => re.test(a.path));
+        return i >= 0 ? { path: String(i), namespace: "stub" } : null;
+      });
+      b.onLoad({ filter: /.*/, namespace: "stub" }, (a) => ({ contents: list[Number(a.path)][1], loader: "js" }));
+    },
+  };
+}
+
+async function load(entry, list) {
+  const out = await build({
+    ...(entry.endsWith(".tsx") ? { entryPoints: [root + entry] } : { stdin: { contents: entry, resolveDir: root, loader: "ts" } }),
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    jsx: "automatic",
+    define: { "import.meta.env": "{}" },
+    plugins: [stubs(list)],
+  });
+  return import("data:text/javascript;base64," + Buffer.from(out.outputFiles[0].text).toString("base64"));
+}
+
+/** Один компонент со своими хуками: рисуем, пока состояние не перестанет меняться, потом эффекты. */
+function mount(fn, props) {
+  const c = { hooks: [], i: 0, pending: [], dirty: false, props, tree: null };
+  c.render = (p) => {
+    if (p !== undefined) c.props = p;
+    for (let n = 0; n < 40; n++) {
+      rt.cur = c;
+      c.i = 0;
+      c.pending = [];
+      c.dirty = false;
+      try {
+        c.tree = fn(c.props);
+      } finally {
+        rt.cur = null;
+      }
+      for (const run of c.pending) run();
+      if (!c.dirty) return c.tree;
+    }
+    throw new Error("перерисовка не останавливается");
+  };
+  c.unmount = () => c.hooks.forEach((s) => s?.cleanup?.());
+  c.render();
+  return c;
+}
+
+/** Дождаться ответов «сети» и перерисовать всё, что поменялось. */
+async function settle(...parts) {
+  for (let k = 0; k < 12; k++) {
+    await new Promise((r) => setImmediate(r));
+    for (const c of parts) if (c.dirty) c.render();
+  }
+}
+
+const flat = (node) =>
+  node == null || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(flat) : [node, ...flat(node.props?.children)];
+const named = (type, name) => type === name || (typeof type === "function" && new RegExp(`^${name}\\d*$`).test(type.name));
+const all = (tree, name) => flat(tree).filter((n) => named(n.type, name));
+const one = (tree, name) => {
+  const found = all(tree, name);
+  assert.equal(found.length, 1, `${name}: ждали один, нашли ${found.length}`);
+  return found[0];
+};
+const text = (node) =>
+  typeof node === "string" || typeof node === "number"
+    ? String(node)
+    : Array.isArray(node)
+      ? node.map(text).join("")
+      : node && typeof node === "object"
+        ? text(node.props?.children)
+        : "";
+
+let bad = 0;
+async function test(name, run) {
+  try {
+    await run();
+    console.log("✓ " + name);
+  } catch (e) {
+    bad++;
+    console.log("✗ " + name + "\n    " + (e?.message ?? e));
+  }
+}
+
+// ---------------------------------------------------------------- браузер
+
+class FakeEl {
+  constructor(name) {
+    this.name = name;
+    this.focused = 0;
+  }
+  focus() {
+    this.focused++;
+    globalThis.document.activeElement = this;
+  }
+}
+let reduced = false;
+const timers = [];
+globalThis.HTMLElement = FakeEl;
+globalThis.document = { activeElement: null, body: "body" };
+globalThis.window = {
+  matchMedia: (q) => ({ matches: reduced && q.includes("prefers-reduced-motion: reduce") }),
+  setTimeout: (fn, ms) => timers.push({ fn, ms, on: true }) - 1,
+  clearTimeout: (id) => {
+    if (timers[id]) timers[id].on = false;
+  },
+  getComputedStyle: () => ({ animationDuration: "0.26s" }),
+};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+
+// ================================================================ 1. Сеть моргнула после смены фильтра
+
+const Home = (
+  await load("src/screens/HomeScreen.tsx", [
+    [/^react$/, REACT],
+    [/^react\/jsx-runtime$/, JSX],
+    [/^react-dom$/, PORTAL],
+    [/^react-router-dom$/, `export const Link = "Link"; export const useNavigate = () => () => {};`],
+    [/\/auth\/AuthProvider$/, `export const useAuth = () => ({ isAuthed: false, status: "guest", user: null });`],
+    [/\/i18n\/lang$/, LANG],
+    [/\/components\/ScreenHeader$/, `export default "ScreenHeader";`],
+    [/\/components\/ModeSwitch$/, `export default "ModeSwitch";`],
+    [/\/api\/seasonal$/, `export const fetchSeasonalEvents = async () => ({ items: [] });`],
+    [/\/components\/RideSheet$/, `export default "RideSheet";`],
+    [/\/components\/YandexMap$/, `export default "YandexMap";`],
+    [
+      /\/components\/NearbyRideCard$/,
+      `export default "NearbyRideCard"; export const NearbySkeletonCard = "NearbySkeletonCard", NearbyMoreCard = "NearbyMoreCard", NearbyEmptyCard = "NearbyEmptyCard";`,
+    ],
+    [/\/components\/adminUi$/, `export const NearbyChip = "NearbyChip";`],
+    [/\/components\/NearbyFilters$/, `export const NearbyCityChips = "NearbyCityChips", NearbyConditionsChip = "NearbyConditionsChip", NearbyWhenChip = "NearbyWhenChip";`],
+    [/\/components\/CommunityFeedStrip$/, `export default "CommunityFeedStrip";`],
+    [
+      /\/api\/discovery$/,
+      `export const fetchRidesNear = (q, signal) => globalThis.__rt.fetchRides(q, signal); export const fetchRequestsNear = async () => ({ items: [] });`,
+    ],
+    [/\/filterPrefs$/, `export const loadFilters = () => ({ conditions: [], onlyTrusted: false });`],
+    [/\/nearbyCityFilter$/, `export const useNearbyCityFilter = () => globalThis.__rt.city;`],
+    [/\/components\/Icons$/, `export const IconRides = "Icon", IconGift = "Icon", IconLocate = "Icon", IconClose = "Icon", IconHospital = "Icon", IconChevron = "Icon";`],
+    [/\/components\/BrandIcons$/, `export const YuModeTaxi = "Icon";`],
+    [/\/components\/PartnerAd$/, `export const PartnerAdSlot = "PartnerAdSlot";`],
+    [/\/api\/geo$/, `export const fetchPopularRoutes = async () => [];`],
+    [/\/utils\/useVisibleInterval$/, `export const useVisibleInterval = (_ms, cb) => { globalThis.__rt.tick = cb; };`],
+    [/\/components\/ComingSoon$/, `export default "ComingSoon";`],
+    [/\/components\/States$/, `export const LoadingList = "LoadingList";`],
+    [/\/features$/, `export const useFeatures = () => ({ ready: true });`],
+    [/\/featureRules$/, `export const isOpen = () => true;`],
+  ])
+).default;
+
+const NO_CITIES = { from: [], to: [], fromOptions: [], toOptions: [], found: [], active: false, offered: false };
+const cityState = (patch = {}) => ({ ...NO_CITIES, setFrom() {}, setTo() {}, addFound() {}, dropUnchosenFound() {}, clear() {}, ...patch });
+const ride = (id, extra = {}) => ({
+  id,
+  from_city: "Уфа",
+  to_city: "Сибай",
+  depart_at: "2030-01-01T10:00:00",
+  seats_left: 2,
+  seats_total: 3,
+  price: 500,
+  child_seat: true,
+  ...extra,
+});
+const ok = (items, count = items.length) => () => Promise.resolve({ items, count });
+const offline = () => () => Promise.reject(new TypeError("Failed to fetch"));
+
+/** Карта с двумя поездками на экране; дальше сеть ведёт себя так, как скажет тест. */
+async function homeWithList() {
+  const calls = [];
+  const net = { reply: ok([ride(1), ride(2)]) };
+  rt.city = cityState();
+  rt.fetchRides = (q) => (calls.push(q), net.reply(q));
+  const home = mount(Home, {});
+  await settle(home);
+  assert.equal(all(home.tree, "NearbyRideCard").length, 2, "исходный список на месте");
+  return { home, calls, net };
+}
+const cards = (home) => all(home.tree, "NearbyRideCard").length;
+const errorCard = (home) => all(home.tree, "NearbyEmptyCard").find((n) => n.props.error === true);
+
+await test("сменили день, а сеть упала — вместо старого списка «нет сети» с «Повторить»", async () => {
+  const { home, calls, net } = await homeWithList();
+  net.reply = offline();
+  one(home.tree, "NearbyWhenChip").props.onChange("2030-01-02");
+  await settle(home);
+  assert.equal(calls.at(-1).date, "2030-01-02", "запрос ушёл уже за новый день");
+  assert.equal(cards(home), 0, "поездки других дней под чипом «Когда · 02.01» не остаются");
+  assert.ok(errorCard(home), "видно состояние ошибки, а не пустоту");
+});
+
+await test("«Повторить» после такого сбоя грузит новый поиск и возвращает список", async () => {
+  const { home, calls, net } = await homeWithList();
+  net.reply = offline();
+  one(home.tree, "NearbyWhenChip").props.onChange("2030-01-02");
+  await settle(home);
+  net.reply = ok([ride(7)]);
+  errorCard(home).props.onRetry();
+  await settle(home);
+  assert.equal(calls.at(-1).date, "2030-01-02", "повтор — для выбранного дня, а не для прежнего");
+  assert.equal(cards(home), 1);
+  assert.equal(errorCard(home), undefined);
+});
+
+await test("сменили условие при обрыве сети — старый список не остаётся (даже если поездки с креслом)", async () => {
+  const { home, net } = await homeWithList();
+  net.reply = offline();
+  one(home.tree, "NearbyConditionsChip").props.onChange(["child"]);
+  await settle(home);
+  assert.equal(cards(home), 0);
+  assert.ok(errorCard(home));
+});
+
+await test("выбрали город «Откуда» при обрыве сети — ошибка, а не поездки из всех городов", async () => {
+  const { home, calls, net } = await homeWithList();
+  net.reply = offline();
+  rt.city = cityState({ from: ["Баймак"], fromOptions: [{ ru: "Баймак", ba: "Баймаҡ" }], active: true, offered: true });
+  home.render();
+  await settle(home);
+  assert.deepEqual(calls.at(-1).from_cities, ["Баймак"]);
+  assert.equal(cards(home), 0);
+  assert.ok(errorCard(home));
+});
+
+await test("включили «Ближайшие» (место) при обрыве сети — ошибка, а не список без радиуса", async () => {
+  const { home, calls, net } = await homeWithList();
+  net.reply = offline();
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { geolocation: { getCurrentPosition: (yes) => yes({ coords: { latitude: 54.73, longitude: 55.95 } }) } },
+  });
+  one(home.tree, "NearbyChip").props.onClick();
+  await settle(home);
+  assert.equal(calls.at(-1).radius_km, 50, "запрос ушёл уже с местом");
+  assert.equal(cards(home), 0);
+  assert.ok(errorCard(home));
+});
+
+await test("тихое обновление ТОГО ЖЕ поиска при сбое держит список — без экрана ошибки", async () => {
+  const { home, calls, net } = await homeWithList();
+  net.reply = offline();
+  const before = calls.length;
+  rt.tick();
+  await settle(home);
+  assert.equal(calls.length, before + 1, "обновление правда ходило в сеть");
+  assert.equal(cards(home), 2, "сеть моргнула — человек продолжает видеть поездки");
+  assert.equal(errorCard(home), undefined);
+});
+
+await test("после такого сбоя тихое обновление не прячет ошибку, а вернувшаяся сеть сама возвращает список", async () => {
+  const { home, net } = await homeWithList();
+  net.reply = offline();
+  one(home.tree, "NearbyWhenChip").props.onChange("2030-01-02");
+  await settle(home);
+  rt.tick();
+  await settle(home);
+  assert.equal(cards(home), 0, "старый список не воскрес");
+  assert.ok(errorCard(home));
+  net.reply = ok([ride(9)]);
+  rt.tick();
+  await settle(home);
+  assert.equal(cards(home), 1);
+  assert.equal(errorCard(home), undefined);
+});
+
+await test("«Показать ещё» при сбое не стирает показанное: это тот же поиск", async () => {
+  const { home, net } = await homeWithList();
+  net.reply = ok([ride(1), ride(2)], 40);
+  rt.tick();
+  await settle(home);
+  net.reply = offline();
+  one(home.tree, "NearbyMoreCard").props.onMore();
+  await settle(home);
+  assert.equal(cards(home), 2);
+  assert.equal(errorCard(home), undefined);
+});
+
+// ================================================================ 2–3. Шторки ленты
+
+const F = await load(
+  `export * from "./src/components/NearbyFilters"; export { useNearbyCityFilter } from "./src/nearbyCityFilter"; export { keepChosenFound } from "./src/nearbyFeed";`,
+  [
+    [/^react$/, REACT],
+    [/^react\/jsx-runtime$/, JSX],
+    [/^react-dom$/, PORTAL],
+    [/\/i18n\/lang$/, LANG],
+    [/\/CityField$/, `export default "CityField";`],
+    [/\/conditionIcons$/, `export const ConditionIcon = "ConditionIcon";`],
+    [/\/Icons$/, `export const IconCalendar = "Icon", IconCheck = "Icon", IconClose = "Icon", IconFlag = "Icon", IconPin = "Icon", IconShield = "Icon", IconTune = "Icon";`],
+    [/\/api\/discovery$/, `export const fetchRideCities = async () => globalThis.__rt.cities;`],
+  ]
+);
+
+/** Содержимое шторки: функцией (новое) — с закрытием шторки, узлами — как есть. */
+const sheetBody = (sheetEl, close) => (typeof sheetEl.props.children === "function" ? sheetEl.props.children(close) : sheetEl.props.children);
+
+// ---------------------------------------------------------------- 2. найденная деревня
+
+const KIPCHAK = { ru: "Кипчак-Аскарово", ba: "Ҡыпсаҡ-Асҡар" };
+const ASKAR = { ru: "Аскарово", ba: "Асҡар" };
+const TEMYAS = { ru: "Темясово", ba: "Темәс" };
+
+await test("закрыли шторку — найденные и не выбранные ни в «Откуда», ни в «Куда» уходят", async () => {
+  assert.equal(typeof F.keepChosenFound, "function", "нет правила «что остаётся после закрытия шторки»");
+  assert.deepEqual(F.keepChosenFound([KIPCHAK, ASKAR, TEMYAS], ["Аскарово"], ["Темясово"]), [ASKAR, TEMYAS]);
+  assert.deepEqual(F.keepChosenFound([KIPCHAK], [], []), []);
+});
+
+/** «Откуда»/«Куда» целиком: настоящее состояние городов + настоящие чипы. */
+async function cityChips() {
+  rt.cities = { from: [{ ru: "Баймак", ba: "Баймаҡ" }], to: [{ ru: "Уфа", ba: "Өфө" }] };
+  const host = mount(() => {
+    const f = F.useNearbyCityFilter(0);
+    rt.f = f;
+    return F.NearbyCityChips({ filter: f });
+  }, {});
+  await settle(host);
+  const chips = all(host.tree, "FeedChip");
+  assert.equal(chips.length, 2, "чипы «Откуда» и «Куда» на месте");
+  /** Открыть шторку чипа; вернуть шторку и её элемент NearbySheet. */
+  const open = async (label) => {
+    all(host.tree, "FeedChip").find((n) => n.props.label.startsWith(label)).props.onClick();
+    await settle(host);
+    const el = one(host.tree, "NearbyCitySheet");
+    const sheet = mount(el.type, el.props);
+    const sync = async () => {
+      await settle(host, sheet);
+      const now = all(host.tree, "NearbyCitySheet")[0];
+      if (now) sheet.render(now.props);
+    };
+    const nbs = () => one(sheet.tree, "NearbySheet");
+    const rows = (close = () => {}) => all(sheetBody(nbs(), close), "NearbyCheckRow");
+    return { sheet, sync, nbs, rows, body: (close) => sheetBody(nbs(), close) };
+  };
+  return { host, open };
+}
+
+await test("нашёл деревню, снял галочку, закрыл шторку — её нет ни в «Откуда», ни в «Куда»", async () => {
+  const { host, open } = await cityChips();
+  const from = await open("Откуда");
+  one(from.body(), "CityField").props.onPick({ name_ru: KIPCHAK.ru, name_ba: KIPCHAK.ba });
+  await from.sync();
+  assert.deepEqual(rt.f.from, [KIPCHAK.ru], "найденная сразу выбрана");
+  from.rows().find((r) => r.props.label === KIPCHAK.ru).props.onToggle();
+  await from.sync();
+  const row = from.rows().find((r) => r.props.label === KIPCHAK.ru);
+  assert.ok(row && row.props.selected === false, "пока шторка открыта, снятую можно вернуть одной галочкой");
+
+  from.nbs().props.onClose(); // так шторка убирает себя, когда уехала
+  await settle(host);
+  assert.equal(all(host.tree, "NearbyCitySheet").length, 0, "шторка закрыта");
+  assert.ok(!rt.f.found.some((c) => c.ru === KIPCHAK.ru), "снятая деревня не висит в найденных");
+
+  const to = await open("Куда");
+  assert.ok(!to.rows().some((r) => r.props.label === KIPCHAK.ru), "в «Куда» она тоже не всплывает");
+});
+
+await test("выбранная найденная деревня после закрытия остаётся — по ней подписан чип", async () => {
+  const { host, open } = await cityChips();
+  const from = await open("Откуда");
+  one(from.body(), "CityField").props.onPick({ name_ru: ASKAR.ru, name_ba: ASKAR.ba });
+  await from.sync();
+  from.nbs().props.onClose();
+  await settle(host);
+  assert.deepEqual(rt.f.found, [ASKAR]);
+  assert.ok(all(host.tree, "FeedChip").some((n) => n.props.label === "Откуда · Аскарово"));
+});
+
+// ---------------------------------------------------------------- 3. закрытие шторки движением
+
+/** Шторка с кнопкой «Готово» внутри; закрытия считаем. */
+function sheetWithDone() {
+  const closes = [];
+  const sheet = mount(F.NearbySheet, {
+    title: "Откуда",
+    onClose: () => closes.push(1),
+    children: (close) => ({ type: "button", props: { className: "btn-primary nbs__cta", onClick: close, children: "Готово" } }),
+  });
+  const backdrop = () => sheet.tree;
+  const dialog = () => flat(sheet.tree).find((n) => n.props?.role === "dialog");
+  const leaving = () => /\bis-leaving\b/.test(backdrop().props.className);
+  const ended = (name = "sheetDown", fromChild = false) => {
+    const el = dialog();
+    const target = fromChild ? {} : el;
+    el.props.onAnimationEnd?.({ target, currentTarget: el, animationName: name });
+  };
+  return { sheet, closes, backdrop, dialog, leaving, ended };
+}
+const ESC = { key: "Escape", stopPropagation() {}, preventDefault() {} };
+
+for (const [how, act] of [
+  ["тап по затемнению", (s) => s.backdrop().props.onClick()],
+  ["Esc", (s) => s.dialog().props.onKeyDown(ESC)],
+  ["крестик", (s) => flat(s.sheet.tree).find((n) => n.props?.className === "nbs__close").props.onClick()],
+  ["«Готово»", (s) => flat(s.sheet.tree).find((n) => n.props?.className === "btn-primary nbs__cta").props.onClick()],
+]) {
+  await test(`${how}: шторка сначала уезжает вниз (затемнение гаснет), и только потом пропадает`, async () => {
+    reduced = false;
+    const s = sheetWithDone();
+    act(s);
+    s.sheet.render();
+    assert.equal(s.closes.length, 0, "не пропала мгновенно");
+    assert.ok(s.leaving(), "включилось движение закрытия (is-leaving)");
+    s.ended();
+    assert.equal(s.closes.length, 1, "доехала — убрана");
+    act(s);
+    s.ended();
+    assert.equal(s.closes.length, 1, "второе нажатие во время ухода не закрывает дважды");
+  });
+}
+
+await test("конец движения строки или кнопки внутри шторку не закрывает — только её собственное", async () => {
+  reduced = false;
+  const s = sheetWithDone();
+  s.backdrop().props.onClick();
+  s.sheet.render();
+  s.ended("fadeIn", true);
+  assert.equal(s.closes.length, 0);
+  s.ended();
+  assert.equal(s.closes.length, 1);
+});
+
+await test("конец движения не пришёл (вкладка в фоне) — шторка всё равно закрывается по его длительности", async () => {
+  reduced = false;
+  timers.length = 0;
+  const s = sheetWithDone();
+  s.backdrop().props.onClick();
+  s.sheet.render();
+  const pending = timers.filter((t) => t.on);
+  assert.equal(pending.length, 1, "есть страховочный таймер");
+  pending[0].fn();
+  assert.equal(s.closes.length, 1);
+  s.ended();
+  assert.equal(s.closes.length, 1, "и не закрывается второй раз");
+});
+
+await test("«Уменьшить движение» — шторка закрывается сразу, без ухода вниз", async () => {
+  reduced = true;
+  try {
+    const s = sheetWithDone();
+    s.backdrop().props.onClick();
+    s.sheet.render();
+    assert.equal(s.closes.length, 1);
+    assert.ok(!s.leaving());
+  } finally {
+    reduced = false;
+  }
+});
+
+await test("после закрытия фокус возвращается на чип, с которого открыли", async () => {
+  reduced = false;
+  const chip = new FakeEl("chip");
+  chip.focus();
+  const s = sheetWithDone();
+  s.backdrop().props.onClick();
+  s.sheet.render();
+  s.ended();
+  s.sheet.unmount();
+  assert.equal(chip.focused, 2, "фокус вернулся на чип");
+});
+
+await test("«Показать N поездок» в «Фильтрах» и выбор дня закрывают шторку тем же движением", async () => {
+  reduced = false;
+  // «Фильтры»
+  const cond = mount(F.NearbyConditionsChip, { chosen: ["child"], onChange() {}, verifiedOnly: false, total: 5 });
+  one(cond.tree, "FeedChip").props.onClick();
+  cond.render();
+  let closing = 0;
+  const cta = flat(sheetBody(one(cond.tree, "NearbySheet"), () => closing++)).find((n) => /nbs__cta/.test(n.props?.className ?? ""));
+  assert.match(text(cta), /Показать 5 поездок/);
+  cta.props.onClick();
+  assert.equal(closing, 1, "кнопка просит шторку уйти, а не выдёргивает её");
+  // «Когда»
+  const picked = [];
+  const when = mount(F.NearbyWhenChip, { day: null, onChange: (d) => picked.push(d) });
+  one(when.tree, "FeedChip").props.onClick();
+  when.render();
+  closing = 0;
+  one(sheetBody(one(when.tree, "NearbySheet"), () => closing++), "NearbyDayOptions").props.onPick("2030-01-02");
+  assert.deepEqual(picked, ["2030-01-02"], "день применился сразу");
+  assert.equal(closing, 1, "и шторка ушла тем же движением");
+});
+
+await test("«Готово» в шторке города — то же движение", async () => {
+  reduced = false;
+  const { open } = await cityChips();
+  const from = await open("Откуда");
+  let closing = 0;
+  const done = flat(from.body(() => closing++)).find((n) => /nbs__cta/.test(n.props?.className ?? ""));
+  assert.equal(text(done), "Готово");
+  done.props.onClick();
+  assert.equal(closing, 1);
+});
+
+await test("стили: пара к sheetUp/fadeIn — шторка уезжает вниз, затемнение гаснет; время только со шкалы", async () => {
+  const css = readFileSync(root + "src/ui.css", "utf8");
+  const sheetAt = css.indexOf("/* ---- Нижняя шторка (bottom sheet) ---- */");
+  const formsAt = css.indexOf("/* ---- Формы (заявка, отклик) ---- */");
+  const block = css.slice(sheetAt, formsAt);
+  assert.ok(sheetAt > 0 && formsAt > sheetAt, "блок шторки найден");
+  assert.ok(
+    /@keyframes sheetDown\s*\{[^}]*from\s*\{\s*transform:\s*translateY\(0\);?\s*\}\s*to\s*\{\s*transform:\s*translateY\(100%\);?\s*\}/.test(block),
+    "нет @keyframes sheetDown — пары к sheetUp (вверх → вниз)"
+  );
+  const leave = block.match(/\.sheet-backdrop\.is-leaving\s*\{([^}]*)\}/);
+  assert.ok(leave, "у затемнения есть уход");
+  assert.match(leave[1], /animation:\s*\w+\s+var\(--motion-[\w-]+\)/, "затемнение гаснет за время со шкалы");
+  const down = block.match(/\.sheet-backdrop\.is-leaving \.sheet\s*\{([^}]*)\}/);
+  assert.ok(down, "у шторки есть уход");
+  assert.match(down[1], /animation:\s*sheetDown\s+var\(--motion-[\w-]+\)/);
+  assert.ok(!/\d+m?s\b/.test((leave[1] + down[1]).replace(/var\(--motion-[\w-]+\)/g, "")), "время числом");
+  const index = readFileSync(root + "src/index.css", "utf8");
+  assert.match(index, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\*\s*\{\s*animation:\s*none !important;/, "при «Уменьшить движение» анимаций нет — NearbySheet закрывается сразу");
+});
+
+console.log(bad === 0 ? "\nВСЁ СОШЛОСЬ" : `\nПРОВАЛЕНО: ${bad}`);
+process.exit(bad === 0 ? 0 : 1);

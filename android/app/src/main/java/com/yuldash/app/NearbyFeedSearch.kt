@@ -48,6 +48,15 @@ internal fun NearbyRouteReset(onClick: () -> Unit) {
     }
 }
 
+/**
+ * Запрос ленты упал: убрать ли показанный список (зеркало `nearbyFailure` в nearbyFeed.ts сайта).
+ * Поиск — маршрут, позиция, день, условия, города (без «Обновить» и порции «Показать ещё»).
+ * Тот же поиск (авто-обновление раз в ~25 с, «Показать ещё») — нет: сеть моргнула, поездки остаются.
+ * Другой (человек сменил фильтр, день, город или место) — да: старый список под новым чипом фильтру не
+ * соответствует, лента покажет «нет сети» с «Повторить» (приёмки PR147, PR148, PR151).
+ */
+internal fun nearbyDropsOnFailure(shownFor: Any?, requested: Any): Boolean = shownFor != requested
+
 /** До явного выбора лента следует активной поездке; «Все маршруты» снимает и её ограничение. */
 internal class NearbyRouteSearchState {
     var route by mutableStateOf<PopularRoute?>(null)

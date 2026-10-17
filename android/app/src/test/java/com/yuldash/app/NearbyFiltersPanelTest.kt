@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsOff
@@ -16,6 +17,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import com.yuldash.app.data.FilterCity
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -147,6 +149,37 @@ class NearbyFiltersPanelTest {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) { Row { NearbyCityChips(state, Modifier) } }
         }
         compose.onNodeWithText("Ҡайҙан · Асҡар").assertIsDisplayed()
+    }
+
+    @Test
+    fun `найденная и снятая деревня уходит, когда шторку закрыли`() {
+        // Приёмки PR148/PR151: нашёл «Кипчак-Аскарово», снял галочку, закрыл шторку — деревня так и висела
+        // строкой в «Откуда» и появлялась в «Куда». Выбранная остаётся: по ней подписан чип.
+        val state = NearbyCityFilterState().apply {
+            fromOptions = listOf(FilterCity("Баймак", "Баймаҡ"))
+            found = listOf(FilterCity("Кипчак-Аскарово", "Ҡыпсаҡ-Асҡар"), FilterCity("Аскарово", "Асҡар"))
+            from = setOf("Аскарово")
+        }
+        compose.setContent { Row { NearbyCityChips(state, Modifier) } }
+        compose.onNodeWithText("Откуда · Аскарово").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Кипчак-Аскарово").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Кипчак-Аскарово").assertIsOff()   // пока шторка открыта — строка есть, вернуть одной галочкой
+        compose.onNodeWithText("Готово").performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitForIdle()
+        assertEquals(listOf("Аскарово"), state.found.map { it.ru })
+        compose.onNodeWithText("Откуда · Аскарово").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodesWithText("Кипчак-Аскарово").fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun `после закрытия остаются найденные, выбранные хоть в «Откуда», хоть в «Куда»`() {
+        val state = NearbyCityFilterState().apply {
+            found = listOf(FilterCity("Кипчак-Аскарово", "Ҡыпсаҡ-Асҡар"), FilterCity("Темясово", "Темәс"), FilterCity("Аскарово", "Асҡар"))
+            from = setOf("Аскарово")
+            to = setOf("Темясово")
+        }
+        state.dropUnchosenFound()
+        assertEquals(listOf("Темясово", "Аскарово"), state.found.map { it.ru })
     }
 
     @Test

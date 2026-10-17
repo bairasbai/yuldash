@@ -5,10 +5,11 @@
 //  Что выбрано — русские имена (сервер сам ищет и по башкирскому). Из чего выбирать — города,
 //  где поездки есть сейчас (`GET /rides/cities`); сверх них человек может найти любой город
 //  или деревню по справочнику — такие хранятся в `found`, чтобы подписать чип на его языке.
+//  Найденные живут, пока шторка открыта; закрыли — остаются только выбранные (`dropUnchosenFound`).
 // ================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchRideCities, type RideCity } from "./api/discovery";
-import { addFoundCity, createRideCitiesLoader } from "./nearbyFeed";
+import { addFoundCity, createRideCitiesLoader, keepChosenFound } from "./nearbyFeed";
 
 export interface NearbyCityFilter {
   from: string[];
@@ -24,6 +25,8 @@ export interface NearbyCityFilter {
   setFrom: (cities: string[]) => void;
   setTo: (cities: string[]) => void;
   addFound: (city: RideCity) => void;
+  /** Шторку закрыли: найденные поиском и не выбранные ни в «Откуда», ни в «Куда» уходят. */
+  dropUnchosenFound: () => void;
   clear: () => void;
 }
 
@@ -67,6 +70,14 @@ export function useNearbyCityFilter(reloadKey: number): NearbyCityFilter {
   const setFrom = useCallback((cities: string[]) => setFromState(cities), []);
   const setTo = useCallback((cities: string[]) => setToState(cities), []);
   const addFound = useCallback((city: RideCity) => setFound((cur) => addFoundCity(cur, city)), []);
+  const dropUnchosenFound = useCallback(
+    () =>
+      setFound((cur) => {
+        const kept = keepChosenFound(cur, from, to);
+        return kept.length === cur.length ? cur : kept; // нечего убирать — без лишней перерисовки
+      }),
+    [from, to]
+  );
   const clear = useCallback(() => {
     // Пустое не заменяем новым пустым: иначе лента перезапросилась бы без причины.
     setFromState((cur) => (cur.length ? [] : cur));
@@ -77,7 +88,7 @@ export function useNearbyCityFilter(reloadKey: number): NearbyCityFilter {
   const offered = active || fromOptions.length > 0 || toOptions.length > 0;
 
   return useMemo(
-    () => ({ from, to, fromOptions, toOptions, found, active, offered, setFrom, setTo, addFound, clear }),
-    [from, to, fromOptions, toOptions, found, active, offered, setFrom, setTo, addFound, clear]
+    () => ({ from, to, fromOptions, toOptions, found, active, offered, setFrom, setTo, addFound, dropUnchosenFound, clear }),
+    [from, to, fromOptions, toOptions, found, active, offered, setFrom, setTo, addFound, dropUnchosenFound, clear]
   );
 }

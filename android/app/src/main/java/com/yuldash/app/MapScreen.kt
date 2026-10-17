@@ -3,7 +3,6 @@ package com.yuldash.app
 // Вкладка «Карта»: MapScreen + Яндекс MapKit (YandexMapCard, MapHero, маркеры-ценники,
 // геолокация, контролы). Вынесено из MainActivity (Фаза 3). Импорты целиком — лишние = варнинги.
 
-import com.yuldash.app.R
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -285,6 +284,7 @@ internal fun MapScreen(
     var nearbyReload by remember { mutableStateOf(0) }
     var nearbyTotal by remember { mutableStateOf(0) }       // всего на маршруте (для «Показать ещё»)
     var nearbyLimit by remember { mutableStateOf(NEARBY_PAGE) }  // сколько показываем сейчас
+    var nearbyFor by remember { mutableStateOf<Any?>(null) }   // для какого поиска пришёл `nearby` (nearbyDropsOnFailure)
     // F15: сезонное событие для баннера «на праздник». Один запрос; сервер сам считает даты по годам.
     var seasonalEvent by remember { mutableStateOf<com.yuldash.app.data.SeasonalEventDto?>(null) }
     var seasonalDismissed by remember { mutableStateOf(false) }
@@ -317,13 +317,14 @@ internal fun MapScreen(
     LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to) { nearbyLimit = NEARBY_PAGE }
     LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter, cityFilter.from, cityFilter.to) {
         if (nearby.isEmpty()) nearbyLoading = true   // спиннер только когда показывать нечего; авто-обновление с данными — молча, без мигания
+        val search = listOf(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to)
         // Радиус — только когда знаем позицию. Выбран город «Откуда»/«Куда» — ни радиуса, ни маршрута с карусели:
         // место задаёт сам человек, а «Куда · Сибай» из Уфы иначе дал бы ложное «поездок нет» (поездки — из Баймака).
         val radius = if (userLat != null && userLng != null && !cityFilter.active) NEARBY_RADIUS_KM else null
         ApiClient.getNearbyRidesPaged(focusFrom.takeUnless { cityFilter.active }, focusTo.takeUnless { cityFilter.active }, userLat, userLng, radius, nearbyLimit,
             date = dateFilter, conditions = prefFilter, verifiedOnly = verifiedOnly, fromCities = cityFilter.from, toCities = cityFilter.to)
-            .onSuccess { nearby = it.items; nearbyTotal = it.total; nearbyError = false }
-            .onFailure { nearbyError = true }
+            .onSuccess { nearby = it.items; nearbyTotal = it.total; nearbyError = false; nearbyFor = search }
+            .onFailure { if (nearbyDropsOnFailure(nearbyFor, search)) { nearby = emptyList(); nearbyTotal = 0 }; nearbyError = true }
         nearbyLoading = false
     }
     // Заявки пассажиров рядом → маркеры на карте (кто ищет попутку). Радиус — когда знаем позицию.
@@ -1140,7 +1141,6 @@ internal object LocationPrefs {
 }
 
 private val MapMidPoint = Point(52.55, 58.49) // южнее центра маршрута → точки рисуются в верхней части, не под плашкой
-
 
 /**
  * Настоящая Яндекс-карта на вкладке «Карта». Инициализируется ЛЕНИВО (только когда

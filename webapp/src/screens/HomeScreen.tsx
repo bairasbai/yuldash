@@ -32,6 +32,7 @@ import {
   NEARBY_PAGE,
   NEARBY_RADIUS_KM,
   nearbyContextKey,
+  nearbyFailure,
   nearbyFeedState,
   nearbyQuery,
   type NearbyCondition,
@@ -167,26 +168,37 @@ export default function HomeScreen() {
 
   // Последний запрос ленты: новый отменяет прежний, и запоздавший ответ не затрёт свежий.
   const inflight = useRef<AbortController | null>(null);
+  /** Для какого поиска (`nearbyContextKey`) пришёл список на экране; null — списка нет. */
+  const shownKey = useRef<string | null>(null);
   const load = useCallback(
     (quiet = false) => {
       inflight.current?.abort();
       const ac = new AbortController();
       inflight.current = ac;
+      const key = nearbyContextKey(filters);
       // Тихое обновление — для авто-перезагрузки: карта не должна моргать
       // скелетоном каждые полминуты у человека на глазах.
       if (!quiet) setStatus("loading");
       fetchRidesNear(nearbyQuery(filters, limit), ac.signal)
         .then((r) => {
           if (ac.signal.aborted) return;
+          shownKey.current = key;
           setRides(r.items);
           setTotal(r.count);
           setStatus("ready");
         })
         .catch((e) => {
           if (ac.signal.aborted || e?.name === "AbortError") return;
-          // Тихая перезагрузка не должна стирать уже показанную карту: сеть моргнула —
-          // человек продолжает видеть поездки, а не экран ошибки.
-          if (quiet) return;
+          // Тихая перезагрузка ТОГО ЖЕ поиска не стирает показанную карту: сеть моргнула — человек
+          // продолжает видеть поездки, а не экран ошибки. А сменил фильтр, день, город или место —
+          // старый список под новым чипом неправда: убираем его, лента скажет «нет сети» с «Повторить».
+          const failure = nearbyFailure(key, shownKey.current, quiet);
+          if (failure === "keep") return;
+          if (failure === "drop") {
+            shownKey.current = null;
+            setRides([]);
+            setTotal(0);
+          }
           setStatus("error");
         });
     },

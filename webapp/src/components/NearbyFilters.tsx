@@ -34,9 +34,24 @@ import { IconCalendar, IconCheck, IconClose, IconFlag, IconPin, IconShield, Icon
 
 const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
 
+/** Запас к длительности ухода шторки, после которого она закрывается и без события о конце движения. */
+const LEAVE_GRACE_MS = 80;
+
+/** Человек просил «Уменьшить движение» — анимаций нет (index.css), и ждать конца ухода нечего. */
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+}
+
+/** Длительность из getComputedStyle («0.26s», «260ms», через запятую) → миллисекунды, самая долгая. */
+function cssTimeMs(value: string): number {
+  return Math.max(0, ...value.split(",").map((v) => (v.trim().endsWith("ms") ? parseFloat(v) : parseFloat(v) * 1000) || 0));
+}
+
 /**
  * Нижняя шторка ленты: заголовок (+ действие справа, например «Сбросить») и содержимое.
- * Закрывается тапом по затемнению, Esc и крестиком; фокус уходит внутрь и возвращается на чип.
+ * Закрывается тапом по затемнению, Esc, крестиком и кнопкой внутри — одинаково: шторка уезжает
+ * вниз, затемнение гаснет (пара к появлению `sheetUp` / `fadeIn`), и только потом `onClose` убирает
+ * её со страницы. Раньше она пропадала мгновенно (п.3 «Готово»). Фокус уходит внутрь и возвращается на чип.
  */
 export function NearbySheet({
   title,
@@ -45,13 +60,32 @@ export function NearbySheet({
   children,
 }: {
   title: string;
+  /** Шторка уже уехала — убери её со страницы. */
   onClose: () => void;
   action?: ReactNode;
-  children: ReactNode;
+  /** Функцией — когда кнопке внутри («Готово», выбор дня) нужно закрыть шторку тем же движением. */
+  children: ReactNode | ((close: () => void) => ReactNode);
 }) {
   const { appText } = useLang();
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const [leaving, setLeaving] = useState(false);
+  const closed = useRef(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  /** Уехала — убрать (ровно один раз: событие о конце движения и страховка могут прийти оба). */
+  function finish() {
+    if (closed.current) return;
+    closed.current = true;
+    onCloseRef.current();
+  }
+  /** Попросить шторку уйти. Повторное нажатие во время ухода ничего не делает. */
+  function close() {
+    if (leaving || closed.current) return;
+    if (prefersReducedMotion()) finish();
+    else setLeaving(true);
+  }
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -60,8 +94,18 @@ export function NearbySheet({
     return () => previous?.focus();
   }, []);
 
+  // Страховка: событие о конце движения может не прийти (вкладка в фоне, стиль не применился) —
+  // тогда закрываем по длительности самого движения, а не оставляем невидимую шторку висеть.
+  useEffect(() => {
+    if (!leaving) return;
+    const el = dialogRef.current;
+    const timer = window.setTimeout(finish, (el ? cssTimeMs(window.getComputedStyle(el).animationDuration) : 0) + LEAVE_GRACE_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leaving]);
+
   return createPortal(
-    <div className="sheet-backdrop" onClick={onClose} role="presentation">
+    <div className={"sheet-backdrop" + (leaving ? " is-leaving" : "")} onClick={close} role="presentation">
       <div
         ref={dialogRef}
         className="sheet nbs"
@@ -70,10 +114,14 @@ export function NearbySheet({
         aria-labelledby={titleId}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
+        onAnimationEnd={(e) => {
+          // Своё движение «вниз», а не всплывшее от строки или кнопки внутри шторки.
+          if (leaving && e.target === e.currentTarget && e.animationName === "sheetDown") finish();
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.stopPropagation();
-            onClose();
+            close();
             return;
           }
           if (event.key !== "Tab") return;
@@ -97,11 +145,11 @@ export function NearbySheet({
             {title}
           </h2>
           {action}
-          <button type="button" className="nbs__close" onClick={onClose} aria-label={appText("Закрыть", "Ябырға")}>
+          <button type="button" className="nbs__close" onClick={close} aria-label={appText("Закрыть", "Ябырға")}>
             <IconClose size={22} />
           </button>
         </div>
-        <div className="nbs__body">{children}</div>
+        <div className="nbs__body">{typeof children === "function" ? children(close) : children}</div>
       </div>
     </div>,
     document.body
@@ -163,13 +211,15 @@ export function NearbyWhenChip({ day, onChange }: { day: string | null; onChange
       <FeedChip icon={<IconCalendar size={15} />} label={whenChipLabel(day, new Date(), appText)} on={day != null} onClick={() => setOpen(true)} />
       {open && (
         <NearbySheet title={appText("Когда едем", "Ҡасан барабыҙ")} onClose={() => setOpen(false)}>
-          <NearbyDayOptions
-            day={day}
-            onPick={(next) => {
-              onChange(next);
-              setOpen(false);
-            }}
-          />
+          {(close) => (
+            <NearbyDayOptions
+              day={day}
+              onPick={(next) => {
+                onChange(next);
+                close();
+              }}
+            />
+          )}
         </NearbySheet>
       )}
     </>
@@ -260,10 +310,14 @@ export function NearbyConditionsChip({
             ) : null
           }
         >
-          <NearbyConditionsList chosen={chosen} onChange={onChange} verifiedOnly={verifiedOnly} />
-          <button type="button" className="btn-primary nbs__cta" onClick={() => setOpen(false)}>
-            <span aria-live="polite">{showRidesLabel(total, appText)}</span>
-          </button>
+          {(close) => (
+            <>
+              <NearbyConditionsList chosen={chosen} onChange={onChange} verifiedOnly={verifiedOnly} />
+              <button type="button" className="btn-primary nbs__cta" onClick={close}>
+                <span aria-live="polite">{showRidesLabel(total, appText)}</span>
+              </button>
+            </>
+          )}
         </NearbySheet>
       )}
     </>
@@ -346,7 +400,12 @@ export function NearbyCityChips({ filter }: { filter: NearbyCityFilter }) {
           anyLabel={isFrom ? appText("Все города", "Бөтә ҡалалар") : appText("Любое направление", "Теләһә ҡайҙа")}
           filter={filter}
           isFrom={isFrom}
-          onClose={() => setSheetFor(null)}
+          onClose={() => {
+            setSheetFor(null);
+            // Найденные поиском и не выбранные уходят вместе со шторкой: иначе деревня, найденная и тут же
+            // снятая, висела строкой в «Откуда» и всплывала в «Куда». Выбранные остаются — по ним подписан чип.
+            filter.dropUnchosenFound();
+          }}
         />
       )}
     </>
@@ -378,31 +437,35 @@ function NearbyCitySheet({
   const setChosen = isFrom ? filter.setFrom : filter.setTo;
   return (
     <NearbySheet title={title} onClose={onClose}>
-      <CityField
-        label={appText("Найти город или деревню", "Ҡала йәки ауыл табыу")}
-        value={query}
-        onChange={setQuery}
-        onPick={(s) => {
-          filter.addFound({ ru: s.name_ru, ba: s.name_ba || s.name_ru });
-          if (!chosen.includes(s.name_ru)) setChosen([...chosen, s.name_ru]);
-          setQuery(""); // выбрали — поле свободно для следующего города
-        }}
-      />
-      <NearbyCheckRow label={anyLabel} selected={chosen.length === 0} onToggle={() => setChosen([])} />
-      {cityRows(chosen, options, filter.found).map((city) => {
-        const on = chosen.includes(city.ru);
-        return (
-          <NearbyCheckRow
-            key={city.ru}
-            label={appText(city.ru, city.ba)}
-            selected={on}
-            onToggle={() => setChosen(on ? chosen.filter((c) => c !== city.ru) : [...chosen, city.ru])}
+      {(close) => (
+        <>
+          <CityField
+            label={appText("Найти город или деревню", "Ҡала йәки ауыл табыу")}
+            value={query}
+            onChange={setQuery}
+            onPick={(s) => {
+              filter.addFound({ ru: s.name_ru, ba: s.name_ba || s.name_ru });
+              if (!chosen.includes(s.name_ru)) setChosen([...chosen, s.name_ru]);
+              setQuery(""); // выбрали — поле свободно для следующего города
+            }}
           />
-        );
-      })}
-      <button type="button" className="btn-primary nbs__cta" onClick={onClose}>
-        {appText("Готово", "Әҙер")}
-      </button>
+          <NearbyCheckRow label={anyLabel} selected={chosen.length === 0} onToggle={() => setChosen([])} />
+          {cityRows(chosen, options, filter.found).map((city) => {
+            const on = chosen.includes(city.ru);
+            return (
+              <NearbyCheckRow
+                key={city.ru}
+                label={appText(city.ru, city.ba)}
+                selected={on}
+                onToggle={() => setChosen(on ? chosen.filter((c) => c !== city.ru) : [...chosen, city.ru])}
+              />
+            );
+          })}
+          <button type="button" className="btn-primary nbs__cta" onClick={close}>
+            {appText("Готово", "Әҙер")}
+          </button>
+        </>
+      )}
     </NearbySheet>
   );
 }
