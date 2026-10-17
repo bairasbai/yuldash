@@ -151,19 +151,29 @@ class TripChatAcknowledgementTest {
     }
 
     @After fun cleanup() {
-        chats.forEach { it.socket?.close(); it.scope.cancel() }
-        waitFor { chats.all { it.scope.coroutineContext[Job]?.children?.none() != false } }
-        serverSockets.forEach { it.close(1000, null) }
-        waitFor { serverSockets.all { it in closedServerSockets } }
-        // Detach fault stores so teardown does not consume the storage failure under test.
-        Outbox.initStores(MemoryDiskPreferences(), null)
-        TripPassStore.initStores(MemoryDiskPreferences(), null)
-        val bearer = ApiClient.currentToken()?.let { "Bearer $it" }
-        ApiClient.logout()
-        if (bearer != null) waitFor { requests.contains("POST /auth/logout" to bearer) }
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        server.shutdown()
+        // A failed wait must not leave stores, the session or the server to the next test.
+        try {
+            chats.forEach { it.socket?.close(); it.scope.cancel() }
+            waitFor { chats.all { it.scope.coroutineContext[Job]?.children?.none() != false } }
+            // Only the app closes; the server answers in onClosing. Closing the server end at the same moment
+            // races inside OkHttp: the app may read the server's own close frame after dequeuing its close but
+            // before writing it, drop the connection, and the server socket fails with EOFException instead of
+            // reaching onClosed (main run 39009915095).
+            waitFor { serverSockets.all { it in closedServerSockets } }
+        } finally {
+            // Detach fault stores so teardown does not consume the storage failure under test.
+            Outbox.initStores(MemoryDiskPreferences(), null)
+            TripPassStore.initStores(MemoryDiskPreferences(), null)
+            try {
+                val bearer = ApiClient.currentToken()?.let { "Bearer $it" }
+                ApiClient.logout()
+                if (bearer != null) waitFor { requests.contains("POST /auth/logout" to bearer) }
+            } finally {
+                ApiClient.resetForTest()
+                ApiClient.testTimeoutMs = null
+                server.shutdown()
+            }
+        }
         assertTrue(failures.toString(), failures.isEmpty())
     }
 
@@ -201,8 +211,8 @@ class TripChatAcknowledgementTest {
     }
     /**
      * Main went red once in cleanup waiting for server sockets to reach onClosed (17.10, run 39009915095,
-     * line `waitFor { serverSockets.all { it in closedServerSockets } }`); the log did not say why.
-     * Name what is still open, how each server socket ended, and what the socket threads are doing.
+     * line `waitFor { serverSockets.all { it in closedServerSockets } }`): cleanup closed both ends at once
+     * (see cleanup). Name what is still open, how each server socket ended, and what the socket threads are doing.
      */
     private fun pendingWork(): String = buildString {
         append("failures=$failures\n")

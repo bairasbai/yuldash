@@ -143,6 +143,12 @@ class BoardingCodeVisibilityTest {
     @Test fun codeCardLeavesAfterISatIsTapped() {
         openScreen()
         waitForCodeLoaded()
+        // «Я сел» появляется, когда известна роль, — её приносит отдельный опрос /role, а не цепочка
+        // «история → код → детали». Ответ опроса может прийти позже деталей: ждём саму кнопку.
+        compose.waitUntil(15000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodesWithText("Я сел").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onAllNodesWithText("Я сел")[0].performClick()
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
