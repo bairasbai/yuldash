@@ -34,6 +34,18 @@ class RideshareActiveTripGuardTest {
     }
 
     @Test
+    fun `cancel with passenger reasons is shown only to the passenger of a confirmed booking`() {
+        // Водитель с пассажирскими причинами отправлял пассажиру «Водитель не выходил на связь».
+        assertTrue(activeTripShowsCancel("passenger", hasBooking = true, bookingStatus = "confirmed"))
+        assertFalse(activeTripShowsCancel("driver", hasBooking = true, bookingStatus = "confirmed"))
+        assertFalse("роль ещё не пришла — кнопки нет", activeTripShowsCancel("", hasBooking = true, bookingStatus = "confirmed"))
+        assertFalse("«в пути» не отменяют", activeTripShowsCancel("passenger", hasBooking = true, bookingStatus = "onboard"))
+        assertFalse(activeTripShowsCancel("passenger", hasBooking = true, bookingStatus = "pending"))
+        assertTrue("без брони — прежний выход с экрана", activeTripShowsCancel("", hasBooking = false, bookingStatus = ""))
+        assertTrue(source("BookingActiveTripScreen.kt").contains("if (activeTripShowsCancel(role, hasBooking = bookingId != null, bookingStatus = bookingStatus)) item {"))
+    }
+
+    @Test
     fun `next action follows existing server state machine`() {
         assertEquals("departed", activeTripNextStatus("driver", "", null, "confirmed"))
         assertEquals("arriving", activeTripNextStatus("driver", "departed", null, "confirmed"))
