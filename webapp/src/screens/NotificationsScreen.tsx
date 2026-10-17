@@ -53,6 +53,9 @@ function deepLink(n: AppNotification): string | null {
     case "booking_done":
       return n.ref_id ? `/trip/${n.ref_id}` : null;
     case "booking":
+      // Адрес один для обеих ролей: экран «Бронь» сам уводит водителя поездки туда, где можно
+      // подтвердить (кабинет водителя / экран поездки) — см. utils/bookingLink.ts. Так же
+      // работает и веб-пуш: его адрес собирает сервер и роли там нет.
       return n.ref_id ? `/booking/${n.ref_id}` : null;
     case "request":
       return n.ref_id ? `/requests/${n.ref_id}/responses` : null;

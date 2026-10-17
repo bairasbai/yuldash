@@ -142,7 +142,8 @@ export default function FiltersScreen() {
           className="btn-soft"
           style={{ marginTop: 14 }}
           onClick={() => {
-            clearFilters();
+            // Здесь переключатель «Только для своих» на виду, поэтому сбрасывается вместе со всем.
+            clearFilters(false);
             update({ city: "", maxPrice: null, amenities: [], onlyTrusted: false });
           }}
         >

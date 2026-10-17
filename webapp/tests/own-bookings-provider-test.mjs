@@ -17,7 +17,7 @@ const mocks = {
     export const useCallback=(fn,deps)=>useMemo(()=>fn,deps);
     export function useEffect(fn,deps){const f=active(),i=f.cursor++;if(!eq(f.deps[i],deps)){f.deps[i]=deps;f.effects.push(()=>{f.cleanups[i]?.();f.cleanups[i]=fn();});}}`,
   "react/jsx-runtime": `export const Fragment="fragment";export const jsx=(type,props,key)=>({type,props:props??{},key});export const jsxs=jsx;`,
-  router: `const h=()=>globalThis.__ownBookingsHarness;export const Link="link";
+  router: `const h=()=>globalThis.__ownBookingsHarness;export const Link="link",Navigate="navigate";
     export const useLocation=()=>({pathname:h().pathname}),useParams=()=>({id:String(h().bookingId)}),useNavigate=()=>(...args)=>h().routes.push(args);`,
   auth: `export const useAuth=()=>globalThis.__ownBookingsHarness.auth;`,
   lang: `export const useLang=()=>({lang:globalThis.__ownBookingsHarness.lang,appText:(ru,ba)=>globalThis.__ownBookingsHarness.lang==="ba"?ba:ru});`,
