@@ -13,6 +13,11 @@
 //  - «Поделиться поездкой с близким» + статусы для близких (family.py).
 //  - Зимняя проверка «доехал?» (safety.py): по расчётной ETA пассажиру
 //    показываем мягкий вопрос; «Доехал ✓» → POST winter-check/ok.
+//  - Паритет с Android (16.10.2026, BookingActiveTripScreen.kt):
+//    · «Завершить поездку» у водителя — через окно «Завершить поездку?»;
+//    · пассажир отменяет ПОДТВЕРЖДЁННУЮ поездку с причиной (POST /bookings/{id}/cancel {reason});
+//      после «Я сел» отмены нет — только SOS и разбор;
+//    · водитель в пути отправляет свою точку в канал поездки (DriverLocationShare).
 // ================================================================
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -20,6 +25,8 @@ import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
 import {
+  CANCEL_REASONS,
+  cancelBooking,
   fetchBookingDetails,
   fetchTripState,
   fetchBoardingCode,
@@ -28,11 +35,17 @@ import {
   setPayAgreement,
   type BookingDetails,
   type BookingStatus,
+  type CancelReason,
   type TripState,
 } from "../api/bookings";
 import { openTripLocation } from "../api/chat";
 import { winterCheck, winterCheckOk } from "../api/safety";
 import RoadsideHelp from "../components/RoadsideHelp";
+import AlertDialog from "../components/AlertDialog";
+import DriverLocationShare from "../components/DriverLocationShare";
+import { driverInTransit } from "../utils/tripLocationShare";
+import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
+import { track } from "../analytics";
 import { clearTripPassBoardingCode, dropTripPass, tripPassStage, type TripPass } from "../utils/tripPass";
 import { sosPath } from "../utils/sosLink";
 import { loadOfflineTripPass, saveVerifiedTripPass } from "../utils/offlineTripPass";
@@ -45,7 +58,7 @@ import { SubHeader } from "./ConsentsScreen";
 import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarningCard";
 import ShareTripCard from "../components/ShareTripCard";
 import TripChatCard from "../components/TripChatCard";
-import { IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet } from "../components/Icons";
+import { IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet, IconClose } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
 import { enqueue } from "../utils/outbox";
@@ -125,6 +138,14 @@ export default function ActiveTripScreen() {
   const [winterAnswerNote, setWinterAnswerNote] = useState("");
   const [phaseBusy, setPhaseBusy] = useState(false); // водитель отправляет «выехал/подъезжаю/завершил»
   const [phaseNote, setPhaseNote] = useState("");
+  /** Окно «Завершить поездку?» — завершение нельзя вернуть, случайный тап его не делает. */
+  const [confirmFinish, setConfirmFinish] = useState(false);
+  // Отмена подтверждённой поездки пассажиром: окно с причиной (по желанию), как в Android.
+  const refreshOwnBookings = useRefreshOwnBookings();
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState<CancelReason>("");
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelNote, setCancelNote] = useState("");
   // Договорённость об оплате — правит любая сторона, видят оба.
   const [payDraft, setPayDraft] = useState<PaymentDraft>({ bookingId, payMethod: "cash", payAmount: "", dirty: false });
   const { payMethod, payAmount } = payDraft;
@@ -327,12 +348,15 @@ export default function ActiveTripScreen() {
     };
   }, [bookingId, needsBoardingCode, user?.id, sessionGeneration]);
 
-  // ---- Live-точка водителя (WS) — только пока активна ----
+  // ---- Live-точка водителя (WS) — только пока активна и только пассажиру ----
+  // Водителю этот канал на приём не нужен: свою точку он отправляет сам (DriverLocationShare),
+  // а точку пассажира экран сайта не рисует — лишнее соединение и лишние чужие координаты.
+  const isPassenger = details?.role === "passenger";
   useEffect(() => {
-    if (!bookingId || !active) return;
+    if (!bookingId || !active || !isPassenger) return;
     const conn = openTripLocation(bookingId, (p) => setDriverLoc({ lat: p.lat, lng: p.lng }));
     return () => conn.close();
-  }, [bookingId, active]);
+  }, [bookingId, active, isPassenger]);
 
   // ---- Зимняя проверка «доехал?» — только пассажиру, один раз на бронь ----
   useEffect(() => {
@@ -459,6 +483,50 @@ export default function ActiveTripScreen() {
       }
     } finally {
       if (currentSession()) setPhaseBusy(false);
+    }
+  }
+
+  /**
+   * Пассажир отменяет подтверждённую поездку (Android BookingActiveTripScreen.kt).
+   * Сервер ответил не «cancelled» — значит, поездку уже завершили, пока окно было открыто:
+   * говорить «отменено» нельзя, показываем правду и перечитываем статус.
+   */
+  async function cancelTrip() {
+    if (!bookingId || cancelBusy) return;
+    const generation = getSessionGeneration();
+    const currentSession = () => generation === getSessionGeneration() && currentBookingIdRef.current === bookingId;
+    setCancelBusy(true);
+    setCancelNote("");
+    try {
+      const res = await cancelBooking(bookingId, cancelReason);
+      if (!currentSession()) return;
+      setCancelOpen(false);
+      if (res.status !== "cancelled") {
+        setCancelNote(
+          appText("Поездка уже завершена — отменить её нельзя.", "Сәфәр тамамланған инде — уны кире алып булмай.")
+        );
+      } else {
+        refreshOwnBookings();
+        track("booking_cancel");
+        // B8-8: телефон или чат уже открывались — мягко напоминаем про защиту в приложении.
+        setCancelNote(
+          res.contact_then_cancel
+            ? appText(
+                "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
+                "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚"
+              )
+            : appText("Поездка отменена", "Сәфәр кире алынды")
+        );
+      }
+      await tickTrip();
+      void syncBookingDetails();
+    } catch (e) {
+      if (!currentSession()) return;
+      setCancelNote(
+        e instanceof ApiError && e.message ? e.message : appText("Не удалось отменить", "Кире алып булманы")
+      );
+    } finally {
+      if (currentSession()) setCancelBusy(false);
     }
   }
 
@@ -782,14 +850,33 @@ export default function ActiveTripScreen() {
             <button
               type="button"
               className="chip"
-              onClick={() => sendPhase("done")}
+              onClick={() => setConfirmFinish(true)}
               disabled={phaseBusy}
             >
               {appText("Завершить поездку", "Сәфәрҙе тамамлау")}
             </button>
           </div>
           {phaseNote && <p className="demand__quiet">{phaseNote}</p>}
+          {/* Точка для пассажира: до «Выехал» — зачем, в пути — отправка и её состояние. */}
+          <DriverLocationShare bookingId={bookingId} inTransit={driverInTransit(details.role, st, trip?.driver_phase)} />
         </div>
+      )}
+
+      {confirmFinish && (
+        <AlertDialog
+          title={appText("Завершить поездку?", "Сәфәрҙе тамамларғамы?")}
+          text={appText("Подтверди, что поездка действительно закончилась.", "Сәфәр ысынлап та тамамланғанын раҫла.")}
+          onClose={() => setConfirmFinish(false)}
+          confirm={{
+            label: appText("Да, завершить", "Эйе, тамамларға"),
+            tone: "green",
+            onClick: () => {
+              setConfirmFinish(false);
+              void sendPhase("done");
+            },
+          }}
+          dismiss={{ label: appText("Не завершать", "Тамамламаҫҡа"), tone: "muted", onClick: () => setConfirmFinish(false) }}
+        />
       )}
 
       {/* Попутчики вышли — дальше человек едет вдвоём с водителем.
@@ -813,6 +900,66 @@ export default function ActiveTripScreen() {
       {/* Поделиться поездкой с близким + статусы (у пассажира) */}
       {active && details.role === "passenger" && (
         <ShareTripCard bookingId={bookingId} showStatuses bookingStatus={st} onStatusChange={tickTrip} />
+      )}
+
+      {/* Отменить подтверждённую поездку — только пассажиру и только до «Я сел» (Android:
+          bookingStatus == "confirmed"). «В пути» отмены нет: человек уже в машине. */}
+      {details.role === "passenger" && st === "confirmed" && (
+        <div className="trip-cancel">
+          <button
+            type="button"
+            className="trip-cancel__btn"
+            onClick={() => {
+              setCancelReason("");
+              setCancelOpen(true);
+            }}
+            disabled={cancelBusy}
+          >
+            <IconClose size={18} /> {appText("Отменить поездку", "Сәфәрҙе кире алыу")}
+          </button>
+          <p className="trip-cancel__note">
+            {appText(
+              "Отмена бесплатна до начала поездки — место вернётся в поездку.",
+              "Сәфәр башланғанға тиклем кире алыу бушлай — урын кире ҡайта."
+            )}
+          </p>
+        </div>
+      )}
+      {cancelNote && (
+        <div className="notice" role="status">
+          {cancelNote}
+        </div>
+      )}
+      {cancelOpen && (
+        <AlertDialog
+          title={appText("Отменить поездку?", "Сәфәрҙе кире аларғамы?")}
+          text={appText("Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай.")}
+          onClose={() => {
+            if (!cancelBusy) setCancelOpen(false);
+          }}
+          confirm={{ label: appText("Да, отменить", "Эйе, кире алырға"), tone: "danger", busy: cancelBusy, onClick: () => void cancelTrip() }}
+          dismiss={{ label: appText("Назад", "Артҡа"), onClick: () => setCancelOpen(false), disabled: cancelBusy }}
+        >
+          <div className="adlg__reasons" role="group" aria-label={appText("Причина (по желанию):", "Сәбәбе (теләгәнсә):")}>
+            <p className="adlg__reasons-label">{appText("Причина (по желанию):", "Сәбәбе (теләгәнсә):")}</p>
+            {CANCEL_REASONS.map((r) => {
+              const on = cancelReason === r.code;
+              return (
+                <button
+                  key={r.code}
+                  type="button"
+                  className={"adlg__reason" + (on ? " is-on" : "")}
+                  aria-pressed={on}
+                  disabled={cancelBusy}
+                  onClick={() => setCancelReason(on ? "" : r.code)}
+                >
+                  <span>{appText(r.ru, r.ba)}</span>
+                  {on && <IconCheck size={18} />}
+                </button>
+              );
+            })}
+          </div>
+        </AlertDialog>
       )}
 
       {/* «Застряли» — ступень мягче SOS: машина не едет, но никто не в опасности.

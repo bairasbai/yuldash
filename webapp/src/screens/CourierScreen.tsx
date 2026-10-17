@@ -108,7 +108,6 @@ export default function CourierScreen() {
         ? await courierOffline()
         : await courierOnline({ zone, work_city: workCity.trim() });
       track(online ? "courier_offline" : "courier_online");
-      track(online ? "courier_offline" : "courier_online");
       setMe({ ...me, profile: prof });
     } catch (e) {
       // 403 = мягкая пауза по качеству → перечитаем кабинет (покажет плашку).
