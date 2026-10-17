@@ -1,8 +1,9 @@
 // ================================================================
 //  «За близкого» — заявка на поездку для другого человека (пожилого
 //  родителя, ребёнка). POST /requests с for_relative_name + assisted
-//  (сервер сразу уведомляет админа). Телефон близкого в заявку НЕ уходит: у заявки нет своего
-//  поля телефона, а комментарий видят все водители в ленте (как в Android). RequireAuth.
+//  (сервер сразу уведомляет админа). Поля «телефон близкого» здесь нет совсем (решение Александра
+//  17.10.2026, как и в Android): номер никуда не уходил, а человек ждал, что водитель позвонит маме.
+//  Комментарий видят все водители в ленте — в нём только нейтральная метка. RequireAuth.
 // ================================================================
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -19,7 +20,6 @@ export default function FamilyOrderScreen() {
   const navigate = useNavigate();
 
   const [relName, setRelName] = useState("");
-  const [relPhone, setRelPhone] = useState("");
   const [fromCity, setFromCity] = useState("");
   const [toCity, setToCity] = useState("");
   const [comment, setComment] = useState("");
@@ -32,10 +32,9 @@ export default function FamilyOrderScreen() {
     if (!valid || state === "sending") return;
     setState("sending");
     setError(null);
-    // ПРИВАТНОСТЬ: телефон близкого в комментарий не кладём — заявку со всем комментарием видят
-    // все водители в ленте ещё до отклика, это утечка номера чужого человека (план брони «для друга»,
-    // 17.10). В комментарии — нейтральная метка, как в Android (AccessibilityScreens.kt,
-    // FamilyOrderScreen), и заметка самого человека.
+    // ПРИВАТНОСТЬ: заявку со всем комментарием видят все водители в ленте ещё до отклика, поэтому
+    // в комментарии — нейтральная метка, как в Android (AccessibilityScreens.kt, FamilyOrderScreen),
+    // и заметка самого человека. Телефона близкого в форме нет (17.10.2026).
     const parts = [appText("Заказ за близкого", "Яҡын кеше өсөн заказ"), comment.trim()].filter(Boolean);
     try {
       await createRequest({
@@ -107,17 +106,6 @@ export default function FamilyOrderScreen() {
             value={relName}
             onChange={(e) => setRelName(e.target.value)}
             placeholder={appText("Например: Мама, Фаниль", "Мәҫәлән: Әсәй, Фәниль")}
-            autoComplete="off"
-          />
-        </label>
-        <label className="field">
-          <span className="field__label">{appText("Его телефон (по желанию)", "Уның телефоны (теләһәң)")}</span>
-          <input
-            className="field__input"
-            value={relPhone}
-            onChange={(e) => setRelPhone(e.target.value)}
-            placeholder="+7 999 000-00-00"
-            inputMode="tel"
             autoComplete="off"
           />
         </label>
