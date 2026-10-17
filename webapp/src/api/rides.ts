@@ -26,6 +26,8 @@ export interface Ride {
   child_seat?: boolean;
   pets_allowed?: boolean;
   quiet?: boolean; // тихая поездка: без лишних разговоров и громкой музыки
+  air_conditioner?: boolean; // кондиционер в салоне
+  smoking?: boolean; // в поездке можно курить (нет поля = нельзя: так же читает приложение)
   /**
    * Водитель не берёт пассажиров младше 18 без сопровождения взрослого.
    *
@@ -61,7 +63,9 @@ export interface Ride {
 }
 
 /**
- * Публичная лента активных поездок. Токен не обязателен (auth: false).
+ * Публичная лента активных поездок. Токен не обязателен: если он есть, он уходит с запросом —
+ * сервер прячет заблокированных водителей и показывает «только для своих» своим (как в Android);
+ * гость без токена видит публичную ленту.
  *
  * Фильтры считает СЕРВЕР, а не клиент: на 11 тысячах поездок тянуть всё и резать
  * в браузере — это лишний мегабайт трафика на телефоне в селе. Без фильтров
@@ -84,12 +88,15 @@ export function fetchRides(signal?: AbortSignal, q?: RidesQuery): Promise<Ride[]
     if (v !== undefined && v !== null && v !== "" && v !== false) p.set(k, String(v));
   });
   const qs = p.toString();
-  return apiGet<Ride[]>(`/rides${qs ? `?${qs}` : ""}`, { auth: false, signal });
+  return apiGet<Ride[]>(`/rides${qs ? `?${qs}` : ""}`, { signal });
 }
 
-/** Карточка поездки (GET /rides/{id}) — публичная, без личных данных. */
+/**
+ * Карточка поездки (GET /rides/{id}) — публичная. Токен (если есть) уходит с запросом:
+ * по нему сервер решает, показывать ли «только для своих» и заблокированного водителя.
+ */
 export function fetchRide(id: number, signal?: AbortSignal): Promise<Ride> {
-  return apiGet<Ride>(`/rides/${id}`, { auth: false, signal });
+  return apiGet<Ride>(`/rides/${id}`, { signal });
 }
 
 // ================================================================

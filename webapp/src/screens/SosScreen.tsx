@@ -1,11 +1,20 @@
 // ================================================================
 //  SOS — спокойный крупный экран экстренной помощи.
 //  Публичный: звонки 112/102/101/103 (tel:) доступны всем.
-//  «Сообщить своим» (POST /sos) — только со входом; гостю мягко
+//  «Сообщить поддержке» (POST /sos) — только со входом; гостю мягко
 //  предлагаем войти. Крупные тач-цели, всё двуязычно.
+//
+//  Обещаем только то, что точно случится: сигнал дежурному Юлдаша.
+//  SMS близким на проде выключены (SMS_PROVIDER=mock), поэтому ни кнопка,
+//  ни подпись под ней их не обещают; что реально дошло, показываем ПОСЛЕ
+//  отправки — по тому, что вернул сервер (hint_ru / hint_ba). Зеркало
+//  Android SosVerifyScreens.kt и сторожа SosNoSmsPromiseGuardTest.
+//
+//  Из поездки сюда ведёт `/sos?booking=<id>`: бронь уходит в сигнал, и
+//  дежурный знает, в какой машине человек (как Android bookingId).
 // ================================================================
 import { useCallback, useEffect, useState, type ComponentType } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
@@ -13,17 +22,20 @@ import { sendSos, type SosCategory } from "../api/safety";
 import { SubHeader } from "./ConsentsScreen";
 import { IconPhone, IconShield, IconCheck, IconWarn, IconHospital, IconHeart, IconCar, IconCopy, IconPin } from "../components/Icons";
 import { track } from "../analytics";
+import { bookingIdFromSearch, sosPath as buildSosPath } from "../utils/sosLink";
 
 type SendState = "idle" | "sending" | "sent" | "error";
 type IconCmp = ComponentType<{ size?: number }>;
 
 export default function SosScreen() {
   useAuth(); // Публичный маршрут остаётся смонтированным при смене аккаунта.
+  const [params] = useSearchParams();
+  const bookingId = bookingIdFromSearch(params.get("booking"));
   const generation = getSessionGeneration();
-  return <SosForm key={generation} generation={generation} />;
+  return <SosForm key={generation} generation={generation} bookingId={bookingId} />;
 }
 
-function SosForm({ generation }: { generation: string }) {
+function SosForm({ generation, bookingId }: { generation: string; bookingId: number | null }) {
   const { appText } = useLang();
   const { isAuthed } = useAuth();
   const navigate = useNavigate();
@@ -32,6 +44,10 @@ function SosForm({ generation }: { generation: string }) {
   const [note, setNote] = useState("");
   const [state, setState] = useState<SendState>("idle");
   const [error, setError] = useState<string | null>(null);
+  /** Что сервер сказал про рассылку близким (hint_ru / hint_ba): показываем как есть. */
+  const [serverHint, setServerHint] = useState("");
+  /** Куда вернуться после входа: с той же бронью, иначе дежурный не узнает, в какой машине человек. */
+  const sosPath = buildSosPath(bookingId);
 
   /**
    * Своё место. Нужно дважды: уходит вместе с сигналом близким И показывается
@@ -91,17 +107,27 @@ function SosForm({ generation }: { generation: string }) {
     if (state === "sending") return;
     setState("sending");
     setError(null);
+    setServerHint("");
     try {
       // Координаты кладём, если они уже есть: ждать GPS в экстренной ситуации нельзя,
-      // сигнал без места всё равно лучше, чем ничего.
-      await sendSos({ category, note: note.trim(), lat: pos?.lat, lng: pos?.lng });
+      // сигнал без места всё равно лучше, чем ничего. Бронь — если пришли из поездки:
+      // по ней сервер говорит дежурному, в какой машине человек.
+      const r = await sendSos({
+        category,
+        note: note.trim(),
+        lat: pos?.lat,
+        lng: pos?.lng,
+        booking_id: bookingId,
+      });
       if (generation !== getSessionGeneration()) return;
       track("sos");
+      const hint = appText(r?.hint_ru ?? "", r?.hint_ba || r?.hint_ru || "").trim();
+      setServerHint(hint);
       setState("sent");
     } catch (e) {
       if (generation !== getSessionGeneration()) return;
       if (e instanceof ApiError && e.status === 401) {
-        navigate("/login", { state: { from: "/sos" } });
+        navigate("/login", { state: { from: sosPath } });
         return;
       }
       setError(
@@ -195,24 +221,24 @@ function SosForm({ generation }: { generation: string }) {
           </div>
         </section>
 
-        {/* Сообщить своим — требует входа. */}
+        {/* Сообщить поддержке — требует входа. SMS близким не обещаем: на проде канал выключен. */}
         <div className="sos-notify">
-          <strong>{appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү")}</strong>
+          <strong>{appText("Сообщить поддержке", "Ярҙамға хәбәр итеү")}</strong>
           <p>
             {isAuthed
               ? appText(
-                  "Доверенные получат SMS с твоим местом, а дежурный Юлдаша — сигнал. Звонить 112 всё равно нужно самому.",
-                  "Ышаныслылар урының менән SMS алыр, Юлдаш дежуры — сигнал. 112-гә барыбер үҙең шылтырат."
+                  "Поддержка Юлдаш сразу получит сигнал с твоим местом и машиной, в которой ты едешь. Близким позвони сам, если можешь.",
+                  "Юлдаш ярҙамы урыныңды һәм барған машинаңды күрһәткән сигналды шунда уҡ ала. Мөмкин булһа, яҡындарыңа үҙең шылтырат."
                 )
               : appText(
-                  "Для SMS близким и сигнала поддержке нужно войти. Звонок 112 работает без входа.",
-                  "Яҡындарға SMS һәм ярҙамға сигнал өсөн инергә кәрәк. 112 шылтырауы инеүһеҙ эшләй."
+                  "Для сигнала поддержке нужно войти. Звонок 112 работает без входа.",
+                  "Ярҙамға сигнал өсөн инергә кәрәк. 112 шылтырауы инеүһеҙ эшләй."
                 )}
           </p>
         </div>
 
         {!isAuthed ? (
-          <button type="button" className="btn-primary submit-btn" onClick={() => navigate("/login", { state: { from: "/sos" } })}>
+          <button type="button" className="btn-primary submit-btn" onClick={() => navigate("/login", { state: { from: sosPath } })}>
             {appText("Войти", "Инеү")}
           </button>
         ) : (
@@ -241,6 +267,8 @@ function SosForm({ generation }: { generation: string }) {
                     "Юлдаш ярҙамы координаталарың менән сигнал алды. Көтмә — мөмкин булһа, 112-гә һәм яҡындарыңа үҙең шылтырат."
                   )}
                 </span>
+                {/* Что сервер честно сказал про рассылку близким (канал выключен / потолок за час). */}
+                {serverHint && <span>{serverHint}</span>}
               </div>
             )}
             {state === "error" && (
@@ -250,7 +278,7 @@ function SosForm({ generation }: { generation: string }) {
               </div>
             )}
             <button type="button" className="btn-danger submit-btn" onClick={fire} disabled={state === "sending"}>
-              {state === "sending" ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Сообщить близким и поддержке", "Яҡындарға һәм ярҙамға хәбәр итеү")}
+              {state === "sending" ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Сообщить поддержке", "Ярҙамға хәбәр итеү")}
             </button>
           </>
         )}

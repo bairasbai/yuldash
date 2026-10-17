@@ -121,13 +121,15 @@ export default function SafetyScreen() {
             <IconCheck size={22} />
           </span>
           <div className="list-row__main">
+            {/* Тексты — как у переключателя в приложении (SafetyScreen, SecondaryScreens.kt): настройка
+                режет только «Ближайшие» на карте и ничего не «принимает» за человека. */}
             <div className="list-row__title">
-              {appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар")}
+              {appText("Проверенные водители на карте", "Картала раҫланған йөрөтөүселәр")}
             </div>
             <div className="list-row__sub">
               {appText(
-                "Показывать и принимать поездки только от проверенных пользователей.",
-                "Тик раҫланған ҡулланыусыларҙың сәфәрҙәрен күрһәтергә."
+                "В списке «Ближайшие» на карте показывать только проверенных водителей.",
+                "Карталағы «Яҡындағылар» исемлегендә тик раҫланған йөрөтөүселәрҙе күрһәтергә."
               )}
             </div>
           </div>
@@ -136,7 +138,7 @@ export default function SafetyScreen() {
             className="checkbox"
             checked={onlyTrusted}
             onChange={(e) => toggleTrusted(e.target.checked)}
-            aria-label={appText("Только проверенные участники", "Тик раҫланған ҡатнашыусылар")}
+            aria-label={appText("Проверенные водители на карте", "Картала раҫланған йөрөтөүселәр")}
           />
         </label>
 

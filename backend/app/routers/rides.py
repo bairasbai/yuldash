@@ -693,7 +693,11 @@ def rides_near(
     """Ближайшие поездки по маршруту клиента, отсортированы по времени выезда (ранняя — первой).
     Если переданы координаты клиента (lat/lng) — добавляем дистанцию до точки выезда и (опц.) фильтр по радиусу.
     Сценарий: водитель отменил/сломался → клиент видит ближайшую по времени машину на своём маршруте и уезжает."""
-    q = select(Ride).where(Ride.status == RideStatus.active, Ride.seats_left > 0)
+    # Уже уехавшие (выезд раньше чем RIDE_PAST_GRACE_HOURS назад) — как в общей ленте `/rides`: ночная
+    # уборка закрывает их не сразу, а бронь на них всё равно получит «поездка уже уехала» (сквозной
+    # проход волны 1, 16.10.2026).
+    q = select(Ride).where(Ride.status == RideStatus.active, Ride.seats_left > 0,
+                           Ride.depart_at >= utcnow() - timedelta(hours=RIDE_PAST_GRACE_HOURS))
     if from_city:
         cond = _city_match(Ride.from_city, session, from_city)
         if cond is not None:
@@ -970,7 +974,8 @@ def ride_cities(user: Optional[User] = Depends(current_user_optional),   # ес�
     """
     rows = session.execute(
         select(Ride.id, Ride.driver_id, Ride.only_trusted, Ride.from_city, Ride.to_city)
-        .where(Ride.status == RideStatus.active, Ride.seats_left > 0)
+        .where(Ride.status == RideStatus.active, Ride.seats_left > 0,
+               Ride.depart_at >= utcnow() - timedelta(hours=RIDE_PAST_GRACE_HOURS))   # уехавшие — как в ленте
         .order_by(Ride.depart_at).limit(FEED_MAX * 10)
     ).all()
     rows = hide_trusted_only(hide_suspended(hide_blocked(rows, user, session), user, session), user, session)

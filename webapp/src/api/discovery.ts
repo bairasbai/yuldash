@@ -31,35 +31,117 @@ export interface PopularRoute {
 }
 
 /**
- * Ближайшие поездки. Публично (токен не нужен).
- *
- * `date` — «еду завтра» — самый частый вопрос в ленте: человек ищет не «когда-нибудь»,
- * а конкретный день. Без него список смешивал сегодняшние поездки с теми, что через
- * неделю, и нужную приходилось искать глазами.
- *
- * `offset` — «показать ещё». Отдавать сразу всё нельзя: на сельском интернете длинный
- * список это лишние секунды и лишний трафик.
+ * Параметры ленты «Ближайшие». Названия ключей — как в приложении (`ApiClient.getNearbyRidesPaged`):
+ * сервер один, и расхождение между сайтом и приложением значило бы, что на одном и том же
+ * запросе люди видят разные поездки.
  */
-export function fetchRidesNear(
-  params: {
-    lat?: number;
-    lng?: number;
-    radius_km?: number;
-    limit?: number;
-    /** YYYY-MM-DD. Пусто = все дни. */
-    date?: string;
-    offset?: number;
-  } = {},
-  signal?: AbortSignal
-): Promise<{ count: number; items: NearRide[] }> {
+export interface NearQuery {
+  lat?: number;
+  lng?: number;
+  radius_km?: number;
+  limit?: number;
+  /** YYYY-MM-DD. Пусто = все дни. */
+  date?: string;
+  offset?: number;
+  /**
+   * Условия пассажира: women, child, pets, baggage, ac, nosmoke, quiet. Сервер режет ими ДО
+   * подсчёта `count` и разбивки на порции — иначе «Показать ещё» и число в кнопке «Показать N
+   * поездок» считались бы по поездкам, которых человек не просил.
+   */
+  conditions?: readonly string[];
+  /** «Только проверенные» из раздела «Безопасность». */
+  verified_only?: boolean;
+  /** «Откуда»: любой из этих городов (русские имена — сервер сам ищет и по башкирскому). */
+  from_cities?: readonly string[];
+  /** «Куда»: так же. */
+  to_cities?: readonly string[];
+}
+
+/**
+ * Строка запроса `/rides/near`. Списки — через запятую и по алфавиту: один и тот же выбор даёт
+ * один и тот же адрес (удобно кешу и тестам), порядок нажатий не важен.
+ */
+export function nearQueryString(params: NearQuery = {}): string {
   const q = new URLSearchParams();
+  const list = (key: string, values: readonly string[] | undefined) => {
+    const clean = [...new Set((values ?? []).map((v) => v.trim()).filter(Boolean))].sort();
+    if (clean.length) q.set(key, clean.join(","));
+  };
   if (params.lat != null) q.set("lat", String(params.lat));
   if (params.lng != null) q.set("lng", String(params.lng));
   if (params.radius_km != null) q.set("radius_km", String(params.radius_km));
   if (params.date) q.set("date", params.date);
   if (params.offset) q.set("offset", String(params.offset));
+  list("conditions", params.conditions);
+  if (params.verified_only) q.set("verified_only", "true");
+  list("from_cities", params.from_cities);
+  list("to_cities", params.to_cities);
   q.set("limit", String(params.limit ?? 30));
-  return apiGet(`/rides/near?${q.toString()}`, { auth: false, signal });
+  return q.toString();
+}
+
+/**
+ * Ближайшие поездки. Токен (если есть) уходит с запросом — см. комментарий в теле.
+ *
+ * `date` — «еду завтра» — самый частый вопрос в ленте: человек ищет не «когда-нибудь»,
+ * а конкретный день. Без него список смешивал сегодняшние поездки с теми, что через
+ * неделю, и нужную приходилось искать глазами.
+ *
+ * `limit` и `count` — «показать ещё». Отдавать сразу всё нельзя: на сельском интернете длинный
+ * список это лишние секунды и лишний трафик. `count` в ответе — сколько всего подходит под
+ * условия (не сколько в порции): по нему лента решает, показывать ли «Показать ещё».
+ */
+export function fetchRidesNear(
+  params: NearQuery = {},
+  signal?: AbortSignal
+): Promise<{ count: number; items: NearRide[] }> {
+  // Токен (если есть) уходит с запросом: сервер по нему прячет заблокированных водителей
+  // и показывает «только для своих» своим. Гость без токена получает то же, что и раньше —
+  // сервер на отсутствующий или негодный токен не отвечает 401, а считает человека гостем.
+  return apiGet(`/rides/near?${nearQueryString(params)}`, { signal });
+}
+
+/** Город для шторок «Откуда»/«Куда»: одно место — два написания («Баймак» / «Баймаҡ»). */
+export interface RideCity {
+  ru: string;
+  ba: string;
+}
+
+/** Города, откуда и куда сейчас есть поездки (`GET /rides/cities`). Пусто — старый сервер или поездок нет. */
+export interface RideCities {
+  from: RideCity[];
+  to: RideCity[];
+}
+
+/**
+ * Ответ `/rides/cities` → города (зеркало `parseRideCities` в приложении). Без русского имени
+ * город пропускаем; без башкирского — берём русское. Мусор в ответе ленту не роняет.
+ */
+export function parseRideCities(raw: unknown): RideCities {
+  const list = (value: unknown): RideCity[] => {
+    if (!Array.isArray(value)) return [];
+    const out: RideCity[] = [];
+    for (const item of value) {
+      if (!item || typeof item !== "object") continue;
+      const o = item as { ru?: unknown; ba?: unknown };
+      const ru = typeof o.ru === "string" ? o.ru.trim() : "";
+      if (!ru) continue;
+      const ba = typeof o.ba === "string" ? o.ba.trim() : "";
+      out.push({ ru, ba: ba || ru });
+    }
+    return out;
+  };
+  const o = (raw && typeof raw === "object" ? raw : {}) as { from?: unknown; to?: unknown };
+  return { from: list(o.from), to: list(o.to) };
+}
+
+/**
+ * Города для «Откуда»/«Куда», где есть поездки. Токен уходит с запросом: сервер прячет города
+ * заблокированных водителей так же, как в ленте. Старый сервер без ручки отвечает 404 — для
+ * ленты это «чипов городов нет», а не ошибка.
+ */
+export function fetchRideCities(signal?: AbortSignal): Promise<RideCities> {
+  return apiGet<unknown>("/rides/cities", { signal }).then(parseRideCities);
 }
 
 /** Ближайшие заявки пассажиров (для водителя/карты). Требует вход. */

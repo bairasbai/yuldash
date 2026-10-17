@@ -32,6 +32,7 @@ import { ChatPhotoButton, ChatMessageBody } from "../components/ChatPhoto";
 import { ChatVoiceButton, VoiceBubble } from "../components/ChatVoice";
 import { IconArrow, IconCar, IconChevron, IconWarn } from "../components/Icons";
 import { acknowledgeMessage, createOutboxId, enqueue, isPermanentRejection, outboxCount, subscribeOutbox, watchOutbox } from "../utils/outbox";
+import { sosPath } from "../utils/sosLink";
 import {
   NO_MARK,
   getSeen,
@@ -143,7 +144,7 @@ export default function TripChatScreen() {
       route={route}
       onBack={goBack}
       onOpenTrip={openTrip}
-      onSos={() => navigate("/sos")}
+      onSos={() => navigate(sosPath(bookingId))}
     />
   );
 }
