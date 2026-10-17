@@ -279,7 +279,11 @@ def requests_near(
             "from_lng": round(r.from_lng, 2) if r.from_lng is not None else None,
             "desired_at": r.desired_at,
             "seats": r.seats,
-            "comment": r.comment,
+            # Тот же свободный текст, что в ленте (`/requests/feed`), и та же мойка: маркер
+            # «ищет попутку» видит любой вошедший, а в комментарии бывают адрес и чужой
+            # телефон («за маму, звони 917…»). Раньше лента мылась, а карта — нет (приёмка
+            # PR168, 17.10). Свой текст человек видит целиком.
+            "comment": r.comment if r.passenger_id == user.id else scrub_text(r.comment or ""),
             "distance_km": dist,
         })
     total = len(items)
