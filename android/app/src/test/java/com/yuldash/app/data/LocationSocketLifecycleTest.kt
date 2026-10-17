@@ -185,6 +185,31 @@ class LocationSocketLifecycleTest {
     }
 
     @Test
+    fun networkReturnReplacingALiveChannelWaitsForAuthenticationAgain() {
+        socket.connect()
+        factory.latest.open()
+        assertTrue(socket.sendLoc(54.0, 56.0))
+        networkReturned()   // the live channel is replaced; its late close is dropped by generation
+        assertEquals(2, factory.connections.size)
+        assertFalse("The replacement must authenticate before any point", socket.sendLoc(54.0, 56.0))
+        assertTrue(factory.latest.sent.isEmpty())
+        factory.latest.open()
+        assertTrue(socket.sendLoc(54.0, 56.0))
+    }
+
+    @Test
+    fun signingOutStopsAnAlreadyOpenChannel() {
+        socket.connect()
+        factory.latest.open()
+        assertTrue(socket.sendLoc(54.0, 56.0))
+        ApiClient.saveToken("someone-else")   // another session on this phone
+        assertFalse("No point may leave after the owner session ended", socket.sendLoc(54.1, 56.1))
+        assertEquals("loc", JSONObject(factory.latest.sent.last()).getString("type"))
+        assertEquals(2, factory.latest.sent.size)
+        assertEquals("The trip service must stop", 1, terminated)
+    }
+
+    @Test
     fun networkReturnWhileWaitingNeverResendsTheRejectedKey() {
         val key = AtomicReference<String?>("old")
         tokenSocket(key) { Result.failure(IOException("offline")) }

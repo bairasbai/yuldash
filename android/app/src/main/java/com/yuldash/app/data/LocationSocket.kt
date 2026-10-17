@@ -50,7 +50,7 @@ class LocationSocket(
     // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:
     // NetworkMonitor хранит слушателей через WeakReference, ссылку не даём собрать GC.
     private val netListener = NetworkMonitor.Listener {
-        if (!closed && rejectedToken == null) { attempt = 0; openSocket() }
+        if (!closed) { attempt = 0; openSocket() }   // отвергнутый ключ отсекает сам openSocket
     }
 
     companion object {
@@ -79,7 +79,7 @@ class LocationSocket(
         if (closed) return
         // Вышли или сменили аккаунт — канал не наш: не подключаемся чужим ключом к этой брони.
         if (!ApiClient.isCurrentSession(ownerSession)) { terminate(); return }
-        val token = currentToken() ?: return
+        val token = currentToken() ?: run { terminate(); return }   // ключа нет — вход кончился, GPS не нужен
         // Отвергнутый ключ не шлём никаким путём (сеть вернулась, старый таймер) — ждём обновлённый.
         if (token == rejectedToken) return
         val connection = ++generation
@@ -92,6 +92,7 @@ class LocationSocket(
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     synchronized(this@LocationSocket) {
                         if (closed || generation != connection) return
+                        if (!ApiClient.isCurrentSession(ownerSession)) { terminate(); return }
                         webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
                         authed = true
                         authedAt = System.currentTimeMillis()
@@ -225,6 +226,8 @@ class LocationSocket(
         // До кадра входа точку не шлём: OkHttp отправил бы её раньше {type:auth}, сервер принял бы её
         // за попытку входа и закрыл канал «Invalid token» (приёмка PR158). Как `authed` на сайте.
         if (!authed) return false
+        // Вышли или сменили аккаунт, а канал ещё открыт — точку не шлём, канал гасим (как ChatSocket).
+        if (!ApiClient.isCurrentSession(ownerSession)) { terminate(); return false }
         val now = System.currentTimeMillis()
         val o = JSONObject().put("type", "loc").put("lat", lat).put("lng", lng)
             .put("ts", now / 1000)
