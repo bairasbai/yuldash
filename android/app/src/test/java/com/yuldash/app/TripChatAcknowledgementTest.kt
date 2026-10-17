@@ -66,6 +66,8 @@ class TripChatAcknowledgementTest {
     private val requests = CopyOnWriteArrayList<Pair<String, String?>>()
     private val serverSockets = CopyOnWriteArrayList<WebSocket>()
     private val closedServerSockets = CopyOnWriteArrayList<WebSocket>()
+    /** Server-side close handshake and failures, in order: printed only when a wait times out. */
+    private val serverSocketEvents = CopyOnWriteArrayList<String>()
     private val failures = CopyOnWriteArrayList<String>()
     private val historyCalls = AtomicInteger()
     private val ledger = linkedMapOf<String, StoredMessage>()
@@ -104,10 +106,16 @@ class TripChatAcknowledgementTest {
                                 }
                             }
                             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                                serverSocketEvents += "ws#${serverSockets.indexOf(webSocket)} closing $code $reason"
                                 webSocket.close(code, null)
                             }
                             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                                serverSocketEvents += "ws#${serverSockets.indexOf(webSocket)} closed $code"
                                 closedServerSockets += webSocket
+                            }
+                            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                                // A failed socket never reaches onClosed, so cleanup would wait on it in vain.
+                                serverSocketEvents += "ws#${serverSockets.indexOf(webSocket)} failed $t"
                             }
                         },
                     )
@@ -186,7 +194,32 @@ class TripChatAcknowledgementTest {
             assertTrue(failures.toString(), failures.isEmpty())
             Thread.sleep(5)
         } while (System.nanoTime() < deadline)
-        assertTrue("Expected bounded asynchronous boundary", condition())
+        // Work dispatched during the last sleep still counts as inside the bound.
+        clock.runCurrent()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        if (!condition()) fail("Expected bounded asynchronous boundary\n" + pendingWork())
+    }
+    /**
+     * Main went red once in cleanup waiting for server sockets to reach onClosed (17.10, run 39009915095,
+     * line `waitFor { serverSockets.all { it in closedServerSockets } }`); the log did not say why.
+     * Name what is still open, how each server socket ended, and what the socket threads are doing.
+     */
+    private fun pendingWork(): String = buildString {
+        append("failures=$failures\n")
+        chats.forEachIndexed { i, c ->
+            val job = c.scope.coroutineContext[Job]
+            append("chat[$i] scope=$job children=${job?.children?.toList()}\n")
+        }
+        serverSockets.forEachIndexed { i, s ->
+            append("ws#$i ${if (s in closedServerSockets) "closed" else "NOT closed"} $s\n")
+        }
+        append("server socket events=$serverSocketEvents\n")
+        Thread.getAllStackTraces().forEach { (thread, stack) ->
+            if (stack.any { f -> listOf("com.yuldash", "okhttp3", "mockwebserver").any { f.className.contains(it) } }) {
+                append("thread ${thread.name} ${thread.state}\n")
+                stack.take(25).forEach { append("    at $it\n") }
+            }
+        }
     }
     private fun connect() {
         chat.socket!!.connect()

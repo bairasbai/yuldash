@@ -70,12 +70,17 @@ class MoneyFormatTest {
         assertFalse(o.isWaitingQueue)
     }
 
-    /** Срок ожидания в наивном UTC — ровно в том виде, в каком его шлёт сервер. */
+    /**
+     * Срок ожидания в наивном UTC — ровно в том виде, в каком его шлёт сервер (Python `isoformat()`:
+     * секунды есть всегда). Не `toString()`: на ровной минуте он отбрасывает «:00» — «06:30» вместо
+     * «06:30:00», такую строку разбор не читает, и раз в ~60 прогонов просроченная очередь
+     * выглядела живой (красный main 17.10, run 39008907227).
+     */
     private fun waitIso(minutesFromNow: Long): String =
         java.time.LocalDateTime.ofInstant(
             java.time.Instant.now().plusSeconds(minutesFromNow * 60),
             java.time.ZoneOffset.UTC,
-        ).withNano(0).toString()
+        ).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"))
 
     @Test
     fun expiredOrder_withWait_staysAliveForPolling() {
