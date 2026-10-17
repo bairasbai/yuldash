@@ -1259,7 +1259,7 @@ object ApiClient {
         return call("POST", "/sos", body, auth = true).map { }.onSuccess { Analytics.log("sos") }
     }
 
-    /** «Поделиться поездкой» из такси-заказа (B7b-2): близкий получит SMS о маршруте и статусах.
+    /** «Поделиться поездкой» из такси-заказа (B7b-2): ссылку на маршрут и статусы человек отправляет близкому сам (SMS на проде выключены).
      *  B7c: сервер возвращает token live-ссылки — отдаём готовый URL (null на старом сервере). */
     suspend fun shareInstantTrip(orderId: Int, contactId: Int, expectedGeneration: Long? = null): Result<TripShareDto?> =
         call("POST", "/instant/orders/$orderId/share", JSONObject().put("contact_id", contactId), auth = true, expectedGeneration = expectedGeneration)

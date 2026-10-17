@@ -6,10 +6,12 @@
 не смешиваться с чатом (общий ConnectionManager + Redis; subscriber кастует int —
 отрицательный ключ валиден)."""
 import json
+import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlmodel import Session
 
+from .. import trip_wake
 from ..antifraud import TrackGuard
 from ..db import engine
 from ..livepos import livepos_set
@@ -32,6 +34,11 @@ INSTANT_LOC_ACTIVE = (InstantOrderStatus.accepted, InstantOrderStatus.arriving, 
 PARCEL_LOC_BASE = 3_000_000_000
 # Live-позиция курьера живёт ТОЛЬКО пока посылка у курьера в работе (взял / везёт).
 PARCEL_LOC_ACTIVE = ("accepted", "in_transit")
+
+# Пока поездка не началась, ответ «ещё нет» запоминается на соединение и базу не дёргает чаще раза
+# в столько секунд. Раньше база спрашивалась на каждый кадр (раз в 5–10 с, часами), см. `_Пора`.
+PRE_TRIP_RECHECK_SEC = 30
+_monotonic = time.monotonic   # отдельным именем — чтобы тест мог двигать часы, не трогая asyncio
 
 
 @router.websocket("/ws/map")
@@ -108,6 +115,40 @@ def _вторая_сторона(я: int, первый, второй):
     return None
 
 
+class _Пора:
+    """«Поездка началась, точку можно пересылать?» — решение на одно соединение.
+
+    Правило не изменилось и живёт в одном месте — `visibility.trip_is_live`. Изменилось только,
+    как часто его спрашивают у базы. «Ещё нет» запоминается на `PRE_TRIP_RECHECK_SEC`; раньше
+    базу читали на каждый кадр, хотя экран поездки открывают за часы до выезда.
+
+    Запомненное «ещё нет» может только опоздать с показом, но не показать раньше времени: «да»
+    появляется лишь из свежего чтения базы. Чтобы «Выехал» не ждал перепроверки, ручка водителя
+    толкает канал (`trip_wake.poke`), и следующий же кадр идёт в базу, не дожидаясь срока.
+    Отмена брони тут ничего не ломает: после неё `trip_is_live` и так «нет», а уже идущий канал
+    закрывают сторож и счётчик кадров ниже, как и раньше.
+    """
+
+    def __init__(self, booking_id: int) -> None:
+        self._id = booking_id
+        self._да = False
+        self._спросили_в = 0.0   # стенные часы НАЧАЛА последней проверки — по ним сверяем толчки
+        self._не_раньше = 0.0    # монотонные часы: до этого момента базу повторно не спрашиваем
+
+    def наступила(self) -> bool:
+        if self._да:
+            return True          # началась — назад не откатываем (как и раньше; конец ловит сторож)
+        if _monotonic() < self._не_раньше and not trip_wake.poked_since(self._id, self._спросили_в):
+            return False
+        # Время берём ДО чтения: толчок, пришедший во время чтения, не потеряется (trip_wake).
+        self._спросили_в = time.time()
+        with Session(engine) as s:
+            b = s.get(Booking, self._id)
+            self._да = trip_is_live(b, s.get(Ride, b.ride_id) if b else None)
+        self._не_раньше = _monotonic() + PRE_TRIP_RECHECK_SEC
+        return self._да
+
+
 @router.websocket("/ws/trip/{booking_id}/location")
 async def trip_location(websocket: WebSocket, booking_id: int):
     """Токен — первым сообщением {"type":"auth","token":...} (как в чате; query-string не берём).
@@ -168,7 +209,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     )
     guard = TrackGuard(user_id)   # анти-телепорт (B8-3): фейковые скачки не ретранслируем
     msgs = 0
-    пора = False                  # поездка началась? (`trip_is_live`) — пока нет, точки не пересылаем
+    пора = _Пора(booking_id)      # поездка началась? (`trip_is_live`) — пока нет, точки не пересылаем
     try:
         while True:
             data = await websocket.receive_text()
@@ -197,13 +238,10 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                             break
                 # Договорились ≠ поехали: пока поездка не началась, точку никому не пересылаем и в кэш
                 # для ссылки близкому не пишем (`trip_is_live`). Канал не рвём — экран поездки можно
-                # открыть заранее, и точки пойдут сами, как только станет пора.
-                if not пора:
-                    with Session(engine) as s3:
-                        b3 = s3.get(Booking, booking_id)
-                        пора = trip_is_live(b3, s3.get(Ride, b3.ride_id) if b3 else None)
-                    if not пора:
-                        continue
+                # открыть заранее, и точки пойдут сами, как только станет пора. База при этом
+                # спрашивается не на каждый кадр, а раз в `PRE_TRIP_RECHECK_SEC` или по толчку «Выехал».
+                if not пора.наступила():
+                    continue
                 # Анти-телепорт (B8-3): скорость > 200 км/ч от прошлой точки → кадр игнорируем
                 # (счётчик подозрительности копится), соединение честного юзера не рвём.
                 if not guard.ok(float(lat), float(lng)):

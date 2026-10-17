@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .. import livepos            # модулем, а не функцией: так подмена в тестах цепляет вызов
+from .. import trip_wake
 from ..config import settings
 from ..flood import TOO_FAST_CREATING, guard_burst
 from ..db import get_session
@@ -668,6 +669,9 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     booking.driver_phase = body.status       # сохраняем «выехал/подъезжает» → пассажир увидит live, не только пушем
     session.add(booking)
     session.commit()
+    # Живой канал координат помнит «ещё не поехали» до 30 с (`location._Пора`). «Выехал» — ровно тот
+    # момент, когда точка обязана пойти сразу, поэтому толкаем канал: его следующий кадр идёт в базу.
+    trip_wake.poke(booking.id)
     if phase_changed:
         title_ru = {"departed": "Водитель выехал", "arriving": "Водитель подъезжает"}[body.status]
         title_ba = {"departed": "Водитель юлға сыҡты", "arriving": "Водитель яҡынлаша"}[body.status]
