@@ -33,7 +33,7 @@ const Home = (
     [/\/components\/YandexMap$/, `export default "YandexMap";`],
     [
       /\/components\/NearbyRideCard$/,
-      `export default "NearbyRideCard"; export const NearbySkeletonCard = "NearbySkeletonCard", NearbyMoreCard = "NearbyMoreCard", NearbyEmptyCard = "NearbyEmptyCard";`,
+      `export default "NearbyRideCard"; export const NearbySkeletonCard = "NearbySkeletonCard", NearbyMoreCard = "NearbyMoreCard", NearbyEmptyCard = "NearbyEmptyCard", NearbyUnverifiedCard = "NearbyUnverifiedCard";`,
     ],
     [/\/components\/adminUi$/, `export const NearbyChip = "NearbyChip";`],
     [/\/components\/NearbyFilters$/, `export const NearbyCityChips = "NearbyCityChips", NearbyConditionsChip = "NearbyConditionsChip", NearbyWhenChip = "NearbyWhenChip";`],
@@ -42,7 +42,8 @@ const Home = (
       /\/api\/discovery$/,
       `export const fetchRidesNear = (q, signal) => globalThis.__rt.fetchRides(q, signal); export const fetchRequestsNear = async () => ({ items: [] });`,
     ],
-    [/\/filterPrefs$/, `export const loadFilters = () => ({ conditions: [], onlyTrusted: false });`],
+    // «Только проверенные» из «Безопасности»: в разделе 1 выключены (там про сеть), в разделе 1б — включены.
+    [/\/filterPrefs$/, `export const loadFilters = () => ({ conditions: [], onlyTrusted: !!globalThis.__rt.trusted });`],
     [/\/nearbyCityFilter$/, `export const useNearbyCityFilter = () => globalThis.__rt.city;`],
     [/\/components\/Icons$/, `export const IconRides = "Icon", IconGift = "Icon", IconLocate = "Icon", IconClose = "Icon", IconHospital = "Icon", IconChevron = "Icon";`],
     [/\/components\/BrandIcons$/, `export const YuModeTaxi = "Icon";`],
@@ -181,6 +182,82 @@ await test("«Показать ещё» при сбое не стирает по
   assert.equal(cards(home), 2);
   assert.equal(errorCard(home), undefined);
 });
+
+// ================================================================ 1б. «Только проверенные» по умолчанию (17.10.2026)
+//
+// Публиковать поездку может каждый, а пассажир по умолчанию видит только проверенных водителей. Пустая
+// лента проверенных не врёт «поездок нет»: сервер говорит, сколько поездок этого поиска спрятал фильтр
+// (`hidden_unverified`), лента предлагает «Показать» — только для этого поиска, настройку не трогая.
+
+/** Сервер как настоящий: с verified_only проверенных нет, но [hidden] поездок непроверенных спрятано. */
+const verifiedServer = (hidden) => (q) =>
+  Promise.resolve(q.verified_only ? { items: [], count: 0, hidden_unverified: hidden } : { items: [ride(41), ride(42)], count: 2 });
+
+async function homeVerifiedOnly(hidden = 2, city = {}) {
+  const calls = [];
+  rt.trusted = true;
+  rt.city = cityState(city);
+  rt.fetchRides = (q) => (calls.push(q), verifiedServer(hidden)(q));
+  const home = mount(Home, {});
+  await settle(home);
+  return { home, calls };
+}
+const hint = (home) => all(home.tree, "NearbyUnverifiedCard")[0];
+
+await test("гость, никто ничего не выбирал — лента просит только проверенных", async () => {
+  const { calls } = await homeVerifiedOnly();
+  assert.equal(calls[0].verified_only, true, "безопасный выбор по умолчанию — и у гостя (стенд: status «guest»)");
+});
+
+await test("проверенных нет, непроверенные есть — «Есть 2 поездки…», а не «поездок нет»", async () => {
+  const { home } = await homeVerifiedOnly(2);
+  assert.ok(hint(home), "нет подсказки о спрятанных поездках");
+  assert.equal(hint(home).props.hidden, 2);
+  assert.equal(hint(home).props.onReset, undefined, "других фильтров нет — сбрасывать нечего");
+  assert.equal(all(home.tree, "NearbyEmptyCard").length, 0, "не голое «поездок рядом пока нет»");
+});
+
+await test("«Показать» — тот же поиск без фильтра; пояснение в шторке больше не обещает «только проверенных»", async () => {
+  const { home, calls } = await homeVerifiedOnly(2);
+  hint(home).props.onShow();
+  await settle(home);
+  assert.equal(calls.at(-1).verified_only, undefined, "запрос ушёл без verified_only");
+  assert.equal(cards(home), 2, "поездки непроверенных водителей на экране");
+  assert.equal(hint(home), undefined);
+  assert.equal(one(home.tree, "NearbyConditionsChip").props.verifiedOnly, false, "строка «Показываем только проверенных» не врёт");
+});
+
+await test("сменил день после «Показать» — снова только проверенные (это уже другой поиск)", async () => {
+  const { home, calls } = await homeVerifiedOnly(2);
+  hint(home).props.onShow();
+  await settle(home);
+  one(home.tree, "NearbyWhenChip").props.onChange("2030-01-02");
+  await settle(home);
+  assert.equal(calls.at(-1).date, "2030-01-02");
+  assert.equal(calls.at(-1).verified_only, true, "«Показать» действовал только на прежний поиск");
+  assert.ok(hint(home), "на новый день — снова честная подсказка");
+});
+
+await test("при условиях подсказка даёт и «Сбросить фильтры» — путь назад, как в «с такими условиями»", async () => {
+  // На сервере есть города с поездками — ряд фильтров виден и при пустой ленте (`filtersRowVisible`).
+  const { home, calls } = await homeVerifiedOnly(1, { offered: true, fromOptions: [{ ru: "Баймак", ba: "Баймаҡ" }] });
+  one(home.tree, "NearbyConditionsChip").props.onChange(["child"]);
+  await settle(home);
+  assert.deepEqual(calls.at(-1).conditions, ["child"]);
+  assert.equal(typeof hint(home).props.onReset, "function");
+  hint(home).props.onReset();
+  await settle(home);
+  assert.equal(calls.at(-1).conditions, undefined, "сброс снял условия");
+  assert.equal(calls.at(-1).verified_only, true, "а «проверенных» — нет");
+});
+
+await test("сервер не насчитал спрятанных (или старый сервер) — обычная пустота с «Обновить»", async () => {
+  const { home } = await homeVerifiedOnly(0);
+  assert.equal(hint(home), undefined);
+  assert.ok(all(home.tree, "NearbyEmptyCard").some((n) => n.props.error === false));
+});
+
+rt.trusted = false; // дальше — шторки: «Безопасность» им ни к чему
 
 // ================================================================ 2–3. Шторки ленты
 

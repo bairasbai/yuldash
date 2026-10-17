@@ -52,14 +52,43 @@ const KEY = "yuldash.filterPrefs";
 
 // ---------------------------------------------------------------- хранение
 
-await test("пусто → никаких условий, «проверенные» выключены", async ({ fp }) => {
-  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: false });
+// Решение Александра 17.10.2026: «Только проверенные» включены у всех, кто не выбирал. Кто сам выключил
+// в «Безопасности» — так и остаётся. В хранилище поэтому лежит ВЫБОР человека (`verifiedOnly`), а не флаг.
+
+await test("пусто → никаких условий, «проверенные» включены (никто не выбирал)", async ({ fp }) => {
+  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true });
+  assert.equal(fp.TRUSTED_BY_DEFAULT, true);
 });
 
-await test("сохранили → загрузили то же; в хранилище только условия и «проверенные»", async ({ fp, store }) => {
+await test("сохранили условия → загрузили те же; «проверенные» экран «Фильтры» не записывает", async ({ fp, store }) => {
   fp.saveFilters({ conditions: ["quiet", "women"], onlyTrusted: true });
   assert.deepEqual(fp.loadFilters(), { conditions: ["women", "quiet"], onlyTrusted: true }, "порядок — как в шторке");
-  assert.deepEqual(Object.keys(JSON.parse(store.get(KEY))).sort(), ["conditions", "onlyTrusted"]);
+  assert.deepEqual(Object.keys(JSON.parse(store.get(KEY))), ["conditions"], "значение по умолчанию не стало «выбором человека»");
+  fp.saveFilters({ conditions: ["pets"], onlyTrusted: false });
+  assert.equal(fp.loadFilters().onlyTrusted, true, "экран «Фильтры» не умеет выключать «проверенных»");
+});
+
+await test("выключил сам в «Безопасности» — так и остаётся, и после сохранения условий тоже", async ({ fp, store }) => {
+  fp.saveVerifiedOnly(false);
+  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: false });
+  fp.saveFilters({ conditions: ["child"], onlyTrusted: false });
+  assert.deepEqual(fp.loadFilters(), { conditions: ["child"], onlyTrusted: false }, "условия не стёрли выбор");
+  assert.deepEqual(JSON.parse(store.get(KEY)), { conditions: ["child"], verifiedOnly: false });
+  fp.saveVerifiedOnly(true);
+  assert.deepEqual(fp.loadFilters(), { conditions: ["child"], onlyTrusted: true });
+});
+
+await test("прежняя версия: «onlyTrusted: false» неотличим от «не трогал» → включено; «true» — выбор, остаётся", async ({ fp, store }) => {
+  // Прежний сайт писал onlyTrusted при каждом сохранении, в том числе с экрана «Фильтры»: false там значит
+  // и «выключил сам», и «не трогал». Различить нельзя — безопасное значение по умолчанию.
+  store.set(KEY, JSON.stringify({ conditions: ["pets"], onlyTrusted: false }));
+  assert.deepEqual(fp.loadFilters(), { conditions: ["pets"], onlyTrusted: true });
+  fp.saveFilters(fp.loadFilters());
+  assert.deepEqual(JSON.parse(store.get(KEY)), { conditions: ["pets"] }, "двусмысленный флаг не переехал в «выбор»");
+  // true прежде мог поставить только сам человек (по умолчанию было выключено) — это выбор.
+  store.set(KEY, JSON.stringify({ conditions: [], onlyTrusted: true }));
+  fp.saveFilters(fp.loadFilters());
+  assert.deepEqual(JSON.parse(store.get(KEY)), { conditions: [], verifiedOnly: true });
 });
 
 await test("прежнее сохранение (город, цена, старые имена условий) не ломает загрузку", async ({ fp, store }) => {
@@ -75,7 +104,7 @@ await test("прежнее сохранение (город, цена, стар�
 
 await test("прежнее: город и цена просто отбрасываются", async ({ fp, store }) => {
   store.set(KEY, JSON.stringify({ city: "Уфа", maxPrice: 300, amenities: [], onlyTrusted: false }));
-  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: false });
+  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true });
   fp.saveFilters(fp.loadFilters());
   const saved = JSON.parse(store.get(KEY));
   assert.ok(!("city" in saved) && !("maxPrice" in saved), "после первого сохранения прежних полей в хранилище нет");
@@ -89,7 +118,7 @@ await test("незнакомые ключи условий отбрасываю�
 await test("битое хранилище не роняет экран", async ({ fp, store }) => {
   for (const raw of ["{oops", "null", "[]", '"x"', '{"conditions":"women"}', '{"amenities":{"a":1}}']) {
     store.set(KEY, raw);
-    assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: false }, raw);
+    assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true }, raw);
   }
 });
 
@@ -99,14 +128,15 @@ await test("хранилище недоступно — загрузка и со
     setItem: () => { throw new Error("blocked"); },
     removeItem: () => { throw new Error("blocked"); },
   };
-  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: false });
+  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true }, "без хранилища — безопасное значение по умолчанию");
   assert.doesNotThrow(() => fp.saveFilters({ conditions: ["pets"], onlyTrusted: false }));
+  assert.doesNotThrow(() => fp.saveVerifiedOnly(false));
 });
 
 await test("«Безопасность» меняет только «проверенные»: условия по умолчанию остаются", async ({ fp }) => {
-  fp.saveFilters({ conditions: ["pets"], onlyTrusted: false });
-  fp.saveFilters({ ...fp.loadFilters(), onlyTrusted: true });
-  assert.deepEqual(fp.loadFilters(), { conditions: ["pets"], onlyTrusted: true });
+  fp.saveFilters({ conditions: ["pets"], onlyTrusted: true });
+  fp.saveVerifiedOnly(false);
+  assert.deepEqual(fp.loadFilters(), { conditions: ["pets"], onlyTrusted: false });
 });
 
 // ---------------------------------------------------------------- вкладка «Поездки»: те же правила
@@ -153,13 +183,15 @@ await test("кнопка «Сбросить фильтры» в ленте по�
   assert.match(home, /onClick=\{resetFeedFilters\}/);
 });
 
-await test("лента читает «проверенные» из настроек, а переключать её не умеет", async () => {
+await test("лента читает «проверенные» из настроек, а переключать (и сохранять) её не умеет", async () => {
   assert.match(home, /const \[storedVerifiedOnly\] = useState\(\(\) => loadFilters\(\)\.onlyTrusted\)/);
-  assert.ok(!/setVerifiedOnly|setStoredVerifiedOnly/.test(home));
+  assert.ok(!/setVerifiedOnly|setStoredVerifiedOnly|saveVerifiedOnly|saveFilters/.test(home), "«Показать» не меняет настройку «Безопасности»");
 });
 
-await test("у гостя «проверенные» не действуют: «Безопасность» ему закрыта, выключить нечем", async () => {
-  assert.match(home, /const verifiedOnly = authStatus !== "guest" && storedVerifiedOnly;/);
+await test("«проверенные» по умолчанию и у гостя (17.10.2026); «Показать» снимает их только для этого поиска", async () => {
+  assert.ok(!/authStatus/.test(home), "гостю безопасный выбор тоже по умолчанию — тупика нет, есть «Показать»");
+  assert.match(home, /const verifiedOnly = nearbyVerifiedOnly\(storedVerifiedOnly, revealedFor, savedKey\);/);
+  assert.match(home, /onShow=\{\(\) => setRevealedFor\(savedKey\)\}/);
 });
 
 await test("ссылка «выключить в Безопасности» — только когда больше нечего сбросить", async () => {
@@ -167,6 +199,11 @@ await test("ссылка «выключить в Безопасности» — 
 });
 
 const safety = readFileSync(root + "src/screens/SafetyScreen.tsx", "utf8");
+await test("переключатель в «Безопасности» записывает выбор человека (saveVerifiedOnly)", async () => {
+  assert.match(safety, /saveVerifiedOnly\(next\)/);
+  assert.ok(!/saveFilters/.test(safety), "через saveFilters выбор не сохранился бы");
+});
+
 await test("переключатель в «Безопасности» назван, как в приложении, и обещает только карту", async () => {
   assert.ok(safety.includes('appText("Проверенные водители на карте", "Картала раҫланған йөрөтөүселәр")'));
   assert.ok(safety.includes("В списке «Ближайшие» на карте показывать только проверенных водителей."));

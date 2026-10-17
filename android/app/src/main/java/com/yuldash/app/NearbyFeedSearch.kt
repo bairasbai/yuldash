@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.yuldash.app.data.RideDto
 
 // «Найти попутку» на вкладке «Карта» ведёт к ленте «Ближайшие поездки» — она на том же экране,
 // ниже карты. Раньше кнопка уводила на вкладку «Поездки», а это «Мои поездки» (брони человека),
@@ -72,6 +73,25 @@ internal fun nearbySearch(
  * чипом фильтру не соответствует, лента покажет «нет сети» с «Повторить» (приёмки PR147, PR148, PR151).
  */
 internal fun nearbyDropsOnFailure(shownFor: Any?, requested: Any): Boolean = shownFor != requested
+
+/**
+ * Условия и «только проверенные» режет сервер (getNearbyRidesPaged); здесь — подстраховка на старый сервер,
+ * где их не знают (зеркало `matchesNearbyConditions` в nearbyFeed.ts сайта). Вынесено из MapScreen.kt.
+ */
+internal fun nearbyShown(nearby: List<RideDto>, prefFilter: Set<String>, verifiedOnly: Boolean): List<RideDto> =
+    if (prefFilter.isEmpty() && !verifiedOnly) nearby else nearby.filter { d ->
+        (!verifiedOnly || d.driverVerified) &&
+            ("women" !in prefFilter || d.womenOnly || d.driverIsWoman) &&   // F9: женщины за рулём тоже подходят
+            ("child" !in prefFilter || d.childSeat) &&
+            ("pets" !in prefFilter || d.petsAllowed) &&
+            ("baggage" !in prefFilter || d.baggage) &&
+            ("ac" !in prefFilter || d.airConditioner) &&
+            ("nosmoke" !in prefFilter || !d.smoking) &&   // некурящий = поездки, где курить нельзя
+            // «Тихая поездка» водитель мог отметить с самого начала, а найти её пассажир не мог —
+            // условие было только на карточке. Главная жалоба попутчиков (BlaBlaCar, 1449 голосов)
+            // не про багаж, а про три часа разговора, от которого некуда деться.
+            ("quiet" !in prefFilter || d.quiet)
+    }
 
 /** До явного выбора лента следует активной поездке; «Все маршруты» снимает и её ограничение. */
 internal class NearbyRouteSearchState {

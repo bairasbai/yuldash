@@ -138,15 +138,18 @@ export function nearbyContextKey(f: NearbyFilters): string {
 
 // ---------------------------------------------------------------- состояния ленты
 
-export type NearbyFeedState = "loading" | "error" | "empty" | "filtered" | "list";
+export type NearbyFeedState = "loading" | "error" | "unverified" | "empty" | "filtered" | "list";
 
 /**
  * В каком состоянии лента (`nearbyState` в MapScreen.kt).
  *
  * «Пусто при включённом условии или городе» — это «filtered» со сбросом, а не обычная заглушка:
- * человеку надо сказать, что поездки есть, просто не такие. «Только проверенные» не в счёт — её
- * отсюда не снять, честнее обычное «пусто» с «Обновить». День тоже не в счёт: «Когда» всегда
+ * человеку надо сказать, что поездки есть, просто не такие. «Только проверенные» без спрятанных
+ * поездок не в счёт — честнее обычное «пусто» с «Обновить». День тоже не в счёт: «Когда» всегда
  * на виду в ряду.
+ *
+ * «unverified» (17.10.2026): проверенных нет, а сервер насчитал на этот же поиск поездки непроверенных
+ * водителей (`hidden_unverified`) — лента говорит «Есть N поездок непроверенных водителей — показать?».
  */
 export function nearbyFeedState(a: {
   loading: boolean;
@@ -159,6 +162,10 @@ export function nearbyFeedState(a: {
   cityActive: boolean;
   /** Выбран день («Сегодня», «Завтра», своя дата): пусто на этот день — тоже «с такими условиями». */
   dayOn?: boolean;
+  /** «Только проверенные» режут ленту прямо сейчас (не нажато «Показать»). */
+  verifiedOnly?: boolean;
+  /** Сколько подходящих поездок спрятал этот фильтр (`hidden_unverified`; старый сервер — 0). */
+  hiddenUnverified?: number;
 }): NearbyFeedState {
   // Пока грузим и показать нечего — скелетон. Приложение ждёт пустой список с сервера (`nearby.isEmpty()`);
   // здесь ещё и «старый список, который новые условия срезали целиком»: смена условия не должна
@@ -166,10 +173,31 @@ export function nearbyFeedState(a: {
   if (a.loading && a.shown === 0) return "loading";
   if (a.fetched === 0) {
     if (a.error) return "error";
+    if (a.verifiedOnly && (a.hiddenUnverified ?? 0) > 0) return "unverified";
     return a.conditionsOn || a.cityActive || a.dayOn ? "filtered" : "empty";
   }
   if (a.shown === 0) return "filtered";
   return "list";
+}
+
+// ---------------------------------------------------------------- «Только проверенные» (17.10.2026)
+
+/**
+ * Режет ли лента непроверенных прямо сейчас (`nearbyVerifiedOnly` в NearbyVerifiedOnly.kt). Настройка
+ * «Безопасности» ([saved]) действует, пока человек не нажал «Показать» под «Есть N поездок непроверенных
+ * водителей», — и снова действует, как только поиск ([searchKey] — `nearbyContextKey` с сохранённой
+ * настройкой) стал другим, чем тот, где нажал ([revealedFor]): сменил день, условие, город или место.
+ */
+export function nearbyVerifiedOnly(saved: boolean, revealedFor: string | null, searchKey: string): boolean {
+  return saved && revealedFor !== searchKey;
+}
+
+/** «Есть 3 поездки непроверенных водителей — показать?»: русский склоняет оба слова, башкирский — нет. */
+export function unverifiedRidesLabel(n: number, appText: AppText): string {
+  return appText(
+    `Есть ${n} ${pluralRu(n, "поездка", "поездки", "поездок")} ${pluralRu(n, "непроверенного водителя", "непроверенных водителей", "непроверенных водителей")} — показать?`,
+    `Тикшерелмәгән йөрөтөүселәрҙең ${n} сәфәре бар — күрһәтәйекме?`
+  );
 }
 
 /**

@@ -17,7 +17,7 @@ import ModeSwitch from "../components/ModeSwitch";
 import { fetchSeasonalEvents, type SeasonalEvent } from "../api/seasonal";
 import RideSheet from "../components/RideSheet";
 import YandexMap, { type MapMarker, type GeoPoint } from "../components/YandexMap";
-import NearbyRideCard, { NearbySkeletonCard, NearbyMoreCard, NearbyEmptyCard } from "../components/NearbyRideCard";
+import NearbyRideCard, { NearbySkeletonCard, NearbyMoreCard, NearbyEmptyCard, NearbyUnverifiedCard } from "../components/NearbyRideCard";
 import { NearbyChip } from "../components/adminUi";
 import { NearbyCityChips, NearbyConditionsChip, NearbyWhenChip } from "../components/NearbyFilters";
 import CommunityFeedStrip from "../components/CommunityFeedStrip";
@@ -35,6 +35,7 @@ import {
   nearbyFailure,
   nearbyFeedState,
   nearbyQuery,
+  nearbyVerifiedOnly,
   type NearbyCondition,
   type NearbyFilters,
 } from "../nearbyFeed";
@@ -55,7 +56,7 @@ export default function HomeScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
-  const { isAuthed, status: authStatus } = useAuth();
+  const { isAuthed } = useAuth();
 
   const { user } = useAuth();
 
@@ -117,21 +118,28 @@ export default function HomeScreen() {
   const [conditions, setConditions] = useState<NearbyCondition[]>(() => loadFilters().conditions);
   /**
    * «Проверенные водители на карте» из раздела «Безопасность»: здесь её не переключают, только читают.
-   * У гостя не действует: «Безопасность» открывается только после входа, и флаг, оставшийся от прежней
-   * версии сайта, гостю было бы нечем выключить. Войдёт — настройка вернётся вместе с переключателем.
-   * Пока вход проверяется, считаем человека вошедшим: иначе лента на секунду покажет всех водителей.
+   * С 17.10.2026 включена по умолчанию у всех, кто не выбирал (решение Александра), — значит, и у гостя:
+   * он тоже не выбирал. Тупика нет: пустая лента проверенных предлагает «Показать» поездки непроверенных
+   * водителей для этого поиска, а войдёт — переключатель в «Безопасности» под рукой.
    */
   const [storedVerifiedOnly] = useState(() => loadFilters().onlyTrusted);
-  const verifiedOnly = authStatus !== "guest" && storedVerifiedOnly;
+  /** Для какого поиска нажали «Показать» под «Есть N поездок непроверенных водителей»; null — не нажимали. */
+  const [revealedFor, setRevealedFor] = useState<string | null>(null);
+  /** Сколько поездок этого поиска спрятал «только проверенные» (`hidden_unverified` сервера). */
+  const [hiddenUnverified, setHiddenUnverified] = useState(0);
   /** Растёт на каждое обновление ленты: по нему же проверяется список городов (не чаще раза в 2 минуты). */
   const [reloadTick, setReloadTick] = useState(0);
   /** «Откуда» и «Куда»: выбранные города и из чего выбирать. */
   const cityFilter = useNearbyCityFilter(reloadTick);
 
-  const filters = useMemo<NearbyFilters>(
-    () => ({ coords: me, day, conditions, verifiedOnly, fromCities: cityFilter.from, toCities: cityFilter.to }),
-    [me, day, conditions, verifiedOnly, cityFilter.from, cityFilter.to]
+  /** Поиск с сохранённой настройкой: по его ключу «Показать» действует только здесь (`nearbyVerifiedOnly`). */
+  const savedFilters = useMemo<NearbyFilters>(
+    () => ({ coords: me, day, conditions, verifiedOnly: storedVerifiedOnly, fromCities: cityFilter.from, toCities: cityFilter.to }),
+    [me, day, conditions, storedVerifiedOnly, cityFilter.from, cityFilter.to]
   );
+  const savedKey = nearbyContextKey(savedFilters);
+  const verifiedOnly = nearbyVerifiedOnly(storedVerifiedOnly, revealedFor, savedKey);
+  const filters = useMemo<NearbyFilters>(() => ({ ...savedFilters, verifiedOnly }), [savedFilters, verifiedOnly]);
   /**
    * Сколько поездок просим. Растёт кнопкой «Показать ещё» и сам возвращается к первой порции, когда
    * поменялся день, место, условие или город: лимит помнит, для какого поиска он набран.
@@ -164,6 +172,8 @@ export default function HomeScreen() {
     conditionsOn: conditions.length > 0,
     cityActive: cityFilter.active,
     dayOn: day != null,
+    verifiedOnly,
+    hiddenUnverified,
   });
 
   // Последний запрос ленты: новый отменяет прежний, и запоздавший ответ не затрёт свежий.
@@ -185,6 +195,7 @@ export default function HomeScreen() {
           shownKey.current = key;
           setRides(r.items);
           setTotal(r.count);
+          setHiddenUnverified(r.hidden_unverified ?? 0);
           setStatus("ready");
         })
         .catch((e) => {
@@ -198,6 +209,7 @@ export default function HomeScreen() {
             shownKey.current = null;
             setRides([]);
             setTotal(0);
+            setHiddenUnverified(0);
           }
           setStatus("error");
         });
@@ -473,6 +485,15 @@ export default function HomeScreen() {
       )}
       {feedState === "error" && <NearbyEmptyCard error onRetry={retry} />}
       {feedState === "empty" && <NearbyEmptyCard error={false} onRetry={retry} />}
+      {/* Проверенных нет, а непроверенные на этот поиск есть: «Показать» — только для этого поиска,
+          настройка «Безопасности» не меняется (NearbyUnverifiedCard в NearbyVerifiedOnly.kt). */}
+      {feedState === "unverified" && (
+        <NearbyUnverifiedCard
+          hidden={hiddenUnverified}
+          onShow={() => setRevealedFor(savedKey)}
+          onReset={conditions.length > 0 || cityFilter.active || day != null ? resetFeedFilters : undefined}
+        />
+      )}
       {feedState === "filtered" && (
         <div className="nearby-filtered">
           <p role="status">{appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал.")}</p>

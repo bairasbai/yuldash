@@ -69,8 +69,23 @@ await test("ряд скрывается не раньше, чем снять н�
   assert.match(code(home), /filtersRowVisible\(\{[^}]*citiesOffered: cityFilter\.offered/);
 });
 
+await test("«Есть N поездок непроверенных водителей»: стили описаны, только токены, «Показать» ≥ 48", async () => {
+  const card = read("src/components/NearbyRideCard.tsx");
+  for (const cls of ["nrc-unverified", "nrc-unverified__icon", "nrc-unverified__show", "nrc-unverified__note"]) {
+    assert.ok(card.includes(cls), "компонент использует ." + cls);
+    assert.ok(css.includes("." + cls), "нет стиля для ." + cls);
+  }
+  const block = css.slice(css.indexOf("/* NearbyUnverifiedCard"), css.indexOf(".nearby-filtered {"));
+  assert.ok(block.length > 100, "блок стилей найден");
+  assert.ok(!/#[0-9a-f]{3,8}\b|rgba?\(/i.test(block), "цвет числом");
+  assert.ok(!/border-radius:\s*\d/.test(block) && !/font-size:\s*\d/.test(block), "радиус или кегль числом");
+  assert.ok(!/transition[^;]*\d+m?s\b/.test(block.replace(/var\(--motion-[\w-]+\)/g, "")), "время числом");
+  const h = block.match(/\.nrc-unverified__show\s*\{[^}]*min-height:\s*(\d+)px/);
+  assert.ok(h && Number(h[1]) >= 48, "цель нажатия «Показать»");
+});
+
 await test("состояния ленты: загрузка, ошибка с повтором, пусто, «условия всё срезали» со сбросом, список", async () => {
-  for (const s of ["loading", "error", "empty", "filtered", "list"]) assert.match(home, new RegExp(`feedState === "${s}"`), s);
+  for (const s of ["loading", "error", "unverified", "empty", "filtered", "list"]) assert.match(home, new RegExp(`feedState === "${s}"`), s);
   assert.match(home, /Нет поездок с такими условиями\. Сними часть фильтров\./);
   assert.match(home, /Был шарттар менән сәфәр юҡ\. Фильтрҙың бер өлөшөн ал\./);
   assert.match(home, /Сбросить фильтры/);
