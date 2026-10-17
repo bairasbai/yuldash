@@ -100,6 +100,17 @@ export function useSheetExit(onClose: () => void, sheetRef: RefObject<HTMLElemen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
+  // Шторку убрали со страницы, пока она уходила (родитель закрыл экран или сам снял её), — таймер выше
+  // сброшен, и `onClose` иначе не пришёл бы никогда: родитель так и считал бы шторку открытой.
+  // Ушла сама — `finish` уже сработал, и второй раз он не зовёт; не уходила — её убрали не мы, не зовём.
+  useEffect(
+    () => () => {
+      if (started.current) finish();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   return {
     /** Шторка уходит: в ней уже ничего не нажимается (в том числе бронь). */
     leaving: mode !== null,

@@ -147,9 +147,10 @@ export function AvailableParcelCard({
 
 // ------------------------------- Диалог кода вручения -------------------------------
 /**
- * Нижняя шторка ввода кода вручения. «Отмена» и тап по затемнению уводят её вниз (useSheetExit);
- * `onClose` убирает шторку со страницы, когда она ушла. Верный код экран принимает сам — и
- * убирает шторку сразу, вместе со сменой карточки. Во время ухода «Доставлено» заперто.
+ * Нижняя шторка ввода кода вручения. «Отмена», тап по затемнению и верный код уводят её вниз
+ * (useSheetExit); `onClose` убирает шторку со страницы, когда она ушла. Верный код — это когда
+ * `onSubmit` ответил `true`: карточка за шторкой уже обновлена, шторка уезжает плавно, а не
+ * пропадает рывком. Во время ухода «Доставлено» заперто.
  */
 export function CodeDialog({
   busy,
@@ -159,7 +160,8 @@ export function CodeDialog({
 }: {
   busy: boolean;
   error: string | null;
-  onSubmit: (code: string) => void;
+  /** Отправить код; ответ `true` — код принят, шторка уходит сама (другой ответ её не трогает). */
+  onSubmit: (code: string) => void | Promise<boolean | void>;
   /** Шторка уже уехала — убери её со страницы. */
   onClose: () => void;
 }) {
@@ -167,6 +169,11 @@ export function CodeDialog({
   const [code, setCode] = useState("");
   const sheetRef = useRef<HTMLDivElement>(null);
   const exit = useSheetExit(onClose, sheetRef);
+
+  async function submit() {
+    if (exit.leaving) return; // шторка уже уходит — код из неё не отправляем
+    if ((await onSubmit(code)) === true) exit.close();
+  }
   return (
     <div className={exit.backdropClass} onClick={exit.close} role="dialog" aria-modal="true">
       <div ref={sheetRef} className="sheet code-sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
@@ -195,9 +202,7 @@ export function CodeDialog({
           type="button"
           className="btn-primary submit-btn"
           style={{ marginTop: 12 }}
-          onClick={() => {
-            if (!exit.leaving) onSubmit(code); // шторка уже уходит — код из неё не отправляем
-          }}
+          onClick={() => void submit()}
           disabled={busy || code.length < 4 || exit.leaving}
         >
           <IconCheck size={18} /> {busy ? appText("Проверяем…", "Тикшерәбеҙ…") : appText("Доставлено", "Тапшырылды")}

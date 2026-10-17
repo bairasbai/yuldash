@@ -16,7 +16,7 @@ import { LoadingList, ErrorState } from "../components/States";
 import { useSheetExit } from "../components/useSheetExit";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow, IconRequest, IconCheck } from "../components/Icons";
-import { formatWhen } from "../utils/format";
+import { formatWhen, pluralRu } from "../utils/format";
 import { useScrollMemory } from "../utils/useScrollMemory";
 import { track } from "../analytics";
 
@@ -103,7 +103,8 @@ export default function RequestsFeedScreen() {
                 <div className="ride-card__meta">
                   <span>{formatWhen(it.desired_at, ru)}</span>
                   <span>
-                    <b>{it.seats}</b> {appText("мест", "урын")}
+                    {/* «1 место», «2 места», «5 мест»; по-башкирски существительное после числа не меняется. */}
+                    <b>{it.seats}</b> {appText(pluralRu(it.seats, "место", "места", "мест"), "урын")}
                   </span>
                   {/* Насколько заявка уводит с твоего маршрута. Без этого водитель
                       читал каждую заявку руками — и уставал от тех, что в другую сторону. */}

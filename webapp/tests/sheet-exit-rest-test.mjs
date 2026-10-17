@@ -12,33 +12,66 @@
 // ================================================================
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { browser, finish, flat, JSX, LANG, load, mount, REACT, root, settle, test, text } from "./fake-react.mjs";
+import { browser, finish, flat, JSX, load, mount, REACT, root, settle, test, text } from "./fake-react.mjs";
 
-const h = (globalThis.__restExit = { calls: [], reply: null });
+const h = (globalThis.__restExit = { calls: [], reply: null, lang: "ru", feed: null });
+
+/** Язык переключается в проверке: `h.lang = "ba"` — appText отдаёт башкирский. */
+const LANG_SWITCH = `export const useLang = () => { const ba = globalThis.__restExit.lang === "ba"; return { lang: ba ? "ba" : "ru", appText: (ru, b) => (ba ? b : ru), t: (k) => k }; };`;
 
 // ---------------------------------------------------------------- сторож: шторка без ухода
 
-/** Файлы сайта, где голый `className="sheet-backdrop"` допустим, — и почему. */
+/** Файлы сайта, где `sheet-backdrop` можно назвать напрямую, — и почему. */
 const NOT_A_BOTTOM_SHEET = {
   "screens/MyDataScreen.tsx":
     "«Удалить документы?» — окно по центру (.my-data-dialog, свой fadeUp), а не нижняя шторка: sheetDown ему не к лицу",
 };
+/** Сам хук: класс затемнения для всех шторок отдаёт он (`backdropClass`). */
+const HOOK_FILE = "components/useSheetExit.ts";
 
 function sourceFiles(dir) {
   return readdirSync(dir).flatMap((name) => {
     const path = dir + "/" + name;
-    return statSync(path).isDirectory() ? sourceFiles(path) : path.endsWith(".tsx") ? [path] : [];
+    return statSync(path).isDirectory() ? sourceFiles(path) : /\.tsx?$/.test(path) ? [path] : [];
   });
 }
 
-await test("сторож: каждая нижняя шторка сайта уходит через useSheetExit, голого className=\"sheet-backdrop\" нет", async () => {
-  const bare = sourceFiles(root + "src")
-    .filter((f) => /className="sheet-backdrop"/.test(readFileSync(f, "utf8")))
-    .map((f) => f.slice((root + "src/").length))
-    .filter((f) => !(f in NOT_A_BOTTOM_SHEET));
-  assert.deepEqual(bare, [], "шторка закрывается мгновенно — подключи useSheetExit (backdropClass, onAnimationEnd, ref)");
+/** Код без комментариев: слово в пояснении («так уходит .sheet-backdrop») — не шторка. */
+const withoutComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:\w"'`])\/\/.*$/gm, "$1");
+
+/** Какие из файлов называют `sheet-backdrop` сами — в любом виде className: строкой, в {}, шаблоном, склейкой, через cx(). */
+function namesBackdropDirectly(files) {
+  return Object.keys(files).filter((name) => name !== HOOK_FILE && !(name in NOT_A_BOTTOM_SHEET) && /sheet-backdrop/.test(withoutComments(files[name])));
+}
+
+await test("сторож: любая запись sheet-backdrop вне хука ловится — строка, {}, шаблон, склейка, cx(); пояснения и backdropClass — нет", async () => {
+  const bad = {
+    "a.tsx": '<div className="sheet-backdrop" onClick={x}>',
+    "b.tsx": '<div className="sheet-backdrop extra">',
+    "c.tsx": '<div className={"sheet-backdrop"}>',
+    "d.tsx": "<div className={'sheet-backdrop'}>",
+    "e.tsx": "<div className={`sheet-backdrop ${on ? 'is-on' : ''}`}>",
+    "f.tsx": '<div className={"sheet-backdrop" + (on ? " is-on" : "")}>',
+    "g.tsx": '<div className={cx("a", "sheet-backdrop")}>',
+    "h.ts": 'export const BACKDROP = "sheet-backdrop";',
+    "i.tsx": '<div className="x"> {/* ok */} <div className={"sheet-backdrop"}></div></div> // sheet-backdrop',
+  };
+  assert.deepEqual(namesBackdropDirectly(bad), Object.keys(bad), "каждая запись поймана");
+  const fine = {
+    "p.tsx": "<div className={exit.backdropClass} onClick={exit.close}>",
+    "q.tsx": "// так уходит .sheet-backdrop\nconst a = 1;",
+    "r.tsx": "/* .sheet-backdrop.is-leaving */\nconst a = 1; // и sheet-backdrop тут\nconst url = 'https://x.y/z';",
+    "components/useSheetExit.ts": 'backdropClass: "sheet-backdrop" + (mode === "down" ? " is-leaving" : "")',
+    "screens/MyDataScreen.tsx": '<div className="sheet-backdrop" onMouseDown={close}>',
+  };
+  assert.deepEqual(namesBackdropDirectly(fine), [], "пояснения, хук и названное исключение — не нарушение");
+});
+
+await test("сторож: каждая нижняя шторка сайта уходит через useSheetExit, sheet-backdrop никто не называет сам", async () => {
+  const files = Object.fromEntries(sourceFiles(root + "src").map((f) => [f.slice((root + "src/").length), readFileSync(f, "utf8")]));
+  assert.deepEqual(namesBackdropDirectly(files), [], "шторка закрывается мгновенно — подключи useSheetExit (backdropClass, onAnimationEnd, ref)");
   for (const [file, why] of Object.entries(NOT_A_BOTTOM_SHEET)) {
-    assert.ok(/className="sheet-backdrop"/.test(readFileSync(root + "src/" + file, "utf8")), `исключение ${file} устарело (${why}) — убери из списка`);
+    assert.ok(/sheet-backdrop/.test(files[file]), `исключение ${file} устарело (${why}) — убери из списка`);
   }
 });
 
@@ -68,7 +101,7 @@ await test("сторож: у каждой из семи шторок затем�
 /** Подмена всего, что файл импортирует, кроме `real`: компонент — строка-имя, функция — свой ответ из over. */
 function autoStubs(file, over = [], real = []) {
   const src = readFileSync(root + "src/" + file, "utf8");
-  const list = [[/^react$/, REACT], [/^react\/jsx-runtime$/, JSX], [/\/i18n\/lang$/, LANG], ...over];
+  const list = [[/^react$/, REACT], [/^react\/jsx-runtime$/, JSX], [/\/i18n\/lang$/, LANG_SWITCH], ...over];
   const escape = (x) => x.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
   const seen = new Set();
   for (const m of src.matchAll(/(?:^|\n)\s*(?:import|export)\s+(type\s+)?([^;]*?)\s+from\s+"([^"]+)"/g)) {
@@ -162,10 +195,13 @@ const Respond = await load(
     "screens/RequestsFeedScreen.tsx",
     [
       [/\/api\/client$/, `export class ApiError extends Error { constructor(m) { super(m); } }`],
-      [/\/api\/requests$/, `export const fetchRequestsFeed = () => new Promise(() => {}); export const respondToRequest = (...a) => globalThis.__restExit.api("respond", ...a);`],
+      [/\/api\/requests$/, `export const fetchRequestsFeed = () => (globalThis.__restExit.feed ? Promise.resolve(globalThis.__restExit.feed) : new Promise(() => {})); export const respondToRequest = (...a) => globalThis.__restExit.api("respond", ...a);`],
       [/\/analytics$/, `export const track = (n) => globalThis.__restExit.calls.push(["track", n]);`],
+      [/^react-router-dom$/, `export const useNavigate = () => () => {};`],
+      [/\/useScrollMemory$/, `export const useScrollMemory = () => {};`],
     ],
-    SHEET_EXIT
+    // format.ts настоящий: проверяем, как заявка склоняет «место», настоящим pluralRu.
+    [...SHEET_EXIT, /\/utils\/format$/]
   )
 );
 const MyRequests = await load(
@@ -179,6 +215,8 @@ h.send = (body) => (h.calls.push(["complaint", body]), h.reply("complaint", body
 const reset = (reply = async () => ({ id: 1 })) => {
   h.calls = [];
   h.reply = reply;
+  h.lang = "ru";
+  h.feed = null;
   browser.reduced = false;
 };
 const called = (name) => h.calls.filter((c) => c[0] === name);
@@ -592,6 +630,156 @@ await test("отмена заявки: пока идёт отмена, зате�
   assert.ok(y.leaving(), "Esc уводит шторку вниз");
   y.finish();
   assert.equal(y.closes.length, 1);
+});
+
+// ---------------------------------------------------------------- код вручения: верный код уводит шторку плавно
+
+await test("код вручения: код принят (onSubmit → true) — шторка уходит плавно и пропадает; не принят — остаётся", async () => {
+  reset();
+  let verdict = false;
+  const x = open(Parcel.CodeDialog, { busy: false, error: null, onSubmit: async (code) => (h.calls.push(["code", code]), verdict) });
+  const type = () => flat(x.s.tree).find((n) => n.type === "input").props.onChange({ target: { value: "ab12cd" } });
+  type();
+  x.s.render();
+  x.button("submit-btn").props.onClick();
+  await settle(x.s);
+  assert.ok(!x.leaving(), "код не принят — шторка на месте, можно ввести заново");
+  verdict = true;
+  x.s.render();
+  x.button("submit-btn").props.onClick();
+  await settle(x.s);
+  assert.deepEqual(called("code").map((c) => c[1]), ["AB12CD", "AB12CD"]);
+  assert.ok(x.leaving(), "код принят — шторка уезжает вниз");
+  assert.equal(x.closes.length, 0, "а не пропадает в тот же кадр");
+  assert.equal(x.button("submit-btn").props.disabled, true, "пока едет вниз, «Доставлено» заперто");
+  x.finish();
+  assert.equal(x.closes.length, 1, "доехала — родитель убирает её (setCodeFor(null))");
+});
+
+await test("код вручения: принят, а шторку уже убирали пальцем, — onClose один раз; «Уменьшить движение» — сразу", async () => {
+  reset();
+  let release;
+  const x = open(Parcel.CodeDialog, { busy: false, error: null, onSubmit: () => new Promise((r) => (release = r)) });
+  flat(x.s.tree).find((n) => n.type === "input").props.onChange({ target: { value: "ab12cd" } });
+  x.s.render();
+  x.button("submit-btn").props.onClick();
+  x.tapBackdrop();
+  x.s.render();
+  assert.ok(x.leaving());
+  release(true);
+  await settle(x.s);
+  x.finish();
+  assert.equal(x.closes.length, 1);
+
+  reset();
+  browser.reduced = true;
+  try {
+    const y = open(Parcel.CodeDialog, { busy: false, error: null, onSubmit: async () => true });
+    flat(y.s.tree).find((n) => n.type === "input").props.onChange({ target: { value: "ab12cd" } });
+    y.s.render();
+    y.button("submit-btn").props.onClick();
+    await settle(y.s);
+    assert.equal(y.closes.length, 1, "без движения — сразу");
+  } finally {
+    browser.reduced = false;
+  }
+});
+
+await test("код вручения: оба экрана курьера отвечают шторке true/false и не снимают её сами — только по onClose", async () => {
+  for (const file of ["screens/CourierScreen.tsx", "screens/ParcelsScreen.tsx"]) {
+    const src = readFileSync(root + "src/" + file, "utf8");
+    const from = src.indexOf("async function onDeliver");
+    const body = src.slice(from, src.indexOf('if (boot === "loading")', from));
+    assert.match(body, /Promise<boolean>/, `${file}: onDeliver отвечает true/false`);
+    assert.equal((body.match(/return true;/g) ?? []).length, 1, `${file}: «принят» — один раз`);
+    assert.match(body, /return false;/, `${file}: «не принят» — false`);
+    assert.ok(!/setCodeFor\(null\)/.test(body), `${file}: шторку снимает её onClose, а не onDeliver`);
+    assert.match(src, /<CodeDialog [^>]*onClose=\{\(\) => setCodeFor\(null\)\}/, `${file}: шторка снимается по концу ухода`);
+  }
+});
+
+// ---------------------------------------------------------------- хук: шторку убрали, пока она уходила
+
+const Hook = await load(`export { useSheetExit } from "./src/components/useSheetExit"; export { useRef } from "react";`, [
+  [/^react$/, REACT],
+  [/^react\/jsx-runtime$/, JSX],
+]);
+const plainSheet = () => ({ getAnimations: () => [], parentElement: { getAnimations: () => [] }, inert: false, contains: () => false });
+function hostWithHook() {
+  const closes = [];
+  const sheet = plainSheet();
+  const host = mount(() => Hook.useSheetExit(() => closes.push(1), Hook.useRef(sheet)), {});
+  return { host, closes, sheet, exit: () => host.tree };
+}
+
+await test("хук: шторку убрали со страницы, пока она уходила, — onClose всё равно приходит, и один раз", async () => {
+  browser.reduced = false;
+  const x = hostWithHook();
+  x.exit().close();
+  x.host.render();
+  assert.equal(x.closes.length, 0, "ещё едет");
+  x.host.unmount();
+  assert.equal(x.closes.length, 1, "родитель узнал, что шторка ушла");
+  x.exit().onAnimationEnd({ target: "s", currentTarget: "s", animationName: "sheetDown" });
+  assert.equal(x.closes.length, 1, "запоздалый конец движения второй раз не зовёт");
+});
+
+await test("хук: ушла сама, а потом размонтирована, — onClose не повторяется; не уходила — не зовётся вовсе", async () => {
+  browser.reduced = false;
+  const a = hostWithHook();
+  a.exit().close();
+  a.host.render();
+  a.exit().onAnimationEnd({ target: "s", currentTarget: "s", animationName: "sheetDown" });
+  assert.equal(a.closes.length, 1);
+  a.host.unmount();
+  assert.equal(a.closes.length, 1, "размонтирование после ухода ничего не добавляет");
+
+  const b = hostWithHook();
+  b.host.unmount();
+  assert.equal(b.closes.length, 0, "шторку убрали, не начав уход, — это не «закрыли»");
+});
+
+await test("хук: «Уменьшить движение» — onClose сразу, размонтирование его не дублирует", async () => {
+  browser.reduced = true;
+  try {
+    const x = hostWithHook();
+    x.exit().close();
+    assert.equal(x.closes.length, 1);
+    x.host.unmount();
+    assert.equal(x.closes.length, 1);
+  } finally {
+    browser.reduced = false;
+  }
+});
+
+await test("шторка оплаты: убрали со страницы во время ухода — родитель получает onClose", async () => {
+  reset();
+  const x = open(Pay.PayMethodSheet, { value: "cash", onPick() {} });
+  x.tapBackdrop();
+  x.s.render();
+  assert.equal(x.closes.length, 0);
+  x.s.unmount();
+  assert.equal(x.closes.length, 1);
+});
+
+// ---------------------------------------------------------------- заявка в ленте: «1 место», «2 места», «5 мест»
+
+await test("лента заявок: «место» склоняется по-русски (1 место, 2 места, 5 мест, 11 мест, 21 место), по-башкирски — «N урын»", async () => {
+  const seats = [1, 2, 4, 5, 11, 12, 21, 22, 25];
+  reset();
+  h.feed = seats.map((n, i) => ({ ...feedItem, id: 100 + i, seats: n }));
+  const screen = mount(Respond.default, {});
+  await settle(screen);
+  /** Подпись мест на каждой карточке: <span><b>N</b> место</span>. */
+  const shown = () =>
+    flat(screen.tree)
+      .filter((n) => n.type === "article")
+      .map((a) => text(flat(a).find((n) => n.type === "span" && [n.props.children].flat().some((c) => c?.type === "b"))));
+  assert.deepEqual(shown(), ["1 место", "2 места", "4 места", "5 мест", "11 мест", "12 мест", "21 место", "22 места", "25 мест"]);
+  h.lang = "ba";
+  screen.render();
+  assert.deepEqual(shown(), seats.map((n) => `${n} урын`), "по-башкирски после числа существительное не меняется");
+  h.lang = "ru";
 });
 
 finish();
