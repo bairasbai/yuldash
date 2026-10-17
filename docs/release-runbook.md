@@ -49,7 +49,7 @@
 | #156 (`claude/android-driver-cancel-20261017`), приложение | «Отменить поездку» на экране поездки видит только пассажир; водитель больше не отправляет пассажиру пассажирские причины («Водитель не выходил на связь»). |
 | #157 (`claude/server-cancel-onboard-20261017`), сервер | Пассажир «в пути» не отменяет бронь; отмена, неявка и снятие поездки гасят точку водителя сразу. |
 
-Серверный код этих PR небольшой: `geo.py`, `rides.py`, `bookings.py`, `safety.py`. Миграций, библиотек, `config.py`, `ops/`, `features.py`, `health.py` они не трогают (проверено `git diff --stat origin/main...origin/<ветка> -- backend/alembic backend/requirements.txt backend/app/config.py backend/ops backend/app/features.py backend/app/routers/health.py`: пусто у всех четырёх).
+Серверный код этих PR небольшой. #148–#151: `geo.py`, `rides.py`, `bookings.py`, `safety.py`. #153 и #157: новый `trip_wake.py`, `routers/location.py`, `bookings.py`, `rides.py`, `family.py`, `safety.py`, `safety_logic.py`, `services.py` (таймаут Redis 1 с) и одна строка в `alembic/env.py` (знак `%`), всего 212 строк (`git diff --stat e49c8b3d da80cbdc -- backend/app backend/alembic`). Новых миграций, библиотек, правок `config.py`, `ops/`, `features.py`, `health.py` нет (`git diff --stat e49c8b3d da80cbdc -- backend/alembic/versions backend/requirements.txt backend/app/config.py backend/ops backend/app/features.py backend/app/routers/health.py` — пусто), в `versions/` по-прежнему 134 файла.
 
 ### Что ждёт на проде с июля: исправления входа и денег
 
@@ -275,7 +275,7 @@ ssh root@85.239.52.55 "hostname; systemctl is-active yuldash-api; curl -s http:/
 ```powershell
 cd C:\Users\Bayra\Yuldash
 git fetch origin main
-$COMMIT = 'e49c8b3d3f19dd1f027c49e91e13eaf33c1e5022'   # main после слияния #148–#151 (17.10.2026)
+$COMMIT = 'da80cbdc0d0cd95369df68babab05dd73c2592a7'   # main после слияния #148–#157 (17.10.2026): последний PR с серверным кодом
 if ($COMMIT -like '<<*') { 'СТОП: хеш коммита не подставлен — скажи разработчику' } else {
   git diff --stat $COMMIT origin/main -- backend/app backend/alembic backend/alembic.ini backend/requirements.txt backend/ops backend/scripts
   git archive --format=tar.gz -o "$env:USERPROFILE\yuldash-backend-release.tar.gz" $COMMIT backend/app backend/alembic backend/alembic.ini backend/requirements.txt backend/ops backend/scripts
@@ -996,7 +996,7 @@ sudo -u yuldash ./.venv/bin/alembic current
 - **Старое приложение глазами человека.** Что оно показывает при ответе «скоро» или при пустых витринах, не знаю: код старой версии сюда не входит.
 - **Telegram.** `getWebhookInfo` и `setWebhook` с `secret_token` не вызывались (нужен настоящий бот).
 - **Сайт и Android.** `webapp/deploy.sh`, `webapp/server-setup.sh`, `gradlew :app:bundleRelease` и `assembleRelease` не запускались: нужны сервер и ключ подписи, который лежит только у Александра (файлы с ключами не открывались). Пути к готовым файлам и версии взяты из `docs/architecture.md` и `android/app/build.gradle.kts`, правило «`versionCode` должен расти» — общее правило Google Play, в репозитории не проверялось.
-- **#149, #150, #151.** После их слияния серверный код изменится (`rides.py`, `bookings.py`, `safety.py`): повторить `cd backend && pytest -q` и шаг 1.4, а список изменений сверить командой `git diff --stat <прежний коммит> <новый коммит> -- backend/`.
+- **#149–#157 влиты** (17.10.2026), `$COMMIT` = `da80cbdc`. Полный `pytest` на ветке #157 перед слиянием — 5534 passed, 73 skipped; CI на PostgreSQL 16 и SQLite — зелёный. Сама временная база с прогоном миграций (таблица выше) делалась на `ff7042f1`; с тех пор миграции не менялись (`git diff e49c8b3d da80cbdc -- backend/alembic/versions` пуст), изменился только `env.py` (`%`, тест `test_alembic_url_with_percent.py` гоняет его тем же путём, что `alembic upgrade head`).
 
 ---
 
