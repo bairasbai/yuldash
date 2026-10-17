@@ -68,3 +68,18 @@ def test_before_send_depth_limited():
         cur = cur["next"]
     cur["message"] = "тел 89171234567"
     assert before_send(deep, None) is not None
+
+
+def test_mobile_without_country_code_scrubbed():
+    """«Звони 917 123-45-67» — так номер пишут в свободном поле чаще всего, без +7/8.
+    Раньше мойка его пропускала: в ленте заявок он уходил целиком (приёмка PR168, 17.10)."""
+    for raw in ("9171234567", "917 123-45-67", "917-123-45-67", "(917) 123 45 67", "917.123.45.67"):
+        out = scrub_text(f"за маму, звони {raw}")
+        assert "<телефон>" in out and "123" not in out, (raw, out)
+
+
+def test_bare_mobile_rule_spares_numbers_that_are_not_phones():
+    # девять или одиннадцать цифр, другая первая цифра, кусок токена — не номер
+    for s in ("заказ 917123456", "счёт 91712345678", "цена 900, 3 места", "рейс 8123456789x",
+              "id=a9171234567b", "год 1999, подъезд 9"):
+        assert "<телефон>" not in scrub_text(s), s
