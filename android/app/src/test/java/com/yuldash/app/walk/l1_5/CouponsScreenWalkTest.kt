@@ -108,7 +108,14 @@ class CouponsScreenWalkTest {
                     val path = request.requestUrl!!.encodedPath
                     val city = request.requestUrl!!.queryParameter("city")
                     return when {
-                        path == "/me" -> json(meCity?.let { """{"city":"$it"}""" } ?: "{}")
+                        path == "/me" -> {
+                            // В тесте гонки профиль отвечает только ПОСЛЕ того, как ушёл запрос «все
+                            // города». Экран читает город внутри запущенной корутины reload(), и быстрый
+                            // ответ /me иначе успевал раньше неё: город уже стоял, запроса «все города»
+                            // не было вовсе, и тест 10 с ждал то, чего быть не может (CI PR172, 17.10).
+                            if (meCity != null) allCitiesRequestReceived.await(5, TimeUnit.SECONDS)
+                            json(meCity?.let { """{"city":"$it"}""" } ?: "{}")
+                        }
                         path == "/coupons" && city == null -> {
                             // «Все города» — ровно тот запрос, что уходит ДО того, как подтянется
                             // город из профиля. Блокируем до явного разрешения тестом.

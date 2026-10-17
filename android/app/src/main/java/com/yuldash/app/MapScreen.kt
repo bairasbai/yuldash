@@ -296,7 +296,7 @@ internal fun MapScreen(
     }
     val filterCtx = LocalContext.current
     var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
-    val verifiedOnly = remember { AppPrefs.verifiedOnly(filterCtx) }  // «Только проверенные» из раздела Безопасность
+    val verified = rememberNearbyVerified()   // «Только проверенные» из «Безопасности»: с 17.10.2026 вкл. по умолчанию (NearbyVerifiedOnly.kt)
     val cityFilter = rememberNearbyCityFilter(nearbyReload)   // «Откуда»/«Куда» (NearbyCityFilter.kt); города — не чаще раза в 2 мин
     // F4: «когда едем» — null = все дни, иначе YYYY-MM-DD. Поездки в РБ планируют за 1-3 дня;
     // чипы Сегодня/Завтра режут ленту до нужного дня (фильтрует сервер по depart_at).
@@ -306,6 +306,8 @@ internal fun MapScreen(
     var findTick by remember { mutableIntStateOf(0) }
     val focusFrom = routeSearch.from(activeTrip)
     val focusTo = routeSearch.to(activeTrip)
+    val verifiedSearch = nearbySearch(focusFrom, focusTo, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verified.saved)
+    val verifiedOnly = verified.verifiedOnlyFor(verifiedSearch)   // «Показать» снимает его только для этого поиска; сменил поиск — забыто
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
     val userLng = LocationPrefs.lastLng
     // Огрублённый ключ позиции (~1.1 км, 2 знака): перезапрашиваем «рядом» только при заметном
@@ -314,8 +316,8 @@ internal fun MapScreen(
     val userLatKey = userLat?.let { kotlin.math.round(it * 100) }
     val userLngKey = userLng?.let { kotlin.math.round(it * 100) }
     // Сбрасываем страницу при смене маршрута/позиции/дня (новый контекст → снова с начала).
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to) { nearbyLimit = NEARBY_PAGE }
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter, cityFilter.from, cityFilter.to) {
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly) { nearbyLimit = NEARBY_PAGE }
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly) {
         if (nearby.isEmpty()) nearbyLoading = true   // спиннер только когда показывать нечего; авто-обновление с данными — молча, без мигания
         val search = nearbySearch(focusFrom, focusTo, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly)   // без позиции — см. nearbySearch
         // Радиус — только когда знаем позицию. Выбран город «Откуда»/«Куда» — ни радиуса, ни маршрута с карусели:
@@ -323,7 +325,7 @@ internal fun MapScreen(
         val radius = if (userLat != null && userLng != null && !cityFilter.active) NEARBY_RADIUS_KM else null
         ApiClient.getNearbyRidesPaged(focusFrom.takeUnless { cityFilter.active }, focusTo.takeUnless { cityFilter.active }, userLat, userLng, radius, nearbyLimit,
             date = dateFilter, conditions = prefFilter, verifiedOnly = verifiedOnly, fromCities = cityFilter.from, toCities = cityFilter.to)
-            .onSuccess { nearby = it.items; nearbyTotal = it.total; nearbyError = false; nearbyFor = search }
+            .onSuccess { nearby = it.items; nearbyTotal = it.total; verified.hidden = it.hiddenUnverified; nearbyError = false; nearbyFor = search }
             .onFailure { if (nearbyDropsOnFailure(nearbyFor, search)) { nearby = emptyList(); nearbyTotal = 0 }; nearbyError = true }
         nearbyLoading = false
     }
@@ -359,23 +361,9 @@ internal fun MapScreen(
         }).also { it.connect() }
         onDispose { sock.close() }
     }
-    // Условия режет сервер (getNearbyRidesPaged); здесь — подстраховка на старый сервер, где их не знают.
+    // Условия режет сервер (getNearbyRidesPaged); здесь — подстраховка на старый сервер, где их не знают (nearbyShown).
     // remember: пересчитываем только при смене списка/фильтра, а не на каждой рекомпозиции экрана.
-    val shownNearby = remember(nearby, prefFilter, verifiedOnly) {
-        if (prefFilter.isEmpty() && !verifiedOnly) nearby else nearby.filter { d ->
-            (!verifiedOnly || d.driverVerified) &&
-                ("women" !in prefFilter || d.womenOnly || d.driverIsWoman) &&   // F9: женщины за рулём тоже подходят
-                ("child" !in prefFilter || d.childSeat) &&
-                ("pets" !in prefFilter || d.petsAllowed) &&
-                ("baggage" !in prefFilter || d.baggage) &&
-                ("ac" !in prefFilter || d.airConditioner) &&
-                ("nosmoke" !in prefFilter || !d.smoking) &&   // некурящий = поездки, где курить нельзя
-                // «Тихая поездка» водитель мог отметить с самого начала, а найти её пассажир не мог —
-                // условие было только на карточке. Главная жалоба попутчиков (BlaBlaCar, 1449 голосов)
-                // не про багаж, а про три часа разговора, от которого некуда деться.
-                ("quiet" !in prefFilter || d.quiet)
-        }
-    }
+    val shownNearby = remember(nearby, prefFilter, verifiedOnly) { nearbyShown(nearby, prefFilter, verifiedOnly) }
     // Пины-ценники на карте = те же «Ближайшие» (реальные поездки), макс 20 чтобы не захламлять.
     val mapPins = remember(shownNearby) { shownNearby.take(20).map { it.toUiRide() } }
     // Box-обёртка: Scaffold + не-модальная карточка выбранной поездки поверх (чтобы карта с маршрутом была видна).
@@ -511,7 +499,9 @@ internal fun MapScreen(
                     // мягкий (скелетоны не «хлопают» в карточки, а растворяются друг в друга).
                     val nearbyState = when {
                         nearbyLoading && nearby.isEmpty() -> "loading"
-                        // Пусто при включённом фильтре — «filtered» со сбросом (приёмка PR147). «Только проверенные» — не в счёт: их не снять здесь, честнее «пусто» с «Обновить».
+                        // Проверенных нет, а непроверенные на этот поиск есть — «Есть N поездок… показать?» (NearbyVerifiedOnly.kt).
+                        nearbyUnverifiedHint(nearby.size, nearbyError, verifiedOnly, verified.hidden) -> "unverified"
+                        // Пусто при включённом фильтре — «filtered» со сбросом (приёмка PR147). «Только проверенные» без спрятанных поездок — не в счёт: честнее «пусто» с «Обновить».
                         nearby.isEmpty() -> if (nearbyError) "error" else if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) "filtered" else "empty"
                         shownNearby.isEmpty() -> "filtered"
                         else -> "list"
@@ -532,6 +522,8 @@ internal fun MapScreen(
                                 error = nearbyError,
                                 onWatchRoute = if (!nearbyError) ({ onRouteWatch(focusFrom, focusTo) }) else null
                             )
+                            "unverified" -> NearbyUnverifiedCard(verified.hidden, onShow = { verified.reveal(verifiedSearch) },
+                                onReset = if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) ({ prefFilter = emptySet(); cityFilter.clear(); dateFilter = null }) else null)
                             "filtered" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text(
                                     appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал."),

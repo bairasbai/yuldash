@@ -114,6 +114,15 @@ export interface TripState {
    * и обвинением не является.
    */
   alone_with_driver?: boolean;
+  /**
+   * Вторая сторона брони: пассажиру — водитель, водителю — пассажир. Пассажир, который ждёт
+   * отметки «Сел», открывает по ней «Сообщить о проблеме». Старый сервер — нет.
+   */
+  peer_id?: number;
+  /** Сколько секунд водитель ещё может отменить свою отметку «Сел» (пассажиру — 0). */
+  boarding_undo_sec?: number;
+  /** Сколько ещё пассажиру показывать «Сообщить о проблеме» после поездки (6 ч; водителю — 0). */
+  problem_report_sec?: number;
 }
 
 /** Квитанция завершённой поездки (GET /trips/{id}/receipt). */
@@ -298,6 +307,8 @@ export interface DriverBookingRow {
   my_stars: number;
   /** Пассажир просит переднее место — водитель видит это в заявке до решения. */
   front_seat?: boolean;
+  /** Сколько секунд ещё можно отменить свою отметку «Сел» (0 — уже нельзя). Старый сервер — нет. */
+  boarding_undo_sec?: number;
 }
 
 /** Брони на поездки текущего водителя — чтобы оценить пассажиров после поездки. */
@@ -330,6 +341,27 @@ export function confirmBooking(id: number): Promise<BookingRow> {
  */
 export function markNoShow(id: number): Promise<BookingRow> {
   return apiPost<BookingRow>(`/bookings/${id}/no-show`);
+}
+
+/** Ответ на «Сел» и «Отменить»: итоговый статус брони и сколько секунд ещё можно отменить. */
+export interface BoardingResult {
+  ok: boolean;
+  status: BookingStatus;
+  boarding_undo_sec: number;
+}
+
+/**
+ * «Сел» — посадку отмечает ВОДИТЕЛЬ (решение 17.10.2026), не пассажир: пассажирский «Я сел»
+ * можно было нажать из дома, чтобы уйти от «Не пришёл». Только подтверждённая бронь и не
+ * раньше чем за 30 минут до выезда; повтор — тот же ответ. Та же ручка, что «Выехал/Подъезжаю».
+ */
+export function markBoarded(id: number): Promise<BoardingResult> {
+  return apiPost<BoardingResult>(`/bookings/${id}/driver-status`, { status: "boarded" });
+}
+
+/** «Отменить» свою отметку «Сел» — промахнулся карточкой. Только в первые 5 минут (409 позже). */
+export function undoBoarded(id: number): Promise<BoardingResult> {
+  return apiPost<BoardingResult>(`/bookings/${id}/boarded/undo`);
 }
 
 /**

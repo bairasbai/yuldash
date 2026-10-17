@@ -9,6 +9,10 @@
 `POST /bookings/{id}/trip-status {"status":"done"}`. Она закрывает бронь ровно так же
 и отсюда же начисляет реферальный бонус за водителя. Закрыв одну дверь и оставив вторую,
 дыру не убираешь, а переносишь.
+
+С 17.10.2026 пассажир завершает только бронь «в пути» — после «Сел» водителя
+(`test_driver_marks_boarding.py`). Брони здесь сразу «в пути», чтобы проверять именно
+планку времени: она остаётся второй стенкой.
 """
 from datetime import timedelta
 
@@ -28,7 +32,7 @@ def _booking(driver_id: int, passenger_id: int, depart_in: timedelta) -> int:
         s.commit()
         s.refresh(ride)
         b = Booking(ride_id=ride.id, passenger_id=passenger_id, seats=1,
-                    status=BookingStatus.confirmed)
+                    status=BookingStatus.onboard)
         s.add(b)
         s.commit()
         s.refresh(b)
@@ -45,11 +49,11 @@ def test_passenger_cannot_close_a_trip_that_has_not_departed(client, user_factor
     assert r.json()["detail"]["ba"], "ошибка обязана быть двуязычной"
 
     with Session(engine) as s:
-        assert s.get(Booking, bid).status == BookingStatus.confirmed
+        assert s.get(Booking, bid).status == BookingStatus.onboard
 
 
 def test_passenger_can_close_a_trip_that_already_departed(client, user_factory):
-    """Обратная сторона: настоящую поездку пассажир по-прежнему закрывает сам."""
+    """Обратная сторона: настоящую поездку (водитель отметил «Сел») пассажир закрывает сам."""
     drv = user_factory("Водитель2", role=UserRole.driver)
     pax = user_factory("Пассажир2")
     bid = _booking(drv["id"], pax["id"], depart_in=timedelta(hours=-2))

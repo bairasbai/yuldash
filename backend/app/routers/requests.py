@@ -19,6 +19,7 @@ from ..models import (
 )
 from ..visibility import FEED_MAX, hidden_author_ids, visible_rides
 from ..observability import scrub_text
+from ..relative_phone_comment import strip_legacy_relative_phone
 from ..schemas import RideOut
 from ..security import current_user, gen_otp
 from ..services import (
@@ -160,6 +161,9 @@ def create_request(body: RequestIn, user: User = Depends(current_user), session:
     guard_burst(session, RideRequest.id, RideRequest.created_at, RideRequest.passenger_id == user.id,
                 per_minute=settings.flood_create_per_minute,
                 ru=TOO_FAST_CREATING[0], ba=TOO_FAST_CREATING[1])
+    # Телефон близкого от старых клиентов («Телефон близкого: …», «Заказ за близкого · …») —
+    # убираем ДО модерации, двойного тапа, записи и Telegram админу: сервер не верит клиенту (§8).
+    body.comment = strip_legacy_relative_phone(body.comment)
     # Модерация открытого поля. Комментарий заявки видит вся лента водителей района — это
     # публичное объявление, а не личный чат. Проверка стояла на правке заявки (edit_request),
     # на отклике и на заявке от админа, а на самом создании её не было: пока человек не зайдёт
@@ -320,6 +324,8 @@ def admin_request_for_phone(body: AdminRequestIn, user: User = Depends(current_u
     # Модерация открытого поля. В личном чате попутки телефон не трогаем (соседи так и
     # договариваются), но заявку и отклик видят ВСЕ — это уже публичное объявление,
     # и номер там висит для кого угодно. Помечаем, текст не меняем, сохранение не рвём.
+    # Исключение одно — телефон близкого в формате старых клиентов: его меняем на метку (§8).
+    body.comment = strip_legacy_relative_phone(body.comment)
     moderate_open_text(body.comment, target.id, place="request", session=session)
     req = RideRequest(
         passenger_id=target.id, from_city=body.from_city, to_city=body.to_city,
@@ -394,6 +400,7 @@ def edit_request(request_id: int, body: RequestEditIn, user: User = Depends(curr
                        "Заявканы кире алып, яңыһын төҙө.")
     changed = False
     body.desired_at = client_dt_to_utc(body.desired_at)   # правка времени — то же соглашение, что и создание
+    body.comment = strip_legacy_relative_phone(body.comment)   # телефон близкого от старых клиентов — как при создании
     moderate_open_text(body.comment, req.passenger_id, place="request", ref_id=req.id, session=session)   # правка — тот же путь, что создание
     for field in ("from_city", "to_city", "desired_at", "seats", "max_price", "comment"):
         val = getattr(body, field)

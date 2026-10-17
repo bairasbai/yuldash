@@ -267,10 +267,6 @@ object ApiClient {
         bg.launch { shareTrip(bookingId, contactId) }
     }
 
-    fun fireSetTripStatus(bookingId: Int, status: String) {
-        bg.launch { setTripStatus(bookingId, status) }
-    }
-
     /** Зовём один раз при старте приложения. */
     fun init(context: Context) = synchronized(sessionLock) {
         val app = context.applicationContext
@@ -875,7 +871,7 @@ object ApiClient {
         // auth=true: токен (если есть) → сервер прячет заблокированных. Аноним по-прежнему видит всё.
         return call("GET", path, null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            NearbyPage((0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }, obj.optInt("count"))
+            NearbyPage((0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }, obj.optInt("count"), obj.optInt("hidden_unverified"))
         }
     }
 
@@ -1626,10 +1622,10 @@ object ApiClient {
         call("GET", "/bookings/$bookingId/role", null, auth = true).map {
             TripStateDto(it.optString("role"), it.optString("status"), it.optString("driver_phase"),
                          it.optBoolean("arrival_verified", false),
-                         it.optBoolean("alone_with_driver", false))
+                         it.optBoolean("alone_with_driver", false), it.optInt("peer_id"), it.optInt("boarding_undo_sec"))
         }
 
-    /** Водитель отмечает «выехал»/«подъезжаю» → push пассажиру. status: "departed"|"arriving". */
+    /** Водитель отмечает «выехал»/«подъезжаю»/«Пассажир сел» → push пассажиру. status: "departed"|"arriving"|"boarded"|"done". */
     suspend fun driverStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true).map { }
 
@@ -3655,7 +3651,7 @@ object ApiClient {
                     expireSession(generation)
                     Result.failure(ApiException(401, genericByStatus(401, langBa)))
                 } else {
-                    Result.failure(ApiException(code, errorMessage(code, text), detailCode(text)))
+                    Result.failure(ApiException(code, errorMessage(code, text), detailCode(text), runCatching { JSONObject(text).optJSONObject("detail") }.getOrNull()))
                 }
             } catch (ce: CancellationException) {
                 testTrace?.invoke("вызов $method $path ОТМЕНЁН (корутину закрыли снаружи)")
@@ -4875,7 +4871,7 @@ object ApiClient {
                 driverVerified = o.optBoolean("driver_verified"),
                 counterpartyName = o.optString("counterparty_name"),
                 myStars = o.optInt("my_stars"),
-                myRatingTags = o.optString("my_rating_tags"),
+                myRatingTags = o.optString("my_rating_tags"), counterpartyId = o.optInt("counterparty_id"), problemReportSec = o.optInt("problem_report_sec"),
             )
         }
 
@@ -5457,7 +5453,7 @@ object ApiClient {
  * «банк отклонил» и «ответ банка непонятен» выглядят одинаково (оба 400), а вести себя после
  * них надо ровно наоборот — начать новую попытку или не трогать её вовсе (волна 219).
  */
-class ApiException(val status: Int, message: String, val detailCode: String = "") : Exception(message)
+class ApiException(val status: Int, message: String, val detailCode: String = "", val detail: JSONObject? = null) : Exception(message)  // detail — сырое тело отказа (числа вроде boarding_undo_sec)
 
 /** The server accepted a single-use code, but local session storage could not commit it. */
 internal class SessionPersistenceException : IOException("Session was not persisted")
@@ -6433,7 +6429,7 @@ data class PriceHintDto(
 )
 
 /** Страница «Ближайших»: показанные + всего на маршруте (для кнопки «Показать ещё»). */
-data class NearbyPage(val items: List<RideDto>, val total: Int)
+data class NearbyPage(val items: List<RideDto>, val total: Int, val hiddenUnverified: Int = 0)   // hidden_unverified: спрятал «только проверенные» (17.10.2026; старый сервер — 0)
 
 /** F14: точка сбора по ориентиру (публичный справочник). titleRu/titleBa — двуязычное название. */
 data class PickupPointDto(
@@ -6637,6 +6633,8 @@ data class TripStateDto(
     // Ехал(а) не один(на), а теперь остался(ась) в машине один на один с водителем. Клиент
     // ТИХО (без пуша и звука) предлагает поделиться поездкой с близким. Водителю не видно.
     val aloneWithDriver: Boolean = false,
+    val peerId: Int = 0,            // вторая сторона брони (пассажиру — водитель): «Сообщить о проблеме»; 0 — старый сервер
+    val boardingUndoSec: Int = 0,   // водителю: сколько секунд ещё можно отменить свою отметку «Сел» (17.10.2026)
 )
 
 data class RequestNearDto(
@@ -6697,6 +6695,7 @@ data class DriverBookingDto(
     val myStars: Int = 0,
     val frontSeat: Boolean = false,   // просит переднее место — водитель видит до решения
     val passengerId: Int = 0,   // вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»); 0 — старый сервер
+    val boardingUndoSec: Int = 0,   // сколько секунд ещё можно отменить свою отметку «Сел»; 0 — нельзя / старый сервер
 )
 
 /** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */
@@ -6926,6 +6925,7 @@ internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
         myStars = o.optInt("my_stars"),
         frontSeat = o.optBoolean("front_seat"),
         passengerId = o.optInt("passenger_id"),
+        boardingUndoSec = o.optInt("boarding_undo_sec"),
     )
 }
 
@@ -7433,7 +7433,7 @@ data class TripReceiptDto(
     val driverName: String, val driverVerified: Boolean,
     val counterpartyName: String = "",
     val myStars: Int = 0,
-    val myRatingTags: String = "",
+    val myRatingTags: String = "", val counterpartyId: Int = 0, val problemReportSec: Int = 0,  // «Сообщить о проблеме» пассажиру после поездки (PR174)
 )
 
 /** Ответ на «Подожду машину»: до какого времени ищем и обновлённый заказ. */

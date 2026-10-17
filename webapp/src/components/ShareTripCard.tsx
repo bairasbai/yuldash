@@ -12,8 +12,9 @@
 //  окно, если браузер его умеет). Как Android: TripLiveLink.kt и
 //  BookingActiveTripScreen.kt.
 //
-//  Плюс отметки для близких: «Села в машину» / «Доехала» / «Поездка
-//  завершена» — они сохраняются на сервере.
+//  Плюс отметки для близких: «Доехала» / «Поездка завершена» — они
+//  сохраняются на сервере. «Села в машину» близкие получают, когда посадку
+//  отметит водитель («Сел», решение 17.10.2026): своего «Я сел» у пассажира нет.
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -154,7 +155,7 @@ export default function ShareTripCard({
       setNote(appText("Сохранено", "Һаҡланды"));
     } catch (e) {
       if (!currentSession()) return;
-      // Трасса без связи — это норма, а не сбой. «Я сел» и «доехал» — ровно те отметки,
+      // Трасса без связи — это норма, а не сбой. «Доехал» и «завершил» — ровно те отметки,
       // которые человек делает в дороге между сёлами, и терять их нельзя: близкие ждут
       // именно их. Кладём в очередь — уйдёт само, когда сеть вернётся.
       //
@@ -169,7 +170,14 @@ export default function ShareTripCard({
           if (currentSession()) setNote(appText("Не получилось отправить статус.", "Хәлде ебәреп булманы."));
         }
       } else {
-        setNote(appText("Не получилось отправить статус.", "Хәлде ебәреп булманы."));
+        // Отказ сервера — его словами: «Водитель только что отметил посадку — завершить можно
+        // через 4 мин», «„Доехал“ — после посадки». Общее «не получилось» тут неправда: сеть
+        // работает, и человек не понял бы, что делать (приёмка PR174).
+        setNote(
+          e instanceof ApiError && e.message
+            ? e.message
+            : appText("Не получилось отправить статус.", "Хәлде ебәреп булманы.")
+        );
       }
     } finally {
       if (currentSession()) setBusy(false);
@@ -312,8 +320,9 @@ export default function ShareTripCard({
 
       </>)}
 
-      {/* Посадка и завершение не требуют ссылки или доверенных контактов. */}
-      {showStatuses && bookingId && (bookingStatus === "confirmed" || bookingStatus === "onboard") && (
+      {/* «Доехала» и завершение не требуют ссылки или доверенных контактов. Посадку отмечает
+          водитель (решение 17.10.2026) — до неё пассажиру отмечать нечего. */}
+      {showStatuses && bookingId && bookingStatus === "onboard" && (
         <>
           <p className="act-card__text" style={{ margin: "14px 0 8px" }}>
             {appText(
@@ -322,15 +331,12 @@ export default function ShareTripCard({
             )}
           </p>
           <div className="chips">
-            {bookingStatus === "confirmed" && <button type="button" className="chip" onClick={() => sendStatus("sat")} disabled={busy}>
-              {appText("Села в машину", "Машинаға ултырҙым")}
-            </button>}
-            {bookingStatus === "onboard" && <button type="button" className="chip" onClick={() => sendStatus("arrived")} disabled={busy}>
+            <button type="button" className="chip" onClick={() => sendStatus("arrived")} disabled={busy}>
               {appText("Доехала", "Барып еттем")}
-            </button>}
-            {bookingStatus === "onboard" && <button type="button" className="chip" onClick={() => sendStatus("done")} disabled={busy}>
+            </button>
+            <button type="button" className="chip" onClick={() => sendStatus("done")} disabled={busy}>
               {appText("Поездка завершена", "Сәфәр тамамланды")}
-            </button>}
+            </button>
           </div>
         </>
       )}

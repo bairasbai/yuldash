@@ -263,7 +263,7 @@ class ActiveTripChatActionsBoundaryTest {
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
         waitFor { auth.peek() == tokenA && requests.any { it.first == "GET /bookings/42/messages" } &&
-            compose.onAllNodesWithText("Я сел").fetchSemanticsNodes().isNotEmpty() }
+            compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
         assertEquals(tokenA, auth.poll())
         ownedNetworkCallbacks = Shadows.shadowOf(connectivity).networkCallbacks.filter { it !in callbacksBefore }
         assertEquals(1, ownedNetworkCallbacks.size)

@@ -13,6 +13,7 @@ from app.db import engine
 from app.models import Ride
 from app.models import UserRole
 from app.timeutil import utcnow
+from boarding_helpers import board
 
 
 # ----------------------------- helpers -----------------------------
@@ -38,6 +39,13 @@ def just_left() -> str:
     завершил» рисовал бейдж «N поездок» без единого метра пути). Поэтому тесты, которые
     доводят поездку до конца, ездят «прямо сейчас», как в жизни, а не в 2030 году."""
     return (utcnow() - timedelta(minutes=1)).replace(microsecond=0).isoformat() + "+00:00"
+
+
+def _boarded(client, drv, booking_id: int) -> None:
+    """Водитель подтвердил бронь и отметил «Сел», окно отмены отметки прошло. Завершает пассажир
+    только после этого (решения 17.10.2026): иначе «Завершить» закрывал бы «Не пришёл»."""
+    assert client.post(f"/bookings/{booking_id}/confirm", headers=drv["auth"]).status_code == 200
+    board(client, drv, booking_id)
 
 
 def _trip(client, user_factory, depart_at: str | None = None):
@@ -304,6 +312,7 @@ def test_no_duplicate_booking(client, user_factory):
 
 def test_finish_trip_closes_booking(client, user_factory):
     drv, pax, ride, booking = _trip(client, user_factory, depart_at=just_left())
+    _boarded(client, drv, booking["id"])
     r = client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "done"})
     assert r.status_code == 200
     mine = client.get("/bookings/mine", headers=pax["auth"]).json()
@@ -422,7 +431,8 @@ def test_two_way_rating(client, user_factory):
     bid = booking["id"]
     # Оценить можно только ЗАВЕРШЁННУЮ поездку (анти-накрутка): до завершения — 409, после — 200.
     assert client.post(f"/bookings/{bid}/rate", headers=pax["auth"], json={"stars": 5}).status_code == 409
-    client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "done"})
+    _boarded(client, drv, bid)
+    assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "done"}).status_code == 200
     r = client.post(f"/bookings/{bid}/rate", headers=pax["auth"], json={"stars": 5})
     assert r.status_code == 200 and r.json()["ratee_id"] == drv["id"] and r.json()["rating"] == 5.0
     # рейтинг водителя виден в /me
@@ -440,15 +450,17 @@ def test_rate_outsider_forbidden(client, user_factory):
 
 # ----------------------------- семейный контроль -----------------------------
 def test_trusted_contacts_and_share(client, user_factory):
-    drv, pax, ride, booking = _trip(client, user_factory)
+    # «Доехал» — только «в пути», после «Сел» водителя (приёмка PR174): поездка начинается сейчас.
+    drv, pax, ride, booking = _trip(client, user_factory, depart_at=just_left())
+    _boarded(client, drv, booking["id"])
     c = client.post("/trusted-contacts", headers=pax["auth"], json={"name": "Мама", "phone": "+79990001122"})
     assert c.status_code == 200
     cid = c.json()["id"]
     assert any(x["id"] == cid for x in client.get("/trusted-contacts", headers=pax["auth"]).json())
     sh = client.post(f"/bookings/{booking['id']}/share", headers=pax["auth"], json={"contact_id": cid})
     assert sh.status_code == 200
-    st = client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "sat"})
-    assert st.status_code == 200 and st.json()[0]["last_status"] == "sat"
+    st = client.post(f"/bookings/{booking['id']}/trip-status", headers=pax["auth"], json={"status": "arrived"})
+    assert st.status_code == 200 and st.json()[0]["last_status"] == "arrived"
 
 
 def test_share_only_passenger(client, user_factory):

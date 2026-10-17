@@ -7,6 +7,13 @@
 //  (список и подписи — nearbyFeed.ts). Ни «города», ни «потолка цены» здесь нет: в приложении
 //  их нет, город заменён чипом «Откуда» в ленте, а цену сервер не фильтрует — клиентский потолок
 //  давал бы ложную пустоту, когда подходящие поездки остались на следующих порциях.
+//
+//  «Только проверенные» с 17.10.2026 включены по умолчанию (решение Александра). Поэтому в хранилище
+//  лежит не флаг, а ВЫБОР человека: `verifiedOnly` есть, только если он сам нажимал переключатель
+//  в «Безопасности» (`saveVerifiedOnly`); нет — действует значение по умолчанию. Прежняя версия сайта
+//  писала `onlyTrusted` при любом сохранении, в том числе с экрана «Фильтры»: `false` там значит и
+//  «выключил сам», и «не трогал», — различить нельзя, поэтому он считается «не выбирал» (включено).
+//  `true` прежде мог поставить только сам человек — это выбор, он сохраняется.
 // ================================================================
 import type { Ride } from "./api/rides";
 import { isNearbyCondition, matchesNearbyConditions, NEARBY_CONDITION_KEYS, type NearbyCondition } from "./nearbyFeed";
@@ -16,9 +23,12 @@ export interface FilterPrefs {
   onlyTrusted: boolean; // «Проверенные водители на карте» (раздел «Безопасность»), только для «Ближайших»
 }
 
+/** «Только проверенные» у того, кто ни разу не трогал переключатель (решение Александра, 17.10.2026). */
+export const TRUSTED_BY_DEFAULT = true;
+
 export const emptyFilters: FilterPrefs = {
   conditions: [],
-  onlyTrusted: false,
+  onlyTrusted: TRUSTED_BY_DEFAULT,
 };
 
 const KEY = "yuldash.filterPrefs";
@@ -36,32 +46,60 @@ const LEGACY_CONDITION: Record<string, NearbyCondition> = {
   pets_allowed: "pets",
 };
 
-export function loadFilters(): FilterPrefs {
+type Stored = { conditions?: unknown; amenities?: unknown; onlyTrusted?: unknown; verifiedOnly?: unknown } | null;
+
+/** Сохранённое как есть; битое или недоступное хранилище — null. */
+function readStored(): Stored {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { ...emptyFilters, conditions: [] };
-    const o = JSON.parse(raw) as { conditions?: unknown; amenities?: unknown; onlyTrusted?: unknown } | null;
-    const stored = Array.isArray(o?.conditions) ? o.conditions : Array.isArray(o?.amenities) ? o.amenities : [];
-    const keys = new Set<NearbyCondition>();
-    for (const k of stored) {
-      const key = typeof k === "string" ? LEGACY_CONDITION[k] ?? k : k;
-      if (isNearbyCondition(key)) keys.add(key);
-    }
-    return {
-      conditions: NEARBY_CONDITION_KEYS.filter((k) => keys.has(k)), // порядок — как в шторке
-      onlyTrusted: !!o?.onlyTrusted,
-    };
+    if (!raw) return null;
+    const o = JSON.parse(raw) as unknown;
+    return o && typeof o === "object" && !Array.isArray(o) ? (o as Stored) : null;
   } catch {
-    return { ...emptyFilters, conditions: [] };
+    return null;
   }
 }
 
-export function saveFilters(f: FilterPrefs): void {
+/** Выбор человека в «Безопасности»: true/false — нажимал сам; null — не выбирал. */
+function trustedChoice(o: Stored): boolean | null {
+  if (typeof o?.verifiedOnly === "boolean") return o.verifiedOnly;
+  return o?.onlyTrusted === true ? true : null; // прежнее `true` — включал сам; `false` — неразличимо
+}
+
+export function loadFilters(): FilterPrefs {
+  const o = readStored();
+  const stored = Array.isArray(o?.conditions) ? o.conditions : Array.isArray(o?.amenities) ? o.amenities : [];
+  const keys = new Set<NearbyCondition>();
+  for (const k of stored) {
+    const key = typeof k === "string" ? LEGACY_CONDITION[k] ?? k : k;
+    if (isNearbyCondition(key)) keys.add(key);
+  }
+  return {
+    conditions: NEARBY_CONDITION_KEYS.filter((k) => keys.has(k)), // порядок — как в шторке
+    onlyTrusted: trustedChoice(o) ?? TRUSTED_BY_DEFAULT,
+  };
+}
+
+function write(conditions: readonly NearbyCondition[], choice: boolean | null): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ conditions: f.conditions, onlyTrusted: f.onlyTrusted }));
+    localStorage.setItem(KEY, JSON.stringify(choice == null ? { conditions } : { conditions, verifiedOnly: choice }));
   } catch {
     /* хранилище недоступно (приватный режим) — настройка живёт, пока открыт экран */
   }
+}
+
+/**
+ * Сохранить условия «по умолчанию». «Только проверенные» отсюда не меняются (`f.onlyTrusted` не
+ * читается): иначе экран «Фильтры» записал бы значение по умолчанию как выбор человека. Уже сделанный
+ * выбор остаётся как был.
+ */
+export function saveFilters(f: FilterPrefs): void {
+  write(f.conditions, trustedChoice(readStored()));
+}
+
+/** Переключатель «Проверенные водители на карте» в «Безопасности» — это и есть выбор человека. */
+export function saveVerifiedOnly(on: boolean): void {
+  write(loadFilters().conditions, on);
 }
 
 /**

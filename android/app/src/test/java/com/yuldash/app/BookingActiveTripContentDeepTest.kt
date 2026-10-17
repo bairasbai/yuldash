@@ -228,7 +228,8 @@ class BookingActiveTripContentDeepTest {
                 TripStatusButtons(role = "passenger", selectedStatus = null, onStatus = {})
             }
         }
-        composeRule.onNodeWithText("Я сел").assertIsDisplayed()
+        // Посадку отмечает водитель (решение 17.10.2026): пассажирского «Я сел» нет.
+        composeRule.onNodeWithText("Я сел").assertDoesNotExist()
         composeRule.onNodeWithText("Доехал").assertIsDisplayed()
         composeRule.onNodeWithText("Завершить").assertIsDisplayed()
         composeRule.onNodeWithText("Я выехал").assertDoesNotExist()
@@ -241,7 +242,7 @@ class BookingActiveTripContentDeepTest {
                 TripStatusButtons(role = "passenger", selectedStatus = null, onStatus = {})
             }
         }
-        composeRule.onNodeWithText("Ултырҙым").assertIsDisplayed()
+        composeRule.onNodeWithText("Ултырҙым").assertDoesNotExist()
         composeRule.onNodeWithText("Барып еттем").assertIsDisplayed()
     }
 

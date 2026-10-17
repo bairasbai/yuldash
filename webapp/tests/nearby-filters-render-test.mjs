@@ -20,6 +20,7 @@ const result = await build({
       export { renderToStaticMarkup, h };
       export { localDayIso } from "./src/nearbyFeed";
       export { NearbyCheckRow, NearbyConditionsList, NearbyDayOptions, NearbyWhenChip, NearbyConditionsChip, NearbyCityChips } from "./src/components/NearbyFilters";
+      export { NearbyUnverifiedCard } from "./src/components/NearbyRideCard";
     `,
     resolveDir: root,
     loader: "ts",
@@ -213,6 +214,23 @@ await test("строка-галочка: роль, aria-checked, подпись,
   assert.ok(checkbox.includes('<span class="nbs-row__label">Все города</span>'));
   assert.ok(checkbox.includes('class="nbs-row__check" aria-hidden="true"'));
   assert.match(html("ru", row({ role: "radio", selected: false })), /role="radio" aria-checked="false" class="nbs-row"/);
+});
+
+// ---------------------------------------------------------------- «Есть N поездок непроверенных водителей» (17.10.2026)
+
+await test("подсказка о непроверенных: почему пусто, сколько спрятано, «Показать» и что настройка не меняется", async () => {
+  const ru = html("ru", m.h(m.NearbyUnverifiedCard, { hidden: 3, onShow: noop }));
+  assert.ok(ru.includes("<strong>Проверенных водителей пока нет</strong>"));
+  assert.ok(ru.includes('<span role="status">Есть 3 поездки непроверенных водителей — показать?</span>'), "число озвучивается читалкой");
+  assert.match(ru, /<button type="button" class="nrc-unverified__show">Показать<\/button>/);
+  assert.ok(ru.includes("Только для этого поиска — настройка «Безопасности» не изменится."));
+  assert.ok(!ru.includes("Сбросить фильтры"), "без других фильтров сбрасывать нечего");
+  const ba = html("ba", m.h(m.NearbyUnverifiedCard, { hidden: 3, onShow: noop, onReset: noop }));
+  assert.ok(ba.includes("Тикшерелгән йөрөтөүселәр әлегә юҡ"));
+  assert.ok(ba.includes("Тикшерелмәгән йөрөтөүселәрҙең 3 сәфәре бар — күрһәтәйекме?"));
+  assert.match(ba, />Күрһәтергә<\/button>/);
+  assert.ok(ba.includes("Тик ошо эҙләү өсөн — «Хәүефһеҙлек» көйләүе үҙгәрмәй."));
+  assert.match(ba, />Фильтрҙы бушат<\/button>/, "при других фильтрах — путь назад");
 });
 
 console.log(bad === 0 ? "\nВСЁ СОШЛОСЬ" : `\nПРОВАЛЕНО: ${bad}`);

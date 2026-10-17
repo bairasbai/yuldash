@@ -657,13 +657,14 @@ def _with_any_city(q, column, session: Session, cities: Optional[str]):
     return q.where(or_(*conds)) if conds else q
 
 
-def _with_passenger_conditions(q, session: Session, conditions: Optional[str], verified_only: bool):
-    """Сузить выборку ленты по условиям пассажира — теми же правилами, что бейджи на карточке."""
+def _with_passenger_conditions(q, session: Session, conditions: Optional[str]):
+    """Сузить выборку ленты по условиям пассажира — теми же правилами, что бейджи на карточке.
+
+    «Только проверенные» здесь нет: их режет `rides_near` последними, чтобы посчитать, сколько
+    подходящих поездок он спрятал (`hidden_unverified`)."""
     keys = {k.strip() for k in (conditions or "").split(",") if k.strip()}
     for key in keys & _RIDE_CONDITIONS.keys():
         q = q.where(_RIDE_CONDITIONS[key]())
-    if verified_only:
-        q = q.where(Ride.driver_id.in_(select(User.id).where(User.verified.is_(True))))
     if "women" in keys:
         # Как основная лента `/rides?women_only=1` (волны 168/219): только подтверждённая модератором
         # женщина за рулём. Сырую отметку «только женщины» не берём: подтверждение могли снять, а
@@ -713,7 +714,7 @@ def rides_near(
     # Условия пассажира — ДО счёта `count` и разбивки на порции (DESIGN023, приёмка волны 1):
     # раньше их применял телефон к уже полученной порции, и подходящая поездка двенадцатой
     # в списке превращалась в «поездок нет», а «Показать ещё» при условии пряталась.
-    q = _with_passenger_conditions(q, session, conditions, verified_only)
+    q = _with_passenger_conditions(q, session, conditions)
     # «Откуда»/«Куда» по нескольким городам: «из Баймака или Сибая в любую сторону».
     q = _with_any_city(q, Ride.from_city, session, from_cities)
     q = _with_any_city(q, Ride.to_city, session, to_cities)
@@ -739,9 +740,12 @@ def rides_near(
     # Полные строки и тяжёлая сериализация (drivers_bundle + RideOut) — только для страницы.
     # session.execute (не .exec): sqlmodel-select(Ride) — SelectOfScalar, его exec()
     # схлопнул бы Row до первой колонки; execute отдаёт полные Row с атрибутами.
+    # `driver_ok` — проверен ли водитель: тем же подзапросом, каким раньше резал WHERE, но колонкой,
+    # чтобы спрятанные поездки можно было посчитать без второго запроса.
     light_rows = session.execute(
         q.with_only_columns(Ride.id, Ride.driver_id, Ride.only_trusted,
-                            Ride.from_lat, Ride.from_lng, Ride.from_city)
+                            Ride.from_lat, Ride.from_lng, Ride.from_city,
+                            Ride.driver_id.in_(select(User.id).where(User.verified.is_(True))).label("driver_ok"))
         .order_by(*boost_then_depart_order())   # Boost первыми, затем по времени выезда ↑
     ).all()
     kept: list = []
@@ -761,6 +765,15 @@ def rides_near(
     # равно не подтвердить) и «только для своих» (видит лишь L3). Связку с клиникой снимаем
     # ниже, после сборки dict-ов — поэтому тут отдельные фильтры, а не visible_rides целиком.
     kept = hide_trusted_only(hide_suspended(hide_blocked(kept, user, session), user, session), user, session)
+    # «Только проверенные» (17.10.2026 у пассажира включены по умолчанию) — последними, после всех
+    # остальных фильтров: тогда `hidden_unverified` — ровно те поездки ЭТОГО поиска, которые спрятал
+    # только этот фильтр. Пустая лента скажет «Есть N поездок непроверенных водителей — показать?»,
+    # а не голое «поездок нет». Старое приложение лишнее поле просто не читает.
+    hidden_unverified: Optional[int] = None
+    if verified_only:
+        shown = [r for r in kept if r.driver_ok]
+        hidden_unverified = len(kept) - len(shown)
+        kept = shown
     total = len(kept)
     eff_limit = min(max(1, limit), 200) if limit is not None else DEFAULT_FEED_LIMIT
     page_ids = [r.id for r in kept[max(0, offset):max(0, offset) + eff_limit]]
@@ -781,7 +794,10 @@ def rides_near(
     # бесследно терялась. Поймано пробой: лента уже молчала, а «рядом» всё ещё отдавало
     # `partner_id` анониму (аудит 2026-08-08, волна 22).
     items = hide_health_hint(items, user)
-    return {"count": total, "items": items}   # count = всего (чтобы клиент знал, есть ли «ещё»)
+    out: dict = {"count": total, "items": items}   # count = всего (чтобы клиент знал, есть ли «ещё»)
+    if hidden_unverified is not None:
+        out["hidden_unverified"] = hidden_unverified   # только при verified_only: без фильтра прятать нечего
+    return out
 
 
 @router.get("/driver/rides", response_model=List[RideOut])
@@ -926,6 +942,7 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
             dropped.append(b)
         else:
             b.status = BookingStatus.done
+            b.done_at = now   # от неё — окно «Сообщить о проблеме» пассажира (bookings.problem_report_left)
             completed.append(b)
         session.add(b)
     session.commit()

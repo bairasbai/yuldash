@@ -207,6 +207,64 @@ await test("сервер прислал поездки, а подстрахов�
   assert.equal(m.nearbyFeedState({ ...S, fetched: 7, shown: 3 }), "list");
 });
 
+// ---------------------------------------------------------------- «Только проверенные» по умолчанию (17.10.2026)
+
+await test("проверенных нет, а непроверенные на этот поиск есть → «unverified», не «поездок нет»", async ({ m }) => {
+  const V = { ...S, verifiedOnly: true, hiddenUnverified: 2 };
+  assert.equal(m.nearbyFeedState(V), "unverified");
+  assert.equal(m.nearbyFeedState({ ...V, conditionsOn: true }), "unverified", "при условиях — тоже: N посчитан с ними");
+  assert.equal(m.nearbyFeedState({ ...V, error: true }), "error", "нет сети — не подсказка");
+  assert.equal(m.nearbyFeedState({ ...V, loading: true }), "loading");
+  assert.equal(m.nearbyFeedState({ ...V, fetched: 1, shown: 1 }), "list", "проверенные есть — показываем их");
+  assert.equal(m.nearbyFeedState({ ...V, hiddenUnverified: 0 }), "empty", "старый сервер (0) — обычная пустота");
+  assert.equal(m.nearbyFeedState({ ...V, verifiedOnly: false }), "empty", "после «Показать» фильтр не режет");
+});
+
+await test("«Показать» снимает фильтр только для того поиска, где нажали", async ({ m }) => {
+  const key = m.nearbyContextKey({ ...NO_FILTERS, verifiedOnly: true });
+  const other = m.nearbyContextKey({ ...NO_FILTERS, verifiedOnly: true, day: "2026-10-18" });
+  assert.equal(m.nearbyVerifiedOnly(true, null, key), true, "до нажатия — только проверенные");
+  assert.equal(m.nearbyVerifiedOnly(true, key, key), false, "нажали — этот поиск без фильтра");
+  assert.equal(m.nearbyVerifiedOnly(true, key, other), true, "сменили день — снова только проверенные");
+  assert.equal(m.nearbyVerifiedOnly(false, null, key), false, "выключено в «Безопасности»");
+});
+
+await test("«Есть N поездок непроверенных водителей — показать?»: склоняется «поездка», «водителей» — всегда множественное", async ({ m }) => {
+  // Приёмка PR167: «Есть 21 поездка непроверенного водителя» читалось как один водитель.
+  const label = (n) => m.unverifiedRidesLabel(n, ru);
+  assert.equal(label(1), "Есть 1 поездка непроверенных водителей — показать?");
+  assert.equal(label(2), "Есть 2 поездки непроверенных водителей — показать?");
+  assert.equal(label(5), "Есть 5 поездок непроверенных водителей — показать?");
+  assert.equal(label(11), "Есть 11 поездок непроверенных водителей — показать?");
+  assert.equal(label(21), "Есть 21 поездка непроверенных водителей — показать?");
+  assert.equal(label(31), "Есть 31 поездка непроверенных водителей — показать?");
+  assert.equal(label(104), "Есть 104 поездки непроверенных водителей — показать?");
+});
+
+await test("ключ «Показать» — без места: уточнение координат не возвращает фильтр, а день, условия и города — возвращают", async ({ m }) => {
+  const base = { ...NO_FILTERS, verifiedOnly: true, coords: { lat: 54.73, lng: 55.95 } };
+  const key = m.nearbyRevealKey(base);
+  assert.equal(m.nearbyRevealKey({ ...base, coords: { lat: 54.7312, lng: 55.9581 } }), key, "место уточнилось — тот же поиск");
+  assert.equal(m.nearbyRevealKey({ ...base, coords: null }), key, "как в приложении: места в ключе нет");
+  assert.notEqual(m.nearbyRevealKey({ ...base, day: "2026-10-18" }), key);
+  assert.notEqual(m.nearbyRevealKey({ ...base, conditions: ["child"] }), key);
+  assert.notEqual(m.nearbyRevealKey({ ...base, fromCities: ["Баймак"] }), key);
+  assert.notEqual(m.nearbyRevealKey({ ...base, toCities: ["Уфа"] }), key);
+  assert.notEqual(m.nearbyContextKey({ ...base, coords: { lat: 54.7312, lng: 55.9581 } }), m.nearbyContextKey(base), "а лента с новым местом перезапрашивается");
+});
+
+await test("сменил поиск — «Показать» забыто; тот же поиск — помнится", async ({ m }) => {
+  const tomorrow = m.nearbyRevealKey({ ...NO_FILTERS, verifiedOnly: true, day: "2026-10-18" });
+  const allDays = m.nearbyRevealKey({ ...NO_FILTERS, verifiedOnly: true });
+  assert.equal(m.nearbyKeepReveal(tomorrow, tomorrow), tomorrow);
+  assert.equal(m.nearbyKeepReveal(tomorrow, allDays), null);
+  assert.equal(m.nearbyKeepReveal(null, tomorrow), null);
+});
+
+await test("…по-башкирски — как в приложении, без склонения", async ({ m }) => {
+  for (const n of [1, 2, 5, 21]) assert.equal(m.unverifiedRidesLabel(n, ba), `Тикшерелмәгән йөрөтөүселәрҙең ${n} сәфәре бар — күрһәтәйекме?`);
+});
+
 await test("ряд фильтров виден, пока есть что фильтровать или снимать", async ({ m }) => {
   const off = { fetched: 0, day: null, conditionsOn: false, citiesOffered: false, nearOnly: false };
   assert.equal(m.filtersRowVisible(off), false, "нечего ни фильтровать, ни снимать");

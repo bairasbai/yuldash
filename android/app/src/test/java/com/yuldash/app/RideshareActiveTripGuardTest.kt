@@ -49,18 +49,49 @@ class RideshareActiveTripGuardTest {
     fun `next action follows existing server state machine`() {
         assertEquals("departed", activeTripNextStatus("driver", "", null, "confirmed"))
         assertEquals("arriving", activeTripNextStatus("driver", "departed", null, "confirmed"))
+        // Посадку отмечает водитель (решение 17.10.2026): после «Подъезжаю» — «Пассажир сел».
+        assertEquals("boarded", activeTripNextStatus("driver", "arriving", null, "confirmed"))
         assertEquals("done", activeTripNextStatus("driver", "arriving", null, "onboard"))
-        assertEquals("sat", activeTripNextStatus("passenger", "", null, "confirmed"))
-        assertEquals("arrived", activeTripNextStatus("passenger", "", "sat", "confirmed"))
+        assertEquals("done", activeTripNextStatus("driver", "", null, "onboard"))
+        // У пассажира до посадки своей кнопки нет — «Водитель отметит посадку».
+        assertEquals("wait", activeTripNextStatus("passenger", "", null, "confirmed"))
+        assertEquals("wait", activeTripNextStatus("passenger", "arriving", null, "confirmed"))
         assertEquals("done", activeTripNextStatus("passenger", "", "arrived", "onboard"))
     }
 
+    @Test
+    fun `driver can finish from the trip screen without marking boarding`() {
+        // «Подъезжаю» → главная «Пассажир сел», рядом «Завершить поездку»: забыл отметить — закрывает сам.
+        assertTrue(activeTripShowsDriverFinish("driver", "departed", "arriving"))
+        assertTrue(activeTripShowsDriverFinish("driver", "arriving", "boarded"))
+        assertFalse("главная уже «Завершить» — вторая не нужна", activeTripShowsDriverFinish("driver", "arriving", "done"))
+        assertFalse("до «Выехал» поездка не началась", activeTripShowsDriverFinish("driver", "", "departed"))
+        assertFalse(activeTripShowsDriverFinish("passenger", "arriving", "wait"))
+        assertTrue(source("BookingActiveTripScreen.kt").contains("finishText = if (activeTripShowsDriverFinish(role, driverPhase, nextTripStatus)) {"))
+    }
+
+    /** Пассажирского «Я сел» нет ни при каком состоянии: его можно было нажать из дома. */
+    @Test
+    fun `passenger never gets I sat — the driver marks boarding`() {
+        for (phase in listOf("", "departed", "arriving")) {
+            for (booking in listOf("", "confirmed", "pending", "onboard", "done")) {
+                for (local in listOf(null, "arrived", "done")) {
+                    val next = activeTripNextStatus("passenger", phase, local, booking)
+                    assertTrue("$phase/$booking/$local → $next", next in setOf("wait", "arrived", "done"))
+                }
+            }
+        }
+        // Водитель отменил свою отметку — бронь снова подтверждена, и пассажир снова ждёт,
+        // даже если успел нажать «Доехал».
+        assertEquals("wait", activeTripNextStatus("passenger", "", "arrived", "confirmed"))
+    }
+
     /**
-     * Перезапуск приложения: локальная отметка «Я сел» пропала (null), а сервер уже знает, что
-     * бронь «в пути». Раньше кнопка снова звала «Я сел», хотя заголовок говорил «Поездка идёт».
+     * Перезапуск приложения: локальной отметки нет (null), а сервер уже знает, что бронь
+     * «в пути». Кнопка — следующий шаг пассажира, а не снова ожидание посадки.
      */
     @Test
-    fun `after restart onboard booking never offers I sat again`() {
+    fun `after restart onboard booking offers arrival not waiting`() {
         assertEquals("arrived", activeTripNextStatus("passenger", "", null, "onboard"))
         assertEquals("arrived", activeTripNextStatus("passenger", "departed", null, "onboard"))
         assertEquals("done", activeTripNextStatus("passenger", "", null, "done"))
@@ -79,5 +110,8 @@ class RideshareActiveTripGuardTest {
         val source = source("BookingActiveTripScreen.kt")
         assertFalse(source.contains("Я уже выхожу"))
         assertFalse(source.contains("Мин сығам инде"))
+        // Пассажирского «Я сел» больше нет нигде на экране (решение 17.10.2026).
+        assertFalse(source.contains("\"Я сел\""))
+        assertFalse(source.contains("\"Мин ултырҙым\""))
     }
 }

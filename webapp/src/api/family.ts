@@ -57,7 +57,7 @@ export interface TripShare {
   parcel_id: number | null;
   contact_id: number | null;
   token: string | null;
-  last_status: string; // shared | sat | arrived | done
+  last_status: string; // shared | sat | arrived | done (+ unsat / sat_again / unsat_quiet — отмена посадки водителем)
   created_at: string;
   expires_at: string | null;
 }
@@ -73,8 +73,12 @@ export function tripLiveLink(share: Pick<TripShare, "token"> | null | undefined)
   return token ? `${API_BASE.replace(/\/+$/, "")}/t/${token}` : null;
 }
 
-/** Статус поездки для близких: «села в машину» / «доехала» / «поездка завершена». */
-export type TripStatus = "sat" | "arrived" | "done";
+/**
+ * Статус поездки для близких, который пассажир сообщает сам: «доехала» / «поездка завершена».
+ * «sat» («Я сел») больше нет: посадку отмечает водитель (решение 17.10.2026, `markBoarded`),
+ * а сервер на пассажирский «sat» отвечает 409.
+ */
+export type TripStatus = "arrived" | "done";
 
 // --- Попутка (бронь) ---
 export function shareBooking(bookingId: number, contactId: number): Promise<TripShare> {

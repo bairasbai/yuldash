@@ -128,7 +128,7 @@ class ActiveTripSharingBoundaryTest {
             }
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
-        waitFor { compose.onAllNodesWithText("Я сел").fetchSemanticsNodes().isNotEmpty() }
+        waitFor { compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
         callbacks = Shadows.shadowOf(cm).networkCallbacks.filter { it !in before }
         compose.onNode(hasScrollToNodeAction() and SemanticsMatcher.keyIsDefined(
             androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))

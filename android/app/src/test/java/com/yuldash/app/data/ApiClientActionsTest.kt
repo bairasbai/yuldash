@@ -25,7 +25,7 @@ import org.robolectric.annotation.Config
  * НЕ покрыто здесь (другая зона / не подходит под шаблон):
  *  - `publishRide` / `moderateDriver` / `publishReview` — уже в `ApiClientNetworkTest`.
  *  - multipart/upload (`uploadVoice`, `uploadPhoto`, `uploadChatPhoto`) — другой транспорт.
- *  - fire-and-forget без `Result` (`fireShareTrip`, `fireSetTripStatus`, `fireAdEvent` и т.п.).
+ *  - fire-and-forget без `Result` (`fireShareTrip`, `fireAdEvent` и т.п.).
  *  - кешируемые GET (`cachedGet`) — не из этой группы.
  */
 @RunWith(RobolectricTestRunner::class)

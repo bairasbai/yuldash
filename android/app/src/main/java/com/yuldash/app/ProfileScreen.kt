@@ -3284,7 +3284,7 @@ internal fun DriverCabinetContent(
             }
         }
         // Едут прямо сейчас: подтверждённые и уже в пути. Оценивать их нельзя (поездка не
-        // состоялась — сервер вернёт 409), а вот «пассажир не вышел» нужно именно тут.
+        // состоялась — сервер вернёт 409), а вот «Сел» и «пассажир не вышел» нужны именно тут.
         val ridingBookings = driverBookings.filter { it.status == "confirmed" || it.status == "onboard" }
         if (ridingBookings.isNotEmpty()) {
             item {
@@ -3301,8 +3301,8 @@ internal fun DriverCabinetContent(
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         PassengerRow(b)
                         AppButton(text = appText("Открыть поездку", "Сәфәрҙе асыу"), onClick = { onOpenTrip(b.bookingId) })
-                        // «Не явился» — пассажир не пришёл на посадку; «в пути» — только разбор (RideshareNoShow.kt).
-                        NoShowButton(b.bookingId, b.status, passengerId = b.passengerId, passengerName = b.passengerName)
+                        // Посадку отмечает водитель: «Сел» рядом с «Не пришёл», «в пути» — «Отменить» 5 минут, потом разбор (RideshareBoarding.kt).
+                        DriverBoardingControls(b.bookingId, b.status, b.boardingUndoSec, passengerId = b.passengerId, passengerName = b.passengerName)
                     }
                 }
             }

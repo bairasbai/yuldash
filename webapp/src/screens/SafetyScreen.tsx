@@ -13,7 +13,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { loadFilters, saveFilters } from "../filterPrefs";
+import { loadFilters, saveVerifiedOnly } from "../filterPrefs";
 import { SubHeader } from "./ConsentsScreen";
 import {
   IconBlock,
@@ -30,9 +30,10 @@ export default function SafetyScreen() {
   const navigate = useNavigate();
   const [onlyTrusted, setOnlyTrusted] = useState(() => loadFilters().onlyTrusted);
 
+  // Не выбирал — включено (17.10.2026); нажатие здесь — выбор человека, его лента и запомнит.
   function toggleTrusted(next: boolean) {
     setOnlyTrusted(next);
-    saveFilters({ ...loadFilters(), onlyTrusted: next });
+    saveVerifiedOnly(next);
   }
 
   const rows: { to: string; icon: JSX.Element; title: string; sub: string }[] = [
