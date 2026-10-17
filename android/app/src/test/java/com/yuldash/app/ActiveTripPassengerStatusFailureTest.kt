@@ -24,7 +24,11 @@ import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowToast
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** DESIGN062: actual passenger CTA and controlled HTTP, not the legacy status component. */
+/**
+ * DESIGN062: actual passenger CTA and controlled HTTP, not the legacy status component.
+ * С 17.10.2026 посадку отмечает водитель: до неё у пассажира главной кнопки нет («Водитель отметит
+ * посадку»), а первая его собственная отметка — «Доехал» после «в пути».
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -35,6 +39,7 @@ class ActiveTripPassengerStatusFailureTest {
     private val posted = CopyOnWriteArrayList<String>()
     private lateinit var server: MockWebServer
     @Volatile private var responseCode = 200
+    @Volatile private var bookingStatus = "onboard"
 
     @Before fun setup() {
         ApiClient.resetForTest()
@@ -53,10 +58,10 @@ class ActiveTripPassengerStatusFailureTest {
                         )
                     }
                     val body = when (path) {
-                        "/bookings/42/role" -> """{"role":"passenger","status":"confirmed","driver_phase":"departed"}"""
+                        "/bookings/42/role" -> """{"role":"passenger","status":"$bookingStatus","driver_phase":"departed"}"""
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/boarding-code" -> """{"code":"1234"}"""
-                        "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"confirmed"}"""
+                        "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"$bookingStatus"}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
                     return MockResponse().setBody(body).setHeader("Content-Type", "application/json")
@@ -78,7 +83,7 @@ class ActiveTripPassengerStatusFailureTest {
         server.shutdown()
     }
 
-    private fun open() {
+    private fun open(ready: String = "Доехал") {
         mounted.value = true
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
@@ -86,7 +91,7 @@ class ActiveTripPassengerStatusFailureTest {
                     onBack = {}, onTripEnd = {}, onSos = {})
             }
         }
-        waitFor("Я сел")
+        waitFor(ready)
     }
 
     private fun settle() {
@@ -104,31 +109,41 @@ class ActiveTripPassengerStatusFailureTest {
     private fun rejectedStatus(code: Int) {
         responseCode = code
         open()
-        compose.onNodeWithText("Я сел").performClick()
+        compose.onNodeWithText("Доехал").performClick()
         compose.waitUntil(15000) {
             settle()
             posted.size == 1 && ShadowToast.getTextOfLatestToast() == "Переход отклонён"
         }
-        // The retry action must still be boarding, rather than the next false arrival step.
-        waitFor("Я сел")
-        compose.onNodeWithText("Я сел").assertIsDisplayed()
+        // The retry action must still be arrival, rather than the next false finish step.
+        waitFor("Доехал")
+        compose.onNodeWithText("Доехал").assertIsDisplayed()
         assertEquals(0, Outbox.count(context, 42))
         responseCode = 200
-        compose.onNodeWithText("Я сел").performClick()
-        waitFor("Доехал", expectedPosts = 2)
+        compose.onNodeWithText("Доехал").performClick()
+        waitFor("Завершить", expectedPosts = 2)
         assertEquals(2, posted.size)
-        posted.forEach { assertEquals("sat", org.json.JSONObject(it).getString("status")) }
+        posted.forEach { assertEquals("arrived", org.json.JSONObject(it).getString("status")) }
     }
 
-    @Test fun forbiddenBoardingKeepsTheSameRetryAction() = rejectedStatus(403)
-    @Test fun conflictingBoardingKeepsTheSameRetryAction() = rejectedStatus(409)
+    @Test fun forbiddenArrivalKeepsTheSameRetryAction() = rejectedStatus(403)
+    @Test fun conflictingArrivalKeepsTheSameRetryAction() = rejectedStatus(409)
     @Test fun serverOutageKeepsTheSameRetryAction() = rejectedStatus(503)
 
-    @Test fun acceptedBoardingAdvancesThePassengerAction() {
+    @Test fun acceptedArrivalAdvancesThePassengerAction() {
         open()
-        compose.onNodeWithText("Я сел").performClick()
-        waitFor("Доехал", expectedPosts = 1)
+        compose.onNodeWithText("Доехал").performClick()
+        waitFor("Завершить", expectedPosts = 1)
         assertEquals(1, posted.size)
-        assertEquals("sat", org.json.JSONObject(posted.single()).getString("status"))
+        assertEquals("arrived", org.json.JSONObject(posted.single()).getString("status"))
+    }
+
+    /** Посадку отмечает водитель: подтверждённому пассажиру нажимать нечего — и на сервер ничего не уходит. */
+    @Test fun confirmedPassengerWaitsForTheDriverAndPostsNothing() {
+        bookingStatus = "confirmed"
+        open(ready = "Водитель отметит посадку")
+        compose.onAllNodesWithText("Я сел").assertCountEquals(0)
+        compose.onAllNodesWithText("Доехал").assertCountEquals(0)
+        repeat(20) { settle(); Thread.sleep(50) }
+        assertEquals(emptyList<String>(), posted.toList())
     }
 }

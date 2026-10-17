@@ -44,18 +44,20 @@ class RideshareActiveTripInstrumentedTest {
         composeRule.onNodeWithText("Выехал").assertIsDisplayed()
         composeRule.onNodeWithText("Подъезжает").assertIsDisplayed()
         composeRule.onNodeWithText("Написать").assertIsDisplayed()
-        composeRule.onNodeWithText("Я сел").assertIsDisplayed()
+        // Посадку отмечает водитель (решение 17.10.2026): у пассажира — ожидание, а не «Я сел».
+        composeRule.onNodeWithText("Водитель отметит посадку").assertIsDisplayed()
+        composeRule.onNodeWithText("Сообщить о проблеме").assertIsDisplayed()
         composeRule.waitForIdle()
         holdIfRequested()
     }
 
     @Test
-    fun activeTripOptionB_submitsRealNextPassengerStatus() {
+    fun activeTripOptionB_submitsRealNextDriverStatus() {
         var submitted = ""
-        render(onPrimary = { submitted = activeTripNextStatus("passenger", "departed", null, "confirmed") })
+        render(driver = true, onPrimary = { submitted = activeTripNextStatus("driver", "arriving", null, "confirmed") })
 
-        composeRule.onNodeWithText("Я сел").performClick()
-        assertEquals("sat", submitted)
+        composeRule.onNodeWithText("Пассажир сел").performClick()
+        assertEquals("boarded", submitted)
     }
 
     @Test
@@ -66,11 +68,12 @@ class RideshareActiveTripInstrumentedTest {
         composeRule.onNodeWithText("Ултырыу коды").assertIsDisplayed()
         composeRule.onNodeWithText("Раҫланды").assertIsDisplayed()
         composeRule.onNodeWithText("Яҙырға").assertIsDisplayed()
-        composeRule.onNodeWithText("Мин ултырҙым").assertIsDisplayed()
+        composeRule.onNodeWithText("Йөрөтөүсе ултырыуҙы билдәләр").assertIsDisplayed()
     }
 
     private fun render(
         language: AppLanguage = AppLanguage.Ru,
+        driver: Boolean = false,
         onPrimary: () -> Unit = {},
     ) {
         composeRule.setContent {
@@ -81,9 +84,13 @@ class RideshareActiveTripInstrumentedTest {
                         topBar = { ScreenTopBar(appText("Моя поездка", "Минең сәфәр"), {}) },
                         bottomBar = {
                             ActiveTripDecisionBar(
-                                primaryText = activeTripActionLabel("sat"),
+                                primaryText = activeTripActionLabel(if (driver) "boarded" else "wait"),
                                 onMessage = {},
                                 onPrimary = onPrimary,
+                                boarding = activeTripBoardingSlot(
+                                    role = if (driver) "driver" else "passenger", bookingStatus = "confirmed",
+                                    bookingId = 42, peerId = 9, driverName = "Ринат Хабиров", undoSec = 0, onUndone = {},
+                                ),
                             )
                         },
                     ) { padding ->

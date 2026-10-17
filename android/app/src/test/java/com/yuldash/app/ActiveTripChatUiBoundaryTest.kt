@@ -170,7 +170,7 @@ class ActiveTripChatUiBoundaryTest {
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
         assertEquals(tokenA, auth.poll(10, TimeUnit.SECONDS))
-        waitFor { requests.any { it.first == "GET /bookings/42/details" } && compose.onAllNodesWithText(if (language == AppLanguage.Ba) "Мин ултырҙым" else "Я сел").fetchSemanticsNodes().isNotEmpty() }
+        waitFor { requests.any { it.first == "GET /bookings/42/details" } && compose.onAllNodesWithText(if (language == AppLanguage.Ba) "Йөрөтөүсе ултырыуҙы билдәләр" else "Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
         ownedNetworkCallbacks = Shadows.shadowOf(connectivity).networkCallbacks.filter { it !in callbacksBefore }
         assertEquals(1, ownedNetworkCallbacks.size)
         pump(500)
@@ -224,7 +224,7 @@ class ActiveTripChatUiBoundaryTest {
         compose.onAllNodesWithText("1234").assertCountEquals(0)
         compose.onAllNodesWithText("private-draft-A").assertCountEquals(0)
         compose.onAllNodes(hasSetTextAction()).assertCountEquals(0)
-        compose.onAllNodesWithText(if (language == AppLanguage.Ba) "Мин ултырҙым" else "Я сел").assertCountEquals(0)
+        compose.onAllNodesWithText(if (language == AppLanguage.Ba) "Йөрөтөүсе ултырыуҙы билдәләр" else "Водитель отметит посадку").assertCountEquals(0)
         assertEquals("Close callback must fire once while parent keeps this route mounted", 1, backs)
         val currentCallbacks = Shadows.shadowOf(context.getSystemService(ConnectivityManager::class.java)).networkCallbacks
         assertTrue("Old screen kept its system network subscription", ownedNetworkCallbacks.none { it in currentCallbacks })

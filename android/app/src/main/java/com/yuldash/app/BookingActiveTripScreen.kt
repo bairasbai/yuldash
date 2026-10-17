@@ -1405,6 +1405,8 @@ private fun ActiveTripContent(
     var arrivalVerified by remember(bookingId) { mutableStateOf(false) }
     // Попутчики вышли, остался один на один с водителем (см. AlonePassengerHint).
     var aloneWithDriver by remember(bookingId) { mutableStateOf(false) }
+    var peerId by remember(bookingId) { mutableIntStateOf(0) }   // вторая сторона брони: пассажиру — водитель («Сообщить о проблеме»)
+    var boardingUndoSec by remember(bookingId) { mutableIntStateOf(0) }   // водителю: сколько ещё можно отменить свою отметку «Сел»
     var bookingStatus by remember(bookingId) { mutableStateOf("") }
     fun acceptBookingStatus(value: String) {
         // A delayed poll must not revive a terminal booking or interrupt cleanup/retry.
@@ -1481,7 +1483,7 @@ private fun ActiveTripContent(
                 val stateResult = ApiClient.getTripState(id)
                 if (tripSession != ApiClient.queueSessionGeneration()) return@repeatOnLifecycle
                 stateResult
-                    .onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; acceptBookingStatus(st.status); offline = false }
+                    .onSuccess { st -> role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; acceptBookingStatus(st.status); offline = false }
                     // Сетевой сбой (не ApiException) → уходим в офлайн-режим: поднимаем сохранённый паспорт.
                     .onFailure { e -> if (e !is ApiException) offline = true }
                 kotlinx.coroutines.delay(12_000)
@@ -1648,7 +1650,7 @@ private fun ActiveTripContent(
                 ApiClient.getTripState(id).onSuccess { st ->
                     if (!isTripChatActive()) return@onSuccess
                     role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified
-                    aloneWithDriver = st.aloneWithDriver; acceptBookingStatus(st.status); offline = false
+                    aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; acceptBookingStatus(st.status); offline = false
                 }
             }
         }
@@ -1684,7 +1686,7 @@ private fun ActiveTripContent(
         val queueSession = tripSession
         if (role == "driver") {
             if (bid == null) {
-                if (st == "done") bookingStatus = "done"
+                bookingStatus = when (st) { "done" -> "done"; "boarded" -> "onboard"; else -> bookingStatus }
             } else voiceScope.launch {
                 if (!isTripSessionCurrent()) return@launch
                 ApiClient.driverStatus(bid, st)
@@ -1699,7 +1701,7 @@ private fun ActiveTripContent(
                                 role = s.role
                                 driverPhase = s.driverPhase
                                 arrivalVerified = s.arrivalVerified
-                                aloneWithDriver = s.aloneWithDriver
+                                aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec
                                 acceptBookingStatus(s.status)
                             }
                         }
@@ -1736,7 +1738,7 @@ private fun ActiveTripContent(
                             role = s.role
                             driverPhase = s.driverPhase
                             arrivalVerified = s.arrivalVerified
-                            aloneWithDriver = s.aloneWithDriver
+                            aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec
                             acceptBookingStatus(s.status)
                         }
                     }
@@ -1851,10 +1853,12 @@ private fun ActiveTripContent(
                             else updateTripStatus(nextTripStatus)
                         }
                     },
-                    finishText = if (role == "driver" && driverPhase == "departed") {
+                    finishText = if (role == "driver" && driverPhase == "departed" && nextTripStatus != "done") {
                         appText("Завершить поездку", "Сәфәрҙе тамамлау")
                     } else null,
                     onFinish = { if (isTripSessionCurrent()) showDriverFinishConfirmation = true },
+                    boarding = activeTripBoardingSlot(role, bookingStatus, bookingId, peerId, ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
+                        boardingUndoSec) { r -> if (isTripSessionCurrent()) { acceptBookingStatus(r.status); boardingUndoSec = r.undoSec } },
                 )
             }
         },
@@ -2603,11 +2607,12 @@ internal fun RoadsideHelpButton(sending: Boolean, sent: Boolean, onClick: () -> 
 }
 
 @Composable
-internal fun activeTripActionLabel(status: String): String = when (status) {
+internal fun activeTripActionLabel(status: String): String? = when (status) {
     "departed" -> appText("Я выехал", "Мин сыҡтым")
     "arriving" -> appText("Подъезжаю", "Яҡынлашам")
-    "sat" -> appText("Я сел", "Мин ултырҙым")
+    "boarded" -> appText("Пассажир сел", "Пассажир ултырҙы")   // посадку отмечает водитель (17.10.2026)
     "arrived" -> appText("Доехал", "Барып еттем")
+    "wait" -> null   // пассажир до посадки: своей кнопки нет, «Водитель отметит посадку» (RideshareBoarding.kt)
     else -> appText("Завершить", "Тамамлау")
 }
 
@@ -2992,63 +2997,6 @@ private fun ActiveTripRouteCard(
     }
 }
 
-@Composable
-internal fun ActiveTripDecisionBar(
-    primaryText: String,
-    onMessage: () -> Unit,
-    onPrimary: () -> Unit,
-    finishText: String? = null,
-    onFinish: () -> Unit = {},
-    unread: Int = 0,   // новые сообщения собеседника — бейдж на «Написать», чтобы не пропустить
-) {
-    val largeText = LocalDensity.current.fontScale >= 1.2f
-    Surface(color = CanonSurface, shadowElevation = CanonDepth.sheet) {
-        val barModifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)
-        Column(barModifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (largeText) {
-                Box(Modifier.fillMaxWidth()) {
-                    AppButton(
-                        text = appText("Написать", "Яҙырға"),
-                        onClick = onMessage,
-                        style = AppButtonStyle.Secondary,
-                        icon = Icons.Default.ChatBubbleOutline,
-                    )
-                    if (unread > 0) UnreadBadge(unread, Modifier.align(Alignment.TopEnd).offset(x = CanonSpace.xs, y = -CanonSpace.xs))
-                }
-                AppButton(text = primaryText, onClick = onPrimary, icon = Icons.Default.KeyboardArrowRight)
-            } else {
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(Modifier.weight(0.9f).fillMaxHeight()) {
-                        AppButton(
-                            text = appText("Написать", "Яҙырға"),
-                            onClick = onMessage,
-                            modifier = Modifier.fillMaxSize(),
-                            style = AppButtonStyle.Secondary,
-                            fillWidth = false,
-                        )
-                        if (unread > 0) UnreadBadge(unread, Modifier.align(Alignment.TopEnd).offset(x = CanonSpace.xs, y = -CanonSpace.xs))
-                    }
-                    AppButton(
-                        text = primaryText,
-                        onClick = onPrimary,
-                        modifier = Modifier.weight(1.35f).fillMaxHeight(),
-                        icon = Icons.Default.KeyboardArrowRight,
-                        fillWidth = false,
-                    )
-                }
-            }
-            if (finishText != null) {
-                AppButton(
-                    text = finishText,
-                    onClick = onFinish,
-                    style = AppButtonStyle.Secondary,
-                    height = 48.dp,
-                )
-            }
-        }
-    }
-}
-
 /** Шапка активной поездки: «откуда → куда», водитель, время. Пустые значения → «—». */
 @Composable
 internal fun TripRouteHeaderCard(
@@ -3286,8 +3234,8 @@ private fun TripPassRow(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 }
 
 /**
- * Кнопки статуса поездки. Водитель: «Я выехал / Подъезжаю / Завершить»; пассажир: «Я сел /
- * Доехал / Завершить». Клик отдаёт код статуса в [onStatus] — вся сеть/навигация снаружи.
+ * Кнопки статуса поездки. Водитель: «Я выехал / Подъезжаю / Завершить»; пассажир: «Доехал /
+ * Завершить» — посадку отмечает водитель (17.10.2026). Клик отдаёт код статуса в [onStatus].
  * У пассажира выбранный статус подсвечен ([selectedStatus]); у водителя подсветки нет.
  */
 @Composable
@@ -3303,7 +3251,7 @@ internal fun TripStatusButtons(
             // пассажир → если он забывал, бронь висела активной, а места поездки не освобождались.
             listOf("departed" to appText("Я выехал", "Сыҡтым"), "arriving" to appText("Подъезжаю", "Яҡынлашам"), "done" to appText("Завершить", "Тамам"))
         else
-            listOf("sat" to appText("Я сел", "Ултырҙым"), "arrived" to appText("Доехал", "Барып еттем"), "done" to appText("Завершить", "Тамам"))
+            listOf("arrived" to appText("Доехал", "Барып еттем"), "done" to appText("Завершить", "Тамам"))
         statusButtons.forEach { (st, label) ->
             FilledTonalButton(
                 onClick = { onStatus(st) },

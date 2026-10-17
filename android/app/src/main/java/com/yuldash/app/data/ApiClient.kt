@@ -267,10 +267,6 @@ object ApiClient {
         bg.launch { shareTrip(bookingId, contactId) }
     }
 
-    fun fireSetTripStatus(bookingId: Int, status: String) {
-        bg.launch { setTripStatus(bookingId, status) }
-    }
-
     /** Зовём один раз при старте приложения. */
     fun init(context: Context) = synchronized(sessionLock) {
         val app = context.applicationContext
@@ -1626,10 +1622,10 @@ object ApiClient {
         call("GET", "/bookings/$bookingId/role", null, auth = true).map {
             TripStateDto(it.optString("role"), it.optString("status"), it.optString("driver_phase"),
                          it.optBoolean("arrival_verified", false),
-                         it.optBoolean("alone_with_driver", false))
+                         it.optBoolean("alone_with_driver", false), it.optInt("peer_id"), it.optInt("boarding_undo_sec"))
         }
 
-    /** Водитель отмечает «выехал»/«подъезжаю» → push пассажиру. status: "departed"|"arriving". */
+    /** Водитель отмечает «выехал»/«подъезжаю»/«Пассажир сел» → push пассажиру. status: "departed"|"arriving"|"boarded"|"done". */
     suspend fun driverStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true).map { }
 
@@ -6637,6 +6633,8 @@ data class TripStateDto(
     // Ехал(а) не один(на), а теперь остался(ась) в машине один на один с водителем. Клиент
     // ТИХО (без пуша и звука) предлагает поделиться поездкой с близким. Водителю не видно.
     val aloneWithDriver: Boolean = false,
+    val peerId: Int = 0,            // вторая сторона брони (пассажиру — водитель): «Сообщить о проблеме»; 0 — старый сервер
+    val boardingUndoSec: Int = 0,   // водителю: сколько секунд ещё можно отменить свою отметку «Сел» (17.10.2026)
 )
 
 data class RequestNearDto(
@@ -6697,6 +6695,7 @@ data class DriverBookingDto(
     val myStars: Int = 0,
     val frontSeat: Boolean = false,   // просит переднее место — водитель видит до решения
     val passengerId: Int = 0,   // вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»); 0 — старый сервер
+    val boardingUndoSec: Int = 0,   // сколько секунд ещё можно отменить свою отметку «Сел»; 0 — нельзя / старый сервер
 )
 
 /** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */
@@ -6926,6 +6925,7 @@ internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
         myStars = o.optInt("my_stars"),
         frontSeat = o.optBoolean("front_seat"),
         passengerId = o.optInt("passenger_id"),
+        boardingUndoSec = o.optInt("boarding_undo_sec"),
     )
 }
 
