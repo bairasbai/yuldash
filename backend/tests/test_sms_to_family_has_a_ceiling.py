@@ -30,7 +30,8 @@ ORIG = (54.7388, 55.9721)
 DEST = (54.7500, 55.9800)
 
 
-def _booking(session: Session, passenger_id: int, driver_id: int) -> int:
+def _booking(session: Session, passenger_id: int, driver_id: int,
+             status: BookingStatus = BookingStatus.confirmed) -> int:
     ride = Ride(driver_id=driver_id, from_city="Сибай", to_city="Уфа",
                 depart_at=utcnow() + timedelta(hours=2), seats_total=3, seats_left=2,
                 price=500, status=RideStatus.active)
@@ -38,7 +39,7 @@ def _booking(session: Session, passenger_id: int, driver_id: int) -> int:
     session.commit()
     session.refresh(ride)
     b = Booking(ride_id=ride.id, passenger_id=passenger_id, seats=1, price=500,
-                status=BookingStatus.confirmed, boarding_code="123456")
+                status=status, boarding_code="123456")
     session.add(b)
     session.commit()
     session.refresh(b)
@@ -137,13 +138,14 @@ def test_обычному_человеку_потолок_не_мешает(clie
 
 
 def test_статусы_поездки_не_ругаются_а_просто_молчат(client, user_factory, monkeypatch):
-    """Потолок исчерпан, человек едет. «Сел в машину» не должно падать красной ошибкой
+    """Потолок исчерпан, человек едет. «Доехал» не должно падать красной ошибкой
     посреди дороги — сообщение просто не уходит, а поездка живёт дальше."""
     sent = _catch_sms(monkeypatch)
     pax = user_factory("SmsStatusPax", role=UserRole.passenger)
     drv = user_factory("SmsStatusDrv", role=UserRole.driver)
     with Session(engine) as s:
-        bid = _booking(s, pax["id"], drv["id"])
+        # «Доехал» — только «в пути» (приёмка PR174): человек уже едет.
+        bid = _booking(s, pax["id"], drv["id"], status=BookingStatus.onboard)
 
     c = client.post("/trusted-contacts", headers=pax["auth"],
                     json={"name": "мама", "phone": "+79994440001"})
@@ -154,9 +156,9 @@ def test_статусы_поездки_не_ругаются_а_просто_м�
         _share_to_new_number(client, pax["auth"], bid, 2000 + i)
     before = len(sent)
 
-    st = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "sat"})
+    st = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "arrived"})
     assert st.status_code == 200
-    assert st.json()[0]["last_status"] == "sat"   # поездка живёт, ответ целый
+    assert st.json()[0]["last_status"] == "arrived"   # поездка живёт, ответ целый
     assert len(sent) == before                    # но SMS сверх потолка не ушла
 
 

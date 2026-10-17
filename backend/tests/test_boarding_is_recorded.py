@@ -1,4 +1,4 @@
-"""«Я сел» — это посадка, а не только сообщение маме.
+"""Посадка — это запись в брони, а не только сообщение маме.
 
 Найдено сквозной проверкой волны 1 (13.10.2026, `tests/journeys/`). Пассажир нажимал «Я сел»,
 сервер передавал это только близким, с которыми поделились поездкой. Если близких в списке не
@@ -7,8 +7,9 @@
 * переоткрытое приложение снова звало «Я сел» (Android и PWA ждут от сервера `onboard`);
 * у мамы по ссылке до конца поездки висело «Машина едет к точке посадки».
 
-Статус `onboard` у брони существовал, его знали все клиенты, ссылка близкого, чат и живая
-позиция — но ни одна ручка попутки его не ставила.
+С 17.10.2026 посадку отмечает ВОДИТЕЛЬ («Сел», решение Александра): пассажирский «Я сел»
+можно было нажать из дома, чтобы уйти от «Не пришёл». Правила записи посадки те же — теперь
+их держит отметка водителя. Подробно про отметку и её отмену — `test_driver_marks_boarding.py`.
 """
 from datetime import timedelta
 
@@ -37,63 +38,62 @@ def _status(client, who, bid):
     return client.get(f"/bookings/{bid}/role", headers=who["auth"]).json()["status"]
 
 
-def test_sat_without_trusted_contacts_puts_booking_onboard(client, user_factory):
+def _board(client, drv, bid):
+    return client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": "boarded"})
+
+
+def test_driver_mark_without_trusted_contacts_puts_booking_onboard(client, user_factory):
     """Главный случай: близких нет — посадка всё равно записана, и её видят обе стороны."""
     drv, pax, _ride, bid = _trip(client, user_factory)
-    r = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "sat"})
-    assert r.status_code == 200 and r.json() == []
+    r = _board(client, drv, bid)
+    assert r.status_code == 200 and r.json()["status"] == "onboard", r.text
     assert _status(client, pax, bid) == "onboard"
     assert _status(client, drv, bid) == "onboard"
     details = client.get(f"/bookings/{bid}/details", headers=pax["auth"]).json()
     assert details["status"] == "onboard" and details["contact_unlocked"] is True
 
 
-def test_arrived_also_means_onboard(client, user_factory):
-    """«Доехал» без отдельного «Я сел» — человек тем более был в машине."""
+def test_arrived_from_the_passenger_no_longer_means_onboard(client, user_factory):
+    """«Доехал» пассажира бронь не двигает: иначе это была бы та же посадка другой дверью
+    (старый клиент из очереди без сети шлёт «sat», получает 409, а следом «arrived»).
+    С приёмки PR174 «Доехал» до отметки водителя — 409: близким не уходит «доехал до места»."""
     _drv, pax, _ride, bid = _trip(client, user_factory)
-    assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"],
-                       json={"status": "arrived"}).status_code == 200
-    assert _status(client, pax, bid) == "onboard"
+    r = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "arrived"})
+    assert r.status_code == 409 and r.json()["detail"]["ba"].strip(), r.text
+    assert _status(client, pax, bid) == "confirmed"
 
 
-def test_sat_does_not_skip_driver_confirmation(client, user_factory):
-    """Посадку до подтверждения водителем не изобретаем: pending остаётся pending."""
-    _drv, pax, _ride, bid = _trip(client, user_factory, confirm=False)
-    assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"],
-                       json={"status": "sat"}).status_code == 200
+def test_boarding_does_not_skip_driver_confirmation(client, user_factory):
+    """Посадку до подтверждения брони не изобретаем: pending остаётся pending."""
+    drv, pax, _ride, bid = _trip(client, user_factory, confirm=False)
+    assert _board(client, drv, bid).status_code == 409
     assert _status(client, pax, bid) == "pending"
 
 
-def test_sat_days_before_departure_is_not_boarding(client, user_factory):
-    """Кнопку «Я сел» видно сразу после подтверждения. Нажатие за два дня — не посадка:
-    иначе пауза водителя (она не трогает «человек в машине») оставила бы пассажира «в пути»
-    на отменённом рейсе. Близким сообщение уходит, как и раньше."""
+def test_boarding_days_before_departure_is_refused(client, user_factory):
+    """Отметка за два дня — не посадка: пауза водителя (она не трогает «человек в машине»)
+    оставила бы пассажира «в пути» на отменённом рейсе. Окно то же, что было у «Я сел»."""
     drv, pax, _ride, bid = _trip(client, user_factory, depart_in=timedelta(days=2))
-    contact = client.post("/trusted-contacts", headers=pax["auth"], json={"name": "Мама", "phone": ""})
-    assert contact.status_code == 200, contact.text
-    share = client.post(f"/bookings/{bid}/share", headers=pax["auth"], json={"contact_id": contact.json()["id"]})
-    assert share.status_code == 200, share.text
-    r = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "sat"})
-    assert r.status_code == 200 and [s["last_status"] for s in r.json()] == ["sat"]
+    r = _board(client, drv, bid)
+    assert r.status_code == 409, r.text
+    assert "30 минут" in r.json()["detail"]["ru"] and r.json()["detail"]["ba"].strip()
     assert _status(client, pax, bid) == "confirmed"
     assert _status(client, drv, bid) == "confirmed"
     # Отменить бронь пассажир по-прежнему может (в Android кнопка есть только у confirmed).
     assert client.post(f"/bookings/{bid}/cancel", headers=pax["auth"], json={}).json()["status"] == "cancelled"
 
 
-def test_sat_never_reopens_a_finished_or_cancelled_booking(client, user_factory):
-    """Запоздавшее «Я сел» (очередь без сети) не возвращает «в пути» завершённую/отменённую бронь."""
+def test_boarding_never_reopens_a_finished_or_cancelled_booking(client, user_factory):
+    """Запоздавшая отметка (очередь без сети) не возвращает «в пути» завершённую/отменённую бронь."""
     drv, pax, _ride, bid = _trip(client, user_factory)
     assert client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"],
                        json={"status": "done"}).status_code == 200
-    assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"],
-                       json={"status": "sat"}).status_code == 200
+    assert _board(client, drv, bid).status_code == 409
     assert _status(client, pax, bid) == "done"
 
-    _drv2, pax2, _ride2, bid2 = _trip(client, user_factory)
+    drv2, pax2, _ride2, bid2 = _trip(client, user_factory)
     assert client.post(f"/bookings/{bid2}/cancel", headers=pax2["auth"], json={}).status_code == 200
-    assert client.post(f"/bookings/{bid2}/trip-status", headers=pax2["auth"],
-                       json={"status": "sat"}).status_code == 200
+    assert _board(client, drv2, bid2).status_code == 409
     assert _status(client, pax2, bid2) == "cancelled"
 
 

@@ -49,8 +49,8 @@ def test_share_link_shows_only_allowed_and_closes_when_trip_ends(api, kit):
     for secret in ("Хасанова", passenger.phone, driver.phone, "+79991112233", "Автовокзал"):
         assert secret not in raw, f"по ссылке близкого утекло: {secret}"
 
-    # 3. Дочь села — у мамы «В пути».
-    assert kit.trip_status(passenger, bid, "sat").status_code == 200
+    # 3. Дочь села, водитель отметил «Сел» — у мамы «В пути».
+    assert kit.driver_status(driver, bid, "boarded").status_code == 200
     state = api.get(f"/t/{t_mom}/state.json").json()
     assert state["status"] == "onboard", state
     assert state["phase_text"]["ru"] == "В пути"

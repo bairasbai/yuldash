@@ -6,30 +6,40 @@ package com.yuldash.app
 /**
  * Следующий РЕАЛЬНЫЙ серверный переход для одной закреплённой CTA варианта B.
  *
+ * Посадку отмечает ВОДИТЕЛЬ (решение Александра 17.10.2026): «Я выехал» → «Подъезжаю» →
+ * «Пассажир сел» (`boarded`) → «Завершить». У пассажира до посадки своей кнопки нет — `wait`
+ * («Водитель отметит посадку»): пассажирский «Я сел» можно было нажать из дома, чтобы водитель
+ * уже не отметил «Не пришёл». После отметки водителя у пассажира «Доехал» → «Завершить».
+ *
  * [passengerStatus] — что пассажир нажал в ЭТОМ запуске (живёт в памяти экрана), [bookingStatus] —
- * статус брони с сервера. Посадку решает сервер: «Я сел» переводит бронь в onboard. Локальная
- * отметка теряется при перезапуске приложения — раньше заголовок по серверу уже говорил
- * «Поездка идёт», а кнопка снова звала «Я сел» (проверка волны 1, 14.10.2026).
+ * статус брони с сервера. Посадку решает сервер: «в пути» (`onboard`) приходит опросом. Водитель
+ * отменил свою отметку — бронь снова `confirmed`, и пассажир снова ждёт, что бы он ни нажимал.
  */
 internal fun activeTripNextStatus(role: String, driverPhase: String, passengerStatus: String?, bookingStatus: String): String =
     if (role == "driver") {
-        when (driverPhase) {
-            "departed" -> "arriving"
-            "arriving", "done" -> "done"
+        when {
+            bookingStatus == "onboard" || driverPhase == "done" -> "done"
+            driverPhase == "departed" -> "arriving"
+            driverPhase == "arriving" -> "boarded"
             else -> "departed"
         }
     } else {
-        val step = passengerStatus ?: when (bookingStatus) {
-            "onboard" -> "sat"
-            "done" -> "done"
-            else -> null
-        }
-        when (step) {
-            "sat" -> "arrived"
-            "arrived", "done" -> "done"
-            else -> "sat"
+        when {
+            bookingStatus == "done" || passengerStatus == "done" -> "done"
+            bookingStatus != "onboard" -> "wait"
+            passengerStatus == "arrived" -> "done"
+            else -> "arrived"
         }
     }
+
+/**
+ * Вторая кнопка водителя «Завершить поездку» — пока главная зовёт не «Завершить»: после «Выехал»
+ * (главная — «Подъезжаю») и после «Подъезжаю» (главная — «Пассажир сел»). Водитель, который не
+ * отметил посадку, всё равно закрывает поездку сам (решение 17.10.2026) — иначе с экрана поездки
+ * её было не закрыть. До «Выехал» кнопки нет: поездка ещё не началась.
+ */
+internal fun activeTripShowsDriverFinish(role: String, driverPhase: String, nextStatus: String): Boolean =
+    role == "driver" && (driverPhase == "departed" || driverPhase == "arriving") && nextStatus != "done"
 
 /**
  * Показывать ли «Отменить поездку» на экране активной попутки: только пассажиру и только по

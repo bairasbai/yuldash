@@ -24,7 +24,11 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** PATH-03: actual driver CTA, authoritative HTTP phases, completion and retry. */
+/**
+ * PATH-03: actual driver CTA, authoritative HTTP phases, completion and retry.
+ * Since 17.10.2026 the driver marks boarding: «Я выехал» → «Подъезжаю» → «Пассажир сел» → «Завершить»;
+ * a driver who never marked boarding still finishes with «Завершить поездку» next to «Пассажир сел».
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -53,7 +57,12 @@ class RideshareDriverExecutionJourneyTest {
                     posted += status
                     if (status == rejectedStatus) return MockResponse().setResponseCode(refusal)
                         .setBody("""{"detail":{"ru":"Переход отклонён","ba":"Күсеү кире ҡағылды"}}""")
-                    if (status == "done") bookingStatus = "done" else phase = status
+                    // As the server: «boarded» moves the booking, not the driver's phase.
+                    when (status) {
+                        "done" -> bookingStatus = "done"
+                        "boarded" -> bookingStatus = "onboard"
+                        else -> phase = status
+                    }
                     return MockResponse().setBody("{}")
                 }
                 val body = when (request.path) {
@@ -104,8 +113,8 @@ class RideshareDriverExecutionJourneyTest {
         }
         compose.waitForIdle()
     }
-    private fun openFinishConfirmation() {
-        compose.onNodeWithText("Завершить").performClick()
+    private fun openFinishConfirmation(label: String = "Завершить") {
+        compose.onNodeWithText(label).performClick()
         compose.onNodeWithText("Завершить поездку?").assertIsDisplayed()
     }
 
@@ -115,17 +124,20 @@ class RideshareDriverExecutionJourneyTest {
         waitFor("Подъезжаю")
         assertEquals(listOf("departed"), posted.toList())
         compose.onNodeWithText("Подъезжаю").performClick()
+        waitFor("Пассажир сел")
+        assertEquals(listOf("departed", "arriving"), posted.toList())
+        compose.onNodeWithText("Пассажир сел").performClick()
         waitFor("Завершить")
         openFinishConfirmation()
-        assertEquals(listOf("departed", "arriving"), posted.toList())
+        assertEquals(listOf("departed", "arriving", "boarded"), posted.toList())
         compose.onNodeWithText("Не завершать").performClick()
         assertNotNull(TripPassStore.load(context, 42))
-        assertEquals(2, posted.size)
+        assertEquals(3, posted.size)
         openFinishConfirmation()
         compose.onNodeWithText("Да, завершить").performClick()
         waitFor("Поездка завершена")
         compose.waitUntil(10000) { TripPassStore.load(context, 42) == null }
-        assertEquals(listOf("departed", "arriving", "done"), posted.toList())
+        assertEquals(listOf("departed", "arriving", "boarded", "done"), posted.toList())
     }
 
     @Test fun rejectedArrivalKeepsItsPreviousPhaseAndRetriesTheSameTransition() {
@@ -139,26 +151,28 @@ class RideshareDriverExecutionJourneyTest {
         assertEquals(0, Outbox.count(context, 42))
         rejectedStatus = ""
         compose.onNodeWithText("Подъезжаю").performClick()
-        waitFor("Завершить")
+        waitFor("Пассажир сел")
         assertEquals(listOf("arriving", "arriving"), posted.toList())
         assertEquals("arriving", phase)
     }
 
+    /** Boarding never marked: the driver still closes the trip himself, next to «Пассажир сел». */
     @Test fun refusedCompletionKeepsThePassportAndRetriesOnlyAfterConfirmation() {
         phase = "arriving"
         rejectedStatus = "done"
         refusal = 503
-        mount("Завершить")
-        openFinishConfirmation()
+        mount("Завершить поездку")
+        compose.onNodeWithText("Пассажир сел").assertIsDisplayed()
+        openFinishConfirmation("Завершить поездку")
         assertEquals(0, posted.size)
         compose.onNodeWithText("Да, завершить").performClick()
         pump()
-        compose.onNodeWithText("Завершить").assertIsDisplayed()
+        compose.onNodeWithText("Завершить поездку").assertIsDisplayed()
         compose.onAllNodesWithText("Поездка завершена").assertCountEquals(0)
         assertNotNull(TripPassStore.load(context, 42))
         assertEquals(0, Outbox.count(context, 42))
         rejectedStatus = ""
-        openFinishConfirmation()
+        openFinishConfirmation("Завершить поездку")
         assertEquals(listOf("done"), posted.toList())
         compose.onNodeWithText("Да, завершить").performClick()
         waitFor("Поездка завершена")

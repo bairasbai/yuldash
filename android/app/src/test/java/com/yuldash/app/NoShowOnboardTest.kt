@@ -15,9 +15,11 @@ import org.robolectric.annotation.GraphicsMode
 /**
  * «Не пришёл» нельзя отметить пассажиру «в пути» (решение 14.10.2026, docs/decisions.md).
  *
- * Пассажир сам нажал «Я сел» — бронь onboard. Раньше у водителя в «Едут с тобой» висела та же
- * красная «Пассажир не явился»: тап отменял бронь человека, который уже в машине. Теперь
- * сервер отвечает 409, а экран вместо кнопки объясняет и ведёт в разбор («Сообщить о проблеме»).
+ * Раньше «в пути» ставил пассажир своим «Я сел», а у водителя в «Едут с тобой» висела та же
+ * красная «Пассажир не явился»: тап отменял бронь человека, который уже в машине. С 17.10.2026
+ * посадку отмечает сам водитель («Сел» рядом с «Не пришёл»), но правило то же: «в пути» неявкой
+ * не снять. Пока можно — «Отменить» свою отметку; окно вышло — разбор («Сообщить о проблеме»).
+ * Сетевые сценарии «Сел» / «Отменить» — DriverBoardingControlsTest.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -36,30 +38,34 @@ class NoShowOnboardTest {
     }
 
     @Test
-    fun `onboard booking offers a dispute instead of no-show`() {
+    fun `onboard booking after the undo window offers a dispute instead of no-show`() {
         composeRule.setContent {
-            NoShowButton(bookingId = 41, bookingStatus = "onboard", passengerId = 7, passengerName = "Айгуль")
+            DriverBoardingControls(bookingId = 41, bookingStatus = "onboard", boardingUndoSec = 0, passengerId = 7, passengerName = "Айгуль")
         }
-        composeRule.onNodeWithText("Пассажир не явился").assertDoesNotExist()
+        composeRule.onNodeWithText("Не пришёл").assertDoesNotExist()
+        composeRule.onNodeWithText("Сел").assertDoesNotExist()
+        composeRule.onNodeWithText("Пассажир в машине").assertIsDisplayed()
         composeRule.onNodeWithText("Сообщить о проблеме").assertIsDisplayed()
-        composeRule.onNodeWithText("Пассажир отметил «Я сел»", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Если пассажир на самом деле не садился", substring = true).assertIsDisplayed()
     }
 
     @Test
-    fun `confirmed booking keeps the no-show button`() {
+    fun `confirmed booking keeps no-show next to the boarding mark`() {
         composeRule.setContent {
-            NoShowButton(bookingId = 42, bookingStatus = "confirmed", passengerId = 7, passengerName = "Айгуль")
+            DriverBoardingControls(bookingId = 42, bookingStatus = "confirmed", boardingUndoSec = 0, passengerId = 7, passengerName = "Айгуль")
         }
-        composeRule.onNodeWithText("Пассажир не явился").assertIsDisplayed()
+        composeRule.onNodeWithText("Не пришёл").assertIsDisplayed()
+        composeRule.onNodeWithText("Сел").assertIsDisplayed()
         composeRule.onNodeWithText("Сообщить о проблеме").assertDoesNotExist()
     }
 
     @Test
     fun `old server without passenger id still explains and never shows no-show`() {
         composeRule.setContent {
-            NoShowButton(bookingId = 43, bookingStatus = "onboard", passengerId = 0, passengerName = "")
+            DriverBoardingControls(bookingId = 43, bookingStatus = "onboard", boardingUndoSec = 0, passengerId = 0, passengerName = "")
         }
-        composeRule.onNodeWithText("Пассажир не явился").assertDoesNotExist()
-        composeRule.onNodeWithText("Пассажир отметил «Я сел»", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Не пришёл").assertDoesNotExist()
+        composeRule.onNodeWithText("Сообщить о проблеме").assertDoesNotExist()
+        composeRule.onNodeWithText("Если пассажир на самом деле не садился", substring = true).assertIsDisplayed()
     }
 }

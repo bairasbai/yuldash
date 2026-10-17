@@ -942,6 +942,7 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
             dropped.append(b)
         else:
             b.status = BookingStatus.done
+            b.done_at = now   # от неё — окно «Сообщить о проблеме» пассажира (bookings.problem_report_left)
             completed.append(b)
         session.add(b)
     session.commit()

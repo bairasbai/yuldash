@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Icon
@@ -29,102 +28,105 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import kotlinx.coroutines.launch
 
 // Неявка пассажира попутки в кабинете водителя («Едут с тобой»). Вынесено из InstantOrderScreen.kt
 // (храповик размера файлов, 14.10.2026): это домен брони попутки, а не такси-заказа.
+// С 17.10.2026 посадку отмечает водитель: «Сел» рядом с «Не пришёл» и отмена отметки —
+// в RideshareBoarding.kt (DriverBoardingControls), здесь — неявка и разбор.
 
 /**
  * Можно ли водителю отметить неявку. Только по подтверждённой брони: «в пути» (onboard) значит,
- * что пассажир сам нажал «Я сел», и одним тапом это не перечеркнуть — сервер ответит 409
- * (решение 14.10.2026, docs/decisions.md). Спорную посадку разбирает админ.
+ * что посадка уже отмечена, и одним тапом это не перечеркнуть — сервер ответит 409
+ * (решение 14.10.2026, docs/decisions.md). Промахнулся — «Отменить» в первые минуты, позже разбор.
  */
 internal fun noShowAllowed(bookingStatus: String): Boolean = bookingStatus == "confirmed"
 
-// Водитель отмечает неявку пассажира (no-show). Само-содержащая кнопка (как UnpaidReportButton):
-// дёргает /bookings/{id}/no-show, при успехе показывает подтверждение на месте. Места возвращаются на сервере.
-// Бронь «в пути» — вместо красной кнопки спокойное объяснение и «Сообщить о проблеме» (разбор).
+/**
+ * «Не пришёл» — водитель отмечает неявку пассажира (no-show): /bookings/{id}/no-show, места
+ * возвращаются на сервере. Что показать после ответа, решает карточка ([DriverBoardingControls]):
+ * [onSent] — неявка отмечена, [onBoarded] — сервер ответил, что посадка уже отмечена (второй
+ * телефон водителя, очередь без сети): аргумент — сколько секунд ещё можно отменить отметку
+ * (`boarding_undo_sec` из отказа), чтобы карточка показала «Отменить» с верным отсчётом, а не
+ * сразу разбор (приёмка PR174).
+ */
 @Composable
 internal fun NoShowButton(
     bookingId: Int,
-    // Без значения по умолчанию: новое место вызова обязано передать статус брони с сервера,
-    // иначе «Пассажир не явился» снова появится у брони «в пути» (ревью Opus волны 1).
-    bookingStatus: String,
+    onSent: () -> Unit,
+    onBoarded: (undoSec: Int) -> Unit,
     modifier: Modifier = Modifier,
-    passengerId: Int = 0,
-    passengerName: String = "",
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    var sent by remember(bookingId) { mutableStateOf(false) }
     var sending by remember(bookingId) { mutableStateOf(false) }
-    // Пассажир нажал «Я сел» уже после загрузки списка: сервер отказал с причиной — сразу
-    // показываем путь разбора, а не ту же кнопку, которая снова получит отказ.
-    var boardedByServer by remember(bookingId) { mutableStateOf(false) }
     val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
-    if (!sent && (bookingStatus == "onboard" || boardedByServer)) {
-        BoardedDisputeBlock(bookingId, passengerId, passengerName, modifier)
-        return
-    }
-    if (!sent && !noShowAllowed(bookingStatus)) return   // ждёт ответа / закрыта — неявке не место
-    if (sent) {
-        Row(
-            modifier = modifier.fillMaxWidth().background(CanonMint, RoundedCornerShape(14.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                appText("Отмечена неявка. Место вернулось в поездку.",
-                        "Килмәгәнлек билдәләнде. Урын сәфәргә ҡайтты."),
-                color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
-            )
-        }
-    } else {
-        OutlinedButton(
-            onClick = {
-                if (sending) return@OutlinedButton
-                sending = true
-                scope.launch {
-                    ApiClient.markNoShow(bookingId)
-                        .onSuccess { sent = true }
-                        .onFailure { e ->
-                            if (e is ApiException && e.detailCode == "passenger_onboard") boardedByServer = true
-                            Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+    OutlinedButton(
+        onClick = {
+            if (sending) return@OutlinedButton
+            sending = true
+            scope.launch {
+                ApiClient.markNoShow(bookingId)
+                    .onSuccess { onSent() }
+                    .onFailure { e ->
+                        if (e is ApiException && e.detailCode == "passenger_onboard") {
+                            onBoarded(e.detail?.optInt("boarding_undo_sec")?.coerceAtLeast(0) ?: 0)
                         }
-                    sending = false
-                }
-            },
-            shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, CanonRed),
-            modifier = modifier.fillMaxWidth().heightIn(min = 48.dp),
-        ) {
-            Text(appText("Пассажир не явился", "Пассажир килмәне"), color = CanonRed, fontWeight = FontWeight.Bold)
-        }
+                        Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+                    }
+                sending = false
+            }
+        },
+        enabled = !sending,
+        shape = CanonFieldShape,
+        border = BorderStroke(1.dp, CanonRed),
+        modifier = modifier.heightIn(min = 48.dp),
+    ) {
+        Text(
+            appText("Не пришёл", "Килмәне"),
+            color = CanonRed, style = CanonButton, textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** Неявка отмечена: спокойное подтверждение на месте кнопок. */
+@Composable
+internal fun NoShowSentNote(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.fillMaxWidth().background(CanonMint, CanonItemShape)
+            .padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(CanonSpace.sm))
+        Text(
+            appText("Отмечена неявка. Место вернулось в поездку.",
+                    "Килмәгәнлек билдәләнде. Урын сәфәргә ҡайтты."),
+            color = CanonGreen2, style = CanonCaption,
+        )
     }
 }
 
 /**
- * Бронь «в пути»: пассажир сам отметил «Я сел». Неявку не ставим — слово против слова решает
- * двусторонний разбор: пассажира зовут объясниться, решение объясняют обоим. Тип спора уже
- * выбран («Пассажир не вышел»), водителю остаётся рассказать, как было.
+ * Бронь «в пути», а отменить отметку уже нельзя. Неявку не ставим — спор решает двусторонний
+ * разбор: пассажира зовут объясниться, решение объясняют обоим. Тип спора уже выбран
+ * («Пассажир не вышел»), водителю остаётся рассказать, как было.
  */
 @Composable
-private fun BoardedDisputeBlock(bookingId: Int, passengerId: Int, passengerName: String, modifier: Modifier) {
+internal fun BoardedDisputeBlock(bookingId: Int, passengerId: Int, passengerName: String, modifier: Modifier = Modifier) {
     var open by remember(bookingId) { mutableStateOf(false) }
     var filed by remember(bookingId) { mutableStateOf(false) }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
         Text(
             appText(
-                "Пассажир отметил «Я сел». Если он не садился — сообщи о проблеме, разберёмся.",
-                "Юлсы «Ултырҙым» тип билдәләне. Ултырмаһа — проблема тураһында хәбәр ит, тикшерербеҙ.",
+                "Если пассажир на самом деле не садился — сообщи о проблеме, разберёмся.",
+                "Пассажир ысынлап ултырмаған булһа — проблема тураһында хәбәр ит, тикшерербеҙ.",
             ),
-            color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+            color = CanonMuted, style = CanonCaption,
         )
         AnimatedContent(targetState = filed, label = "boardedDispute") { done ->
             if (done) {
@@ -140,7 +142,7 @@ private fun BoardedDisputeBlock(bookingId: Int, passengerId: Int, passengerName:
                             "Разбор открыт. Позовём пассажира объясниться, а решение объясним обеим сторонам.",
                             "Ҡарау асылды. Юлсыны аңлатырға саҡырабыҙ, ә ҡарарҙы ике яҡҡа ла аңлатабыҙ.",
                         ),
-                        color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
+                        color = CanonGreen2, style = CanonCaption,
                     )
                 }
             } else if (passengerId > 0) {

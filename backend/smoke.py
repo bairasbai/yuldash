@@ -73,14 +73,28 @@ with TestClient(app) as c:
     print("messages:", len(msgs))
     assert len(msgs) >= 1
 
-    # семейный контроль: контакт пассажира -> шаринг поездки -> статус «сел»
+    # семейный контроль: контакт пассажира -> шаринг поездки -> статус «доехал»
+    # (посадку с 17.10.2026 отмечает водитель; пассажирский «sat» сервер отклоняет 409)
     contact = c.post("/trusted-contacts", headers=ph, json={
         "name": "Гульназ", "relation": "Сестра", "phone": "+79277778899",
     }).json()
     c.post(f"/bookings/{bk['id']}/share", headers=ph, json={"contact_id": contact["id"]})
-    shares = c.post(f"/bookings/{bk['id']}/trip-status", headers=ph, json={"status": "sat"}).json()
+    # «Доехал» — только «в пути» и после окна «Отменить» водителя (5 минут, приёмка PR174):
+    # водитель отмечает «Сел», а отметку двигаем в прошлое — ждать пять минут смоук не будет.
+    c.post(f"/bookings/{bk['id']}/driver-status", headers=h, json={"status": "boarded"})
+    from datetime import timedelta
+    from sqlmodel import Session
+    from app.db import engine
+    from app.models import Booking
+    from app.timeutil import utcnow
+    with Session(engine) as s:
+        b = s.get(Booking, bk["id"])
+        b.onboard_at = utcnow() - timedelta(minutes=6)
+        s.add(b)
+        s.commit()
+    shares = c.post(f"/bookings/{bk['id']}/trip-status", headers=ph, json={"status": "arrived"}).json()
     print("family share status:", shares[0]["last_status"])
-    assert shares[0]["last_status"] == "sat"
+    assert shares[0]["last_status"] == "arrived"
 
     # безопасность: SOS от пассажира
     sos = c.post("/sos", headers=ph, json={"category": "medical", "note": "нужна помощь"}).json()

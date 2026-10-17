@@ -57,6 +57,8 @@ class ActiveTripRealtimeSessionTest {
     @Volatile private var posted = 0
     @Volatile private var holdSecondPost = false
     @Volatile private var holdHistory = false
+    // Посадку отмечает водитель (17.10.2026): у пассажира до неё главной кнопки нет, после — «Доехал».
+    @Volatile private var bookingStatus = "confirmed"
     private val tokenA = "header.eyJzdWIiOiIxMSJ9.signature"
     private val tokenB = "header.eyJzdWIiOiIzMyJ9.signature"
     private val connectivity get() = context.getSystemService(ConnectivityManager::class.java)
@@ -89,7 +91,7 @@ class ActiveTripRealtimeSessionTest {
                         return MockResponse().setBody("{}")
                     }
                     val body = when (path) {
-                        "/bookings/42/role" -> """{"role":"passenger","status":"confirmed","driver_phase":"departed"}"""
+                        "/bookings/42/role" -> """{"role":"passenger","status":"$bookingStatus","driver_phase":"departed"}"""
                         "/bookings/42/messages" -> {
                             if (holdHistory) {
                                 historyHeld.countDown()
@@ -98,7 +100,7 @@ class ActiveTripRealtimeSessionTest {
                             } else """{"items":[]}"""
                         }
                         "/bookings/42/boarding-code" -> """{"code":"1234"}"""
-                        "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"confirmed"}"""
+                        "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"$bookingStatus"}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
                     return MockResponse().setBody(body).setHeader("Content-Type", "application/json")
@@ -124,7 +126,7 @@ class ActiveTripRealtimeSessionTest {
         server.shutdown()
     }
 
-    private fun mount(): List<ConnectivityManager.NetworkCallback> {
+    private fun mount(ready: String = "Водитель отметит посадку"): List<ConnectivityManager.NetworkCallback> {
         val before = Shadows.shadowOf(connectivity).networkCallbacks.toSet()
         mounted.value = true
         compose.setContent {
@@ -135,7 +137,7 @@ class ActiveTripRealtimeSessionTest {
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
         waitFor { authenticated.count == 0L && requests.any { it.first == "GET /bookings/42/details" } }
-        waitFor { compose.onAllNodesWithText("Я сел").fetchSemanticsNodes().isNotEmpty() }
+        waitFor { compose.onAllNodesWithText(ready).fetchSemanticsNodes().isNotEmpty() }
         pump(500)
         return Shadows.shadowOf(connectivity).networkCallbacks.filter { it !in before }
     }
@@ -225,14 +227,16 @@ class ActiveTripRealtimeSessionTest {
         assertNoOldBookingRequestAsB()
     }
 
-    @Test fun staleBoardingButtonDoesNotWriteAsNewAccount() {
-        mount()
-        val oldClick = compose.onNodeWithText("Я сел").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!
+    @Test fun staleStatusButtonDoesNotWriteAsNewAccount() {
+        // Пассажирская кнопка статуса есть только «в пути» (посадку отмечает водитель): «Доехал».
+        bookingStatus = "onboard"
+        mount(ready = "Доехал")
+        val oldClick = compose.onNodeWithText("Доехал").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!
         switchAccount()
         compose.runOnIdle { oldClick() }
         pump(1500)
         assertNoOldBookingRequestAsB()
-        compose.onAllNodesWithText("Я сел").assertCountEquals(0)
+        compose.onAllNodesWithText("Доехал").assertCountEquals(0)
     }
 
     @Test fun lateReconnectHistoryIsIgnoredAfterAccountSwitch() {

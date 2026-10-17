@@ -41,6 +41,8 @@ import java.util.concurrent.CopyOnWriteArrayList
  *  • пассажиру плашка тоже мерещилась, если открыть бронь из списка «Поездки», минуя экран брони
  *    (паспорт создаётся там) — класть код было некуда;
  *  • после «Я сел» карточка «Код посадки / Назови код водителю» оставалась над «В пути».
+ * С 17.10.2026 посадку отмечает водитель («Сел»): код уходит по его отметке (статус брони
+ * с сервера) и возвращается, если он отменил её, промахнувшись карточкой.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
@@ -64,10 +66,6 @@ class BoardingCodeVisibilityTest {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     requests.add("${request.method} ${request.path}")
-                    if (request.method == "POST" && request.path == "/bookings/42/trip-status") {
-                        bookingStatus = "onboard"   // сервер записал «Я сел»
-                        return json("""{"ok":true}""")
-                    }
                     if (request.method != "GET") return MockResponse().setResponseCode(405)
                     return when (request.path) {
                         "/bookings/42/role" -> json("""{"role":"$role","status":"$bookingStatus","driver_phase":""}""")
@@ -140,22 +138,33 @@ class BoardingCodeVisibilityTest {
         compose.onAllNodesWithText("Назови код водителю перед посадкой").assertCountEquals(0)
     }
 
-    @Test fun codeCardLeavesAfterISatIsTapped() {
+    @Test fun codeCardLeavesWhenTheDriverMarksBoardingAndReturnsAfterHisUndo() {
         openScreen()
         waitForCodeLoaded()
-        // «Я сел» появляется, когда известна роль, — её приносит отдельный опрос /role, а не цепочка
-        // «история → код → детали». Ответ опроса может прийти позже деталей: ждём саму кнопку.
+        // «Водитель отметит посадку» появляется, когда известна роль, — её приносит отдельный опрос
+        // /role, а не цепочка «история → код → детали». Ответ опроса может прийти позже деталей:
+        // ждём саму надпись (урок PR #163 про «Я сел»).
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
-            compose.onAllNodesWithText("Я сел").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onAllNodesWithText("Я сел")[0].performClick()
+        // Своего «Я сел» у пассажира нет: посадку отмечает водитель (решение 17.10.2026).
+        compose.onAllNodesWithText("Я сел").assertCountEquals(0)
+        bookingStatus = "onboard"   // водитель нажал «Сел» — пассажир узнаёт из опроса (~12 с)
+        advance(14_000)
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             compose.onAllNodesWithText("Назови код водителю перед посадкой").fetchSemanticsNodes().isEmpty()
         }
         compose.onAllNodesWithText("Код посадки").assertCountEquals(0)
-        assertTrue(requests.contains("POST /bookings/42/trip-status"))
+        compose.onAllNodesWithText("Водитель отметит посадку").assertCountEquals(0)
+        bookingStatus = "confirmed"   // промахнулся карточкой и нажал «Отменить» — код снова нужен
+        advance(14_000)
+        compose.waitUntil(15000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodesWithText("Назови код водителю перед посадкой").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertFalse("пассажир сам посадку не отмечает", requests.any { it.startsWith("POST /bookings/42/trip-status") })
     }
 
     private fun openScreen() {
@@ -184,6 +193,12 @@ class BoardingCodeVisibilityTest {
             compose.onAllNodesWithText("5678").fetchSemanticsNodes().isNotEmpty()
         }
         waitUntilRequested("GET /bookings/42/details")
+    }
+
+    /** Опрос состояния поездки ходит раз в ~12 с — прокручиваем время, а не ждём по-настоящему. */
+    private fun advance(millis: Long) = repeat((millis / 100).toInt()) {
+        compose.mainClock.advanceTimeBy(100)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100))
     }
 
     /** Даём побочным эффектам (запись копии кода на диск) отработать — плашка могла бы появиться только после них. */

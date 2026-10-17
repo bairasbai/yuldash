@@ -192,20 +192,24 @@ class BookingConfirmationJourneyTest {
         }
         waitForText("Открыть поездку")
         compose.onNodeWithText("Открыть поездку").performClick()
-        waitForText("Я сел")
+        // Посадку отмечает водитель (решение 17.10.2026): у пассажира «Водитель отметит посадку»,
+        // своего «Я сел» нет — его можно было нажать из дома, чтобы уйти от «Не пришёл».
+        waitForText("Водитель отметит посадку")
+        compose.onAllNodesWithText("Я сел").assertCountEquals(0)
         compose.waitUntil(15000) { requests.any { it.first == "GET /bookings/42/boarding-code" } }
         awaitInList("Код посадки")   // тот же шаблон: ждём сам блок, а не отправку запроса
         waitForText("5678")
         compose.onAllNodesWithText("5678").assertCountEquals(1)
-        compose.onNodeWithText("Я сел").performClick()
-        compose.waitUntil(15000) { tripStatuses.contains("sat") }
+        // Водитель отметил «Сел» — пассажир узнаёт это из очередного опроса состояния (раз в ~12 с).
+        status = "onboard"
+        advance(14_000)
         waitForText("Доехал")
         compose.onNodeWithText("Доехал").performClick()
         compose.waitUntil(15000) { tripStatuses.contains("arrived") }
         waitForText("Завершить")
         compose.onNodeWithText("Завершить").performClick()
         waitForText("Поездка завершена")
-        assertEquals(listOf("sat", "arrived", "done"), tripStatuses.toList())
+        assertEquals("пассажир сам посадку не отмечает", listOf("arrived", "done"), tripStatuses.toList())
         compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasTestTag("rideshareStar5"))
         compose.onNodeWithTag("rideshareStar5").performClick()
         compose.onNodeWithTag("rideshareRatingSubmit").performClick()
@@ -324,6 +328,12 @@ class BookingConfirmationJourneyTest {
     // (CI 2026-09-26: после оценки так и не появилось «Готово»). Встроенное ожидание Compose делает то же.
     private fun settle() {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
+        Snapshot.sendApplyNotifications()
+    }
+    /** Прокрутить время вперёд: опрос состояния поездки ходит раз в ~12 с. */
+    private fun advance(millis: Long) = repeat((millis / 100).toInt()) {
+        compose.mainClock.advanceTimeBy(100)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100))
         Snapshot.sendApplyNotifications()
     }
     private fun waitForText(text: String) {

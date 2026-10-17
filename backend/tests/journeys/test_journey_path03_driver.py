@@ -51,12 +51,12 @@ def test_driver_publishes_sees_booking_confirms_drives_and_completes(api, kit):
                         if n["title_ru"] == "Бронь подтверждена" and n.get("ref_id") == bid]
     assert len(confirmed_pushes) == 1
 
-    # 5. Поездка: «Я выехал» → «Подъезжаю» (пассажир видит фазу), пассажир сел.
+    # 5. Поездка: «Я выехал» → «Подъезжаю» (пассажир видит фазу) → «Сел» (посадку отмечает водитель).
     for phase in ("departed", "arriving"):
         r = kit.driver_status(driver, bid, phase)
         assert r.status_code == 200, r.text
         assert kit.role(passenger, bid)["driver_phase"] == phase
-    assert kit.trip_status(passenger, bid, "sat").status_code == 200
+    assert kit.driver_status(driver, bid, "boarded").status_code == 200
     # Водитель видит, что человек в машине: бронь «в пути», а не просто «подтверждена».
     assert kit.role(driver, bid)["status"] == "onboard"
     # Неявку по брони «в пути» не отметить (решение 14.10.2026): понятный отказ, а в списке

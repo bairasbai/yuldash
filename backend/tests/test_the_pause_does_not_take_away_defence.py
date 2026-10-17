@@ -28,6 +28,7 @@ from app.db import engine
 from app.models import (Booking, BookingStatus, Incident, Ride, RideStatus, SafetyProfile,
                         UserRole)
 from app.timeutil import utcnow
+from boarding_helpers import board
 
 
 def _suspend(user_id: int) -> None:
@@ -59,6 +60,11 @@ def _suspended_passenger_on_the_road(client, user_factory, tag):
         bid = _live_trip(s, pax["id"], drv["id"])
     _suspend(pax["id"])
     return pax, drv, bid
+
+
+def _driver_marks_boarding(client, drv, bid) -> None:
+    """Пассажир завершает поездку только после «Сел» водителя и окна его отмены (17.10.2026)."""
+    board(client, drv, bid)
 
 
 def test_на_паузе_можно_сообщить_об_опасном_водителе(client, user_factory):
@@ -95,10 +101,11 @@ def test_sos_на_паузе_работает(client, user_factory):
 
 def test_на_паузе_можно_написать_водителю_и_завершить_поездку(client, user_factory):
     """Пауза не должна бросать человека на полдороге."""
-    pax, _drv, bid = _suspended_passenger_on_the_road(client, user_factory, "DefenceTrip")
+    pax, drv, bid = _suspended_passenger_on_the_road(client, user_factory, "DefenceTrip")
 
     assert client.post(f"/bookings/{bid}/messages", headers=pax["auth"],
                        json={"text": "я у подъезда"}).status_code == 200
+    _driver_marks_boarding(client, drv, bid)
     assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"],
                        json={"status": "done"}).status_code == 200
 
@@ -129,7 +136,8 @@ def test_на_паузе_можно_написать_в_поддержку_и_у
 
 def test_на_паузе_можно_оценить_поездку(client, user_factory):
     """Оценка — это тоже голос: молчаливое «пять звёзд» за опасную поездку никому не нужно."""
-    pax, _drv, bid = _suspended_passenger_on_the_road(client, user_factory, "DefenceRate")
+    pax, drv, bid = _suspended_passenger_on_the_road(client, user_factory, "DefenceRate")
+    _driver_marks_boarding(client, drv, bid)
     assert client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"],
                        json={"status": "done"}).status_code == 200
 

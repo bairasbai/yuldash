@@ -28,6 +28,7 @@ from app.db import engine
 from app.models import Booking, BookingStatus, Ride, UserRole
 from app.routers import location
 from app.timeutil import utcnow
+from boarding_helpers import settle_boarding
 
 pytestmark = pytest.mark.timeout(30)
 
@@ -61,15 +62,17 @@ def _вход(человек: dict) -> str:
 def test_пассажир_в_пути_отменить_не_может_а_место_не_уходит_в_продажу(client, user_factory):
     водитель, ride = _поездка(client, user_factory, "сел")
     пассажир, bid = _бронь(client, user_factory, водитель, ride, "сел")
-    assert client.post(f"/bookings/{bid}/trip-status", headers=пассажир["auth"],
-                       json={"status": "sat"}).status_code == 200
+    # Посадку отмечает водитель («Сел», решение 17.10.2026).
+    assert client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"],
+                       json={"status": "boarded"}).status_code == 200
     with Session(engine) as s:
         мест_было = s.get(Ride, ride["id"]).seats_left
 
     r = client.post(f"/bookings/{bid}/cancel", headers=пассажир["auth"], json={"reason": "plans_changed"})
     assert r.status_code == 409, r.text
     detail = r.json()["detail"]
-    assert "уже в машине" in detail["ru"] and "SOS" in detail["ru"]
+    # Отказ видит прежде всего тот, кто НЕ садился, — текст ведёт к разбору (приёмка PR174).
+    assert "отметил посадку" in detail["ru"] and "сообщи о проблеме" in detail["ru"]
     assert detail["ba"].strip() and detail["ba"] != detail["ru"]
     assert detail["code"] == "onboard_no_cancel"
     with Session(engine) as s:
@@ -81,8 +84,9 @@ def test_водителю_в_пути_отмена_с_другой_причин�
     """Решение 14.10 запрещает водителю только «не пришёл» по «в пути»; остальное не трогаем."""
     водитель, ride = _поездка(client, user_factory, "водитель")
     пассажир, bid = _бронь(client, user_factory, водитель, ride, "водитель")
-    assert client.post(f"/bookings/{bid}/trip-status", headers=пассажир["auth"],
-                       json={"status": "sat"}).status_code == 200
+    # Посадку отмечает водитель («Сел», решение 17.10.2026).
+    assert client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"],
+                       json={"status": "boarded"}).status_code == 200
     r = client.post(f"/bookings/{bid}/cancel", headers=водитель["auth"], json={"reason": "other"})
     assert r.status_code == 200 and r.json()["status"] == "cancelled", r.text
 
@@ -192,6 +196,11 @@ def test_завершение_водителем_пассажиром_и_все�
                        json={"status": "done"}).status_code == 200
     assert р1.наступила() is False and р1.кончилась is True, "«Завершить» у водителя не погасил канал"
 
+    # Пассажир завершает только после «Сел» водителя (решения 17.10.2026).
+    assert client.post(f"/bookings/{b2}/driver-status", headers=водитель["auth"],
+                       json={"status": "boarded"}).status_code == 200
+    assert р2.наступила() is True, "отметка «Сел» не должна гасить канал — поездка идёт"
+    settle_boarding(b2)   # пассажир завершает после окна «Отменить» водителя (приёмка PR174)
     assert client.post(f"/bookings/{b2}/trip-status", headers=п2["auth"],
                        json={"status": "done"}).status_code == 200
     assert р2.наступила() is False and р2.кончилась is True, "«Завершил» у пассажира не погасил канал"

@@ -59,7 +59,10 @@ def test_admin_queue_decision_owner_result_complaint_dispute_and_journal(api, ki
     # 4. Поездка состоялась → жалоба и спор от пассажира.
     bid = kit.book(passenger, ride["id"])["id"]
     kit.confirm(driver, bid)
-    assert kit.trip_status(passenger, bid, "done").status_code == 200
+    # Посадку отмечает водитель; поездку закрывает его «Завершить» (пассажиру пришлось бы ждать
+    # окно «Отменить» — 5 минут, а журней идёт и на живом сервере).
+    assert kit.driver_status(driver, bid, "boarded").status_code == 200
+    assert kit.driver_status(driver, bid, "done").status_code == 200
     rep = api.post("/reports", headers=passenger.auth,
                    json={"booking_id": bid, "category": "rude", "reason": "Грубил всю дорогу"})
     assert rep.status_code == 200, rep.text

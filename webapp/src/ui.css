@@ -20713,3 +20713,12 @@ button.settings-row:active {
 .storage-unavailable .state { width: 100%; max-width: 640px; }
 .storage-unavailable .login-lang { position: static; }
 .storage-unavailable .login-lang__chip { min-height: var(--space-huge); min-width: var(--space-huge); }
+
+/* ---- Водитель, экран поездки: разбор «в пути» после окна «Отменить» — на всю ширину ряда
+   статусов, под чипами (DriverBoardedDispute.tsx, приёмка PR174). ---- */
+.driver-dispute {
+  flex-basis: 100%;
+  display: grid;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+}

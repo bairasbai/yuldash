@@ -234,6 +234,7 @@ private fun RideshareCompletedSession(
         ?: ride?.price?.takeIf { it > 0 }
     val payMethod = receipt?.payMethod?.takeIf(String::isNotBlank) ?: fallbackPayMethod
     val paid = receipt?.paid == true
+    val reportTo = afterTripReportTo(receipt, isDriver)   // «Сообщить о проблеме»: окно держит сервер (6 ч, PR174)
 
     RideshareCompletedContent(
         isDriver = isDriver,
@@ -356,6 +357,7 @@ private fun RideshareCompletedSession(
             }
         },
         onSupport = { if (isCurrent()) onSupport() },
+        problemReport = if (reportTo > 0) { { PassengerAfterTripReport(bookingId, reportTo, counterpartyName) } } else null,
         showOnlinePay = !isDriver && !paid,
         onlinePay = {
             PayOnlineCard(
@@ -412,6 +414,7 @@ internal fun RideshareCompletedContent(
     thanksError: String? = null,
     onRetryThanks: () -> Unit = {},
     onlinePay: @Composable () -> Unit = {},
+    problemReport: (@Composable () -> Unit)? = null,   // «Сообщить о проблеме» пассажиру (RideshareBoarding.kt)
 ) {
     Scaffold(
         containerColor = CanonBg,
@@ -440,14 +443,7 @@ internal fun RideshareCompletedContent(
                     )
                 }
             }
-            item {
-                RideshareCompletedHero(
-                    isDriver = isDriver,
-                    name = counterpartyName,
-                    from = from,
-                    to = to,
-                )
-            }
+            item { RideshareCompletedHero(isDriver = isDriver, name = counterpartyName, from = from, to = to) }
             item {
                 RideshareCompletedPerson(
                     isDriver = isDriver,
@@ -492,6 +488,7 @@ internal fun RideshareCompletedContent(
                     onClick = onLostItem,
                 )
             }
+            if (problemReport != null) item { problemReport() }
             item {
                 RideshareCompletedPayment(amount = amount, method = payMethod, paid = paid)
             }
