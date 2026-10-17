@@ -1,6 +1,7 @@
 """Поездки: публикация (вкл. регулярные серии), поиск, ценовой ориентир,
 ближайшие по маршруту+гео, карточка поездки."""
 import re
+from collections import Counter
 from datetime import date as date_type, datetime, timedelta
 from functools import lru_cache
 from typing import List, Optional
@@ -16,7 +17,7 @@ from ..db import get_session
 from ..errors import herr
 from ..features import guard_delivery_ride
 from ..flood import TOO_MANY_RIDES, guard_open_items
-from ..geo import name_variants
+from ..geo import bare_name, by_exact_names, name_variants, settlements_snapshot
 from ..logs import log
 from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
                       RideStatus, User, UserRole)
@@ -61,14 +62,14 @@ DEFAULT_FEED_LIMIT = FEED_MAX   # общий потолок витрин (вол
 
 
 
-def _city_match(column, session, city: str):
+def _city_match(column, session, city: str, snapshot: Optional[dict] = None):
     """Условие «этот город» с учётом ОБОИХ написаний — русского и башкирского.
 
     Приложение подставляет название на языке человека: башкироязычный водитель публикует
     «Баймаҡ», русскоязычная пассажирка ищет «Баймак». Сравнение строк как есть их не сводило,
     и половина жителей района не видела поездки другой половины (аудит 2026-08-08, волна 92).
     """
-    variants = name_variants(session, city)
+    variants = name_variants(session, city, snapshot)
     if not variants:
         return None
     conds = [column.contains(v) for v in variants]
@@ -629,6 +630,49 @@ def ride_tips(ride_id: int, user: User = Depends(current_user), session: Session
     }
 
 
+# Условия пассажира из ленты «Ближайшие» (ключи — как в приложении) → условие на поездку.
+# Незнакомый ключ пропускаем: новая версия приложения не должна ронять ленту старому серверу.
+_RIDE_CONDITIONS = {
+    "child": lambda: Ride.child_seat.is_(True),
+    "pets": lambda: Ride.pets_allowed.is_(True),
+    "baggage": lambda: Ride.baggage.is_(True),
+    "ac": lambda: Ride.air_conditioner.is_(True),
+    "nosmoke": lambda: Ride.smoking.is_(False),   # некурящий = поездки, где курить нельзя
+    "quiet": lambda: Ride.quiet.is_(True),
+}
+
+
+_MAX_FILTER_CITIES = 12   # сколько городов в списке шторки «Откуда/Куда» (`/rides/cities`)
+_MAX_QUERY_CITIES = 30    # сколько выбранных мест принимает фильтр: топ-12 + найденные поиском деревни
+
+
+def _with_any_city(q, column, session: Session, cities: Optional[str]):
+    """Поездка подходит, если город — ЛЮБОЙ из выбранных (с русским и башкирским написанием)."""
+    names = [c.strip() for c in (cities or "").split(",") if c.strip()][:_MAX_QUERY_CITIES]
+    if not names:
+        return q
+    snap = settlements_snapshot(session)   # один снимок на все места, а не сверка базы на каждое (приёмка PR148)
+    conds = [c for c in (_city_match(column, session, n, snap) for n in names) if c is not None]
+    return q.where(or_(*conds)) if conds else q
+
+
+def _with_passenger_conditions(q, session: Session, conditions: Optional[str], verified_only: bool):
+    """Сузить выборку ленты по условиям пассажира — теми же правилами, что бейджи на карточке."""
+    keys = {k.strip() for k in (conditions or "").split(",") if k.strip()}
+    for key in keys & _RIDE_CONDITIONS.keys():
+        q = q.where(_RIDE_CONDITIONS[key]())
+    if verified_only:
+        q = q.where(Ride.driver_id.in_(select(User.id).where(User.verified.is_(True))))
+    if "women" in keys:
+        # Как основная лента `/rides?women_only=1` (волны 168/219): только подтверждённая модератором
+        # женщина за рулём. Сырую отметку «только женщины» не берём: подтверждение могли снять, а
+        # отметка в базе осталась — карточка такую поездку уже не помечает (приёмка PR147).
+        q = q.where(Ride.driver_id.in_(
+            select(User.id).join(DriverProfile, DriverProfile.user_id == User.id)
+            .where(User.gender == "female", DriverProfile.gender_verified.is_(True))))
+    return q
+
+
 @router.get("/rides/near")
 def rides_near(
     from_city: Optional[str] = None,
@@ -639,6 +683,10 @@ def rides_near(
     date: Optional[date_type] = None,   # F4: «когда едем» — только поездки этого дня (YYYY-MM-DD)
     limit: Optional[int] = None,        # пагинация «показать ещё» (опц., None = все)
     offset: int = 0,
+    conditions: Optional[str] = None,   # условия пассажира через запятую: child,pets,baggage,ac,nosmoke,quiet,women
+    from_cities: Optional[str] = None,  # фильтр «Откуда»: несколько городов через запятую (любой из них)
+    to_cities: Optional[str] = None,    # фильтр «Куда»: так же
+    verified_only: bool = False,        # только проверенные водители
     user: Optional[User] = Depends(current_user_optional),   # есть токен → прячем заблокированных
     session: Session = Depends(get_session),
 ):
@@ -657,6 +705,13 @@ def rides_near(
     bounds = _date_bounds(date)
     if bounds:
         q = q.where(Ride.depart_at >= bounds[0], Ride.depart_at < bounds[1])
+    # Условия пассажира — ДО счёта `count` и разбивки на порции (DESIGN023, приёмка волны 1):
+    # раньше их применял телефон к уже полученной порции, и подходящая поездка двенадцатой
+    # в списке превращалась в «поездок нет», а «Показать ещё» при условии пряталась.
+    q = _with_passenger_conditions(q, session, conditions, verified_only)
+    # «Откуда»/«Куда» по нескольким городам: «из Баймака или Сибая в любую сторону».
+    q = _with_any_city(q, Ride.from_city, session, from_cities)
+    q = _with_any_city(q, Ride.to_city, session, to_cities)
     # PostGIS-префильтр по радиусу (только postgres + есть координаты): индекс GiST → быстро на больших
     # объёмах. Фолбэк (sqlite/без PostGIS/ошибка) — Python-haversine ниже даёт тот же результат.
     if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
@@ -896,6 +951,46 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
             ref_kind="booking_done", ref_id=b.id,
         )
     return public_ride_payload(ride_out(ride, session), full=True)  # свой рейс — свой текст
+
+
+@router.get("/rides/cities")
+def ride_cities(user: Optional[User] = Depends(current_user_optional),   # есть токен → прячем заблокированных
+                session: Session = Depends(get_session)):
+    """Города, откуда и куда сейчас есть поездки, — для шторок «Откуда» и «Куда» в ленте.
+
+    Каждый город — на двух языках («Баймак» / «Баймаҡ»): приложение подставляет имя на языке
+    человека, а ищет по любому написанию (`_city_match`). Чисел не отдаём — сколько у кого
+    поездок, витрине знать незачем; порядок — от самых частых. Объявлен ДО `/rides/{ride_id}`,
+    иначе «cities» читался бы как номер поездки.
+
+    Прячем то же, что лента `/rides/near`: заблокированных, водителей на паузе и «только для своих».
+    Иначе в шторке висел бы город, выбор которого даёт «поездок нет», а посторонний узнавал бы,
+    что оттуда кто-то едет «для своих». Считаем по ближайшим FEED_MAX×10 поездкам — один запрос
+    не тянет всю базу, а города дальних поездок всё равно уходят из топа.
+    """
+    rows = session.execute(
+        select(Ride.id, Ride.driver_id, Ride.only_trusted, Ride.from_city, Ride.to_city)
+        .where(Ride.status == RideStatus.active, Ride.seats_left > 0)
+        .order_by(Ride.depart_at).limit(FEED_MAX * 10)
+    ).all()
+    rows = hide_trusted_only(hide_suspended(hide_blocked(rows, user, session), user, session), user, session)
+
+    def _top(names) -> list[dict]:
+        # Сначала считаем имена, потом ищем их в справочнике ОДНИМ снимком (by_exact_names): поиск
+        # по одному имени сверяет снимок запросом в базу, и по разу на поездку или даже на разное
+        # имя это сотни запросов на каждое открытие карты (приёмка PR147, два прохода).
+        # Имя с запятой не берём: фильтр передаёт города через запятую и разрезал бы его на два.
+        имена = Counter(n for n in (bare_name((raw or "").strip()) for raw in names) if n and "," not in n)
+        найдено = by_exact_names(session, имена)
+        счёт: dict[tuple, int] = {}
+        for name, n in имена.items():
+            row = найдено[name]
+            key = ((row.name_ru or name), (row.name_ba or row.name_ru or name)) if row else (name, name)
+            счёт[key] = счёт.get(key, 0) + n
+        лучшие = sorted(счёт.items(), key=lambda kv: (-kv[1], kv[0][0]))[:_MAX_FILTER_CITIES]
+        return [{"ru": ru, "ba": ba} for (ru, ba), _ in лучшие]
+
+    return {"from": _top(r.from_city for r in rows), "to": _top(r.to_city for r in rows)}
 
 
 @router.get("/rides/{ride_id}", response_model=RideOut)

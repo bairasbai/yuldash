@@ -69,12 +69,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.filled.Pets
-import androidx.compose.material.icons.filled.ChildCare
-import androidx.compose.material.icons.filled.Woman
 import androidx.compose.material.icons.filled.SmokingRooms
-import androidx.compose.material.icons.filled.Luggage
-import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.Bolt
@@ -87,8 +82,6 @@ import androidx.compose.material.icons.filled.AddRoad
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
@@ -127,7 +120,6 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Route
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
@@ -137,7 +129,6 @@ import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolunteerActivism
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -306,6 +297,7 @@ internal fun MapScreen(
     val filterCtx = LocalContext.current
     var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
     val verifiedOnly = remember { AppPrefs.verifiedOnly(filterCtx) }  // «Только проверенные» из раздела Безопасность
+    val cityFilter = rememberNearbyCityFilter(nearbyReload)   // «Откуда»/«Куда» (NearbyCityFilter.kt); города — не чаще раза в 2 мин
     // F4: «когда едем» — null = все дни, иначе YYYY-MM-DD. Поездки в РБ планируют за 1-3 дня;
     // чипы Сегодня/Завтра режут ленту до нужного дня (фильтрует сервер по depart_at).
     var dateFilter by remember { mutableStateOf<String?>(null) }
@@ -322,12 +314,14 @@ internal fun MapScreen(
     val userLatKey = userLat?.let { kotlin.math.round(it * 100) }
     val userLngKey = userLng?.let { kotlin.math.round(it * 100) }
     // Сбрасываем страницу при смене маршрута/позиции/дня (новый контекст → снова с начала).
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter) { nearbyLimit = NEARBY_PAGE }
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter) {
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to) { nearbyLimit = NEARBY_PAGE }
+    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter, cityFilter.from, cityFilter.to) {
         if (nearby.isEmpty()) nearbyLoading = true   // спиннер только когда показывать нечего; авто-обновление с данными — молча, без мигания
-        // Радиус применяем только когда знаем позицию (иначе показываем все по маршруту/времени).
-        val radius = if (userLat != null && userLng != null) NEARBY_RADIUS_KM else null
-        ApiClient.getNearbyRidesPaged(focusFrom, focusTo, userLat, userLng, radius, nearbyLimit, date = dateFilter)
+        // Радиус — только когда знаем позицию. Выбран город «Откуда»/«Куда» — ни радиуса, ни маршрута с карусели:
+        // место задаёт сам человек, а «Куда · Сибай» из Уфы иначе дал бы ложное «поездок нет» (поездки — из Баймака).
+        val radius = if (userLat != null && userLng != null && !cityFilter.active) NEARBY_RADIUS_KM else null
+        ApiClient.getNearbyRidesPaged(focusFrom.takeUnless { cityFilter.active }, focusTo.takeUnless { cityFilter.active }, userLat, userLng, radius, nearbyLimit,
+            date = dateFilter, conditions = prefFilter, verifiedOnly = verifiedOnly, fromCities = cityFilter.from, toCities = cityFilter.to)
             .onSuccess { nearby = it.items; nearbyTotal = it.total; nearbyError = false }
             .onFailure { nearbyError = true }
         nearbyLoading = false
@@ -364,7 +358,7 @@ internal fun MapScreen(
         }).also { it.connect() }
         onDispose { sock.close() }
     }
-    // Клиентская фильтрация «Ближайших» по выбранным условиям (поля уже пришли в RideDto).
+    // Условия режет сервер (getNearbyRidesPaged); здесь — подстраховка на старый сервер, где их не знают.
     // remember: пересчитываем только при смене списка/фильтра, а не на каждой рекомпозиции экрана.
     val shownNearby = remember(nearby, prefFilter, verifiedOnly) {
         if (prefFilter.isEmpty() && !verifiedOnly) nearby else nearby.filter { d ->
@@ -459,7 +453,7 @@ internal fun MapScreen(
                                     color = CanonText, style = CanonHeading,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis
                                 )
-                                if (focusFrom != null && focusTo != null) {
+                                if (focusFrom != null && focusTo != null && !cityFilter.active) {
                                     Text("$focusFrom → $focusTo", color = CanonGreen2, style = CanonMicro, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 if (routeSearch.route != null) NearbyRouteReset(routeSearch::clear)
@@ -493,78 +487,20 @@ internal fun MapScreen(
                     // поездок нет → выдача пуста → строка фильтров исчезает ВМЕСТЕ с кнопкой «Все дни»,
                     // и снять фильтр нечем (в пустой заглушке только «Обновить», а он повторяет тот же
                     // запрос). То же с «Детским креслом» и любым другим условием.
-                    // Поэтому: фильтры видно, пока есть ЧТО фильтровать ИЛИ пока хоть один фильтр
-                    // включён. Второе слагаемое — и есть путь назад. Когда фильтров нет и поездок нет,
-                    // ряд прячем: пустой экран не должен начинаться с восьми неработающих кнопок.
-                    if (nearby.isNotEmpty() || dateFilter != null || prefFilter.isNotEmpty()) {
-                      // Тач-цель ≥48dp (§4.5) + зазор справа у каждого чипа. Зазор ИМЕННО у чипа, а не
-                      // spacedBy у Row: скрытый «Сбросить» тогда не оставляет пустой отступ слева.
+                    // Поэтому: фильтры видно, пока есть ЧТО фильтровать, хоть один фильтр включён (путь назад)
+                    // ИЛИ на сервере есть города с поездками — тогда «Откуда» ведёт к ним, даже если рядом пусто.
+                    // Нет ни поездок, ни фильтров, ни городов — ряд прячем: кнопкам нечего делать.
+                    if (nearby.isNotEmpty() || dateFilter != null || prefFilter.isNotEmpty() || cityFilter.offered) {
+                      // Тач-цель ≥48dp (§4.5) + зазор справа у каждого чипа.
                       val chipTouch = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
-                      Column {
-                        // ПОЯСНЕНИЕ к строке ниже (2026-08-03, «где ближайшая поездка?»): раньше
-                        // фильтры шли ДВУМЯ рядами — «когда едем» и «условия поездки». Вместе
-                        // ~110dp, и они выталкивали за нижний край сами карточки поездок: человек
-                        // видел заголовок «Ближайшие поездки», фильтры к ним — и ни одной поездки.
-                        // Ряды сведены в один: он и так прокручивается вбок, ничего не потерялось,
-                        // а экран стал ниже на целый ряд. Группы разделены тонкой чертой, чтобы
-                        // «Сегодня» и «Детское кресло» не читались как один список.
-                        Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                            // F4: «Когда едем» — видим ВСЕГДА (даже при пустой выдаче: выбрал
-                            // «Сегодня», пусто → должен смочь вернуться на «Все дни»).
-                            val today = java.time.LocalDate.now()
-                            NearbyFilterChip(Icons.Default.CalendarMonth, appText("Все дни", "Бөтә көндәр"), dateFilter == null, modifier = chipTouch) { dateFilter = null }
-                            NearbyFilterChip(Icons.Default.Schedule, appText("Сегодня", "Бөгөн"), dateFilter == today.toString(), modifier = chipTouch) {
-                                dateFilter = if (dateFilter == today.toString()) null else today.toString()
-                            }
-                            NearbyFilterChip(Icons.Default.Schedule, appText("Завтра", "Иртәгә"), dateFilter == today.plusDays(1).toString(), modifier = chipTouch) {
-                                dateFilter = if (dateFilter == today.plusDays(1).toString()) null else today.plusDays(1).toString()
-                            }
-                            // Черта между «когда» и «на чём»: две разные мысли в одном ряду.
-                            Box(
-                                Modifier.align(Alignment.CenterVertically)
-                                    .padding(end = 8.dp).width(1.dp).height(22.dp)
-                                    .background(CanonBorder)
-                            )
-                            // «Сбросить · N» — выезжает слева, как только включён хоть один фильтр,
-                            // и уезжает обратно, когда фильтров нет (не занимает место зря).
-                            AnimatedVisibility(
-                                visible = prefFilter.isNotEmpty(),
-                                enter = fadeIn(tween(CanonMotion.QUICK)) + slideInHorizontally(tween(CanonMotion.NORMAL)) { -it },
-                                exit = fadeOut(tween(CanonMotion.QUICK)) + slideOutHorizontally(tween(CanonMotion.QUICK)) { -it }
-                            ) {
-                                NearbyFilterChip(
-                                    Icons.Default.Close,
-                                    appText("Сбросить · ${prefFilter.size}", "Бушатырға · ${prefFilter.size}"),
-                                    false,
-                                    modifier = chipTouch
-                                ) { prefFilter = emptySet() }
-                            }
-                            NearbyFilterChip(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), "women" in prefFilter, modifier = chipTouch) { prefFilter = if ("women" in prefFilter) prefFilter - "women" else prefFilter + "women" }
-                            NearbyFilterChip(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), "child" in prefFilter, modifier = chipTouch) { prefFilter = if ("child" in prefFilter) prefFilter - "child" else prefFilter + "child" }
-                            NearbyFilterChip(Icons.Default.Pets, appText("С животным", "Хайуан менән"), "pets" in prefFilter, modifier = chipTouch) { prefFilter = if ("pets" in prefFilter) prefFilter - "pets" else prefFilter + "pets" }
-                            NearbyFilterChip(Icons.Default.Luggage, appText("Багаж", "Йөк"), "baggage" in prefFilter, modifier = chipTouch) { prefFilter = if ("baggage" in prefFilter) prefFilter - "baggage" else prefFilter + "baggage" }
-                            NearbyFilterChip(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), "ac" in prefFilter, modifier = chipTouch) { prefFilter = if ("ac" in prefFilter) prefFilter - "ac" else prefFilter + "ac" }
-                            NearbyFilterChip(Icons.Default.Block, appText("Некурящий", "Тартмаусы"), "nosmoke" in prefFilter, modifier = chipTouch) { prefFilter = if ("nosmoke" in prefFilter) prefFilter - "nosmoke" else prefFilter + "nosmoke" }
-                            NearbyFilterChip(Icons.Default.VolumeOff, appText("Тихая поездка", "Тыныс сәфәр"), "quiet" in prefFilter, modifier = chipTouch) { prefFilter = if ("quiet" in prefFilter) prefFilter - "quiet" else prefFilter + "quiet" }
-                        }
-                        // F9: поясняем, что фильтр «Только женщины» включает и женщин за рулём.
-                        AnimatedVisibility(
-                            visible = "women" in prefFilter,
-                            enter = fadeIn(tween(CanonMotion.QUICK)),
-                            exit = fadeOut(tween(CanonMotion.QUICK))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(top = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Woman, contentDescription = null, tint = CanonWoman, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    appText("Женщины за рулём и поездки «только для женщин».", "Рулдә ҡатын-ҡыҙҙар һәм «тик ҡатын-ҡыҙ өсөн» сәфәрҙәр."),
-                                    color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp
-                                )
-                            }
-                        }
+                      // ПОЯСНЕНИЕ (2026-08-03, «где ближайшая поездка?»): два ряда фильтров выталкивали
+                      // карточки поездок за нижний край — поэтому ряд ОДИН. С 16.10.2026 в нём четыре
+                      // вопроса вместо двенадцати чипов: где, куда, когда, какие условия
+                      // (NearbyFiltersPanel.kt). «Когда» видно ВСЕГДА — путь назад со «Сегодня» на «Все дни».
+                      Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                          NearbyCityChips(cityFilter, chipTouch)
+                          NearbyWhenChip(dateFilter, { dateFilter = it }, chipTouch)
+                          NearbyConditionsChip(prefFilter, { prefFilter = it }, verifiedOnly, nearbyTotal, chipTouch)
                       }
                     }
                 }
@@ -574,7 +510,8 @@ internal fun MapScreen(
                     // мягкий (скелетоны не «хлопают» в карточки, а растворяются друг в друга).
                     val nearbyState = when {
                         nearbyLoading && nearby.isEmpty() -> "loading"
-                        nearby.isEmpty() -> if (nearbyError) "error" else "empty"
+                        // Пусто при включённом фильтре — «filtered» со сбросом (приёмка PR147). «Только проверенные» — не в счёт: их не снять здесь, честнее «пусто» с «Обновить».
+                        nearby.isEmpty() -> if (nearbyError) "error" else if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) "filtered" else "empty"
                         shownNearby.isEmpty() -> "filtered"
                         else -> "list"
                     }
@@ -599,9 +536,9 @@ internal fun MapScreen(
                                     appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал."),
                                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
                                 )
-                                if (prefFilter.isNotEmpty()) {
+                                if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) {
                                     Surface(
-                                        onClick = { prefFilter = emptySet() },
+                                        onClick = { prefFilter = emptySet(); cityFilter.clear(); dateFilter = null },
                                         shape = RoundedCornerShape(14.dp),
                                         color = CanonSurface,
                                         border = BorderStroke(1.dp, CanonBorder)
@@ -622,8 +559,8 @@ internal fun MapScreen(
                                 itemsIndexed(shownNearby, key = { i, dto -> "${dto.id}#$i" }) { i, dto ->
                                     NearbyRideCard(dto = dto, soonest = i == 0, onOpen = { onBookRide(dto.toUiRide()) })
                                 }
-                                // «Показать ещё» — когда сервер сообщил, что есть ещё (и фильтр не активен).
-                                if (prefFilter.isEmpty() && nearby.size < nearbyTotal) {
+                                // «Показать ещё» — когда сервер сообщил, что есть ещё: условия он уже учёл в count (DESIGN023).
+                                if (nearby.size < nearbyTotal) {
                                     item(key = "nearby_more") {
                                         NearbyMoreCard(loading = nearbyLoading) { nearbyLimit += NEARBY_PAGE }
                                     }
