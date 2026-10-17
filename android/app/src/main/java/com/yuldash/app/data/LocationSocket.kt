@@ -29,8 +29,9 @@ class LocationSocket(
     private val scheduleTask: (Runnable, Long, TimeUnit) -> Unit = { task, delay, unit -> scheduler.schedule(task, delay, unit); Unit },
     private val onTerminated: () -> Unit = {},
     private val currentToken: () -> String? = { ApiClient.currentToken() },
-    // Тот же mutex, intent и поколение, что у запросов после 401; явный отказ в продлении завершает вход так же.
-    private val refreshToken: suspend (String) -> Result<Unit> = { ApiClient.tryRefresh(it, ApiClient.queueSessionGeneration()) },
+    // Тот же mutex и intent, что у запросов после 401; поколение — сессии-владельца канала: сменился
+    // аккаунт — обновление откажет, а не выдаст ключ другого человека. Явный отказ в продлении завершает вход так же.
+    private val refreshToken: suspend (String, Long) -> Result<Unit> = { token, owner -> ApiClient.tryRefresh(token, owner) },
 ) {
     data class Peer(val role: String, val lat: Double, val lng: Double, val bearing: Double?, val ts: Long)
 
@@ -41,6 +42,10 @@ class LocationSocket(
     @Volatile private var softAttempt = 0        // мягкий ретрай «поездка не активна» — с потолком MAX_SOFT_ATTEMPTS
     @Volatile private var tokenAttempt = 0       // повторы после отказа в ключе — своя лестница 1…30 с
     @Volatile private var rejectedToken: String? = null   // ключ, который сервер отверг: с ним не подключаемся
+    @Volatile private var authed = false         // кадр {type:auth} ушёл — только теперь можно слать точки
+    @Volatile private var authedAt = 0L
+    // Чья это поездка: канал живёт в сессии, в которой его открыли (как ChatSocket.ownerSession).
+    private val ownerSession = ApiClient.queueSessionGeneration()
 
     // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:
     // NetworkMonitor хранит слушателей через WeakReference, ссылку не даём собрать GC.
@@ -51,6 +56,7 @@ class LocationSocket(
     companion object {
         private const val MAX_DELAY_SEC = 30L
         private const val SOFT_RETRY_SEC = 15L   // ретрай «поездка ещё не активна»
+        private const val KEY_SURVIVED_MS = 7_000L   // столько соединение живёт после входа — ключ принят
         private const val MAX_SOFT_ATTEMPTS = 40 // ~10 мин по 15с — потолок мягкого ретрая (не долбим сервер вечно, если поездка так и не стала активной)
         private val client: OkHttpClient by lazy {
             OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
@@ -71,8 +77,13 @@ class LocationSocket(
     @Synchronized
     private fun openSocket() {
         if (closed) return
+        // Вышли или сменили аккаунт — канал не наш: не подключаемся чужим ключом к этой брони.
+        if (!ApiClient.isCurrentSession(ownerSession)) { terminate(); return }
         val token = currentToken() ?: return
+        // Отвергнутый ключ не шлём никаким путём (сеть вернулась, старый таймер) — ждём обновлённый.
+        if (token == rejectedToken) return
         val connection = ++generation
+        authed = false
         ws?.close(4999, "replaced")   // закрываем старый сокет перед новым (гонка reconnect↔connect → двойной GPS-канал); 4999 = терминал, без churn
         val url = "${ApiClient.wsBase()}/ws/trip/$bookingId/location"   // токен НЕ в URL — первым сообщением
         ws = socketFactory.newWebSocket(
@@ -82,6 +93,8 @@ class LocationSocket(
                     synchronized(this@LocationSocket) {
                         if (closed || generation != connection) return
                         webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
+                        authed = true
+                        authedAt = System.currentTimeMillis()
                         attempt = 0
                         onConnected(true)
                     }
@@ -116,6 +129,7 @@ class LocationSocket(
                     synchronized(this@LocationSocket) {
                         if (closed || generation != connection) return
                         ws = null
+                        authed = false
                         onConnected(false)
                         // Поездка ещё не активна (бронь pending/подтверждается) — сервер закрывает 1008 "Trip not active".
                         // Это НЕ терминал: бронь станет confirmed → подключимся. Мягкий ретрай раз в 15с (сервис
@@ -134,6 +148,7 @@ class LocationSocket(
                     synchronized(this@LocationSocket) {
                         if (closed || generation != connection) return
                         ws = null
+                        authed = false
                         onConnected(false)
                         scheduleReconnect()
                     }
@@ -175,7 +190,7 @@ class LocationSocket(
         scheduleTask(Runnable {
             if (closed || generation != connection) return@Runnable
             // Сеть — вне замка: обновление ключа может идти секунды.
-            val failure = runCatching { runBlocking { refreshToken(rejected) } }
+            val failure = runCatching { runBlocking { refreshToken(rejected, ownerSession) } }
                 .getOrElse { Result.failure<Unit>(it) }.exceptionOrNull()
             synchronized(this) {
                 if (closed || generation != connection) return@Runnable
@@ -207,15 +222,23 @@ class LocationSocket(
     /** Отправить свою позицию другому участнику. true — ушло. */
     @Synchronized
     fun sendLoc(lat: Double, lng: Double, bearing: Double? = null): Boolean {
+        // До кадра входа точку не шлём: OkHttp отправил бы её раньше {type:auth}, сервер принял бы её
+        // за попытку входа и закрыл канал «Invalid token» (приёмка PR158). Как `authed` на сайте.
+        if (!authed) return false
+        val now = System.currentTimeMillis()
         val o = JSONObject().put("type", "loc").put("lat", lat).put("lng", lng)
-            .put("ts", System.currentTimeMillis() / 1000)
+            .put("ts", now / 1000)
         if (bearing != null) o.put("bearing", bearing)
-        return ws?.send(o.toString()) ?: false
+        val sent = ws?.send(o.toString()) ?: false
+        // Соединение пережило проверку ключа и шлёт дальше — лестница отказов в ключе с нуля (как на сайте).
+        if (sent && now - authedAt >= KEY_SURVIVED_MS) tokenAttempt = 0
+        return sent
     }
 
     @Synchronized
     fun close() {
         closed = true
+        authed = false
         generation++
         NetworkMonitor.unsubscribe(netListener)   // отписка обязательна — не будим мёртвый канал, не течём
         ws?.close(1000, null)
