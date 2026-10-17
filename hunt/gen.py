@@ -113,6 +113,42 @@ elif variant in ("C", "CD"):
     for i in range(copies):
         cls = f"Hunt{variant}{i:03d}Test"
         write(cls, src.replace("class BoardingCodeVisibilityTest {", f"class {cls} {{", 1))
+elif variant in ("K", "KH", "KW", "KF", "KFH"):
+    # HUNT round 5: CouponsScreenWalkTest.lateResponseForStaleAllCitiesRequest… (CI PR172, 17.10).
+    # Suspicion: the screen reads cityFilter INSIDE the launched reload coroutine, so a fast /me reply
+    # can set the city before that coroutine starts — then the all-cities request is never sent.
+    #   K   : as on main, plus the order of requests the server saw
+    #   KH  : K, but one request goes out before the screen (warm connection + IO threads, like mid-suite)
+    #   KW  : me() already cached before the screen — the mechanism, deterministically
+    #   KF/KFH : the fix — in the race test /me replies only after the all-cities request arrived
+    src = read(os.path.join("walk", "l1_5", "CouponsScreenWalkTest.kt"))
+    field = "    private val couponsListAttempts = AtomicInteger(0)\n"
+    assert src.count(field) == 1
+    src = src.replace(field, field + "    private val huntSeen = CopyOnWriteArrayList<String>()\n")
+    rec = '                    val city = request.requestUrl!!.queryParameter("city")\n'
+    assert src.count(rec) == 1
+    src = src.replace(rec, rec + '                    huntSeen += "${System.nanoTime() / 1000}us ${request.method} ${request.path}"\n')
+    check = ('        assertTrue(\n            "stale all-cities request must actually have been sent",\n'
+             '            allCitiesRequestReceived.await(10, TimeUnit.SECONDS),\n        )\n')
+    assert src.count(check) == 1
+    src = src.replace(check, '        val huntSent = allCitiesRequestReceived.await(10, TimeUnit.SECONDS)\n'
+                             '        assertTrue("stale all-cities request must actually have been sent; HUNT seen=$huntSeen", huntSent)\n')
+    start = '        meCity = "Белорецк"\n'
+    assert src.count(start) == 1
+    if variant in ("KH", "KFH"):
+        src = src.replace(start, start + "        kotlinx.coroutines.runBlocking { ApiClient.getCoupon(501) }  // HUNT warm-up\n")
+    if variant == "KW":
+        src = src.replace(start, start + "        kotlinx.coroutines.runBlocking { ApiClient.me() }  // HUNT: profile already cached\n")
+    if variant in ("KF", "KFH"):
+        me = '                        path == "/me" -> json(meCity?.let { """{"city":"$it"}""" } ?: "{}")\n'
+        assert src.count(me) == 1
+        src = src.replace(me, '                        path == "/me" -> {\n'
+                              '                            if (meCity != null) allCitiesRequestReceived.await(5, TimeUnit.SECONDS)\n'
+                              '                            json(meCity?.let { """{"city":"$it"}""" } ?: "{}")\n'
+                              '                        }\n')
+    for i in range(copies):
+        cls = f"Hunt{variant}{i:03d}Test"
+        write(cls, src.replace("class CouponsScreenWalkTest {", f"class {cls} {{", 1))
 else:
     raise SystemExit("unknown variant " + variant)
 print(f"generated {copies} {variant} copies in {OUT}")

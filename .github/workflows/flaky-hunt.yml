@@ -21,9 +21,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Round 4: pre-fix B check with diagnostics (stale frame or link really gone?).
-          - { id: bx1, variant: BX, copies: 120, amp: 0, stress: 0, prefix: HuntBX }
-          - { id: bx2, variant: BX, copies: 120, amp: 0, stress: 4, prefix: HuntBX }
+          # Round 5: CouponsScreenWalkTest stale all-cities race (CI PR172). Only the race test runs.
+          - { id: k0, variant: K, copies: 200, amp: 0, stress: 0, prefix: HuntK }
+          - { id: k4, variant: K, copies: 200, amp: 0, stress: 4, prefix: HuntK }
+          - { id: kh0, variant: KH, copies: 200, amp: 0, stress: 0, prefix: HuntKH }
+          - { id: kh4, variant: KH, copies: 200, amp: 0, stress: 4, prefix: HuntKH }
+          - { id: kw, variant: KW, copies: 5, amp: 0, stress: 0, prefix: HuntKW }
+          - { id: kf4, variant: KF, copies: 200, amp: 0, stress: 4, prefix: HuntKF }
+          - { id: kfh4, variant: KFH, copies: 200, amp: 0, stress: 4, prefix: HuntKFH }
     name: hunt-${{ matrix.id }}
     defaults:
       run:
@@ -49,7 +54,7 @@ jobs:
           if [ "${{ matrix.variant }}" = "FULL" ]; then
             ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace || echo "gradle exit $?"
           else
-            ./gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.${{ matrix.prefix }}*' --no-daemon --stacktrace || echo "gradle exit $?"
+            ./gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.walk.l1_5.${{ matrix.prefix }}*.lateResponseForStaleAllCitiesRequestDoesNotOverwriteNewerCityResult' --no-daemon --stacktrace || echo "gradle exit $?"
           fi
           jobs -p | xargs -r kill || true
       - name: Summary
