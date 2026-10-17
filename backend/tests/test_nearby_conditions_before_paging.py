@@ -79,10 +79,12 @@ def test_только_проверенные_водители(client, user_facto
         u.verified = False
         s.add(u)
         s.commit()
-    _публикую(client, обычный, 3, город="Мелеуз")
-    нужные = _публикую(client, проверенный, 1, город="Мелеуз")
+    # «Проверкино» — места с таким именем нет ни в справочнике, ни в других тестах: база общая на
+    # весь прогон, и чужие поездки из настоящего города ломали точное сравнение порции и count.
+    _публикую(client, обычный, 3, город="Проверкино")
+    нужные = _публикую(client, проверенный, 1, город="Проверкино")
 
-    тело = client.get("/rides/near?from_city=Мелеуз&limit=2&verified_only=true").json()
+    тело = client.get("/rides/near?from_city=Проверкино&limit=2&verified_only=true").json()
 
     assert [x["id"] for x in тело["items"]] == нужные and тело["count"] == 1, тело
 
@@ -207,11 +209,11 @@ def test_список_городов_с_поездками_на_двух_язы�
 
 
 def test_список_городов_не_берёт_закрытые_поездки(client, user_factory, monkeypatch):
-    # Агидель — город, которого нет в других тестах (база общая на весь прогон), а потолок снят:
-    # иначе тест прошёл бы и с ошибкой — город просто не влез бы в «топ-12».
+    # «Закрытово» — места с таким именем нет ни в справочнике, ни в других тестах (база общая на весь
+    # прогон), а потолок снят: иначе тест прошёл бы и с ошибкой — город не влез бы в «топ-12».
     monkeypatch.setattr("app.routers.rides._MAX_FILTER_CITIES", 10_000)
     водитель = user_factory("ГородаЗакрыт", role=UserRole.driver)
-    рейс = _из(client, водитель, "Агидель", "Сибай")
+    рейс = _из(client, водитель, "Закрытово", "Сибай")
     from app.models import Ride, RideStatus
     with Session(engine) as s:
         ride = s.get(Ride, рейс)
@@ -221,7 +223,7 @@ def test_список_городов_не_берёт_закрытые_поезд
 
     тело = client.get("/rides/cities").json()
 
-    assert "Агидель" not in {c["ru"] for c in тело["from"]}, "город отменённой поездки висит в «Откуда»"
+    assert "Закрытово" not in {c["ru"] for c in тело["from"]}, "город отменённой поездки висит в «Откуда»"
 
 
 def test_снятое_подтверждение_убирает_поездку_из_фильтра_для_женщин(client, user_factory):
@@ -256,29 +258,31 @@ def test_список_городов_прячет_то_же_что_лента(cl
     """Поездка «только для своих» и поездка заблокированного не дают города в шторку.
 
     Иначе человек выбирал город и получал «поездок нет», а посторонний узнавал, что оттуда
-    кто-то едет «для своих». Межгорье и Благовещенск — города, которых нет в других тестах.
+    кто-то едет «для своих». «Своёво» и «Неприятово» — вымышленные места: база общая на весь прогон,
+    и чужая поездка из настоящего города держала бы его в шторке (Межгорье публиковал
+    `test_no_query_per_item.py` — тест краснел при запуске после него, приёмка PR150).
     """
     monkeypatch.setattr("app.routers.rides._MAX_FILTER_CITIES", 10_000)
     свой = user_factory("ГородаДляСвоих", role=UserRole.driver)
     r = client.post("/rides", headers=свой["auth"], json={
-        "from_city": "Межгорье", "to_city": "Уфа", "seats_total": 3, "price": 400,
+        "from_city": "Своёво", "to_city": "Уфа", "seats_total": 3, "price": 400,
         "depart_at": (utcnow() + timedelta(hours=settings.local_tz_offset_hours, days=1)).replace(microsecond=0).isoformat(),
         "only_trusted": True,
     })
     assert r.status_code == 200, r.text
     assert r.json().get("only_trusted") is True, "поездка не стала «только для своих» — тест ничего не проверит"
     неприятный = user_factory("ГородаЗаблокирован", role=UserRole.driver)
-    _из(client, неприятный, "Благовещенск", "Уфа")
+    _из(client, неприятный, "Неприятово", "Уфа")
     пассажирка = user_factory("ГородаБлокирует")
     assert client.post("/blocks", headers=пассажирка["auth"],
                        json={"blocked_user_id": неприятный["id"]}).status_code in (200, 201)
 
     гость = {c["ru"] for c in client.get("/rides/cities").json()["from"]}
-    assert "Межгорье" not in гость, "город поездки «только для своих» виден посторонним"
-    assert "Благовещенск" in гость, "контроль: обычную поездку гость видит"
+    assert "Своёво" not in гость, "город поездки «только для своих» виден посторонним"
+    assert "Неприятово" in гость, "контроль: обычную поездку гость видит"
 
     она = {c["ru"] for c in client.get("/rides/cities", headers=пассажирка["auth"]).json()["from"]}
-    assert "Благовещенск" not in она, "город заблокированного водителя висит в шторке"
+    assert "Неприятово" not in она, "город заблокированного водителя висит в шторке"
 
 
 def test_город_с_запятой_не_попадает_в_шторку(client, user_factory, monkeypatch):
