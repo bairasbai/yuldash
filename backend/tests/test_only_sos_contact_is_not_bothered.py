@@ -52,8 +52,8 @@ def _trip_with_contact(client, user_factory, tag: str, notify: bool):
     contact_id = _contact(client, passenger, "Мама", phone, notify)
     assert client.post(f"/bookings/{booking_id}/share", headers=passenger["auth"],
                        json={"contact_id": contact_id}).status_code == 200
-    # «Доехал» — только «в пути», после «Сел» водителя (приёмка PR174).
-    board(client, driver, booking_id, settled=False)
+    # «Доехал» — только «в пути», после «Сел» водителя и окна его отмены (приёмка PR174).
+    board(client, driver, booking_id)
     return passenger, booking_id, phone
 
 

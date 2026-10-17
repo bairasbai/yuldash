@@ -79,8 +79,19 @@ with TestClient(app) as c:
         "name": "Гульназ", "relation": "Сестра", "phone": "+79277778899",
     }).json()
     c.post(f"/bookings/{bk['id']}/share", headers=ph, json={"contact_id": contact["id"]})
-    # «Доехал» — только «в пути»: сначала водитель отмечает «Сел» (приёмка PR174).
+    # «Доехал» — только «в пути» и после окна «Отменить» водителя (5 минут, приёмка PR174):
+    # водитель отмечает «Сел», а отметку двигаем в прошлое — ждать пять минут смоук не будет.
     c.post(f"/bookings/{bk['id']}/driver-status", headers=h, json={"status": "boarded"})
+    from datetime import timedelta
+    from sqlmodel import Session
+    from app.db import engine
+    from app.models import Booking
+    from app.timeutil import utcnow
+    with Session(engine) as s:
+        b = s.get(Booking, bk["id"])
+        b.onboard_at = utcnow() - timedelta(minutes=6)
+        s.add(b)
+        s.commit()
     shares = c.post(f"/bookings/{bk['id']}/trip-status", headers=ph, json={"status": "arrived"}).json()
     print("family share status:", shares[0]["last_status"])
     assert shares[0]["last_status"] == "arrived"

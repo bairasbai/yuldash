@@ -419,16 +419,19 @@ def _driver_marks_boarding_refusal() -> HTTPException:
     })
 
 
-def _boarding_undo_open_refusal(undo_left: int) -> HTTPException:
-    """«Завершил» пассажира, пока водитель ещё может отменить свою отметку «Сел» (приёмка PR174).
-    Минуты — вверх: «через 0 мин» не бывает. `boarding_undo_sec` — для клиента, если захочет
-    показать отсчёт; `code` — машинная причина."""
+def _boarding_undo_open_refusal(undo_left: int, status: str) -> HTTPException:
+    """«Завершил» или «Доехал» пассажира, пока водитель ещё может отменить свою отметку «Сел»
+    (приёмка PR174). Минуты — вверх: «через 0 мин» не бывает. `boarding_undo_sec` — для клиента,
+    если захочет показать отсчёт; `code` — машинная причина."""
     minutes = max(1, -(-undo_left // 60))
+    if status == "arrived":
+        ru = f"Водитель только что отметил посадку — «Доехал» можно отметить через {minutes} мин."
+        ba = f"Йөрөтөүсе яңы ғына ултырыуҙы билдәләне — «Барып еттем» тип {minutes} минуттан һуң билдәләп була."
+    else:
+        ru = f"Водитель только что отметил посадку — завершить поездку можно через {minutes} мин."
+        ba = f"Йөрөтөүсе яңы ғына ултырыуҙы билдәләне — сәфәрҙе {minutes} минуттан һуң тамамлап була."
     return HTTPException(status_code=409, detail={
-        "ru": f"Водитель только что отметил посадку — завершить поездку можно через {minutes} мин.",
-        "ba": f"Йөрөтөүсе яңы ғына ултырыуҙы билдәләне — сәфәрҙе {minutes} минуттан һуң тамамлап була.",
-        "code": "boarding_undo_open",
-        "boarding_undo_sec": undo_left,
+        "ru": ru, "ba": ba, "code": "boarding_undo_open", "boarding_undo_sec": undo_left,
     })
 
 
@@ -451,6 +454,10 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
     if body.status == "arrived" and booking.status != BookingStatus.onboard:
         raise herr(409, "«Доехал» можно отметить в пути — после того как водитель отметит посадку",
                    "«Барып еттем» тип юлда ғына билдәләп була — йөрөтөүсе ултырыуҙы билдәләгәс")
+    # …и после окна «Отменить» водителя, как «Завершил»: иначе близкий получал «доехал до места»,
+    # а отмена отметки оставляла строку шаринга «доехал» (повторная приёмка PR174).
+    if body.status == "arrived" and (arrived_undo_left := boarding_undo_left(booking)) > 0:
+        raise _boarding_undo_open_refusal(arrived_undo_left, "arrived")
     # «Завершил поездку» → реально закрываем бронь на сервере (раньше статус уходил только близким,
     # а бронь висела активной). Идемпотентно: повторный done/отменённую не трогаем.
     if body.status == "done" and booking.status not in (BookingStatus.done, BookingStatus.cancelled):
@@ -465,7 +472,7 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
         # отнимал у водителя право исправить промах карточкой, и «Сел» по ошибке не вернуть.
         undo_left = boarding_undo_left(booking)
         if undo_left > 0:
-            raise _boarding_undo_open_refusal(undo_left)
+            raise _boarding_undo_open_refusal(undo_left, "done")
         # Завершить можно только НАЧАВШУЮСЯ поездку — та же планка, что у водительской ручки
         # (`bookings.py`, `DONE_EARLY_GRACE`). Это второй путь к тому же переходу: закрыв один
         # и оставив другой, мы бы просто перенесли дыру, а не убрали её (аудит 2026-08-07).
@@ -479,7 +486,7 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
         # перепишутся в «завершена» — и наоборот, завершённую не откатит запоздавшая отмена.
         moved = session.execute(update(Booking).where(
             Booking.id == booking.id, Booking.status == BookingStatus.onboard,
-        ).values(status=BookingStatus.done)).rowcount
+        ).values(status=BookingStatus.done, done_at=utcnow())).rowcount
         session.commit()
         session.refresh(booking)
         if not moved:
@@ -502,16 +509,19 @@ def _family_step(last: str, status: str) -> tuple[str, bool]:
     «сел в машину», должен узнать и об отмене — но цикл «Сел» → «Отменить» → «Сел» не должен
     жечь SMS за счёт платформы. Лестница на строке шаринга:
       sat → (Отменить) unsat — SMS «отметку посадки отменили», единственный раз на бронь;
-      unsat → (Сел) sat_again — SMS «сел в машину»: близкий должен узнать, что теперь сел;
-      sat_again → (Отменить) unsat_quiet — без SMS: отмена уже потрачена;
-      unsat_quiet → (Сел) sat_again — без SMS: последнее, что близкий знает, и так «сел».
-    Итого на всю посадку — не больше трёх SMS, сколько бы раз ни жали кнопки."""
+      unsat → (Сел) sat_again — без SMS;
+      sat_again → (Отменить) unsat_quiet — без SMS;
+      unsat_quiet → (Сел) sat_again — без SMS.
+    Итого на всю посадку — не больше двух SMS (сел → отменили), сколько бы раз ни жали кнопки.
+    Повторное «сел» после отмены не шлём (повторная приёмка PR174): цикл «Сел → Отменить → Сел →
+    Отменить» иначе оставлял у близкого ложное «сел в машину». «Ещё не в машине» — ошибка
+    безопаснее; правду скажет «доехал до места»."""
     if status == "sat":
         if last in ("sat", "sat_again"):
             return last, False
-        if last == "unsat_quiet":
+        if last in ("unsat", "unsat_quiet"):
             return "sat_again", False
-        return ("sat_again" if last == "unsat" else "sat"), True
+        return "sat", True
     if status == "unsat":
         if last == "sat":
             return "unsat", True

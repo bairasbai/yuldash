@@ -280,7 +280,9 @@ def test_mark_tells_the_passenger_and_the_family(client, user_factory, monkeypat
 
 def test_undo_tells_the_family_once_and_cycles_burn_no_sms(client, user_factory, monkeypatch):
     """Близкий получил «сел в машину» — узнаёт и об отмене. Но цикл «Сел» / «Отменить» не жжёт
-    SMS: на всю посадку не больше трёх (сел → отменили → сел), дальше — тишина (приёмка PR174)."""
+    SMS: на всю посадку не больше двух (сел → отменили), дальше — тишина. Повторное «сел» после
+    отмены не шлём: иначе «Сел → Отменить → Сел → Отменить» оставлял у близкого ложное «сел в
+    машину» (повторная приёмка PR174) — «ещё не в машине» ошибка безопаснее."""
     import app.routers.family as fam
 
     sent: list[tuple[str, str]] = []
@@ -307,12 +309,14 @@ def test_undo_tells_the_family_once_and_cycles_burn_no_sms(client, user_factory,
     assert len(texts()) == 2 and "отметку посадки отменили" in texts()[1], texts()
     assert share_status() == "unsat", "строка шаринга осталась «сел» после отмены"
     assert _board(client, drv, bid).status_code == 200
-    assert len(texts()) == 3 and "сел в машину" in texts()[2], texts()
+    assert len(texts()) == 2, f"второе «сел» после отмены ушло близкому: {texts()}"
     for _ in range(3):
         assert _undo(client, drv, bid).status_code == 200
         assert _board(client, drv, bid).status_code == 200
-    assert len(texts()) == 3, f"цикл «Сел» / «Отменить» жжёт SMS: {texts()}"
-    assert share_status() == "sat_again"
+    assert _undo(client, drv, bid).status_code == 200
+    # Цикл закончился отменой: последнее, что знает близкий, — «отметку посадки отменили».
+    assert len(texts()) == 2 and "отметку посадки отменили" in texts()[-1], f"цикл жжёт SMS: {texts()}"
+    assert share_status() == "unsat_quiet"
 
 
 def test_boarding_pushes_ring_in_quiet_hours(client, user_factory, monkeypatch):
@@ -351,17 +355,48 @@ def test_passenger_can_report_a_problem_for_six_hours_after_the_trip(client, use
     drv_receipt = client.get(f"/trips/{bid}/receipt", headers=drv["auth"]).json()
     assert pax_receipt["counterparty_id"] == drv["id"] and pax_receipt["problem_report_sec"] > 0
     assert drv_receipt["counterparty_id"] == pax["id"] and drv_receipt["problem_report_sec"] == 0
-    # Окно вышло: и выезд, и посадка — семь часов назад.
+    # Окно вышло: и выезд, и посадка, и закрытие поездки — семь часов назад.
     with Session(engine) as s:
         r = s.get(Ride, ride["id"])
         r.depart_at = utcnow() - timedelta(hours=7)
         b = s.get(Booking, bid)
         b.onboard_at = utcnow() - timedelta(hours=7)
+        b.done_at = utcnow() - timedelta(hours=7)
         s.add(r)
         s.add(b)
         s.commit()
     assert client.get(f"/bookings/{bid}/role", headers=pax["auth"]).json()["problem_report_sec"] == 0
     assert client.get(f"/trips/{bid}/receipt", headers=pax["auth"]).json()["problem_report_sec"] == 0
+
+
+def test_long_trip_keeps_the_report_window_from_its_completion(client, user_factory):
+    """Долгая поездка: выезд и посадка восемь часов назад, водитель закрыл только сейчас. Окно
+    «Сообщить о проблеме» считается и от закрытия (повторная приёмка PR174) — иначе его бы уже
+    не было, хотя поездка только что кончилась."""
+    drv, pax, ride, bid = _trip(client, user_factory, "longtrip")
+    assert _board(client, drv, bid).status_code == 200
+    with Session(engine) as s:
+        r = s.get(Ride, ride["id"])
+        r.depart_at = utcnow() - timedelta(hours=8)
+        b = s.get(Booking, bid)
+        b.onboard_at = utcnow() - timedelta(hours=8)
+        s.add(r)
+        s.add(b)
+        s.commit()
+    assert client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"],
+                       json={"status": "done"}).status_code == 200
+    assert _booking(bid).done_at is not None
+    left = client.get(f"/bookings/{bid}/role", headers=pax["auth"]).json()["problem_report_sec"]
+    assert 6 * 3600 - 60 < left <= 6 * 3600, left
+    # Тем же правилом — «Завершил» пассажира и «Завершить рейс» водителя ставят время закрытия.
+    drv2, pax2, ride2, bid2 = _trip(client, user_factory, "longtrip2")
+    assert _board(client, drv2, bid2).status_code == 200
+    _age_mark(bid2, 6)
+    assert client.post(f"/bookings/{bid2}/trip-status", headers=pax2["auth"], json={"status": "done"}).status_code == 200
+    assert _booking(bid2).done_at is not None
+    drv3, _pax3, ride3, bid3 = _trip(client, user_factory, "longtrip3")
+    assert client.post(f"/rides/{ride3['id']}/complete", headers=drv3["auth"]).status_code == 200
+    assert _booking(bid3).done_at is not None
 
 
 def test_forgotten_mark_still_closes_with_drivers_finish(client, user_factory):
@@ -449,6 +484,14 @@ def test_arrived_only_from_the_car(client, user_factory):
     r = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "arrived"})
     assert r.status_code == 409 and r.json()["detail"]["ba"].strip(), r.text
     assert _board(client, drv, bid).status_code == 200
+    # Окно «Отменить» водителя — как у «Завершил»: иначе близкий получал «доехал до места», а
+    # отмена отметки оставляла строку шаринга «доехал» (повторная приёмка PR174).
+    early = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "arrived"})
+    assert early.status_code == 409, early.text
+    detail = early.json()["detail"]
+    assert detail["code"] == "boarding_undo_open" and "«Доехал» можно отметить через 5 мин" in detail["ru"], detail
+    assert detail["ba"].strip() and detail["ba"] != detail["ru"]
+    _age_mark(bid, 6)
     ok = client.post(f"/bookings/{bid}/trip-status", headers=pax["auth"], json={"status": "arrived"})
     assert ok.status_code == 200, ok.text
 
