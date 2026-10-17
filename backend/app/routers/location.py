@@ -111,6 +111,26 @@ def _заблокированы(session: Session, a: int, b: int) -> bool:
     return is_blocked(session, a, b)
 
 
+def _водитель_в_пути(b, r, я) -> bool:
+    """Я — водитель этой брони, и пассажирка уже в машине («в пути», onboard).
+
+    Только такому каналу блокировка не закрывает канал, а переводит его в «только запись»
+    (решение Александра 17.10.2026). Пассажирка «в пути» блокирует водителя — значит, что-то
+    не так, а она всё ещё сидит в его машине. Закрой мы канал водителя, вместе с её картой
+    замерла бы и последняя точка машины для ссылки близким (`livepos`, «Поделиться поездкой»)
+    и для SOS — близкие теряли бы машину ровно тогда, когда тревожно. То же, если блокирует
+    водитель: пассажирка физически в этой машине, её близким машина нужна так же.
+
+    «Только запись» = точку водителя пишем в кэш для ссылки и SOS, но не пересылаем НИ ОДНОМУ
+    из двоих, и водитель не принимает точку пассажирки. Ничего нового никому не открывается:
+    ссылку и SOS близкие получили бы и без блокировки. До посадки (подтверждена, ещё не села)
+    блокировка закрывает канал как раньше — человек дома, близким машина не нужна. Конец
+    поездки гасит запись как раньше.
+    """
+    return (b is not None and r is not None and я is not None and я == r.driver_id
+            and b.status == BookingStatus.onboard)
+
+
 def _вторая_сторона(я: int, первый, второй):
     """Кто на другом конце канала. None — если меня среди сторон уже нет."""
     if первый is not None and я == первый:
@@ -134,13 +154,19 @@ class _Пора:
     поездка перечитывает статус брони, и если сделки больше нет — `кончилась`, канал закрывается
     сразу, а не через сторож (до 30 с точка водителя ещё уходила пассажиру отменённой брони).
     Начавшаяся поездка «назад в не начавшуюся» не откатывается, как и раньше.
+
+    Блокировка закрывает канал — кроме канала водителя «в пути» (`_водитель_в_пути`): тот
+    переходит в `только_запись` и остаётся в нём до конца соединения (снятая блокировка
+    пересылку не возвращает — так безопаснее). Конец поездки закрывает и его, с «Trip ended».
     """
 
-    def __init__(self, booking_id: int) -> None:
+    def __init__(self, booking_id: int, я: "int | None" = None) -> None:
         self._id = booking_id
+        self._я = я              # кто на этом конце канала; без него блокировка закрывает канал всегда
         self._да = False
         self.кончилась = False   # толчок показал: сделки нет или блокировка — канал закрыть
         self.причина = "Trip ended"   # с какой причиной закрыть: блокировка — как у сторожа
+        self.только_запись = False   # блокировка «в пути»: точку пишем близким и SOS, никому не пересылаем
         self._спросили_в = 0.0   # стенные часы НАЧАЛА последней проверки — по ним сверяем толчки
         self._не_раньше = 0.0    # монотонные часы: до этого момента базу повторно не спрашиваем
 
@@ -158,10 +184,17 @@ class _Пора:
             b = s.get(Booking, self._id)
             r = s.get(Ride, b.ride_id) if b else None
             if b is not None and r is not None and _заблокированы(s, b.passenger_id, r.driver_id):
+                if _водитель_в_пути(b, r, self._я):
+                    # Пассажирка в машине: точку машины пишем дальше для ссылки близким и SOS,
+                    # но никому из двоих не пересылаем (решение 17.10.2026, `_водитель_в_пути`).
+                    self.только_запись = True
+                    self._да = True
+                    return True
                 # Кто-то из двоих нажал «Заблокировать» (ручка толкает канал): закрываем сразу и с той
                 # же причиной, что сторож, — он закрыл бы этот канал через ≤ 30 с (приёмка PR157).
+                # Канал, который после блокировки только писал точку, закрывает конец поездки.
                 self.кончилась = True
-                self.причина = "Access ended"
+                self.причина = "Trip ended" if self.только_запись else "Access ended"
                 return False
             if self._да:
                 # Толчок по идущей поездке («Подъезжаю», отмена, неявка, снятие): назад не откатываем,
@@ -217,23 +250,33 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     # -bid*2 = inbox водителя (туда шлёт пассажир), -bid*2-1 = inbox пассажира (туда шлёт водитель).
     recv_key = (-booking_id * 2) if role == "driver" else (-booking_id * 2 - 1)
     send_key = (-booking_id * 2 - 1) if role == "driver" else (-booking_id * 2)
+    пора = _Пора(booking_id, user_id)   # поездка началась? (`trip_is_live`) — пока нет, точки не пересылаем
+
+    def _ещё_можно(s2: Session) -> bool:
+        b = s2.get(Booking, booking_id)
+        r = s2.get(Ride, b.ride_id) if b else None
+        if _канал_мой(s2, user_id,
+                      _вторая_сторона(user_id, b.passenger_id if b else None, r.driver_id if r else None),
+                      живо=bool(b) and b.status in (BookingStatus.confirmed, BookingStatus.onboard)):
+            return True
+        if _водитель_в_пути(b, r, user_id) and _заблокированы(s2, b.passenger_id, r.driver_id):
+            # Толчок блокировки мог не дойти (чужой воркер без Redis) — сторож сам переводит канал
+            # водителя «в пути» в «только запись»: не закрывает, а снимает с приёма и пересылки.
+            пора.только_запись = True
+            manager.disconnect(recv_key, websocket)
+            return True
+        return False
+
     manager.register(recv_key, websocket)
     # Сторож открытого канала (волна 141): право читать проверяется по часам, а не по тому,
     # шлёт ли этот человек кадры. Тот, кто только СЛУШАЕТ чужие координаты, раньше
     # не перепроверялся никогда — вышел из аккаунта, а поток координат шёл дальше.
     страж = await watch_ws_access(
-        websocket, token,
-        lambda s2: (lambda b, r: _канал_мой(
-            s2, user_id,
-            _вторая_сторона(user_id, b.passenger_id if b else None, r.driver_id if r else None),
-            живо=bool(b) and b.status in (BookingStatus.confirmed, BookingStatus.onboard),
-        ))(s2.get(Booking, booking_id),
-           s2.get(Ride, s2.get(Booking, booking_id).ride_id) if s2.get(Booking, booking_id) else None),
+        websocket, token, _ещё_можно,
         on_close=lambda: manager.disconnect(recv_key, websocket),
     )
     guard = TrackGuard(user_id)   # анти-телепорт (B8-3): фейковые скачки не ретранслируем
     msgs = 0
-    пора = _Пора(booking_id)      # поездка началась? (`trip_is_live`) — пока нет, точки не пересылаем
     try:
         while True:
             data = await websocket.receive_text()
@@ -269,6 +312,10 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                         await websocket.close(code=1008, reason=пора.причина)
                         break
                     continue
+                if пора.только_запись:
+                    # Блокировка «в пути» (`_водитель_в_пути`): водитель больше не принимает точку
+                    # пассажирки — снимаем его с приёма на первом же кадре после блокировки.
+                    manager.disconnect(recv_key, websocket)
                 # Анти-телепорт (B8-3): скорость > 200 км/ч от прошлой точки → кадр игнорируем
                 # (счётчик подозрительности копится), соединение честного юзера не рвём.
                 if not guard.ok(float(lat), float(lng)):
@@ -277,6 +324,8 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                     # Live-ссылка близкому (B7c): последняя позиция машины → Redis (TTL ~2 мин),
                     # публичный /t/{token}/state.json читает её. В БД/лог координаты НЕ пишем.
                     livepos_set("booking", booking_id, lat, lng, payload.get("bearing"))
+                if пора.только_запись:
+                    continue   # записали для ссылки близким и SOS — и никому из двоих не пересылаем
                 await manager.broadcast(send_key, {   # в inbox ДРУГОГО участника (не себе)
                     "type": "loc",
                     "role": role,
