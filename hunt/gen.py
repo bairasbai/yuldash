@@ -1,0 +1,74 @@
+"""HUNT ONLY (disposable branch): generate renamed copies of suspect test classes.
+
+Copies run in ONE test JVM, like the real CI suite, so a rare interleaving gets many chances.
+usage: python3 hunt/gen.py <variant> <copies> [amplifiers]
+  A  : TripChatAcknowledgementTest copies (+ N tests that only connect(), so cleanup races N more times)
+  B  : InstantShareOwnerBoundaryTest copies
+  BD : only currentRevokeErrorPreservesLinkAndCanRetry, successful DELETE reply delayed 500 ms
+  C  : BoardingCodeVisibilityTest copies
+  CD : BoardingCodeVisibilityTest copies, /role reply delayed 600 ms
+"""
+import os
+import re
+import sys
+
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "android", "app", "src", "test", "java", "com", "yuldash", "app")
+OUT = os.path.join(ROOT, "hunt")
+variant, copies = sys.argv[1], int(sys.argv[2])
+amplifiers = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+os.makedirs(OUT, exist_ok=True)
+
+
+def read(name):
+    with open(os.path.join(ROOT, name), encoding="utf-8") as f:
+        return f.read()
+
+
+def write(cls, text):
+    with open(os.path.join(OUT, cls + ".kt"), "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+if variant == "A":
+    src = read("TripChatAcknowledgementTest.kt")
+    end = src.rstrip().rfind("}")
+    extra = "".join(f"\n    @Test fun cleanupRace{j}() {{ connect() }}" for j in range(amplifiers))
+    for i in range(copies):
+        cls = f"HuntA{i:03d}Test"
+        text = src[:end] + extra + "\n}\n"
+        write(cls, text.replace("class TripChatAcknowledgementTest {", f"class {cls} {{", 1))
+elif variant in ("B", "BD"):
+    src = read("InstantShareOwnerBoundaryTest.kt")
+    header = src[: src.index("/** Synthetic local HTTP")]
+    body_start = src.rindex("@RunWith(RobolectricTestRunner::class)", 0, src.index("class InstantShareOwnerBoundaryTest"))
+    body = src[body_start:]
+    target = next(l for l in src.splitlines() if "fun currentRevokeErrorPreservesLinkAndCanRetry" in l)
+    for i in range(copies):
+        if variant == "B":
+            cls = f"HuntB{i:03d}Test"
+            write(cls, header + body.replace("class InstantShareOwnerBoundaryTest :", f"class {cls} :", 1))
+        else:
+            cls = f"HuntBD{i:03d}Test"
+            write(cls, header + f"""@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = Application::class, qualifiers = "w411dp-h2600dp")
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+class {cls} : ShareHelpBoundaryHarness() {{
+    // HUNT: the successful revoke reply arrives 500 ms after the server has counted the request.
+    override fun customResponse(request: RecordedRequest, path: String): MockResponse? =
+        if (request.method == "DELETE" && !failMutation) MockResponse().setHeader("Content-Type", "application/json")
+            .setBody("{{}}").setHeadersDelay(500, TimeUnit.MILLISECONDS) else null
+{target}
+}}
+""")
+elif variant in ("C", "CD"):
+    src = read("BoardingCodeVisibilityTest.kt")
+    if variant == "CD":
+        role = '"/bookings/42/role" -> json("""{"role":"$role","status":"$bookingStatus","driver_phase":""}""")'
+        assert src.count(role) == 1
+        src = src.replace(role, role + ".setHeadersDelay(600, java.util.concurrent.TimeUnit.MILLISECONDS)")
+    for i in range(copies):
+        cls = f"Hunt{variant}{i:03d}Test"
+        write(cls, src.replace("class BoardingCodeVisibilityTest {", f"class {cls} {{", 1))
+else:
+    raise SystemExit("unknown variant " + variant)
+print(f"generated {copies} {variant} copies in {OUT}")

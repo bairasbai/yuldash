@@ -1,0 +1,65 @@
+name: Flaky hunt (disposable)
+
+# HUNT ONLY: lives on claude/flaky-hunt-android-20261017, never merged.
+# Runs suspect Android unit-test classes many times in one JVM (renamed copies) and prints every failure.
+on:
+  push:
+    branches: [claude/flaky-hunt-android-20261017]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flaky-hunt-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: a1, variant: A, copies: 100, amp: 30, stress: 0, prefix: HuntA }
+          - { id: a2, variant: A, copies: 100, amp: 30, stress: 4, prefix: HuntA }
+          - { id: a3, variant: A, copies: 100, amp: 30, stress: 0, prefix: HuntA }
+          - { id: b1, variant: B, copies: 25, amp: 0, stress: 4, prefix: HuntB0 }
+          - { id: b2, variant: B, copies: 25, amp: 0, stress: 0, prefix: HuntB0 }
+          - { id: bd, variant: BD, copies: 10, amp: 0, stress: 0, prefix: HuntBD }
+          - { id: c1, variant: C, copies: 80, amp: 0, stress: 4, prefix: HuntC0 }
+          - { id: c2, variant: C, copies: 80, amp: 0, stress: 0, prefix: HuntC0 }
+          - { id: cd, variant: CD, copies: 10, amp: 0, stress: 0, prefix: HuntCD }
+          - { id: full1, variant: FULL, copies: 0, amp: 0, stress: 0, prefix: "" }
+          - { id: full2, variant: FULL, copies: 0, amp: 0, stress: 2, prefix: "" }
+    name: hunt-${{ matrix.id }}
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: temurin
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Generate copies
+        if: matrix.variant != 'FULL'
+        run: python3 ../hunt/gen.py ${{ matrix.variant }} ${{ matrix.copies }} ${{ matrix.amp }}
+      - name: Run tests
+        run: |
+          nproc
+          for i in $(seq 1 ${{ matrix.stress }}); do (while :; do :; done) & done
+          chmod +x ./gradlew
+          if [ "${{ matrix.variant }}" = "FULL" ]; then
+            ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace || echo "gradle exit $?"
+          else
+            ./gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.${{ matrix.prefix }}*' --no-daemon --stacktrace || echo "gradle exit $?"
+          fi
+          jobs -p | xargs -r kill || true
+      - name: Summary
+        if: always()
+        run: python3 ../hunt/summary.py ${{ matrix.id }} ${{ matrix.prefix }}

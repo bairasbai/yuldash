@@ -7,6 +7,7 @@ import android.os.Looper
 import androidx.compose.runtime.mutableStateOf
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.ChatSocket
 import com.yuldash.app.data.MemoryDiskPreferences
 import com.yuldash.app.data.Outbox
 import com.yuldash.app.data.TripPassStore
@@ -68,6 +69,10 @@ class TripChatAcknowledgementTest {
     private val closedServerSockets = CopyOnWriteArrayList<WebSocket>()
     /** Server-side close handshake and failures, in order: printed only when a wait times out. */
     private val serverSocketEvents = CopyOnWriteArrayList<String>()
+    // HUNT ONLY: client-side events and a shared clock for ordering.
+    private val clientSocketEvents = CopyOnWriteArrayList<String>()
+    private val t0 = System.nanoTime()
+    private fun us() = (System.nanoTime() - t0) / 1000
     private val failures = CopyOnWriteArrayList<String>()
     private val historyCalls = AtomicInteger()
     private val ledger = linkedMapOf<String, StoredMessage>()
@@ -77,6 +82,7 @@ class TripChatAcknowledgementTest {
 
     @Before fun prepare() {
         context = ApplicationProvider.getApplicationContext()
+        ChatSocket.huntEvents = { clientSocketEvents += "${us()}us $it" }
         clock = TestCoroutineScheduler()
         ApiClient.resetForTest()
         server = MockWebServer().apply {
@@ -106,16 +112,16 @@ class TripChatAcknowledgementTest {
                                 }
                             }
                             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                                serverSocketEvents += "ws#${serverSockets.indexOf(webSocket)} closing $code $reason"
+                                serverSocketEvents += "${us()}us ws#${serverSockets.indexOf(webSocket)} closing $code $reason"
                                 webSocket.close(code, null)
                             }
                             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                                serverSocketEvents += "ws#${serverSockets.indexOf(webSocket)} closed $code"
+                                serverSocketEvents += "${us()}us ws#${serverSockets.indexOf(webSocket)} closed $code"
                                 closedServerSockets += webSocket
                             }
                             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                                 // A failed socket never reaches onClosed, so cleanup would wait on it in vain.
-                                serverSocketEvents += "ws#${serverSockets.indexOf(webSocket)} failed $t"
+                                serverSocketEvents += "${us()}us ws#${serverSockets.indexOf(webSocket)} failed $t"
                             }
                         },
                     )
@@ -151,8 +157,10 @@ class TripChatAcknowledgementTest {
     }
 
     @After fun cleanup() {
+        serverSocketEvents += "${us()}us cleanup: client close"
         chats.forEach { it.socket?.close(); it.scope.cancel() }
         waitFor { chats.all { it.scope.coroutineContext[Job]?.children?.none() != false } }
+        serverSocketEvents += "${us()}us cleanup: server close"
         serverSockets.forEach { it.close(1000, null) }
         waitFor { serverSockets.all { it in closedServerSockets } }
         // Detach fault stores so teardown does not consume the storage failure under test.
@@ -164,6 +172,7 @@ class TripChatAcknowledgementTest {
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         server.shutdown()
+        ChatSocket.huntEvents = null
         assertTrue(failures.toString(), failures.isEmpty())
     }
 
@@ -214,6 +223,7 @@ class TripChatAcknowledgementTest {
             append("ws#$i ${if (s in closedServerSockets) "closed" else "NOT closed"} $s\n")
         }
         append("server socket events=$serverSocketEvents\n")
+        append("client socket events=$clientSocketEvents\n")
         Thread.getAllStackTraces().forEach { (thread, stack) ->
             if (stack.any { f -> listOf("com.yuldash", "okhttp3", "mockwebserver").any { f.className.contains(it) } }) {
                 append("thread ${thread.name} ${thread.state}\n")

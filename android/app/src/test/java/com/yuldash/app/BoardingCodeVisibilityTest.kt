@@ -143,6 +143,9 @@ class BoardingCodeVisibilityTest {
     @Test fun codeCardLeavesAfterISatIsTapped() {
         openScreen()
         waitForCodeLoaded()
+        // HUNT ONLY: name what was missing when the button is not there.
+        if (compose.onAllNodesWithText("Я сел").fetchSemanticsNodes().isEmpty())
+            org.junit.Assert.fail("HUNT: no 'Я сел' button; requests=$requests")
         compose.onAllNodesWithText("Я сел")[0].performClick()
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()

@@ -56,6 +56,8 @@ class ChatSocket(
 
     companion object {
         private const val MAX_DELAY_SEC = 30L
+        /** HUNT ONLY (disposable branch): client-side socket events for flaky-test diagnostics. */
+        @Volatile internal var huntEvents: ((String) -> Unit)? = null
 
         /** Чат такси-заказа (B7b-1): тот же сокет-протокол, путь /ws/instant/{orderId}/chat. */
         fun forOrder(
@@ -111,12 +113,14 @@ class ChatSocket(
         // Закрываем предыдущий сокет ПЕРЕД созданием нового: при гонке reconnect↔connect иначе оставались
         // бы два живых WS на один канал → дубли сообщений. Код 4999 (терминальный диапазон) → его onClosed
         // НЕ запустит реконнект (без churn). @Synchronized сериализует параллельные openSocket.
+        huntEvents?.invoke("client openSocket connection=$currentConnection replacing=${ws != null}")
         ws?.close(4999, "replaced")
         val url = "${ApiClient.wsBase()}${path ?: "/ws/bookings/$bookingId"}"   // токен НЕ в URL — шлём первым сообщением
         ws = client.newWebSocket(
             Request.Builder().url(url).build(),
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
+                    huntEvents?.invoke("client#$currentConnection open")
                     synchronized(this@ChatSocket) {
                         if (closed || connection != currentConnection || !ApiClient.runIfCurrentSession(ownerSession) {
                             // Refresh keeps the owner generation but can replace the token during HTTP upgrade.
@@ -154,11 +158,13 @@ class ChatSocket(
                     }
                 }
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    huntEvents?.invoke("client#$currentConnection closing $code $reason")
                     // Отвечаем на серверный graceful-close (в т.ч. 1008 «не участник»/«битый токен»): без этого
                     // onClosed может не прийти → onFailure → долбёжка реконнекта даже при терминальном отказе.
                     webSocket.close(code, null)
                 }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    huntEvents?.invoke("client#$currentConnection closed $code")
                     synchronized(this@ChatSocket) {
                         if (closed || connection != currentConnection) return
                         ws = null
@@ -174,6 +180,7 @@ class ChatSocket(
                     }
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    huntEvents?.invoke("client#$currentConnection failed $t")
                     synchronized(this@ChatSocket) {
                         if (closed || connection != currentConnection) return
                         ws = null
@@ -218,6 +225,7 @@ class ChatSocket(
     }
 
     @Synchronized fun close() {
+        huntEvents?.invoke("client close() connection=$connection ws=${ws != null}")
         closed = true   // глушит запланированные и будущие реконнекты
         connection++
         NetworkMonitor.unsubscribe(netListener)   // отписка обязательна — не будим мёртвый канал, не течём
