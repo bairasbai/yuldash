@@ -45,7 +45,7 @@ if variant in ("A", "AW"):
         cls = f"Hunt{variant}{i:03d}Test"
         text = src[:end] + extra + "\n}\n"
         write(cls, text.replace("class TripChatAcknowledgementTest {", f"class {cls} {{", 1))
-elif variant in ("B", "BD"):
+elif variant in ("B", "BD", "BS"):
     src = read("InstantShareOwnerBoundaryTest.kt")
     header = src[: src.index("/** Synthetic local HTTP")]
     body_start = src.rindex("@RunWith(RobolectricTestRunner::class)", 0, src.index("class InstantShareOwnerBoundaryTest"))
@@ -55,6 +55,21 @@ elif variant in ("B", "BD"):
         if variant == "B":
             cls = f"HuntB{i:03d}Test"
             write(cls, header + body.replace("class InstantShareOwnerBoundaryTest :", f"class {cls} :", 1))
+        elif variant == "BS":
+            # HUNT: look for the toast in 1 ms clock steps, so the commit that shows it is (almost) never
+            # followed by a frame before the check — the interleaving that the 100 ms await steps hit rarely.
+            wait = "await { ShadowToast.getTextOfLatestToast() != null }"
+            assert target.count(wait) == 1
+            fine = ("compose.waitUntil(15000) { Snapshot.sendApplyNotifications(); compose.mainClock.advanceTimeBy(1); "
+                    "Shadows.shadowOf(Looper.getMainLooper()).idle(); ShadowToast.getTextOfLatestToast() != null }")
+            cls = f"HuntBS{i:03d}Test"
+            write(cls, header + f"""@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = Application::class, qualifiers = "w411dp-h2600dp")
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+class {cls} : ShareHelpBoundaryHarness() {{
+{target.replace(wait, fine)}
+}}
+""")
         else:
             cls = f"HuntBD{i:03d}Test"
             write(cls, header + f"""@RunWith(RobolectricTestRunner::class)

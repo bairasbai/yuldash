@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: flaky-hunt-${{ github.ref }}
-  cancel-in-progress: true
+  group: flaky-hunt-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   hunt:
@@ -21,17 +21,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { id: a1, variant: A, copies: 100, amp: 30, stress: 0, prefix: HuntA }
-          - { id: a2, variant: A, copies: 100, amp: 30, stress: 4, prefix: HuntA }
-          - { id: a3, variant: A, copies: 100, amp: 30, stress: 0, prefix: HuntA }
-          - { id: b1, variant: B, copies: 25, amp: 0, stress: 4, prefix: HuntB0 }
-          - { id: b2, variant: B, copies: 25, amp: 0, stress: 0, prefix: HuntB0 }
-          - { id: bd, variant: BD, copies: 10, amp: 0, stress: 0, prefix: HuntBD }
-          - { id: c1, variant: C, copies: 80, amp: 0, stress: 4, prefix: HuntC0 }
-          - { id: c2, variant: C, copies: 80, amp: 0, stress: 0, prefix: HuntC0 }
-          - { id: cd, variant: CD, copies: 10, amp: 0, stress: 0, prefix: HuntCD }
-          - { id: full1, variant: FULL, copies: 0, amp: 0, stress: 0, prefix: "" }
-          - { id: full2, variant: FULL, copies: 0, amp: 0, stress: 2, prefix: "" }
+          # Round 2 (before the fix): deterministic windows for A and B.
+          - { id: aw, variant: AW, copies: 10, amp: 0, stress: 0, prefix: HuntAW }
+          - { id: bs, variant: BS, copies: 20, amp: 0, stress: 0, prefix: HuntBS }
     name: hunt-${{ matrix.id }}
     defaults:
       run:
