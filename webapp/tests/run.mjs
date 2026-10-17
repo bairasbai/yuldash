@@ -163,6 +163,10 @@ const SUITES = [
   // Шторка поездки уходит вниз, как шторки ленты (useSheetExit); без движения — сразу; бронь и
   // «Открыть поездку» закрывают её в тот же миг и ведут на экран поездки, не дожидаясь движения.
   { test: "sheet-exit-test", src: null, out: null, bundle: false },
+  // …и остальные нижние шторки сайта — такси (причина отмены, «почему не сможешь», жалоба на цену), посылки
+  // (код вручения), оплата (способ расчёта), заявки (отклик, отмена): уходят вниз и гаснут, без движения —
+  // сразу, из уходящей шторки ничего не отправить; сторож: голого className="sheet-backdrop" в сайте нет.
+  { test: "sheet-exit-rest-test", src: null, out: null, bundle: false },
   // Паритет с Android, шаги 3–4 (17.10.2026). Наборы исполняют настоящие экраны на общем стенде
   // shallow-harness.mjs (экран поездки — active-trip-fixture.mjs).
   // «Едут с тобой» → «Открыть поездку»; звёзды только у завершённых; отменённых в блоке нет.
@@ -171,6 +175,7 @@ const SUITES = [
   { test: "driver-rating-two-step-test", src: null, out: null, bundle: false },
   // Отмена: на «Брони» — только ждущая и своим окном; подтверждённая — на экране поездки с причиной {reason}; «в пути» — никак.
   { test: "booking-cancel-reason-test", src: null, out: null, bundle: false },
+  { test: "family-order-no-phone-test", src: null, out: null, bundle: false },
   // Точка водителя с сайта в канал /ws/trip/{id}/location: только в пути, без журнала и аналитики, отказ не роняет экран.
   { test: "driver-location-share-test", src: null, out: null, bundle: false },
   // …и сторожа приёмки PR155: без шторма соединений (лестница 1-2-4…30 с), отказ в ключе — ждём

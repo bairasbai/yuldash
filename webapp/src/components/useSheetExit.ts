@@ -47,11 +47,13 @@ export function useSheetExit(onClose: () => void, sheetRef: RefObject<HTMLElemen
   const [mode, setMode] = useState<"down" | "rewind" | null>(null);
   const started = useRef(false);
   const closed = useRef(false);
+  /** Шторка ещё на странице. После размонтирования `onClose` не зовётся ни по какому пути (см. ниже). */
+  const mounted = useRef(true);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
   function finish() {
-    if (closed.current) return;
+    if (closed.current || !mounted.current) return;
     closed.current = true;
     onCloseRef.current();
   }
@@ -99,6 +101,20 @@ export function useSheetExit(onClose: () => void, sheetRef: RefObject<HTMLElemen
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
+
+  // Одно правило: убрали шторку со страницы (экран закрыли, нажали «Назад») — `onClose` больше НЕ зовётся
+  // ни по какому пути: ни по таймеру выше, ни по концу движения, ни по `rising.finished` в развороте
+  // (отменённое движение отвечает как раз при размонтировании). `onClose` может уводить на другой экран
+  // (RideDetailScreen: navigate("/map")), и вызов после размонтирования перехватывал бы «Назад»: человек
+  // нажал «Назад» в первые ~260 мс ухода и оказывался на /map вместо предыдущей страницы (приёмка PR166).
+  // Родитель, который убрал шторку сам, знает, что её нет. `mounted` возвращается в true при повторном
+  // запуске эффекта (StrictMode в разработке сразу после монтирования гоняет очистку и эффект ещё раз).
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   return {
     /** Шторка уходит: в ней уже ничего не нажимается (в том числе бронь). */

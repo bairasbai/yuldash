@@ -8,6 +8,7 @@ import RideCard from "../components/RideCard";
 import RideSheet from "../components/RideSheet";
 import ScreenHeader from "../components/ScreenHeader";
 import { ErrorState, LoadingList } from "../components/States";
+import { useSheetExit } from "../components/useSheetExit";
 import { formatWhen, pluralRu } from "../utils/format";
 
 type ViewState = "loading" | "error" | "ready";
@@ -97,10 +98,6 @@ export default function MyRequestsScreen() {
   const [state, setState] = useState<ViewState>("loading");
   const [requests, setRequests] = useState<RideRequestRow[]>([]);
   const [cancelTarget, setCancelTarget] = useState<RideRequestRow | null>(null);
-  const [cancelling, setCancelling] = useState(false);
-  const [cancelError, setCancelError] = useState("");
-  const keepRef = useRef<HTMLButtonElement>(null);
-  const dialogRef = useRef<HTMLElement>(null);
   const returnFocusRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback((signal?: AbortSignal) => {
@@ -122,51 +119,10 @@ export default function MyRequestsScreen() {
     return () => controller.abort();
   }, [load]);
 
-  useEffect(() => {
-    if (cancelTarget) keepRef.current?.focus();
-  }, [cancelTarget]);
-
+  /** Шторка отмены уже уехала — убрать её со страницы и вернуть фокус на кнопку, откуда её открыли. */
   function closeDialog() {
-    if (cancelling) return;
     setCancelTarget(null);
-    setCancelError("");
     window.setTimeout(() => returnFocusRef.current?.focus(), 0);
-  }
-
-  function dialogKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeDialog();
-      return;
-    }
-    if (event.key !== "Tab") return;
-    const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
-    if (!buttons?.length) return;
-    const first = buttons[0];
-    const last = buttons[buttons.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  async function confirmCancel() {
-    if (!cancelTarget || cancelling) return;
-    setCancelling(true);
-    setCancelError("");
-    try {
-      const updated = await cancelRequest(cancelTarget.id);
-      setRequests((rows) => rows.map((row) => (row.id === updated.id ? updated : row)));
-      setCancelTarget(null);
-      window.setTimeout(() => returnFocusRef.current?.focus(), 0);
-    } catch {
-      setCancelError(appText("Не получилось отменить. Проверь связь и повтори.", "Кире алып булманы. Бәйләнеште тикшереп ҡабатла."));
-    } finally {
-      setCancelling(false);
-    }
   }
 
   return (
@@ -262,34 +218,111 @@ export default function MyRequestsScreen() {
       )}
 
       {cancelTarget && (
-        <div className="sheet-backdrop" onClick={closeDialog}>
-          <section
-            ref={dialogRef}
-            className="sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cancel-request-title"
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={dialogKeyDown}
-          >
-            <h2 className="sheet__title" id="cancel-request-title">
-              {appText("Отменить заявку?", "Заявканы кире алабыҙмы?")}
-            </h2>
-            <p className="sheet__comment">
-              {appText("Водители больше не увидят её. Это действие нельзя отменить.", "Йөрөтөүселәр уны күрмәҫ. Быны кире ҡайтарып булмай.")}
-            </p>
-            {cancelError && <div className="notice" role="alert">{cancelError}</div>}
-            <div className="sheet__actions">
-              <button ref={keepRef} type="button" className="btn-ghost" disabled={cancelling} onClick={closeDialog}>
-                {appText("Оставить", "Ҡалдырыу")}
-              </button>
-              <button type="button" className="btn-danger" disabled={cancelling} onClick={() => void confirmCancel()}>
-                {cancelling ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить заявку", "Кире алыу")}
-              </button>
-            </div>
-          </section>
-        </div>
+        <CancelRequestSheet
+          request={cancelTarget}
+          onCancelled={(updated) => setRequests((rows) => rows.map((row) => (row.id === updated.id ? updated : row)))}
+          onClose={closeDialog}
+        />
       )}
     </>
+  );
+}
+
+/**
+ * Нижняя шторка «Отменить заявку?». «Оставить», Esc, тап по затемнению и успешная отмена уводят её
+ * вниз (useSheetExit); `onClose` убирает шторку со страницы, когда она ушла. Пока отмена идёт на
+ * сервер, шторку не закрыть; во время ухода кнопки заперты — отмена из уходящей шторки не уходит.
+ */
+export function CancelRequestSheet({
+  request,
+  onCancelled,
+  onClose,
+}: {
+  request: RideRequestRow;
+  /** Сервер отменил заявку — обнови список. */
+  onCancelled: (updated: RideRequestRow) => void;
+  /** Шторка уже уехала — убери её со страницы. */
+  onClose: () => void;
+}) {
+  const { appText } = useLang();
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const exit = useSheetExit(onClose, dialogRef);
+
+  useEffect(() => {
+    keepRef.current?.focus();
+  }, []);
+
+  function closeDialog() {
+    if (cancelling) return;
+    exit.close();
+  }
+
+  function dialogKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDialog();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+    if (!buttons?.length) return;
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  async function confirmCancel() {
+    if (cancelling || exit.leaving) return;
+    setCancelling(true);
+    setCancelError("");
+    try {
+      const updated = await cancelRequest(request.id);
+      onCancelled(updated);
+      // Отменили — шторка уходит, кнопка до конца остаётся «Отменяем…» (cancelling не сбрасываем).
+      exit.close();
+    } catch {
+      setCancelError(appText("Не получилось отменить. Проверь связь и повтори.", "Кире алып булманы. Бәйләнеште тикшереп ҡабатла."));
+      setCancelling(false);
+    }
+  }
+
+  return (
+    <div className={exit.backdropClass} onClick={closeDialog}>
+      <section
+        ref={dialogRef}
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cancel-request-title"
+        onClick={(event) => event.stopPropagation()}
+        onAnimationEnd={exit.onAnimationEnd}
+        onKeyDown={dialogKeyDown}
+      >
+        <h2 className="sheet__title" id="cancel-request-title">
+          {appText("Отменить заявку?", "Заявканы кире алабыҙмы?")}
+        </h2>
+        <p className="sheet__comment">
+          {appText("Водители больше не увидят её. Это действие нельзя отменить.", "Йөрөтөүселәр уны күрмәҫ. Быны кире ҡайтарып булмай.")}
+        </p>
+        {cancelError && <div className="notice" role="alert">{cancelError}</div>}
+        <div className="sheet__actions">
+          <button ref={keepRef} type="button" className="btn-ghost" disabled={cancelling || exit.leaving} onClick={closeDialog}>
+            {appText("Оставить", "Ҡалдырыу")}
+          </button>
+          <button type="button" className="btn-danger" disabled={cancelling || exit.leaving} onClick={() => void confirmCancel()}>
+            {cancelling ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить заявку", "Кире алыу")}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }

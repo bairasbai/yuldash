@@ -1,8 +1,8 @@
 // ================================================================
 //  «За близкого» — заявка на поездку для другого человека (пожилого
 //  родителя, ребёнка). POST /requests с for_relative_name + assisted
-//  (сервер сразу уведомляет админа). Телефон близкого — в комментарии
-//  (у заявки нет отдельного поля телефона). RequireAuth.
+//  (сервер сразу уведомляет админа). Телефон близкого в заявку НЕ уходит: у заявки нет своего
+//  поля телефона, а комментарий видят все водители в ленте (как в Android). RequireAuth.
 // ================================================================
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -32,11 +32,11 @@ export default function FamilyOrderScreen() {
     if (!valid || state === "sending") return;
     setState("sending");
     setError(null);
-    // Телефон близкого + заметку кладём в комментарий: у RequestIn нет поля phone.
-    const parts = [
-      relPhone.trim() ? appText(`Телефон близкого: ${relPhone.trim()}`, `Яҡындың телефоны: ${relPhone.trim()}`) : "",
-      comment.trim(),
-    ].filter(Boolean);
+    // ПРИВАТНОСТЬ: телефон близкого в комментарий не кладём — заявку со всем комментарием видят
+    // все водители в ленте ещё до отклика, это утечка номера чужого человека (план брони «для друга»,
+    // 17.10). В комментарии — нейтральная метка, как в Android (AccessibilityScreens.kt,
+    // FamilyOrderScreen), и заметка самого человека.
+    const parts = [appText("Заказ за близкого", "Яҡын кеше өсөн заказ"), comment.trim()].filter(Boolean);
     try {
       await createRequest({
         from_city: fromCity.trim(),
