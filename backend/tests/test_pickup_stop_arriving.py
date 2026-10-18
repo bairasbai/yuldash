@@ -249,6 +249,14 @@ def test_stop_arriving_opens_when_the_car_could_be_there(client, user_factory, r
     pushes.clear()                              # «Бронь подтверждена» — не про это
     depart = _depart(ride["id"])
     opens = depart - bookings_mod.DONE_EARLY_GRACE + timedelta(hours=KM_TO_URGAZA / settings.stop_fast_kmh)
+    # За час до выезда «Сел» ещё нельзя — текст общий, без ««Сел» отметить можно» (A-P3-3); срок в
+    # ответе — всё равно срок остановки.
+    clock(depart - timedelta(hours=1))
+    too_early = _arriving(client, drv, b_stop)
+    assert too_early.status_code == 409, too_early.text
+    d0 = too_early.json()["detail"]
+    assert d0["code"] == "arriving_too_early" and "«Сел»" not in d0["ru"] and "Ултырҙы" not in d0["ba"], d0
+    assert "30 минут до выезда" in d0["ru"] and "30 минут" in d0["ba"]
     clock(opens - timedelta(seconds=1))
     early = _arriving(client, drv, b_stop)
     assert early.status_code == 409, early.text
@@ -257,6 +265,7 @@ def test_stop_arriving_opens_when_the_car_could_be_there(client, user_factory, r
     from datetime import datetime
     got = datetime.fromisoformat(d["arriving_opens_at"])
     assert abs((got - opens).total_seconds()) < 60, (got, opens)
+    assert d0["arriving_opens_at"] == d["arriving_opens_at"]
     assert 0 < d["arriving_wait_sec"] <= 61
     hhmm = (got + timedelta(hours=settings.local_tz_offset_hours)).strftime("%H:%M")
     assert "Ургаза" in d["ru"] and hhmm in d["ru"] and "Позвони или напиши" in d["ru"] and "«Сел»" in d["ru"]

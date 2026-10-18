@@ -1070,12 +1070,15 @@ def _arriving_too_early_refusal(ride: Ride, now=None, booking: Optional[Booking]
     с которого можно, `arriving_wait_sec` — сколько секунд осталось (часы телефона врут на минуты).
 
     Бронь на остановке, до которой ещё ехать: текст называет остановку и время по местным часам и
-    подсказывает, что делать сейчас (P3): позвонить или написать; «Сел» отметить можно."""
+    подсказывает, что делать сейчас (P3): позвонить или написать; «Сел» отметить можно. Только когда
+    «Сел» и правда уже можно — с `depart − DONE_EARLY_GRACE` (A-P3-3); раньше — общий текст про
+    30 минут до выезда (`arriving_opens_at` в ответе — всё равно срок остановки)."""
     minutes = int(DONE_EARLY_GRACE.total_seconds() // 60)
     at = arriving_opens_at(ride, booking, entry)
     base = arriving_opens_at(ride)
     place = pickup_of(ride, booking, entry) if booking is not None else None
-    if place is not None and place.kind == "stop" and at is not None and base is not None and at > base:
+    if place is not None and place.kind == "stop" and at is not None and base is not None and at > base \
+            and (now or utcnow()) >= base:
         hhmm = _local_hhmm(at)
         ru = (f"Рано: до остановки «{place.stop}» ещё ехать. «Подъезжаю» можно с {hhmm}. "
               "Позвони или напиши пассажиру; «Сел» отметить можно.")
