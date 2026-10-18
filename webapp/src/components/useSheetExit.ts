@@ -5,9 +5,18 @@
 //
 //  Шторка, которая пользуется уходом, — отдельный компонент: он живёт, пока шторка открыта,
 //  поэтому каждое открытие начинается с чистого состояния. Хук — только на useState/useRef/useEffect:
-//  тесты бронирования подменяют React ровно этими тремя.
+//  тесты бронирования подменяют React ровно этими тремя (и react-dom — заглушкой createPortal).
+//
+//  Шторка рисуется прямо в <body> (`exit.portal(…)`), а не там, где её открыли. Затемнение — это
+//  `position: fixed; inset: 0`, и оно накрывает экран, только пока ни у одного предка нет transform,
+//  filter или will-change. А они есть: карточка после своего появления (fadeUp … both) так и держит
+//  transform, панель такси двигается transform-ом. Внутри такой карточки «почему не сможешь» у
+//  водителя такси рисовалась в её рамке: затемнение 356×158 вместо всего экрана, заголовок и первая
+//  причина — под картой, снизу торчали кнопки поездки (живая проверка 17.10.2026). В <body> предков
+//  с transform нет — шторка всегда во весь экран, где бы её ни открыли.
 // ================================================================
-import { useEffect, useRef, useState, type AnimationEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type AnimationEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 /** Запас к длительности ухода, после которого шторка закрывается и без события о конце движения. */
 const LEAVE_GRACE_MS = 80;
@@ -20,6 +29,20 @@ export function prefersReducedMotion(): boolean {
 /** Длительность из getComputedStyle («0.26s», «260ms», через запятую) → миллисекунды, самая долгая. */
 export function cssTimeMs(value: string): number {
   return Math.max(0, ...value.split(",").map((v) => (v.trim().endsWith("ms") ? parseFloat(v) : parseFloat(v) * 1000) || 0));
+}
+
+/** Что внутри шторки ловит Tab: кнопки, поля и ссылки по порядку (выключенные — мимо). */
+const FOCUSABLE =
+  'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
+
+/** Номер для id заголовка: у каждой открытой шторки свой (`aria-labelledby`). */
+let titleSeq = 0;
+
+/** Элемент под фокусом сейчас — или null, если браузера нет (тесты без document). */
+function focusedElement(): HTMLElement | null {
+  if (typeof document === "undefined" || typeof HTMLElement === "undefined") return null;
+  const el = document.activeElement;
+  return el instanceof HTMLElement ? el : null;
 }
 
 /** Идущее сейчас CSS-движение элемента с этим именем (появление шторки или затемнения). */
@@ -40,9 +63,28 @@ function runningAnimation(el: Element | null | undefined, name: string): Animati
  *   сейчас: без рывка «вверх до конца — и вниз» (приёмка PR154).
  * - «Уменьшить движение» — `onClose` сразу.
  *
- * `backdropClass` — на .sheet-backdrop, `onAnimationEnd` — на саму .sheet (её же держит `sheetRef`).
+ * Шторка — диалог, и всё про клавиатуру и читалку живёт здесь, одно на все шторки:
+ * - открылась — фокус внутрь: на саму шторку (читалка называет её заголовок) или на `initialFocus`;
+ *   если фокус уже внутри (поле с autoFocus), его не трогаем;
+ * - Esc уводит шторку вниз (если `canClose` не против: бронь или отмена ещё в пути), Tab ходит по кругу
+ *   внутри и на страницу под затемнением не выходит;
+ * - убрали со страницы — фокус возвращается туда, откуда шторку открыли.
+ * Шторка вынесена в <body> (см. `portal`): без этого читалка дошла бы до неё только в конце страницы.
+ *
+ * `backdropClass` — на .sheet-backdrop; на саму .sheet (её же держит `sheetRef`) — `{...dialogProps}`,
+ * `aria-labelledby={titleId}` и `onAnimationEnd`; на заголовок — `id={titleId}`. Всю разметку от затемнения
+ * вниз компонент отдаёт через `portal`: `return exit.portal(<div className={exit.backdropClass}>…)`.
  */
-export function useSheetExit(onClose: () => void, sheetRef: RefObject<HTMLElement>) {
+export function useSheetExit(
+  onClose: () => void,
+  sheetRef: RefObject<HTMLElement>,
+  options: {
+    /** Куда поставить фокус при открытии вместо самой шторки (например, на безопасную «Оставить»). */
+    initialFocus?: RefObject<HTMLElement>;
+    /** Можно ли закрыть с клавиатуры (Esc) прямо сейчас: false, пока бронь или отмена в пути. */
+    canClose?: () => boolean;
+  } = {}
+) {
   /** «down» — уезжает вниз (sheetDown); «rewind» — разворачивает недоигранное появление. */
   const [mode, setMode] = useState<"down" | "rewind" | null>(null);
   const started = useRef(false);
@@ -51,6 +93,13 @@ export function useSheetExit(onClose: () => void, sheetRef: RefObject<HTMLElemen
   const mounted = useRef(true);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  /** Откуда открыли: запоминаем ещё до того, как фокус сдвинет autoFocus поля внутри шторки. */
+  const opener = useRef<HTMLElement | null | undefined>(undefined);
+  if (opener.current === undefined) opener.current = focusedElement();
+  const titleId = useRef("");
+  if (!titleId.current) titleId.current = `sheet-title-${++titleSeq}`;
 
   function finish() {
     if (closed.current || !mounted.current) return;
@@ -116,11 +165,58 @@ export function useSheetExit(onClose: () => void, sheetRef: RefObject<HTMLElemen
     };
   }, []);
 
+  // Открылась — фокус внутрь (если его туда ещё не поставило поле с autoFocus); убрали — обратно к тому,
+  // откуда открыли. Раньше половина шторок фокус не переносила вовсе, и после выноса в <body> читалка
+  // доходила до них только в конце страницы (приёмка PR181).
+  useEffect(() => {
+    const sheet = sheetRef.current;
+    const inside = focusedElement();
+    if (sheet && !(inside && sheet.contains(inside))) (optionsRef.current.initialFocus?.current ?? sheet).focus();
+    return () => opener.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Esc — уход вниз; Tab и Shift+Tab — по кругу внутри шторки, наружу не выпускают. */
+  function onKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      event.preventDefault();
+      if (optionsRef.current.canClose?.() !== false) close();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const sheet = sheetRef.current;
+    const controls = sheet?.querySelectorAll<HTMLElement>(FOCUSABLE);
+    if (!sheet || !controls?.length) return;
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || active === sheet)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   return {
     /** Шторка уходит: в ней уже ничего не нажимается (в том числе бронь). */
     leaving: mode !== null,
     close,
     backdropClass: "sheet-backdrop" + (mode === "down" ? " is-leaving" : ""),
+    /** На саму .sheet: диалог для читалки, фокусируемый целиком; Esc и Tab — см. onKeyDown выше. */
+    dialogProps: { role: "dialog" as const, "aria-modal": true as const, tabIndex: -1, onKeyDown },
+    /** id заголовка шторки: `id={titleId}` на заголовок, `aria-labelledby={titleId}` на .sheet. */
+    titleId: titleId.current,
+    /**
+     * Затемнение со шторкой — в <body>: ни один предок с transform не сожмёт затемнение до своей рамки.
+     * События React по-прежнему идут через того, кто открыл шторку (портал так устроен). В DOM шторка —
+     * в конце <body>, поэтому фокус в неё переносит сам хук (эффект выше), а Tab держит внутри onKeyDown.
+     */
+    portal(node: ReactNode) {
+      return createPortal(node, document.body);
+    },
     /** Своё движение «вниз», а не всплывшее от строки или кнопки внутри шторки. */
     onAnimationEnd(e: AnimationEvent<HTMLElement>) {
       if (mode === "down" && e.target === e.currentTarget && e.animationName === "sheetDown") finish();
