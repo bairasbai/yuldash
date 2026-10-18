@@ -27,17 +27,18 @@ from app import trip_wake
 from app.db import engine
 from app.models import Booking, BookingStatus, Ride, UserRole
 from app.routers import location
+from app.routers.bookings import NO_SHOW_WAIT
 from app.timeutil import utcnow
 from boarding_helpers import settle_boarding
 
 pytestmark = pytest.mark.timeout(30)
 
 
-def _поездка(client, user_factory, тег: str, мест: int = 3):
+def _поездка(client, user_factory, тег: str, мест: int = 3, выезд: timedelta = timedelta(minutes=10)):
     водитель = user_factory(f"Конец {тег} водитель", role=UserRole.driver)
     ride = client.post("/rides", headers=водитель["auth"], json={
         "from_city": "Сибай", "to_city": "Уфа",
-        "depart_at": (utcnow() + timedelta(minutes=10)).isoformat() + "+00:00",
+        "depart_at": (utcnow() + выезд).isoformat() + "+00:00",
         "seats_total": мест, "price": 500}).json()
     return водитель, ride
 
@@ -159,7 +160,8 @@ def test_отмена_неявка_и_снятие_поездки_толкают
     настоящий = trip_wake.poke
     monkeypatch.setattr(trip_wake, "poke", lambda bid: (толкнули.append(bid), настоящий(bid)))
 
-    водитель, ride = _поездка(client, user_factory, "толчки", мест=3)
+    # Выехал давно: «Не пришёл» доступна только после выезда + ожидание (решение 18.10.2026).
+    водитель, ride = _поездка(client, user_factory, "толчки", мест=3, выезд=-(NO_SHOW_WAIT + timedelta(minutes=1)))
     п1, b1 = _бронь(client, user_factory, водитель, ride, "толчки-1")
     _п2, b2 = _бронь(client, user_factory, водитель, ride, "толчки-2")
     _п3, b3 = _бронь(client, user_factory, водитель, ride, "толчки-3")

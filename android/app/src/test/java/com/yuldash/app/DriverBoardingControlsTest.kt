@@ -36,6 +36,9 @@ import java.util.concurrent.CopyOnWriteArrayList
  *
  *  • водитель: «Сел» рядом с «Не пришёл» → «Пассажир в машине» и «Отменить · 5:00»;
  *    «Отменить» возвращает «Сел»; отказ сервера — его словами;
+ *  • «Не пришёл» (решение 18.10.2026): до срока от сервера (`no_show_at`: выезд + 15 минут) вместо
+ *    кнопки спокойная подпись; после — кнопка, а нажатие сперва спрашивает «Точно не пришёл?»:
+ *    «Да, не пришёл» зовёт сервер, «Подождать» — нет; отказ `no_show_too_early` — его словами;
  *  • пассажир: «Водитель отметит посадку» и «Сообщить о проблеме» (разбор с водителем брони).
  *
  * Правило `v2`, как у остальных сетевых тестов Compose: корутина продолжается на главном потоке,
@@ -92,13 +95,23 @@ class DriverBoardingControlsTest {
         compose.onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
     }
 
-    private fun card(status: String = "confirmed", undoSec: Int = 0, language: AppLanguage = AppLanguage.Ru) =
-        compose.setContent {
-            CompositionLocalProvider(LocalAppLanguage provides language) {
-                DriverBoardingControls(bookingId = 42, bookingStatus = status, boardingUndoSec = undoSec,
-                    passengerId = 7, passengerName = "Айгуль")
-            }
+    private fun card(
+        status: String = "confirmed", undoSec: Int = 0, language: AppLanguage = AppLanguage.Ru,
+        noShowAt: String? = null,
+    ) = compose.setContent {
+        CompositionLocalProvider(LocalAppLanguage provides language) {
+            DriverBoardingControls(bookingId = 42, bookingStatus = status, boardingUndoSec = undoSec,
+                passengerId = 7, passengerName = "Айгуль", noShowAt = noShowAt)
         }
+    }
+
+    /** Момент `no_show_at` относительно «сейчас» в том виде, как его присылает сервер (UTC без «Z»). */
+    private fun opensIn(offsetMs: Long): String =
+        java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(
+            java.time.LocalDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(System.currentTimeMillis() + offsetMs), java.time.ZoneOffset.UTC,
+            ).withNano(0),
+        )
 
     @Test fun driverMarksBoardingAndSeesTheUndoWindow() {
         card()
@@ -151,6 +164,7 @@ class DriverBoardingControlsTest {
     @Test fun noShowReplacesBothButtonsWithTheNote() {
         card()
         compose.onNodeWithText("Не пришёл").performClick()
+        compose.onNodeWithText("Да, не пришёл").performClick()
         waitFor("Отмечена неявка", substring = true)
         compose.onAllNodesWithText("Сел").assertCountEquals(0)
         assertEquals(1, calls.count { it.startsWith("POST /bookings/42/no-show") })
@@ -162,9 +176,99 @@ class DriverBoardingControlsTest {
         noShowReply = json("""{"detail":{"ru":"Пассажир уже отмечен в машине — неявку не отметить.","ba":"Пассажир машинала тип билдәләнгән инде.","code":"passenger_onboard","boarding_undo_sec":120}}""", 409)
         card()
         compose.onNodeWithText("Не пришёл").performClick()
+        compose.onNodeWithText("Да, не пришёл").performClick()
         waitFor("Пассажир в машине")
         compose.onAllNodesWithText("Отменить ·", substring = true).assertCountEquals(1)
         compose.onAllNodesWithText("Сообщить о проблеме").assertCountEquals(0)
+    }
+
+    // ── «Не пришёл» через ожидание и с вопросом «Точно?» (решение 18.10.2026) ──
+
+    /** Выезд через два часа: до срока кнопки нет — есть подпись, когда это станет можно. Сервер не зовём. */
+    @Test fun beforeTheWaitACalmNoteReplacesTheNoShowButton() {
+        card(noShowAt = opensIn(2 * 60 * 60_000L))
+        compose.onNodeWithText("Не пришёл — можно отметить с", substring = true).assertIsDisplayed()
+        compose.onAllNodesWithText("Не пришёл").assertCountEquals(0)
+        // «Сел» при этом на месте и на всю ширину: посадку отмечают, когда человек подошёл, а не по часам.
+        compose.onNodeWithText("Сел").assertIsDisplayed()
+        assertTrue(calls.isEmpty())
+    }
+
+    @Test fun afterTheWaitTheNoShowButtonIsBackAndTheNoteIsGone() {
+        card(noShowAt = opensIn(-60_000L))
+        compose.onNodeWithText("Не пришёл").assertIsDisplayed()
+        compose.onAllNodesWithText("Не пришёл — можно отметить с", substring = true).assertCountEquals(0)
+        compose.onNodeWithText("Сел").assertIsDisplayed()
+    }
+
+    @Test fun tapOpensTheQuestionAndSendsNothingYet() {
+        card(noShowAt = opensIn(-60_000L))
+        compose.onNodeWithText("Не пришёл").performClick()
+        compose.onNodeWithText("Точно не пришёл?").assertIsDisplayed()
+        compose.onNodeWithText("Бронь снимется, место вернётся в продажу.", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Да, не пришёл").assertIsDisplayed()
+        compose.onNodeWithText("Подождать").assertIsDisplayed()
+        assertTrue("с первого касания неявка не уходит: $calls", calls.isEmpty())
+    }
+
+    @Test fun waitingClosesTheQuestionAndLeavesTheBookingAlone() {
+        card(noShowAt = opensIn(-60_000L))
+        compose.onNodeWithText("Не пришёл").performClick()
+        compose.onNodeWithText("Подождать").performClick()
+        compose.waitUntil(15_000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            Snapshot.sendApplyNotifications()
+            compose.onAllNodesWithText("Точно не пришёл?").fetchSemanticsNodes().isEmpty()
+        }
+        compose.onNodeWithText("Не пришёл").assertIsDisplayed()
+        compose.onNodeWithText("Сел").assertIsDisplayed()
+        assertTrue("«Подождать» ничего не отправляет: $calls", calls.isEmpty())
+    }
+
+    @Test fun yesSendsTheNoShowExactlyOnce() {
+        card(noShowAt = opensIn(-60_000L))
+        compose.onNodeWithText("Не пришёл").performClick()
+        compose.onNodeWithText("Да, не пришёл").performClick()
+        waitFor("Отмечена неявка", substring = true)
+        assertEquals(1, calls.count { it.startsWith("POST /bookings/42/no-show") })
+    }
+
+    /** На телефоне время ушло вперёд (или выезд перенесли): сервер говорит «рано» — человек читает его слова. */
+    @Test fun tooEarlyAnswerShowsTheServerWordsAndKeepsTheCard() {
+        noShowReply = json(
+            """{"detail":{"ru":"Пока рано: пассажир ещё может подойти. Неявку можно отметить через 15 минут после времени выезда.","ba":"Әле иртә.","code":"no_show_too_early","no_show_wait_sec":600,"no_show_at":"2030-01-01T05:15:00"}}""",
+            409,
+        )
+        card(noShowAt = opensIn(-60_000L))
+        compose.onNodeWithText("Не пришёл").performClick()
+        compose.onNodeWithText("Да, не пришёл").performClick()
+        compose.waitUntil(15_000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            ShadowToast.getTextOfLatestToast() != null
+        }
+        assertEquals(
+            "Пока рано: пассажир ещё может подойти. Неявку можно отметить через 15 минут после времени выезда.",
+            ShadowToast.getTextOfLatestToast(),
+        )
+        compose.onAllNodesWithText("Точно не пришёл?").assertCountEquals(0)
+        compose.onNodeWithText("Сел").assertIsDisplayed()
+        compose.onNodeWithText("Не пришёл").assertIsDisplayed()
+        compose.onAllNodesWithText("Отмечена неявка", substring = true).assertCountEquals(0)
+    }
+
+    @Test fun bashkirNoteAndQuestionForTheDriver() {
+        card(language = AppLanguage.Ba, noShowAt = opensIn(2 * 60 * 60_000L))
+        compose.onNodeWithText("Килмәне — ", substring = true).assertIsDisplayed()
+        compose.onAllNodesWithText("Килмәне").assertCountEquals(0)
+    }
+
+    @Test fun bashkirQuestionAfterTheWait() {
+        card(language = AppLanguage.Ba, noShowAt = opensIn(-60_000L))
+        compose.onNodeWithText("Килмәне").performClick()
+        compose.onNodeWithText("Ысынлап та килмәнеме?").assertIsDisplayed()
+        compose.onNodeWithText("Эйе, килмәне").assertIsDisplayed()
+        compose.onNodeWithText("Көтөргә").assertIsDisplayed()
+        assertTrue(calls.isEmpty())
     }
 
     @Test fun bashkirLabelsForTheDriver() {

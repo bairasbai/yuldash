@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
 // отметил «Не пришёл», а нажатое по ошибке было не вернуть. Теперь:
 //  • водитель — «Сел» рядом с «Не пришёл» на карточке подтверждённого пассажира (кабинет) и
 //    «Пассажир сел» на экране поездки; промахнулся карточкой — «Отменить» в первые 5 минут;
+//    «Не пришёл» появляется через 15 минут после выезда (срок — от сервера) и спрашивает «Точно?»;
 //  • пассажир — «Водитель отметит посадку» и «Сообщить о проблеме»; код посадки виден ему,
 //    пока водитель не отметил посадку (BoardingCodeRules.kt).
 // Сервер — bookings.py (`_mark_boarded`, `undo_boarded`), сайт — DriverBoarding.tsx / BoardingWait.tsx.
@@ -75,6 +76,8 @@ internal fun DriverBoardingControls(
     modifier: Modifier = Modifier,
     passengerId: Int = 0,
     passengerName: String = "",
+    // С какого момента доступна «Не пришёл» (ISO UTC, `no_show_at` из /driver/bookings); null — старый сервер.
+    noShowAt: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
@@ -84,33 +87,45 @@ internal fun DriverBoardingControls(
     val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
     AnimatedContent(targetState = shown, modifier = modifier.fillMaxWidth(), label = "driverBoarding") { state ->
         when (state) {
-            "confirmed" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-                AppButton(
-                    text = appText("Сел", "Ултырҙы"),
-                    onClick = {
-                        if (!marking) {
-                            marking = true
-                            scope.launch {
-                                BoardingApi.markBoarded(bookingId)
-                                    .onSuccess { r -> undoSec = r.undoSec; shown = r.status.ifBlank { "onboard" } }
-                                    .onFailure { e -> Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show() }
-                                marking = false
+            "confirmed" -> {
+                // «Не пришёл» — не раньше срока от сервера (выезд + 15 минут): до него на месте кнопки
+                // спокойная подпись, потом — кнопка, а нажатие сперва спрашивает «Точно?» (18.10.2026).
+                val noShowReady by rememberNoShowOpen(noShowAt)
+                AnimatedContent(targetState = noShowReady, modifier = Modifier.fillMaxWidth(), label = "noShowReady") { ready ->
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                            AppButton(
+                                text = appText("Сел", "Ултырҙы"),
+                                onClick = {
+                                    if (!marking) {
+                                        marking = true
+                                        scope.launch {
+                                            BoardingApi.markBoarded(bookingId)
+                                                .onSuccess { r -> undoSec = r.undoSec; shown = r.status.ifBlank { "onboard" } }
+                                                .onFailure { e -> Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show() }
+                                            marking = false
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                style = AppButtonStyle.Secondary,
+                                icon = Icons.Default.Check,
+                                loading = marking,
+                                fillWidth = false,
+                                height = 48.dp,
+                            )
+                            if (ready) {
+                                NoShowButton(
+                                    bookingId = bookingId,
+                                    onSent = { shown = "no_show" },
+                                    onBoarded = { sec -> undoSec = sec; shown = "onboard" },
+                                    modifier = Modifier.weight(1f),
+                                )
                             }
                         }
-                    },
-                    modifier = Modifier.weight(1f),
-                    style = AppButtonStyle.Secondary,
-                    icon = Icons.Default.Check,
-                    loading = marking,
-                    fillWidth = false,
-                    height = 48.dp,
-                )
-                NoShowButton(
-                    bookingId = bookingId,
-                    onSent = { shown = "no_show" },
-                    onBoarded = { sec -> undoSec = sec; shown = "onboard" },
-                    modifier = Modifier.weight(1f),
-                )
+                        if (!ready) NoShowWaitNote(noShowAt)
+                    }
+                }
             }
             "onboard" -> BoardingInCarRow(
                 bookingId = bookingId,

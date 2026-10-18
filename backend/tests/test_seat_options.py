@@ -9,7 +9,6 @@
 """
 import os
 import threading
-from datetime import timedelta
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -17,7 +16,7 @@ from sqlmodel import Session
 
 from app.db import engine
 from app.models import Booking, BookingStatus, UserRole
-from app.timeutil import utcnow
+from test_flows import waited_out
 
 _N = {"i": 0}
 
@@ -161,8 +160,8 @@ def test_two_seat_booking_may_ask_for_the_front(client, user_factory):
 def test_front_seat_is_freed(client, user_factory, how):
     drv = user_factory(f"FreeDrv-{how}", role=UserRole.driver)
     pax, next_pax = user_factory(f"FreePax-{how}"), user_factory(f"FreeNext-{how}")
-    # Неявку отмечают по уже начавшейся поездке — выезд минуту назад.
-    depart = (utcnow() - timedelta(minutes=1)).replace(microsecond=0).isoformat() + "+00:00"
+    # Неявку отмечают по давно начавшейся поездке: после выезда прошло ожидание «Не пришёл» (18.10.2026).
+    depart = waited_out()
     rid = _ride(client, drv, depart_at=depart)["id"]
     bid = _book(client, pax, rid, front_seat=True).json()["id"]
     if how == "passenger_cancels":

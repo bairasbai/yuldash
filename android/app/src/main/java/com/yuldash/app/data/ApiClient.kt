@@ -6696,6 +6696,7 @@ data class DriverBookingDto(
     val frontSeat: Boolean = false,   // просит переднее место — водитель видит до решения
     val passengerId: Int = 0,   // вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»); 0 — старый сервер
     val boardingUndoSec: Int = 0,   // сколько секунд ещё можно отменить свою отметку «Сел»; 0 — нельзя / старый сервер
+    val noShowAt: String? = null,   // ISO UTC: с этого момента доступна «Не пришёл» (выезд + ожидание, считает сервер); null — старый сервер, решает сервер
 )
 
 /** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */
@@ -6926,6 +6927,7 @@ internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
         frontSeat = o.optBoolean("front_seat"),
         passengerId = o.optInt("passenger_id"),
         boardingUndoSec = o.optInt("boarding_undo_sec"),
+        noShowAt = if (o.isNull("no_show_at")) null else o.optString("no_show_at").ifBlank { null },
     )
 }
 
