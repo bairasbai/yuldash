@@ -389,7 +389,10 @@ class DriverBoardingControlsTest {
             "constraints=${layout.layoutInput.constraints}"
         assertEquals("«$label» — одной строкой; $sizes", 1, layout.lineCount)
         assertTrue("«$label» не обрезана многоточием; $sizes", !layout.isLineEllipsized(0))
-        assertTrue("«$label» помещается в кнопку; $sizes", glyphs <= layout.size.width + 0.5f)
+        // С местом, которое кнопка отдаёт надписи (а не с шириной самого узла — та округляется и на
+        // CI вышла 95 при буквах 96.0: «Яҡынлашам» на месте, ошибка в долю точки).
+        assertTrue("«$label» помещается в кнопку; $sizes",
+            glyphs <= layout.layoutInput.constraints.maxWidth + 0.5f)
         val arriving = compose.onNodeWithTag("driverArrivingButton").fetchSemanticsNode().boundsInRoot
         assertEquals("высота «$label» = высота «Сел»", boardedBounds().height, arriving.height, 0.5f)
         assertEquals("обе кнопки — половина ряда", boardedBounds().width, arriving.width, 0.5f)
