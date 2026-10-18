@@ -36,8 +36,21 @@ SIBAY = (52.716, 58.664)
 
 
 def _when(days: int = 400) -> str:
-    """Выезд далеко: правила брони от времени не зависят, а полный рейс не теснит чужие ленты."""
+    """Выезд далеко: правила брони от времени не зависят. Чужие ленты рейсы этого файла не теснят —
+    после каждого теста они полные (`_rides_full_after_test`)."""
     return (utcnow() + timedelta(days=days)).replace(microsecond=0).isoformat() + "+00:00"
+
+
+@pytest.fixture(autouse=True)
+def _rides_full_after_test():
+    """Рейсы этого файла (`comment` «pickup-…») после теста — без свободных мест: полный рейс не попадает
+    ни в ленту, ни в «Ближайшие», и тесты общей базы, которые листают ленту, их не видят (A-P3-4)."""
+    yield
+    with Session(engine) as s:
+        for r in s.exec(select(Ride).where(Ride.comment.startswith("pickup-"), Ride.seats_left > 0)).all():
+            r.seats_left = 0
+            s.add(r)
+        s.commit()
 
 
 def _publish(client, drv, tag: str, *, waypoints: str = STOPS, frm: str = "Сибай", to: str = "Акъяр",
@@ -365,8 +378,11 @@ def test_publish_takes_real_village_names_and_normalizes(client, user_factory):
 
 
 def test_old_ride_bad_stops_are_hidden_in_public_outputs(client, user_factory):
+    """«Ближайшие» — только этот день и этот маршрут: тест не зависит от чужих поездок общей базы
+    (свой день; остальные рейсы файла после тестов полные)."""
     drv = user_factory("PS Clean Driver", role=UserRole.driver)
-    ride = _publish(client, drv, "clean", waypoints="Ургаза", frm="Сибай", to="Акъяр")
+    depart = _when(days=433)
+    ride = _publish(client, drv, "clean", waypoints="Ургаза", frm="Сибай", to="Акъяр", depart=depart)
     with Session(engine) as s:
         r = s.get(Ride, ride["id"])
         r.waypoints = "Ургаза | ул. Ленина 5 | +7 917 000-00-00 | Сибай"
@@ -374,9 +390,9 @@ def test_old_ride_bad_stops_are_hidden_in_public_outputs(client, user_factory):
         s.commit()
     card = client.get(f"/rides/{ride['id']}").json()
     assert card["waypoints"] == "Ургаза", card["waypoints"]
-    near = client.get("/rides/near", params={"from_city": "Сибай", "to_city": "Акъяр", "limit": 200}).json()
+    near = client.get("/rides/near", params={"from_city": "Сибай", "to_city": "Акъяр", "date": depart[:10]}).json()
     mine = [x for x in near["items"] if x["id"] == ride["id"]]
-    assert mine and mine[0]["waypoints"] == "Ургаза"
+    assert mine and mine[0]["waypoints"] == "Ургаза", near
 
 
 # ── Справочник и правила, без сервера ──
