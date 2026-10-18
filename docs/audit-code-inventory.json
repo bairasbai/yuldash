@@ -83,7 +83,7 @@
     "infra_resource_config": 360,
     "public_site_promo": 89,
     "pwa_main": 287,
-    "test_support": 989
+    "test_support": 990
   },
   "counts_by_block": {
     "B01": 131,
@@ -94,7 +94,7 @@
     "B06": 85,
     "B07": 107,
     "B08": 175,
-    "B09": 579,
+    "B09": 580,
     "B10": 360,
     "B11": 90
   },
@@ -6637,6 +6637,13 @@
       "block": "B09",
       "sha256": "e5aaffc227c96f71c6c15017b0708b586e4c02339a807389d8e158e878e4174e",
       "lines": 177
+    },
+    {
+      "path": "backend/tests/journeys/test_journey_two_stop_receipts.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "f3be68fa097662273ec91aec650c1e61e0ea469beb526aa314f563ab19ff9267",
+      "lines": 168
     },
     {
       "path": "backend/tests/test_a_ban_that_ends_at_the_door.py",
@@ -15602,26 +15609,12 @@
     }
   ],
   "partial_refresh": {
-    "audit": "W1-RECEIPT-20261018",
+    "audit": "W1-E2E-20261018",
     "date": "2026-10-18",
-    "base_ref": "b5f497a4",
+    "base_ref": "2a26d863",
     "scope": "Only changed/new included source paths relative to base_ref; all other entries retain historical hashes. This is not a complete current snapshot or proof of test coverage.",
     "updated_paths": [
-      "android/app/src/androidTest/java/com/yuldash/app/ReceiptParityInstrumentedTest.kt",
-      "android/app/src/main/java/com/yuldash/app/TripReceiptScreen.kt",
-      "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
-      "android/app/src/main/java/com/yuldash/app/data/TripReceipt.kt",
-      "android/app/src/test/java/com/yuldash/app/ReceiptOwnerBoundaryTest.kt",
-      "android/app/src/test/java/com/yuldash/app/SpacingRatchetGuardTest.kt",
-      "android/app/src/test/java/com/yuldash/app/data/TripReceiptContractTest.kt",
-      "backend/app/routers/bookings.py",
-      "backend/tests/test_receipt_segments.py",
-      "webapp/src/api/bookings.ts",
-      "webapp/src/components/PayTripCard.tsx",
-      "webapp/src/components/SbpPay.tsx",
-      "webapp/src/screens/TripReceiptScreen.tsx",
-      "webapp/tests/receipt-owner-test.mjs",
-      "webapp/tests/run.mjs"
+      "backend/tests/journeys/test_journey_two_stop_receipts.py"
     ]
   }
 }
