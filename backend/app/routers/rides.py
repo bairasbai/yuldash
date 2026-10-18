@@ -775,7 +775,7 @@ def rides_near(
             q = q.where(Ride.id.in_(ids)) if ids else q.where(Ride.id.is_(None))
         except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк
             session.rollback()  # снять aborted-транзакцию, иначе следующий запрос упадёт InFailedSqlTransaction
-            log.warning(f"[GEO] PostGIS prefilter skipped: {e}")
+            log.warning(f"[GEO] PostGIS prefilter skipped: {type(e).__name__}")   # в str(e) — SQL с координатами
     # Перф (2026-07): фазу «дистанция + фильтры + счёт total» гоним по ЛЁГКИМ колонкам
     # (id/driver_id/only_trusted/координаты), а не по полным ORM-объектам: без from_city
     # запрос матчит ВСЕ активные (12k+), и гидрация полных моделей стоила ~350мс/запрос.
