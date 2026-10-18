@@ -6817,6 +6817,12 @@ select.field__input {
 .act-card--warn .act-card__title {
   color: var(--warn);
 }
+/* Зелёная надпись кнопки на тёплой плашке — --green, а не --green2: в тёмной теме --green2 на --warn-bg
+   давал 4.16 («Не смогу ехать» у водителя такси, живая проверка 17.10.2026). */
+.act-card--warn .btn-ghost,
+.act-card--warn .btn-soft {
+  color: var(--green);
+}
 .act-card--danger .act-card__title {
   color: var(--danger);
 }

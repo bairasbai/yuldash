@@ -193,6 +193,8 @@ const CONTEXT = [
   [".nav-item.is-active .nav-item__label", "--surface", 4.5, "подпись активной вкладки — на панели (98 % --surface)"],
   [".nav-item__label", "--surface", 4.5, "подпись вкладки — на панели"],
   [".btn-ghost", "--surface", 4.5, "второе действие шторки («Не отменять», «Закрыть») — на .sheet"],
+  [".act-card--warn .btn-ghost", "--warn-bg", 4.5, "«Не смогу ехать» на тёплой карточке водителя такси"],
+  [".act-card--warn .btn-soft", "--warn-bg", 4.5, "рамочная кнопка на тёплой карточке"],
 ];
 const ruleColor = (selector) => {
   for (const m of code(ui).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
