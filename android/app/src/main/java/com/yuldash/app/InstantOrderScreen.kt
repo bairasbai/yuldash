@@ -2226,6 +2226,8 @@ private fun InstantDestinationPicker(
 
     var toPoint by rememberSaveable(saver = InstantPointStateSaver) { mutableStateOf<Point?>(null) }
     var toText by rememberSaveable { mutableStateOf("") }
+    val fromAddressLookup = remember(scope) { LatestAddressLookup(scope) }
+    val toAddressLookup = remember(scope) { LatestAddressLookup(scope) }
     var query by rememberSaveable { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<com.yuldash.app.data.GeoHit>>(emptyList()) }
     // Идёт ли сейчас поиск адреса. Без этого флага «ничего не нашли» мигало бы во время
@@ -2293,6 +2295,7 @@ private fun InstantDestinationPicker(
     }
     // Быстрый выбор точки Б: подставляем адрес и координаты сразу (без сети).
     fun pickDestination(address: String, lat: Double, lng: Double) {
+        toAddressLookup.cancel()
         toPoint = Point(lat, lng); toText = address; query = ""; suggestions = emptyList()
     }
 
@@ -2568,7 +2571,7 @@ private fun InstantDestinationPicker(
                             // а видно его было только в раскрытых деталях заказа: человек знал
                             // цену и не знал, во сколько будет на месте.
                             tripMin = estimate?.etaMin?.toInt()?.takeIf { it > 0 },
-                            onEdit = { toPoint = null; query = ""; estimate = null },
+                            onEdit = { toAddressLookup.cancel(); toPoint = null; query = ""; estimate = null },
                         )
 
                     } else {
@@ -2578,6 +2581,7 @@ private fun InstantDestinationPicker(
                         InstantWhereField(
                             value = query,
                             onValueChange = { q ->
+                                toAddressLookup.cancel()
                                 query = q
                                 if (q.isBlank()) { toPoint = null; estimate = null }
                                 // Начал печатать — раскрываем: подсказки живут ниже, и в свёрнутом
@@ -2605,7 +2609,7 @@ private fun InstantDestinationPicker(
                     failed = searchFailed,
                     hits = suggestions,
                     onPick = { hit ->
-                        toPoint = Point(hit.lat, hit.lon); toText = hit.title; query = ""; suggestions = emptyList()
+                        pickDestination(hit.title, hit.lat, hit.lon)
                     },
                     onRetry = { searchTick++ },
                 )
@@ -3249,10 +3253,12 @@ private fun InstantDestinationPicker(
                 query = ""; suggestions = emptyList(); pickOnMap = false
                 // Спрашиваем, как называется это место. Не дождались — остаётся «Точка
                 // на карте»: координаты у водителя есть, заказ из-за адреса не ломаем.
-                scope.launch {
-                    val addr = GeocoderClient.addressAt(lat, lng)
-                    toText = if (addr.isNotBlank()) addr else mapPointText
-                }
+                toAddressLookup.resolve(
+                    lookup = { GeocoderClient.addressAt(lat, lng) },
+                    onResolved = { addr ->
+                        if (isCurrentAction()) toText = if (addr.isNotBlank()) addr else mapPointText
+                    },
+                )
             },
             onDismiss = { pickOnMap = false },
             // Не «место встречи»: туда едут, а не встречаются.
@@ -3265,10 +3271,12 @@ private fun InstantDestinationPicker(
             onConfirm = { lat, lng ->
                 fromPoint = Point(lat, lng); fromText = resolvingText
                 fromManual = true; pickFromOnMap = false
-                scope.launch {
-                    val addr = GeocoderClient.addressAt(lat, lng)
-                    fromText = if (addr.isNotBlank()) addr else mapPointText
-                }
+                fromAddressLookup.resolve(
+                    lookup = { GeocoderClient.addressAt(lat, lng) },
+                    onResolved = { addr ->
+                        if (isCurrentAction()) fromText = if (addr.isNotBlank()) addr else mapPointText
+                    },
+                )
             },
             onDismiss = { pickFromOnMap = false },
             hint = appText("Двигай карту — пин там, откуда поедешь", "Картаны күсер — пин сығасаҡ урында"),
