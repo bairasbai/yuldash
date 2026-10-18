@@ -1,5 +1,6 @@
 """Брони: бронирование (с защитой от овербукинга и блокировок), подтверждение,
 отмена, список своих, список броней водителя для оценки пассажиров."""
+import math
 from datetime import timedelta
 from typing import Optional
 
@@ -76,6 +77,29 @@ DONE_EARLY_GRACE = timedelta(minutes=30)
 # возврата. Окно то же, что было у «Я сел»: за DONE_EARLY_GRACE до выезда и позже. Свою отметку
 # водитель отменяет в первые BOARDING_UNDO_WINDOW — промахнулся карточкой; дальше — разбор.
 BOARDING_UNDO_WINDOW = timedelta(minutes=5)
+
+# «Не пришёл» (решение Александра 18.10.2026, по образцу BlaBlaCar): водитель отмечает неявку не
+# раньше чем через NO_SHOW_WAIT после времени выезда. Раньше — в любой момент, хоть за неделю до
+# поездки, одним касанием вплотную к «Сел» и без возврата: промахнулся — бронь человека, который
+# стоит у дороги, снята, место ушло в продажу. Срок знает ТОЛЬКО сервер: клиентам он приходит
+# моментом `no_show_at` (`driver_bookings`, отказ `no_show_too_early`), своих 15 минут они не держат.
+NO_SHOW_WAIT = timedelta(minutes=15)
+
+
+def no_show_available_at(ride: Ride):
+    """Момент (наивный UTC, как всё время в базе), с которого водитель может отметить неявку:
+    время выезда + NO_SHOW_WAIT. None — у поездки нет времени выезда, проверять нечем."""
+    return ride.depart_at + NO_SHOW_WAIT if ride.depart_at else None
+
+
+def no_show_wait_left(ride: Ride, now=None) -> int:
+    """Сколько секунд водителю ещё ждать «Не пришёл»; 0 — уже можно (или срок неизвестен).
+
+    Вверх до целой секунды: «0» значит ровно «можно», а не «меньше секунды осталось»."""
+    at = no_show_available_at(ride)
+    if at is None:
+        return 0
+    return max(0, math.ceil((at - (now or utcnow())).total_seconds()))
 
 
 def boarding_undo_left(booking: Booking, now=None) -> int:
@@ -1051,11 +1075,33 @@ def _no_show_onboard_refusal(booking: Booking) -> HTTPException:
     })
 
 
+def _no_show_too_early_refusal(ride: Ride, now=None) -> HTTPException:
+    """Отказ «Не пришёл» раньше срока: пассажир ещё может подойти (решение 18.10.2026).
+
+    `code` — машинная причина, `no_show_wait_sec` — сколько секунд осталось (для клиента, как
+    `boarding_undo_sec` в отказе `passenger_onboard`), `no_show_at` — момент, с которого можно.
+    Клиент по ним не гадает про срок, а берёт его отсюда."""
+    minutes = int(NO_SHOW_WAIT.total_seconds() // 60)
+    at = no_show_available_at(ride)
+    return HTTPException(status_code=409, detail={
+        "ru": f"Пока рано: пассажир ещё может подойти. Неявку можно отметить через {minutes} минут после времени выезда.",
+        "ba": f"Әле иртә: пассажир килеп етеүе мөмкин. Килмәүҙе сығыу ваҡытынан {minutes} минут үткәс кенә билдәләп була.",
+        "code": "no_show_too_early",
+        "no_show_wait_sec": no_show_wait_left(ride, now),
+        "no_show_at": at.isoformat() if at else None,
+    })
+
+
 @router.post("/bookings/{booking_id}/no-show", response_model=Booking)
 def mark_no_show(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель отмечает, что пассажир НЕ ЯВИЛСЯ (no-show): бронь → cancelled, места возвращаются,
     ставим no_show + cancel_reason='no_show'. Только водитель этой поездки и только по ПОДТВЕРЖДЁННОЙ
     брони. Идемпотентно. Сигнал доверия «между своими» (отдельно от обычной отмены).
+
+    Не раньше чем через NO_SHOW_WAIT после времени выезда (решение 18.10.2026, образец BlaBlaCar):
+    раньше — 409 `no_show_too_early` с `no_show_wait_sec`. Проверка стоит ДО смены статуса и
+    повторяется под замком, по свежей строке поездки: водитель мог перенести выезд позже. Повтор
+    уже отмеченной неявки срок не проверяет — итог тот же, красной ошибки после успеха нет.
 
     «В пути» (onboard) — отказ 409 (решение 14.10.2026, docs/decisions.md). С 17.10.2026 посадку
     отмечает сам водитель («Сел»): неявка снимает бронь и возвращает места в продажу, а «Сел» →
@@ -1075,6 +1121,8 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
         return _booking_out(booking)
     if booking.status != BookingStatus.confirmed:
         raise herr(409, "Неявку можно отметить только по подтверждённой брони", "Килмәүҙе тик раҫланған бронь буйынса ғына билдәләп була")
+    if no_show_wait_left(ride) > 0:
+        raise _no_show_too_early_refusal(ride)
     # Порядок локов Ride → Booking — ЕДИНЫЙ с cancel_booking/cancel_ride (V4, без deadlock).
     # populate_existing — по той же причине, что в cancel_booking: обе строки уже загружены выше,
     # и без него «перепроверка под локом» смотрела бы на устаревшие значения (аудит 2026-08-07).
@@ -1087,6 +1135,8 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
         raise _no_show_onboard_refusal(booking)
     if booking.status != BookingStatus.confirmed:
         return _booking_out(booking)           # параллельная отмена/неявка опередила — места уже возвращены
+    if no_show_wait_left(ride) > 0:
+        raise _no_show_too_early_refusal(ride)   # выезд перенесли позже, пока шла проверка выше
     booking.status = BookingStatus.cancelled
     booking.cancelled_at = utcnow()
     booking.no_show = True
@@ -1183,6 +1233,7 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
         ride = rides_by_id.get(b.ride_id)
         passenger = passengers_by_id.get(b.passenger_id)
         avg, cnt = user_rating(session, b.passenger_id)
+        no_show_opens = no_show_available_at(ride) if ride else None
         out.append({
             "booking_id": b.id,
             # Вторая сторона для «Сообщить о проблеме» (разбор POST /incidents ждёт respondent_id):
@@ -1198,6 +1249,10 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             # Сколько секунд ещё можно отменить свою отметку «Сел» (0 — уже нельзя): «Отменить»
             # в карточке переживает перезапуск приложения и не зависит от часов телефона.
             "boarding_undo_sec": boarding_undo_left(b),
+            # С какого момента «Не пришёл» доступна (наивный UTC, как `depart_at`): выезд + ожидание
+            # (решение 18.10.2026). Клиент срок не хардкодит — до этого момента вместо кнопки подпись,
+            # а раньше времени сервер всё равно ответит 409 `no_show_too_early`. null — выезд не задан.
+            "no_show_at": (no_show_opens.isoformat() if no_show_opens else None),
         })
     return out
 

@@ -18,6 +18,9 @@
 //
 //  Посадку отмечает ВОДИТЕЛЬ (решение 17.10.2026): у подтверждённого пассажира «Сел» рядом
 //  с «Не вышел», «в пути» — «Отменить» в первые 5 минут, позже — разбор (DriverBoarding.tsx).
+//
+//  «Не вышел» — через 15 минут после выезда и с вопросом «Точно?» (решение 18.10.2026, образец
+//  BlaBlaCar): срок приходит от сервера (`no_show_at`), экран — DriverNoShow.tsx.
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { useLang } from "../i18n/lang";
@@ -32,6 +35,7 @@ import { LoadingList } from "./States";
 import { IconProfile, IconStar } from "./Icons";
 import FileIncidentCard from "./FileIncidentCard";
 import DriverBoarding from "./DriverBoarding";
+import DriverNoShow from "./DriverNoShow";
 import { SectionHeader } from "./cabinetUi";
 import { pluralRu } from "../utils/format";
 
@@ -214,21 +218,20 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
                   )}
 
                   {/* Не вышел. Отдельно от обычной отмены: это сигнал доверия, и водитель
-                      не должен выбирать между «соврать, что отменил сам» и «промолчать». */}
+                      не должен выбирать между «соврать, что отменил сам» и «промолчать».
+                      Не раньше срока от сервера (`no_show_at`: выезд + 15 минут, решение 18.10.2026):
+                      до него — подпись «можно отметить с …», после — кнопка и вопрос «Точно?». */}
                   {st === CONFIRMED && (
-                    <button
-                      type="button"
-                      className="btn-soft btn-soft--sm"
-                      disabled={busyId === b.booking_id}
-                      onClick={() =>
+                    <DriverNoShow
+                      noShowAt={b.no_show_at}
+                      busy={busyId === b.booking_id}
+                      onConfirm={() =>
                         void act(b.booking_id, () => markNoShow(b.booking_id), {
                           ru: "Не получилось отметить. Проверь сеть.",
                           ba: "Билдәләп булманы. Селтәрҙе тикшер.",
                         })
                       }
-                    >
-                      {appText("Не вышел", "Сыҡманы")}
-                    </button>
+                    />
                   )}
 
                   {/* В пути: «Пассажир в машине» и «Отменить» в первые 5 минут — промахнулся

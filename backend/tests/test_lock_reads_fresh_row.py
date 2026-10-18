@@ -24,6 +24,7 @@ from sqlmodel import Session, select
 from app.db import engine
 from app.models import Booking, BookingStatus, Ride, RideRequest, User, UserRole
 from app.security import make_token
+from test_flows import waited_out
 
 _n = {"i": 0}
 _LIVE = (BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)
@@ -46,9 +47,9 @@ def _city():
     return "Город" + uuid.uuid4().hex[:8]
 
 
-def _publish(client, drv, seats=3):
+def _publish(client, drv, seats=3, depart_at="2030-01-01T10:00:00"):
     r = client.post("/rides", headers=drv["auth"], json={
-        "from_city": _city(), "to_city": _city(), "depart_at": "2030-01-01T10:00:00",
+        "from_city": _city(), "to_city": _city(), "depart_at": depart_at,
         "seats_total": seats, "price": 300,
     })
     assert r.status_code == 200, r.text
@@ -156,7 +157,7 @@ def test_no_show_returns_seats_by_fresh_count(client, monkeypatch):
 
     drv = mk_user("НшВод", role=UserRole.driver)
     a, b, c = mk_user("НшA"), mk_user("НшB"), mk_user("НшC")
-    ride = _publish(client, drv, seats=3)
+    ride = _publish(client, drv, seats=3, depart_at=waited_out())   # «Не пришёл» — не раньше выезда + 15 мин (18.10.2026)
     booking_a = _book(client, a, ride["id"])
     assert client.post(f"/bookings/{booking_a['id']}/confirm", headers=drv["auth"]).status_code == 200
     _book(client, b, ride["id"])

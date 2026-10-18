@@ -55,6 +55,17 @@ export function hhmm(d: Date): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/**
+ * «18.10, 14:35» — день и время одной строкой, цифрами: одинаково в обоих языках и так же, как в
+ * приложении (`formatDepart`, MainActivity.kt). Для подписи «Не вышел — можно отметить с …».
+ */
+export function dayMonthClock(iso?: string | null): string {
+  const d = serverDate(iso);
+  if (!d) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}, ${hhmm(d)}`;
+}
+
 /** «Сегодня 14:30» / «Завтра 09:00» / «5 июл 18:00». */
 export function formatWhen(iso?: string | null, ru = true): string {
   if (!iso) return ru ? "Время уточняется" : "Ваҡыт асыҡлана";
