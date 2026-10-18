@@ -439,6 +439,7 @@ internal fun RidesScreen(
                             MyTripCard(
                                 ride = displayRide,
                                 pickupStop = b.pickupStop, dropoffStop = b.dropoffStop, rideHasStops = b.rideHasStops,
+                                showBookingSegment = true,
                                 status = statusLabel,
                                 statusColor = statusColor,
                                 icon = statusIcon,
@@ -535,6 +536,7 @@ internal fun MyTripCard(
     onSecondary: () -> Unit,
     stackActions: Boolean = false,
     pickupStop: String? = null, dropoffStop: String? = null, rideHasStops: Boolean = false,
+    showBookingSegment: Boolean = false,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -569,7 +571,7 @@ internal fun MyTripCard(
                         }
                     }
                     DetailMeta(Icons.Default.Schedule, ride.timeText())
-                    BookingSegmentNote(pickupStop, dropoffStop, rideHasStops, ride.from, ride.to)
+                    if (showBookingSegment) BookingSegmentNote(pickupStop, dropoffStop, rideHasStops, ride.from, ride.to)
                 DetailMeta(Icons.Default.Person, "${seatsText(ride.seats)} · ${ride.price} ₽")
                 }
             }

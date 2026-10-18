@@ -332,6 +332,9 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
               return (
                 <div key={id} className="list-row list-row--stack" data-rate-card={id}>
                   {passengerMain(b)}
+                  <button type="button" className="btn-primary trip-btn" onClick={() => onOpenTrip(id)}>
+                    {appText("Открыть поездку", "Сәфәрҙе асыу")}
+                  </button>
                   {/* Сервер разрешает оценку изменить — значит, и здесь это не тупик. */}
                   <div className="rate-row">
                     <div className="rate-stars rate-stars--sm" role="group" aria-label={appText("Оценка пассажира", "Пассажир баһаһы")}>

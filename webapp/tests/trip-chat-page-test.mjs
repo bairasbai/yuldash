@@ -12,6 +12,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { all, bundleComponent, button, langMock, mount } from "./shallow-harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = join(HERE, "..", "src");
@@ -33,7 +34,6 @@ const card = read("components/TripChatCard.tsx");
 const trip = read("screens/ActiveTripScreen.tsx");
 const tripCode = strip(trip);
 const inbox = read("screens/ChatInboxScreen.tsx");
-const myRides = read("screens/MyRidesScreen.tsx");
 const css = read("ui.css");
 
 // ---------- 1. Страница и маршрут ----------
@@ -205,10 +205,42 @@ check(
   /navigate\(`\/trip\/\$\{c\.booking_id\}\/chat`\)/.test(inbox),
   "список чатов открывает сразу страницу чата"
 );
-check(
-  /opensActiveTrip \? navigate\(`\/trip\/\$\{b\.id\}\/chat`\)/.test(myRides),
-  "«Чат» в «Моих поездках» открывает страницу чата"
-);
+// Исполняем обработчики настоящего списка: новая ветка квитанции done не должна перехватить
+// «Чат» подтверждённых и едущих броней. ID рейса намеренно отличается от ID брони.
+const navigation = globalThis.__tripChatPageNavigation = {
+  routes: [],
+  rows: ["confirmed", "onboard", "done", "pending", "cancelled"].map((status, index) => ({
+    id: 42 + index, ride_id: 900 + index, status,
+  })),
+};
+for (const lang of ["ru", "ba"]) {
+  const MyRides = await bundleComponent("src/screens/MyRidesScreen.tsx", {
+    real: ["/components/MyTripCard"],
+    mocks: {
+      "/i18n/lang": langMock(lang),
+      "react-router-dom": `export const useNavigate=()=>path=>globalThis.__tripChatPageNavigation.routes.push(path);`,
+      "/api/bookings": `export const fetchMyBookings=async()=>globalThis.__tripChatPageNavigation.rows;`,
+      "/auth/AuthProvider": `export const useAuth=()=>({status:'authed'});`,
+      "/components/PartnerAd": `export default 'PartnerAdCard';export const usePartnerAds=()=>[];`,
+    },
+  });
+  const h = mount(MyRides);
+  await h.settle();
+  button(h.tree, lang === "ru" ? "Все" : "Бөтәһе").props.onClick();
+  await h.settle();
+  const row = id => all(h.tree).find(n => n.props.booking?.id === id);
+  navigation.routes.length = 0;
+  for (const id of [42, 43]) row(id).props.onSecondary();
+  check([42, 43].every(id => row(id).props.secondaryAction === "Чат") &&
+    JSON.stringify(navigation.routes) === JSON.stringify(["/trip/42/chat", "/trip/43/chat"]),
+  `${lang}: «Чат» подтверждённой и едущей брони открывает страницу чата по ID брони`);
+  navigation.routes.length = 0;
+  row(44).props.onSecondary(); row(45).props.onSecondary();
+  check(JSON.stringify(navigation.routes) === JSON.stringify(["/receipt/44", "/chat"]) && row(46).props.secondaryAction === "",
+    `${lang}: квитанция завершённой, общий чат ждущей и скрытая кнопка отменённой не подменяют активный чат`);
+  h.unmount();
+}
+delete globalThis.__tripChatPageNavigation;
 {
   const cardCode = strip(card);
   check(/onClick=\{onOpen\}/.test(cardCode) && (cardCode.match(/onClick=\{onOpen\}/g) || []).length === 2, "карточка и «Написать» открывают чат (два входа)");

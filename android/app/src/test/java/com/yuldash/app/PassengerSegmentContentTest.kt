@@ -3,6 +3,8 @@ package com.yuldash.app
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -85,5 +87,21 @@ class PassengerSegmentContentTest {
             RequestsFeedContent(false,false,emptyList(),{},{},selectedFilter=RequestsFeedFilter.AlongTheWay,hasOwnRides=false)
         } }
         compose.onNodeWithText("Баҫтырылған сәфәрҙәр юҡ").assertExists()
+    }
+
+    @Test fun realLegacyBookingStillWarnsAboutUnknownDropoff() = legacyBookingWarns(AppLanguage.Ru)
+    @Test fun bashkirRealLegacyBookingStillWarnsAboutUnknownDropoff() = legacyBookingWarns(AppLanguage.Ba)
+
+    private fun legacyBookingWarns(language: AppLanguage) {
+        compose.setContent { CompositionLocalProvider(LocalAppLanguage provides language) {
+            MyTripCard(ride(), status = appText("Ожидает", "Көтә"), statusColor = CanonMint, icon = Icons.Default.EventSeat,
+                primaryAction = appText("Подробнее", "Ентекле"), secondaryAction = appText("Написать", "Яҙыу"),
+                onPrimary = {}, onSecondary = {}, pickupStop = null, dropoffStop = null, rideHasStops = true,
+                showBookingSegment = true)
+        } }
+        compose.onNodeWithText(if (language == AppLanguage.Ru) "Место высадки не указано — уточни в чате"
+            else "Төшөү урыны күрһәтелмәгән — чатта асыҡла").assertIsDisplayed()
+        compose.onNodeWithText(if (language == AppLanguage.Ru) "Высадка: конец маршрута · Акъяр"
+            else "Төшөү: юлдың аҙағы · Акъяр").assertDoesNotExist()
     }
 }

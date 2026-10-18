@@ -83,7 +83,7 @@
     "infra_resource_config": 360,
     "public_site_promo": 89,
     "pwa_main": 287,
-    "test_support": 990
+    "test_support": 994
   },
   "counts_by_block": {
     "B01": 131,
@@ -94,7 +94,7 @@
     "B06": 85,
     "B07": 107,
     "B08": 175,
-    "B09": 580,
+    "B09": 584,
     "B10": 360,
     "B11": 90
   },
@@ -1140,8 +1140,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "9d9d66ee88ab5b9aade09be8e07bcd1ac1a7c7a493def07934a3dec9e3bc21af",
-      "lines": 4826
+      "sha256": "0fec476d4c0e91de4b74b3b35eb4d1bd35d2084606ba88c7274563ec56673a35",
+      "lines": 4829
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
@@ -1175,8 +1175,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "f97c7a50ca7849401ba0b3493423cbb1659a6ba172d2d500a8ffea6405bf4cf6",
-      "lines": 3351
+      "sha256": "d78622cf95f22c013535629991821553275811eeeb9fe23490bc9782989f5eef",
+      "lines": 3353
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCompletedScreen.kt",
@@ -1469,8 +1469,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "5be24f682f0ebba5725e1317ea38cbb7153cb3076534869c316c6d2d3e03d559",
-      "lines": 2786
+      "sha256": "022d6823f46372c49b25d2e73155665cc80048191191b3d6e1f48df63d097816",
+      "lines": 2787
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -2299,6 +2299,13 @@
       "lines": 122
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/BookingLinkDestinationTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "9ec0b216adfceaff16afd2c812fd949ad3192e32e279f31950df78c397dc0a8f",
+      "lines": 227
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/BookingLinkLoginTest.kt",
       "kind": "test_support",
       "block": "B01",
@@ -2493,6 +2500,13 @@
       "block": "B09",
       "sha256": "fec34ff56d0a735a3b55679567822b22b4833fade6ee6c5d20b8275c732e89c6",
       "lines": 268
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/DriverCabinetWave1Test.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "d2dad3b507695ae2b7f17be7dbe8e0617ec6fa673b01680e994c2cebda0a12e3",
+      "lines": 349
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/EmptyStateLeadsGuardTest.kt",
@@ -2932,8 +2946,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/PassengerSegmentContentTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "8719134f638ab413a327b5a1afbdfa769e3668388c1e8a21996c961b64c236b7",
-      "lines": 89
+      "sha256": "994069f08b710b4b1b06ee97abb42bed50fe5817c359790de11a0eca06e5dbff",
+      "lines": 107
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/PassengerSegmentTest.kt",
@@ -11745,8 +11759,8 @@
       "path": "webapp/src/components/DriverPassengers.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "1c0f9987202c9452c386e2c38be4f4c2a58cee1e4afec0d6ac8cb061b0a6a9d1",
-      "lines": 414
+      "sha256": "d04b9e6bea00b21d3e8eacf08e5ffecadaf52ca8b280efbd65a37f15cb9b8c9d",
+      "lines": 417
     },
     {
       "path": "webapp/src/components/FileIncidentCard.tsx",
@@ -12718,8 +12732,8 @@
       "path": "webapp/src/screens/MyRidesScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "dc88f3ba2cb8ef2e2bfd2e2013ba3529de99272e306e21d6e501c2e774659cae",
-      "lines": 190
+      "sha256": "ef7c7c4688f56c83d2c14ae787e9746d7ba62440d5d5343f72624800a8f17255",
+      "lines": 195
     },
     {
       "path": "webapp/src/screens/MyStatsScreen.tsx",
@@ -13068,8 +13082,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "d340b13dbf26d86fd7c50a3ab3e45fc9874c70b77e14621640379cf31974f6d4",
-      "lines": 19815
+      "sha256": "49ad953d961007084c18f74d72dd7a27cc6e44dfbd4ef07e679f411aa4502d0d",
+      "lines": 20801
     },
     {
       "path": "webapp/src/uiPrefs.ts",
@@ -13555,6 +13569,13 @@
       "lines": 71
     },
     {
+      "path": "webapp/tests/driver-passengers-open-trip-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "4c87d17fe0bc0a997ff699082962f711ed7f9df6f3b60d5464e2e81b76eda66a",
+      "lines": 194
+    },
+    {
       "path": "webapp/tests/features-parcel-rides-test.mjs",
       "kind": "test_support",
       "block": "B04",
@@ -13931,6 +13952,13 @@
       "block": "B03",
       "sha256": "e52b31af7d605a13eb6c442e1cdd5ab63ebcbae087acef41c7b2d231139a0e45",
       "lines": 53
+    },
+    {
+      "path": "webapp/tests/trip-chat-page-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "9d47a008eb7a9b5001ad3204b67f209d63c699ecec8d81e3dafc869fe2be810b",
+      "lines": 257
     },
     {
       "path": "webapp/tests/trip-rating-submit-test.mjs",
@@ -15609,12 +15637,21 @@
     }
   ],
   "partial_refresh": {
-    "audit": "W1-E2E-20261018",
     "date": "2026-10-18",
-    "base_ref": "2a26d863",
-    "scope": "Only changed/new included source paths relative to base_ref; all other entries retain historical hashes. This is not a complete current snapshot or proof of test coverage.",
-    "updated_paths": [
-      "backend/tests/journeys/test_journey_two_stop_receipts.py"
-    ]
+    "reason": "W1-E2E-20261018: both clients completed history navigation, completed GPS boundary, own ride/booking distinction, responsive 48px actions and narrow rating edit; only eleven touched code/test files refreshed",
+    "paths": [
+      "webapp/src/screens/MyRidesScreen.tsx",
+      "webapp/src/components/DriverPassengers.tsx",
+      "webapp/src/ui.css",
+      "webapp/tests/driver-passengers-open-trip-test.mjs",
+      "webapp/tests/trip-chat-page-test.mjs",
+      "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
+      "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
+      "android/app/src/test/java/com/yuldash/app/DriverCabinetWave1Test.kt",
+      "android/app/src/test/java/com/yuldash/app/PassengerSegmentContentTest.kt",
+      "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
+      "android/app/src/test/java/com/yuldash/app/BookingLinkDestinationTest.kt"
+    ],
+    "other_hashes": "Historical; unchanged by this refresh"
   }
 }

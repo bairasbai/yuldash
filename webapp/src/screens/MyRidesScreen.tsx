@@ -150,6 +150,7 @@ export default function MyRidesScreen() {
         <div className="my-rides-list">
           {visible.map((b, i) => {
             const history = HISTORY.has(b.status);
+            const canOpenReceipt = b.status === "done" && b.id > 0;
             const opensActiveTrip = bookingStatusAllowsActiveTrip(b.status);
             return (
               <MyTripCard
@@ -163,13 +164,17 @@ export default function MyRidesScreen() {
                       ? appText("Открыть поездку", "Сәфәрҙе асыу")
                       : appText("Подробнее", "Ентекле")
                 }
-                secondaryAction={history ? "" : opensActiveTrip ? appText("Чат", "Чат") : appText("Написать", "Яҙыу")}
+                secondaryAction={canOpenReceipt ? appText("Квитанция", "Квитанция") : history ? "" : opensActiveTrip ? appText("Чат", "Чат") : appText("Написать", "Яҙыу")}
                 onPrimary={() => {
                   if (history) navigate("/request");
                   else if (opensActiveTrip) navigate(`/trip/${b.id}`);
                   else navigate(`/booking/${b.id}`);
                 }}
-                onSecondary={() => (opensActiveTrip ? navigate(`/trip/${b.id}/chat`) : navigate("/chat"))}
+                onSecondary={() => {
+                  if (canOpenReceipt) navigate(`/receipt/${b.id}`);
+                  else if (opensActiveTrip) navigate(`/trip/${b.id}/chat`);
+                  else navigate("/chat");
+                }}
               />
             );
           })}

@@ -8,7 +8,7 @@
 //
 //  Стало как в Android (ProfileScreen.kt, ridingBookings / ratableBookings):
 //   • «Едут с тобой» — подтверждённые и «в пути», у каждой «Открыть поездку» → /trip/{id};
-//   • «Пассажиры — оцените после поездки» — только завершённые, звёзды только здесь;
+//   • «Пассажиры — оцените после поездки» — только завершённые, звёзды и возврат к поездке;
 //   • отменённых и ждущих ответа в этом блоке нет.
 //
 //  Исполняем настоящий DriverPassengers; сеть и язык подменены (shallow-harness.mjs).
@@ -81,7 +81,19 @@ for (const lang of ["ru", "ba"]) {
     );
     assert.ok(head, "раздел оценки есть");
     assert.equal(stars(rowOf(tree, 3)).length, 5, "у завершённой пять звёзд");
-    assert.equal(button(rowOf(tree, 3), L("Открыть поездку", "Сәфәрҙе асыу")), undefined, "завершённую не «открывают» отсюда");
+    assert.ok(button(rowOf(tree, 3), L("Открыть поездку", "Сәфәрҙе асыу")), "завершённую можно открыть снова ради квитанции");
+  });
+
+  await t.test(`${lang}: водитель возвращается к завершённой поездке до и после оценки`, async () => {
+    const rows = [{ ...ROWS[2], booking_id: 42, my_stars: 0 }, { ...ROWS[2], booking_id: 43, my_stars: 5 }];
+    const { h, opened } = await open(lang, rows);
+    for (const id of [42, 43]) {
+      const action = button(rowOf(h.tree, id), L("Открыть поездку", "Сәфәрҙе асыу"));
+      assert.ok(action, `у завершённой брони ${id} доступен возврат к квитанции`);
+      action.props.onClick();
+    }
+    assert.deepEqual(opened, [42, 43], "открывается та же бронь, без отправки оценки");
+    h.unmount();
   });
 
   await t.test(`${lang}: во всём блоке звёзды есть только у завершённой — едущих нет и в разделе оценки`, async () => {
@@ -98,6 +110,59 @@ for (const lang of ["ru", "ba"]) {
     assert.equal(rowOf(tree, 4), undefined, "отменённая не видна");
     assert.equal(rowOf(tree, 5), undefined, "ждущая — в «Ждут твоего ответа» выше, не здесь");
     assert.ok(!text(tree).includes("Отменивший") && !text(tree).includes("Ждущий"));
+  });
+}
+
+// После выхода из завершённой поездки пассажир возвращается к своему чеку из истории.
+// Исполняется настоящий MyRidesScreen; карточка остаётся поверхностным узлом с его обработчиками.
+const passengerRows = ["done", "cancelled", "pending", "confirmed", "onboard"].map((status, index) => ({
+  id: 70 + index, ride_id: 900 + index, status, from_city: "Сибай", to_city: "Акъяр",
+  pickup_stop: "Ургаза", dropoff_stop: "Бурибай", ride_has_stops: true, seats: 1, price: 450,
+  depart_at: "2026-10-18T15:00:00Z",
+}));
+const routes = globalThis.__historyRoutes = [];
+globalThis.__historyBookings = passengerRows;
+for (const lang of ["ru", "ba"]) {
+  const L = (ru, ba) => lang === "ba" ? ba : ru;
+  const Screen = await bundleComponent("src/screens/MyRidesScreen.tsx", {
+    real: ["/components/MyTripCard"],
+    mocks: {
+      "/i18n/lang": langMock(lang),
+      "react-router-dom": `export const useNavigate=()=>path=>globalThis.__historyRoutes.push(path);`,
+      "/api/bookings": `export const fetchMyBookings=async()=>globalThis.__historyBookings;`,
+      "/auth/AuthProvider": `export const useAuth=()=>({status:'authed'});`,
+      "/components/PartnerAd": `export default 'PartnerAdCard';export const usePartnerAds=()=>[];`,
+    },
+  });
+  const openPassenger = async segment => {
+    routes.length = 0;
+    const h = mount(Screen); await h.settle();
+    button(h.tree, L(segment === "history" ? "История" : "Все", segment === "history" ? "Тарих" : "Бөтәһе")).props.onClick();
+    await h.settle(); return h;
+  };
+  const cardOf = (h, id) => all(h.tree).find(n => n.props.booking?.id === id);
+  await t.test(`${lang}: пассажир из истории открывает квитанцию по ID брони и сохраняет повтор маршрута`, async () => {
+    const h = await openPassenger("history");
+    const card = cardOf(h, 70); assert.ok(card);
+    assert.equal(card.props.secondaryAction, L("Квитанция", "Квитанция"));
+    card.props.onSecondary();
+    assert.deepEqual(routes, ["/receipt/70"], "переход использует booking id 70, а не ride id 900");
+    assert.equal(card.props.primaryAction, L("Повторить маршрут", "Маршрутты ҡабатлау"));
+    card.props.onPrimary(); assert.deepEqual(routes, ["/receipt/70", "/request"]);
+    assert.equal(cardOf(h, 71).props.secondaryAction, "", "у отменённой брони нет квитанции");
+    h.unmount();
+  });
+  await t.test(`${lang}: квитанция доступна во «Все», активные переходы и отмена не изменены`, async () => {
+    const h = await openPassenger("all");
+    assert.equal(cardOf(h, 70).props.secondaryAction, L("Квитанция", "Квитанция"));
+    assert.equal(cardOf(h, 71).props.secondaryAction, "");
+    for (const id of [72, 73, 74]) {
+      const card = cardOf(h, id), active = id !== 72;
+      assert.equal(card.props.secondaryAction, active ? L("Чат", "Чат") : L("Написать", "Яҙыу"));
+      card.props.onPrimary(); card.props.onSecondary();
+    }
+    assert.deepEqual(routes, ["/booking/72", "/chat", "/trip/73", "/trip/73/chat", "/trip/74", "/trip/74/chat"]);
+    h.unmount();
   });
 }
 

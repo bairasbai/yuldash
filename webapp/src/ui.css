@@ -9807,11 +9807,11 @@ select.field__input {
   display: flex;
   gap: var(--space-sm);
 }
-/* Кнопки карточки: 44dp, радиус 14, Bold 14; основная — CanonGreen2, вторая — «тональная» мятная. */
+/* Кнопки карточки: 48px, радиус 14, Bold 14; основная — CanonGreen2, вторая — «тональная» мятная. */
 .my-trip-card__primary,
 .my-trip-card__tonal {
   flex: 1;
-  min-height: 44px;
+  min-height: 48px;
   padding: 0 var(--space-md);
   border: 0;
   border-radius: var(--radius-field);
@@ -9837,6 +9837,10 @@ select.field__input {
 .my-trip-card__primary:active,
 .my-trip-card__tonal:active {
   transform: scale(0.97);
+}
+
+@media (max-width: 430px) {
+  .my-trip-card__actions { flex-direction: column; }
 }
 
 /* InfoCard: CanonItemShape, поля 16, мятная плитка 14dp с иконкой в полях 8. */

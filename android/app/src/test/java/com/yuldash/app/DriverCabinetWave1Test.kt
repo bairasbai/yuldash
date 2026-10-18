@@ -1,6 +1,12 @@
 package com.yuldash.app
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
@@ -10,8 +16,12 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.lifecycle.SavedStateHandle
 import com.yuldash.app.data.DriverBookingDto
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -68,12 +78,16 @@ class DriverCabinetWave1Test {
         taxiAppLoaded: Boolean = false,
         language: AppLanguage = AppLanguage.Ru,
         onOpenTrip: (Int) -> Unit = {},
+        rides: List<Ride> = emptyList(),
+        onOpenCompletedTrip: (Int) -> Unit = {},
+        fontScale: Float = 1f,
     ) {
         composeRule.setContent {
-            CompositionLocalProvider(LocalAppLanguage provides language) {
+            CompositionLocalProvider(LocalAppLanguage provides language,
+                LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
                 DriverCabinetContent(
                     online = false,
-                    driverRides = emptyList(),
+                    driverRides = rides,
                     driverBookings = bookings,
                     ratingText = "—",
                     onToggleOnline = {},
@@ -86,6 +100,7 @@ class DriverCabinetWave1Test {
                     taxiAppLoaded = taxiAppLoaded,
                     taxiOn = taxiOn,
                     onOpenTrip = onOpenTrip,
+                    onOpenCompletedTrip = onOpenCompletedTrip,
                 )
             }
         }
@@ -147,11 +162,103 @@ class DriverCabinetWave1Test {
     }
 
     @Test
-    fun `у ждущей и завершённой брони кнопки открытия поездки нет`() {
-        driver(bookings = listOf(booking(bookingId = 1, status = "pending"), booking(bookingId = 2, status = "done")))
+    fun `у ждущей и отменённой брони кнопки открытия поездки нет`() {
+        driver(bookings = listOf(booking(bookingId = 1, status = "pending"), booking(bookingId = 2, status = "cancelled")))
         scrollTo("Ждут подтверждения")
         composeRule.onNodeWithText("Подтвердить").assertIsDisplayed()
         composeRule.onNodeWithText("Открыть поездку").assertDoesNotExist()
+    }
+
+    @Test fun completedUnratedBookingReopensByBookingId() = completedBookingReopens(AppLanguage.Ru, 0)
+    @Test fun completedRatedBookingReopensByBookingId() = completedBookingReopens(AppLanguage.Ru, 3)
+    @Test fun bashkirCompletedUnratedBookingReopensByBookingId() = completedBookingReopens(AppLanguage.Ba, 0)
+    @Test fun bashkirCompletedRatedBookingReopensByBookingId() = completedBookingReopens(AppLanguage.Ba, 3)
+
+    private fun publishedRide() = Ride(id = "7", from = "Сибай", to = "Акъяр", time = "18:00", driver = "Водитель", car = "",
+        price = 700, seats = 2, rating = 5.0, verified = true, boosted = false, waypoints = listOf("Ургаза", "Бурибай"))
+
+    private fun completedBookingReopens(language: AppLanguage, stars: Int) {
+        var opened = -1
+        var activeCallbacks = 0
+        val ride = publishedRide()
+        val bookingId = 77
+        val vm = YuldashViewModel(SavedStateHandle())
+        vm.activeTrip.value = ride
+        vm.screen.value = Screen.DriverCabinet
+        driver(taxiOn = false, bookings = listOf(booking(bookingId = bookingId, status = "done").copy(myStars = stars)),
+            language = language, rides = listOf(ride), onOpenTrip = { activeCallbacks++; vm.openDriverTrip(it) },
+            onOpenCompletedTrip = { opened = it; vm.applyBookingLink(it, "driver", "done", true) })
+        val label = if (language == AppLanguage.Ru) "Открыть поездку" else "Сәфәрҙе асыу"
+        scrollTo(label)
+        composeRule.onNodeWithText(label).assertIsDisplayed().performClick()
+        assertTrue(bookingId != ride.id.toInt())
+        assertEquals(bookingId, opened)
+        assertEquals(0, activeCallbacks)
+        assertEquals(Screen.ActiveTrip, vm.screen.value)
+        assertEquals(bookingId, vm.activeBookingId.value)
+        assertEquals(bookingId.toString(), vm.selectedRide.value?.id)
+        assertNull("Завершённая бронь не должна включать сопровождение активной поездки", vm.activeTrip.value)
+    }
+
+    @Test fun completedBookingWithoutCallbackNeverFallsBackToActiveTrip() {
+        var activeCallbacks = 0
+        driver(taxiOn = false, bookings = listOf(booking(status = "done")), onOpenTrip = { activeCallbacks++ })
+        scrollTo("Открыть поездку")
+        composeRule.onNodeWithText("Открыть поездку").performClick()
+        assertEquals(0, activeCallbacks)
+    }
+
+    @Test @Config(qualifiers = "w320dp-h2600dp")
+    fun russianRatingEditFitsNarrowLargeTextAndOpensEditor() = ratingEditFitsNarrowLargeText(AppLanguage.Ru)
+
+    @Test @Config(qualifiers = "w320dp-h2600dp")
+    fun bashkirRatingEditFitsNarrowLargeTextAndOpensEditor() = ratingEditFitsNarrowLargeText(AppLanguage.Ba)
+
+    private fun ratingEditFitsNarrowLargeText(language: AppLanguage) {
+        driver(taxiOn = false, language = language, fontScale = 1.3f,
+            bookings = listOf(booking(bookingId = 77, status = "done").copy(myStars = 3)))
+        val edit = if (language == AppLanguage.Ru) "Изменить" else "Үҙгәртеү"
+        scrollTo(edit)
+        assertRatingActionFits(edit, language)
+        composeRule.onNodeWithText(edit).performClick()
+        composeRule.onNodeWithText(if (language == AppLanguage.Ru) "Выбрано 3 звезды — подтверди"
+            else "3 йондоҙ һайланды — раҫла").assertExists()
+        val send = if (language == AppLanguage.Ru) "Отправить оценку" else "Баһаны ебәреү"
+        scrollTo(send)
+        assertRatingActionFits(send, language)
+        composeRule.onNodeWithText(edit).assertDoesNotExist()
+    }
+
+    private fun assertRatingActionFits(label: String, language: AppLanguage) {
+        val layouts = mutableListOf<TextLayoutResult>()
+        composeRule.onNodeWithText(label, useUnmergedTree = true).assertIsDisplayed()
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        val layout = layouts.single()
+        val diagnostics = "language=$language; label=$label; size=${layout.size}; paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}; " +
+            "overflowWidth=${layout.didOverflowWidth}; overflowHeight=${layout.didOverflowHeight}; exceeded=${layout.multiParagraph.didExceedMaxLines}; " +
+            "line0 left=${layout.getLineLeft(0)} right=${layout.getLineRight(0)} top=${layout.getLineTop(0)} bottom=${layout.getLineBottom(0)} end=${layout.getLineEnd(0)}; " +
+            "constraints=${layout.layoutInput.constraints}; maxW=${layout.layoutInput.constraints.maxWidth}; maxH=${layout.layoutInput.constraints.maxHeight}"
+        assertEquals("Подпись кнопки должна помещаться в одну строку; $diagnostics", 1, layout.lineCount)
+        // Диагностика «Изменить» RU: узел 87px, абзац 240px, буквы около 86px — hasVisualOverflow
+        // сравнивает узел с абзацем и ошибочно сообщает обрезку. Проверяем сами буквы и высоту.
+        assertFalse("Все строки должны помещаться; $diagnostics", layout.multiParagraph.didExceedMaxLines)
+        assertTrue("Буквы должны помещаться в доступную ширину; $diagnostics",
+            layout.getLineLeft(0) >= -1f && layout.getLineRight(0) <= layout.layoutInput.constraints.maxWidth + 1f)
+        assertTrue("Текст должен помещаться по высоте; $diagnostics", layout.multiParagraph.height <= layout.size.height + 1f)
+        assertEquals("Все буквы подписи должны быть видны; $diagnostics", label.length, layout.getLineEnd(0))
+        assertFalse("Текст кнопки нельзя обрезать многоточием; $diagnostics", layout.isLineEllipsized(0))
+        composeRule.onNodeWithText(label).assertHeightIsAtLeast(48.dp)
+    }
+
+    @Test fun ownPublishedRideDoesNotAskForPassengerDropoff() = ownPublishedRideHasNoBookingWarning(AppLanguage.Ru)
+    @Test fun bashkirOwnPublishedRideDoesNotAskForPassengerDropoff() = ownPublishedRideHasNoBookingWarning(AppLanguage.Ba)
+
+    private fun ownPublishedRideHasNoBookingWarning(language: AppLanguage) {
+        driver(taxiOn = false, language = language, rides = listOf(publishedRide()))
+        scrollTo(if (language == AppLanguage.Ru) "Опубликована" else "Баҫтырылды")
+        composeRule.onNodeWithText("Сибай → Акъяр").assertIsDisplayed()
+        composeRule.onNodeWithText(if (language == AppLanguage.Ru) "Место высадки не указано — уточни в чате"
+            else "Төшөү урыны күрһәтелмәгән — чатта асыҡла").assertDoesNotExist()
     }
 
     // ── Кабинет водителя при выключенном такси ──

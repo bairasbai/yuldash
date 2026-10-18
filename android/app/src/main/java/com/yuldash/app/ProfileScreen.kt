@@ -1404,6 +1404,7 @@ internal fun DriverCabinetScreen(
     onPretrip: () -> Unit = {},          // 580-ФЗ: готовность к работе на сегодня
     onMyResponses: () -> Unit = {},      // «Мои отклики»: торг о цене по заявкам пассажиров
     onOpenTrip: (Int) -> Unit = {},      // «Едут с тобой» → экран поездки этой брони (id брони)
+    onOpenCompletedTrip: (Int) -> Unit = {},
 ) {
     val taxiOn = rememberFeatures().isOn(Feature.Taxi)   // запуск волнами: такси выключено → без линии, панели и поездок такси
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
@@ -1803,6 +1804,7 @@ internal fun DriverCabinetScreen(
             onPretrip = onPretrip,
             pretripNeeded = pretripNeeded,
             taxiOn = taxiOn, onOpenTrip = onOpenTrip,
+            onOpenCompletedTrip = onOpenCompletedTrip,
         )
         }
     }
@@ -2946,6 +2948,7 @@ internal fun DriverCabinetContent(
     pretripNeeded: Boolean = false,  // сегодня ещё не отмечался → без этого на линию не пустят
     taxiOn: Boolean = true,          // такси включено на сервере; нет → линия, панель и поездки такси спрятаны
     onOpenTrip: (Int) -> Unit = {},  // «Едут с тобой»: открыть экран поездки этой брони (id брони)
+    onOpenCompletedTrip: (Int) -> Unit = {},
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
     val ridesDone = archive.count { it.status == "done" }
@@ -3310,6 +3313,7 @@ internal fun DriverCabinetContent(
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         PassengerRow(b)
+                        AppButton(text = appText("Открыть поездку", "Сәфәрҙе асыу"), onClick = { onOpenCompletedTrip(b.bookingId) })
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             (1..5).forEach { n ->
                                 val lit = n <= stars
@@ -3334,16 +3338,15 @@ internal fun DriverCabinetContent(
                                     )
                                 }
                             }
-                            Spacer(Modifier.weight(1f))
-                            // Уже оценил — показываем сколько и даём переставить. Сервер оценку
-                            // разрешает изменить, значит и в приложении это не тупик.
-                            if (!editing) {
-                                TextButton(
-                                    onClick = { editing = true },
-                                    modifier = Modifier.heightIn(min = 48.dp),
-                                    colors = ButtonDefaults.textButtonColors(contentColor = CanonGreen2),
-                                ) { Text(appText("Изменить", "Үҙгәртеү"), fontWeight = FontWeight.Bold, fontSize = 14.sp) }
-                            }
+                        }
+                        // Уже оценил — показываем сколько и даём переставить. Сервер оценку
+                        // разрешает изменить, значит и в приложении это не тупик.
+                        if (!editing) {
+                            TextButton(
+                                onClick = { editing = true },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                colors = ButtonDefaults.textButtonColors(contentColor = CanonGreen2),
+                            ) { Text(appText("Изменить", "Үҙгәртеү"), fontWeight = FontWeight.Bold, fontSize = 14.sp) }
                         }
                         // Подпись под звёздами = состояние словами. Незрячим она же читает оценку.
                         Text(
@@ -3355,7 +3358,7 @@ internal fun DriverCabinetContent(
                             color = CanonMuted, fontSize = 12.sp,
                         )
                         AnimatedVisibility(visible = editing && stars > 0) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
                                 Button(
                                     onClick = {
                                         sending = true
@@ -3367,7 +3370,7 @@ internal fun DriverCabinetContent(
                                         }
                                     },
                                     enabled = !sending,
-                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                     shape = RoundedCornerShape(14.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
                                 ) {
@@ -3382,7 +3385,7 @@ internal fun DriverCabinetContent(
                                     OutlinedButton(
                                         onClick = { stars = b.myStars; editing = false },
                                         enabled = !sending,
-                                        modifier = Modifier.heightIn(min = 48.dp),
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                         shape = RoundedCornerShape(14.dp),
                                     ) { Text(appText("Отмена", "Кире алыу"), color = CanonMuted) }
                                 }

@@ -199,6 +199,17 @@ class BookingLinkDestinationTest {
     }
 
     @Test
+    fun `завершённая поездка кабинета использует отдельный callback без живого гео`() {
+        val cabinetBranch = src("YuldashApp.kt").substringAfter("Screen.DriverCabinet ->").substringBefore("Screen.ScheduledOrders ->")
+        assertTrue(cabinetBranch.contains("onOpenCompletedTrip = { bid -> vm.applyBookingLink(bid, \"driver\", \"done\", true) }"))
+        val profile = src("ProfileScreen.kt")
+        assertTrue(profile.contains("onOpenCompletedTrip = onOpenCompletedTrip"))
+        val completed = profile.substringAfter("val ratableBookings =").substringBefore("// ─── Чаевые:")
+        assertTrue(completed.contains("onClick = { onOpenCompletedTrip(b.bookingId) }"))
+        assertFalse(completed.contains("onOpenTrip(b.bookingId)"))
+    }
+
+    @Test
     fun `мои отклики водителя открывают поездку через ту же точку`() {
         // Водительской брони нет в «Моих бронях» пассажира: открыть ActiveTrip без заглушки поездки
         // значит отправить водителя восстановлением на главную (приёмка волны 1, 16.10.2026).

@@ -1592,6 +1592,7 @@ private fun YuldashAppContent() {
                 onPretrip = { openProtectedScreen(Screen.PretripCheck) },
                 onMyResponses = { openProtectedScreen(Screen.DriverResponses) },
                 onOpenTrip = { bid -> vm.openDriverTrip(bid) },   // «Едут с тобой» → экран поездки водителя
+                onOpenCompletedTrip = { bid -> vm.applyBookingLink(bid, "driver", "done", true) },
             ) }
             Screen.ScheduledOrders -> ScheduledOrdersScreen(
                 onBack = { goBack() },
