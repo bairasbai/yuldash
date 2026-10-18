@@ -1812,10 +1812,19 @@ export function CancelSheet({
   const sheetRef = useRef<HTMLDivElement>(null);
   const exit = useSheetExit(onClose, sheetRef);
 
-  return (
+  return exit.portal(
     <div className={exit.backdropClass} onClick={exit.close}>
-      <div ref={sheetRef} className="sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
-        <h2 className="sheet__title">{appText("Почему отменяешь?", "Ниңә кире алаһың?")}</h2>
+      <div
+        ref={sheetRef}
+        className="sheet"
+        {...exit.dialogProps}
+        aria-labelledby={exit.titleId}
+        onClick={(e) => e.stopPropagation()}
+        onAnimationEnd={exit.onAnimationEnd}
+      >
+        <h2 className="sheet__title" id={exit.titleId}>
+          {appText("Почему отменяешь?", "Ниңә кире алаһың?")}
+        </h2>
 
         {/* Платная отмена объясняется до нажатия, а не приходит счётом после. */}
         {feeRub > 0 && (
@@ -1861,7 +1870,7 @@ export function CancelSheet({
               ? appText("Всё равно отменить", "Барыбер кире алыу")
               : appText("Отменить заказ", "Заказды кире алыу")}
         </button>
-        <button type="button" className="btn-soft" style={{ marginTop: 8 }} onClick={exit.close}>
+        <button type="button" className="btn-ghost sheet__dismiss" onClick={exit.close}>
           {feeRub > 0 ? appText("Я выхожу", "Мин сығам") : appText("Не отменять", "Кире алмаҫҡа")}
         </button>
       </div>
