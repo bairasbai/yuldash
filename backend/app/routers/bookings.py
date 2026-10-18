@@ -870,8 +870,21 @@ def _verify_arrival(session: Session, booking: Booking, ride: Ride) -> Optional[
 
 
 def _nearest_m(points: list, target: tuple) -> Optional[float]:
-    """Расстояние в метрах от ближайшей из точек до цели; None — точек нет."""
-    dists = [haversine_km(float(p["lat"]), float(p["lng"]), target[0], target[1]) * 1000.0 for p in points]
+    """Расстояние в метрах от ближайшей из точек до цели; None — годных точек нет.
+
+    Негодные точки пропускаем (приёмка PR0, P2): кадр `{"lat": NaN}` проходит проверку типа и
+    анти-телепорт (сравнения с NaN ложны) и ложится в кэш, а «NaN > радиуса» — тоже ложь: без этой
+    защиты такая точка давала «подтверждено по GPS». Пропуск, а не отказ: с одной негодной точкой
+    проверить нечем (без галочки), а рядом с ней нормальная дальняя точка по-прежнему даёт отказ."""
+    dists = []
+    for p in points:
+        try:
+            lat, lng = float(p["lat"]), float(p["lng"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if not (math.isfinite(lat) and math.isfinite(lng) and -90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+            continue
+        dists.append(haversine_km(lat, lng, target[0], target[1]) * 1000.0)
     return min(dists) if dists else None
 
 

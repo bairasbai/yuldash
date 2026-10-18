@@ -163,6 +163,19 @@ def test_second_device_at_home_does_not_refuse_at_the_stop(client, user_factory,
     assert _role(client, zarina, b_stop)["arrival_verified"] is True
 
 
+def test_nan_point_at_the_stop_gives_no_badge_and_does_not_hide_a_far_one(client, user_factory, redis_on):
+    """Кадр `{"lat": NaN}` в кэше: у остановки — без галочки; рядом с нормальной дальней — отказ."""
+    drv, (_a, zarina), _ride, (b_start, b_stop) = _trip(client, user_factory, "nan")
+    livepos.livepos_set("booking", b_start, float("nan"), float("nan"))
+    assert _arriving(client, drv, b_stop).status_code == 200
+    assert _role(client, zarina, b_stop)["arrival_verified"] is False
+    drv2, _p2, _ride2, (s2, st2) = _trip(client, user_factory, "nan2")
+    _driver_at(SIBAY, s2)
+    livepos.livepos_set("booking", st2, float("nan"), float("nan"))
+    r = _arriving(client, drv2, st2)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "arriving_too_far", r.text
+
+
 def test_between_two_and_five_km_passes_without_the_badge(client, user_factory, redis_on):
     drv, (_a, zarina), _ride, (b_start, b_stop) = _trip(client, user_factory, "mid")
     _driver_at(MID_URGAZA, b_start)

@@ -150,6 +150,35 @@ def test_ride_without_pickup_pin_is_not_blocked(client, user_factory, at):
     ride = r.json()
     booking = client.post("/bookings", headers=pax["auth"],
                           json={"ride_id": ride["id"], "seats": 1}).json()
+    # Подтверждённая: точку водителя проверка читает только по подтверждённым броням (приёмка PR0) —
+    # без этого тест прошёл бы и при «центре города вместо пина».
+    assert client.post(f"/bookings/{booking['id']}/confirm", headers=drv["auth"]).status_code == 200
     at(FAR, booking["id"])
     assert client.post(f"/bookings/{booking['id']}/driver-status",
                        headers=drv["auth"], json={"status": "arriving"}).status_code == 200
+
+
+def test_nan_point_gives_no_badge(client, user_factory, at):
+    """Кадр водителя `{"lat": NaN}` лёг в кэш: проверить нечем — «Подъезжаю» без галочки (приёмка PR0, P2).
+    Раньше «NaN > радиуса» было ложью, и такая точка давала «подтверждено по GPS»."""
+    drv, pax, ride, booking = _trip(client, user_factory)
+    at((float("nan"), float("nan")), booking["id"])
+    r = client.post(f"/bookings/{booking['id']}/driver-status", headers=drv["auth"], json={"status": "arriving"})
+    assert r.status_code == 200, r.text
+    assert client.get(f"/bookings/{booking['id']}/role", headers=pax["auth"]).json()["arrival_verified"] is False
+
+
+def test_nan_point_does_not_hide_a_real_far_point(client, user_factory, at):
+    """NaN-точка рядом с нормальной дальней (25 км) не превращает отказ в пропуск."""
+    drv = user_factory("ArrNanDrv", role=UserRole.driver)
+    ride = _publish(client, drv, seats_total=2)
+    ids = []
+    for i in range(2):
+        pax = user_factory(f"ArrNanPax{i}")
+        b = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride["id"], "seats": 1}).json()
+        assert client.post(f"/bookings/{b['id']}/confirm", headers=drv["auth"]).status_code == 200
+        ids.append(b["id"])
+    at(FAR, ids[0])
+    livepos.livepos_set("booking", ids[1], float("nan"), float("inf"))
+    r = client.post(f"/bookings/{ids[1]}/driver-status", headers=drv["auth"], json={"status": "arriving"})
+    assert r.status_code == 409 and "км" in r.json()["detail"]["ru"], r.text
