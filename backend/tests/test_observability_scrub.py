@@ -548,3 +548,194 @@ def test_настоящий_sentry_не_уносит_ключи_из_исход�
                    "-1001234567890"):
         assert секрет not in blob, f"{секрет!r} уехал бы в Sentry"
     assert "http.query" not in blob
+
+
+# ------------- доработка по приёмке безопасности PR183 (18.10.2026) -------------
+# P1: Sentry прячет только свой короткий список заголовков (Cookie, Authorization, X-Forwarded-For…).
+# Секрет вебхука Telegram (`X-Telegram-Bot-Api-Secret-Token`) в него не входит — любая ошибка
+# в вебхуке унесла бы его в облако, а с ним можно подделать «человек поделился номером».
+# X-Device-Id — постоянный номер телефона-устройства, тоже не для чужого сервиса.
+СЕКРЕТ_ВЕБХУКА = "whsec-" + "probe-not-real-" + "7f3a9c"
+ID_УСТРОЙСТВА = "dev-" + "a1b2c3d4e5f60718"
+
+
+def test_before_send_оставляет_только_безвредные_заголовки():
+    event = {"request": {"url": "https://yulbash.ru/telegram/webhook", "method": "POST", "headers": {
+        "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 14)", "content-type": "application/json",
+        "Content-Length": "52", "accept": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": СЕКРЕТ_ВЕБХУКА, "x-device-id": ID_УСТРОЙСТВА,
+        "authorization": "Bearer abc", "cookie": "yl_session=x", "referer": "https://yulbash.ru/t/abc",
+        "x-real-ip": "85.239.52.55", "x-forwarded-for": "85.239.52.55", "idempotency-key": "k-1",
+        "host": "yulbash.ru", "accept-language": "ba-RU,ru;q=0.8",
+    }}}
+    out = before_send(event, None)
+    assert out["request"]["headers"] == {
+        "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 14)", "content-type": "application/json",
+        "Content-Length": "52", "accept": "application/json",
+    }, out["request"]["headers"]
+    assert event["request"]["headers"]["x-device-id"] == ID_УСТРОЙСТВА, "исходное событие не трогаем"
+
+
+# P2-1: в трейсах (замерах скорости) спан исходящего запроса несёт полный адрес со строкой
+# запроса — точные координаты маршрута Яндекса, широту для погоды, адрес для геокодера.
+def test_before_send_урезает_спаны_исходящих_запросов():
+    event = {"type": "transaction", "spans": [
+        {"op": "http.client", "span_id": "a1", "status": "ok",
+         "description": "GET https://api.routing.yandex.net/v2/route?waypoints=54.051234%2C58.318765",
+         "data": {"http.method": "GET", "url": "https://api.routing.yandex.net/v2/route",
+                  "http.query": "apikey=K&waypoints=54.051234%2C58.318765%7C52.932123%2C58.661234",
+                  "http.fragment": "", "http.response.status_code": 200, "reason": "OK"}},
+        {"op": "http.client", "span_id": "a2", "description": "POST https://user:pw@sms.ru:443/sms/send",
+         "data": {}},
+        {"op": "db", "span_id": "a3", "description": "SELECT 1 WHERE phone = '89171234567'", "data": {}},
+    ]}
+    out = before_send(event, None)
+    s1, s2, s3 = out["spans"]
+    assert s1["description"] == "GET https://api.routing.yandex.net", s1
+    assert s1["data"] == {"url": "https://api.routing.yandex.net", "http.method": "GET",
+                          "http.response.status_code": 200}, s1
+    assert s1["span_id"] == "a1" and s1["status"] == "ok" and s1["op"] == "http.client"
+    assert s2["description"] == "POST https://sms.ru:443" and s2["data"] == {
+        "url": "https://sms.ru:443", "http.method": "POST"}, s2
+    assert s3["description"] == "SELECT 1 WHERE phone = '<телефон>'", s3   # прочие спаны — мойкой
+
+
+def test_init_sentry_не_раздаёт_заголовки_трассировки_чужим_сервисам(monkeypatch):
+    """sentry-trace и baggage к запросам в Telegram, sms.ru, Яндекс, ЮKassa — не нужны им и не
+    нужны нам: идентификаторы наших трассировок уходили бы чужим сервисам."""
+    import sentry_sdk
+
+    from app import observability
+    from app.config import settings
+
+    seen: dict = {}
+    monkeypatch.setattr(sentry_sdk, "init", lambda **kw: seen.update(kw))
+    monkeypatch.setattr(settings, "sentry_dsn", "https://public@sentry.invalid/1", raising=False)
+    monkeypatch.setattr(observability, "_sentry_ready", False, raising=False)
+
+    assert observability.init_sentry() is True
+    assert seen["trace_propagation_targets"] == []
+
+
+@pytest.mark.parametrize("адрес", [
+    "https://api.telegram.org/BOT{t}/sendMessage",
+    "https://api.telegram.org/bot{id}%3A{secret}/sendMessage",
+    "https://api.telegram.org/Bot{id}%3a{secret}/getMe",
+])
+def test_мойка_прячет_токен_бота_в_любом_регистре_и_с_закодированным_двоеточием(адрес):
+    бот_id, секрет = ТОКЕН_БОТА.split(":")
+    out = scrub_text(адрес.format(t=ТОКЕН_БОТА, id=бот_id, secret=секрет))
+    assert секрет not in out and "<скрыто>" in out, out
+
+
+def test_sql_крошка_не_моется_при_записи_но_уходит_вымытой():
+    """SQL-крошек — по одной на запрос к базе. Мыть каждую при записи — лишняя работа на каждом
+    запросе (около 1 мс); перед отправкой их всё равно моет before_send. Защита не слабеет:
+    крошка без события не уходит никуда, а событие без before_send не уходит."""
+    from app.observability import before_breadcrumb
+
+    crumb = {"type": "default", "category": "query",
+             "message": "SELECT id FROM user WHERE phone = '+79171234567' AND tg = 'tel 8-917-765-43-21'"}
+    записано = before_breadcrumb(crumb, {})
+    assert записано == crumb, "SQL-крошку при записи не трогаем"
+    out = before_send({"breadcrumbs": {"values": [записано]}}, None)
+    msg = out["breadcrumbs"]["values"][0]["message"]
+    assert msg == "SELECT id FROM user WHERE phone = '<телефон>' AND tg = 'tel <телефон>'", msg
+
+
+# Настоящий путь: настоящее приложение (app.main — тот же create_app и init_sentry, что на проде),
+# трейсы включены на 100%, сеть подменена. Ошибка в вебхуке Telegram, успешный вебхук и расчёт
+# маршрута Яндекса внутри трассировки.
+_SDK_PROBE_WEBHOOK = r'''
+import json, os
+import httpx
+import sentry_sdk
+from sentry_sdk.transport import Transport
+
+events, outgoing = [], []
+
+class Box(Transport):
+    def capture_envelope(self, envelope):
+        for item in envelope.items:
+            ev = item.get_event() or item.get_transaction_event()
+            if ev is not None:
+                events.append(ev)
+
+_real_init = sentry_sdk.init
+def _init(*a, **kw):
+    kw["transport"] = Box()
+    return _real_init(*a, **kw)
+sentry_sdk.init = _init
+
+def _fake_network(self, request):
+    outgoing.append({"host": request.url.host, "headers": sorted(k.lower() for k in request.headers)})
+    return httpx.Response(200, json={"ok": True}, request=request)
+httpx.HTTPTransport.handle_request = _fake_network
+
+from fastapi.testclient import TestClient
+from app.main import app                       # create_app() сам вызывает init_sentry()
+from app.routers import auth as auth_router
+from app import pricing
+
+def _boom(callback):
+    raise RuntimeError("сбой в вебхуке")
+auth_router._handle_admin_callback = _boom
+
+# Значения — из окружения, не из argv: argv Sentry сам кладёт в событие (ArgvIntegration).
+HEADERS = {"X-Telegram-Bot-Api-Secret-Token": os.environ["TELEGRAM_WEBHOOK_SECRET"],
+           "X-Device-Id": os.environ["PROBE_DEVICE_ID"], "User-Agent": "TelegramBot (like TwitterBot)"}
+with TestClient(app, raise_server_exceptions=False) as c:
+    r1 = c.post("/telegram/webhook", headers=HEADERS, json={"callback_query": {"id": "1", "data": "x"}})
+    r2 = c.post("/telegram/webhook", headers=HEADERS, json={"message": {}})
+assert (r1.status_code, r2.status_code) == (500, 200), (r1.status_code, r2.status_code)
+
+with sentry_sdk.start_transaction(op="task", name="probe-route"):
+    pricing.route_metrics((54.051234, 58.318765), (52.932123, 58.661234))
+
+sentry_sdk.flush()
+print("EVENTS_JSON:" + json.dumps(events, ensure_ascii=False, default=str))
+print("OUTGOING_JSON:" + json.dumps(outgoing, ensure_ascii=False))
+'''
+
+
+def test_настоящий_sentry_не_уносит_секрет_вебхука_и_координаты_трейсов(tmp_path):
+    env = dict(os.environ)
+    env.update({
+        "ENV": "dev", "PYTHONIOENCODING": "utf-8",
+        "DATABASE_URL": f"sqlite:///{(tmp_path / 'probe.db').as_posix()}",
+        "SENTRY_DSN": "https://public@sentry.invalid/1", "SENTRY_TRACES_SAMPLE_RATE": "1.0",
+        "TELEGRAM_WEBHOOK_SECRET": СЕКРЕТ_ВЕБХУКА, "PROBE_DEVICE_ID": ID_УСТРОЙСТВА,
+        "YANDEX_ROUTER_KEY": "router-" + "key-probe-0001", "RATE_LIMIT_ENABLED": "false",
+    })
+    proc = subprocess.run([sys.executable, "-c", _SDK_PROBE_WEBHOOK],
+                          cwd=BACKEND, env=env, capture_output=True, text=True, encoding="utf-8",
+                          timeout=240)
+    out = {ln.split(":", 1)[0]: ln.split(":", 1)[1] for ln in proc.stdout.splitlines()
+           if ln.startswith(("EVENTS_JSON:", "OUTGOING_JSON:"))}
+    assert proc.returncode == 0 and len(out) == 2, proc.stdout[-2000:] + proc.stderr[-3000:]
+    events, outgoing = json.loads(out["EVENTS_JSON"]), json.loads(out["OUTGOING_JSON"])
+
+    errors = [e for e in events if "сбой в вебхуке" in json.dumps(e, ensure_ascii=False)
+              and e.get("type") != "transaction"]
+    webhook_tx = [e for e in events if e.get("type") == "transaction"
+                  and "webhook" in json.dumps(e.get("request") or {})]
+    route_tx = [e for e in events if e.get("type") == "transaction" and e.get("transaction") == "probe-route"]
+    assert errors and len(webhook_tx) >= 2 and route_tx, (
+        f"проба не собрала нужных событий: {[(e.get('type'), e.get('transaction')) for e in events]}")
+
+    for e in errors + webhook_tx:
+        headers = (e.get("request") or {}).get("headers") or {}
+        assert {k.lower() for k in headers} <= {"user-agent", "content-type", "content-length", "accept"}, headers
+    assert "user-agent" in {k.lower() for k in errors[0]["request"]["headers"]}, "полезное — оставили"
+
+    spans = [s for e in route_tx for s in e.get("spans", []) if s.get("op") == "http.client"]
+    assert spans, f"нет спана исходящего запроса: {route_tx!r}"[:2000]
+    for s in spans:
+        assert s.get("description") == "GET https://api.routing.yandex.net", s
+        assert set(s.get("data") or {}) <= {"url", "http.method", "http.response.status_code"}, s
+
+    blob = json.dumps(events, ensure_ascii=False)
+    for секрет in (СЕКРЕТ_ВЕБХУКА, ID_УСТРОЙСТВА, "54.051234", "52.932123", "router-key-probe-0001"):
+        assert секрет not in blob, f"{секрет!r} уехал бы в Sentry"
+    assert any(o["host"] == "api.routing.yandex.net" for o in outgoing), outgoing
+    assert all(not {"sentry-trace", "baggage"} & set(o["headers"]) for o in outgoing), outgoing
