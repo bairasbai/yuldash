@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import timedelta
 
 import fakeredis
@@ -680,3 +681,88 @@ def test_passenger_b_step_respects_her_rules(client, user_factory, redis_on):
     assert location._машина_для(b2, пора) is not None
     assert client.post(f"/bookings/{b2}/cancel", headers=bota["auth"]).status_code == 200
     assert location._машина_для(b2, пора) is None and пора.кончилась is True
+
+
+# ── Внутренняя точка водителя по рейсу (приёмка PR186, A1) ──
+
+def _driver_sends_in_closed_window(client, drv, bid, ride_id, point, redis):
+    """Водитель открыл поездку брони `bid`, чьё окно ещё закрыто, и прислал точку. В кэш брони она
+    не ложится; ждём, пока ляжет во внутренний ключ рейса (кадр обработан)."""
+    key = f"livepos:ride_driver:{ride_id}"
+    with client.websocket_connect(f"/ws/trip/{bid}/location") as mouth:
+        mouth.send_text(json.dumps({"type": "auth", "token": drv["token"]}))
+        mouth.send_text(json.dumps({"type": "loc", "lat": point[0], "lng": point[1], "ts": 1}))
+        deadline = utcnow() + timedelta(seconds=5)
+        while redis.get(key) is None and utcnow() < deadline:
+            time.sleep(0.01)
+    assert redis.get(key) is not None, "кадр водителя не дошёл до ключа рейса"
+    assert livepos.livepos_get("booking", bid) is None, "окно брони закрыто — в её кэш не пишем"
+
+
+def test_driver_in_a_closed_window_is_still_checked_for_a_stop(client, user_factory, redis_on, clock):
+    """Водитель открыл поездку Зарины (Бурибай, окно — за 2 минуты до выезда) и стоит у пина в Сибае.
+    «Подъезжаю» для Ургазы (41 км) — отказ: проверка видит машину по внутренней точке рейса.
+    Раньше точек не было ни в одном кэше, и слово водителя проходило без проверки."""
+    drv, (_zarina, _ur), ride, (b_far, b_ur) = _trip(client, user_factory, "ridekey", places=("Бурибай", "Ургаза"),
+                                                     depart_in=timedelta(minutes=30))
+    _driver_sends_in_closed_window(client, drv, b_far, ride["id"], SIBAY, redis_on)
+    clock(_depart(ride["id"]) - timedelta(minutes=1))    # «Подъезжаю» к Ургазе уже можно по времени
+    far = _arriving(client, drv, b_ur)
+    assert far.status_code == 409, far.text
+    d = far.json()["detail"]
+    assert d["code"] == "arriving_too_far" and abs(d["distance_km"] - KM_TO_URGAZA) < 1.0, d
+
+
+def test_driver_at_a_stop_cannot_arrive_at_the_start(client, user_factory, redis_on, clock):
+    """Водитель в Ургазе с открытой поездкой Зарины (окно закрыто) жмёт «Подъезжаю» пассажирке в
+    начале маршрута — отказ «далеко от места подачи»: она не выйдет на мороз за 40 км до машины."""
+    drv, (_aigul, _zarina), ride, (a, b) = _trip(client, user_factory, "ridekeystart", places=("Сибай", "Бурибай"),
+                                                 depart_in=timedelta(minutes=30))
+    _driver_sends_in_closed_window(client, drv, b, ride["id"], URGAZA, redis_on)
+    clock(_depart(ride["id"]) - timedelta(minutes=1))
+    r = _arriving(client, drv, a)
+    assert r.status_code == 409 and "км" in r.json()["detail"]["ru"], r.text
+    assert _booking(a).arriving_at is None, "отказ ничего не записал"
+
+
+def test_the_ride_point_is_shown_to_no_one(client, user_factory, redis_on):
+    """Внутренняя точка рейса — только для ответа водителю «далеко/рядом». Пассажирке начала, у
+    которой окно открыто, её близким и обёртке наружу она не отдаётся."""
+    drv, (aigul, _zarina), ride, (a, b) = _trip(client, user_factory, "ridekeyhidden", places=("Сибай", "Бурибай"),
+                                                depart_in=timedelta(minutes=30))
+    token = _share(client, aigul, a, "+79170000951")
+    _driver_sends_in_closed_window(client, drv, b, ride["id"], SIBAY, redis_on)
+    with Session(engine) as s:
+        r = s.get(Ride, ride["id"])
+        assert [p["booking_id"] for p in livepos.driver_points_for_ride(s, r, with_ride_point=True)] == [None]
+        assert livepos.driver_points_for_ride(s, r) == [], "без флага проверки — не видно"
+        ak = s.get(Booking, a)
+        assert trip_is_live(ak, r) is True, "окно Айгуль открыто — точку ей отдали бы, будь она в её кэше"
+        assert location.driver_point_for_booking(s, ak, r) is None
+    assert location._машина_для(a, location._Пора(a, aigul["id"])) is None
+    assert client.get(f"/t/{token}/state.json").json()["car"] is None
+
+
+def test_no_ride_point_before_the_ride_is_live(client, user_factory, redis_on, gate_seen):
+    """За два часа до выезда рейс ещё не идёт — водителя дома не отслеживаем даже для проверки."""
+    drv, (_aigul,), ride, (a,) = _trip(client, user_factory, "ridekeyearly", places=("Сибай",),
+                                       depart_in=timedelta(hours=2))
+    with client.websocket_connect(f"/ws/trip/{a}/location") as mouth:
+        mouth.send_text(json.dumps({"type": "auth", "token": drv["token"]}))
+        before = gate_seen["n"]
+        mouth.send_text(json.dumps({"type": "loc", "lat": SIBAY[0], "lng": SIBAY[1], "ts": 1}))
+        wait_gate(gate_seen, before)
+    assert redis_on.get(f"livepos:ride_driver:{ride['id']}") is None
+    assert livepos.livepos_get("booking", a) is None
+
+
+def test_passenger_frame_never_reaches_the_ride_point(client, user_factory, redis_on, gate_seen):
+    """Кадр пассажирки (её окно открыто) во внутренний ключ рейса не пишется: только водитель."""
+    _drv, (aigul,), ride, (a,) = _trip(client, user_factory, "ridekeypax", places=("Сибай",),
+                                       depart_in=timedelta(minutes=20))
+    with client.websocket_connect(f"/ws/trip/{a}/location") as mouth:
+        mouth.send_text(json.dumps({"type": "auth", "token": aigul["token"]}))
+        before = gate_seen["n"]
+        mouth.send_text(json.dumps({"type": "loc", "lat": 52.0, "lng": 58.0, "ts": 1}))
+        wait_gate(gate_seen, before)
+    assert redis_on.get(f"livepos:ride_driver:{ride['id']}") is None

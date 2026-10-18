@@ -868,14 +868,16 @@ def _verify_arrival(session: Session, booking: Booking, ride: Ride) -> Optional[
     (`livepos.driver_points_for_ride`, 18.10.2026), а не только по этой: водитель открыл поездку
     брони A, а «Подъезжаю» жмёт по брони B — кэш B пуст, и раньше проверка молча пропускала.
     Сверяем БЛИЖАЙШУЮ к пину: второе устройство водителя дома (планшет с открытой бронью) не
-    должно давать ложный отказ тому, кто правда у подъезда (приёмка PR0, P2).
+    должно давать ложный отказ тому, кто правда у подъезда (приёмка PR0, P2). Плюс внутренняя
+    точка по рейсу (`with_ride_point`, приёмка PR186, A1): водитель открыл бронь, чьё окно ещё
+    закрыто, — в кэш брони точка не легла, а проверить его слово всё равно есть чем.
     """
     if not settings.arrival_verify_enabled:
         return None
     target = _pickup_point(ride)
     if target is None:
         return None
-    return _nearest_m(livepos.driver_points_for_ride(session, ride), target)
+    return _nearest_m(livepos.driver_points_for_ride(session, ride, with_ride_point=True), target)
 
 
 def _nearest_m(points: list, target: tuple) -> Optional[float]:
@@ -910,7 +912,7 @@ def _distance_to_stop_km(session: Session, ride: Ride, place) -> Optional[float]
     point = place.point
     if point is None or point.kind not in VILLAGE_KINDS:
         return None
-    meters = _nearest_m(livepos.driver_points_for_ride(session, ride), (point.lat, point.lng))
+    meters = _nearest_m(livepos.driver_points_for_ride(session, ride, with_ride_point=True), (point.lat, point.lng))
     return meters / 1000.0 if meters is not None else None
 
 
