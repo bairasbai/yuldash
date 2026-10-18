@@ -308,6 +308,59 @@ internal fun sanitizeLoginCodeInput(raw: String): String = raw.filter { it.isDig
 internal fun loginRequestErrorText(e: Throwable, fallback: String): String =
     (e as? ApiException)?.message ?: fallback
 
+/**
+ * 429 («слишком часто» / лимит попыток) и 503 («зайди через мессенджер», канал заморожен) —
+ * сервер уже сказал человеку, что делать, и немедленный повтор того же запроса не поможет:
+ * лимит не снимется раньше времени, а замороженный канал не разморозится. Используется, чтобы
+ * решить, показывать ли подсказку «проверь связь и нажми «Повторить»» (LoginErrorBanner) —
+ * показывать её тут значит врать про причину отказа (независимое ревью, leaf-2.2).
+ */
+internal fun isRetryableAfterError(e: Throwable): Boolean {
+    val status = (e as? ApiException)?.status
+    return status != 429 && status != 503
+}
+
+/** Разбор одной ошибки верификации Telegram-кода: что показать и стоит ли предлагать «Повторить». */
+internal class TgVerifyErrorUi(val needPhone: Boolean, val retryable: Boolean, val text: String)
+
+/**
+ * 403 на этом шаге приходит по ДВУМ разным причинам с одним кодом статуса (`routers/auth.py`):
+ * бан устройства (`antifraud.py::guard_device_not_banned`, готовый двуязычный текст от сервера)
+ * и `phone_required` (строка "phone_required", не {ru,ba} — ApiClient не даёт признака, чтобы
+ * отличить её от произвольной ошибки; это задача на ApiClient, см. отчёт листа «ВНЕ ЗОНЫ»).
+ * Различаем по ТОЧНОМУ тексту бана — остальное безопасно трактуем как «нужен номер» (так было
+ * до этого листа). 409/410/429/400 — статусы, которые сервер всегда различает сам (`:845-871`).
+ */
+internal fun tgVerifyErrorUi(
+    e: Throwable,
+    errPhoneRequired: String,
+    errCodeNotYet: String,
+    errExpiredCode: String,
+    errTooManyCode: String,
+    errBadTgCode: String,
+    errVerify: String,
+): TgVerifyErrorUi {
+    val apiEx = e as? ApiException
+    return when (apiEx?.status) {
+        403 -> {
+            val banned = apiEx?.message == "Аккаунт заблокирован — напиши в поддержку." ||
+                apiEx?.message == "Аккаунт бикләнгән — ярҙам хеҙмәтенә яҙ."
+            if (banned) TgVerifyErrorUi(needPhone = false, retryable = false, text = apiEx?.message ?: errVerify)
+            else TgVerifyErrorUi(needPhone = true, retryable = false, text = errPhoneRequired)
+        }
+        // Код ещё идёт от Telegram под нагрузкой — тот же код стоит повторить буквально.
+        409 -> TgVerifyErrorUi(needPhone = false, retryable = true, text = errCodeNotYet)
+        // Код истёк — «Повторить» слал бы тот же мёртвый код.
+        410 -> TgVerifyErrorUi(needPhone = false, retryable = false, text = errExpiredCode)
+        // Лимит попыток угадывания (herr, «получи новый код») ИЛИ общий лимит по IP на /auth/*
+        // (middleware.py, «подожди немного») — разные причины, обе уже двуязычные от сервера;
+        // свой текст был бы неточен для второй.
+        429 -> TgVerifyErrorUi(needPhone = false, retryable = false, text = loginRequestErrorText(e, errTooManyCode))
+        400 -> TgVerifyErrorUi(needPhone = false, retryable = true, text = errBadTgCode)
+        else -> TgVerifyErrorUi(needPhone = false, retryable = true, text = errVerify)
+    }
+}
+
 // testTag'и кнопок входа: при loading текст скрывается спиннером, поэтому в тестах целимся в кнопку
 // по тегу (проверить disabled/двойной тап). На вид/поведение не влияют.
 internal const val TAG_LOGIN_TELEGRAM_BTN = "login_telegram_btn"   // экран выбора: «Войти через Telegram»
@@ -412,6 +465,11 @@ private fun LoginFormCard(
     var nameInput by rememberSaveable { mutableStateOf("") }       // имя при регистрации (необязательно)
     var needPhone by rememberSaveable { mutableStateOf(false) }   // сервер требует номер (403 phone_required)
     var freshCodeRequired by rememberSaveable { mutableStateOf(false) }
+    // Гасит подсказку «проверь связь» и кнопку «Повторить» в LoginErrorBanner, когда сервер уже сказал,
+    // что делать, и повтор того же запроса не поможет (бан — писать в поддержку; код истёк/много попыток —
+    // нужен НОВЫЙ код). «Повторить» в этих случаях молча слал бы тот же мёртвый код (независимое ревью,
+    // leaf-2.2). Default true — свои/неизвестные ошибки (нет сети, непонятный ответ) retry не портит.
+    var errorRetryable by rememberSaveable { mutableStateOf(true) }
     val context = LocalContext.current
 
     // Строки ошибок считаем здесь (в @Composable-контексте с currentLanguage) — колбэки получают готовый текст.
@@ -448,6 +506,7 @@ private fun LoginFormCard(
         name = nameInput,
         loading = loading,
         error = error,
+        errorRetryable = errorRetryable,
         needPhone = needPhone,
         tgMode = tgMode,
         showPhone = showPhone,
@@ -469,7 +528,7 @@ private fun LoginFormCard(
                                 tgMode = true
                                 openTelegram("https://t.me/${TelegramLoginBot.name}?start=$req")
                             }
-                            .onFailure { loading = false; error = errTgStart }
+                            .onFailure { loading = false; errorRetryable = isRetryableAfterError(it); error = loginRequestErrorText(it, errTgStart) }
                     }
                 }
             }
@@ -477,8 +536,8 @@ private fun LoginFormCard(
         // Кнопка «Войти» на шаге ввода Telegram-кода. Гард двойного тапа + пустого кода — как раньше.
         onTgVerify = {
             if (!loading) {
-                if (freshCodeRequired) { error = errSaveLogin }
-                else if (!isLoginCodeValid(code)) { error = errEnterTgCode } else {
+                if (freshCodeRequired) { errorRetryable = true; error = errSaveLogin }
+                else if (!isLoginCodeValid(code)) { errorRetryable = true; error = errEnterTgCode } else {
                     loading = true; error = null
                     scope.launch {
                         ApiClient.tgVerify(tgRequestId, code.trim())
@@ -492,14 +551,13 @@ private fun LoginFormCard(
                                 if (e is SessionPersistenceException) {
                                     needPhone = false
                                     freshCodeRequired = true
+                                    errorRetryable = true   // «Повторить» намеренно шлёт тот же код — сервер мог принять его до сбоя записи
                                     error = errSaveLogin
-                                } else when ((e as? ApiException)?.status) {
-                                    403 -> { needPhone = true; error = errPhoneRequired }   // нужен номер
-                                    409 -> { needPhone = false; error = errCodeNotYet }    // код ещё идёт от Telegram под нагрузкой
-                                    410 -> { needPhone = false; error = errExpiredCode }   // код истёк
-                                    429 -> { needPhone = false; error = errTooManyCode }   // много попыток
-                                    400 -> { needPhone = false; error = errBadTgCode }
-                                    else -> { needPhone = false; error = errVerify }
+                                } else {
+                                    val ui = tgVerifyErrorUi(e, errPhoneRequired, errCodeNotYet, errExpiredCode, errTooManyCode, errBadTgCode, errVerify)
+                                    needPhone = ui.needPhone
+                                    errorRetryable = ui.retryable
+                                    error = ui.text
                                 }
                             }
                     }
@@ -523,11 +581,11 @@ private fun LoginFormCard(
                             code = ""
                             openTelegram("https://t.me/${TelegramLoginBot.name}?start=$req")
                         }
-                        .onFailure { loading = false; error = errTgStart }
+                        .onFailure { loading = false; errorRetryable = true; error = loginRequestErrorText(it, errTgStart) }
                 }
             }
         },
-        onBackFromTg = { tgMode = false; code = ""; error = null; freshCodeRequired = false },
+        onBackFromTg = { tgMode = false; code = ""; error = null; freshCodeRequired = false; errorRetryable = true },
         onToggleSmsForm = { showPhone = !showPhone },
         onChangePhone = { step = 0; code = ""; error = null },
         // SMS-кнопка «Получить код» / «Войти». Гарды двойного тапа и пустых полей — как в прежнем onClick.
@@ -535,26 +593,35 @@ private fun LoginFormCard(
             if (!loading) {
                 error = null
                 if (step == 0) {
-                    if (!isLoginPhoneValid(phone)) { error = errEnterPhone } else {
+                    if (!isLoginPhoneValid(phone)) { errorRetryable = true; error = errEnterPhone } else {
                         loading = true
                         scope.launch {
                             ApiClient.requestCode(phone.trim())
                                 .onSuccess { loading = false; step = 1 }
-                                .onFailure { loading = false; error = loginRequestErrorText(it, errSendFail) }
+                                .onFailure { e ->
+                                    loading = false
+                                    errorRetryable = isRetryableAfterError(e)
+                                    error = loginRequestErrorText(e, errSendFail)
+                                }
                         }
                     }
                 } else {
-                    if (!isLoginCodeValid(code)) { error = errEnterCode } else {
+                    if (!isLoginCodeValid(code)) { errorRetryable = true; error = errEnterCode } else {
                         loading = true
                         scope.launch {
                             ApiClient.verifyCode(phone.trim(), code.trim(), nameInput.trim())
                                 .onSuccess { loading = false; onContinue() }
                                 .onFailure { e ->
                                     loading = false
-                                    error = when {
-                                        e is SessionPersistenceException -> errSaveLogin
-                                        e is ApiException && e.status == 400 -> errBadCode
-                                        else -> errVerify
+                                    when {
+                                        e is SessionPersistenceException -> { errorRetryable = true; error = errSaveLogin }
+                                        e is ApiException && e.status == 400 -> { errorRetryable = true; error = errBadCode }
+                                        else -> {
+                                            // 429 (бюджет/попытки) и 503 (SMS заморожен) — та же логика, что на шаге
+                                            // запроса кода: сервер уже сказал, что делать, повтор не поможет.
+                                            errorRetryable = isRetryableAfterError(e)
+                                            error = loginRequestErrorText(e, errVerify)
+                                        }
                                     }
                                 }
                         }
@@ -580,6 +647,11 @@ internal fun LoginFormContent(
     name: String,
     loading: Boolean,
     error: String?,
+    // Прячет подсказку «проверь связь»/кнопку «Повторить» в LoginErrorBanner, когда [error] — уже
+    // готовый ответ сервера (бан, истёкший код, лимит попыток), и повтор того же запроса не поможет.
+    // Default true: существующие тесты экрана (рендерят LoginFormContent напрямую, не знают про этот
+    // параметр) продолжают видеть прежнее поведение — подсказка и кнопка показаны.
+    errorRetryable: Boolean = true,
     needPhone: Boolean,
     tgMode: Boolean,
     showPhone: Boolean,
@@ -678,7 +750,9 @@ internal fun LoginFormContent(
                 LoginErrorBanner(
                     currentLanguage = currentLanguage,
                     text = error,
-                    onRetry = onTgVerify,   // «Повторить» = та же проверка кода, что и кнопка «Войти»
+                    // «Повторить» = та же проверка кода, что и кнопка «Войти» — но только когда это
+                    // осмысленно (errorRetryable=false для бана/истёкшего кода/лимита попыток).
+                    onRetry = if (errorRetryable) onTgVerify else null,
                 )
                 AppButton(
                     text = appTextFor(currentLanguage, "Войти", "Инеү"),
@@ -770,6 +844,7 @@ internal fun LoginFormContent(
                     name = name,
                     loading = loading,
                     error = error,
+                    errorRetryable = errorRetryable,
                     showPhone = showPhone,
                     onPhoneChange = onPhoneChange,
                     onCodeChange = onCodeChange,
@@ -825,15 +900,21 @@ internal fun LoginErrorBanner(
                     )
                     Text(shownText, color = CanonRed, fontSize = LoginBody, lineHeight = 23.sp)
                 }
-                Text(
-                    text = appTextFor(
-                        currentLanguage,
-                        "Нет интернета или код ещё не пришёл? Проверь связь и нажми «Повторить».",
-                        "Интернет юҡмы, әллә код килеп еткәне юҡмы? Бәйләнеште тикшер ҙә «Ҡабатла» баҫ.",
-                    ),
-                    color = CanonMuted, fontSize = LoginCaption, lineHeight = 20.sp,
-                )
+                // Подсказка и кнопка идут ТОЛЬКО парой: подсказка буквально инструктирует нажать
+                // «Повторить», и без кнопки указывает в никуда. Для ответов сервера, где повтор не
+                // поможет (бан, истёкший код, лимит, «зайди через мессенджер»), вызывающий код не
+                // передаёт onRetry вовсе — здесь остаётся только текст самой ошибки (independent
+                // review, leaf-2.2: баннер раньше навязывал «проверь связь» даже под «Зайди через
+                // мессенджер» и под баном устройства).
                 if (onRetry != null) {
+                    Text(
+                        text = appTextFor(
+                            currentLanguage,
+                            "Нет интернета или код ещё не пришёл? Проверь связь и нажми «Повторить».",
+                            "Интернет юҡмы, әллә код килеп еткәне юҡмы? Бәйләнеште тикшер ҙә «Ҡабатла» баҫ.",
+                        ),
+                        color = CanonMuted, fontSize = LoginCaption, lineHeight = 20.sp,
+                    )
                     AppButton(
                         text = appTextFor(currentLanguage, "Повторить", "Ҡабатлау"),
                         onClick = onRetry,
@@ -876,6 +957,7 @@ internal fun ColumnScope.LoginSmsSection(
     name: String,
     loading: Boolean,
     error: String?,
+    errorRetryable: Boolean = true,   // см. комментарий у одноимённого параметра LoginFormContent
     showPhone: Boolean,
     onPhoneChange: (String) -> Unit,
     onCodeChange: (String) -> Unit,
@@ -950,11 +1032,12 @@ internal fun ColumnScope.LoginSmsSection(
                 Text(appTextFor(currentLanguage, "Изменить номер", "Номерҙы үҙгәртеү"), color = CanonGreen2, fontSize = LoginBody)
             }
         }
-        // Та же карточка ошибки, что и в Telegram-потоке: текст + «что делать» + «Повторить».
+        // Та же карточка ошибки, что и в Telegram-потоке: текст + «что делать» + «Повторить» —
+        // когда это осмысленно (errorRetryable=false для 429/503, см. LoginFormCard.onSmsPrimary).
         LoginErrorBanner(
             currentLanguage = currentLanguage,
             text = error,
-            onRetry = onSmsPrimary,
+            onRetry = if (errorRetryable) onSmsPrimary else null,
         )
         Button(
             onClick = onSmsPrimary,

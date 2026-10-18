@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.content.Context
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.yuldash.app.data.ApiClient
 import java.net.URI
@@ -59,10 +60,23 @@ internal fun ownImageModel(url: String): String? = url.trim().takeIf { isOwnMedi
 /**
  * Готовая модель для `AsyncImage`: наш адрес — с токеном, чужой — не грузится совсем
  * (ни картинки, ни токена, ни следа на чужом сервере).
+ *
+ * Дисковый кеш Coil ВЫКЛЮЧЕН намеренно (независимое ревью, leaf-2.2). Сервер отдаёт `/secure/docs`,
+ * `/secure/evidence`, `/secure/carphoto` обычным `FileResponse` без `Cache-Control` (`drivers.py`,
+ * `incidents.py`, `carphoto.py` — чужие файлы, не трогал), а Coil 2.7.0 по умолчанию пишет на диск
+ * ЛЮБОЙ такой ответ. Выход стирает голосовые, настройки и офлайн-хранилища, но не кеш картинок Coil
+ * (`cacheDir/image_cache`) — права водителя, селфи курьера, справка о несудимости и фото ссадин из
+ * спора, которые смотрел админ, оставались бы на телефоне НЕЗАШИФРОВАННЫМИ и после выхода из
+ * аккаунта. Тот же класс дыры, что чинили для голосовых (волна 75). Память — НЕ выключаем: она
+ * живёт только пока процесс жив (гибнет с ним/при перезагрузке), не пишется на диск форензик-доступным
+ * файлом, и отключение просто заставило бы перезагружать картинку на каждый скролл без выигрыша
+ * в приватности. Чистку уже накопленного кеша при выходе — задача на `ApiClient` (см. отчёт листа,
+ * «ВНЕ ЗОНЫ»): этот файл только строит ОТДЕЛЬНЫЕ запросы и не знает о выходе из аккаунта.
  */
 internal fun authedImageRequest(ctx: Context, url: String, token: String): ImageRequest =
     ImageRequest.Builder(ctx)
         .data(ownImageModel(url))
         .apply { if (token.isNotBlank() && isOwnMediaHost(url)) addHeader("Authorization", "Bearer $token") }
+        .diskCachePolicy(CachePolicy.DISABLED)
         .crossfade(true)
         .build()
