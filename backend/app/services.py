@@ -1145,7 +1145,7 @@ def send_text(phone: str, text: str) -> bool:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
             return bool(ok)
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[SMS] {mp}: smsru error {e}")
+            log.warning(f"[SMS] {mp}: smsru error {scrub_text(str(e))}")  # HTTPStatusError несёт адрес с api_id и кодом
             if not settings.is_prod:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
             return False
@@ -1157,7 +1157,7 @@ def send_text(phone: str, text: str) -> bool:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
             return bool(ok)
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[SMS] {mp}: smsdar error {e}")
+            log.warning(f"[SMS] {mp}: smsdar error {scrub_text(str(e))}")
             if not settings.is_prod:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
             return False
@@ -1252,7 +1252,7 @@ def send_sms(phone: str, code: str) -> None:
                     raise _sms_failed()
                 log.info(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[SMS] {mp}: smsru error {e}")
+            log.warning(f"[SMS] {mp}: smsru error {scrub_text(str(e))}")  # HTTPStatusError несёт адрес с api_id и кодом
             if settings.is_prod:
                 raise _sms_failed()
             log.info(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
@@ -1267,7 +1267,7 @@ def send_sms(phone: str, code: str) -> None:
         except HTTPException:
             raise
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[SMS] {mp}: smsdar error {e}")
+            log.warning(f"[SMS] {mp}: smsdar error {scrub_text(str(e))}")
             if settings.is_prod:
                 raise _sms_failed()
             log.info(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)

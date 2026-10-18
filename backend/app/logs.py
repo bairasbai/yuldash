@@ -14,13 +14,24 @@ import os
 import re
 
 
-class _TelegramCredentialFilter(logging.Filter):
-    """Mask a Telegram bot credential before HTTPX records reach any handler."""
-    _url = re.compile(r"(https?://api\.telegram\.org/bot)[^/\s?#\"']+", re.IGNORECASE)
+class _HttpxUrlPrivacyFilter(logging.Filter):
+    """Mask URL secrets before HTTPX records reach any handler.
+
+    HTTPX пишет на INFO полный адрес каждого исходящего запроса. Сейчас корневой логгер под
+    uvicorn стоит на WARNING и эти строки не печатаются, но достаточно включить INFO целиком
+    (basicConfig, другой запускатор) — и в журнал уходят ключ бота Telegram в пути, а в строке
+    запроса: `api_id` sms.ru, номер, код входа и текст SOS с координатами, `apikey` и точки
+    геокодера Яндекса (18.10.2026). Поэтому из строки запроса оставляем только имена параметров.
+    """
+    _telegram = re.compile(r"(https?://api\.telegram\.org/bot)[^/\s?#\"']+", re.IGNORECASE)
+    # Адрес начинается только после пробела, кавычки или скобки: иначе на строке «http://http://…»
+    # без «?» поиск пробует каждый «http» внутри уже начатого адреса — квадратично (P3 приёмки).
+    _query = re.compile(r"(?<![^\s\"'(<\[=,])(https?://[^\s?#\"']+)\?([^\s#\"']*)", re.IGNORECASE)
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        safe = self._url.sub(r"\1<скрыто>", message)
+        safe = self._telegram.sub(r"\1<скрыто>", message)
+        safe = self._query.sub(lambda m: f"{m.group(1)}?{_query_names_only(m.group(2))}", safe)
         if safe != message:
             # Change this record only; HTTPX Request/payload and logger levels stay intact.
             # Clear args too, so structured handlers cannot retain the original URL.
@@ -29,10 +40,16 @@ class _TelegramCredentialFilter(logging.Filter):
         return True
 
 
+def _query_names_only(query: str) -> str:
+    """«a=1&b=2&flag» → «a=<скрыто>&b=<скрыто>&flag» (как `observability._query_names_only`)."""
+    return "&".join(part.split("=", 1)[0] + ("=<скрыто>" if "=" in part else "")
+                    for part in query.split("&") if part)
+
+
 _httpx_log = logging.getLogger("httpx")
-_filter_name = "yuldash.telegram-credential"
+_filter_name = "yuldash.httpx-url-privacy"
 if not any(getattr(f, "name", None) == _filter_name for f in _httpx_log.filters):
-    _httpx_log.addFilter(_TelegramCredentialFilter(_filter_name))
+    _httpx_log.addFilter(_HttpxUrlPrivacyFilter(_filter_name))
 
 log = logging.getLogger("yuldash")
 
