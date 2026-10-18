@@ -471,6 +471,42 @@ def test_departed_for_a_stop_booking_opens_nothing(client, user_factory, redis_o
     assert state["status"] == "wait" and state["car"] is None
 
 
+def test_undo_boarded_rolls_the_open_channel_back_for_a_stop_booking(client, user_factory, redis_on):
+    """Бурибай — 87 км: окно Зарины откроется за 2 минуты до выезда, сейчас до выезда 20 минут.
+    Водитель промахнулся карточкой — «Сел» по Зарине (за 30 минут до выезда можно) и тут же
+    «Отменить». Бронь снова подтверждена и вне окна — уже открытый канал откатывается: её точка не
+    идёт водителю, его — ей (приёмка PR186, S3). Посадка у начала маршрута так не откатывается —
+    там окно и так открыто за час."""
+    drv, (zarina,), _ride, (bid,) = _trip(client, user_factory, "undostop", places=("Бурибай",),
+                                          depart_in=timedelta(minutes=20))
+    её_канал = location._Пора(bid, zarina["id"])
+    его_канал = location._Пора(bid, drv["id"])
+    assert её_канал.наступила() is False and его_канал.наступила() is False, "окно Зарины ещё закрыто"
+    r = client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": "boarded"})
+    assert r.status_code == 200, r.text
+    assert её_канал.наступила() is True and его_канал.наступила() is True, "«Сел» открыл канал (ожидаемо)"
+    u = client.post(f"/bookings/{bid}/boarded/undo", headers=drv["auth"])
+    assert u.status_code == 200, u.text
+    with Session(engine) as s:
+        bk = s.get(Booking, bid)
+        assert bk.status == BookingStatus.confirmed
+        assert trip_is_live(bk, s.get(Ride, bk.ride_id)) is False, "по правилу брони окно закрыто"
+    assert её_канал.наступила() is False, "после «Отменить» её канал всё ещё пересылает точки"
+    assert его_канал.наступила() is False, "после «Отменить» его канал всё ещё пересылает точки"
+    assert её_канал.кончилась is False, "канал не рвём: окно откроется само, по времени или «Подъезжаю»"
+
+
+def test_undo_boarded_keeps_the_channel_of_a_start_booking(client, user_factory, redis_on):
+    """Контроль: у пассажира начала окно открыто за час до выезда — «Отменить» его не закрывает."""
+    drv, (aigul,), _ride, (bid,) = _trip(client, user_factory, "undostart", places=("Сибай",),
+                                         depart_in=timedelta(minutes=20))
+    канал = location._Пора(bid, aigul["id"])
+    assert канал.наступила() is True
+    assert client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": "boarded"}).status_code == 200
+    assert client.post(f"/bookings/{bid}/boarded/undo", headers=drv["auth"]).status_code == 200
+    assert канал.наступила() is True and канал.кончилась is False
+
+
 # ── Ссылка близким, SOS и канал пассажира B: машина по любой брони рейса, правила — свои ──
 
 def _share(client, pax, bid, phone):
