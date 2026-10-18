@@ -4,6 +4,8 @@ import { readFileSync, existsSync } from "node:fs";
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
+// Шторка выносится в document.body (useSheetExit → exit.portal): браузера нет — хватит пустого body.
+globalThis.document ??= { body: {} };
 const h = globalThis.__ridePath = {
   states: [], refs: [], effects: [], si: 0, ri: 0, authed: true, routes: [], calls: [],
   reset() { this.states = []; this.refs = []; this.effects = []; this.si = this.ri = 0; this.routes = []; this.calls = []; },
@@ -11,6 +13,8 @@ const h = globalThis.__ridePath = {
 const modules = {
   react: `const h=globalThis.__ridePath; export function useState(value){const i=h.si++; if(!(i in h.states))h.states[i]=value; return [h.states[i],v=>h.states[i]=typeof v==='function'?v(h.states[i]):v]}; export function useRef(value){const i=h.ri++; return h.refs[i]??=( {current:value} )}; export const useEffect=(fn)=>{h.effects.push(fn)}; export const useCallback=fn=>fn;`,
   "react/jsx-runtime": `export const Fragment='fragment'; export const jsx=(type,props)=>({type,props:props??{}}); export const jsxs=jsx;`,
+  // Шторка рисуется в <body> через портал (useSheetExit): в наборе портал отдаёт разметку как есть.
+  "react-dom": `export const createPortal=(node)=>node;`,
   "react-router-dom": `export const Link='a'; export const useNavigate=()=> (...args)=>globalThis.__ridePath.routes.push(args); export const useParams=()=>({id:'42'});`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>ru,t:k=>k});`,
   auth: `export const useAuth=()=>({isAuthed:globalThis.__ridePath.authed});`,

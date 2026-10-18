@@ -12,7 +12,7 @@
 // ================================================================
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { browser, finish, flat, JSX, load, mount, REACT, root, settle, test, text } from "./fake-react.mjs";
+import { browser, FakeEl, finish, flat, JSX, load, mount, PORTAL, portals, REACT, root, settle, test, text } from "./fake-react.mjs";
 
 const h = (globalThis.__restExit = { calls: [], reply: null, lang: "ru", feed: null });
 
@@ -96,12 +96,48 @@ await test("сторож: у каждой из семи шторок затем�
   }
 });
 
+// ---------------------------------------------------------------- сторож: шторка — в <body>
+//
+// Живая проверка 17.10.2026: «Почему не сможешь?» у водителя такси открывалась внутри карточки, которая
+// после своего появления (fadeUp … both) так и держит transform. А position: fixed внутри предка с
+// transform отсчитывается от этого предка: затемнение 356×158 вместо 390×844, заголовок и первая причина —
+// под картой, кнопки поездки торчат снизу. «Жалоба на цену» и «Способ оплаты» — то же внутри панели такси.
+// Поэтому каждая нижняя шторка рисуется через exit.portal — в <body>, где предков с transform нет.
+
+/** Все нижние шторки сайта: семь выше, шторка поездки и шторки ленты. */
+const ALL_SHEETS = [...CONVERTED, "components/RideSheet.tsx", "components/NearbyFilters.tsx"];
+
+await test("сторож: каждая нижняя шторка рисуется в <body> (exit.portal) — затемнение на весь экран, где бы её ни открыли", async () => {
+  const users = sourceFiles(root + "src")
+    .map((f) => f.slice((root + "src/").length))
+    .filter((f) => f !== HOOK_FILE && /exit\.backdropClass/.test(readFileSync(root + "src/" + f, "utf8")));
+  assert.deepEqual(users.sort(), [...ALL_SHEETS].sort(), "список шторок сверен: новую шторку допиши в ALL_SHEETS");
+  for (const file of ALL_SHEETS) {
+    const src = withoutComments(readFileSync(root + "src/" + file, "utf8"));
+    assert.match(src, /return exit\.portal\(\s*<div className=\{exit\.backdropClass\}/, `${file}: затемнение со шторкой — через exit.portal`);
+    assert.ok(!/createPortal/.test(src), `${file}: свой createPortal не нужен — портал один, в хуке`);
+    assert.match(src, /\{\.\.\.exit\.dialogProps\}/, `${file}: шторка — диалог из хука (role, aria-modal, фокус, Esc, Tab)`);
+    assert.match(src, /aria-label(ledby)?=\{/, `${file}: у диалога есть имя для читалки`);
+    const rest = src.slice(src.indexOf("useSheetExit("));
+    const next = rest.search(/\n(export )?(default )?function /); // шторка кончается, где начинается следующий компонент
+    const sheetBody = next > 0 ? rest.slice(0, next) : rest;
+    assert.ok(!/role="dialog"|onKeyDown=|\.focus\(\)/.test(sheetBody), `${file}: своей клавиатуры и фокуса у шторки нет — всё в хуке`);
+  }
+  assert.match(readFileSync(root + "src/" + HOOK_FILE, "utf8"), /createPortal\(node, document\.body\)/, "хук выносит в <body>");
+});
+
+await test("стили: затемнение — position: fixed с inset: 0; из <body> оно отсчитывается от окна, то есть на весь экран", async () => {
+  const rule = readFileSync(root + "src/ui.css", "utf8").match(/\.sheet-backdrop \{([^}]*)\}/)?.[1] ?? "";
+  assert.match(rule, /position:\s*fixed/);
+  assert.match(rule, /inset:\s*0/);
+});
+
 // ---------------------------------------------------------------- подмена соседей
 
 /** Подмена всего, что файл импортирует, кроме `real`: компонент — строка-имя, функция — свой ответ из over. */
 function autoStubs(file, over = [], real = []) {
   const src = readFileSync(root + "src/" + file, "utf8");
-  const list = [[/^react$/, REACT], [/^react\/jsx-runtime$/, JSX], [/\/i18n\/lang$/, LANG_SWITCH], ...over];
+  const list = [[/^react$/, REACT], [/^react\/jsx-runtime$/, JSX], [/^react-dom$/, PORTAL], [/\/i18n\/lang$/, LANG_SWITCH], ...over];
   const escape = (x) => x.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
   const seen = new Set();
   for (const m of src.matchAll(/(?:^|\n)\s*(?:import|export)\s+(type\s+)?([^;]*?)\s+from\s+"([^"]+)"/g)) {
@@ -293,8 +329,71 @@ const SHEETS = [
   },
 ];
 
+/**
+ * Второе действие внизу шторки — одно на все: текстовая кнопка во всю ширину (.btn-ghost.sheet__dismiss).
+ * «Не отменять» была узкой рамочной кнопкой слева под красной во всю ширину (живая проверка 17.10.2026).
+ * «Отмена заявки» — не здесь: там «Оставить» и «Отменить» стоят рядом (.sheet__actions).
+ */
+const BOTTOM_DISMISS = {
+  "способ расчёта (оплата)": "Закрыть",
+  "жалоба на цену (такси)": "Закрыть",
+  "«почему не сможешь» (такси, водитель)": "Всё-таки поеду",
+  "причина отмены заказа (такси)": "Не отменять",
+  "код вручения (посылки)": "Отмена",
+};
+
+await test("стили: .sheet__dismiss — во всю ширину, отступ со шкалы", async () => {
+  const rule = readFileSync(root + "src/ui.css", "utf8").match(/\.sheet__dismiss \{([^}]*)\}/)?.[1] ?? "";
+  assert.match(rule, /width:\s*100%/);
+  assert.match(rule, /margin-top:\s*var\(--space-sm\)/);
+  assert.match(rule, /font-size:\s*var\(--font-button\)/, "16, как кнопка: «Я выхожу» не мельче «Всё равно отменить»");
+  assert.match(rule, /font-weight:\s*var\(--weight-bold\)/);
+});
+
 for (const sheet of SHEETS) {
   const t = (what) => `${sheet.name}: ${what}`;
+
+  await test(t("рисуется в <body>, а не там, где её открыли, — затемнение на весь экран"), async () => {
+    reset();
+    const before = portals().length;
+    const x = sheet.open();
+    const call = portals().at(-1);
+    assert.ok(portals().length > before, "через портал");
+    assert.equal(call.container, globalThis.document.body, "в <body>");
+    assert.equal(call.node, x.s.tree, "вынесено затемнение целиком, вместе со шторкой");
+    assert.match(call.node.props.className, /\bsheet-backdrop\b/);
+  });
+
+  await test(t("диалог для читалки: role=dialog, aria-modal, заголовок; фокус внутрь, Esc уводит, фокус обратно"), async () => {
+    reset();
+    const opener = new FakeEl("кнопка, которой открыли");
+    opener.focus();
+    const x = sheet.open();
+    const el = x.sheet();
+    assert.equal(el.props.role, "dialog", "role=dialog — на самой шторке");
+    assert.equal(el.props["aria-modal"], true, "aria-modal");
+    const title = flat(el).find((n) => n.props?.id && n.props.id === el.props["aria-labelledby"]);
+    assert.ok(title && text(title).trim(), "aria-labelledby ведёт на заголовок с текстом");
+    const active = globalThis.document.activeElement;
+    assert.ok(active === x.node() || flat(el).some((n) => n.props?.ref?.current === active), "фокус перенесён в шторку");
+    el.props.onKeyDown(ESC);
+    x.s.render();
+    assert.ok(x.leaving(), "Esc уводит шторку вниз");
+    x.finish();
+    x.s.unmount();
+    assert.equal(globalThis.document.activeElement, opener, "убрали — фокус вернулся туда, откуда открыли");
+  });
+
+  if (sheet.name in BOTTOM_DISMISS) {
+    await test(t(`«${BOTTOM_DISMISS[sheet.name]}» — внизу, текстовая кнопка во всю ширину, как во всех шторках`), async () => {
+      reset();
+      const x = sheet.open();
+      const btn = x.button(BOTTOM_DISMISS[sheet.name]);
+      assert.ok(hasClass(btn, "btn-ghost") && hasClass(btn, "sheet__dismiss"), `класс: ${btn.props.className}`);
+      assert.equal(flat(x.sheet()).filter((n) => n.type === "button").at(-1), btn, "последнее действие шторки");
+      assert.equal(btn.props.style, undefined, "отступы — из .sheet__dismiss, без своих чисел");
+    });
+  }
 
   await test(t("тап по затемнению — уезжает вниз, затемнение гаснет, потом пропадает"), async () => {
     reset();
@@ -396,26 +495,28 @@ await test("оплата: «Скоро» — не выбор, шторка ос�
   assert.equal(called("pick").length, 0);
 });
 
-await test("оплата: PayMethodPicker — кнопка → шторка → выбор → шторка ушла, кнопка снова на месте", async () => {
+await test("оплата: PayMethodPicker — кнопка → шторка → выбор → шторка ушла; кнопка всё время на месте (туда вернётся фокус)", async () => {
   reset();
   const picks = [];
   const picker = mount(Pay.default, { value: "cash", onChange: (m) => picks.push(m) });
   const cta = () => flat(picker.tree).find((n) => n.type === "button");
-  assert.equal(flat(picker.tree).some((n) => n.type?.name?.startsWith("PayMethodSheet")), false, "закрыта");
+  const sheetIn = () => flat(picker.tree).find((n) => /^PayMethodSheet\d*$/.test(n.type?.name ?? ""));
+  assert.ok(!sheetIn(), "закрыта");
   cta().props.onClick();
   picker.render();
-  const sheetEl = picker.tree;
-  assert.match(sheetEl.type.name, /^PayMethodSheet\d*$/, "открыта отдельным компонентом");
+  const sheetEl = sheetIn();
+  assert.ok(sheetEl, "открыта отдельным компонентом");
+  assert.ok(cta(), "кнопка под шторкой не пропадает: шторка уйдёт — фокус вернётся на неё (приёмка PR181)");
   const x = open(sheetEl.type, sheetEl.props);
   x.button("СБП").props.onClick();
   assert.deepEqual(picks, ["sbp"], "выбор дошёл до заказа");
   x.s.render();
   assert.ok(x.leaving(), "шторка уезжает");
   picker.render();
-  assert.match(picker.tree.type.name, /^PayMethodSheet\d*$/, "пока едет — ещё на странице");
+  assert.ok(sheetIn(), "пока едет — ещё на странице");
   x.finish();
   picker.render();
-  assert.equal(cta().type, "button", "шторка убрана, кнопка снова на месте");
+  assert.ok(!sheetIn() && cta(), "шторка убрана, кнопка на месте");
 });
 
 await test("жалоба: сервер принял — «Спасибо» стоит под уходящей шторкой, шторка уезжает и пропадает", async () => {
@@ -425,7 +526,7 @@ await test("жалоба: сервер принял — «Спасибо» ст�
   c.render();
   const sheetEl = flat(c.tree).find((n) => /^PriceComplaintSheet\d*$/.test(n.type?.name ?? ""));
   assert.ok(sheetEl, "шторка открыта");
-  assert.ok(!flat(c.tree).some((n) => n.type === "button" && /Что-то не так/.test(text(n))), "пока шторка открыта, кнопки жалобы нет");
+  assert.ok(flat(c.tree).some((n) => n.type === "button" && /Что-то не так/.test(text(n))), "кнопка жалобы под шторкой остаётся — туда вернётся фокус (приёмка PR181)");
   const x = open(sheetEl.type, sheetEl.props);
   x.button("Дорого для такого расстояния").props.onClick();
   await settle(c, x.s);
@@ -703,14 +804,22 @@ await test("код вручения: оба экрана курьера отве
 const Hook = await load(`export { useSheetExit } from "./src/components/useSheetExit"; export { useRef } from "react";`, [
   [/^react$/, REACT],
   [/^react\/jsx-runtime$/, JSX],
+  [/^react-dom$/, PORTAL],
 ]);
-const plainSheet = () => ({ getAnimations: () => [], parentElement: { getAnimations: () => [] }, inert: false, contains: () => false });
+const plainSheet = () => ({ getAnimations: () => [], parentElement: { getAnimations: () => [] }, inert: false, contains: () => false, focus() {} });
 function hostWithHook() {
   const closes = [];
   const sheet = plainSheet();
   const host = mount(() => Hook.useSheetExit(() => closes.push(1), Hook.useRef(sheet)), {});
   return { host, closes, sheet, exit: () => host.tree };
 }
+
+await test("хук: exit.portal выносит разметку в <body> и отдаёт её как есть", async () => {
+  const x = hostWithHook();
+  const node = { type: "div", props: { className: "sheet-backdrop" } };
+  assert.equal(x.exit().portal(node), node);
+  assert.deepEqual(portals().at(-1), { node, container: globalThis.document.body });
+});
 
 await test("хук: шторку убрали со страницы, пока она уходила, — onClose НЕ зовётся (он может уводить на другой экран и перехватил бы «Назад»)", async () => {
   browser.reduced = false;
@@ -768,7 +877,7 @@ for (const how of ["resolve", "reject"]) {
   await test(`хук: закрыли, пока шторка поднималась, и убрали до конца обратного хода — finished (${how}) onClose не зовёт`, async () => {
     browser.reduced = false;
     const rising = movement("sheetUp", 90);
-    const sheet = { getAnimations: () => [rising], parentElement: { getAnimations: () => [movement("fadeIn", 90)], animate() {} }, inert: false, contains: () => false };
+    const sheet = { getAnimations: () => [rising], parentElement: { getAnimations: () => [movement("fadeIn", 90)], animate() {} }, inert: false, contains: () => false, focus() {} };
     const closes = [];
     const host = mount(() => Hook.useSheetExit(() => closes.push(1), Hook.useRef(sheet)), {});
     host.tree.close();

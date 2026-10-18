@@ -9,7 +9,7 @@
 // ================================================================
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { browser, FakeEl, finish, flat, JSX, LANG, load, mount, REACT, root, test } from "./fake-react.mjs";
+import { browser, FakeEl, finish, flat, JSX, LANG, load, mount, PORTAL, portals, REACT, root, test } from "./fake-react.mjs";
 
 const h = (globalThis.__rideExit = { booking: null, routes: [], calls: [], authed: true, own: null });
 
@@ -17,6 +17,7 @@ const Sheet = (
   await load("src/components/RideSheet.tsx", [
     [/^react$/, REACT],
     [/^react\/jsx-runtime$/, JSX],
+    [/^react-dom$/, PORTAL],
     [/^react-router-dom$/, `export const useNavigate = () => (...args) => globalThis.__rideExit.routes.push(args);`],
     [/\/i18n\/lang$/, LANG],
     [/\/auth\/AuthProvider$/, `export const useAuth = () => ({ isAuthed: globalThis.__rideExit.authed });`],
@@ -85,6 +86,16 @@ await test("шторка поездки: «Уменьшить движение»
   } finally {
     browser.reduced = false;
   }
+});
+
+await test("шторка поездки рисуется в <body>, а не в карточке, откуда её открыли: затемнение — на весь экран", async () => {
+  browser.reduced = false;
+  const before = portals().length;
+  const x = open();
+  const call = portals().at(-1);
+  assert.ok(portals().length > before, "через портал");
+  assert.equal(call.container, globalThis.document.body, "в <body>");
+  assert.equal(call.node, x.backdrop(), "вынесено затемнение целиком, вместе со шторкой");
 });
 
 await test("бронь прошла — шторка закрыта в тот же миг и человек на экране поездки, без ожидания движения", async () => {
@@ -233,6 +244,7 @@ await test("карточка ленты: Enter и пробел открываю�
 const X = await load(`export { useSheetExit } from "./src/components/useSheetExit"; export { useRef } from "react";`, [
   [/^react$/, REACT],
   [/^react\/jsx-runtime$/, JSX],
+  [/^react-dom$/, PORTAL],
 ]);
 
 /** Поддельное CSS-движение: идёт, можно развернуть, `end()` — доиграло. */
@@ -245,7 +257,7 @@ function anim(name, currentTime, playState = "running") {
 }
 function sheetNode(sheetAnims, backdropAnims = []) {
   const backdrop = { animations: backdropAnims, dims: [], getAnimations: () => backdrop.animations, animate: (kf, opts) => backdrop.dims.push({ kf, opts }) };
-  return { animations: sheetAnims, getAnimations: () => sheetAnims, parentElement: backdrop, inert: false, contains: () => false };
+  return { animations: sheetAnims, getAnimations: () => sheetAnims, parentElement: backdrop, inert: false, contains: () => false, focus() {} };
 }
 function exitWith(sheet) {
   const closes = [];

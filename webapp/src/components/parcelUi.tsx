@@ -174,11 +174,18 @@ export function CodeDialog({
     if (exit.leaving) return; // шторка уже уходит — код из неё не отправляем
     if ((await onSubmit(code)) === true) exit.close();
   }
-  return (
-    <div className={exit.backdropClass} onClick={exit.close} role="dialog" aria-modal="true">
-      <div ref={sheetRef} className="sheet code-sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
+  return exit.portal(
+    <div className={exit.backdropClass} onClick={exit.close} role="presentation">
+      <div
+        ref={sheetRef}
+        className="sheet code-sheet"
+        {...exit.dialogProps}
+        aria-labelledby={exit.titleId}
+        onClick={(e) => e.stopPropagation()}
+        onAnimationEnd={exit.onAnimationEnd}
+      >
         <div className="sheet__grip" aria-hidden />
-        <h2 className="section-title" style={{ marginTop: 4 }}>
+        <h2 className="section-title" id={exit.titleId} style={{ marginTop: 4 }}>
           {appText("Код вручения", "Тапшырыу коды")}
         </h2>
         <p className="parcel-card__desc" style={{ marginTop: 2 }}>
@@ -207,7 +214,7 @@ export function CodeDialog({
         >
           <IconCheck size={18} /> {busy ? appText("Проверяем…", "Тикшерәбеҙ…") : appText("Доставлено", "Тапшырылды")}
         </button>
-        <button type="button" className="btn-ghost" style={{ marginTop: 8 }} onClick={exit.close}>
+        <button type="button" className="btn-ghost sheet__dismiss" onClick={exit.close}>
           {appText("Отмена", "Баш тартыу")}
         </button>
       </div>
