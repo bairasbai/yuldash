@@ -28,6 +28,7 @@ async function open(lang, rows = [{ ...fresh }, { ...rated }]) {
       "/api/bookings": `import { ApiError } from "../api/client";
         export const fetchDriverBookings=async()=>{globalThis.__loads=(globalThis.__loads??0)+1;return globalThis.__dpRows.map(r=>({...r}));};
         export const markNoShow=async()=>({});
+        export const markArriving=async()=>({});
         export const rateBooking=async(id,n)=>{globalThis.__rated.push([id,n]);if(globalThis.__rateHold)await globalThis.__rateHold;
           const f=globalThis.__rateFail;if(f)throw new ApiError(f.status??500,f.message??"Сервер устал");
           const r=globalThis.__dpRows.find(x=>x.booking_id===id);if(r)r.my_stars=n;return {};};`,

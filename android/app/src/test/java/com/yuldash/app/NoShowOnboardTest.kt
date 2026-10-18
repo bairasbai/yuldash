@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import org.junit.Assert.assertEquals
@@ -98,6 +99,38 @@ class NoShowOnboardTest {
         assertNull(noShowOpensAtMs("не дата"))
     }
 
+    /** Приёмка PR182: часы карточки тикают ТОЛЬКО пока срок впереди — не реже раза в секунду и
+     *  ровно до срока; срок наступил или его нет — ни одного тика. */
+    @Test
+    fun `the clock ticks only while the moment is ahead`() {
+        assertNull("срока нет — часы не нужны", noShowTickMs(null, 1_000L))
+        assertNull("ровно в срок — уже не тикаем", noShowTickMs(5_000L, 5_000L))
+        assertNull("срок прошёл — не тикаем", noShowTickMs(5_000L, 9_000L))
+        assertEquals("далеко — раз в секунду", 1_000L, noShowTickMs(60 * 60_000L, 0L))
+        assertEquals("последний шаг — ровно до срока", 250L, noShowTickMs(1_250L, 1_000L))
+    }
+
+    /** Срок по часам телефона — поздний из `no_show_at` и «сейчас + секунды сервера»: часы телефона
+     *  спешат — ждём по секундам из ответа, а не открываем кнопку, на которую сервер сказал «рано». */
+    @Test
+    fun `the phone waits for the later of the server moment and the server seconds`() {
+        val opens = "2030-01-01T05:15:00"
+        val ms = java.time.LocalDateTime.parse(opens).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+        assertEquals(ms, com.yuldash.app.data.NoShowTerms(opens).opensAtMs())
+        assertEquals(ms + 60_000L, com.yuldash.app.data.NoShowTerms(opens, waitUntilMs = ms + 60_000L).opensAtMs())
+        assertEquals(ms, com.yuldash.app.data.NoShowTerms(opens, waitUntilMs = ms - 60_000L).opensAtMs())
+        assertEquals(42L, com.yuldash.app.data.NoShowTerms(null, waitUntilMs = 42L).opensAtMs())
+        assertNull(com.yuldash.app.data.NoShowTerms(null).opensAtMs())
+    }
+
+    @Test
+    fun `what stands next to the boarding mark`() {
+        assertEquals(NoShowSlot.Arriving, noShowSlot(needsArriving = true, open = true))
+        assertEquals(NoShowSlot.Arriving, noShowSlot(needsArriving = true, open = false))
+        assertEquals(NoShowSlot.Waiting, noShowSlot(needsArriving = false, open = false))
+        assertEquals(NoShowSlot.Ready, noShowSlot(needsArriving = false, open = true))
+    }
+
     @Test
     fun `confirmed booking before the wait shows when no-show opens instead of the button`() {
         val opens = java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(
@@ -111,8 +144,22 @@ class NoShowOnboardTest {
                 passengerId = 7, passengerName = "Айгуль", noShowAt = opens,
             )
         }
-        composeRule.onNodeWithText("Не пришёл").assertDoesNotExist()
+        // Кнопка на своём месте (место занято заранее, «Сел» не прыгает), но неактивна до срока.
+        composeRule.onNodeWithText("Не пришёл").assertIsNotEnabled()
         composeRule.onNodeWithText("Не пришёл — можно отметить с", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("Сел").assertIsDisplayed()
+    }
+
+    @Test
+    fun `ride with stops asks for arriving first`() {
+        composeRule.setContent {
+            DriverBoardingControls(
+                bookingId = 45, bookingStatus = "confirmed", boardingUndoSec = 0,
+                passengerId = 7, passengerName = "Айгуль", noShowAt = null, noShowNeedsArriving = true,
+            )
+        }
+        composeRule.onNodeWithText("Не пришёл").assertDoesNotExist()
+        composeRule.onNodeWithText("Подъезжаю").assertIsDisplayed()
+        composeRule.onNodeWithText("Сначала нажми «Подъезжаю» — пассажир получит уведомление").assertIsDisplayed()
     }
 }

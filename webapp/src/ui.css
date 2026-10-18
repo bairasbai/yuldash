@@ -9023,9 +9023,22 @@ select.field__input {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  animation: fadeIn var(--motion-normal) ease both;
 }
 .noshow-wait > svg {
   flex: none;
+}
+/* Место «Не вышел» рядом с «Сел» занято с первого кадра (приёмка PR182): до срока кнопка на месте,
+   но спокойная и неактивная, в срок — плавно оживает; на поездке с остановками на этом месте
+   «Подъезжаю». Меняется только она — «Сел» не двигается (в приложении — NoShowButton(locked)). */
+.noshow-slot {
+  transition: transform var(--motion-quick) ease, color var(--motion-normal) ease,
+    border-color var(--motion-normal) ease;
+}
+.noshow-slot:disabled {
+  border-color: var(--border);
+  color: var(--muted);
+  cursor: default;
 }
 /* Звёзды в списке — мельче, чем на экране оценки, но тач-цель остаётся 44. Пустая звезда — CanonMuted,
    как в приложении: на --border её почти не видно (контраст 1.3:1), и «2 из 5» не читается. */

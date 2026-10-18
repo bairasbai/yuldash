@@ -97,4 +97,51 @@ class BoardingApiTest {
         assertNull(parseDriverBookingDto(JSONObject("""{"booking_id":5,"no_show_at":null}""")).noShowAt)
         assertNull(parseDriverBookingDto(JSONObject("""{"booking_id":5,"no_show_at":""}""")).noShowAt)
     }
+
+    /** Поездка с остановками ждёт «Подъезжаю» (18.10.2026): признак в строке; старый сервер — нет. */
+    @Test
+    fun driverBookings_carryTheArrivingFirstFlag() {
+        val row = parseDriverBookingDto(JSONObject("""{"booking_id":5,"status":"confirmed","no_show_at":null,"no_show_needs_arriving":true}"""))
+        assertTrue(row.noShowNeedsArriving)
+        assertNull(row.noShowAt)
+        assertEquals(false, parseDriverBookingDto(JSONObject("""{"booking_id":5}""")).noShowNeedsArriving)
+    }
+
+    @Test
+    fun markArriving_postsArrivingAndReadsTheNewWait() = runBlocking {
+        server.enqueue(json("""{"ok":true,"driver_phase":"arriving","no_show_at":"2030-01-01T05:30:00","no_show_wait_sec":900,"no_show_needs_arriving":false}"""))
+        val before = System.currentTimeMillis()
+        val terms = BoardingApi.markArriving(42).getOrThrow()
+        assertEquals("2030-01-01T05:30:00", terms.noShowAt)
+        assertEquals(false, terms.needsArriving)
+        val until = terms.waitUntilMs ?: error("секунды сервера потерялись")
+        assertTrue("сейчас + 900 с по часам телефона", until in (before + 900_000L)..(System.currentTimeMillis() + 900_000L))
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/bookings/42/driver-status", recorded.path)
+        assertEquals("arriving", JSONObject(recorded.body.readUtf8()).getString("status"))
+    }
+
+    @Test
+    fun noShowTerms_toleratesOldServersAndNegativeSeconds() {
+        assertEquals(NoShowTerms(null), parseNoShowTerms(JSONObject("""{"ok":true,"driver_phase":"arriving"}"""), nowMs = 1_000L))
+        assertEquals(NoShowTerms(null), parseNoShowTerms(null, nowMs = 1_000L))
+        assertEquals(NoShowTerms(null), parseNoShowTerms(JSONObject("""{"no_show_at":"","no_show_wait_sec":null}"""), nowMs = 1_000L))
+        assertEquals(1_000L, parseNoShowTerms(JSONObject("""{"no_show_wait_sec":-5}"""), nowMs = 1_000L).waitUntilMs)
+    }
+
+    /** Отказ «Не пришёл» несёт новый срок: «рано» — момент и секунды, «сначала Подъезжаю» — признак. */
+    @Test
+    fun noShowRefusal_givesTheCardItsNewTerms() {
+        val early = noShowTermsAfterRefusal(
+            "no_show_too_early", JSONObject("""{"code":"no_show_too_early","no_show_wait_sec":600,"no_show_at":"2030-01-01T05:15:00"}"""), nowMs = 1_000L,
+        )
+        assertEquals(NoShowTerms("2030-01-01T05:15:00", needsArriving = false, waitUntilMs = 601_000L), early)
+        assertEquals(
+            NoShowTerms(null, needsArriving = true),
+            noShowTermsAfterRefusal("no_show_needs_arriving", JSONObject("""{"code":"no_show_needs_arriving","no_show_at":null}""")),
+        )
+        assertNull(noShowTermsAfterRefusal("passenger_onboard", JSONObject("""{"boarding_undo_sec":120}""")))
+        assertNull(noShowTermsAfterRefusal("", null))
+    }
 }

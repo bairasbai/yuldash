@@ -29,7 +29,7 @@ async function open(lang, rows = ROWS) {
   const DriverPassengers = await bundleComponent("src/components/DriverPassengers.tsx", {
     mocks: {
       "/i18n/lang": langMock(lang),
-      "/api/bookings": `export const fetchDriverBookings=async()=>globalThis.__dpRows;export const markNoShow=async()=>({});export const rateBooking=async()=>({});`,
+      "/api/bookings": `export const fetchDriverBookings=async()=>globalThis.__dpRows;export const markNoShow=async()=>({});export const markArriving=async()=>({});export const rateBooking=async()=>({});`,
       "/api/client": `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}}`,
     },
   });

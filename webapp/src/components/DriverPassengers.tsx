@@ -20,13 +20,15 @@
 //  с «Не вышел», «в пути» — «Отменить» в первые 5 минут, позже — разбор (DriverBoarding.tsx).
 //
 //  «Не вышел» — через 15 минут после выезда и с вопросом «Точно?» (решение 18.10.2026, образец
-//  BlaBlaCar): срок приходит от сервера (`no_show_at`), экран — DriverNoShow.tsx.
+//  BlaBlaCar): срок приходит от сервера (`no_show_at`), экран — DriverNoShow.tsx. На поездке с
+//  остановками — только после «Подъезжаю» по этой брони: она тут же, на месте «Не вышел».
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
   fetchDriverBookings,
+  markArriving,
   markNoShow,
   rateBooking,
   type DriverBookingRow,
@@ -219,16 +221,24 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
 
                   {/* Не вышел. Отдельно от обычной отмены: это сигнал доверия, и водитель
                       не должен выбирать между «соврать, что отменил сам» и «промолчать».
-                      Не раньше срока от сервера (`no_show_at`: выезд + 15 минут, решение 18.10.2026):
-                      до него — подпись «можно отметить с …», после — кнопка и вопрос «Точно?». */}
+                      Не раньше срока от сервера (`no_show_at`: выезд или «Подъезжаю» + 15 минут, решения
+                      18.10.2026): до него — неактивная кнопка и подпись «можно отметить с …», после —
+                      кнопка и вопрос «Точно?»; на поездке с остановками сначала «Подъезжаю». */}
                   {st === CONFIRMED && (
                     <DriverNoShow
                       noShowAt={b.no_show_at}
+                      needsArriving={b.no_show_needs_arriving === true}
                       busy={busyId === b.booking_id}
                       onConfirm={() =>
                         void act(b.booking_id, () => markNoShow(b.booking_id), {
                           ru: "Не получилось отметить. Проверь сеть.",
                           ba: "Билдәләп булманы. Селтәрҙе тикшер.",
+                        })
+                      }
+                      onArriving={() =>
+                        void act(b.booking_id, () => markArriving(b.booking_id), {
+                          ru: "Не удалось сохранить статус. Проверь сеть.",
+                          ba: "Хәлде һаҡлап булманы. Селтәрҙе тикшер.",
                         })
                       }
                     />
