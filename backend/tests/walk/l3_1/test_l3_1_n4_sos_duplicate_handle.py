@@ -126,11 +126,19 @@ def test_застрял_потом_настоящий_sos_не_закрывае�
     u = user_factory("N4User5")
     admin = user_factory("N4Admin4", role=UserRole.admin)
 
-    stuck_resp = client.post("/bookings/999999999/stuck", headers=u["auth"], json={})
-    stuck_id = stuck_resp.json()["id"]
-    # «застрял» всегда пишется с category="breakdown" (_roadside) — бьём SOS той же
-    # категорией, чтобы разделяло их ИМЕННО по виду сигнала (note-префикс), а не по категории:
-    # иначе мутация, убивающая только проверку вида, прошла бы незамеченной.
+    # «Застрял» через настоящую ручку требует СВОЮ бронь (круг 4 повторного ревью: чужая/
+    # несуществующая брони теперь честно отвечают 403/404, не 200) — а этому тесту нужен
+    # только САМ факт события с префиксом «Застрял на трассе», не проверка доступа к брони.
+    # Пишем его напрямую, как это делает `_roadside` изнутри: category="breakdown" — та
+    # же, что у SOS ниже, чтобы разделяло их ИМЕННО по виду сигнала (note-префикс), а не
+    # по категории: иначе мутация, убивающая только проверку вида, прошла бы незамеченной.
+    with Session(engine) as s:
+        stuck_ev = SosEvent(user_id=u["id"], category="breakdown",
+                            note="Застрял на трассе (зимний протокол). тест")
+        s.add(stuck_ev)
+        s.commit()
+        s.refresh(stuck_ev)
+        stuck_id = stuck_ev.id
     sos_id = client.post("/sos", headers=u["auth"], json={"category": "breakdown"}).json()["id"]
     with Session(engine) as s:
         stuck_event = s.get(SosEvent, stuck_id)

@@ -1241,6 +1241,25 @@ def _maps_link(lat: Optional[float], lng: Optional[float]) -> str:
     return f"https://yandex.ru/maps/?pt={lng},{lat}&z=16"
 
 
+def _write_unlinked_stuck_signal(session: Session, user: User, note: str) -> None:
+    """Чужой/несуществующий объект у кнопки «застрял» (круг 4 повторного ревью, сквозная
+    проверка `test_foreign_objects_sweep.py`): звонившему остаётся ПРЕЖНИЙ отказ (403/404) —
+    это не его бронь/заказ/доставка, и в ответе не должно быть ни единого поля чужой поездки.
+    Но N5 по-прежнему в силе: сигнал «нужна помощь» не теряется — пишем голую запись в
+    SOS-ленту, БЕЗ привязки к чужому объекту, дежурный её увидит через `GET /admin/sos`.
+
+    Почему не через `_roadside` (там же SMS доверенным + Telegram). `BackgroundTasks`,
+    поставленные ДО того, как ручка подняла `HTTPException`, НЕ выполняются — Starlette
+    строит ответ об ошибке без них (проверено отдельным скриптом вне pytest: `calls == []`
+    после `raise` вслед за `background.add_task`). Слать их синхронно ради отклонённого
+    чужого запроса незачем — дежурный всё равно увидит сигнал в общей ленте; а вот
+    незаметно потерять SMS/Telegram, думая, что они «ушли в фон», было бы тихой поломкой."""
+    event = SosEvent(user_id=user.id, category="breakdown", note=note)
+    session.add(event)
+    session.commit()
+    log.info(f"[ROADSIDE] user={user.id} чужой/не найденный объект — сигнал записан непривязанным")
+
+
 class StuckIn(BaseModel):
     # Координаты необязательны (GPS мог не схватиться) — тогда шлём хотя бы сигнал «нужна помощь».
     lat: Optional[float] = Field(None, ge=-90, le=90)
@@ -1257,16 +1276,21 @@ def roadside_help(
     session: Session = Depends(get_session),
 ):
     """«Я застрял / нужна помощь на трассе» — уровень мягче паники SOS, но реальный: координаты
-    уходят доверенным контактам, событие пишется в SOS-ленту админа. Доступно только участнику поездки."""
-    эфф_booking_id = booking_id
+    уходят доверенным контактам, событие пишется в SOS-ленту админа. Доступно только участнику
+    поездки (пассажир или водитель, В ЛЮБОМ статусе брони — отменённая/завершённая тоже своя)."""
     try:
         booking_and_ride_for_user(session, booking_id, user)   # 403/404 если чужой/нет брони
     except HTTPException:
-        # N5 (независимое ревью): чужая/несуществующая бронь не должна стоить человеку
-        # сигнала «нужна помощь» — пишем его без привязки, а не молчим вовсе.
-        эфф_booking_id = None
-        body.note = (body.note + f" [бронь #{booking_id} не подошла]").strip()
-    return _roadside(session, background, user, body, booking_id=эфф_booking_id)
+        # Круг 4 повторного ревью (сквозная проверка чужих объектов): чужая/несуществующая
+        # бронь НЕ открывает чужую поездку (прежний отказ 403/404 восстановлен), но N5 всё
+        # ещё в силе — сигнал «нужна помощь» не теряется, пишем его непривязанным.
+        link = _maps_link(body.lat, body.lng)
+        where = f" Место: {link}" if link else ""
+        note = (f"Застрял на трассе (зимний протокол). {body.note} "
+               f"[бронь #{booking_id} не подошла]." + where).strip()
+        _write_unlinked_stuck_signal(session, user, note)
+        raise
+    return _roadside(session, background, user, body, booking_id=booking_id)
 
 
 @router.post("/instant/orders/{order_id}/stuck")
@@ -1279,14 +1303,19 @@ def roadside_help_order(
 ):
     """То же для ТАКСИ-заказа. Зимний протокол работал только для попуток, хотя именно в такси
     зимой четыре часа трассы Сибай–Уфа: застрявшему в такси идти было некуда, кроме красной
-    кнопки SOS (аудит 2026-07-26). Доступно обеим сторонам заказа."""
-    эфф_order_id = order_id
+    кнопки SOS (аудит 2026-07-26). Доступно обеим сторонам заказа, в любом его статусе."""
     try:
         _order_for_participant(session, order_id, user)   # общий гейт участия (404/403), не дублируем
     except HTTPException:
-        эфф_order_id = None   # N5: чужой/несуществующий заказ не топит сигнал
-        body.note = (body.note + f" [заказ #{order_id} не подошёл]").strip()
-    return _roadside(session, background, user, body, order_id=эфф_order_id)
+        # Круг 4 повторного ревью: прежний отказ 403/404 восстановлен (чужой заказ не
+        # открывается), сигнал всё равно пишем непривязанным — см. _write_unlinked_stuck_signal.
+        link = _maps_link(body.lat, body.lng)
+        where = f" Место: {link}" if link else ""
+        note = (f"Застрял на трассе (зимний протокол). {body.note} "
+               f"[заказ #{order_id} не подошёл]." + where).strip()
+        _write_unlinked_stuck_signal(session, user, note)
+        raise
+    return _roadside(session, background, user, body, order_id=order_id)
 
 
 @router.post("/parcels/{parcel_id}/stuck")
@@ -1303,16 +1332,23 @@ def roadside_help_parcel(
     к доставке).
 
     Отправителю уходит уведомление: его посылка не движется, и он должен узнать это
-    от нас, а не через неделю от получателя."""
+    от нас, а не через неделю от получателя. Доступно в любом статусе доставки."""
     from ..models import ParcelDelivery
     parcel = session.get(ParcelDelivery, parcel_id)
     is_sender = bool(parcel) and user.id == parcel.sender_id
     is_courier = bool(parcel) and parcel.courier_id is not None and user.id == parcel.courier_id
     if not (is_sender or is_courier):
-        # N5 (независимое ревью): чужая/несуществующая доставка не должна стоить человеку
-        # сигнала. Раньше 403/404 здесь означали, что SosEvent вообще не создавался.
-        body.note = (body.note + f" [доставка #{parcel_id} не подошла]").strip()
-        return _roadside(session, background, user, body, parcel_id=None)
+        # Круг 4 повторного ревью: прежний отказ 403/404 восстановлен (чужая доставка не
+        # открывается), сигнал всё равно пишем непривязанным — см. _write_unlinked_stuck_signal.
+        link = _maps_link(body.lat, body.lng)
+        where = f" Место: {link}" if link else ""
+        note = (f"Застрял на трассе (зимний протокол). {body.note} "
+               f"[доставка #{parcel_id} не подошла]." + where).strip()
+        _write_unlinked_stuck_signal(session, user, note)
+        if not parcel:
+            raise herr(404, "Посылка не найдена", "Бандероль табылманы")
+        raise herr(403, "Ты не участник этой доставки",
+                   "Һин был доставканың ҡатнашыусыһы түгел")
 
     event = _roadside(session, background, user, body, parcel_id=parcel_id)
 

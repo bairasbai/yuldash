@@ -92,15 +92,21 @@ def test_driver_can_call_roadside_help_too(client, user_factory):
 
 
 def test_stranger_cannot_call_roadside_help(client, user_factory):
-    """Чужой заказ: сигнал «застрял» постороннего всё равно пишется (N5, независимое ревью),
-    но к чужому заказу не привязывается."""
+    """Круг 4 повторного ревью (сквозная проверка чужих объектов): посторонний получает
+    ПРЕЖНИЙ отказ 403 — чужой заказ не открывается, в ответе нет его данных. N5 всё ещё в
+    силе: сигнал «застрял» всё равно пишется, просто непривязанным, дежурный его увидит."""
     pax = user_factory("Юлаусы5")
     drv = user_factory("Водитель3", role=UserRole.driver)
     stranger = user_factory("Посторонний")
     oid = _order(pax["id"], drv["id"])
     r = client.post(f"/instant/orders/{oid}/stuck", headers=stranger["auth"], json={"lat": 53.1, "lng": 57.2})
-    assert r.status_code == 200, r.text
-    assert r.json()["order_id"] is None, "чужой заказ не должен попасть в событие как свой"
+    assert r.status_code == 403, r.text
+    assert str(pax["id"]) not in r.text, "в ответе постороннему не должно быть данных чужого заказа"
+    with Session(engine) as s:
+        rows = s.exec(select(M.SosEvent).where(M.SosEvent.user_id == stranger["id"])).all()
+    assert len(rows) == 1 and rows[0].order_id is None, (
+        "сигнал постороннего о «застрял» не должен теряться (N5) даже когда заказ чужой"
+    )
 
 
 def test_roadside_event_lands_in_admin_sos_feed(client, user_factory):

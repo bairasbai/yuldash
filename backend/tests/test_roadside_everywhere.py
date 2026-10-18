@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.db import engine
-from app.models import Notification, UserRole
+from app.models import Notification, SosEvent, UserRole
 
 from test_api import _ride
 
@@ -84,21 +84,38 @@ def test_отправитель_узнаёт_что_курьер_застрял(
 
 
 def test_посторонний_не_зовёт_помощь_по_чужой_доставке(client, user_factory, courier_on):
-    """Сигнал постороннего всё равно пишется (N5, независимое ревью — жизнь дороже проверки
-    участия), но к чужой посылке не привязывается: отправителю нет пуша, в note нет её номера."""
+    """Круг 4 повторного ревью (сквозная проверка чужих объектов): посторонний получает
+    ПРЕЖНИЙ отказ 403 — чужая доставка не открывается. Но N5 всё ещё в силе: сигнал
+    «нужна помощь» всё равно пишется, просто непривязанным, без единого поля чужой
+    доставки в ответе, и отправитель чужой посылки ничего не получает."""
     sender, courier, pid = _parcel_in_transit(client, user_factory, "RoadForeign")
     outsider = user_factory("RoadOutsider")
     before = _notes_count(sender["id"])
     r = client.post(f"/parcels/{pid}/stuck", headers=outsider["auth"], json=_WHERE)
-    assert r.status_code == 200, (
-        f"сигнал постороннего не должен теряться: {r.status_code} {r.text[:200]}"
+    assert r.status_code == 403, (
+        f"посторонний поднял тревогу по чужой доставке: {r.status_code} {r.text[:200]}"
     )
-    note = r.json().get("note") or ""
-    assert "Баймак" not in note and "Сибай" not in note, (
-        f"чужой маршрут доставки утёк в сигнал постороннего: {note!r}"
+    assert "Баймак" not in r.text and "Сибай" not in r.text, (
+        f"чужой маршрут доставки утёк в ответ постороннему: {r.text!r}"
     )
     assert _notes_count(sender["id"]) == before, (
         "отправитель чужой доставки не должен получать уведомление по сигналу постороннего"
+    )
+    with Session(engine) as s:
+        rows = s.exec(select(SosEvent).where(SosEvent.user_id == outsider["id"])).all()
+    # У SosEvent нет отдельной колонки под посылку (есть только под бронь и заказ) — «без
+    # привязки» здесь значит booking_id/order_id оба пустые, номер доставки если и попадёт,
+    # то только текстом в note, не как настоящая ссылка на чужой объект.
+    assert len(rows) == 1 and rows[0].booking_id is None and rows[0].order_id is None, (
+        "сигнал постороннего о «застрял» не должен теряться (N5) даже когда доставка чужая — "
+        "дежурный обязан его увидеть, просто без привязки к чужой посылке"
+    )
+    # Номер доставки в note — это НЕ привязка (parcel_id остаётся None) и не уходит
+    # постороннему: это служебная пометка для дежурного, кого именно отклонили. А вот
+    # ЧУЖОЙ МАРШРУТ (откуда-куда) — настоящие персональные данные отправителя/получателя,
+    # ему тут не место ни при каких обстоятельствах.
+    assert "Баймак" not in (rows[0].note or "") and "Сибай" not in (rows[0].note or ""), (
+        f"чужой маршрут доставки попал в note непривязанного сигнала: {rows[0].note!r}"
     )
 
 

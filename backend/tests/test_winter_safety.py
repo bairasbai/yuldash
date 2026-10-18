@@ -77,22 +77,29 @@ def test_stuck_notifies_contacts_and_writes_sos_event(client, user_factory, monk
 
 
 def test_stuck_is_participant_only(client, user_factory, monkeypatch):
-    """N5 (независимое ревью): чужая/несуществующая бронь не топит сигнал «застрял».
-
-    Было: 403/404 ДО записи события — сигнал о помощи на трассе терялся вообще. Стало:
-    событие пишется всегда (200), привязка к чужой/несуществующей брони в него не попадает."""
+    """Круг 4 повторного ревью (сквозная проверка чужих объектов, `test_foreign_objects_sweep.py`):
+    чужая бронь — ПРЕЖНИЙ отказ 403, несуществующая — 404. Ответ не несёт ни одного поля чужой
+    поездки. Но N5 всё ещё в силе: сигнал «застрял» не теряется — пишется непривязанным,
+    дежурный видит его в общей ленте."""
     monkeypatch.setattr("app.routers.safety.send_text", lambda *a, **k: None)
     monkeypatch.setattr("app.routers.safety.notify_admin_telegram", lambda *a, **k: None)
 
-    _drv, _pax, _ride, booking = _trip(client, user_factory)
+    _drv, pax, _ride, booking = _trip(client, user_factory)
     outsider = user_factory("StuckOutsider")
     r = client.post(f"/bookings/{booking['id']}/stuck", headers=outsider["auth"], json={})
-    assert r.status_code == 200, "чужая бронь не должна топить сигнал «застрял»"
-    assert r.json()["booking_id"] is None, "чужая бронь не должна попасть в событие как своя"
+    assert r.status_code == 403, "посторонний получил доступ к чужой брони"
+    assert str(pax["id"]) not in r.text, "в ответе постороннему не должно быть данных чужой брони"
 
     r2 = client.post("/bookings/99999999/stuck", headers=outsider["auth"], json={})
-    assert r2.status_code == 200, "несуществующая бронь тоже не должна топить сигнал"
-    assert r2.json()["booking_id"] is None
+    assert r2.status_code == 404, "несуществующая бронь должна отвечать «не найдена», а не успехом"
+
+    # Оба отказа не должны были потопить сигнал (N5): дежурный видит оба, просто без привязки.
+    with Session(engine) as s:
+        rows = s.exec(select(SosEvent).where(SosEvent.user_id == outsider["id"])).all()
+    assert len(rows) == 2 and all(row.booking_id is None for row in rows), (
+        "сигналы постороннего о «застрял» не должны теряться (N5) даже когда бронь "
+        "чужая или не существует вовсе"
+    )
 
 
 def test_stuck_without_coords_still_records(client, user_factory, monkeypatch):

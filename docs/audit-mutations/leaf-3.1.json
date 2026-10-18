@@ -66,7 +66,7 @@
       "replace": "        log.warning(f\"[carphoto] требование по жалобе {report.id}: {type(e).__name__}: {e}\")",
       "runner": "pytest",
       "cwd": "backend",
-      "args": ["tests/walk/l3_1/test_l3_1_log_privacy.py::test_сбой_требования_фото_по_жалобе_не_пишет_телефон_в_лог"]
+      "args": ["tests/walk/l3_1/test_l3_1_log_privacy.py::test_сбой_требования_фото_по_жалобе_не_пишет_телефон_в_лог", "tests/walk/l3_1/test_l3_1_log_privacy.py::test_три_except_используют_scrub_exc_а_не_сырое_e"]
     },
     {
       "id": "M7",
@@ -353,6 +353,72 @@
       "runner": "pytest",
       "cwd": "backend",
       "args": ["tests/walk/l3_1/test_l3_1_n4_sos_duplicate_handle.py::test_sos_через_10_минут_вперёд_не_закрывается"]
+    },
+    {
+      "id": "M34",
+      "file": "backend/app/routers/safety.py",
+      "rule": "круг4-booking",
+      "description": "Чужая/несуществующая бронь у «застрял» снова получает 200 с полной привязкой к чужой поездке (raise убран — исключение проглатывается, выполнение проваливается в return с ОРИГИНАЛЬНЫМ booking_id) — ровно та дыра, что нашёл test_foreign_objects_sweep.py.",
+      "find": "        _write_unlinked_stuck_signal(session, user, note)\n        raise\n    return _roadside(session, background, user, body, booking_id=booking_id)",
+      "replace": "        _write_unlinked_stuck_signal(session, user, note)\n        pass\n    return _roadside(session, background, user, body, booking_id=booking_id)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_winter_safety.py::test_stuck_is_participant_only"]
+    },
+    {
+      "id": "M35",
+      "file": "backend/app/routers/safety.py",
+      "rule": "круг4-order",
+      "description": "Чужой/несуществующий такси-заказ у «застрял» снова получает 200 с полной привязкой к чужому заказу (raise убран).",
+      "find": "        _write_unlinked_stuck_signal(session, user, note)\n        raise\n    return _roadside(session, background, user, body, order_id=order_id)",
+      "replace": "        _write_unlinked_stuck_signal(session, user, note)\n        pass\n    return _roadside(session, background, user, body, order_id=order_id)",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_taxi_pickup_eta_stuck.py::test_stranger_cannot_call_roadside_help"]
+    },
+    {
+      "id": "M36",
+      "file": "backend/app/routers/safety.py",
+      "rule": "круг4-parcel",
+      "description": "Чужая доставка у «застрял» снова получает 200 с полной привязкой к чужой посылке (оба raise убраны — исключение проглатывается, выполнение проваливается в _roadside с ОРИГИНАЛЬНЫМ parcel_id).",
+      "find": "        _write_unlinked_stuck_signal(session, user, note)\n        if not parcel:\n            raise herr(404, \"Посылка не найдена\", \"Бандероль табылманы\")\n        raise herr(403, \"Ты не участник этой доставки\",\n                   \"Һин был доставканың ҡатнашыусыһы түгел\")",
+      "replace": "        _write_unlinked_stuck_signal(session, user, note)\n        pass",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_roadside_everywhere.py::test_посторонний_не_зовёт_помощь_по_чужой_доставке"]
+    },
+    {
+      "id": "M37",
+      "file": "backend/app/routers/safety.py",
+      "rule": "круг4-not-lost",
+      "description": "Общий писатель непривязанного сигнала «застрял» (_write_unlinked_stuck_signal) перестаёт реально записывать SosEvent — отказ 403/404 звонившему остаётся прежним, но N5 («сигнал не теряется») снова нарушен: дежурный ничего не увидит про чужую/несуществующую бронь, по которой кто-то только что постучался.",
+      "find": "    event = SosEvent(user_id=user.id, category=\"breakdown\", note=note)\n    session.add(event)\n    session.commit()\n    log.info(f\"[ROADSIDE] user={user.id} чужой/не найденный объект — сигнал записан непривязанным\")",
+      "replace": "    log.info(f\"[ROADSIDE] user={user.id} чужой/не найденный объект — сигнал записан непривязанным\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/test_winter_safety.py::test_stuck_is_participant_only"]
+    },
+    {
+      "id": "M38",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-LOG-NO-PHONE-DEBT-ORDER",
+      "description": "Сбой списания долга по такси-заказу снова пишет в лог сервера сырой текст исключения вместо scrub_exc — телефон из чужой (debt) ошибки попадает на диск в обход §8/152-ФЗ. Проверка статическая (круг 4): динамический тест на эту же строку иногда не срабатывает в полном прогоне суммарно по причине, не связанной с privacy (см. docstring файла теста) — monkeypatch на debt_mod перестаёт провоцировать исключение.",
+      "find": "            log.warning(f\"[DEBT] списание долга по заказу {r.order_id}: {type(e).__name__}: {scrub_exc(e)}\")",
+      "replace": "            log.warning(f\"[DEBT] списание долга по заказу {r.order_id}: {type(e).__name__}: {e}\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_log_privacy.py::test_три_except_используют_scrub_exc_а_не_сырое_e"]
+    },
+    {
+      "id": "M39",
+      "file": "backend/app/routers/safety.py",
+      "rule": "R-LOG-NO-PHONE-DEBT-PARCEL",
+      "description": "Сбой списания комиссии по доставке снова пишет в лог сервера сырой текст исключения вместо scrub_exc. Проверка статическая (круг 4) — см. M38.",
+      "find": "            log.warning(f\"[DEBT] списание комиссии по доставке {r.parcel_id}: {type(e).__name__}: {scrub_exc(e)}\")",
+      "replace": "            log.warning(f\"[DEBT] списание комиссии по доставке {r.parcel_id}: {type(e).__name__}: {e}\")",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": ["tests/walk/l3_1/test_l3_1_log_privacy.py::test_три_except_используют_scrub_exc_а_не_сырое_e"]
     }
   ]
 }
