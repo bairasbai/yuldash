@@ -380,8 +380,16 @@ class DriverBoardingControlsTest {
         val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
         node.config[androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
         val layout = layouts.single()
-        assertEquals("«$label» — одной строкой", 1, layout.lineCount)
-        assertTrue("«$label» не обрезана многоточием", !layout.hasVisualOverflow)
+        // Не `hasVisualOverflow`: он сравнивает ширину узла с шириной абзаца, а центрованный абзац
+        // в одну строку размечается на всю доступную ширину — флаг загорается и тогда, когда слово
+        // целиком на месте (CI PR184). Человеку важно другое: слово не обрезано многоточием и буквы
+        // помещаются в кнопку. Это и проверяем; размеры — в сообщении, чтобы падение было понятным.
+        val glyphs = layout.getLineRight(0) - layout.getLineLeft(0)
+        val sizes = "size=${layout.size}; glyphs=$glyphs; paragraph=${layout.multiParagraph.width}; " +
+            "constraints=${layout.layoutInput.constraints}"
+        assertEquals("«$label» — одной строкой; $sizes", 1, layout.lineCount)
+        assertTrue("«$label» не обрезана многоточием; $sizes", !layout.isLineEllipsized(0))
+        assertTrue("«$label» помещается в кнопку; $sizes", glyphs <= layout.size.width + 0.5f)
         val arriving = compose.onNodeWithTag("driverArrivingButton").fetchSemanticsNode().boundsInRoot
         assertEquals("высота «$label» = высота «Сел»", boardedBounds().height, arriving.height, 0.5f)
         assertEquals("обе кнопки — половина ряда", boardedBounds().width, arriving.width, 0.5f)
