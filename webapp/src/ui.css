@@ -11299,6 +11299,7 @@ select.field__input {
   border: 1px solid var(--green2);
   border-radius: var(--radius-item);
   background: var(--surface);
+  color: var(--text);
 }
 .code-card small {
   color: var(--muted);

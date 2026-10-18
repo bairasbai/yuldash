@@ -230,7 +230,7 @@ export default function ActiveTripScreen() {
   // открыл — и видишь, что водитель уже выехал, а не то, что было при уходе.
   const tickTrip = useCallback(() => {
     if (!bookingId) return;
-    fetchTripState(bookingId)
+    return fetchTripState(bookingId)
       .then((fresh) => {
         if (currentBookingIdRef.current !== bookingId) return;
         const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;
@@ -260,9 +260,14 @@ export default function ActiveTripScreen() {
   const st = trip?.status ?? details?.status;
   const active = st === "confirmed" || st === "onboard";
 
-  // ---- Код посадки (только для confirmed/onboard) ----
+  const needsBoardingCode = details?.role === "passenger" && st === "confirmed";
+
+  // ---- Код нужен пассажиру до посадки, не после неё ----
   useEffect(() => {
-    if (!bookingId || !active) return;
+    if (!bookingId || !needsBoardingCode) {
+      setCode(null);
+      return;
+    }
     let alive = true;
     fetchBoardingCode(bookingId)
       .then((r) => {
@@ -283,7 +288,7 @@ export default function ActiveTripScreen() {
     return () => {
       alive = false;
     };
-  }, [bookingId, active]);
+  }, [bookingId, needsBoardingCode]);
 
   // ---- Live-точка водителя (WS) — только пока активна ----
   useEffect(() => {
@@ -570,7 +575,7 @@ export default function ActiveTripScreen() {
       )}
 
       {/* Код посадки */}
-      {active && code && (
+      {needsBoardingCode && code && (
         <div className="code-card">
           <div className="code-card__label">
             {appText("Код посадки", "Ултырыу коды")}
@@ -602,7 +607,7 @@ export default function ActiveTripScreen() {
             {priceLabel(details.pay_amount ?? details.price, ru)}
           </span>
         </div>
-        {details.contact_unlocked && details.driver_phone && (
+        {details.role === "passenger" && details.contact_unlocked && details.driver_phone && (
           <a className="info-row info-row--link" href={`tel:${details.driver_phone}`}>
             <span className="info-row__k">{appText("Водитель", "Йөрөтөүсе")}</span>
             <span className="info-row__v" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -769,7 +774,7 @@ export default function ActiveTripScreen() {
 
       {/* Поделиться поездкой с близким + статусы (у пассажира) */}
       {active && details.role === "passenger" && (
-        <ShareTripCard bookingId={bookingId} showStatuses />
+        <ShareTripCard bookingId={bookingId} showStatuses bookingStatus={st} onStatusChange={tickTrip} />
       )}
 
       {/* «Застряли» — ступень мягче SOS: машина не едет, но никто не в опасности.
