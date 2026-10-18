@@ -39,6 +39,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -47,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -70,36 +74,45 @@ import com.yuldash.app.data.TripReceiptDto
  *  Состояния: загрузка / ошибка+повтор / 409 «ещё не завершена» → спокойный текст.
  */
 
+private data class ReceiptOwner(val generation: Long, val bookingId: Int)
+
 @Composable
 internal fun TripReceiptScreen(bookingId: Int, onBack: () -> Unit) {
-    val ctx = LocalContext.current
-    var receipt by remember(bookingId) { mutableStateOf<TripReceiptDto?>(null) }
-    var loading by remember(bookingId) { mutableStateOf(true) }
-    var errorStatus by remember(bookingId) { mutableStateOf<Int?>(null) }   // null = нет ошибки; 409 = не завершена
-    var reload by remember { mutableIntStateOf(0) }
+    val generation by ApiClient.sessionChanges.collectAsState()
+    val owner = remember(generation, bookingId) { ReceiptOwner(generation, bookingId) }
+    val latestOwner by rememberUpdatedState(owner)
+    val mounted = remember(owner) { AtomicBoolean(true) }
+    DisposableEffect(owner) { onDispose { mounted.set(false) } }
+    fun current() = mounted.get() && latestOwner == owner && owner.bookingId > 0 && ApiClient.isCurrentSession(owner.generation)
+    var receipt by remember(owner) { mutableStateOf<TripReceiptDto?>(null) }
+    var loading by remember(owner) { mutableStateOf(true) }
+    var errorStatus by remember(owner) { mutableStateOf<Int?>(null) }
+    var reload by remember(owner) { mutableIntStateOf(0) }
 
-    LaunchedEffect(bookingId, reload) {
-        if (bookingId <= 0) { loading = false; errorStatus = -1; return@LaunchedEffect }
+    LaunchedEffect(owner, reload) {
+        receipt = null
+        if (!current()) { loading = false; errorStatus = -1; return@LaunchedEffect }
         loading = true; errorStatus = null
-        ApiClient.getTripReceipt(bookingId)
-            .onSuccess { receipt = it; errorStatus = null }
-            .onFailure { errorStatus = (it as? ApiException)?.status ?: -1 }
+        val result = ApiClient.getTripReceipt(owner.bookingId, expectedGeneration = owner.generation)
+        if (!current()) return@LaunchedEffect
+        result.onSuccess {
+            if (it.bookingId == owner.bookingId && it.role in setOf("passenger", "driver")) receipt = it else errorStatus = -1
+        }.onFailure { errorStatus = (it as? ApiException)?.status ?: -1 }
         loading = false
     }
 
-    Scaffold(
-        containerColor = CanonBg,
-        topBar = { ScreenTopBar(appText("Квитанция", "Квитанция"), onBack) },
-    ) { padding ->
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Квитанция", "Квитанция"), onBack) }) { padding ->
         Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(CanonSpace.lg),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
         ) {
             when {
                 loading -> ReceiptSkeleton()
                 errorStatus == 409 -> ReceiptPendingCard()
-                receipt == null -> AppErrorState(onRetry = { reload++ })
-                else -> ReceiptCard(receipt!!)
+                errorStatus != null || receipt == null -> AppErrorState(onRetry = {
+                    if (current()) { receipt = null; loading = true; errorStatus = null; reload++ }
+                })
+                else -> ReceiptCard(receipt!!, owner.generation, ::current)
             }
         }
     }
@@ -108,17 +121,20 @@ internal fun TripReceiptScreen(bookingId: Int, onBack: () -> Unit) {
 // ─────────────────── Карточка квитанции ───────────────────
 
 @Composable
-private fun ReceiptCard(r: TripReceiptDto) {
+private fun ReceiptCard(r: TripReceiptDto, expectedGeneration: Long, canAct: () -> Boolean) {
+    val mounted = remember(r, expectedGeneration) { AtomicBoolean(true) }
+    DisposableEffect(mounted) { onDispose { mounted.set(false) } }
+    fun current() = mounted.get() && canAct() && ApiClient.isCurrentSession(expectedGeneration)
     val ctx = LocalContext.current
     val lostScope = rememberCoroutineScope()
-    var lostOpened by remember(r.bookingId) { mutableStateOf(false) }
-    var lostBusy by remember(r.bookingId) { mutableStateOf(false) }
+    var lostOpened by remember(r.bookingId, expectedGeneration) { mutableStateOf(false) }
+    var lostBusy by remember(r.bookingId, expectedGeneration) { mutableStateOf(false) }
     val isDriver = r.role == "driver"
-    var thanked by remember(r.bookingId) { mutableStateOf(false) }
-    var thanksBusy by remember(r.bookingId) { mutableStateOf(false) }
+    var thanked by remember(r.bookingId, expectedGeneration) { mutableStateOf(false) }
+    var thanksBusy by remember(r.bookingId, expectedGeneration) { mutableStateOf(false) }
     // Уже говорил «рәхмәт» — не предлагаем второй раз (как в чеке такси).
-    LaunchedEffect(r.bookingId, isDriver) {
-        if (!isDriver) ApiClient.getBookingTipInfo(r.bookingId).onSuccess { thanked = it.alreadyThanked }
+    LaunchedEffect(r.bookingId, isDriver, expectedGeneration) {
+        if (!isDriver && current()) ApiClient.getBookingTipInfo(r.bookingId, expectedGeneration).onSuccess { if (current()) thanked = it.alreadyThanked }
     }
     val lostErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val payLabel = payMethodLabel(r.payMethod)
@@ -136,48 +152,7 @@ private fun ReceiptCard(r: TripReceiptDto) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Шапка «Поездка завершена» — фиксированный ink-зелёный (белый текст читаем в обеих темах).
-        Surface(shape = CanonCardShape, color = Color.Transparent) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(CanonGreenInk, CanonGreenInkDark)), CanonCardShape)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                AnimatedVisibility(visible = true, enter = scaleIn(tween(CanonMotion.SLOW)) + fadeIn()) {
-                    Box(Modifier.size(56.dp).background(Color.White.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp))
-                    }
-                }
-                Text(appText("Поездка завершена", "Сәфәр тамамланды"), color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                Text("${r.fromCity} → ${r.toCity}", color = Color.White.copy(alpha = 0.92f), fontSize = 16.sp, textAlign = TextAlign.Center)
-            }
-        }
-
-        // Детали
-        AppCard {
-            Column(Modifier.padding(4.dp)) {
-                ReceiptRow(Icons.Default.Place, appText("Маршрут", "Юл"), "${r.fromCity} → ${r.toCity}")
-                ReceiptDivider()
-                ReceiptRow(Icons.Default.Schedule, appText("Дата и время", "Көн һәм ваҡыт"), formatDepart(r.departAt))
-                ReceiptDivider()
-                ReceiptRow(
-                    Icons.Default.Person,
-                    appText("Мест", "Урын"),
-                    r.seats.toString(),
-                )
-                if (r.driverName.isNotBlank()) {
-                    ReceiptDivider()
-                    ReceiptDriverRow(r.driverName, r.driverVerified)
-                }
-                if (r.myStars in 1..5) {
-                    ReceiptDivider()
-                    ReceiptRow(Icons.Default.Star, appText("Твоя оценка", "Һинең баһаң"), starsText(r.myStars))
-                }
-            }
-        }
+        ReceiptIdentityCard(r)
 
         // Сумма + способ оплаты (акцент)
         AppCard {
@@ -239,15 +214,14 @@ private fun ReceiptCard(r: TripReceiptDto) {
                     AppButton(
                         text = appText("Я забыл вещь в машине", "Машинала әйбер ҡалдырҙым"),
                         onClick = {
-                            if (lostBusy) return@AppButton
+                            if (lostBusy || !current()) return@AppButton
                             lostBusy = true
                             lostScope.launch {
-                                ApiClient.bookingLostItem(r.bookingId)
-                                    .onSuccess { lostOpened = true }
-                                    .onFailure {
-                                        Toast.makeText(ctx, serverSaid(it, lostErr), Toast.LENGTH_LONG).show()
-                                    }
-                                lostBusy = false
+                                if (!current()) return@launch
+                                ApiClient.bookingLostItem(r.bookingId, expectedGeneration)
+                                    .onSuccess { if (current()) lostOpened = true }
+                                    .onFailure { if (current()) Toast.makeText(ctx, serverSaid(it, lostErr), Toast.LENGTH_LONG).show() }
+                                if (current()) lostBusy = false
                             }
                         },
                         style = AppButtonStyle.Secondary,
@@ -287,15 +261,14 @@ private fun ReceiptCard(r: TripReceiptDto) {
                         AppButton(
                             text = appText("Сказать рәхмәт", "Рәхмәт әйтеү"),
                             onClick = {
-                                if (thanksBusy) return@AppButton
+                                if (thanksBusy || !current()) return@AppButton
                                 thanksBusy = true
                                 lostScope.launch {
-                                    ApiClient.sayBookingThanks(r.bookingId)
-                                        .onSuccess { thanked = true }
-                                        .onFailure {
-                                            Toast.makeText(ctx, serverSaid(it, lostErr), Toast.LENGTH_LONG).show()
-                                        }
-                                    thanksBusy = false
+                                    if (!current()) return@launch
+                                    ApiClient.sayBookingThanks(r.bookingId, expectedGeneration)
+                                        .onSuccess { if (current()) thanked = true }
+                                        .onFailure { if (current()) Toast.makeText(ctx, serverSaid(it, lostErr), Toast.LENGTH_LONG).show() }
+                                    if (current()) thanksBusy = false
                                 }
                             },
                             style = AppButtonStyle.Accent,
@@ -314,10 +287,77 @@ private fun ReceiptCard(r: TripReceiptDto) {
         )
         AppButton(
             text = appText("Поделиться", "Бүлешеү"),
-            onClick = { shareRide(ctx, shareText, shareChooser) },
+            onClick = { if (current()) ApiClient.runIfCurrentSession(expectedGeneration) { if (current()) shareRide(ctx, shareText, shareChooser) } },
             style = AppButtonStyle.Secondary,
             icon = Icons.Default.IosShare,
         )
+    }
+}
+
+/** Both raw choices must be known; empty means the corresponding parent endpoint. */
+internal fun receiptPersonalSegment(r: TripReceiptDto): String? {
+    val pickup = r.pickupStop?.ifEmpty { r.fromCity }?.takeIf(String::isNotBlank) ?: return null
+    val dropoff = r.dropoffStop?.ifEmpty { r.toCity }?.takeIf(String::isNotBlank) ?: return null
+    return "$pickup → $dropoff"
+}
+
+/** Read-only production summary; the instrumentation host exercises this exact component, without network/actions. */
+@Composable
+internal fun ReceiptIdentityCard(r: TripReceiptDto) {
+    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+        // Шапка «Поездка завершена» — фиксированный ink-зелёный (белый текст читаем в обеих темах).
+        Surface(shape = CanonCardShape, color = CanonGreenInk) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(CanonGreenInk, CanonGreenInkDark)), CanonCardShape)
+                    .padding(CanonSpace.lg),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+            ) {
+                AnimatedVisibility(visible = true, enter = scaleIn(tween(CanonMotion.SLOW)) + fadeIn()) {
+                    Box(Modifier.size(56.dp).background(CanonOnAccent.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = CanonOnAccent, modifier = Modifier.size(34.dp))
+                    }
+                }
+                Text(appText("Поездка завершена", "Сәфәр тамамланды"), color = CanonOnAccent, style = CanonHeading)
+                Text("${r.fromCity} → ${r.toCity}", color = CanonOnAccent.copy(alpha = 0.92f), style = CanonBody, textAlign = TextAlign.Center)
+            }
+        }
+
+        // Детали
+        AppCard {
+            Column(Modifier.padding(CanonSpace.xs)) {
+                receiptPersonalSegment(r)?.let { segment ->
+                    Column(
+                        Modifier.fillMaxWidth().padding(CanonSpace.md),
+                        verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+                    ) {
+                        Text(appText("Твой участок", "Һинең юл өлөшөң"), style = CanonCaption, color = CanonMuted)
+                        Text(segment, modifier = Modifier.fillMaxWidth(), style = CanonBodyStrong, color = CanonText)
+                    }
+                    ReceiptDivider()
+                }
+                ReceiptRow(Icons.Default.Place, appText("Рейс", "Сәфәр"), "${r.fromCity} → ${r.toCity}")
+                ReceiptDivider()
+                ReceiptRow(Icons.Default.Schedule, appText("Дата и время", "Көн һәм ваҡыт"), formatDepart(r.departAt))
+                ReceiptDivider()
+                ReceiptRow(
+                    Icons.Default.Person,
+                    appText("Мест", "Урын"),
+                    r.seats.toString(),
+                )
+                if (r.driverName.isNotBlank()) {
+                    ReceiptDivider()
+                    ReceiptDriverRow(r.driverName, r.driverVerified)
+                }
+                if (r.myStars in 1..5) {
+                    ReceiptDivider()
+                    ReceiptRow(Icons.Default.Star, appText("Твоя оценка", "Һинең баһаң"), starsText(r.myStars))
+                }
+            }
+        }
+
     }
 }
 

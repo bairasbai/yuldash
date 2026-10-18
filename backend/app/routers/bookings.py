@@ -789,12 +789,17 @@ def trip_receipt(booking_id: int, user: User = Depends(current_user), session: S
         Rating.rater_id == user.id,
     )).first()
     amount = booking.pay_amount if booking.pay_amount is not None else booking.price
+    # Исторический выбор не восстанавливаем из нынешнего маршрута/справочника: NULL и "" различаются.
+    # Пассажир видит свои места; водителю — то же окно связи, что в деталях и списке броней.
+    segment_visible = role != "driver" or booking_contacts_open(booking, ride)
     return {
         "booking_id": booking.id,
         "ride_id": ride.id,
         "role": role,
         "from_city": ride.from_city,
         "to_city": ride.to_city,
+        "pickup_stop": booking.pickup_stop if segment_visible else None,
+        "dropoff_stop": booking.dropoff_stop if segment_visible else None,
         "depart_at": ride.depart_at.isoformat() if ride.depart_at else "",
         "seats": booking.seats,
         "amount": amount,                       # ₽; договорённость (pay_amount) или цена брони

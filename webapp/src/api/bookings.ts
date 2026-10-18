@@ -135,6 +135,9 @@ export interface TripState {
 
 /** Квитанция завершённой поездки (GET /trips/{id}/receipt). */
 export interface TripReceipt {
+  pickup_stop?: string | null;
+  dropoff_stop?: string | null;
+  my_stars?: number | null;
   booking_id: number;
   ride_id: number;
   role: string;

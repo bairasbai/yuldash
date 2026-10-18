@@ -27,6 +27,7 @@ const SUITES = [
   { test: "full-offline-trip-test", src: null, out: null, bundle: false },
   { test: "boarding-code-contrast-test", src: null, out: null, bundle: false },
   { test: "rideshare-local-regression-test", src: null, out: null, bundle: false },
+  { test: "receipt-owner-test", src: null, out: null, bundle: false },
   { test: "login-flow-test", src: null, out: null, bundle: false },
   { test: "onboarding-flow-test", src: null, out: null, bundle: false },
   { test: "intro-motion-test", src: null, out: null, bundle: false },

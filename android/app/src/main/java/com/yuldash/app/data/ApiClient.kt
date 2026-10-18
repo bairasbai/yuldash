@@ -4861,26 +4861,8 @@ object ApiClient {
         call("DELETE", "/places/recent", null, auth = true).map { }
 
     /** Квитанция завершённой поездки (только участник; незавершённая → 409; посторонний → 403). */
-    suspend fun getTripReceipt(bookingId: Int): Result<TripReceiptDto> =
-        call("GET", "/trips/$bookingId/receipt", null, auth = true).map { o ->
-            TripReceiptDto(
-                bookingId = o.optInt("booking_id"),
-                rideId = o.optInt("ride_id"),
-                role = o.optString("role"),
-                fromCity = o.optString("from_city"),
-                toCity = o.optString("to_city"),
-                departAt = o.optString("depart_at"),
-                seats = o.optInt("seats"),
-                amount = o.optInt("amount"),
-                payMethod = o.optString("pay_method"),
-                paid = o.optBoolean("paid"),
-                driverName = o.optString("driver_name"),
-                driverVerified = o.optBoolean("driver_verified"),
-                counterpartyName = o.optString("counterparty_name"),
-                myStars = o.optInt("my_stars"),
-                myRatingTags = o.optString("my_rating_tags"), counterpartyId = o.optInt("counterparty_id"), problemReportSec = o.optInt("problem_report_sec"),
-            )
-        }
+    suspend fun getTripReceipt(bookingId: Int, expectedGeneration: Long? = null): Result<TripReceiptDto> =
+        call("GET", "/trips/$bookingId/receipt", null, auth = true, expectedGeneration = expectedGeneration).map(::parseTripReceiptDto)
 
     // ═══════════ Закрытие пробелов такси / курьера (аудит 2026-07-26) ═══════════
     // Сервер уже умеет всё ниже; здесь только доступ. Все ручки идемпотентны или дают понятный
@@ -5054,8 +5036,8 @@ object ApiClient {
     /** То же для попутки. Пока чат попутки не закрывался, выход был не нужен; после того как
      *  мы закрыли его через сутки после поездки, забытый на заднем сиденье телефон стало
      *  не вернуть — номер второй стороны после поездки не виден (аудит 2026-08-06). */
-    suspend fun bookingLostItem(bookingId: Int): Result<String> =
-        call("POST", "/bookings/$bookingId/lost-item", JSONObject(), auth = true)
+    suspend fun bookingLostItem(bookingId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/bookings/$bookingId/lost-item", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("chat_open_until") }
             .onSuccess { Analytics.log("lost_item_booking") }
 
@@ -5077,8 +5059,8 @@ object ApiClient {
     /** То же для попутки. Сервер умел это с самого начала — «рәхмәт» и придумали для попуток,
      *  но кнопка в итоге появилась только в чеке такси, и обе ручки годами никто не звал
      *  (аудит 2026-08-06). Сосед, который подвёз бесплатно, спасибо заслуживает не меньше. */
-    suspend fun getBookingTipInfo(bookingId: Int): Result<TipInfoDto> =
-        call("GET", "/bookings/$bookingId/tip", null, auth = true).map { o ->
+    suspend fun getBookingTipInfo(bookingId: Int, expectedGeneration: Long? = null): Result<TipInfoDto> =
+        call("GET", "/bookings/$bookingId/tip", null, auth = true, expectedGeneration = expectedGeneration).map { o ->
             val m = o.optJSONObject("money")
             TipInfoDto(
                 driverName = o.optString("driver_name"),
@@ -5088,8 +5070,8 @@ object ApiClient {
         }
 
     /** «Рәхмәт» водителю попутки — тёплый жест без денег. Идемпотентно. */
-    suspend fun sayBookingThanks(bookingId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/thanks", JSONObject(), auth = true).map { }
+    suspend fun sayBookingThanks(bookingId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/bookings/$bookingId/thanks", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
 
     /** Мои завершённые такси-заказы с расшифровкой: цена, комиссия, чистыми (закрывает
      *  «Юлдаш говорит 4200, я насчитал 4600 — где мои 400?»). */
@@ -7219,18 +7201,6 @@ data class MyDataDto(
 data class RecentPlaceDto(
     val id: Int, val address: String, val lat: Double, val lng: Double, val usedAt: String,
 )
-/** Квитанция завершённой поездки (GET /trips/{booking_id}/receipt).
- *  amount — ₽; pay_method: cash|sbp|negotiate; role — «passenger»|«driver» (чья витрина). */
-data class TripReceiptDto(
-    val bookingId: Int, val rideId: Int, val role: String,
-    val fromCity: String, val toCity: String, val departAt: String,
-    val seats: Int, val amount: Int, val payMethod: String, val paid: Boolean,
-    val driverName: String, val driverVerified: Boolean,
-    val counterpartyName: String = "",
-    val myStars: Int = 0,
-    val myRatingTags: String = "", val counterpartyId: Int = 0, val problemReportSec: Int = 0,  // «Сообщить о проблеме» пассажиру после поездки (PR174)
-)
-
 /** Ответ на «Подожду машину»: до какого времени ищем и обновлённый заказ. */
 data class InstantWaitDto(val waitUntil: String, val waitMinutes: Int, val order: InstantOrderDto?)
 

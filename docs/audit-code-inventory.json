@@ -78,24 +78,24 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 149,
+    "android_main": 150,
     "backend_main": 106,
-    "infra_resource_config": 359,
+    "infra_resource_config": 360,
     "public_site_promo": 89,
     "pwa_main": 287,
-    "test_support": 984
+    "test_support": 989
   },
   "counts_by_block": {
     "B01": 131,
-    "B02": 218,
+    "B02": 220,
     "B03": 119,
     "B04": 76,
     "B05": 39,
     "B06": 85,
     "B07": 107,
     "B08": 175,
-    "B09": 575,
-    "B10": 359,
+    "B09": 579,
+    "B10": 360,
     "B11": 90
   },
   "excluded_counts": {
@@ -351,6 +351,13 @@
       "block": "B10",
       "sha256": "da7429c50014ac9fb71089cb00aad2cc0c20addbb19843fb19c706249e009cde",
       "lines": 191
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/ReceiptParityInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "c8862b08a54a68b279afac0c96f908bd46464e743d289652b57c43ae6c07ef0c",
+      "lines": 122
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/RequestResponsesInstrumentedTest.kt",
@@ -1406,8 +1413,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/TripReceiptScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "ac57e30ecceb1a4d0a211d562a5dba2b11bfad224d7afd2cf1dabf2a9b0e4a5e",
-      "lines": 385
+      "sha256": "17f5bc6d6eac81e3a02535facd4d12d87eaeef7b8bd57e11da8853577f84c795",
+      "lines": 430
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/TrustScreens.kt",
@@ -1490,8 +1497,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "e4d114958990d11dc58477a3a9561e359286b6485ca3805804554a7f374af849",
-      "lines": 7853
+      "sha256": "a53b438a6f3afa8b9a6b5080b97007b535a8a63c69330497fea5dc7d8b904030",
+      "lines": 7823
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -1632,6 +1639,13 @@
       "block": "B02",
       "sha256": "e658c649a26978e62a8095131db78eb737880e212ef8e9b05d4ee08ef3cc51c2",
       "lines": 60
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/TripReceipt.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "8e496256fd9b219c95dfc2413a774fc35ebeedac756e8d7e084813dad41c8907",
+      "lines": 37
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/ui/theme/Theme.kt",
@@ -3104,6 +3118,13 @@
       "lines": 123
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/ReceiptOwnerBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "90c0b8da25d6fffd964bf816d0c3c212f4aeb22a67f7ee2be131b63e68af56f2",
+      "lines": 199
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/ReduceMotionTest.kt",
       "kind": "test_support",
       "block": "B09",
@@ -3438,6 +3459,13 @@
       "block": "B08",
       "sha256": "eca90ba1d9abafd22cc53c97a9f7062dc9a7b7b0207bc1fab67bb8695bcc7d9c",
       "lines": 520
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/SpacingRatchetGuardTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "c5a829f853b1afc0f182e0dad4f8e6a847f7f598428efd70ffdfab030e5a6d2d",
+      "lines": 107
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/StaleDataGuardTest.kt",
@@ -4334,6 +4362,13 @@
       "block": "B02",
       "sha256": "b90e818bfc19c41e528cba04db1b7c963bdbcfc22efc44530b04c37abe8eb186",
       "lines": 61
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/TripReceiptContractTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "aa9690f20a70bc2453f5142260490796cc5a6673f4dc0f10b380c01d5c707463",
+      "lines": 76
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/WebSocketClientsTest.kt",
@@ -5802,8 +5837,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "a296a1d9b90cf38ac4844b9e57bbda449d284d8d9cbbc740be6375f37362a47f",
-      "lines": 1741
+      "sha256": "2aa2a3e978e3c5122fe810112ca6ee1eaee5a6565d12d7646fc5d555f9877e4e",
+      "lines": 1746
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -9033,6 +9068,13 @@
       "lines": 81
     },
     {
+      "path": "backend/tests/test_receipt_segments.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "439ff6fdf755fbb3da1af8259cac3667f6783c21cb655cafed552dd229f1670a",
+      "lines": 148
+    },
+    {
       "path": "backend/tests/test_reconcile_tells_the_truth.py",
       "kind": "test_support",
       "block": "B09",
@@ -11346,8 +11388,8 @@
       "path": "webapp/src/api/bookings.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "1ab42ee633999394360c39f6177eb434724f0295b80b17c02dba31de661d0cd6",
-      "lines": 439
+      "sha256": "e3d48525627bc3b78f2e323e3f5b8f7718c35e7cf8828660850f7ee7c1536bd8",
+      "lines": 442
     },
     {
       "path": "webapp/src/api/boost.ts",
@@ -11850,8 +11892,8 @@
       "path": "webapp/src/components/PayTripCard.tsx",
       "kind": "pwa_main",
       "block": "B07",
-      "sha256": "812c901d9500e029cc08e55af1c902858a32f360b9dc15b49a377c5243e8f54b",
-      "lines": 139
+      "sha256": "ab571bec6007f74779aea43f254dd12462b4b38217635a73163bec54e12678e4",
+      "lines": 144
     },
     {
       "path": "webapp/src/components/PickupChips.tsx",
@@ -11983,8 +12025,8 @@
       "path": "webapp/src/components/SbpPay.tsx",
       "kind": "pwa_main",
       "block": "B07",
-      "sha256": "13d044ded98f2cc49408255bfddf9bc45381699ad59ac10224507a01f45b4199",
-      "lines": 100
+      "sha256": "57798bd914dc8379d153a6ad1d0117002853de619fc7925b6afd2e0219da011e",
+      "lines": 106
     },
     {
       "path": "webapp/src/components/ScreenHeader.tsx",
@@ -12970,8 +13012,8 @@
       "path": "webapp/src/screens/TripReceiptScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "53a38f0e917cd743610d00f798e7fea49eff0d13728068223ddecf3045509f0b",
-      "lines": 281
+      "sha256": "0e87164b9b98485e26e7a7787f1ef2d4e800fd752771164c115c211ecdb67f44",
+      "lines": 340
     },
     {
       "path": "webapp/src/screens/TrustScreen.tsx",
@@ -13737,6 +13779,13 @@
       "lines": 97
     },
     {
+      "path": "webapp/tests/receipt-owner-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "34a7c7e475b9749efa470940bbd25f92ed951ee624a26ea3189522073db695df",
+      "lines": 175
+    },
+    {
       "path": "webapp/tests/refresh-outage-test.mjs",
       "kind": "test_support",
       "block": "B09",
@@ -13782,8 +13831,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "aa65d4d0dd2d0a5b051e0548d056b77510f594f07eaa7febcf73afcbf9749efe",
-      "lines": 270
+      "sha256": "964241a314e38046cdb4299f82d64e2d517202231f318e488f4f7f8d7265bed2",
+      "lines": 271
     },
     {
       "path": "webapp/tests/session-boundary-test.mjs",
@@ -15553,84 +15602,26 @@
     }
   ],
   "partial_refresh": {
-    "audit": "W1-SEGMENTS-20261018",
+    "audit": "W1-RECEIPT-20261018",
     "date": "2026-10-18",
-    "base_ref": "fcdeed76",
+    "base_ref": "b5f497a4",
     "scope": "Only changed/new included source paths relative to base_ref; all other entries retain historical hashes. This is not a complete current snapshot or proof of test coverage.",
     "updated_paths": [
-      "android/app/src/androidTest/java/com/yuldash/app/RideshareParityInstrumentedTest.kt",
-      "android/app/src/androidTest/java/com/yuldash/app/SegmentProvisionInstrumentedTest.kt",
-      "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
-      "android/app/src/main/java/com/yuldash/app/Domain.kt",
-      "android/app/src/main/java/com/yuldash/app/DriverPassengerRow.kt",
-      "android/app/src/main/java/com/yuldash/app/DriverResponsesScreen.kt",
-      "android/app/src/main/java/com/yuldash/app/MainActivity.kt",
-      "android/app/src/main/java/com/yuldash/app/PickupStopPicker.kt",
-      "android/app/src/main/java/com/yuldash/app/PickupStopRules.kt",
-      "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
-      "android/app/src/main/java/com/yuldash/app/RequestOfferSheet.kt",
-      "android/app/src/main/java/com/yuldash/app/RequestRouteUi.kt",
-      "android/app/src/main/java/com/yuldash/app/RequestsFeedScreen.kt",
-      "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
-      "android/app/src/main/java/com/yuldash/app/RideshareTripContacts.kt",
-      "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
+      "android/app/src/androidTest/java/com/yuldash/app/ReceiptParityInstrumentedTest.kt",
+      "android/app/src/main/java/com/yuldash/app/TripReceiptScreen.kt",
       "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
-      "android/app/src/main/java/com/yuldash/app/data/BookingDtos.kt",
-      "android/app/src/main/java/com/yuldash/app/data/DriverBookings.kt",
-      "android/app/src/main/java/com/yuldash/app/data/RequestRouteDtos.kt",
-      "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
-      "android/app/src/test/java/com/yuldash/app/AdminScreensIntegrationTest.kt",
-      "android/app/src/test/java/com/yuldash/app/FileSizeRatchetTest.kt",
-      "android/app/src/test/java/com/yuldash/app/PassengerRequestsPremiumGuardTest.kt",
-      "android/app/src/test/java/com/yuldash/app/PassengerSegmentContentTest.kt",
-      "android/app/src/test/java/com/yuldash/app/PassengerSegmentTest.kt",
-      "android/app/src/test/java/com/yuldash/app/PickupStopTest.kt",
-      "android/app/src/test/java/com/yuldash/app/RequestResponsesGuardTest.kt",
-      "android/app/src/test/java/com/yuldash/app/RequestRouteSessionTest.kt",
-      "android/app/src/test/java/com/yuldash/app/data/SegmentRequestApiTest.kt",
-      "backend/alembic/versions/ca_booking_segments_20261018.py",
-      "backend/app/cleanup.py",
-      "backend/app/models.py",
-      "backend/app/request_segments.py",
-      "backend/app/routers/auth.py",
+      "android/app/src/main/java/com/yuldash/app/data/TripReceipt.kt",
+      "android/app/src/test/java/com/yuldash/app/ReceiptOwnerBoundaryTest.kt",
+      "android/app/src/test/java/com/yuldash/app/SpacingRatchetGuardTest.kt",
+      "android/app/src/test/java/com/yuldash/app/data/TripReceiptContractTest.kt",
       "backend/app/routers/bookings.py",
-      "backend/app/routers/requests.py",
-      "backend/app/routers/rides.py",
-      "backend/app/schemas.py",
-      "backend/app/stop_search.py",
-      "backend/tests/test_booking_segments.py",
-      "backend/tests/test_minors_alone_detour.py",
-      "backend/tests/test_pickup_stop_booking.py",
-      "backend/tests/test_request_bound_segments.py",
-      "backend/tests/test_request_route_feed.py",
-      "backend/tests/test_response_accept_races.py",
-      "backend/tests/test_trip_end_closes_the_channel_at_once.py",
+      "backend/tests/test_receipt_segments.py",
       "webapp/src/api/bookings.ts",
-      "webapp/src/api/requests.ts",
-      "webapp/src/api/rides.ts",
-      "webapp/src/components/DriverPassengers.tsx",
-      "webapp/src/components/MyTripCard.tsx",
-      "webapp/src/components/OfflineTripPass.tsx",
-      "webapp/src/components/PickupStopChoice.tsx",
-      "webapp/src/components/ResponseRouteNote.tsx",
-      "webapp/src/components/RideCard.tsx",
-      "webapp/src/components/RideSheet.tsx",
-      "webapp/src/screens/ActiveTripScreen.tsx",
-      "webapp/src/screens/BookingScreen.tsx",
-      "webapp/src/screens/DriverCabinetScreen.tsx",
-      "webapp/src/screens/DriverResponsesScreen.tsx",
-      "webapp/src/screens/RequestResponsesScreen.tsx",
-      "webapp/src/screens/RequestsFeedScreen.tsx",
-      "webapp/src/utils/offlineTripPass.ts",
-      "webapp/src/utils/ownBookings.ts",
-      "webapp/src/utils/pickupStops.ts",
-      "webapp/src/utils/tripPass.ts",
-      "webapp/tests/requests-route-test.mjs",
-      "webapp/tests/ride-booking-path-test.mjs",
-      "webapp/tests/rideshare-local-regression-test.mjs",
-      "webapp/tests/route-segment-test.mjs",
-      "webapp/tests/run.mjs",
-      "webapp/tests/sheet-exit-rest-test.mjs"
+      "webapp/src/components/PayTripCard.tsx",
+      "webapp/src/components/SbpPay.tsx",
+      "webapp/src/screens/TripReceiptScreen.tsx",
+      "webapp/tests/receipt-owner-test.mjs",
+      "webapp/tests/run.mjs"
     ]
   }
 }

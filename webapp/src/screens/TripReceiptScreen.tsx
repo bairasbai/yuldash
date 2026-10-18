@@ -4,10 +4,10 @@
 //  деградация: 404 (нет эндпоинта) / 409 (поездка не завершена) →
 //  аккуратное состояние, без краша.
 // ================================================================
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import { fetchReceipt, type TripReceipt } from "../api/bookings";
 import { thankBooking, fetchBookingTip, type TipInfo } from "../api/family";
 import SbpPay from "../components/SbpPay";
@@ -29,20 +29,46 @@ export default function TripReceiptScreen() {
   const navigate = useNavigate();
   const { id } = useParams();
   const bookingId = Number(id);
-
-  const [state, setState] = useState<State>({ kind: "loading" });
+  const generation = getSessionGeneration();
+  const ownerKey = `${generation}:${bookingId}`;
+  const ownerRef = useRef(ownerKey);
+  ownerRef.current = ownerKey;
+  const mounted = useRef(true);
+  const receiptRequest = useRef<AbortController | null>(null);
+  const tipRequest = useRef<AbortController | null>(null);
+  const readyReceipt = useRef<TripReceipt | null>(null);
+  const thanksRequest = useRef<object | null>(null);
+  const shareTimer = useRef<number | null>(null);
+  const [ownedState, setOwnedState] = useState<{ owner: string; value: State }>({ owner: ownerKey, value: { kind: "loading" } });
+  const state: State = ownedState.owner === ownerKey ? ownedState.value : { kind: "loading" };
+  if (ownedState.owner !== ownerKey) readyReceipt.current = null;
+  const current = () => mounted.current && ownerRef.current === ownerKey && generation === getSessionGeneration();
+  const currentReceipt = (r: TripReceipt) => current() && readyReceipt.current === r;
+  const setState = (value: State) => { if (current()) setOwnedState({ owner: ownerKey, value }); };
 
   const load = useCallback(
-    (signal?: AbortSignal) => {
-      if (!bookingId) {
+    () => {
+      if (!current()) return;
+      receiptRequest.current?.abort(); tipRequest.current?.abort();
+      const ac = new AbortController(); receiptRequest.current = ac;
+      const signal = ac.signal;
+      readyReceipt.current = null; thanksRequest.current = null;
+      setTip(null); setThanked(false); setThanksBusy(false); setShared(false);
+      if (shareTimer.current !== null) window.clearTimeout(shareTimer.current);
+      if (!Number.isSafeInteger(bookingId) || bookingId <= 0) {
         setState({ kind: "error" });
         return;
       }
       setState({ kind: "loading" });
       fetchReceipt(bookingId, signal)
-        .then((r) => setState({ kind: "ready", r }))
+        .then((r) => {
+          if (!current() || signal.aborted || receiptRequest.current !== ac) return;
+          if (r.booking_id !== bookingId) { setState({ kind: "error" }); return; }
+          readyReceipt.current = r;
+          setState({ kind: "ready", r });
+        })
         .catch((e) => {
-          if (signal?.aborted || e?.name === "AbortError") return;
+          if (!current() || signal.aborted || receiptRequest.current !== ac || e?.name === "AbortError") return;
           if (e instanceof ApiError) {
             // 404 — эндпоинта ещё нет на проде (до деплоя release-2026-07).
             if (e.status === 404) return setState({ kind: "soft", reason: "notyet" });
@@ -52,13 +78,17 @@ export default function TripReceiptScreen() {
           setState({ kind: "error" });
         });
     },
-    [bookingId]
+    [bookingId, generation]
   );
 
   useEffect(() => {
-    const ac = new AbortController();
-    load(ac.signal);
-    return () => ac.abort();
+    mounted.current = true;
+    load();
+    return () => {
+      mounted.current = false; readyReceipt.current = null;
+      receiptRequest.current?.abort(); tipRequest.current?.abort(); thanksRequest.current = null;
+      if (shareTimer.current !== null) window.clearTimeout(shareTimer.current);
+    };
   }, [load]);
 
   /**
@@ -72,38 +102,46 @@ export default function TripReceiptScreen() {
   const [thanksBusy, setThanksBusy] = useState(false);
 
   const passengerReceipt = state.kind === "ready" && state.r.role === "passenger";
+  const r = state.kind === "ready" ? state.r : null;
+  const pickup = r?.pickup_stop === "" ? r.from_city : r?.pickup_stop;
+  const dropoff = r?.dropoff_stop === "" ? r.to_city : r?.dropoff_stop;
+  const hasSegment = typeof pickup === "string" && !!pickup.trim() && typeof dropoff === "string" && !!dropoff.trim();
+  const ownStars = Number.isInteger(r?.my_stars) && r!.my_stars! >= 1 && r!.my_stars! <= 5 ? r!.my_stars : null;
 
   useEffect(() => {
-    if (!bookingId || !passengerReceipt) {
+    if (!r || !currentReceipt(r) || !passengerReceipt) {
       setTip(null);
       setThanked(false);
       return;
     }
-    const ac = new AbortController();
+    const ac = new AbortController(); tipRequest.current = ac;
     fetchBookingTip(bookingId, ac.signal)
       .then((t) => {
+        if (!currentReceipt(r) || ac.signal.aborted || tipRequest.current !== ac) return;
         setTip(t);
-        if (t.already_thanked) setThanked(true);
+        setThanked(t.already_thanked);
       })
-      .catch(() => setTip(null));
+      .catch(() => { if (currentReceipt(r) && !ac.signal.aborted && tipRequest.current === ac) setTip(null); });
     return () => ac.abort();
-  }, [bookingId, passengerReceipt]);
+  }, [bookingId, generation, r, passengerReceipt]);
 
   async function sayThanks() {
-    if (thanksBusy || !passengerReceipt) return;
+    if (!r || !currentReceipt(r) || thanksBusy || thanksRequest.current || !passengerReceipt) return;
+    const operation = {}; thanksRequest.current = operation;
     setThanksBusy(true);
     try {
       await thankBooking(bookingId);
+      if (!currentReceipt(r) || thanksRequest.current !== operation) return;
       setThanked(true);
     } catch {
       /* не отправилось — кнопка остаётся, человек повторит */
     } finally {
-      setThanksBusy(false);
+      if (currentReceipt(r) && thanksRequest.current === operation) { thanksRequest.current = null; setThanksBusy(false); }
     }
   }
 
   async function shareReceipt() {
-    if (state.kind !== "ready") return;
+    if (state.kind !== "ready" || !currentReceipt(state.r)) return;
     const r = state.r;
     const text = appText(
       `Юлдаш · Квитанция поездки
@@ -123,10 +161,13 @@ ${priceLabel(r.amount, false)}`
         /* отменил — не ошибка */
       }
     }
+    if (!currentReceipt(r)) return;
     try {
       await navigator.clipboard.writeText(text);
+      if (!currentReceipt(r)) return;
       setShared(true);
-      window.setTimeout(() => setShared(false), 1600);
+      if (shareTimer.current !== null) window.clearTimeout(shareTimer.current);
+      shareTimer.current = window.setTimeout(() => { if (currentReceipt(r)) setShared(false); }, 1600);
     } catch {
       /* буфер недоступен — цифры на экране, их видно */
     }
@@ -167,6 +208,7 @@ ${priceLabel(r.amount, false)}`
       {state.kind === "ready" && (
         <div className="receipt">
           <div className="receipt__brand"><IconHeart size={16} /> {appText("Юлдаш", "Юлдаш")}</div>
+          <p className="list-row__sub">{appText("Рейс водителя", "Йөрөтөүсенең сәфәре")}</p>
           <div className="receipt__route">
             <span>{state.r.from_city}</span>
             <span className="ride-card__arrow">
@@ -175,6 +217,12 @@ ${priceLabel(r.amount, false)}`
             <span>{state.r.to_city}</span>
           </div>
           <div className="receipt__date">{formatWhen(state.r.depart_at, ru)}</div>
+          {hasSegment && <section style={{ marginTop: "var(--space-md)", overflowWrap: "anywhere" }}>
+            <p className="list-row__title">{appText("Участок пассажира", "Юлсының юл өлөшө")}</p>
+            <div className="receipt__route" style={{ fontSize: "var(--font-heading)" }}>
+              <span>{pickup}</span><span className="ride-card__arrow"><IconArrow size={18} /></span><span>{dropoff}</span>
+            </div>
+          </section>}
 
           <div className="receipt__rows">
             <div className="info-row">
@@ -190,6 +238,10 @@ ${priceLabel(r.amount, false)}`
               <span className="info-row__k">{appText("Мест", "Урын")}</span>
               <span className="info-row__v">{state.r.seats}</span>
             </div>
+            {ownStars !== null && <div className="info-row">
+              <span className="info-row__k">{appText("Твоя оценка", "Һинең баһаң")}</span>
+              <span className="info-row__v">{ownStars} / 5</span>
+            </div>}
             <div className="info-row">
               <span className="info-row__k">{appText("Способ оплаты", "Түләү ысулы")}</span>
               <span className="info-row__v">{payMethodLabel(state.r.pay_method, ru)}</span>
@@ -230,6 +282,7 @@ ${priceLabel(r.amount, false)}`
               id={bookingId}
               amountLabel={priceLabel(state.r.amount, ru)}
               onPaid={() => load()}
+              canAct={() => currentReceipt(state.r)}
             />
           )}
 
@@ -269,7 +322,7 @@ ${priceLabel(r.amount, false)}`
                 <div className="tip-money__label">
                   {appText("Можно и деньгами — по желанию", "Аҡса менән дә була — теләк буйынса")}
                 </div>
-                <SbpPay phone={tip.money.sbp} name={tip.money.name} />
+                <SbpPay phone={tip.money.sbp} name={tip.money.name} canAct={() => r !== null && currentReceipt(r)} />
               </div>
             )}
           </div>}
