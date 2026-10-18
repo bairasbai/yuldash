@@ -243,11 +243,11 @@ export function RespondSheet({
         className="sheet"
         onClick={(e) => e.stopPropagation()}
         onAnimationEnd={exit.onAnimationEnd}
-        role="dialog"
-        aria-modal="true"
+        {...exit.dialogProps}
+        aria-labelledby={exit.titleId}
       >
         <div className="sheet__grip" aria-hidden />
-        <h2 style={{ margin: "0 0 4px", fontSize: "var(--font-heading)", fontWeight: "var(--weight-bold)" }}>
+        <h2 id={exit.titleId} style={{ margin: "0 0 4px", fontSize: "var(--font-heading)", fontWeight: "var(--weight-bold)" }}>
           {appText("Твой отклик", "Яуабың")}
         </h2>
         <p className="sheet__note" style={{ marginTop: 0 }}>

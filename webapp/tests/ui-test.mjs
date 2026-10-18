@@ -133,13 +133,12 @@ const ICON_OR_LARGE = {
   ".nav-item.is-active .nav-pill": "значок вкладки на золотой плашке",
   ".invite-driver__ic": "значок в кружке",
   ".update-banner__ic": "значок в кружке",
-  ".sos-112": "«112» — 19px жирным, крупный текст",
 };
 const NOT_A_TEXT_PAIR = {
   ".btn-primary:disabled, .btn-danger:disabled": "выключенная кнопка: WCAG не требует контраста у неактивного",
   ".pay-method-row__check": "галочка рисуется только в .is-checked — там фон --taxi, а не этот",
   ".progress-rail__dot":
-    "значок рисуется только в .is-done / .is-active на --rail-accent (зеркало MobilityProgressRail; белая галочка на жёлтом такси — отдельная задача)",
+    "значок рисуется только в .is-done / .is-active на --rail-accent (зеркало MobilityProgressRail; белая галочка на жёлтом такси, 2.19, — задача в docs/tasks.md «Белая галочка на жёлтой рельсе такси»)",
   ".login-hero": "надпись лежит на фото под затемнением .login-hero__shade; зелёный — подложка, пока фото не пришло",
 };
 /** Правила, без которых проверка теряет смысл: их пара обязана считаться (не rgba, не color-mix). */
@@ -155,6 +154,7 @@ const MUST_COUNT = [
   ".segmented__item.is-selected",
   ".chat-tab__badge",
   ".tchat__badge",
+  ".sos-112",
 ];
 
 const tokenOf = (body, prop) =>
@@ -211,6 +211,10 @@ for (const [selector, bg, min, what] of CONTEXT) {
     check(c !== null && c >= min, `${theme}: ${what}`, c === null ? "не посчитать" : `${fg} = ${c.toFixed(2)} (нужно ≥ ${min})`);
   }
 }
+
+// Тёплая плашка: правка только для тёмной темы — в светлой кнопка остаётся тем же --green2, что везде
+// (приёмка PR181: два разных зелёных на одной кнопке и лишняя перемена в светлой теме).
+check(light["--green-on-warm"] === light["--green2"], "светлая: --green-on-warm = --green2 — на тёплых карточках ничего не поменялось", `${light["--green-on-warm"]} / ${light["--green2"]}`);
 
 // ---------------- чип центрует надпись сам ----------------
 //

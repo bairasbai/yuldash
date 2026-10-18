@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cancelRequest, fetchMatchRides, fetchMyRequests, type RideRequestRow } from "../api/requests";
 import type { Ride } from "../api/rides";
@@ -249,35 +249,12 @@ export function CancelRequestSheet({
   const [cancelError, setCancelError] = useState("");
   const keepRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
-  const exit = useSheetExit(onClose, dialogRef);
-
-  useEffect(() => {
-    keepRef.current?.focus();
-  }, []);
+  // Фокус при открытии — на безопасную «Оставить»; Esc и затемнение не закрывают, пока отмена в пути.
+  const exit = useSheetExit(onClose, dialogRef, { initialFocus: keepRef, canClose: () => !cancelling });
 
   function closeDialog() {
     if (cancelling) return;
     exit.close();
-  }
-
-  function dialogKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeDialog();
-      return;
-    }
-    if (event.key !== "Tab") return;
-    const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
-    if (!buttons?.length) return;
-    const first = buttons[0];
-    const last = buttons[buttons.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
   }
 
   async function confirmCancel() {
@@ -300,14 +277,12 @@ export function CancelRequestSheet({
       <section
         ref={dialogRef}
         className="sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="cancel-request-title"
+        {...exit.dialogProps}
+        aria-labelledby={exit.titleId}
         onClick={(event) => event.stopPropagation()}
         onAnimationEnd={exit.onAnimationEnd}
-        onKeyDown={dialogKeyDown}
       >
-        <h2 className="sheet__title" id="cancel-request-title">
+        <h2 className="sheet__title" id={exit.titleId}>
           {appText("Отменить заявку?", "Заявканы кире алабыҙмы?")}
         </h2>
         <p className="sheet__comment">

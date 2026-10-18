@@ -175,10 +175,17 @@ export function CodeDialog({
     if ((await onSubmit(code)) === true) exit.close();
   }
   return exit.portal(
-    <div className={exit.backdropClass} onClick={exit.close} role="dialog" aria-modal="true">
-      <div ref={sheetRef} className="sheet code-sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
+    <div className={exit.backdropClass} onClick={exit.close} role="presentation">
+      <div
+        ref={sheetRef}
+        className="sheet code-sheet"
+        {...exit.dialogProps}
+        aria-labelledby={exit.titleId}
+        onClick={(e) => e.stopPropagation()}
+        onAnimationEnd={exit.onAnimationEnd}
+      >
         <div className="sheet__grip" aria-hidden />
-        <h2 className="section-title" style={{ marginTop: 4 }}>
+        <h2 className="section-title" id={exit.titleId} style={{ marginTop: 4 }}>
           {appText("Код вручения", "Тапшырыу коды")}
         </h2>
         <p className="parcel-card__desc" style={{ marginTop: 2 }}>

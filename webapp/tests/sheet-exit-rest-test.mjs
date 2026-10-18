@@ -12,7 +12,7 @@
 // ================================================================
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { browser, finish, flat, JSX, load, mount, PORTAL, portals, REACT, root, settle, test, text } from "./fake-react.mjs";
+import { browser, FakeEl, finish, flat, JSX, load, mount, PORTAL, portals, REACT, root, settle, test, text } from "./fake-react.mjs";
 
 const h = (globalThis.__restExit = { calls: [], reply: null, lang: "ru", feed: null });
 
@@ -116,6 +116,12 @@ await test("сторож: каждая нижняя шторка рисуетс�
     const src = withoutComments(readFileSync(root + "src/" + file, "utf8"));
     assert.match(src, /return exit\.portal\(\s*<div className=\{exit\.backdropClass\}/, `${file}: затемнение со шторкой — через exit.portal`);
     assert.ok(!/createPortal/.test(src), `${file}: свой createPortal не нужен — портал один, в хуке`);
+    assert.match(src, /\{\.\.\.exit\.dialogProps\}/, `${file}: шторка — диалог из хука (role, aria-modal, фокус, Esc, Tab)`);
+    assert.match(src, /aria-label(ledby)?=\{/, `${file}: у диалога есть имя для читалки`);
+    const rest = src.slice(src.indexOf("useSheetExit("));
+    const next = rest.search(/\n(export )?(default )?function /); // шторка кончается, где начинается следующий компонент
+    const sheetBody = next > 0 ? rest.slice(0, next) : rest;
+    assert.ok(!/role="dialog"|onKeyDown=|\.focus\(\)/.test(sheetBody), `${file}: своей клавиатуры и фокуса у шторки нет — всё в хуке`);
   }
   assert.match(readFileSync(root + "src/" + HOOK_FILE, "utf8"), /createPortal\(node, document\.body\)/, "хук выносит в <body>");
 });
@@ -340,6 +346,8 @@ await test("стили: .sheet__dismiss — во всю ширину, отсту
   const rule = readFileSync(root + "src/ui.css", "utf8").match(/\.sheet__dismiss \{([^}]*)\}/)?.[1] ?? "";
   assert.match(rule, /width:\s*100%/);
   assert.match(rule, /margin-top:\s*var\(--space-sm\)/);
+  assert.match(rule, /font-size:\s*var\(--font-button\)/, "16, как кнопка: «Я выхожу» не мельче «Всё равно отменить»");
+  assert.match(rule, /font-weight:\s*var\(--weight-bold\)/);
 });
 
 for (const sheet of SHEETS) {
@@ -354,6 +362,26 @@ for (const sheet of SHEETS) {
     assert.equal(call.container, globalThis.document.body, "в <body>");
     assert.equal(call.node, x.s.tree, "вынесено затемнение целиком, вместе со шторкой");
     assert.match(call.node.props.className, /\bsheet-backdrop\b/);
+  });
+
+  await test(t("диалог для читалки: role=dialog, aria-modal, заголовок; фокус внутрь, Esc уводит, фокус обратно"), async () => {
+    reset();
+    const opener = new FakeEl("кнопка, которой открыли");
+    opener.focus();
+    const x = sheet.open();
+    const el = x.sheet();
+    assert.equal(el.props.role, "dialog", "role=dialog — на самой шторке");
+    assert.equal(el.props["aria-modal"], true, "aria-modal");
+    const title = flat(el).find((n) => n.props?.id && n.props.id === el.props["aria-labelledby"]);
+    assert.ok(title && text(title).trim(), "aria-labelledby ведёт на заголовок с текстом");
+    const active = globalThis.document.activeElement;
+    assert.ok(active === x.node() || flat(el).some((n) => n.props?.ref?.current === active), "фокус перенесён в шторку");
+    el.props.onKeyDown(ESC);
+    x.s.render();
+    assert.ok(x.leaving(), "Esc уводит шторку вниз");
+    x.finish();
+    x.s.unmount();
+    assert.equal(globalThis.document.activeElement, opener, "убрали — фокус вернулся туда, откуда открыли");
   });
 
   if (sheet.name in BOTTOM_DISMISS) {
@@ -467,26 +495,28 @@ await test("оплата: «Скоро» — не выбор, шторка ос�
   assert.equal(called("pick").length, 0);
 });
 
-await test("оплата: PayMethodPicker — кнопка → шторка → выбор → шторка ушла, кнопка снова на месте", async () => {
+await test("оплата: PayMethodPicker — кнопка → шторка → выбор → шторка ушла; кнопка всё время на месте (туда вернётся фокус)", async () => {
   reset();
   const picks = [];
   const picker = mount(Pay.default, { value: "cash", onChange: (m) => picks.push(m) });
   const cta = () => flat(picker.tree).find((n) => n.type === "button");
-  assert.equal(flat(picker.tree).some((n) => n.type?.name?.startsWith("PayMethodSheet")), false, "закрыта");
+  const sheetIn = () => flat(picker.tree).find((n) => /^PayMethodSheet\d*$/.test(n.type?.name ?? ""));
+  assert.ok(!sheetIn(), "закрыта");
   cta().props.onClick();
   picker.render();
-  const sheetEl = picker.tree;
-  assert.match(sheetEl.type.name, /^PayMethodSheet\d*$/, "открыта отдельным компонентом");
+  const sheetEl = sheetIn();
+  assert.ok(sheetEl, "открыта отдельным компонентом");
+  assert.ok(cta(), "кнопка под шторкой не пропадает: шторка уйдёт — фокус вернётся на неё (приёмка PR181)");
   const x = open(sheetEl.type, sheetEl.props);
   x.button("СБП").props.onClick();
   assert.deepEqual(picks, ["sbp"], "выбор дошёл до заказа");
   x.s.render();
   assert.ok(x.leaving(), "шторка уезжает");
   picker.render();
-  assert.match(picker.tree.type.name, /^PayMethodSheet\d*$/, "пока едет — ещё на странице");
+  assert.ok(sheetIn(), "пока едет — ещё на странице");
   x.finish();
   picker.render();
-  assert.equal(cta().type, "button", "шторка убрана, кнопка снова на месте");
+  assert.ok(!sheetIn() && cta(), "шторка убрана, кнопка на месте");
 });
 
 await test("жалоба: сервер принял — «Спасибо» стоит под уходящей шторкой, шторка уезжает и пропадает", async () => {
@@ -496,7 +526,7 @@ await test("жалоба: сервер принял — «Спасибо» ст�
   c.render();
   const sheetEl = flat(c.tree).find((n) => /^PriceComplaintSheet\d*$/.test(n.type?.name ?? ""));
   assert.ok(sheetEl, "шторка открыта");
-  assert.ok(!flat(c.tree).some((n) => n.type === "button" && /Что-то не так/.test(text(n))), "пока шторка открыта, кнопки жалобы нет");
+  assert.ok(flat(c.tree).some((n) => n.type === "button" && /Что-то не так/.test(text(n))), "кнопка жалобы под шторкой остаётся — туда вернётся фокус (приёмка PR181)");
   const x = open(sheetEl.type, sheetEl.props);
   x.button("Дорого для такого расстояния").props.onClick();
   await settle(c, x.s);
@@ -776,7 +806,7 @@ const Hook = await load(`export { useSheetExit } from "./src/components/useSheet
   [/^react\/jsx-runtime$/, JSX],
   [/^react-dom$/, PORTAL],
 ]);
-const plainSheet = () => ({ getAnimations: () => [], parentElement: { getAnimations: () => [] }, inert: false, contains: () => false });
+const plainSheet = () => ({ getAnimations: () => [], parentElement: { getAnimations: () => [] }, inert: false, contains: () => false, focus() {} });
 function hostWithHook() {
   const closes = [];
   const sheet = plainSheet();
@@ -847,7 +877,7 @@ for (const how of ["resolve", "reject"]) {
   await test(`хук: закрыли, пока шторка поднималась, и убрали до конца обратного хода — finished (${how}) onClose не зовёт`, async () => {
     browser.reduced = false;
     const rising = movement("sheetUp", 90);
-    const sheet = { getAnimations: () => [rising], parentElement: { getAnimations: () => [movement("fadeIn", 90)], animate() {} }, inert: false, contains: () => false };
+    const sheet = { getAnimations: () => [rising], parentElement: { getAnimations: () => [movement("fadeIn", 90)], animate() {} }, inert: false, contains: () => false, focus() {} };
     const closes = [];
     const host = mount(() => Hook.useSheetExit(() => closes.push(1), Hook.useRef(sheet)), {});
     host.tree.close();

@@ -32,8 +32,6 @@ import { IconCalendar, IconCheck, IconClose, IconFlag, IconPin, IconShield, Icon
 
 // ---------------------------------------------------------------- шторка и строки
 
-const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
-
 /**
  * Нижняя шторка ленты: заголовок (+ действие справа, например «Сбросить») и содержимое.
  * Закрывается тапом по затемнению, Esc, крестиком и кнопкой внутри — одинаково: шторка уезжает
@@ -56,47 +54,20 @@ export function NearbySheet({
   const { appText } = useLang();
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Фокус — на саму шторку (useSheetExit), а не на поле поиска: иначе на телефоне сразу вылезла бы
+  // клавиатура. Esc, Tab по кругу и возврат фокуса на чип — тоже в хуке, одно на все шторки.
   const exit = useSheetExit(onClose, dialogRef);
   const close = exit.close;
-
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // На саму шторку, а не на поле поиска: иначе на телефоне сразу вылезла бы клавиатура.
-    dialogRef.current?.focus();
-    return () => previous?.focus();
-  }, []);
 
   return exit.portal(
     <div className={exit.backdropClass} onClick={close} role="presentation">
       <div
         ref={dialogRef}
         className="sheet nbs"
-        role="dialog"
-        aria-modal="true"
+        {...exit.dialogProps}
         aria-labelledby={titleId}
-        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         onAnimationEnd={exit.onAnimationEnd}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.stopPropagation();
-            close();
-            return;
-          }
-          if (event.key !== "Tab") return;
-          const controls = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
-          if (!controls?.length) return;
-          const first = controls[0];
-          const last = controls[controls.length - 1];
-          const active = document.activeElement;
-          if (event.shiftKey && (active === first || active === dialogRef.current)) {
-            event.preventDefault();
-            last.focus();
-          } else if (!event.shiftKey && active === last) {
-            event.preventDefault();
-            first.focus();
-          }
-        }}
       >
         <div className="sheet__grip" aria-hidden />
         <div className="nbs__head">

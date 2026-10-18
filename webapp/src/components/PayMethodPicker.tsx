@@ -82,23 +82,23 @@ export default function PayMethodPicker({
   const [open, setOpen] = useState(false);
   const cur = PAY_METHODS_OPEN.find((m) => m.code === value) ?? PAY_METHODS_OPEN[2];
 
-  if (!open) {
-    return (
+  // Кнопка остаётся на месте и под открытой шторкой: шторка уйдёт — фокус вернётся на неё (useSheetExit).
+  return (
+    <>
       <button type="button" className="btn-soft trip-btn" onClick={() => setOpen(true)}>
         <IconWallet size={18} /> {appText(cur.shortRu, cur.shortBa)}
       </button>
-    );
-  }
-
-  return (
-    <PayMethodSheet
-      value={value}
-      onPick={(m) => {
-        onChange(m);
-        rememberPayMethod(m);
-      }}
-      onClose={() => setOpen(false)}
-    />
+      {open && (
+        <PayMethodSheet
+          value={value}
+          onPick={(m) => {
+            onChange(m);
+            rememberPayMethod(m);
+          }}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -130,8 +130,17 @@ export function PayMethodSheet({
 
   return exit.portal(
     <div className={exit.backdropClass} onClick={exit.close}>
-      <div ref={sheetRef} className="sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
-        <h2 className="sheet__title">{appText("Чем рассчитаемся", "Нимә менән түләйбеҙ")}</h2>
+      <div
+        ref={sheetRef}
+        className="sheet"
+        {...exit.dialogProps}
+        aria-labelledby={exit.titleId}
+        onClick={(e) => e.stopPropagation()}
+        onAnimationEnd={exit.onAnimationEnd}
+      >
+        <h2 className="sheet__title" id={exit.titleId}>
+          {appText("Чем рассчитаемся", "Нимә менән түләйбеҙ")}
+        </h2>
         <p className="sheet__comment">
           {appText(
             "Деньги идут напрямую водителю — приложение их не касается. Мы только записываем договорённость, чтобы на высадке не было неожиданностей.",

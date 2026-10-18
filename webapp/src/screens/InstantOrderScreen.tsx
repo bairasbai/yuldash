@@ -1814,8 +1814,17 @@ export function CancelSheet({
 
   return exit.portal(
     <div className={exit.backdropClass} onClick={exit.close}>
-      <div ref={sheetRef} className="sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
-        <h2 className="sheet__title">{appText("Почему отменяешь?", "Ниңә кире алаһың?")}</h2>
+      <div
+        ref={sheetRef}
+        className="sheet"
+        {...exit.dialogProps}
+        aria-labelledby={exit.titleId}
+        onClick={(e) => e.stopPropagation()}
+        onAnimationEnd={exit.onAnimationEnd}
+      >
+        <h2 className="sheet__title" id={exit.titleId}>
+          {appText("Почему отменяешь?", "Ниңә кире алаһың?")}
+        </h2>
 
         {/* Платная отмена объясняется до нажатия, а не приходит счётом после. */}
         {feeRub > 0 && (

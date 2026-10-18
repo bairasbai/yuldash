@@ -41,15 +41,11 @@ export default function RideSheet({
   const [busy, setBusy] = useState(false);
   const bookingInFlight = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const exit = useSheetExit(onClose, dialogRef);
+  // Фокус — на саму шторку (useSheetExit): читалка называет «Поездка», Esc и Tab работают в ней. Раньше фокус
+  // ставился на «Закрыть», и тот же Enter, которым открыли поездку с карточки, сразу её закрывал.
+  // Пока бронь в пути, Esc шторку не трогает.
+  const exit = useSheetExit(onClose, dialogRef, { canClose: () => !bookingInFlight.current });
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // Фокус — на саму шторку, как в шторках ленты: читалка называет «Поездка», Esc и Tab работают в ней.
-    // Раньше фокус ставился на «Закрыть», и тот же Enter, которым открыли поездку с карточки, сразу её закрывал.
-    dialogRef.current?.focus();
-    return () => previous?.focus();
-  }, []);
 
   // Открыли карточку поездки — заинтересовался конкретной поездкой.
   useEffect(() => {
@@ -129,20 +125,8 @@ export default function RideSheet({
         className="sheet"
         onClick={(e) => e.stopPropagation()}
         onAnimationEnd={exit.onAnimationEnd}
-        role="dialog"
-        aria-modal="true"
+        {...exit.dialogProps}
         aria-label={appText("Поездка", "Сәфәр")}
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && !bookingInFlight.current) exit.close();
-          if (event.key !== "Tab") return;
-          const controls = dialogRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), a[href]");
-          if (!controls?.length) return;
-          const first = controls[0], last = controls[controls.length - 1];
-          const active = document.activeElement;
-          if (event.shiftKey && (active === first || active === dialogRef.current)) { event.preventDefault(); last.focus(); }
-          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-        }}
       >
         <div className="sheet__grip" aria-hidden />
         <button type="button" className="btn-ghost" onClick={exit.close} disabled={busy}>

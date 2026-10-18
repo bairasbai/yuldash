@@ -108,12 +108,16 @@ await test("строка-галочка: роль checkbox/radio и aria-checked
 });
 
 await test("шторка — диалог: заголовок связан, Esc закрывает, фокус внутрь и обратно, Tab не уходит наружу", async () => {
-  assert.match(panel, /role="dialog"/);
-  assert.match(panel, /aria-modal="true"/);
+  // role="dialog", aria-modal, tabIndex=-1, Esc, Tab по кругу и возврат фокуса — общие для всех шторок
+  // (useSheetExit → dialogProps и эффект фокуса); поведение проверяют nearby-feed-tails-test и sheet-exit-rest-test.
+  const hook = read("src/components/useSheetExit.ts");
+  assert.match(panel, /\{\.\.\.exit\.dialogProps\}/, "шторка — диалог из общего хука");
   assert.match(panel, /aria-labelledby=\{titleId\}/);
-  assert.match(panel, /event\.key === "Escape"/);
-  assert.match(panel, /previous\?\.focus\(\)/);
-  assert.match(panel, /event\.key !== "Tab"/);
+  assert.match(hook, /role: "dialog"/);
+  assert.match(hook, /"aria-modal": true/);
+  assert.match(hook, /event\.key === "Escape"/);
+  assert.match(hook, /opener\.current\?\.focus\(\)/);
+  assert.match(hook, /event\.key !== "Tab"/);
   // Портал в body теперь общий для всех нижних шторок — useSheetExit (exit.portal), см. sheet-exit-rest-test.
   assert.match(panel, /return exit\.portal\(/, "шторка вынесена в body: никакой предок не обрежет и не сдвинет её");
 });

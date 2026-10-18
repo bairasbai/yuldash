@@ -224,8 +224,17 @@ export function DeclineWhySheet({
 
   return exit.portal(
     <div className={exit.backdropClass} onClick={exit.close}>
-      <div ref={sheetRef} className="sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
-        <h2 className="sheet__title">{appText("Почему не сможешь?", "Ниңә бара алмайһың?")}</h2>
+      <div
+        ref={sheetRef}
+        className="sheet"
+        {...exit.dialogProps}
+        aria-labelledby={exit.titleId}
+        onClick={(e) => e.stopPropagation()}
+        onAnimationEnd={exit.onAnimationEnd}
+      >
+        <h2 className="sheet__title" id={exit.titleId}>
+          {appText("Почему не сможешь?", "Ниңә бара алмайһың?")}
+        </h2>
         <p className="sheet__comment">
           {appText(
             "Поездка завершится там, где стоит машина. Ты получишь деньги за проеденное — это не отмена, работа сделана. Пассажир увидит причину словами.",

@@ -83,11 +83,10 @@ export default function PriceComplaint({
           </p>
         </div>
       ) : (
-        !open && (
-          <button type="button" className="link-btn link-btn--quiet" onClick={() => setOpen(true)}>
-            {appText("Что-то не так с ценой?", "Хаҡ менән нимәлер дөрөҫ түгелме?")}
-          </button>
-        )
+        // Под открытой шторкой кнопка остаётся на месте: шторка уйдёт — фокус вернётся на неё (useSheetExit).
+        <button type="button" className="link-btn link-btn--quiet" onClick={() => setOpen(true)}>
+          {appText("Что-то не так с ценой?", "Хаҡ менән нимәлер дөрөҫ түгелме?")}
+        </button>
       )}
       {open && (
         <PriceComplaintSheet
@@ -133,8 +132,17 @@ export function PriceComplaintSheet({
 
   return exit.portal(
     <div className={exit.backdropClass} onClick={exit.close}>
-      <div ref={sheetRef} className="sheet" onClick={(e) => e.stopPropagation()} onAnimationEnd={exit.onAnimationEnd}>
-        <h2 className="sheet__title">{appText("Что не так с ценой?", "Хаҡта нимә дөрөҫ түгел?")}</h2>
+      <div
+        ref={sheetRef}
+        className="sheet"
+        {...exit.dialogProps}
+        aria-labelledby={exit.titleId}
+        onClick={(e) => e.stopPropagation()}
+        onAnimationEnd={exit.onAnimationEnd}
+      >
+        <h2 className="sheet__title" id={exit.titleId}>
+          {appText("Что не так с ценой?", "Хаҡта нимә дөрөҫ түгел?")}
+        </h2>
         {REASONS.map((r) => (
           <button
             key={r.code}

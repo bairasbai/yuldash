@@ -2278,6 +2278,11 @@ button.list-row:active {
   display: block;
   width: 100%;
   margin-top: var(--space-sm);
+  /* 16 жирным, как TextButton приложения («Не отменять» — Bold TxBody): бесплатный выход («Я выхожу»)
+     не мельче платной отмены над ним (приёмка PR181). */
+  font-size: var(--font-button);
+  line-height: var(--line-button);
+  font-weight: var(--weight-bold);
 }
 .sheet__note {
   margin: 12px 0 0;
@@ -6817,11 +6822,15 @@ select.field__input {
 .act-card--warn .act-card__title {
   color: var(--warn);
 }
-/* Зелёная надпись кнопки на тёплой плашке — --green, а не --green2: в тёмной теме --green2 на --warn-bg
-   давал 4.16 («Не смогу ехать» у водителя такси, живая проверка 17.10.2026). */
+/* Зелёная кнопка на тёплой плашке — токен --green-on-warm: в светлой теме он равен --green2 (ничего не
+   меняется), в тёмной — CanonGreen, потому что --green2 на тёмном --warn-bg давал 4.16 («Не смогу ехать»
+   у водителя такси, живая проверка 17.10.2026). Рамке — тот же токен: один зелёный на кнопке. */
 .act-card--warn .btn-ghost,
 .act-card--warn .btn-soft {
-  color: var(--green);
+  color: var(--green-on-warm);
+}
+.act-card--warn .btn-soft {
+  border-color: var(--green-on-warm);
 }
 .act-card--danger .act-card__title {
   color: var(--danger);
@@ -13982,7 +13991,9 @@ button.settings-row:active {
   min-height: 64px;
   border-radius: var(--radius-field);
   background: var(--danger);
-  color: var(--on-accent);
+  /* --danger в тёмной теме светлеет: белое «112» давало 3.31, --on-filled — 5.54 / 5.12 (решение 2026-08-13,
+     в приложении SosVerifyScreens — CanonOnFilled; приёмка PR181). */
+  color: var(--on-filled);
   font-size: var(--font-heading);
   line-height: var(--line-heading);
   font-weight: var(--weight-bold);

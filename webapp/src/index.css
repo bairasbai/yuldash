@@ -156,6 +156,9 @@
      читалась тёмным по тёмно-красному, 3.42 (живая проверка 17.10.2026). */
   --danger-btn: #cc2a20; /* CanonRed */
   --warn-bg: #fff2d6; /* CanonWarnBg */
+  /* Зелёная надпись и рамка кнопки на тёплой плашке (--warn-bg): в светлой теме — как везде (CanonGreen2),
+     в тёмной — CanonGreen: CanonGreen2 на тёмном тёплом фоне давал 4.16 («Не смогу ехать»). */
+  --green-on-warm: #0b6b3a; /* CanonGreen2 */
   --warn: #9a6200; /* CanonWarn */
   --danger-bg: #fdecea; /* CanonDangerBg */
   --danger: #cc2a20; /* CanonRed */
@@ -330,6 +333,7 @@
     --green-btn: #17804c;
     --danger-btn: #f25a4d; /* CanonRed dark — светлее, под тёмную надпись --on-filled (5.54) */
     --warn-bg: #3a2e12;
+    --green-on-warm: #7fe3ab; /* CanonGreen dark */
     --warn: #e8b86a;
     --danger-bg: #3a1b18;
     --danger: #f25a4d;
@@ -374,6 +378,7 @@
   --green-btn: #17804c;
   --danger-btn: #f25a4d; /* CanonRed dark — см. media-блок выше */
   --warn-bg: #3a2e12;
+  --green-on-warm: #7fe3ab; /* CanonGreen dark */
   --warn: #e8b86a;
   --danger-bg: #3a1b18;
   --danger: #f25a4d;

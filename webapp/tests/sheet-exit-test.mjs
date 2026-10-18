@@ -257,7 +257,7 @@ function anim(name, currentTime, playState = "running") {
 }
 function sheetNode(sheetAnims, backdropAnims = []) {
   const backdrop = { animations: backdropAnims, dims: [], getAnimations: () => backdrop.animations, animate: (kf, opts) => backdrop.dims.push({ kf, opts }) };
-  return { animations: sheetAnims, getAnimations: () => sheetAnims, parentElement: backdrop, inert: false, contains: () => false };
+  return { animations: sheetAnims, getAnimations: () => sheetAnims, parentElement: backdrop, inert: false, contains: () => false, focus() {} };
 }
 function exitWith(sheet) {
   const closes = [];
