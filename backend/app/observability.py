@@ -103,7 +103,9 @@ _SCRUB = (
     # что пришло мимо них. Любой регистр и закодированное двоеточие (%3A) — приёмка PR183.
     (re.compile(r"/bot\d+(?::|%3A)[A-Za-z0-9_-]+", re.IGNORECASE), "/bot<скрыто>"),
     # координаты в query-строке: /rides?lat=54.05&lng=58.31 — это местоположение человека
-    (re.compile(r"\b(lat|lng|lon|latitude|longitude)=-?\d+\.\d+", re.IGNORECASE), r"\1=<коорд>"),
+    # Не `\b`: перед именем бывает «_» (`from_lat=`, `to_lng=` у оценки курьера и погоды на
+    # маршруте), а между «_» и буквой границы слова нет — правило пропускало их (приёмка PR183).
+    (re.compile(r"(?<![A-Za-z0-9])(lat|lng|lon|latitude|longitude)=-?\d+\.\d+", re.IGNORECASE), r"\1=<коорд>"),
     # ГОЛЫЕ координаты: «52.9321, 58.6612». Правило выше ловит их только в виде lat=…&lng=…,
     # а человек и наши же экраны пишут их просто числами — и они долетали до базы аналитики
     # целиком (аудит 2026-08-08, волна 136). Точка на карте в Баймаке — это чей-то дом.
@@ -216,6 +218,15 @@ def before_send(event, hint):   # noqa: ARG001 — hint нужен по конт
                                       if str(k).lower() in _HEADERS_KEEP}
             elif headers is not None:
                 request.pop("headers")
+            # Строку входящего запроса Sentry прикладывает всегда, а в ней бывают точные координаты:
+            # `/courier/estimate?from_lat=…&to_lng=…`, `/weather/route?…` — точка посадки, часто дом.
+            # Мойка узнаёт не все имена, поэтому, как с заголовками, значения не отдаём вовсе:
+            # разбору сбоя хватает имён параметров (приёмка безопасности PR183, повтор).
+            query = request.get("query_string")
+            if isinstance(query, str):
+                request["query_string"] = _query_names_only(query)
+            elif query is not None:
+                request.pop("query_string")
         # Спаны исходящих запросов в трейсе (приёмка PR183, P2-1) — как крошки ниже: только схема
         # с хостом, метод и код ответа. Строим из ИСХОДНОГО спана: мойка выше могла исказить адрес
         # (например, «логин:пароль@хост» похож на почту), а хост из искажённого не достать.
@@ -226,6 +237,12 @@ def before_send(event, hint):   # noqa: ARG001 — hint нужен по конт
         return cleaned
     except Exception:  # noqa: BLE001
         return None
+
+
+def _query_names_only(query: str) -> str:
+    """«a=1&b=2&flag» → «a=<скрыто>&b=<скрыто>&flag»: имена параметров без значений."""
+    return "&".join(part.split("=", 1)[0] + ("=<скрыто>" if "=" in part else "")
+                    for part in query.split("&") if part)
 
 
 def _url_base(url: str) -> str:

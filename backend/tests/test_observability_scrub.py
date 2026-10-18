@@ -576,6 +576,25 @@ def test_before_send_оставляет_только_безвредные_заг
     assert event["request"]["headers"]["x-device-id"] == ID_УСТРОЙСТВА, "исходное событие не трогаем"
 
 
+# Повторная приёмка PR183: строку ВХОДЯЩЕГО запроса Sentry прикладывает всегда, а у оценки курьера
+# и погоды на маршруте в ней точные координаты посадки и назначения (`from_lat=…`). Правило мойки
+# с `\b` их пропускало: между «_» и буквой границы слова нет.
+def test_before_send_оставляет_от_строки_запроса_только_имена():
+    event = {"request": {"url": "https://yulbash.ru/courier/estimate", "method": "GET",
+                         "query_string": "from_lat=54.051234&from_lng=58.318712&to_lat=52.932101&to_lng=58.661234&fast"}}
+    out = before_send(event, None)
+    assert out["request"]["query_string"] == (
+        "from_lat=<скрыто>&from_lng=<скрыто>&to_lat=<скрыто>&to_lng=<скрыто>&fast"), out["request"]
+    assert "54.051234" in event["request"]["query_string"], "исходное событие не трогаем"
+    assert "query_string" not in before_send({"request": {"query_string": ["x"]}}, None)["request"]
+    assert before_send({"request": {"query_string": ""}}, None)["request"]["query_string"] == ""
+
+
+@pytest.mark.parametrize("s", ["from_lat=54.051234", "to_lng=58.661234", "?lat=54.0512&lng=58.3187"])
+def test_мойка_прячет_координаты_с_приставкой(s):
+    assert "54.05" not in scrub_text(s) and "58.66" not in scrub_text(s) and "58.31" not in scrub_text(s), scrub_text(s)
+
+
 # P2-1: в трейсах (замерах скорости) спан исходящего запроса несёт полный адрес со строкой
 # запроса — точные координаты маршрута Яндекса, широту для погоды, адрес для геокодера.
 def test_before_send_урезает_спаны_исходящих_запросов():
