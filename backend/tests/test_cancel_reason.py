@@ -9,7 +9,7 @@ from sqlmodel import Session
 from app.db import engine
 from app.models import Booking, UserRole
 
-from test_flows import _book, _publish
+from test_flows import _book, _publish, waited_out
 
 
 def test_cancel_booking_stores_reason(client, user_factory):
@@ -38,7 +38,8 @@ def test_cancel_booking_without_body_backward_compatible(client, user_factory):
 def test_no_show_only_driver_on_confirmed(client, user_factory):
     pax = user_factory("NSPax")
     drv = user_factory("NSDrv", role=UserRole.driver)
-    ride = _publish(client, drv, frm="НеявкаА", to="НеявкаБ", seats=3)
+    # Выехал давно: неявку отмечают не раньше чем через 15 минут после выезда (решение 18.10.2026).
+    ride = _publish(client, drv, frm="НеявкаА", to="НеявкаБ", seats=3, depart_at=waited_out())
     b = _book(client, pax, ride["id"])
     # по неподтверждённой брони отметить неявку нельзя → 409
     assert client.post(f"/bookings/{b['id']}/no-show", headers=drv["auth"]).status_code == 409

@@ -24,6 +24,7 @@ from sqlmodel import Session, select
 
 from app.db import engine
 from app.models import Booking, BookingStatus, Notification, Ride, TripShare, UserRole
+from app.routers.bookings import NO_SHOW_WAIT
 from app.timeutil import utcnow
 
 
@@ -232,7 +233,8 @@ def test_onboard_blocks_passenger_cancel_and_driver_no_show(client, user_factory
 
 def test_undo_reopens_the_no_show_path(client, user_factory):
     """Промахнулся карточкой у того, кто так и не пришёл: «Отменить» → «Не пришёл» работает."""
-    drv, _pax, _ride, bid = _trip(client, user_factory, "undonoshow")
+    # Выехал давно: «Не пришёл» — не раньше чем через NO_SHOW_WAIT после выезда (решение 18.10.2026).
+    drv, _pax, _ride, bid = _trip(client, user_factory, "undonoshow", depart_in=-(NO_SHOW_WAIT + timedelta(minutes=1)))
     assert _board(client, drv, bid).status_code == 200
     assert _undo(client, drv, bid).status_code == 200
     r = client.post(f"/bookings/{bid}/no-show", headers=drv["auth"])

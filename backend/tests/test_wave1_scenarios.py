@@ -46,6 +46,7 @@ from app import instant_service as isv
 from app.config import settings
 from app.db import engine
 from app.models import (Booking, BookingStatus, Ride, RideStatus, User, UserRole)
+from app.routers.bookings import NO_SHOW_WAIT
 from app.timeutil import utcnow
 
 # ---------------------------------------------------------------------------
@@ -78,6 +79,12 @@ def _день(дней: int, час: int = 9, минут: int = 0) -> datetime:
     """Местное время (с поясом Уфы) через `дней` суток от СЕГОДНЯШНЕГО МЕСТНОГО дня."""
     сегодня = (datetime.now(TZ) + timedelta(days=дней)).date()
     return datetime(сегодня.year, сегодня.month, сегодня.day, час, минут, tzinfo=TZ)
+
+
+def _выехал_давно() -> datetime:
+    """Выезд уже состоялся, и ожидание «Не пришёл» (`bookings.NO_SHOW_WAIT`, решение 18.10.2026)
+    прошло: неявку водитель отмечает не раньше чем через 15 минут после времени выезда."""
+    return (datetime.now(TZ) - NO_SHOW_WAIT - timedelta(minutes=1)).replace(microsecond=0)
 
 
 def _опубликовать(client, водитель, откуда: str, куда: str, когда: datetime, **поля) -> dict:
@@ -793,7 +800,7 @@ def test_водитель_снимает_поездку_пассажиры_уз�
 
 def test_неявка_водитель_отмечает_пассажир_узнаёт_место_возвращается(client, user_factory):
     водитель = user_factory("НеявкаВодитель", role=UserRole.driver)
-    рейс = _опубликовать(client, водитель, "Давлеканово", "Стерлитамак", _день(1, 7), seats_total=2)["id"]
+    рейс = _опубликовать(client, водитель, "Давлеканово", "Стерлитамак", _выехал_давно(), seats_total=2)["id"]
     пассажир, чужой = user_factory("НеявкаПассажир"), user_factory("НеявкаЧужой")
     bid = _забронировать(client, пассажир, рейс).json()["id"]
     # Отметить неявку можно только по ПОДТВЕРЖДЁННОЙ брони, и только водителю этой поездки.
@@ -813,7 +820,7 @@ def test_неявка_повторное_нажатие_отвечает_так_
     Три места и вторая живая бронь — иначе потолок `min(seats_total, …)` спрятал бы двойной
     возврат (приёмка PR150)."""
     водитель = user_factory("НеявкаДваТапаВодитель", role=UserRole.driver)
-    рейс = _опубликовать(client, водитель, "Давлеканово", "Нефтекамск", _день(1, 7), seats_total=3)["id"]
+    рейс = _опубликовать(client, водитель, "Давлеканово", "Нефтекамск", _выехал_давно(), seats_total=3)["id"]
     пассажир, сосед = user_factory("НеявкаДваТапаПассажир"), user_factory("НеявкаДваТапаСосед")
     bid = _забронировать(client, пассажир, рейс).json()["id"]
     _подтвердить(client, водитель, _забронировать(client, сосед, рейс).json()["id"])
@@ -1016,7 +1023,7 @@ def test_подросток_повтор_неявки_и_отмены_не_от�
     водитель = user_factory("ПодростокНеявкаВодитель", role=UserRole.driver)
     подросток = user_factory("ПодростокНеявкаСын")
     телефон_мамы = "+79170000931"
-    рейс = _опубликовать(client, водитель, "Бакалы", "Нефтекамск", _день(2, 7))["id"]
+    рейс = _опубликовать(client, водитель, "Бакалы", "Нефтекамск", _выехал_давно())["id"]
     bid = _забронировать(client, подросток, рейс, minor_passenger=True,
                          minor_guardian_name="Гульнара Ринатовна", minor_guardian_phone=телефон_мамы).json()["id"]
     подтверждено = _подтвердить(client, водитель, bid)

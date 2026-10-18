@@ -75,6 +75,8 @@ const SUITES = [
   // Посадку отмечает водитель (17.10.2026): «Сел» → «Пассажир в машине» и «Отменить · 4:59»,
   // у пассажира «Водитель отметит посадку» и «Сообщить о проблеме», «Я сел» нет.
   { test: "driver-marks-boarding-test", src: null, out: null, bundle: false },
+  // «Не вышел» — через 15 минут после выезда (срок от сервера, `no_show_at`) и с вопросом «Точно?» (18.10.2026).
+  { test: "driver-noshow-wait-test", src: null, out: null, bundle: false },
   { test: "commission-label-test", src: null, out: null, bundle: false },
   // На «долг уже оплачен» (already: true) админка не рисует обычное «подтверждено».
   { test: "debt-already-test", src: null, out: null, bundle: false },

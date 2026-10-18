@@ -6,6 +6,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -84,5 +85,16 @@ class BoardingApiTest {
         val row = parseDriverBookingDto(JSONObject("""{"booking_id":5,"status":"onboard","boarding_undo_sec":90}"""))
         assertEquals(90, row.boardingUndoSec)
         assertEquals(0, parseDriverBookingDto(JSONObject("""{"booking_id":5}""")).boardingUndoSec)
+    }
+
+    /** «Не пришёл» доступна с момента `no_show_at` (выезд + 15 минут, считает сервер — 18.10.2026). */
+    @Test
+    fun driverBookings_carryTheMomentNoShowOpens() {
+        val row = parseDriverBookingDto(JSONObject("""{"booking_id":5,"status":"confirmed","no_show_at":"2030-01-01T05:15:00"}"""))
+        assertEquals("2030-01-01T05:15:00", row.noShowAt)
+        // Старый сервер без поля, null и пустая строка — срока нет: кнопку не прячем, решает сервер.
+        assertNull(parseDriverBookingDto(JSONObject("""{"booking_id":5}""")).noShowAt)
+        assertNull(parseDriverBookingDto(JSONObject("""{"booking_id":5,"no_show_at":null}""")).noShowAt)
+        assertNull(parseDriverBookingDto(JSONObject("""{"booking_id":5,"no_show_at":""}""")).noShowAt)
     }
 }

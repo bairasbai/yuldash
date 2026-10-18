@@ -15,15 +15,20 @@ from sqlmodel import Session
 
 from app.db import engine
 from app.models import Booking, BookingStatus, Incident, Ride, UserRole
+from app.routers.bookings import NO_SHOW_WAIT
 from app.timeutil import utcnow
 
+# Выехал давно: «Не пришёл» доступна не раньше чем через NO_SHOW_WAIT после выезда (решение 18.10.2026).
+# Тесты, которые проходят через неявку по подтверждённой брони, ездят с такой поездкой.
+WAITED_OUT = -(NO_SHOW_WAIT + timedelta(minutes=1))
 
-def _boarded(client, user_factory, tag):
+
+def _boarded(client, user_factory, tag, depart_in=timedelta(minutes=10)):
     drv = user_factory(f"NSO Driver {tag}", role=UserRole.driver)
     pax = user_factory(f"NSO Passenger {tag}")
     ride = client.post("/rides", headers=drv["auth"], json={
         "from_city": "Сибай", "to_city": "Уфа",
-        "depart_at": (utcnow() + timedelta(minutes=10)).isoformat() + "+00:00",
+        "depart_at": (utcnow() + depart_in).isoformat() + "+00:00",
         "seats_total": 3, "price": 500}).json()
     b = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride["id"], "seats": 1}).json()
     assert client.post(f"/bookings/{b['id']}/confirm", headers=drv["auth"]).status_code == 200
@@ -84,7 +89,7 @@ def test_driver_opens_dispute_for_admin_instead(client, user_factory):
 
 def test_confirmed_booking_still_takes_no_show(client, user_factory):
     """Обычный случай не сломан: человек не пришёл, посадку не отмечали — неявка проходит."""
-    drv, _pax, ride, bid = _boarded(client, user_factory, "c")
+    drv, _pax, ride, bid = _boarded(client, user_factory, "c", depart_in=WAITED_OUT)
     with Session(engine) as s:
         seats_before = s.get(Ride, ride["id"]).seats_left
     r = client.post(f"/bookings/{bid}/no-show", headers=drv["auth"])
@@ -99,7 +104,8 @@ def test_boarding_between_check_and_lock_is_refused_too(client, user_factory, mo
     перепроверка под замком тоже отказывает, а не отменяет бронь человека, который уже в машине."""
     import app.routers.bookings as bookings_mod
 
-    drv, _pax, ride, bid = _boarded(client, user_factory, "d")
+    # Срок ожидания прошёл: иначе первая же проверка вернула бы «рано», и гонка под замком не проверялась.
+    drv, _pax, ride, bid = _boarded(client, user_factory, "d", depart_in=WAITED_OUT)
     original = bookings_mod.booking_and_ride_for_user
     fired = {"yes": False}
 

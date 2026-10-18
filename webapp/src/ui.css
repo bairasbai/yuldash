@@ -8979,6 +8979,16 @@ select.field__input {
 .list-row--stack > .notice {
   flex-basis: 100%;
 }
+/* «Не вышел — можно отметить с 18.10, 14:35»: спокойная подпись с часами вместо кнопки, пока рано
+   (DriverNoShow.tsx; в приложении — NoShowWaitNote). Иконка не прижата к тексту и не уезжает с базовой линии. */
+.noshow-wait {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.noshow-wait > svg {
+  flex: none;
+}
 /* Звёзды в списке — мельче, чем на экране оценки, но тач-цель остаётся 44. Пустая звезда — CanonMuted,
    как в приложении: на --border её почти не видно (контраст 1.3:1), и «2 из 5» не читается. */
 .rate-stars--sm .rate-star {

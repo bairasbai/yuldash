@@ -2,8 +2,10 @@
 // С 17.10.2026 посадку отмечает водитель: у подтверждённого пассажира «Сел» рядом с «Не вышел»
 // (DriverBoarding), «в пути» — «Пассажир в машине» и «Отменить» в первые 5 минут, а когда окно
 // прошло — объяснение и «Сообщить о проблеме» (двусторонний разбор по брони). Сервер неявку
-// «в пути» не принимает (409). Исполняем настоящий компонент; заменены только хуки React, язык,
-// сеть и сам DriverBoarding (его проверяет driver-marks-boarding-test.mjs).
+// «в пути» не принимает (409). С 18.10.2026 «Не вышел» — это DriverNoShow (срок от сервера и вопрос
+// «Точно?»; его проверяет driver-noshow-wait-test.mjs): здесь видно, КОМУ он достаётся и что в него
+// уходит. Исполняем настоящий компонент; заменены только хуки React, язык, сеть, DriverBoarding
+// (driver-marks-boarding-test.mjs) и DriverNoShow.
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
@@ -20,6 +22,7 @@ const modules = {
   icons: `export const IconProfile='icon'; export const IconStar='icon';`,
   card: `export default 'FileIncidentCard';`,
   boarding: `export default 'DriverBoarding';`,
+  noshow: `export default 'DriverNoShow';`,
   cabinet: `export const SectionHeader='SectionHeader';`,
 };
 
@@ -39,6 +42,7 @@ const result = await build({
           : p.endsWith("/Icons") ? "icons"
           : p.endsWith("/FileIncidentCard") ? "card"
           : p.endsWith("/DriverBoarding") ? "boarding"
+          : p.endsWith("/DriverNoShow") ? "noshow"
           : p.endsWith("/cabinetUi") ? "cabinet"
           : null;
         return key ? { path: key, namespace: "mock" } : null;
@@ -59,11 +63,13 @@ const rowOf = (tree, id) => all(tree).find((n) => n.key === id && String(n.props
 const buttonIn = (node, label) => all(node).find((n) => n.type === "button" && text(n).includes(label));
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
+const OPENS = "2030-01-01T05:15:00";   // выезд + 15 минут: момент, который прислал сервер
 const rows = [
-  { booking_id: 1, passenger_id: 11, passenger_name: "Айгуль", passenger_rating: null, route: "Уфа → Сибай", status: "confirmed", my_stars: 0 },
+  { booking_id: 1, passenger_id: 11, passenger_name: "Айгуль", passenger_rating: null, route: "Уфа → Сибай", status: "confirmed", my_stars: 0, no_show_at: OPENS },
   { booking_id: 2, passenger_id: 12, passenger_name: "Ринат", passenger_rating: 4.8, route: "Уфа → Сибай", status: "onboard", my_stars: 0, boarding_undo_sec: 0 },
 ];
 const boardingOf = (row) => all(row).find((n) => n.type === "DriverBoarding");
+const noShowOf = (row) => all(row).find((n) => n.type === "DriverNoShow");
 const DISPUTE = /Если пассажир на самом деле не садился — сообщи о проблеме/;
 h.rows = rows;
 // Состояния компонента по порядку useState: boot, rows, busyId, note, disputeId, filedIds.
@@ -73,15 +79,19 @@ let tree = render();
 const confirmedRow = rowOf(tree, 1);
 const onboardRow = rowOf(tree, 2);
 assert.ok(confirmedRow && onboardRow, "обе брони видны в «Едут с тобой»");
-assert.ok(buttonIn(confirmedRow, "Не вышел"), "по подтверждённой брони неявку отметить можно");
+const noShowCtl = noShowOf(confirmedRow);
+assert.ok(noShowCtl, "по подтверждённой брони неявку отметить можно");
+assert.equal(noShowCtl.props.noShowAt, OPENS, "срок «Не вышел» берётся из строки брони, а не из головы сайта");
+assert.equal(noShowCtl.props.busy, false);
 // «Сел» рядом с «Не вышел»: посадку отмечает водитель (решение 17.10.2026).
 const sat = boardingOf(confirmedRow);
 assert.ok(sat, "у подтверждённого пассажира нет «Сел»");
 assert.equal(sat.props.bookingId, 1);
 assert.equal(sat.props.status, "confirmed");
-const order = all(confirmedRow).filter((n) => n.type === "DriverBoarding" || (n.type === "button" && text(n).includes("Не вышел")));
+const order = all(confirmedRow).filter((n) => n.type === "DriverBoarding" || n.type === "DriverNoShow");
 assert.equal(order[0].type, "DriverBoarding", "«Сел» стоит перед «Не вышел»");
-assert.equal(buttonIn(onboardRow, "Не вышел"), undefined, "пассажир «в пути» — «Не вышел» нет");
+assert.equal(order[1].type, "DriverNoShow");
+assert.equal(noShowOf(onboardRow), undefined, "пассажир «в пути» — «Не вышел» нет");
 // «В пути»: отметка с её отменой, а разбор — внутри, на то время, когда отменить уже нельзя.
 const onboard = boardingOf(onboardRow);
 assert.ok(onboard && onboard.props.status === "onboard" && onboard.props.undoSec === 0, "«в пути» — отметка водителя с окном отмены");
@@ -105,7 +115,7 @@ assert.equal(buttonIn(rowOf(tree, 2), "Сообщить о проблеме"), u
 // Гонка: список старый, а посадку уже отметили (второй телефон) — сервер отвечает 409, список перечитываем.
 h.noShowResult = () => Promise.reject(new ApiError(409, "Пассажир уже отмечен в машине — неявку не отметить."));
 const before = h.fetches;
-buttonIn(rowOf(tree, 1), "Не вышел").props.onClick();
+noShowOf(rowOf(tree, 1)).props.onConfirm();
 await tick(); await tick();
 assert.deepEqual(h.noShows, [1]);
 assert.equal(h.states[3], "Пассажир уже отмечен в машине — неявку не отметить.", "показан ответ сервера");
@@ -122,11 +132,11 @@ assert.equal(h.states[3], "Посадку можно отметить за 30 м
 // Старый сервер без passenger_id и без boarding_undo_sec: объяснение есть, «Не вышел» по-прежнему нет.
 h.states = ["ready", [{ ...rows[1], booking_id: 3, passenger_id: undefined, boarding_undo_sec: undefined }], null, "", null, []];
 tree = render();
-assert.equal(buttonIn(rowOf(tree, 3), "Не вышел"), undefined);
+assert.equal(noShowOf(rowOf(tree, 3)), undefined);
 assert.equal(boardingOf(rowOf(tree, 3)).props.undoSec, 0, "старый сервер — отменять нечего");
 assert.match(text(rowOf(tree, 3)), DISPUTE);
 
-console.log("✓ подтверждённый пассажир: «Сел» перед «Не вышел»");
+console.log("✓ подтверждённый пассажир: «Сел» перед «Не вышел», срок «Не вышел» — из строки брони");
 console.log("✓ «в пути»: «Не вышел» спрятан, отметка с окном отмены, разбор внутри неё");
 console.log("✓ разбор открывается по брони с типом passenger_no_show");
 console.log("✓ 409 от сервера перечитывает список; «Сел»/«Отменить» перечитывают без аргументов");
