@@ -699,12 +699,16 @@ def _pickup_point(ride: Ride) -> Optional[tuple]:
     return None
 
 
-def _verify_arrival(booking: Booking, ride: Ride) -> Optional[float]:
+def _verify_arrival(session: Session, booking: Booking, ride: Ride) -> Optional[float]:
     """Сверить «подъезжаю» с живым GPS водителя. Возвращает расстояние в метрах или None.
 
     None = проверить нечем (выключено рубильником, нет пина подачи, Redis молчит или водитель
     ещё не прислал ни одного кадра). Тогда пропускаем как раньше — доверяем слову. Блокируем
     только когда ТОЧНО знаем, что водитель далеко: ложный отказ дороже пропущенного обмана.
+
+    Точка — самая свежая точка водителя по ЛЮБОЙ живой брони этого рейса
+    (`livepos.driver_point_for_ride`, 18.10.2026), а не только по этой: водитель открыл поездку
+    брони A, а «Подъезжаю» жмёт по брони B — кэш B пуст, и раньше проверка молча пропускала.
     """
     if not settings.arrival_verify_enabled:
         return None
@@ -712,7 +716,7 @@ def _verify_arrival(booking: Booking, ride: Ride) -> Optional[float]:
     if target is None:
         return None
     try:
-        pos = livepos.livepos_get("booking", booking.id)
+        pos = livepos.driver_point_for_ride(session, ride)
     except Exception:  # noqa: BLE001 — кэш позиции best-effort, он не вправе ронять статус
         return None
     if not pos or pos.get("lat") is None or pos.get("lng") is None:
@@ -779,7 +783,7 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
         # ни `arriving_at`, ни пуша — отказ раньше любых записей.
         if arriving_wait_left(ride) > 0:
             raise _arriving_too_early_refusal(ride)
-        meters = None if ride_has_stops(ride) else _verify_arrival(booking, ride)
+        meters = None if ride_has_stops(ride) else _verify_arrival(session, booking, ride)
         if meters is not None and meters > settings.arrival_verify_radius_m:
             km = meters / 1000.0
             raise herr(
