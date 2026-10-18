@@ -7,8 +7,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -16,6 +20,30 @@ import androidx.compose.ui.Modifier
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.BookingDetailsDto
 import kotlinx.coroutines.CancellationException
+
+/** Только статус из уже прочитанной серверной карточки, с номером её брони. */
+internal data class ActiveTripTerminalHint(val bookingId: Int, val status: String, val role: String)
+
+internal fun knownTerminalTripHint(bookingId: Int?, status: String, role: String): ActiveTripTerminalHint? =
+    bookingId?.takeIf { it > 0 && status in setOf("done", "cancelled") && role in setOf("driver", "passenger") }
+        ?.let { ActiveTripTerminalHint(it, status, role) }
+
+/** Без ответа сервера и сохранённого паспорта активную поездку ещё нельзя утверждать. */
+@Composable
+internal fun ActiveTripUnverifiedScreen(loading: Boolean, failure: Throwable?, onRetry: () -> Unit, onBack: () -> Unit,
+    cancelled: Boolean = false) {
+    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Моя поездка", "Минең сәфәр"), onBack) }) { insets ->
+        Column(Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState()).padding(CanonSpace.lg)) {
+            if (cancelled) AppCard {
+                Column(Modifier.fillMaxWidth().padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+                    Text(appText("Поездка отменена", "Сәфәр кире алынды"), style = CanonBodyStrong, color = CanonText)
+                    AppButton(appText("Закрыть", "Ябырға"), onClick = onBack, style = AppButtonStyle.Secondary)
+                }
+            }
+            else ActiveTripDetailsNotice(loading = loading || failure == null, failure = failure, onRetry = onRetry)
+        }
+    }
+}
 
 /** Один упорядоченный источник details: повтор не трогает историю, код и изменения поездки. */
 @Stable

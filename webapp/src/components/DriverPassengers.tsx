@@ -51,7 +51,7 @@ const ONBOARD = "onboard";
 const DONE = "done";
 
 /** @param onOpenTrip «Открыть поездку» — экран поездки водителя по этой брони (Android onOpenTrip). */
-export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingId: number) => void }) {
+export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpenTrip: (bookingId: number) => void; reloadKey?: number }) {
   const { appText } = useLang();
   const [boot, setBoot] = useState<"loading" | "ready" | "hidden">("loading");
   const [rows, setRows] = useState<DriverBookingRow[]>([]);
@@ -76,6 +76,7 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
   const load = useCallback((signal?: AbortSignal) => {
     fetchDriverBookings(signal)
       .then((r) => {
+        if (signal?.aborted) return;
         setRows(r);
         setBoot("ready");
       })
@@ -110,7 +111,7 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
     const ac = new AbortController();
     load(ac.signal);
     return () => ac.abort();
-  }, [load]);
+  }, [load, reloadKey]);
 
   /** После «Сел» / «Отменить» — перечитать список (без аргументов: ответ действия не сигнал отмены). */
   const reload = useCallback(() => load(), [load]);

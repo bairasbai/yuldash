@@ -8,7 +8,7 @@
 //  • Регулярные маршруты (GET/POST/DELETE /driver/schedule)
 //  • Ссылки: Мой заработок, Boost, стать таксистом (заглушка волны 4)
 // ================================================================
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PriorityCard from "../components/PriorityCard";
 import { useLang } from "../i18n/lang";
@@ -159,12 +159,14 @@ export default function DriverCabinetScreen() {
     }
   }
   const [rides, setRides] = useState<Ride[]>([]);
+  const ridesRequest = useRef(0);
   const [schedules, setSchedules] = useState<DriverSchedule[]>([]);
   const [finishing, setFinishing] = useState<number | null>(null);
   const [finishNote, setFinishNote] = useState("");
   // Брони, ждущие ответа водителя. Раньше веб их не показывал вовсе: человек бронировал
   // место и ждал молчания, а водитель с сайта не мог ни подтвердить, ни отклонить.
   const [pending, setPending] = useState<DriverBooking[]>([]);
+  const [passengersReload, setPassengersReload] = useState(0);
   const [bookingBusy, setBookingBusy] = useState<number | null>(null);
   const [bookingNote, setBookingNote] = useState("");
 
@@ -176,6 +178,7 @@ export default function DriverCabinetScreen() {
     try {
       await completeRide(rideId);
       setRides((prev) => prev.map((x) => (x.id === rideId ? { ...x, status: "done" } : x)));
+      setPassengersReload((n) => n + 1);
     } catch (e) {
       setFinishNote(
         e instanceof ApiError && e.message
@@ -201,6 +204,7 @@ export default function DriverCabinetScreen() {
       if (yes) await confirmBooking(id);
       else await cancelBooking(id);
       setPending((prev) => prev.filter((b) => b.booking_id !== id));
+      setPassengersReload((n) => n + 1);
     } catch (e) {
       setBookingNote(
         e instanceof ApiError && e.message
@@ -237,6 +241,7 @@ export default function DriverCabinetScreen() {
     try {
       await cancelRide(r.id);
       setRides((prev) => prev.map((x) => (x.id === r.id ? { ...x, status: "cancelled" } : x)));
+      setPassengersReload((n) => n + 1);
     } catch (e) {
       setFinishNote(
         e instanceof ApiError && e.message
@@ -279,16 +284,42 @@ export default function DriverCabinetScreen() {
 
   const [onlineBusy, setOnlineBusy] = useState(false);
 
+  // После ответа на бронь или изменения рейса обновляем пассажиров и число мест,
+  // не перезагружая кабинет: выбранные, но не отправленные оценки остаются на месте.
+  const loadPending = useCallback((signal?: AbortSignal) => {
+    fetchDriverBookings(signal)
+      .then((rows) => { if (!signal?.aborted) setPending(rows.filter((b) => b.status === "pending")); })
+      .catch((e) => {
+        if (signal?.aborted || e?.name === "AbortError") return;
+        setPending([]);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (passengersReload === 0) return;
+    const ac = new AbortController();
+    const request = ++ridesRequest.current;
+    loadPending(ac.signal);
+    fetchDriverRides("all", ac.signal)
+      .then((rows) => {
+        if (!ac.signal.aborted && request === ridesRequest.current) setRides(rows);
+      })
+      .catch(() => { /* При ошибке сохраняем последний полученный список поездок. */ });
+    return () => ac.abort();
+  }, [loadPending, passengersReload]);
+
   const load = useCallback((signal?: AbortSignal) => {
+    const request = ++ridesRequest.current;
     setStatus("loading");
     // Статус и поездки — на проде есть; расписание может появиться после мержа release (мягко).
     Promise.all([
       fetchDriverStatus(signal),
-      fetchDriverRides("all", signal).catch(() => [] as Ride[]),
+      fetchDriverRides("all", signal).catch(() => null),
     ])
       .then(([st, rd]) => {
+        if (signal?.aborted) return;
         setDriver(st);
-        setRides(rd);
+        if (rd && request === ridesRequest.current) setRides(rd);
         setStatus("ready");
       })
       .catch((e) => {
@@ -299,10 +330,8 @@ export default function DriverCabinetScreen() {
       .then(setSchedules)
       .catch(() => setSchedules([])); // 404 до релиза → без расписания
     // Ждущие брони — мягко: не смогли получить, кабинет всё равно работает.
-    fetchDriverBookings(signal)
-      .then((rows) => setPending(rows.filter((b) => b.status === "pending")))
-      .catch(() => setPending([]));
-  }, []);
+    loadPending(signal);
+  }, [loadPending]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -529,7 +558,7 @@ export default function DriverCabinetScreen() {
           {finishNote && <p className="taxi-note">{finishNote}</p>}
 
           {/* Кто едет со мной: «Открыть поездку» (экран поездки водителя), неявка; оценка — после рейса. */}
-          <DriverPassengers onOpenTrip={(bookingId) => navigate(`/trip/${bookingId}`)} />
+          <DriverPassengers onOpenTrip={(bookingId) => navigate(`/trip/${bookingId}`)} reloadKey={passengersReload} />
 
           {/* ⭐ Приоритет: кому заказ падает первым и за что. Показываем целиком —
               скрытый приоритет человек читает как «заказы раздают по блату». Это про заказы

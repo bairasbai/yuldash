@@ -376,18 +376,21 @@ internal fun ReceiptRow(icon: ImageVector, label: String, value: String) {
 
 @Composable
 internal fun ReceiptDriverRow(name: String, verified: Boolean) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(CanonSpace.md), verticalAlignment = Alignment.Top) {
         Surface(color = CanonMint, shape = CircleShape) {
             Icon(Icons.Default.Person, contentDescription = null, tint = CanonGreen2, modifier = Modifier.padding(8.dp).size(18.dp))
         }
-        Spacer(Modifier.width(12.dp))
-        Text(appText("Водитель", "Йөрөтөүсе"), color = CanonMuted, fontSize = 14.sp)
-        Spacer(Modifier.weight(1f))
-        if (verified) {
-            Icon(Icons.Default.Verified, contentDescription = appText("Проверен", "Тикшерелгән"), tint = CanonGreen2, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(CanonSpace.md))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+            Text(appText("Водитель", "Йөрөтөүсе"), color = CanonMuted, style = CanonCaption)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                if (verified) {
+                    Icon(Icons.Default.Verified, contentDescription = appText("Проверен", "Тикшерелгән"), tint = CanonGreen2, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(CanonSpace.xs))
+                }
+                Text(name, modifier = Modifier.weight(1f), color = CanonText, style = CanonBodyStrong)
+            }
         }
-        Text(name, color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
     }
 }
 

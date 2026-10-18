@@ -204,6 +204,7 @@ export default function RequestResponsesScreen() {
           <div className="list">
             {items.map((r) => {
               const isAccepted = r.status === "accepted";
+              const isOffered = r.status === "offered";
               return (
                 <div key={r.id} className="offer-card">
                   <div className="offer-card__top">
@@ -230,9 +231,9 @@ export default function RequestResponsesScreen() {
                   <BargainTrail
                     history={parseBargainHistory(r.bargain_history)}
                     mine="passenger"
-                    rounds={r.bargain_rounds}
+                    rounds={isOffered ? r.bargain_rounds : undefined}
                   />
-                  {!isAccepted && r.status === "offered" && (
+                  {isOffered && (
                     <span
                       className={"bargain-turn" + (r.can_accept || r.can_counter ? " bargain-turn--mine" : "")}
                     >
@@ -250,6 +251,16 @@ export default function RequestResponsesScreen() {
                     <div className="offer-card__accepted">
                       <IconCheck size={18} /> {appText("Принят", "Ҡабул ителгән")}
                     </div>
+                  ) : !isOffered ? (
+                    <p className="bargain-turn">
+                      {r.status === "declined"
+                        ? appText("Торг закрыт: по цене не сошлись", "Һатыулашыу ябыҡ: хаҡ буйынса килешмәнек")
+                        : r.status === "withdrawn"
+                        ? appText("Отклик отозван", "Яуап кире алынды")
+                        : r.status === "expired"
+                        ? appText("Заявка закрылась — человек уже уехал", "Заявка ябылған — кеше киткән инде")
+                        : appText("Отклик закрыт", "Яуап ябылған")}
+                    </p>
                   ) : counterFor === r.id ? (
                     <div style={{ marginTop: 12 }}>
                       <label className="field">
@@ -293,7 +304,7 @@ export default function RequestResponsesScreen() {
                         type="button"
                         className="btn-primary"
                         onClick={() => accept(r.id)}
-                        disabled={accepting != null || (r.status === "offered" && !r.can_accept)}
+                        disabled={accepting != null || !r.can_accept}
                       >
                         {accepting === r.id
                           ? appText("Принимаем…", "Ҡабул итәбеҙ…")
@@ -315,7 +326,7 @@ export default function RequestResponsesScreen() {
                     </div>
                   )}
 
-                  {!isAccepted && r.status === "offered" && counterFor !== r.id && (
+                  {isOffered && counterFor !== r.id && (
                     <button
                       type="button"
                       className="link-btn"

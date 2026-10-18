@@ -1340,6 +1340,7 @@ internal fun ActiveTripScreen(
     chatOpen: Boolean? = null,
     // null — без навигации (тесты, превью): вид переключается внутри экрана.
     onChatOpenChange: ((Boolean) -> Unit)? = null,
+    terminalHint: ActiveTripTerminalHint? = null,
 ) {
     val currentSession by ApiClient.sessionChanges.collectAsState()
     val tripSession = remember(bookingId) { currentSession }
@@ -1352,7 +1353,8 @@ internal fun ActiveTripScreen(
         return
     }
     key(bookingId, tripSession) {
-        ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession, chatOpen, onChatOpenChange)
+        ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession, chatOpen, onChatOpenChange,
+            terminalHint?.takeIf { it.bookingId == bookingId && it.status in setOf("done", "cancelled") })
     }
 }
 
@@ -1363,6 +1365,7 @@ private fun ActiveTripContent(
     onBack: () -> Unit, onTripEnd: () -> Unit, onSos: () -> Unit,
     onSupport: () -> Unit, onOpenReceipt: (Int) -> Unit, tripSession: Long,
     chatOpen: Boolean?, onChatOpenChange: ((Boolean) -> Unit)?,
+    terminalHint: ActiveTripTerminalHint?,
 ) {
     val context = LocalContext.current
     val voiceScope = rememberCoroutineScope()
@@ -1372,7 +1375,7 @@ private fun ActiveTripContent(
     // Роль в этой брони: водитель видит «Я выехал/Подъезжаю» (push пассажиру), пассажир — «сел/доехал/завершить».
     // Ключуем по bookingId (как driverPhase/bookingStatus ниже): иначе при открытии ДРУГОЙ брони до первого
     // опроса видны кнопки чужой роли (водительские «Я выехал» у пассажира).
-    var role by remember(bookingId) { mutableStateOf("") }
+    var role by remember(bookingId) { mutableStateOf(terminalHint?.role.orEmpty()) }
     var driverPhase by remember(bookingId) { mutableStateOf("") }   // ""/departed/arriving — для live-баннера пассажиру
     // Сервер сверил «подъезжаю» с GPS водителя → пассажир видит «подтверждено по GPS» и знает,
     // что машина правда рядом, а не «уже почти» на словах (разбор конкурентов 2026-08-07).
@@ -1381,7 +1384,7 @@ private fun ActiveTripContent(
     var aloneWithDriver by remember(bookingId) { mutableStateOf(false) }
     var peerId by remember(bookingId) { mutableIntStateOf(0) }   // вторая сторона брони: пассажиру — водитель («Сообщить о проблеме»)
     var boardingUndoSec by remember(bookingId) { mutableIntStateOf(0) }   // водителю: сколько ещё можно отменить свою отметку «Сел»
-    var bookingStatus by remember(bookingId) { mutableStateOf("") }
+    var bookingStatus by remember(bookingId) { mutableStateOf(terminalHint?.status.orEmpty()) }
     // Связь с водителем из деталей брони (RideshareTripContacts.kt); подтвердили при открытом экране — перечитать.
     var liveContacts by remember(bookingId) { mutableStateOf<TripContacts?>(null) }
     var contactsLoaded by remember(bookingId) { mutableStateOf(false) }
@@ -1577,6 +1580,9 @@ private fun ActiveTripContent(
     // Детали брони: оплата, маршрут и — пассажиру подтверждённой брони — телефон, машина, место встречи.
     suspend fun loadTripDetails() {
         val d = tripDetails.load(::isTripChatActive, { bookingStatus }, { role }) ?: return
+        // Details are authoritative too: retry can recover even while the independent role poll is offline.
+        if (role.isBlank()) role = d.role
+        if (d.status.isNotBlank()) acceptBookingStatus(d.status)
         pickupDetails = d
         contactsLoaded = true
         payMethod = d.payMethod
@@ -1755,6 +1761,15 @@ private fun ActiveTripContent(
             onOpenReceipt = { onOpenReceipt(bookingId) },
             onSupport = onSupport,
         )
+        return
+    }
+
+    // An unknown booking is not a confirmed ride. Keep the independent loaders and retry alive,
+    // but do not expose a boarding code, contacts, map or trip actions before authoritative data.
+    // A passenger's existing encrypted offline passport remains usable without the role response.
+    if (bookingId != null && (bookingStatus == "cancelled" || (bookingStatus.isBlank() && tripPass == null))) {
+        ActiveTripUnverifiedScreen(tripDetails.loading, tripDetails.failure, tripDetails::retry, onBack,
+            cancelled = bookingStatus == "cancelled")
         return
     }
 

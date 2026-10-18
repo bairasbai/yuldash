@@ -117,6 +117,18 @@ function winterDueAt(d: BookingDetails): number {
   return depart + WINTER_FALLBACK_MS;
 }
 
+/** Отмена закрывает контакт сразу, даже если полные детали больше не загрузятся. */
+function cancelledDetails(d: BookingDetails): BookingDetails {
+  return {
+    ...d, status: "cancelled", contact_unlocked: false,
+    driver_phone: "", driver_car: "", driver_car_color: "", driver_plate: "",
+    pickup: "", pickup_lat: null, pickup_lng: null,
+    minor_guardian_name: "", minor_guardian_phone: "",
+    pickup_stop: d.role === "driver" ? null : d.pickup_stop,
+    dropoff_stop: d.role === "driver" ? null : d.dropoff_stop,
+  };
+}
+
 export default function ActiveTripScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
@@ -166,12 +178,30 @@ export default function ActiveTripScreen() {
   /** Счётчик «Сел» / «Отменить» водителя: опрос, начатый до действия, его ответ не перетирает. */
   const boardingSeqRef = useRef(0);
 
+  const applyCancelledState = useCallback(() => {
+    detailsStatusRef.current = "cancelled";
+    if (tripRef.current) tripRef.current = { ...tripRef.current, status: "cancelled", driver_phase: "", arrival_verified: false };
+    setTrip((current) => current ? { ...current, status: "cancelled", driver_phase: "", arrival_verified: false } : current);
+    setDetails((current) => current ? cancelledDetails(current) : current);
+    dropTripPass(bookingId, sessionGeneration);
+    setPass(null);
+    setCode(null);
+    setDriverLoc(null);
+  }, [bookingId, sessionGeneration]);
+
   /** Один путь применения details: UI, форма оплаты и офлайн-паспорт не расходятся. */
   const applyBookingDetails = useCallback(
     (d: BookingDetails) => {
+      if (currentBookingIdRef.current !== bookingId) return;
+      if ((tripRef.current?.status === "cancelled" || detailsStatusRef.current === "cancelled") && d.status !== "cancelled") return;
+      if (!shouldApplyBookingDetails(tripRef.current?.status, d.status)) return;
       detailsStatusRef.current = d.status;
       lastDetailsAtRef.current = Date.now();
-      setDetails(d);
+      setDetails(d.status === "cancelled" ? cancelledDetails(d) : d);
+      if (d.status === "cancelled") {
+        applyCancelledState();
+        return;
+      }
       if (d.status === "onboard") clearTripPassBoardingCode(bookingId, sessionGeneration);
       if (isTerminalBookingStatus(d.status)) {
         dropTripPass(bookingId, sessionGeneration);
@@ -203,7 +233,7 @@ export default function ActiveTripScreen() {
         });
       }
     },
-    [bookingId, user?.id, sessionGeneration]
+    [applyCancelledState, bookingId, user?.id, sessionGeneration]
   );
 
   // ---- Загрузка деталей ----
@@ -278,6 +308,7 @@ export default function ActiveTripScreen() {
         // Опрос ушёл до «Сел» / «Отменить» водителя — его ответ старше ответа самого действия.
         if (boardingSeq !== boardingSeqRef.current) return;
         const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;
+        if (previousStatus === "cancelled" && fresh.status !== "cancelled") return;
         if (!shouldApplyBookingDetails(previousStatus, fresh.status)) return;
         tripRef.current = fresh;
         setTrip(fresh);
@@ -290,6 +321,10 @@ export default function ActiveTripScreen() {
         if (isTerminalBookingStatus(fresh.status)) {
           dropTripPass(bookingId, sessionGeneration);
           setPass(null);
+          setCode(null);
+          setDriverLoc(null);
+          if (fresh.status === "cancelled") applyCancelledState();
+          if (previousStatus !== fresh.status) void syncBookingDetails();
           return;
         }
         const elapsed = Date.now() - lastDetailsAtRef.current;
@@ -300,7 +335,7 @@ export default function ActiveTripScreen() {
       .catch(() => {
         /* сеть моргнула — попробуем в следующий тик */
       });
-  }, [bookingId, syncBookingDetails, sessionGeneration]);
+  }, [applyCancelledState, bookingId, syncBookingDetails, sessionGeneration]);
 
   useEffect(() => {
     if (status === "ready") tickTrip();
@@ -320,6 +355,7 @@ export default function ActiveTripScreen() {
       boardingSeqRef.current += 1;
       const current = tripRef.current;
       if (!current) return tickTrip();
+      if (isTerminalBookingStatus(current.status) || detailsStatusRef.current === "cancelled") return;
       const next = { ...current, status: result.status, boarding_undo_sec: result.boarding_undo_sec };
       tripRef.current = next;
       setTrip(next);
@@ -389,7 +425,11 @@ export default function ActiveTripScreen() {
   const isPassenger = details?.role === "passenger";
   useEffect(() => {
     if (!bookingId || !active || !isPassenger) return;
-    const conn = openTripLocation(bookingId, (p) => setDriverLoc({ lat: p.lat, lng: p.lng }));
+    const conn = openTripLocation(bookingId, (p) => {
+      if (currentBookingIdRef.current === bookingId && detailsStatusRef.current !== "cancelled" && !isTerminalBookingStatus(tripRef.current?.status)) {
+        setDriverLoc({ lat: p.lat, lng: p.lng });
+      }
+    });
     return () => conn.close();
   }, [bookingId, active, isPassenger]);
 
@@ -495,8 +535,13 @@ export default function ActiveTripScreen() {
       await setDriverStatus(bookingId, phase);
       if (!currentSession()) return;
       const fresh = await fetchTripState(bookingId);
-      if (!currentSession()) return;
+      if (!currentSession() || currentBookingIdRef.current !== bookingId) return;
+      const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;
+      if (previousStatus === "cancelled" && fresh.status !== "cancelled") return;
+      if (!shouldApplyBookingDetails(previousStatus, fresh.status)) return;
+      tripRef.current = fresh;
       setTrip(fresh);
+      if (fresh.status === "cancelled") applyCancelledState();
       if (phase === "done") setPhaseNote(appText("Поездка завершена", "Сәфәр тамамланды"));
     } catch (e) {
       if (!currentSession()) return;
@@ -541,6 +586,7 @@ export default function ActiveTripScreen() {
           appText("Поездка уже завершена — отменить её нельзя.", "Сәфәр тамамланған инде — уны кире алып булмай.")
         );
       } else {
+        applyCancelledState();
         refreshOwnBookings();
         track("booking_cancel");
         // B8-8: телефон или чат уже открывались — мягко напоминаем про защиту в приложении.
@@ -705,13 +751,13 @@ export default function ActiveTripScreen() {
         </div>
       )}
 
-      {(from || to || driverLoc) && (
+      {(from || to || (active && driverLoc)) && (
         <div className="home-map" style={{ marginTop: 12 }}>
           <YandexMap
             from={from}
             to={to}
             route={!!(from && to)}
-            me={driverLoc}
+            me={active ? driverLoc : null}
             height={200}
           />
         </div>
@@ -743,13 +789,13 @@ export default function ActiveTripScreen() {
 
       {/* Оплата (read-only) + контакт */}
       <div className="info-list">
-        {details.role === "passenger" && details.contact_unlocked && details.driver_car && (
+        {st !== "cancelled" && details.role === "passenger" && details.contact_unlocked && details.driver_car && (
           <div className="info-row">
             <span className="info-row__k">{appText("Машина", "Машина")}</span>
             <span className="info-row__v">{[details.driver_car_color, details.driver_car].filter(Boolean).join(" ")}</span>
           </div>
         )}
-        {details.role === "passenger" && details.contact_unlocked && details.driver_plate && (
+        {st !== "cancelled" && details.role === "passenger" && details.contact_unlocked && details.driver_plate && (
           <div className="info-row">
             <span className="info-row__k">{appText("Госномер", "Дәүләт номеры")}</span>
             <span className="info-row__v">{details.driver_plate}</span>
@@ -773,7 +819,7 @@ export default function ActiveTripScreen() {
             {priceLabel(details.pay_amount ?? details.price, ru)}
           </span>
         </div>
-        {details.role === "passenger" && details.contact_unlocked && details.driver_phone && (
+        {st !== "cancelled" && details.role === "passenger" && details.contact_unlocked && details.driver_phone && (
           <a className="info-row info-row--link" href={`tel:${details.driver_phone}`}>
             <span className="info-row__k">{appText("Водитель", "Йөрөтөүсе")}</span>
             <span className="info-row__v" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -793,7 +839,7 @@ export default function ActiveTripScreen() {
             </span>
           </div>
         )}
-        {details.minor_passenger && details.minor_guardian_phone && (
+        {st !== "cancelled" && details.minor_passenger && details.minor_guardian_phone && (
           <a className="info-row info-row--link" href={`tel:${details.minor_guardian_phone}`}>
             <span className="info-row__k">{appText("Взрослый", "Оло кеше")}</span>
             <span className="info-row__v" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -803,7 +849,7 @@ export default function ActiveTripScreen() {
           </a>
         )}
 
-        {details.contact_unlocked && details.pickup && (
+        {st !== "cancelled" && details.contact_unlocked && details.pickup && (
           <div className="info-row">
             <span className="info-row__k">{appText("Точка", "Нөктә")}</span>
             <span className="info-row__v">{details.pickup}</span>

@@ -17,6 +17,65 @@ for (const lang of ["ru", "ba"]) {
   const Feed = await bundleComponent("src/screens/RequestsFeedScreen.tsx", { mocks: mocks(lang) });
   const Respond = await bundleComponent("src/screens/RequestsFeedScreen.tsx", { mocks: mocks(lang), exportName: "RespondSheet" });
   const Note = await bundleComponent("src/components/ResponseRouteNote.tsx", { mocks: mocks(lang) });
+  const createClient = `export class ApiError extends Error {};
+    export const getSessionGeneration=()=>globalThis.__requestRoute.generation;
+    export const apiPost=async(path,body)=>{globalThis.__requestRoute.created.push({path,body});return{id:91}};
+    export const apiGet=async()=>[],apiDelete=async()=>{};`;
+  const CreateRequest = await bundleComponent("src/screens/CreateRequestScreen.tsx", {
+    real: ["/api/requests", "/components/StopSuggestField"],
+    mocks: { ...mocks(lang), "/api/client": createClient, "./client": createClient,
+      "/api/geo": "export const searchSettlements=async()=>[];" },
+  });
+  const towns = [
+    { id: 501, name_ru: "Давлетово", name_ba: "Дәүләт", district: "Абзелиловский р-н", kind: "village", region: "РБ", lat: null, lng: null },
+    { id: 502, name_ru: "Давлетово", name_ba: null, district: "Баймакский р-н", kind: "village", region: "РБ", lat: null, lng: null },
+  ];
+  const cityFields = tree => all(tree).filter(n => n.type === "CityField");
+  const townName = town => lang === "ba" ? town.name_ba || town.name_ru : town.name_ru;
+  // Execute the form callbacks in CityField.pick's real order: bare onChange, then full onPick.
+  async function pickTown(form, index, town) {
+    const field = cityFields(form.tree)[index];
+    field.props.onChange(townName(town));
+    assert.equal(typeof field.props.onPick, "function", "the form must preserve the selected settlement identity");
+    field.props.onPick(town);
+    await form.settle();
+  }
+  for (const reversed of [false, true]) await t.test(`${lang}: заявка сохраняет район обоих Давлетово, направление ${reversed ? "обратное" : "прямое"}`, async () => {
+    h.created = [];
+    const from = towns[reversed ? 1 : 0], to = towns[reversed ? 0 : 1];
+    const form = mount(CreateRequest); form.render();
+    try {
+      await pickTown(form, 0, from);
+      await pickTown(form, 1, to);
+      const expectedFrom = `${townName(from)} (${from.district})`;
+      const expectedTo = `${townName(to)} (${to.district})`;
+      assert.equal(cityFields(form.tree)[0].props.value, expectedFrom);
+      assert.equal(cityFields(form.tree)[1].props.value, expectedTo);
+      const submit = button(form.tree, lang === "ru" ? "Найти водителя" : "Йөрөтөүсе табырға");
+      assert.equal(submit.props.disabled, false);
+      await submit.props.onClick(); await form.settle();
+      assert.equal(h.created.length, 1);
+      assert.equal(h.created[0].path, "/requests"); // actual createRequest -> captured transport
+      assert.equal(h.created[0].body.from_city, expectedFrom);
+      assert.equal(h.created[0].body.to_city, expectedTo);
+      assert.ok(text(form.tree).includes(lang === "ru" ? "Готово! Ищем водителя" : "Әҙер! Йөрөтөүсе эҙләйбеҙ"));
+    } finally { form.unmount(); }
+  });
+  await t.test(`${lang}: город и райцентр не получают суффикс села; отсутствие района не создаёт пустые скобки`, async () => {
+    const city = { ...towns[0], id: 503, kind: "city", name_ru: "Сибай", name_ba: "Сибай" };
+    const center = { ...towns[1], id: 504, kind: "district_center", name_ru: "Акъяр", name_ba: "Аҡъяр" };
+    const noDistrict = { ...towns[1], id: 505, district: null };
+    for (const [from, to] of [[city, center], [noDistrict, city]]) {
+      h.created = [];
+      const form = mount(CreateRequest); form.render();
+      try {
+        await pickTown(form, 0, from); await pickTown(form, 1, to);
+        await button(form.tree, lang === "ru" ? "Найти водителя" : "Йөрөтөүсе табырға").props.onClick();
+        assert.equal(h.created[0].body.from_city, townName(from));
+        assert.equal(h.created[0].body.to_city, townName(to));
+      } finally { form.unmount(); }
+    }
+  });
   await t.test(`${lang}: фильтр запрашивается с сервера; оценка крюка не обещает совпадение маршрута`, async () => {
     h.generation = "a"; h.feed = []; h.fetch = undefined; h.items = [{ ...item, matched_ride_id: null }];
     const s = mount(Feed); await s.settle(); assert.equal(h.feed[0].onRoute, false);
@@ -98,6 +157,80 @@ for (const lang of ["ru", "ba"]) {
     const p = button(s.tree, lang === "ru" ? "Поехать с ним" : "Уның менән барырға").props.onClick();
     s.unmount(); assert.equal(h.acceptSignal.aborted, true); assert.equal(h.responsesSignal.aborted, true);
     h.generation = "b"; resolve({ booking_id: 88 }); await p; assert.equal(h.routes.length, 0);
+  });
+  const responsesApi = `
+    export const fetchRequestResponses=()=>Promise.resolve(globalThis.__requestRoute.responses);
+    export const fetchMatchRides=()=>Promise.resolve([]),parseBargainHistory=raw=>globalThis.__requestRoute.parseHistory(raw);
+    export const acceptResponse=()=>{globalThis.__requestRoute.responseActions.push('accept');return Promise.resolve({booking_id:88})};
+    export const counterOffer=()=>{globalThis.__requestRoute.responseActions.push('counter');return globalThis.__requestRoute.counter()};
+    export const declineResponse=()=>{globalThis.__requestRoute.responseActions.push('decline');return Promise.resolve({ok:true})};`;
+  const Responses = await bundleComponent("src/screens/RequestResponsesScreen.tsx", { mocks: { ...mocks(lang), "/api/requests": responsesApi } });
+  h.parseHistory = await bundleComponent("src/api/requests.ts", { exportName: "parseBargainHistory",
+    mocks: { "./client": "export const apiGet=()=>{},apiPost=()=>{},apiDelete=()=>{};" } });
+  const Trail = await bundleComponent("src/components/BargainTrail.tsx", { mocks: { "/i18n/lang": langMock(lang) } });
+  const offer = { id: 32, driver_id: 8, driver_name: "Тест", status: "offered", price: 700, current_price: 600,
+    can_accept: true, can_counter: true, bargain_rounds: 1, bargain_history: "d:700,p:600" };
+  const labels = {
+    accepted: lang === "ru" ? "Принят" : "Ҡабул ителгән",
+    declined: lang === "ru" ? "Торг закрыт: по цене не сошлись" : "Һатыулашыу ябыҡ: хаҡ буйынса килешмәнек",
+    withdrawn: lang === "ru" ? "Отклик отозван" : "Яуап кире алынды",
+    expired: lang === "ru" ? "Заявка закрылась — человек уже уехал" : "Заявка ябылған — кеше киткән инде",
+  };
+  const assertNoResponseActions = tree => {
+    for (const label of ["Поехать с ним", "Уның менән барырға", "Своя цена", "Үҙ хаҡым", "Отказаться", "Баш тартыу", "Предложить", "Тәҡдим итеү"])
+      assert.equal(button(tree, label), undefined, `closed response must not offer: ${label}`);
+    assert.equal(all(tree).some(n => n.type === "input"), false, "closed response must not keep the counter form");
+    assert.equal(all(tree).some(n => String(n.props.className ?? "").includes("bargain-turn--mine")), false);
+  };
+  for (const status of ["declined", "withdrawn", "expired", "accepted"]) await t.test(`${lang}: закрытый отклик ${status} показывает итог и не предлагает принять или торговаться`, async () => {
+    // withdrawn is normally excluded by GET; a cached/late item must still fail closed.
+    for (const staleCapabilities of [false, true]) {
+      h.generation = "a"; h.responseActions = [];
+      h.responses = [{ ...offer, status, can_accept: staleCapabilities, can_counter: staleCapabilities }];
+      const s = mount(Responses); await s.settle();
+      try {
+        assert.ok(text(s.tree).includes(labels[status]), `missing terminal result for ${status}`);
+        assertNoResponseActions(s.tree);
+        assert.deepEqual(h.responseActions, []);
+      } finally { s.unmount(); }
+    }
+  });
+  await t.test(`${lang}: история торга остаётся после закрытия, подсказка оставшихся ходов видна только для offered`, async () => {
+    for (const status of ["offered", "declined", "withdrawn", "expired", "accepted"]) {
+      h.generation = "a"; h.responseActions = []; h.responses = [{ ...offer, status }];
+      const s = mount(Responses); await s.settle();
+      const trailProps = all(s.tree).find(n => n.type === "BargainTrail").props;
+      s.unmount();
+      assert.equal(trailProps.rounds, status === "offered" ? 1 : undefined, `round hint for ${status}`);
+      assert.deepEqual(trailProps.history, [{ by: "driver", price: 700 }, { by: "passenger", price: 600 }]);
+      const trail = mount(Trail, trailProps); trail.render();
+      try {
+        assert.ok(text(trail.tree).includes(lang === "ru" ? "Как шёл торг" : "Һатыулашыу нисек барҙы"));
+        assert.ok(text(trail.tree).includes("700")); assert.ok(text(trail.tree).includes("600"));
+        const hints = all(trail.tree).filter(n => String(n.props.className ?? "").includes("bargain__left"));
+        assert.equal(hints.length, status === "offered" ? 1 : 0, `live bargain hint for ${status}`);
+        if (status === "offered") assert.ok(text(hints[0]).includes(lang === "ru"
+          ? "Осталось ходов: 5. Торгуемся по очереди." : "Ҡалған сират: 5. Сиратлап һатыулашабыҙ."));
+      } finally { trail.unmount(); }
+    }
+  });
+  await t.test(`${lang}: живой отклик сохраняет принятие и свою цену; отказ при обновлении закрывает уже открытую форму`, async () => {
+    h.generation = "a"; h.responseActions = []; h.responses = [offer];
+    h.counter = () => {
+      h.responses = [{ ...offer, status: "declined", can_accept: false, can_counter: false }];
+      return Promise.reject(new h.ApiError(409));
+    };
+    const s = mount(Responses); await s.settle();
+    try {
+      assert.equal(button(s.tree, lang === "ru" ? "Поехать с ним" : "Уның менән барырға").props.disabled, false);
+      assert.ok(button(s.tree, lang === "ru" ? "Отказаться" : "Баш тартыу"));
+      button(s.tree, lang === "ru" ? "Своя цена" : "Үҙ хаҡым").props.onClick(); await s.settle();
+      assert.equal(all(s.tree).find(n => n.type === "input").props.value, "600");
+      await button(s.tree, lang === "ru" ? "Предложить" : "Тәҡдим итеү").props.onClick(); await s.settle();
+      assert.ok(text(s.tree).includes(labels.declined));
+      assertNoResponseActions(s.tree);
+      assert.deepEqual(h.responseActions, ["counter"]);
+    } finally { s.unmount(); h.counter = undefined; }
   });
 }
 

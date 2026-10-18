@@ -6815,7 +6815,7 @@ internal fun parseRequestDto(o: JSONObject): RequestDto {
         comment = o.optString("comment"),
         forRelativeName = o.optString("for_relative_name").ifBlank { null },
         status = o.optString("status"),
-        desiredAt = o.optString("desired_at").ifBlank { null },
+        desiredAt = if (o.isNull("desired_at")) null else o.optString("desired_at").ifBlank { null },
     )
 }
 

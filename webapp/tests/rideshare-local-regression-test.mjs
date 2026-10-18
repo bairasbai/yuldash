@@ -28,8 +28,8 @@ const definitions = {
   useCallback: `(fn,deps)=>{const c=h.current,i=c.i++,old=c.values[i];if(!old||deps.some((v,j)=>!Object.is(v,old.deps[j])))c.values[i]={fn,deps};return c.values[i].fn}`,
   useLang: `()=>({lang:h.lang,appText:(ru,ba)=>{if(!ba)throw Error('missing Bashkir: '+ru);return h.lang==='ba'?ba:ru}})`,
   useParams: `()=>({id:String(h.bookingId)})`, useNavigate: `()=>p=>h.navigation.push(p)`, useAuth: `()=>({user:{id:h.userId}})`,
-  getSessionGeneration: `()=>h.generation`, ApiError: `h.ApiError`,
-  fetchBookingDetails: `async id=>{h.requests.push('details');if(h.detailsError)throw new h.ApiError(0);return {...(h.detailsById.get(id)??h.details)}}`,
+  getSessionGeneration: `()=>h.generation`, getToken: `()=>"fixture"`, refreshRejectedToken: `async()=>false`, ApiError: `h.ApiError`,
+  fetchBookingDetails: `async id=>{h.requests.push('details');if(h.detailsError)throw new h.ApiError(0);const held=h.detailsHolds.shift();if(held){h.detailsHeldRequests.push(id);return held.promise}return {...(h.detailsById.get(id)??h.details)}}`,
   fetchTripState: `async id=>{h.requests.push('state');if(h.tripError)throw new h.ApiError(0);const held=h.tripHolds.shift();if(held){h.tripHeldRequests.push(id);return held.promise}return {...(h.tripById.get(id)??h.trip)}}`,
   fetchBoardingCode: `id=>{h.requests.push('code');h.codeRequests.push(id);return h.codeHolds.get(id)?.promise??Promise.resolve({code:'4931'})}`,
   fetchBookingShares: `async()=>{h.requests.push('shares');if(h.sharesError)throw new h.ApiError(h.sharesError);return h.shares}`,
@@ -40,6 +40,9 @@ const definitions = {
   DriverBoardedDispute: `'DriverBoardedDispute'`,
   markBoarded: `async id=>{h.boarded.push(id);h.trip.status='onboard';h.details.status='onboard';return {ok:true,status:'onboard',boarding_undo_sec:300}}`,
   undoBoarded: `async id=>{h.unboarded.push(id);h.trip.status='confirmed';h.details.status='confirmed';return {ok:true,status:'confirmed',boarding_undo_sec:0}}`,
+  cancelBooking: `async(id,reason)=>{h.cancelCalls.push([id,reason]);h.trip.status="cancelled";h.details.status="cancelled";if(h.failRoleAfterCancel)h.tripError=true;return {...h.cancelResult}}`,
+  CANCEL_REASONS: `[]`,
+  useRefreshOwnBookings: `()=>()=>{h.refreshOwnCalls++}`,
   enqueue: `async(...v)=>h.queued.push(v)`,
   fetchReceipt: `async()=>({...h.receipt})`, fetchBookingTip: `async()=>{h.requests.push('tip');return {already_thanked:false,money:{sbp:'+79990000000',name:'Test'}}}`,
   thankBooking: `async id=>h.thanks.push(id)`,
@@ -50,10 +53,13 @@ const definitions = {
   isTerminalBookingStatus: `s=>s==='done'||s==='cancelled'`,
   shouldApplyBookingDetails: `(...args)=>h.detailsSync.shouldApplyBookingDetails(...args)`, shouldRefreshBookingDetails: `(...args)=>h.detailsSync.shouldRefreshBookingDetails(...args)`,
   reconcilePaymentDraft: `(draft)=>draft`, useRouteWeather: `()=>null`,
-  useVisibleInterval: `(ms,fn)=>{h.interval=fn}`, openTripLocation: `()=>({close(){}})`,
+  useVisibleInterval: `(ms,fn)=>{h.interval=fn}`,
+  openTripLocation: `(id,point)=>{const connection={id,point,closed:false};h.locationConnections.push(connection);return {close(){connection.closed=true}}}`,
+  driverInTransit: `(...args)=>h.driverTransit(...args)`, wsBase: `()=>"ws://fixture"`, tripLocationUrl: `()=>"ws://fixture/location"`,
+  startDriverLocationShare: `options=>{const share={stopped:false};h.locationShares.push(share);options.onState("sharing");return {stop(){share.stopped=true},retry(){}}}`,
   winterCheckDelay: `()=>Infinity`, wasWinterCheckAsked: `()=>false`, winterCheckNeedsAnswer: `()=>false`, serverMs: `()=>NaN`,
   formatWhen: `()=>''`, priceLabel: `n=>String(n)`, payMethodLabel: `()=>''`,
-  SubHeader: `'SubHeader'`, Link: `'a'`, PayTripCard: `'PayTripCard'`, SbpPay: `'SbpPay'`,
+  SubHeader: `'SubHeader'`, AlertDialog: `'AlertDialog'`, YandexMap: `'YandexMap'`, Link: `'a'`, PayTripCard: `'PayTripCard'`, SbpPay: `'SbpPay'`,
 };
 async function compile(path, exported = 'default') {
   const source = readFileSync(new URL('../src/' + path, import.meta.url), 'utf8');
@@ -65,7 +71,7 @@ async function compile(path, exported = 'default') {
     for (const entry of named?.split(',') ?? []) { const n = entry.trim(); if (n && !n.startsWith('type ')) names.push(n); }
     return '';
   });
-  const prelude = `const h=globalThis.__rideshareLocal;const __jsx=(type,props,...children)=>({type,props:{...props,children}}),__fragment='fragment';\n` + names.map(n => `const ${n}=${definitions[n] ?? (['ShareTripCard', 'StatusPill', 'OfflineTripPass', 'BoardingWait', 'DriverBoarding'].includes(n) ? `(...args)=>h.components.${n}(...args)` : '()=>null')};`).join('\n');
+  const prelude = `const h=globalThis.__rideshareLocal;const __jsx=(type,props,...children)=>({type,props:{...props,children}}),__fragment='fragment';\n` + names.map(n => `const ${n}=${definitions[n] ?? (['ShareTripCard', 'StatusPill', 'OfflineTripPass', 'BoardingWait', 'DriverBoarding', 'DriverLocationShare'].includes(n) ? `(...args)=>h.components.${n}(...args)` : '()=>null')};`).join('\n');
   const result = await transform(prelude + body, { loader: 'tsx', format: 'esm', jsx: 'transform', jsxFactory: '__jsx', jsxFragment: '__fragment' });
   return (await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64')))[exported];
 }
@@ -74,6 +80,8 @@ h.components.StatusPill = await compile('components/StatusPill.tsx', 'StatusPill
 h.components.OfflineTripPass = await compile('components/OfflineTripPass.tsx');
 h.components.BoardingWait = await compile('components/BoardingWait.tsx');
 h.components.DriverBoarding = await compile('components/DriverBoarding.tsx');
+h.components.DriverLocationShare = await compile('components/DriverLocationShare.tsx');
+h.driverTransit = await compile('utils/tripLocationShare.ts', 'driverInTransit');
 const Active = await compile('screens/ActiveTripScreen.tsx');
 const Receipt = await compile('screens/TripReceiptScreen.tsx');
 const all = n => n && typeof n === 'object' ? [n, ...[n.props?.children].flat(Infinity).flatMap(all)] : [];
@@ -94,7 +102,7 @@ function dispose(instance) {
 function reset({ role = 'passenger', status = 'confirmed', lang = 'ru', shares = [], sharesError = 0 } = {}) {
   for (const instance of h.instances?.values() ?? []) dispose(instance);
   passValues.clear();
-  Object.assign(h, { userId: 7, bookingId: 42, detailsError: false, tripError: false, failPassWrites: false, tripHolds: [], tripHeldRequests: [], detailsById: new Map(), tripById: new Map(), codeHolds: new Map(), codeRequests: [], passes: new Map(), passWrites: [], stateCalls: [], instances: new Map(), effects: [], dirty: false, lang, generation: 'A', requests: [], sent: [], queued: [], thanks: [], navigation: [], shares, sharesError, contacts: [], sendError: null, boarded: [], unboarded: [],
+  Object.assign(h, { userId: 7, bookingId: 42, detailsError: false, tripError: false, failPassWrites: false, tripHolds: [], tripHeldRequests: [], detailsHolds: [], detailsHeldRequests: [], locationConnections: [], locationShares: [], cancelCalls: [], cancelResult: { status: 'cancelled', contact_then_cancel: true }, failRoleAfterCancel: false, refreshOwnCalls: 0, detailsById: new Map(), tripById: new Map(), codeHolds: new Map(), codeRequests: [], passes: new Map(), passWrites: [], stateCalls: [], instances: new Map(), effects: [], dirty: false, lang, generation: 'A', requests: [], sent: [], queued: [], thanks: [], navigation: [], shares, sharesError, contacts: [], sendError: null, boarded: [], unboarded: [],
     details: { booking_id: 42, role, status, from_city: 'Уфа', to_city: 'Сибай', depart_at: '2026-10-15T10:00:00Z', contact_unlocked: true, driver_name: 'QA Driver', driver_car: 'QA Car', driver_plate: 'QA001', driver_phone: '+79990000000', pickup: 'QA Pickup', price: 300, pay_method: 'cash', seats: 1 },
     trip: { role, status, driver_phase: 'arriving', arrival_verified: true, peer_id: role === 'driver' ? 7 : 3, boarding_undo_sec: 0 },
     receipt: { role, booking_id: 42, from_city: 'Уфа', to_city: 'Сибай', amount: 300, paid: false, pay_method: 'cash' },
@@ -422,6 +430,102 @@ await test('verified B cannot see A cached pass after details fails', async () =
 await test('verified session cannot promote a legacy unbound cached pass on details failure', async () => {
   reset();await settle(Active);await settle(Empty);const legacy=storedPass(42);delete legacy.ownerId;delete legacy.sessionGeneration;delete legacy.ownershipId;passValues.set('yuldash.tripPass.42',JSON.stringify(legacy));
   h.detailsError=true;h.tripError=true;await settle(Active);assert.ok(!text(h.tree).includes('QA Driver'));assert.equal(codeCards().length,0);
+});
+
+const telLinks = () => all(h.tree).filter(n => n.type === 'a' && String(n.props?.href).startsWith('tel:')).map(n => n.props.href);
+function withPrivateDetails(role) {
+  Object.assign(h.details, { driver_car_color: 'PRIVATE COLOR', pickup: 'PRIVATE MEETING', pickup_lat: 55.11, pickup_lng: 56.22,
+    from_lat: 54.7, from_lng: 55.9, to_lat: 52.7, to_lng: 58.6, minor_passenger: true,
+    minor_guardian_name: role === 'driver' ? 'PRIVATE GUARDIAN' : '', minor_guardian_phone: role === 'driver' ? '+79990000001' : '' });
+}
+function assertCancelledPrivacy() {
+  assert.deepEqual(telLinks(), [], 'ни одной настоящей ссылки tel: после отмены');
+  for (const value of ['QA Car', 'QA001', 'PRIVATE COLOR', 'PRIVATE MEETING', 'PRIVATE GUARDIAN']) {
+    assert.ok(!text(h.tree).includes(value), 'после отмены скрыто: ' + value);
+  }
+  assert.equal(storedPass(42), null); assert.equal(h.ownedPassStorage.loadOfflineTripPass(42), null);
+  assert.equal(h.passStorage.tripPassStage(42, 'A'), 'terminal'); assert.equal(codeCards().length, 0);
+  assert.ok(all(h.tree).filter(n => n.type === 'YandexMap').every(n => n.props.me === null), 'на карте нет последней живой точки');
+  assert.ok(h.locationConnections.every(c => c.closed), 'приём точки закрыт');
+  assert.ok(h.locationShares.every(s => s.stopped), 'реальный DriverLocationShare вызвал stop своего отправителя');
+  assert.ok(all(h.tree).some(n => n.type === 'SubHeader' && n.props.title.includes('Уфа') && n.props.title.includes('Сибай')), 'карточка маршрута остаётся');
+  assert.ok(text(h.tree).includes('300'), 'запись об оплате остаётся, экран не превращается в пустую карточку');
+}
+for (const lang of ['ru', 'ba']) for (const role of ['passenger', 'driver']) {
+  await test(`${lang}/${role}: cancelled role immediately closes real contacts even when details fails, including after recovery`, async () => {
+    reset({ lang, role }); withPrivateDetails(role); await settle(Active);
+    assert.ok(telLinks().includes(role === 'passenger' ? 'tel:+79990000000' : 'tel:+79990000001'), 'до отмены настоящий контакт доступен участнику');
+    const incoming = h.locationConnections[0];
+    if (incoming) { incoming.point({ lat: 55.123, lng: 56.456 }); await settle(Active); assert.ok(all(h.tree).some(n => n.type === 'YandexMap' && n.props.me?.lat === 55.123)); }
+    if (role === 'driver') assert.ok(h.locationShares.some(s => !s.stopped));
+    const reads = h.requests.filter(r => r === 'details').length;
+    h.detailsError = true; h.trip.status = 'cancelled';
+    await h.interval();
+    incoming?.point({ lat: 55.777, lng: 56.888 }); // callback уже получен, effect cleanup ещё не отработал
+    await settle(Active); assertCancelledPrivacy();
+    assert.equal(h.requests.filter(r => r === 'details').length, reads + 1, 'одна фоновая сверка действительно отказала');
+    await h.interval(); await settle(Active);
+    assert.equal(h.requests.filter(r => r === 'details').length, reads + 1, 'терминал не запускает тяжёлый GET каждые 10 секунд');
+    h.detailsError = false;
+    await h.interval(); await settle(Active); assertCancelledPrivacy();
+    await settle(Empty);
+    h.details = { ...h.details, status: 'cancelled', contact_unlocked: false, driver_phone: '', driver_car: '', driver_plate: '', pickup: '', minor_guardian_name: '', minor_guardian_phone: '' };
+    await settle(Active); assertCancelledPrivacy();
+  });
+  await test(`${lang}/${role}: a held confirmed details reply cannot restore contacts, passport or live point after cancelled`, async () => {
+    reset({ lang, role }); withPrivateDetails(role); await settle(Active);
+    const staleDetails = { ...h.details };
+    let release; h.detailsHolds.push({ promise: new Promise(resolve => { release = resolve; }) });
+    const realNow = Date.now;
+    try {
+      // Только часы единичного теста: запускаем штатную редкую сверку confirmed details.
+      const due = realNow() + h.detailsSync.DETAILS_REFRESH_MS + 1;
+      Date.now = () => due;
+      await h.interval();
+    } finally { Date.now = realNow; }
+    assert.deepEqual(h.detailsHeldRequests, [42], 'задержанный GET настоящего экрана действительно начался');
+    h.detailsError = true; h.trip.status = 'cancelled';
+    await h.interval(); await settle(Active); assertCancelledPrivacy();
+    const writes = h.passWrites.length;
+    release(staleDetails); await new Promise(setImmediate); await settle(Active);
+    assert.equal(h.passWrites.length, writes, 'поздний confirmed GET даже не вызывает сохранение паспорта');
+    assertCancelledPrivacy();
+    h.locationConnections[0]?.point({ lat: 55.999, lng: 56.999 });
+    h.trip.status = 'confirmed'; h.detailsError = false;
+    await h.interval(); await settle(Active); assertCancelledPrivacy();
+    assert.equal(h.passWrites.length, writes, 'поздний confirmed role тоже не оживляет паспорт');
+    h.trip.status = 'done';
+    await h.interval(); await settle(Active); assertCancelledPrivacy();
+    assert.ok(!button(lang === 'ba' ? 'Сәфәр квитанцияһы' : 'Квитанция поездки'), 'поздний чужой терминал не превращает отмену в завершённую поездку');
+  });
+  await test(`${lang}/${role}: done retains server-authorized contacts and receipt, while a closed server window hides contacts`, async () => {
+    reset({ lang, role }); withPrivateDetails(role); await settle(Active);
+    h.trip.status = 'done'; h.details.status = 'done';
+    await h.interval(); await settle(Active);
+    assert.ok(telLinks().includes(role === 'passenger' ? 'tel:+79990000000' : 'tel:+79990000001'), 'done не запрещает разрешённую сервером связь');
+    if (role === 'passenger') assert.ok(text(h.tree).includes('QA001') && text(h.tree).includes('PRIVATE MEETING'));
+    assert.equal(storedPass(42), null); assert.ok(h.locationShares.every(s => s.stopped)); assert.ok(h.locationConnections.every(c => c.closed));
+    const label = lang === 'ba' ? 'Сәфәр квитанцияһы' : 'Квитанция поездки';
+    assert.ok(button(label)); button(label).props.onClick(); assert.deepEqual(h.navigation, ['/receipt/42']);
+    await settle(Empty);
+    h.details = { ...h.details, contact_unlocked: false, driver_phone: '', driver_plate: '', pickup: '', minor_guardian_name: '', minor_guardian_phone: '' };
+    await settle(Active);
+    assert.deepEqual(telLinks(), []); assert.ok(!text(h.tree).includes('QA001') && !text(h.tree).includes('PRIVATE MEETING'));
+    assert.ok(button(label), 'квитанция остаётся доступна после закрытия окна связи');
+  });
+}
+for (const lang of ['ru', 'ba']) await test(`${lang}: own successful cancellation closes contacts before the next role and details requests fail`, async () => {
+  reset({ lang }); withPrivateDetails('passenger'); await settle(Active);
+  assert.ok(telLinks().includes('tel:+79990000000') && storedPass(42));
+  const incoming = h.locationConnections[0]; incoming?.point({ lat: 55.123, lng: 56.456 }); await settle(Active);
+  buttonWith(lang === 'ba' ? 'Сәфәрҙе кире алыу' : 'Отменить поездку').props.onClick(); await settle(Active);
+  const dialog = all(h.tree).find(n => n.type === 'AlertDialog'); assert.ok(dialog);
+  h.failRoleAfterCancel = true; h.detailsError = true;
+  dialog.props.confirm.onClick(); await settle(Active);
+  assert.deepEqual(h.cancelCalls, [[42, '']]); assert.equal(h.refreshOwnCalls, 1);
+  incoming?.point({ lat: 55.777, lng: 56.888 }); await settle(Active);
+  assertCancelledPrivacy();
+  assert.ok(!buttonWith(lang === 'ba' ? 'Сәфәрҙе кире алыу' : 'Отменить поездку'), 'успешная отмена немедленно стала эффективным статусом');
 });
 console.log(`rideshare local regression: ${count - failed}/${count} passed`);
 delete globalThis.__rideshareLocal;

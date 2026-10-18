@@ -422,6 +422,8 @@ private fun YuldashAppContent() {
     var trustedContactsReturnScreen by rememberSaveable(saver = rootNavigationStateSaver<Screen>("trustedContactsReturnScreen")) { mutableStateOf(Screen.SimpleMode) }
     var trustedContactsReturnHomeTab by rememberSaveable(saver = rootNavigationStateSaver<HomeTab>("trustedContactsReturnHomeTab")) { mutableStateOf(HomeTab.Profile) }
     var selectedBookingStatus by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("selectedBookingStatus", screenStateOwner)) { mutableStateOf("") }
+    // Not inferred from a link's completed flag: only a server status from this login and booking.
+    var activeTripTerminalHint by remember(screenStateOwner, navigationSession) { mutableStateOf<ActiveTripTerminalHint?>(null) }
     var instantTripOrderId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("instantTripOrderId", screenStateOwner)) { mutableStateOf(0) }   // «Быстрый заказ»: id заказа для экрана поездки водителя
     var instantChatOrderId by vm.instantChatOrderId   // ID чата сохраняется вместе с маршрутом.
     var sosOrderId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("sosOrderId", screenStateOwner)) { mutableStateOf(0) }           // SOS с контекстом такси-заказа (B7b-2); 0 = без заказа
@@ -798,6 +800,7 @@ private fun YuldashAppContent() {
                     // Водителя не ведём на пассажирскую «Бронь»: кабинет или экран поездки (BookingLinkDestination.kt).
                     val onCabinet = screen == Screen.DriverCabinet
                     val target = vm.applyBookingLink(bid, state.role, state.status, completed)
+                    activeTripTerminalHint = knownTerminalTripHint(bid, state.status, state.role)
                     if (target != Screen.DriverCabinet) selectedBookingStatus = state.status
                     else if (onCabinet) driverCabinetEpoch++   // уже в кабинете: пересоздаём, чтобы бронь появилась
                 } else {
@@ -898,6 +901,7 @@ private fun YuldashAppContent() {
                     )
                     selectedRide = restoredRide
                     selectedBookingStatus = b.status
+                    activeTripTerminalHint = knownTerminalTripHint(bid, b.status, "passenger")
                     // Live-гео и карта гейтятся на activeTrip: ставим его только для активной поездки.
                     activeTrip = if (bookingStatusAllowsBoarding(b.status)) restoredRide else null
                     // Отменённая бронь → детали; done остаётся на экране завершения и оценки.
@@ -1284,7 +1288,10 @@ private fun YuldashAppContent() {
                 payMethod = payMethod,
                 onRetryRequests = { requestsReload++ },
                 onLoginRequired = { openProtectedScreen(it) },
-                onBookingStatus = { selectedBookingStatus = it },
+                onBookingStatus = {
+                    selectedBookingStatus = it
+                    activeTripTerminalHint = knownTerminalTripHint(activeBookingId, it, "passenger")
+                },
                 onRouteWatchPrefill = { from, to ->
                     routeWatchPrefillFrom = from ?: ""
                     routeWatchPrefillTo = to ?: ""
@@ -1444,6 +1451,7 @@ private fun YuldashAppContent() {
             }
             Screen.ActiveTrip, Screen.TripChat -> ActiveTripScreen(
                 ride = selectedRide, contacts = trustedContacts, bookingId = activeBookingId,
+                terminalHint = activeTripTerminalHint,
                 chatOpen = screen.tripChatView(), onChatOpenChange = vm::showTripChat,
                 onBack = { if (screen.contentScreen() == Screen.ActiveTrip) goBack() }, onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
                 // Дежурный должен узнать из сигнала, с кем и куда человек уехал (аудит 2026-08-06).
@@ -1592,7 +1600,10 @@ private fun YuldashAppContent() {
                 onPretrip = { openProtectedScreen(Screen.PretripCheck) },
                 onMyResponses = { openProtectedScreen(Screen.DriverResponses) },
                 onOpenTrip = { bid -> vm.openDriverTrip(bid) },   // «Едут с тобой» → экран поездки водителя
-                onOpenCompletedTrip = { bid -> vm.applyBookingLink(bid, "driver", "done", true) },
+                onOpenCompletedTrip = { bid ->
+                    activeTripTerminalHint = knownTerminalTripHint(bid, "done", "driver")
+                    vm.applyBookingLink(bid, "driver", "done", true)
+                },
             ) }
             Screen.ScheduledOrders -> ScheduledOrdersScreen(
                 onBack = { goBack() },

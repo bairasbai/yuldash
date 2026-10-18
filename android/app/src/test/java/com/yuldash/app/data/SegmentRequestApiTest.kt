@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONObject
+import org.json.JSONArray
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -57,5 +58,44 @@ class SegmentRequestApiTest {
         assertEquals("/responses/9/accept", server.takeRequest().path)
         server.enqueue(MockResponse().setBody("{}"))
         assertTrue(ApiClient.acceptResponse(9).isFailure); server.takeRequest()
+    }
+
+    /** Real JSON transport, including explicit JSON null (not the ordinary string "null"). */
+    private val dateVariants: List<Any?> = listOf(null, JSONObject.NULL, "", "2030-01-02T10:00:00Z")
+    private fun datedItem(key: String, value: Any?) = JSONObject().put("id", 5).apply {
+        if (value != null) put(key, value) // Kotlin null means the key is absent in this fixture.
+    }
+    private fun enqueueItem(item: JSONObject) {
+        server.enqueue(MockResponse().setBody(JSONObject().put("items", JSONArray().put(item)).toString()))
+    }
+
+    @Test fun feedWithoutOptionalDateNeverCreatesLiteralNullAndKeepsRealDate() = runBlocking<Unit> {
+        for (value in dateVariants) {
+            enqueueItem(datedItem("desired_at", value))
+            val request = ApiClient.getRequestsFeed().getOrThrow().single()
+            assertEquals("/requests/feed", server.takeRequest().path)
+            assertEquals(if (value is String) value else "", request.desiredAt)
+            assertNotEquals("null", request.desiredAt)
+        }
+    }
+
+    @Test fun ownRequestWithoutOptionalDateRemainsNullableAndKeepsRealDate() = runBlocking<Unit> {
+        for (value in dateVariants) {
+            enqueueItem(datedItem("desired_at", value))
+            val request = ApiClient.getMyRequests().getOrThrow().single()
+            assertEquals("/requests/mine", server.takeRequest().path)
+            assertEquals((value as? String)?.takeIf { it.isNotBlank() }, request.desiredAt)
+            assertNotEquals("null", request.desiredAt)
+        }
+    }
+
+    @Test fun responseWithoutOptionalRequestDateRemainsNullableAndKeepsRealDate() = runBlocking<Unit> {
+        for (value in dateVariants) {
+            enqueueItem(datedItem("request_desired_at", value))
+            val response = ApiClient.getRequestResponses(5).getOrThrow().single()
+            assertEquals("/requests/5/responses", server.takeRequest().path)
+            assertEquals((value as? String)?.takeIf { it.isNotBlank() }, response.requestDesiredAt)
+            assertNotEquals("null", response.requestDesiredAt)
+        }
     }
 }
