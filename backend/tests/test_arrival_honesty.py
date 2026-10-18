@@ -13,8 +13,10 @@
 """
 from datetime import timedelta
 
+import fakeredis
 import pytest
 
+from app import instant_service as isv
 from app import livepos
 from app.config import settings
 from app.models import UserRole
@@ -41,30 +43,36 @@ def _publish(client, drv, **extra):
 
 
 def _trip(client, user_factory):
+    """Подтверждённая бронь: точку водителя канал пишет только по подтверждённой брони и «в пути»,
+    и проверка «Подъезжаю» читает только их (`livepos.driver_points_for_ride`)."""
     drv = user_factory("ArrDrv", role=UserRole.driver)
     pax = user_factory("ArrPax")
     ride = _publish(client, drv)
     r = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride["id"], "seats": 1})
     assert r.status_code == 200, r.text
+    assert client.post(f"/bookings/{r.json()['id']}/confirm", headers=drv["auth"]).status_code == 200
     return drv, pax, ride, r.json()
 
 
 @pytest.fixture
-def at(monkeypatch):
-    """Поставить водителя в заданную точку (или «позиции нет» через None)."""
-    def place(point):
-        def fake(kind, ref_id):
-            if point is None:
-                return None
-            return {"lat": point[0], "lng": point[1], "bearing": None, "ts": ""}
-        monkeypatch.setattr(livepos, "livepos_get", fake)
-    return place
+def at():
+    """Поставить водителя в точку (или «позиции нет» через None) — тем же кэшем, что пишет канал
+    координат водителя по брони `bid` (`location.py` → `livepos_set`)."""
+    r = fakeredis.FakeStrictRedis(decode_responses=True)
+    isv._redis_override = r
+
+    def place(point, bid):
+        r.flushall()
+        if point is not None:
+            livepos.livepos_set("booking", bid, point[0], point[1])
+    yield place
+    isv._redis_override = None
 
 
 def test_arriving_from_far_away_is_refused(client, user_factory, at):
     """Водитель за 25 км жмёт «подъезжаю» → отказ, и в тексте видно, насколько он далеко."""
     drv, pax, ride, booking = _trip(client, user_factory)
-    at(FAR)
+    at(FAR, booking["id"])
     r = client.post(f"/bookings/{booking['id']}/driver-status",
                     headers=drv["auth"], json={"status": "arriving"})
     assert r.status_code == 409, r.text
@@ -77,7 +85,7 @@ def test_arriving_from_far_away_is_refused(client, user_factory, at):
 def test_arriving_from_nearby_is_accepted_and_verified(client, user_factory, at):
     """Водитель реально у точки подачи → статус проходит и помечается подтверждённым."""
     drv, pax, ride, booking = _trip(client, user_factory)
-    at(BAYMAK)
+    at(BAYMAK, booking["id"])
     r = client.post(f"/bookings/{booking['id']}/driver-status",
                     headers=drv["auth"], json={"status": "arriving"})
     assert r.status_code == 200, r.text
@@ -93,7 +101,7 @@ def test_no_position_still_works_but_unverified(client, user_factory, at):
     что у водителя в дороге пропал интернет.
     """
     drv, pax, ride, booking = _trip(client, user_factory)
-    at(None)
+    at(None, booking["id"])
     r = client.post(f"/bookings/{booking['id']}/driver-status",
                     headers=drv["auth"], json={"status": "arriving"})
     assert r.status_code == 200, r.text
@@ -105,10 +113,10 @@ def test_no_position_still_works_but_unverified(client, user_factory, at):
 def test_departed_is_never_blocked_and_clears_the_badge(client, user_factory, at):
     """«Выехал» — не заявка о близости, его не проверяем и галочку снимаем."""
     drv, pax, ride, booking = _trip(client, user_factory)
-    at(BAYMAK)
+    at(BAYMAK, booking["id"])
     client.post(f"/bookings/{booking['id']}/driver-status",
                 headers=drv["auth"], json={"status": "arriving"})
-    at(FAR)
+    at(FAR, booking["id"])
     r = client.post(f"/bookings/{booking['id']}/driver-status",
                     headers=drv["auth"], json={"status": "departed"})
     assert r.status_code == 200, r.text
@@ -121,7 +129,7 @@ def test_switch_off_disables_the_check(client, user_factory, at, monkeypatch):
     """Рубильник в конфиге возвращает прежнее поведение — если GPS в поле окажется шумным."""
     drv, pax, ride, booking = _trip(client, user_factory)
     monkeypatch.setattr(settings, "arrival_verify_enabled", False)
-    at(FAR)
+    at(FAR, booking["id"])
     r = client.post(f"/bookings/{booking['id']}/driver-status",
                     headers=drv["auth"], json={"status": "arriving"})
     assert r.status_code == 200, r.text
@@ -142,6 +150,6 @@ def test_ride_without_pickup_pin_is_not_blocked(client, user_factory, at):
     ride = r.json()
     booking = client.post("/bookings", headers=pax["auth"],
                           json={"ride_id": ride["id"], "seats": 1}).json()
-    at(FAR)
+    at(FAR, booking["id"])
     assert client.post(f"/bookings/{booking['id']}/driver-status",
                        headers=drv["auth"], json={"status": "arriving"}).status_code == 200
