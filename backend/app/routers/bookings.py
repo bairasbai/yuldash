@@ -16,7 +16,7 @@ from ..flood import TOO_FAST_CREATING, guard_burst
 from ..db import get_session
 from ..errors import herr
 from ..features import guard_delivery_ride
-from ..models import Booking, BookingStatus, DriverProfile, Message, PayMethod, Payment, Rating, Ride, RideStatus, User
+from ..models import Block, Booking, BookingStatus, DriverProfile, Message, PayMethod, Payment, Rating, Ride, RideStatus, User
 from ..cancel_reason_text import cancel_reason_text
 from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
                             guard_women_only)
@@ -743,6 +743,23 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     return {"ok": True, "driver_phase": body.status}
 
 
+def _driver_blocked_passenger_refusal() -> HTTPException:
+    """«Сел» по карточке пассажира, которого водитель САМ заблокировал (решение лида по PR170, P2-2).
+
+    Иначе блокировка до посадки оживала бы: водитель заблокировал, потом отметил «Сел» (промахнулся
+    карточкой или нарочно), она блокирует его в ответ — самая свежая блокировка пары уже после
+    посадки, канал водителя пишет точку для ссылки (`location._пишем_без_пересылки`), и она видит
+    его машину по своей ссылке, не садясь. Свою блокировку водитель знает — отказ ничего не
+    раскрывает. Блокировку со стороны пассажира здесь НЕ проверяем: отказ выдал бы её; её случай
+    закрывает правило времени (блок до посадки — канал закрыт).
+    `code` — машинная причина для клиента."""
+    return HTTPException(status_code=409, detail={
+        "ru": "Этот попутчик у тебя в блоке — посадку не отметить. Если всё же едет с тобой, сначала разблокируй.",
+        "ba": "Был юлдаш һинең блокта — ултырыуҙы билдәләп булмай. Барыбер һинең менән барһа, башта блоктан сығар.",
+        "code": "driver_blocked_passenger",
+    })
+
+
 def _boarding_out(booking: Booking) -> dict:
     """Ответ на «Сел» и «Отменить»: итоговый статус и сколько секунд ещё можно отменить."""
     status = booking.status.value if hasattr(booking.status, "value") else booking.status
@@ -766,6 +783,9 @@ def _mark_boarded(session: Session, booking: Booking, ride: Ride) -> dict:
     if booking.status != BookingStatus.confirmed:
         raise herr(409, "Посадку можно отметить только у подтверждённого пассажира",
                    "Ултырыуҙы тик раҫланған пассажирға ғына билдәләп була")
+    if session.exec(select(Block.id).where(
+            Block.user_id == ride.driver_id, Block.blocked_user_id == booking.passenger_id)).first() is not None:
+        raise _driver_blocked_passenger_refusal()   # только СВОЙ блок водителя — её блок не выдаём
     if ride.depart_at and utcnow() < ride.depart_at - DONE_EARLY_GRACE:
         minutes = int(DONE_EARLY_GRACE.total_seconds() // 60)
         raise herr(409, f"Посадку можно отметить за {minutes} минут до выезда — не раньше",
