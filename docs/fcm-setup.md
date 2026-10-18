@@ -9,6 +9,8 @@
 > - **Android:** `app/google-services.json` (пакет `com.yuldash.app`, gitignored — внутри API-ключ). Релизная сборка включает push — `processReleaseGoogleServices` отрабатывает, `assembleRelease` зелёный.
 > - **Код:** бэкенд `send_push()` + `/push/register` + вызовы при сообщении/брони/SOS; Android `FcmService.kt` в манифесте.
 >
+> *Сверка с кодом 2026-10-10:* `send_push()` — `backend/app/services.py`; `POST /push/register` и `/push/unregister` — `routers/auth.py`; `firebase-admin>=6.5,<8.0` — `backend/requirements.txt`; `FcmService` — `android/.../com/yuldash/app/data/FcmService.kt` (объявлен в манифесте), разрешение `POST_NOTIFICATIONS` в манифесте есть; `google-services.json` в `.gitignore`. Работает ли push на проде, показывает `GET /health` → поле `fcm: configured` (файл ключа найден по `FIREBASE_CREDENTIALS`); при пустом `FIREBASE_CREDENTIALS` в проде `launch_warnings()` предупреждает, что push не уходят.
+>
 > **Осталось живьём:** устройства зарегистрируют FCM-токен (`/push/register`) при первом запуске push-сборки → push пойдут. Тестовый push можно проверить после установки релизного APK на телефон (он звякнет на новое сообщение/бронь). **Кодить и настраивать больше нечего — фича рабочая.**
 
 ## Зачем

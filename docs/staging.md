@@ -37,7 +37,7 @@ sudo -u postgres createdb yuldash_staging
 ```
 
 ### 2. Копия кода как git-репозиторий
-Staging деплоится через `git pull` (в отличие от прода, куда пока льём файлы вручную).
+Staging деплоится из git (`backend/ops/deploy.sh`: `git fetch` + `git reset --hard origin/<BRANCH>`); прод — `backend/deploy-backend.bat` (копирование файлов) либо тот же `ops/deploy.sh`.
 ```bash
 cd /opt
 git clone https://github.com/<owner>/<repo>.git yuldash-staging
@@ -51,10 +51,15 @@ chown -R yuldash:yuldash /opt/yuldash-staging
 ### 3. Свой `.env` (НЕ из git — секреты)
 Скопируй боевой и поменяй базу + пометь окружение:
 ```bash
-cp /opt/yuldash/.env /opt/yuldash-staging/.env
-# в /opt/yuldash-staging/.env:
-#   env=staging
+cp /opt/yuldash/.env /opt/yuldash-staging/backend/.env   # см. примечание ниже: .env читается из рабочего каталога сервиса
+# ⚠️ настройки читаются из `.env` в РАБОЧЕМ каталоге сервиса (`env_file=".env"` в app/config.py),
+#    а сервис стартует из /opt/yuldash-staging/backend → файл должен лежать там:
+#    cp /opt/yuldash/.env /opt/yuldash-staging/backend/.env
+# в нём:
+#   ENV=prod   ← значение `staging` НЕ годится: validate_production() падает на старте
+#              («ENV нераспознан»); допустимы dev|prod|test
 #   DATABASE_URL=postgresql://.../yuldash_staging   ← своя база!
+#   MEDIA_BASE_URL=https://staging.yulbash.ru, CORS_ORIGINS=<не *>, SEED_DEMO=false  (требования ENV=prod)
 ```
 
 ### 4. systemd-сервис на порту 8100
@@ -101,9 +106,10 @@ curl -s http://127.0.0.1:8100/health     # ждём {"status":"ok",...}
 ```bash
 ssh root@85.239.52.55
 cd /opt/yuldash-staging/backend
-APP_DIR=/opt/yuldash-staging SERVICE=yuldash-api-staging \
+APP_DIR=/opt/yuldash-staging/backend VENV=/opt/yuldash-staging/.venv SERVICE=yuldash-api-staging \
 HEALTH_URL=http://127.0.0.1:8100/health BRANCH=main bash ops/deploy.sh
 ```
+> `APP_DIR` должен указывать на каталог, где лежат `requirements.txt` и `alembic.ini` (скрипт делает `pip install -r requirements.txt` и `alembic upgrade head` из `$APP_DIR`), поэтому при раскладке «репозиторий целиком в `/opt/yuldash-staging`» это `.../backend`, а `VENV` задаём явно (по умолчанию он `$APP_DIR/.venv`).
 Скрипт сам: подтянет код → накатит миграции → перезапустит → проверит `/health`.
 **Если не поднялось — автоматически откатит код назад** и (если настроен Telegram-бот) пришлёт алерт.
 

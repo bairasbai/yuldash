@@ -20,7 +20,7 @@ description: QA-гейт Юлдаша перед пометкой «готово
    $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
    .\gradlew.bat :app:assembleDebug --no-daemon
    ```
-2. **Тесты:** юнит (`YuldashViewModelTest`) зелёные; где трогали данные — прогнать.
+2. **Тесты:** JVM-юниты (`.\gradlew.bat :app:testDebugUnitTest`; CI гонит их с порогом покрытия — `:app:jacocoCoverageVerification`) зелёные, в т.ч. `CanonSourceGuardTest`; где трогали данные — `YuldashViewModelTest` и соседи; инструментальные (`app/src/androidTest`) — на эмуляторе. Бэкенд — `pytest tests/` из `backend/`. Быстрые проверки без SDK — `tools/README.md`.
 3. **Эмулятор:** экран открывается, не крашится, навигация назад работает (единый пошаговый «Назад»). Тапы/скролл плавные (60fps).
 4. **Все состояния:** загрузка, пусто, ошибка/нет сети — присутствуют и двуязычны.
 5. **Два языка:** переключение RU↔BA не ломает вёрстку (башкирский длиннее). Нет односторонних строк.

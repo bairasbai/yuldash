@@ -34,8 +34,8 @@
 
 ### Шифрование при передаче? — **Да**
 Приложение ходит только по HTTPS. Незашифрованный трафик запрещён на уровне системы
-(`network_security_config.xml`), исключение сделано лишь для локального адреса
-разработчика — в релизной сборке оно недостижимо.
+(`android/app/src/main/res/xml/network_security_config.xml`: `cleartextTrafficPermitted="false"`), исключение для локального адреса
+разработчика лежит только в `android/app/src/debug/res/xml/network_security_config.xml` — в релизную сборку оно не попадает.
 
 ### Можно ли запросить удаление данных? — **Да**
 И удалить аккаунт целиком — тоже да. Есть и кнопка в приложении, и веб-страница.
@@ -64,6 +64,8 @@
 - **Is this data processed ephemerally?** — Нет (кроме точной геопозиции: она
   ретранслируется между участниками и живёт в кэше около двух минут, в базу не пишется —
   можно отметить как ephemeral, но безопаснее оставить «нет»).
+
+Все `uses-permission` в `AndroidManifest.xml` (на 2026-10-10): `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION`, `RECORD_AUDIO`, `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`, `USE_FULL_SCREEN_INTENT`, `VIBRATE`; `allowBackup="false"`. Разрешения, которые добавляют библиотеки при слиянии манифеста (например, рекламный идентификатор от Firebase Analytics), в этот список не входят и не проверялись.
 - **Users can request data deletion?** — Да.
 
 ### Особо: точная геопозиция
@@ -139,9 +141,9 @@ Google требует объяснить, зачем геолокация раб
 
 ## 5. Что должно быть готово к моменту подачи
 
-- [ ] Файл подписи (`keystore.properties` + `.jks`) — **у Александра, в git его нет и быть не должно**
+- [ ] Файл подписи (`android/keystore.properties` + `.jks`) — **у Александра, в git его нет и быть не должно**
 - [ ] Аккаунт разработчика Google Play (разовый взнос $25)
-- [x] Сборка для магазина: `gradlew :app:bundleRelease` → `app-release.aab` (47 МБ) — проверено 2026-08-04
+- [x] Сборка для магазина: `gradlew :app:bundleRelease` → `app-release.aab` (47 МБ) — проверено 2026-08-04 (версия в коде: `com.yuldash.app`, 1.0.0, versionCode 2, minSdk 26, targetSdk 36)
 - [x] Политика конфиденциальности — `yulbash.ru/privacy`
 - [x] Оферта — `yulbash.ru/terms`
 - [x] Страница удаления аккаунта — `yulbash.ru/delete-account`

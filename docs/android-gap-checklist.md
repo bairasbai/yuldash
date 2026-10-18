@@ -5,6 +5,10 @@
 > Здесь — точная спека: API, DTO, куда встраивать, состояния, строки. Код-наброски ApiClient/DTO
 > сделаны по существующим паттернам (`call(...)`, `data class …Dto`) — **проверить сборкой** (я не компилировал).
 > Строки RU готовы; **черновой BA** — в `docs/tasks.md` (разделы «Переводы на проверку»), финал за носителем.
+> **Статус по коду на 2026-10-10** (строки выше написаны на момент PR #100 и сохранены как спека; под каждой фичей ниже — «Статус по коду»):
+> G1 — сделано; G3 — частично (пуш `request_watch` обрабатывается, переключателя `watch_kind` нет); G7 — сделано; G8 — сделано; «рәхмәт»/чаевые — сделано; G5 — клиент не сделан.
+> Имена в коде отличаются от набросков ниже — реальные имена указаны в статусах.
+>
 > Стандарт качества: все состояния (загрузка/пусто/ошибка), тёмная тема, `Canon*`-токены, тач-цель ≥48dp,
 > двуязычие через `appText(ru, ba)` (CLAUDE.md §4, §4.5).
 
@@ -40,6 +44,8 @@ suspend fun parcelTrackLink(id: Int): Result<TrackLinkDto> =
 
 **Готово, когда:** отправитель жмёт кнопку → видит ссылку/шэрит; открытие `url` в браузере показывает живую
 доставку (страница уже на бэке). Телефоны нигде не показываются.
+
+**Статус по коду (2026-10-10): сделано.** `ApiClient.createParcelTrackLink(parcelId)` → `ParcelTrackLinkDto(url, smsSent)` (`POST /parcels/{id}/track-link`; есть и `DELETE` — отозвать ссылку), кнопка «Отправить ссылку» в `ParcelsScreen.kt`. Готовый `LiveLinkCard` из `TripLiveLink.kt` здесь не используется (он применён в `BookingActiveTripScreen.kt` и `InstantOrderScreen.kt`).
 
 ---
 
@@ -83,6 +89,8 @@ suspend fun createRouteWatch(
 **Готово, когда:** водитель подписался с «Заявки» → при создании пассажиром подходящей заявки приходит
 пуш «Пассажир на твоём маршруте» и тап ведёт в ленту заявок. Старые подписки (rides) работают как раньше.
 
+**Статус по коду (2026-10-10): частично.** Сделано: тап по пушу `request_watch` открывает ленту заявок (`MainActivity.kt` → `Screen.RequestsFeed`, `SecondaryScreens.kt`). Не сделано: `ApiClient.createRouteWatch` не принимает `watchKind`, `RouteWatchDto` не читает `watch_kind`, переключателя «Что караулить» в приложении нет (на бэке `watch_kind` есть в `route_watch.py`).
+
 ---
 
 ## G7 — Карточка «Почему мало откликов» (диагностика водителю)
@@ -121,6 +129,8 @@ suspend fun getRideTips(id: Int): Result<RideTipsDto> =
 
 **Готово, когда:** у поездки без фото/проверки/с завышенной ценой водитель видит добрые советы; у «хорошей»
 поездки — позитивную заглушку.
+
+**Статус по коду (2026-10-10): сделано.** `ApiClient.getRideTips(rideId)` → `RideTipsDto`, карточка `RideTipsCard(rideId)` в `DriverTipsCards.kt` (не в `InstantOrderScreen.kt`).
 
 ---
 
@@ -162,6 +172,8 @@ suspend fun getAchievements(): Result<AchievementsDto> =
 
 **Готово, когда:** в профиле видна сетка бейджей с реальными цифрами и прогрессом до следующего.
 
+**Статус по коду (2026-10-10): сделано.** Метод называется `ApiClient.getMyAchievements()` → `AchievementsDto`; карточка живёт в `MyStatsScreen.kt` (экран статистики), а не в `ProfileScreen.kt`.
+
 ---
 
 ## «Сказать рәхмәт» (чаевые водителю)
@@ -199,6 +211,8 @@ suspend fun sayThanks(id: Int): Result<Unit> =
 
 **Готово, когда:** после поездки пассажир может сказать «рәхмәт» (водителю приходит пуш); при включённом флаге и opt-in водителя — видит реквизит для перевода. Телефон водителя не светится, пока флаг off.
 
+**Статус по коду (2026-10-10): сделано.** В `ApiClient`: `setTipsSbp` (водитель, UI — `DriverTipsCard` в `DriverTipsCards.kt` и `ProfileScreen.kt`), `getBookingTipInfo(bookingId)` и `sayBookingThanks(bookingId)` (попутка; экраны `RideshareCompletedScreen.kt`, `TripReceiptScreen.kt`), плюс то же для такси: `getInstantTipInfo` и `sayInstantThanks` (`/instant/orders/{id}/tip`, `/thanks`).
+
 ## G5 — бейдж «Новичок» / «N оценок» на карточке (backend готов)
 
 Карточка поездки (`RideOut`) теперь отдаёт **`driver_rating_count`** (число учтённых оценок) рядом с `driver_rating`.
@@ -207,6 +221,8 @@ suspend fun sayThanks(id: Int): Result<Unit> =
 - `driver_rating_count in 1..4` → «Новичок · ★ {rating}» (честно: оценок мало).
 - `driver_rating_count >= 5` → «★ {rating} · {count} оценок».
 Профиль водителя уже отдаёт `rating_count` отдельно — тот же принцип. Цифру НЕ фейкуем (в отличие от Яндекса с 30×4.2).
+
+**Статус по коду (2026-10-10): бэкенд готов (`driver_rating_count` в `schemas.py`/`services.py`), клиент не сделан** — в `android/` поля `driver_rating_count` нет; карточка поездки показывает «Новичок» только при `driverTripsCount == 0` (`RidesRequestsChatScreens.kt`), порогов 0/1–4/≥5 оценок нет.
 
 ## После реализации (общее)
 1. Собрать `assembleDebug` — зелёно.

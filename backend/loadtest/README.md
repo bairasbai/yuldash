@@ -15,7 +15,7 @@
 |---|---|---|---|
 | `ReadUser` | 6 | `/rides/near`, `/rides`, `/requests/near`, `/feed`, `/popular-routes`, `/rides/price_hint` | Самый массовый и самый тяжёлый для БД путь (лента) |
 | `RiderUser` | 3 | Логин (OTP), `/me`, `/bookings/mine`, иногда `POST /bookings` | Авторизованный трафик + запись под row-lock |
-| `InstantUser` | 2* | `/instant/estimate`, `/instant/order` (matcher) | «Быстрый заказ»; включается флагом |
+| `InstantUser` | 2* | `/instant/estimate`, `/instant/order` (matcher; пути как в `locustfile.py`) | «Быстрый заказ»; включается флагом |
 | `ChatWSUser` | 1* | WebSocket `/ws/bookings/{id}` | Проверка ip_hash-стикинга + Redis pub/sub |
 
 \* `InstantUser` и `ChatWSUser` включаются переменными окружения (см. ниже).

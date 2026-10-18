@@ -1,13 +1,13 @@
 # 🧪 Тесты и покрытие — правила Юлдаша
 
 > Кому: агенту и Александру. Что считать «покрыто», где стоит порог и почему именно там.
-> Замер и настройка порогов — 2026-08-04.
+> Замер и настройка порогов — 2026-08-04. Пороги сверены с кодом 2026-10-10 (`backend/.coveragerc`, `android/app/build.gradle.kts`, `.github/workflows/ci.yml`); проценты в колонке «Сейчас» **не перемерялись** — это замер 2026-08-04.
 
 ---
 
 ## Коротко
 
-| Что | Сейчас | Порог (сборка краснеет ниже) |
+| Что | Сейчас (замер 2026-08-04) | Порог (сборка краснеет ниже) |
 |---|---|---|
 | **Бэкенд** (`backend/app`) | **90,2%** | **85%** |
 | **Приложение: слой данных** (`com.yuldash.app.data`) | **82,7%** | **78%** |
@@ -45,19 +45,19 @@
 ```bash
 cd backend && python -m coverage run --source=app -m pytest -q && python -m coverage report
 ```
-`coverage report` вернёт ненулевой код, если упали ниже 85% (`.coveragerc`).
+`coverage report` вернёт ненулевой код, если упали ниже 85% (`fail_under` в `backend/.coveragerc`).
 Подробный разбор по строкам — `python -m coverage html` → `htmlcov/index.html`.
 
 **Приложение:**
 ```bash
 cd android && ./gradlew.bat :app:jacocoCoverageVerification
 ```
-Задача сама прогоняет тесты, строит отчёт и падает, если покрытие ниже порога.
+Задача сама прогоняет тесты, строит отчёт и падает, если покрытие ниже порога (`appCoverageFloor` 0.22 и `logicCoverageFloor` 0.78 в `android/app/build.gradle.kts`). Гонять под JDK 21.
 Отчёт глазами — `app/build/reports/jacoco/jacocoTestReport/html/index.html`.
 `./gradlew check` теперь тоже включает эту проверку.
 
-**Оба порога проверяет CI на каждый push** (`.github/workflows/ci.yml`): бэкенд —
-`--cov-fail-under=85`, приложение — `jacocoCoverageVerification`. Порог, который гоняют
+**Оба порога проверяет CI на каждом PR и на push в `main`** (`.github/workflows/ci.yml`): бэкенд —
+`--cov-fail-under=85` (job `backend-tests`), приложение — `jacocoCoverageVerification` (job `android-unit-tests`). Кроме них в CI есть тот же бэкенд-набор на Postgres 16 с проверкой alembic (`backend-tests-postgres`), сборка debug и release-R8 (`android-build`) и PWA (`webapp-build`: `npm run check` + `npm run build`). Порог, который гоняют
 только руками, — не порог: его забудут ровно в тот раз, когда он был нужен. Число в CI
 и в `backend/.coveragerc` должно совпадать.
 
@@ -76,7 +76,9 @@ cd android && ./gradlew.bat :app:jacocoCoverageVerification
 
 ---
 
-## Четыре сторожа, которые ловят целые классы ошибок
+## Сторожа, которые ловят целые классы ошибок
+
+Ниже четыре главных. Кроме них в `android/app/src/test/java/com/yuldash/app/` лежит ещё 28 классов `*GuardTest` (деньги, поллинг, безопасное окно, тон текстов, контраст, размер тач-целей и т.д.), а в `backend/tests/` — `test_launch_guards.py`, `test_tone_guard.py`, `test_bilingual_errors_guard.py` и `*_contract.py`.
 
 Обычный тест проверяет одно место. Эти четыре проверяют **правило по всему коду сразу** —
 поэтому они ценнее сотни точечных.
@@ -89,24 +91,24 @@ cd android && ./gradlew.bat :app:jacocoCoverageVerification
 начнёт молча возвращать 404.
 
 ### 2. Каждая ручка идёт куда задумано
-`android/…/data/ApiClientEndpointContractTest.kt`
+`android/app/src/test/java/com/yuldash/app/data/ApiClientEndpointContractTest.kt`
 
-178 ручек, у каждой проверены метод, адрес, разбор нормального ответа и то, что ответ 500
+178 ручек в таблице (по состоянию на 2026-10-10), у каждой проверены метод, адрес, разбор нормального ответа и то, что ответ 500
 превращается в ошибку, а не в «пустой успех». До этого теста их адреса не проверял никто.
 
 ### 3. Единый стиль
-`android/…/CanonSourceGuardTest.kt`
+`android/app/src/test/java/com/yuldash/app/CanonSourceGuardTest.kt`
 
-Читает исходники экранов и падает, если кто-то написал свой размер шрифта, отступ, радиус
-или длительность анимации мимо шкал `Canon*`. Правила — [design.md](design.md).
+Читает исходники экранов и падает, если кто-то написал свой размер шрифта, радиус, тень, длительность анимации
+или вес `Black` мимо шкал `Canon*` (отступы держит `CanonScaleTest`, а не он). Правила — [design.md](design.md).
 
 ### 4. Двуязычие
-`android/…/BilingualSourceGuardTest.kt`
+`android/app/src/test/java/com/yuldash/app/BilingualSourceGuardTest.kt`
 
 Не даёт приложению заговорить по-русски там, где обещан башкирский: ловит пустое башкирское
 поле, русский текст мимо `appText` и рост числа надписей, где башкирский — это копия русского.
-Сегодняшний долг (143 надписи) зафиксирован планкой: 144-я уронит сборку. Список слов
-на перевод — в [tasks.md](tasks.md), самый верх.
+Долг зафиксирован планкой-храповиком (замер 2026-08-04 — 143 надписи, с 2026-08-06 в тесте `knownRussianInBashkir = 104`): рост уронит сборку. Список слов
+на перевод — в [tasks.md](tasks.md), разделы «Переводы на проверку».
 
 ---
 

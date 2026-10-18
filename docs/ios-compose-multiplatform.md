@@ -6,6 +6,8 @@
 
 Дата: 2026-07-20. Роль: Android-архитектор + техлид.
 
+> Сверено с кодом 2026-10-10: пробник `experiments/cmp-ios-poc/` на месте и после создания не менялся (один коммит); версии AGP 8.13.2 / Kotlin 2.3.0 совпадают с `android/build.gradle.kts`; в таблице ниже версии Android-зависимостей (MapKit 4.39.0-full, Coil 2.7.0, `security-crypto`, ZXing) соответствуют `android/app/build.gradle.kts`. `Domain.kt` лежит в `android/app/src/main/java/com/yuldash/app/` (плоский пакет, как и весь остальной код приложения). Сборкой пробник по-прежнему не проверен.
+
 ---
 
 ## Вывод (коротко)

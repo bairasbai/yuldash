@@ -5,6 +5,8 @@
 > Итог — колонка `Booking.boarding_code` в модели есть, а на проде её нет → риск 500.
 > Теперь **единственный источник истины — `backend/alembic/versions/`**, деплой сам зовёт
 > `alembic upgrade head`. `migrate_*.sql` перенесены в `backend/archive/` (не использовать).
+>
+> 🔄 *Актуализация 2026-10-10 (по коду):* цепочка выросла с четырёх ревизий до **130** (`backend/alembic/versions/`), голова одна — `bv_refresh_recovery`; `0004_booking_boarding_code` ниже — это пример из момента написания, а не текущая голова. Кроме `deploy-backend.bat` есть второй штатный путь — `backend/ops/deploy.sh` (на сервере: `git reset` → `pip install` → `alembic upgrade head` → рестарт → health-gate; при падении health откатывает код, а миграции — только при `ROLLBACK_DB=1`), см. [staging.md](staging.md). CI проверяет одну голову и цикл `upgrade → downgrade base → upgrade` на Postgres (`.github/workflows/ci.yml`, джоба `backend-tests-postgres`).
 
 ## Что уже сделано в коде (в этой ветке)
 - Добавлена ревизия **`0004_booking_boarding_code`** — идемпотентно добавляет `booking.boarding_code`.
@@ -17,12 +19,12 @@
 - `0001` — `SQLModel.metadata.create_all` (существующие таблицы не трогает, создаёт только недостающие);
 - `0002`–`0004` — `inspect`-before-alter (добавляют/убирают колонку, только если её состояние отличается).
 
-Проверено локально: на БД, собранной через `create_all` без таблицы `alembic_version` (ровно как прод),
+Проверено локально (на момент написания, когда ревизий было четыре): на БД, собранной через `create_all` без таблицы `alembic_version` (ровно как прод),
 `alembic upgrade head` проходит всю цепочку `0001→0004`, ставит версию `0004`, а повторный запуск = **0 миграций**.
 
 ## 🚀 Первый прогон на проде (онбординг на alembic) — делает Александр дома
 
-Прод БД сейчас **не под alembic** (нет таблицы `alembic_version`). Первый `alembic upgrade head`
+Прод БД на момент написания **не под alembic** (нет таблицы `alembic_version`) — *актуальное состояние прода по коду не проверить (`alembic current` на сервере; [backend.md](backend.md) §8.5 говорит о штампе baseline на проде)*. Первый `alembic upgrade head`
 безопасно прогонит всю цепочку. Порядок:
 
 1. **Бэкап (обязательно):**
@@ -41,14 +43,14 @@
 3. **Проверка:**
    ```
    ssh root@85.239.52.55 "cd /opt/yuldash && sudo -u yuldash ./.venv/bin/alembic current"
-   # ждём: 0004_booking_boarding_code (head)
+   # ждём: текущую голову из репо (`alembic heads`; на 2026-10-10 — bv_refresh_recovery (head))
    ssh root@85.239.52.55 "sudo -u postgres psql -d yuldash -c \"\\d booking\" | grep boarding_code"
    # ждём: строку boarding_code | character varying
    curl -s https://yulbash.ru/health   # {status:ok,...}
    ```
 
 ## ↩️ Откат
-- **По схеме:** `sudo -u yuldash ./.venv/bin/alembic downgrade -1` (уберёт `boarding_code`).
+- **По схеме:** `sudo -u yuldash ./.venv/bin/alembic downgrade -1` (откатит последнюю ревизию; на момент написания — `boarding_code`).
   Все downgrade-функции ревизий тоже идемпотентны.
   > Откат проверяется целиком в CI (`backend-tests-postgres`): `upgrade head` → `downgrade base`
   > → `upgrade head`. До 2026-08-07 полный откат падал на SQLite — пять ревизий удаляли

@@ -14,6 +14,8 @@
 
 Текущее состояние прод-инфры — [`docs/server.md`](server.md) (systemd `yuldash-api`, uvicorn на `127.0.0.1:8000`, nginx, Let's Encrypt).
 
+> 🔄 *Актуализация 2026-10-10 (по коду):* файлы из списка выше все существуют (`backend/loadtest/{locustfile.py,README.md}`, `backend/deploy/{gunicorn_conf.py,yuldash-api.service.example,nginx-yuldash-scale.conf.example,pgbouncer.ini.example,redis.conf.example}`) и остаются **примерами**: что из этого реально включено на проде (gunicorn, PgBouncer, пароль/AOF Redis) — по коду не проверить. Пул соединений приложения настраивается `DB_POOL_SIZE=8`, `DB_MAX_OVERFLOW=7`, `DB_POOL_TIMEOUT_SEC=10` (`app/config.py`, `app/db.py`).
+
 ---
 
 ## 1. Многопроцессность (uvicorn-воркеры за nginx)
@@ -83,8 +85,7 @@ ORDER BY boosted_until DESC NULLS LAST, depart_at ASC;
   (б) перейти на точное совпадение/префикс там, где UI это позволяет.
   При малом числе active-поездок это может быть неважно (фильтр `status='active'` уже сильно режет) —
   решаем по EXPLAIN на реальном объёме, не гадаем.
-- **Сортировка** `boosted_until, depart_at` — при большом наборе полезен составной индекс
-  `(status, depart_at)` или `(status, boosted_until, depart_at)`, чтобы убрать явный Sort.
+- **Сортировка** `boosted_until, depart_at` — составной индекс `(status, depart_at)` **уже есть** (`ix_ride_status_depart`, `app/models.py`); вариант `(status, boosted_until, depart_at)` — нет, добавлять только если EXPLAIN покажет явный Sort на большом объёме.
 
 **B. Гео-префильтр `/rides/near` (PostGIS)**:
 ```sql
@@ -96,7 +97,7 @@ WHERE from_lat IS NULL
 ```
 Что искать/проверить:
 - Есть ли **GiST-индекс** под это выражение. Функциональный ST_DWithin по `::geography`
-  использует GiST только с соответствующим **функциональным индексом**:
+  использует GiST только с соответствующим **функциональным индексом** (запрос в коде — `app/routers/rides.py` и `app/routers/requests.py`, условие `from_lat IS NULL OR ST_DWithin(...)`; индекс создаёт best-effort `backend/deploy-backend.bat` под именем `idx_ride_from_geog` — частичный, `WHERE from_lat IS NOT NULL`; в Alembic-миграциях PostGIS-индекса нет):
   ```sql
   CREATE EXTENSION IF NOT EXISTS postgis;
   CREATE INDEX ix_ride_geog ON ride
@@ -109,16 +110,16 @@ WHERE from_lat IS NULL
 **C. Заявки `/requests/near`** (`app/routers/requests.py`) — те же вопросы, что у `ride`:
 `status`-фильтр берёт индекс? `from_city/to_city` LIKE — та же история с trigram.
 
-**D. Matcher «Быстрого заказа» `/instant/*`** (ветка `feat/instant-order`):
+**D. Matcher «Быстрого заказа» `/instant/*`** (код в `main`: `app/instant_service.py`):
 подбор водителей идёт **не по SQL, а по Redis `GEOSEARCH`** (presence-набор). Здесь узкое
 место — Redis (см. §3) и размер presence-набора, а не Postgres. По БД в matcher проверить
 только точечные `SELECT ... FOR UPDATE` по `driverprofile`/заказу (индекс по PK — уже есть).
 
 **Индексы, которые точно есть** (из `app/models.py`, `index=True`):
 `ride.from_city`, `ride.to_city`, `ride.status`, `ride.depart_at`, `ride.boosted_until`,
-`ride.driver_id`; `riderequest.*` аналогично; FK/уникальные — на месте.
+`ride.driver_id`, составной `ix_ride_status_depart (status, depart_at)`; `riderequest.*` аналогично (без составного); FK/уникальные — на месте.
 **Чего может не хватать** (создать миграцией после подтверждения EXPLAIN):
-GiST по geography (B), pg_trgm GIN на city-поля (A/C), составной `(status, depart_at)`.
+GiST по geography (B; сейчас только ручной `idx_ride_from_geog` из `deploy-backend.bat`), pg_trgm GIN на city-поля (A/C).
 
 > Правило: **не плодим индексы вслепую.** Каждый индекс — по факту Seq Scan в EXPLAIN на
 > реальном объёме. Лишние индексы замедляют запись (публикация поездки) и едят место.
@@ -127,8 +128,7 @@ GiST по geography (B), pg_trgm GIN на city-поля (A/C), составно�
 
 ## 3. Redis: пароль + persistence + вынос
 
-**Сейчас:** Redis используется для pub/sub (чат/карта), кэша ленты, rate-limit; с «Быстрым
-заказом» добавится GEO-presence водителей. Подключение — `REDIS_URL` (`app/config.py`),
+**Сейчас:** Redis используется для pub/sub (чат/карта), кэша ленты, rate-limit (`app/middleware.py` — общий счётчик по Redis, при сбое локальный) и GEO-presence водителей «Быстрого заказа» (при `ENV=prod` и `TAXI_ENABLED=true` без `REDIS_URL` сервис не стартует). Подключение — `REDIS_URL` (`app/config.py`),
 без Redis приложение деградирует мягко (локальная доставка WS, без кэша).
 
 **Что сделать (runbook):**

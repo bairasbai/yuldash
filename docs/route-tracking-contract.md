@@ -3,6 +3,12 @@
 > Что нужно на бэкенде `yulbash.ru`, чтобы Android-клиент закрыл Фазу 2 (live) и Фазу 3 (посылки).
 > Клиент уже готов рисовать маршрут по дорогам (`DrivingRouter`) и подписываться на WS — нужен серверный слой.
 > **Мы не такси:** поток координат — только между двумя участниками одной активной поездки, не диспетчеризация.
+>
+> 🔄 **Статус реализации на 2026-10-10 (сверено с кодом `main`).** Контракт ниже — запрос от 2026-06-30; все три пункта плана реализованы, но местами иначе, чем описано:
+> - **Live-трек брони — сделан** (`backend/app/routers/location.py`, `/ws/trip/{booking_id}/location`). Отличия от контракта: при отказе соединение закрывается кодом **1008** (а не 4403) с reason (`Forbidden` / `Trip not active` / `Trip ended` / `Invalid token`); рассылка идёт через два направленных «inbox»-ключа менеджера соединений (без эха отправителю), а не через ключ `trip:loc:{booking_id}:{role}`; в Redis (`livepos:booking:{id}`, TTL **120 с**, `app/livepos.py`) кладётся только позиция **водителя** — для публичной live-ссылки `/t/{token}`; «отдать последнюю позицию при подключении второго участника» и сообщения `{"type":"status",...}` в этом канале **не реализованы** (статус подфазы — `POST /bookings/{id}/driver-status` + push, поле `driver_phase`); `livepos_clear` в коде определён, но нигде не вызывается — позиция гаснет по TTL; добавлены анти-телепорт `TrackGuard` (скачок > 200 км/ч игнорируется), живой страж доступа (`watch_ws_access`, перепроверка токена/блокировки) и перепроверка токена каждые ~15 кадров.
+> - Аналоги тем же способом: `/ws/instant/{order_id}/location` (такси), `/ws/parcel/{parcel_id}/location` (посылка), `/ws/map` (сигнал обновления карты).
+> - **Заявки на карте — сделано:** у `RideRequest` есть `from_lat/from_lng/to_lat/to_lng` (геокод `geocode_city` при `POST /requests`), эндпоинт `GET /requests/near` существует.
+> - **Посылки — сделано, но вариант B, а не A:** отдельная таблица `ParcelDelivery` и роутеры `routers/parcels.py` + `routers/courier.py` (`/parcels*`, `/courier/*`, чат и трек посылки); в `Ride` остались лишь `receiver_name` и `parcel_size` для `category=parcel`; полей `parcel_weight_kg`, `receiver_phone`, `parcel_note` в `Ride` нет.
 
 ---
 
@@ -99,12 +105,13 @@ parcel_note:        Optional[str]    # что внутри (без запрещ�
 ---
 
 ## 4. Что уже готово на клиенте (ждёт сервер)
+> *2026-10-10:* серверная часть готова; WS-клиент трека — `data/LocationSocket.kt` (также `InstantLocationSocket.kt`, `MapFeedSocket.kt`, `TripLocationBus.kt`); `drawRoadRoute`/`fitRouteCamera`/`LocationPrefs` лежат в `MapScreen.kt`.
 - Рисование маршрута по дорогам: `drawRoadRoute(map, from, to, added)` (MapScreen.kt) — линия + флажок + фоллбэк.
 - Камера на весь маршрут: `fitRouteCamera`.
 - Геолокация своя: `LocationPrefs` + `lastUserPoint` (MapScreen.kt) — осталось слать на WS в активной поездке.
 - WS-клиент по образцу `data/ChatSocket.kt` (OkHttp + reconnect-backoff) — скопировать под `/ws/trip/{id}/location`.
 
-## 5. Порядок включения
+## 5. Порядок включения (план 2026-06-30; все три шага выполнены — см. статус вверху)
 1. Координаты у `RideRequest` + `/requests/near` (просто, зеркало рейдов) → заявки на карте.
 2. parcel-поля в `Ride` + парсинг → посылки.
 3. WS-канал локаций + Redis TTL + очистка на `done` → live-трекинг (самое крупное).

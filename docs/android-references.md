@@ -3,6 +3,7 @@
 > Изучено 2026-07-03 (по README/структуре, репо не клонировали — слишком тяжёлые).
 > Цель: держать планку мирового топа. Каждый репо → конкретный урок → куда лёг в Юлдаше.
 > Под эти уроки настроены агенты в `.claude/agents/` (см. `.claude/agents/README.md`).
+> Сверено с кодом 2026-10-10: упомянутые файлы существуют (`CanonTokens.kt`, `UiKit.kt`, `TripLocationService.kt`, `YuldashViewModel.kt`, `Mocks.kt` — все в `android/app/src/main/java/com/yuldash/app/`); Hilt/Room/Turbine/Lottie/Shimmer в `android/app/build.gradle.kts` не подключены.
 
 ---
 
@@ -25,13 +26,13 @@
 ### 1. nowinandroid — эталон современного production-Android
 - **Дизайн-система как слой.** У них `core:designsystem` + catalog-модуль. У нас аналог — `CanonTokens.kt` + `UiKit.kt`: единые токены `Canon*` и формы. Урок: любой новый компонент строим переиспользуемо, а не разово в экране.
 - **Тёмная тема через токены** (Material 3, dynamic color). У нас уже так: `Canon*` адаптивны (свет/тьма), WCAG заложен в комментарии токенов. Правило: **никогда хардкод `Color(0xFF…)` в экране.**
-- **Тесты без mock-библиотек:** production-реализацию меняют на тест-дубль через Hilt. У нас DI нет, но есть **шов `Mocks` ↔ `ApiClient`** — тот же принцип.
+- **Тесты без mock-библиотек:** production-реализацию меняют на тест-дубль через Hilt. У нас DI нет; в `Mocks.kt` лежат демо-данные (`demoRides` и др.) и модели ленты карты, а сеть — `ApiClient` (`data/ApiClient.kt`); в сетевых тестах его подменяет `MockWebServer` через `ApiClient.testBaseUrl`.
 - **Адаптивные layouts** под разные экраны + baseline profiles для быстрого старта.
 
 ### 2. architecture-samples — канон MVVM
 - **MVVM + Repository + однонаправленный поток (UDF):** состояние вниз, события вверх. У нас: `YuldashViewModel` держит состояние (`screen/language/startHomeTab`), `@Composable` только рисует.
 - **Flow + coroutines** для асинхронного UI. Готовим data-слой на Flow под реальный сервер.
-- **Flavors mock/prod** — идея на будущее: сейчас фолбэк на `Mocks.kt` при недоступности `yulbash.ru`.
+- **Flavors mock/prod** — идея на будущее: flavors в сборке нет; демо-данные лежат в `Mocks.kt`.
 
 ### 3. Pokedex — компактный образец offline-first
 - **Single source of truth:** UI читает из репозитория; репозиторий сначала отдаёт кеш (Room), потом освежает из сети. Наш вектор при переходе моков → API.
@@ -39,7 +40,7 @@
 
 ### 4. tivi — высокая планка Compose
 - Продвинутый Compose, управление стабильностью (меньше лишних рекомпозиций → 60fps), чистая модуляризация, Ktlint/Spotless.
-- **KMP (iOS/desktop) — НЕ сейчас.** Юлдаш только Android. Держим как ориентир на будущее, не тянем сложность раньше времени.
+- **KMP (iOS/desktop) — НЕ сейчас.** Юлдаш только Android. Держим как ориентир на будущее, не тянем сложность раньше времени. Исследование и пробный прототип — [[ios-compose-multiplatform]] и `experiments/cmp-ios-poc/`.
 
 ### 5. uamp — фоновые сервисы
 - Фоновая работа (у них аудио, у нас **гео-трекинг поездки**) = **foreground service с честным уведомлением**. Уже реализовано в `TripLocationService` (GPS ~раз в 7с, «поездка активна»). Урок: отписка от локаций на финише, экономия батареи.

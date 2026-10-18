@@ -10,4 +10,4 @@
 - Задачи, бэклог, что уже сделано → [docs/tasks.md](docs/tasks.md)
 - Решения (в т.ч. «не трогать старую копию OneDrive») → [docs/decisions.md](docs/decisions.md)
 
-Правила работы агента: [../CLAUDE.md](CLAUDE.md).
+Правила работы агента: [CLAUDE.md](CLAUDE.md).

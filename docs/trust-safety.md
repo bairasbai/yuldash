@@ -13,6 +13,14 @@
 > («Центр справедливости», фаза 5), фото-доказательства (`evidence_urls` + `/secure/evidence`),
 > `detect_bump`, лимит серийного «форс-мажора», теги оценок. Ветка-оригинал хранит рабочий код —
 > не удалять до переноса (см. review-audit-2026-07-26.md).
+>
+> 🔄 **Актуализация 2026-10-10 (сверено с кодом `main`).** Блок выше — на 2026-07-26; с тех пор в `main` перенесено и сделано:
+> - **Android:** есть экраны `Screen.FairnessCenter` («Центр справедливости»), `IncidentDetail`, `AdminIncidents`, `Safety`, `Rules` (файлы `FairnessScreens.kt`, `AdminIncidentsScreen.kt`; в контракте §7 они названы `SafetyCenterScreen`/`TrustSafetyScreens.kt` — таких файлов нет).
+> - **Фото-доказательства:** `Incident.evidence_urls` / `respondent_evidence_urls` и `GET /secure/evidence/{name}` — сделано. **Теги оценок:** `Rating.tags` + закрытый список `safety_logic.RATING_TAGS` — сделано; `Rating.excluded` (щит) — есть.
+> - **Не сделано:** `detect_bump` (поле `Incident.suspected_bump` есть, детект отложен — `decisions.md` 2026-07-25); эндпоинты `POST /bookings/{id}/payment` и `POST /bookings/{id}/parcel-photo` и поля `Booking.payment_state`, `parcel_pickup_photo`, `parcel_delivery_photo` из §5.3/§6 в коде отсутствуют; `/safety/policy` отдаёт только 6 порогов лестницы (`strikes_to_limit`, `strikes_to_suspend`, `suspend_1/2/3_days`, `strike_decay_days`), а `SAFETY_FREE_CANCEL_MIN`, `SAFETY_WAIT_TIMER_MIN`, `SAFETY_MIN_RATING` в `config.py` не заведены.
+> - **Расширено сверх чертежа:** `Incident` получил контексты `parcel_id` и `order_id` (споры по доставке и такси), обезличивание при удалении аккаунта (`reporter_id`/`respondent_id` могут быть `NULL`), `applied_warning/applied_strike/applied_suspended_until` для честного пересмотра после апелляции; закрытые типы — `safety_logic.INCIDENT_TYPES` (14 кодов), тяжёлые — `SEVERE_TYPES`.
+> - **Пороги в коде:** `SAFETY_STRIKES_TO_LIMIT=2`, `SAFETY_STRIKES_TO_SUSPEND=3`, `SAFETY_SUSPEND_1/2/3_DAYS=3/7/30`, `SAFETY_STRIKE_DECAY_DAYS=60`, `SAFETY_RELIABILITY_WINDOW=30`, `SAFETY_LATE_CANCEL_BEFORE_DEPART_MIN=60`, `SAFETY_INCIDENTS_PER_HOUR=10` (совпадают с §5.5). Для такси действуют отдельные значения: `CANCEL_FREE_MINUTES=3` (бесплатная отмена), `WAIT_FREE_MINUTES=3` (бесплатное ожидание), `NO_SHOW_EXTRA_MINUTES=5` (кнопка «пассажир не вышел» на 8-й минуте), `STRIKE_LIMIT=3` за `STRIKE_WINDOW_DAYS=7` → пауза `STRIKE_PAUSE_HOURS=24` — они отличаются от «5 мин» и «7 мин» в таблице §1 (там — исходный дизайн).
+> - **Миграции:** `backend/migrate_safety.sql` (§5) в репо нет — схема ведётся через Alembic; `Incident`/`SafetyProfile` создаются миграциями из `backend/alembic/versions/`.
 
 ---
 
@@ -177,7 +185,7 @@
 
 > Расширяем, НЕ ломаем. Существующие `Report`/`Block`/`Rating`/`SosEvent` остаются (тесты зависят). Новое
 > добавляем рядом. Новые колонки — nullable/дефолт (обратно совместимо). SQLite: авто-миграция по образцу
-> `_migrate_sqlite_add_columns`. Прод PG: `backend/migrate_safety.sql` (ALTER TABLE ADD COLUMN). Новые
+> `_migrate_sqlite_add_columns`. Прод PG: `backend/migrate_safety.sql` (ALTER TABLE ADD COLUMN) *(на 2026-10-10 файла нет — использовался Alembic)*. Новые
 > таблицы — через идемпотентный `init_db` (create_all).
 
 ### 5.1 Новая таблица `Incident`

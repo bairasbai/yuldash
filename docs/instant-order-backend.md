@@ -2,6 +2,14 @@
 
 > Ветка `feat/instant-order`. Флагман Фазы 2 (см. `product-plan-2026-07.md`, разделы Фаза 2 и D1–D4 — на ветке `docs/product-plan`).
 > Этот файл — «что сделано / что осталось» по бэкенду, чтобы лид свёл его в product-plan при мерже.
+>
+> 🔄 **Актуализация 2026-10-10 (сверено с кодом `main`).** Документ — снимок момента создания ветки; ниже статусы приведены к коду. Весь описанный бэкенд живёт в `main` (`backend/app/routers/instant.py` — 43 route-декоратора, `backend/app/instant_service.py`, `backend/app/pricing.py`, `backend/app/taxi_worker.py`). Что изменилось с тех пор:
+> - состояний теперь 10: добавлен `scheduled` (предзаказ «на время», `InstantOrderStatus` в `models.py`); эндпоинтов намного больше (`/instant/schedule`, `/instant/scheduled`, `/instant/orders/{id}/wait`, `/waypoints`, `/destination*`, `/payment*`, `/cash-received`, `/lost-item`, `/stuck`, `/winter-check`, чат `ws/instant/{id}/chat`, трек `ws/instant/{id}/location` и др.);
+> - цена: тариф `Tariff` усложнён (ночной `night_k`, сурж `SURGE_*`, дальняя подача отдельной строкой, погода/пробки через Яндекс — `pricing.py`, `TAXI_EXTERNAL_PRICING_ENABLED`); формула «база + км + мин» ниже — основа, а не полный расчёт;
+> - фоновый воркер **есть**, но не arq, а `python -m app.taxi_worker` по systemd-таймеру (`backend/deploy/yuldash-taxi-worker.{service,timer}`); ленивый reconcile при чтении заказа остаётся;
+> - Android-UI такси реализован (`Screen.InstantOrder`, `InstantDriverTrip`, `InstantChat`, `TaxiOnboarding`, админ `AdminTaxi`/`AdminTaxiPulse` и др. в `MainActivity.kt`);
+> - деньги (комиссия, долги, кошелёк) реализованы: `ledger.py`, `debt.py`, модели `LedgerEntry`, `CommissionDebt`; `women_only` в matcher реализован (`InstantOrder.women_only` + проверка `_verified_female_driver`). Подробнее — [payments-ledger-backend.md](payments-ledger-backend.md), [monetization.md](monetization.md).
+> - Такси выключено глобально флагом `TAXI_ENABLED` (по умолчанию `False`); при `ENV=prod` и `TAXI_ENABLED=true` без `REDIS_URL` сервис не стартует (`validate_production`).
 
 ## ✅ Что сделано (бэкенд целиком, с тестами)
 
@@ -18,7 +26,7 @@
 
 ### D1/D4. Заказ + машина состояний
 - Модель `InstantOrder` (все поля D4 + таймстампы каждого перехода).
-- Состояния: `created → searching → offered → accepted → arriving → onboard → done`; терминальные `cancelled` / `expired` (выхода нет).
+- Состояния: `created → searching → offered → accepted → arriving → onboard → done`; терминальные `cancelled` / `expired` (выхода нет). *(Позже добавлен ещё `scheduled` — предзаказ «на время», до активации ко времени подачи.)*
 - Эндпоинты переходов: `/accept /decline /arrived /onboard /done /cancel` — под row-lock (`with_for_update`, паттерн из `bookings.py`) **+ атомарный условный UPDATE** (`WHERE status=<ожидаемый>`), поэтому гонка двух `accept` даёт второму **409** корректно и на Postgres, и на SQLite.
 - Идемпотентность: повторный тап `arrived/onboard/done/cancel` не ломает (accept — намеренно НЕ идемпотентен, чтобы ловить гонку).
 - Приватность: телефоны водителя/пассажира раскрываются **только после accept** (как в бронях)
@@ -44,14 +52,14 @@
 
 ### D1. Matcher
 - `GEOSEARCH` с расширением радиуса **3→7→15 км** (первый непустой круг подходящих).
-- Фильтры: online, verified, не занят другим активным заказом, не в чёрном списке пассажира, не сам пассажир.
+- Фильтры: online, verified, не занят другим активным заказом, не в чёрном списке пассажира, не сам пассажир. *(Позже добавлены: класс авто/опции салона, `women_only` — только проверенная женщина-водитель.)*
 - Скоринг: `w_dist/дистанция + w_rating·рейтинг` (веса в конфиге).
 - Оффер top-1 через `send_push` (**data-payload** — полноэкранная карточка на клиенте) с таймаутом (`instant_offer_ttl_sec`, дефолт 20с).
 - decline/timeout → следующий кандидат; кандидатов нет → пассажиру «рядом никого» (заказ `expired`, `send_push`).
 - **Таймаут оффера ленивый** (reconcile при чтении заказа / поллинге оффера) — работает без фонового воркера.
 
 ## 🧪 Тесты
-`backend/tests/test_instant.py` — 25 тестов. Полный прогон: **`pytest -q` → 206 passed, 1 skipped**.
+`backend/tests/test_instant.py` — 25 тестов на момент написания (сейчас в файле 28 `test_*`-функций; плюс `test_instant_scheduled.py`, `test_instant_order_participants_only.py`, `test_instant_search_clock.py` и др.). Прогон «206 passed, 1 skipped» — **на момент ветки**; сейчас `backend/tests/` — 529 файлов, CI гоняет весь набор на SQLite и на Postgres (`.github/workflows/ci.yml`).
 Покрыто: тариф (сервер считает, клиент не влияет, зоны), presence (+без Redis), matcher (ближайший, расширение радиуса, фильтры unverified/busy/blocked, пусто→expired), полная машина состояний, запрет неверных переходов, из терминала выхода нет, гонка двух accept (детерминированно + потоками), таймаут оффера, decline→следующий, отмены обеих сторон, приватность телефонов, доступ чужого → 403, заказ без Redis не падает.
 
 Alembic: `upgrade head` на чистой БД проходит + идемпотентен (проверены оба пути: baseline-create_all no-op и прод-create_table с индексами).
@@ -61,11 +69,11 @@ Alembic: `upgrade head` на чистой БД проходит + идемпот
 Для реальной работы matcher **нужен Redis** (`REDIS_URL` в `.env`) — на проде он уже есть (WS-чат/кэш). Тарифы правятся в БД (таблица `tariff`).
 
 ## 🔜 Что осталось (не входит в эту ветку)
-- **UI** (Android): экран пассажира «Куда едем?» → цена → «Ищем машину» → «Водитель едет» (трек), экран водителя (входящий оффер с таймером → навигация → приехал/посадил/завершил). Отдельная ветка следом.
-- **arq-воркер** (опционально): честный фоновый таймаут офферов и авто-протухание вместо ленивого reconcile. Сейчас не обязателен — всё работает синхронно. Тот же Redis.
-- **women_only** в matcher — отложено: у `User` нет поля пола (появится в уровнях доверия, Фаза 4).
-- **Деньги** (комиссия/ledger) — Фаза 3, отдельно.
+- ~~**UI** (Android): экран пассажира «Куда едем?» → цена → «Ищем машину» → «Водитель едет» (трек), экран водителя (входящий оффер с таймером → навигация → приехал/посадил/завершил). Отдельная ветка следом.~~ **Сделано** (экраны `InstantOrder`, `InstantDriverTrip`, `InstantChat`, `TaxiReceipt`, `MyTaxiTrips` и др. в `MainActivity.kt`).
+- **arq-воркер** (опционально): честный фоновый таймаут офферов и авто-протухание вместо ленивого reconcile. *Статус 2026-10-10:* arq не используется; вместо него сделан `app/taxi_worker.py` (systemd-таймер: активация предзаказов, закрытие зависших заказов, перезапуск поиска у «подожду машину», сдвиг протухших офферов); ленивый reconcile сохранён.
+- ~~**women_only** в matcher — отложено: у `User` нет поля пола (появится в уровнях доверия, Фаза 4).~~ **Сделано:** `InstantOrder.women_only`, фильтр в matcher (`_verified_female_driver` → `safety_logic.is_verified_female_driver`).
+- ~~**Деньги** (комиссия/ledger) — Фаза 3, отдельно.~~ **Сделано** отдельно: `ledger.py`, `debt.py` ([payments-ledger-backend.md](payments-ledger-backend.md)).
 - Александру: убедиться, что `REDIS_URL` задан в проде (он есть), проверить/поправить стартовые тарифы в таблице `tariff` под реальные цены.
 
 ## 🌐 Переводы (RU/BA) — на проверку Александру
-Бэкенд-строки пушей/ошибок сейчас только RU (это серверные тексты, не UI-надписи). Двуязычие — на UI-слое (`appText`) при реализации экранов. Черновой башкирский для будущих UI-строк «Быстрого заказа» соберём в `tasks.md` на этапе UI.
+Бэкенд-строки пушей/ошибок сейчас только RU (это серверные тексты, не UI-надписи). Двуязычие — на UI-слое (`appText`) при реализации экранов. Черновой башкирский для будущих UI-строк «Быстрого заказа» соберём в `tasks.md` на этапе UI. *(Актуализация 2026-10-10: ошибки API уже двуязычные — хелпер `herr(status, ru, ba)` из `app/errors.py` возвращает `detail={ru, ba}`, в том числе в `routers/instant.py`; про тексты пушей по коду не проверялось.)*

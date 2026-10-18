@@ -1,5 +1,7 @@
 # 🗺️ Карта кода Юлдаш
 
+> Сверено с кодом 2026-10-10 (origin/main 483d2340): разделы-карты текущего состояния актуальны; датированные разделы — история.
+
 ## Terminal HTTP и отправитель очереди (07.10.2026, QA-B02-003)
 
 `ActiveTripContent` использует `isTripChatActive` перед/после initial history/code/details, flush follow-up и REST send success. Начатый same-owner send при сетевой ошибке всё ещё сохраняет Outbox action/key; terminal блокирует только поздние UI/Toast. `Outbox.flush(context, expectedGeneration, shouldContinue={true})` сохраняет global default и проверяет динамический caller predicate после mutex и перед новым действием. Predicate выполняется вне монитора Outbox; не брать sessionLock из него. Ответ уже отправленного действия подтверждается merge по action.id/owner generation, остальные действия сохраняются; затем predicate останавливает следующие POST. Terminal не является глобальной политикой удаления очереди или запрета history: backend сохраняет after-trip/lost-item окно, YuldashApp startup flush независим.
@@ -77,11 +79,11 @@ B01, 20.09.2026: commitAuth возвращает отдельную SessionPersi
 `android/.../data/AuthStorePolicy.kt` выбирает актуальное хранилище по `auth_store_state` в обычных настройках `yuldash`: plain/secure/pending/logout. Отметка переживает выход; сами поля аккаунта — нет. `ApiClient.init` разрешает источник под sessionLock; `commitAuth` сохраняет полную сессию до изменения памяти. Для старых конфликтующих хранилищ без отметки нужен повторный вход. Проверки и ограничения — [аудит Android-хранилища](audit-android-auth-storage-2026-09-19.md).
 
 > Чтобы НЕ читать весь файл. Иди сразу в нужный ФАЙЛ (UI давно разрезан), `grep` по имени функции.
-> ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — сразу ниже.
+> ⚠️ Числа строк ниже устарели — ищи через `grep`/`rg`. Актуальная карта файлов — раздел «🆕 АКТУАЛЬНАЯ карта файлов» ниже (после журнала).
 
 ## ⭐ Навигация разрезана: где какой экран искать (2026-09-06)
 
-`YuldashApp.kt` больше не держит все 96 экранов. Ищи ветку экрана так:
+`YuldashApp.kt` больше не держит все 96 экранов (`enum Screen` в `MainActivity.kt` — 96 значений, из них 21 `Admin*`; проверено 2026-10-10). Ищи ветку экрана так:
 
 | Экраны | Файл |
 |---|---|
@@ -99,7 +101,7 @@ B01, 20.09.2026: commitAuth возвращает отдельную SessionPersi
 Раньше разбор JSON жил внутри сетевых методов и был непроверяем: тест не умеет ходить в сеть.
 Теперь каждый ответ разбирает функция верхнего уровня — её зовут и метод, и тест.
 
-Все они в конце `android/…/data/ApiClient.kt`, ищи по `internal fun parse`:
+Все они (кроме `parseMyAd` — это метод объекта `ApiClient`, он выше по файлу) в конце `android/…/data/ApiClient.kt`, ищи по `internal fun parse`:
 
 | Функция | Что разбирает |
 |---|---|
@@ -117,7 +119,7 @@ B01, 20.09.2026: commitAuth возвращает отдельную SessionPersi
 | `toRideDto`, `toRequestNearDto` | поездки и заявки рядом (были и раньше, теперь открыты тесту) |
 
 Проверяет их `android/app/src/test/java/com/yuldash/app/ApiParsingTest.kt` — 19 тестов,
-каждый кормит функцию готовым JSON и сверяет результат.
+каждый кормит функцию готовым JSON и сверяет результат. Рядом `android/app/src/test/java/com/yuldash/app/data/ApiParsingTest.kt` — ещё 8 тестов разбора чата.
 
 ## ⭐ Приоритет, ночная надбавка и курьер по правилам такси (2026-08-28, вечер)
 
@@ -493,19 +495,19 @@ Redis нет → заморозки нет, заказ идёт как рань�
 ## 🌐 Появилась папка `webapp/` — PWA-фронт (2026-08-06, релизная ветка)
 
 Третья кодовая база рядом с `android/` и `backend/`: веб-версия Юлдаша на Vite + TypeScript
-(~167 файлов). Ставится на телефон как приложение (PWA), нужна тем, у кого не встал APK.
+(~167 файлов на 2026-08-06; на 2026-10-10 — 267 файлов `.ts/.tsx` в `webapp/src`: 114 в `src/screens`, 73 в `src/components`, 38 в `src/api`; всего под `webapp/` в git 388 файлов). Ставится на телефон как приложение (PWA), нужна тем, у кого не встал APK.
 Отдельная от лендинга `web/` — тот про «скачать», этот про «пользоваться».
 
-Сборку сторожит CI: работа `webapp-build` в `.github/workflows/ci.yml` гоняет `npm ci` и
+Сборку сторожит CI: работа `webapp-build` в `.github/workflows/ci.yml` гоняет `npm ci`, `npm run check` (проверки PWA и контракта с сервером) и
 `npm run build` (типы + Vite). Не собралось — PR не проходит. Секреты не нужны: пустые `VITE_*`
 дают мягкие заглушки. Гоняется параллельно с бэкендом и Android, чужие проверки не задерживает.
 
-**Карта не сходится с прод-адресом.** `webapp/` в проде ещё не выкачен — код в репозитории есть,
+**Карта не сходится с прод-адресом.** `webapp/` в проде ещё не выкачен (по `docs/deploy-pwa.md` от 2026-09-18 `app.yulbash.ru` нигде не стоит — ждёт DNS-записи и запуска `webapp/server-setup.sh`; прод здесь не проверялся) — код в репозитории есть,
 выкатка отдельным решением Александра.
 
 ### PWA догнала приложение 1 в 1 (2026-08-12, ветка `claude/pwa-ios-app-40fd47`)
 
-Сравнили `enum Screen` в `android/…/MainActivity.kt` (87 экранов) с маршрутами
+Сравнили `enum Screen` в `android/…/MainActivity.kt` (87 экранов на 2026-08-12; на 2026-10-10 — 96) с маршрутами
 `webapp/src/App.tsx` и закрыли все расхождения. Добавлено 16 экранов + торг о цене,
 погода на маршруте и живая вкладка «Чат» (была заглушка `StubScreen`, файл удалён).
 
@@ -752,6 +754,8 @@ Safari на iOS не парсит), день без времени; мусор �
 Проверено на собранном модуле с поддельной сетью — 14 сценариев.
 Такси-чат и чат посылок очереди НЕ имеют — так же и в приложении (паритет).
 
+> Заметка 2026-10-10: упомянутые в «Доборах» файлы `dbl.py`, `dbl2.py`, `guest.py`, `lang.py`, `a11y2.py`, `leaks.py`, `dead.py`, `dark.py`, `silent.py`, `optimistic.py`, `success.py`, `tone.py`, `ba.py`, `ba2.py`, `ba3.py` — одноразовые скрипты прогона аудитов, в git их никогда не было (`git log --all` пуст); постоянные сторожа этих классов — наборы `webapp/tests/*.mjs`.
+
 **Добор-11 (2026-08-14), плохая связь:** `InstantDriverTripScreen.accept()` не имел
 замка от двойного тапа и на ЛЮБОЙ ошибке молча делал `setOffer(null)` — водитель не
 понимал, взял он заказ или нет; при обрыве после ухода запроса сервер назначал его,
@@ -877,7 +881,7 @@ PNG-ами: онбординг 2,18 МБ, вход 2,09 МБ, логотип 0,6
 не придут», показывается только когда он online.
 Проверено и чисто: `wsBase()` даёт `wss` на HTTPS; `notificationclick` в
 `public/push-sw.js` фокусирует существующую вкладку и навигирует внутрь.
-**Известный пробел не на стороне сайта:** `POST /push/web/subscribe` на бэкенде
+**Известный пробел не на стороне сайта (закрыт 2026-08-31: `POST /push/web/subscribe` и `/push/web/unsubscribe` есть в `backend/app/routers/auth.py`; ниже — запись 2026-08-14):** `POST /push/web/subscribe` на бэкенде
 пока нет — `api/push.ts` мягко ловит 404, `PushToggle` честно показывает
 «Подписка создана. Пуши заработают, когда мы настроим отправку на сервере».
 
@@ -1339,7 +1343,7 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
   Таблица `_NOTIFY_LINK` полная (`KeyError` на новом виде) и сверяется с приложением сторожем
   `tests/test_notifications_lead_somewhere.py`. Сценарии — `tests/test_promises.py`.
 - **Связка «поездка ↔ клиника» скрыта от анонимов (2026-08-08, волна 22).**
-  `rides._hide_health_hint` затирает `partner_id` и `category=hospital` для тех, кто без
+  `rides._hide_health_hint` (сейчас `visibility.hide_health_hint`) затирает `partner_id` и `category=hospital` для тех, кто без
   входа; применяется во ВСЕХ выходах поездок — лента (обе ветки: кеш и свежая), `/rides/near`
   (обязательно там, где собирается ответ: выше в руках ORM-объекты и правка теряется),
   карточка `/rides/{id}`. Фильтр `?category=hospital` анониму не применяется вовсе.
@@ -1591,7 +1595,7 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
   (`test_parcel_parties_can_open_their_photos`).
 - **Пауза убирает из ВЫДАЧИ, а не только из действий (2026-08-08, по просьбе Александра).**
   `safety_logic.suspended_user_ids(session)` — один select «кто сейчас на паузе» (условие
-  `suspended_until > now`, ленивый пересчёт не нужен). Применяется: `rides.py::_hide_suspended`
+  `suspended_until > now`, ленивый пересчёт не нужен). Применяется: `rides.py::_hide_suspended` (сейчас `visibility.hide_suspended`, зовётся из `rides.py`)
   в четырёх точках выдачи (кеш, свежая лента, поиск с пагинацией, `GET /rides/{id}`) и в ленте
   заявок `requests.py`. Своя поездка/заявка автору видна всегда. Прямую ссылку закрывают гейты:
   `account_paused(ride.driver_id)` в `POST /bookings` (409) и `account_paused(req.passenger_id)`
@@ -1630,7 +1634,7 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
 - **`backend/app/collusion.py` + `routers/sybil.py`** — детект накрутки доверия сговором (взаимный реферал / взаимные 5★ / много броней между собой), `GET /admin/sybil/suspects` (read-only админ-сигнал, без авто-наказаний).
 - **`backend/app/routers/reviews.py`** — `POST /admin/ratings/{id}/exclude` (снять оценку из среднего). Фильтр `excluded=False` — в ОБОИХ путях агрегата (`services.user_rating` + `drivers_bundle`).
 - **Хуки** (`routers/bookings.py`): `cancel_booking`/`mark_no_show` проставляют `cancelled_by`. **Конфиг** — `safety_*` в `config.py`. **Миграции** `j_rating_excluded`→`k_incidents`→`l_booking_cancelled_by` (идемпотентные). **Тесты**: `test_rating_exclude`/`test_sybil`/`test_incidents`(13)/`test_reliability`(7).
-- ⏳ **Не сделано:** Android-экран «Центр справедливости» (фаза 5, нужна сборка) + детект «бампинга» (нужна слежка за republish).
+- ✅ Android-экран «Центр справедливости» сделан после этого раздела (`Screen.FairnessCenter`, `FairnessScreens.kt`); ⏳ детект «бампинга» отложен (`suspected_bump` в `models.py` есть, детекта нет — `decisions.md` 2026-07-25).
 
 **Прочее из порта:**
 - **`backend/app/rate_reminder.py`** (из `notification-fixes`) — фоновый systemd-таймер (`app/rate_reminder.py`, ~30 мин): двуязычный push «оцените поездку» не оценившим. `Booking.rate_reminded` (дедуп), миграция `h_rate_reminded`, флаг `rate_reminder_enabled`.
@@ -1716,7 +1720,7 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
   два правила в одну точку:** `safety_logic.is_verified_female_driver(user, profile)` —
   «женщина за рулём» = заявлено `female` у ЧЕЛОВЕКА И подтверждено модератором у ВОДИТЕЛЯ;
   оттуда читают бейдж, SQL-фильтр ленты и подбор такси. Второе —
-  `safety_logic.reset_gender_verification(session, user, new_gender)`: смена заявления снимает
+  `safety_logic.reset_gender_verification(session, user, new_gender)` (в коде сейчас единая точка `services.set_user_gender(session, user, gender)`): смена заявления снимает
   подтверждение, и зовут её **обе** двери к полу — `/driver/gender` и `/me/update` (раньше
   вторая двери сброса не делала: «подтверждён как мужчина, заявлен как женщина» проходил
   в фильтр «только женщины»). Тест — `test_women_driver.py::test_verification_does_not_survive_a_gender_switch`.
@@ -1780,16 +1784,16 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
 
 ## 🔀 Сведение ветки `release-taxi` → `release-2026-07` (2026-07-14)
 
-Ветка `origin/release-taxi` слита в `release-2026-07` одним merge-коммитом. Все её фичи — **тихая поездка** (`Ride.quiet`, миграция `ride_quiet`), **остановки по пути** (`Ride.waypoints`, миграция `ride_waypoints`), **дашборд водителя** (`debt.driver_dashboard`/`driver_earnings`, заработок за сегодня + лесенка комиссии в `/instant/workday` и кабинете `ProfileScreen`), **«честные машины рядом»** (`/instant/nearby-drivers`, анонимные маркеры без цены/личности на `InstantRouteMap`), **премиум-иконки** нижней навигации/режимов/удобств и **починка пустых векторов** — уже присутствовали в `release-2026-07` (она — надмножество). Конфликты возникали только там, где наша ветка добавляла соседние поля поверх (`only_trusted`, `pickup_point_id`, `partner_id`, `/driver/earnings`, карточки «Доверие»/«Согласия»); разрешены аддитивно — сохранены обе стороны. Alembic — одна линейная голова `f26_instant_scheduled_at` (цепочка `city_profile → ride_quiet → ride_waypoints → … → f26`). Бэкенд: pytest 790 passed / 1 skipped, ruff F чисто.
+Ветка `origin/release-taxi` слита в `release-2026-07` одним merge-коммитом. Все её фичи — **тихая поездка** (`Ride.quiet`, миграция `ride_quiet`), **остановки по пути** (`Ride.waypoints`, миграция `ride_waypoints`), **дашборд водителя** (`debt.driver_dashboard`/`driver_earnings`, заработок за сегодня + лесенка комиссии в `/instant/workday` и кабинете `ProfileScreen`), **«честные машины рядом»** (`/instant/nearby-drivers`, анонимные маркеры без цены/личности на `InstantRouteMap`), **премиум-иконки** нижней навигации/режимов/удобств и **починка пустых векторов** — уже присутствовали в `release-2026-07` (она — надмножество). Конфликты возникали только там, где наша ветка добавляла соседние поля поверх (`only_trusted`, `pickup_point_id`, `partner_id`, `/driver/earnings`, карточки «Доверие»/«Согласия»); разрешены аддитивно — сохранены обе стороны. Alembic — одна линейная голова `f26_instant_scheduled_at` (цепочка `city_profile → ride_quiet → ride_waypoints → … → f26`; на 2026-10-10 единственная голова — `bv_refresh_recovery`, 130 миграций). Бэкенд: pytest 790 passed / 1 skipped, ruff F чисто.
 
 ## 🆕 АКТУАЛЬНАЯ карта файлов (2026-06-30) — UI разрезан на ~16 файлов
 
-`MainActivity.kt` (~664 строки) — ТОНКОЕ ядро: `onCreate`, `enum Screen/HomeTab/RideRole`, демо-сиды, `toUiRide`. Навигация — `YuldashApp.kt` (`enum Screen` + ветки `when` + старт-экран=КАРТА). Экраны в своих файлах:
+`MainActivity.kt` (1037 строк на 2026-10-10; на 2026-06-30 было ~664) — тонкое ядро: `onCreate`, `enum Screen` (96 значений), `HomeTab`, `RideRole`, `DeepLink`, оплата (`SberPayBlock`/`SbpTransferSheet`), `toUiRide`; `AppLanguage`/`appText` вынесены в `AppText.kt`, модели — в `Domain.kt`, демо-сиды — в `Mocks.kt`. Навигация — `YuldashApp.kt` (ветки `when(screen)`, часть вынесена в `AppNavAdmin.kt`/`AppNavHome.kt`/`AppNavOrders.kt`) + `YuldashViewModel.kt`. Экраны в своих файлах (таблица ниже — запись 2026-06-30…2026-08-30; весь список — `ls android/app/src/main/java/com/yuldash/app/*.kt`: 111 файлов в корне пакета + 19 в `data/`):
 
 | Файл | Что внутри |
 |---|---|
 | `YuldashApp.kt` | Корень: навигация (`when(screen)`), старт-экран, lifecycle поездок, старт/стоп `TripLocationService`, push-разрешения |
-| `MapScreen.kt` (~1.8к строк; иконки → `MapPins.kt`, гео-хелперы → `MapGeo.kt`, Спринт 3) | Вкладка Карта: `YandexMapCard`, маршрут (`drawRoadRoute` + объездные), live-стрелка (chaser-эффект), ETA-чип, демо-симуляция, фильтры «Ближайшие», маркеры заявок + `RequestPreviewCard`, авто-refresh + WS `MapFeedSocket`, карусель `QuickSearchCard` (+ донаты) |
+| `MapScreen.kt` (~2.3к строк; иконки → `MapPins.kt`, гео-хелперы → `MapGeo.kt`, Спринт 3) | Вкладка Карта: `YandexMapCard`, маршрут (`drawRoadRoute` + объездные), live-стрелка (chaser-эффект), ETA-чип, демо-симуляция, фильтры «Ближайшие», маркеры заявок + `RequestPreviewCard`, авто-refresh + WS `MapFeedSocket`, карусель `QuickSearchCard` (+ донаты) |
 | `BookingActiveTripScreen.kt` | `BookingScreen` (детали поездки/бронь: public locked → private unlocked через `/bookings/{id}/details`; pending-бронь не открывает active trip; **F11: при `contactUnlocked` сохраняет офлайн-паспорт** `saveTripPass`) + `ActiveTripScreen` (чат, код посадки только для `confirmed/onboard`, статус-вотчер `getTripState`, live-баннер фазы, SOS, оценка только при `done`; **F11: офлайн-режим — при сетевом сбое `getTripState` показывает `TripPassCard`+`OfflineTripBanner` из сохранённого паспорта; исходящие без сети → `Outbox` с авто-flush по `ConnectivityManager`**) |
 | `data/TripPass.kt` | **F11 (офлайн-паспорт):** `TripPass` (снимок брони) + `TripPassStore` (EncryptedSharedPreferences — телефон = ПДн, не логируем; save/load/updateBoardingCode/remove по booking id) + `Outbox` (очередь исходящих на диске: сообщение/статус, `flush()` авто-ретраит при сети, ApiException → снять из очереди, сеть → оставить). Инициализация в `ApiClient.init`. |
 | `RidesRequestsChatScreens.kt` | Вкладки Поездки/Заявки/Чат, `RideCard`, `RequestsFeedScreen` (чипы условий), `ResponsesScreen`, `ChatSocket`-чат; вкладка `Мои поездки` передаёт статус брони в навигацию |
@@ -1798,9 +1802,9 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
 | `ProfileScreen.kt` | Вкладка Профиль: кабинеты пассажира/водителя/рекламы, тогл «Я на линии». Кабинет пассажира — карточка входа «Быстрый заказ»; кабинет водителя — `InstantDriverOnlineController` (presence + оффер). **Доводка 2026-08-02:** список «оцените пассажиров» разделён надвое — `ratableBookings` (только `status == "done"`, звёзды + `UnpaidReportButton`) и новый раздел «Едут с тобой» (`confirmed`/`onboard`, только `NoShowButton`); раньше в один список валилось всё и тап по звезде отвечал 409. Оценка в ДВА шага: выбрал звёзды → `AppButton` «Отправить оценку»; `onRate` стал `(bookingId, stars, onDone: (Boolean) -> Unit)` — при сбое сети звёзды откатываются. `DriverBookingDto += myStars` (сервер `bookings.py::driver_bookings` отдаёт `my_stars`) → карточка показывает «Вы поставили ★N» + «Изменить» вместо пустых звёзд после перезагрузки. Общая шапка карточки вынесена в `private fun PassengerRow(b)` |
 | `InstantOrderScreen.kt::InstantThanksRow` 🆕 (2026-08-22) | **«Рәхмәт» на экране завершения**, а не только в чеке. Ручка `/instant/orders/{id}/thanks` и метод `sayInstantThanks` existed с 2026-08, но звались ТОЛЬКО из `TaxiReceiptScreen` — до чека надо догадаться, и тёплое спасибо жило за двумя тапами. Это же наш ответ чаевым: кнопки с суммой нет намеренно (платёж идёт мимо приложения, такая кнопка врала бы). Состояние тянем `getInstantTipInfo` — второй раз не предлагаем |
 | `InstantOrderScreen.kt::instantCancelGroups` 🔄 (2026-08-22) | **Причины отмены группами** (образец — Яндекс «Что случилось?»): «По моей инициативе» · «Из-за водителя» · «Не понравился сервис». Было шесть чипов вперемешку — по причине нельзя было понять, кто виноват. Коды свободные, сервер принимает строку до 200 символов |
-| `TaxiSearchingScreen.kt` 🆕 (2026-08-22) | **Поиск машины на общей шторке.** Карта во весь рост + `SearchRadar` (пульс через `canonBreath` — общий темп `CanonMotion.PULSE`; до 2026-09-05 жил вне шкалы со своим числом). Шапка: «Ищем машину» + секундомер (только после 70 с и только по серверным часам — `order.searchClockFrom`, локальный отсчёт цифр не показывает). Тело: текст по стадии ожидания (25 с / 70 с / дальше — «ищем дольше обычного», без вранья про «1–3 минуты»), цена к оплате. Полное положение: `InstantAlternativesBlock` (соседний класс — предлагаем, молча НЕ подменяем). Низ: «Отменить заказ». Старый `InstantSearchingCard` пока жив рядом |
+| `TaxiSearchingScreen.kt` 🆕 (2026-08-22) | **Поиск машины на общей шторке.** Карта во весь рост + `SearchRadar` (пульс через `canonBreath` — общий темп `CanonMotion.PULSE`; до 2026-09-05 жил вне шкалы со своим числом). Шапка: «Ищем машину» + секундомер (только после 70 с и только по серверным часам — `order.searchClockFrom`, локальный отсчёт цифр не показывает). Тело: текст по стадии ожидания (25 с / 70 с / дальше — «ищем дольше обычного», без вранья про «1–3 минуты»), цена к оплате. Полное положение: `InstantAlternativesBlock` (соседний класс — предлагаем, молча НЕ подменяем). Низ: «Отменить заказ». Старый `InstantSearchingCard` удалён (проверено 2026-10-10) |
 | `TaxiSheet.kt` 🆕 (2026-08-22) | **Общая шторка такси** — карта во весь рост + панель с тремя положениями (`TaxiSheetStop{Peek,Half,Full}`). Слоты: `map` (под шторкой), `header` (видно всегда, ОН ЖЕ зона хвата — тянут за всю шапку, не за полоску), `body` (от Half), `extra` (только Full), `footer` (главное действие, ВНЕ прокрутки), `overlay` (кнопки поверх карты). Высота — `animateContentSize` по содержимому, потолок `screenH * 0.70/0.38` с прокруткой внутри. Жест шагами (порог 48px), промежуточных высот нет. Одна на экран поездки и экран заказа: две почти одинаковые шторки через месяц расходятся по высоте и жесту |
-| `TaxiTripScreen.kt` 🆕 (2026-08-22) | **Активная поездка пассажира — отдельный экран.** Карта во весь рост (`InstantRouteMap` с новым параметром `recenterTick` — кнопка «показать маршрут» возвращает камеру), поверх неё шторка `TripSheetStop{Peek,Half,Full}`: высота идёт ПО СОДЕРЖИМОМУ (`animateContentSize`), положение выбирается по фазе (`defaultStopFor`) и переключается свайпом за шапку. Внутри: `TripStatusHeader` (крупный статус + минуты, обе шкалы прогресса убраны), `TripDriverCard` (фото/буква, имя, «★4.8 · 312 поездок», «машина · город» — землячество), три круглых действия (чат/звонок/`TripSafetySheet`), `TripPriceRow`, `InstantWaitingRow` + `TripImComingButton` («Уже выхожу» → `POST /instant/orders/{id}/im-coming`), `TripRouteBlock` (маршрут, остановки, смена адреса), `TripLightSwitch` (ночь), `TripCancelButton` + `TripPaidCancelDialog`. SOS (`TripSosButton`) — СНАРУЖИ шторки, поверх карты: у Яндекса до 112 два тапа, у нас один. `ActiveTripBar` — полоска «Ильдар едет · 3 мин» поверх всех вкладок, когда экран поездки не на виду; опрос через `RepeatWhileVisible`. Сигналы `NavSignals.activeTaxiTrip` / `taxiTripOnScreen` прячут `ModeSwitchBar` (ModeSwitchHome.kt) и `YuldashBottomBar` (YuldashApp.kt) на время поездки. Ночная поездка: `LocalNightRide` (CanonTokens.kt) + `SunTime.isDark(lat,lng,now)` — экран и карта приглушаются после гражданских сумерек, переключатель «Светлее» отменяет. Старый `InstantDriverEnRouteCard` пока жив рядом |
+| `TaxiTripScreen.kt` 🆕 (2026-08-22) | **Активная поездка пассажира — отдельный экран.** Карта во весь рост (`InstantRouteMap` с новым параметром `recenterTick` — кнопка «показать маршрут» возвращает камеру), поверх неё шторка `TaxiSheetStop{Peek,Half,Full}` (общий enum из `TaxiSheet.kt`; отдельного `TripSheetStop` в коде нет): высота идёт ПО СОДЕРЖИМОМУ (`animateContentSize`), положение выбирается по фазе (`defaultStopFor`) и переключается свайпом за шапку. Внутри: `TripStatusHeader` (крупный статус + минуты, обе шкалы прогресса убраны), `TripDriverCard` (фото/буква, имя, «★4.8 · 312 поездок», «машина · город» — землячество), три круглых действия (чат/звонок/`TripSafetySheet`), `TripPriceRow`, `InstantWaitingRow` + `TripImComingButton` («Уже выхожу» → `POST /instant/orders/{id}/im-coming`), `TripRouteBlock` (маршрут, остановки, смена адреса), `TripLightSwitch` (ночь), `TripCancelButton` + `TripPaidCancelDialog`. SOS (`TripSosButton`) — СНАРУЖИ шторки, поверх карты: у Яндекса до 112 два тапа, у нас один. `ActiveTripBar` — полоска «Ильдар едет · 3 мин» поверх всех вкладок, когда экран поездки не на виду; опрос через `RepeatWhileVisible`. Сигналы `NavSignals.activeTaxiTrip` / `taxiTripOnScreen` прячут `ModeSwitchBar` (ModeSwitchHome.kt) и `YuldashBottomBar` (YuldashApp.kt) на время поездки. Ночная поездка: `LocalNightRide` (CanonTokens.kt) + `SunTime.isDark(lat,lng,now)` — экран и карта приглушаются после гражданских сумерек, переключатель «Светлее» отменяет. `InstantDriverEnRouteCard` остался определён в `InstantOrderScreen.kt`, но больше нигде не вызывается (проверено 2026-10-10) |
 | `TaxiTripScreen.kt` 🔄 (2026-08-30, C + A) | **Утверждённая адаптивная поездка.** Пока водитель едет (`accepted`), экран открывается в `Peek`: карта занимает основное место, `TripMapStatusPill` показывает имя + ETA, а `TripCompactHeader` оставляет на виду водителя, марку/цвет/номер, чат, звонок, цену, оплату и безопасность. Свайп за всю шапку переводит в `Half` с подробным `TripStatusHeader` и `TripDriverCard`; `arriving` раскрывает `Half` автоматически. «Уже выхожу» закреплена снизу и доступна уже после принятия заказа; `/im-coming` и push-контракт сервера приведены к этому поведению. Стрелка вниз реально вызывает `onMinimize`, верхние элементы учитывают status bar. `InstantOrderDto += driverCarColor` (`driver_car_color` с сервера). Жест имеет семантическую метку `taxiSheetDragArea` и проверяется живым Compose-тестом на MapKit. |
 | `InstantOrderScreen.kt` 🆕 (2026-07-06) | **«Быстрый заказ» (такси-режим, Фаза 2).** Пассажир `Screen.InstantOrder`: `InstantOrderScreen` (Куда едем → `instantEstimate` цена → «Ищем машину» → «Водитель едет»: `InstantRouteMap` A→B + ETA + телефон после accept + отмена; состояния searching/active/expired/cancelled/done, восстановление активного заказа через `getMyInstantOrders`). Водитель: `InstantDriverOnlineController` (heartbeat `fireInstantPresence` + опрос `getDriverOffer` пока «на линии» → полноэкранный `InstantOfferOverlay` с таймером 20с, «Взять»/«Пропустить») и `Screen.InstantDriverTrip` → `InstantDriverTripScreen` (навигация к пассажиру, Приехал/Посадил/Завершить). Гео — `rememberMyPoint` (LocationManager, как на карте); выбор точки Б — переиспользован `PickupPickerOverlay`. Бэкенд-контракт — `backend/app/routers/instant.py`, DTO/методы в `data/ApiClient.kt`. **Полировка 2026-07-31:** типографика файла сведена к четырём размерам (`TxHero/TxTitle/TxBody/TxCaption` + `Lh*`), форма контролов — `InstantControlShape`; `InstantTripPhaseBar(step)` — полоска фаз «Ищем→Едет→На месте→В пути» (в `InstantSearchingCard` и в шторке `InstantDriverEnRouteCard`); `InstantAddressResults` — подсказки адреса со скелетоном/«не нашли»; `InstantNearbyBadge(count, loaded)` — машины рядом со склонением (`carsWordRu`) и честным «рядом нет» (вынесен из `Box`, иначе `AnimatedVisibility` не компилируется); `InstantQueuePulse` — живая полоска очереди ожидания; `InstantFinalCard` получил `tone: InstantTone` (Good/Bad — отмена больше не зелёная); ошибка оценки цены больше не тупик (кнопка «Повторить» → `estimateTick`) |
 | `SecondaryScreens.kt` | Уведомления, Безопасность, Настройки, «Фильтры по умолчанию», правила, админ-экраны |
@@ -1808,7 +1812,7 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
 | `SupportBoostScreen.kt` | Поддержка, Boost, Help (буст-оплата — общий `SberPayBlock`) |
 | `LoginScreen.kt` / `IntroScreen.kt` | Вход Telegram / брендовое интро |
 | `Domain.kt` / `Mocks.kt` / `CanonTokens.kt` | Модели · демо-фолбэк · цвета `Canon*` |
-| `CourierOnboardingScreen.kt` / `CourierScreen.kt` / `AdminCourierScreen.kt` | **Доводка 2026-08-02 (`CourierScreen.kt`):** карта онлайн-трекинга показывала `list.firstOrNull` — курьер с тремя посылками вручал вторую, а на карте был маршрут первой. Теперь при нескольких активных доставках над картой `LazyRow` из `TrackTargetChip` (город + №), по умолчанию выбрана та, что уже `in_transit`; карта по-прежнему ОДНА (MapKit тяжёлый, три карты вешают прокрутку). **C1 Курьер:** заявка «Стать курьером» (транспорт+селфи, статусы) · режим работы (на линии, зона, доступные/везу/кабинет) · админ-модерация заявок. Заказ курьера/«купи и привези» — в `ParcelsScreen` вкладка «Отправить» (тип доставки + `courierEstimate` честная цена + `createCourierOrder`). `enum Screen += CourierOnboarding, Courier, AdminCourier`. Вход: ProfileActionCard «Режим курьера», SettingsNavRow «Курьеры» (админ). **C3 (2026-07-12):** оценка доставки обеими сторонами после вручения (`ParcelRateDialog`/`ParcelRateButton`/`ParcelRatedRow` в `ParcelsScreen.kt`, 5 звёзд + `rateParcel`), рейтинг курьера у отправителя (`MyParcelCard`, null=«новый курьер»), кабинет курьера расширен: рейтинг + statement (earned/owed/paid) + «Оплатить комиссию» (`payCommission` → общий `SbpTransferSheet`) + плашка «Пауза по качеству». **C4 (2026-07-12):** в кабинете курьера — плашка «Сейчас ты платишь N% комиссии» с подписью по ступени (`feeTier`: promo/tier1/tier2/tier3) + honest-строка про минимум (`commissionMinKop`); пометка « ≈ ориентировочно» у оценки комиссии до вручения (EstimateCard в `ParcelsScreen`, карточка «Везу» в `CourierScreen`). DTO: `CourierStatementDto += currentFeePercent/feeTier/commissionMinKop`, `CourierEstimateBreakdown += commissionMinKop/commissionEstimated` (аддитивно, дефолты). |
+| `CourierOnboardingScreen.kt` / `CourierScreen.kt` / `AdminCourierScreen.kt` | **Доводка 2026-08-02 (`CourierScreen.kt`):** карта онлайн-трекинга показывала `list.firstOrNull` — курьер с тремя посылками вручал вторую, а на карте был маршрут первой. Теперь при нескольких активных доставках над картой `LazyRow` из чипов `CourierPickChip` (город + №; прежнее имя — `TrackTargetChip`), по умолчанию выбрана та, что уже `in_transit`; карта по-прежнему ОДНА (MapKit тяжёлый, три карты вешают прокрутку). **C1 Курьер:** заявка «Стать курьером» (транспорт+селфи, статусы) · режим работы (на линии, зона, доступные/везу/кабинет) · админ-модерация заявок. Заказ курьера/«купи и привези» — в `ParcelsScreen` вкладка «Отправить» (тип доставки + `courierEstimate` честная цена + `createCourierOrder`). `enum Screen += CourierOnboarding, Courier, AdminCourier`. Вход: ProfileActionCard «Режим курьера», SettingsNavRow «Курьеры» (админ). **C3 (2026-07-12):** оценка доставки обеими сторонами после вручения (`ParcelRateDialog`/`ParcelRateButton`/`ParcelRatedRow` в `ParcelsScreen.kt`, 5 звёзд + `rateParcel`), рейтинг курьера у отправителя (`MyParcelCard`, null=«новый курьер»), кабинет курьера расширен: рейтинг + statement (earned/owed/paid) + «Оплатить комиссию» (`payCommission` → общий `SbpTransferSheet`) + плашка «Пауза по качеству». **C4 (2026-07-12):** в кабинете курьера — плашка «Сейчас ты платишь N% комиссии» с подписью по ступени (`feeTier`: promo/tier1/tier2/tier3) + honest-строка про минимум (`commissionMinKop`); пометка « ≈ ориентировочно» у оценки комиссии до вручения (EstimateCard в `ParcelsScreen`, карточка «Везу» в `CourierScreen`). DTO: `CourierStatementDto += currentFeePercent/feeTier/commissionMinKop`, `CourierEstimateBreakdown += commissionMinKop/commissionEstimated` (аддитивно, дефолты). |
 | `CouponsScreen.kt` 🆕 (M1, 2026-07-11) | **«Скидки по пути» (пассажир).** `CouponsScreen(onBack)`: вкладки «Скидки рядом» (`getCoupons`, фильтр-чипы по городу; **при входе фильтр по умолчанию = родной город из профиля** `User.city` через `me()`, легко сбросить чипом «Все города») + «Мои купоны» (`getMyCoupons`); `CouponCard` (заведение+иконка категории, `discount_text` золотым бейджем, «осталось N», premium); детально → `activateCoupon` → крупный моноширинный КОД + дисклеймер. Хелперы `couponCategoryIcon/couponCategoryLabel/kopToRub/shortDate` — переиспользуются партнёром/админом |
 | `PartnerCabinetScreen.kt` 🆕 (M1, 2026-07-11) | **«Мой бизнес» (кабинет партнёра).** Ветвление по `getPartnerMe`: нет→`PartnerForm`(createPartner), pending→`PartnerPendingView`, rejected→причина+правка(updatePartner), active→`ActivePartnerCabinet` (подписка `getPartnerPlans`/`subscribePartner` СБП «на доверии» + выписка `StatementDto` + купоны `getPartnerCoupons` CRUD/`setPartnerCouponStatus` + `RedeemDialog`→`redeemCoupon`). Premium-переключатель купона только при `has_premium` |
 | `AdminPartnersScreen.kt` 🆕 (M1, 2026-07-11) | **Админ-модерация бизнесов.** `getAdminPartners` (pending сверху), карточка + `approvePartner`/`rejectPartner`(диалог с причиной). Вход — `AdminCabinetScreen` («Бизнесы-партнёры»). По паттерну `AdminWaitlistScreen` |
@@ -1834,7 +1838,7 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
 
 **📝 Форма заявки пассажира разгружена (2026-07-14):** `CreatePassengerRequestContent` (`AccessibilityScreens.kt`) — на виду откуда/куда/дата-время/места/цена/категории; 7 тумблеров условий + «только для своих» + комментарий свёрнуты в раскрывающийся блок «Дополнительно» (`AnimatedVisibility` expand/shrink, шеврон вращается, по умолчанию свёрнут). Поля не потеряны, логика заявки не менялась.
 
-**💳 Оплата (СБП/Сбербанк, единый компонент):** `SberPayBlock(phone)` в `MainActivity.kt` (рядом с `SbpTransferSheet`) — QR + кнопка «Оплатить в Сбербанке». QR генерит **ZXing** (`com.google.zxing:core:3.5.3`) на клиенте: `sberQrBitmap()`; ссылка `sberPayLink()` = `https://www.sberbank.com/sms/pbpn?requisiteNumber=<цифры SBP_PHONE_DIGITS>`. Переиспользован в 4 местах: донат (`SbpTransferSheet`), буст (`BoostResultCard`), кабинет рекламы/партнёр (`ProfileScreen.kt`), админ «Заявки на оплату» (`SecondaryScreens.kt`). Эквайринг/фискальный чек (54-ФЗ) — пока НЕ реализован (приём «на доверии» + QR).
+**💳 Оплата (СБП/Сбербанк, единый компонент):** `SberPayBlock(phone)` в `MainActivity.kt` (рядом с `SbpTransferSheet`) — QR + кнопка «Оплатить в Сбербанке». QR генерит **ZXing** (`com.google.zxing:core:3.5.3`) на клиенте: `sberQrBitmap()`; ссылка `sberPayLink()` = `https://www.sberbank.com/sms/pbpn?requisiteNumber=<цифры SBP_PHONE_DIGITS>`. Переиспользован в 4 местах: донат (`SbpTransferSheet`), буст (`BoostResultCard`), кабинет рекламы/партнёр (`ProfileScreen.kt`), админ «Заявки на оплату» (`SecondaryScreens.kt`). Эквайринг ЮKassa с чеком самозанятого (54-ФЗ) реализован на сервере (`backend/app/payments.py`: `_receipt`, `fetch_payment`), но включается только `PAYMENTS_PROVIDER=yookassa` + ключи (в `config.py` по умолчанию `mock`); интерим-режим — приём «на доверии» (`sbp_manual`) + QR.
 
 **Бэкенд** `backend/app/routers/`: `location.py` (WS `/ws/trip/{id}/location` реле + `/ws/map` сигнал), `requests.py` (заявка + prefs + `/near` округл. коорд + лента + отзыв отклика), `bookings.py` (бронь, приватные детали `/bookings/{id}/details`, `driver_phase`, статусы), `rides.py`, `discovery.py` (`/feed` + `donations_total`), `chat.py` (WS `/ws/bookings/{id}`, REST-история, `/conversations` показывает активные брони даже до первого сообщения), `drivers.py`, `payments.py` (донат/буст СБП «на доверии»), `ads.py`, `safety.py`, `family.py`, `notifications.py` (Центр уведомлений — см. ниже), `trust.py` (доверие «между своими» — уровни/инвайты/согласия). Деплой — `docs/server.md`.
 
@@ -1845,14 +1849,14 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
 - **`DELETE /responses/{id}`** (`requests.py::withdraw_response`) — водитель отзывает свой отклик, пока пассажир не принял. Только автор (403 иначе), после accept → **409**, нет → 404. Лента `/requests/feed` теперь отдаёт `my_response_id` (id своего отклика → кнопка «Отозвать»). pytest: `tests/test_ride_history_edges.py` (6 тестов — фильтр статусов, изоляция по водителю, отзыв pending, запрет чужого/принятого, 404).
 - **UI:** раздел **«Архив»** в кабинете водителя (`ProfileScreen.kt` → `DriverCabinetContent` + `ArchiveRideCard`) со счётчиками «Рейсов сделано» / «Пассажиров отвезено» (`seats_total - seats_left` по done), все состояния (skeleton/empty/error+retry). Кнопка **«Отозвать отклик»** в `RequestsFeedContent` (`RidesRequestsChatScreens.kt`) с confirm-диалогом. `ApiClient.getDriverRides(status)` + `deleteResponse(id)`; `RideDto.status`, `RequestFeedDto.myResponseId`.
 
-### Домен «Доверие между своими» (Фаза 4 / D5) — БЭКЕНД (ветка `feat/trust-levels`, ⏳ не в проде)
+### Домен «Доверие между своими» (Фаза 4 / D5) — БЭКЕНД (ветка `feat/trust-levels`; ✅ влито в main — в коде есть `trust_service.py`, `routers/trust.py`, миграция `p4_trust.py`; прод-статус не проверялся)
 > Полная спека и политика хранения 152-ФЗ — [docs/trust-levels-backend.md](trust-levels-backend.md).
 - **Уровни L0..L3 (вычисляемые + дарованный).** Логика — `app/trust_service.py::trust_level(session, user)`. L0 телефон → L1 +имя+фото → L2 +документы (переиспользует `User.verified` из модерации водителя) → L3 «свой» (по инвайту). Итог = `max(вычисленный из профиля, дарованный)`. L0 — нормальный пользователь, уровни НЕ унижают.
 - **Модели** (`models.py`): `Trust(user_id, level, invited_by, updated_at)` — строка только для дарованного L3 «свой» + цепочка приглашений; `InviteCode(code, owner_id, uses_left, created_at)` — инвайт-коды (запас на юзера `MAX_INVITES_PER_USER=5`, код не бесконечен `uses_left`); `Consent(user_id, kind, granted_at)` — реестр согласий 152-ФЗ (kind: offer/privacy/geo). Плюс флаг `only_trusted` на `Ride` и `RideRequest`.
 - **Эндпоинты** (`routers/trust.py`, двойной монтаж `/…` и `/api/v1/…`): `GET /me/trust` (мой уровень + что даёт следующий, двуязычно); `POST /invites` (создать, только L2+); `GET /invites/mine`; `POST /invites/redeem {code}` (→ L3, пишет invited_by, uses_left--); `GET /me/consents`; `POST /me/consents {kind}`.
-- **«Только для своих»** (`only_trusted`): поездки/заявки видят и берут лишь L3. Фильтр — per-user поверх кеша в `rides.py::_hide_trusted_only` (как `_hide_blocked`), в `/rides`, `/rides/near`, `/requests/feed`, `/requests/near`, `/match/rides`; свою поездку водитель видит всегда. Прямой id не обходит (guard в `respond_to_request`).
+- **«Только для своих»** (`only_trusted`): поездки/заявки видят и берут лишь L3. Фильтр — per-user поверх кеша в `visibility.py::hide_trusted_only` (как `hide_blocked`; зовётся из `rides.py`), в `/rides`, `/rides/near`, `/requests/feed`, `/requests/near`, `/match/rides`; свою поездку водитель видит всегда. Прямой id не обходит (guard в `respond_to_request`).
 - **Приватность (IDOR):** чужой уровень/инвайты/согласия не отдаём — все эндпоинты только про себя. Удаление аккаунта (`account.py`) стирает Trust/InviteCode/Consent и отвязывает `Trust.invited_by`.
-- **Миграция** `alembic/versions/p4_trust.py` (down_revision `0004_booking_boarding_code`) — идемпотентна (проверка inspector), проходит upgrade/downgrade и поверх create_all. **Свести миграцию при merge — лид** (несколько feat-веток от 0004).
+- **Миграция** `alembic/versions/p4_trust.py` (down_revision `0004_booking_boarding_code`) — идемпотентна (проверка inspector), проходит upgrade/downgrade и поверх create_all. **Свести миграцию при merge — лид** (несколько feat-веток от 0004) — сведено: в main единая голова (проверено 2026-10-10).
 **🔗 F16 — расшарить поездку (viral loop, ветка `feat/share-ride-link`):** `backend/app/routers/share.py` (новый) — `GET /r/{id}/preview` (JSON без ПДн, явный белый список: маршрут/время/цена/удобства/имя+рейтинг водителя; телефон и точка сбора НЕ отдаются) + `GET /r/{id}` (server-rendered HTML с OG-тегами → карточка в WhatsApp/Telegram, `?lang=ba`, deep-link + «Скачать»). Веб-превью отдаёт БЭКЕНД (nginx-fallback на API), т.к. лендинг `web/` статический (`output:"export"`) не умеет per-ride OG (краулеры не исполняют JS). Android: share-sheet вкладывает ссылку `yulbash.ru/r/{id}` (хост из `BuildConfig.YULDASH_WEB_BASE_URL`, не API base); intent-filter `yulbash.ru/r/*` (autoVerify, AndroidManifest) → `MainActivity.handleDeepLink` → `DeepLink.pendingRideId` → `YuldashApp` тянет `ApiClient.getRide(id)` и открывает `BookingScreen`.
 
 **Бэкенд** `backend/app/routers/`: `location.py` (WS `/ws/trip/{id}/location` реле + `/ws/map` сигнал), `requests.py` (заявка + prefs + `/near` округл. коорд + лента), `bookings.py` (бронь, приватные детали `/bookings/{id}/details`, `driver_phase`, статусы), `rides.py`, `discovery.py` (`/feed` + `donations_total`), `chat.py` (WS `/ws/bookings/{id}`, REST-история, `/conversations` показывает активные брони даже до первого сообщения), `drivers.py`, `payments.py` (донат/буст СБП «на доверии»), `ads.py`, `safety.py`, `family.py`. Деплой — `docs/server.md`.
@@ -1865,13 +1869,13 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
 - **Алерт 5xx** — `services.record_server_error()`: счётчик серверных ошибок в окне + порог → ОДНО сообщение админу в Telegram (`notify_admin_telegram`), затем cooldown (анти-спам). Пороги: `error_alert_threshold/window_sec/cooldown_sec` в `config.py`. Считается в `AccessLogMiddleware` (явные 5xx, кроме `/health*`) и в `unhandled_exception_handler` (реальные краши). Тесты — `tests/test_observability.py` (7).
 - **Шаги Александра для активации:** создать проект Sentry → положить DSN в прод-env (`SENTRY_DSN=...`) и в `local.properties` (`YULDASH_SENTRY_DSN=...`); при желании задать `ERROR_ALERT_THRESHOLD`. Без этих шагов всё работает как раньше (no-op).
 
-**Кабинет партнёра (реклама, План B — в разработке):** `Ad` расширен полями `owner_id` (партнёр-владелец), `reject_reason`, `package`/`budget_kop`/`period_days` (тариф), `submitted_at`/`reviewed_at`; статусы `pending_review`/`rejected` добавлены к строке `status`. `User.is_advertiser`. Тарифы — конфиг `AD_PACKAGES` в `ads.py` (не хардкод в клиенте). Миграция `alembic/versions/0003_partner_ads_columns.py`. Приватность: партнёр видит/меняет только `owner_id==self`, админ — всё.
+**Кабинет партнёра (реклама, План B — реализовано, влито в main: `Ad.owner_id`, `AD_PACKAGES` в `ads.py`, `AdsCabinetScreen` в `ProfileScreen.kt`):** `Ad` расширен полями `owner_id` (партнёр-владелец), `reject_reason`, `package`/`budget_kop`/`period_days` (тариф), `submitted_at`/`reviewed_at`; статусы `pending_review`/`rejected` добавлены к строке `status`. `User.is_advertiser`. Тарифы — конфиг `AD_PACKAGES` в `ads.py` (не хардкод в клиенте). Миграция `alembic/versions/0003_partner_ads_columns.py`. Приватность: партнёр видит/меняет только `owner_id==self`, админ — всё.
 
-**F10 — Договорённость об оплате в брони (2026-07-05, ветка `feat/payment-agreement`):** `Booking` +2 поля `pay_method` (`PayMethod`: cash/sbp/negotiate, дефолт negotiate) + `pay_amount` (₽, опц.). Это ЗАПИСЬ «как договорились платить», **НЕ платёж** и не движение денег — юр-модель не меняется; видно обеим сторонам, опора в споре. Бэк (`bookings.py`): `BookIn` принимает способ/сумму при брони (дефолт суммы — цена поездки, `_clean_pay_amount` валидирует ≤100k); `POST /bookings/{id}/pay-agreement` — правка любой стороной; поля отдаются в `/bookings/{id}/details` и `/bookings/mine`. Миграция `alembic/versions/f10_payment_agreement.py` (revises `0004`, идемпотентна; цепочку сведёт лид при мердже). UI (`BookingActiveTripScreen.kt`): `PayAgreementBlock` — чипы способа + поле суммы до брони (`Canon*`, переиспользует `NearbyFilterChip`), read-only показ договорённости в деталях брони и активной поездке обеим сторонам. Тексты — `appText(ru,ba)`, ба-черновик → `docs/tasks.md`.
+**F10 — Договорённость об оплате в брони (2026-07-05, ветка `feat/payment-agreement`):** `Booking` +2 поля `pay_method` (`PayMethod`: cash/sbp/negotiate, дефолт negotiate) + `pay_amount` (₽, опц.). Это ЗАПИСЬ «как договорились платить», **НЕ платёж** и не движение денег — юр-модель не меняется; видно обеим сторонам, опора в споре. Бэк (`bookings.py`): `BookIn` принимает способ/сумму при брони (дефолт суммы — цена поездки, `_clean_pay_amount` валидирует ≤100k); `POST /bookings/{id}/pay-agreement` — правка любой стороной; поля отдаются в `/bookings/{id}/details` и `/bookings/mine`. Миграция `alembic/versions/f10_payment_agreement.py` (revises `0004`, идемпотентна; цепочку сведёт лид при мердже — сведено: единая голова в main на 2026-10-10). UI (`BookingActiveTripScreen.kt`): `PayAgreementBlock` — чипы способа + поле суммы до брони (`Canon*`, переиспользует `NearbyFilterChip`), read-only показ договорённости в деталях брони и активной поездке обеим сторонам. Тексты — `appText(ru,ba)`, ба-черновик → `docs/tasks.md`.
 **F20 — статистика кабинета рекламодателя (2026-07-06):** `GET /ads/mine/stats` (все мои объявления) и `GET /ads/{id}/stats` (одно) — показы/клики/CTR/остаток срока, агрегат по `AdEvent` через SQL `GROUP BY` (без загрузки всей таблицы в память). CTR = клики/показы·100, при 0 показов = 0.0. IDOR закрыт: строго `owner_id==self`, чужое → 404. Миграции не требуется (только чтение `AdEvent`). Клиент: `MyAdStatsDto` + `ApiClient.getMyAdsStats()`; в `ProfileScreen.kt` — `AdStatsTiles` (плитки показы/клики/CTR/срок в `MyAdCard`, только для active) + кнопка «Продлить размещение» для оплаченных (тот же СБП-флоу `SbpTransferSheet`; серверное продление — заявка+подтверждение админом — бэклог). Тесты: `backend/tests/test_ads_stats.py` (8). Спека — [ads-system.md](ads-system.md) сценарий 12.
-**🏥 F22 «медцентр-партнёр» (ветка `feat/medical-partner`):** справочник клиник как точек назначения поездок «в больницу» (ЛОГИСТИКА, не медуслуга — без мед.данных пациента). Backend: модель `MedicalPartner` (название/город/адрес/коорд/описание) + `Ride.partner_id` (опц.), миграция `f22_medical_partner` (down_revision `0004`, идемпотентно + сид РКБ/ЦРБ), роутер `medical.py` (`GET /medical-partners`, `/medical-partners/{id}`, `/medical-partners/{id}/rides` — публичная витрина без телефона). UI: `ClinicRidesScreen.kt` (`Screen.ClinicRides`, вход — карточка на вкладке Карта), выбор клиники-назначения в `CreateRideScreen` (тип «В больницу»). `pytest 187 passed`. **Миграции сведёт лид.**
+**🏥 F22 «медцентр-партнёр» (ветка `feat/medical-partner`):** справочник клиник как точек назначения поездок «в больницу» (ЛОГИСТИКА, не медуслуга — без мед.данных пациента). Backend: модель `MedicalPartner` (название/город/адрес/коорд/описание) + `Ride.partner_id` (опц.), миграция `f22_medical_partner` (down_revision `0004`, идемпотентно + сид РКБ/ЦРБ), роутер `medical.py` (`GET /medical-partners`, `/medical-partners/{id}`, `/medical-partners/{id}/rides` — публичная витрина без телефона). UI: `ClinicRidesScreen.kt` (`Screen.ClinicRides`, вход — карточка на вкладке Карта), выбор клиники-назначения в `CreateRideScreen` (тип «В больницу»). `pytest 187 passed`. **Миграции сведёт лид** (сведено: единая голова в main на 2026-10-10).
 **📅 F15 v2 — сезонные события на АВТО-датах (ветка `feat/seasonal-events`):** `backend/app/routers/seasonal.py` — даты НЕ хардкодятся на год, а вычисляются. Три типа: `fixed` (9 Мая, 1 сент, День Республики 11 окт, День России, День народного единства…), `nth_weekday` (Сабантуй — 2-я суббота июня; дни городов; День металлурга — 3-е вс июля), `hijri` (Ураза=Шавваль 1, Курбан=Зульхиджа 10 — через табличный исламский календарь, эпоха 1948439, ±1 день к муфтияту, **пересчёт сам каждый год**). Добавлены дни городов РБ (Уфа/Стерлитамак/Салават/Нефтекамск/Октябрьский/Сибай + Магнитогорск у границы) — паттерн-оценка, «дата уточняется». `SEASONAL_OVERRIDES` — прибить офиц. дату на год (приоритет над расчётом). Ответ обогащён `anchor`+`category` (fed/rb/religious/school/city). Чистая `active_events(today, window)` тестируема без привязки к дате. Тесты `tests/test_seasonal.py` (12). Эндпоинт публичный `GET /seasonal-events?days=` → `{"items":[...]}` (единый контракт списков). **UI-баннер:** `SeasonalBanner.kt` — карточка на вкладке Карта «Скоро {событие} — едешь? Опубликуй поездку» (эмодзи, дата `ДД.ММ`, пометка, кнопка → форма создания поездки), показывается только при близком событии, скрываемая, плавное появление, Canon/две темы. Данные тянет `MapScreen` (`ApiClient.getSeasonalEvents` + `SeasonalEventDto`), проброс `MapScreen ← PassengerModeHome ← HomeScreen`. Кнопка баннера открывает форму поездки с предзаполненной датой праздника (`seasonalRidePrefillDate` → `openCreateRide(prefillDate)` → `CreateRideScreen(prefillDate)`); маршрут не подставляем (место праздника неоднозначно). F15 закрыт end-to-end.
-**F17 — Постоянные маршруты водителя (ветка `feat/driver-schedule`):** таблица `DriverSchedule` (driver_id, from_city, to_city, weekdays CSV ISO 1–7, time «ЧЧ:ММ», active) + миграция `alembic/versions/f17_driver_schedule.py` (revision `f17_driver_schedule` ← `0004`, идемпотентна). Роутер `backend/app/routers/driver_schedule.py`: `POST /driver/schedule` (создать, валидация дней/времени), `GET /driver/schedule` (мои), `GET /drivers/{id}/schedule` (публичные active, без auth), `DELETE /driver/schedule/{id}` (своё; чужое → 403). UI: блок «Регулярные маршруты» в `DriverCabinetScreen` (`ProfileScreen.kt` — `DriverScheduleSection`/`AddScheduleDialog`/`ScheduleRow`, дни чипами, время, все состояния, Canon*). Хук для пассажира `PublicDriverSchedulesCard` (кнопка «Следить» → route-watch F13, когда появится экран профиля водителя). ApiClient: `createDriverSchedule`/`getMyDriverSchedules`/`getPublicDriverSchedules`/`deleteDriverSchedule` + `DriverScheduleDto`. Тесты: `tests/test_driver_schedule.py` (CRUD, публичный список без auth, 403 на чужое, валидация). Миграции сводит лид.
+**F17 — Постоянные маршруты водителя (ветка `feat/driver-schedule`):** таблица `DriverSchedule` (driver_id, from_city, to_city, weekdays CSV ISO 1–7, time «ЧЧ:ММ», active) + миграция `alembic/versions/f17_driver_schedule.py` (revision `f17_driver_schedule` ← `0004`, идемпотентна). Роутер `backend/app/routers/driver_schedule.py`: `POST /driver/schedule` (создать, валидация дней/времени), `GET /driver/schedule` (мои), `GET /drivers/{id}/schedule` (публичные active, без auth), `DELETE /driver/schedule/{id}` (своё; чужое → 403). UI: блок «Регулярные маршруты» в `DriverCabinetScreen` (`ProfileScreen.kt` — `DriverScheduleSection`/`AddScheduleDialog`/`ScheduleRow`, дни чипами, время, все состояния, Canon*). Хук для пассажира `PublicDriverSchedulesCard` (кнопка «Следить» → route-watch F13, когда появится экран профиля водителя). ApiClient: `createDriverSchedule`/`getMyDriverSchedules`/`getPublicDriverSchedules`/`deleteDriverSchedule` + `DriverScheduleDto`. Тесты: `tests/test_driver_schedule.py` (CRUD, публичный список без auth, 403 на чужое, валидация). Миграции сводит лид (сведено: единая голова в main на 2026-10-10).
 
 > Полный актуальный СТАТУС реализации — в [00-INDEX.md](00-INDEX.md) (блок 2026-06-30).
 
@@ -1882,6 +1886,8 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
 - **Backend:** `GET /me/stats` (`backend/app/routers/stats.py`, зарегистрирован в `routers/__init__.py`) — агрегаты по `current_user` (приватность): завершённые брони (пассажир) + завершённые поездки (водитель). Дистанция — координаты концов маршрута, иначе `geocode_city`. Звание — по числу поездок (`RANKS`), уровень 0 у новичка (без «наград»). Коэффициенты в `config.py`: `stats_taxi_rub_per_km`, `stats_co2_grams_per_km` (⚠️ уточнит Александр). Тесты `tests/test_stats_edges.py`. Миграция НЕ нужна.
 
 ## Лендинг web/ — интерактивная версия 2026-06-29
+
+> ⚠️ Актуально на 2026-10-10 (сверено с `web/`): `web/app/page.tsx` рендерит `<LandingPage initialLang="ru" />` из `web/components/LandingPage.tsx` (`/ba` — тот же `LandingPage` с `initialLang="ba"`, `web/app/ba/page.tsx`); `web/components/YuldashLanding.tsx` из журнала ниже удалён, `lenis` и `lucide-react` в `web/package.json` больше нет (зависимости: `next` ^16.2.9, `react` 18, `framer-motion`; Tailwind 3 — в devDependencies). Видео — `web/public/{hero,hero-vertical,promo-wide,promo-portrait}.mp4` (файла `yuldash-promo.mp4` нет); исходник роликов — `promo/` (Remotion: `src/Promo.tsx`, `src/PromoWide.tsx`, `src/Root.tsx`). Пункты ниже — история итераций 2026-06-29.
 - **Production-hardening 2026-06-30:** `web/` обновлён до Next.js 16.2.9, PostCSS поднят до 8.5.x через `overrides`, потому `npm audit --omit=dev` теперь 0 vulnerabilities. Build остаётся статическим (`output: "export"`) и деплоится как `web/out/` в `/var/www/yuldash-landing`.
 - Главная страница `web/app/page.tsx` стала тонкой оболочкой: `MotionConfig` → `LangProvider` → `DownloadProvider` → `YuldashLanding`.
 - Новый основной файл: `web/components/YuldashLanding.tsx`. Внутри: Lenis smooth scroll, живой hero с H1 «Юлдаш ведёт по республике красиво», видеофоном `/yuldash-promo.mp4`, анимированной маршрутной сценой, телефонным mockup, секции `#how`, `#map`, `#reviews`, `#download`, footer.
@@ -1895,38 +1901,38 @@ Places|Watches|Zone|Messages|Balance|…`) — точнее и не требуе
 
 ## Главное
 
-- **UI разрезан на модули (2026-06-27, Opus). `MainActivity.kt` 8184→664 строки.** Раньше весь UI был в одном файле — теперь по файлам (тот же пакет `com.yuldash.app`, общие символы `internal`). Каждый экран = свой файл → разные агенты пилят разные экраны параллельно. Карта файлов:
+- **UI разрезан на модули (2026-06-27, Opus). `MainActivity.kt` 8184→664 строки (на 2026-10-10 — 1037).** Раньше весь UI был в одном файле — теперь по файлам (тот же пакет `com.yuldash.app`, общие символы `internal`). Каждый экран = свой файл → разные агенты пилят разные экраны параллельно. Карта файлов:
   - **Фундамент:** `AppText.kt` (двуязычие), `CanonTokens.kt` (палитра/формы/тема), `Domain.kt` (модели), **`UiKit.kt`** (продакшен-компоненты: `AppButton`/`AppStateContainer`/`AppLoading`/`AppErrorState`/`AppEmptyState`/`SkeletonBox`/`SkeletonCard`/`AppCard`/`SectionHeader` — единый источник правды для кнопок и состояний loading/empty/error; команда `/ui`).
   - **Экраны:** `LoginScreen.kt`, `SupportBoostScreen.kt`, `SecondaryScreens.kt` (Уведомл/Безоп/Настр/Помощь), `AccessibilityScreens.kt` (доступность/семья), `SosVerifyScreens.kt` (SOS+проверка водителя), `CreateRideScreen.kt`, `ProfileScreen.kt` (+кабинеты), `BookingActiveTripScreen.kt`, `RidesRequestsChatScreens.kt` (Поездки+Заявки+Чат), `MapScreen.kt` (Яндекс MapKit).
   - `AccessibilityScreens.kt`: `SimpleModeScreen` закрыт как хаб доступности. Серверные действия (`VoiceRequest`, `FamilyOrder`, `TrustedContacts`, `RepeatTrip`, `CallbackHelp`, `Chat`) без токена ведут на `Login`, потому что `/requests`, `/trusted-contacts`, `/my-routes`, `/callback` требуют auth. `RepeatTripScreen` после входа грузит маршруты через `ApiClient.getMyRoutes()` (`/my-routes`), показывает loading/error/empty, при ошибке всё равно показывает быстрые варианты, а повтор создаёт серверную заявку через `ApiClient.createRequest()` (`/requests`) только после успешного ответа. `SosScreen`: звонки 112/102/101/103 доступны без входа; отправка близким/поддержке требует вход и ведёт на `Login`.
   - **Навигация:** `YuldashApp.kt` — корень (`when(screen)`) + `HomeScreen` + нижнее меню.
-  - **`MainActivity.kt` (1008 строк)** — тонкий общий слой: класс `MainActivity`, `enum Screen`, сплэш/онбординг, общие модели/моки (`demoRides`/`demoPartnerAds`), OAuth-хелперы (`openTelegramLogin`…).
+  - **`MainActivity.kt` (1037 строк на 2026-10-10)** — тонкий общий слой: класс `MainActivity`, `enum Screen` (96 значений), `HomeTab`/`RideRole`, `DeepLink`, оплата (`SberPayBlock`/`SbpTransferSheet`), `toUiRide`. Модели ушли в `Domain.kt`, моки (`demoRides`/`demoPartnerAds`) — в `Mocks.kt`, `appText`/`AppLanguage` — в `AppText.kt`; вход через Telegram — `openTelegram` в `LoginScreen.kt` (`openTelegramLogin` больше нет).
   - ⚠️ **Параллелим аккуратно (§12 CLAUDE.md):** разные файлы-экраны — можно разом; но `MainActivity.kt` (общий слой) — один писатель.
 - Тема: `android/app/src/main/java/com/yuldash/app/ui/theme/Theme.kt`
 
-### 🗺 Карта экранов Android — актуальные размеры (2026-08-22)
+### 🗺 Карта экранов Android — актуальные размеры (пересчитано 2026-10-10; прежний замер 2026-08-22: 89 файлов, 60673 строки)
 
 Номера строк в старых разделах ниже устарели после разреза UI на файлы — **ориентируйся
-по именам файлов**, а размеры бери отсюда. Всего в `android/app/src/main/java/com/yuldash/app`: **89 файлов,
-60673 строк**.
+по именам файлов**, а размеры бери отсюда. Всего в `android/app/src/main/java/com/yuldash/app` (только корень пакета): **111 файлов,
+78424 строки**; ещё 19 файлов в `data/` и `ui/theme/Theme.kt`.
 
 | Файл | Строк |
 |---|---|
-| `InstantOrderScreen.kt` | 4863 |
-| `ProfileScreen.kt` | 4387 |
-| `RidesRequestsChatScreens.kt` | 2913 |
-| `ParcelsScreen.kt` | 2821 |
-| `BookingActiveTripScreen.kt` | 2639 |
-| `YuldashApp.kt` | 2558 |
-| `CourierScreen.kt` | 2432 |
-| `SecondaryScreens.kt` | 2370 |
-| `MapScreen.kt` | 2224 |
-| `AccessibilityScreens.kt` | 1789 |
+| `InstantOrderScreen.kt` | 7913 |
+| `ProfileScreen.kt` | 4834 |
+| `BookingActiveTripScreen.kt` | 3981 |
+| `RidesRequestsChatScreens.kt` | 3556 |
+| `ParcelsScreen.kt` | 3044 |
+| `YuldashApp.kt` | 2738 |
+| `CourierScreen.kt` | 2546 |
+| `SecondaryScreens.kt` | 2507 |
+| `MapScreen.kt` | 2292 |
+| `AccessibilityScreens.kt` | 2140 |
 | `FairnessScreens.kt` | 1576 |
-| `LoginScreen.kt` | 1272 |
-| `SosVerifyScreens.kt` | 1189 |
-| `TaxiOnboardingScreen.kt` | 1128 |
-| `CreateRideScreen.kt` | 1053 |
+| `TaxiTripScreen.kt` | 1531 |
+| `LoginScreen.kt` | 1307 |
+| `TaxiDocsScreens.kt` | 1200 |
+| `SosVerifyScreens.kt` | 1188 |
 
 Перепроверить в любой момент (из корня репозитория):
 
@@ -1967,16 +1973,18 @@ wc -l android/app/src/main/java/com/yuldash/app/*.kt | sort -rn | head -20
 - **Ключ карты:** `local.properties` → `YANDEX_MAPKIT_KEY` (в `.gitignore`) → пробрасывается в `BuildConfig.YANDEX_MAPKIT_KEY` через `app/build.gradle.kts` (`buildConfig = true`). В коде ключ не хардкодим.
 - Тексты-ресурсы: `android/app/src/main/res/values/strings.xml` (RU) + `values-ba/strings.xml` (BA).
   Но **бо́льшая часть надписей пишется прямо в коде** через `appText(ru, ba)`.
-- Стек: Jetpack Compose, Material3, minSdk 26, target/compile 36, versionName 0.1.0.
+- Стек: Jetpack Compose, Material3, minSdk 26, target/compile 36, versionName 1.0.0 (versionCode 2; на 2026-06 было 0.1.0).
 
 ## Лендинг для скачивания (`web/`) — добавлено 2026-06-27
+
+> ⚠️ Актуально на 2026-10-10: сборка секций лежит в `web/components/LandingPage.tsx`; маршруты `web/app/`: `/`, `/ba`, `/help`, `/safety`, `/privacy`, `/terms`, `/delete-account`. Ниже — запись 2026-06-27, отмеченные расхождения помечены на месте.
 - **Отдельная веб-зона**, не Android. Премиум-лендинг для скачивания APK напрямую.
 - **Стек:** Next.js 16 (App Router) + framer-motion + Tailwind. `output: "export"` → чистая статика (`web/out/`), раздаётся Nginx на yulbash.ru (Node в проде НЕ нужен).
 - **Цвета** синхронизированы с приложением (`Theme.kt`) через `web/tailwind.config.ts` (green #0B6B3A/#2FB36E, gold #D89B12, тёмный фон).
 - **Двуязычие:** RU/БА через контекст `web/components/lang.tsx` (`dict` + `useLang`), переключатель в шапке. БА — черновик, на проверке (tasks.md → «Переводы на проверку»).
-- **Структура:** `app/page.tsx` (обёрнут в `MotionConfig reducedMotion="user"`) собирает `Hero`/`Features`/`HowItWorks`/`Testimonials`/`Trust`/`FAQ`/`Download`/`Footer` + `Aurora` (фон) + `Header` + `StickyDownloadBar`. Появления — `Reveal.tsx` (whileInView). Мокап телефона — `PhoneMockup.tsx` (живая карта со слоями + едущая машина на CSS `offset-path`, анимации в `globals.css` `.mockup-*`; координаты маршрута SVG = offset-path машины).
+- **Структура:** `app/page.tsx` (обёрнут в `MotionConfig reducedMotion="user"`) собирает `Hero`/`Features`/`HowItWorks`/`Testimonials`/`Trust`/`FAQ`/`Download`/`Footer` + `Aurora` (фон) [с 2026-06-29 сборку делает `LandingPage.tsx`, `app/page.tsx` лишь рендерит её] + `Header` + `StickyDownloadBar`. Появления — `Reveal.tsx` (whileInView). Мокап телефона — `PhoneMockup.tsx` (живая карта со слоями + едущая машина на CSS `offset-path`, анимации в `globals.css` `.mockup-*`; координаты маршрута SVG = offset-path машины).
 - **Маркетинг-блоки:** герой — мини-метрики + платформы (Android доступно, iPhone «скоро»). `Testimonials.tsx` (3 отзыва, соцдоказательство). `FAQ.tsx` (аккордеон, 5 вопросов, снимает возражения). `StickyDownloadBar.tsx` (залипающая «Скачать» на мобиле, `scrollY>640`). `Download.tsx` — APK + iPhone «скоро» (disabled). `Footer.tsx` — разделы/документы/контакты + соцсети.
-- **Конфиг ссылок:** `config.ts` — `SOCIAL` (telegram/vk/email), `LEGAL` (privacy/terms, заглушки `#`), `METRIKA_ID` (пусто = Метрика выключена) — подставить реальные.
+- **Конфиг ссылок:** `config.ts` — `SOCIAL` (telegram/vk/email), `LEGAL` (privacy/terms — теперь реальные маршруты `/privacy`, `/terms`, плюс `deleteAccount` → `/delete-account`; заглушек `#` нет), `METRIKA_ID` (пусто = Метрика выключена; на 2026-10-10 задан).
 - **Премиум-слой ($15k-проход, 2026-06-27):**
   - `StructuredData.tsx` — JSON-LD (SoftwareApplication + Organization + FAQPage) в `<head>` через layout → rich-сниппеты Google.
   - OG-картинка `public/og.png` (1200×630) — отрендерена из `web/og-source.html` через Playwright (источник держим для перегенерации; в `out/` не попадает). В метаданных `og:image`/`twitter summary_large_image` + `canonical`.
@@ -1995,13 +2003,13 @@ wc -l android/app/src/main/java/com/yuldash/app/*.kt | sort -rn | head -20
   - `PhoneMockup` — 3D-тилт за курсором (`useMotionValue`+`useSpring`, reduced-motion off).
   - `StickyDownloadBar` ↔ `CookieConsent` синхронизированы через событие `yuldash-cookie-ok` (sticky не появляется, пока cookie не принят).
 - **Доделка до релиза без APK (2026-06-27):**
-  - `APP_READY` (config) = false. Все кнопки «Скачать» идут через `DownloadProvider`/`useDownload`: при false → модалка «Приложение почти готово» + «Написать в Telegram» (ловит спрос); при true → реальное скачивание APK. Положишь APK → `APP_READY=true`.
+  - `APP_READY` (config) был false (на 2026-10-10 `APP_READY = true` — кнопки качают реальный APK `/yuldash.apk`). Все кнопки «Скачать» идут через `DownloadProvider`/`useDownload`: при false → модалка «Приложение почти готово» + «Написать в Telegram» (ловит спрос); при true → реальное скачивание APK. Положишь APK → `APP_READY=true`.
   - `Comparison.tsx` (секция `#why`, после «Как это работает») — таблица Юлдаш vs Такси vs Автобус (колонка Юлдаш подсвечена), states yes/partial/no.
   - PWA: `app/manifest.ts` (Next отдаёт `/manifest.webmanifest` + link), иконки `public/icon-192/512.png`, `apple-touch-icon.png`, `favicon.ico` (сгенерены из logo через PIL). Метаданные иконок в `layout.tsx`.
   - `analytics.ts` `track(goal)` — цели Метрики (срабатывает только при `METRIKA_ID`). Трекаются: `download`/`download_intent`/`notify_telegram`.
 - **Иконки (2026-06-27):** единый набор `icons.tsx` (Lucide-стиль, stroke 2, БЕЗ эмодзи): BadgeCheck/Star/LifeBuoy/Lock/ShieldHeart/Tag/UserGlyph. Trust — эмодзи (✅⭐🆘🔒) заменены на SVG в зелёных плашках + ховер-scale. Features: «Честная цена» → Tag, «Спокойствие» → ShieldHeart (отлично от Trust-бейджа), иконки масштабируются на hover. Аватары (отзывы/мокап) → монограммы (буква имени) в градиентном круге; ряд «свои» в featured → UserGlyph-круги. Декор-эмодзи в тексте (💚🛣🐎) оставлены как тёплые акценты, не UI-иконки.
-- **21st.dev-приёмы (2026-06-27):** `BorderBeam.tsx` (бегущий свет по рамке — conic-gradient + mask-exclude + `@property --beam-a`, утилита `.shine-border` в globals) на CTA-блоке скачивания, фото создателя, featured-карточке возможностей. `SpotlightCard.tsx` + утилита `.spotlight` (свечение radial за курсором через CSS-переменные `--mx/--my`, ставит `spotMove`) на карточках «Возможности». Всё с reduced-motion.
-- **Премиум-моушн (motionsites-стиль, 2026-06-27):** `Loader.tsx` (брендовый intro — курай+«Юлдаш»+прогресс, 1 раз/сессию через sessionStorage + модульный флаг против StrictMode-double-mount; таймер НЕ чистим в cleanup), `Marquee.tsx` (бегущая лента городов РБ с курай-разделителями, край-fade), `Reveal.tsx` апгрейд (blur+scale «фокус-ин» по всему сайту), герой: пословное появление заголовка (stagger+blur), scroll-parallax (телефон/текст разной скоростью + fade), cursor-spotlight (зелёное свечение за курсором), `DownloadButton` — магнитный эффект (тянется к курсору). Всё уважает reduced-motion.
+- **21st.dev-приёмы (2026-06-27):** `BorderBeam.tsx` (бегущий свет по рамке — conic-gradient + mask-exclude + `@property --beam-a`, утилита `.shine-border` в globals) на CTA-блоке скачивания, фото создателя, featured-карточке возможностей. `SpotlightCard.tsx` (удалён; в `globals.css` осталась утилита `.spotlight`) (свечение radial за курсором через CSS-переменные `--mx/--my`, ставит `spotMove`) на карточках «Возможности». Всё с reduced-motion.
+- **Премиум-моушн (motionsites-стиль, 2026-06-27):** `Loader.tsx` (сейчас файл есть, но `LandingPage` его не подключает; брендовый intro — курай+«Юлдаш»+прогресс, 1 раз/сессию через sessionStorage + модульный флаг против StrictMode-double-mount; таймер НЕ чистим в cleanup), `Marquee.tsx` (бегущая лента городов РБ с курай-разделителями, край-fade), `Reveal.tsx` апгрейд (blur+scale «фокус-ин» по всему сайту), герой: пословное появление заголовка (stagger+blur), scroll-parallax (телефон/текст разной скоростью + fade), cursor-spotlight (зелёное свечение за курсором), `DownloadButton` — магнитный эффект (тянется к курсору). Всё уважает reduced-motion.
 - **Башкирский колорит (2026-06-27):** `Ornament.tsx` — `KuraiBloom` (цветок курая нарисован с нуля по референсу герба: веер из 7 листьев + ромб + завитки-рога/кускар; `variant="filled"` эмблема / `"outline"` контур для фона), `OrnamentKicker` (курай+линии над заголовками центр-секций: Features/How/Comparison/Testimonials/FAQ), `OrnamentBand` (кускар-разделитель: ромбы+завитки-рога, SVG pattern) — 2 шт в `page.tsx`. Курай-водяной знак в `Aurora` (медленно вращается, opacity ~0.05). Футер: курай + строка `kurai_meaning` («7 лепестков — 7 родов, ставших своими»). Цвета бренда (зелёный/золото) = цвета флага РБ + курай. Кнопки «Скачать»: при `APP_READY=false` подпись авто «Скоро запуск».
 - **SEO/e2e:** `app/robots.ts` + `app/sitemap.ts` (force-static → `out/robots.txt`, `out/sitemap.xml`), OG/Twitter-метаданные + `metadataBase` в `layout.tsx`. Базовый URL — `SITE_URL` в `config.ts`.
 - **APK:** `web/public/yuldash.apk` (в `.gitignore`), качается с `/yuldash.apk`. Размер/ссылка — `web/components/config.ts`. Деплой и Nginx — `web/README.md`.
@@ -2014,16 +2022,17 @@ wc -l android/app/src/main/java/com/yuldash/app/*.kt | sort -rn | head -20
   в `web/tailwind.config.ts` (`duration-slow`, `duration-count`, …). Держит
   `webapp/tests/motion-test.mjs`: читает числа из `CanonTokens.kt` и из CSS каждой поверхности,
   падает при расхождении и на любом сыром числе. Запуск — `npm run check` из `webapp/` или `web/`.
-- Сборка зелёная (6 статик-страниц), визуал всех секций прогнан через Playwright (RU/БА, десктоп+мобайл).
-- ⚠️ Next 14.2.x держим намеренно: CVE из аудита — про self-hosted Node-сервер (SSR/Image Optimizer/middleware), у нас статик-экспорт → не применимы. На next@16 (мажор) не прыгаем.
+- Сборка зелёная (6 статик-страниц на 2026-06-27; сейчас маршрутов 7 — см. баннер выше), визуал всех секций прогнан через Playwright (RU/БА, десктоп+мобайл).
+- ⚠️ (устарело) В 2026-06 Next 14.2.x держали намеренно (CVE — про self-hosted Node-сервер, у нас статик-экспорт). Сейчас `web/package.json` — `next` ^16.2.9 (см. «Production-hardening 2026-06-30» выше); `web/README.md` по-прежнему пишет «Next.js 14».
 
 ## Сервер / интеграция (слой `data/`) — добавлено 2026-06-23
 - API: **`https://yulbash.ru`** (FastAPI на сервере, см. [server.md](server.md)). Клиент: **`data/ApiClient.kt`** (object, встроенный `HttpURLConnection`, БЕЗ внешних зависимостей).
-- Токен JWT в **`EncryptedSharedPreferences`** (`yuldash_secure`, с миграцией старого plaintext-токена; фоллбэк на обычные prefs если шифрование недоступно), автологин. `ApiClient.init(context)` зовётся в `YuldashApplication.onCreate`.
+- Токен JWT в **`EncryptedSharedPreferences`** (`yuldash_secure`, с миграцией старого plaintext-токена; фоллбэк на обычные prefs если шифрование недоступно), автологин. Актуальная схема выбора хранилища — `data/AuthStorePolicy.kt` (отметка `auth_store_state`, см. «Хранение Android-сессии (19.09.2026)» в начале файла). `ApiClient.init(context)` зовётся в `YuldashApplication.onCreate`.
 - Методы: `requestCode`/`verifyCode` (вход), `getRides`, `createRequest`/`getMyRequests`, `publishRide`, `book`(→ booking id), `sos`, `addContact`/`getContacts`, `sendMessage`/`getMessages`, `shareTrip`/`setTripStatus`, `getConversations`/`getNotifications`/`getPopularRoutes`/`getMyRoutes`/`getAds` (списки сервер→экран, везде демо-фоллбэк), `uploadVoice`/`sendVoiceMessage`. Все POST'ы — через `fireXxx` (fire-and-forget на долгоживущем scope `ApiClient.bg`, переживают навигацию; иначе scope экрана отменял запрос).
 - DTO: `RideDto`, `RequestDto`, `ContactDto`, `MessageDto` (маппинг `RideDto` — один шов `JSONObject.toRideDto()`). Геокодер адресов — через бэкенд `/geocode` (`GeocoderClient`), ключ на сервере. Мёртвый слой `Models.kt`/`Repository.kt`/`MockRepository.kt` **УДАЛЁН** 2026-06-27 (0 ссылок).
-- Загрузка с сервера: поездки и заявки — `LaunchedEffect` в `YuldashApp`; контакты — там же; сообщения — в `ActiveTripScreen`.
-- **`ActiveTripScreen`** (`Screen.ActiveTrip`) — экран «Моя поездка» после брони: чат по `booking_id`, поделиться с контактом, статус поездки, SOS.
+- Загрузка с сервера (на 2026-10-10 стартовые загрузчики по-прежнему в `YuldashApp.kt` на `LaunchedEffect`, часть состояния — в `YuldashViewModel.kt`): поездки и заявки — `LaunchedEffect` в `YuldashApp`; контакты — там же; сообщения — в `ActiveTripScreen`.
+- Состав `data/` на 2026-10-10 (19 файлов `.kt`): `Analytics`, `ApiClient`, `AuthStorePolicy`, `ChatSocket`, `FcmService`, `GeocoderClient`, `InstantLocationSocket`, `LocationSocket`, `MapFeedSocket`, `NetworkMonitor`, `OfflineLegacyStores`, `OfflineMigration`, `OfflineStoreReset`, `OfflineWrites`, `PersonalDataExports`, `SessionKeys`, `TripLocationBus`, `TripPass`, `TripPassDeletion`.
+- **`ActiveTripScreen`** (`Screen.ActiveTrip`, `BookingActiveTripScreen.kt`) — экран «Моя поездка» после брони: чат по `booking_id`, поделиться с контактом, статус поездки, SOS.
 
 ## 🔀 Переключатель режимов пассажира: Такси ↔ Попутка (2026-07-09, ветка `feat/mode-switch`)
 - **Где:** вверху вкладки «Карта» (главный экран пассажира). Файл `ModeSwitchHome.kt`: `enum RideMode { Pooling, Taxi }`, `PassengerModeHome` (обёртка), `ModeSwitchBar` (2 больших сегмента ≥66dp: 🚗 Попутка зелёная / 🚕 Такси жёлтая), `ModeSegment`, `ModeHintSheet`.
@@ -2034,88 +2043,90 @@ wc -l android/app/src/main/java/com/yuldash/app/*.kt | sort -rn | head -20
 ## Навигация (как устроены экраны)
 
 - Нет навигационной библиотеки. Всё через `enum Screen` + `when(screen)` в `YuldashApp()`. **Первый экран — `Screen.Splash`** (зелёный мост → цель `splashTarget`; первый запуск → `Screen.Intro` морф-интро → онбординг; повтор → сразу Home/Login). Состояние навигации — в `YuldashViewModel` (переживает поворот/смерть процесса).
-- **Интро на фоне пейзажа (2026-06-29):** `IntroScreen` теперь рисуется поверх вектор-пейзажа Башкортостана `res/drawable/splash_landscape.xml` (горы, долина, золотая дорога-маршрут, сосны, курай — порт из `yuldash_splash_vector.svg`, viewport 1080×1920; blur/тень SVG не переносятся). Фон: мягкий Ken-Burns (`sceneScale` 1.08→1.0) + полупрозрачная вуаль/виньетка под читаемость белого текста. Премиум-моушн: «Попутчик»→«Юлдаш» с золотым бликом, золотая черта, слоган RU→BA, тап-скип, reduce-motion. Значок — чистый белый круг с лого (курай-веер и дорога-стрелка в `BrandHero` убраны по просьбе Александра 2026-06-29; функции `drawKurai`/`drawRoad` оставлены неиспользуемыми). Контракт `onComplete→Onboarding` и `Screen.Splash` (тонкий зелёный мост) не менялись.
+- **Интро на фоне пейзажа (2026-06-29):** `IntroScreen` теперь рисуется поверх вектор-пейзажа Башкортостана `res/drawable/splash_landscape.xml` (горы, долина, золотая дорога-маршрут, сосны, курай — порт из `yuldash_splash_vector.svg`, viewport 1080×1920; blur/тень SVG не переносятся). Фон: мягкий Ken-Burns (`sceneScale` 1.08→1.0) + полупрозрачная вуаль/виньетка под читаемость белого текста. Премиум-моушн: «Попутчик»→«Юлдаш» с золотым бликом, золотая черта, слоган RU→BA, тап-скип, reduce-motion. Значок — чистый белый круг с лого (курай-веер и дорога-стрелка в `BrandHero` убраны по просьбе Александра 2026-06-29; функции `drawKurai`/`drawRoad` оставлены неиспользуемыми; позже удалены — в коде их больше нет). Контракт `onComplete→Onboarding` и `Screen.Splash` (тонкий зелёный мост) не менялись.
 - Внутри главного экрана 5 вкладок — `enum HomeTab` (Map, Rides, Request, Chat, Profile).
-- Состояние держится в `remember { mutableStateOf(...) }`. Сохраняется на диск только флаг онбординга (`SharedPreferences "yuldash_prefs" → onboarding_completed`).
+- Состояние держится в `remember { mutableStateOf(...) }`. На диск в `SharedPreferences "yuldash_prefs"` кладутся только флаги (`onboarding_completed`, `simple_mode_opted_in`, `preferred_role`, `mode_hint_shown`, `font_scale`…; ещё хранилища `yuldash` и `yuldash_theme`); история навигации — в `YuldashViewModel.kt`.
 - Язык: `enum AppLanguage` (Ru/Ba), переключается кнопкой, раздаётся через `LocalAppLanguage`.
 
 ## Опорные точки (строки в MainActivity.kt)
 
-> ⚠️ 2026-06-22: после дизайн-полировки ключевые якоря обновлены по `rg`; мелкие номера ниже остаются приблизительными.
+> ⚠️ 2026-10-10: номера строк из этого раздела убраны — файлы выросли и разрезаны (`MainActivity.kt` теперь 1037 строк), старые числа относились к монолиту 2026-06-22. Ориентируйся по имени файла и функции (`rg "fun ИмяФункции" android/app/src/main/java`). Файлы ниже — в `android/app/src/main/java/com/yuldash/app/`.
 
 ### Основа
-- `MainActivity.onCreate` — стр. 161
-- enum `Screen` — 193 · `HomeTab` — 216 · `AppLanguage` — ~224 · `RideRole` — ~229
-- цвета `Canon*` (палитра) — ~236 · формы `CanonCardShape/ItemShape` — ~245
-- `appText(ru, ba)` (хелпер двух языков) — 249
-- `data class Ride` — 298 · `AdPlacement` — 241 · `AdStatus` — 250 · `data class PartnerAd` — 353 · `demoPartnerAds` — 386 · `demoRides` (моки поездок) — 482
-- Модели доступности: `TrustedContact` — 290 · `FrequentTrip` — 297 · `LocalRequest` — 305 · `LocalVoiceMessage` — 314
-- **`YuldashApp()` — 525** ← корень навигации (`when(screen)`), вся маршрутизация, локальные счётчики рекламы и локальные состояния новых модулей
+- `MainActivity.onCreate` — `MainActivity.kt`
+- enum `Screen` (96 значений), `HomeTab` (Map, Rides, Request, Chat, Profile), `RideRole` — `MainActivity.kt` · `AppLanguage` — `AppText.kt`
+- цвета `Canon*` (палитра), формы `CanonCardShape/ItemShape/FieldShape/TinyShape` и остальные шкалы — `CanonTokens.kt`
+- `appText(ru, ba)` (хелпер двух языков) — `AppText.kt` · `AdPlacement`, `AdStatus` — `MainActivity.kt`
+- `data class Ride` — `Domain.kt` · `data class PartnerAd`, `AdStats`, `demoPartnerAds`, `demoRides` (моки поездок) — `Mocks.kt`
+- Модели доступности: `TrustedContact`, `FrequentTrip`, `LocalRequest`, `LocalVoiceMessage` — `Domain.kt`
+- **`YuldashApp()`** — `YuldashApp.kt` ← корень навигации (`when(screen)`), вся маршрутизация, локальные счётчики рекламы и локальные состояния новых модулей; ветки админа/главной/заказов вынесены в `AppNavAdmin.kt` / `AppNavHome.kt` / `AppNavOrders.kt`, история навигации — `YuldashViewModel.kt`
 
 ### Онбординг (4 слайда)
-- `OnboardingScreen` — 4 слайда перед входом. V2 от 2026-06-28: большой photo/illustration hero `drawable-nodpi/onboarding_bashkir_hero.png` с дорогой/машиной/башкирским орнаментом, маленький логотип поверх, story-карточки шагов, актуальные тексты про Telegram-вход, проверку водителя, скрытый номер, SOS, заявки→отклики→поездку.
+- `OnboardingScreen` (в `YuldashApp.kt`, рядом `OnboardingContent`, `OnboardingHeroCard`, `OnboardingDots`, `onboardingSlides()`) — 4 слайда перед входом. V2 от 2026-06-28: большой photo/illustration hero `drawable-nodpi/onboarding_bashkir_hero.webp` с дорогой/машиной/башкирским орнаментом, маленький логотип поверх, story-карточки шагов, актуальные тексты про Telegram-вход, проверку водителя, скрытый номер, SOS, заявки→отклики→поездку.
 
 ### Логин
-- `LoginScreen` — **реальный вход через Telegram-код** (`LoginFormCard`: открыть Telegram-бота → получить 6-значный код → ввести код → JWT, автологин). SMS-вход заморожен флагом, основной рабочий канал — Telegram. `BrandHero` использует `drawable-nodpi/login_salavat_yulaev_hero.png` — сгенерированный вертикальный фон по референсу Александра с Салаватом Юлаевым, Уфой/Белой и дорогой; старый `login_bashkir_telegram_hero.png` оставлен для отката. `TrustCard` не обещает проверку каждого водителя, а честно показывает текущую модерацию прав/авто. Логика — `data/ApiClient.kt`.
+- `LoginScreen` (`LoginScreen.kt`) — **реальный вход через Telegram-код** (`LoginFormCard`: открыть Telegram-бота → получить 6-значный код → ввести код → JWT, автологин). SMS-вход заморожен флагом (`YULDASH_SMS_LOGIN`, форма `LoginSmsSection`), основной рабочий канал — Telegram. Приватный `BrandHero` (в `LoginScreen.kt`; одноимённый в `IntroHero.kt` — для интро) использует `drawable-nodpi/login_salavat_yulaev_hero.webp` — сгенерированный вертикальный фон по референсу Александра с Салаватом Юлаевым, Уфой/Белой и дорогой; прежний `login_bashkir_telegram_hero.png` из ресурсов удалён. (`TrustCard` из прежнего описания в коде больше нет; рядом — `LoginHeroFeatures`, `SafetyFooter`). Логика — `data/ApiClient.kt`.
 
 ### Главный экран (оболочка + нижнее меню)
-- `HomeScreen` — 1294 (Scaffold + вкладки) · `YuldashBottomBar` — 1416
+- `HomeScreen` (Scaffold + вкладки) · `YuldashBottomBar` — `YuldashApp.kt`
 
 ### Вкладка «Карта»
 - `MapScreen` — структура: `Column` { ФИКС: шапка + `MapHero` (карта вне прокрутки!) ; `LazyColumn(weight 1f)`: «Ближайшие поездки» + реклама }. Карта закреплена, чтобы её жесты не конфликтовали со скроллом. `selectedRide` + `ModalBottomSheet` (`RideCard fullWidth`) при тапе по маркеру.
 - **«Ближайшие поездки»** — реальные данные с сервера (`ApiClient.getNearbyRides` → `/rides/near`). Фокус-маршрут = `activeTrip` (если едет — показываем альтернативы на ЕГО маршруте, сценарий «водитель сломался»), иначе все. Сортировка по времени выезда ↑ (самая ранняя — первой, помечена «ближайшая»). Гео: `LocationPrefs.lastLat/lng` (из карты) → дистанция «N км» в карточке. Карточки `NearbyRideCard` строго 1-в-1 (фикс 290×190dp: маршрут+проверен · время+«ближайшая» · водитель+рейтинг · дистанция+цена+«Поехать»). Состояния: `NearbySkeletonCard` (загрузка), `NearbyEmptyCard` (пусто+Обновить). Хелперы `RideDto.toUiRide()`, `fmtKm()`.
 - `MapHero` — `Column { Box(карта 350dp: `YandexMapCard`/`MapPreview` + плавающая снизу **лента** `QuickSearchCard` — свайп вправо→язычок `cardCollapsed`, тап→назад) ; Row **кнопки** «Найти поездку»/«Я водитель» ОТДЕЛЬНЫМ блоком ПОД картой (не плавают, как Яндекс; «Найти» берёт `activeRoute` ленты) }`. На холодном старте сначала рисуется лёгкий `MapPreview`, настоящий `YandexMapCard` создаётся после первого кадра и короткой паузы, чтобы `MapView` не блокировал первый экран. Зум `+/-` и FAB «к себе» — в верхнем правом углу карты.
 - `QuickSearchCard` — лента-карусель из **6 карточек** (`mapFeedFrom(popular, liveFeed)` → `List<MapFeedCard>`). **Единый макет** у всех: бейдж+пилюля (верх) · заголовок ФИКС.высоты (2 строки) · подпись+точки (низ) → карточки одного размера, карусель не прыгает. Типы (`FeedKind`): Route (маршрут, тапается→`activeRoute`), Live (поездок за день), Top (хит недели — топ-маршрут), Fact (факт), Community ×2 (за месяц / за год). Периоды день/неделя/месяц/год. Авто-прокрутка 4.5с, бесконечная. **Числа реальные с сервера** — `MapHero` тянет `ApiClient.getFeed()` (`/feed`) раз в 60с; офлайн → демо-значения (142/4700/38500), чтоб лента не пустовала. Русский плурал — `plRu()`/`ridesRu()`.
-- `cityPoint(city)` — 1824 ← город→`Point` (mock-геоданные: Баймаҡ/Сибай/Темясово/Уфа/Учалы/Магнитогорск). `ridePinBitmap(price, boosted)` — 1836 ← маркер-«ценник» (белая пилюля + цена, золото для boosted), рисуется на Android Canvas.
+- `cityPoint(city)` — `MapGeo.kt` ← город→`Point` (mock-геоданные: Баймаҡ/Сибай/Темясово/Уфа/Учалы/Магнитогорск). `ridePinBitmap(price, boosted)` — `MapPins.kt` ← маркер-«ценник» (белая пилюля + цена, золото для boosted), рисуется на Android Canvas.
 - **`YandexMapCard`** ← НАСТОЯЩАЯ Яндекс-карта (MapKit). `MapKitFactory.initialize` + `MapView` через `AndroidView`, ЖЦ через `DisposableEffect`. **Маркеры-ценники поездок** (`addPlacemark`+`MapObjectTapListener`→`onRideTap`; координаты `cityPoint` + Яндекс-геокодер с кэшем). **Контролы:** зум `＋/−` (`MapZoomControls`), FAB «к себе» (`NearMe`, `zIndex(6)` — выше хит-таргетов). **Геолокация «я тут»:** СВОЙ `PlacemarkMapObject` (зелёный кружок `userPuckBitmap`) через android `LocationManager` (GPS+NETWORK) — НЕ `UserLocationLayer` (его стрелку-курс lite-SDK не перекрасить → тёмный треугольник). Флаг `LocationPrefs.sharingEnabled` (Профиль→Конфиденциальность ↔ карта), дефолт ВЫКЛ; при включении центрируем (цель чуть южнее → точка над плашкой). `view.setOnTouchListener`→`requestDisallowInterceptTouchEvent` (чтобы `LazyColumn` не съедал жесты).
-- `MapPreview` — 1998 ← рисованный **фолбэк**: показывается если ключ MapKit пустой (`BuildConfig.YANDEX_MAPKIT_KEY.isBlank()`), а на главной карте ещё используется как короткий лёгкий каркас перед созданием тяжёлого `MapView`.
+- `MapPreview` — `MapScreen.kt` ← рисованный **фолбэк**: показывается если ключ MapKit пустой (`BuildConfig.YANDEX_MAPKIT_KEY.isBlank()`), а на главной карте ещё используется как короткий лёгкий каркас перед созданием тяжёлого `MapView`.
 
 ### Вкладка «Поездки»
-- `RidesScreen` — 2081 · `SegmentedTabs` — ~2350 · `MyTripCard` — ~2620 · `RideCard` — ~2200 · `FullRideCard` — ~2650. Табы: `Активные / История / Все`; при пустом списке используется `EmptyStateCard`.
+- `RidesScreen`, `SegmentedTabs`, `MyTripCard`, `RideCard`, `FullRideCard` — `RidesRequestsChatScreens.kt`. Табы: `Активные / История / Все`; при пустом списке используется `EmptyStateCard` (`ProfileScreen.kt`).
 
 ### Вкладка «Заявка»
-- `MyRequestsScreen` — 2482 · `RequestSummaryCard` — ~2520 · `DraftRequestCard` — ~2580. Табы: `Мои заявки / Отклики / Черновики`.
+- `MyRequestsScreen`, `RequestSummaryCard` — `RidesRequestsChatScreens.kt`. Один список заявок; прежние табы «Отклики»/«Черновики» (и `DraftRequestCard`) убраны — отклики открываются с карточки заявки кнопкой «Посмотреть отклики».
 
 ### Вкладка «Чат»
-- `ChatScreen` — 2769 · `ChatComposer` — 2896 · `VoiceMessageCard` — ~2940 · `ChatCard` — ~2850
+- `ChatScreen`, `ChatComposer`, `VoiceMessageCard`, `ChatCard` — `RidesRequestsChatScreens.kt`
 
 ### Вкладка «Профиль»
-- `ProfileScreen` — 3442 · `ProfileActionCard` — ~3548 · `AdsCabinetScreen` — 3585 · `AdsAdminPreview` — 3622 · `CompactProfileBanner` — ~4400
+- `ProfileScreen`, `ProfileActionCard`, `AdsCabinetScreen` — `ProfileScreen.kt` · `CompactProfileBanner` — `BookingActiveTripScreen.kt` (`AdsAdminPreview` из прежней версии в коде больше нет)
 
 ### Вторичные экраны
-- Новые сценарии доступности: `SimpleModeScreen` — 2957 · `VoiceRequestScreen` — 3066 · `FamilyOrderScreen` — 3136 · `TrustedContactsScreen` — 3192 · `RepeatTripScreen` — 3251 · `CallbackHelpScreen` — 3303
-- `CreateRideScreen` — 3271 · `BookingScreen` — 3872 · `NotificationsScreen` — 4002 · `SafetyScreen` — 4094 · `SettingsScreen` — 4149 · `HelpScreen` — 4200 · `SosScreen` — 4356 · `VerifyDriverScreen` — 4434 · `SupportScreen` (донаты, мок) — 4541 · `BoostScreen` (поднятие, мок) — 4617
+- Сценарии доступности: `SimpleModeScreen`, `VoiceRequestScreen`, `FamilyOrderScreen`, `TrustedContactsScreen`, `RepeatTripScreen`, `CallbackHelpScreen` — `AccessibilityScreens.kt`
+- `CreateRideScreen` — `CreateRideScreen.kt` · `BookingScreen` — `BookingActiveTripScreen.kt` · `NotificationsScreen`, `SafetyScreen`, `SettingsScreen`, `HelpScreen` — `SecondaryScreens.kt` · `SosScreen`, `VerifyDriverScreen` — `SosVerifyScreens.kt` · `SupportScreen` (донаты), `BoostScreen` (поднятие) — `SupportBoostScreen.kt` (оба уже серверные: `createDonation`, буст через `/boost/create`)
 
 ### Переиспользуемые куски
-- `InfoCard` — 3746 · `EmptyStateCard` — 3776 · `PartnerAdCard` — 3814 · `DetailMeta` — ~4000 · `SettingsGroup` — ~4370 · `SettingsNavRow` — ~4380 · `SettingSwitchRow` — ~4390
+- `InfoCard`, `EmptyStateCard`, `PartnerAdCard`, `DetailMeta` — `ProfileScreen.kt` · `SettingsGroup`, `SettingsNavRow`, `SettingSwitchRow` — `BookingActiveTripScreen.kt`
 
 ### Реклама / партнёры (добавлено 2026-06-22, Ads 2.0)
-- Модель: `AdPlacement`, `AdStatus`, `PartnerAd`, `AdStats`, `demoPartnerAds` — ~213–500.
+- Модель: `AdPlacement`, `AdStatus` — `MainActivity.kt`; `PartnerAd`, `AdStats`, `demoPartnerAds` — `Mocks.kt`.
 - `PartnerAd` хранит: рекламодатель, `erid`, город, маршрут, категорию, даты, статус, места показа, пакет, бюджет, целевое действие, контакт, точку карты, CTA.
-- Локальная статистика показов/кликов: `adStats`, `trackAdImpression`, `trackAdClick` внутри `YuldashApp()` — ~520–560.
-- Универсальная карточка рекламы: `PartnerAdCard` — 3814. В пользовательских местах показывает `Реклама · erid`, короткие чипы, название, описание, город/адрес, партнёрскую подпись и CTA. Подробные поля для управления не выводятся в обычном контенте.
-- Кабинет рекламы: отдельный экран `AdsCabinetScreen` — 3585; внутри `AdsAdminPreview`, `AdSummaryMetric`, `AdsLaunchChecklist`, `AdChecklistRow` — ~3622–3730.
-- Подбор: `activeAds()`, `forPlacement()`, `forCity()`, `forRoute()`, `forCategory()` — 3933–3948.
+- Локальная статистика показов/кликов: `adStats`, `trackAdImpression`, `trackAdClick` внутри `YuldashApp()` (`YuldashApp.kt`); события уходят и на сервер (`ApiClient.fireAdEvent` → `POST /ads/{id}/event`).
+- Универсальная карточка рекламы: `PartnerAdCard` (`ProfileScreen.kt`). В пользовательских местах показывает `Реклама · erid`, короткие чипы, название, описание, город/адрес, партнёрскую подпись и CTA. Подробные поля для управления не выводятся в обычном контенте.
+- Кабинет рекламы: отдельный экран `AdsCabinetScreen` (`ProfileScreen.kt`); прежние внутренние блоки `AdsAdminPreview`, `AdSummaryMetric`, `AdsLaunchChecklist`, `AdChecklistRow` в коде больше не встречаются (проверено 2026-10-10).
+- Подбор: `activeAds()`, `forPlacement()`, `forCity()`, `forRoute()`, `forCategory()` — `ProfileScreen.kt`.
 - Размещения фильтруются по `AdPlacement`: `MapScreen` после ближайших поездок, `RidesScreen` после обычной карточки, `BookingScreen` ниже карты маршрута, `ProfileScreen` блок «Партнёры Юлдаш», `HelpScreen` полезный партнёр.
 - Не размещать рекламу в SOS, безопасности, активном чате, кнопках подтверждения и оплате.
 
 ## Мёртвый код — удалён (2026-06-22)
 - `RequestTabScreen`, `DirectionChips`, `FiltersCard` удалены (не вызывались, ~265 строк). При необходимости — в истории git.
 
-## Доступность / семья (добавлено 2026-06-22; вход в простой режим перенесён 2026-07-14)
+## Доступность / семья (добавлено 2026-06-22; вход в простой режим перенесён 2026-07-14; описания экранов сверены с кодом 2026-10-10)
 - **Вход в простой режим (2026-07-14, релиз):** убран с главных вкладок (карточка `SeniorAccessCard` больше НЕ на вкладке Карта — только раздел «Для родителей и близких» в Профиле, `ProfileScreen.kt`). В самой карточке сбивающий `Switch(checked=false)` заменён на понятный chevron-переход (вся карточка = `bounceClick(onSimpleMode)`). Определение `SeniorAccessCard` пока живёт в `MapScreen.kt`, используется только Профилем.
 - **Предложение простого режима в онбординге (2026-07-14):** на последнем слайде (рядом с выбором роли РУС/БАШ) мягкая карточка `OnboardingSimpleModeCard` (`YuldashApp.kt`): «Тебе удобнее крупные кнопки и голосовой заказ?» + крупная кнопка «Включить простой режим» (ведёт в `Screen.SimpleMode`, ставит `simple_mode_opted_in=true` + `onboarding_completed=true` в `yuldash_prefs`) и «Не сейчас» (прячет карточку). `OnboardingScreen`/`OnboardingContent` получили параметр `onSimpleMode` (у `OnboardingContent` — с дефолтом `{}`, чтобы Robolectric-тесты не ломались).
 - Входы (было): карточка `SeniorAccessCard` на вкладке Карта и раздел «Для родителей и близких» в Профиле.
 - `SimpleModeScreen`: крупные действия для пожилых пользователей.
-- `VoiceRequestScreen`: локальная имитация голосового ввода, автозаполнение маршрута и добавление `LocalRequest`.
-- `FamilyOrderScreen`: локальная заявка за близкого с пассажиром, телефоном и доверенным контактом.
-- `TrustedContactsScreen`: список доверенных контактов и локальное добавление контакта.
-- `RepeatTripScreen`: повтор частого маршрута из `demoFrequentTrips`.
-- `CallbackHelpScreen`: локальный статус заявки на обратный звонок.
+- `VoiceRequestScreen` (`AccessibilityScreens.kt`): голосовой ввод через системный `RecognizerIntent`, автозаполнение маршрута; заявка уходит на сервер (`ApiClient.createRequest(..., voiceUrl, transcript, assisted = true)`) и добавляется как `LocalRequest` (в 2026-06 был локальный имитатор).
+- `FamilyOrderScreen`: заявка за близкого с пассажиром, телефоном и доверенным контактом уходит на сервер (`createRequest(..., assisted = true, relativeName = ...)`).
+- `TrustedContactsScreen`: список доверенных контактов с сервера (`ApiClient.getContacts()`) и добавление контакта (`addContact`).
+- `RepeatTripScreen`: маршруты грузятся `ApiClient.getMyRoutes()`; `demoFrequentTrips` (`Mocks.kt`) — быстрые варианты/фолбэк; повтор создаёт серверную заявку (`createRequest`).
+- `CallbackHelpScreen`: заявка на обратный звонок уходит `ApiClient.requestCallback` (`POST /callback` → уведомление админу в Telegram).
 - `ChatScreen`: локальное голосовое сообщение сохраняется как `LocalVoiceMessage` с текстовой расшифровкой.
 
 ## Что РЕАЛЬНО на сервере (обновлено 2026-06-23)
 Подключено к бэкенду `https://yulbash.ru` через `data/ApiClient.kt`: **вход через Telegram-код** (JWT, автологин; SMS-код заморожен флагом), **поездки** (список), **заявки** (создать+список), **публикация поездки**, **бронь**, **SOS**, **доверенные контакты**, **чат**, **экран активной поездки** (share/статус). Данные живут на сервере (PostgreSQL), не пропадают при перезапуске.
+
+**Масштаб на 2026-10-10 (по коду):** `backend/app/routers/` — 42 модуля, ~399 route-декораторов (в `routers/` и `main.py`; `all_routers` монтируются дважды — на корень и под `/api/v1`), 7 WebSocket-ручек, 130 миграций alembic (единственная голова `bv_refresh_recovery`), 529 записей в `backend/tests/` (из них 528 `test_*.py`). Перечисленное выше — лишь первое ядро 2026-06-23: поверх него появились такси/«Быстрый заказ», курьер/посылки, кошелёк и ledger, «Справедливость», PWA и др. (см. датированные разделы ниже).
 
 ### 🆕 UI доверия «между своими» — уровни L0–L3, инвайты, «только для своих», согласия (2026-07-06, ветка `feat/trust-ui` от `feat/trust-levels`)
 Клиентский UI поверх бэкенда доверия (Фаза 4). Новый файл **`TrustScreens.kt`** — три экрана + `enum Screen` пополнен `Trust`, `Invites`, `Consents` (ветки в `when` внутри `YuldashApp()`).
@@ -2124,9 +2135,9 @@ wc -l android/app/src/main/java/com/yuldash/app/*.kt | sort -rn | head -20
 - **`ConsentsScreen`** (`Screen.Consents`, вход: Профиль → «Согласия и данные» и Настройки → приватность): оферта/политика/гео с датами согласия (`getConsents`), кнопка «Отметить» (`setConsent`). 152-ФЗ.
 - **Тумблер «Только для своих»** (`only_trusted`) в создании поездки (`CreateRideScreen`/`CreateRideFormContent`) и заявки (`CreatePassengerRequestScreen`/`Content`) — отдельная карточка с пояснением «увидят только проверенные свои (L3)». Прокинут в `ApiClient.publishRide`/`createRequest`.
 - **`ApiClient`**: `getMyTrust`/`createInvite`/`getMyInvites`/`redeemInvite`/`getConsents`/`setConsent` + DTO `TrustSummaryDto`/`TrustNextDto`/`Bilingual`/`InviteDto`/`ConsentDto`; `only_trusted` в теле `publishRide`/`createRequest`.
-- Все надписи двуязычны (`appText`); черновой башкирский → `docs/tasks.md` «Переводы на проверку — Доверие». Все состояния (загрузка/ошибка/пусто), тач-цели ≥48dp, `Canon*`. ⏳ Собрать APK перед мержем; вливать ПОСЛЕ бэкенд-PR #38 (эта ветка от `feat/trust-levels`).
+- Все надписи двуязычны (`appText`); черновой башкирский → `docs/tasks.md` «Переводы на проверку — Доверие». Все состояния (загрузка/ошибка/пусто), тач-цели ≥48dp, `Canon*`. ⏳ Собрать APK перед мержем; вливать ПОСЛЕ бэкенд-PR #38 (эта ветка от `feat/trust-levels`). ✅ Влито в main (проверено 2026-10-10): `TrustScreens.kt` есть, `Screen.Trust`/`Invites`/`Consents` в `enum Screen`.
 
-## F8 — Бейджи и «стаж своего» (2026-07-05, ветка `feat/trust-badges`, draft PR)
+## F8 — Бейджи и «стаж своего» (2026-07-05, ветка `feat/trust-badges`, был draft PR; ✅ влито в main — в коде `driver_trips_agg` (`services.py`), `DriverTrustBadges`/`CompactTrustLine` (`RidesRequestsChatScreens.kt`))
 - **Агрегаты, БЕЗ новых таблиц.** `RideOut` (`schemas.py`) +2 поля: `driver_trips` (завершённых поездок = distinct done-броней водителя) и `driver_since` (`"YYYY-MM"` из `User.created_at`). Считаются батчем в `services.py`: новый хелпер `driver_trips_agg()` + расширены `drivers_bundle()` (теперь 4-кортеж) и `ride_out_with()` (принимает `trips_agg`). Один запрос на весь список карточек — без N+1. Проходят через `public_ride_payload` (не приватные).
 - **Почему done-брони, а не done-поездки:** завершение ставит `Booking.status=done`, а `Ride.status` остаётся `active` (см. `bookings.py::driver-status`), поэтому «N поездок» меряем по завершённым броням (distinct по `ride_id`).
 - **UI** (`RidesRequestsChatScreens.kt`): `DriverTrustBadges` (FlowRow-чипы Canon: Проверен · N поездок · с <мес год>) в детальной `RideCard`; `CompactTrustLine` (одна строка в weight-зоне, не растит фикс-высоту) в `NearbyRideCard`. RU-плюрал `tripsWordRu`, месяцы `f8MonthsRu/Ba`. `RideDto`/`Ride`/`toUiRide` проброшены. Длинный башкирский переносится/обрезается — вёрстка цела.
@@ -2137,7 +2148,7 @@ wc -l android/app/src/main/java/com/yuldash/app/*.kt | sort -rn | head -20
 > Чувствительная тема → строго добровольно (opt-in). Показываем только полезный сигнал «женщина за рулём»; мужской пол наружу не выпячиваем.
 - **Бэкенд:** `DriverProfile.gender` (`""` не указан / `female` / `male`, дефолт `""`). Миграция `alembic/versions/f9_driver_gender.py` (revision `f9_driver_gender`, down_revision `0004_booking_boarding_code`, идемпотентна). Эндпоинт `POST /driver/gender` (меняет только сам водитель, валидация значений); `GET /driver/status` отдаёт `gender` (виден только владельцу). `RideOut.driver_is_woman` = `gender=="female"` — БИНАРНЫЙ публичный сигнал (male и «не указан» неотличимы → приватность). Фильтр `GET /rides?women_only=true` теперь `Ride.women_only == True OR DriverProfile.gender=='female'` (OUTER JOIN). Тесты `tests/test_women_driver.py` (opt-in, поиск женщины, приватность мужчины) — pytest зелёный.
 - **Android:** `Ride.driverIsWoman`/`RideDto.driver_is_woman` (парсинг+маппинг в `toUiRide`/inline). Бейдж `WomanDriverBadge()` (токены `CanonWoman`/`CanonWomanBg` в `CanonTokens.kt`, иконка `Woman`) в `RideCard` и `NearbyRideCard` (`RidesRequestsChatScreens.kt`). Тумблер opt-in «Я — женщина за рулём» в `DriverCabinetScreen` (`ProfileScreen.kt`, `ApiClient.setDriverGender`). Клиент-фильтр «Только женщины» в `MapScreen.kt` теперь пропускает и женщин за рулём + пояснительная подпись. Всё двуязычно (`appText`), черновой ба → `docs/tasks.md` «Переводы на проверку — F9».
-- ⚠️ **Цепочку миграций сведёт лид** (несколько фича-веток ответвлены от `0004` → параллельные alembic heads).
+- ⚠️ **Цепочку миграций сведёт лид** (несколько фича-веток ответвлены от `0004` → параллельные alembic heads) — сведено: в main единая голова `bv_refresh_recovery` (проверено 2026-10-10).
 
 ## Бэкенд: премиум-поля и проверка водителя (2026-06-24, ✅ ЗАДЕПЛОЕНО на yulbash.ru)
 - `Ride` + `RideIn`/`RideOut`: новые булевы поля предпочтений — `pets_allowed` (животные), `child_seat` (детское кресло/бустер), `women_only` (только женщины), `smoking`, `baggage`, `air_conditioner`. `GET /rides` принимает их как фильтры. Дефолты `False` → обратносовместимо.
@@ -2179,10 +2190,10 @@ Retention-двигатель: юзер подписывается на марш�
 - **Бэкенд:** модель `RouteWatch` (user_id, from_city, to_city, опц. `watch_date`, `direction` forward/both, анти-спам `last_notified_at`, `expires_at`=+14 дней) + `Notification` (персистентная лента). Роутер `app/routers/route_watch.py`: `POST /route-watch` (создать; дубль того же маршрута → продлеваем, не плодим), `GET /route-watch` (мои непротухшие), `DELETE /route-watch/{id}` (только свою). Матчинг — `services.notify_route_watchers(session, ride)`, вызывается из `rides.create_ride` после коммита. Анти-спам: ≤1 пуш на подписку в сутки; протухшие (>14 дней) не матчатся и скрыты. Пуш/запись двуязычны по `user.language`. Города — как есть. Лента `/notifications` (chat.py) теперь мержит `Notification`. Миграция `alembic/versions/0005_route_watch.py` (идемпотентна). Тесты `tests/test_route_watch.py` (10): CRUD, матчинг right/not-wrong, self-skip, both-направление, анти-спам, протухание, дата-фильтр, валидация.
 - **Android:** `Screen.RouteWatches` + ветка в `YuldashApp.kt`. Экран `RouteWatchesScreen` (`SecondaryScreens.kt`): форма (откуда/куда + тумблер «туда-обратно») + список подписок с удалением, все состояния (loading/error/empty). Вход: карточка «Мои подписки на маршрут» в `NotificationsScreen` + кнопка «Следить за маршрутом» на пустой выдаче «Ближайших» (`NearbyEmptyCard` в `RidesRequestsChatScreens.kt`, проброс `onRouteWatch(from,to)` через `MapScreen`→`HomeScreen`). `ApiClient`: `createRouteWatch`/`getRouteWatches`/`deleteRouteWatch` + `RouteWatchDto`. Двуязычие через `appText` (черновой ба → `docs/tasks.md` «Переводы — F13»).
 
-## Что ещё фейковое (только UI)
-Платежи (донат/Boost — мок), проверка водителя, реальное распознавание голоса (имитация), звонок оператору, «скрытый номер»/код посадки (UI). Реклама — локальные счётчики показов/кликов. **SMS** — код провайдера готов (`sms.ru`), но без ключа работает мок (код в логе сервера). Полные чат-треды списком диалогов — `ChatScreen` всё ещё показывает мок-карточки (реальный тред — в `ActiveTripScreen`).
+## Что ещё фейковое (только UI) — переписано 2026-10-10 по коду
+Раздел 2026-06 устарел: уже НЕ мок — донат и буст (серверные заявки, `createDonation`/`/boost/create`, подтверждение админом), проверка водителя (загрузка документов + OCR + модерация), распознавание голоса (системный `RecognizerIntent`), код посадки и скрытый номер (`getBoardingCode`, `/bookings/{id}/details`), события рекламы (`ApiClient.fireAdEvent` → `POST /ads/{id}/event`), список диалогов `ChatScreen` (`getConversations`), «обратный звонок» (`requestCallback`). Демо-данные в `Mocks.kt` остались только как фолбэк (например `demoPartnerAds`, `demoFrequentTrips`); лента поездок начинается пустой (`YuldashViewModel.kt`, не `demoRides`). Что действительно не боевое по умолчанию: **SMS** — `sms_provider="mock"` в `config.py` (код в логе сервера), а SMS-вход в приложении заморожен флагом `YULDASH_SMS_LOGIN`; `payments_provider="mock"` по умолчанию (ЮKassa и `sbp_manual` включаются в `.env`; значение на проде здесь не проверялось — см. `server.md`).
 
-**Карта — настоящая и работает** (Яндекс MapKit, `YandexMapCard`). 2026-06-22 ключ **активировался** — реальные тайлы Башкортостана грузятся (Баймаҡ/Сибай/Тубинский и т.д.), на карте видны маркеры-ценники поездок. Маршрут пока прямая линия (настоящий роутинг по дорогам — позже, нужен `-full` SDK + Router). Тап по маркеру → нижняя карточка поездки (`ModalBottomSheet`); добавлен фикс перехвата касаний для карты внутри прокручиваемого списка.
+**Карта — настоящая и работает** (Яндекс MapKit, `YandexMapCard`). 2026-06-22 ключ **активировался** — реальные тайлы Башкортостана грузятся (Баймаҡ/Сибай/Тубинский и т.д.), на карте видны маркеры-ценники поездок. Маршрут по дорогам на 2026-10-10 рисует `drawRoadRoute` в `MapScreen.kt` (в 2026-06 была прямая линия). Тап по маркеру → нижняя карточка поездки (`ModalBottomSheet`); добавлен фикс перехвата касаний для карты внутри прокручиваемого списка.
 
 ## Анимации (добавлено 2026-06-22)
 - Переходы экранов: `AnimatedContent` вокруг `when(screen)` в `YuldashApp` и `when(selectedTab)` в `HomeScreen`.
@@ -2191,7 +2202,7 @@ Retention-двигатель: юзер подписывается на марш�
 - Хелпер `Modifier.appearIn(index)` (рядом с `bounceClick`) — карточки каскадом всплывают снизу при появлении; применён к спискам всех 5 вкладок (Карта, Поездки, Заявка, Чат, Профиль) через `Box(Modifier.appearIn(i)) { ... }`.
 
 ## Дизайн-спринт (добавлено 2026-06-23)
-- **Тёмная тема (Material 3).** Палитра `Canon*` адаптивна: каждый цвет — `@Composable`-геттер `if (isSystemInDarkTheme()) тёмный else светлый` (вверху MainActivity.kt). 410 использований не тронуты. `Theme.kt` — `darkColorScheme`. Карточки: `Color.White` → адаптивный `CanonSurface`. Подводный камень: `@Composable`-геттер нельзя вне composable (Canvas/DrawScope, не-composable хелперы) — см. lessons.
+- **Тёмная тема (Material 3).** Палитра `Canon*` адаптивна: каждый цвет — `@Composable`-геттер `if (isSystemInDarkTheme()) тёмный else светлый` (тогда вверху MainActivity.kt; сейчас — `CanonTokens.kt`, условие `appIsDark()` = ночная поездка → выбор темы в настройках (`ThemePrefs.darkOverride`) → системная тема). 410 использований не тронуты. `Theme.kt` — `darkColorScheme`. Карточки: `Color.White` → адаптивный `CanonSurface`. Подводный камень: `@Composable`-геттер нельзя вне composable (Canvas/DrawScope, не-composable хелперы) — см. lessons.
 - **Сплэш + брендовое интро (2026-06-29).** Раньше: `Screen.Splash` + `SplashScreen()` заново анимировал лого поверх системного сплэша → **двойное лого** (жалоба Александра). Теперь: `Screen.Splash` = тонкий зелёный «мост» (продолжает системный сплэш, БЕЗ повторной анимации лого). На ПЕРВОМ запуске → **`Screen.Intro`** (`IntroScreen.kt`): 3 акта ~3.25с, тап = скип — лого мягко проявляется (без scale-pop) → слово-смысл **«Попутчик»** → морф (crossfade+scale) в бренд **«Юлдаш»** → слоган **RU→BA** («Поездки между своими»→«Үҙебеҙҙекеләр араһында юллашыу») → онбординг. Уважает reduced-motion (анимации выкл. → сразу финальный кадр). На повторных запусках интро НЕ показывается (сразу Home/Login). `splashTarget`: первый запуск (`!onboarding_completed`) → `Intro` (раньше debug-обхода). Старый `SplashScreen()` удалён. Системный сплэш Android 12 — `styles.xml` (`windowSplashScreenBackground`=`@color/yuldash_splash`). Шрифт — Montserrat (`res/font/`, сабсет Cyrillic+Latin, башкирский проверен). Бренд «Юлдаш» приходит целым (tracking-in + золотой sheen-блик) + золотая черта.
 - **Премиум-герой интро (`IntroHero.kt`, 2026-06-29).** `BrandHero` — поверх лого: **курай-соцветие** (герб РБ: центр-втулка + **7 шаров на стеблях = 7 родов**, веер в верхней полусфере) распускается за лого через `scale(bloom)` — «вырастает» из-за пина (центр скрыт за лого); цвет золотой `#F0C840`. + **дорога-маршрут** чертится снизу к пину (`PathMeasure` trim, белая пунктирная осевая), по её голове едет **нав-стрелка** — курсор навигатора («как машина на карте», стиль Яндекс): двухцветный сложенный наконечник, ориентирован по касательной маршрута (`atan2` направления). Дорога короткая (стрелка — главное, дорога = её след), после прихода к пину гаснет (`roadFade` при `showMeaning`). Референсы дал Александр (скрин курай-герба + скрин нав-стрелки). **Перф-урок (важно):** курай/дорогу рисует ОТДЕЛЬНЫЙ дешёвый `Canvas` (только вектор), а лого — эффективный `Image`-композабл с `graphicsLayer` (НЕ `drawImage(PNG)` в Canvas, НЕ непрерывная анимация всего Canvas) — иначе тяжёлый Canvas забивает главный поток, а на нём же корутины таймлайна → таймлайн стынет (ловили «Skipped 122-140 frames», лого висло). Курай/стрелка завязаны на `bloom`/`road` (после анимации значения статичны → Compose перестаёт перерисовывать). Остаточный старт-джанк на эмуляторе — холодный старт (софт-GPU + загрузка шрифтов + сетевая инициализация app), на реальном устройстве кратно меньше; чистый кадр для проверки ловили временной задержкой таймлайна (`delay`, потом откат).
 - **Фон-пейзаж интро (`drawable/splash_landscape.xml`, обогащён 2026-06-29).** Векторный пейзаж Башкортостана под лого/текстом интро (грузится `Image` в `IntroScreen`, проявляется alpha+push-in). Был плоский (горы-треугольники, пятно воды) → стал глубоким и «дорогим»: дальний хребет в дымке (аэро-перспектива) + левая гора для баланса + **рёбра-контуры** на пиках (светлая/тёмная грани), широкий яркий **изгиб реки** ловит свет неба, плотный **сосновый лес** взбегает по склону холма (два тона = глубина) + малая роща слева, **дымка-туман** у подножия (атмосфера), **северное сияние** — мягкие занавеси по краям неба (4 path, lin-градиент, `fillAlpha`×альфа-стопов, не спорят с лого), доп. контуры рельефа холмов, **звёзды**, **курай** рамкой в обоих нижних углах. Палитра/золотая дорога/курай-стиль прежние. ⚠️ VectorDrawable без `<circle>` — звёзды/соцветия = двухдуговые path (см. lessons). Делалось через SVG-превью в браузере (3+ итерации) → перенос в вектор → проверка реального рендера на эмуляторе (вектор ≠ SVG 1:1).
@@ -2207,9 +2218,9 @@ $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 ```
 
 ### Релиз (подписанный, для Google Play) — добавлено 2026-06-23
-- Ключ подписи: `android/yuldash.jks` + `android/keystore.properties` (пароль). **ОБА в `.gitignore`, НЕ в git.** ⚠️ Беречь: потеря ключа = НЕЛЬЗЯ обновлять приложение в Google Play. Сделать бэкап в надёжное место (пароль-менеджер/облако).
+- Ключ подписи: `android/keystore.properties` (`storeFile`/`storePassword`/`keyAlias`/`keyPassword`; `storeFile` ведёт на `.jks`, в 2026-06 это был `android/yuldash.jks`). **`*.jks` и `keystore.properties` в `.gitignore`, НЕ в git.** Без `keystore.properties` `assembleRelease`/`bundleRelease` падают нарочно; для проверки R8 в CI есть флаг `-Pyuldash.unsignedRelease` (такой APK ставить и заливать нельзя). ⚠️ Беречь: потеря ключа = НЕЛЬЗЯ обновлять приложение в Google Play. Сделать бэкап в надёжное место (пароль-менеджер/облако).
 - Сборка: `gradlew :app:assembleRelease :app:bundleRelease`. Артефакты: `app/build/outputs/apk/release/app-release.apk` (прямая установка), `app/build/outputs/bundle/release/app-release.aab` (загрузка в Play). Подпись: `CN=Yuldash` (проверено `apksigner verify`).
-- `isMinifyEnabled=false` (надёжность > размер). Уменьшение (R8/ABI-split/strip) — позже; сейчас APK ~117 МБ из-за нативных либ MapKit (`libmaps-mobile.so`).
+- (Запись 2026-06-23: `isMinifyEnabled=false`, APK ~117 МБ из-за нативных либ MapKit.) На 2026-10-10 release включает R8: `isMinifyEnabled = true` + `isShrinkResources = true`, keep-правила — `android/app/proguard-rules.pro`; ABI-фильтр `arm64-v8a` + `armeabi-v7a`; `versionName 1.0.0`, `versionCode 2`. Размер прямого APK, указанный на лендинге, — `APK_SIZE` в `web/components/config.ts` (69 МБ на 2026-07-04, не перемерялся). Готовые скрипты: `android/build-debug.bat`, `android/build-release.bat`, `android/install-run.bat`.
 
 ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подробности запуска/эмулятора/smoke-теста — в `../CONTINUE_FOR_AI.md`.
 
@@ -2248,7 +2259,7 @@ ADB: `C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe`. Подр
 ## 2026-07-01 — тесты, lint и coverage
 
 - Backend coverage измеряется через `coverage run --source=app -m pytest tests`; последний факт: **91%** по `backend/app`.
-- Android debug coverage включён в `android/app/build.gradle.kts` для unit и instrumented tests; отчёты: `android/app/build/reports/coverage/test/debug/` и `android/app/build/reports/coverage/androidTest/debug/connected/`. Последний Android unit line coverage: **4.63%** (`546 / 11794`).
+- Android debug coverage включён в `android/app/build.gradle.kts` для unit и instrumented tests; отчёты: `android/app/build/reports/coverage/test/debug/` и `android/app/build/reports/coverage/androidTest/debug/connected/`. Последний Android unit line coverage: **4.63%** (`546 / 11794`). ⚠️ С 2026-08-08 `enableAndroidTestCoverage` в `build.gradle.kts` выключен намеренно: покрытие меряется по JVM unit-тестам (`jacocoTestReport`), отчёта `…/androidTest/debug/connected/` больше нет; актуальные пороги и числа — [testing.md](testing.md).
 - Web lint после Next 16 работает через ESLint CLI: `web/eslint.config.mjs` + `npm run lint`.
 
 ## 2026-07-01 — Android unit-тесты бизнес-логики
@@ -2649,9 +2660,9 @@ token, still_allowed, on_close)`: фоновая задача на каждое 
 
 **④ Реферал-фрод.** `reward_driver_referral` (`routers/referral.py`): бонус пригласившему — только когда приглашённый водитель сделал ≥3 «живых» done-поездок (такси: `distance_km`>1 ИЛИ onboard→done >5 мин; попутка: маршрут >1 км) с ≥3 РАЗНЫМИ пассажирами. Один бонус на приглашённого (`ReferralBonus.invited_user_id` unique) + ≤5 бонусов/месяц на пригласившего. Хуки на done: `instant.done`, `bookings.driver-status`, `family.trip-status`. Накрутка той же парой не проходит.
 
-**⑤ Кап оценок пары.** `services.user_rating` + `drivers_bundle` (`_capped_stars`): от одной пары rater→ratee в агрегат идут только первые 3 оценки за скользящие 30 дней; остальные пишутся, но не влияют. Легаси-строки без даты не режутся.
+**⑤ Кап оценок пары.** `services.user_rating` + `drivers_bundle` (`_capped_stars` — позже удалена, сейчас `_rating_from_rows`): от одной пары rater→ratee в агрегат идут только первые 3 оценки за скользящие 30 дней; остальные пишутся, но не влияют. Легаси-строки без даты не режутся.
 
-**⑥ Анти-фишинг чата.** `antifraud.phishing_flag`: узкие паттерны (просьба кода из SMS/подтверждения/входа, 16-значный номер карты, «переведи на другой номер/карту») → `Message.flag="warn"` во всех 4 путях отправки (WS+REST, бронь+заказ) и при редактировании. НЕ блокируем. Android: плашка «⚠️ Никому не сообщай коды из SMS…» под чужим warn-сообщением (`PhishingWarnPlate`, оба чата) + дисклеймер при первом открытии чата (`ChatSafetyDisclaimer`, prefs `chat_safety_seen`). Честные «код посадки» / «буду через 5 минут» / обычный СБП не флажатся.
+**⑥ Анти-фишинг чата.** `antifraud.phishing_flag`: узкие паттерны (просьба кода из SMS/подтверждения/входа, 16-значный номер карты, «переведи на другой номер/карту») → `Message.flag="warn"` во всех 4 путях отправки (WS+REST, бронь+заказ) и при редактировании. НЕ блокируем. Android: плашка «⚠️ Никому не сообщай коды из SMS…» под чужим warn-сообщением (`PhishingWarnPlate` — в коде сейчас `ChatFlagPlate` в `RidesRequestsChatScreens.kt`; оба чата) + дисклеймер при первом открытии чата (`ChatSafetyDisclaimer`, prefs `chat_safety_seen`). Честные «код посадки» / «буду через 5 минут» / обычный СБП не флажатся.
 
 **⑦ «Пассажир не заплатил» одним тапом.** `POST /reports {category:"unpaid", order_id|booking_id}`: только водитель, только done-поездка, одна жалоба на заказ/бронь (повтор идемпотентен), пометка `unpaid_reported`. Страйк пассажиру — через СУЩЕСТВУЮЩУЮ механику B3/B5 (`quality.passenger_pause_until` + `unpaid_tap_strike_times`): свежие unpaid (new/reviewing) считаются сразу, reject админа снимает страйк, resolved считаются старым путём (не двоятся). Android: `UnpaidReportButton` (такси done-экран + карточки пассажиров попутки в кабинете водителя).
 
@@ -2668,12 +2679,12 @@ token, still_allowed, on_close)`: фоновая задача на каждое 
   - `POST /bookings/{id}/stuck` — «Застрял на трассе»: координаты → доверенным контактам (SMS в фоне) + запись в SOS-ленту (`SosEvent category=breakdown`) + Telegram админу. Уровень мягче паники SOS.
   - `POST /bookings/{id}/winter-check` — авто-проверка «доехал?» (прагматично v1: вызывается клиентом/по флагу, когда его ETA+буфер истёк). Идемпотентна: 1) не закрыта + пуш не слали → пуш «всё в порядке?» обеим сторонам (`send_push`), помечает `winter_check_sent_at`; 2) ответа нет ≥30 мин + активный `TripShare` → уведомление доверенному (SMS) + `SosEvent`; ветки `closed/ok/too_early/waiting/no_share/escalated`.
   - `POST /bookings/{id}/winter-check/ok` — участник подтвердил «всё в порядке» (`winter_check_ack_at`) → гасит эскалацию.
-- **Модель `Booking` +2 колонки:** `winter_check_sent_at`, `winter_check_ack_at`. Миграция `alembic/versions/f12_winter_safety.py` (идемпотентна; на проде миграции F-веток сведёт лид).
+- **Модель `Booking` +2 колонки:** `winter_check_sent_at`, `winter_check_ack_at`. Миграция `alembic/versions/f12_winter_safety.py` (идемпотентна; на проде миграции F-веток сведёт лид; в main уже сведены — единая голова на 2026-10-10).
 - **Android `BookingActiveTripScreen.kt`:** баннер «Морозная ночь» (`FrostyNightBanner`, показывается по `isFrostyWinterNight()` = месяц ноя–мар + время 20:00–07:00, без внешних API) + кнопка «Застрял на трассе» (`RoadsideHelpButton`, амбер `CanonWarn`, отдельный уровень от красной SOS, с подтверждением). `ApiClient.roadsideHelp(bookingId, lat, lng, note)` → `/stuck` (координаты из `LocationPrefs`).
 - **Тесты:** `backend/tests/test_winter_safety.py` (9 тестов: stuck пишет SOS+шлёт доверенным, права участника, все ветки авто-чека, ack гасит эскалацию).
 ## F14 — Точки сбора по ориентирам (2026-07-06, ветка `feat/village-pickup-points`)
 РБ-фишка: в сёлах адресов нет — встречаются «у мечети», «у Магнита», «автовокзал».
-- **Бэкенд:** модель `PickupPoint` (city, title_ru, title_ba, lat, lng, usage_count, is_seed) — публичный двуязычный справочник ориентиров. Миграция `alembic/versions/f14_pickup_points.py` (revision `f14_pickup_points`, down_revision `0004_booking_boarding_code`, идемпотентно; **цепочку миграций сведёт лид** при сборке фича-веток). Роутер `routers/pickup.py`: `GET /pickup-points?city=` (подсказки, без токена — не персональные данные). Сид популярных точек Уфа/Сибай/Баймаҡ/Белорецк/Учалы (`services.py::seed_pickup_points`, вызывается в `main.py` lifespan, не под `SEED_DEMO`). Пополнение: `services.py::record_pickup_choice` — при `POST /rides` с `pickup_point_id` (привязка + usage_count++) или с новой точкой (текст+координаты → новый ориентир). `RideIn`/`RequestIn` +`pickup_point_id`. Тесты `tests/test_pickup_points.py` (сид, подсказки по городу, пополнение, приватность). pytest 187 passed / 1 skipped.
+- **Бэкенд:** модель `PickupPoint` (city, title_ru, title_ba, lat, lng, usage_count, is_seed) — публичный двуязычный справочник ориентиров. Миграция `alembic/versions/f14_pickup_points.py` (revision `f14_pickup_points`, down_revision `0004_booking_boarding_code`, идемпотентно; **цепочку миграций сведёт лид** при сборке фича-веток; сведено, единая голова на 2026-10-10). Роутер `routers/pickup.py`: `GET /pickup-points?city=` (подсказки, без токена — не персональные данные). Сид популярных точек Уфа/Сибай/Баймаҡ/Белорецк/Учалы (`services.py::seed_pickup_points`, вызывается в `main.py` lifespan, не под `SEED_DEMO`). Пополнение: `services.py::record_pickup_choice` — при `POST /rides` с `pickup_point_id` (привязка + usage_count++) или с новой точкой (текст+координаты → новый ориентир). `RideIn`/`RequestIn` +`pickup_point_id`. Тесты `tests/test_pickup_points.py` (сид, подсказки по городу, пополнение, приватность). pytest 187 passed / 1 skipped.
 - **Android:** `data/ApiClient.kt` — `PickupPointDto` + `getPickupPoints(city)`; `publishRide`/`createRequest` +`pickupPointId`. `CreateRideScreen.kt` — компонент `PickupSuggestionChips(city, selectedId, onSelect)` (LazyRow чипов Canon*, сам грузит справочник, дебаунс 350мс) над полем «Где встречаемся»; выбор чипа подставляет название+координаты, фолбэк на ручной пикер карты остаётся. Тот же компонент в форме «Создать заявку» (`AccessibilityScreens.kt`) — у заявки нет pickup-колонки, поэтому ориентир кладётся в комментарий («Точка сбора: …»), а `pickup_point_id` пополняет справочник. Двуязычие через `appText`/`titleBa`.
 ## 2026-07-06 — F19 «Позови водителя» (водительский трек реферала, ветка `feat/invite-drivers`)
 
@@ -2766,7 +2777,7 @@ token, still_allowed, on_close)`: фоновая задача на каждое 
 - Миграция: `alembic/versions/g1_parcel_track.py` (revision `g1_parcel_track`, down=`p2_promo_unique` — **новый единственный head**). Идемпотентно: колонка `parcel_id` + индекс + снять NOT NULL с `contact_id` на Postgres; SQLite dev пересоздаётся из моделей.
 - Тесты: `tests/test_parcel_track.py` (11). Полный сюит: **869 passed, 1 skipped.**
 
-**Android (по чеклисту у Александра — облако не собирает APK):** кнопка «Поделиться отслеживанием» в карточке отправителя посылки → `ApiClient.parcelTrackLink(id)` (POST `/parcels/{id}/track-link`) → `LiveLinkCard` (копировать + share-sheet, уже есть в `TripLiveLink.kt`).
+**Android (по чеклисту у Александра — облако не собирает APK):** кнопка «Поделиться отслеживанием» в карточке отправителя посылки → `ApiClient.createParcelTrackLink(id)` (POST `/parcels/{id}/track-link`) → `LiveLinkCard` (копировать + share-sheet, уже есть в `TripLiveLink.kt`).
 
 **💳 Монетизация — off by default (подтверждено, код не трогал):** просьба «по умолчанию выключен, пока юр.моменты» уже выполнена мастер-флагами релиза (`taxi_enabled=False`, `courier_enabled=False`, `payments_provider="mock"`→503 «Оплата скоро» в проде, `payouts_enabled=False`). Отдельный флаг НЕ добавлял — был бы костыль поверх готового гейта. Дорожная карта совпадает с кодом: OFF → интерим `sbp_manual` («на доверии») → позже `yookassa`.
 
@@ -2945,12 +2956,12 @@ TTL, отзыве ссылки и удалении координат.
 
 | объект | ступени | где |
 |---|---|---|
-| Кегль | `CanonDisplay` 34 · `CanonTitle` 24 · `CanonHeading` 19 · `CanonBody`/`CanonBodyStrong` 16 · `CanonCaption` 14 · `CanonMicro` 12 · `CanonButton` 16 | `CanonTokens.kt:180+` |
+| Кегль | `CanonDisplay` 34 · `CanonTitle` 24 · `CanonHeading` 19 · `CanonBody`/`CanonBodyStrong` 16 · `CanonCaption` 14 · `CanonMicro` 12 · `CanonButton` 16 | `CanonTokens.kt` (стили `CanonDisplay` … `CanonButton`) |
 | Межстрочный | 40 / 30 / 25 / 23 / 20 / 17 (парно к кеглю) | там же |
-| Отступ | `CanonSpace` xs 4 · sm 8 · md 12 · lg 16 · xl 24 · xxl 32 · huge 48 | `CanonTokens.kt:140+` |
-| Радиус | `CanonCardShape` 28 · `CanonItemShape` 22 · `CanonFieldShape` 14 · `CanonTinyShape` 8 | `CanonTokens.kt:128+` |
-| Тень | `CanonDepth` flat 0 · card 1 · raised 4 · sheet 12 | `CanonTokens.kt:160+` |
-| Движение | `CanonMotion` — 11 ступеней: QUICK 180 · NORMAL 260 · SLOW 320 · ENTRY 500 · COUNT 700 · SCENE 820 · TICK 1000 · PULSE 1100 · CINEMA 1600 · DRIFT 4700 · AMBIENT 9000 мс, плюс каскады `cascadeIn` 40 / `cascadeOut` 12. Бесконечные циклы — только через `canonBreath` / `canonDrift` (2026-09-05) | `CanonTokens.kt:300+` |
+| Отступ | `CanonSpace` xs 4 · sm 8 · md 12 · lg 16 · xl 24 · xxl 32 · huge 48 | `CanonTokens.kt` (`object CanonSpace`) |
+| Радиус | `CanonCardShape` 28 · `CanonItemShape` 22 · `CanonFieldShape` 14 · `CanonTinyShape` 8 | `CanonTokens.kt` (`CanonCardShape` … `CanonTinyShape`) |
+| Тень | `CanonDepth` flat 0 · card 1 · raised 4 · sheet 12 | `CanonTokens.kt` (`object CanonDepth`) |
+| Движение | `CanonMotion` — 11 ступеней: QUICK 180 · NORMAL 260 · SLOW 320 · ENTRY 500 · COUNT 700 · SCENE 820 · TICK 1000 · PULSE 1100 · CINEMA 1600 · DRIFT 4700 · AMBIENT 9000 мс, плюс каскады `cascadeIn` 40 / `cascadeOut` 12. Бесконечные циклы — только через `canonBreath` / `canonDrift` (2026-09-05) | `CanonTokens.kt` (`object CanonMotion`) |
 
 **Роли кегля.** 34 — только крупные числа (цена, баланс, километры) и заголовок онбординга.
 24 — заголовок ЛЮБОГО экрана. 19 — заголовок блока/карточки. 16 — основной текст,
@@ -2980,9 +2991,9 @@ TTL, отзыве ссылки и удалении координат.
 | Файл | Что делает |
 |---|---|
 | `backend/.coveragerc` | Порог 85% для бэкенда. `coverage report` возвращает ненулевой код ниже планки |
-| `android/app/build.gradle.kts` → `jacocoCoverageVerification` | Пороги приложения: слой данных 70%, всё вместе 20%. Подключён к `gradlew check` |
+| `android/app/build.gradle.kts` → `jacocoCoverageVerification` | Пороги приложения: слой данных 78%, всё вместе 22% (в 2026-08-04 было 70% и 20%; сверено с `build.gradle.kts` 2026-10-10). Подключён к `gradlew check` |
 | `backend/tests/test_api_contract_android.py` | Сверяет адреса из `ApiClient.kt` с маршрутами FastAPI — приложение не может звать несуществующую ручку |
-| `android/…/data/ApiClientEndpointContractTest.kt` | 178 ручек: метод, адрес, разбор ответа, честная ошибка на 500 |
+| `android/…/data/ApiClientEndpointContractTest.kt` | не меньше 178 ручек (сторож `endpoints().size >= 178`): метод, адрес, разбор ответа, честная ошибка на 500 |
 | `android/…/data/WebSocketClientsTest.kt` | Чат, гео-канал поездки и такси, сигнал карты: токен внутри соединения, разбор, отсутствие вечного реконнекта |
 | `android/…/data/OutboxTest.kt` | Очередь без сети: порядок, переживание перезапуска, отказ сервера не отравляет очередь |
 | `android/…/data/GeocoderAndNetworkTest.kt` | Подсказки адресов (сбой ≠ «не найдено»), монитор возврата сети |
@@ -3015,7 +3026,7 @@ TTL, отзыве ссылки и удалении координат.
 | `backend/tests/test_expired_papers_stop_the_taxi_at_once.py` | Просроченные ОСАГО/разрешение/техосмотр закрывают такси СРАЗУ, не дожидаясь фоновой задачи: гейт считает по датам (`doc_check.overdue_docs`), флаг `docs_expired` остался индексом. Границы: пустые сроки не блокируют, продлил — вернулся сам; сторож на расхождение гейта и задачи |
 | `backend/tests/test_autocheck_asks_whose_licence_it_is.py` | Авто-проверка прав сверяет дату рождения из заявки с датами на документе: чужие права — не `pass`, а к человеку. Границы: свои проходят, без даты рождения поведение прежнее, мусор по-прежнему отклоняется |
 | `backend/tests/test_someone_is_waiting_for_your_answer.py` | Новая заявка таксиста доходит до админа в Telegram (без ИНН/разрешения/телефона). Повтор при «на рассмотрении» молчит, подача после отказа говорит снова, сбой Telegram заявку не роняет |
-| `backend/tests/test_blocked_driver_has_no_side_door.py` | Блокировка и пауза действуют не только в ленте: витрина клиники и подбор под заявку тоже их знают (`ride_visibility.visible_rides`). В каждой истории рядом с наказанным едет честный водитель — он обязан находиться. Мутируется в обе стороны: убрать фильтр и, наоборот, спрятать всех |
+| `backend/tests/test_blocked_driver_has_no_side_door.py` | Блокировка и пауза действуют не только в ленте: витрина клиники и подбор под заявку тоже их знают (`visibility.visible_rides`; файл `backend/app/visibility.py`). В каждой истории рядом с наказанным едет честный водитель — он обязан находиться. Мутируется в обе стороны: убрать фильтр и, наоборот, спрятать всех |
 | `backend/tests/test_paused_request_does_not_waste_a_drivers_trip.py` | Заявка человека на паузе §2 скрыта в ОБЕИХ витринах (`/requests/near`, `/requests/feed`) — принять отклик он всё равно не может. Честная заявка остаётся видна; свою автор видит даже на паузе. Три мутации: без паузы, «спрятать всех», без исключения для автора |
 | `backend/tests/test_courier_shelf_respects_the_block.py` | Витрина проф-курьера (`/courier/available`) прячет заказы того, кто его заблокировал, — как обычная лента посылок. Чужие заказы остаются видны; отдельным тестом заперт сам отказ на `accept` (прямая ссылка обходит фильтр списка) |
 | `backend/tests/test_one_person_does_not_call_every_car.py` | Пачка предзаказов на один час будит ОДНОГО водителя, остальные записи ждут в очереди и не отменяются, одиночный предзаказ едет как прежде. Мутации: снять очередь и не активировать вовсе |
@@ -3039,14 +3050,14 @@ TTL, отзыве ссылки и удалении координат.
 | `backend/tests/test_input_fields_have_a_ceiling.py` | **Сторож на класс:** у строкового поля запроса (`*In`/`*Body`/`*Payload`) обязан быть `max_length`, иначе один человек раздувает ленту всему району. Вторая проверка ловит перегиб (потолок < 20 символов). Исключения — с причинами |
 | `backend/tests/test_long_text_does_not_flood_the_feed.py` | Поле «остановки» и причина отмены не принимают мегабайтный текст, но обычные значения работают. Мутации: снять потолок, сделать его тесным |
 | `backend/tests/test_server_shrinks_photos_itself.py` | Снимок 4000×3000 ужимается сервером, документ остаётся читаемым (≥1400 по стороне), маленькое фото не пересобирается, битый файл не роняет загрузку. Мутации: не жать, жать до 400, трогать маленькие |
-| `backend/tests/test_migrations_match_the_models.py` | **Сторож выката:** 94 ревизии накатываются на чистую базу, голова ровно одна (две роняют `upgrade head` на сервере), модели и схема не расходятся. В шапке честно записано, что «забытую миграцию» тест поймать НЕ может: базовая ревизия делает `create_all` из моделей |
+| `backend/tests/test_migrations_match_the_models.py` | **Сторож выката:** ревизии накатываются на чистую базу (94 на 2026-08-04, сейчас 130), голова ровно одна (две роняют `upgrade head` на сервере), модели и схема не расходятся. В шапке честно записано, что «забытую миграцию» тест поймать НЕ может: базовая ревизия делает `create_all` из моделей |
 | `backend/tests/test_feeds_do_not_ask_the_db_per_row.py` | **Сторож N+1:** число обращений к базе у ленты поездок, карточки водителя и списка переписок не растёт вместе с числом записей (запас 3 запроса на служебное). Мутация: `session.get()` в цикле по ленте |
 | `backend/tests/test_class_opens_on_real_drivers.py` | Набор водителей для открытия тарифа считает по ДАТАМ документов (`doc_check.overdue_docs`), а не по флагу фоновой задачи: просроченные тариф не открывают, живые считаются, пустые сроки не выкидывают. Мутации: не смотреть сроки, выкинуть тех, у кого сроки не заполнены |
 | `backend/tests/test_no_secrets_under_version_control.py` | **Сторож секретов:** среди отслеживаемых Git файлов нет `.env`/ключей подписи/сервисных аккаунтов, в тексте нет ключей узнаваемых форматов, `.gitignore` продолжает их закрывать (сравнение целыми строками — подстрока «.env» находится внутри «.env.*») |
 | `backend/tests/test_night_is_for_sleeping.py` | Ночью несрочное не будит, но сохраняется в Центре; беда и сообщение попутчика звонят; днём звонит всё; ночная публикация рейса не будит подписчиков. Мутации: убрать тишину, заглушить беду, считать часы по UTC |
 | `backend/tests/test_texts_speak_to_one_person.py` | **Сторож тона:** к одному человеку обращаемся на «ты», без вежливого повелительного; «вы двое / вам обоим / между вами» законны. Плюс проверка, что отказ по сумме называет границу. Исключения — `config.py` (лог для админа) и `antifraud.py` (регулярки) |
 | `backend/tests/test_block_stays_a_secret.py` | **Намеренная граница:** отказ по блокировке остаётся глухим (иначе заблокированный узнает, что от него закрылись) — и при этом сама проверка `is_blocked` не пропадает. Сторож по исходникам ловит попытку «улучшить» текст в любом из восьми мест |
-| `backend/tests/test_admin_gate_everywhere.py` | **Сторож на класс:** сам находит все 68 адресов на `/admin` и требует проверку роли в каждом — живьём и по исходникам. Новая админская ручка попадает под охрану автоматически |
+| `backend/tests/test_admin_gate_everywhere.py` | **Сторож на класс:** сам находит все адреса на `/admin` (68 на 2026-08-04; число тест считает сам) и требует проверку роли в каждом — живьём и по исходникам. Новая админская ручка попадает под охрану автоматически |
 | `backend/tests/test_suspension_reaches_everywhere.py` | Пауза «Справедливости» во ВСЕХ входах (попутка, отклик, торг, такси, предзаказ, доставка) + что она НЕ ломает: SOS и завершение начатой поездки. Полный список открытого на паузе — `test_the_pause_does_not_take_away_defence.py` (волна 63) |
 | `backend/tests/test_block_reaches_everywhere.py` | Блокировка человека во всех сценариях, в обе стороны, с контрольными случаями |
 | `backend/tests/test_phone_never_leaks.py` | Ищет саму строку номера в теле ответа (а не поле по имени): до подтверждения/принятия номера нет нигде, после — есть там, где положен |
@@ -3288,7 +3299,7 @@ TTL, отзыве ссылки и удалении координат.
 
 **Доставка**: курьер снимает себя с заказа, чек за доставку
 (`components/ParcelReceiptCard.tsx`), заказ ПЛАТНОГО курьера с расчётом цены
-(`components/CourierOrderForm.tsx`, вкладка «Курьером» в «Посылках»).
+(`components/CourierOrderForm.tsx` — позже удалён, см. «Визуальный паритет PWA с Android» ниже; вкладка «Курьером» в «Посылках»).
 
 Спор по назначенной доставке доступен обеим сторонам через один
 `components/ParcelProblemActions.tsx`. В `MineTab` он подключён с ролью отправителя после
@@ -3308,7 +3319,7 @@ TTL, отзыве ссылки и удалении координат.
 больница и дом бывшего; лист ожидания раннего доступа (`components/WaitlistForm.tsx`) —
 экран «такси скоро» больше не заканчивается ничем; продление рекламы (`/ads/{id}/renew`)
 вместо кнопки, которая вела в редактор; создание объявления админом
-(`components/AdminAdCreate.tsx`).
+(`components/AdminAdCreate.tsx` — позже удалён, форма встроена в `AdminAdsScreen.tsx`).
 
 ### Что появилось в приложении
 
@@ -3372,7 +3383,7 @@ TTL, отзыве ссылки и удалении координат.
 `components/CommunityFeedStrip.tsx`, `components/RoadsideHelp.tsx`,
 `components/DriverPassengers.tsx`, `components/RideEditActions.tsx`,
 `components/ParcelReceiptCard.tsx`, `components/TaxiOrderExtras.tsx`,
-`components/CourierOrderForm.tsx`, `screens/TaxiClassesScreen.tsx`,
+`components/CourierOrderForm.tsx` (позже удалён), `screens/TaxiClassesScreen.tsx`,
 `screens/AdminPriceComplaintsScreen.tsx`, `api/trust.ts`.
 
 
@@ -4143,12 +4154,12 @@ Android `AdminRatings` и `AdminReviews` больше не слиты в одн�
   `--scrim`, `__logo`, `.login-lang` чипы через `setLang`, `__word`, `.login-features`), `.login-card` (наезд
   на фото, радиус 44), `.login-tg` (green2, 72), `.login-error`; ветка СМС только при `SMS_LOGIN_ENABLED`
   (`.login-divider`, `.login-phone`, `.login-sms`, `.login-input*`); согласия → `/consents`, `/privacy`.
-- `SettingsScreen.tsx` = `SettingsScreen.kt`: `.settings__title`, группы из `cabinetUi.tsx`, инлайн-пикеры
+- `SettingsScreen.tsx` = `SettingsScreen` (в `SecondaryScreens.kt`): `.settings__title`, группы из `cabinetUi.tsx`, инлайн-пикеры
   темы/размера (`picker` state → `.settings-group__body` с `.seg`), `PushToggle`, группа админа, веб-только
   группа, «О приложении» (`VITE_APP_VERSION ?? "web"`), `logoutAsk`, `.danger-card` + `.settings-confirm--card`.
 - `TrustScreen.tsx` = `TrustScreens.kt`: `.trust-card` (`__badge.is-top` золотой, `.trust-ladder__step.is-reached/
   .is-current`, `.trust-benefits`), `.trust-next` (мятная), `.trust-invite`, `SettingsGroup` ссылок.
-- `SosScreen.tsx` = `SosScreen.kt`: `.sos-head`, `.sos-112` (`tel:112`), `.sos-services` (102/101/103),
+- `SosScreen.tsx` = `SosScreen` (в `SosVerifyScreens.kt`): `.sos-head`, `.sos-112` (`tel:112`), `.sos-services` (102/101/103),
   `.sos-dictate` (копирует заметку + координаты), `.sos-notify`, `.sos-cats`, `.sos-info--ok/--bad`, `.sos-law`.
 - `OnboardingScreen.tsx` = `OnboardingContent` (YuldashApp.kt): четыре слайда (`eyebrow/title/body/hero/items/note`),
   `finish(to, simple)` ставит флаги и ведёт на `/login` (последний слайд), `/map` («Пропустить») или `/simple`
@@ -4401,17 +4412,17 @@ RideshareCompletedScreen scoped по booking/session: receipt retry ставит
 
 ratingBusy/thanksBusy/lostBusy — transient remember, живут вместе с coroutine scope одной composition. Saveable draft и подтверждённые ratingSent/thanked/lostOpened остаются. После restore квитанция и tip снова загружаются; автоматического replay POST нет, pending rating повторяется только явным кликом. [StateRestorationTester13/current81 и native Activity.recreate2](audit-blocks.md#b02--восстановление-экрана-после-поездки-07102026). Standalone native host не доказывает production YuldashApp/SaveableStateHolder или cold process.
 
-07.10.2026 — B02 navigation: YuldashViewModel хранит navHistory в SavedStateHandle как список имён Screen, clearUserData удаляет saved trail; объекты поездок остаются transient. YuldashApp persistNav следит за trail, rehydrate key=screen/bookingId/session generation; исходное поколение захвачено, stale response не применяет Ride/Home после ухода/смены id/входа. Current actual YuldashApp saved holder/freshVM model и native retainedVM recreation — [реестр](audit-blocks.md#b02--навигация-квитанция-и-возврат-к-черновику-07102026); настоящая смерть процесса ещё открыта.
+07.10.2026 — B02 navigation: YuldashViewModel хранит navHistory в SavedStateHandle как список имён Screen, clearUserData удаляет saved trail; объекты поездок остаются transient. YuldashApp persistNav следит за trail, rehydrate key=screen/bookingId/session generation; исходное поколение захвачено, stale response не применяет Ride/Home после ухода/смены id/входа. Current actual YuldashApp saved holder/freshVM model и native retainedVM recreation — [реестр](audit-blocks.md#b02--навигация-квитанция-и-возврат-к-черновику07102026); настоящая смерть процесса ещё открыта.
 
-07.10.2026 — MainActivity process restore: после super(savedBundle) тот же default Activity VM проверяет сохранённый bookingId и screen. Для известной брони вне Splash/Intro/Onboarding/Login base launch intent не переигрывается; начальное назначение без сохранённой брони и fresh onNewIntent остаются. Controlled Android task restore/newPID/actual UI доказан на API35; durable pending43 ещё открыт. [Критерии](audit-blocks.md#b02--смерть-процесса-и-восстановление-квитанции-07102026).
+07.10.2026 — MainActivity process restore: после super(savedBundle) тот же default Activity VM проверяет сохранённый bookingId и screen. Для известной брони вне Splash/Intro/Onboarding/Login base launch intent не переигрывается; начальное назначение без сохранённой брони и fresh onNewIntent остаются. Controlled Android task restore/newPID/actual UI доказан на API35; durable pending43 ещё открыт. [Критерии](audit-blocks.md#b02--смерть-процесса-и-восстановление-квитанции07102026).
 
-07.10.2026 — MainActivity booking_done → default Activity YuldashViewModel.requestCompletedBooking: saved pending id/owner/revision до HTTP. App completed loader принимает только current owner/revision/runtime session; consume сохраняет screen/id/Back trail до очистки pending. Обычный tracker делегирует VM.recordNavigationChange. Old failed retry callback захватывает owner/type/revision и не заменяет новую поездку/аккаунт; same-owner refresh разрешён. Tracked tools/audit_pending_notification.py использует предыдущий actual process helper: system SINGLE_TOP43 над Receipt42/heldHTTP/savedtask/SIGKILL/plainlauncher→новая43. Saved only booking_done; другие назначения — остаток. [Доказательства](audit-blocks.md#b02--новое-уведомление-во-время-смерти-процесса-07102026).
+07.10.2026 — MainActivity booking_done → default Activity YuldashViewModel.requestCompletedBooking: saved pending id/owner/revision до HTTP. App completed loader принимает только current owner/revision/runtime session; consume сохраняет screen/id/Back trail до очистки pending. Обычный tracker делегирует VM.recordNavigationChange. Old failed retry callback захватывает owner/type/revision и не заменяет новую поездку/аккаунт; same-owner refresh разрешён. Tracked tools/audit_pending_notification.py использует предыдущий actual process helper: system SINGLE_TOP43 над Receipt42/heldHTTP/savedtask/SIGKILL/plainlauncher→новая43. Saved only booking_done; другие назначения — остаток. [Доказательства](audit-blocks.md#b02--новое-уведомление-во-время-смерти-процесса07102026).
 
 ### Сохранённые личные уведомления и список Notifications,07.10.2026
 
 MainActivity перед Compose получает default Activity VM; booking/chat/booking_done producer пишет общий pending до HTTP. YuldashViewModel.PendingBookingNavigation содержит id/owner/revision/completed. Legacy saved keys сохранены, новый yuldash_pending_booking_completed отсутствует у старого Completed task и трактуется как true. pendingCompletedNavigation — derived projection для прежних внутренних callers; HTTP берёт authoritative pendingBookingNavigation. Revision после consume/clear сохраняется для tombstone copied base intent. Новые onNewIntent принимаются; public URI не подавляется этим tombstone.
 
-YuldashApp проверяет owner/current session/полный record, сохраняет route+Back trail синхронно при consume; manual Retry сохраняет failed kind/owner/revision. NotificationsScreen в SecondaryScreens пересоздаёт feed/состояния по immutable sampled session, публикация HTTP/retained row/read/navigation guard. Guest отображает existing empty без protected GET. [Сценарии и границы](audit-blocks.md#b02--личные-уведомления-брони-и-чата-07102026); wrappers не означают новый отдельный Completed queue.
+YuldashApp проверяет owner/current session/полный record, сохраняет route+Back trail синхронно при consume; manual Retry сохраняет failed kind/owner/revision. NotificationsScreen в SecondaryScreens пересоздаёт feed/состояния по immutable sampled session, публикация HTTP/retained row/read/navigation guard. Guest отображает existing empty без protected GET. [Сценарии и границы](audit-blocks.md#b02--личные-уведомления-брони-и-чата07102026); wrappers не означают новый отдельный Completed queue.
 
 ## Private screen destinations и общий revision (08.10.2026, QA-B02-003)
 
@@ -4419,13 +4430,13 @@ YuldashViewModel хранит два взаимоисключающих типа
 
 MainActivity dispatch/явный recipient/save — короткий runIfUnchangedSession generation monitor, допускающий anonymous pre-login; runIfCurrentSession остаётся bearer-required. FcmService/TaxiOfferNotifier включают recipient_user_id в content/fullscreen intent. YuldashApp импортирует legacy bridge с проверкой предыдущей записи, ждёт login/onboarding, применяет record под session guard; active InstantDriverTrip не вытесняется driver offer. Notification row support→конкретный SupportTicket, push support→SupportTickets. Screen.Support — отдельные пожертвования.
 
-[313 JVM/обаAPK/native2/точные версии и границы](audit-blocks.md#b02--такси-посылки-и-обращения-поддержки-08102026). Current Bundle restoration принят, old Bundle migration/legacy recipient/full Home/all child screen privacy не принят.
+[313 JVM/обаAPK/native2/точные версии и границы](audit-blocks.md#b02--такси-посылки-и-обращения-поддержки08102026). Current Bundle restoration принят, old Bundle migration/legacy recipient/full Home/all child screen privacy не принят.
 
 ## Остальные private назначения (08.10.2026, QA-B02-003)
 
 Existing PendingScreenNavigation охватывает ещё AdsCabinet/PartnerCabinet/FairnessCenter/RequestResponses/RequestsFeed/TaxiOnboarding/CourierOnboarding/IncidentDetail. Positive target IDs требуются для RequestResponses и IncidentDetail; responsesRequestId/incidentId читаются из SavedStateHandle и persistNav.11старых bridge states — проекции одной записи, clearUserData их очищает. Fixed legacy importer priority не является временем последнего независимого legacy writer.
 
-Main copied private types включает7новых существующих FCM назначений; raw positive ID gates сохранены. Pushincident→FairnessCenter,feedincident→IncidentDetail(refId); request refId — ID заявки,не Notification.id; legacy request_watch/refkindrequest→RequestsFeed.8 Notifications callbacks используют saved record/sharedrevision, прежний owner callback guard сохраняется. [362unique/обаAPK/native2/Bundle ID и пределы](audit-blocks.md#b02--остальные-личные-назначения-08102026). FullHome/old-version Bundle migration/all childprivacy остаются открыты.
+Main copied private types включает7новых существующих FCM назначений; raw positive ID gates сохранены. Pushincident→FairnessCenter,feedincident→IncidentDetail(refId); request refId — ID заявки,не Notification.id; legacy request_watch/refkindrequest→RequestsFeed.8 Notifications callbacks используют saved record/sharedrevision, прежний owner callback guard сохраняется. [362unique/обаAPK/native2/Bundle ID и пределы](audit-blocks.md#b02--остальные-личные-назначения08102026). FullHome/old-version Bundle migration/all childprivacy остаются открыты.
 
 
 ## B02 Home: версия от 08.10.2026
@@ -4455,4 +4466,4 @@ MainActivity private dispatch требует matching positive String recipient_
 
 570distinct=18new(10actualApp/Profile+8joinedAPI/defaultVMreceipt)+550prior+2existing deletion IDs/authfixture;обаAPK. Captured generation до coroutine, API atomic post-delete guest generation, guest-only monitor и Home cleanup через navigateLocally.4behavior RED закрыты; initial0XML tree-print fixture stop отдельно. [Критерии, версии и границы](audit-blocks.md#b02--удаление-аккаунта-и-позднее-подтверждение-09102026). Callback onAccountDeleted теперь принимает Long post-delete receipt через HomeScreen/Profile/HomeRoute. Main/VM/Saver schema не менялись. stopLiveTracking проверен только source/local stubs, не реальный GPS.
 
-09.10.2026 — уточнение передачи этого этапа: после первого freeze независимый reviewer обнаружил новый чужой `.claude/agents/yuldash-bashkir-linguist.md` (содержимое не читали/не меняли). Прежние39 entries сохранны; теперь40=39raw-hashed файлов+1directory. Новая версия freeze сохраняет прежние brain snapshots/receipt aliases; product/test/APK bindings и570IDs не изменились, повтор тестов не требуется. Свои15 paths не включают этот файл. [Текущий foreign manifest](../test-results/b02-account-deletion-foreign-final-v2-20261009.json).
+09.10.2026 — уточнение передачи этого этапа: после первого freeze независимый reviewer обнаружил новый чужой `.claude/agents/yuldash-bashkir-linguist.md` (содержимое не читали/не меняли). Прежние39 entries сохранны; теперь40=39raw-hashed файлов+1directory. Новая версия freeze сохраняет прежние brain snapshots/receipt aliases; product/test/APK bindings и570IDs не изменились, повтор тестов не требуется. Свои15 paths не включают этот файл. Текущий foreign manifest: `test-results/b02-account-deletion-foreign-final-v2-20261009.json` (локальный артефакт: `/test-results/` в `.gitignore`, в репозитории файла нет).

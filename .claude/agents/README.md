@@ -1,6 +1,6 @@
 # 👥 Команда агентов Юлдаша
 
-Специализированные суб-агенты Claude Code под разработку Юлдаша. Настроены под зоны §12 CLAUDE.md и уроки из эталонных репо (`docs/android-references.md`).
+Специализированные суб-агенты Claude Code под разработку Юлдаша. Настроены под зоны из скилла `orchestration` (§12 CLAUDE.md) и уроки из эталонных репо (`docs/android-references.md`).
 
 ## Как звать
 - **Сам** (принудительно): «через агента `yuldash-compose-ui` сделай экран X».
@@ -12,8 +12,8 @@
 | Агент | Зона §12 | Файлы | Эталон |
 | --- | --- | --- | --- |
 | **yuldash-compose-ui** | 🎨 UI | `MainActivity.kt`, `*Screen.kt`, `UiKit.kt`, `CanonTokens.kt`, `AppText.kt` | nowinandroid, tivi, awesome-android-ui |
-| **yuldash-android-architect** | 🧠 state/data | `YuldashViewModel.kt`, `Domain.kt`, `Mocks.kt`, `data/` | architecture-samples, nowinandroid, Pokedex |
-| **yuldash-backend** | 🔌 backend | `backend/` | REST/realtime |
+| **yuldash-android-architect** | 🧠 state/data | `YuldashViewModel.kt`, `Domain.kt`, `Mocks.kt`, `data/` (`ApiClient.kt`, сокеты, офлайн-хранилища) | architecture-samples, nowinandroid, Pokedex |
+| **yuldash-backend** | 🔌 backend | `backend/` (FastAPI, Alembic, `routers/`) | REST/realtime |
 | **yuldash-security-privacy** | 🔒 сквозная | ключи, гео, телефон, авторизация, SOS, платежи | Signal |
 | **yuldash-maps-geo** | 🗺 карта | `TripLocationService.kt`, `data/*Socket.kt`, `GeocoderClient.kt`, `data/TripLocationBus.kt` | uamp |
 | **yuldash-qa-verify** | 🧪 гейт | сборка, тесты, эмулятор | architecture-samples, Pokedex |
@@ -26,11 +26,13 @@
 | Скилл | Когда включается | Что даёт |
 | --- | --- | --- |
 | **yuldash-ui** | Любая работа с интерфейсом: новый экран, правка экрана, компонент, кнопка, карточка, список, анимация, тёмная тема, цвет, отступы | Дизайн-система Юлдаша: токены `Canon*` с ловушками, двуязычие, все состояния экрана, готовые компоненты `UiKit.kt`, значения анимаций, доступность, чеклист перед «готово». Плюс [references/compose-patterns.md](../skills/yuldash-ui/references/compose-patterns.md) — 12 паттернов из реальных ошибок проекта |
+| **orchestration** | Задача режется на параллельные куски или работают две сессии | Зоны ответственности, очередь на сборку и эмулятор, worktree, «замок» на файл |
 
+Остальные скиллы (дизайн/анимации, `ui-ux-pro-max`, `grill-me` и др.) — в [.claude/skills/README.md](../skills/README.md).
 Полный справочник по дизайну — [docs/design.md](../../docs/design.md).
 
 ## Золотое правило параллели (§12)
-**Один файл — один агент в один момент.** Весь UI в `MainActivity.kt` — если его правят двое, последний затирает первого. Параллелить безопасно только непересекающиеся зоны: UI ↔ `backend/` ↔ `docs/` ↔ `res/`. **Сборка одна и эмулятор один** — их держит один агент за раз (обычно `yuldash-qa-verify`).
+**Один файл — один агент в один момент.** `MainActivity.kt` — общее ядро UI (`enum Screen` и общие хелперы); экраны лежат в своих файлах. Если один файл правят двое, последний затирает первого. Параллелить безопасно только непересекающиеся зоны: UI ↔ `backend/` ↔ `docs/` ↔ `res/`. **Сборка одна и эмулятор один** — их держит один агент за раз (обычно `yuldash-qa-verify`).
 
 ## Пересечения (согласовывать)
 - `MapScreen.kt`: визуал — `compose-ui`, гео/маршрут/камера — `maps-geo`.

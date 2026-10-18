@@ -28,6 +28,8 @@ nano /opt/yuldash/.env
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF...        # твой токен от BotFather
 TELEGRAM_WEBHOOK_SECRET=придумай_длинный_секрет
 ```
+> Проверка в коде (2026-10-10): при `ENV=prod` и заданном `TELEGRAM_BOT_TOKEN` без `TELEGRAM_WEBHOOK_SECRET` сервис не стартует (`validate_production`). Эндпоинты входа — `POST /auth/tg/start`, `POST /auth/tg/verify`, вебхук — `POST /telegram/webhook`; код живёт 300 с (`TG_CODE_TTL_SEC`), ≤5 попыток (`TG_MAX_ATTEMPTS`). Это же имя бота (`TELEGRAM_BOT_TOKEN`) использует `notify_admin_telegram` для уведомлений админу (вместе с `ADMIN_TELEGRAM_CHAT_ID`).
+
 Сохрани (`Ctrl+O`, `Enter`, `Ctrl+X`) и перезапусти API:
 ```bash
 systemctl restart yuldash-api

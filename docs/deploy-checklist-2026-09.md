@@ -6,6 +6,8 @@
 > код июля: там живут баги доступа и денег, которые в репозитории уже починены
 > (список — [audit-main-fix-order.md](audit-main-fix-order.md)).
 >
+> 🔄 *Пометка актуальности 2026-10-10 (по коду): чек-лист датирован сентябрём и описывает состояние тогда. Сегодня в `main` уже **130** миграций (а не 128) и голова `bv_refresh_recovery` (`bs_merge_heads_20260903`, которую ждёт шаг 3, — одна из промежуточных); если выкатка ещё не делалась, ориентируйся на `alembic heads` в репозитории. Используемые файлы по-прежнему существуют: `backend/deploy-backend.bat`, `backend/verify-deploy.bat`, `backend/ops/*.sh`, `backend/scripts/recompute_driver_ratings.py` (флаг `--apply`), `backend/backup-db.sh`. Фактическое состояние прода по коду не проверить.*
+>
 > **Важно про GitHub:** аккаунт заблокирован, поэтому «умный» `backend/ops/deploy.sh`
 > (он делает `git pull` на сервере) **не сработает**. Идём по пути «скопировать файлы»
 > (`deploy-backend.bat`) + два ручных шага, которых в этом bat нет: библиотеки и ops-скрипты.
@@ -66,7 +68,7 @@ ssh root@85.239.52.55 "cd /opt/yuldash && sudo -u yuldash ./.venv/bin/pip instal
 ```
 ssh root@85.239.52.55 "cd /opt/yuldash && sudo -u yuldash ./.venv/bin/alembic current"
 ```
-Ждём `bs_merge_heads_20260903 (head)` — ровно одна голова (у alembic раньше было две, 3.09 их слили).
+Ждём текущую голову из репозитория (на момент написания — `bs_merge_heads_20260903 (head)`, сегодня — `bv_refresh_recovery (head)`) — ровно одна голова (у alembic раньше было две, 3.09 их слили).
 
 ## 4. Скрипты и таймеры ops (то, чего нет в bat)
 

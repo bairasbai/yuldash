@@ -1,8 +1,16 @@
 # Рекламная система Юлдаш — спецификация (2026-06-28)
 
+> 🔄 **Актуализация 2026-10-10 (сверено с кодом `main`).** Спецификация ниже — от 2026-06-28; разделы «Текущее состояние» и «Реализация — где и риск» описывают положение **до** реализации. Что есть в коде сейчас (`backend/app/routers/ads.py`, `backend/app/ads_expire.py`, модель `Ad` в `models.py`):
+> - Модель `Ad` расширена: статусы `draft / pending_review / active / paused / expired / archived / rejected`, поля `reject_reason`, `package`, `budget_kop`, `period_days`, `owner_id`, `created_by`, `submitted_at`, `reviewed_at`. Плана-enum нет — `plan` это строка `founder|standard|premium`; `placements` — CSV (`route,ridesList,profile,nearby,tripDetails,help`).
+> - Публичный `GET /ads` отдаёт `active` + в периоде + (для партнёрских) **оплаченные** + только с валидным `erid` (формат 6–64 символа `A-Za-z0-9_-`, иначе — только в переходный период `ERID_GRACE_UNTIL`), с сортировкой по приоритету. `GET /ads/stats` **только для admin** (раньше был открыт).
+> - Добавлен **self-serve кабинет партнёра**: `GET /ad-packages`, `GET /ads/mine`, `GET /ads/mine/stats`, `GET /ads/{id}/stats`, `POST /ads` (черновик), `POST /ads/{id}` (правка), `POST /ads/{id}/submit` (на модерацию), `POST /ads/{id}/pay` (заявка на оплату СБП), `POST /ads/{id}/renew` (продление). Тарифы `AD_PACKAGES`: `city` 1 000 ₽, `route` 3 000 ₽, `main` 8 000 ₽ за 30 дней; лимит `MAX_ADS_PER_OWNER=20`, `AD_EVENTS_PER_HOUR=200`.
+> - Админ: `GET /admin/ads` (+ `founder_used/founder_limit`), `POST /admin/ads`, `POST /admin/ads/{id}`, `POST /admin/ads/{id}/approve` (требует erid), `/reject`, `/status`, `DELETE /admin/ads/{id}` (= архив). Founder-лимит `FOUNDER_LIMIT=10` проверяется при создании и при возврате из архива.
+> - Авто-истечение: `ads_expire.expire_finished_ads` вызывается из `app/taxi_worker.py` (systemd-таймер), владельцу уходит уведомление «Размещение закончилось».
+> - Android: админ-экран `AdminAdsScreen.kt` (`Screen.AdminAds`) и кабинет партнёра (`Screen.AdsCabinet`); `AdPlacement` в `MainActivity.kt` = `Nearby, Route, RidesList, TripDetails, Profile, Help`. «Заглушка-фолбэк “стать партнёром”» (п. 7 ниже) по коду не проверялась. Маркировка и ОРД — [ad-marking-ord.md](ad-marking-ord.md).
+
 Цель: реклама партнёров полностью управляется В ПРИЛОЖЕНИИ (как обещано на лендинге). Админ (Александр) ведёт рекламу из кабинета: публикует/паузит/удаляет, видит слоты и статистику. 10 «основателей» занимают место навсегда, остальные — по срокам с авто-истечением.
 
-## Текущее состояние (что есть)
+## Текущее состояние (что есть) — *на 2026-06-28, до реализации; актуально см. блок «Актуализация» выше*
 - `AdEvent` (показ/клик) + `GET /ads/stats` — реальная статистика.
 - `GET /ads` — захардкоженный демо-список (не из БД).
 - `POST /ads/{id}/event` — лог событий.
@@ -72,7 +80,7 @@
 - Тянет `/ads` (уже active+в периоде с сервера) → кэш → ротация по месту → показ с «Реклама · …» → события в `AdEvent`.
 - Админ-кабинет (`AdsCabinet`) дополнить CRUD-экранами.
 
-## ⚠️ Реализация — где и риск
+## ⚠️ Реализация — где и риск *(историческое: ветки `claude/*` — на 2026-06-28; код давно в `main`)*
 - Бэкенд = **рефакт-ветка `claude/quizzical-wescoff-bcdfd1`** (прод деплоится оттуда), `app/routers/ads.py` + `Ad` в models + схемы + сервис лайфцикла.
 - ⚠️ На этой ветке периодически активен другой агент (ловил коллизию). Строить там — только когда ветка свободна, иначе затрётся.
 - Приложение (админ-кабинет CRUD) = ветка релиза приложения (свести с отзывами).

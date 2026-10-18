@@ -26,8 +26,8 @@
 ШАГИ:
 1. Прочитай docs/00-INDEX.md + docs/architecture.md (карта кода по строкам, НЕ читай MainActivity целиком).
 2. Скопируй local.properties в worktree. Собери :app:assembleDebug — зелёная? Установи -r на эмулятор.
-3. Unit: gradlew :app:testDebugUnitTest (CoreLogicTest). Instrumentation: gradlew :app:connectedDebugAndroidTest
-   (YuldashViewModelInstrumentedTest пройдёт; BilingualComposeTest под @Ignore — Espresso 3.6.1 несовместим с API 37).
+3. Unit: gradlew :app:testDebugUnitTest (под JDK 21; сотни классов, в т.ч. CoreLogicTest и *GuardTest). Покрытие + порог: gradlew :app:jacocoCoverageVerification. Instrumentation: gradlew :app:connectedDebugAndroidTest
+   (YuldashViewModelInstrumentedTest пройдёт; BilingualComposeTest и часть других Compose-тестов помечены @SdkSuppress(maxSdkVersion = 36) — Espresso 3.6.1 несовместим с API 37, на эмуляторе API 37 они не выполняются).
 4. РУЧНОЕ E2E через adb shell input tap + uiautomator dump (координаты хрупкие — всегда сверяй по dump, парси bounds
    через python с PYTHONIOENCODING=utf-8, иначе кириллица ломается в cp1251-консоли):
    - Карта: 5 вкладок, тёмная тема, SOS-экран (112/102/101/103 + координаты).
@@ -55,7 +55,7 @@
 
 ## Заметки к промту (почему именно так)
 
-- **Espresso @Ignore на API 37** — эмулятор `Pixel_5` = Android 17/API 37 (будущий). `InputManager.getInstance` удалён → `createComposeRule` падает `NoSuchMethodException`. Поэтому Compose-UI-тесты скипаются, E2E делаем через `adb`+`uiautomator`. Снять `@Ignore` на эмуляторе API ≤36.
+- **Espresso на API 37** — эмулятор `Pixel_5` = Android 17/API 37 (будущий). `InputManager.getInstance` удалён → `createComposeRule` падает `NoSuchMethodException`. Поэтому Compose-UI-тесты (`@SdkSuppress(maxSdkVersion = 36)`) на нём пропускаются, E2E делаем через `adb`+`uiautomator`. Чтобы они выполнились — нужен эмулятор API ≤36.
 - **Кириллица в консоли** — Windows-консоль cp1251, `uiautomator dump` содержит `→`/кириллицу. Парсить bounds через `python` с `export PYTHONIOENCODING=utf-8`, иначе `UnicodeEncodeError`.
 - **local.properties** — в `.gitignore`, в worktree его нет. Без ключей MapKit сборка карты падает. Копировать из основного репо.
 - **API-токены для тестов** — `make_token(user_id)` минует SMS/Telegram-вход. Быстрый способ гонять E2E-потоки поездок без реального логина.

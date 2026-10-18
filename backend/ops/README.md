@@ -11,6 +11,8 @@
 | `restore-verify.sh` | «Репетиция восстановления»: поднимает свежий дамп во временную базу и проверяет, что данные целы. |
 | `crontab.example` | Готовые строки cron (раскомментировать, подставить пути). |
 | `systemd.example` | То же через systemd-таймеры (альтернатива cron). |
+| `deploy.sh` | Деплой на сервере: `git pull` → `pip install` → `alembic upgrade head` → рестарт → health-gate с авто-откатом (по умолчанию целится в staging, прод — через `APP_DIR`/`SERVICE`/`HEALTH_URL`, см. шапку скрипта). |
+| `preflight.py` | Предполётная проверка настроек прода до выкатки (`python ops/preflight.py [--env-file .env]`, код выхода 0/1). |
 
 ---
 
@@ -42,7 +44,7 @@
 | `KEEP_DAYS` | `14` | Сколько дней хранить локальные дампы. |
 | `PSQL_AS` | `sudo -u postgres` | Как заходить в PG. На сервере — peer-доступ без пароля. Для доступа по паролю: `PSQL_AS=""` + libpq-переменные (`PGHOST/PGUSER/PGPASSWORD` или `~/.pgpass`). |
 | `APP_DIR` | `/opt/yuldash` | Где лежат `alembic.ini` + `alembic/` (для сверки схемы). |
-| `MIN_TABLES` | `15` | Порог «база не пустая» для restore-verify (у нас ~26 таблиц). |
+| `MIN_TABLES` | `15` | Порог «база не пустая» для restore-verify (в `app/models.py` сейчас 68 таблиц, порог — нижняя планка). |
 
 Пример `/opt/yuldash/.backup.env` (не в git):
 ```sh

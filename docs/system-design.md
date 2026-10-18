@@ -6,6 +6,15 @@
 
 > ⚠️ **ВАЖНО (честно, обновлено 2026-06-28):** ниже описана **ЦЕЛЕВАЯ** архитектура (как масштабировать). **Сделан большой шаг к ней — бэкенд разрезан (2026-06-28, Opus):** монолит `app/main.py` (~1400 строк) → тонкая фабрика `create_app()` + домены в `app/routers/*` (health, auth, rides, requests, bookings, drivers, chat, discovery, family, safety) + общий `app/services.py` + схемы `app/schemas.py`. **Появилось:** версионирование API — каждый роут доступен и на корне (живой клиент), и под `/api/v1` (алиас); `Dockerfile` + `docker-compose.yml` (опц., прод пока systemd); pytest (`tests/test_api.py`, 11 тестов) + Alembic (`alembic/versions/`). **Поведение 1:1** (pytest 11/11, smoke OK, security OK, паритет роутов root↔/api/v1 проверен). **Ещё целевое, НЕ сделано:** PostGIS, 20+ нормализованных таблиц, middleware-слой (rate-limit), Redis-кеш, реальная контейнеризация прода. Вход — Telegram (не SMS/VK/WhatsApp). Читать структуру `api/services/...` ниже как ориентир — фактические имена: `routers/`, `services.py`, `schemas.py`.
 
+> 🔄 **Актуализация 2026-10-10 (сверено с кодом `main`, коммит `483d2340`).** Ниже — **целевой блюпринт/спецификация**, а не слепок прода: имена файлов, таблиц и путей API в нём во многом иллюстративны. Реальное состояние (источник истины — код):
+> - **Бэкенд:** `backend/app/main.py` — фабрика `create_app()`; доменные роутеры в `backend/app/routers/` — **42 модуля**, **399** route-декораторов (включая WebSocket); `all_routers` из `app/routers/__init__.py` монтируются **дважды** — на корень и под `/api/v1`. Общая логика — `app/services.py` и отдельные модули (`pricing.py`, `ledger.py`, `debt.py`, `antifraud.py`, `trust_service.py` и т.д.), схемы — `app/schemas.py`, middleware (лимиты, security-заголовки, логи) — `app/middleware.py`. В проде `/docs`, `/redoc`, `/openapi.json` отключены. CORS допускает только `GET/POST/DELETE/OPTIONS`.
+> - **БД:** `backend/app/models.py` — **68 таблиц** (SQLModel, ключи — целочисленные `id`, не UUID). Миграции Alembic: **130 ревизий**, единственная голова; CI проверяет `upgrade → downgrade base → upgrade` на Postgres.
+> - **Тесты и CI:** `backend/tests/` — 529 файлов; CI — **`.github/workflows/ci.yml`** (джобы `backend-tests`, `backend-tests-postgres`, `android-build`, `android-unit-tests`, `webapp-build`). Файла `deploy.yml` нет — автодеплоя из CI нет, выкладка ручная (см. [server.md](server.md), [deploy-migrations.md](deploy-migrations.md)).
+> - **Android:** Kotlin-файлы лежат **плоско** в `android/app/src/main/java/com/yuldash/app/` (+ `data/` — 19 файлов, `ui/theme/Theme.kt`); папок `screens/`, `services/`, `ui/map/` нет. Навигация — `enum Screen` в `MainActivity.kt` (96 значений) + `YuldashApp.kt`, `AppNavAdmin.kt`/`AppNavHome.kt`/`AppNavOrders.kt`. HTTP-клиент — `data/ApiClient.kt` (`HttpURLConnection`, ходит на корень API, без префикса `/api/v1`).
+> - **Вход:** Telegram (`/auth/tg/start`, `/auth/tg/verify`, `/telegram/webhook`); SMS (`/auth/request-code`, `/auth/verify`) в проде выключен (`sms_provider=mock` → 503); `/auth/vk-callback` и `/auth/whatsapp-callback` существуют, но отвечают 501 (вход через VK/WhatsApp не подключён); также `/auth/refresh`, `/auth/logout`.
+> - **Прод-запуск:** systemd + системный PostgreSQL; `Dockerfile`/`docker-compose.yml` — для dev/staging и «пути к контейнеризации», не прод. Redis, S3-хранилище, Sentry, gunicorn-пример подключаются конфигом (`REDIS_URL`, `STORAGE_BACKEND=s3`, `SENTRY_DSN`; см. [scale-ops-runbook.md](scale-ops-runbook.md)).
+> - «Ещё НЕ сделано» в абзаце выше частично устарело: rate-limit middleware есть (`app/middleware.py`, общий счётчик через Redis при `REDIS_URL`); реализованы также такси/«сейчас» (`/instant/*`), доставка (`/parcels`, `/courier/*`), кошелёк и долги по комиссии, купоны/промо, поддержка, уровни доверия — этих доменов в блюпринте ниже нет.
+
 ---
 
 ## I. Архитектура системы (макро-уровень)
@@ -27,6 +36,8 @@
 ```
 
 ### A. 3-слойная архитектура мобильного приложения
+
+> 🔄 *Актуально (2026-10-10):* структура `screens/`, `services/` ниже — схема-ориентир; реально файлы лежат плоско в пакете `com.yuldash.app` (см. блок «Актуализация» вверху).
 
 ```kotlin
 // PRESENTATION LAYER (экраны)
@@ -63,6 +74,8 @@
 ```
 
 ### B. Backend: 3-слойная архитектура (FastAPI)
+
+> 🔄 *Актуально (2026-10-10):* дерево `api/`, `models/`, `db/`, `services/`, `middleware/` ниже — схема-ориентир. Реально: `backend/app/{main,config,db,models,schemas,services,middleware,...}.py` + `backend/app/routers/*.py` (42), миграции — `backend/alembic/versions/` (130), тесты — `backend/tests/`, docker — `backend/Dockerfile` и `backend/docker-compose.yml`, дымовые скрипты — `backend/smoke.py`, `backend/smoke_security.py`.
 
 ```python
 # backend/
@@ -135,6 +148,8 @@
 ---
 
 ## II. Схема базы данных (PostgreSQL)
+
+> 🔄 *Актуально (2026-10-10):* схема ниже — целевая нормализованная. Реальные таблицы — SQLModel-классы в `backend/app/models.py` (68 шт.: `User`, `Ride`, `RideRequest`, `Booking`, `Message`, `Payment`, `LedgerEntry`, `InstantOrder`, `ParcelDelivery`, `Ad`, `SosEvent`, `Report`, `Incident`, `Trust` и др.); имена и поля отличаются, ключи — `int`, а не UUID; PostGIS подключается best-effort в `backend/deploy-backend.bat`, партиционирования нет, отдельных `vehicles`/`user_stats` в `models.py` нет; рейтинг и доверие считаются в `rating_service.py`/`trust_service.py`.
 
 ### Core таблицы (нормализованные, индексированы)
 
@@ -577,6 +592,8 @@ CREATE TABLE rides_2026_06 PARTITION OF rides
 ---
 
 ## III. REST API (полный спецификация)
+
+> 🔄 *Актуально (2026-10-10):* пути и тела запросов ниже — иллюстрация целевого контракта. Реальные отличия: заявки — `GET /requests/mine`, `GET /requests/feed`, подбор — `GET /match/rides` (нет `/requests/my` и `/requests/{id}/matches`); статус брони — `POST /bookings/{id}/driver-status`, `POST /bookings/{id}/trip-status`, `POST /bookings/{id}/no-show` (нет `/bookings/{id}/status`); голос — `POST /voice`; документы водителя — `POST /upload/photo` → `POST /driver/verify` (нет `/driver/documents/upload`); модерация — `GET /admin/drivers/pending`, `POST /admin/drivers/{user_id}/moderate`; вход — см. блок «Актуализация» вверху (нет `/auth/telegram-login-url`, `/auth/vk-login`, `/auth/whatsapp-login`). Актуальный перечень путей — декораторы в `backend/app/routers/*.py` (в dev ещё `/docs`).
 
 ### Authentication Endpoints (Telegram / VK / WhatsApp)
 
@@ -1188,6 +1205,8 @@ Response 200:
 
 ## IV. WebSocket для real-time (Чат & лайв-статусы)
 
+> 🔄 *Актуально (2026-10-10):* единого `/api/v1/ws?booking_id=` нет. Реальные WebSocket-пути: `/ws/bookings/{booking_id}` (чат брони), `/ws/parcel/{parcel_id}/chat`, `/ws/instant/{order_id}/chat`, `/ws/map` (лента карты), `/ws/trip/{booking_id}/location`, `/ws/parcel/{parcel_id}/location`, `/ws/instant/{order_id}/location`. Токен и формат сообщений — в `backend/app/routers/chat.py`, `location.py`, `instant.py`.
+
 ```json
 // подключение
 ws://yulbash.ru/api/v1/ws?token=<JWT>&booking_id=<booking_id>
@@ -1236,6 +1255,8 @@ ws://yulbash.ru/api/v1/ws?token=<JWT>&booking_id=<booking_id>
 ## V. Архитектура Android приложения (детали)
 
 ### Состояние и навигация (простая, но мощная)
+
+> 🔄 *Актуально (2026-10-10):* код ниже — упрощённая иллюстрация. Реально `enum Screen` в `MainActivity.kt` содержит 96 значений (из них 21 `Admin*`), навигация разнесена по `YuldashApp.kt`, `AppNavAdmin.kt`, `AppNavHome.kt`, `AppNavOrders.kt`; вход — через Telegram, не SMS.
 
 ```kotlin
 // MainActivity.kt — чистая архитектура состояния
@@ -1328,6 +1349,8 @@ object LocalAppState {
 ```
 
 ### Слой данных (ApiClient)
+
+> 🔄 *Актуально (2026-10-10):* `data/ApiClient.kt` (~8000 строк) ходит на корень API (`BuildConfig.YULDASH_API_BASE_URL`, без `/api/v1`); методов `requestCode(...): request_id` и `/auth/verify-code` из примера нет — реальные эндпоинты: `/auth/request-code` + `/auth/verify`, `/auth/tg/*`.
 
 ```kotlin
 // data/ApiClient.kt — все API-вызовы в одном месте
@@ -1682,6 +1705,8 @@ async def verify_jwt(request: Request, call_next):
 
 ### Текущий стек (июнь 2026)
 
+> 🔄 *Снимок на июнь 2026 — не обновлялся построчно.* На 2026-10-10 по коду: 399 route-декораторов (не «~50 роутов»); Android `versionName=1.0.0`, `versionCode=2`, `minSdk=26`, `target/compile SDK=36`; размер APK, объём БД, тариф VPS по коду не проверяются.
+
 ```
 Приложение:   Kotlin + Jetpack Compose (1 APK, ~117 МБ)
 Бэкенд:       FastAPI (Python, ~50 роутов)
@@ -1719,6 +1744,8 @@ HTTPS:        Let's Encrypt (certbot)
 ```
 
 ### CI/CD Pipeline (GitHub Actions)
+
+> 🔄 *Актуально (2026-10-10):* пример `deploy.yml` ниже **не существует**. Единственный workflow — `.github/workflows/ci.yml` (тесты бэкенда на SQLite и Postgres, сборка и unit-тесты Android, сборка webapp); деплой — вручную (`backend/deploy-backend.bat`, `backend/ops/deploy.sh`, `web/deploy.sh`), без `docker-compose up` на проде.
 
 ```yaml
 # .github/workflows/deploy.yml
@@ -1798,6 +1825,8 @@ object EventTracker {
 
 ## IX. Дорожная карта (Roadmap)
 
+> 🔄 *Снимок (план на июнь 2026).* Статусы ✅/🔄/[ ] ниже не пересчитывались; текущий план и приоритеты — [tasks.md](tasks.md), [decisions.md](decisions.md).
+
 ```markdown
 ### Q3 2026 (текущий квартал)
 - ✅ MVP (Telegram/VK вход, поездки, чат, проверка водителя)
@@ -1844,6 +1873,8 @@ object EventTracker {
 
 ## XI. Deployment (как разворачивается на сервер)
 
+> 🔄 *Актуально (2026-10-10):* сценарий с `docker-compose` на Ubuntu 22.04 — целевой. Прод — Ubuntu 24.04, systemd `yuldash-api`, `/opt/yuldash`, PostgreSQL на хосте (см. [server.md](server.md)); ключи `.env` — не `STRIPE_KEY`, а имена из `backend/app/config.py` (шаблон `backend/.env.example`).
+
 ```bash
 # На сервере yulbash.ru (Ubuntu 22.04)
 
@@ -1871,6 +1902,8 @@ docker-compose logs -f backend
 ---
 
 ## XII. Итого: Production-ready система
+
+> 🔄 *Снимок на июнь 2026, по коду на 2026-10-10 изменилось:* чат — не «REST (polling)», а REST + WebSocket (`/ws/bookings/{id}`); вход — Telegram работает, VK/WhatsApp — заглушки (501); платежи — провайдер `PAYMENTS_PROVIDER` (`mock | yookassa | sbp_manual`, по умолчанию `mock`); админ-функции есть в Android (21 экран `Admin*`). «Google Play»/«Яндекс.Касса готова» — по коду не проверяются.
 
 | Компонент | Статус | Масштаб |
 |-----------|--------|---------|

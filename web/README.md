@@ -3,7 +3,7 @@
 Премиум-лендинг с анимациями для скачивания Android-приложения Юлдаш напрямую (APK).
 Двуязычный: русский + башкирский (переключатель RU/БА в шапке).
 
-**Стек:** Next.js 14 (App Router) · framer-motion · Tailwind CSS · статический экспорт.
+**Стек:** Next.js 16 (App Router) · React 18 · framer-motion 11 · Tailwind CSS 3 · статический экспорт.
 Цвета синхронизированы с приложением (`android/.../ui/theme/Theme.kt`).
 
 ---
@@ -14,6 +14,7 @@
 cd web
 npm install
 npm run dev      # http://localhost:3000
+npm run lint     # eslint, без предупреждений
 ```
 
 ## Сборка статики (для сервера)
@@ -31,12 +32,15 @@ npm run build    # → создаёт папку web/out со статикой
 
 Файл сборки положи как **`web/public/yuldash.apk`** (он в `.gitignore`, в git не попадёт).
 После `npm run build` он окажется в `out/yuldash.apk` и будет качаться по
-`https://yulbash.ru/yuldash.apk`. Размер для подписи под кнопкой правится в
-`components/config.ts` (`APK_SIZE`).
+`https://yulbash.ru/yuldash.apk`. Размер для подписи под кнопкой, флаг `APP_READY`
+(`true` — реальное скачивание, `false` — модалка «скоро») и ссылки на магазины
+(`STORE_LINKS`, пусто = кнопка скрыта) правятся в `components/config.ts`.
 
 ---
 
 ## Деплой на yulbash.ru (Nginx)
+
+Обычный путь — `bash web/deploy.sh` (сборка → заливка на сервер → новые `_next/static` накапливаются рядом со старыми, чтобы закешированный HTML не ловил 404 → проверка). Ниже — ручной вариант и пример конфига.
 
 1. Собрать: `npm run build` → папка `out/`.
 2. Скопировать содержимое `out/` на сервер, например в `/var/www/yuldash-landing`.

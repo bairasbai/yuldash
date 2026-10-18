@@ -4,11 +4,11 @@
 > Перенесено из старого `CONTINUE_FOR_AI.md`.
 
 ## 🧪 Автотесты бэкенда (pytest, 2026-06-27)
-- Файлы: `backend/tests/` (`conftest.py` — изолированная SQLite, прод не трогает; `test_api.py` — 9 тестов).
+- Файлы: `backend/tests/` (`conftest.py` — изолированная SQLite, прод не трогает; `test_api.py` — ядро, сейчас 24 теста; всего в папке 528 файлов `test_*.py` — правила и пороги в [testing.md](testing.md)). Первый набор 2026-06-27 был из 9 тестов.
 - Покрывают: вход/доступ, поездки, овербукинг, доступ к чату (посторонний→403), блокировки, `/secure/docs`, `/push/register`, WS отклоняет не-участника.
-- На сервере: `ssh root@85.239.52.55 "cd /opt/yuldash && ./.venv/bin/python -m pytest tests/ -q"` (последний прогон: 9 passed).
-- CI: `.github/workflows/ci.yml` — авто-прогон при push (заработает, когда проект будет на GitHub).
-- ⚠️ Локально без deps не запустятся (нет fastapi/jose в системном python) — гонять на сервере или `pip install -r backend/requirements-dev.txt`.
+- На сервере: `ssh root@85.239.52.55 "cd /opt/yuldash && ./.venv/bin/python -m pytest tests/ -q"` (последний прогон: 9 passed — на 2026-06-27, с тех пор набор вырос и не перегонялся там; не проверено).
+- CI: `.github/workflows/ci.yml` — авто-прогон на каждом PR и на push в `main`: бэкенд-тесты с порогом покрытия 85% (SQLite), те же тесты на Postgres 16 + проверка alembic, сборка debug и release (R8) APK, юнит-тесты Android с порогом JaCoCo, сборка PWA (`webapp`).
+- ⚠️ Локально без deps не запустятся (нет fastapi/jose в системном python) — гонять на сервере или `pip install -r backend/requirements-dev.txt` (там же `pytest-cov`).
 
 ## Сборка (JBR из Android Studio)
 
@@ -18,7 +18,7 @@ $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 .\gradlew.bat :app:assembleDebug --no-daemon
 ```
 
-Последняя проверенная сборка: `BUILD SUCCESSFUL`.
+Последняя проверенная сборка: `BUILD SUCCESSFUL`. Версия приложения в `android/app/build.gradle.kts`: `versionName` 1.0.0, `versionCode` 2. Юнит-тесты (`:app:testDebugUnitTest`) нужно гонять под JDK 21 (JBR из Android Studio — это 21): MapKit собран под Java 21, на JDK 17 тесты падают с `UnsupportedClassVersionError`.
 
 ## ADB и эмулятор
 
@@ -90,7 +90,7 @@ $adb='C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe'
 
 ## Проверки по коду
 
-Пустые обработчики (должно быть пусто):
+Пустые обработчики (должно быть пусто; на 2026-10-10 находит ровно 2 известных места: комментарий `TODO(backend)` в `AccessibilityScreens.kt` и `combinedClickable(onClick = {}, onLongClick = …)` в `BookingActiveTripScreen.kt` — оба не баги):
 
 ```powershell
 rg "onClick\s*=\s*\{\s*\}|onSecondary\s*=\s*\{\s*\}|onSelect\s*=\s*\{\s*\}|TODO|NotImplemented|throw UnsupportedOperationException" C:\Users\Bayra\Yuldash\android\app\src\main\java

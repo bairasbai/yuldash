@@ -11,12 +11,12 @@ description: Экраны и UI Юлдаша на Jetpack Compose уровня A
 ## Железные правила Юлдаша (иначе не «готово»)
 1. **Два языка всегда** через `appText(ru, ba)` (Compose) или `appTextFor(lang, ru, ba)`. Никогда односторонне. Черновой башкирский → передай суб-агенту `yuldash-bashkir-linguist` или сложи в `docs/tasks.md` раздел «Переводы на проверку».
 2. **Цвета — только `Canon*`** (`CanonGreen/Bg/Text/Muted/Surface/Border/Gold/Red/Warn…`, адаптивные свет/тьма). **Хардкод `Color(0xFF…)` в экране — запрещён.** Нет нужного оттенка → заведи токен в `CanonTokens.kt`, не размазывай.
-3. **Формы — `CanonCardShape`(28dp) / `CanonItemShape`(22dp).** Новых форм не плодить.
+3. **Формы — `CanonCardShape`(28dp) / `CanonItemShape`(22dp) / `CanonFieldShape`(14dp) / `CanonTinyShape`(8dp).** Отступы — `CanonSpace`, тени — `CanonDepth`, время анимаций — `CanonMotion` (всё в `CanonTokens.kt`; `CanonSourceGuardTest` падает на самодельных значениях). Новых форм не плодить.
 4. **Все состояния, не только успех:** загрузка (скелетон/шиммер), пусто (дружелюбная заглушка + действие), ошибка/нет сети (текст + кнопка «Повторить»). Всё двуязычно.
 5. **Анимации в коде:** `animate*AsState`, `AnimatedVisibility`, `AnimatedContent`, переходы экранов/вкладок. Плавные появления карточек, отклик на нажатие (scale/alpha). Уровень iPhone.
 6. **Адаптив + инсеты:** `statusBarsPadding()`/`navigationBarsPadding()`/`safeDrawing`. Длинный башкирский текст не ломает вёрстку. Тач-цель ≥48dp, текст в `sp`, контраст ≥4.5:1, у иконок-кнопок `contentDescription` двуязычный.
 7. **60fps:** списки — `LazyColumn/LazyRow` c `key`; тяжёлое в `remember`.
-8. **Новый экран** = ветка в `enum Screen` (`MainActivity.kt:277`) + ветка в `when(screen)` внутри `YuldashApp()` + строка в `docs/architecture.md`. Навигация — через `YuldashViewModel` (состояние вверх, переживает поворот/kill).
+8. **Новый экран** = элемент `enum Screen` (`MainActivity.kt`) + ветка в `when (scr)` в `YuldashApp.kt` (экраны админки и заказов идут дальше через `AdminNav` / `OrdersNav` — `AppNavAdmin.kt` / `AppNavOrders.kt`) + строка в `docs/architecture.md`. Навигация — через `YuldashViewModel` (состояние вверх, переживает поворот/kill).
 
 ## Эталоны (изучены — см. docs/android-references.md)
 - **nowinandroid** — дизайн-система Material 3, тёмная тема, адаптивные layouts. Строй компоненты переиспользуемо, как их catalog.

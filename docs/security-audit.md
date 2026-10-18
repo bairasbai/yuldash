@@ -4,6 +4,13 @@
 > Дата: 2026-06-28. Метод: ручной аудит всего бэкенда (`backend/app/**`) и security-поверхности
 > Android-клиента (manifest, сетевой слой, хранение токена, секреты). Без авто-сканеров —
 > построчно по коду.
+>
+> 🔄 **Актуализация 2026-10-10 (сверено с кодом `main`).** Это датированный отчёт (2026-06-28, раунды 1–2); ниже — статус пунктов на сегодня. Свежие аудиты — [audit-security-2026-08-08.md](audit-security-2026-08-08.md), [audit-security-2026-08-20.md](audit-security-2026-08-20.md).
+> - V1–V3, P1 — исправления на месте (`authenticate_ws` в `backend/app/security.py`; вебхук ЮKassa сверяет свой `Payment`). Файл чата — `backend/app/routers/chat.py` (не `backend/app/chat.py`, как написано в разделе «Верификация»).
+> - R1 (OTP 6 цифр) — сделано (`gen_otp` → 6 цифр; 5 попыток на код, потолок 15 на номер). R4 (`?token=` в WS) — токен только первым сообщением (`{"type":"auth","token":...}`). 
+> - R2 — сделано: проверка magic-bytes фото (`services._validate_upload`) и суточный лимит загрузок (`MAX_UPLOADS_PER_DAY=60`, `MAX_UPLOAD_MB=10`). R3 — сделано: `GET /ads/stats` теперь только для admin (403 иначе).
+> - R5 (СБП-номер виден вошедшим) — актуален при `PAYMENTS_PROVIDER=sbp_manual`; `validate_production` запрещает совпадение `SBP_PHONE` с `ADMIN_PHONES`.
+> - Изменилось с момента отчёта: access-токен живёт 12 ч (`ACCESS_EXPIRE_MIN=720`, не 7 дней), refresh — 90 дней с ротацией; пул БД — `DB_POOL_SIZE=8` + `DB_MAX_OVERFLOW=7` на воркер (не «≤ 25»); `/auth/vk-callback` и `/auth/whatsapp-callback` отвечают 501 (вход через VK/WhatsApp не подключён); `validate_production()` проверяет заметно больше (SEED_DEMO, sqlite, ключи включённых провайдеров, `REDIS_URL` при `TAXI_ENABLED` и др.).
 
 ## TL;DR (для Александра)
 
@@ -102,7 +109,7 @@ refresh, ревокация по logout, лимиты запросов, маск
   `text()` (`rides/near`) использует бинд-параметры.
 
 ## Верификация
-- Фиксы — только `backend/app/chat.py` + хелпер в `backend/app/security.py`. Клиент и формат
+- Фиксы — только `backend/app/routers/chat.py` (в отчёте было `backend/app/chat.py` — такого файла нет) + хелпер в `backend/app/security.py`. Клиент и формат
   ответов не меняются.
 - Прогон: `cd backend && python -m pytest` (см. раздел «Ревью» в `tasks.md`).
 

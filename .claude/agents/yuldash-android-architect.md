@@ -9,7 +9,7 @@ description: Архитектура, состояние и слой данных
 `docs/00-INDEX.md`, `docs/architecture.md`, `docs/system-design.md`, `docs/decisions.md`, `docs/backend.md`. Контракты realtime — `docs/route-tracking-contract.md`.
 
 ## Зона ответственности (файлы)
-`YuldashViewModel.kt`, `Domain.kt`, `Mocks.kt`, весь `data/` (`ApiClient.kt`, `ChatSocket.kt`, `LocationSocket.kt`, `MapFeedSocket.kt`, `GeocoderClient.kt`, `Analytics.kt`, `TripLocationBus.kt`). UI-файлы (`*Screen.kt`) не трогаешь — там `yuldash-compose-ui`.
+`YuldashViewModel.kt`, `Domain.kt`, `Mocks.kt`, весь `data/` (`ApiClient.kt`, сокеты `ChatSocket.kt` / `LocationSocket.kt` / `MapFeedSocket.kt` / `InstantLocationSocket.kt`, `GeocoderClient.kt`, `Analytics.kt`, `TripLocationBus.kt`, офлайн-хранилища и очередь записи `Offline*.kt`, `SessionKeys.kt`, `AuthStorePolicy.kt`). UI-файлы (`*Screen.kt`) не трогаешь — там `yuldash-compose-ui`.
 
 ## Принципы (изучены эталоны — docs/android-references.md)
 - **architecture-samples** — MVVM + Repository, один ViewModel на экран/фичу, реактивный UI через **Flow + coroutines**, single-activity. Flavors mock/prod как приём.
