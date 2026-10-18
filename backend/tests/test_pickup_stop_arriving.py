@@ -507,6 +507,24 @@ def test_undo_boarded_keeps_the_channel_of_a_start_booking(client, user_factory,
     assert канал.наступила() is True and канал.кончилась is False
 
 
+def test_passenger_frame_never_reaches_the_cache_nor_another_booking(client, user_factory, redis_on, gate_seen):
+    """Сторож (приёмка PR186, S2): точка ПАССАЖИРКИ в кэш брони не ложится никогда — ни ссылке её
+    близких, ни пассажиру B того же рейса (через `driver_point_for_booking`) она не уходит. В кэш
+    пишет только водитель."""
+    _drv, (a_pax, _b_pax), _ride, (a, b) = _trip(client, user_factory, "paxframe", places=("Сибай", "Сибай"),
+                                                  depart_in=timedelta(minutes=20))
+    with client.websocket_connect(f"/ws/trip/{a}/location") as mouth:
+        mouth.send_text(json.dumps({"type": "auth", "token": a_pax["token"]}))
+        before = gate_seen["n"]
+        mouth.send_text(json.dumps({"type": "loc", "lat": 52.0, "lng": 58.0, "ts": 1}))
+        wait_gate(gate_seen, before)
+    assert livepos.livepos_get("booking", a) is None, "точка пассажирки A легла в кэш брони"
+    with Session(engine) as s:
+        bk = s.get(Booking, b)
+        assert location.driver_point_for_booking(s, bk, s.get(Ride, bk.ride_id)) is None, \
+            "точка пассажирки A ушла пассажиру B"
+
+
 # ── Ссылка близким, SOS и канал пассажира B: машина по любой брони рейса, правила — свои ──
 
 def _share(client, pax, bid, phone):
