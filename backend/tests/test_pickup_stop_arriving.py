@@ -372,6 +372,59 @@ def test_stop_window_closes_after_the_no_show_deadline_until_boarding(client):
     assert trip_is_live(onboard_b, onboard_ride, now=deadline + timedelta(hours=2)) is True
 
 
+def test_stop_window_closes_even_without_arriving(client):
+    """Водитель проехал Ургазу, не нажав ни «Подъезжаю», ни «Сел», ни «Не пришёл» (у остановки без
+    «Подъезжаю» срока неявки нет). Окно всё равно закрывается: через 15 + 15 минут после расчётного
+    приезда на остановку (60 км/ч по прямой) — а не висит часами (приёмка PR186, S1)."""
+    ride, b, depart = _unit("Ургаза", arriving_at=None)
+    assert bookings_mod.no_show_available_at(ride, b) is None, "без «Подъезжаю» неявки нет"
+    closes = depart + timedelta(hours=KM_TO_URGAZA / settings.stop_expected_kmh) \
+        + bookings_mod.NO_SHOW_WAIT + bookings_mod.LIVE_AFTER_NO_SHOW
+    assert abs((bookings_mod.stop_live_window(ride, b)[1] - closes).total_seconds()) < 1
+    assert trip_is_live(b, ride, now=closes - timedelta(minutes=1)) is True
+    assert trip_is_live(b, ride, now=closes) is False
+    assert trip_is_live(b, ride, now=depart + timedelta(hours=6)) is False
+    # Позднее «Подъезжаю» (водитель всё-таки доехал) сдвигает срок неявки — окно открывается снова.
+    late = depart + timedelta(hours=2)
+    ride2, b2, _ = _unit("Ургаза", arriving_at=late)
+    assert trip_is_live(b2, ride2, now=late + timedelta(minutes=1)) is True
+
+
+def test_unknown_stop_window_without_arriving_closes_by_the_estimate(client):
+    """Неизвестная справочнику остановка — срок по оценке пути ((i+1)/(n+1) прямой), не от выезда."""
+    stops = "Бурибай | Поворот на Юлук"
+    ride, b, depart = _unit("Поворот на Юлук", stops=stops)
+    p = bookings_mod.pickup_of(ride, b)
+    assert p.kind == "stop" and p.point is None and p.est_km and p.est_km > 50, p
+    closes = depart + timedelta(hours=p.est_km / settings.stop_expected_kmh) \
+        + bookings_mod.NO_SHOW_WAIT + bookings_mod.LIVE_AFTER_NO_SHOW
+    assert abs((bookings_mod.stop_live_window(ride, b)[1] - closes).total_seconds()) < 1
+    assert trip_is_live(b, ride, now=closes - timedelta(minutes=1)) is True
+    assert trip_is_live(b, ride, now=closes) is False
+    late = closes + timedelta(minutes=10)
+    ride2, b2, _ = _unit("Поворот на Юлук", stops=stops, arriving_at=late)
+    assert trip_is_live(b2, ride2, now=late + timedelta(minutes=1)) is True, "позднее «Подъезжаю» открывает снова"
+
+
+def test_family_link_loses_the_car_hours_after_a_missed_stop(client, user_factory, redis_on):
+    """Сквозь ссылку близким: «Подъезжаю» по Зарине не жали, выезд был 5 часов назад — её маме
+    машину больше не показываем (а до сдвига времени показывали: тест не пустой)."""
+    drv, (_aigul, zarina), ride, (a, b) = _trip(client, user_factory, "missedstop", places=("Сибай", "Ургаза"),
+                                                depart_in=timedelta(minutes=20))
+    token = _share(client, zarina, b, "+79170000999")
+    _driver_at(SIBAY, a)
+    assert client.get(f"/t/{token}/state.json").json()["car"] is not None, "окно Ургазы открыто — машина видна"
+    # Выезд — 5 часов назад (мимо ручки: с бронями время поездки не правится).
+    with Session(engine) as s:
+        r = s.get(Ride, ride["id"])
+        r.depart_at = utcnow() - timedelta(hours=5)
+        s.add(r)
+        s.commit()
+    _driver_at((51.9, 58.3), a)                 # машина уже у конца маршрута
+    state = client.get(f"/t/{token}/state.json").json()
+    assert state["car"] is None, f"через 5 ч после выезда не севшей Зарине всё ещё видна машина: {state}"
+
+
 def test_channel_gate_closes_the_open_window_without_a_poke(client, user_factory, monkeypatch):
     """Канал, уже пересылающий точку, сам замечает конец окна остановки — без толчка (`_Пора`)."""
     _drv, (pax,), _ride, (bid,) = _trip(client, user_factory, "gateclose", places=("Ургаза",),

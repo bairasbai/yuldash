@@ -207,16 +207,25 @@ def stop_live_window(ride: Ride, booking: Optional[Booking], entry=None):
     Открывается в `depart − LIVE_GEO_LEAD_HOURS + путь/stop_fast_kmh` (раньше машина до остановки
     не доедет — водитель и пассажирка не видят друг друга от дома за часы до посадки) или по
     «Подъезжаю» этой брони — что раньше; «Выехал» его НЕ открывает (P2-Г). Закрывается до посадки
-    через LIVE_AFTER_NO_SHOW после срока «Не пришёл» (P2-А); посадка открывает снова."""
+    через LIVE_AFTER_NO_SHOW после срока «Не пришёл» (P2-А); посадка открывает снова.
+
+    Водитель не нажал «Подъезжаю» (у остановки срока «Не пришёл» тогда нет) — окно всё равно
+    закрывается: через NO_SHOW_WAIT + LIVE_AFTER_NO_SHOW после расчётного приезда на остановку
+    (`stop_expected_kmh`; у неизвестной справочнику — по оценке пути). Иначе проехал мимо, ничего не
+    нажав, — и пассажирка часами видит машину, а водитель её точку (приёмка PR186, S1). Позднее
+    «Подъезжаю» сдвигает срок неявки, а с ним и закрытие — окно открывается снова."""
     if booking is None or not getattr(booking, "pickup_stop", None) or ride is None or ride.depart_at is None:
         return None
     p = pickup_of(ride, booking, entry)
     if p.kind != "stop":
         return None
-    opens = ride.depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS) + timedelta(
-        hours=(p.travel_km or 0.0) / settings.stop_fast_kmh)
+    km = p.travel_km or 0.0
+    opens = ride.depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS) + timedelta(hours=km / settings.stop_fast_kmh)
     deadline = no_show_available_at(ride, booking, entry)
-    return opens, (deadline + LIVE_AFTER_NO_SHOW if deadline else None)
+    if deadline is None:   # ждёт «Подъезжаю»: срок — от расчётного приезда, как у неявки
+        deadline = max(ride.depart_at, ride.depart_at + timedelta(hours=km / settings.stop_expected_kmh)) \
+            + NO_SHOW_WAIT
+    return opens, deadline + LIVE_AFTER_NO_SHOW
 
 
 def boarding_undo_left(booking: Booking, now=None) -> int:
