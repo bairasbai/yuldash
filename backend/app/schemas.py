@@ -81,6 +81,12 @@ class RideOut(BaseModel):
     # в базе поездки не хранится: правду держит индекс броней, а не копия флага.
     front_seat_taken: bool = False
     waypoints: str = ""
+    # Поиск по остановкам (18.10.2026): где этот человек сядет по СВОЕМУ запросу «Откуда».
+    # `matched_stop` — название остановки или null; `matched_from_start` — садится в начале
+    # маршрута. Клиент сам выбирает место посадки только по ним: названную остановку или начало
+    # при `matched_from_start == true`; иначе — ничего (P2-5). Без фильтра — null / false.
+    matched_stop: Optional[str] = None
+    matched_from_start: bool = False
     status: RideStatus
     boosted: bool = False             # активный Boost (для подсветки/бейджа на клиенте)
     driver_name: str
