@@ -284,6 +284,39 @@ def test_cancel_answer_does_not_carry_the_place(client, user_factory):
     r = client.post(f"/bookings/{bid}/cancel", headers=drv["auth"])
     assert r.status_code == 200 and r.json()["pickup_stop"] is None
     assert _stored(bid) == "Ургаза", "в базе место осталось — пассажир видит его в своей истории"
+    # Детали отменённой брони: водителю место больше не показываем, пассажиру — своё (A-P3-2).
+    assert client.get(f"/bookings/{bid}/details", headers=drv["auth"]).json()["pickup_stop"] is None
+    assert client.get(f"/bookings/{bid}/details", headers=pax["auth"]).json()["pickup_stop"] == "Ургаза"
+
+
+def test_driver_loses_the_place_after_the_contacts_window(client, user_factory):
+    """Завершённая бронь: место посадки водителю видно, пока открыты контакты (окно после поездки),
+    дальше — нет, как телефон самого пассажира (A-P3-2)."""
+    from app.config import settings
+    from app.models import BookingStatus
+    drv = user_factory("PS Old Driver", role=UserRole.driver)
+    pax = user_factory("PS Old Pax")
+    ride = _publish(client, drv, "olddone")
+    bid = _book(client, pax, ride["id"], pickup_stop="Ургаза").json()["id"]
+    assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+
+    def done_hours_ago(hours: float):
+        with Session(engine) as s:
+            b = s.get(Booking, bid)
+            r = s.get(Ride, ride["id"])
+            b.status = BookingStatus.done
+            r.depart_at = utcnow() - timedelta(hours=hours)
+            s.add(b)
+            s.add(r)
+            s.commit()
+
+    done_hours_ago(1)
+    assert _row(client, drv, bid)["pickup_stop"] == "Ургаза", "недавно завершённая — ещё видно"
+    assert client.get(f"/bookings/{bid}/details", headers=drv["auth"]).json()["pickup_stop"] == "Ургаза"
+    done_hours_ago(settings.chat_after_trip_hours + 1)
+    assert _row(client, drv, bid)["pickup_stop"] is None
+    assert client.get(f"/bookings/{bid}/details", headers=drv["auth"]).json()["pickup_stop"] is None
+    assert client.get(f"/bookings/{bid}/details", headers=pax["auth"]).json()["pickup_stop"] == "Ургаза"
 
 
 def test_others_and_public_outputs_learn_nothing(client, user_factory):
