@@ -1181,7 +1181,9 @@ def create_block(body: BlockIn, user: User = Depends(current_user), session: Ses
     session.refresh(block)
     # Живые брони между ними: канал координат закрывается сразу (`location._Пора` сверяет
     # блокировку по толчку), а не через сторож — до 30 с точка ещё уходила бы тому, от кого
-    # человек только что закрылся (приёмка PR157).
+    # человек только что закрылся (приёмка PR157). Заблокировали уже «в пути» (после посадки) —
+    # канал водителя не закрывается, а перестаёт пересылать: точка машины пишется дальше для
+    # ссылки близким пассажирки и SOS (решение 17.10.2026, `location._пишем_без_пересылки`).
     a, b = user.id, body.blocked_user_id
     for bid in session.exec(select(Booking.id).join(Ride, Ride.id == Booking.ride_id).where(
         Booking.status.in_([BookingStatus.confirmed, BookingStatus.onboard]),

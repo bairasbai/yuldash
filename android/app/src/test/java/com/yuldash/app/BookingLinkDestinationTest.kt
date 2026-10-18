@@ -2,6 +2,7 @@ package com.yuldash.app
 
 import androidx.lifecycle.SavedStateHandle
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -130,6 +131,24 @@ class BookingLinkDestinationTest {
         assertEquals(77, vm.activeBookingId.value)
         assertEquals("77", vm.selectedRide.value?.id)
         assertNotNull(vm.activeTrip.value)
+    }
+
+    @Test
+    fun `пульс стоянки получает только водитель этой брони`() {
+        // Живое гео шлёт пульс стоянки (раз в 45 с) только водителю: его точку сервер хранит для
+        // ссылки близким и SOS. Пассажиру он не нужен (приёмка PR179) — роль привязана к номеру брони.
+        val vm = newVm()
+        vm.openDriverTrip(77)
+        assertTrue("«Едут с тобой» — без роли водителя стоящая машина пропадёт у близких", vm.isDriverOf(77))
+        vm.applyBookingLink(43, "passenger", "confirmed", completed = false)
+        assertFalse("своя пассажирская бронь — пульс не нужен", vm.isDriverOf(43))
+        vm.applyBookingLink(44, "driver", "onboard", completed = false)
+        assertTrue("ссылка водителю на идущую поездку — роль водителя", vm.isDriverOf(44))
+        assertFalse(vm.isDriverOf(null))
+        assertTrue(
+            "YuldashApp не передаёт роль сервису живого гео",
+            src("YuldashApp.kt").contains("TripLocationService.start(context, bid, vm.language.value, isDriver = vm.isDriverOf(bid))"),
+        )
     }
 
     @Test
