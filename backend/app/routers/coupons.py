@@ -32,7 +32,19 @@ from ..safety_logic import ensure_active
 from ..security import current_user
 from ..services import notify_admin_telegram, push_notification
 from ..timeutil import client_dt_to_utc, utcnow
-from .promo import _phone_claim_key  # переиспользуем HMAC телефона — не копируем формулу (leaf-1.3b)
+from .promo import _hmac_phone_key  # общий механизм HMAC, СВОЙ домен ниже (leaf-1.3b)
+
+# Домен купонного журнала — СВОЙ, не `promo-claim-v1:` из promo.py: иначе один номер давал бы
+# ОДИНАКОВЫЙ ключ в обоих журналах, хотя домен и существует ровно затем, чтобы разводить
+# назначения одного секрета (независимое ревью 1.3b). Переноса старых строк нет — таблица
+# CouponClaimLog новая, ничего под старым доменом ещё не записано.
+_COUPON_CLAIM_HMAC_DOMAIN = "coupon-claim-v1:"
+
+
+def _coupon_claim_key(phone: str) -> str:
+    """Ключ телефона для `CouponClaimLog` — HMAC-SHA256 своим доменом, формула — в
+    `_hmac_phone_key` (`routers/promo.py`), не дублируется здесь."""
+    return _hmac_phone_key(phone, _COUPON_CLAIM_HMAC_DOMAIN)
 
 router = APIRouter(tags=["coupons"])
 
@@ -425,7 +437,7 @@ def coupon_redeem(body: RedeemIn, user: User = Depends(current_user), session: S
     # скидки. В ОДНОЙ транзакции с самим погашением — не отдельным коммитом.
     holder = session.get(User, red.user_id)
     if holder and holder.phone:
-        session.add(CouponClaimLog(coupon_id=coupon.id, phone_key=_phone_claim_key(holder.phone)))
+        session.add(CouponClaimLog(coupon_id=coupon.id, phone_key=_coupon_claim_key(holder.phone)))
     session.commit()
     session.refresh(red)     # объект в памяти помнит прежний статус — перечитываем
     return {
@@ -533,11 +545,21 @@ def coupon_activate(coupon_id: int, user: User = Depends(current_user), session:
     # за новой скидкой с тем же номером сколько угодно раз (открытая ошибка листа 1.3).
     #
     # `CouponClaimLog` пишется при НАСТОЯЩЕМ погашении (`coupon_redeem`), не при брони —
-    # забытая истёкшая бронь (R8) не должна застревать в счётчике навсегда. Значит: уже
-    # ПОГАШЕННЫЕ (этим или удалённым аккаунтом) — только из журнала; ещё НЕ погашенные
-    # (reserved) брони ТЕКУЩЕГО аккаунта — отдельно, иначе задвоим уже погашенные (они есть
-    # и в `active_rows` этого юзера, и в журнале — считать и там, и там нельзя).
-    phone_key = _phone_claim_key(user.phone) if user.phone else ""
+    # забытая истёкшая бронь (R8) не должна застревать в счётчике навсегда.
+    #
+    # Погашенные считаем ДВУМЯ способами и берём БОЛЬШИЙ, не сумму (иначе задвоим): журнал по
+    # номеру (переживает удаление чужих аккаунтов) И собственные редемпшены этого аккаунта по
+    # `active_rows` напрямую. Обычно они совпадают 1-в-1, но есть два редких окна, где журнал
+    # один не видит СВОЁ же погашение живого аккаунта (независимое ревью 1.3b):
+    #   — номер освобождён (`antifraud.release_phone` → `user.phone` стал плейсхолдером) —
+    #     ключ по ТЕКУЩЕМУ (уже плейсхолдерному) номеру не совпадёт с тем, что журнал запомнил
+    #     на момент погашения, а `active_rows` по `user_id` видит собственную историю всегда;
+    #   — погашение случилось СТАРЫМ кодом в окне между переносом миграции и рестартом
+    #     приложения (env.py: миграция идёт до рестарта) — в журнал не попало, а строка
+    #     `CouponRedemption` при этом уже есть.
+    # Непогашенные (reserved) брони ТЕКУЩЕГО аккаунта считаем отдельно и всегда ПЛЮСОМ — они
+    # не могли попасть ни в журнал (пишется только при погашении), ни задвоиться никак.
+    phone_key = _coupon_claim_key(user.phone) if user.phone else ""
     claimed_by_phone = 0
     if phone_key:
         claimed_by_phone = session.exec(
@@ -545,8 +567,9 @@ def coupon_activate(coupon_id: int, user: User = Depends(current_user), session:
                 CouponClaimLog.coupon_id == coupon.id, CouponClaimLog.phone_key == phone_key,
             )
         ).one()
+    mine_redeemed = sum(1 for r in active_rows if r.user_id == user.id and r.status == "redeemed")
     mine_unredeemed = sum(1 for r in active_rows if r.user_id == user.id and r.status == "reserved")
-    if claimed_by_phone + mine_unredeemed >= max(1, coupon.limit_per_user):
+    if max(claimed_by_phone, mine_redeemed) + mine_unredeemed >= max(1, coupon.limit_per_user):
         raise herr(409, "Ты уже воспользовался этим купоном", "Һин был купондан файҙаландың инде")
 
     red = CouponRedemption(coupon_id=coupon.id, user_id=user.id, code=_gen_code(session), status="reserved")

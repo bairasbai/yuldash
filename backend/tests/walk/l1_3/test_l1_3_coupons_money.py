@@ -47,8 +47,7 @@ from app.config import DEFAULT_JWT_SECRET, settings
 from app.db import engine
 from app.models import Coupon, CouponClaimLog, CouponRedemption, Partner, User, UserRole
 from app.routers import coupons as coupons_router
-from app.routers.coupons import RedeemIn
-from app.routers.promo import _phone_claim_key
+from app.routers.coupons import RedeemIn, _coupon_claim_key
 from app.timeutil import client_dt_to_utc
 
 _STRONG_TEST_SECRET = "x" * 40  # >=16 символов, не dev-дефолт — проходит предохранитель миграции
@@ -696,7 +695,7 @@ def test_coupon_claim_log_migration_backfills_live_redemptions_and_is_idempotent
         s.commit()
 
     migration = _load_coupon_claim_log_migration("coupon_claim_log_migration_unit")
-    expected_key = _phone_claim_key(НОМЕР)
+    expected_key = _coupon_claim_key(НОМЕР)
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
     with engine.begin() as connection:
@@ -743,3 +742,64 @@ def test_coupon_claim_log_migration_refuses_weak_secret_when_rows_need_backfill(
                 text("SELECT COUNT(*) FROM couponclaimlog WHERE coupon_id = :cid"), {"cid": cid}
             ).scalar_one()
             assert count == 0, "миграция успела что-то записать до отказа"
+
+
+# ============================ R11: удаление владельца бизнеса не падает на FK журнала ============================
+def test_owner_account_deletion_cascades_claim_log_after_redemption(client, user_factory):
+    """Купон бизнеса погашен (запись в журнале есть) → владелец удаляет аккаунт → 200, а не 500
+    по нарушению внешнего ключа. `couponclaimlog.coupon_id` раньше был БЕЗ `ondelete` —
+    `account.py` сносит купоны владельца напрямую, не трогая журнал, и первое же погашение
+    после выкладки превращало бы `/me/delete` в 500 (независимое ревью 1.3b — право на
+    удаление аккаунта по 152-ФЗ). С `ondelete="CASCADE"` строки журнала уходят вместе с
+    купоном на уровне БД — `account.py` как был, так и остаётся только для чтения."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "ЖурналУдалениеВладелец")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=1)
+    pax = _pax_with_phone(user_factory, "ЖурналУдалениеВладелецПас", "+79995558234")
+
+    act = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act.status_code == 200, act.text
+    r = client.post("/coupons/redeem", headers=owner["auth"], json={"code": act.json()["code"]})
+    assert r.status_code == 200, r.text
+
+    with Session(engine) as s:
+        before = s.exec(select(func.count()).select_from(CouponClaimLog).where(
+            CouponClaimLog.coupon_id == cid
+        )).one()
+    assert before == 1, "запись в журнале должна была появиться при настоящем погашении"
+
+    delete_resp = client.post("/me/delete", headers=owner["auth"])
+    assert delete_resp.status_code == 200, (
+        f"удаление владельца бизнеса упало: {delete_resp.status_code} {delete_resp.text} "
+        "(раньше здесь был 500 — нарушение внешнего ключа couponclaimlog.coupon_id без ondelete)"
+    )
+
+    with Session(engine) as s:
+        after = s.exec(select(func.count()).select_from(CouponClaimLog).where(
+            CouponClaimLog.coupon_id == cid
+        )).one()
+        assert after == 0, "журнал погашённого купона должен уйти вместе с купоном (каскад)"
+        assert s.get(User, pax["id"]) is not None, "аккаунт покупателя не должен был пострадать"
+
+
+# ============================ R11: лимит видит СВОЁ погашение, даже если журнал его не видит ============================
+def test_activate_limit_uses_own_redemption_when_journal_entry_is_missing(client, user_factory):
+    """Окно между переносом миграции и рестартом приложения (env.py: миграция идёт ДО
+    рестарта) или освобождённый номер (`antifraud.release_phone`) может оставить СОБСТВЕННОЕ
+    погашение живого аккаунта без записи в журнале — ключ по журналу тогда даст 0, но лимит
+    обязан всё равно увидеть это погашение через `active_rows` этого аккаунта
+    (`max(claimed_by_phone, mine_redeemed)`), не только через журнал (независимое ревью 1.3b)."""
+    owner, _admin, _pid = _register_active_partner(client, user_factory, "ЖурналБезЗаписи")
+    cid = _make_active_coupon(client, owner, limit_total=0, limit_per_user=1)
+    pax = user_factory("ЖурналБезЗаписиПас")
+
+    # Погашение «старым кодом» (или при освобождённом номере) — напрямую в БД, БЕЗ записи в
+    # CouponClaimLog, в обход coupon_redeem.
+    with Session(engine) as s:
+        s.add(CouponRedemption(coupon_id=cid, user_id=pax["id"], code="NOLOG01", status="redeemed",
+                               redeemed_at=datetime.utcnow()))
+        s.commit()
+
+    act = client.post(f"/coupons/{cid}/activate", headers=pax["auth"])
+    assert act.status_code == 409, (
+        f"собственное погашение без записи в журнале не учлось в лимите: {act.status_code} {act.text}"
+    )

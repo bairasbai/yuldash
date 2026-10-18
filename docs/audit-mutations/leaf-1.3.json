@@ -454,8 +454,8 @@
       "id": "M33",
       "file": "backend/app/routers/promo.py",
       "rule": "R6",
-      "description": "_phone_claim_key: снова возвращает голые цифры номера вместо HMAC",
-      "find": "    digits = _phone_key(phone) if phone else \"\"\n    if not digits:\n        return \"\"\n    message = (_PHONE_CLAIM_HMAC_DOMAIN + digits).encode(\"utf-8\")\n    return hmac.new(settings.jwt_secret.encode(\"utf-8\"), message, hashlib.sha256).hexdigest()",
+      "description": "_hmac_phone_key: снова возвращает голые цифры номера вместо HMAC (регрессия задевает и promo, и coupon журналы)",
+      "find": "    digits = _phone_key(phone) if phone else \"\"\n    if not digits:\n        return \"\"\n    message = (domain + digits).encode(\"utf-8\")\n    return hmac.new(settings.jwt_secret.encode(\"utf-8\"), message, hashlib.sha256).hexdigest()",
       "replace": "    digits = _phone_key(phone) if phone else \"\"\n    return digits   # регрессия: снова сам номер цифрами, без HMAC",
       "runner": "pytest",
       "cwd": "backend",
@@ -566,13 +566,13 @@
       "id": "M41",
       "file": "backend/app/routers/coupons.py",
       "rule": "R11",
-      "description": "coupon_activate: лимит на человека снова считает только текущий аккаунт (claimed_by_phone убран) — обнуляется удалением аккаунта",
-      "find": "    if claimed_by_phone + mine_unredeemed >= max(1, coupon.limit_per_user):",
-      "replace": "    if mine_unredeemed >= max(1, coupon.limit_per_user):",
+      "description": "coupon_activate: лимит на человека снова считает только журнал (mine_redeemed убран из max) — не видит собственное погашение без записи в журнале",
+      "find": "    if max(claimed_by_phone, mine_redeemed) + mine_unredeemed >= max(1, coupon.limit_per_user):",
+      "replace": "    if claimed_by_phone + mine_unredeemed >= max(1, coupon.limit_per_user):",
       "runner": "pytest",
       "cwd": "backend",
       "args": [
-        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_claim_log_blocks_reapply_after_account_deletion"
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_activate_limit_uses_own_redemption_when_journal_entry_is_missing"
       ],
       "db": "sqlite"
     },
@@ -581,7 +581,7 @@
       "file": "backend/app/routers/coupons.py",
       "rule": "R11",
       "description": "coupon_redeem: запись в CouponClaimLog при погашении убрана — журнал остаётся пустым, лимит на номер нечем защищать",
-      "find": "    holder = session.get(User, red.user_id)\n    if holder and holder.phone:\n        session.add(CouponClaimLog(coupon_id=coupon.id, phone_key=_phone_claim_key(holder.phone)))\n    session.commit()",
+      "find": "    holder = session.get(User, red.user_id)\n    if holder and holder.phone:\n        session.add(CouponClaimLog(coupon_id=coupon.id, phone_key=_coupon_claim_key(holder.phone)))\n    session.commit()",
       "replace": "    holder = session.get(User, red.user_id)\n    session.commit()",
       "runner": "pytest",
       "cwd": "backend",
@@ -615,6 +615,34 @@
       "cwd": "backend",
       "args": [
         "tests/walk/l1_3/test_l1_3_coupons_money.py::test_coupon_claim_log_migration_refuses_weak_secret_when_rows_need_backfill"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M45",
+      "file": "backend/app/models.py",
+      "rule": "R11",
+      "description": "CouponClaimLog.coupon_id: снят ondelete=CASCADE — удаление купона (и владельца бизнеса через account.py) падает на нарушение внешнего ключа",
+      "find": "    coupon_id: int = Field(sa_column=Column(Integer, ForeignKey(\"coupon.id\", ondelete=\"CASCADE\"),\n                                            nullable=False, index=True))",
+      "replace": "    coupon_id: int = Field(sa_column=Column(Integer, ForeignKey(\"coupon.id\"),\n                                            nullable=False, index=True))",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_owner_account_deletion_cascades_claim_log_after_redemption"
+      ],
+      "db": "sqlite"
+    },
+    {
+      "id": "M46",
+      "file": "backend/app/routers/coupons.py",
+      "rule": "R11",
+      "description": "coupon_activate: mine_redeemed всегда 0 — лимит не видит собственное погашение без записи в журнале (release_phone / окно миграция-рестарт)",
+      "find": "    mine_redeemed = sum(1 for r in active_rows if r.user_id == user.id and r.status == \"redeemed\")",
+      "replace": "    mine_redeemed = 0",
+      "runner": "pytest",
+      "cwd": "backend",
+      "args": [
+        "tests/walk/l1_3/test_l1_3_coupons_money.py::test_activate_limit_uses_own_redemption_when_journal_entry_is_missing"
       ],
       "db": "sqlite"
     }

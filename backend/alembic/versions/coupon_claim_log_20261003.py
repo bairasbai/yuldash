@@ -41,6 +41,20 @@ DOWNGRADE удаляет таблицу целиком (если она пуст
 не восстановить — удалять его данные «просто так» при откате так же нечестно, как изобретать
 обратное превращение).
 
+`coupon_id` — С `ondelete="CASCADE"` (поправлено независимым ревью 1.3b — изначально FK был
+без каскада). `account.py` при удалении владельца бизнеса сносит его купоны напрямую
+(`DELETE FROM coupon WHERE partner_id IN (...)`), журнал не трогая — без каскада первое же
+погашение (новое или перенесённое этой же миграцией) превращало бы `/me/delete` владельца в
+500 по нарушению внешнего ключа, то есть ломало бы человеку право на удаление аккаунта
+(152-ФЗ). С каскадом строки журнала уходят вместе с купоном автоматически, на уровне БД —
+`account.py` как был, так и остаётся только для чтения.
+
+ДОМЕН HMAC — СВОЙ, `coupon-claim-v1:` (`_coupon_claim_key` в `routers/coupons.py`), не
+`promo-claim-v1:` из `promo.py` (поправлено независимым ревью 1.3b): иначе один и тот же номер
+давал бы ОДИНАКОВЫЙ ключ в журналах купонов и промокодов, хотя сам смысл домена — развести
+назначения одного секрета. Переноса старых строк под старым доменом нет — таблица новая,
+ничего ещё не записано ни под каким доменом.
+
 Revision ID: coupon_claim_log
 Revises: bd_merge_heads_20261002
 """
@@ -69,7 +83,7 @@ def upgrade() -> None:
         op.create_table(
             _TABLE,
             sa.Column("id", sa.Integer(), primary_key=True),
-            sa.Column("coupon_id", sa.Integer(), sa.ForeignKey("coupon.id"), nullable=False),
+            sa.Column("coupon_id", sa.Integer(), sa.ForeignKey("coupon.id", ondelete="CASCADE"), nullable=False),
             sa.Column("phone_key", sa.String(), nullable=False, server_default=""),
             sa.Column("created_at", sa.DateTime(), nullable=False),
         )
@@ -85,7 +99,7 @@ def upgrade() -> None:
         "WHERE cr.status = 'redeemed' AND u.phone IS NOT NULL AND u.phone != ''"
     )).fetchall()
 
-    from app.routers.promo import _phone_claim_key  # та же функция, что в coupons.py (не дублируем)
+    from app.routers.coupons import _coupon_claim_key  # та же функция и домен, что в coupon_redeem (не дублируем)
 
     # Группируем по (coupon_id, phone_key) СПИСКОМ, не множеством: лимит на человека — это
     # COUNT, не EXISTS. Один номер мог ЗАКОННО погасить один и тот же купон несколько раз
@@ -93,7 +107,7 @@ def upgrade() -> None:
     # настоящий счёт и выдать лишний слот после удаления аккаунта.
     per_pair = {}
     for coupon_id, phone, redeemed_at in historical:
-        key = _phone_claim_key(phone)
+        key = _coupon_claim_key(phone)
         if not key:
             continue
         # redeemed_at обязан быть на настоящих данных (coupon_redeem пишет его атомарно вместе

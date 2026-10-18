@@ -6,7 +6,10 @@
   отдельным листом); принимал: Opus 5.5 (круг 1 — REQUEST_CHANGES;
   круг 2 — принят на слитом дереве 35f79b35; круг 3 — правило проекта «подтверждённая ошибка
   держит файл не 🟩»; круг 4 (ревью листа 1.3, N-1/N-2) — идемпотентность и статус брони;
-  leaf-1.3b — журнал `CouponClaimLog` закрыл последнюю открытую ошибку, статус → `verified`)
+  leaf-1.3b первый проход — REQUEST_CHANGES: `CouponClaimLog.coupon_id` без `ondelete` ломал
+  `/me/delete` владельца бизнеса 500-кой (152-ФЗ, право на удаление); leaf-1.3b правка —
+  `ondelete="CASCADE"`, `max(журнал, свои погашения)` против окна миграция-рестарт/
+  `release_phone`, свой HMAC-домен купонов — принят, статус → `verified`)
 
 ## Назначение
 
@@ -20,7 +23,8 @@
 
 | Функция / эндпоинт | Строки | Что делает | Условия, входы, ошибки | Вердикт |
 |---|---|---|---|---|
-| `_reservation_active` 🆕 | 84–97 | Занимает ли бронь лимит ПРЯМО СЕЙЧАС | `redeemed` — всегда; `reserved` — пока не истекла (срок купона, а для бессрочного — `RESERVATION_TTL_DAYS` от `reserved_at`) | ок (R8, исправленная ошибка) |
+| `_coupon_claim_key` 🆕 | 41–53 | HMAC телефона для `CouponClaimLog`, СВОЙ домен `coupon-claim-v1:` | через общий `_hmac_phone_key` (`routers/promo.py`) — не дублирует формулу; домен СВОЙ, не промокодный (независимое ревью 1.3b) | ок (R11) |
+| `_reservation_active` 🆕 | 96–109 | Занимает ли бронь лимит ПРЯМО СЕЙЧАС | `redeemed` — всегда; `reserved` — пока не истекла (срок купона, а для бессрочного — `RESERVATION_TTL_DAYS` от `reserved_at`) | ок (R8, исправленная ошибка) |
 | `_csv` | 135–137 | Строка CSV → список | — | ок |
 | `moderate_and_clamp_reason` | 139–145 | Текст жалобы: обрезать до 500, проверить модерацией | — | ок |
 | `_moderate_storefront` | 147–163 | Проверить текст, который уйдёт в публичную витрину | метка '', 'warn', 'contact', 'abuse' | ок |
@@ -36,10 +40,10 @@
 | `_partner_public` | 264–276 | Публичные поля бизнеса | без приватного | ок |
 | `_coupon_public` | 278–311 | Публичная сериализация купона | `active_count` (reserved+redeemed, с учётом истечения) для честного `remaining` | ок (R6) |
 | `coupons_list` | 314–355 | Витрина: активные видимые купоны | один батч-запрос + фильтр `_reservation_active` на выдачу | ок (R6, R8) |
-| `coupon_redeem` | 357–437 | Бизнес гасит код у себя | чужой→404; срок истёк→422; снят админом→409; бронь истекла→409 (R8); уже погашён/не действует→409; row-lock+атомарный CAS; **пишет `CouponClaimLog` по HMAC телефона держателя — при НАСТОЯЩЕМ погашении, не при брони** (R11, leaf-1.3b) | ок (R1, R2, R5, R8, R11) |
-| `coupon_detail` | 440–456 | Деталь купона | честный `remaining` с учётом истечения | ок (R6, R8) |
-| `coupon_activate` | 458–556 | Пассажир бронирует погашение → код | идемпотентность берёт САМУЮ СВЕЖУЮ АКТИВНУЮ бронь (R9); лимит на человека = `CouponClaimLog` по номеру (прошлые, в т.ч. от удалённых аккаунтов) + текущие НЕпогашенные брони этого аккаунта, без двойного счёта уже погашенных (R11, leaf-1.3b); row-lock купона | ок (R3, R8, R9, R11, исправленная ошибка) |
-| `_activation_out` | 559–566 | Сериализация брони | — | ок |
+| `coupon_redeem` | 369–449 | Бизнес гасит код у себя | чужой→404; срок истёк→422; снят админом→409; бронь истекла→409 (R8); уже погашён/не действует→409; row-lock+атомарный CAS; **пишет `CouponClaimLog` по `_coupon_claim_key` держателя — при НАСТОЯЩЕМ погашении, не при брони** (R11, leaf-1.3b) | ок (R1, R2, R5, R8, R11) |
+| `coupon_detail` | 452–468 | Деталь купона | честный `remaining` с учётом истечения | ок (R6, R8) |
+| `coupon_activate` | 470–568 | Пассажир бронирует погашение → код | идемпотентность берёт САМУЮ СВЕЖУЮ АКТИВНУЮ бронь (R9); лимит на человека = `max(журнал по номеру, собственные погашения через active_rows)` + текущие НЕпогашенные брони этого аккаунта, без двойного счёта (R11/R11.2, leaf-1.3b); row-lock купона | ок (R3, R8, R9, R11, R11.2, исправленная ошибка) |
+| `_activation_out` | 571–578 | Сериализация брони | — | ок |
 | `my_coupons` | 569–601 | Мои брони (активные + история) | забытая истёкшая reserved-бронь отдаётся статусом `expired`, не сырым `reserved` (R10) | ок (R10, исправленная ошибка) |
 | `partner_plans` | 605–612 | Тарифы подписки | без авторизации | ок |
 | `_partner_mine` | 614–636 | Сериализация СВОЕГО бизнеса | — | ок |
@@ -71,19 +75,23 @@
 | `report_coupon` | 1291– | Жалоба «обещали не то» | лимит 10/час; UNIQUE(coupon,user) | ок |
 
 **Вне этого файла, но той же R11 истории:** `backend/alembic/versions/coupon_claim_log_20261003.py`
-🆕 (leaf-1.3b) — создаёт `CouponClaimLog` и переносит уже накопленные погашения ЖИВЫХ людей
-(HMAC их номера) задним числом, с тем же предохранителем от слабого секрета, что у
-`promo_claim_hmac_20261002.py` (не изобретён заново). Идемпотентна по РАЗНИЦЕ счётчиков на
-пару (coupon_id, phone_key) — не по факту «пара встречалась», иначе законные повторные
-погашения одного номера (limit_per_user>1) схлопнулись бы в одну запись и занизили счёт.
+🆕 (leaf-1.3b) — создаёт `CouponClaimLog` (FK на купон с `ondelete="CASCADE"` — R11.1) и
+переносит уже накопленные погашения ЖИВЫХ людей (ключ — `_coupon_claim_key`, свой домен) задним
+числом, с тем же предохранителем от слабого секрета, что у `promo_claim_hmac_20261002.py` (не
+изобретён заново). Идемпотентна по РАЗНИЦЕ счётчиков на пару (coupon_id, phone_key) — не по
+факту «пара встречалась», иначе законные повторные погашения одного номера (limit_per_user>1)
+схлопнулись бы в одну запись и занизили счёт. `models.py::CouponClaimLog.coupon_id` — та же
+R11.1 правка (`ondelete="CASCADE"`), файл вне строгого OWNS листа (только новый класс).
 
 ## Связи
 
 Экраны: `CouponsScreen.kt`, `PartnerCabinetScreen.kt`, админ-экраны модерации. Таблицы:
-`Partner`, `Coupon`, `CouponRedemption`, `CouponReport`, `Payment` (purpose=partner_sub),
-`CouponClaimLog` 🆕 (leaf-1.3b — переживает удаление аккаунта, см. R11). Делит анти-абуз
-модель («HMAC номера», `_phone_claim_key`, переиспользован импортом) с `PromoClaimLog`
-из `promo.py` (см. R6/R7/R8/R9 в `promo.py.md`) — формула HMAC одна на оба журнала.
+`Partner`, `Coupon` (владеет `CouponClaimLog.coupon_id` через FK `ondelete="CASCADE"` — R11.1),
+`CouponRedemption`, `CouponReport`, `Payment` (purpose=partner_sub), `CouponClaimLog` 🆕
+(leaf-1.3b — переживает удаление аккаунта ПАССАЖИРА, но не купона — см. R11/R11.1). Делит
+механизм HMAC (`_hmac_phone_key` в `routers/promo.py`) с `PromoClaimLog`, но СВОИМ доменом
+`coupon-claim-v1:` (не `promo-claim-v1:` — независимое ревью 1.3b, см. R6/R7/R8/R9 в
+`promo.py.md` для обоснования самого механизма и доменного разделения).
 
 ## Важные правила и тесты
 
@@ -100,6 +108,8 @@
 | R9 | Идемпотентность `coupon_activate` берёт самую свежую АКТИВНУЮ бронь, не любую (не спотыкается о забытую истёкшую) | backend/tests/walk/l1_3/test_l1_3_coupons_money.py::test_activate_idempotency_returns_active_code_not_stale_expired_one | да — M39 |
 | R10 | «Мои купоны» отдают статус `expired` для забытой истёкшей брони, не сырой `reserved` | backend/tests/walk/l1_3/test_l1_3_coupons_money.py::test_my_coupons_reports_expired_status_for_stale_reservation | да — M40 |
 | R11 | Лимит «один купон на человека» переживает удаление аккаунта (`CouponClaimLog`, HMAC номера, пишется при погашении) | backend/tests/walk/l1_3/test_l1_3_coupons_money.py::test_claim_log_blocks_reapply_after_account_deletion, ::test_claim_log_allows_exactly_one_more_after_one_past_redemption, ::test_claim_log_ignores_expired_reservation_of_deleted_account, ::test_claim_log_does_not_double_count_live_accounts_own_redemption, ::test_claim_log_does_not_affect_different_phone_number, ::test_coupon_claim_log_migration_backfills_live_redemptions_and_is_idempotent, ::test_coupon_claim_log_migration_refuses_weak_secret_when_rows_need_backfill | да — M41, M42, M43, M44 |
+| R11.1 | `couponclaimlog.coupon_id` каскадно удаляется вместе с купоном (`ondelete="CASCADE"`) — удаление владельца бизнеса не падает на внешний ключ | backend/tests/walk/l1_3/test_l1_3_coupons_money.py::test_owner_account_deletion_cascades_claim_log_after_redemption | да — M45 |
+| R11.2 | Лимит на человека видит собственное погашение живого аккаунта, даже если записи в журнале нет (`max(claimed_by_phone, mine_redeemed)`) | backend/tests/walk/l1_3/test_l1_3_coupons_money.py::test_activate_limit_uses_own_redemption_when_journal_entry_is_missing | да — M41, M46 |
 
 Понятный ответ человеку (бильингвальность `herr`) проверен точечно в R1/R2/R5/R8 и в целом
 репо-вайд сторожем `backend/tests/test_bilingual_errors_guard.py`.
@@ -115,7 +125,9 @@
 | R8 (круг 2→3, «вечная бронь») | Забытая `reserved`-бронь держала лимит НАВСЕГДА — ни один код/воркер её не истекал | test_expired_unbounded_reservation_frees_the_limit_slot, test_expired_reservation_cannot_be_redeemed | `_reservation_active`: бронь истекает со сроком купона или через `RESERVATION_TTL_DAYS=30` после `reserved_at` (решение ведущего, круг 3); истёкшая не держит лимит и не гасится | падали бы (чужой слот навсегда занят / код гасится спустя годы) → проходят |
 | R9 (независимое ревью круга 4, N-1 — R8 задним числом добавил эту ошибку) | `coupon_activate` искал идемпотентную бронь БЕЗ сортировки — у человека с забытой истёкшей (R8) и новой активной бронью `.first()` обычно возвращал СТАРУЮ: 409 «уже воспользовался» при `limit_per_user=1`, лишний код при `limit_per_user≥2` | test_activate_idempotency_returns_active_code_not_stale_expired_one | Берём самую свежую (`order_by(id.desc())`) бронь, прошедшую `_reservation_active` | тест падал бы (409 или лишний код вместо действующего) → проходит |
 | R10 (независимое ревью круга 4, N-2 — тоже задним числом от R8) | `my_coupons` отдавал сырой `status="reserved"` для забытой истёкшей брони — приложение рисовало код и «Покажи код в заведении», касса отвечала 409 | test_my_coupons_reports_expired_status_for_stale_reservation | Статус `expired`, когда `_reservation_active(...)` ложно | тест падал бы (`reserved` вместо `expired`) → проходит |
-| R11 (leaf-1.3b — закрывает последнюю открытую ошибку листа 1.3) | «Один купон на человека» держался только на `CouponRedemption.user_id` — удаление аккаунта (`account.py`, затронут ТОЛЬКО чтением) стирает её вместе с историей, регистрация заново с тем же номером проходила проверку заново. Для промокодов эту дыру закрыли `PromoClaimLog` — для купонов аналога не было вовсе | test_claim_log_blocks_reapply_after_account_deletion и ещё 6 тестов (R11) | `CouponClaimLog(coupon_id, phone_key, created_at)`, БЕЗ FK на user (удаление не требует правок); пишется в `coupon_redeem` при НАСТОЯЩЕМ погашении (не при брони — забытая истёкшая бронь не копится навечно); `coupon_activate` считает лимит = журнал по номеру (прошлые + чужие удалённые аккаунты) + НЕпогашенные брони текущего (без двойного счёта уже погашенных); миграция `coupon_claim_log_20261003.py` переносит исторические погашения живых людей, тот же предохранитель от слабого секрета, что у `promo_claim_hmac` | тесты падали бы (лимит обнулялся удалением аккаунта, или двойной счёт пробивал лимит в другую сторону) → проходят |
+| R11 (leaf-1.3b — закрывает последнюю открытую ошибку листа 1.3) | «Один купон на человека» держался только на `CouponRedemption.user_id` — удаление аккаунта (`account.py`, затронут ТОЛЬКО чтением) стирает её вместе с историей, регистрация заново с тем же номером проходила проверку заново. Для промокодов эту дыру закрыли `PromoClaimLog` — для купонов аналога не было вовсе | test_claim_log_blocks_reapply_after_account_deletion и ещё 8 тестов (R11) | `CouponClaimLog(coupon_id, phone_key, created_at)`, БЕЗ FK на user (удаление ПАССАЖИРА не требует правок — запись и так ни на что не ссылается); пишется в `coupon_redeem` при НАСТОЯЩЕМ погашении (не при брони — забытая истёкшая бронь не копится навечно); `coupon_activate` считает лимит = `max(журнал по номеру, свои погашения через active_rows)` + НЕпогашенные брони текущего, без двойного счёта; миграция `coupon_claim_log_20261003.py` переносит исторические погашения живых людей, тот же предохранитель от слабого секрета, что у `promo_claim_hmac`; свой HMAC-домен `coupon-claim-v1:` | тесты падали бы (лимит обнулялся удалением аккаунта, двойной счёт пробивал лимит в другую сторону, или собственное погашение без записи в журнале проходило бы заново) → проходят |
+| R11.1 (независимое ревью 1.3b, 🟥 блокер) | `couponclaimlog.coupon_id` — FK на `coupon.id` БЕЗ `ondelete`. `account.py` при удалении владельца бизнеса сносит его купоны напрямую (`DELETE FROM coupon WHERE partner_id IN (...)`), журнал не трогая — первое же погашение (новое или перенесённое миграцией) превращало бы `/me/delete` владельца в 500 по нарушению внешнего ключа: право человека на удаление аккаунта по 152-ФЗ было сломано | test_owner_account_deletion_cascades_claim_log_after_redemption | `ondelete="CASCADE"` в модели (`sa_column=Column(..., ForeignKey("coupon.id", ondelete="CASCADE"), ...)`) и в миграции — строки журнала уходят вместе с купоном на уровне БД, `account.py` как был, так и остаётся только для чтения | тест падал бы (`IntegrityError: FOREIGN KEY constraint failed` на `/me/delete`, проверено вручную откатом правки) → проходит |
+| R11.2 (независимое ревью 1.3b) | Счёт только по журналу не видел СВОЁ же погашение живого аккаунта в двух редких окнах: номер освобождён (`antifraud.release_phone` меняет `user.phone` на плейсхолдер — ключ по текущему номеру не совпадает с тем, что журнал запомнил при погашении) и погашение старым кодом в окне миграция→рестарт (env.py: миграция идёт до рестарта, запись в журнал ещё не умела писаться) | test_activate_limit_uses_own_redemption_when_journal_entry_is_missing | `max(claimed_by_phone, mine_redeemed)` — берём БОЛЬШИЙ из журнала и собственных `active_rows`, не сумму (иначе задвоили бы обычный случай, где они совпадают 1-в-1) | тест падал бы (409 ожидался, пришёл 200 — лимит не увидел собственное погашение) → проходит |
 
 Статус файла теперь `verified` — открытых ошибок не осталось. 152-ФЗ: `CouponClaimLog` хранит
 HMAC номера, не сам номер — то же основание, что у `PromoClaimLog` (анти-абуз, не вторая копия
@@ -138,23 +150,23 @@ HMAC номера, не сам номер — то же основание, чт
 | M31 | В `coupon_redeem` снята проверка истечения брони | test_expired_reservation_cannot_be_redeemed | KILLED |
 | M39 | В `coupon_activate` идемпотентность снова без сортировки/фильтра активности | test_activate_idempotency_returns_active_code_not_stale_expired_one (PostgreSQL) | KILLED |
 | M40 | В `my_coupons` снята подмена статуса на `expired` | test_my_coupons_reports_expired_status_for_stale_reservation (PostgreSQL) | KILLED |
-| M41 | В `coupon_activate` лимит на человека снова считает только текущий аккаунт (`claimed_by_phone` убран) | test_claim_log_blocks_reapply_after_account_deletion | KILLED |
+| M41 | В `coupon_activate` `max(claimed_by_phone, mine_redeemed)` заменён обратно на голый `claimed_by_phone` | test_activate_limit_uses_own_redemption_when_journal_entry_is_missing | KILLED |
 | M42 | В `coupon_redeem` снята запись в `CouponClaimLog` при погашении | test_claim_log_blocks_reapply_after_account_deletion | KILLED |
+| M46 | В `coupon_activate` `mine_redeemed` всегда 0 (вычисление снято) | test_activate_limit_uses_own_redemption_when_journal_entry_is_missing | KILLED |
 
 `python tools/audit_mutation.py replay --spec docs/audit-mutations/leaf-1.3.json` →
-все мутации этого файла KILLED (общий счёт листа — в отчёте ведущему). M43 (перенос снова
-схлопывает несколько законных погашений одной пары в одну запись) и M44 (предохранитель от
-слабого секрета отключён) — в том же JSON, но `file` —
-`backend/alembic/versions/coupon_claim_log_20261003.py`, не этот роутер (та же логика, что у
+все мутации этого файла KILLED (общий счёт листа — в отчёте ведущему). M43/M44 (миграция
+`coupon_claim_log_20261003.py`) и M45 (`CouponClaimLog.coupon_id` без `ondelete`, `models.py`)
+— в том же JSON, но `file` не этот роутер (та же логика, что у
 M37/M38 — `check-cards` сверяет поломку с файлом, который она ломает).
 
 ## Остаток и ограничения
 
-Открытых ошибок не осталось — все одиннадцать денежных правил (R1–R11, плюс границы R4)
-защищены тестами и нарочными поломками, включая четыре реальные проверки гонки на PostgreSQL
-(R1, R3, R7) и перенос исторических данных миграцией (R11). Полный существующий сюит файла
-(`test_coupons.py`, `test_coupons_journey.py`) прогнан и зелёный на SQLite и на изолированном
-PostgreSQL.
+Открытых ошибок не осталось — все денежные правила (R1–R11, включая R11.1/R11.2, плюс границы
+R4) защищены тестами и нарочными поломками, включая четыре реальные проверки гонки на
+PostgreSQL (R1, R3, R7) и перенос исторических данных миграцией (R11). Полный существующий
+сюит файла (`test_coupons.py`, `test_coupons_journey.py`) прогнан и зелёный на SQLite и на
+изолированном PostgreSQL.
 
 **Ограничение переноса (leaf-1.3b, осознанное, не баг).** Миграция `coupon_claim_log_20261003.py`
 переносит прошлые погашения только ЖИВЫХ на момент выкладки людей — у кого аккаунт уже удалён
@@ -163,15 +175,22 @@ PostgreSQL.
 а честная граница: защита включается с этой выкладки, прошлое до неё восстановить физически
 нельзя — тот же компромисс, что был у `promo_claim_hmac_20261002.py` для промокодов.
 
-`account.py` в leaf-1.3b затронут ТОЛЬКО чтением (одобренный лист 2.1) — журнал устроен так,
-что удаление аккаунта не требует ни единой правки там: запись уже сделана заранее, при самом
-погашении, и не ссылается на `user.id`.
+**`account.py` НЕ правился (поправлено независимым ревью 1.3b — прошлая формулировка здесь
+была НЕТОЧНОЙ).** Удаление ПАССАЖИРА действительно не касается журнала вовсе — `CouponClaimLog`
+без FK на `user.id`, запись ни на что не ссылается. Но удаление ВЛАДЕЛЬЦА БИЗНЕСА устроено
+иначе: `account.py` сносит его купоны напрямую (`DELETE FROM coupon ...`), и первое же
+погашение роняло бы это на внешний ключ `couponclaimlog.coupon_id` — именно это и было
+блокером (R11.1 выше). Фикс — `ondelete="CASCADE"` на уровне БД, а не правка `account.py`:
+он остаётся только для чтения (одобренный лист 2.1) ПОТОМУ, что каскад делает саму правку
+ненужной, а не потому, что журнал её изначально не требовал.
 
 **Смена `JWT_SECRET` необратимо обнуляет и ЭТУ защиту для прошлых людей** — тот же факт, что
-у `PromoClaimLog` (см. `promo.py.md`, исправленный N-4 докстринг `_phone_claim_key`, которую
-`coupon_redeem` переиспользует импортом): HMAC необратим, пересчитать старые ключи после смены
-секрета нечем. Отдельный секрет не вводим (решение ведущего для `PromoClaimLog`, то же — для
-купонов), держим в голове при любой будущей ротации `JWT_SECRET`.
+у `PromoClaimLog` (см. `promo.py.md`, исправленный N-4 докстринг `_hmac_phone_key`, которую
+`coupon_redeem` переиспользует импортом СВОИМ доменом `coupon-claim-v1:`, не `promo-claim-v1:`
+промокодов — независимое ревью 1.3b: иначе один номер давал бы одинаковый ключ в обоих
+журналах, хотя домен и существует ровно затем, чтобы их разводить): HMAC необратим, пересчитать
+старые ключи после смены секрета нечем. Отдельный секрет не вводим (решение ведущего для
+`PromoClaimLog`, то же — для купонов), держим в голове при любой будущей ротации `JWT_SECRET`.
 
 «Кольцо из трёх» и месячный лимит/граceful-ошибка водительского бонуса — это `referral.py`,
 не этот файл (см. его карточку).
