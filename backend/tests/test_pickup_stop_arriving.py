@@ -34,6 +34,7 @@ from app import livepos
 from app.config import settings
 from app.db import engine
 from app.models import Block, Booking, BookingStatus, Ride, SosEvent, TrustedContact, UserRole
+from app.ride_stops import parse_stops, ride_has_stops_raw
 from app.routers import location
 from app.services import haversine_km
 from app.timeutil import utcnow
@@ -323,6 +324,39 @@ def test_unknown_stop_no_show_waits_for_the_estimate(client, user_factory, redis
     from datetime import datetime
     at = datetime.fromisoformat(row["no_show_at"])
     assert at >= depart + timedelta(hours=est / settings.stop_expected_kmh) + bookings_mod.NO_SHOW_WAIT - timedelta(seconds=1)
+
+
+def test_old_ride_with_only_bad_stops_keeps_pr184_rules(client, user_factory, redis_on):
+    """Старая поездка «ул. Ленина 5 | 8917…»: допустимых остановок нет — показать нечего, но правила
+    остановок не выключаются (`ride_has_stops_raw`, а не `parse_stops`, A-P3-1). Бронь без места
+    (NULL) — «неизвестно» по PR184: «Не пришёл» только после «Подъезжаю», GPS-отказа нет. Иначе
+    пассажирку, которая ждёт на трассе, сняли бы через 15 минут после выезда из начала маршрута."""
+    drv = user_factory("PSA Driver rawonly", role=UserRole.driver)
+    pax = user_factory("PSA Pax rawonly")
+    depart = utcnow() - bookings_mod.NO_SHOW_WAIT - timedelta(minutes=1)   # у начала «Не пришёл» уже можно
+    ride = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Сибай", "to_city": "Акъяр", "comment": "psa-rawonly", "depart_at": depart.isoformat() + "+00:00",
+        "seats_total": 1, "price": 700, "pickup_lat": SIBAY[0], "pickup_lng": SIBAY[1], "pickup": "Автовокзал"}).json()
+    with Session(engine) as s:
+        r = s.get(Ride, ride["id"])
+        r.waypoints = "ул. Ленина 5 | 89171234567"
+        s.add(r)
+        s.commit()
+    bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride["id"], "seats": 1}).json()["id"]
+    assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+    with Session(engine) as s:
+        b = s.get(Booking, bid)
+        r = s.get(Ride, ride["id"])
+        assert b.pickup_stop is None and parse_stops(r) == [] and ride_has_stops_raw(r) is True
+        assert bookings_mod.no_show_needs_arriving(r, b) is True
+    row = next(x for x in client.get("/driver/bookings", headers=drv["auth"]).json() if x["booking_id"] == bid)
+    assert row["no_show_needs_arriving"] is True and row["ride_has_stops"] is True, row
+    ns = client.post(f"/bookings/{bid}/no-show", headers=drv["auth"])
+    assert ns.status_code == 409 and ns.json()["detail"]["code"] == "no_show_needs_arriving", ns.text
+    _driver_at(URGAZA, bid)                      # 41 км от пина: «неизвестно» — без GPS-отказа
+    ok = _arriving(client, drv, bid)
+    assert ok.status_code == 200, ok.text
+    assert _booking(bid).arrival_verified is False
 
 
 # ── Окно живой точки у брони на остановке ──
