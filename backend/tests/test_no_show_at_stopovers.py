@@ -29,8 +29,8 @@ from app import instant_service as isv
 from app import livepos
 from app.db import engine
 from app.models import Booking, BookingStatus, Ride, UserRole
-from app.routers.bookings import (DONE_EARLY_GRACE, NO_SHOW_WAIT, arriving_opens_at, no_show_available_at,
-                                  ride_has_stops)
+from app.ride_stops import ride_has_stops_raw as ride_has_stops   # правило «есть остановки» (PR184 → ride_stops)
+from app.routers.bookings import DONE_EARLY_GRACE, NO_SHOW_WAIT, arriving_opens_at, no_show_available_at
 from app.timeutil import utcnow
 
 STOPS = "Акъяр | Темясово"

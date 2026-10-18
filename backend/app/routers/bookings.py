@@ -114,14 +114,6 @@ NO_SHOW_WAIT = timedelta(minutes=15)
 LIVE_AFTER_NO_SHOW = timedelta(minutes=15)
 
 
-def ride_has_stops(ride: Ride) -> bool:
-    """Поездка с промежуточными остановками — для правил безопасности (`ride_stops.ride_has_stops_raw`):
-    в `waypoints` есть название с буквой, не равное началу или концу маршрута. Пробелы, пустые
-    разделители и «.»/«-»/«123» остановкой не считаются: иначе одна точка в поле выключала бы
-    GPS-проверку «Подъезжаю» у всей поездки (приёмка PR184)."""
-    return ride_has_stops_raw(ride)
-
-
 def arriving_opens_at(ride: Ride, booking: Optional[Booking] = None, entry=None):
     """С какого момента водитель может нажать «Подъезжаю»: за DONE_EARLY_GRACE до выезда — та же
     планка, что у «Сел» (приёмка PR184). Раньше «Подъезжаю» принималось хоть за неделю: пассажиру
