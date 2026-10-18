@@ -6,8 +6,9 @@
 открыл бронь A, жмёшь «Подъезжаю» по B за 25 км — пассажирке B срочно уходит «Водитель
 подъезжает», и она выходит к дороге за полчаса до машины (находка проверки безопасности, P1).
 
-Что стало. Внутренний помощник `livepos.driver_point_for_ride` берёт самую свежую точку водителя
-среди живых броней рейса (не старше двух минут). Его читает ТОЛЬКО проверка «Подъезжаю»: точка
+Что стало. Внутренний помощник `livepos.driver_points_for_ride` берёт все свежие точки водителя
+по подтверждённым броням рейса (не старше двух минут), а проверка сверяет ближайшую к пину: второе
+устройство водителя дома не даёт ложного отказа (приёмка PR0, P2). Его читает ТОЛЬКО проверка «Подъезжаю»: точка
 никому не отдаётся — ни пассажиру B, ни его близким, ни ленте, ни карте, ни превью `/r/{id}`
 (сторож внизу файла). Пассажиры точки друг друга не получают: в кэш броней пишет только водитель.
 """
@@ -145,9 +146,9 @@ def _ride_with(statuses: list[BookingStatus], user_factory) -> tuple[int, list[i
         return ride.id, ids
 
 
-def _point(ride_id: int):
+def _points(ride_id: int) -> list:
     with Session(engine) as s:
-        return livepos.driver_point_for_ride(s, s.get(Ride, ride_id))
+        return livepos.driver_points_for_ride(s, s.get(Ride, ride_id))
 
 
 def _put(redis, bid: int, point, age_sec: float | None) -> None:
@@ -157,55 +158,102 @@ def _put(redis, bid: int, point, age_sec: float | None) -> None:
     redis.set(f"livepos:booking:{bid}", json.dumps(payload), ex=livepos.LIVEPOS_TTL_SEC)
 
 
-def test_freshest_point_wins(user_factory, redis_on):
+def test_all_fresh_points_come_freshest_first(user_factory, redis_on):
     ride, (a, b) = _ride_with([BookingStatus.confirmed, BookingStatus.onboard], user_factory)
     _put(redis_on, a, FAR, 60)
     _put(redis_on, b, NEAR, 5)
-    got = _point(ride)
-    assert (got["lat"], got["lng"]) == NEAR
+    got = _points(ride)
+    assert [(p["lat"], p["lng"], p["booking_id"]) for p in got] == [(*NEAR, b), (*FAR, a)]
 
 
 def test_stale_point_is_ignored(user_factory, redis_on):
     """Точка старше двух минут (машина могла уехать) не годится — даже если кэш её ещё держит."""
     ride, (a,) = _ride_with([BookingStatus.confirmed], user_factory)
     _put(redis_on, a, FAR, livepos.LIVEPOS_TTL_SEC + 5)
-    assert _point(ride) is None
+    assert _points(ride) == []
 
 
-def test_point_without_timestamp_ranks_below_a_fresh_one(user_factory, redis_on):
+def test_point_without_timestamp_goes_last(user_factory, redis_on):
     ride, (a, b) = _ride_with([BookingStatus.confirmed, BookingStatus.confirmed], user_factory)
     _put(redis_on, a, FAR, None)
-    assert _point(ride)["lat"] == FAR[0], "без метки — лучше, чем ничего"
+    assert [p["lat"] for p in _points(ride)] == [FAR[0]], "без метки — лучше, чем ничего"
     _put(redis_on, b, NEAR, 100)
-    assert _point(ride)["lat"] == NEAR[0]
+    assert [p["lat"] for p in _points(ride)] == [NEAR[0], FAR[0]]
 
 
-def test_cancelled_and_done_bookings_do_not_count(user_factory, redis_on):
-    ride, (a, b, c) = _ride_with([BookingStatus.cancelled, BookingStatus.done, BookingStatus.pending], user_factory)
-    _put(redis_on, a, FAR, 1)
-    _put(redis_on, b, FAR, 1)
-    assert _point(ride) is None
-    _put(redis_on, c, NEAR, 1)
-    assert _point(ride)["lat"] == NEAR[0], "ожидающая бронь — живая"
+def test_only_confirmed_and_onboard_bookings_count(user_factory, redis_on):
+    """Канал пускает водителя только по подтверждённой брони и «в пути» — остальные кэши не читаем."""
+    ride, ids = _ride_with([BookingStatus.cancelled, BookingStatus.done, BookingStatus.pending,
+                            BookingStatus.confirmed], user_factory)
+    for bid in ids[:3]:
+        _put(redis_on, bid, FAR, 1)
+    assert _points(ride) == []
+    _put(redis_on, ids[3], NEAR, 1)
+    assert [p["lat"] for p in _points(ride)] == [NEAR[0]]
 
 
 def test_other_rides_points_are_not_mixed_in(user_factory, redis_on):
     ride, (a,) = _ride_with([BookingStatus.confirmed], user_factory)
     _other, (x,) = _ride_with([BookingStatus.confirmed], user_factory)
     _put(redis_on, x, FAR, 1)
-    assert _point(ride) is None
+    assert _points(ride) == []
 
 
-def test_without_redis_there_is_no_point(user_factory):
+def test_without_redis_there_are_no_points_and_no_query(user_factory, monkeypatch):
+    """Нет Redis — пустой список, и в базу за бронями не ходим (приёмка PR0, P3)."""
     isv._redis_override = None
     ride, (_a,) = _ride_with([BookingStatus.confirmed], user_factory)
-    assert _point(ride) is None
+    with Session(engine) as s:
+        r = s.get(Ride, ride)
+        asked = {"n": 0}
+        real = s.exec
+
+        def counting(*a, **k):
+            asked["n"] += 1
+            return real(*a, **k)
+
+        monkeypatch.setattr(s, "exec", counting)
+        assert livepos.driver_points_for_ride(s, r) == []
+        assert asked["n"] == 0
+
+
+def test_redis_error_gives_no_points(user_factory, redis_on, monkeypatch):
+    ride, (a,) = _ride_with([BookingStatus.confirmed], user_factory)
+    _put(redis_on, a, NEAR, 1)
+
+    def broken(*_a, **_k):
+        raise ConnectionError("redis упал")
+
+    monkeypatch.setattr(redis_on, "mget", broken)
+    assert _points(ride) == [], "Redis упал — проверить нечем, но и не падаем"
+
+
+# ── Второе устройство водителя (приёмка PR0, P2) ──
+
+def test_a_second_device_at_home_does_not_refuse_the_driver_at_the_pin(client, user_factory, redis_on):
+    """Водитель у пина по брони A (30 с назад), а планшет дома с открытой бронью B шлёт пульс (5 с
+    назад, 25 км). «Подъезжаю» по A — проходит: сверяем ближайшую из свежих, а не самую свежую."""
+    drv, pax_a, _pax_b, _ride, a, b = _trip_two_passengers(client, user_factory, "tablet")
+    _put(redis_on, a, NEAR, 30)
+    _put(redis_on, b, FAR, 5)
+    r = _arriving(client, drv, a)
+    assert r.status_code == 200, r.text
+    assert client.get(f"/bookings/{a}/role", headers=pax_a["auth"]).json()["arrival_verified"] is True
+
+
+def test_far_on_every_device_is_still_refused(client, user_factory, redis_on):
+    """P1 не ослаблен: все свежие точки водителя далеко — отказ."""
+    drv, _pax_a, _pax_b, _ride, a, b = _trip_two_passengers(client, user_factory, "allfar")
+    _put(redis_on, a, FAR, 30)
+    _put(redis_on, b, (FAR[0] + 0.05, FAR[1]), 5)
+    r = _arriving(client, drv, b)
+    assert r.status_code == 409 and "км" in r.json()["detail"]["ru"], r.text
 
 
 # ── Сторож: помощник — только внутренний ──
 
 APP = pathlib.Path(__file__).resolve().parents[1] / "app"
-HELPER = "driver_point_for_ride"
+HELPER = "driver_points_for_ride"
 # Где помощник МОЖНО упоминать: (файл, функция верхнего уровня). Каждая новая строка — сознательное
 # решение «кому и когда отдаём точку водителя», с проверкой безопасности (§8, гео).
 ALLOWED = {
@@ -266,8 +314,8 @@ def test_the_guard_sees_a_planted_mention(tmp_path):
     fake_app = tmp_path / "app"
     (fake_app / "routers").mkdir(parents=True)
     (fake_app / "routers" / "rides.py").write_text(
-        "from ..livepos import driver_point_for_ride\n"
-        "def rides_near(session, ride):\n    return driver_point_for_ride(session, ride)\n",
+        "from ..livepos import driver_points_for_ride\n"
+        "def rides_near(session, ride):\n    return driver_points_for_ride(session, ride)\n",
         encoding="utf-8")
     found = _mentions(fake_app / "routers" / "rides.py", fake_app)
     assert ("routers/rides.py", "rides_near") in found and ("routers/rides.py", "<module>") in found

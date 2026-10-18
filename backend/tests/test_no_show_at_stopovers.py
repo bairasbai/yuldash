@@ -20,10 +20,12 @@
 """
 from datetime import timedelta
 
+import fakeredis
 import pytest
 from sqlmodel import Session
 
 import app.services as svc
+from app import instant_service as isv
 from app import livepos
 from app.db import engine
 from app.models import Booking, BookingStatus, Ride, UserRole
@@ -91,12 +93,16 @@ def _seats(ride_id: int) -> int:
 
 
 @pytest.fixture
-def at(monkeypatch):
-    """Поставить водителя в точку (живая позиция для проверки «Подъезжаю» по GPS)."""
-    def place(point):
-        monkeypatch.setattr(livepos, "livepos_get",
-                            lambda kind, ref_id: {"lat": point[0], "lng": point[1], "bearing": None, "ts": ""})
-    return place
+def at():
+    """Поставить водителя в точку по брони `bid` — тем же кэшем, что пишет его канал координат."""
+    r = fakeredis.FakeStrictRedis(decode_responses=True)
+    isv._redis_override = r
+
+    def place(point, bid):
+        r.flushall()
+        livepos.livepos_set("booking", bid, point[0], point[1])
+    yield place
+    isv._redis_override = None
 
 
 @pytest.fixture
@@ -258,7 +264,7 @@ def test_arriving_far_from_the_start_pin_is_accepted_on_a_ride_with_stops(client
     """Машина у остановки в 25 км от пина начала маршрута: «Подъезжаю» проходит, пассажир получает
     «Водитель подъезжает», но без «GPS подтверждено» — подтвердить нечем."""
     drv, pax, _ride, bid = _trip(client, user_factory, "gps", pin=True, depart_in=timedelta(minutes=20))
-    at(FAR)
+    at(FAR, bid)
     r = _arriving(client, drv, bid)
     assert r.status_code == 200, r.text
     role = client.get(f"/bookings/{bid}/role", headers=pax["auth"]).json()
@@ -270,7 +276,7 @@ def test_arriving_far_from_the_start_pin_is_accepted_on_a_ride_with_stops(client
 def test_arriving_near_the_start_pin_on_a_ride_with_stops_is_not_verified_either(client, user_factory, at):
     """Даже у пина начала маршрута не ставим «GPS подтверждено»: этот пассажир может ждать на остановке."""
     drv, pax, _ride, bid = _trip(client, user_factory, "gpsnear", pin=True, depart_in=timedelta(minutes=20))
-    at(BAYMAK)
+    at(BAYMAK, bid)
     assert _arriving(client, drv, bid).status_code == 200
     assert client.get(f"/bookings/{bid}/role", headers=pax["auth"]).json()["arrival_verified"] is False
 
@@ -279,7 +285,7 @@ def test_without_stops_the_gps_check_is_unchanged(client, user_factory, at):
     """Контроль: на поездке без остановок далёкое «Подъезжаю» по-прежнему отказ, и отметки нет."""
     drv, _pax, _ride, bid = _trip(client, user_factory, "gpsplain", pin=True, waypoints="",
                                   depart_in=timedelta(minutes=20))
-    at(FAR)
+    at(FAR, bid)
     r = _arriving(client, drv, bid)
     assert r.status_code == 409 and "км" in r.json()["detail"]["ru"], r.text
     assert _booking(bid).arriving_at is None, "отказ «далеко» не должен запускать срок неявки"
@@ -304,7 +310,7 @@ def test_a_dot_in_waypoints_keeps_the_gps_check(client, user_factory, at):
     """«.» в остановках — поездка без остановок: далёкое «Подъезжаю» по-прежнему отказ."""
     drv, _pax, _ride, bid = _trip(client, user_factory, "gpsdot", pin=True, waypoints=".",
                                   depart_in=timedelta(minutes=20))
-    at(FAR)
+    at(FAR, bid)
     r = _arriving(client, drv, bid)
     assert r.status_code == 409 and "км" in r.json()["detail"]["ru"], r.text
 

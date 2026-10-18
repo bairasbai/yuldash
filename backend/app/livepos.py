@@ -63,12 +63,13 @@ def _age_sec(pos: dict, now: datetime):
     return (now - ts).total_seconds()
 
 
-def driver_point_for_ride(session, ride, now=None):
-    """Самая свежая точка ВОДИТЕЛЯ этой поездки — по всем её живым броням (18.10.2026, PR0).
+def driver_points_for_ride(session, ride, now=None) -> list:
+    """ВСЕ свежие точки ВОДИТЕЛЯ этой поездки — по её подтверждённым броням и броням «в пути»
+    (18.10.2026, PR0). Свежие первыми; у каждой — `booking_id` брони, чей канал её записал.
 
     ТОЛЬКО ДЛЯ ВНУТРЕННИХ ПРОВЕРОК СЕРВЕРА — никому не отдаётся (ни ленте, ни карте, ни превью
     `/r/{id}`, ни ссылке близким, ни каналу пассажира; сторож — `test_driver_point_for_ride.py`).
-    Сейчас её читает только честное «Подъезжаю» (`bookings._verify_arrival`).
+    Сейчас их читает только честное «Подъезжаю» (`bookings._verify_arrival`).
 
     Зачем. Точку водителя кладёт в кэш канал ОДНОЙ брони — той, чью поездку водитель открыл
     («Едут с тобой» → бронь A). По брони B того же рейса кэш пуст. Раньше «Подъезжаю» по B
@@ -76,35 +77,55 @@ def driver_point_for_ride(session, ride, now=None):
     жмёшь «Подъезжаю» по B за 25 км — пассажирке B уходит «Водитель подъезжает», и она выходит
     на мороз. Машина у водителя одна: где он для A, там он и для B.
 
+    Почему СПИСОК, а не одна «самая свежая» (приёмка PR0, P2). Под тем же аккаунтом водителя может
+    быть открыто второе устройство — семейный планшет дома с открытой бронью B шлёт пульс раз в
+    45 с. Самая свежая точка тогда — дом за 27 км, и водитель у пина получал бы ложный отказ.
+    Проверка берёт ближайшую к цели из всех свежих: отказ — только когда ВСЕ свежие точки далеко
+    (ложный отказ дороже пропущенного обмана).
+
     Почему это не открывает новых данных: в кэш броней пишет только водитель (`location.py`, роль
-    driver), это его собственная точка, а проверка отвечает ему же — «далеко»/«рядом». Пассажиры
+    driver), это его собственные точки, а проверка отвечает ему же — «далеко»/«рядом». Пассажиры
     точки друг друга сюда не попадают никогда.
 
-    Свежесть — не старше `LIVEPOS_TTL_SEC` (кэш и так забывает точку через столько же). Точку
-    без метки времени (старый формат) берём, но ставим ниже точек с меткой. Живые брони — как
-    `rides._live_bookings`: всё, кроме отменённых и завершённых. None — точки нет (Redis молчит,
-    водитель не прислал ни кадра, все точки протухли)."""
+    Брони — только подтверждённые и «в пути»: только по ним канал вообще пускает водителя
+    (`location.trip_location`). Свежесть — не старше `LIVEPOS_TTL_SEC` (кэш и так забывает точку
+    через столько же); точку без метки времени (старый формат) берём последней. Без Redis — пустой
+    список и в базу не ходим. Ошибку Redis глотаем (кэш best-effort), ошибку базы — нет: она
+    испортила бы транзакцию ручки «Подъезжаю» для её следующего UPDATE."""
+    r = _redis()
+    if r is None:
+        return []
     from sqlmodel import select
 
     from .models import Booking, BookingStatus
 
-    now = now or utcnow()
-    ids = session.exec(select(Booking.id).where(
+    ids = list(session.exec(select(Booking.id).where(
         Booking.ride_id == ride.id,
-        Booking.status.notin_((BookingStatus.cancelled, BookingStatus.done)),  # type: ignore[attr-defined]
-    )).all()
-    best, best_age = None, None
-    for bid in ids:
-        pos = livepos_get("booking", bid)
-        if not pos or pos.get("lat") is None or pos.get("lng") is None:
+        Booking.status.in_((BookingStatus.confirmed, BookingStatus.onboard)),  # type: ignore[attr-defined]
+    )).all())
+    if not ids:
+        return []
+    try:
+        raw = r.mget([_key("booking", bid) for bid in ids])
+    except Exception:  # noqa: BLE001 — кэш best-effort: Redis молчит → проверить нечем
+        return []
+    now = now or utcnow()
+    found = []
+    for bid, v in zip(ids, raw or []):
+        if not v:
+            continue
+        try:
+            pos = json.loads(v)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(pos, dict) or pos.get("lat") is None or pos.get("lng") is None:
             continue
         age = _age_sec(pos, now)
         if age is not None and age > LIVEPOS_TTL_SEC:
             continue   # протухла: машина могла уехать куда угодно
-        rank = age if age is not None else LIVEPOS_TTL_SEC + 1   # без метки — хуже любой свежей
-        if best is None or rank < best_age:
-            best, best_age = pos, rank
-    return best
+        found.append((age if age is not None else LIVEPOS_TTL_SEC + 1, {**pos, "booking_id": bid}))
+    found.sort(key=lambda x: x[0])
+    return [pos for _age, pos in found]
 
 
 def livepos_clear(kind: str, ref_id: int) -> None:

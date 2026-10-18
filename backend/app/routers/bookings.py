@@ -706,22 +706,24 @@ def _verify_arrival(session: Session, booking: Booking, ride: Ride) -> Optional[
     ещё не прислал ни одного кадра). Тогда пропускаем как раньше — доверяем слову. Блокируем
     только когда ТОЧНО знаем, что водитель далеко: ложный отказ дороже пропущенного обмана.
 
-    Точка — самая свежая точка водителя по ЛЮБОЙ живой брони этого рейса
-    (`livepos.driver_point_for_ride`, 18.10.2026), а не только по этой: водитель открыл поездку
+    Точки — все свежие точки водителя по ЛЮБОЙ подтверждённой брони этого рейса
+    (`livepos.driver_points_for_ride`, 18.10.2026), а не только по этой: водитель открыл поездку
     брони A, а «Подъезжаю» жмёт по брони B — кэш B пуст, и раньше проверка молча пропускала.
+    Сверяем БЛИЖАЙШУЮ к пину: второе устройство водителя дома (планшет с открытой бронью) не
+    должно давать ложный отказ тому, кто правда у подъезда (приёмка PR0, P2).
     """
     if not settings.arrival_verify_enabled:
         return None
     target = _pickup_point(ride)
     if target is None:
         return None
-    try:
-        pos = livepos.driver_point_for_ride(session, ride)
-    except Exception:  # noqa: BLE001 — кэш позиции best-effort, он не вправе ронять статус
-        return None
-    if not pos or pos.get("lat") is None or pos.get("lng") is None:
-        return None
-    return haversine_km(float(pos["lat"]), float(pos["lng"]), target[0], target[1]) * 1000.0
+    return _nearest_m(livepos.driver_points_for_ride(session, ride), target)
+
+
+def _nearest_m(points: list, target: tuple) -> Optional[float]:
+    """Расстояние в метрах от ближайшей из точек до цели; None — точек нет."""
+    dists = [haversine_km(float(p["lat"]), float(p["lng"]), target[0], target[1]) * 1000.0 for p in points]
+    return min(dists) if dists else None
 
 
 @router.post("/bookings/{booking_id}/driver-status")
