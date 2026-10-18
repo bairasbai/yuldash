@@ -97,10 +97,11 @@ _SCRUB = (
     # потому что URL не считается персональными данными (аудит 2026-08-08). Маскируем здесь.
     (re.compile(r"/t/[A-Za-z0-9_-]{16,}"), "/t/***"),
     # Токен Telegram-бота в адресе: https://api.telegram.org/bot<id>:<токен>/sendMessage. С ним
-    # любой пишет от имени Юлдаша всем, кто запускал бота. Sentry записывает исходящие запросы
-    # сервера сам — с полным адресом (приёмка #178, P2); в логе httpx токен маскирует фильтр
-    # в logs.py, а здесь общий рубеж для всего остального: крошки, трейсы, текст ошибок.
-    (re.compile(r"/bot\d+:[A-Za-z0-9_-]+"), "/bot<скрыто>"),
+    # любой пишет от имени Юлдаша всем, кто запускал бота. Крошки и спаны исходящих запросов
+    # Sentry урезает до хоста отдельно (before_breadcrumb, before_send ниже), в логе httpx токен
+    # маскирует фильтр в logs.py; это правило — запасной рубеж для текста ошибок, логов и всего,
+    # что пришло мимо них. Любой регистр и закодированное двоеточие (%3A) — приёмка PR183.
+    (re.compile(r"/bot\d+(?::|%3A)[A-Za-z0-9_-]+", re.IGNORECASE), "/bot<скрыто>"),
     # координаты в query-строке: /rides?lat=54.05&lng=58.31 — это местоположение человека
     (re.compile(r"\b(lat|lng|lon|latitude|longitude)=-?\d+\.\d+", re.IGNORECASE), r"\1=<коорд>"),
     # ГОЛЫЕ координаты: «52.9321, 58.6612». Правило выше ловит их только в виде lat=…&lng=…,
@@ -121,7 +122,9 @@ _SCRUB = (
     (re.compile(r"[\w.%+-]{1,64}@[\w.-]{1,253}\.[A-Za-z]{2,63}", re.UNICODE), "<почта>"),
     # Секреты в параметрах. api_id — ключ sms.ru, msg — текст СМС (в нём код входа), apikey —
     # ключ геокодера Яндекса, chat_id и text — адресат и текст сообщения Telegram (SOS с
-    # координатами). Всё это лежит в строке исходящего запроса (приёмка #178, P2).
+    # координатами). Всё это лежит в строке исходящего запроса (приёмка #178, P2). Мойка знает
+    # только известные имена: закодированные координаты (`waypoints=54.05%2C58.31`) она не
+    # узнает — поэтому крошки и спаны исходящих запросов урезаются до хоста целиком.
     (re.compile(r"\b(token|access_token|refresh_token|code|otp|password|secret|api_key|apikey|api_id"
                 r"|key|msg|text|chat_id)=[^&\s\"']+",
                 re.IGNORECASE), r"\1=<скрыто>"),
@@ -182,23 +185,58 @@ def _scrub(value, depth: int = 0):
 
 # Тело запроса и куки из события выбрасываем целиком, а не моем: в теле — имя, код из СМС,
 # координаты числом, комментарий с адресом; мойка ловит не всё (имя и число она не узнает).
-# Разбору сбоя хватает адреса, метода, заголовков и стека. Тела выключены и в init_sentry —
-# здесь второй замок на случай, если обновлённый SDK начнёт прикладывать их по-новому.
-_REQUEST_DROP = ("data", "cookies")
+# Разбору сбоя хватает адреса, метода и стека. Тела выключены и в init_sentry — здесь второй
+# замок на случай, если обновлённый SDK начнёт прикладывать их по-новому. `env` — сетевые
+# сведения сервера и клиента (там бывает IP человека), разбору сбоя они не нужны.
+_REQUEST_DROP = ("data", "cookies", "env")
+# Заголовки запроса — БЕЛЫМ списком (приёмка PR183, P1). Sentry сам прячет только свой короткий
+# список (Cookie, Authorization, X-Forwarded-For, X-Real-IP…, см. sentry_sdk/integrations/
+# _wsgi_common.py, SENSITIVE_ENV_KEYS). Секрет вебхука Telegram `X-Telegram-Bot-Api-Secret-Token`
+# туда не входит — с ним подделывают «человек поделился номером»; `X-Device-Id` — постоянный
+# номер устройства человека; Referer несёт адрес страницы, а там бывает /t/<токен>. Новый
+# заголовок завтра принесёт новое — поэтому оставляем только то, что помогает разобрать сбой:
+# каким приложением/браузером (User-Agent: версия Android, браузера), что и сколько прислали
+# и что ждали в ответ. Своего заголовка версии у наших клиентов нет — версия видна в User-Agent.
+_HEADERS_KEEP = frozenset({"user-agent", "content-type", "content-length", "accept"})
 
 
 def before_send(event, hint):   # noqa: ARG001 — hint нужен по контракту Sentry
-    """Последний рубеж перед отправкой. Любая ошибка чистки → событие НЕ отправляем:
-    лучше потерять отчёт о сбое, чем отправить наружу чужой телефон."""
+    """Последний рубеж перед отправкой — и ошибок, и трейсов (before_send_transaction). Любая
+    ошибка чистки → событие НЕ отправляем: лучше потерять отчёт о сбое, чем отправить наружу
+    чужой телефон или ключ."""
     try:
         cleaned = _scrub(event)   # новая копия: исходное событие не трогаем
         request = cleaned.get("request")
         if isinstance(request, dict):
             for key in _REQUEST_DROP:
                 request.pop(key, None)
+            headers = request.get("headers")
+            if isinstance(headers, dict):
+                request["headers"] = {k: v for k, v in headers.items()
+                                      if str(k).lower() in _HEADERS_KEEP}
+            elif headers is not None:
+                request.pop("headers")
+        # Спаны исходящих запросов в трейсе (приёмка PR183, P2-1) — как крошки ниже: только схема
+        # с хостом, метод и код ответа. Строим из ИСХОДНОГО спана: мойка выше могла исказить адрес
+        # (например, «логин:пароль@хост» похож на почту), а хост из искажённого не достать.
+        spans, original = cleaned.get("spans"), event.get("spans")
+        if isinstance(spans, list) and isinstance(original, list) and len(spans) == len(original):
+            cleaned["spans"] = [_http_span(o, c) if isinstance(o, dict) and o.get("op") == "http.client"
+                                else c for o, c in zip(original, spans)]
         return cleaned
     except Exception:  # noqa: BLE001
         return None
+
+
+def _url_base(url: str) -> str:
+    """Схема и хост (с портом, если он указан) — без логина, пути, строки запроса и фрагмента."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""            # без «логин:пароль@»
+    if ":" in host:
+        host = f"[{host}]"                 # IPv6
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    return f"{parts.scheme}://{host}" if parts.scheme and host else ""
 
 
 # Хлебные крошки — записи «что сервер делал перед сбоем», Sentry копит их сам и прикладывает
@@ -211,26 +249,45 @@ _HTTP_CRUMB_KEEP = ("http.method", "http.response.status_code")
 
 def _http_crumb(crumb: dict) -> dict:
     data = crumb.get("data") or {}
-    parts = urlsplit(str(data.get("url") or ""))
-    host = parts.hostname or ""            # без «логин:пароль@»
-    if ":" in host:
-        host = f"[{host}]"                 # IPv6
-    if parts.port:
-        host = f"{host}:{parts.port}"
-    safe = {"url": f"{parts.scheme}://{host}"} if parts.scheme and host else {}
+    base = _url_base(str(data.get("url") or ""))
+    safe = {"url": base} if base else {}
     safe.update({k: data[k] for k in _HTTP_CRUMB_KEEP if data.get(k) is not None})
     out = {k: crumb[k] for k in ("type", "category", "level", "timestamp") if k in crumb}
     out["data"] = safe                     # путь, запрос, фрагмент и текст крошки — не берём
     return out
 
 
+def _http_span(original: dict, cleaned: dict) -> dict:
+    """Спан исходящего запроса: «GET https://api.routing.yandex.net» вместо адреса с точными
+    координатами маршрута в строке запроса. Служебные поля спана (id, время, статус) — как есть."""
+    data = original.get("data") or {}
+    desc = str(original.get("description") or "")
+    method, _, rest = desc.partition(" ") if " " in desc else ("", "", desc)
+    method = str(data.get("http.method") or method)
+    base = _url_base(str(data.get("url") or rest))
+    out = dict(cleaned)
+    out["description"] = " ".join(p for p in (method, base) if p)
+    safe = {"url": base} if base else {}
+    if method:
+        safe["http.method"] = method
+    if data.get("http.response.status_code") is not None:
+        safe["http.response.status_code"] = data["http.response.status_code"]
+    out["data"] = safe                     # путь, http.query, http.fragment, reason — не берём
+    return out
+
+
 def before_breadcrumb(crumb, hint):   # noqa: ARG001 — hint нужен по контракту Sentry
     """Крошка перед тем, как лечь в память SDK. HTTP — урезаем до схемы, хоста, метода и
-    кода ответа; любую другую (строки лога, запросы к Redis и базе) — через общую мойку.
-    Любая ошибка → крошку выбрасываем: лучше потерять след, чем отдать наружу ключ."""
+    кода ответа; строки лога, запросы к Redis и прочее — через общую мойку. SQL-крошки
+    (категория «query», по одной на запрос к базе) при записи НЕ моем — это около миллисекунды на
+    каждый запрос к серверу (замер приёмки PR183); их моет before_send перед отправкой, а без
+    события крошка не уходит никуда. Любая ошибка → крошку выбрасываем: лучше потерять след,
+    чем отдать наружу ключ."""
     try:
         if crumb.get("type") == "http" or crumb.get("category") == "httplib":
             return _http_crumb(crumb)
+        if crumb.get("category") == "query":
+            return crumb
         return _scrub(crumb)
     except Exception:  # noqa: BLE001
         return None
@@ -273,12 +330,16 @@ def init_sentry() -> bool:
             # тело (`body=RequestIn(name=…, comment=…)`) и пользователь из базы. Для разбора
             # сбоя хватает стека и текста ошибки — так и написано в шапке мойки выше.
             include_local_variables=False,
-            # Второй рубеж: before_send выбрасывает тело и куки, если они всё же пришли, и чистит
-            # то, что просочилось в текст ошибки или в адрес.
+            # Второй рубеж: before_send выбрасывает тело и куки, если они всё же пришли, оставляет
+            # заголовки только из белого списка, урезает спаны исходящих запросов и чистит то,
+            # что просочилось в текст ошибки или в адрес.
             before_send=before_send,
-            before_send_transaction=before_send,   # у трейсов в имени лежит URL
+            before_send_transaction=before_send,   # у трейсов — адреса, заголовки, спаны
             # Крошки исходящих запросов — без пути и строки запроса, остальные — через мойку.
             before_breadcrumb=before_breadcrumb,
+            # Заголовки трассировки (sentry-trace, baggage) к чужим сервисам не прикладываем:
+            # Telegram, sms.ru, Яндексу и ЮKassa наши идентификаторы трасс ни к чему (приёмка PR183).
+            trace_propagation_targets=[],
         )
         _sentry_ready = True
         log.info(f"[SENTRY] инициализирован (env={settings.env})")
