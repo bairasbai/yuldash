@@ -83,3 +83,31 @@ def test_telegram_bot_key_in_path_is_still_masked(caplog):
     message = _httpx_records(caplog)[0].getMessage()
     assert "https://api.telegram.org/bot<скрыто>/sendMessage?chat_id=<скрыто>" in message
     _assert_no_secret(caplog, "QA_SYNTH_TG", "QA_SYNTH_CHAT")
+
+
+def test_filter_is_linear_on_a_hostile_line(caplog):
+    """Строка из тысяч «http://» без «?» не должна жечь процессор (было ~30 с на 140 КБ)."""
+    import time
+    record = logging.LogRecord("httpx", logging.INFO, __file__, 1, "GET " + "http://" * 20000, (), None)
+    started = time.perf_counter()
+    for f in logging.getLogger("httpx").filters:
+        f.filter(record)
+    assert time.perf_counter() - started < 0.5
+
+
+def test_provider_error_text_with_the_url_is_scrubbed(smsru, monkeypatch, caplog):
+    """Ошибка httpx вида HTTPStatusError несёт полный адрес — в журнал `yuldash` он уходит очищенным."""
+    def failing_get(url, params=None, **kwargs):
+        request = httpx.Request("GET", url, params=params)
+        raise httpx.HTTPStatusError(f"Server error '502 Bad Gateway' for url '{request.url}'",
+                                    request=request, response=httpx.Response(502, request=request))
+    monkeypatch.setattr(httpx, "get", failing_get)
+    with caplog.at_level(logging.INFO, logger="yuldash"):
+        services.send_sms(PHONE, CODE)
+        assert services.send_text(PHONE, SOS) is False
+    warnings = [r.getMessage() for r in caplog.records if r.name == "yuldash" and "smsru error" in r.getMessage()]
+    assert len(warnings) == 2, "диагностика ошибки остаётся"
+    for message in warnings:
+        assert "502 Bad Gateway" in message
+        for secret in (API_ID, PHONE, f"kod+{CODE}", "54.123456"):
+            assert secret not in message

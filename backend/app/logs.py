@@ -24,7 +24,9 @@ class _HttpxUrlPrivacyFilter(logging.Filter):
     геокодера Яндекса (18.10.2026). Поэтому из строки запроса оставляем только имена параметров.
     """
     _telegram = re.compile(r"(https?://api\.telegram\.org/bot)[^/\s?#\"']+", re.IGNORECASE)
-    _query = re.compile(r"(https?://[^\s?#\"']+)\?([^\s#\"']*)", re.IGNORECASE)
+    # Адрес начинается только после пробела, кавычки или скобки: иначе на строке «http://http://…»
+    # без «?» поиск пробует каждый «http» внутри уже начатого адреса — квадратично (P3 приёмки).
+    _query = re.compile(r"(?<![^\s\"'(<\[=,])(https?://[^\s?#\"']+)\?([^\s#\"']*)", re.IGNORECASE)
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
