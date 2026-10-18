@@ -12,32 +12,54 @@ internal fun parseBoardingResult(o: JSONObject): BoardingResult =
     BoardingResult(status = o.optString("status"), undoSec = o.optInt("boarding_undo_sec").coerceAtLeast(0))
 
 /**
- * Срок «Не пришёл» у карточки водителя (решения 18.10.2026). Считает ТОЛЬКО сервер, клиент берёт:
- *  • [noShowAt] — с какого момента кнопка доступна (ISO UTC, `no_show_at`); null — срока нет;
+ * Сроки у карточки водителя (решения 18.10.2026). Считает ТОЛЬКО сервер, клиент берёт:
+ *  • [noShowAt] — с какого момента доступна «Не пришёл» (ISO UTC, `no_show_at`); null — срока нет;
  *  • [needsArriving] — поездка с остановками, а «Подъезжаю» по этой брони ещё не было
  *    (`no_show_needs_arriving`): вместо «Не пришёл» карточка предлагает «Подъезжаю»;
- *  • [waitUntilMs] — тот же срок по часам ТЕЛЕФОНА: «сейчас + `no_show_wait_sec`» в момент ответа.
+ *  • [waitUntilMs] — срок «Не пришёл» по часам ТЕЛЕФОНА: «сейчас + `no_show_wait_sec`» в момент ответа.
  *    Часы телефона спешат на минуты — по одному `no_show_at` карточка решила бы, что срок вышел, и
- *    снова показала бы кнопку, на которую сервер только что ответил «рано».
- * Приходит в строке `/driver/bookings`, в ответе «Подъезжаю» и в отказах «Не пришёл».
+ *    снова показала бы кнопку, на которую сервер только что ответил «рано»;
+ *  • [arrivingOpensAt] / [arrivingWaitUntilMs] — то же для самой «Подъезжаю»: не раньше чем за
+ *    30 минут до выезда (`arriving_opens_at` / `arriving_wait_sec`, приёмка PR184).
+ * Приходит в строке `/driver/bookings`, в ответе «Подъезжаю» и в отказах.
  */
-data class NoShowTerms(val noShowAt: String?, val needsArriving: Boolean = false, val waitUntilMs: Long? = null)
+data class NoShowTerms(
+    val noShowAt: String?,
+    val needsArriving: Boolean = false,
+    val waitUntilMs: Long? = null,
+    val arrivingOpensAt: String? = null,
+    val arrivingWaitUntilMs: Long? = null,
+)
+
+private fun JSONObject?.isoOrNull(key: String): String? =
+    if (this == null || isNull(key)) null else optString(key).ifBlank { null }
+
+/** «Сейчас + секунды сервера» по часам телефона; null — сервер секунд не прислал. */
+private fun JSONObject?.untilMs(key: String, nowMs: Long): Long? =
+    this?.takeIf { it.has(key) && !it.isNull(key) }?.let { nowMs + it.optLong(key).coerceAtLeast(0) * 1000L }
 
 internal fun parseNoShowTerms(o: JSONObject?, nowMs: Long = System.currentTimeMillis()): NoShowTerms = NoShowTerms(
-    noShowAt = if (o == null || o.isNull("no_show_at")) null else o.optString("no_show_at").ifBlank { null },
+    noShowAt = o.isoOrNull("no_show_at"),
     needsArriving = o?.optBoolean("no_show_needs_arriving") == true,
-    waitUntilMs = o?.takeIf { it.has("no_show_wait_sec") && !it.isNull("no_show_wait_sec") }
-        ?.let { nowMs + it.optLong("no_show_wait_sec").coerceAtLeast(0) * 1000L },
+    waitUntilMs = o.untilMs("no_show_wait_sec", nowMs),
+    arrivingOpensAt = o.isoOrNull("arriving_opens_at"),
+    arrivingWaitUntilMs = o.untilMs("arriving_wait_sec", nowMs),
 )
 
 /**
- * Новый срок после отказа «Не пришёл» по его коду: `no_show_too_early` — момент и секунды из отказа
- * (подпись вместо кнопки), `no_show_needs_arriving` — сначала «Подъезжаю». Другой отказ — null.
+ * Сроки после отказа по его коду: `no_show_too_early` — момент и секунды «Не пришёл» из отказа
+ * (кнопка снова неактивна), `no_show_needs_arriving` — сначала «Подъезжаю», `arriving_too_early` —
+ * момент и секунды «Подъезжаю» (кнопка «Подъезжаю» неактивна). Другой отказ — null, сроки те же.
  */
-internal fun noShowTermsAfterRefusal(code: String, detail: JSONObject?, nowMs: Long = System.currentTimeMillis()): NoShowTerms? =
+internal fun NoShowTerms.afterRefusal(code: String, detail: JSONObject?, nowMs: Long = System.currentTimeMillis()): NoShowTerms? =
     when (code) {
-        "no_show_too_early" -> parseNoShowTerms(detail, nowMs).copy(needsArriving = false)
-        "no_show_needs_arriving" -> NoShowTerms(noShowAt = null, needsArriving = true)
+        "no_show_too_early" -> copy(
+            noShowAt = detail.isoOrNull("no_show_at"), waitUntilMs = detail.untilMs("no_show_wait_sec", nowMs), needsArriving = false,
+        )
+        "no_show_needs_arriving" -> copy(noShowAt = null, waitUntilMs = null, needsArriving = true)
+        "arriving_too_early" -> copy(
+            arrivingOpensAt = detail.isoOrNull("arriving_opens_at"), arrivingWaitUntilMs = detail.untilMs("arriving_wait_sec", nowMs),
+        )
         else -> null
     }
 

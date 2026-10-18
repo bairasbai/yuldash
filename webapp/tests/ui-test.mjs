@@ -234,7 +234,8 @@ const SMALL = [];
 for (const m of ui.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
   const sel = m[1].trim();
   const body = m[2];
-  if (!/button|\.chip|\.tab|\.nav-item|\.icon-btn|\.rate-star/.test(sel)) continue;
+  // `.btn-` — классы кнопок (`.btn-soft--sm` жила 40px мимо сторожа, приёмка PR184).
+  if (!/button|\.btn-|\.chip|\.tab|\.nav-item|\.icon-btn|\.rate-star/.test(sel)) continue;
   const h = body.match(/(?:min-height|height):\s*(\d+)px/);
   if (!h) continue;
   const px = Number(h[1]);

@@ -324,6 +324,13 @@ export interface DriverBookingRow {
    * «Подъезжаю» и подпись «Сначала нажми «Подъезжаю»». Старый сервер — нет поля.
    */
   no_show_needs_arriving?: boolean;
+  /**
+   * С какого момента можно нажать «Подъезжаю» (ISO UTC без «Z»): за 30 минут до выезда, как «Сел»
+   * (приёмка PR184). Раньше сервер ответит 409 `arriving_too_early`. Старый сервер — нет поля.
+   */
+  arriving_opens_at?: string | null;
+  /** Сколько секунд до `arriving_opens_at` от этого ответа (0 — уже можно). */
+  arriving_wait_sec?: number;
 }
 
 /** Брони на поездки текущего водителя — чтобы оценить пассажиров после поездки. */
@@ -370,12 +377,15 @@ export interface ArrivingResult {
   no_show_at?: string | null;
   no_show_wait_sec?: number;
   no_show_needs_arriving?: boolean;
+  arriving_opens_at?: string | null;
+  arriving_wait_sec?: number;
 }
 
 /**
  * «Подъезжаю» с карточки «Едут с тобой» (поездка с остановками, решение 18.10.2026): пассажиру
  * уходит «Водитель подъезжает», а срок «Не вышел» считается от этого нажатия + 15 минут. Та же
- * ручка, что «Выехал/Подъезжаю» на экране поездки; повтор срок не сдвигает (сервер).
+ * ручка, что «Выехал/Подъезжаю» на экране поездки; повтор срок не сдвигает (сервер). Раньше чем за
+ * 30 минут до выезда — 409 `arriving_too_early` (приёмка PR184): пассажиру ничего не уходит.
  */
 export function markArriving(id: number): Promise<ArrivingResult> {
   return apiPost<ArrivingResult>(`/bookings/${id}/driver-status`, { status: "arriving" });

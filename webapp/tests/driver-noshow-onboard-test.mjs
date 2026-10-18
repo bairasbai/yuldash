@@ -132,15 +132,20 @@ assert.equal(h.states[3], "Посадку можно отметить за 30 м
 
 // Поездка с остановками (18.10.2026): признак из строки уходит в «Не вышел», а «Подъезжаю» с карточки —
 // тот же driver-status, что на экране поездки; после него список перечитан (придёт новый срок).
-h.states = ["ready", [{ ...rows[0], booking_id: 4, no_show_at: null, no_show_needs_arriving: true }], null, "", null, []];
+h.states = ["ready", [{ ...rows[0], booking_id: 4, no_show_at: null, no_show_needs_arriving: true,
+  arriving_opens_at: "2030-01-01T04:30:00", arriving_wait_sec: 120, no_show_wait_sec: 0 }], null, "", null, []];
 tree = render();
 const stopCtl = noShowOf(rowOf(tree, 4));
 assert.equal(stopCtl.props.needsArriving, true, "признак «сначала Подъезжаю» — из строки брони");
+assert.equal(stopCtl.props.arrivingOpensAt, "2030-01-01T04:30:00", "срок «Подъезжаю» — из строки брони (приёмка PR184)");
+assert.equal(stopCtl.props.arrivingWaitSec, 120);
+assert.equal(stopCtl.props.noShowWaitSec, 0);
 const beforeArriving = h.fetches;
 stopCtl.props.onArriving();
 await tick(); await tick();
 assert.deepEqual(h.arrivings, [4], "«Подъезжаю» ушла по этой брони");
 assert.equal(h.fetches, beforeArriving + 1, "после «Подъезжаю» список перечитан");
+assert.equal(h.states[3], "Пассажир уведомлён", "как тост в приложении: водитель видит, что уведомление ушло");
 assert.deepEqual(h.noShows, [1], "неявка не отправлялась");
 
 // Старый сервер без passenger_id и без boarding_undo_sec: объяснение есть, «Не вышел» по-прежнему нет.

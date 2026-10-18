@@ -41,7 +41,8 @@ def _ride_with_booking(client, user_factory, tag: str):
     pax = user_factory(f"{tag}Pax", role=UserRole.passenger)
     ride = client.post("/rides", headers=drv["auth"], json={
         "from_city": "Сибай", "to_city": "Уфа", "seats_total": 4, "price": 500,
-        "depart_at": _local(timedelta(days=1)),
+        # Через 10 минут: «Подъезжаю» раньше чем за 30 минут до выезда не принимается (приёмка PR184).
+        "depart_at": _local(timedelta(minutes=10)),
     }).json()
     b = client.post("/bookings", headers=pax["auth"],
                     json={"ride_id": ride["id"], "seats": 1}).json()

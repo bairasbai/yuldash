@@ -7,6 +7,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -107,11 +109,12 @@ class DriverBoardingControlsTest {
 
     private fun card(
         status: String = "confirmed", undoSec: Int = 0, language: AppLanguage = AppLanguage.Ru,
-        noShowAt: String? = null, needsArriving: Boolean = false,
+        noShowAt: String? = null, needsArriving: Boolean = false, arrivingOpensAt: String? = null,
     ) = compose.setContent {
         CompositionLocalProvider(LocalAppLanguage provides language) {
             DriverBoardingControls(bookingId = 42, bookingStatus = status, boardingUndoSec = undoSec,
-                passengerId = 7, passengerName = "Айгуль", noShowAt = noShowAt, noShowNeedsArriving = needsArriving)
+                passengerId = 7, passengerName = "Айгуль", noShowAt = noShowAt, noShowNeedsArriving = needsArriving,
+                arrivingOpensAt = arrivingOpensAt)
         }
     }
 
@@ -320,6 +323,73 @@ class DriverBoardingControlsTest {
         compose.onAllNodesWithText("Не пришёл").assertCountEquals(0)
         compose.onAllNodesWithText("Отмечена неявка", substring = true).assertCountEquals(0)
     }
+
+    /** Приёмка PR184: «Подъезжаю» — не раньше чем за 30 минут до выезда. До этого кнопка на месте, но
+     *  неактивна, а подпись говорит, с какого момента её можно нажать. Сервер не зовём. */
+    @Test fun arrivingIsLockedUntilThirtyMinutesBeforeDeparture() {
+        card(needsArriving = true, arrivingOpensAt = opensIn(2 * 60 * 60_000L))
+        compose.onNodeWithText("Подъезжаю").assertIsNotEnabled()
+        compose.onNodeWithText("«Подъезжаю» можно нажать с", substring = true).assertIsDisplayed()
+        compose.onAllNodesWithText("Сначала нажми «Подъезжаю»", substring = true).assertCountEquals(0)
+        compose.onNodeWithText("Подъезжаю").performClick()
+        compose.onNodeWithText("Сел").assertIsEnabled()
+        assertTrue("до срока «Подъезжаю» не уходит: $calls", calls.isEmpty())
+    }
+
+    /** Срок «Подъезжаю» уже прошёл — кнопка активна, подпись прежняя. */
+    @Test fun arrivingOpensAtItsMoment() {
+        card(needsArriving = true, arrivingOpensAt = opensIn(-60_000L))
+        compose.onNodeWithText("Подъезжаю").assertIsEnabled()
+        compose.onNodeWithText("Сначала нажми «Подъезжаю» — пассажир получит уведомление").assertIsDisplayed()
+    }
+
+    /** Часы телефона спешат: карточка решила, что уже можно, а сервер ответил «рано» — его словами, и кнопка
+     *  снова неактивна по секундам сервера. */
+    @Test fun arrivingTooEarlyRefusalLocksTheButtonAgain() {
+        markReply = json(
+            """{"detail":{"ru":"Рано: «Подъезжаю» можно нажать за 30 минут до выезда — пассажир выйдет к машине вовремя.","ba":"Иртә.","code":"arriving_too_early","arriving_opens_at":"${opensIn(-30_000L)}","arriving_wait_sec":600}}""",
+            409,
+        )
+        card(needsArriving = true, arrivingOpensAt = opensIn(-60_000L))
+        compose.onNodeWithText("Подъезжаю").performClick()
+        waitForToast()
+        assertEquals(
+            "Рано: «Подъезжаю» можно нажать за 30 минут до выезда — пассажир выйдет к машине вовремя.",
+            ShadowToast.getTextOfLatestToast(),
+        )
+        waitFor("«Подъезжаю» можно нажать с", substring = true)
+        compose.onNodeWithText("Подъезжаю").assertIsNotEnabled()
+        compose.onAllNodesWithText("Не пришёл").assertCountEquals(0)
+    }
+
+    /**
+     * Приёмка PR184: на экране 360dp половина ряда — 148dp (список 16 + 16, карточка 12 + 12, зазор 8:
+     * (360 − 32 − 24 − 8) / 2). С иконкой и полями AppButton «Подъезжаю» не влезала и переносилась посреди
+     * слова. Теперь одна строка без обрезки на обоих языках, высота — как у «Сел».
+     */
+    private fun arrivingFitsHalfOfA360dpCard(language: AppLanguage, label: String) {
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides language) {
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.width(304.dp)) {
+                    DriverBoardingControls(bookingId = 42, bookingStatus = "confirmed", boardingUndoSec = 0,
+                        passengerId = 7, passengerName = "Айгуль", noShowNeedsArriving = true)
+                }
+            }
+        }
+        val node = compose.onNodeWithText(label, useUnmergedTree = true).fetchSemanticsNode()
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        node.config[androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
+        val layout = layouts.single()
+        assertEquals("«$label» — одной строкой", 1, layout.lineCount)
+        assertTrue("«$label» не обрезана многоточием", !layout.hasVisualOverflow)
+        val arriving = compose.onNodeWithTag("driverArrivingButton").fetchSemanticsNode().boundsInRoot
+        assertEquals("высота «$label» = высота «Сел»", boardedBounds().height, arriving.height, 0.5f)
+        assertEquals("обе кнопки — половина ряда", boardedBounds().width, arriving.width, 0.5f)
+    }
+
+    @Test fun arrivingFitsHalfOfA360dpCardInRussian() = arrivingFitsHalfOfA360dpCard(AppLanguage.Ru, "Подъезжаю")
+
+    @Test fun arrivingFitsHalfOfA360dpCardInBashkir() = arrivingFitsHalfOfA360dpCard(AppLanguage.Ba, "Яҡынлашам")
 
     @Test fun bashkirArrivingForTheDriver() {
         card(language = AppLanguage.Ba, needsArriving = true)

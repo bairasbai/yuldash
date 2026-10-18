@@ -48,6 +48,7 @@ import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.BoardingApi
 import com.yuldash.app.data.BoardingResult
 import com.yuldash.app.data.NoShowTerms
+import com.yuldash.app.data.afterRefusal
 import com.yuldash.app.data.TripReceiptDto
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -89,6 +90,8 @@ internal fun DriverBoardingControls(
     noShowAt: String? = null,
     // Поездка с остановками ждёт «Подъезжаю» по этой брони (`no_show_needs_arriving`, 18.10.2026).
     noShowNeedsArriving: Boolean = false,
+    // С какого момента можно нажать «Подъезжаю» (`arriving_opens_at`: за 30 минут до выезда); null — старый сервер.
+    arrivingOpensAt: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
@@ -102,6 +105,7 @@ internal fun DriverBoardingControls(
                 bookingId = bookingId,
                 noShowAt = noShowAt,
                 noShowNeedsArriving = noShowNeedsArriving,
+                arrivingOpensAt = arrivingOpensAt,
                 marking = marking,
                 onMark = {
                     if (!marking) {
@@ -156,16 +160,21 @@ private fun ConfirmedPassengerControls(
     bookingId: Int,
     noShowAt: String?,
     noShowNeedsArriving: Boolean,
+    arrivingOpensAt: String?,
     marking: Boolean,
     onMark: () -> Unit,
     onNoShowSent: () -> Unit,
     onBoarded: (undoSec: Int) -> Unit,
 ) {
-    var terms by remember(bookingId, noShowAt, noShowNeedsArriving) {
-        mutableStateOf(NoShowTerms(noShowAt = noShowAt, needsArriving = noShowNeedsArriving))
+    var terms by remember(bookingId, noShowAt, noShowNeedsArriving, arrivingOpensAt) {
+        mutableStateOf(NoShowTerms(noShowAt = noShowAt, needsArriving = noShowNeedsArriving, arrivingOpensAt = arrivingOpensAt))
     }
     val opensAt = remember(terms) { terms.opensAtMs() }
     val open by rememberNoShowOpen(opensAt)
+    // «Подъезжаю» — не раньше чем за 30 минут до выезда (приёмка PR184); часы тикают, только пока ждём её.
+    val arrivingAt = remember(terms) { if (terms.needsArriving) terms.arrivingOpensAtMs() else null }
+    val arrivingOpen by rememberNoShowOpen(arrivingAt)
+    val onRefused: (ApiException) -> Unit = { e -> terms.afterRefusal(e.detailCode, e.detail)?.let { terms = it } }
     val slot = noShowSlot(terms.needsArriving, open)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
@@ -186,7 +195,13 @@ private fun ConfirmedPassengerControls(
                 label = "noShowSlot",
             ) { arriving ->
                 if (arriving) {
-                    ArrivingButton(bookingId, onArrived = { terms = it }, modifier = Modifier.fillMaxWidth())
+                    ArrivingButton(
+                        bookingId,
+                        onArrived = { terms = it },
+                        modifier = Modifier.fillMaxWidth().testTag("driverArrivingButton"),
+                        locked = !arrivingOpen,
+                        onRefused = onRefused,
+                    )
                 } else {
                     NoShowButton(
                         bookingId = bookingId,
@@ -194,7 +209,7 @@ private fun ConfirmedPassengerControls(
                         onBoarded = onBoarded,
                         modifier = Modifier.fillMaxWidth(),
                         locked = slot == NoShowSlot.Waiting,
-                        onTerms = { terms = it },
+                        onRefused = onRefused,
                     )
                 }
             }
@@ -205,7 +220,11 @@ private fun ConfirmedPassengerControls(
             exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.NORMAL)),
         ) {
             AnimatedContent(targetState = terms.needsArriving, label = "noShowNote") { needs ->
-                if (needs) NoShowNeedsArrivingNote() else NoShowWaitNote(terms.noShowAt)
+                if (needs) {
+                    NoShowNeedsArrivingNote(arrivingFrom = terms.arrivingOpensAt.takeIf { !arrivingOpen })
+                } else {
+                    NoShowWaitNote(terms.noShowAt)
+                }
             }
         }
     }

@@ -121,6 +121,10 @@ class NoShowOnboardTest {
         assertEquals(ms, com.yuldash.app.data.NoShowTerms(opens, waitUntilMs = ms - 60_000L).opensAtMs())
         assertEquals(42L, com.yuldash.app.data.NoShowTerms(null, waitUntilMs = 42L).opensAtMs())
         assertNull(com.yuldash.app.data.NoShowTerms(null).opensAtMs())
+        // «Подъезжаю» — то же правило со своими полями (за 30 минут до выезда, приёмка PR184).
+        assertEquals(ms, com.yuldash.app.data.NoShowTerms(null, arrivingOpensAt = opens).arrivingOpensAtMs())
+        assertEquals(ms + 5L, com.yuldash.app.data.NoShowTerms(null, arrivingOpensAt = opens, arrivingWaitUntilMs = ms + 5L).arrivingOpensAtMs())
+        assertNull("старый сервер — не прячем, решает сервер", com.yuldash.app.data.NoShowTerms(null).arrivingOpensAtMs())
     }
 
     @Test

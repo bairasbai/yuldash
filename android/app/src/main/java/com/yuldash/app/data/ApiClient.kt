@@ -6683,23 +6683,6 @@ data class DriverScheduleDto(
     val active: Boolean = true,
 )
 
-/** Бронь на поездку водителя — для оценки пассажира. */
-data class DriverBookingDto(
-    val bookingId: Int,
-    val passengerName: String,
-    val passengerRating: Double?,
-    val route: String,
-    val status: String,
-    // Сколько звёзд водитель уже поставил по этой брони: 0 = ещё не оценивал.
-    // Без этого после перезагрузки экрана звёзды снова были пустые, и человек оценивал повторно.
-    val myStars: Int = 0,
-    val frontSeat: Boolean = false,   // просит переднее место — водитель видит до решения
-    val passengerId: Int = 0,   // вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»); 0 — старый сервер
-    val boardingUndoSec: Int = 0,   // сколько секунд ещё можно отменить свою отметку «Сел»; 0 — нельзя / старый сервер
-    val noShowAt: String? = null,   // ISO UTC: с этого момента доступна «Не пришёл» (поздний из выезда и «Подъезжаю» + ожидание, считает сервер); null — срока нет / старый сервер, решает сервер
-    val noShowNeedsArriving: Boolean = false,   // поездка с остановками ждёт «Подъезжаю» по этой брони: вместо «Не пришёл» — «Подъезжаю» (18.10.2026)
-)
-
 /** Реферал «позови своего»: код, сколько привёл, бонусы, вводил ли чей-то код. */
 data class ReferralDto(val code: String, val invited: Int, val credits: Int, val redeemed: Boolean)
 
@@ -6913,23 +6896,6 @@ internal fun parseNotifDto(o: JSONObject): NotifDto {
         refId = if (o.isNull("ref_id")) null else o.optInt("ref_id"),
         read = o.optBoolean("read"),
         createdAt = o.optString("created_at"),
-    )
-}
-
-/** Бронь глазами водителя. */
-internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
-    return DriverBookingDto(
-        bookingId = o.optInt("booking_id"),
-        passengerName = o.optString("passenger_name"),
-        passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
-        route = o.optString("route"),
-        status = o.optString("status"),
-        myStars = o.optInt("my_stars"),
-        frontSeat = o.optBoolean("front_seat"),
-        passengerId = o.optInt("passenger_id"),
-        boardingUndoSec = o.optInt("boarding_undo_sec"),
-        noShowAt = if (o.isNull("no_show_at")) null else o.optString("no_show_at").ifBlank { null },
-        noShowNeedsArriving = o.optBoolean("no_show_needs_arriving"),
     )
 }
 

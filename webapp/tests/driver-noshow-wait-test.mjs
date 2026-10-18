@@ -56,14 +56,14 @@ const MIN = 60_000;
 for (const lang of ["ru", "ba"]) {
   const L = (ru, ba) => (lang === "ba" ? ba : ru);
   const NO_SHOW = L("Не вышел", "Сыҡманы");
-  const ARRIVING = L("Подъезжаю", "Килеп етәм");
+  const ARRIVING = L("Подъезжаю", "Яҡынлашам");
 
-  async function mountAt({ noShowAt, needsArriving, busy = false, now = NOW }) {
+  async function mountAt({ noShowAt, noShowWaitSec, needsArriving, arrivingOpensAt, arrivingWaitSec, busy = false, now = NOW }) {
     const Ctl = await view(lang);   // сборка — до подмены часов
     const clock = fakeClock(now);
     const sent = [];
     const h = mount(Ctl, {
-      noShowAt, needsArriving, busy,
+      noShowAt, noShowWaitSec, needsArriving, arrivingOpensAt, arrivingWaitSec, busy,
       onConfirm: () => sent.push("confirm"),
       onArriving: () => sent.push("arriving"),
     });
@@ -171,7 +171,7 @@ for (const lang of ["ru", "ba"]) {
       const note = all(h.tree).find((n) => n.props?.role === "note");
       assert.equal(
         text(note),
-        L("Сначала нажми «Подъезжаю» — пассажир получит уведомление", "Башта «Килеп етәм»гә баҫ — пассажир хәбәр алыр")
+        L("Сначала нажми «Подъезжаю» — пассажир получит уведомление", "Башта «Яҡынлашам»ға баҫ — пассажир хәбәр алыр")
       );
       assert.equal(clock.timers.size, 0, "срока ещё нет — часы не тикают");
       arriving.props.onClick();
@@ -192,6 +192,42 @@ for (const lang of ["ru", "ba"]) {
       assert.ok(text(all(h.tree).find((n) => n.props?.role === "note")).includes(localClock(NOW + 15 * MIN)));
       assert.equal(clock.timers.size, 1, "срок впереди — тикает один таймер");
     } finally { h.unmount(); clock.restore(); }
+  });
+
+  await t.test(`${lang}: «Подъезжаю» раньше чем за 30 минут до выезда — на месте, но неактивна; подпись — когда можно`, async () => {
+    const opens = NOW + 2 * 60 * MIN;
+    const { h, clock, sent } = await mountAt({ needsArriving: true, arrivingOpensAt: naiveUtc(opens), arrivingWaitSec: 2 * 60 * 60 });
+    try {
+      const arriving = button(h.tree, ARRIVING);
+      assert.equal(arriving.props.disabled, true, "до срока «Подъезжаю» неактивна (приёмка PR184)");
+      assert.equal(
+        text(all(h.tree).find((n) => n.props?.role === "note")),
+        L(`«Подъезжаю» можно нажать с ${localClock(opens)}`, `«Яҡынлашам»ға ${localClock(opens)} үткәс кенә баҫып була`)
+      );
+      assert.equal(clock.timers.size, 1, "пока ждём «Подъезжаю» — тикает один таймер");
+      clock.tick(2 * 60 * MIN);
+      await h.settle();
+      assert.equal(button(h.tree, ARRIVING).props.disabled, false, "в срок «Подъезжаю» ожила");
+      assert.ok(text(all(h.tree).find((n) => n.props?.role === "note")).includes(L("Сначала нажми", "Башта")));
+      assert.equal(clock.timers.size, 0, "срок наступил — таймер снят");
+      assert.deepEqual(sent, []);
+    } finally { h.unmount(); clock.restore(); }
+  });
+
+  await t.test(`${lang}: часы устройства спешат — ждём по секундам сервера, а не по одному моменту`, async () => {
+    // По `no_show_at` срок уже прошёл, а сервер говорит «ещё 10 минут» (`no_show_wait_sec`).
+    const { h, clock } = await mountAt({ noShowAt: naiveUtc(NOW - MIN), noShowWaitSec: 600 });
+    try {
+      assert.equal(button(h.tree, NO_SHOW).props.disabled, true, "кнопка закрыта по секундам сервера");
+      clock.tick(600 * 1000);
+      await h.settle();
+      assert.equal(button(h.tree, NO_SHOW).props.disabled, false, "через 10 минут по часам устройства — открыта");
+    } finally { h.unmount(); clock.restore(); }
+    // То же для «Подъезжаю».
+    const second = await mountAt({ needsArriving: true, arrivingOpensAt: naiveUtc(NOW - MIN), arrivingWaitSec: 300 });
+    try {
+      assert.equal(button(second.h.tree, ARRIVING).props.disabled, true);
+    } finally { second.h.unmount(); second.clock.restore(); }
   });
 
   await t.test(`${lang}: пока запрос идёт, «Подъезжаю» заблокирована`, async () => {

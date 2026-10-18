@@ -114,12 +114,14 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
   /** После «Сел» / «Отменить» — перечитать список (без аргументов: ответ действия не сигнал отмены). */
   const reload = useCallback(() => load(), [load]);
 
-  async function act(id: number, fn: () => Promise<unknown>, fail: { ru: string; ba: string }) {
+  /** `done` — что сказать после успеха (как тост в приложении: «Пассажир уведомлён»). */
+  async function act(id: number, fn: () => Promise<unknown>, fail: { ru: string; ba: string }, done?: { ru: string; ba: string }) {
     if (busyId) return;
     setBusyId(id);
     setNote("");
     try {
       await fn();
+      if (done) setNote(appText(done.ru, done.ba));
       load();
     } catch (e) {
       setNote(e instanceof ApiError && e.message ? e.message : appText(fail.ru, fail.ba));
@@ -227,7 +229,10 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
                   {st === CONFIRMED && (
                     <DriverNoShow
                       noShowAt={b.no_show_at}
+                      noShowWaitSec={b.no_show_wait_sec}
                       needsArriving={b.no_show_needs_arriving === true}
+                      arrivingOpensAt={b.arriving_opens_at}
+                      arrivingWaitSec={b.arriving_wait_sec}
                       busy={busyId === b.booking_id}
                       onConfirm={() =>
                         void act(b.booking_id, () => markNoShow(b.booking_id), {
@@ -236,10 +241,12 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
                         })
                       }
                       onArriving={() =>
-                        void act(b.booking_id, () => markArriving(b.booking_id), {
-                          ru: "Не удалось сохранить статус. Проверь сеть.",
-                          ba: "Хәлде һаҡлап булманы. Селтәрҙе тикшер.",
-                        })
+                        void act(
+                          b.booking_id,
+                          () => markArriving(b.booking_id),
+                          { ru: "Не удалось сохранить статус. Проверь сеть.", ba: "Хәлде һаҡлап булманы. Селтәрҙе тикшер." },
+                          { ru: "Пассажир уведомлён", ba: "Пассажир хәбәрҙар ителде" }
+                        )
                       }
                     />
                   )}

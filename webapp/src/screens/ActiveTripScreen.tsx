@@ -887,7 +887,7 @@ export default function ActiveTripScreen() {
               onClick={() => sendPhase("arriving")}
               disabled={phaseBusy}
             >
-              {appText("Подъезжаю", "Килеп етәм")}
+              {appText("Подъезжаю", "Яҡынлашам")}
             </button>
             {/* «Пассажир сел» → «Пассажир в машине» и «Отменить» в первые 5 минут. */}
             <DriverBoarding

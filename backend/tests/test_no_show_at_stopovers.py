@@ -12,17 +12,23 @@
 * поездка с остановками без «Подъезжаю» — 409 `no_show_needs_arriving`, в строке `/driver/bookings`
   `no_show_at = null` и `no_show_needs_arriving = true` (клиент пишет «Сначала нажми «Подъезжаю»»);
 * на поездке с остановками «Подъезжаю» не отказывает из-за расстояния до пина начала маршрута,
-  но и не подтверждается по GPS (`arrival_verified = false`): где садится пассажир, бронь не знает.
+  но и не подтверждается по GPS (`arrival_verified = false`): где садится пассажир, бронь не знает;
+* «Подъезжаю» — не раньше чем за 30 минут до выезда (`DONE_EARLY_GRACE`, как «Сел»; приёмка PR184):
+  иначе за неделю до поездки уходило срочное «Водитель подъезжает» и запускался срок «Не пришёл».
+  Раньше — 409 `arriving_too_early`, без фазы, без `arriving_at`, без пуша;
+* остановка — название хотя бы с одной буквой: «.» или «-» в поле GPS-проверку не выключают.
 """
 from datetime import timedelta
 
 import pytest
 from sqlmodel import Session
 
+import app.services as svc
 from app import livepos
 from app.db import engine
 from app.models import Booking, BookingStatus, Ride, UserRole
-from app.routers.bookings import NO_SHOW_WAIT, no_show_available_at, ride_has_stops
+from app.routers.bookings import (DONE_EARLY_GRACE, NO_SHOW_WAIT, arriving_opens_at, no_show_available_at,
+                                  ride_has_stops)
 from app.timeutil import utcnow
 
 STOPS = "Акъяр | Темясово"
@@ -284,9 +290,83 @@ def test_without_stops_the_gps_check_is_unchanged(client, user_factory, at):
 def test_blank_waypoints_are_not_stops():
     assert ride_has_stops(Ride(waypoints="Акъяр")) is True
     assert ride_has_stops(Ride(waypoints=STOPS)) is True
+    assert ride_has_stops(Ride(waypoints="Һаҡмар")) is True, "башкирские буквы — тоже буквы"
+    assert ride_has_stops(Ride(waypoints=". | Акъяр")) is True
     assert ride_has_stops(Ride(waypoints="")) is False
     assert ride_has_stops(Ride(waypoints="   ")) is False
     assert ride_has_stops(Ride(waypoints=" | ")) is False
+    # Знаки без букв — не остановка: иначе «.» в поле выключала бы GPS-проверку у всей поездки.
+    assert ride_has_stops(Ride(waypoints=".")) is False
+    assert ride_has_stops(Ride(waypoints="- | . | 123")) is False
+
+
+def test_a_dot_in_waypoints_keeps_the_gps_check(client, user_factory, at):
+    """«.» в остановках — поездка без остановок: далёкое «Подъезжаю» по-прежнему отказ."""
+    drv, _pax, _ride, bid = _trip(client, user_factory, "gpsdot", pin=True, waypoints=".",
+                                  depart_in=timedelta(minutes=20))
+    at(FAR)
+    r = _arriving(client, drv, bid)
+    assert r.status_code == 409 and "км" in r.json()["detail"]["ru"], r.text
+
+
+# ── «Подъезжаю» — не раньше чем за 30 минут до выезда (приёмка PR184) ──
+
+@pytest.fixture
+def pushes(monkeypatch) -> list:
+    got: list = []
+    monkeypatch.setattr(svc, "send_push", lambda session, uid, title, body, **k: got.append((uid, title)))
+    return got
+
+
+def test_arriving_two_days_early_is_refused_without_a_push(client, user_factory, pushes):
+    """Поездка с остановкой через два дня, водитель жмёт «Подъезжаю» сегодня: отказ с кодом, пассажиру
+    ничего не ушло, срок «Не пришёл» не запустился — через 15 минут после выезда неявки по-прежнему нет."""
+    drv, pax, ride, bid = _trip(client, user_factory, "twodays", depart_in=timedelta(days=2))
+    pushes.clear()
+    r = _arriving(client, drv, bid)
+    assert r.status_code == 409, r.text
+    detail = r.json()["detail"]
+    assert detail["code"] == "arriving_too_early"
+    assert "Подъезжаю" in detail["ru"] and "Яҡынлашам" in detail["ba"] and detail["ba"] != detail["ru"]
+    opens = _depart_at(ride["id"]) - DONE_EARLY_GRACE
+    assert detail["arriving_opens_at"] == opens.isoformat()
+    assert 2 * 86_400 - 30 * 60 - 60 <= detail["arriving_wait_sec"] <= 2 * 86_400 - 30 * 60
+    assert [t for uid, t in pushes if uid == pax["id"]] == [], "«Водитель подъезжает» за два дня — нельзя"
+    b = _booking(bid)
+    assert b.arriving_at is None and b.driver_phase == "", "отказ ничего не записал"
+    row = _row(client, drv, bid)
+    assert row["no_show_needs_arriving"] is True and row["no_show_at"] is None
+    assert row["arriving_opens_at"] == opens.isoformat() and row["arriving_wait_sec"] > 0
+
+
+def test_the_trip_screen_arriving_hits_the_same_refusal(client, user_factory, pushes):
+    """Тот же отказ у «Подъезжаю» на экране поездки (та же ручка) и на поездке без остановок."""
+    drv, pax, _ride, bid = _trip(client, user_factory, "tripscreen", waypoints="", depart_in=timedelta(hours=3))
+    pushes.clear()
+    r = _arriving(client, drv, bid)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "arriving_too_early", r.text
+    assert pushes == []
+    assert _booking(bid).arriving_at is None
+    # «Выехал» этим правилом не ограничен — он не обещает пассажиру, что машина у дома.
+    assert client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"],
+                       json={"status": "departed"}).status_code == 200
+
+
+def test_arriving_opens_exactly_thirty_minutes_before_departure(client, user_factory, clock, pushes):
+    drv, pax, ride, bid = _trip(client, user_factory, "edge30", depart_in=timedelta(hours=2))
+    pushes.clear()   # «Бронь подтверждена» — не про это
+    opens = arriving_opens_at(Ride(depart_at=_depart_at(ride["id"])))
+    clock(opens - timedelta(seconds=1))
+    early = _arriving(client, drv, bid)
+    assert early.status_code == 409 and early.json()["detail"]["arriving_wait_sec"] == 1, early.text
+    clock(opens)
+    ok = _arriving(client, drv, bid)
+    assert ok.status_code == 200, ok.text
+    assert _booking(bid).arriving_at == opens
+    assert [t for uid, t in pushes if uid == pax["id"]] == ["Водитель подъезжает"]
+    # Срок «Не пришёл» — от позднего: выезд (через 30 минут) + 15, а не «Подъезжаю» + 15.
+    assert ok.json()["no_show_at"] == (_depart_at(ride["id"]) + NO_SHOW_WAIT).isoformat()
+    assert ok.json()["arriving_wait_sec"] == 0
 
 
 def test_one_rule_for_the_moment():

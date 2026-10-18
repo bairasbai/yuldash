@@ -18,26 +18,45 @@
 //  сажают позже выезда, и неявки нет, пока он не получил «Водитель подъезжает». Тогда на месте
 //  «Не вышел» — «Подъезжаю» (родитель шлёт тот же `driver-status`, что экран поездки, и перечитывает
 //  список — придёт новый срок), под ней — «Сначала нажми «Подъезжаю» — пассажир получит уведомление».
+//  «Подъезжаю» — не раньше чем за 30 минут до выезда (приёмка PR184, `arriving_opens_at`): до этого
+//  она на месте, но неактивна, под ней — «можно нажать с …». Сроки — от сервера: момент и секунды
+//  (`*_wait_sec`) — часы устройства врут на минуты, поэтому ждём до позднего из двух.
 //  Нет `no_show_at` (старый сервер) — кнопка есть, а последнее слово за сервером (409).
 // ================================================================
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLang } from "../i18n/lang";
 import AlertDialog from "./AlertDialog";
 import { IconCar, IconClock } from "./Icons";
 import { dayMonthClock } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
 
+/** Поздний из двух моментов; NaN — момента нет. */
+function later(a: number, b: number): number {
+  if (Number.isNaN(a)) return b;
+  if (Number.isNaN(b)) return a;
+  return Math.max(a, b);
+}
+
 export default function DriverNoShow({
   noShowAt,
+  noShowWaitSec,
   needsArriving = false,
+  arrivingOpensAt,
+  arrivingWaitSec,
   busy,
   onConfirm,
   onArriving,
 }: {
   /** ISO UTC из `/driver/bookings`: с какого момента неявку можно отметить; нет — срок неизвестен. */
   noShowAt?: string | null;
+  /** Сколько секунд до `noShowAt` от ответа сервера (часы устройства могут спешить). */
+  noShowWaitSec?: number;
   /** Поездка с остановками ждёт «Подъезжаю» по этой брони (`no_show_needs_arriving`). */
   needsArriving?: boolean;
+  /** ISO UTC: с какого момента можно нажать «Подъезжаю» (за 30 минут до выезда); нет — старый сервер. */
+  arrivingOpensAt?: string | null;
+  /** Сколько секунд до `arrivingOpensAt` от ответа сервера. */
+  arrivingWaitSec?: number;
   /** Запрос уже идёт (родитель держит блокировку на всю карточку). */
   busy: boolean;
   /** Водитель ответил «Да, не вышел»: отправить неявку. */
@@ -49,33 +68,53 @@ export default function DriverNoShow({
   const [now, setNow] = useState(() => Date.now());
   const [asking, setAsking] = useState(false);
 
-  const opensAt = serverMs(noShowAt);
+  // Секунды сервера → момент по часам устройства, в ту минуту, когда пришла строка списка.
+  const noShowUntil = useMemo(
+    () => (noShowWaitSec && noShowWaitSec > 0 ? Date.now() + noShowWaitSec * 1000 : NaN),
+    [noShowAt, noShowWaitSec]
+  );
+  const arrivingUntil = useMemo(
+    () => (arrivingWaitSec && arrivingWaitSec > 0 ? Date.now() + arrivingWaitSec * 1000 : NaN),
+    [arrivingOpensAt, arrivingWaitSec]
+  );
+  const opensAt = later(serverMs(noShowAt), noShowUntil);
+  const arrivingAt = later(serverMs(arrivingOpensAt), arrivingUntil);
   // Срок неизвестен (старый сервер, выезд не задан, кривая строка) — не прячем: решает сервер.
   const open = Number.isNaN(opensAt) || now >= opensAt;
-  const slot = needsArriving ? "arriving" : open ? "ready" : "waiting";
+  const arrivingOpen = Number.isNaN(arrivingAt) || now >= arrivingAt;
+  const slot = needsArriving ? (arrivingOpen ? "arriving" : "arriving-wait") : open ? "ready" : "waiting";
 
   // Пока срок впереди, перечитываем часы раз в секунду — кнопка сама оживёт в нужную секунду.
-  // Срок наступил, его нет или ждём «Подъезжаю» — таймера нет. Таймер вкладки в фоне браузер
-  // замедляет, но следующее срабатывание берёт время заново.
+  // Срок наступил или его нет — таймера нет. Таймер вкладки в фоне браузер замедляет, но
+  // следующее срабатывание берёт время заново.
   useEffect(() => {
-    if (slot !== "waiting") return;
+    if (slot !== "waiting" && slot !== "arriving-wait") return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [slot]);
 
-  if (slot === "arriving") {
+  if (slot === "arriving" || slot === "arriving-wait") {
+    const locked = slot === "arriving-wait";
+    const from = dayMonthClock(arrivingOpensAt);
     return (
       <>
-        <button type="button" className="btn-soft btn-soft--sm noshow-slot" disabled={busy} onClick={onArriving}>
-          <IconCar size={16} /> {appText("Подъезжаю", "Килеп етәм")}
+        <button
+          type="button"
+          className="btn-soft btn-soft--sm noshow-slot"
+          disabled={busy || locked}
+          onClick={onArriving}
+        >
+          <IconCar size={16} /> {appText("Подъезжаю", "Яҡынлашам")}
         </button>
-        <div key="arriving" className="list-row__sub noshow-wait" role="note">
-          <IconCar size={16} />
+        <div key={slot} className="list-row__sub noshow-wait" role="note">
+          {locked ? <IconClock size={16} /> : <IconCar size={16} />}
           <span>
-            {appText(
-              "Сначала нажми «Подъезжаю» — пассажир получит уведомление",
-              "Башта «Килеп етәм»гә баҫ — пассажир хәбәр алыр"
-            )}
+            {locked
+              ? appText(`«Подъезжаю» можно нажать с ${from}`, `«Яҡынлашам»ға ${from} үткәс кенә баҫып була`)
+              : appText(
+                  "Сначала нажми «Подъезжаю» — пассажир получит уведомление",
+                  "Башта «Яҡынлашам»ға баҫ — пассажир хәбәр алыр"
+                )}
           </span>
         </div>
       </>
