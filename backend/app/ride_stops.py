@@ -59,15 +59,50 @@ def stop_text_ok(part: str) -> bool:
 
 
 def _key(name: str) -> str:
-    """Ключ сравнения мест: без района, без приставки «д./с.», свёрнутый (ё, башкирские буквы)."""
-    return fold(normalize_place(bare_name(name or "")))
+    """Ключ места с районом: только приставка «д./с.» и регистр не отличают остановки."""
+    return fold(normalize_place(name or ""))
+
+
+def _district(name: str) -> str:
+    raw = (name or "").strip()
+    return raw.rpartition("(")[2][:-1].strip() if raw.endswith(")") and "(" in raw else ""
+
+
+def _lookup_place(entry: dict, name: str) -> list:
+    """Явный район обязателен: неизвестный район не разрешает fallback к чужой деревне."""
+    raw = normalize_place(name)
+    district = _district(raw)
+    if district:
+        hit = entry.get("with_district", {}).get((fold(bare_name(raw)), fold(district)))
+        return [hit] if hit is not None else []
+    return lookup(entry, raw)
+
+
+def _place_variants(name: str, entry: dict) -> list[str]:
+    """RU/BA написания с сохранением явно названного района, без расширения к тёзкам."""
+    raw = normalize_place(name or "")
+    if not raw:
+        return []
+    if not _district(raw):
+        return name_variants(None, raw, entry)
+    out = [raw]
+    for row in _lookup_place(entry, raw):
+        for candidate in (row.name_ru, row.name_ba):
+            full = f"{candidate} ({row.district})" if candidate else ""
+            if full and full not in out:
+                out.append(full)
+    return out
 
 
 def _place_keys(name: str, entry: dict) -> set[str]:
     """Ключи всех написаний места: как написано + русское + башкирское по справочнику."""
-    keys = {_key(name)}
-    for v in name_variants(None, normalize_place(name or ""), entry):
-        keys.add(_key(v))
+    keys = {_key(v) for v in _place_variants(name, entry)}
+    # Голое имя можно связать с районом, только если справочник знает ровно одно место.
+    # У тёзок без района остаётся прежняя неоднозначность; первую деревню не выбираем.
+    rows = _lookup_place(entry, name) if not _district(name) else []
+    if len(rows) == 1 and rows[0].district:
+        row = rows[0]
+        keys.update(_key(f"{v} ({row.district})") for v in (row.name_ru, row.name_ba) if v)
     keys.discard("")
     return keys
 
@@ -81,8 +116,9 @@ def ride_has_stops_raw(ride, entry: Optional[dict] = None) -> bool:
     parts = [p for p in split_raw(_f(ride, "waypoints")) if any(ch.isalpha() for ch in p)]
     if not parts:
         return False
-    start, end = _ends(ride, entry or snapshot_cached())
-    return any(_key(p) not in start and _key(p) not in end for p in parts)
+    entry = entry or snapshot_cached()
+    start, end = _ends(ride, entry)
+    return any(not (_place_keys(p, entry) & (start | end)) for p in parts)
 
 
 def parse_stops(ride, entry: Optional[dict] = None) -> list[str]:
@@ -90,16 +126,17 @@ def parse_stops(ride, entry: Optional[dict] = None) -> list[str]:
     parts = split_raw(_f(ride, "waypoints"))
     if not parts:
         return []
-    start, end = _ends(ride, entry or snapshot_cached())
+    entry = entry or snapshot_cached()
+    start, end = _ends(ride, entry)
     out: list[str] = []
     seen: set[str] = set()
     for p in parts:
         if not stop_text_ok(p):
             continue
-        k = _key(p)
-        if not k or k in start or k in end or k in seen:
+        keys = _place_keys(p, entry)
+        if not keys or keys & (start | end | seen):
             continue
-        seen.add(k)
+        seen.update(keys)
         out.append(p)
     return out
 
@@ -113,13 +150,13 @@ def clean_waypoints(ride, entry: Optional[dict] = None) -> str:
 
 def is_start(ride, raw: str, entry: Optional[dict] = None) -> bool:
     """Пассажир назвал начало маршрута — по любому написанию (башкирское тоже)."""
-    k = _key(raw)
-    return bool(k) and k in _ends(ride, entry or snapshot_cached())[0]
+    entry = entry or snapshot_cached()
+    return bool(_place_keys(raw, entry) & _ends(ride, entry)[0])
 
 
 def is_end(ride, raw: str, entry: Optional[dict] = None) -> bool:
-    k = _key(raw)
-    return bool(k) and k in _ends(ride, entry or snapshot_cached())[1]
+    entry = entry or snapshot_cached()
+    return bool(_place_keys(raw, entry) & _ends(ride, entry)[1])
 
 
 def canonical_stop(ride, raw: str, entry: Optional[dict] = None) -> Optional[str]:
@@ -129,10 +166,8 @@ def canonical_stop(ride, raw: str, entry: Optional[dict] = None) -> Optional[str
     asked = _place_keys(raw, entry)
     if not asked:
         return None
-    for stop in parse_stops(ride, entry):
-        if asked & _place_keys(stop, entry):
-            return stop
-    return None
+    matches = [stop for stop in parse_stops(ride, entry) if asked & _place_keys(stop, entry)]
+    return matches[0] if len(matches) == 1 else None
 
 
 # ─────────────────────────────── Геометрия ───────────────────────────────
@@ -177,7 +212,7 @@ def stop_point(ride, name: str, entry: Optional[dict] = None) -> Optional[StopPo
     названии не указан (тёзок не отличить); ни одного или больше одного кандидата в коридоре
     `stop_corridor_km` от прямой «откуда → куда» (P2-2)."""
     entry = entry or snapshot_cached()
-    cands = lookup(entry, name)
+    cands = _lookup_place(entry, name)
     if not cands:
         return None
     ends = _route_coords(ride)
@@ -198,7 +233,7 @@ def start_point(ride, entry: Optional[dict] = None) -> Optional[tuple]:
         return (_f(ride, "pickup_lat"), _f(ride, "pickup_lng"))
     if _f(ride, "from_lat") is not None and _f(ride, "from_lng") is not None:
         return (_f(ride, "from_lat"), _f(ride, "from_lng"))
-    cands = lookup(entry or snapshot_cached(), _f(ride, "from_city", ""))
+    cands = _lookup_place(entry or snapshot_cached(), _f(ride, "from_city", ""))
     return (cands[0].lat, cands[0].lng) if len(cands) == 1 else None
 
 

@@ -13,6 +13,8 @@ import { YuRoute, YuWomenOnly } from "./BrandIcons";
 import { pluralRu } from "../utils/format";
 import { unverifiedRidesLabel } from "../nearbyFeed";
 import { serverDate } from "../utils/serverTime";
+import { MatchedPickupStopNote } from "./PickupStopChoice";
+import { initialPickupStop } from "../utils/pickupStops";
 
 /** «13.09, 08:30» — formatDepart из приложения: местное время человека. */
 export function formatDepart(iso: string | null | undefined): string {
@@ -115,7 +117,7 @@ export default function NearbyRideCard({ ride, soonest, onOpen }: { ride: NearRi
         </span>
       </div>
       <div className="nrc__trust">
-        {trust && (
+        {initialPickupStop(ride) ? <MatchedPickupStopNote ride={ride} /> : trust && (
           <>
             <IconIdCard size={13} />
             <span>{trust}</span>

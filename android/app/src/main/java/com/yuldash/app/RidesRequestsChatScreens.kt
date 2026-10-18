@@ -423,21 +423,7 @@ internal fun RidesScreen(
                     itemsIndexed(visibleBookings, key = { _, b -> b.id }) { i, b ->
                         // Сводку с сервера дополняем feed-поездкой по ride_id (если сервер ещё без джойна).
                         val feed = rides.firstOrNull { it.id == b.rideId.toString() }
-                        val displayRide = Ride(
-                            id = b.id.toString(),   // id = booking_id → onOpenActiveTrip получит верный booking
-                            from = b.fromCity.ifBlank { feed?.from ?: appText("Поездка", "Сәфәр") },
-                            to = b.toCity.ifBlank { feed?.to ?: "№${b.rideId}" },
-                            time = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.time ?: ""),
-                            timeBa = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.timeBa ?: feed?.time ?: ""),
-                            driver = b.driverName.ifBlank { feed?.driver ?: "" },
-                            car = feed?.car ?: "",
-                            carBa = feed?.carBa ?: feed?.car ?: "",
-                            price = if (b.price > 0) b.price else (feed?.price ?: 0),
-                            seats = b.seats,
-                            rating = feed?.rating ?: 0.0,
-                            verified = b.driverVerified || (feed?.verified ?: false),
-                            boosted = false
-                        )
+                        val displayRide = bookingTripRide(b, feed)
                         val isHist = b.status in historyStatuses
                         val canOpenReceipt = b.status == "done" && b.id > 0
                         val opensActiveTrip = bookingStatusAllowsActiveTrip(b.status)
@@ -451,6 +437,7 @@ internal fun RidesScreen(
                         Box(Modifier.appearIn(i)) {
                             MyTripCard(
                                 ride = displayRide,
+                                pickupStop = b.pickupStop, rideHasStops = b.rideHasStops,
                                 status = statusLabel,
                                 statusColor = statusColor,
                                 icon = statusIcon,
@@ -545,7 +532,8 @@ internal fun MyTripCard(
     secondaryAction: String,
     onPrimary: () -> Unit,
     onSecondary: () -> Unit,
-    stackActions: Boolean = false
+    stackActions: Boolean = false,
+    pickupStop: String? = null, rideHasStops: Boolean = false,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -580,6 +568,7 @@ internal fun MyTripCard(
                         }
                     }
                     DetailMeta(Icons.Default.Schedule, ride.timeText())
+                    PickupStopNote(pickupStop, rideHasStops, ride.from)
                 DetailMeta(Icons.Default.Person, "${seatsText(ride.seats)} · ${ride.price} ₽")
                 }
             }
@@ -709,7 +698,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
             }
             // F8: стаж/поездки водителя — в гибкой зоне (weight), высоту карточки не увеличивает.
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                CompactTrustLine(trips = dto.driverTrips, since = dto.driverSince)
+                NearbyRideTrustOrPickup(dto)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 dto.distanceKm?.let { km ->
@@ -1183,6 +1172,7 @@ private fun PrefChip(iconRes: Int, label: String) {
 // Лента чипов с условиями поездки (показывается только если есть хоть одно).
 @Composable
 private fun RidePrefChips(ride: Ride, modifier: Modifier = Modifier) {
+    MatchedPickupStopNote(ride)
     // Опции мест показываем всегда: «переднее свободно / занято» — то, что человек хочет знать
     // до брони (2026-10-14). Поэтому ранний выход только когда переднего нет и сзади без обещаний.
     val seatChips = ride.backMaxTwo || ride.frontSeatAvailable
@@ -1905,8 +1895,8 @@ internal fun ChatScreen(
         }
         item {
             InfoCard(
-                title = appText("Телефон открывается только после подтверждения поездки", "Телефон сәфәр раҫланғандан һуң ғына асыла"),
-                text = appText("Мы бережём твою безопасность", "Беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
+                title = appText("Номер телефона — на экране поездки", "Телефон номеры — сәфәр экранында"),   // правило, а не состояние брони (приёмка 18.10)
+                text = appText("Открывается обоим после подтверждения брони. Так мы бережём твою безопасность", "Бронь раҫланғас, ике яҡҡа ла асыла. Шулай беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
                 icon = Icons.Default.Shield
             )
         }

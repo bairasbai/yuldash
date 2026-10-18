@@ -1,3 +1,9 @@
+## Попутка: место посадки и продолжение приёмки — 18.10.2026
+
+Новые поля ленты `matched_stop`/`matched_from_start` проходят Android `RideDto → Ride → BookingScreen`, PWA карточку/детали/возврат после входа; это только подсказка сервера, выбор не выводится из строки поиска. Начало в POST брони отправляется названием города, остановка — значением опубликованного маршрута; без выбора на маршруте с остановками подтверждение недоступно. Приватные `pickup_stop` и `ride_has_stops` идут из деталей/личных броней/кабинета водителя, а не из публичной карточки. Android: `PickupStopRules.kt`, `PickupStopPicker.kt`, `data/BookingDtos.kt`, `data/DriverBookings.kt`, `DriverPassengerRow.kt`. PWA: `utils/pickupStops.ts`, `components/PickupStopChoice.tsx`.
+
+Ожидающая бронь: Android `BookingPendingRefresh.kt`, PWA `BookingScreen.tsx` — запросы только при открытом экране, результаты привязаны к текущему входу/брони. Контакты поездки: `RideshareTripContacts.kt`, независимый от чата упорядоченный загрузчик `ActiveTripDetails.kt` (загрузка, ошибка, отдельный/автоматический повтор) и PWA `ActiveTripScreen.tsx`; номер машины доступен прямо в поездке. Старт: `AppStart.kt`/`utils/splashTarget.js` — вошедший человек сразу на главной. Очередь: Android `TripChatState.kt`/`data/TripPass.kt`, PWA `utils/outbox.ts` — повтор временного отказа без переключения окна; Android запоминает только ID окончательных отказов до смены входа. Ссылка близким: `backend/app/routers/share.py` — одиночные запросы с ограниченным повтором, stale-точка скрывается, отзыв доступа останавливает страницу. Критерии приёмки и ограничения: W1-PARITY-20261018 в едином реестре.
+
 # 🗺️ Карта кода Юлдаш
 
 <!-- QA-ANDROID-PUBLIC-LINK-WARM-01-20261016 -->

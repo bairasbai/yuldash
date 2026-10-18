@@ -22,6 +22,8 @@ data class DriverBookingDto(
     val noShowAt: String? = null,   // ISO UTC: с этого момента доступна «Не пришёл» (поздний из выезда и «Подъезжаю» + ожидание, считает сервер); null — срока нет / старый сервер, решает сервер
     val noShowNeedsArriving: Boolean = false,   // поездка с остановками ждёт «Подъезжаю» по этой брони: вместо «Не пришёл» — «Подъезжаю» (18.10.2026)
     val arrivingOpensAt: String? = null,   // ISO UTC: с этого момента можно нажать «Подъезжаю» (за 30 минут до выезда, считает сервер); null — старый сервер
+    val pickupStop: String? = null,   // null — не указано/закрыто; "" — начало; непусто — остановка
+    val rideHasStops: Boolean = false,
 )
 
 /** Бронь глазами водителя. */
@@ -39,5 +41,7 @@ internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
         noShowAt = if (o.isNull("no_show_at")) null else o.optString("no_show_at").ifBlank { null },
         noShowNeedsArriving = o.optBoolean("no_show_needs_arriving"),
         arrivingOpensAt = if (o.isNull("arriving_opens_at")) null else o.optString("arriving_opens_at").ifBlank { null },
+        pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"),
+        rideHasStops = o.optBoolean("ride_has_stops"),
     )
 }

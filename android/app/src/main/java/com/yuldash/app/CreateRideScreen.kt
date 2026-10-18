@@ -308,7 +308,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
     // Водитель заранее говорит, берёт ли подростков без сопровождения. Честнее, чем отказывать
     // на месте, когда ребёнок уже стоит у дороги.
     var noMinors by rememberSaveable { mutableStateOf(false) }
-    var waypoints by remember { mutableStateOf(listOf<String>()) }
+    var waypoints by rememberSaveable { mutableStateOf(listOf<String>()) }
     var recurrence by rememberSaveable { mutableStateOf("none") }
     var category by rememberSaveable { mutableStateOf("regular") }
     var partnerId by rememberSaveable { mutableStateOf<Int?>(null) }   // F22: клиника-назначение (для category=hospital)
@@ -340,6 +340,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
     val defaultCar = appText("Моя машина", "Минең машина")
     val dropPinLabel = appText("Точка на карте", "Картала нөктә")
     val errPublish = appText("Не удалось опубликовать. Проверь сеть и повтори.", "Баҫтырып булманы. Селтәрҙе тикшереп ҡабатла.")
+    val stopErrors = rideStopErrorMessages()
     val ctxDt = LocalContext.current
     if (RideCategoryBlocked(category, onBack, onBack) { category = "regular" }) return
     Box(Modifier.fillMaxSize()) {
@@ -402,11 +403,22 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
                 )
                 publishError = null
                 publishing = true
+                val stopInputs = waypoints.toList()
+                val publishSession = ApiClient.queueSessionGeneration()
                 // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
                 publishScope.launch {
                     if (rideCategoryClosed(category)) { publishing = false; return@launch }
-                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, waypoints.filter { it.isNotBlank() }.joinToString(" | "), noMinors, backMaxTwo, frontSeatAvailable)
-                        .onSuccess { id -> publishing = false; onPublish(ride.copy(id = id.toString())) }
+                    val selectedStops = try {
+                        resolveRideStops(stopInputs, fromVal, toVal, if (isBa) AppLanguage.Ba else AppLanguage.Ru)
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        publishing = false
+                        publishError = if (e is RideStopException) stopErrors.getValue(e.problem) else serverSaid(e, errPublish)
+                        return@launch
+                    }
+                    if (publishSession != ApiClient.queueSessionGeneration() || rideCategoryClosed(category)) { publishing = false; return@launch }
+                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, selectedStops.joinToString(" | "), noMinors, backMaxTwo, frontSeatAvailable)
+                        .onSuccess { id -> publishing = false; onPublish(ride.copy(id = id.toString(), waypoints = selectedStops)) }
                         // Сервер объясняет отказ по-человечески («время выезда уже прошло»,
                         // «слишком много активных поездок»). Показываем именно его слова:
                         // раньше на любой отказ писали «проверь сеть» — водитель проверял сеть,
@@ -419,6 +431,11 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
             // «Умные» поля с собственными эффектами (гео-подсказки) — слотами, чтобы Content остался чистым.
             fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
             toField = { AddressSuggestField(to, { to = it }, appText("Куда", "Ҡайҙа"), Icons.Default.NearMe) },
+            stopField = { index ->
+                StopSuggestField(waypoints[index], { value ->
+                    waypoints = waypoints.toMutableList().also { it[index] = value }
+                }, endpoints = listOf(from, to))
+            },
             routeChips = { PopularRouteChips(geoRoutes) { f, t -> from = f; to = t } },
             // Погода на маршруте: гололёд и метель водитель должен увидеть ДО публикации рейса,
             // а не когда на него уже сели люди. Города резолвит сервер — клиенту геокодер
@@ -519,6 +536,7 @@ internal fun CreateRideFormContent(
     // сеть и состояние держит обёртка, здесь только место на экране.
     weatherCard: (@Composable () -> Unit)? = null,
     pickupChips: (@Composable () -> Unit)? = null,   // F14: подсказки точек сбора (умный слот)
+    stopField: (@Composable (Int) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val isCargo = typeKey == "parcel" || typeKey == "cargo"
@@ -731,41 +749,7 @@ internal fun CreateRideFormContent(
             }
         }
         item {
-            // Остановки по пути (несколько точек): A → точки → B. Заезды по дороге, чтобы
-            // попутчики с этих мест могли найти поездку. До 4 остановок.
-            Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-                Column(Modifier.padding(vertical = 4.dp)) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(painterResource(R.drawable.yu_multi_stop), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(appText("Остановки по пути", "Юл буйындағы туҡталыштар"), fontWeight = FontWeight.Bold, color = CanonText, fontSize = 16.sp)
-                    }
-                    Text(
-                        appText("Куда заезжаешь по дороге — так тебя найдут попутчики с этих мест.", "Юлда ҡайҙа туҡтайһың — шул урындарҙан юлдаштар һине табыр."),
-                        color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(horizontal = 12.dp),
-                    )
-                    waypoints.forEachIndexed { i, wp ->
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(
-                                value = wp,
-                                onValueChange = { v -> onWaypointsChange(waypoints.toMutableList().also { it[i] = v.take(80) }) },
-                                placeholder = { Text(appText("Например, Темясово", "Мәҫәлән, Темәс")) },
-                                singleLine = true, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp),
-                            )
-                            IconButton(onClick = { onWaypointsChange(waypoints.toMutableList().also { it.removeAt(i) }) }, modifier = Modifier.size(48.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = appText("Убрать остановку", "Туҡталышты алып ташлау"), tint = CanonMuted)
-                            }
-                        }
-                    }
-                    if (waypoints.size < 4) {
-                        TextButton(onClick = { onWaypointsChange(waypoints + "") }, modifier = Modifier.padding(horizontal = 8.dp)) {
-                            Icon(Icons.Default.Add, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(appText("Добавить остановку", "Туҡталыш өҫтәү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
+            CreateRideStopsEditor(waypoints, onWaypointsChange, stopField)
         }
         item {
             Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {

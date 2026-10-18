@@ -1,10 +1,10 @@
-"""«Не пришёл» — не раньше чем через 15 минут после выезда (решение Александра 18.10.2026).
+"""«Не пришёл» — не раньше чем через 5 минут после выезда (решение Александра 18.10.2026).
 
 Что было. Водитель мог отметить неявку в любой момент — хоть за неделю до поездки — одним касанием
 рядом с «Сел», и отменить это было нельзя. Промахнулся — бронь человека, который стоит у дороги,
-снята, место ушло в продажу. У BlaBlaCar водитель ждёт 15 минут после времени выезда.
+снята, место ушло в продажу. Последнее решение Александра: ждать пять минут.
 
-Что стало (сервер — источник правды о сроке, клиенты своих 15 минут не держат):
+Что стало (сервер — источник правды о сроке, клиенты своего срока не держат):
 * `POST /bookings/{id}/no-show` раньше `depart_at + NO_SHOW_WAIT` — 409 с кодом `no_show_too_early`,
   сколькими секундами ещё ждать (`no_show_wait_sec`) и моментом `no_show_at`; бронь не тронута;
 * ровно в этот момент и позже — 200; проверка повторяется под замком, по свежей строке поездки;
@@ -26,6 +26,11 @@ from app.routers.bookings import NO_SHOW_WAIT, no_show_available_at, no_show_wai
 from app.timeutil import utcnow
 
 WAIT_SEC = int(NO_SHOW_WAIT.total_seconds())
+
+
+def test_latest_owner_decision_is_five_minutes():
+    """Последнее решение 18.10: 5 минут, не прежние 15; клиенты читают срок с сервера."""
+    assert NO_SHOW_WAIT == timedelta(minutes=5)
 
 
 def _trip(client, user_factory, tag, depart_in):
@@ -74,7 +79,7 @@ def test_a_week_before_the_ride_the_tap_is_refused_and_nothing_changes(client, u
     detail = r.json()["detail"]
     assert detail["code"] == "no_show_too_early"
     assert detail["ru"].strip() and detail["ba"].strip() and detail["ba"] != detail["ru"]
-    # Остаток — до выезда и ещё 15 минут; секунды, а не время: часы телефона врут.
+    # Остаток — до выезда и ещё пять минут; секунды, а не время: часы телефона врут.
     week = 7 * 86_400
     assert week + WAIT_SEC - 60 <= detail["no_show_wait_sec"] <= week + WAIT_SEC
     _untouched(bid, ride["id"], seats_before)

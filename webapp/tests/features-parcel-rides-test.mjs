@@ -31,6 +31,9 @@ mocks["./ComingSoon"]=mocks["../components/ComingSoon"];
 // Уход шторки — настоящий (useSheetExit): ему хватает useState/useRef/useEffect подменённого React,
 // а портал в <body> отдаёт разметку как есть.
 delete mocks["./useSheetExit"];
+delete mocks["../utils/pickupStops"];
+delete mocks["../components/StopSuggestField"];
+mocks["../api/geo"] = "export const searchSettlements=async()=>[];";
 mocks["react-dom"]="export const createPortal=node=>node;";
 globalThis.document ??= { body: {} };
 async function compile(entry){const out=await build({entryPoints:[entry],bundle:true,write:false,format:"esm",platform:"node",jsx:"automatic",plugins:[{name:"parcel-fixtures",setup(b){b.onResolve({filter:/.*/},a=>a.path in mocks?{path:a.path,namespace:"fixture"}:undefined);b.onLoad({filter:/.*/,namespace:"fixture"},a=>({contents:mocks[a.path],loader:"js"}));}}]});return(await import("data:text/javascript;base64,"+Buffer.from(out.outputFiles[0].text).toString("base64"))).default;}

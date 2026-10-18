@@ -21,6 +21,8 @@ import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
 import { FrontSeatChoice, SeatBadges } from "./SeatOptions";
 import { useSheetExit } from "./useSheetExit";
+import { initialPickupStop, pickupStopReady, rideMatchState } from "../utils/pickupStops";
+import { PickupStopChoice, PickupStopNote } from "./PickupStopChoice";
 
 export default function RideSheet({
   ride,
@@ -64,12 +66,16 @@ export default function RideSheet({
   const [guardPhone, setGuardPhone] = useState("");
   /** «Хочу переднее место»: одно на машину, гонку двух нажатий разводит сервер. */
   const [frontSeat, setFrontSeat] = useState(false);
+  const [pickupStop, setPickupStop] = useState<string | null>(() => initialPickupStop(ride));
+  const pickupReady = pickupStopReady(ride, pickupStop);
 
   async function book() {
     if (exit.leaving) return; // шторка уже уходит (Esc, затемнение) — бронь из неё не отправляем (приёмка PR154)
     if (bookingInFlight.current || ownerGeneration !== getSessionGeneration()) return;
     if (!isAuthed) {
-      navigate("/login", { state: { from: `/rides/${ride.id}` } });
+      const returnRide = pickupStop === null ? ride : { ...ride, matched_stop: pickupStop === ride.from_city ? null : pickupStop, matched_from_start: pickupStop === ride.from_city };
+      const returnState = rideMatchState(returnRide);
+      navigate("/login", { state: { from: `/rides/${ride.id}`, ...(returnState ? { returnState } : {}) } });
       return;
     }
     if (ownBooking) {
@@ -78,6 +84,10 @@ export default function RideSheet({
       return;
     }
     if (parcelCategory && !getFeatures().parcels) return;
+    if (!pickupReady) {
+      setError(appText("Выбери место посадки, чтобы забронировать.", "Бронлау өсөн ултырыу урынын һайла."));
+      return;
+    }
     if (minor && (!guardName.trim() || !guardPhone.trim())) {
       setError(
         appText(
@@ -100,6 +110,7 @@ export default function RideSheet({
         minor_guardian_phone: minor ? guardPhone.trim() : undefined,
         // Только когда просили: обычная бронь уходит тем же телом, что и раньше.
         ...(frontSeat ? { front_seat: true } : {}),
+        ...(pickupStop !== null ? { pickup_stop: pickupStop } : {}),
       });
       if (ownerGeneration !== getSessionGeneration()) return;
       refreshOwnBookings();
@@ -168,6 +179,9 @@ export default function RideSheet({
         </div>
 
         {ride.comment && <p className="sheet__comment">{ride.comment}</p>}
+        {ownBooking
+          ? <PickupStopNote pickupStop={ownBooking.pickup_stop} rideHasStops={ownBooking.ride_has_stops} from={ride.from_city} />
+          : <PickupStopChoice ride={ride} picked={pickupStop} disabled={busy} onPick={place => { setPickupStop(place); setError(null); }} />}
 
         <div className="sheet__driver">
           <button
@@ -286,7 +300,7 @@ export default function RideSheet({
           type="button"
           className="btn-primary sheet__cta"
           onClick={book}
-          disabled={busy}
+          disabled={busy || (isAuthed && !ownBooking && !pickupReady)}
         >
           {busy
             ? appText("Бронируем…", "Бронлайбыҙ…")

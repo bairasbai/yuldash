@@ -11,11 +11,11 @@ const h = globalThis.__ridePath = {
   reset() { this.states = []; this.refs = []; this.effects = []; this.si = this.ri = 0; this.routes = []; this.calls = []; },
 };
 const modules = {
-  react: `const h=globalThis.__ridePath; export function useState(value){const i=h.si++; if(!(i in h.states))h.states[i]=value; return [h.states[i],v=>h.states[i]=typeof v==='function'?v(h.states[i]):v]}; export function useRef(value){const i=h.ri++; return h.refs[i]??=( {current:value} )}; export const useEffect=(fn)=>{h.effects.push(fn)}; export const useCallback=fn=>fn;`,
+  react: `const h=globalThis.__ridePath; export function useState(value){const i=h.si++; if(!(i in h.states))h.states[i]=typeof value==='function'?value():value; return [h.states[i],v=>h.states[i]=typeof v==='function'?v(h.states[i]):v]}; export function useRef(value){const i=h.ri++; return h.refs[i]??=( {current:value} )}; export const useEffect=(fn)=>{h.effects.push(fn)}; export const useCallback=fn=>fn;`,
   "react/jsx-runtime": `export const Fragment='fragment'; export const jsx=(type,props)=>({type,props:props??{}}); export const jsxs=jsx;`,
   // Шторка рисуется в <body> через портал (useSheetExit): в наборе портал отдаёт разметку как есть.
   "react-dom": `export const createPortal=(node)=>node;`,
-  "react-router-dom": `export const Link='a'; export const useNavigate=()=> (...args)=>globalThis.__ridePath.routes.push(args); export const useParams=()=>({id:'42'});`,
+  "react-router-dom": `export const Link='a'; export const useNavigate=()=> (...args)=>globalThis.__ridePath.routes.push(args); export const useParams=()=>({id:'42'}); export const useLocation=()=>({state:globalThis.__ridePath.locationState});`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>ru,t:k=>k});`,
   auth: `export const useAuth=()=>({isAuthed:globalThis.__ridePath.authed});`,
   bookings: `export const createBooking=body=>{globalThis.__ridePath.calls.push(body);return globalThis.__ridePath.booking(body)};`,
@@ -103,3 +103,46 @@ h.fetchRide=()=>new Promise(r=>deliver=r);
 all(render(Detail)).find(n=>n.type==='retry').props.onRetry();leave();deliver(ride);await new Promise(setImmediate);
 assert.equal(h.states[0],null,'Повтор без AbortSignal тоже не оживляет закрытый экран');
 console.log('✓ Ссылка и маршрут; возврат после входа; одна бронь при двойном тапе; успех, ошибка и повтор; загрузка деталей и повтор; закрытые/полные поездки; уход до ответа');
+
+// Место посадки: найденная остановка сохраняется при открытии подробностей; отсутствие подсказки
+// не означает начало маршрута. На остановке начало можно выбрать только явно, по названию.
+const withStops = { ...ride, waypoints: 'Акъяр | Сибай', to_city: 'Баймак' };
+h.reset(); h.booking = async () => ({ id: 80 });
+tree = render(Sheet, { ride: withStops, onClose() {} });
+assert.equal(button(tree).props.disabled, true, 'Без явного выбора бронирование недоступно');
+await button(tree).props.onClick();
+assert.equal(h.calls.length, 0, 'Сохранённая кнопка тоже не отправит неопределённую посадку');
+const pickupChoice = byName(tree, 'PickupStopChoice');
+assert.equal(pickupChoice.props.picked, null);
+const choices = all(pickupChoice.type(pickupChoice.props)).filter(n => n.type === 'input');
+assert.deepEqual(choices.map(n => n.props.value), ['Уфа', 'Акъяр', 'Сибай']);
+assert.ok(choices.every(n => !n.props.checked), 'Первый пункт не выбран автоматически');
+choices[1].props.onChange();
+tree = render(Sheet, { ride: withStops, onClose() {} });
+assert.equal(button(tree).props.disabled, false);
+await button(tree).props.onClick();
+assert.equal(h.calls[0].pickup_stop, 'Акъяр');
+h.reset(); h.booking = async () => ({ id: 81 });
+tree = render(Sheet, { ride: withStops, onClose() {} });
+byName(tree, 'PickupStopChoice').props.onPick('Уфа');
+await button(render(Sheet, { ride: withStops, onClose() {} })).props.onClick();
+assert.equal(h.calls[0].pickup_stop, 'Уфа', 'Начало отправляется названием, не пустой строкой');
+const matchedRide = { ...withStops, matched_stop: 'Акъяр', matched_from_start: false };
+h.reset(); h.booking = async () => ({ id: 82 });
+tree = render(Sheet, { ride: matchedRide, onClose() {} });
+assert.equal(byName(tree, 'PickupStopChoice').props.picked, 'Акъяр');
+await button(tree).props.onClick();
+assert.equal(h.calls[0].pickup_stop, 'Акъяр');
+const state = render(Card, { ride: matchedRide, index: 0, to: '/rides/42' }).props.state;
+h.reset(); h.locationState = state; h.fetchRide = async () => withStops;
+render(Detail); h.effects[0](); await new Promise(setImmediate);
+tree = render(Detail);
+assert.equal(all(tree).find(n => n.props.ride)?.props.ride.matched_stop, 'Акъяр', 'GET без фильтра сохраняет найденную подсказку');
+h.reset(); h.locationState = { rideMatch: { rideId: 999, matched_stop: 'Акъяр', matched_from_start: false } };
+h.fetchRide = async () => withStops; render(Detail); h.effects[0](); await new Promise(setImmediate);
+tree = render(Detail);
+assert.equal(all(tree).find(n => n.props.ride)?.props.ride.matched_stop, undefined, 'Подсказка другой поездки не переносится');
+h.reset(); h.authed = false; h.locationState = undefined;
+await button(render(Sheet, { ride: matchedRide, onClose() {} })).props.onClick();
+assert.deepEqual(h.routes[0][1].state.returnState, state, 'Переход на вход сохраняет найденную остановку');
+console.log('✓ Посадка: нет умолчания, явные начало/остановка, защита отправки, найденная подсказка и переход на вход');

@@ -341,15 +341,57 @@ _PAGE_HTML = """<!DOCTYPE html>
   <div class="ba" id="done-ba">Сәфәр тамамланды</div>
 </div>
 <div class="err" id="err">Ссылка не работает или поездка недоступна.<br>Һылтанма эшләмәй йәки сәфәр асылмай.</div>
-<div class="foot" id="foot">Обновляется каждые 5 секунд · Һәр 5 секунд һайын яңыртыла</div>
+<div class="foot" id="foot" role="status" aria-live="polite">Обновляется каждые 5 секунд · Һәр 5 секунд һайын яңыртыла</div>
 <script nonce="__CSP_NONCE__">
 (function(){
   "use strict";
   var stateUrl = location.pathname.replace(/\\/+$/, "") + "/state.json";
   var map = null, carMarker = null, fitted = false, failures = 0;
+  var pollTimer = null, staleTimer = null, inFlight = false, stopped = false, wakeRequested = false;
+  var lastSuccessAt = null;
+  var pollMs = 5000, requestTimeoutMs = 15000, staleMs = 15000, maxRetryMs = 30000;
   var el = function(id){ return document.getElementById(id); };
 
+  // Язык открывшего ссылку неизвестен; сами переводы храним раздельно.
+  function publicText(ru, ba){ return ru + " · " + ba; }
+
+  function hideCar(){
+    if (carMarker && map) map.removeLayer(carMarker);
+    carMarker = null;
+  }
+
+  function stop(){
+    stopped = true;
+    clearTimeout(pollTimer); clearTimeout(staleTimer);
+    hideCar();
+  }
+
+  function markStale(){
+    // После трёх пропущенных обновлений точка уже не выглядит текущей.
+    clearTimeout(staleTimer);
+    hideCar();
+    el("foot").style.display = "";
+    el("foot").textContent = lastSuccessAt === null
+      ? publicText("Не получилось обновить. Повторяем…", "Яңыртып булманы. Ҡабатлайбыҙ…")
+      : publicText("Данные устарели. Восстанавливаем связь…", "Мәғлүмәт иҫкерҙе. Бәйләнеште тергеҙәбеҙ…");
+    if (lastSuccessAt === null){
+      el("title").textContent = "Ждём связь…";
+      el("title-ba").textContent = "Бәйләнеш көтәбеҙ…";
+    }
+  }
+
+  function markFresh(){
+    lastSuccessAt = Date.now();
+    clearTimeout(staleTimer);
+    staleTimer = setTimeout(markStale, staleMs);
+    el("err").style.display = "none";
+    el("map").style.display = "";
+    el("foot").style.display = "";
+    el("foot").textContent = publicText("Обновляется каждые 5 секунд", "Һәр 5 секунд һайын яңыртыла");
+  }
+
   function showError(){
+    stop();
     el("err").style.display = "flex";
     el("map").style.display = "none"; el("done").style.display = "none";
     el("foot").style.display = "none";
@@ -365,6 +407,7 @@ _PAGE_HTML = """<!DOCTYPE html>
   }
 
   function showFinished(st){
+    stop();
     el("map").style.display = "none"; el("done").style.display = "flex";
     el("route").textContent = ""; el("foot").style.display = "none";
     var who = st.passenger_first_name || "";
@@ -425,21 +468,56 @@ _PAGE_HTML = """<!DOCTYPE html>
     return false;
   }
 
+  function schedule(delay){
+    clearTimeout(pollTimer);
+    if (!stopped && !document.hidden) pollTimer = setTimeout(tick, delay);
+  }
+
   function tick(){
-    fetch(stateUrl, { cache: "no-store" }).then(function(r){
-      if (r.status === 404){ showError(); return null; }
+    if (stopped || inFlight || document.hidden) return;
+    if (navigator.onLine === false){ markStale(); schedule(maxRetryMs); return; }
+    inFlight = true;
+    var controller = new AbortController();
+    var timeout = setTimeout(function(){ controller.abort(); }, requestTimeoutMs);
+    var nextDelay = pollMs;
+    fetch(stateUrl, { cache: "no-store", signal: controller.signal }).then(function(r){
+      // Отозванный доступ не восстанавливаем ни таймером, ни событием online.
+      if ([401, 403, 404, 410].indexOf(r.status) !== -1){ showError(); return null; }
       if (!r.ok) throw new Error("http " + r.status);
       return r.json();
     }).then(function(st){
-      if (!st) return;
+      if (stopped) return;
+      if (!st || typeof st.status !== "string") throw new Error("invalid state");
       failures = 0;
-      if (!render(st)) setTimeout(tick, 5000);
+      markFresh();
+      render(st);
     }).catch(function(){
+      if (stopped) return;
       failures += 1;
-      if (failures >= 5) showError(); else setTimeout(tick, 7000);   // сеть мигнула — пробуем ещё
+      markStale();
+      nextDelay = Math.min(maxRetryMs, pollMs * Math.pow(2, Math.min(failures - 1, 3)));
+    }).finally(function(){
+      clearTimeout(timeout);
+      inFlight = false;
+      var delay = wakeRequested ? 0 : nextDelay;
+      wakeRequested = false;
+      schedule(delay);
     });
   }
-  tick();
+
+  function wake(){
+    if (stopped || document.hidden) return;
+    if (lastSuccessAt !== null && Date.now() - lastSuccessAt >= staleMs) markStale();
+    clearTimeout(pollTimer);
+    if (inFlight){ wakeRequested = true; return; }
+    tick();
+  }
+  window.addEventListener("online", wake);
+  window.addEventListener("offline", function(){ if (!stopped) markStale(); });
+  document.addEventListener("visibilitychange", function(){
+    if (document.hidden) clearTimeout(pollTimer); else wake();
+  });
+  wake();
 })();
 </script>
 </body>

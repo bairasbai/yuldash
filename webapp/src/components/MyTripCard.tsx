@@ -2,6 +2,7 @@ import type { MyBooking } from "../api/bookings";
 import { useLang } from "../i18n/lang";
 import { formatWhen, pluralRu } from "../utils/format";
 import { IconCar, IconCheck, IconClock, IconProfile, IconShield, IconWarn } from "./Icons";
+import { PickupStopNote } from "./PickupStopChoice";
 
 /** Те же статусы, что открывают экран активной поездки в Android (bookingStatusAllowsActiveTrip). */
 export function bookingStatusAllowsActiveTrip(status: string): boolean {
@@ -46,6 +47,7 @@ export default function MyTripCard({
             <IconShield size={15} /> {status.label}
           </span>
           <span className="my-trip-card__meta"><IconClock size={16} /> {formatWhen(booking.depart_at, ru)}</span>
+          <PickupStopNote pickupStop={booking.pickup_stop} rideHasStops={booking.ride_has_stops} from={booking.from_city} />
           <span className="my-trip-card__meta"><IconProfile size={16} /> {seats} · {booking.price} ₽</span>
         </div>
       </div>

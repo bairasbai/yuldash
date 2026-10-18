@@ -84,8 +84,9 @@ BOARDING_UNDO_WINDOW = timedelta(minutes=5)
 # раньше чем через NO_SHOW_WAIT после времени выезда. Раньше — в любой момент, хоть за неделю до
 # поездки, одним касанием вплотную к «Сел» и без возврата: промахнулся — бронь человека, который
 # стоит у дороги, снята, место ушло в продажу. Срок знает ТОЛЬКО сервер: клиентам он приходит
-# моментом `no_show_at` (`driver_bookings`, отказ `no_show_too_early`), своих 15 минут они не держат.
-NO_SHOW_WAIT = timedelta(minutes=15)
+# моментом `no_show_at` (`driver_bookings`, отказ `no_show_too_early`), своего срока они не держат.
+# Последнее решение Александра 18.10.2026: пять минут; правила места посадки остаются общими.
+NO_SHOW_WAIT = timedelta(minutes=5)
 
 # Пассажиры на промежуточных остановках (решение Александра 18.10.2026). Человека на остановке
 # сажают позже выезда — иногда на час, — и 15 минут от выезда из начальной точки его не защищали:
@@ -1573,6 +1574,7 @@ def my_bookings(
             "front_seat": bool(b.front_seat),
             # Где садится (18.10.2026): "" — начало, «Акъяр» — остановка, null — не указано.
             "pickup_stop": (b.pickup_stop if r is not None and ride_has_stops_raw(r, entry) else ""),
+            "ride_has_stops": r is not None and ride_has_stops_raw(r, entry),
             "from_city": r.from_city if r else "",
             "to_city": r.to_city if r else "",
             "depart_at": r.depart_at.isoformat() if r and r.depart_at else "",

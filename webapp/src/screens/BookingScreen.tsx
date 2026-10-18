@@ -12,7 +12,7 @@
 //  окно браузера. Подтверждённую поездку отменяют на экране поездки, с причиной; после
 //  «Я сел» отмены нет вовсе (паритет 16.10.2026).
 // ================================================================
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import {
@@ -33,6 +33,8 @@ import { ApiError } from "../api/client";
 import { track } from "../analytics";
 import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { bookingLinkPath } from "../utils/bookingLink";
+import { PickupStopNote } from "../components/PickupStopChoice";
+import { useVisibleInterval } from "../utils/useVisibleInterval";
 export default function BookingScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
@@ -48,6 +50,16 @@ export default function BookingScreen() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   /** Отмена не прошла — сказать обязательно: иначе место так и числится занятым. */
   const [cancelNote, setCancelNote] = useState("");
+  const requestVersion = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
+  const latest = useRef({ bookingId, status, d, cancelling });
+  latest.current = { bookingId, status, d, cancelling };
+
+  const abortRequest = useCallback(() => {
+    requestVersion.current++;
+    activeRequest.current?.abort();
+    activeRequest.current = null;
+  }, []);
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -55,29 +67,58 @@ export default function BookingScreen() {
         setStatus("error");
         return;
       }
+      abortRequest();
+      const version = requestVersion.current;
       setStatus("loading");
+      setD(null);
       fetchBookingDetails(bookingId, signal)
         .then((res) => {
+          if (signal?.aborted || version !== requestVersion.current) return;
           setD(res);
           setStatus("ready");
         })
         .catch((e) => {
-          if (signal?.aborted || e?.name === "AbortError") return;
+          if (signal?.aborted || version !== requestVersion.current || e?.name === "AbortError") return;
           setStatus("error");
         });
     },
-    [bookingId]
+    [bookingId, abortRequest]
   );
 
   useEffect(() => {
     const ac = new AbortController();
     load(ac.signal);
-    return () => ac.abort();
+    return () => { ac.abort(); abortRequest(); };
   }, [load]);
+
+  const pending = status === "ready" && d?.status === "pending" && d.booking_id === bookingId && !cancelling;
+  const refreshPending = useCallback(() => {
+    const current = latest.current;
+    if (document.visibilityState !== "visible" || current.bookingId !== bookingId || current.status !== "ready"
+      || current.d?.status !== "pending" || current.cancelling || activeRequest.current) return;
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    const version = ++requestVersion.current;
+    fetchBookingDetails(bookingId, controller.signal).then(res => {
+      if (controller.signal.aborted || version !== requestVersion.current) return;
+      setD(res);
+      if (res.status !== "pending") refreshOwnBookings();
+    }).catch(() => { /* A quiet retry must not hide already loaded details. */ }).finally(() => {
+      if (activeRequest.current === controller) activeRequest.current = null;
+    });
+  }, [bookingId, refreshOwnBookings]);
+  useVisibleInterval(10000, refreshPending, pending);
+  useEffect(() => {
+    if (!pending) return;
+    const onVisibility = () => { if (document.visibilityState !== "visible") abortRequest(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { document.removeEventListener("visibilitychange", onVisibility); abortRequest(); };
+  }, [bookingId, pending, abortRequest]);
 
   async function onCancel() {
     if (!bookingId || cancelling) return;
     setConfirmCancel(false);
+    abortRequest();
     setCancelling(true);
     setCancelNote("");
     try {
@@ -174,6 +215,9 @@ export default function BookingScreen() {
               </div>
             )}
             {/* Переднее место, если просили: пассажир помнит, водитель видит в той же брони. */}
+            {(d.pickup_stop != null || d.ride_has_stops) && <div className="info-row">
+              <PickupStopNote pickupStop={d.pickup_stop} rideHasStops={d.ride_has_stops} from={d.from_city} />
+            </div>}
             {d.front_seat && (
               <div className="info-row">
                 <span className="info-row__k">{appText("Место", "Урын")}</span>

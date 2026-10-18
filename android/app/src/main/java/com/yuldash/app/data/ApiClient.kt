@@ -1044,15 +1044,15 @@ object ApiClient {
      * Способ по умолчанию — "negotiate" (договоримся); сумма опц. (null = сервер возьмёт цену поездки). */
     suspend fun book(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
-        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false,
-    ): Result<Int> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat)
+        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null,
+    ): Result<Int> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop)
         .map { it.optInt("id") }
 
     /** Preserve the server status: a newly requested seat is not yet confirmed by the driver. */
     suspend fun bookWithStatus(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
-        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false,
-    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat)
+        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null,
+    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop)
         .mapCatching { response ->
             val id = response.getInt("id")
             val status = response.getString("status")
@@ -1066,6 +1066,7 @@ object ApiClient {
         // и водителю есть кому позвонить. Сервер без них бронь не создаст.
         minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "",
         frontSeat: Boolean = false,   // «хочу переднее»: одно на поездку, гонку разводит сервер
+        pickupStop: String? = null,   // начало — названием fromCity; null/пусто не подменяем началом
     ): Result<JSONObject> = call(
         "POST", "/bookings",
         JSONObject().put("ride_id", rideId).put("seats", seats)
@@ -1073,6 +1074,7 @@ object ApiClient {
             .put("pay_amount", payAmount ?: JSONObject.NULL)
             .apply {
                 if (frontSeat) put("front_seat", true)
+                if (pickupStop != null) put("pickup_stop", pickupStop)
                 if (minorPassenger) {
                     put("minor_passenger", true)
                     put("minor_guardian_name", guardianName)
@@ -6485,6 +6487,7 @@ internal fun JSONObject.toRideDto() = RideDto(
     // Старый сервер полей не знает — переднее тогда свободно, как было всегда.
     backMaxTwo = optBoolean("back_max_two"), frontSeatAvailable = optBoolean("front_seat_available", true), frontSeatTaken = optBoolean("front_seat_taken"),
     waypoints = optString("waypoints").split(" | ").map { it.trim() }.filter { it.isNotBlank() },
+    matchedStop = if (isNull("matched_stop")) null else optString("matched_stop").ifBlank { null }, matchedFromStart = optBoolean("matched_from_start"),
     pickup = optString("pickup"),
     pickupLat = if (isNull("pickup_lat")) null else optDouble("pickup_lat"),
     pickupLng = if (isNull("pickup_lng")) null else optDouble("pickup_lng"),
@@ -6561,6 +6564,7 @@ data class RideDto(
     val noMinors: Boolean = false,   // водитель не берёт младше 18 без взрослого
     val backMaxTwo: Boolean = false, val frontSeatAvailable: Boolean = true, val frontSeatTaken: Boolean = false,   // опции мест
     val waypoints: List<String> = emptyList(),
+    val matchedStop: String? = null, val matchedFromStart: Boolean = false,
     val pickup: String = "",          // где водитель забирает (точка сбора)
     val pickupLat: Double? = null,    // координаты точки сбора (пин на карте)
     val pickupLng: Double? = null,
@@ -6688,57 +6692,6 @@ data class ReferralDto(val code: String, val invited: Int, val credits: Int, val
 
 /** Identity and authoritative status returned by booking creation/replay. */
 data class BookingCreatedDto(val id: Int, val status: String)
-
-/** Моя бронь со сводкой поездки — для экрана «Мои поездки». */
-data class BookingMineDto(
-    val id: Int,
-    val rideId: Int,
-    val seats: Int,
-    val price: Int,
-    val status: String,
-    val boardingCode: String,
-    val fromCity: String,
-    val toCity: String,
-    val departAt: String,
-    val driverName: String,
-    val driverVerified: Boolean,
-)
-
-/** Приватные детали брони для вкладки «Детали поездки». */
-data class BookingDetailsDto(
-    val bookingId: Int,
-    val rideId: Int,
-    val role: String,
-    val status: String,
-    val contactUnlocked: Boolean,
-    val fromCity: String,
-    val toCity: String,
-    val departAt: String,
-    val seats: Int,
-    val price: Int,
-    val payMethod: String = "negotiate",   // договорённость об оплате (запись, не платёж): cash/sbp/negotiate
-    val payAmount: Int? = null,            // сумма договорённости, ₽ (опц.)
-    val driverName: String,
-    val driverVerified: Boolean,
-    val driverPhone: String,
-    val driverCar: String,
-    // Госномер и цвет — чтобы сверить машину у подъезда. Пусто до подтверждения брони.
-    // Дефолты держат старый сервер: клиент новее бэкенда не падает, просто не показывает.
-    val driverPlate: String = "",
-    val driverCarColor: String = "",
-    // Несовершеннолетний пассажир: пометку видят оба, контакты взрослого — только водитель.
-    val minorPassenger: Boolean = false,
-    val minorGuardianName: String = "",
-    val minorGuardianPhone: String = "",
-    val frontSeat: Boolean = false,   // пассажир просил переднее место
-    val pickup: String,
-    val pickupLat: Double?,
-    val pickupLng: Double?,
-    val fromLat: Double?,
-    val fromLng: Double?,
-    val toLat: Double?,
-    val toLng: Double?,
-)
 
 /** Заявка пассажира с сервера. */
 data class RequestDto(
@@ -6899,23 +6852,6 @@ internal fun parseNotifDto(o: JSONObject): NotifDto {
     )
 }
 
-/** Моя бронь в списке поездок. */
-internal fun parseBookingMineDto(o: JSONObject): BookingMineDto {
-    return BookingMineDto(
-        id = o.optInt("id"),
-        rideId = o.optInt("ride_id"),
-        seats = o.optInt("seats", 1),
-        price = o.optInt("price"),
-        status = o.optString("status"),
-        boardingCode = o.optString("boarding_code"),
-        fromCity = o.optString("from_city"),
-        toCity = o.optString("to_city"),
-        departAt = o.optString("depart_at"),
-        driverName = o.optString("driver_name"),
-        driverVerified = o.optBoolean("driver_verified"),
-    )
-}
-
 /** Заявка пассажира «ищу попутку». */
 internal fun parseRequestDto(o: JSONObject): RequestDto {
     return RequestDto(
@@ -6939,41 +6875,6 @@ internal fun parsePendingPaymentDto(o: JSONObject): PendingPaymentDto {
         o.optInt("payment_id"), o.optString("purpose"), o.optString("tier"),
         o.optInt("amount"), if (o.isNull("ride_id")) null else o.optInt("ride_id"),
         o.optString("payer_name"), o.optString("payer_phone"), o.optString("created_at"), o.optString("note"),
-    )
-}
-
-/** Полная карточка брони. */
-internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
-    return BookingDetailsDto(
-        bookingId = o.optInt("booking_id"),
-        rideId = o.optInt("ride_id"),
-        role = o.optString("role"),
-        status = o.optString("status"),
-        contactUnlocked = o.optBoolean("contact_unlocked"),
-        fromCity = o.optString("from_city"),
-        toCity = o.optString("to_city"),
-        departAt = o.optString("depart_at"),
-        seats = o.optInt("seats", 1),
-        price = o.optInt("price"),
-        payMethod = o.optString("pay_method", "negotiate"),
-        payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
-        driverName = o.optString("driver_name"),
-        driverVerified = o.optBoolean("driver_verified"),
-        driverPhone = o.optString("driver_phone"),
-        driverCar = o.optString("driver_car"),
-        driverPlate = o.optString("driver_plate"),
-        driverCarColor = o.optString("driver_car_color"),
-        minorPassenger = o.optBoolean("minor_passenger"),
-        minorGuardianName = o.optString("minor_guardian_name"),
-        minorGuardianPhone = o.optString("minor_guardian_phone"),
-        frontSeat = o.optBoolean("front_seat"),
-        pickup = o.optString("pickup"),
-        pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
-        pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
-        fromLat = if (o.isNull("from_lat")) null else o.optDouble("from_lat"),
-        fromLng = if (o.isNull("from_lng")) null else o.optDouble("from_lng"),
-        toLat = if (o.isNull("to_lat")) null else o.optDouble("to_lat"),
-        toLng = if (o.isNull("to_lng")) null else o.optDouble("to_lng"),
     )
 }
 

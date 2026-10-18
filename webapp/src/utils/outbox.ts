@@ -160,18 +160,46 @@ export function watchOutbox(onFlushed: () => void): () => void {
   connect();
   const generation = getSessionGeneration();
   let stopped = false;
+  let busy = false;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  const active = () => !stopped && generation === getSessionGeneration();
+  const clearRetry = () => {
+    if (retry !== null) clearTimeout(retry);
+    retry = null;
+  };
+  // Сервер может вернуться после 503, пока интернет всё время включён: события online не будет.
+  // Повторяем только непустую очередь и только при открытой видимой вкладке, без параллельных отправок.
+  const schedule = () => {
+    if (!active() || !hasPending()) { clearRetry(); return; }
+    if (busy || retry !== null) return;
+    retry = setTimeout(() => { retry = null; tryFlush(); }, 7000);
+  };
   const tryFlush = () => {
-    if (stopped || generation !== getSessionGeneration()) return;
+    if (!active() || busy) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    clearRetry();
+    busy = true;
     // Начальный UI-снимок может быть пуст, хотя база содержит сохранённые действия.
     void flushOutbox().then(changed => {
-      if (changed && !stopped && generation === getSessionGeneration()) onFlushed();
-    }).catch(() => { /* Запись остаётся в базе; повтор при возвращении сети/вкладки. */ });
+      if (changed && active()) onFlushed();
+    }).catch(() => { /* Запись остаётся в базе до следующей попытки. */ })
+      .finally(() => { busy = false; schedule(); });
   };
   const visible = () => { if (typeof document === "undefined" || document.visibilityState === "visible") tryFlush(); };
+  const unsubscribe = subscribeOutbox(schedule);
   tryFlush();
   window.addEventListener("online", tryFlush);
   window.addEventListener("focus", visible);
-  return () => { stopped = true; window.removeEventListener("online", tryFlush); window.removeEventListener("focus", visible); };
+  if (typeof document !== "undefined") document.addEventListener?.("visibilitychange", visible);
+  return () => {
+    stopped = true;
+    clearRetry();
+    unsubscribe();
+    window.removeEventListener("online", tryFlush);
+    window.removeEventListener("focus", visible);
+    if (typeof document !== "undefined") document.removeEventListener?.("visibilitychange", visible);
+  };
 }
 
 /** Revoke in-memory actions without touching an unavailable disk. */

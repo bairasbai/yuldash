@@ -19,6 +19,8 @@ export type DriverPhase = "" | "departed" | "arriving";
 
 export interface CreateBookingInput {
   ride_id: number;
+  /** Start by from_city name, or a published stop. Empty/absent on a route with stops means unknown. */
+  pickup_stop?: string;
   seats?: number;
   pay_method?: PayMethod;
   pay_amount?: number;
@@ -41,6 +43,7 @@ export interface CreateBookingInput {
 export interface BookingRow {
   id: number;
   ride_id: number;
+  pickup_stop?: string | null;
   passenger_id: number;
   seats: number;
   price: number;
@@ -60,6 +63,8 @@ export interface BookingRow {
 export interface BookingDetails {
   booking_id: number;
   ride_id: number;
+  pickup_stop?: string | null;
+  ride_has_stops?: boolean;
   role: "driver" | "passenger";
   status: BookingStatus;
   contact_unlocked: boolean; // телефон/точка открыты (confirmed/onboard/done)
@@ -145,6 +150,8 @@ export interface TripReceipt {
 export interface MyBooking {
   id: number;
   ride_id: number;
+  pickup_stop?: string | null;
+  ride_has_stops?: boolean;
   front_seat?: boolean;
   seats: number;
   price: number;
@@ -296,6 +303,8 @@ export function fetchReceipt(id: number, signal?: AbortSignal): Promise<TripRece
  * молчал бы при живых бронях.
  */
 export interface DriverBookingRow {
+  pickup_stop?: string | null;
+  ride_has_stops?: boolean;
   booking_id: number;
   /** Вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»). Старый сервер — нет. */
   passenger_id?: number;

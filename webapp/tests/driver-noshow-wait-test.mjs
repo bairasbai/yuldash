@@ -1,5 +1,5 @@
 // ================================================================
-//  «Не вышел» — через 15 минут после выезда и с вопросом «Точно?» (решение 18.10.2026).
+//  «Не пришёл» — через 15 минут после выезда и с вопросом «Точно?» (решение 18.10.2026).
 //  Паритет с Android (RideshareNoShow.kt, DriverBoardingControlsTest): то же поведение 1-в-1.
 //
 //  Что было. Водитель мог отметить неявку в любой момент — хоть за неделю до поездки — одним
@@ -9,8 +9,8 @@
 //  Что стало. Срок знает сервер (`no_show_at` в строке брони), сайт 15 минут у себя не держит:
 //   • до срока кнопка на месте, но неактивна, под ней — подпись «можно отметить с 18.10, 14:35»
 //     (место занято заранее — «Сел» рядом не сдвигается, приёмка PR182);
-//   • после — кнопка оживает, нажатие открывает «Точно не вышел?» и ничего не отправляет;
-//   • «Да, не вышел» отправляет (зовёт родителя), «Подождать» закрывает окно, бронь не тронута;
+//   • после — кнопка оживает, нажатие открывает «Точно не пришёл?» и ничего не отправляет;
+//   • «Да, не пришёл» отправляет (зовёт родителя), «Подождать» закрывает окно, бронь не тронута;
 //   • срока нет (старый сервер) — кнопка есть, последнее слово за сервером (409 no_show_too_early);
 //   • поездка с остановками без «Подъезжаю» (`no_show_needs_arriving`, 18.10.2026) — на месте кнопки
 //     «Подъезжаю» и подпись «Сначала нажми «Подъезжаю» — пассажир получит уведомление», таймера нет.
@@ -55,7 +55,7 @@ const MIN = 60_000;
 
 for (const lang of ["ru", "ba"]) {
   const L = (ru, ba) => (lang === "ba" ? ba : ru);
-  const NO_SHOW = L("Не вышел", "Сыҡманы");
+  const NO_SHOW = L("Не пришёл", "Килмәне");
   const ARRIVING = L("Подъезжаю", "Яҡынлашам");
 
   async function mountAt({ noShowAt, noShowWaitSec, needsArriving, arrivingOpensAt, arrivingWaitSec, busy = false, now = NOW }) {
@@ -76,14 +76,14 @@ for (const lang of ["ru", "ba"]) {
     const { h, clock, sent } = await mountAt({ noShowAt: naiveUtc(opens) });
     try {
       const btn = button(h.tree, NO_SHOW);
-      assert.ok(btn, "место «Не вышел» занято заранее — «Сел» рядом не сдвинется, когда срок наступит");
+      assert.ok(btn, "место «Не пришёл» занято заранее — «Сел» рядом не сдвинется, когда срок наступит");
       assert.equal(btn.props.disabled, true, "до срока кнопка неактивна");
       assert.equal(ofType(h.tree, "AlertDialog").length, 0);
       const note = all(h.tree).find((n) => n.props?.role === "note");
       assert.ok(note, "под кнопкой — спокойная подпись");
       assert.equal(
         text(note),
-        L(`Не вышел — можно отметить с ${localClock(opens)}`, `Сыҡманы — ${localClock(opens)} үткәс кенә билдәләп була`),
+        L(`Не пришёл — можно отметить с ${localClock(opens)}`, `Килмәне — ${localClock(opens)} үткәс кенә билдәләп була`),
         "время — сервера (UTC), показано в часах человека"
       );
       assert.deepEqual(sent, []);
@@ -99,7 +99,7 @@ for (const lang of ["ru", "ba"]) {
       assert.deepEqual(sent, [], "с первого касания неявка не уходит");
       const dlg = ofType(h.tree, "AlertDialog")[0];
       assert.ok(dlg, "открылся вопрос");
-      assert.equal(dlg.props.title, L("Точно не вышел?", "Ысынлап та сыҡманымы?"));
+      assert.equal(dlg.props.title, L("Точно не пришёл?", "Ысынлап та килмәнемы?"));
       assert.equal(
         dlg.props.text,
         L(
@@ -107,7 +107,7 @@ for (const lang of ["ru", "ba"]) {
           "Бронь алына, урын кире һатыуға ҡайта. Пассажир килеп барһа — әҙ генә көт."
         )
       );
-      assert.equal(dlg.props.confirm.label, L("Да, не вышел", "Эйе, сыҡманы"));
+      assert.equal(dlg.props.confirm.label, L("Да, не пришёл", "Эйе, килмәне"));
       assert.equal(dlg.props.confirm.tone, "danger");
       assert.equal(dlg.props.dismiss.label, L("Подождать", "Көтөргә"));
     } finally { h.unmount(); clock.restore(); }
@@ -131,7 +131,7 @@ for (const lang of ["ru", "ba"]) {
     } finally { h.unmount(); clock.restore(); }
   });
 
-  await t.test(`${lang}: «Да, не вышел» отправляет ровно один раз`, async () => {
+  await t.test(`${lang}: «Да, не пришёл» отправляет ровно один раз`, async () => {
     const { h, clock, sent } = await mountAt({ noShowAt: naiveUtc(NOW - MIN) });
     try {
       button(h.tree, NO_SHOW).props.onClick();
@@ -163,11 +163,11 @@ for (const lang of ["ru", "ba"]) {
   await t.test(`${lang}: поездка с остановками — на месте кнопки «Подъезжаю» и подпись, таймера нет`, async () => {
     const { h, clock, sent } = await mountAt({ noShowAt: null, needsArriving: true });
     try {
-      assert.equal(button(h.tree, NO_SHOW), undefined, "«Не вышел» до «Подъезжаю» нет");
+      assert.equal(button(h.tree, NO_SHOW), undefined, "«Не пришёл» до «Подъезжаю» нет");
       const arriving = button(h.tree, ARRIVING);
       assert.ok(arriving, "на её месте — «Подъезжаю»");
       assert.equal(arriving.props.disabled, false);
-      assert.match(arriving.props.className, /noshow-slot/, "то же место, что у «Не вышел»");
+      assert.match(arriving.props.className, /noshow-slot/, "то же место, что у «Не пришёл»");
       const note = all(h.tree).find((n) => n.props?.role === "note");
       assert.equal(
         text(note),

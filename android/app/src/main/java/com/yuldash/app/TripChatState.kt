@@ -108,6 +108,14 @@ internal class TripChatState(
     val visibleMessages: List<MessageDto>
         get() = messages.filter { it.deleted || it.voiceUrl != null || it.text.isNotBlank() }
 
+    /**
+     * Лента с сервера + свои ещё не подтверждённые сообщения («В очереди», «Не доставлено»). Раньше
+     * лента заменяла список целиком, и неотправленное пропадало с экрана (приёмка 18.10.2026).
+     */
+    private fun applyServer(server: List<MessageDto>) {
+        messages = server + messages.filter { it.id < 0 && it.id !in acknowledged }
+    }
+
     // ── Непрочитанные ───────────────────────────────────────────────────────────────────────
     // Сервер «прочитано» для чата брони не хранит, поэтому считаем честно и локально: сколько
     // сообщений собеседника пришло после того, как человек последний раз смотрел в ленту.
@@ -211,24 +219,50 @@ internal class TripChatState(
         // Каждый запрос защищён отдельно, но следующий иначе захватит уже новый аккаунт.
         if (!isActive()) return false
         historyResult
-            .onSuccess { messages = it; markBaseline(it) }
+            .onSuccess { applyServer(it); markBaseline(it) }
             .onFailure { historyError = true }
         historyLoading = false
         return true
     }
 
     /**
-     * После авто-реконнекта WS (был обрыв → связь вернулась) дотягиваем пропущенные сообщения по REST:
-     * живой приём мог простоять, пока сокет был мёртв. Первый коннект не трогаем — историю уже грузит экран.
+     * Сокет подключился — сервер снова на связи. Сперва отправляем то, что ждало в очереди: раньше оно
+     * уходило лишь при следующем запуске, если интернет у телефона не пропадал, а лежал сервер
+     * (приёмка 18.10.2026). После обрыва дотягиваем пропущенные сообщения по REST: живой приём мог
+     * простоять, пока сокет был мёртв. Первый коннект ленту не трогает — историю уже грузит экран.
      */
     suspend fun refreshAfterReconnect() {
-        if (!isActive()) return
-        if (wsConnected) {
-            if (wasEverConnected) {
-                bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { if (isActive()) messages = it } }
-            }
-            wasEverConnected = true
+        if (!isActive() || !wsConnected) return
+        val reconnected = wasEverConnected
+        wasEverConnected = true
+        if (flushQueued() || !reconnected || !isActive()) return
+        bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { if (isActive()) applyServer(it) } }
+    }
+
+    /**
+     * Отправить очередь (сообщения и статусы, по порядку): сокет переподключился, опрос поездки снова
+     * дошёл до сервера, сеть вернулась, экран открыли. Ключ запроса тот же, что у первой попытки, —
+     * сервер не задвоит, даже если сообщение уже ушло другим путём. Ушедшее снимаем с «В очереди»,
+     * отказанное помечаем «Не доставлено», ленту перечитываем — неотправленное в ней остаётся.
+     * true — очередь изменилась.
+     */
+    suspend fun flushQueued(): Boolean {
+        if (!isActive()) return false
+        val refused = ConcurrentHashMap.newKeySet<Long>()
+        val changed = Outbox.flush(context, expectedGeneration = tripSession, shouldContinue = isActive) { refused += it.id }
+        if (!isActive()) return changed
+        val waiting = queuedIds.mapNotNull { id -> restAttempts[id]?.let { id to it } }
+        val left = withContext(Dispatchers.IO) { waiting.filterNot { (_, action) -> Outbox.contains(context, action) } }
+        if (!isActive()) return changed
+        val (rejected, sent) = left.partition { (_, action) ->
+            action.id in refused || Outbox.wasRefused(action, tripSession)
         }
+        acknowledged += sent.map { it.first }
+        queuedIds = queuedIds - left.map { it.first }.toSet()
+        failedIds = (failedIds - sent.map { it.first }.toSet()) + rejected.map { it.first }
+        val queueChanged = changed || left.isNotEmpty()
+        if (queueChanged) bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { if (isActive()) applyServer(it) } }
+        return queueChanged
     }
 
     fun retryHistory() { historyTick++ }
@@ -265,7 +299,7 @@ internal class TripChatState(
                         if (isActive()) {
                             failedIds = failedIds - tempId
                             queuedIds = queuedIds - tempId
-                            ApiClient.getMessages(bid).onSuccess { if (isActive()) messages = it }
+                            ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) }
                         }
                     }
                     .onFailure { e ->
@@ -315,7 +349,7 @@ internal class TripChatState(
                 if (!isActive()) return@launch
                 val result = ApiClient.editMessage(bid, eid, t)
                 if (!isActive()) return@launch
-                result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) messages = it } }
+                result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) } }
                     .onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatActionFail), long = true) }
             }
             editingId = null
@@ -333,7 +367,7 @@ internal class TripChatState(
             if (!isActive()) return@launch
             val result = ApiClient.deleteMessage(bid, messageId, who)
             if (!isActive()) return@launch
-            result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) messages = it } }
+            result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) } }
                 .onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatActionFail), long = true) }
         }
     }
@@ -356,7 +390,7 @@ internal class TripChatState(
             upload.onSuccess { url ->
                 val result = ApiClient.sendVoiceMessage(bid, url)
                 if (!isActive()) return@launch
-                result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) messages = it } }
+                result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) } }
                     .onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatSendFail), long = true) }
             }.onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatSendFail), long = true) }
         // Completion also runs for a launch cancelled before its body starts.
@@ -373,7 +407,7 @@ internal class TripChatState(
             upload.onSuccess { url ->
                 val result = ApiClient.sendPhotoMessage(bid, url)
                 if (!isActive()) return@launch
-                result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) messages = it } }
+                result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) } }
                     .onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatSendFail), long = true) }
             }.onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatSendFail), long = true) }
         }

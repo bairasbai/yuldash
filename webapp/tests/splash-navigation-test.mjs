@@ -18,7 +18,7 @@ function makeClock() {
 
 for (const [status, onboarded, expected, delay] of [
   ["guest", false, "/intro", 60],
-  ["authed", false, "/intro", 60],
+  ["authed", false, "/map", 140],
   ["guest", true, "/login", 140],
   ["authed", true, "/map", 140],
 ]) {

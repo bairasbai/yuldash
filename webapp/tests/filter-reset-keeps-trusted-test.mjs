@@ -160,7 +160,7 @@ await test("вкладка «Поездки» режет только по ус�
 
 // ---------------------------------------------------------------- сброс в ленте (исходник экрана)
 
-const home = readFileSync(root + "src/screens/HomeScreen.tsx", "utf8");
+const home = readFileSync(root + "src/screens/HomeScreen.tsx", "utf8").replace(/\r\n/g, "\n");
 const resetBody = (() => {
   const start = home.indexOf("function resetFeedFilters()");
   return home.slice(start, home.indexOf("\n  }\n", start));

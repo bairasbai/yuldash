@@ -183,6 +183,20 @@ def test_old_unknown_booking_is_returned_as_is(client, user_factory):
 
 # ── Кто что видит ──
 
+@pytest.mark.parametrize("waypoints,has_stops", [("Ургаза | Бурибай", True), ("", False)])
+def test_my_booking_distinguishes_unknown_pickup_from_a_ride_without_stops(client, user_factory, waypoints, has_stops):
+    drv = user_factory("PS Mine Driver", role=UserRole.driver)
+    pax = user_factory("PS Mine Pax")
+    other = user_factory("PS Mine Other")
+    ride = _publish(client, drv, "mine-place", waypoints=waypoints)
+    bid = _book(client, pax, ride["id"]).json()["id"]
+    rows = client.get("/bookings/mine", headers=pax["auth"]).json()
+    row = next(x for x in rows if x["id"] == bid)
+    assert row["ride_has_stops"] is has_stops
+    assert row["pickup_stop"] == (None if has_stops else "")
+    assert not any(x["id"] == bid for x in client.get("/bookings/mine", headers=other["auth"]).json())
+
+
 def test_driver_push_says_on_the_way_without_the_village(client, user_factory, pushes):
     drv = user_factory("PS Push Driver", role=UserRole.driver)
     pax = user_factory("PS Push Pax")

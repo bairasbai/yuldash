@@ -375,14 +375,8 @@ private fun YuldashAppContent() {
     val voiceMessages = vm.voiceMessages
     // Экран после сплэша вычисляем один раз; сплэш показывается первым ~1.6с.
     val splashTarget = remember {
-        // Старт ВСЕГДА на главном экране — КАРТА (Home). Раньше «помнили» режим и открывали кабинет
-        // водителя — но главный вход в приложение это карта; в кабинет водитель идёт сам кнопкой «Я водитель».
-        when {
-            !prefs.getBoolean("onboarding_completed", false) -> Screen.Intro  // ПЕРВЫЙ запуск → брендовое интро (даже в debug)
-            BuildConfig.DEBUG -> Screen.Home              // DEV-обход входа (повторные запуски) → карта
-            ApiClient.isLoggedIn() -> Screen.Home         // уже вошёл → карта
-            else -> Screen.Login
-        }
+        // Правило — в AppStart.kt (тест AppStartScreenTest): карта, интро новичку или вход.
+        appStartScreen(prefs.getBoolean(ONBOARDING_COMPLETED, false), ApiClient.isLoggedIn(), BuildConfig.DEBUG)
     }
     // VM переживает поворот → selectedRide/activeTrip больше НЕ сбрасываются на повороте брони/поездки.
     // screen/language/startHomeTab переживают и смерть процесса (persistNav в SavedStateHandle, ниже).
@@ -927,7 +921,8 @@ private fun YuldashAppContent() {
         prefs.edit().putBoolean("onboarding_completed", true).putString("preferred_role", role.name).apply()
         Analytics.log("onboarding_complete", mapOf("role" to role.name))   // воронка: дошёл до конца онбординга
         startHomeTab = if (role == RideRole.Driver) HomeTab.Rides else HomeTab.Map
-        screen = Screen.Login
+        // Уже вошёл — повторный вход не нужен: на главную, как openHome (трейл вводных «Назад» не возвращает).
+        if (ApiClient.isLoggedIn()) { navHistory.clear(); navPopping = true; screen = Screen.Home } else screen = Screen.Login
     }
 
     fun openSos(orderId: Int = 0, bookingId: Int = 0, note: String = "") {
@@ -1266,6 +1261,7 @@ private fun YuldashAppContent() {
                     },
                     onContinue = {
                         sessionVersion++   // вход завершён → перечитать роль/мои заявки/контакты под новым токеном
+                        prefs.markOnboardingCompleted()   // вошёл по ссылке, минуя вводные, — после перезапуска их не показываем
                         val destination = destinationAfterLogin
                         destinationAfterLogin = null
                         if (destination != null) {
@@ -1334,6 +1330,7 @@ private fun YuldashAppContent() {
                     vm.privateNavigationRevision == displayedRevision && ApiClient.queueSessionGeneration() == displayedSession
                 fun isDisplayedBookingCurrent() = isDisplayedBookingUnchanged() && ApiClient.isCurrentSession(displayedSession)
                 var frontSeat by remember(displayedRide?.id) { mutableStateOf(false) }   // «хочу переднее» — своё у каждой поездки
+                var pickupStop by rememberSaveable(displayedRide?.id) { mutableStateOf(displayedRide?.let(::initialPickupStop)) }
                 BookingScreen(
                 // null = бронировать нечего (лента пуста и ничего не выбрано): экран сам вернёт
                 // назад. Раньше тут подставлялась демо-поездка «вместо краша на пустом списке» —
@@ -1347,7 +1344,7 @@ private fun YuldashAppContent() {
                 onAdImpression = ::trackAdImpression,
                 onAdClick = ::trackAdClick,
                 canOpenActiveTrip = activeBookingId == null || bookingStatusAllowsActiveTrip(selectedBookingStatus),
-                bookingStatus = selectedBookingStatus,
+                bookingStatus = selectedBookingStatus, onBookingStatusChange = { selectedBookingStatus = it },
                 // Передумал, пока водитель молчит. Место возвращается в поездку, водителю
                 // уходит уведомление — этим занимается сервер.
                 onCancelBooking = {
@@ -1378,6 +1375,7 @@ private fun YuldashAppContent() {
                 },
                 onFindAnotherRide = { openHome(HomeTab.Rides) },
                 frontSeat = frontSeat, onFrontSeatChange = { frontSeat = it },
+                pickupStop = pickupStop, onPickupStopChange = { pickupStop = it },
                 onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
                     if (!isDisplayedBookingUnchanged()) return@BookingScreen
                     if (!ApiClient.isLoggedIn()) {
@@ -1419,7 +1417,7 @@ private fun YuldashAppContent() {
                             appScope.launch {
                                 try {
                                     if (!isDisplayedBookingCurrent()) return@launch
-                                    val result = ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat)
+                                    val result = ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop)
                                     if (!isDisplayedBookingCurrent()) return@launch
                                     ApiClient.runIfCurrentSession(displayedSession) {
                                         result.onSuccess { booking ->

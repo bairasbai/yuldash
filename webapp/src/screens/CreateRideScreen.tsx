@@ -4,12 +4,12 @@
 //  дата/время, места, цена, удобства (тумблеры), регулярность.
 //  Тип «В больницу» → GET /medical-partners (выбор клиники-назначения).
 // ================================================================
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getFeatures, useFeatures } from "../features";
 import ComingSoon from "../components/ComingSoon";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import { publishRide, fetchPriceHint, type RideCreateInput, type PriceHint } from "../api/driver";
 import { track } from "../analytics";
 import { fetchMedicalPartners, type MedicalPartner } from "../api/medical";
@@ -20,6 +20,7 @@ import { IconCheck, IconBolt, IconBox, IconHospital, IconUsers, IconTrend } from
 import { YuModeRideshare } from "../components/BrandIcons";
 import { AmenityIcon } from "../components/amenityIcons";
 import CityField from "../components/CityField";
+import StopSuggestField, { MAX_RIDE_STOPS, resolveRideStops, RideStopError, rideStopErrorMessage } from "../components/StopSuggestField";
 import PickupChips from "../components/PickupChips";
 import { priceLabel, rubLabel } from "../utils/format";
 import { useDraftSync, clearDraft } from "../utils/formDraft";
@@ -118,6 +119,7 @@ export default function CreateRideScreen() {
   const [clinicsLoaded, setClinicsLoaded] = useState(false);
 
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   // Форма длинная: маршрут, время, цена, удобства, комментарий. Отвлёкся на звонок,
@@ -194,9 +196,14 @@ export default function CreateRideScreen() {
     from.trim().length > 0 && to.trim().length > 0 && when.length > 0 && !busy;
 
   async function submit() {
-    if (!canSubmit || ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
+    if (submitting.current || !canSubmit || ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
+    submitting.current = true;
+    const owner = getSessionGeneration();
     setBusy(true);
     setError(null);
+    try {
+    const selectedStops = await resolveRideStops(waypoints, from.trim(), to.trim(), lang === "ba");
+    if (getSessionGeneration() !== owner || ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
     const body: RideCreateInput = {
       from_city: from.trim(),
       to_city: to.trim(),
@@ -226,9 +233,8 @@ export default function CreateRideScreen() {
       parcel_size: category === "parcel" ? parcelSize.trim() || undefined : undefined,
       // Сервер хранит остановки одной строкой через « | » — тем же разделителем,
       // что и приложение, иначе одна и та же поездка выглядела бы по-разному.
-      waypoints: waypoints.map((w) => w.trim()).filter(Boolean).join(" | ") || undefined,
+      waypoints: selectedStops.join(" | ") || undefined,
     };
-    try {
       const ride = await publishRide(body);
       track("publish_ride", { category });
       setCreatedId(ride.id);
@@ -236,11 +242,12 @@ export default function CreateRideScreen() {
       clearDraft(RIDE_DRAFT); // опубликовано — черновик больше не нужен
     } catch (e) {
       setError(
-        e instanceof ApiError && e.message
+        e instanceof RideStopError ? rideStopErrorMessage(e.problem, appText) : e instanceof ApiError && e.message
           ? e.message
           : appText("Не получилось опубликовать. Попробуй снова.", "Баҫтырырға булманы. Ҡабат ҡара.") // DRAFT
       );
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -482,28 +489,28 @@ export default function CreateRideScreen() {
           </p>
           {waypoints.map((w, i) => (
             <div key={i} className="trip-stops__row" style={{ background: "transparent", padding: 0, marginTop: 8 }}>
-              <input
-                className="field__input"
+              <StopSuggestField
                 value={w}
-                onChange={(e) =>
-                  setWaypoints((prev) => prev.map((x, j) => (j === i ? e.target.value.slice(0, 80) : x)))
+                onChange={(value) =>
+                  setWaypoints((prev) => prev.map((x, j) => (j === i ? value : x)))
                 }
-                placeholder={appText("Например, Темясово", "Мәҫәлән, Темәс")}
+                endpoints={[from, to]}
               />
               <button
                 type="button"
                 className="trip-stops__del"
+                style={{ minHeight: 48, minWidth: 48 }}
                 onClick={() => setWaypoints((prev) => prev.filter((_, j) => j !== i))}
               >
                 {appText("Убрать", "Алып ташлау")}
               </button>
             </div>
           ))}
-          {waypoints.length < 4 && (
+          {waypoints.length < MAX_RIDE_STOPS && (
             <button
               type="button"
               className="btn-soft btn-soft--sm"
-              style={{ marginTop: 8 }}
+              style={{ marginTop: "var(--space-sm)", minHeight: 48 }}
               onClick={() => setWaypoints((prev) => [...prev, ""])}
             >
               {appText("Добавить остановку", "Туҡталыш өҫтәү")}

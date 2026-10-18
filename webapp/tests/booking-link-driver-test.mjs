@@ -17,10 +17,12 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const h = (globalThis.__bookingLink = {});
+globalThis.document ??= { visibilityState: "visible", addEventListener() {}, removeEventListener() {} };
 const mocks = {
   react: `const h=globalThis.__bookingLink;
  export function useState(v){const x=h.inst,i=x.i++;if(!(i in x.values))x.values[i]=typeof v==='function'?v():v;return[x.values[i],v=>{x.values[i]=typeof v==='function'?v(x.values[i]):v}];}
  export const useCallback=fn=>fn;
+ export function useRef(v){const x=h.inst,i=x.i++;return x.values[i]??={current:v};}
  export const useEffect=fn=>{h.effects.push(fn)};`,
   "react/jsx-runtime": `export const Fragment='fragment';export const jsx=(type,props)=>({type,props:props??{}});export const jsxs=jsx;`,
   "react-router-dom": `export const Navigate='Navigate'; export const useNavigate=()=>to=>globalThis.__bookingLink.routes.push(to); export const useParams=()=>({id:'42'});`,
@@ -36,13 +38,14 @@ const mocks = {
   client: `export class ApiError extends Error {}`,
   analytics: `export const track=()=>{};`,
   own: `export const useRefreshOwnBookings=()=>()=>{};`,
+  interval: `export const useVisibleInterval=()=>{};`,
 };
 const result = await build({
   entryPoints: [root + "src/screens/BookingScreen.tsx"], bundle: true, write: false, format: "esm", platform: "node", jsx: "automatic",
   plugins: [{ name: "booking-link", setup(b) {
     b.onResolve({ filter: /.*/ }, (a) => {
       const p = a.path;
-      const k = Object.hasOwn(mocks, p) ? p : p.endsWith("/i18n/lang") ? "lang" : p.endsWith("/api/bookings") ? "bookings" : p.endsWith("/components/States") ? "states" : p.endsWith("/components/YandexMap") ? "map" : p.endsWith("/ConsentsScreen") ? "header" : p.endsWith("/components/StatusPill") ? "pill" : p.endsWith("/components/Icons") ? "icons" : p.endsWith("/utils/format") ? "format" : p.endsWith("/components/PartnerAd") ? "ads" : p.endsWith("/api/client") ? "client" : p.endsWith("/analytics") ? "analytics" : p.endsWith("/booking/OwnBookingsProvider") ? "own" : null;
+      const k = Object.hasOwn(mocks, p) ? p : p.endsWith("/utils/useVisibleInterval") ? "interval" : p.endsWith("/i18n/lang") ? "lang" : p.endsWith("/api/bookings") ? "bookings" : p.endsWith("/components/States") ? "states" : p.endsWith("/components/YandexMap") ? "map" : p.endsWith("/ConsentsScreen") ? "header" : p.endsWith("/components/StatusPill") ? "pill" : p.endsWith("/components/Icons") ? "icons" : p.endsWith("/utils/format") ? "format" : p.endsWith("/components/PartnerAd") ? "ads" : p.endsWith("/api/client") ? "client" : p.endsWith("/analytics") ? "analytics" : p.endsWith("/booking/OwnBookingsProvider") ? "own" : null;
       return k ? { path: k, namespace: "mock" } : null;
     });
     b.onLoad({ filter: /.*/, namespace: "mock" }, (a) => ({ contents: mocks[a.path], loader: "js" }));

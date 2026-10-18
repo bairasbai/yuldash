@@ -253,13 +253,18 @@ class ActiveTripChatTerminalHttpTest {
         holdInitialHistory = true; historyCode = code
         val cb = mount(false)
         waitFor { historyHeld.count == 0L }
+        // Код и details теперь стартуют независимо от удержанной истории. Дожидаемся их
+        // фактического старта ДО terminal, чтобы граница запрещала именно поздние запросы.
+        val privateGets = setOf("GET /bookings/42/boarding-code", "GET /bookings/42/details")
+        waitFor { privateGets.all { path -> requests.count { it.first == path } == 1 } }
+        val beforeTerminal = requests.filter { it.first in privateGets }
         val before = cb.messages.value
         terminal(value)
         releaseHistory.countDown()
         pump(2000)
         assertEquals("Terminal initial HTTP changed messages", before, cb.messages.value)
-        assertFalse("Initial chain requested code after terminal", requests.any { it.first == "GET /bookings/42/boarding-code" })
-        assertFalse("Initial chain requested details after terminal", requests.any { it.first == "GET /bookings/42/details" })
+        assertEquals("Late history requested code/details after terminal", beforeTerminal,
+            requests.filter { it.first in privateGets })
     }
     @Test fun heldInitialSuccessDone() = heldInitial("done", 200)
     @Test fun heldInitialSuccessCancelled() = heldInitial("cancelled", 200)

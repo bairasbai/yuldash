@@ -227,7 +227,7 @@ def test_no_stops_too_early_still_names_the_departure(client, user_factory):
     drv, _pax, _ride, bid = _trip(client, user_factory, "words", waypoints="", depart_in=timedelta(hours=1))
     detail = _no_show(client, drv, bid).json()["detail"]
     assert detail["code"] == "no_show_too_early" and "после времени выезда" in detail["ru"]
-    assert "Килмәүҙе сығыу ваҡытынан 15 минут үткәс кенә" in detail["ba"], "текст PR182 слово в слово"
+    assert f"Килмәүҙе сығыу ваҡытынан {int(NO_SHOW_WAIT.total_seconds() // 60)} минут үткәс кенә" in detail["ba"]
 
 
 def test_arriving_between_the_check_and_the_lock_moves_the_clock(client, user_factory, monkeypatch):

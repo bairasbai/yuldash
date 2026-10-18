@@ -39,6 +39,7 @@ import type { Ride } from "../api/rides";
 import { LoadingList, ErrorState, EmptyStateCard } from "../components/States";
 import RideEditActions from "../components/RideEditActions";
 import DriverPassengers from "../components/DriverPassengers";
+import { PickupStopNote } from "../components/PickupStopChoice";
 import { SubHeader } from "./ConsentsScreen";
 import { useAuth } from "../auth/AuthProvider";
 import { useFeatures } from "../features";
@@ -494,6 +495,7 @@ export default function DriverCabinetScreen() {
                     {b.passenger_rating != null && ` · ★ ${b.passenger_rating.toFixed(1)}`}
                   </p>
                   {/* Просьба о переднем месте — до решения: водитель знает, кого куда посадит. */}
+                  <PickupStopNote pickupStop={b.pickup_stop} rideHasStops={b.ride_has_stops} />
                   {b.front_seat && (
                     <p className="act-card__text" style={{ margin: "0 0 10px" }}>
                       <span className="badge badge--mint">

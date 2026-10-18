@@ -24,8 +24,8 @@ from typing import Optional
 
 from sqlalchemy import or_
 
-from .geo import name_variants, normalize_place
-from .ride_stops import _f, _place_keys, parse_stops
+from .geo import bare_name
+from .ride_stops import _district, _f, _place_keys, _place_variants, parse_stops
 
 NAME_MAX = 120          # длина имени места в запросе (как у города в публикации)
 MAX_VARIANTS = 6        # написаний одного места в SQL (тёзок-сёл бывает десяток — хватит главных)
@@ -39,7 +39,7 @@ def variants(session, name: Optional[str], entry: dict) -> list[str]:
     raw = (name or "").strip()[:NAME_MAX]
     if not raw:
         return []
-    return name_variants(session, normalize_place(raw), entry)[:MAX_VARIANTS]
+    return _place_variants(raw, entry)[:MAX_VARIANTS]
 
 
 def stop_searchable(name: Optional[str]) -> bool:
@@ -54,14 +54,16 @@ def _escape_like(text: str) -> str:
 
 def column_match(column, names: list[str]):
     """Столбец содержит любое из написаний — `contains(autoescape=True)`, как `_city_match`."""
-    conds = [column.contains(v, autoescape=True) for v in names if v]
+    # SQL — только широкий отбор. Район остаётся в names для точного route_fit ниже:
+    # уникальное село водитель мог записать без района, а чужую тёзку Python отбросит.
+    conds = [column.contains(v, autoescape=True) for v in dict.fromkeys(bare_name(n) for n in names) if v]
     return or_(*conds) if conds else None
 
 
 def pair_match(column, froms: list[str], tos: list[str]):
     """`waypoints` содержит «откуда…куда» именно в этом порядке (подстрокой; точный порядок —
     `route_fit`). Не больше MAX_PAIR_VARIANTS² пар; спецсимволы LIKE экранированы."""
-    conds = [column.like(f"%{_escape_like(a)}%{_escape_like(b)}%", escape="\\")
+    conds = [column.like(f"%{_escape_like(bare_name(a))}%{_escape_like(bare_name(b))}%", escape="\\")
              for a in froms[:MAX_PAIR_VARIANTS] for b in tos[:MAX_PAIR_VARIANTS] if a and b]
     return or_(*conds) if conds else None
 
@@ -83,10 +85,11 @@ class Fit:
 NO_FIT = Fit(False)
 
 
-def _endpoint(value: Optional[str], names: Optional[list[str]]) -> bool:
-    """Начало/конец маршрута совпадает с запросом — тем же правилом, что SQL `contains`."""
+def _endpoint(value: Optional[str], names: Optional[list[str]], entry: dict) -> bool:
+    """Голый запрос — подстрока как раньше; явно названный район — точное место."""
     v = value or ""
-    return any(n and n in v for n in (names or []))
+    return any((_place_keys(n, entry) & _place_keys(v, entry)) if _district(n) else n and n in v
+               for n in (names or []))
 
 
 def route_fit(ride, fv: Optional[list[str]], tv: Optional[list[str]], entry: dict,
@@ -105,16 +108,21 @@ def route_fit(ride, fv: Optional[list[str]], tv: Optional[list[str]], entry: dic
         if not names or not allowed:
             return []
         asked: set = set()
+        bare_asked: set = set()
         for nm in names:
-            asked |= _place_keys(nm, entry)
-        return [i for i, keys in enumerate(stop_keys) if keys & asked]
+            if _district(nm):
+                asked |= _place_keys(nm, entry)
+            else:
+                bare_asked |= _place_keys(nm, entry)
+        return [i for i, keys in enumerate(stop_keys)
+                if keys & asked or _place_keys(bare_name(stops[i]), entry) & bare_asked]
 
     if fv:
-        froms = ([-1] if _endpoint(_f(ride, "from_city"), fv) else []) + stop_hits(fv, from_stops)
+        froms = ([-1] if _endpoint(_f(ride, "from_city"), fv, entry) else []) + stop_hits(fv, from_stops)
     else:
         froms = [-1] + list(range(n))
     if tv:
-        tos = stop_hits(tv, to_stops) + ([n] if _endpoint(_f(ride, "to_city"), tv) else [])
+        tos = stop_hits(tv, to_stops) + ([n] if _endpoint(_f(ride, "to_city"), tv, entry) else [])
     else:
         tos = list(range(n)) + [n]
     if not froms or not tos:

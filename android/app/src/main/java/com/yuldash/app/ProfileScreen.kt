@@ -2881,28 +2881,6 @@ internal fun DriverDemandSection(online: Boolean) {
     }
 }
 
-/** Шапка карточки пассажира в кабинете водителя: буква-аватар, имя, маршрут, его рейтинг. */
-@Composable
-private fun PassengerRow(b: com.yuldash.app.data.DriverBookingDto) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(34.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
-            Text(b.passengerName.take(1).uppercase(), fontWeight = FontWeight.Bold, color = CanonGreen2)
-        }
-        Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) {
-            Text(b.passengerName, fontWeight = FontWeight.Bold, color = CanonText, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (b.route.isNotBlank()) {
-                Text(b.route, color = CanonMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        b.passengerRating?.let { r ->
-            Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(4.dp))
-            Text(String.format(java.util.Locale.US, "%.1f", r), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = CanonText)
-        }
-    }
-}
-
 /**
  * Чистый рендер кабинета водителя: тумблер «на линии», метрики (маршруты/свободно/рейтинг),
  * пусто-заглушка или список опубликованных маршрутов, блок «оцените пассажиров» и нижние действия.
@@ -3266,6 +3244,7 @@ internal fun DriverCabinetContent(
                             }
                         }
                         if (b.frontSeat) FrontSeatRequestBadge()   // до решения: водитель знает, кого куда посадит
+                        PickupStopNote(b.pickupStop, b.rideHasStops)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onConfirmBooking(b.bookingId) },

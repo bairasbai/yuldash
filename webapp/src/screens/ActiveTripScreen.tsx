@@ -26,6 +26,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
+import { PickupStopNote } from "../components/PickupStopChoice";
 import { ApiError, getSessionGeneration } from "../api/client";
 import {
   CANCEL_REASONS,
@@ -737,6 +738,21 @@ export default function ActiveTripScreen() {
 
       {/* Оплата (read-only) + контакт */}
       <div className="info-list">
+        {(details.pickup_stop != null || details.ride_has_stops) && <div className="info-row">
+          <PickupStopNote pickupStop={details.pickup_stop} rideHasStops={details.ride_has_stops} from={details.from_city} />
+        </div>}
+        {details.role === "passenger" && details.contact_unlocked && details.driver_car && (
+          <div className="info-row">
+            <span className="info-row__k">{appText("Машина", "Машина")}</span>
+            <span className="info-row__v">{[details.driver_car_color, details.driver_car].filter(Boolean).join(" ")}</span>
+          </div>
+        )}
+        {details.role === "passenger" && details.contact_unlocked && details.driver_plate && (
+          <div className="info-row">
+            <span className="info-row__k">{appText("Госномер", "Дәүләт номеры")}</span>
+            <span className="info-row__v">{details.driver_plate}</span>
+          </div>
+        )}
         {details.front_seat && (
           <div className="info-row">
             <span className="info-row__k">{appText("Место", "Урын")}</span>

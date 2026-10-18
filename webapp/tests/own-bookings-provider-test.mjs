@@ -122,7 +122,7 @@ function fresh(){
       from_city:"Уфа",to_city:"Сибай",depart_at:"2030-01-01T10:00:00",seats:1,price:500,pay_method:"cash",front_seat:true,driver_name:"Ринат"}),
   };
   globalThis.HTMLElement=class {};
-  globalThis.document={activeElement:null};
+  globalThis.document={activeElement:null,visibilityState:"visible",addEventListener(){},removeEventListener(){}};
   globalThis.window={confirm:()=>true,
     addEventListener:(event,fn)=>{if(!h.listeners.has(event))h.listeners.set(event,new Set());h.listeners.get(event).add(fn);},
     removeEventListener:(event,fn)=>h.listeners.get(event)?.delete(fn)};
