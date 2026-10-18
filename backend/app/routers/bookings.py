@@ -85,18 +85,60 @@ BOARDING_UNDO_WINDOW = timedelta(minutes=5)
 # моментом `no_show_at` (`driver_bookings`, отказ `no_show_too_early`), своих 15 минут они не держат.
 NO_SHOW_WAIT = timedelta(minutes=15)
 
+# Пассажиры на промежуточных остановках (решение Александра 18.10.2026). Человека на остановке
+# сажают позже выезда — иногда на час, — и 15 минут от выезда из начальной точки его не защищали:
+# водитель доезжал до остановки, а «Не пришёл» уже горела. Поэтому срок считается от позднего из
+# «выезд» и первого «Подъезжаю» по этой брони (`Booking.arriving_at`) — одно правило для всех
+# поездок, — а на поездке с остановками без «Подъезжаю» неявки нет вовсе: пассажир должен получить
+# «Водитель подъезжает» и успеть выйти. Отказ — 409 `no_show_needs_arriving`.
 
-def no_show_available_at(ride: Ride):
+
+def ride_has_stops(ride: Ride) -> bool:
+    """Поездка с промежуточными остановками: в `waypoints` есть хоть одно название с буквой
+    (названия через « | »). Пробелы, пустые разделители и «.»/«-»/«123» остановкой не считаются:
+    иначе одна точка в поле выключала бы GPS-проверку «Подъезжаю» у всей поездки (приёмка PR184)."""
+    return any(any(ch.isalpha() for ch in part) for part in (ride.waypoints or "").split("|"))
+
+
+def arriving_opens_at(ride: Ride):
+    """С какого момента водитель может нажать «Подъезжаю»: за DONE_EARLY_GRACE до выезда — та же
+    планка, что у «Сел» (приёмка PR184). Раньше «Подъезжаю» принималось хоть за неделю: пассажиру
+    срочно, мимо тихих часов, уходило «Водитель подъезжает», а на поездке с остановками ещё и
+    запускался срок «Не пришёл». None — у поездки нет выезда, проверять нечем."""
+    return ride.depart_at - DONE_EARLY_GRACE if ride.depart_at else None
+
+
+def arriving_wait_left(ride: Ride, now=None) -> int:
+    """Сколько секунд ещё нельзя нажать «Подъезжаю»; 0 — уже можно. Вверх до целой секунды."""
+    at = arriving_opens_at(ride)
+    if at is None:
+        return 0
+    return max(0, math.ceil((at - (now or utcnow())).total_seconds()))
+
+
+def no_show_needs_arriving(ride: Ride, booking: Optional[Booking]) -> bool:
+    """На поездке с остановками «Не пришёл» доступна только после «Подъезжаю» по этой брони."""
+    return booking is not None and booking.arriving_at is None and ride_has_stops(ride)
+
+
+def no_show_available_at(ride: Ride, booking: Optional[Booking] = None):
     """Момент (наивный UTC, как всё время в базе), с которого водитель может отметить неявку:
-    время выезда + NO_SHOW_WAIT. None — у поездки нет времени выезда, проверять нечем."""
-    return ride.depart_at + NO_SHOW_WAIT if ride.depart_at else None
+    поздний из «выезд» и первого «Подъезжаю» по брони + NO_SHOW_WAIT.
+
+    None — считать не от чего: у поездки нет выезда и «Подъезжаю» не было, ИЛИ поездка с
+    остановками ждёт «Подъезжаю» ([no_show_needs_arriving] — тогда неявки нет, а не «можно»)."""
+    if no_show_needs_arriving(ride, booking):
+        return None
+    marks = [t for t in (ride.depart_at, booking.arriving_at if booking else None) if t]
+    return max(marks) + NO_SHOW_WAIT if marks else None
 
 
-def no_show_wait_left(ride: Ride, now=None) -> int:
-    """Сколько секунд водителю ещё ждать «Не пришёл»; 0 — уже можно (или срок неизвестен).
+def no_show_wait_left(ride: Ride, now=None, booking: Optional[Booking] = None) -> int:
+    """Сколько секунд водителю ещё ждать «Не пришёл»; 0 — срок вышел (или его нечем считать).
+    Поездку с остановками без «Подъезжаю» проверяет [no_show_needs_arriving], не эта функция.
 
     Вверх до целой секунды: «0» значит ровно «можно», а не «меньше секунды осталось»."""
-    at = no_show_available_at(ride)
+    at = no_show_available_at(ride, booking)
     if at is None:
         return 0
     return max(0, math.ceil((at - (now or utcnow())).total_seconds()))
@@ -726,8 +768,18 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
         raise herr(409, "Поездка не активна", "Сәфәр актив түгел")
     # Честное «подъезжаю»: слово водителя сверяем с его же GPS. Пассажир, увидев «подъезжает»,
     # выходит из дома — на морозе цена вранья высокая. Ловим только доказанный случай (см. _verify_arrival).
+    #
+    # Поездка с остановками (решение 18.10.2026): пин подачи — это начало маршрута, а пассажир этой
+    # брони может ждать на остановке в соседнем селе. Сверять с пином значило отказывать честному
+    # водителю у остановки («Ты ещё далеко»), и человек не получал «Водитель подъезжает». Где именно
+    # садится пассажир, бронь не знает — поэтому не сверяем и не подтверждаем (`arrival_verified`
+    # = false: пассажир видит «подъезжает» без «GPS подтверждено»).
     if body.status == "arriving":
-        meters = _verify_arrival(booking, ride)
+        # Раньше чем за DONE_EARLY_GRACE до выезда «Подъезжаю» не принимаем (приёмка PR184): ни фазы,
+        # ни `arriving_at`, ни пуша — отказ раньше любых записей.
+        if arriving_wait_left(ride) > 0:
+            raise _arriving_too_early_refusal(ride)
+        meters = None if ride_has_stops(ride) else _verify_arrival(booking, ride)
         if meters is not None and meters > settings.arrival_verify_radius_m:
             km = meters / 1000.0
             raise herr(
@@ -738,6 +790,11 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
                 "«Яҡынлашам»ды яҡын килгәс баҫ — юлсы тап һин килгәнгә сыға.",
             )
         booking.arrival_verified = meters is not None
+        # Первое «Подъезжаю» по брони — от него считается «Не пришёл» (`no_show_available_at`).
+        # Условный UPDATE: повтор, второй телефон или двойной тап в ту же секунду время не сдвигают.
+        session.execute(update(Booking).where(
+            Booking.id == booking.id, Booking.arriving_at.is_(None),
+        ).values(arriving_at=utcnow()))
     else:
         booking.arrival_verified = False     # «выехал» — до места ещё ехать, подтверждать нечего
     # Уведомляем, только если фаза РЕАЛЬНО сменилась. Раньше пуш уходил на каждое нажатие:
@@ -764,7 +821,47 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
             ref_kind="booking", ref_id=booking.id,
             urgent=True,
         )
-    return {"ok": True, "driver_phase": body.status}
+    # Срок «Не пришёл» после этой отметки — карточка «Едут с тобой» берёт его сразу, не перечитывая
+    # список: после «Подъезжаю» подпись «Сначала нажми «Подъезжаю»» сменяется на «можно отметить с …».
+    return {"ok": True, "driver_phase": body.status, **_no_show_fields(ride, booking)}
+
+
+def _no_show_fields(ride: Ride, booking: Booking) -> dict:
+    """Сроки «Не пришёл» и «Подъезжаю» для клиента — одинаково в строке `/driver/bookings` и в ответе
+    «Подъезжаю».
+
+    `no_show_at` — момент (наивный UTC, как `depart_at`), с которого кнопка доступна; null — считать
+    не от чего или ждём «Подъезжаю». `no_show_wait_sec` — сколько секунд до него от этого ответа
+    (как в отказе `no_show_too_early`): по нему клиент ждёт, даже если часы телефона спешат.
+    `no_show_needs_arriving` — поездка с остановками, а «Подъезжаю» по этой брони ещё не было:
+    вместо кнопки клиент пишет «Сначала нажми «Подъезжаю»». `arriving_opens_at` / `arriving_wait_sec` —
+    то же для самой «Подъезжаю» (за DONE_EARLY_GRACE до выезда): до этого кнопка на карточке неактивна."""
+    at = no_show_available_at(ride, booking)
+    arriving_at = arriving_opens_at(ride)
+    return {
+        "no_show_at": at.isoformat() if at else None,
+        "no_show_wait_sec": no_show_wait_left(ride, booking=booking),
+        "no_show_needs_arriving": no_show_needs_arriving(ride, booking),
+        "arriving_opens_at": arriving_at.isoformat() if arriving_at else None,
+        "arriving_wait_sec": arriving_wait_left(ride),
+    }
+
+
+def _arriving_too_early_refusal(ride: Ride, now=None) -> HTTPException:
+    """Отказ «Подъезжаю» раньше чем за DONE_EARLY_GRACE до выезда (приёмка PR184).
+
+    Пассажир по «Водитель подъезжает» выходит к дороге — за неделю или за день до поездки это
+    вранье, и срочное (мимо тихих часов). `code` — машинная причина, `arriving_opens_at` — момент,
+    с которого можно, `arriving_wait_sec` — сколько секунд осталось (часы телефона врут на минуты)."""
+    minutes = int(DONE_EARLY_GRACE.total_seconds() // 60)
+    at = arriving_opens_at(ride)
+    return HTTPException(status_code=409, detail={
+        "ru": f"Рано: «Подъезжаю» можно нажать за {minutes} минут до выезда — пассажир выйдет к машине вовремя.",
+        "ba": f"Иртә: «Яҡынлашам»ға сығыуға {minutes} минут ҡалғас ҡына баҫып була — юлсы машинаға ваҡытында сығыр.",
+        "code": "arriving_too_early",
+        "arriving_opens_at": at.isoformat() if at else None,
+        "arriving_wait_sec": arriving_wait_left(ride, now),
+    })
 
 
 def _driver_blocked_passenger_refusal() -> HTTPException:
@@ -1075,20 +1172,41 @@ def _no_show_onboard_refusal(booking: Booking) -> HTTPException:
     })
 
 
-def _no_show_too_early_refusal(ride: Ride, now=None) -> HTTPException:
+def _no_show_too_early_refusal(ride: Ride, booking: Optional[Booking] = None, now=None) -> HTTPException:
     """Отказ «Не пришёл» раньше срока: пассажир ещё может подойти (решение 18.10.2026).
 
     `code` — машинная причина, `no_show_wait_sec` — сколько секунд осталось (для клиента, как
     `boarding_undo_sec` в отказе `passenger_onboard`), `no_show_at` — момент, с которого можно.
-    Клиент по ним не гадает про срок, а берёт его отсюда."""
+    Клиент по ним не гадает про срок, а берёт его отсюда. Текст называет, от чего считаем: от
+    выезда или от «Подъезжаю», если водитель нажал его позже выезда."""
     minutes = int(NO_SHOW_WAIT.total_seconds() // 60)
-    at = no_show_available_at(ride)
+    at = no_show_available_at(ride, booking)
+    arriving = booking.arriving_at if booking else None
+    if arriving and (ride.depart_at is None or arriving > ride.depart_at):
+        since_ru, since_ba = "после «Подъезжаю»", "«Яҡынлашам»дан һуң"
+    else:
+        since_ru, since_ba = "после времени выезда", "сығыу ваҡытынан"   # слово в слово как в PR182
     return HTTPException(status_code=409, detail={
-        "ru": f"Пока рано: пассажир ещё может подойти. Неявку можно отметить через {minutes} минут после времени выезда.",
-        "ba": f"Әле иртә: пассажир килеп етеүе мөмкин. Килмәүҙе сығыу ваҡытынан {minutes} минут үткәс кенә билдәләп була.",
+        "ru": f"Пока рано: пассажир ещё может подойти. Неявку можно отметить через {minutes} минут {since_ru}.",
+        "ba": f"Әле иртә: пассажир килеп етеүе мөмкин. Килмәүҙе {since_ba} {minutes} минут үткәс кенә билдәләп була.",
         "code": "no_show_too_early",
-        "no_show_wait_sec": no_show_wait_left(ride, now),
+        "no_show_wait_sec": no_show_wait_left(ride, now, booking),
         "no_show_at": at.isoformat() if at else None,
+    })
+
+
+def _no_show_needs_arriving_refusal() -> HTTPException:
+    """Отказ «Не пришёл» на поездке с остановками до «Подъезжаю» по этой брони (решение 18.10.2026).
+
+    Пассажир на остановке ещё не знает, что машина рядом: «Водитель подъезжает» ему приходит только
+    после «Подъезжаю». `code` — машинная причина: по ней клиент вместо кнопки пишет «Сначала нажми
+    «Подъезжаю»». `no_show_at` — null: срока ещё нет, он появится после «Подъезжаю»."""
+    minutes = int(NO_SHOW_WAIT.total_seconds() // 60)
+    return HTTPException(status_code=409, detail={
+        "ru": f"Сначала нажми «Подъезжаю» — пассажир получит уведомление. Неявку можно отметить через {minutes} минут после этого.",
+        "ba": f"Башта «Яҡынлашам»ға баҫ — пассажир хәбәр алыр. Килмәүҙе унан һуң {minutes} минут үткәс кенә билдәләп була.",
+        "code": "no_show_needs_arriving",
+        "no_show_at": None,
     })
 
 
@@ -1098,10 +1216,14 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
     ставим no_show + cancel_reason='no_show'. Только водитель этой поездки и только по ПОДТВЕРЖДЁННОЙ
     брони. Идемпотентно. Сигнал доверия «между своими» (отдельно от обычной отмены).
 
-    Не раньше чем через NO_SHOW_WAIT после времени выезда (решение 18.10.2026, образец BlaBlaCar):
-    раньше — 409 `no_show_too_early` с `no_show_wait_sec`. Проверка стоит ДО смены статуса и
-    повторяется под замком, по свежей строке поездки: водитель мог перенести выезд позже. Повтор
-    уже отмеченной неявки срок не проверяет — итог тот же, красной ошибки после успеха нет.
+    Не раньше чем через NO_SHOW_WAIT после позднего из «время выезда» и первого «Подъезжаю» по этой
+    брони (решение 18.10.2026, образец BlaBlaCar): раньше — 409 `no_show_too_early` с
+    `no_show_wait_sec`. На поездке с остановками без «Подъезжаю» — 409 `no_show_needs_arriving`:
+    пассажира на остановке сажают позже выезда, и он должен получить «Водитель подъезжает».
+    Проверки стоят ДО смены статуса и повторяются под замком, по свежим строкам поездки и брони.
+    Время выезда при живых бронях не меняется (`rides.edit_ride` отвечает 409), так что перепроверка —
+    защита на будущее и от «Подъезжаю», нажатого в ту же секунду, а не обычный путь. Повтор уже
+    отмеченной неявки сроки не проверяет — итог тот же, красной ошибки после успеха нет.
 
     «В пути» (onboard) — отказ 409 (решение 14.10.2026, docs/decisions.md). С 17.10.2026 посадку
     отмечает сам водитель («Сел»): неявка снимает бронь и возвращает места в продажу, а «Сел» →
@@ -1121,8 +1243,10 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
         return _booking_out(booking)
     if booking.status != BookingStatus.confirmed:
         raise herr(409, "Неявку можно отметить только по подтверждённой брони", "Килмәүҙе тик раҫланған бронь буйынса ғына билдәләп була")
-    if no_show_wait_left(ride) > 0:
-        raise _no_show_too_early_refusal(ride)
+    if no_show_needs_arriving(ride, booking):
+        raise _no_show_needs_arriving_refusal()
+    if no_show_wait_left(ride, booking=booking) > 0:
+        raise _no_show_too_early_refusal(ride, booking)
     # Порядок локов Ride → Booking — ЕДИНЫЙ с cancel_booking/cancel_ride (V4, без deadlock).
     # populate_existing — по той же причине, что в cancel_booking: обе строки уже загружены выше,
     # и без него «перепроверка под локом» смотрела бы на устаревшие значения (аудит 2026-08-07).
@@ -1135,8 +1259,12 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
         raise _no_show_onboard_refusal(booking)
     if booking.status != BookingStatus.confirmed:
         return _booking_out(booking)           # параллельная отмена/неявка опередила — места уже возвращены
-    if no_show_wait_left(ride) > 0:
-        raise _no_show_too_early_refusal(ride)   # выезд перенесли позже, пока шла проверка выше
+    # Те же сроки по свежим строкам: защита, если строка поездки или брони сменилась между первой
+    # проверкой и замком (например, «Подъезжаю» в ту же секунду сдвинул срок позже).
+    if no_show_needs_arriving(ride, booking):
+        raise _no_show_needs_arriving_refusal()
+    if no_show_wait_left(ride, booking=booking) > 0:
+        raise _no_show_too_early_refusal(ride, booking)
     booking.status = BookingStatus.cancelled
     booking.cancelled_at = utcnow()
     booking.no_show = True
@@ -1233,7 +1361,6 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
         ride = rides_by_id.get(b.ride_id)
         passenger = passengers_by_id.get(b.passenger_id)
         avg, cnt = user_rating(session, b.passenger_id)
-        no_show_opens = no_show_available_at(ride) if ride else None
         out.append({
             "booking_id": b.id,
             # Вторая сторона для «Сообщить о проблеме» (разбор POST /incidents ждёт respondent_id):
@@ -1249,10 +1376,14 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             # Сколько секунд ещё можно отменить свою отметку «Сел» (0 — уже нельзя): «Отменить»
             # в карточке переживает перезапуск приложения и не зависит от часов телефона.
             "boarding_undo_sec": boarding_undo_left(b),
-            # С какого момента «Не пришёл» доступна (наивный UTC, как `depart_at`): выезд + ожидание
-            # (решение 18.10.2026). Клиент срок не хардкодит — до этого момента вместо кнопки подпись,
-            # а раньше времени сервер всё равно ответит 409 `no_show_too_early`. null — выезд не задан.
-            "no_show_at": (no_show_opens.isoformat() if no_show_opens else None),
+            # С какого момента «Не пришёл» доступна (наивный UTC, как `depart_at`): поздний из «выезд»
+            # и первого «Подъезжаю» + ожидание (решения 18.10.2026). Клиент срок не хардкодит — до
+            # этого момента вместо кнопки подпись, а раньше времени сервер всё равно ответит 409
+            # `no_show_too_early`. null — считать не от чего. `no_show_needs_arriving` — поездка с
+            # остановками ждёт «Подъезжаю» по этой брони: вместо кнопки «Сначала нажми «Подъезжаю»».
+            **(_no_show_fields(ride, b) if ride else
+               {"no_show_at": None, "no_show_wait_sec": 0, "no_show_needs_arriving": False,
+                "arriving_opens_at": None, "arriving_wait_sec": 0}),
         })
     return out
 

@@ -97,4 +97,74 @@ class BoardingApiTest {
         assertNull(parseDriverBookingDto(JSONObject("""{"booking_id":5,"no_show_at":null}""")).noShowAt)
         assertNull(parseDriverBookingDto(JSONObject("""{"booking_id":5,"no_show_at":""}""")).noShowAt)
     }
+
+    /** Поездка с остановками ждёт «Подъезжаю» (18.10.2026): признак в строке; старый сервер — нет. */
+    @Test
+    fun driverBookings_carryTheArrivingFirstFlag() {
+        val row = parseDriverBookingDto(JSONObject("""{"booking_id":5,"status":"confirmed","no_show_at":null,"no_show_needs_arriving":true}"""))
+        assertTrue(row.noShowNeedsArriving)
+        assertNull(row.noShowAt)
+        assertEquals(false, parseDriverBookingDto(JSONObject("""{"booking_id":5}""")).noShowNeedsArriving)
+    }
+
+    @Test
+    fun markArriving_postsArrivingAndReadsTheNewWait() = runBlocking {
+        server.enqueue(json("""{"ok":true,"driver_phase":"arriving","no_show_at":"2030-01-01T05:30:00","no_show_wait_sec":900,"no_show_needs_arriving":false}"""))
+        val before = System.currentTimeMillis()
+        val terms = BoardingApi.markArriving(42).getOrThrow()
+        assertEquals("2030-01-01T05:30:00", terms.noShowAt)
+        assertEquals(false, terms.needsArriving)
+        val until = terms.waitUntilMs ?: error("секунды сервера потерялись")
+        assertTrue("сейчас + 900 с по часам телефона", until in (before + 900_000L)..(System.currentTimeMillis() + 900_000L))
+        val recorded = server.takeRequest()
+        assertEquals("POST", recorded.method)
+        assertEquals("/bookings/42/driver-status", recorded.path)
+        assertEquals("arriving", JSONObject(recorded.body.readUtf8()).getString("status"))
+    }
+
+    @Test
+    fun noShowTerms_toleratesOldServersAndNegativeSeconds() {
+        assertEquals(NoShowTerms(null), parseNoShowTerms(JSONObject("""{"ok":true,"driver_phase":"arriving"}"""), nowMs = 1_000L))
+        assertEquals(NoShowTerms(null), parseNoShowTerms(null, nowMs = 1_000L))
+        assertEquals(NoShowTerms(null), parseNoShowTerms(JSONObject("""{"no_show_at":"","no_show_wait_sec":null}"""), nowMs = 1_000L))
+        assertEquals(1_000L, parseNoShowTerms(JSONObject("""{"no_show_wait_sec":-5}"""), nowMs = 1_000L).waitUntilMs)
+    }
+
+    /** Отказ несёт новый срок: «рано» — момент и секунды, «сначала Подъезжаю» — признак, «Подъезжаю рано» —
+     *  её момент и секунды (приёмка PR184). Остальное в сроках не теряется. */
+    @Test
+    fun refusal_givesTheCardItsNewTerms() {
+        val base = NoShowTerms(null, needsArriving = true, arrivingOpensAt = "2030-01-01T04:30:00")
+        val early = NoShowTerms("2030-01-01T05:00:00").afterRefusal(
+            "no_show_too_early", JSONObject("""{"code":"no_show_too_early","no_show_wait_sec":600,"no_show_at":"2030-01-01T05:15:00"}"""), nowMs = 1_000L,
+        )
+        assertEquals(NoShowTerms("2030-01-01T05:15:00", needsArriving = false, waitUntilMs = 601_000L), early)
+        assertEquals(
+            NoShowTerms(null, needsArriving = true),
+            NoShowTerms("2030-01-01T05:15:00", waitUntilMs = 9L).afterRefusal(
+                "no_show_needs_arriving", JSONObject("""{"code":"no_show_needs_arriving","no_show_at":null}"""),
+            ),
+        )
+        assertEquals(
+            base.copy(arrivingOpensAt = "2030-01-01T04:40:00", arrivingWaitUntilMs = 301_000L),
+            base.afterRefusal(
+                "arriving_too_early",
+                JSONObject("""{"code":"arriving_too_early","arriving_opens_at":"2030-01-01T04:40:00","arriving_wait_sec":300}"""),
+                nowMs = 1_000L,
+            ),
+        )
+        assertNull(base.afterRefusal("passenger_onboard", JSONObject("""{"boarding_undo_sec":120}""")))
+        assertNull(base.afterRefusal("", null))
+    }
+
+    /** Строка и ответ «Подъезжаю» несут и момент «Подъезжаю» (за 30 минут до выезда, приёмка PR184). */
+    @Test
+    fun arrivingWindow_isReadFromTheRowAndTheTerms() {
+        val row = parseDriverBookingDto(JSONObject("""{"booking_id":5,"status":"confirmed","no_show_needs_arriving":true,"arriving_opens_at":"2030-01-01T04:30:00"}"""))
+        assertEquals("2030-01-01T04:30:00", row.arrivingOpensAt)
+        assertNull(parseDriverBookingDto(JSONObject("""{"booking_id":5}""")).arrivingOpensAt)
+        val terms = parseNoShowTerms(JSONObject("""{"arriving_opens_at":"2030-01-01T04:30:00","arriving_wait_sec":120}"""), nowMs = 1_000L)
+        assertEquals("2030-01-01T04:30:00", terms.arrivingOpensAt)
+        assertEquals(121_000L, terms.arrivingWaitUntilMs)
+    }
 }

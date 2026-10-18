@@ -20,13 +20,15 @@
 //  с «Не вышел», «в пути» — «Отменить» в первые 5 минут, позже — разбор (DriverBoarding.tsx).
 //
 //  «Не вышел» — через 15 минут после выезда и с вопросом «Точно?» (решение 18.10.2026, образец
-//  BlaBlaCar): срок приходит от сервера (`no_show_at`), экран — DriverNoShow.tsx.
+//  BlaBlaCar): срок приходит от сервера (`no_show_at`), экран — DriverNoShow.tsx. На поездке с
+//  остановками — только после «Подъезжаю» по этой брони: она тут же, на месте «Не вышел».
 // ================================================================
 import { useCallback, useEffect, useState } from "react";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
   fetchDriverBookings,
+  markArriving,
   markNoShow,
   rateBooking,
   type DriverBookingRow,
@@ -112,12 +114,14 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
   /** После «Сел» / «Отменить» — перечитать список (без аргументов: ответ действия не сигнал отмены). */
   const reload = useCallback(() => load(), [load]);
 
-  async function act(id: number, fn: () => Promise<unknown>, fail: { ru: string; ba: string }) {
+  /** `done` — что сказать после успеха (как тост в приложении: «Пассажир уведомлён»). */
+  async function act(id: number, fn: () => Promise<unknown>, fail: { ru: string; ba: string }, done?: { ru: string; ba: string }) {
     if (busyId) return;
     setBusyId(id);
     setNote("");
     try {
       await fn();
+      if (done) setNote(appText(done.ru, done.ba));
       load();
     } catch (e) {
       setNote(e instanceof ApiError && e.message ? e.message : appText(fail.ru, fail.ba));
@@ -219,17 +223,30 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
 
                   {/* Не вышел. Отдельно от обычной отмены: это сигнал доверия, и водитель
                       не должен выбирать между «соврать, что отменил сам» и «промолчать».
-                      Не раньше срока от сервера (`no_show_at`: выезд + 15 минут, решение 18.10.2026):
-                      до него — подпись «можно отметить с …», после — кнопка и вопрос «Точно?». */}
+                      Не раньше срока от сервера (`no_show_at`: выезд или «Подъезжаю» + 15 минут, решения
+                      18.10.2026): до него — неактивная кнопка и подпись «можно отметить с …», после —
+                      кнопка и вопрос «Точно?»; на поездке с остановками сначала «Подъезжаю». */}
                   {st === CONFIRMED && (
                     <DriverNoShow
                       noShowAt={b.no_show_at}
+                      noShowWaitSec={b.no_show_wait_sec}
+                      needsArriving={b.no_show_needs_arriving === true}
+                      arrivingOpensAt={b.arriving_opens_at}
+                      arrivingWaitSec={b.arriving_wait_sec}
                       busy={busyId === b.booking_id}
                       onConfirm={() =>
                         void act(b.booking_id, () => markNoShow(b.booking_id), {
                           ru: "Не получилось отметить. Проверь сеть.",
                           ba: "Билдәләп булманы. Селтәрҙе тикшер.",
                         })
+                      }
+                      onArriving={() =>
+                        void act(
+                          b.booking_id,
+                          () => markArriving(b.booking_id),
+                          { ru: "Не удалось сохранить статус. Проверь сеть.", ba: "Хәлде һаҡлап булманы. Селтәрҙе тикшер." },
+                          { ru: "Пассажир уведомлён", ba: "Пассажир хәбәрҙар ителде" }
+                        )
                       }
                     />
                   )}

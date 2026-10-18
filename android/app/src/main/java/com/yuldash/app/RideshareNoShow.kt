@@ -2,10 +2,13 @@ package com.yuldash.app
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -22,8 +26,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,9 +38,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.BoardingApi
+import com.yuldash.app.data.NoShowTerms
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // Неявка пассажира попутки в кабинете водителя («Едут с тобой»). Вынесено из InstantOrderScreen.kt
@@ -49,8 +60,13 @@ import kotlinx.coroutines.launch
 // неделю до поездки — одним касанием вплотную к «Сел», и вернуть было нельзя: промахнулся, и бронь
 // человека, который стоит у дороги, снята, а место ушло в продажу. Срок знает ТОЛЬКО сервер
 // (`bookings.NO_SHOW_WAIT`): клиент получает момент `no_show_at` и 15 минут у себя не держит.
-// До этого момента вместо кнопки — спокойная подпись [NoShowWaitNote]; нажатие — подтверждение;
-// отказ сервера `no_show_too_early` — его словами в тосте.
+// До этого момента кнопка неактивна, под ней — спокойная подпись [NoShowWaitNote]; нажатие —
+// подтверждение; отказ сервера `no_show_too_early` — его словами в тосте, а срок из отказа — в карточку.
+//
+// Пассажиры на остановках (решение Александра 18.10.2026): срок считается от позднего из «выезд» и
+// первого «Подъезжаю» по этой брони, а на поездке с остановками без «Подъезжаю» неявки нет вовсе —
+// человека на остановке сажают позже выезда, и 15 минут от начальной точки его не защищали. Тогда
+// на месте «Не пришёл» — «Подъезжаю» ([ArrivingButton]), под ним — [NoShowNeedsArrivingNote].
 
 /**
  * Можно ли водителю отметить неявку. Только по подтверждённой брони: «в пути» (onboard) значит,
@@ -72,14 +88,45 @@ internal fun noShowOpen(noShowAt: String?, nowMs: Long): Boolean =
     noShowOpensAtMs(noShowAt)?.let { nowMs >= it } ?: true
 
 /**
- * Живое «срок уже наступил?» для карточки: пересчёт раз в секунду ([rememberNowMs] — в фоне не тикает,
- * при возврате берёт время заново). Карточка перерисовывается только в момент перехода, а не каждую секунду.
+ * С какого момента (мс по часам телефона) открыть «Не пришёл» по сроку от сервера: поздний из
+ * `no_show_at` и «секунды из ответа» ([NoShowTerms.waitUntilMs]) — если часы телефона спешат, ждём
+ * по секундам сервера. null — срока нет (решает сервер).
+ */
+internal fun NoShowTerms.opensAtMs(): Long? = listOfNotNull(noShowOpensAtMs(noShowAt), waitUntilMs).maxOrNull()
+
+/** То же для «Подъезжаю»: не раньше чем за 30 минут до выезда (срок и секунды — от сервера, приёмка PR184). */
+internal fun NoShowTerms.arrivingOpensAtMs(): Long? =
+    listOfNotNull(noShowOpensAtMs(arrivingOpensAt), arrivingWaitUntilMs).maxOrNull()
+
+/**
+ * Через сколько миллисекунд снова посмотреть на часы; null — больше не нужно: срок наступил или его
+ * нет. Не реже раза в секунду: подпись сменится кнопкой в нужную секунду, даже если часы перевели.
+ */
+internal fun noShowTickMs(opensAtMs: Long?, nowMs: Long): Long? =
+    opensAtMs?.takeIf { nowMs < it }?.let { (it - nowMs).coerceAtMost(1_000L) }
+
+/**
+ * Живое «срок уже наступил?» для карточки. Часы тикают, ТОЛЬКО пока срок впереди (приёмка PR182:
+ * раньше каждая карточка пересчитывала время раз в секунду, даже когда кнопка давно открыта или
+ * срока нет вовсе), и только на видимом экране: в фоне ждать нечего, при возврате время берётся
+ * заново. Карточка перерисовывается один раз — в момент перехода.
  */
 @Composable
-internal fun rememberNoShowOpen(noShowAt: String?): State<Boolean> {
-    val opensAt = remember(noShowAt) { noShowOpensAtMs(noShowAt) }
-    val now = rememberNowMs()
-    return remember(opensAt) { derivedStateOf { opensAt == null || now.value >= opensAt } }
+internal fun rememberNoShowOpen(opensAtMs: Long?): State<Boolean> {
+    val open = remember(opensAtMs) { mutableStateOf(noShowTickMs(opensAtMs, System.currentTimeMillis()) == null) }
+    val owner = LocalLifecycleOwner.current
+    LaunchedEffect(opensAtMs, owner) {
+        if (open.value) return@LaunchedEffect   // срок наступил или его нет — часы не заводим
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            var wait = noShowTickMs(opensAtMs, System.currentTimeMillis())
+            while (wait != null) {
+                delay(wait)
+                wait = noShowTickMs(opensAtMs, System.currentTimeMillis())
+            }
+            open.value = true
+        }
+    }
+    return open
 }
 
 /** Пока срок не наступил: на месте «Не пришёл» — спокойная подпись, когда это станет можно. */
@@ -100,6 +147,94 @@ internal fun NoShowWaitNote(noShowAt: String?, modifier: Modifier = Modifier) {
 }
 
 /**
+ * Поездка с остановками, а «Подъезжаю» по этой брони ещё не было: неявки нет, пока пассажир не
+ * получил «Водитель подъезжает» (решение 18.10.2026). Спокойная подпись под «Подъезжаю».
+ * [arrivingFrom] — «Подъезжаю» ещё рано (раньше чем за 30 минут до выезда, приёмка PR184): тогда
+ * подпись говорит, с какого момента её можно нажать; null — уже можно.
+ */
+@Composable
+internal fun NoShowNeedsArrivingNote(modifier: Modifier = Modifier, arrivingFrom: String? = null) {
+    Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            if (arrivingFrom != null) Icons.Default.Schedule else Icons.Default.DirectionsCar,
+            contentDescription = null, tint = CanonMuted, modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(CanonSpace.sm))
+        val from = arrivingFrom?.let { formatDepart(it) }.orEmpty()
+        Text(
+            if (arrivingFrom != null) {
+                appText("«Подъезжаю» можно нажать с $from", "«Яҡынлашам»ға $from үткәс кенә баҫып була")
+            } else {
+                appText(
+                    "Сначала нажми «Подъезжаю» — пассажир получит уведомление",
+                    "Башта «Яҡынлашам»ға баҫ — пассажир хәбәр алыр",
+                )
+            },
+            color = CanonMuted, style = CanonCaption,
+        )
+    }
+}
+
+/**
+ * «Подъезжаю» на карточке «Едут с тобой» — на поездке с остановками это шаг перед «Не пришёл».
+ * Раньше «Подъезжаю» была только на экране поездки («Открыть поездку»), и водитель у остановки
+ * читал бы «Сначала нажми «Подъезжаю»», не видя кнопки. Тот же запрос, что на экране поездки:
+ * пассажиру уходит «Водитель подъезжает», ответ несёт новый срок — его и показывает карточка.
+ *
+ * [locked] — раньше чем за 30 минут до выезда (приёмка PR184): кнопка на месте, но неактивна; отказ
+ * сервера `arriving_too_early` (часы телефона спешат) уходит в [onRefused] — карточка снова её закроет.
+ * Вид — как у «Не пришёл» в той же половине ряда: без иконки, узкие поля, одна строка. С иконкой и
+ * полями AppButton (24 + 24 + 28) «Подъезжаю»/«Яҡынлашам» не влезали в 148dp половины ряда на
+ * экране 360dp и переносились посреди слова (приёмка PR184). Высота — 48dp, как у «Сел».
+ */
+@Composable
+internal fun ArrivingButton(
+    bookingId: Int,
+    onArrived: (NoShowTerms) -> Unit,
+    modifier: Modifier = Modifier,
+    locked: Boolean = false,
+    onRefused: (ApiException) -> Unit = {},
+) {
+    val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    var sending by remember(bookingId) { mutableStateOf(false) }
+    val failMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшер.")
+    val sentMsg = appText("Пассажир уведомлён", "Пассажир хәбәрҙар ителде")
+    val tint by animateColorAsState(if (locked) CanonMuted else CanonGreen2, tween(CanonMotion.NORMAL), label = "arrivingTint")
+    val edge by animateColorAsState(if (locked) CanonBorder else CanonGreen2, tween(CanonMotion.NORMAL), label = "arrivingEdge")
+    OutlinedButton(
+        onClick = {
+            if (!sending) {
+                sending = true
+                scope.launch {
+                    BoardingApi.markArriving(bookingId)
+                        .onSuccess { terms ->
+                            Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show()
+                            onArrived(terms)
+                        }
+                        .onFailure { e ->
+                            if (e is ApiException) onRefused(e)
+                            Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+                        }
+                    sending = false
+                }
+            }
+        },
+        enabled = !sending && !locked,
+        shape = CanonFieldShape,
+        border = BorderStroke(1.dp, edge),
+        contentPadding = PaddingValues(horizontal = CanonSpace.sm),
+        modifier = modifier.heightIn(min = 48.dp),
+    ) {
+        Text(
+            appText("Подъезжаю", "Яҡынлашам"),
+            color = tint, style = CanonButton, textAlign = TextAlign.Center,
+            maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
  * «Не пришёл» — водитель отмечает неявку пассажира (no-show): /bookings/{id}/no-show, места
  * возвращаются на сервере. Нажатие само ничего не отправляет: сначала вопрос «Точно не пришёл?»
  * ([onSent] и сеть — только после «Да, не пришёл»; «Подождать» закрывает окно, не трогая бронь).
@@ -107,8 +242,11 @@ internal fun NoShowWaitNote(noShowAt: String?, modifier: Modifier = Modifier) {
  * [onSent] — неявка отмечена, [onBoarded] — сервер ответил, что посадка уже отмечена (второй
  * телефон водителя, очередь без сети): аргумент — сколько секунд ещё можно отменить отметку
  * (`boarding_undo_sec` из отказа), чтобы карточка показала «Отменить» с верным отсчётом, а не
- * сразу разбор (приёмка PR174). Отказ `no_show_too_early` (на телефоне время ушло вперёд или выезд
- * перенесли) — словами сервера в тосте, как любой другой отказ.
+ * сразу разбор (приёмка PR174). Отказы `no_show_too_early` (часы телефона спешат, строка списка
+ * устарела, «Подъезжаю» нажат с другого телефона) и `no_show_needs_arriving` — словами сервера в
+ * тосте, а сам отказ уходит в [onRefused]: карточка берёт из него срок и снова показывает подпись.
+ * [locked] — срок ещё не наступил: кнопка на своём месте, но неактивна и не красная, а в момент
+ * срока плавно оживает (место под ней занято заранее — «Сел» рядом не сдвигается, приёмка PR182).
  */
 @Composable
 internal fun NoShowButton(
@@ -116,22 +254,26 @@ internal fun NoShowButton(
     onSent: () -> Unit,
     onBoarded: (undoSec: Int) -> Unit,
     modifier: Modifier = Modifier,
+    locked: Boolean = false,
+    onRefused: (ApiException) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var sending by remember(bookingId) { mutableStateOf(false) }
     var asking by remember(bookingId) { mutableStateOf(false) }
     val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
+    val tint by animateColorAsState(if (locked) CanonMuted else CanonRed, tween(CanonMotion.NORMAL), label = "noShowTint")
+    val edge by animateColorAsState(if (locked) CanonBorder else CanonRed, tween(CanonMotion.NORMAL), label = "noShowEdge")
     OutlinedButton(
         onClick = { asking = true },
-        enabled = !sending,
+        enabled = !sending && !locked,
         shape = CanonFieldShape,
-        border = BorderStroke(1.dp, CanonRed),
+        border = BorderStroke(1.dp, edge),
         modifier = modifier.heightIn(min = 48.dp),
     ) {
         Text(
             appText("Не пришёл", "Килмәне"),
-            color = CanonRed, style = CanonButton, textAlign = TextAlign.Center,
+            color = tint, style = CanonButton, textAlign = TextAlign.Center,
         )
     }
     if (asking) {
@@ -168,6 +310,7 @@ internal fun NoShowButton(
                                     if (e is ApiException && e.detailCode == "passenger_onboard") {
                                         onBoarded(e.detail?.optInt("boarding_undo_sec")?.coerceAtLeast(0) ?: 0)
                                     }
+                                    if (e is ApiException) onRefused(e)
                                     Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
                                 }
                             sending = false

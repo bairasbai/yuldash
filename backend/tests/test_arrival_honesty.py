@@ -11,19 +11,28 @@
 старое приложение) пропускаем как раньше. Ложный отказ честному водителю дороже пропущенного
 обмана: кнопка, которая иногда не работает, убивает доверие ко всему приложению.
 """
+from datetime import timedelta
+
 import pytest
 
 from app import livepos
 from app.config import settings
 from app.models import UserRole
+from app.timeutil import utcnow
 
 # Баймак — координаты центра, чтобы «рядом» и «далеко» были из реальной географии.
 BAYMAK = (52.5906, 58.3169)
 FAR = (52.7200, 58.6600)          # ≈ 25 км от Баймака (сторона Сибая)
 
 
+def _soon() -> str:
+    """Выезд через 10 минут: «Подъезжаю» принимается не раньше чем за 30 минут до выезда (приёмка PR184),
+    поэтому GPS-проверку гоняем на поездке «сегодня», а не в 2030 году."""
+    return (utcnow() + timedelta(minutes=10)).isoformat() + "+00:00"
+
+
 def _publish(client, drv, **extra):
-    body = {"from_city": "Баймак", "to_city": "Сибай", "depart_at": "2030-01-01T10:00:00",
+    body = {"from_city": "Баймак", "to_city": "Сибай", "depart_at": _soon(),
             "seats_total": 3, "price": 300,
             "pickup_lat": BAYMAK[0], "pickup_lng": BAYMAK[1], **extra}
     r = client.post("/rides", headers=drv["auth"], json=body)
@@ -128,7 +137,7 @@ def test_ride_without_pickup_pin_is_not_blocked(client, user_factory, at):
     pax = user_factory("NoPinPax")
     r = client.post("/rides", headers=drv["auth"],
                     json={"from_city": "Баймак", "to_city": "Сибай",
-                          "depart_at": "2030-01-01T10:00:00", "seats_total": 3, "price": 300})
+                          "depart_at": _soon(), "seats_total": 3, "price": 300})
     assert r.status_code == 200, r.text
     ride = r.json()
     booking = client.post("/bookings", headers=pax["auth"],

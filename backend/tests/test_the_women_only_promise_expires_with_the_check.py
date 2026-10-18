@@ -25,9 +25,18 @@ from datetime import timedelta
 
 from sqlmodel import Session, select
 
+from app.config import settings
 from app.db import engine
 from app.models import DriverProfile, Ride, User, UserRole
 from app.timeutil import utcnow
+
+# Свой день для поездок этого файла. Лента отдаёт не больше 200 поездок, ближайшие первыми,
+# а в общей базе прогона на PostgreSQL их из Баймака сотни: поездка «на завтра» выпала из
+# первой страницы, и тест ловил «поездка исчезла из ленты» вместо проверки отметки (CI PR184,
+# 18.10.2026 — новые тесты добавили ещё поездок из Баймака). Ищем по своему дню — как
+# пассажирка, выбравшая дату в фильтре «Когда».
+_ВЫЕЗД = (utcnow() + timedelta(days=19)).replace(hour=7, minute=0, second=0, microsecond=0)
+_ДЕНЬ = (_ВЫЕЗД + timedelta(hours=settings.local_tz_offset_hours)).date().isoformat()
 
 
 def _подтверждённая_женщина(client, user_factory, метка: str):
@@ -44,7 +53,7 @@ def _подтверждённая_женщина(client, user_factory, метк�
 def _опубликовать_женскую(client, водитель):
     ответ = client.post("/rides", headers=водитель["auth"], json={
         "from_city": "Баймак", "to_city": "Сибай",
-        "depart_at": (utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat(),
+        "depart_at": _ВЫЕЗД.isoformat() + "+00:00",
         "seats_total": 3, "price": 300, "comment": "по трассе",
         "women_only": True,
     })
@@ -54,7 +63,7 @@ def _опубликовать_женскую(client, водитель):
 
 def _карточка_в_ленте(client, ride_id: int):
     """Ровно то, что видит пассажирка в ОБЩЕЙ ленте — без фильтра «только женщины»."""
-    лента = client.get("/rides", params={"from_city": "Баймак"}).json()
+    лента = client.get("/rides", params={"from_city": "Баймак", "date": _ДЕНЬ}).json()
     свои = [r for r in лента if r["id"] == ride_id]
     return свои[0] if свои else None
 
@@ -146,7 +155,7 @@ def test_обычная_поездка_проверенной_женщины_н�
     водитель, _ = _подтверждённая_женщина(client, user_factory, "ОбычнаяПоездка")
     ответ = client.post("/rides", headers=водитель["auth"], json={
         "from_city": "Баймак", "to_city": "Сибай",
-        "depart_at": (utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat(),
+        "depart_at": _ВЫЕЗД.isoformat() + "+00:00",
         "seats_total": 3, "price": 300, "comment": "по трассе",
         "women_only": False,
     })

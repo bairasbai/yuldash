@@ -3,11 +3,20 @@ package com.yuldash.app
 import android.app.Application
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -36,9 +45,12 @@ import java.util.concurrent.CopyOnWriteArrayList
  *
  *  • водитель: «Сел» рядом с «Не пришёл» → «Пассажир в машине» и «Отменить · 5:00»;
  *    «Отменить» возвращает «Сел»; отказ сервера — его словами;
- *  • «Не пришёл» (решение 18.10.2026): до срока от сервера (`no_show_at`: выезд + 15 минут) вместо
- *    кнопки спокойная подпись; после — кнопка, а нажатие сперва спрашивает «Точно не пришёл?»:
- *    «Да, не пришёл» зовёт сервер, «Подождать» — нет; отказ `no_show_too_early` — его словами;
+ *  • «Не пришёл» (решение 18.10.2026): до срока от сервера (`no_show_at`) кнопка неактивна, под ней
+ *    спокойная подпись; после — кнопка, а нажатие сперва спрашивает «Точно не пришёл?»:
+ *    «Да, не пришёл» зовёт сервер, «Подождать» — нет; отказ `no_show_too_early` — его словами,
+ *    и срок из отказа снова закрывает кнопку; «Сел» при наступлении срока не двигается;
+ *  • поездка с остановками (18.10.2026): до «Подъезжаю» на месте «Не пришёл» — «Подъезжаю» и подпись
+ *    «Сначала нажми «Подъезжаю»»; нажатие шлёт `driver-status` «arriving», ответ несёт новый срок;
  *  • пассажир: «Водитель отметит посадку» и «Сообщить о проблеме» (разбор с водителем брони).
  *
  * Правило `v2`, как у остальных сетевых тестов Compose: корутина продолжается на главном потоке,
@@ -97,13 +109,22 @@ class DriverBoardingControlsTest {
 
     private fun card(
         status: String = "confirmed", undoSec: Int = 0, language: AppLanguage = AppLanguage.Ru,
-        noShowAt: String? = null,
+        noShowAt: String? = null, needsArriving: Boolean = false, arrivingOpensAt: String? = null,
     ) = compose.setContent {
         CompositionLocalProvider(LocalAppLanguage provides language) {
             DriverBoardingControls(bookingId = 42, bookingStatus = status, boardingUndoSec = undoSec,
-                passengerId = 7, passengerName = "Айгуль", noShowAt = noShowAt)
+                passengerId = 7, passengerName = "Айгуль", noShowAt = noShowAt, noShowNeedsArriving = needsArriving,
+                arrivingOpensAt = arrivingOpensAt)
         }
     }
+
+    private fun waitForToast() = compose.waitUntil(15_000) {
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        ShadowToast.getTextOfLatestToast() != null
+    }
+
+    /** Границы «Сел» в корне, в пикселях. */
+    private fun boardedBounds() = compose.onNodeWithTag("driverBoardedButton").fetchSemanticsNode().boundsInRoot
 
     /** Момент `no_show_at` относительно «сейчас» в том виде, как его присылает сервер (UTC без «Z»). */
     private fun opensIn(offsetMs: Long): String =
@@ -184,21 +205,208 @@ class DriverBoardingControlsTest {
 
     // ── «Не пришёл» через ожидание и с вопросом «Точно?» (решение 18.10.2026) ──
 
-    /** Выезд через два часа: до срока кнопки нет — есть подпись, когда это станет можно. Сервер не зовём. */
-    @Test fun beforeTheWaitACalmNoteReplacesTheNoShowButton() {
+    /** Выезд через два часа: до срока «Не пришёл» на своём месте, но неактивна, под ней — когда станет
+     *  можно. Касание ничего не открывает и сервер не зовёт. */
+    @Test fun beforeTheWaitTheNoShowButtonIsLockedAndTheNoteSaysWhen() {
         card(noShowAt = opensIn(2 * 60 * 60_000L))
         compose.onNodeWithText("Не пришёл — можно отметить с", substring = true).assertIsDisplayed()
-        compose.onAllNodesWithText("Не пришёл").assertCountEquals(0)
-        // «Сел» при этом на месте и на всю ширину: посадку отмечают, когда человек подошёл, а не по часам.
-        compose.onNodeWithText("Сел").assertIsDisplayed()
+        compose.onNodeWithText("Не пришёл").assertIsNotEnabled()
+        compose.onNodeWithText("Не пришёл").performClick()
+        compose.onAllNodesWithText("Точно не пришёл?").assertCountEquals(0)
+        // «Сел» при этом работает: посадку отмечают, когда человек подошёл, а не по часам.
+        compose.onNodeWithText("Сел").assertIsEnabled()
         assertTrue(calls.isEmpty())
     }
 
     @Test fun afterTheWaitTheNoShowButtonIsBackAndTheNoteIsGone() {
         card(noShowAt = opensIn(-60_000L))
-        compose.onNodeWithText("Не пришёл").assertIsDisplayed()
+        compose.onNodeWithText("Не пришёл").assertIsEnabled()
         compose.onAllNodesWithText("Не пришёл — можно отметить с", substring = true).assertCountEquals(0)
         compose.onNodeWithText("Сел").assertIsDisplayed()
+    }
+
+    /**
+     * Приёмка PR182: срок наступил — «Сел» не перемигивает и не сжимается. Раньше смена «подпись →
+     * кнопка» анимировала весь ряд вместе с «Сел»: посреди смены их было два, а ширина прыгала с полной
+     * до половины. Теперь место «Не пришёл» занято с первого кадра — меняется только оно.
+     */
+    @Test fun boardedButtonStaysPutWhenTheWaitIsOver() {
+        var at by mutableStateOf<String?>(opensIn(2 * 60 * 60_000L))
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                DriverBoardingControls(bookingId = 42, bookingStatus = "confirmed", boardingUndoSec = 0,
+                    passengerId = 7, passengerName = "Айгуль", noShowAt = at)
+            }
+        }
+        compose.onNodeWithText("Не пришёл").assertIsNotEnabled()
+        val before = boardedBounds()
+        assertTrue("«Сел» — половина ряда, а не вся ширина", before.width > 0f)
+
+        // Середина смены: «Сел» один, на том же месте и той же ширины.
+        compose.mainClock.autoAdvance = false
+        at = opensIn(-60_000L)
+        Snapshot.sendApplyNotifications()
+        compose.mainClock.advanceTimeByFrame()
+        compose.mainClock.advanceTimeBy(CanonMotion.QUICK_MS.toLong() / 2)
+        compose.onAllNodesWithTag("driverBoardedButton").assertCountEquals(1)
+        compose.onAllNodesWithText("Сел").assertCountEquals(1)
+        assertEquals(before, boardedBounds())
+
+        // Смена закончилась: кнопка ожила, подписи нет, «Сел» там же.
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        compose.onNodeWithText("Не пришёл").assertIsEnabled()
+        compose.onAllNodesWithText("Не пришёл — можно отметить с", substring = true).assertCountEquals(0)
+        assertEquals(before, boardedBounds())
+    }
+
+    /** «Сел» той же ширины и до «Подъезжаю» на поездке с остановками: место справа занято так же. */
+    @Test fun boardedButtonIsTheSameWidthBeforeArrivingAndAfterTheWait() {
+        var needs by mutableStateOf(true)
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                DriverBoardingControls(bookingId = 42, bookingStatus = "confirmed", boardingUndoSec = 0,
+                    passengerId = 7, passengerName = "Айгуль",
+                    noShowAt = if (needs) null else opensIn(-60_000L), noShowNeedsArriving = needs)
+            }
+        }
+        compose.onNodeWithText("Подъезжаю").assertIsDisplayed()
+        val arriving = boardedBounds()
+        needs = false
+        compose.waitForIdle()
+        compose.onNodeWithText("Не пришёл").assertIsEnabled()
+        assertEquals(arriving, boardedBounds())
+    }
+
+    // ── Поездка с остановками: сначала «Подъезжаю» (решение 18.10.2026) ──
+
+    /** Пассажир ждёт на остановке: неявки нет, пока он не получил «Водитель подъезжает». */
+    @Test fun rideWithStopsOffersArrivingInsteadOfNoShow() {
+        card(needsArriving = true)
+        compose.onNodeWithText("Подъезжаю").assertIsEnabled()
+        compose.onNodeWithText("Сначала нажми «Подъезжаю» — пассажир получит уведомление").assertIsDisplayed()
+        compose.onAllNodesWithText("Не пришёл").assertCountEquals(0)
+        compose.onNodeWithText("Сел").assertIsEnabled()
+        assertTrue(calls.isEmpty())
+    }
+
+    /** «Подъезжаю» с карточки: тот же `driver-status`, что на экране поездки, и сразу новый срок —
+     *  «Не пришёл» на месте, неактивна, подпись «можно отметить с …». */
+    @Test fun arrivingFromTheCardSendsTheStatusAndShowsTheNewWait() {
+        val opens = opensIn(15 * 60_000L)
+        markReply = json("""{"ok":true,"driver_phase":"arriving","no_show_at":"$opens","no_show_wait_sec":900,"no_show_needs_arriving":false}""")
+        card(needsArriving = true)
+        val before = boardedBounds()
+        compose.onNodeWithText("Подъезжаю").performClick()
+        waitFor("Не пришёл — можно отметить с", substring = true)
+        assertEquals(listOf("""POST /bookings/42/driver-status {"status":"arriving"}"""), calls.toList())
+        compose.waitForIdle()
+        compose.onNodeWithText("Не пришёл").assertIsNotEnabled()
+        compose.onAllNodesWithText("Подъезжаю").assertCountEquals(0)
+        compose.onAllNodesWithText("Сначала нажми «Подъезжаю»", substring = true).assertCountEquals(0)
+        assertEquals("Пассажир уведомлён", ShadowToast.getTextOfLatestToast())
+        assertEquals(before, boardedBounds())
+    }
+
+    /** Сервер ответил «сначала Подъезжаю» (строка списка устарела) — карточка возвращает «Подъезжаю». */
+    @Test fun needsArrivingRefusalBringsTheArrivingButtonBack() {
+        noShowReply = json(
+            """{"detail":{"ru":"Сначала нажми «Подъезжаю» — пассажир получит уведомление. Неявку можно отметить через 15 минут после этого.","ba":"Башта «Яҡынлашам»ға баҫ.","code":"no_show_needs_arriving","no_show_at":null}}""",
+            409,
+        )
+        card(noShowAt = opensIn(-60_000L))
+        compose.onNodeWithText("Не пришёл").performClick()
+        compose.onNodeWithText("Да, не пришёл").performClick()
+        waitFor("Подъезжаю")
+        compose.waitForIdle()
+        compose.onNodeWithText("Сначала нажми «Подъезжаю» — пассажир получит уведомление").assertIsDisplayed()
+        compose.onAllNodesWithText("Не пришёл").assertCountEquals(0)
+        compose.onAllNodesWithText("Отмечена неявка", substring = true).assertCountEquals(0)
+    }
+
+    /** Приёмка PR184: «Подъезжаю» — не раньше чем за 30 минут до выезда. До этого кнопка на месте, но
+     *  неактивна, а подпись говорит, с какого момента её можно нажать. Сервер не зовём. */
+    @Test fun arrivingIsLockedUntilThirtyMinutesBeforeDeparture() {
+        card(needsArriving = true, arrivingOpensAt = opensIn(2 * 60 * 60_000L))
+        compose.onNodeWithText("Подъезжаю").assertIsNotEnabled()
+        compose.onNodeWithText("«Подъезжаю» можно нажать с", substring = true).assertIsDisplayed()
+        compose.onAllNodesWithText("Сначала нажми «Подъезжаю»", substring = true).assertCountEquals(0)
+        compose.onNodeWithText("Подъезжаю").performClick()
+        compose.onNodeWithText("Сел").assertIsEnabled()
+        assertTrue("до срока «Подъезжаю» не уходит: $calls", calls.isEmpty())
+    }
+
+    /** Срок «Подъезжаю» уже прошёл — кнопка активна, подпись прежняя. */
+    @Test fun arrivingOpensAtItsMoment() {
+        card(needsArriving = true, arrivingOpensAt = opensIn(-60_000L))
+        compose.onNodeWithText("Подъезжаю").assertIsEnabled()
+        compose.onNodeWithText("Сначала нажми «Подъезжаю» — пассажир получит уведомление").assertIsDisplayed()
+    }
+
+    /** Часы телефона спешат: карточка решила, что уже можно, а сервер ответил «рано» — его словами, и кнопка
+     *  снова неактивна по секундам сервера. */
+    @Test fun arrivingTooEarlyRefusalLocksTheButtonAgain() {
+        markReply = json(
+            """{"detail":{"ru":"Рано: «Подъезжаю» можно нажать за 30 минут до выезда — пассажир выйдет к машине вовремя.","ba":"Иртә.","code":"arriving_too_early","arriving_opens_at":"${opensIn(-30_000L)}","arriving_wait_sec":600}}""",
+            409,
+        )
+        card(needsArriving = true, arrivingOpensAt = opensIn(-60_000L))
+        compose.onNodeWithText("Подъезжаю").performClick()
+        waitForToast()
+        assertEquals(
+            "Рано: «Подъезжаю» можно нажать за 30 минут до выезда — пассажир выйдет к машине вовремя.",
+            ShadowToast.getTextOfLatestToast(),
+        )
+        waitFor("«Подъезжаю» можно нажать с", substring = true)
+        compose.onNodeWithText("Подъезжаю").assertIsNotEnabled()
+        compose.onAllNodesWithText("Не пришёл").assertCountEquals(0)
+    }
+
+    /**
+     * Приёмка PR184: на экране 360dp половина ряда — 148dp (список 16 + 16, карточка 12 + 12, зазор 8:
+     * (360 − 32 − 24 − 8) / 2). С иконкой и полями AppButton «Подъезжаю» не влезала и переносилась посреди
+     * слова. Теперь одна строка без обрезки на обоих языках, высота — как у «Сел».
+     */
+    private fun arrivingFitsHalfOfA360dpCard(language: AppLanguage, label: String) {
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides language) {
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.width(304.dp)) {
+                    DriverBoardingControls(bookingId = 42, bookingStatus = "confirmed", boardingUndoSec = 0,
+                        passengerId = 7, passengerName = "Айгуль", noShowNeedsArriving = true)
+                }
+            }
+        }
+        val node = compose.onNodeWithText(label, useUnmergedTree = true).fetchSemanticsNode()
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        node.config[androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
+        val layout = layouts.single()
+        // Не `hasVisualOverflow`: он сравнивает ширину узла с шириной абзаца, а центрованный абзац
+        // в одну строку размечается на всю доступную ширину — флаг загорается и тогда, когда слово
+        // целиком на месте (CI PR184). Человеку важно другое: слово не обрезано многоточием и буквы
+        // помещаются в кнопку. Это и проверяем; размеры — в сообщении, чтобы падение было понятным.
+        val glyphs = layout.getLineRight(0) - layout.getLineLeft(0)
+        val sizes = "size=${layout.size}; glyphs=$glyphs; paragraph=${layout.multiParagraph.width}; " +
+            "constraints=${layout.layoutInput.constraints}"
+        assertEquals("«$label» — одной строкой; $sizes", 1, layout.lineCount)
+        assertTrue("«$label» не обрезана многоточием; $sizes", !layout.isLineEllipsized(0))
+        // С местом, которое кнопка отдаёт надписи (а не с шириной самого узла — та округляется и на
+        // CI вышла 95 при буквах 96.0: «Яҡынлашам» на месте, ошибка в долю точки).
+        assertTrue("«$label» помещается в кнопку; $sizes",
+            glyphs <= layout.layoutInput.constraints.maxWidth + 0.5f)
+        val arriving = compose.onNodeWithTag("driverArrivingButton").fetchSemanticsNode().boundsInRoot
+        assertEquals("высота «$label» = высота «Сел»", boardedBounds().height, arriving.height, 0.5f)
+        assertEquals("обе кнопки — половина ряда", boardedBounds().width, arriving.width, 0.5f)
+    }
+
+    @Test fun arrivingFitsHalfOfA360dpCardInRussian() = arrivingFitsHalfOfA360dpCard(AppLanguage.Ru, "Подъезжаю")
+
+    @Test fun arrivingFitsHalfOfA360dpCardInBashkir() = arrivingFitsHalfOfA360dpCard(AppLanguage.Ba, "Яҡынлашам")
+
+    @Test fun bashkirArrivingForTheDriver() {
+        card(language = AppLanguage.Ba, needsArriving = true)
+        compose.onNodeWithText("Яҡынлашам").assertIsEnabled()
+        compose.onNodeWithText("Башта «Яҡынлашам»ға баҫ — пассажир хәбәр алыр").assertIsDisplayed()
+        compose.onNodeWithText("Ултырҙы").assertIsDisplayed()
     }
 
     @Test fun tapOpensTheQuestionAndSendsNothingYet() {
@@ -233,33 +441,47 @@ class DriverBoardingControlsTest {
         assertEquals(1, calls.count { it.startsWith("POST /bookings/42/no-show") })
     }
 
-    /** На телефоне время ушло вперёд (или выезд перенесли): сервер говорит «рано» — человек читает его слова. */
-    @Test fun tooEarlyAnswerShowsTheServerWordsAndKeepsTheCard() {
+    /** Строка списка устарела («Подъезжаю» нажали с другого телефона): сервер говорит «рано» — человек
+     *  читает его слова, а срок из отказа снова закрывает кнопку и возвращает подпись (приёмка PR182). */
+    @Test fun tooEarlyAnswerShowsTheServerWordsAndLocksTheButtonAgain() {
         noShowReply = json(
-            """{"detail":{"ru":"Пока рано: пассажир ещё может подойти. Неявку можно отметить через 15 минут после времени выезда.","ba":"Әле иртә.","code":"no_show_too_early","no_show_wait_sec":600,"no_show_at":"2030-01-01T05:15:00"}}""",
+            """{"detail":{"ru":"Пока рано: пассажир ещё может подойти. Неявку можно отметить через 15 минут после «Подъезжаю».","ba":"Әле иртә.","code":"no_show_too_early","no_show_wait_sec":600,"no_show_at":"${opensIn(10 * 60_000L)}"}}""",
             409,
         )
         card(noShowAt = opensIn(-60_000L))
         compose.onNodeWithText("Не пришёл").performClick()
         compose.onNodeWithText("Да, не пришёл").performClick()
-        compose.waitUntil(15_000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-            ShadowToast.getTextOfLatestToast() != null
-        }
+        waitForToast()
         assertEquals(
-            "Пока рано: пассажир ещё может подойти. Неявку можно отметить через 15 минут после времени выезда.",
+            "Пока рано: пассажир ещё может подойти. Неявку можно отметить через 15 минут после «Подъезжаю».",
             ShadowToast.getTextOfLatestToast(),
         )
+        waitFor("Не пришёл — можно отметить с", substring = true)
         compose.onAllNodesWithText("Точно не пришёл?").assertCountEquals(0)
         compose.onNodeWithText("Сел").assertIsDisplayed()
-        compose.onNodeWithText("Не пришёл").assertIsDisplayed()
+        compose.onNodeWithText("Не пришёл").assertIsNotEnabled()
         compose.onAllNodesWithText("Отмечена неявка", substring = true).assertCountEquals(0)
+    }
+
+    /** Часы телефона спешат: по `no_show_at` срок уже прошёл, а сервер говорит «ещё 10 минут». Карточка
+     *  ждёт по секундам сервера (`no_show_wait_sec`) и не показывает кнопку, на которую ответили «рано». */
+    @Test fun tooEarlyWithAFastPhoneClockWaitsByTheServerSeconds() {
+        noShowReply = json(
+            """{"detail":{"ru":"Пока рано: пассажир ещё может подойти. Неявку можно отметить через 15 минут после времени выезда.","ba":"Әле иртә.","code":"no_show_too_early","no_show_wait_sec":600,"no_show_at":"${opensIn(-30_000L)}"}}""",
+            409,
+        )
+        card(noShowAt = opensIn(-60_000L))
+        compose.onNodeWithText("Не пришёл").performClick()
+        compose.onNodeWithText("Да, не пришёл").performClick()
+        waitForToast()
+        waitFor("Не пришёл — можно отметить с", substring = true)
+        compose.onNodeWithText("Не пришёл").assertIsNotEnabled()
     }
 
     @Test fun bashkirNoteAndQuestionForTheDriver() {
         card(language = AppLanguage.Ba, noShowAt = opensIn(2 * 60 * 60_000L))
         compose.onNodeWithText("Килмәне — ", substring = true).assertIsDisplayed()
-        compose.onAllNodesWithText("Килмәне").assertCountEquals(0)
+        compose.onNodeWithText("Килмәне").assertIsNotEnabled()
     }
 
     @Test fun bashkirQuestionAfterTheWait() {

@@ -3,6 +3,12 @@ package com.yuldash.app
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -41,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.BoardingApi
 import com.yuldash.app.data.BoardingResult
+import com.yuldash.app.data.NoShowTerms
+import com.yuldash.app.data.afterRefusal
 import com.yuldash.app.data.TripReceiptDto
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -50,7 +58,8 @@ import kotlinx.coroutines.launch
 // отметил «Не пришёл», а нажатое по ошибке было не вернуть. Теперь:
 //  • водитель — «Сел» рядом с «Не пришёл» на карточке подтверждённого пассажира (кабинет) и
 //    «Пассажир сел» на экране поездки; промахнулся карточкой — «Отменить» в первые 5 минут;
-//    «Не пришёл» появляется через 15 минут после выезда (срок — от сервера) и спрашивает «Точно?»;
+//    «Не пришёл» оживает через 15 минут после выезда или «Подъезжаю» — что позже (срок от сервера)
+//    и спрашивает «Точно?»; на поездке с остановками до «Подъезжаю» на её месте — «Подъезжаю»;
 //  • пассажир — «Водитель отметит посадку» и «Сообщить о проблеме»; код посадки виден ему,
 //    пока водитель не отметил посадку (BoardingCodeRules.kt).
 // Сервер — bookings.py (`_mark_boarded`, `undo_boarded`), сайт — DriverBoarding.tsx / BoardingWait.tsx.
@@ -62,7 +71,8 @@ internal fun boardingUndoClock(sec: Int): String {
 }
 
 /**
- * Карточка пассажира в «Едут с тобой»: подтверждённому — «Сел» рядом с «Не пришёл»; «в пути» —
+ * Карточка пассажира в «Едут с тобой»: подтверждённому — «Сел» рядом с «Не пришёл» (или «Подъезжаю»
+ * на поездке с остановками, [ConfirmedPassengerControls]); «в пути» —
  * «Пассажир в машине» и «Отменить · 4:59», пока можно, потом — разбор. Итог действия виден сразу,
  * не дожидаясь, пока кабинет перечитает список: статус с сервера сменится — карточка начнёт с него.
  */
@@ -76,8 +86,12 @@ internal fun DriverBoardingControls(
     modifier: Modifier = Modifier,
     passengerId: Int = 0,
     passengerName: String = "",
-    // С какого момента доступна «Не пришёл» (ISO UTC, `no_show_at` из /driver/bookings); null — старый сервер.
+    // С какого момента доступна «Не пришёл» (ISO UTC, `no_show_at` из /driver/bookings); null — срока нет / старый сервер.
     noShowAt: String? = null,
+    // Поездка с остановками ждёт «Подъезжаю» по этой брони (`no_show_needs_arriving`, 18.10.2026).
+    noShowNeedsArriving: Boolean = false,
+    // С какого момента можно нажать «Подъезжаю» (`arriving_opens_at`: за 30 минут до выезда); null — старый сервер.
+    arrivingOpensAt: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
@@ -87,46 +101,26 @@ internal fun DriverBoardingControls(
     val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
     AnimatedContent(targetState = shown, modifier = modifier.fillMaxWidth(), label = "driverBoarding") { state ->
         when (state) {
-            "confirmed" -> {
-                // «Не пришёл» — не раньше срока от сервера (выезд + 15 минут): до него на месте кнопки
-                // спокойная подпись, потом — кнопка, а нажатие сперва спрашивает «Точно?» (18.10.2026).
-                val noShowReady by rememberNoShowOpen(noShowAt)
-                AnimatedContent(targetState = noShowReady, modifier = Modifier.fillMaxWidth(), label = "noShowReady") { ready ->
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-                            AppButton(
-                                text = appText("Сел", "Ултырҙы"),
-                                onClick = {
-                                    if (!marking) {
-                                        marking = true
-                                        scope.launch {
-                                            BoardingApi.markBoarded(bookingId)
-                                                .onSuccess { r -> undoSec = r.undoSec; shown = r.status.ifBlank { "onboard" } }
-                                                .onFailure { e -> Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show() }
-                                            marking = false
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                style = AppButtonStyle.Secondary,
-                                icon = Icons.Default.Check,
-                                loading = marking,
-                                fillWidth = false,
-                                height = 48.dp,
-                            )
-                            if (ready) {
-                                NoShowButton(
-                                    bookingId = bookingId,
-                                    onSent = { shown = "no_show" },
-                                    onBoarded = { sec -> undoSec = sec; shown = "onboard" },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
+            "confirmed" -> ConfirmedPassengerControls(
+                bookingId = bookingId,
+                noShowAt = noShowAt,
+                noShowNeedsArriving = noShowNeedsArriving,
+                arrivingOpensAt = arrivingOpensAt,
+                marking = marking,
+                onMark = {
+                    if (!marking) {
+                        marking = true
+                        scope.launch {
+                            BoardingApi.markBoarded(bookingId)
+                                .onSuccess { r -> undoSec = r.undoSec; shown = r.status.ifBlank { "onboard" } }
+                                .onFailure { e -> Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show() }
+                            marking = false
                         }
-                        if (!ready) NoShowWaitNote(noShowAt)
                     }
-                }
-            }
+                },
+                onNoShowSent = { shown = "no_show" },
+                onBoarded = { sec -> undoSec = sec; shown = "onboard" },
+            )
             "onboard" -> BoardingInCarRow(
                 bookingId = bookingId,
                 undoSec = undoSec,
@@ -134,6 +128,104 @@ internal fun DriverBoardingControls(
             ) { BoardedDisputeBlock(bookingId, passengerId, passengerName) }
             "no_show" -> NoShowSentNote()
             else -> Box(Modifier)   // ждёт ответа / закрыта — ни посадке, ни неявке не место
+        }
+    }
+}
+
+/** Что стоит справа от «Сел» у подтверждённого пассажира. */
+internal enum class NoShowSlot { Arriving, Waiting, Ready }
+
+/**
+ * Решение без часов и сети: поездка с остановками ждёт «Подъезжаю» — «Подъезжаю»; срок не наступил —
+ * неактивная «Не пришёл» и подпись «можно отметить с …»; наступил или его нет — «Не пришёл».
+ */
+internal fun noShowSlot(needsArriving: Boolean, open: Boolean): NoShowSlot = when {
+    needsArriving -> NoShowSlot.Arriving
+    open -> NoShowSlot.Ready
+    else -> NoShowSlot.Waiting
+}
+
+/**
+ * Подтверждённый пассажир: «Сел» и справа — место «Не пришёл» (решения 17.10 и 18.10.2026).
+ *
+ * Место справа занято с первого кадра, «Сел» всегда в левой половине и не участвует ни в одной
+ * анимации (приёмка PR182: раньше переход «подпись → кнопка» анимировал весь ряд, и «Сел» в момент
+ * срока перемигивал и сжимался с полной ширины до половины). Меняется только содержимое справа:
+ * «Подъезжаю» → неактивная «Не пришёл» → «Не пришёл» (плавная смена, цвет кнопки оживает), а
+ * подпись под рядом выезжает и уезжает. Срок — от сервера: из строки списка, из ответа «Подъезжаю»
+ * и из отказа «рано» ([NoShowTerms]); своих 15 минут карточка не держит.
+ */
+@Composable
+private fun ConfirmedPassengerControls(
+    bookingId: Int,
+    noShowAt: String?,
+    noShowNeedsArriving: Boolean,
+    arrivingOpensAt: String?,
+    marking: Boolean,
+    onMark: () -> Unit,
+    onNoShowSent: () -> Unit,
+    onBoarded: (undoSec: Int) -> Unit,
+) {
+    var terms by remember(bookingId, noShowAt, noShowNeedsArriving, arrivingOpensAt) {
+        mutableStateOf(NoShowTerms(noShowAt = noShowAt, needsArriving = noShowNeedsArriving, arrivingOpensAt = arrivingOpensAt))
+    }
+    val opensAt = remember(terms) { terms.opensAtMs() }
+    val open by rememberNoShowOpen(opensAt)
+    // «Подъезжаю» — не раньше чем за 30 минут до выезда (приёмка PR184); часы тикают, только пока ждём её.
+    val arrivingAt = remember(terms) { if (terms.needsArriving) terms.arrivingOpensAtMs() else null }
+    val arrivingOpen by rememberNoShowOpen(arrivingAt)
+    val onRefused: (ApiException) -> Unit = { e -> terms.afterRefusal(e.detailCode, e.detail)?.let { terms = it } }
+    val slot = noShowSlot(terms.needsArriving, open)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            AppButton(
+                text = appText("Сел", "Ултырҙы"),
+                onClick = onMark,
+                modifier = Modifier.weight(1f).testTag("driverBoardedButton"),
+                style = AppButtonStyle.Secondary,
+                icon = Icons.Default.Check,
+                loading = marking,
+                fillWidth = false,
+                height = 48.dp,
+            )
+            AnimatedContent(
+                targetState = slot == NoShowSlot.Arriving,
+                modifier = Modifier.weight(1f),
+                transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
+                label = "noShowSlot",
+            ) { arriving ->
+                if (arriving) {
+                    ArrivingButton(
+                        bookingId,
+                        onArrived = { terms = it },
+                        modifier = Modifier.fillMaxWidth().testTag("driverArrivingButton"),
+                        locked = !arrivingOpen,
+                        onRefused = onRefused,
+                    )
+                } else {
+                    NoShowButton(
+                        bookingId = bookingId,
+                        onSent = onNoShowSent,
+                        onBoarded = onBoarded,
+                        modifier = Modifier.fillMaxWidth(),
+                        locked = slot == NoShowSlot.Waiting,
+                        onRefused = onRefused,
+                    )
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = slot != NoShowSlot.Ready,
+            enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL)),
+            exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.NORMAL)),
+        ) {
+            AnimatedContent(targetState = terms.needsArriving, label = "noShowNote") { needs ->
+                if (needs) {
+                    NoShowNeedsArrivingNote(arrivingFrom = terms.arrivingOpensAt.takeIf { !arrivingOpen })
+                } else {
+                    NoShowWaitNote(terms.noShowAt)
+                }
+            }
         }
     }
 }

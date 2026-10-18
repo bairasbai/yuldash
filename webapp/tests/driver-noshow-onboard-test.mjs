@@ -11,13 +11,13 @@ import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const h = (globalThis.__drvPax = { states: [], si: 0, effects: [], fetches: 0, noShows: [] });
+const h = (globalThis.__drvPax = { states: [], si: 0, effects: [], fetches: 0, noShows: [], arrivings: [] });
 const modules = {
   react: `const h=globalThis.__drvPax; export function useState(v){const i=h.si++; if(!(i in h.states))h.states[i]=typeof v==='function'?v():v; return [h.states[i],x=>h.states[i]=typeof x==='function'?x(h.states[i]):x]}; export const useEffect=fn=>{h.effects.push(fn)}; export const useCallback=fn=>fn;`,
   "react/jsx-runtime": `export const Fragment='fragment'; export const jsx=(type,props,key)=>({type,props:props??{},key}); export const jsxs=jsx;`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>{if(!ba||!ba.trim())throw new Error('одноязычная строка: '+ru);return ru},t:k=>k});`,
   client: `export class ApiError extends Error { constructor(status,message){super(message);this.status=status;} }; globalThis.__drvPax.ApiError=ApiError;`,
-  bookings: `const h=globalThis.__drvPax; export const fetchDriverBookings=()=>{h.fetches++;return Promise.resolve(h.rows)}; export const markNoShow=id=>{h.noShows.push(id);return h.noShowResult()}; export const rateBooking=()=>Promise.resolve();`,
+  bookings: `const h=globalThis.__drvPax; export const fetchDriverBookings=()=>{h.fetches++;return Promise.resolve(h.rows)}; export const markNoShow=id=>{h.noShows.push(id);return h.noShowResult()}; export const markArriving=id=>{h.arrivings.push(id);return Promise.resolve({ok:true,driver_phase:'arriving'})}; export const rateBooking=()=>Promise.resolve();`,
   states: `export const LoadingList='loading';`,
   icons: `export const IconProfile='icon'; export const IconStar='icon';`,
   card: `export default 'FileIncidentCard';`,
@@ -83,6 +83,7 @@ const noShowCtl = noShowOf(confirmedRow);
 assert.ok(noShowCtl, "по подтверждённой брони неявку отметить можно");
 assert.equal(noShowCtl.props.noShowAt, OPENS, "срок «Не вышел» берётся из строки брони, а не из головы сайта");
 assert.equal(noShowCtl.props.busy, false);
+assert.equal(noShowCtl.props.needsArriving, false, "поездка без остановок — «Подъезжаю» не нужна");
 // «Сел» рядом с «Не вышел»: посадку отмечает водитель (решение 17.10.2026).
 const sat = boardingOf(confirmedRow);
 assert.ok(sat, "у подтверждённого пассажира нет «Сел»");
@@ -129,6 +130,24 @@ assert.equal(h.fetches, beforeReload + 1, "после «Сел» список п
 boardingOf(rowOf(tree, 1)).props.onError("Посадку можно отметить за 30 минут до выезда — не раньше");
 assert.equal(h.states[3], "Посадку можно отметить за 30 минут до выезда — не раньше");
 
+// Поездка с остановками (18.10.2026): признак из строки уходит в «Не вышел», а «Подъезжаю» с карточки —
+// тот же driver-status, что на экране поездки; после него список перечитан (придёт новый срок).
+h.states = ["ready", [{ ...rows[0], booking_id: 4, no_show_at: null, no_show_needs_arriving: true,
+  arriving_opens_at: "2030-01-01T04:30:00", arriving_wait_sec: 120, no_show_wait_sec: 0 }], null, "", null, []];
+tree = render();
+const stopCtl = noShowOf(rowOf(tree, 4));
+assert.equal(stopCtl.props.needsArriving, true, "признак «сначала Подъезжаю» — из строки брони");
+assert.equal(stopCtl.props.arrivingOpensAt, "2030-01-01T04:30:00", "срок «Подъезжаю» — из строки брони (приёмка PR184)");
+assert.equal(stopCtl.props.arrivingWaitSec, 120);
+assert.equal(stopCtl.props.noShowWaitSec, 0);
+const beforeArriving = h.fetches;
+stopCtl.props.onArriving();
+await tick(); await tick();
+assert.deepEqual(h.arrivings, [4], "«Подъезжаю» ушла по этой брони");
+assert.equal(h.fetches, beforeArriving + 1, "после «Подъезжаю» список перечитан");
+assert.equal(h.states[3], "Пассажир уведомлён", "как тост в приложении: водитель видит, что уведомление ушло");
+assert.deepEqual(h.noShows, [1], "неявка не отправлялась");
+
 // Старый сервер без passenger_id и без boarding_undo_sec: объяснение есть, «Не вышел» по-прежнему нет.
 h.states = ["ready", [{ ...rows[1], booking_id: 3, passenger_id: undefined, boarding_undo_sec: undefined }], null, "", null, []];
 tree = render();
@@ -138,6 +157,7 @@ assert.match(text(rowOf(tree, 3)), DISPUTE);
 
 console.log("✓ подтверждённый пассажир: «Сел» перед «Не вышел», срок «Не вышел» — из строки брони");
 console.log("✓ «в пути»: «Не вышел» спрятан, отметка с окном отмены, разбор внутри неё");
+console.log("✓ поездка с остановками: признак из строки брони, «Подъезжаю» с карточки и перечитывание списка");
 console.log("✓ разбор открывается по брони с типом passenger_no_show");
 console.log("✓ 409 от сервера перечитывает список; «Сел»/«Отменить» перечитывают без аргументов");
 console.log("✓ старый сервер без passenger_id — неявки нет, объяснение есть");

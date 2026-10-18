@@ -39,7 +39,8 @@ def pushes(monkeypatch) -> list:
 def _confirmed_booking(client, user_factory, tag: str):
     drv = user_factory(f"{tag}Drv", role=UserRole.driver)
     pax = user_factory(f"{tag}Pax", role=UserRole.passenger)
-    depart = (utcnow() + timedelta(hours=settings.local_tz_offset_hours, days=1)).replace(microsecond=0)
+    # Выезд через 10 минут: «Подъезжаю» раньше чем за 30 минут до выезда сервер не принимает (приёмка PR184).
+    depart = (utcnow() + timedelta(hours=settings.local_tz_offset_hours, minutes=10)).replace(microsecond=0)
     ride = client.post("/rides", headers=drv["auth"], json={
         "from_city": "Баймак", "to_city": "Уфа", "seats_total": 3, "price": 700,
         "depart_at": depart.isoformat(),

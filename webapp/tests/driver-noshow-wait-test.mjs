@@ -7,10 +7,13 @@
 //  а место ушло в продажу. У BlaBlaCar водитель ждёт 15 минут после времени выезда.
 //
 //  Что стало. Срок знает сервер (`no_show_at` в строке брони), сайт 15 минут у себя не держит:
-//   • до срока вместо кнопки — подпись «можно отметить с 18.10, 14:35»;
-//   • после — кнопка, нажатие открывает «Точно не вышел?» и ничего не отправляет;
+//   • до срока кнопка на месте, но неактивна, под ней — подпись «можно отметить с 18.10, 14:35»
+//     (место занято заранее — «Сел» рядом не сдвигается, приёмка PR182);
+//   • после — кнопка оживает, нажатие открывает «Точно не вышел?» и ничего не отправляет;
 //   • «Да, не вышел» отправляет (зовёт родителя), «Подождать» закрывает окно, бронь не тронута;
-//   • срока нет (старый сервер) — кнопка есть, последнее слово за сервером (409 no_show_too_early).
+//   • срока нет (старый сервер) — кнопка есть, последнее слово за сервером (409 no_show_too_early);
+//   • поездка с остановками без «Подъезжаю» (`no_show_needs_arriving`, 18.10.2026) — на месте кнопки
+//     «Подъезжаю» и подпись «Сначала нажми «Подъезжаю» — пассажир получит уведомление», таймера нет.
 //
 //  Исполняем настоящий DriverNoShow (shallow-harness.mjs): часы и таймер подменены, чтобы «подпись
 //  → кнопка» проверялась точно, а не «подождём минуту».
@@ -53,24 +56,31 @@ const MIN = 60_000;
 for (const lang of ["ru", "ba"]) {
   const L = (ru, ba) => (lang === "ba" ? ba : ru);
   const NO_SHOW = L("Не вышел", "Сыҡманы");
+  const ARRIVING = L("Подъезжаю", "Яҡынлашам");
 
-  async function mountAt({ noShowAt, busy = false, now = NOW }) {
+  async function mountAt({ noShowAt, noShowWaitSec, needsArriving, arrivingOpensAt, arrivingWaitSec, busy = false, now = NOW }) {
     const Ctl = await view(lang);   // сборка — до подмены часов
     const clock = fakeClock(now);
     const sent = [];
-    const h = mount(Ctl, { noShowAt, busy, onConfirm: () => sent.push("confirm") });
+    const h = mount(Ctl, {
+      noShowAt, noShowWaitSec, needsArriving, arrivingOpensAt, arrivingWaitSec, busy,
+      onConfirm: () => sent.push("confirm"),
+      onArriving: () => sent.push("arriving"),
+    });
     h.render();
     return { h, clock, sent };
   }
 
-  await t.test(`${lang}: до срока вместо кнопки — подпись «можно отметить с …», диалога нет`, async () => {
+  await t.test(`${lang}: до срока кнопка на месте, но неактивна; под ней — «можно отметить с …»`, async () => {
     const opens = NOW + 2 * 60 * MIN;
     const { h, clock, sent } = await mountAt({ noShowAt: naiveUtc(opens) });
     try {
-      assert.equal(button(h.tree, NO_SHOW), undefined, "кнопки «Не вышел» до срока быть не должно");
+      const btn = button(h.tree, NO_SHOW);
+      assert.ok(btn, "место «Не вышел» занято заранее — «Сел» рядом не сдвинется, когда срок наступит");
+      assert.equal(btn.props.disabled, true, "до срока кнопка неактивна");
       assert.equal(ofType(h.tree, "AlertDialog").length, 0);
       const note = all(h.tree).find((n) => n.props?.role === "note");
-      assert.ok(note, "вместо кнопки — спокойная подпись");
+      assert.ok(note, "под кнопкой — спокойная подпись");
       assert.equal(
         text(note),
         L(`Не вышел — можно отметить с ${localClock(opens)}`, `Сыҡманы — ${localClock(opens)} үткәс кенә билдәләп була`),
@@ -133,19 +143,97 @@ for (const lang of ["ru", "ba"]) {
     } finally { h.unmount(); clock.restore(); }
   });
 
-  await t.test(`${lang}: подпись сама сменяется кнопкой в нужную секунду, таймер после этого снимается`, async () => {
+  await t.test(`${lang}: кнопка сама оживает в нужную секунду, подпись уходит, таймер снимается`, async () => {
     const opens = NOW + 90 * 1000;   // через полторы минуты
     const { h, clock } = await mountAt({ noShowAt: naiveUtc(opens) });
     try {
-      assert.equal(button(h.tree, NO_SHOW), undefined);
+      assert.equal(button(h.tree, NO_SHOW).props.disabled, true);
       assert.equal(clock.timers.size, 1, "пока ждём — тикает один таймер");
       clock.tick(89 * 1000);
       await h.settle();
-      assert.equal(button(h.tree, NO_SHOW), undefined, "за секунду до срока кнопки ещё нет");
+      assert.equal(button(h.tree, NO_SHOW).props.disabled, true, "за секунду до срока кнопка ещё неактивна");
       clock.tick(1000);
       await h.settle();
-      assert.ok(button(h.tree, NO_SHOW), "ровно в срок кнопка появилась");
+      assert.equal(button(h.tree, NO_SHOW).props.disabled, false, "ровно в срок кнопка ожила");
+      assert.equal(all(h.tree).find((n) => n.props?.role === "note"), undefined, "подпись ушла");
       assert.equal(clock.timers.size, 0, "срок наступил — таймер снят");
+    } finally { h.unmount(); clock.restore(); }
+  });
+
+  await t.test(`${lang}: поездка с остановками — на месте кнопки «Подъезжаю» и подпись, таймера нет`, async () => {
+    const { h, clock, sent } = await mountAt({ noShowAt: null, needsArriving: true });
+    try {
+      assert.equal(button(h.tree, NO_SHOW), undefined, "«Не вышел» до «Подъезжаю» нет");
+      const arriving = button(h.tree, ARRIVING);
+      assert.ok(arriving, "на её месте — «Подъезжаю»");
+      assert.equal(arriving.props.disabled, false);
+      assert.match(arriving.props.className, /noshow-slot/, "то же место, что у «Не вышел»");
+      const note = all(h.tree).find((n) => n.props?.role === "note");
+      assert.equal(
+        text(note),
+        L("Сначала нажми «Подъезжаю» — пассажир получит уведомление", "Башта «Яҡынлашам»ға баҫ — пассажир хәбәр алыр")
+      );
+      assert.equal(clock.timers.size, 0, "срока ещё нет — часы не тикают");
+      arriving.props.onClick();
+      await h.settle();
+      assert.deepEqual(sent, ["arriving"], "«Подъезжаю» зовёт родителя, неявку не шлёт");
+      assert.equal(ofType(h.tree, "AlertDialog").length, 0);
+    } finally { h.unmount(); clock.restore(); }
+  });
+
+  await t.test(`${lang}: «Подъезжаю» нажата — родитель перечитал список, пришёл срок: кнопка на месте, неактивна`, async () => {
+    const { h, clock } = await mountAt({ noShowAt: null, needsArriving: true });
+    try {
+      h.props = { ...h.props, noShowAt: naiveUtc(NOW + 15 * MIN), needsArriving: false };
+      h.render();
+      await h.settle();
+      assert.equal(button(h.tree, ARRIVING), undefined);
+      assert.equal(button(h.tree, NO_SHOW).props.disabled, true);
+      assert.ok(text(all(h.tree).find((n) => n.props?.role === "note")).includes(localClock(NOW + 15 * MIN)));
+      assert.equal(clock.timers.size, 1, "срок впереди — тикает один таймер");
+    } finally { h.unmount(); clock.restore(); }
+  });
+
+  await t.test(`${lang}: «Подъезжаю» раньше чем за 30 минут до выезда — на месте, но неактивна; подпись — когда можно`, async () => {
+    const opens = NOW + 2 * 60 * MIN;
+    const { h, clock, sent } = await mountAt({ needsArriving: true, arrivingOpensAt: naiveUtc(opens), arrivingWaitSec: 2 * 60 * 60 });
+    try {
+      const arriving = button(h.tree, ARRIVING);
+      assert.equal(arriving.props.disabled, true, "до срока «Подъезжаю» неактивна (приёмка PR184)");
+      assert.equal(
+        text(all(h.tree).find((n) => n.props?.role === "note")),
+        L(`«Подъезжаю» можно нажать с ${localClock(opens)}`, `«Яҡынлашам»ға ${localClock(opens)} үткәс кенә баҫып була`)
+      );
+      assert.equal(clock.timers.size, 1, "пока ждём «Подъезжаю» — тикает один таймер");
+      clock.tick(2 * 60 * MIN);
+      await h.settle();
+      assert.equal(button(h.tree, ARRIVING).props.disabled, false, "в срок «Подъезжаю» ожила");
+      assert.ok(text(all(h.tree).find((n) => n.props?.role === "note")).includes(L("Сначала нажми", "Башта")));
+      assert.equal(clock.timers.size, 0, "срок наступил — таймер снят");
+      assert.deepEqual(sent, []);
+    } finally { h.unmount(); clock.restore(); }
+  });
+
+  await t.test(`${lang}: часы устройства спешат — ждём по секундам сервера, а не по одному моменту`, async () => {
+    // По `no_show_at` срок уже прошёл, а сервер говорит «ещё 10 минут» (`no_show_wait_sec`).
+    const { h, clock } = await mountAt({ noShowAt: naiveUtc(NOW - MIN), noShowWaitSec: 600 });
+    try {
+      assert.equal(button(h.tree, NO_SHOW).props.disabled, true, "кнопка закрыта по секундам сервера");
+      clock.tick(600 * 1000);
+      await h.settle();
+      assert.equal(button(h.tree, NO_SHOW).props.disabled, false, "через 10 минут по часам устройства — открыта");
+    } finally { h.unmount(); clock.restore(); }
+    // То же для «Подъезжаю».
+    const second = await mountAt({ needsArriving: true, arrivingOpensAt: naiveUtc(NOW - MIN), arrivingWaitSec: 300 });
+    try {
+      assert.equal(button(second.h.tree, ARRIVING).props.disabled, true);
+    } finally { second.h.unmount(); second.clock.restore(); }
+  });
+
+  await t.test(`${lang}: пока запрос идёт, «Подъезжаю» заблокирована`, async () => {
+    const { h, clock } = await mountAt({ needsArriving: true, busy: true });
+    try {
+      assert.equal(button(h.tree, ARRIVING).props.disabled, true);
     } finally { h.unmount(); clock.restore(); }
   });
 

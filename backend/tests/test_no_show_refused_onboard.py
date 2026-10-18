@@ -125,7 +125,8 @@ def test_boarding_between_check_and_lock_is_refused_too(client, user_factory, mo
         seats_before = s.get(Ride, ride["id"]).seats_left
     r = client.post(f"/bookings/{bid}/no-show", headers=drv["auth"])
     assert fired["yes"]
-    assert r.status_code == 409, r.text
+    # Именно отказ «в машине» из перепроверки под замком, а не «рано» или другой 409 (приёмка PR182).
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "passenger_onboard", r.text
     with Session(engine) as s:
         b = s.get(Booking, bid)
         assert b.status == BookingStatus.onboard and b.no_show is False
