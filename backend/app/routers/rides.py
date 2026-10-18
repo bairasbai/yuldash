@@ -596,7 +596,9 @@ def search_rides(
         rides = session.exec(q).all()
     out = rides_out(rides, session)
     if fits:
-        out = [r.model_copy(update={"matched_stop": fits[r.id].matched_stop,
+        out = [r.model_copy(update={"matched_dropoff_stop": fits[r.id].matched_dropoff_stop,
+                                    "matched_to_end": fits[r.id].matched_to_end,
+                                    "matched_stop": fits[r.id].matched_stop,
                                     "matched_from_start": fits[r.id].matched_from_start}) for r in out]
     public_out = public_rides_payload(out)
     if no_filter:
@@ -792,7 +794,8 @@ def _fit_all(r, routes: list, entry: dict):
     named = next((f for f, (fv, *_rest) in zip(fits, routes) if fv), None)
     first = named or fits[0]
     return stop_search.Fit(True, first.stops, tuple(sorted(common)),
-                           matched_stop=first.matched_stop, matched_from_start=first.matched_from_start)
+                           matched_stop=first.matched_stop, matched_from_start=first.matched_from_start,
+                           matched_dropoff_stop=first.matched_dropoff_stop, matched_to_end=first.matched_to_end)
 
 
 def _postgis_dialect(session: Session) -> bool:
@@ -926,6 +929,7 @@ def rides_near(
     kept: list = []
     dist_by_id: dict = {}
     matched_by_id: dict = {}
+    dropoff_by_id: dict = {}
     for r in light_rows:
         fit = _fit_all(r, routes, entry)
         if not fit.ok:
@@ -937,6 +941,7 @@ def rides_near(
             continue
         dist_by_id[r.id] = dist
         matched_by_id[r.id] = _matched(fit, pickup, by_query=any(fv for fv, *_ in routes))
+        dropoff_by_id[r.id] = (fit.matched_dropoff_stop, fit.matched_to_end)
         kept.append(r)
     # Прячем до подсчёта total/пагинации: заблокированных, водителей на паузе (бронь им всё
     # равно не подтвердить) и «только для своих» (видит лишь L3). Связку с клиникой снимаем
@@ -966,6 +971,7 @@ def rides_near(
         out = public_ride_payload(ride_out_with(r, users_map, profiles, rating_agg, trips_agg, front_taken)).model_dump()
         out["distance_km"] = dist_by_id.get(r.id)
         out["matched_stop"], out["matched_from_start"] = matched_by_id.get(r.id, (None, False))
+        out["matched_dropoff_stop"], out["matched_to_end"] = dropoff_by_id.get(r.id, (None, False))
         items.append(out)
     # Связку с клиникой прячем ЗДЕСЬ, а не выше вместе с соседними фильтрами: там в руках
     # ORM-объекты `Ride`, страница потом перечитывается из базы заново — правка на них

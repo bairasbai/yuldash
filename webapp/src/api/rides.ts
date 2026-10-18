@@ -18,6 +18,8 @@ export interface Ride {
   /** Authoritative match from the feed; absent for a direct, unfiltered lookup. */
   matched_stop?: string | null;
   matched_from_start?: boolean;
+  matched_dropoff_stop?: string | null;
+  matched_to_end?: boolean;
   depart_at: string; // ISO
   seats_total: number;
   seats_left: number;

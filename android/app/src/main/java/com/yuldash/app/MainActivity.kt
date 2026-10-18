@@ -774,7 +774,7 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     airConditioner = airConditioner,
     quiet = quiet,
     noMinors = noMinors, backMaxTwo = backMaxTwo, frontSeatAvailable = frontSeatAvailable, frontSeatTaken = frontSeatTaken,
-    waypoints = waypoints, matchedStop = matchedStop, matchedFromStart = matchedFromStart,
+    waypoints = waypoints, matchedStop = matchedStop, matchedFromStart = matchedFromStart, matchedDropoffStop = matchedDropoffStop, matchedToEnd = matchedToEnd,
     pickup = pickup,
     pickupLat = pickupLat,
     pickupLng = pickupLng,

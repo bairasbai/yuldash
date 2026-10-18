@@ -674,7 +674,7 @@ private fun YuldashAppContent() {
             vm.clearPendingPublicRide()
             result.onSuccess { dto ->
                 vm.navigateLocally {
-                    selectedRide = dto.toUiRide()
+                    selectedRide = dto.toUiRide().withRouteHints(selectedRide)
                     activeBookingId = null
                     selectedBookingStatus = ""
                     screen = Screen.Booking
@@ -1330,7 +1330,8 @@ private fun YuldashAppContent() {
                     vm.privateNavigationRevision == displayedRevision && ApiClient.queueSessionGeneration() == displayedSession
                 fun isDisplayedBookingCurrent() = isDisplayedBookingUnchanged() && ApiClient.isCurrentSession(displayedSession)
                 var frontSeat by remember(displayedRide?.id) { mutableStateOf(false) }   // «хочу переднее» — своё у каждой поездки
-                var pickupStop by rememberSaveable(displayedRide?.id) { mutableStateOf(displayedRide?.let(::initialPickupStop)) }
+                var pickupStop by rememberSaveable(displayedRide?.id, displayedSession) { mutableStateOf(displayedRide?.let(::initialPickupStop)) }
+                var dropoffStop by rememberSaveable(displayedRide?.id, displayedSession) { mutableStateOf(displayedRide?.let(::initialDropoffStop)) }
                 BookingScreen(
                 // null = бронировать нечего (лента пуста и ничего не выбрано): экран сам вернёт
                 // назад. Раньше тут подставлялась демо-поездка «вместо краша на пустом списке» —
@@ -1375,7 +1376,8 @@ private fun YuldashAppContent() {
                 },
                 onFindAnotherRide = { openHome(HomeTab.Rides) },
                 frontSeat = frontSeat, onFrontSeatChange = { frontSeat = it },
-                pickupStop = pickupStop, onPickupStopChange = { pickupStop = it },
+                pickupStop = pickupStop, onPickupStopChange = { pickupStop = it; dropoffStop = displayedRide?.let { ride -> keepValidDropoff(ride, it, dropoffStop) } },
+                dropoffStop = dropoffStop, onDropoffStopChange = { dropoffStop = it },
                 onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
                     if (!isDisplayedBookingUnchanged()) return@BookingScreen
                     if (!ApiClient.isLoggedIn()) {
@@ -1412,12 +1414,12 @@ private fun YuldashAppContent() {
                         // вторым запросом: две брони на одну поездку, два занятых места и две
                         // договорённости об оплате. Остальные пишущие кнопки такой флаг уже имеют
                         // (оплата, посылка, приём доставки) — эта была единственной без него.
-                        if (rid != null && !bookingInFlight) {
+                        if (rid != null && !bookingInFlight && displayedRide != null && segmentReady(displayedRide, pickupStop, dropoffStop)) {
                             bookingInFlight = true
                             appScope.launch {
                                 try {
                                     if (!isDisplayedBookingCurrent()) return@launch
-                                    val result = ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop)
+                                    val result = ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop)
                                     if (!isDisplayedBookingCurrent()) return@launch
                                     ApiClient.runIfCurrentSession(displayedSession) {
                                         result.onSuccess { booking ->

@@ -284,6 +284,7 @@ class BookIn(BaseModel):
     # `ride.waypoints`. Не прислали или пусто — «неизвестно» (NULL, правила PR184). Своё название
     # вписать нельзя: незнакомое — 400. Потолок — как у остановки при публикации.
     pickup_stop: Optional[str] = Field(None, max_length=60)
+    dropoff_stop: Optional[str] = Field(None, max_length=120)
 
 
 # Отказ, когда переднее уже обещано другому пассажиру. Один текст на проверку и на барьер базы.
@@ -305,6 +306,10 @@ def _resolve_pickup_stop(ride: Ride, raw: Optional[str], entry) -> Optional[str]
     • остановка из поездки → её написание из поездки;
     • конец маршрута — 400 `pickup_stop_is_end`; другое — 400 `pickup_stop_unknown`."""
     if not ride_has_stops_raw(ride, entry):
+        if raw and raw.strip() and not is_start(ride, raw.strip(), entry):
+            raise _pickup_refusal(400, "pickup_stop_unknown",
+                "В этой поездке можно сесть только в начале маршрута.",
+                "Был сәфәрҙә юлдың башында ғына ултырып була.")
         return ""
     if not parse_stops(ride, entry):
         return None
@@ -325,6 +330,26 @@ def _resolve_pickup_stop(ride: Ride, raw: Optional[str], entry) -> Optional[str]
         400, "pickup_stop_unknown",
         "Такой остановки нет в этой поездке — выбери из списка: начало маршрута или остановку по пути.",
         "Был сәфәрҙә бындай туҡталыш юҡ — исемлектән һайла: юлдың башы йәки юл ыңғайындағы туҡталыш.")
+
+
+def _resolve_dropoff_stop(ride: Ride, raw: Optional[str], pickup: Optional[str], entry) -> Optional[str]:
+    """Высадка старого клиента остаётся неизвестной. Явный выбор проверяем до списания мест."""
+    if raw is None:
+        return None
+    asked = raw.strip()
+    if not asked or is_end(ride, asked, entry):
+        return ""
+    stop = canonical_stop(ride, asked, entry)
+    if stop is None:
+        raise _pickup_refusal(400, "dropoff_stop_unknown",
+            "Такого места высадки нет в этой поездке. Выбери остановку или конец маршрута.",
+            "Был сәфәрҙә бындай төшөү урыны юҡ. Туҡталышты йәки юлдың аҙағын һайла.")
+    stops = parse_stops(ride, entry)
+    if pickup is None or (pickup and (pickup not in stops or stops.index(pickup) >= stops.index(stop))):
+        raise _pickup_refusal(400, "dropoff_stop_order",
+            "Высадка должна быть после посадки. Сначала выбери, где сядешь.",
+            "Төшөү ултырыуҙан һуң булырға тейеш. Тәүҙә ҡайҙа ултырғаныңды һайла.")
+    return stop
 
 
 def _front_seat_is_taken(session: Session, ride_id: int) -> bool:
@@ -366,6 +391,7 @@ class BookingDetailsOut(BaseModel):
     # Где садится пассажир (18.10.2026): "" — начало маршрута, «Акъяр» — остановка, null —
     # неизвестно (или водителю уже не видно: бронь отменена / поездка давно закрыта).
     pickup_stop: Optional[str] = None
+    dropoff_stop: Optional[str] = None
     ride_has_stops: bool = False      # у поездки есть остановки (null выше = «уточни в чате»)
     pickup: str = ""
     pickup_lat: Optional[float] = Field(None, ge=-90, le=90)
@@ -438,7 +464,8 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         guard_women_only(user, msg=MSG_WOMEN_ONLY_RIDE)
     # Где садится — разбираем ДО списания мест и до повтора (18.10.2026): незнакомое место — 400,
     # мест не тронули.
-    pickup_stop = _resolve_pickup_stop(ride, body.pickup_stop, snapshot_cached())
+    entry = snapshot_cached()
+    pickup_stop = _resolve_pickup_stop(ride, body.pickup_stop, entry)
     # Защита от дубля: один пассажир не бронирует одну поездку повторно (двойной тап / повторный заход).
     # Идемпотентно — возвращаем существующую активную бронь, мест не списываем заново.
     existing = session.exec(
@@ -448,6 +475,8 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
             Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
         )
     ).first()
+    effective_pickup = existing.pickup_stop if existing and body.pickup_stop is None else pickup_stop
+    dropoff_stop = _resolve_dropoff_stop(ride, body.dropoff_stop, effective_pickup, entry)
     if existing:
         # Повтор с просьбой о переднем, а бронь уже есть без него: молча вернуть старую — значит
         # потерять просьбу (ревью Opus 2026-10-14). Говорим прямо, что делать.
@@ -456,12 +485,15 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
                        "Һинең алғы урынһыҙ бронең бар инде. Уны кире ал да алғы урын менән яңынан бронла")
         # Повтор с ДРУГИМ известным местом посадки: молча вернуть старую — водитель поедет не туда.
         # Старая бронь без места (NULL) или повтор без места — возвращаем как есть.
-        if (existing.pickup_stop is not None and pickup_stop is not None
-                and existing.pickup_stop != pickup_stop):
+        if body.pickup_stop is not None and existing.pickup_stop != pickup_stop:
             raise _pickup_refusal(
                 409, "pickup_stop_conflict",
                 "У тебя уже есть бронь с другим местом посадки. Отмени её и забронируй заново — или договорись с водителем в чате.",
                 "Һинең икенсе ултырыу урыны менән бронең бар инде. Уны кире ал да яңынан бронла — йәки водитель менән чатта килеш.")
+        if body.dropoff_stop is not None and existing.dropoff_stop != dropoff_stop:
+            raise _pickup_refusal(409, "dropoff_stop_conflict",
+                "У тебя уже есть бронь с другим местом высадки. Отмени её и забронируй заново или договорись в чате.",
+                "Һинең икенсе төшөү урыны менән бронең бар инде. Уны кире ал да яңынан бронла йәки чатта килеш.")
         return existing
     guard_delivery_ride(ride.category)
     # Быстрая понятная проверка «мест нет» — чтобы не гонять человека через остальные шаги.
@@ -516,6 +548,7 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         minor_guardian_name=guardian_name, minor_guardian_phone=guardian_phone,
         front_seat=bool(body.front_seat),
         pickup_stop=pickup_stop,
+        dropoff_stop=dropoff_stop,
     )
     # Место занимаем АТОМАРНО: «мест хватает» и вычитание — одним запросом к базе.
     #
@@ -617,8 +650,10 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
     entry = snapshot_cached()
     has_stops = ride_has_stops_raw(ride, entry)
     pickup_stop = booking.pickup_stop if has_stops else ""
+    dropoff_stop = booking.dropoff_stop
     if is_driver and not guardian_visible:
         pickup_stop = None
+        dropoff_stop = None
     # Бронь на остановке: место встречи — сама остановка, пин начала маршрута ей не отдаём (он про
     # другую точку, часто у дома водителя).
     on_stop = has_stops and bool(booking.pickup_stop)
@@ -659,6 +694,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "minor_guardian_phone": (booking.minor_guardian_phone if guardian_visible else ""),
         "front_seat": bool(booking.front_seat),
         "pickup_stop": pickup_stop,
+        "dropoff_stop": dropoff_stop,
         "ride_has_stops": has_stops,
         "pickup": ((booking.pickup_stop if on_stop else ride.pickup) if unlocked else ""),
         "pickup_lat": (ride.pickup_lat if unlocked and not on_stop else None),
@@ -1261,6 +1297,7 @@ def _booking_out(booking: Booking) -> dict:
         # Место посадки — по тому же правилу (P3, 18.10.2026): сделки нет — села пассажирки у
         # водителя в ответе на действие нет. Своё место пассажир видит в `/bookings/mine`.
         data["pickup_stop"] = None
+        data["dropoff_stop"] = None
     return data
 
 
@@ -1574,6 +1611,7 @@ def my_bookings(
             "front_seat": bool(b.front_seat),
             # Где садится (18.10.2026): "" — начало, «Акъяр» — остановка, null — не указано.
             "pickup_stop": (b.pickup_stop if r is not None and ride_has_stops_raw(r, entry) else ""),
+            "dropoff_stop": b.dropoff_stop,
             "ride_has_stops": r is not None and ride_has_stops_raw(r, entry),
             "from_city": r.from_city if r else "",
             "to_city": r.to_city if r else "",
@@ -1626,6 +1664,8 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             "passenger_name": (passenger.name if passenger else "Пассажир"),
             "passenger_rating": (round(avg, 1) if cnt > 0 else None),
             "route": (f"{ride.from_city} → {ride.to_city}" if ride else ""),
+            "from_city": ride.from_city if ride else "",
+            "to_city": ride.to_city if ride else "",
             "status": b.status,
             # 0 = ещё не оценивал. Иначе — сколько звёзд поставил (оценку можно изменить).
             "my_stars": my_stars.get(b.id, 0),
@@ -1633,6 +1673,7 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             # Где садится (18.10.2026): "" — начало маршрута, «Акъяр» — остановка, null — не указано
             # (клиент пишет «Место посадки не указано — уточни в чате») или уже не видно (отмена).
             "pickup_stop": ((b.pickup_stop if has_stops else "") if stop_visible else None),
+            "dropoff_stop": (b.dropoff_stop if stop_visible else None),
             "ride_has_stops": has_stops,
             # Сколько секунд ещё можно отменить свою отметку «Сел» (0 — уже нельзя): «Отменить»
             # в карточке переживает перезапуск приложения и не зависит от часов телефона.

@@ -33,7 +33,7 @@ import { ApiError } from "../api/client";
 import { track } from "../analytics";
 import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { bookingLinkPath } from "../utils/bookingLink";
-import { PickupStopNote } from "../components/PickupStopChoice";
+import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
 export default function BookingScreen() {
   const { appText, lang } = useLang();
@@ -159,6 +159,7 @@ export default function BookingScreen() {
       {status === "ready" && d && (
         <div className="trip">
           <div className="trip__routecard">
+            <p className="list-row__sub">{appText("Рейс водителя", "Йөрөтөүсенең сәфәре")}</p>
             <div className="ride-card__route">
               <span>{d.from_city}</span>
               <span className="ride-card__arrow">
@@ -166,6 +167,7 @@ export default function BookingScreen() {
               </span>
               <span>{d.to_city}</span>
             </div>
+            <BookingSegmentNote pickupStop={d.pickup_stop} dropoffStop={d.dropoff_stop} rideHasStops={d.ride_has_stops} from={d.from_city} to={d.to_city} />
             <div className="trip__meta">
               <span>{formatWhen(d.depart_at, ru)}</span>
               <span>
@@ -215,9 +217,6 @@ export default function BookingScreen() {
               </div>
             )}
             {/* Переднее место, если просили: пассажир помнит, водитель видит в той же брони. */}
-            {(d.pickup_stop != null || d.ride_has_stops) && <div className="info-row">
-              <PickupStopNote pickupStop={d.pickup_stop} rideHasStops={d.ride_has_stops} from={d.from_city} />
-            </div>}
             {d.front_seat && (
               <div className="info-row">
                 <span className="info-row__k">{appText("Место", "Урын")}</span>

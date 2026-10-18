@@ -21,8 +21,8 @@ import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
 import { FrontSeatChoice, SeatBadges } from "./SeatOptions";
 import { useSheetExit } from "./useSheetExit";
-import { initialPickupStop, pickupStopReady, rideMatchState } from "../utils/pickupStops";
-import { PickupStopChoice, PickupStopNote } from "./PickupStopChoice";
+import { initialSegment, keepDropoffAfterPickup, segmentReady, rideMatchState } from "../utils/pickupStops";
+import { DropoffStopChoice, PickupStopChoice, BookingSegmentNote } from "./PickupStopChoice";
 
 export default function RideSheet({
   ride,
@@ -66,14 +66,32 @@ export default function RideSheet({
   const [guardPhone, setGuardPhone] = useState("");
   /** «Хочу переднее место»: одно на машину, гонку двух нажатий разводит сервер. */
   const [frontSeat, setFrontSeat] = useState(false);
-  const [pickupStop, setPickupStop] = useState<string | null>(() => initialPickupStop(ride));
-  const pickupReady = pickupStopReady(ride, pickupStop);
+  const [pickupStop, setPickupStop] = useState<string | null>(() => initialSegment(ride).pickup);
+  const [dropoffStop, setDropoffStop] = useState<string | null>(() => initialSegment(ride).dropoff);
+  const selectionOwner = useRef(`${ownerGeneration}:${ride.id}`);
+  const mounted = useRef(true);
+  const bookingAbort = useRef<AbortController | null>(null);
+  const pickupReady = segmentReady(ride, pickupStop, dropoffStop);
+  useEffect(() => {
+    mounted.current = true;
+    const key = `${ownerGeneration}:${ride.id}`;
+    if (selectionOwner.current !== key) {
+      selectionOwner.current = key;
+      const segment = initialSegment(ride);
+      setPickupStop(segment.pickup); setDropoffStop(segment.dropoff);
+      bookingInFlight.current = false; setBusy(false);
+      setMinor(false); setGuardName(""); setGuardPhone(""); setFrontSeat(false); setError(null);
+    }
+    return () => { mounted.current = false; bookingAbort.current?.abort(); };
+  }, [ownerGeneration, ride.id]);
 
   async function book() {
     if (exit.leaving) return; // шторка уже уходит (Esc, затемнение) — бронь из неё не отправляем (приёмка PR154)
-    if (bookingInFlight.current || ownerGeneration !== getSessionGeneration()) return;
+    if (bookingInFlight.current || !mounted.current || ownerGeneration !== getSessionGeneration() || selectionOwner.current !== `${ownerGeneration}:${ride.id}`) return;
     if (!isAuthed) {
-      const returnRide = pickupStop === null ? ride : { ...ride, matched_stop: pickupStop === ride.from_city ? null : pickupStop, matched_from_start: pickupStop === ride.from_city };
+      const returnRide = { ...ride,
+        ...(pickupStop !== null ? { matched_stop: pickupStop === ride.from_city ? null : pickupStop, matched_from_start: pickupStop === ride.from_city } : {}),
+        ...(dropoffStop !== null ? { matched_dropoff_stop: dropoffStop === ride.to_city ? null : dropoffStop, matched_to_end: dropoffStop === ride.to_city } : {}) };
       const returnState = rideMatchState(returnRide);
       navigate("/login", { state: { from: `/rides/${ride.id}`, ...(returnState ? { returnState } : {}) } });
       return;
@@ -85,7 +103,7 @@ export default function RideSheet({
     }
     if (parcelCategory && !getFeatures().parcels) return;
     if (!pickupReady) {
-      setError(appText("Выбери место посадки, чтобы забронировать.", "Бронлау өсөн ултырыу урынын һайла."));
+      setError(appText("Выбери места посадки и высадки, чтобы забронировать.", "Бронлау өсөн ултырыу һәм төшөү урындарын һайла."));
       return;
     }
     if (minor && (!guardName.trim() || !guardPhone.trim())) {
@@ -101,6 +119,8 @@ export default function RideSheet({
     setBusy(true);
     setError(null);
     track("booking_start");
+    const ac = new AbortController();
+    bookingAbort.current = ac;
     try {
       const b = await createBooking({
         ride_id: ride.id,
@@ -110,22 +130,24 @@ export default function RideSheet({
         minor_guardian_phone: minor ? guardPhone.trim() : undefined,
         // Только когда просили: обычная бронь уходит тем же телом, что и раньше.
         ...(frontSeat ? { front_seat: true } : {}),
-        ...(pickupStop !== null ? { pickup_stop: pickupStop } : {}),
-      });
-      if (ownerGeneration !== getSessionGeneration()) return;
+        pickup_stop: pickupStop!,
+        dropoff_stop: dropoffStop!,
+      }, ac.signal);
+      if (!mounted.current || ac.signal.aborted || ownerGeneration !== getSessionGeneration()) return;
       refreshOwnBookings();
       track("booking_done");
       onClose();
       navigate(`/trip/${b.id}`);
     } catch (e) {
+      if (!mounted.current || ac.signal.aborted || ownerGeneration !== getSessionGeneration()) return;
       const msg =
         e instanceof ApiError && e.message
           ? e.message
           : appText("Не получилось забронировать. Попробуй снова.", "Бронларға булманы. Ҡабат ҡара."); // DRAFT
       setError(msg);
     } finally {
-      bookingInFlight.current = false;
-      setBusy(false);
+      if (bookingAbort.current === ac) bookingInFlight.current = false;
+      if (mounted.current && !ac.signal.aborted && ownerGeneration === getSessionGeneration()) setBusy(false);
     }
   }
 
@@ -144,6 +166,7 @@ export default function RideSheet({
           {appText("Закрыть", "Ябырға")}
         </button>
         {parcelCategory && !features.parcels && !ownBooking && !bookingInFlight.current ? <ComingSoon kind="delivery" variant="inline" /> : <>
+        <p className="list-row__sub">{appText("Рейс водителя", "Йөрөтөүсенең сәфәре")}</p>
         <div className="ride-card__route" style={{ fontSize: "var(--font-heading)" }}>
           <span>{ride.from_city}</span>
           <span className="ride-card__arrow">
@@ -180,8 +203,12 @@ export default function RideSheet({
 
         {ride.comment && <p className="sheet__comment">{ride.comment}</p>}
         {ownBooking
-          ? <PickupStopNote pickupStop={ownBooking.pickup_stop} rideHasStops={ownBooking.ride_has_stops} from={ride.from_city} />
-          : <PickupStopChoice ride={ride} picked={pickupStop} disabled={busy} onPick={place => { setPickupStop(place); setError(null); }} />}
+          ? <BookingSegmentNote pickupStop={ownBooking.pickup_stop} dropoffStop={ownBooking.dropoff_stop} rideHasStops={ownBooking.ride_has_stops} from={ride.from_city} to={ride.to_city} />
+          : <>
+            <PickupStopChoice ride={ride} picked={pickupStop} disabled={busy} onPick={place => { setPickupStop(place); setDropoffStop(current => keepDropoffAfterPickup(ride, place, current)); setError(null); }} />
+            <DropoffStopChoice ride={ride} pickup={pickupStop} picked={dropoffStop} disabled={busy} onPick={place => { setDropoffStop(place); setError(null); }} />
+            <p className="sheet__note">{appText("Водитель увидит, где тебя забрать и высадить.", "Йөрөтөүсе һине ҡайҙан алырға һәм ҡайҙа төшөрөргә икәнен күрер.")}</p>
+          </>}
 
         <div className="sheet__driver">
           <button

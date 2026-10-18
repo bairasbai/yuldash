@@ -21,6 +21,7 @@ export interface CreateBookingInput {
   ride_id: number;
   /** Start by from_city name, or a published stop. Empty/absent on a route with stops means unknown. */
   pickup_stop?: string;
+  dropoff_stop?: string;
   seats?: number;
   pay_method?: PayMethod;
   pay_amount?: number;
@@ -44,6 +45,7 @@ export interface BookingRow {
   id: number;
   ride_id: number;
   pickup_stop?: string | null;
+  dropoff_stop?: string | null;
   passenger_id: number;
   seats: number;
   price: number;
@@ -64,6 +66,7 @@ export interface BookingDetails {
   booking_id: number;
   ride_id: number;
   pickup_stop?: string | null;
+  dropoff_stop?: string | null;
   ride_has_stops?: boolean;
   role: "driver" | "passenger";
   status: BookingStatus;
@@ -151,6 +154,7 @@ export interface MyBooking {
   id: number;
   ride_id: number;
   pickup_stop?: string | null;
+  dropoff_stop?: string | null;
   ride_has_stops?: boolean;
   front_seat?: boolean;
   seats: number;
@@ -166,8 +170,8 @@ export interface MyBooking {
   driver_verified: boolean;
 }
 
-export function createBooking(body: CreateBookingInput): Promise<BookingRow> {
-  return apiPost<BookingRow>("/bookings", body);
+export function createBooking(body: CreateBookingInput, signal?: AbortSignal): Promise<BookingRow> {
+  return apiPost<BookingRow>("/bookings", body, { signal });
 }
 
 export function fetchBookingDetails(
@@ -303,7 +307,10 @@ export function fetchReceipt(id: number, signal?: AbortSignal): Promise<TripRece
  * молчал бы при живых бронях.
  */
 export interface DriverBookingRow {
+  from_city?: string;
+  to_city?: string;
   pickup_stop?: string | null;
+  dropoff_stop?: string | null;
   ride_has_stops?: boolean;
   booking_id: number;
   /** Вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»). Старый сервер — нет. */

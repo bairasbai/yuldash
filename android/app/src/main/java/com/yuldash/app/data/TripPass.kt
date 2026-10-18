@@ -47,6 +47,7 @@ data class TripPass(
     // Nullable defaults keep old snapshots honest: their payment method was never saved.
     val payMethod: String? = null,
     val payAmount: Int? = null,
+    val pickupStop: String? = null, val dropoffStop: String? = null, val rideHasStops: Boolean = false,
 ) {
     val effectivePayAmount: Int get() = payAmount ?: price
 
@@ -69,6 +70,9 @@ data class TripPass(
         put("saved_at", savedAt)
         put("pay_method", payMethod ?: JSONObject.NULL)
         put("pay_amount", payAmount ?: JSONObject.NULL)
+        put("pickup_stop", pickupStop ?: JSONObject.NULL)
+        put("dropoff_stop", dropoffStop ?: JSONObject.NULL)
+        put("ride_has_stops", rideHasStops)
     }
 
     companion object {
@@ -91,6 +95,9 @@ data class TripPass(
             savedAt = o.optLong("saved_at"),
             payMethod = if (o.isNull("pay_method")) null else o.optString("pay_method"),
             payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
+            pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"),
+            dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
+            rideHasStops = o.optBoolean("ride_has_stops"),
         )
     }
 }

@@ -136,13 +136,35 @@ def test_толчок_по_идущей_поездке_без_отмены_ни�
     assert решение.наступила() is True and решение.кончилась is False
 
 
-def test_отмена_без_толчка_ловит_прежний_сторож_а_не_этот_путь(client, user_factory):
+class _ЧасыТолчка:
+    """Только стенные часы двух проверяемых модулей; глобальные time/asyncio не подменяем."""
+
+    def __init__(self, now: float):
+        self.now = now
+
+    def time(self):
+        return self.now
+
+
+def _часы_канала(monkeypatch):
+    канал, толчок = _ЧасыТолчка(1000.0), _ЧасыТолчка(1000.0)
+    monkeypatch.setattr(location, "time", канал)
+    monkeypatch.setattr(trip_wake, "time", толчок)
+    monkeypatch.setattr(trip_wake, "_local", {})
+    monkeypatch.setattr(trip_wake, "_redis", lambda: None)
+    return канал, толчок
+
+
+def test_отмена_без_толчка_ловит_прежний_сторож_а_не_этот_путь(client, user_factory, monkeypatch):
     """Потерянный толчок (чужой воркер без Redis) — прежнее поведение: решение «да» держится,
     канал закрывают сторож и счётчик кадров (≤ 30 с). Не хуже, чем было до этой правки."""
     водитель, ride = _поездка(client, user_factory, "безтолчка")
     _пассажир, bid = _бронь(client, user_factory, водитель, ride, "безтолчка")
     assert client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"],
                        json={"status": "departed"}).status_code == 200
+    часы_канала, часы_толчка = _часы_канала(monkeypatch)
+    trip_wake.poke(bid)   # прежний толчок «Выехал»: строго раньше первой проверки
+    часы_канала.now = 1001.0
     решение = location._Пора(bid)
     assert решение.наступила() is True
     with Session(engine) as s:
@@ -150,9 +172,32 @@ def test_отмена_без_толчка_ловит_прежний_сторож
         b.status = BookingStatus.cancelled
         s.add(b)
         s.commit()
+    часы_канала.now = 1002.0
     assert решение.наступила() is True and решение.кончилась is False
+    часы_толчка.now = 1003.0
     trip_wake.poke(bid)
+    часы_канала.now = 1004.0
     assert решение.наступила() is False and решение.кончилась is True
+
+
+def test_равный_тик_прежнего_толчка_безопасно_перепроверяет_отмену(client, user_factory, monkeypatch):
+    """Грубые часы Windows: poke и чтение могут совпасть. >= намеренно закрывает канал раньше."""
+    водитель, ride = _поездка(client, user_factory, "равныйтик")
+    _пассажир, bid = _бронь(client, user_factory, водитель, ride, "равныйтик")
+    assert client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"],
+                       json={"status": "departed"}).status_code == 200
+    часы_канала, _часы_толчка = _часы_канала(monkeypatch)
+    trip_wake.poke(bid)   # 1000.0 — тот же тик, в который начинается первая проверка
+    решение = location._Пора(bid)
+    assert решение.наступила() is True
+    with Session(engine) as s:
+        b = s.get(Booking, bid)
+        b.status = BookingStatus.cancelled
+        s.add(b)
+        s.commit()
+    часы_канала.now = 1001.0
+    assert решение.наступила() is False and решение.кончилась is True
+    assert решение.причина == "Trip ended"
 
 
 def test_отмена_неявка_и_снятие_поездки_толкают_каналы(client, user_factory, monkeypatch):

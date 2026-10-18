@@ -30,7 +30,7 @@ internal fun PassengerRow(b: DriverBookingDto) {
         Column(Modifier.weight(1f)) {
             Text(b.passengerName, style = CanonBodyStrong, color = CanonText, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (b.route.isNotBlank()) Text(b.route, style = CanonCaption, color = CanonMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            PickupStopNote(b.pickupStop, b.rideHasStops)
+            BookingSegmentNote(b.pickupStop, b.dropoffStop, b.rideHasStops, b.fromCity, b.toCity)
         }
         b.passengerRating?.let { rating ->
             Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))

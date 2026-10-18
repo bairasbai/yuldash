@@ -16,6 +16,7 @@
 import { useLang } from "../i18n/lang";
 import type { TripPass } from "../utils/tripPass";
 import { formatWhen, priceLabel } from "../utils/format";
+import { BookingSegmentNote } from "./PickupStopChoice";
 import { IconPhone, IconWarn } from "./Icons";
 
 export default function OfflineTripPass({ pass }: { pass: TripPass }) {
@@ -36,7 +37,7 @@ export default function OfflineTripPass({ pass }: { pass: TripPass }) {
 
       <div className="info-list" style={{ marginTop: 0 }}>
         <div className="info-row">
-          <span className="info-row__k">{appText("Маршрут", "Юл")}</span>
+          <span className="info-row__k">{appText("Рейс водителя", "Йөрөтөүсенең сәфәре")}</span>
           <span className="info-row__v">
             {pass.fromCity} → {pass.toCity}
           </span>
@@ -79,6 +80,8 @@ export default function OfflineTripPass({ pass }: { pass: TripPass }) {
           </div>
         )}
       </div>
+
+      <BookingSegmentNote pickupStop={pass.pickupStop} dropoffStop={pass.dropoffStop} rideHasStops={pass.rideHasStops} from={pass.fromCity} to={pass.toCity} />
 
       {/* Код посадки крупно: его называют вслух, часто в темноте и в перчатках. */}
       {pass.boardingCode && (

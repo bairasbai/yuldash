@@ -73,6 +73,12 @@ export interface RequestFeedItem {
    * а не пишем «0 км»: выдуманная цифра хуже её отсутствия.
    */
   detour_km?: number | null;
+  matched_ride_id?: number | null;
+  matched_ride_from_city?: string | null;
+  matched_ride_to_city?: string | null;
+  matched_ride_depart_at?: string | null;
+  matched_pickup_stop?: string | null;
+  matched_dropoff_stop?: string | null;
 }
 
 /** Отклик водителя на мою заявку (GET /requests/{id}/responses).
@@ -93,6 +99,12 @@ export interface ResponseItem {
   can_counter: boolean; // смотрящий может предложить свою цену
   can_accept: boolean; // смотрящий может принять цену на столе
   bargain_history: string; // «d:500,p:400,d:450»
+  ride_id?: number | null;
+  ride_from_city?: string | null;
+  ride_to_city?: string | null;
+  ride_depart_at?: string | null;
+  pickup_stop?: string | null;
+  dropoff_stop?: string | null;
 }
 
 /** Один ход торга, разобранный из bargain_history. */
@@ -127,19 +139,22 @@ export function cancelRequest(id: number): Promise<RideRequestRow> {
   return apiPost<RideRequestRow>(`/requests/${id}/cancel`);
 }
 
-export function fetchRequestsFeed(signal?: AbortSignal): Promise<RequestFeedItem[]> {
-  return apiGet<RequestFeedItem[]>("/requests/feed", { signal });
+export function fetchRequestsFeed(signal?: AbortSignal, onRoute = false): Promise<RequestFeedItem[]> {
+  return apiGet<RequestFeedItem[]>(`/requests/feed${onRoute ? "?on_route=true" : ""}`, { signal });
 }
 
 export function respondToRequest(
   requestId: number,
   price: number,
-  comment: string
+  comment: string,
+  rideId?: number,
+  signal?: AbortSignal
 ): Promise<{ ok: boolean; id: number }> {
   return apiPost<{ ok: boolean; id: number }>(`/requests/${requestId}/respond`, {
     price,
     comment,
-  });
+    ...(rideId !== undefined ? { ride_id: rideId } : {}),
+  }, { signal });
 }
 
 export function fetchRequestResponses(
@@ -150,8 +165,8 @@ export function fetchRequestResponses(
 }
 
 /** Принять отклик → создаётся бронь. Возвращает booking_id. */
-export function acceptResponse(responseId: number): Promise<{ booking_id: number }> {
-  return apiPost<{ booking_id: number }>(`/responses/${responseId}/accept`);
+export function acceptResponse(responseId: number, signal?: AbortSignal): Promise<{ booking_id: number }> {
+  return apiPost<{ booking_id: number }>(`/responses/${responseId}/accept`, undefined, { signal });
 }
 
 /** Мои отклики (водитель): GET /responses/mine — где я предложил цену и где ждут мой ход. */
@@ -163,19 +178,20 @@ export function fetchMyResponses(signal?: AbortSignal): Promise<ResponseItem[]> 
 export function counterOffer(
   responseId: number,
   price: number,
-  comment = ""
+  comment = "",
+  signal?: AbortSignal
 ): Promise<ResponseItem> {
-  return apiPost<ResponseItem>(`/responses/${responseId}/counter`, { price, comment });
+  return apiPost<ResponseItem>(`/responses/${responseId}/counter`, { price, comment }, { signal });
 }
 
 /** Отказаться от торга (обе стороны). */
-export function declineResponse(responseId: number): Promise<{ ok: boolean }> {
-  return apiPost<{ ok: boolean }>(`/responses/${responseId}/decline`);
+export function declineResponse(responseId: number, signal?: AbortSignal): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>(`/responses/${responseId}/decline`, undefined, { signal });
 }
 
 /** Водитель убирает свой отклик совсем. */
-export function withdrawResponse(responseId: number): Promise<{ ok: boolean }> {
-  return apiDelete<{ ok: boolean }>(`/responses/${responseId}`);
+export function withdrawResponse(responseId: number, signal?: AbortSignal): Promise<{ ok: boolean }> {
+  return apiDelete<{ ok: boolean }>(`/responses/${responseId}`, { signal });
 }
 
 /** Подходящие поездки под мою заявку (GET /match/rides?request_id=).

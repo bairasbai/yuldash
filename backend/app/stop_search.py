@@ -25,7 +25,7 @@ from typing import Optional
 from sqlalchemy import or_
 
 from .geo import bare_name
-from .ride_stops import _district, _f, _place_keys, _place_variants, parse_stops
+from .ride_stops import _district, _f, _lookup_place, _place_keys, _place_variants, parse_stops
 
 NAME_MAX = 120          # длина имени места в запросе (как у города в публикации)
 MAX_VARIANTS = 6        # написаний одного места в SQL (тёзок-сёл бывает десяток — хватит главных)
@@ -79,21 +79,34 @@ class Fit:
     pickups: tuple = ()
     matched_stop: Optional[str] = None
     matched_from_start: bool = False
+    matched_dropoff_stop: Optional[str] = None
+    matched_to_end: bool = False
     extra: dict = field(default_factory=dict)
 
 
 NO_FIT = Fit(False)
 
 
-def _endpoint(value: Optional[str], names: Optional[list[str]], entry: dict) -> bool:
+def exact_place(value: Optional[str], names: Optional[list[str]], entry: dict) -> bool:
+    """Полное название/RU/BA и район. Тёзку без района не выбираем даже если она одна в рейсе."""
+    if not value or (not _district(value) and len(_lookup_place(entry, value)) > 1):
+        return False
+    keys = _place_keys(value, entry)
+    return any(not (not _district(n) and len(_lookup_place(entry, n)) > 1)
+               and bool(keys & _place_keys(n, entry)) for n in (names or []))
+
+
+def _endpoint(value: Optional[str], names: Optional[list[str]], entry: dict, *, strict=False) -> bool:
     """Голый запрос — подстрока как раньше; явно названный район — точное место."""
+    if strict:
+        return exact_place(value, names, entry)
     v = value or ""
     return any((_place_keys(n, entry) & _place_keys(v, entry)) if _district(n) else n and n in v
                for n in (names or []))
 
 
 def route_fit(ride, fv: Optional[list[str]], tv: Optional[list[str]], entry: dict,
-              *, from_stops: bool = True, to_stops: bool = True) -> Fit:
+              *, from_stops: bool = True, to_stops: bool = True, strict: bool = False) -> Fit:
     """Подходит ли поездка запросу «откуда (fv) → куда (tv)». None — фильтра нет.
 
     Позиции маршрута: -1 начало, 0..n-1 допустимые остановки, n конец. Посадка — начало или
@@ -107,6 +120,8 @@ def route_fit(ride, fv: Optional[list[str]], tv: Optional[list[str]], entry: dic
     def stop_hits(names: Optional[list[str]], allowed: bool) -> list[int]:
         if not names or not allowed:
             return []
+        if strict:
+            return [i for i, stop in enumerate(stops) if exact_place(stop, names, entry)]
         asked: set = set()
         bare_asked: set = set()
         for nm in names:
@@ -118,11 +133,11 @@ def route_fit(ride, fv: Optional[list[str]], tv: Optional[list[str]], entry: dic
                 if keys & asked or _place_keys(bare_name(stops[i]), entry) & bare_asked]
 
     if fv:
-        froms = ([-1] if _endpoint(_f(ride, "from_city"), fv, entry) else []) + stop_hits(fv, from_stops)
+        froms = ([-1] if _endpoint(_f(ride, "from_city"), fv, entry, strict=strict) else []) + stop_hits(fv, from_stops)
     else:
         froms = [-1] + list(range(n))
     if tv:
-        tos = stop_hits(tv, to_stops) + ([n] if _endpoint(_f(ride, "to_city"), tv, entry) else [])
+        tos = stop_hits(tv, to_stops) + ([n] if _endpoint(_f(ride, "to_city"), tv, entry, strict=strict) else [])
     else:
         tos = list(range(n)) + [n]
     if not froms or not tos:
@@ -131,9 +146,23 @@ def route_fit(ride, fv: Optional[list[str]], tv: Optional[list[str]], entry: dic
     pickups = tuple(p for p in froms if p < last_drop)
     if not pickups:
         return NO_FIT
-    if not fv:
-        return Fit(True, stops, pickups)
-    chosen = -1 if -1 in pickups else min(pickups)
+    # Подсказка — только из точного выбора человека, даже когда общий поиск разрешает префикс.
+    def hint_place(value, names):
+        if exact_place(value, names, entry):
+            return True
+        # Старый поиск разрешает полное голое имя: в ЭТОМ рейсе должна быть ровно одна
+        # такая остановка. Префикс не превращается в выбор; строгий подбор требует район.
+        return not strict and any(not _district(n) and bool(
+            _place_keys(bare_name(value), entry) & _place_keys(n, entry)) for n in (names or []))
+
+    exact_froms = [p for p in pickups if fv and hint_place(
+        _f(ride, "from_city") if p == -1 else stops[p], fv)]
+    chosen = exact_froms[0] if len(exact_froms) == 1 else None
+    exact_tos = [p for p in tos if tv and (chosen is None or p > chosen) and hint_place(
+        _f(ride, "to_city") if p == n else stops[p], tv)]
+    drop = exact_tos[0] if len(exact_tos) == 1 else None
     return Fit(True, stops, pickups,
-               matched_stop=stops[chosen] if chosen >= 0 else None,
-               matched_from_start=chosen == -1)
+               matched_stop=stops[chosen] if chosen is not None and chosen >= 0 else None,
+               matched_from_start=chosen == -1,
+               matched_dropoff_stop=stops[drop] if drop is not None and drop < n else None,
+               matched_to_end=drop == n)

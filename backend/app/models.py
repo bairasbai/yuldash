@@ -583,6 +583,8 @@ class Booking(SQLModel, table=True):
     # «Подъезжаю», без GPS-отказа). Координат НЕ храним: точку остановки каждый раз берём из
     # своего справочника сёл (`ride_stops.stop_point`). Видят пассажир и водитель этой брони.
     pickup_stop: Optional[str] = None
+    # NULL — старый клиент не указал высадку; "" — конец; иначе опубликованная остановка.
+    dropoff_stop: Optional[str] = None
     # Когда поездку закрыл человек: «Завершить» водителя, «Завершил» пассажира, «Завершить рейс».
     # От неё (и от выезда, и от «Сел») считается окно «Сообщить о проблеме» пассажира после поездки
     # (`bookings.problem_report_left`). Ночная уборка не ставит: автозакрытие — не завершение.
@@ -843,6 +845,12 @@ class RequestResponse(SQLModel, table=True):
     # Компактная история «d:500,p:400,d:450» — видят ОБЕ стороны. Отдельная таблица под 2-3 хода
     # не нужна, а без истории торг превращается в «я же говорил другую цену» (CSV — как evidence_urls).
     bargain_history: str = Field(default="", max_length=200)
+    # Предложение места в существующем рейсе. Старые отклики остаются без привязки.
+    ride_id: Optional[int] = Field(default=None, foreign_key="ride.id", index=True)
+    pickup_stop: Optional[str] = None
+    dropoff_stop: Optional[str] = None
+    route_snapshot: str = ""      # условия, которые пассажир видел до принятия
+    booking_id: Optional[int] = Field(default=None, foreign_key="booking.id", index=True)
 
 
 # ---- Фаза 2: «Быстрый заказ» (такси-режим) — presence/тариф/заказ/matcher ----

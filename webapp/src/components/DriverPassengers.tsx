@@ -40,7 +40,7 @@ import DriverBoarding from "./DriverBoarding";
 import DriverNoShow from "./DriverNoShow";
 import { SectionHeader } from "./cabinetUi";
 import { pluralRu } from "../utils/format";
-import { PickupStopNote } from "./PickupStopChoice";
+import { BookingSegmentNote } from "./PickupStopChoice";
 
 /** Подтверждённая бронь — по ней можно отметить посадку («Сел») или неявку. */
 const CONFIRMED = "confirmed";
@@ -191,7 +191,7 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
         )}
       </div>
       <div className="list-row__sub">{b.route}</div>
-      <PickupStopNote pickupStop={b.pickup_stop} rideHasStops={b.ride_has_stops} />
+      <BookingSegmentNote pickupStop={b.pickup_stop} dropoffStop={b.dropoff_stop} rideHasStops={b.ride_has_stops} from={b.from_city} to={b.to_city} />
     </div>
   );
 

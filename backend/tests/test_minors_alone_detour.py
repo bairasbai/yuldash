@@ -43,7 +43,9 @@ def test_minor_without_guardian_is_refused(client, user_factory):
     assert r.status_code == 400, r.text
     assert "взрослого" in r.json()["detail"]["ru"]
     # места не тронуты — проверка стоит ДО списания
-    assert client.get("/rides", params={"from_city": "Баймак"}).json()[0]["seats_left"] == 3
+    # Проверяем тот же рейс: в общей сессионной БД первым может оказаться чужой.
+    actual = client.get(f"/rides/{ride['id']}").json()
+    assert actual["id"] == ride["id"] and actual["seats_left"] == ride["seats_left"] == 3
 
 
 def test_minor_with_guardian_books_and_driver_sees_it(client, user_factory):

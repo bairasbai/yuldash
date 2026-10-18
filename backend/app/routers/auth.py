@@ -1228,6 +1228,10 @@ def export_my_data(
                 place = "  " + L("посадка", "ултырыу") + ": " + b.pickup_stop
             elif b.pickup_stop == "" and r is not None and (r.waypoints or "").strip():
                 place = "  " + L("посадка: начало маршрута", "ултырыу: юлдың башы")
+            if b.dropoff_stop:
+                place += "  " + L("высадка", "төшөү") + ": " + b.dropoff_stop
+            elif b.dropoff_stop == "":
+                place += "  " + L("высадка: конец маршрута", "төшөү: юлдың аҙағы")
             out.append(f"{when}  {route}  {b.seats} " + L("мест", "урын") + f"  {int(b.price or 0)} ₽{place}")
         out.append("")
 

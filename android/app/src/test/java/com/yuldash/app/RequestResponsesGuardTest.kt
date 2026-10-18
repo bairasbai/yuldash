@@ -45,7 +45,7 @@ class RequestResponsesGuardTest {
 
     @Test
     fun `api carries only real request and public driver facts`() {
-        val api = source("data/ApiClient.kt")
+        val api = source("data/RequestRouteDtos.kt")
         assertTrue(api.contains("driverVerified = optBoolean(\"driver_verified\")"))
         assertTrue(api.contains("driverTripsCount = optInt(\"driver_trips_count\")"))
         assertTrue(api.contains("driverCar = optString(\"driver_car\")"))

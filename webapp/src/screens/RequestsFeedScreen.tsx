@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import {
   fetchRequestsFeed,
   respondToRequest,
@@ -46,24 +46,33 @@ export default function RequestsFeedScreen() {
   /** Сколько заявок показано сейчас — растёт по кнопке «Показать ещё». */
   const [shown, setShown] = useState(PAGE);
   const [respondTo, setRespondTo] = useState<RequestFeedItem | null>(null);
+  const [onRoute, setOnRoute] = useState(false);
+  const generation = getSessionGeneration();
+  const loading = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
 
-  const load = useCallback((signal?: AbortSignal) => {
+  const load = useCallback(() => {
+    loading.current?.abort();
+    const ac = new AbortController(); loading.current = ac;
+    const signal = ac.signal;
     setStatus("loading");
-    fetchRequestsFeed(signal)
+    setItems([]); setShown(PAGE); setRespondTo(null);
+    fetchRequestsFeed(signal, onRoute)
       .then((list) => {
+        if (!mounted.current || signal.aborted || generation !== getSessionGeneration()) return;
         setItems(list);
         setStatus("ready");
       })
       .catch((e) => {
-        if (signal?.aborted || e?.name === "AbortError") return;
+        if (!mounted.current || signal.aborted || generation !== getSessionGeneration() || e?.name === "AbortError") return;
         setStatus("error");
       });
-  }, []);
+  }, [onRoute, generation]);
 
   useEffect(() => {
-    const ac = new AbortController();
-    load(ac.signal);
-    return () => ac.abort();
+    mounted.current = true;
+    load();
+    return () => { mounted.current = false; loading.current?.abort(); };
   }, [load]);
 
   return (
@@ -74,14 +83,23 @@ export default function RequestsFeedScreen() {
         onBack={() => navigate(-1)}
       />
 
+      <label className="list-row list-row--check" style={{ minHeight: 48 }}>
+        <span className="list-row__main" style={{ display: "grid", gap: "var(--space-xs)", minWidth: 0, overflowWrap: "anywhere" }}>
+          <span className="list-row__title">{appText("По моим маршрутам", "Минең юлдарым буйынса")}</span>
+          <span className="list-row__sub">{appText("Посадка и высадка идут по порядку остановок твоего рейса.", "Ултырыу һәм төшөү һинең сәфәр туҡталыштары тәртибендә.")}</span>
+        </span>
+        <input type="checkbox" checked={onRoute} onChange={e => setOnRoute(e.target.checked)} />
+      </label>
+
       {status === "loading" && <LoadingList count={4} />}
       {status === "error" && <ErrorState onRetry={() => load()} />}
       {status === "ready" &&
         (items.length === 0 ? (
           <div className="state">
             <div className="state__icon"><IconRequest size={34} /></div>
-            <h2>{appText("Пока нет заявок", "Әле заявкалар юҡ")}</h2>
-            <p>{appText("Как только кто-то будет искать попутку — покажем здесь.", "Кемдер юлдаш эҙләһә — бында күрһәтәбеҙ.")}</p>
+            <h2>{onRoute ? appText("По твоим маршрутам пока нет заявок", "Һинең юлдарың буйынса әле заявкалар юҡ") : appText("Пока нет заявок", "Әле заявкалар юҡ")}</h2>
+            <p>{onRoute ? appText("Проверь опубликованные рейсы или посмотри все заявки.", "Баҫылған сәфәрҙәреңде тикшер йәки бөтә заявкаларҙы ҡара.") : appText("Как только кто-то будет искать попутку — покажем здесь.", "Кемдер юлдаш эҙләһә — бында күрһәтәбеҙ.")}</p>
+            {onRoute && <button type="button" className="btn-soft" onClick={() => setOnRoute(false)}>{appText("Все заявки", "Бөтә заявкалар")}</button>}
           </div>
         ) : (
           <div>
@@ -109,13 +127,12 @@ export default function RequestsFeedScreen() {
                   {/* Насколько заявка уводит с твоего маршрута. Без этого водитель
                       читал каждую заявку руками — и уставал от тех, что в другую сторону. */}
                   {/* «По пути» — зелёным, крюк — спокойно серым, без осуждения. */}
+                  {it.matched_ride_id && <span className="badge badge--mint">{appText("По пути", "Юл ыңғайында")}</span>}
                   {it.detour_km != null && (
                     <span
-                      className={"badge " + (it.detour_km <= 10 ? "badge--mint" : "badge--muted")}
+                      className="badge badge--muted"
                     >
-                      {it.detour_km <= 10
-                        ? appText("По пути", "Юл ыңғайында")
-                        : appText(`Крюк ≈ ${it.detour_km} км`, `Урау ≈ ${it.detour_km} км`)}
+                      {appText(`Крюк ≈ ${it.detour_km} км`, `Урау ≈ ${it.detour_km} км`)}
                     </span>
                   )}
                   {it.prefs.map((p) =>
@@ -126,6 +143,9 @@ export default function RequestsFeedScreen() {
                     ) : null
                   )}
                 </div>
+                {!!it.matched_ride_id && <p className="sheet__note">{appText("Твой рейс", "Һинең сәфәрең")}: {it.matched_ride_from_city} → {it.matched_ride_to_city}
+                  {it.matched_ride_depart_at ? ` · ${formatWhen(it.matched_ride_depart_at, ru)}` : ""}
+                  <br />{it.matched_pickup_stop} → {it.matched_dropoff_stop}</p>}
                 {it.comment && (
                   <p className="sheet__comment" style={{ marginTop: 10 }}>
                     {it.comment}
@@ -173,8 +193,10 @@ export default function RequestsFeedScreen() {
 
       {respondTo && (
         <RespondSheet
+          key={`${generation}:${respondTo.id}`}
           item={respondTo}
           onClose={() => setRespondTo(null)}
+          onRefresh={load}
           onDone={(id) => {
             // Шторку не убираем: она уходит сама и по концу движения зовёт onClose.
             setItems((prev) =>
@@ -198,41 +220,76 @@ export function RespondSheet({
   item,
   onClose,
   onDone,
+  onRefresh,
 }: {
   item: RequestFeedItem;
   /** Шторка уже уехала — убери её со страницы. */
   onClose: () => void;
   /** Сервер принял отклик — обнови ленту (шторка уходит сама). */
   onDone: (responseId: number) => void;
+  onRefresh?: () => void;
 }) {
-  const { appText } = useLang();
+  const { appText, lang } = useLang();
+  const generation = getSessionGeneration();
   const [price, setPrice] = useState("");
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tripChoice, setTripChoice] = useState<"ride" | "separate" | null>(null);
+  const [staleRide, setStaleRide] = useState(false);
+  const mounted = useRef(true);
+  const inFlight = useRef(false);
+  const requestAbort = useRef<AbortController | null>(null);
+  const identity = useRef(`${generation}:${item.id}`);
   const sheetRef = useRef<HTMLDivElement>(null);
   const exit = useSheetExit(onClose, sheetRef);
+  const matched = !!item.matched_ride_id && !!item.matched_ride_from_city && !!item.matched_ride_to_city &&
+    !!item.matched_ride_depart_at && !!item.matched_pickup_stop && !!item.matched_dropoff_stop;
+  useEffect(() => {
+    mounted.current = true;
+    const key = `${generation}:${item.id}`;
+    if (identity.current !== key) {
+      inFlight.current = false;
+      identity.current = key; setTripChoice(null); setStaleRide(false); setPrice(""); setComment(""); setError(null); setBusy(false);
+    }
+    return () => { mounted.current = false; requestAbort.current?.abort(); };
+  }, [generation, item.id]);
 
   async function submit() {
-    if (exit.leaving) return; // шторка уже уходит — отклик из неё не отправляем
+    if (exit.leaving || inFlight.current || !mounted.current || generation !== getSessionGeneration() || identity.current !== `${generation}:${item.id}`) return;
+    if (matched && (tripChoice === null || (tripChoice === "ride" && staleRide))) {
+      setError(appText("Выбери свой рейс или отдельную поездку.", "Үҙ сәфәреңде йәки айырым сәфәрҙе һайла.")); return;
+    }
+    inFlight.current = true;
+    const ac = new AbortController(); requestAbort.current = ac;
     setBusy(true);
     setError(null);
     try {
       const res = await respondToRequest(
         item.id,
         price ? Math.max(0, parseInt(price, 10) || 0) : 0,
-        comment.trim()
+        comment.trim(),
+        matched && tripChoice === "ride" ? item.matched_ride_id! : undefined,
+        ac.signal
       );
+      if (!mounted.current || ac.signal.aborted || generation !== getSessionGeneration()) return;
       track("respond_request");
       onDone(res.id);
+      inFlight.current = false;
       exit.close(); // кнопка остаётся «Отправляем…» (busy не сбрасываем), пока шторка уходит
     } catch (e) {
+      if (!mounted.current || ac.signal.aborted || generation !== getSessionGeneration()) return;
+      if (e instanceof ApiError && e.status === 409 && tripChoice === "ride") { setStaleRide(true); setTripChoice(null); }
       setError(
-        e instanceof ApiError && e.message
+        e instanceof ApiError && e.status === 409 && tripChoice === "ride"
+          ? appText("Рейс изменился или больше не подходит. Обнови заявки и выбери снова.", "Сәфәр үҙгәргән йәки бүтән тап килмәй. Заявкаларҙы яңыртып ҡабат һайла.")
+          : e instanceof ApiError && e.message
           ? e.message
           : appText("Не получилось. Попробуй снова.", "Булманы. Ҡабат ҡара.") // DRAFT
       );
       setBusy(false);
+    } finally {
+      if (requestAbort.current === ac) inFlight.current = false;
     }
   }
 
@@ -253,6 +310,22 @@ export function RespondSheet({
         <p className="sheet__note" style={{ marginTop: 0 }}>
           {item.from_city} → {item.to_city}
         </p>
+        {matched && <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: "var(--space-md) 0" }}>
+          <legend className="list-row__title">{appText("Как повезёшь пассажира?", "Юлсыны нисек алып бараһың?")}</legend>
+          <label className="list-row list-row--check" style={{ minHeight: 48 }}>
+            <span className="list-row__main" style={{ display: "grid", gap: "var(--space-xs)", minWidth: 0, overflowWrap: "anywhere" }}>
+              <span className="list-row__title">{appText("Мой рейс", "Минең сәфәрем")}: {item.matched_ride_from_city} → {item.matched_ride_to_city}</span>
+              <span className="list-row__sub">{appText("Выезд рейса", "Сәфәргә сығыу")}: {formatWhen(item.matched_ride_depart_at, lang !== "ba")}</span>
+              <span className="list-row__sub">{appText("Участок пассажира", "Юлсының юл өлөшө")}: {item.matched_pickup_stop} → {item.matched_dropoff_stop}</span>
+            </span>
+            <input type="radio" name={`respond-trip-${item.id}`} checked={tripChoice === "ride"} disabled={staleRide} onChange={() => { setTripChoice("ride"); setError(null); }} />
+          </label>
+          <label className="list-row list-row--check" style={{ minHeight: 48 }}>
+            <span className="list-row__main">{appText("Отдельная поездка", "Айырым сәфәр")}</span>
+            <input type="radio" name={`respond-trip-${item.id}`} checked={tripChoice === "separate"} onChange={() => { setTripChoice("separate"); setError(null); }} />
+          </label>
+          <p className="sheet__note">{appText("Время посадки уточни в чате.", "Ултырыу ваҡытын чатта асыҡла.")}</p>
+        </fieldset>}
         <label className="field" style={{ marginTop: 12 }}>
           <span className="field__label">{appText("Цена, ₽", "Хаҡ, ₽")}</span>
           <input
@@ -275,7 +348,8 @@ export function RespondSheet({
           />
         </label>
         {error && <div className="auth__error">{error}</div>}
-        <button type="button" className="btn-primary sheet__cta" onClick={submit} disabled={busy || exit.leaving}>
+        {staleRide && <button type="button" className="btn-soft" onClick={() => { if (!inFlight.current) { if (onRefresh) onRefresh(); else onClose(); } }}>{appText("Обновить заявки", "Заявкаларҙы яңыртыу")}</button>}
+        <button type="button" className="btn-primary sheet__cta" onClick={submit} disabled={busy || exit.leaving || (matched && tripChoice === null)}>
           {busy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Отправить отклик", "Яуап ебәрергә")}
         </button>
       </div>

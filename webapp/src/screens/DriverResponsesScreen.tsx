@@ -9,10 +9,10 @@
 //  Порядок в карточке жёсткий (читается на ходу, одной рукой):
 //  состояние → цена на столе → комментарий → как шёл торг → действия.
 // ================================================================
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import {
   acceptResponse,
   counterOffer,
@@ -27,6 +27,7 @@ import { SubHeader } from "./ConsentsScreen";
 import { IconBolt, IconCheck, IconRequest, IconTrash } from "../components/Icons";
 import { priceLabel } from "../utils/format";
 import BargainTrail from "../components/BargainTrail";
+import ResponseRouteNote from "../components/ResponseRouteNote";
 import { track } from "../analytics";
 
 type Status = "loading" | "error" | "soon" | "ready";
@@ -35,6 +36,12 @@ export default function DriverResponsesScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
+  const generation = getSessionGeneration();
+  const mounted = useRef(true);
+  const loading = useRef<AbortController | null>(null);
+  const acting = useRef<AbortController | null>(null);
+  const inFlight = useRef(false);
+  const current = () => mounted.current && generation === getSessionGeneration();
 
   const [status, setStatus] = useState<Status>("loading");
   const [rows, setRows] = useState<ResponseItem[]>([]);
@@ -43,36 +50,47 @@ export default function DriverResponsesScreen() {
   const [price, setPrice] = useState("");
   const [err, setErr] = useState("");
 
-  const load = useCallback((signal?: AbortSignal) => {
+  useEffect(() => {
+    mounted.current = true; setRows([]); setCounterFor(null); setPrice(""); setErr(""); setBusyId(null);
+    return () => { mounted.current = false; loading.current?.abort(); acting.current?.abort(); inFlight.current = false; };
+  }, [generation]);
+
+  const load = useCallback(() => {
+    loading.current?.abort(); const ac = new AbortController(); loading.current = ac;
+    const signal = ac.signal;
     setStatus("loading");
     fetchMyResponses(signal)
       .then((r) => {
+        if (!current() || signal.aborted) return;
         setRows(r);
         setStatus("ready");
       })
       .catch((e) => {
-        if (signal?.aborted || e?.name === "AbortError") return;
+        if (!current() || signal.aborted || e?.name === "AbortError") return;
         setStatus(e instanceof ApiError && e.status === 404 ? "soon" : "error");
       });
-  }, []);
+  }, [generation]);
 
   useEffect(() => {
-    const ac = new AbortController();
-    load(ac.signal);
-    return () => ac.abort();
+    load();
+    return () => loading.current?.abort();
   }, [load]);
 
   const myTurn = rows.filter((r) => r.can_accept || r.can_counter).length;
 
   async function accept(r: ResponseItem) {
-    if (busyId) return;
+    if (busyId || inFlight.current || !current()) return;
+    inFlight.current = true;
+    const ac = new AbortController(); acting.current = ac;
     setBusyId(r.id);
     setErr("");
     try {
-      const { booking_id } = await acceptResponse(r.id);
+      const { booking_id } = await acceptResponse(r.id, ac.signal);
+      if (!current() || ac.signal.aborted) return;
       track("accept_response");
       navigate(`/trip/${booking_id}`);
     } catch (e) {
+      if (!current()) return;
       setErr(
         e instanceof ApiError && e.message
           ? e.message
@@ -80,20 +98,24 @@ export default function DriverResponsesScreen() {
       );
       setBusyId(null);
       load();
-    }
+    } finally { if (acting.current === ac) inFlight.current = false; }
   }
 
   async function sendCounter(r: ResponseItem) {
     const value = Number(price);
-    if (!Number.isFinite(value) || value <= 0) return;
+    if (!Number.isFinite(value) || value <= 0 || !current() || inFlight.current) return;
+    inFlight.current = true;
+    const ac = new AbortController(); acting.current = ac;
     setBusyId(r.id);
     setErr("");
     try {
-      const updated = await counterOffer(r.id, Math.round(value));
+      const updated = await counterOffer(r.id, Math.round(value), "", ac.signal);
+      if (!current() || ac.signal.aborted) return;
       setRows((prev) => prev.map((x) => (x.id === r.id ? updated : x)));
       setCounterFor(null);
       setPrice("");
     } catch (e) {
+      if (!current()) return;
       setErr(
         e instanceof ApiError && e.message
           ? e.message
@@ -101,23 +123,28 @@ export default function DriverResponsesScreen() {
       );
       load();
     } finally {
-      setBusyId(null);
+      if (current()) setBusyId(null);
+      if (acting.current === ac) inFlight.current = false;
     }
   }
 
   async function refuse(r: ResponseItem) {
-    if (busyId) return; // по этому отклику уже идёт другое действие (торг) — не гоняемся
+    if (busyId || inFlight.current || !current()) return;
+    inFlight.current = true;
+    const ac = new AbortController(); acting.current = ac; // по этому отклику уже идёт другое действие (торг) — не гоняемся
     const prev = rows;
     setRows(rows.filter((x) => x.id !== r.id)); // оптимистично
     try {
       // Пока идёт торг — «отказаться»; после закрытия отклик убирается совсем.
-      if (r.status === "offered") await declineResponse(r.id);
-      else await withdrawResponse(r.id);
+      if (r.status === "offered") await declineResponse(r.id, ac.signal);
+      else await withdrawResponse(r.id, ac.signal);
+      if (!current() || ac.signal.aborted) return;
       track("withdraw_response");
     } catch {
+      if (!current() || ac.signal.aborted) return;
       setRows(prev); // откат
       setErr(appText("Не получилось отменить отклик.", "Яуапты кире алып булманы."));
-    }
+    } finally { if (acting.current === ac) inFlight.current = false; }
   }
 
   /** Подпись состояния отклика — первым делом в карточке. */
@@ -221,6 +248,7 @@ export default function DriverResponsesScreen() {
                     </p>
                   )}
 
+                  <ResponseRouteNote response={r} />
                   <BargainTrail
                     history={parseBargainHistory(r.bargain_history)}
                     mine="driver"

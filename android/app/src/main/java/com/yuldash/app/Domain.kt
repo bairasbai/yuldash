@@ -42,6 +42,7 @@ internal data class Ride(
     val waypoints: List<String> = emptyList(),   // остановки по пути (A→точки→B)
     val matchedStop: String? = null,   // подсказка сервера из найденной карточки, не из строки поиска
     val matchedFromStart: Boolean = false,
+    val matchedDropoffStop: String? = null, val matchedToEnd: Boolean = false,
     val pickup: String = "",
     val pickupLat: Double? = null,
     val pickupLng: Double? = null,

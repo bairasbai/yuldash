@@ -310,7 +310,8 @@ internal fun BookingScreen(
     onBookingStatusChange: (String) -> Unit = {},   // свежий статус из деталей брони (подтвердили, пока экран открыт)
     onCancelBooking: () -> Unit = {},
     onFindAnotherRide: () -> Unit = {}, frontSeat: Boolean = false, onFrontSeatChange: (Boolean) -> Unit = {},   // + «хочу переднее» (SeatOptions.kt)
-    pickupStop: String? = null, onPickupStopChange: (String) -> Unit = {},
+    pickupStop: String? = ride?.let(::initialPickupStop), onPickupStopChange: (String) -> Unit = {},
+    dropoffStop: String? = ride?.let(::initialDropoffStop), onDropoffStopChange: (String) -> Unit = {},
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
     // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
@@ -465,7 +466,7 @@ internal fun BookingScreen(
         canOpenActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
         else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
     }
-    val primaryEnabled = if (bookingId == null) canCreateBooking && pickupStopReady(ride, pickupStop)
+    val primaryEnabled = if (bookingId == null) canCreateBooking && segmentReady(ride, pickupStop, dropoffStop)
         else bookingPending || bookingCancelled || canOpenActiveTrip
     val primaryStyle = if (bookingPending) AppButtonStyle.Danger else AppButtonStyle.Primary
     val primaryIcon = when {
@@ -518,7 +519,7 @@ internal fun BookingScreen(
                 primaryIcon = primaryIcon,
                 onMessage = onMessage,
                 onPrimary = {
-                    if (bookingId == null && (rideCategoryClosed(ride.category) || !pickupStopReady(ride, pickupStop))) return@BookingDecisionBar
+                    if (bookingId == null && (rideCategoryClosed(ride.category) || !segmentReady(ride, pickupStop, dropoffStop))) return@BookingDecisionBar
                     when {
                         bookingPending -> showCancelConfirmation = true
                         bookingCancelled -> onFindAnotherRide()
@@ -711,7 +712,7 @@ internal fun BookingScreen(
                 )
             }
             frontSeatItem(ride, bookingId, details, frontSeat, onFrontSeatChange)   // переднее место; ниже подросток: до брони форма со взрослым, после — пометка
-            pickupStopItem(ride, bookingId, details, pickupStop, onPickupStopChange)
+            pickupStopItem(ride, bookingId, details, pickupStop, onPickupStopChange, dropoffStop, onDropoffStopChange)
             if (bookingId == null) {
                 item {
                     if (!ride.noMinors) {
@@ -1901,7 +1902,7 @@ private fun ActiveTripContent(
                 )
             }
             // Пассажир до посадки: номер водителя и точка встречи. Без сети они в паспорте ниже.
-            pickupDetails?.let { d -> item(key = "trip-pickup-stop") { PickupStopNote(d.pickupStop, d.rideHasStops, d.fromCity) } }
+            pickupDetails?.takeIf { it.role in setOf("passenger", "driver") && it.status in setOf("pending", "confirmed", "onboard") }?.let { d -> item(key = "trip-pickup-stop") { BookingSegmentNote(d.pickupStop, d.dropoffStop, d.rideHasStops, d.fromCity, d.toCity) } }
             tripContacts?.takeIf { !boardingDone(status, bookingStatus) && !(offline && tripPass != null) }?.let { c ->
                 item(key = "trip-contacts") { ActiveTripContactsCard(c, Modifier.appearIn(1)) }
             }
@@ -3188,6 +3189,7 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
                     }
                 }
             }
+            BookingSegmentNote(pass.pickupStop, pass.dropoffStop, pass.rideHasStops, pass.fromCity, pass.toCity)
             if (pass.pickup.isNotBlank()) TripPassRow(Icons.Default.LocationOn, appText("Точка сбора", "Йыйылыу урыны"), pass.pickup)
             if (pass.boardingCode.isNotBlank()) TripPassRow(Icons.Default.Pin, appText("Код посадки", "Ултырыу коды"), pass.boardingCode)
             if (pass.payAmount != null || pass.price > 0 || pass.payMethod != null) {

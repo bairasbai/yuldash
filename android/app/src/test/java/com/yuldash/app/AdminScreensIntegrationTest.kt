@@ -403,6 +403,8 @@ class AdminScreensIntegrationTest {
 
     @Test
     fun responsesScreen_loadsResponsesFromServerAndDisplaysThem() {
+        ApiClient.saveToken("synthetic-responses-passenger")
+        ApiClient.saveRole("passenger")
         enqueue(
             MockResponse().setResponseCode(200).setBody(
                 """{"items":[{"id":7,"driver_id":42,"driver_name":"Динар","driver_rating":4.9,"price":350,"comment":"Довезу с ветерком","status":"pending","driver_avatar":""}]}"""
@@ -422,6 +424,8 @@ class AdminScreensIntegrationTest {
 
     @Test
     fun responsesScreen_emptyServerResponse_showsEmptyState() {
+        ApiClient.saveToken("synthetic-responses-passenger")
+        ApiClient.saveRole("passenger")
         enqueue(MockResponse().setResponseCode(200).setBody("""{"items":[]}"""))
         composeRule.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {

@@ -26,7 +26,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
-import { PickupStopNote } from "../components/PickupStopChoice";
+import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { ApiError, getSessionGeneration } from "../api/client";
 import {
   CANCEL_REASONS,
@@ -192,6 +192,9 @@ export default function ActiveTripScreen() {
               ? previous.boardingCode
               : "",
             pickup: d.pickup,
+            pickupStop: d.pickup_stop,
+            dropoffStop: d.dropoff_stop,
+            rideHasStops: d.ride_has_stops,
             price: d.pay_amount ?? d.price,
             seats: d.seats,
           };
@@ -649,10 +652,12 @@ export default function ActiveTripScreen() {
   return (
     <>
       <SubHeader
-        title={`${details.from_city} → ${details.to_city}`}
+        title={`${appText("Рейс водителя", "Йөрөтөүсенең сәфәре")}: ${details.from_city} → ${details.to_city}`}
         subtitle={formatWhen(details.depart_at, ru)}
         onBack={() => navigate(-1)}
       />
+
+      <BookingSegmentNote pickupStop={details.pickup_stop} dropoffStop={details.dropoff_stop} rideHasStops={details.ride_has_stops} from={details.from_city} to={details.to_city} />
 
       {/* ❄️ Погода на маршруте — до выезда, а не когда машина уже на трассе */}
       <WeatherWarningCard weather={weather} />
@@ -738,9 +743,6 @@ export default function ActiveTripScreen() {
 
       {/* Оплата (read-only) + контакт */}
       <div className="info-list">
-        {(details.pickup_stop != null || details.ride_has_stops) && <div className="info-row">
-          <PickupStopNote pickupStop={details.pickup_stop} rideHasStops={details.ride_has_stops} from={details.from_city} />
-        </div>}
         {details.role === "passenger" && details.contact_unlocked && details.driver_car && (
           <div className="info-row">
             <span className="info-row__k">{appText("Машина", "Машина")}</span>

@@ -2,7 +2,7 @@ import type { MyBooking } from "../api/bookings";
 import { useLang } from "../i18n/lang";
 import { formatWhen, pluralRu } from "../utils/format";
 import { IconCar, IconCheck, IconClock, IconProfile, IconShield, IconWarn } from "./Icons";
-import { PickupStopNote } from "./PickupStopChoice";
+import { BookingSegmentNote } from "./PickupStopChoice";
 
 /** Те же статусы, что открывают экран активной поездки в Android (bookingStatusAllowsActiveTrip). */
 export function bookingStatusAllowsActiveTrip(status: string): boolean {
@@ -42,12 +42,13 @@ export default function MyTripCard({
       <div className="my-trip-card__head">
         <span className="my-trip-card__tile" aria-hidden>{status.icon}</span>
         <div className="my-trip-card__main">
+          <p className="list-row__sub">{appText("Рейс водителя", "Йөрөтөүсенең сәфәре")}</p>
           <h3 className="my-trip-card__route">{booking.from_city} → {booking.to_city}</h3>
           <span className={"my-trip-card__status " + status.className}>
             <IconShield size={15} /> {status.label}
           </span>
           <span className="my-trip-card__meta"><IconClock size={16} /> {formatWhen(booking.depart_at, ru)}</span>
-          <PickupStopNote pickupStop={booking.pickup_stop} rideHasStops={booking.ride_has_stops} from={booking.from_city} />
+          <BookingSegmentNote pickupStop={booking.pickup_stop} dropoffStop={booking.dropoff_stop} rideHasStops={booking.ride_has_stops} from={booking.from_city} to={booking.to_city} />
           <span className="my-trip-card__meta"><IconProfile size={16} /> {seats} · {booking.price} ₽</span>
         </div>
       </div>

@@ -287,16 +287,20 @@ await test('held boarding reply after unmount cannot call old state setters or p
   assert.equal(h.passes.get(42)?.boardingCode, '');
 });
 for (const oldReplyFirst of [true, false]) await test(`booking42→43: old reply ${oldReplyFirst ? 'before' : 'after'} current reply preserves UI and each pass owner`, async () => {
-  reset(); const oldReply = holdBoardingCode(42); await settle(Active);
+  reset();
+  h.details.pickup_stop = 'Акъяр'; h.details.dropoff_stop = 'Сибай'; h.details.ride_has_stops = true;
+  const oldReply = holdBoardingCode(42); await settle(Active);
   assert.deepEqual(h.codeRequests, [42]); const previousPass = structuredClone(h.passes.get(42));
   assert.equal(previousPass.bookingId, 42); assert.equal(previousPass.boardingCode, '');
+  assert.equal(previousPass.pickupStop, 'Акъяр'); assert.equal(previousPass.dropoffStop, 'Сибай');
   const currentReply = holdBoardingCode(43);
   h.bookingId = 43;
-  h.detailsById.set(43, { ...h.details, booking_id: 43, from_city: 'Баймак', to_city: 'Уфа' });
+  h.detailsById.set(43, { ...h.details, booking_id: 43, from_city: 'Баймак', to_city: 'Уфа', pickup_stop: 'Темясово', dropoff_stop: 'Исянгулово' });
   h.tripById.set(43, { ...h.trip, status: 'confirmed' });
   await settle(Active);
   assert.deepEqual(h.codeRequests, [42, 43]);
-  assert.equal(all(h.tree).find(n => n.type === 'SubHeader')?.props.title, 'Баймак → Уфа'); assert.equal(h.passes.get(43)?.bookingId, 43);
+  assert.equal(all(h.tree).find(n => n.type === 'SubHeader')?.props.title, 'Рейс водителя: Баймак → Уфа'); assert.equal(h.passes.get(43)?.bookingId, 43);
+  assert.equal(h.passes.get(43)?.pickupStop, 'Темясово'); assert.equal(h.passes.get(43)?.dropoffStop, 'Исянгулово');
   async function rejectOldReply() {
     const writesBeforeReply = h.passWrites.length, stateCallsBeforeReply = h.stateCalls.length;
     await replyBoardingCode(oldReply, '428428'); await settle(Active);
@@ -304,6 +308,8 @@ for (const oldReplyFirst of [true, false]) await test(`booking42→43: old reply
     assert.equal(h.passWrites.length, writesBeforeReply);
     assert.equal(h.stateCalls.length, stateCallsBeforeReply);
     assert.deepEqual(h.passes.get(42), previousPass, 'Old response must not rewrite the previous booking pass');
+    assert.equal(all(h.tree).find(n => n.type === 'SubHeader')?.props.title, 'Рейс водителя: Баймак → Уфа');
+    assert.equal(h.passes.get(43)?.pickupStop, 'Темясово'); assert.equal(h.passes.get(43)?.dropoffStop, 'Исянгулово');
   }
   if (oldReplyFirst) await rejectOldReply();
   await replyBoardingCode(currentReply, '435435'); await settle(Active);
@@ -314,6 +320,7 @@ for (const oldReplyFirst of [true, false]) await test(`booking42→43: old reply
   if (!oldReplyFirst) await rejectOldReply();
   assert.ok(text(h.tree).includes('435435'));
   assert.equal(h.passes.get(43)?.boardingCode, '435435');
+  assert.equal(h.passes.get(43)?.pickupStop, 'Темясово'); assert.equal(h.passes.get(43)?.dropoffStop, 'Исянгулово');
   assert.ok(!h.passWrites.some(pass => pass.boardingCode === '428428'));
 });
 

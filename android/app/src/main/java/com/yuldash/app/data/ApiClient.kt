@@ -157,7 +157,10 @@ object ApiClient {
     }
     @Volatile private var refreshToken: String? = null
     @Volatile private var userName: String? = null
+    private val mutableRoleChanges = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    internal val roleChanges = mutableRoleChanges.asStateFlow()
     @Volatile private var userRole: String? = null
+        set(value) { field = value; mutableRoleChanges.value = value }
 
     // Анти-фрод (B8-1): стабильный идентификатор устройства (ANDROID_ID из Settings.Secure).
     // Уходит заголовком X-Device-Id со ВСЕМИ запросами: сервер ловит обход бана новым номером
@@ -1044,15 +1047,15 @@ object ApiClient {
      * Способ по умолчанию — "negotiate" (договоримся); сумма опц. (null = сервер возьмёт цену поездки). */
     suspend fun book(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
-        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null,
-    ): Result<Int> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop)
+        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null, dropoffStop: String? = null,
+    ): Result<Int> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop)
         .map { it.optInt("id") }
 
     /** Preserve the server status: a newly requested seat is not yet confirmed by the driver. */
     suspend fun bookWithStatus(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
-        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null,
-    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop)
+        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null, dropoffStop: String? = null,
+    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop)
         .mapCatching { response ->
             val id = response.getInt("id")
             val status = response.getString("status")
@@ -1067,6 +1070,7 @@ object ApiClient {
         minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "",
         frontSeat: Boolean = false,   // «хочу переднее»: одно на поездку, гонку разводит сервер
         pickupStop: String? = null,   // начало — названием fromCity; null/пусто не подменяем началом
+        dropoffStop: String? = null,
     ): Result<JSONObject> = call(
         "POST", "/bookings",
         JSONObject().put("ride_id", rideId).put("seats", seats)
@@ -1075,6 +1079,7 @@ object ApiClient {
             .apply {
                 if (frontSeat) put("front_seat", true)
                 if (pickupStop != null) put("pickup_stop", pickupStop)
+                if (dropoffStop != null) put("dropoff_stop", dropoffStop)
                 if (minorPassenger) {
                     put("minor_passenger", true)
                     put("minor_guardian_name", guardianName)
@@ -1393,16 +1398,16 @@ object ApiClient {
         }
 
     // ---------- Заявки ↔ водители: лента, отклики, принятие ----------
-    suspend fun getRequestsFeed(): Result<List<RequestFeedDto>> =
-        call("GET", "/requests/feed", null, auth = true).map { obj ->
+    suspend fun getRequestsFeed(onRoute: Boolean = false): Result<List<RequestFeedDto>> =
+        call("GET", "/requests/feed" + if (onRoute) "?on_route=true" else "", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 parseRequestFeedDto(arr.getJSONObject(i))
             }
         }
 
-    suspend fun respondToRequest(requestId: Int, price: Int, comment: String): Result<Unit> =
-        call("POST", "/requests/$requestId/respond", JSONObject().put("price", price).put("comment", comment), auth = true).map { }.onSuccess { Analytics.log("respond_request") }
+    suspend fun respondToRequest(requestId: Int, price: Int, comment: String, rideId: Int? = null): Result<Unit> =
+        call("POST", "/requests/$requestId/respond", JSONObject().put("price", price).put("comment", comment).apply { rideId?.let { put("ride_id", it) } }, auth = true).map { }.onSuccess { Analytics.log("respond_request") }
 
     /** Пассажир отменяет свою заявку → сервер ставит status=cancelled (идемпотентно; matched → 400). */
     suspend fun cancelRequest(requestId: Int): Result<Unit> =
@@ -1466,7 +1471,7 @@ object ApiClient {
 
     /** Принять цену, которая сейчас на столе → booking_id. Принимает тот, чей ход. */
     suspend fun acceptResponse(responseId: Int): Result<Int> =
-        call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).map { it.optInt("booking_id") }.onSuccess { Analytics.log("accept_response") }
+        call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).mapCatching { it.getInt("booking_id").also { id -> require(id > 0) { "Invalid accepted booking response" } } }.onSuccess { Analytics.log("accept_response") }
 
     /** Водитель отзывает свой отклик — пока пассажир его не принял (после accept сервер вернёт 409). */
     suspend fun deleteResponse(responseId: Int): Result<Unit> =
@@ -6488,6 +6493,7 @@ internal fun JSONObject.toRideDto() = RideDto(
     backMaxTwo = optBoolean("back_max_two"), frontSeatAvailable = optBoolean("front_seat_available", true), frontSeatTaken = optBoolean("front_seat_taken"),
     waypoints = optString("waypoints").split(" | ").map { it.trim() }.filter { it.isNotBlank() },
     matchedStop = if (isNull("matched_stop")) null else optString("matched_stop").ifBlank { null }, matchedFromStart = optBoolean("matched_from_start"),
+    matchedDropoffStop = if (isNull("matched_dropoff_stop")) null else optString("matched_dropoff_stop").ifBlank { null }, matchedToEnd = optBoolean("matched_to_end"),
     pickup = optString("pickup"),
     pickupLat = if (isNull("pickup_lat")) null else optDouble("pickup_lat"),
     pickupLng = if (isNull("pickup_lng")) null else optDouble("pickup_lng"),
@@ -6565,6 +6571,7 @@ data class RideDto(
     val backMaxTwo: Boolean = false, val frontSeatAvailable: Boolean = true, val frontSeatTaken: Boolean = false,   // опции мест
     val waypoints: List<String> = emptyList(),
     val matchedStop: String? = null, val matchedFromStart: Boolean = false,
+    val matchedDropoffStop: String? = null, val matchedToEnd: Boolean = false,
     val pickup: String = "",          // где водитель забирает (точка сбора)
     val pickupLat: Double? = null,    // координаты точки сбора (пин на карте)
     val pickupLng: Double? = null,
@@ -6753,45 +6760,6 @@ data class RestrictionsDto(
     val items: List<RestrictionDto> = emptyList(),
     val supportRu: String = "", val supportBa: String = "",
 )
-data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList(), val myResponseId: Int? = null,
-    // На сколько км заявка уводит с собственного маршрута. null = у водителя нет активных
-    // поездок или где-то нет координат — тогда числа не показываем, а не выдумываем.
-    val detourKm: Int? = null,
-    val desiredAt: String = "",
-    val maxPrice: Int? = null,
-    val distanceKm: Double? = null,
-    val category: String = "regular",
-    val passengerRating: Double? = null,
-    val passengerRatingCount: Int = 0,
-    val passengerVerified: Boolean = false,
-)
-data class ResponseDto(
-    val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?,
-    val price: Int,                    // первая цена водителя (историческая)
-    val comment: String, val status: String, val driverAvatar: String = "",
-    // --- Торг о цене (второй круг). Раньше отклик был «бери или уходи». ---
-    val currentPrice: Int = 0,         // цена, которая сейчас НА СТОЛЕ
-    val lastOfferBy: String = "driver",// чей ход был последним: driver | passenger
-    val bargainRounds: Int = 0,        // сколько встречных сделано
-    val canCounter: Boolean = false,   // я могу предложить свою цену
-    val canAccept: Boolean = false,    // я могу принять то, что на столе
-    val bargainHistory: String = "",   // «d:500,p:400,d:450»
-    // Публичное доверие + контекст заявки для премиального экрана откликов.
-    // Дефолты сохраняют совместимость со старым сервером и существующими тестами.
-    val driverVerified: Boolean = false,
-    val driverTripsCount: Int = 0,
-    val driverCar: String = "",
-    val requestFromCity: String = "",
-    val requestToCity: String = "",
-    val requestSeats: Int = 0,
-    val requestMaxPrice: Int = 0,
-    val requestDesiredAt: String? = null,
-) {
-    /** Что показывать как цену: пока торга не было — первое предложение водителя. */
-    val onTable: Int get() = if (currentPrice > 0) currentPrice else price
-    val haggled: Boolean get() = bargainRounds > 0
-}
-
 /** Активный шаринг поездки близкому (B7c): id для отзыва, к какому контакту, готовая live-ссылка. */
 data class TripShareDto(
     val id: Int,
@@ -6936,47 +6904,6 @@ internal fun parseAdDto(o: JSONObject): AdDto {
     )
 }
 
-/** Заявка в ленте водителя. */
-internal fun parseRequestFeedDto(o: JSONObject): RequestFeedDto {
-    val pa = o.optJSONArray("prefs")
-    val prefs = if (pa != null) (0 until pa.length()).map { pa.optString(it) } else emptyList()
-    return RequestFeedDto(
-        id = o.optInt("id"), passengerName = o.optString("passenger_name"),
-        from = o.optString("from_city"), to = o.optString("to_city"),
-        seats = o.optInt("seats"), comment = o.optString("comment"),
-        responded = o.optBoolean("responded"), passengerAvatar = o.optString("passenger_avatar"),
-        prefs = prefs, myResponseId = if (o.isNull("my_response_id")) null else o.optInt("my_response_id"),
-        detourKm = if (o.isNull("detour_km")) null else o.optInt("detour_km"),
-        desiredAt = o.optString("desired_at"),
-        maxPrice = if (o.isNull("max_price")) null else o.optInt("max_price"),
-        distanceKm = if (o.isNull("distance_km")) null else o.optDouble("distance_km"),
-        category = o.optString("category", "regular"),
-        passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
-        passengerRatingCount = o.optInt("passenger_rating_count"),
-        passengerVerified = o.optBoolean("passenger_verified"),
-    )
-}
-
-internal fun JSONObject.toResponseDto() = ResponseDto(
-    id = optInt("id"), driverId = optInt("driver_id"), driverName = optString("driver_name"),
-    driverRating = if (isNull("driver_rating")) null else optDouble("driver_rating"),
-    price = optInt("price"), comment = optString("comment"), status = optString("status"),
-    driverAvatar = optString("driver_avatar"),
-    currentPrice = optInt("current_price"),
-    lastOfferBy = optString("last_offer_by").ifBlank { "driver" },
-    bargainRounds = optInt("bargain_rounds"),
-    canCounter = optBoolean("can_counter"), canAccept = optBoolean("can_accept"),
-    bargainHistory = optString("bargain_history"),
-    driverVerified = optBoolean("driver_verified"),
-    driverTripsCount = optInt("driver_trips_count"),
-    driverCar = optString("driver_car"),
-    requestFromCity = optString("request_from_city"),
-    requestToCity = optString("request_to_city"),
-    requestSeats = optInt("request_seats"),
-    requestMaxPrice = optInt("request_max_price"),
-    requestDesiredAt = optString("request_desired_at").ifBlank { null },
-)
-
 /** Поднятие/донат: статус платежа и реквизиты для перевода. */
 internal fun parseBoostResultDto(o: JSONObject): BoostResultDto {
     val payee = o.optJSONObject("payee")
@@ -6999,9 +6926,6 @@ internal fun parsePopularRouteDto(o: JSONObject): PopularRouteDto =
 /** Человек, на которого можно пожаловаться. */
 internal fun parseReportableUserDto(o: JSONObject): ReportableUserDto =
     ReportableUserDto(o.optInt("id"), o.optString("name"))
-
-/** Отклик водителя на заявку пассажира: цена, торг и доверие. */
-internal fun parseResponseDto(o: JSONObject): ResponseDto = o.toResponseDto()
 
 /** Объявление в кабинете админа: списки размещений и городов приходят массивами. */
 internal fun parseAdminAdDto(a: JSONObject): AdminAdDto {

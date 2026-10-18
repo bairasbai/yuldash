@@ -17,7 +17,7 @@ data class BookingMineDto(
     val departAt: String,
     val driverName: String,
     val driverVerified: Boolean,
-    val pickupStop: String? = null, val rideHasStops: Boolean = false,
+    val pickupStop: String? = null, val dropoffStop: String? = null, val rideHasStops: Boolean = false,
 )
 
 /** Приватные детали брони для вкладки «Детали поездки». */
@@ -54,7 +54,7 @@ data class BookingDetailsDto(
     val fromLng: Double?,
     val toLat: Double?,
     val toLng: Double?,
-    val pickupStop: String? = null, val rideHasStops: Boolean = false,
+    val pickupStop: String? = null, val dropoffStop: String? = null, val rideHasStops: Boolean = false,
 )
 
 
@@ -72,6 +72,7 @@ internal fun parseBookingMineDto(o: JSONObject): BookingMineDto {
         departAt = o.optString("depart_at"),
         driverName = o.optString("driver_name"),
         driverVerified = o.optBoolean("driver_verified"),
+        dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
         pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"), rideHasStops = o.optBoolean("ride_has_stops"),
     )
 }
@@ -109,6 +110,7 @@ internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
         fromLng = if (o.isNull("from_lng")) null else o.optDouble("from_lng"),
         toLat = if (o.isNull("to_lat")) null else o.optDouble("to_lat"),
         toLng = if (o.isNull("to_lng")) null else o.optDouble("to_lng"),
+        dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
         pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"), rideHasStops = o.optBoolean("ride_has_stops"),
     )
 }

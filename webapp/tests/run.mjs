@@ -71,6 +71,8 @@ const SUITES = [
   { test: "ride-booking-path-test", src: null, out: null, bundle: false },
   { test: "booking-pending-refresh-test", src: null, out: null, bundle: false },
   { test: "pickup-stop-test", src: null, out: null, bundle: false },
+  { test: "route-segment-test", src: null, out: null, bundle: false },
+  { test: "requests-route-test", src: null, out: null, bundle: false },
   { test: "create-ride-stops-test", src: null, out: null, bundle: false },
   { test: "own-front-seat-test", src: null, out: null, bundle: false },
   { test: "own-bookings-provider-test", src: null, out: null, bundle: false },

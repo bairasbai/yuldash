@@ -3244,7 +3244,7 @@ internal fun DriverCabinetContent(
                             }
                         }
                         if (b.frontSeat) FrontSeatRequestBadge()   // до решения: водитель знает, кого куда посадит
-                        PickupStopNote(b.pickupStop, b.rideHasStops)
+                        BookingSegmentNote(b.pickupStop, b.dropoffStop, b.rideHasStops, b.fromCity, b.toCity)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onConfirmBooking(b.bookingId) },

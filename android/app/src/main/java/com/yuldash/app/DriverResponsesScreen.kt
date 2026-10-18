@@ -56,6 +56,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,19 +80,26 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun DriverResponsesScreen(onBack: () -> Unit, onOpenTrip: (Int) -> Unit = {}) {
+    val session by ApiClient.sessionChanges.collectAsState()
+    val ownerRole by ApiClient.roleChanges.collectAsState()
+    var mounted by remember(session, ownerRole) { mutableStateOf(true) }
+    DisposableEffect(session, ownerRole) { onDispose { mounted = false } }
+    fun current() = mounted && ApiClient.isCurrentSession(session) && ApiClient.cachedRole() == ownerRole
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    var rows by remember { mutableStateOf<List<ResponseDto>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf(false) }
-    var busy by remember { mutableStateOf(false) }
-    var tick by remember { mutableStateOf(0) }
-    var counterFor by remember { mutableStateOf<ResponseDto?>(null) }
+    var rows by remember(session, ownerRole) { mutableStateOf<List<ResponseDto>>(emptyList()) }
+    var loading by remember(session, ownerRole) { mutableStateOf(true) }
+    var error by remember(session, ownerRole) { mutableStateOf(false) }
+    var busy by remember(session, ownerRole) { mutableStateOf(false) }
+    var tick by remember(session, ownerRole) { mutableStateOf(0) }
+    var counterFor by remember(session, ownerRole) { mutableStateOf<ResponseDto?>(null) }
     val failMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(tick, session, ownerRole) {
         loading = true; error = false
-        ApiClient.getMyResponses().onSuccess { rows = it }.onFailure { error = true }
+        val result = ApiClient.getMyResponses()
+        if (!current()) return@LaunchedEffect
+        result.onSuccess { rows = it }.onFailure { error = true }
         loading = false
     }
 
@@ -109,22 +118,24 @@ internal fun DriverResponsesScreen(onBack: () -> Unit, onOpenTrip: (Int) -> Unit
             busy = busy,
             onRetry = { tick++ },
             onAccept = { r ->
-                if (busy) return@DriverResponsesContent
+                if (busy || !current()) return@DriverResponsesContent
                 busy = true; val id = r.id
                 scope.launch {
+                    if (!current()) return@launch
                     ApiClient.acceptResponse(id)
-                        .onSuccess { bid -> busy = false; tick++; onOpenTrip(bid) }
-                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg, Toast.LENGTH_LONG).show(); busy = false }
+                        .onSuccess { bid -> if (current()) { busy = false; tick++; onOpenTrip(bid) } }
+                        .onFailure { if (current()) { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg, Toast.LENGTH_LONG).show(); busy = false; tick++ } }
                 }
             },
-            onCounter = { r -> counterFor = r },
+            onCounter = { r -> if (current() && !busy) counterFor = r },
             onDecline = { r ->
-                if (busy) return@DriverResponsesContent
+                if (busy || !current()) return@DriverResponsesContent
                 busy = true; val id = r.id
                 scope.launch {
+                    if (!current()) return@launch
                     ApiClient.declineResponse(id)
-                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg, Toast.LENGTH_SHORT).show() }
-                    busy = false; tick++
+                        .onFailure { if (current()) Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg, Toast.LENGTH_SHORT).show() }
+                    if (current()) { busy = false; tick++ }
                 }
             },
         )
@@ -138,11 +149,13 @@ internal fun DriverResponsesScreen(onBack: () -> Unit, onOpenTrip: (Int) -> Unit
             busy = busy,
             onDismiss = { counterFor = null },
             onSend = { price ->
+                if (!current() || busy) return@CounterPriceDialog
                 busy = true; val id = target.id
                 scope.launch {
+                    if (!current()) return@launch
                     ApiClient.counterOffer(id, price)
-                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg, Toast.LENGTH_LONG).show() }
-                    busy = false; counterFor = null; tick++
+                        .onFailure { if (current()) Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg, Toast.LENGTH_LONG).show() }
+                    if (current()) { busy = false; counterFor = null; tick++ }
                 }
             },
         )
@@ -428,6 +441,7 @@ private fun DriverResponseCard(
                     }
                 }
             }
+            BoundResponseRouteNote(r)
             if (r.comment.isNotBlank()) {
                 Text(r.comment, color = CanonText, fontSize = BargainBody, lineHeight = BargainBodyLine)
             }

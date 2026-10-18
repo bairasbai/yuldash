@@ -1,6 +1,6 @@
 import type { MyBooking } from "../api/bookings";
 
-export type OwnSeatBooking = Pick<MyBooking, "id" | "ride_id" | "status" | "front_seat" | "pickup_stop" | "ride_has_stops">;
+export type OwnSeatBooking = Pick<MyBooking, "id" | "ride_id" | "status" | "front_seat" | "pickup_stop" | "dropoff_stop" | "ride_has_stops">;
 
 export function isLiveOwnBooking(booking: OwnSeatBooking | null | undefined): booking is OwnSeatBooking {
   return !!booking && Number.isSafeInteger(booking.id) && booking.id > 0 &&

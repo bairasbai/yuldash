@@ -196,6 +196,7 @@ def _rules(now):
          # останавливала чистку броней навсегда, молча: строк удалено 0, ошибка в логе.
          "AND NOT EXISTS (SELECT 1 FROM ledgerentry le WHERE le.booking_id = booking.id) "
          "AND NOT EXISTS (SELECT 1 FROM payment p WHERE p.booking_id = booking.id) "
+         "AND NOT EXISTS (SELECT 1 FROM requestresponse rr WHERE rr.booking_id = booking.id) "
          "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.booking_id = booking.id)",
          {"c": cut(TRIP_DAYS)}),
         # Поездки: старые cancelled/done БЕЗ броней и платежей (финансы бережём; у done обычно есть брони → пропустятся).
@@ -203,6 +204,7 @@ def _rules(now):
          "ride",
          "status IN ('cancelled', 'done') AND created_at < :c "
          "AND NOT EXISTS (SELECT 1 FROM booking b WHERE b.ride_id = ride.id) "
+         "AND NOT EXISTS (SELECT 1 FROM requestresponse rr WHERE rr.ride_id = ride.id) "
          "AND NOT EXISTS (SELECT 1 FROM payment p WHERE p.ride_id = ride.id)",
          {"c": cut(TRIP_DAYS)}),
         # Такси-заказы: старые терминальные БЕЗ финансов/оценок/споров/связей (в основном cancelled/expired;

@@ -143,6 +143,7 @@ internal suspend fun saveTripPass(
             savedAt = System.currentTimeMillis(),
             payMethod = d.payMethod,
             payAmount = d.payAmount,
+            pickupStop = d.pickupStop, dropoffStop = d.dropoffStop, rideHasStops = d.rideHasStops,
         ),
         retryMigration = retryMigration,
         expectedGeneration = expectedGeneration,

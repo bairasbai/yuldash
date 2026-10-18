@@ -36,7 +36,8 @@ class PickupStopTest {
         assertFalse(pickupStopReady(ride(), "Уфа"))
         assertTrue(pickupStopReady(ride(), "Баймак"))
         assertTrue(pickupStopReady(ride(), "Сибай"))
-        assertTrue(pickupStopReady(ride().copy(waypoints = emptyList()), null))
+        assertTrue(pickupStopReady(ride().copy(waypoints = emptyList()), "Баймак"))
+        assertEquals("Баймак", initialPickupStop(ride().copy(waypoints = emptyList())))
     }
 
     @Test fun privateBookingParsersKeepUnknownStartAndStopDistinct() {

@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -43,6 +44,13 @@ class RideshareParityInstrumentedTest {
             boosted = false, waypoints = listOf("Ургаза", "Бурибай"),
         )
         val picked = mutableStateOf<String?>(null)
+        val dropoff = mutableStateOf<String?>(null)
+        val bind = mutableStateOf<Boolean?>(null)
+        val matchedRequest = com.yuldash.app.data.RequestFeedDto(
+            id = 5, passengerName = "Тестовый пассажир", from = "Ургаза", to = "Бурибай", seats = 1, comment = "", responded = false,
+            matchedRideId = 42, matchedRideFromCity = "Сибай", matchedRideToCity = "Акъяр", matchedRideDepartAt = "2030-01-02T10:00:00Z",
+            matchedPickupStop = "Ургаза", matchedDropoffStop = "Бурибай",
+        )
         val stops = mutableStateOf(listOf("Абзаково (Учалинский)"))
         val detailsState = mutableStateOf(0)
         var detailsRetryCalls = 0
@@ -65,14 +73,17 @@ class RideshareParityInstrumentedTest {
                             failure = if (detailsState.value == 1) IOException("Synthetic offline fixture") else null,
                             onRetry = { detailsRetryCalls++; detailsState.value = 0 },
                         )
-                        PickupStopPicker(ride, picked.value, { picked.value = it })
-                        PickupStopNote(picked.value, rideHasStops = true, from = ride.from)
+                        BookingSegmentPicker(ride, picked.value, dropoff.value, {
+                            picked.value = it; dropoff.value = keepValidDropoff(ride, it, dropoff.value)
+                        }, { dropoff.value = it })
+                        BookingSegmentNote(picked.value, dropoff.value, true, ride.from, ride.to)
                         CreateRideStopsEditor(stops.value, { stops.value = it }) { index ->
                             StopSuggestField(stops.value[index], { value ->
                                 stops.value = stops.value.toMutableList().also { it[index] = value }
                             }, endpoints = listOf("Сибай", "Акъяр"))
                         }
                         ActiveTripContactsCard(TripContacts(phone, "белая Lada Vesta", "А000АА 00", "Ургаза", null, null))
+                        RequestRouteOfferChoice(matchedRequest, bind.value, { bind.value = it })
                     }
                 }
             }
@@ -89,17 +100,25 @@ class RideshareParityInstrumentedTest {
         compose.onNodeWithText(loadingText).assertIsDisplayed()
         compose.runOnIdle { assertEquals(1, detailsRetryCalls); detailsState.value = 2 }
         val title = if (language == AppLanguage.Ba) "Ҡайҙа ултыраһың?" else "Где садишься?"
-        compose.onNodeWithText(title).assertIsDisplayed()
+        compose.onNodeWithText(title).performScrollTo().assertIsDisplayed()
         compose.onAllNodesWithText("Ургаза", useUnmergedTree = true).onFirst().performClick()
         compose.runOnIdle { assertEquals("Ургаза", picked.value) }
-        capture(language, dark, "pickup")
+        compose.onAllNodesWithText("Бурибай", useUnmergedTree = true).onLast().performScrollTo().performClick()
+        compose.runOnIdle { assertEquals("Бурибай", dropoff.value) }
+        capture(language, dark, "segment")
         val selected = if (language == AppLanguage.Ba) "Ултырыу: Ургаза" else "Посадка: Ургаза"
-        compose.onNodeWithText(selected).performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText(selected).onFirst().performScrollTo().assertIsDisplayed()
         val stopsTitle = if (language == AppLanguage.Ba) "Юл буйындағы туҡталыштар" else "Остановки по пути"
         compose.onNodeWithText(stopsTitle).performScrollTo().assertIsDisplayed()
         capture(language, dark, "stops")
         compose.onNodeWithText(phone).performScrollTo().assertIsDisplayed()
         capture(language, dark, "contacts")
+        val ownRide = if (language == AppLanguage.Ba) "Үҙ сәфәремдә урын" else "Место в моём рейсе"
+        compose.onNodeWithText(ownRide).performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(true, bind.value) }
+        val segment = if (language == AppLanguage.Ba) "Юл өлөшө: Ургаза → Бурибай" else "Участок: Ургаза → Бурибай"
+        compose.onAllNodesWithText(segment).onLast().performScrollTo().assertIsDisplayed()
+        capture(language, dark, "bound-offer")
     }
 
     private fun capture(language: AppLanguage, dark: Boolean, state: String) {

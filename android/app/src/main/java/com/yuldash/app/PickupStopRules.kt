@@ -8,7 +8,7 @@ internal fun pickupStops(ride: Ride): List<String> = ride.waypoints.map(String::
 /** Start is sent by name: an empty request means unknown to the server on a route with stops. */
 internal fun initialPickupStop(ride: Ride): String? {
     val stops = pickupStops(ride)
-    if (stops.isEmpty()) return null
+    if (stops.isEmpty()) return ride.from
     return when {
         ride.matchedStop in stops -> ride.matchedStop
         ride.matchedFromStart -> ride.from
@@ -18,6 +18,34 @@ internal fun initialPickupStop(ride: Ride): String? {
 
 internal fun pickupStopReady(ride: Ride, picked: String?): Boolean =
     pickupStops(ride).isEmpty() || picked == ride.from || picked in pickupStops(ride)
+
+/** The route is ordered; a drop-off is always strictly after boarding. */
+internal fun routePlaces(ride: Ride): List<String> = listOf(ride.from) + pickupStops(ride) + ride.to
+
+internal fun dropoffStops(ride: Ride, pickup: String?): List<String> {
+    val route = routePlaces(ride)
+    val index = route.indexOf(pickup)
+    return if (index in 0 until route.lastIndex) route.drop(index + 1) else emptyList()
+}
+
+internal fun initialDropoffStop(ride: Ride): String? = when {
+    pickupStops(ride).isEmpty() -> ride.to
+    ride.matchedDropoffStop in pickupStops(ride) -> ride.matchedDropoffStop
+    ride.matchedToEnd -> ride.to
+    else -> null
+}.takeIf { it in dropoffStops(ride, initialPickupStop(ride)) }
+
+internal fun segmentReady(ride: Ride, pickup: String?, dropoff: String?): Boolean =
+    pickup != null && pickupStopReady(ride, pickup) && dropoff != null && dropoff in dropoffStops(ride, pickup)
+
+internal fun keepValidDropoff(ride: Ride, pickup: String?, dropoff: String?): String? =
+    dropoff?.takeIf { it in dropoffStops(ride, pickup) }
+
+/** Only server hints on the same ride survive an unfiltered details fetch. */
+internal fun Ride.withRouteHints(previous: Ride?): Ride = if (previous?.id != id) this else copy(
+    matchedStop = matchedStop ?: previous.matchedStop, matchedFromStart = matchedFromStart || previous.matchedFromStart,
+    matchedDropoffStop = matchedDropoffStop ?: previous.matchedDropoffStop, matchedToEnd = matchedToEnd || previous.matchedToEnd,
+)
 
 @androidx.compose.runtime.Composable
 internal fun bookingTripRide(b: com.yuldash.app.data.BookingMineDto, feed: Ride?): Ride {
