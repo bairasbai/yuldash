@@ -5,12 +5,15 @@
 участнику (поток живёт лишь во время поездки). Namespace ключа = -booking_id, чтобы
 не смешиваться с чатом (общий ConnectionManager + Redis; subscriber кастует int —
 отрицательный ключ валиден)."""
+import asyncio
 import json
 import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlmodel import Session
 
+from .. import livepos            # модулем: подмена в тестах цепляет вызов
 from .. import trip_wake
 from ..antifraud import TrackGuard
 from ..db import engine
@@ -39,6 +42,14 @@ PARCEL_LOC_ACTIVE = ("accepted", "in_transit")
 # в столько секунд. Раньше база спрашивалась на каждый кадр (раз в 5–10 с, часами), см. `_Пора`.
 PRE_TRIP_RECHECK_SEC = 30
 _monotonic = time.monotonic   # отдельным именем — чтобы тест мог двигать часы, не трогая asyncio
+_wall = time.time             # стенные часы закрытия окна остановки — тоже отдельным именем для тестов
+
+# Канал пассажира B (18.10.2026): как часто его сокет сам смотрит, где машина, если водитель открыл
+# поездку ДРУГОЙ брони рейса и точку в канал B не шлёт. Кадры водителя идут раз в 5–10 с.
+CAR_FEED_SEC = 5.0
+# Канал водителя ЭТОЙ брони жив, если её точка свежее этого: тогда пассажир и так получает её
+# пересылкой, второй поток не нужен.
+OWN_CHANNEL_FRESH_SEC = 15.0
 
 
 @router.websocket("/ws/map")
@@ -179,6 +190,57 @@ def _вторая_сторона(я: int, первый, второй):
     return None
 
 
+def driver_point_for_booking(session: Session, booking, ride, now=None):
+    """Где машина — для брони B: её близким по ссылке, её SOS (только «в пути») и её каналу.
+
+    Точку берём по ЛЮБОЙ подтверждённой брони рейса (`livepos.driver_points_for_ride`): водитель
+    открыл поездку одного пассажира, а машина у него одна. Своя точка этой брони (её канал жив)
+    важнее — это ровно то, что показывали раньше; иначе самая свежая из остальных. Но отдаём её
+    только по правилам САМОЙ брони B (решение ведущего 18.10.2026, P2-А и P3 второй проверки
+    безопасности):
+
+    * бронь жива (подтверждена или «в пути») и её поездка идёт — `trip_is_live(B)`, а у брони на
+      остановке — её окно (`bookings.stop_live_window`): позже обычного, не от «Выехал», и до посадки
+      закрывается через 15 минут после срока «Не пришёл»;
+    * блокировки — готовыми правилами канала: блокировка между ними закрывает точку, кроме случая
+      «в пути» (`_пишем_без_пересылки` — её близкие машину не теряют); его блокировка до посадки
+      сильнее её ответной.
+
+    Ничего не пишет и никому сам не отправляет."""
+    if booking is None or ride is None:
+        return None
+    if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard):
+        return None
+    if not trip_is_live(booking, ride, now):
+        return None
+    if _заблокированы(session, booking.passenger_id, ride.driver_id) and \
+            not _пишем_без_пересылки(session, booking, ride, ride.driver_id):
+        return None
+    точки = livepos.driver_points_for_ride(session, ride, now)
+    своя = next((p for p in точки if p.get("booking_id") == booking.id), None)
+    return своя or (точки[0] if точки else None)
+
+
+def _закрыть_в(b, r):
+    """Стенные часы, когда окно точки брони на остановке закроется до посадки (или None)."""
+    if b is None or r is None or b.status != BookingStatus.confirmed or not getattr(b, "pickup_stop", None):
+        return None
+    from ..timeutil import utcnow
+    from .bookings import stop_live_window
+    окно = stop_live_window(r, b)
+    if окно is None or окно[1] is None:
+        return None
+    return _wall() + (окно[1] - utcnow()).total_seconds()
+
+
+def _epoch(ts_iso) -> "int | None":
+    """Метка точки из кэша (наивный UTC ISO) → секунды эпохи, как `ts` в кадрах приложения."""
+    try:
+        return int(datetime.fromisoformat(str(ts_iso)).replace(tzinfo=timezone.utc).timestamp())
+    except (TypeError, ValueError):
+        return None
+
+
 class _Пора:
     """«Поездка началась, точку можно пересылать?» — решение на одно соединение.
 
@@ -209,12 +271,16 @@ class _Пора:
         self.только_запись = False   # блокировка «в пути»: точку пишем для ссылки и SOS, по каналу не пересылаем
         self._спросили_в = 0.0   # стенные часы НАЧАЛА последней проверки — по ним сверяем толчки
         self._не_раньше = 0.0    # монотонные часы: до этого момента базу повторно не спрашиваем
+        # Бронь на остановке (18.10.2026): окно закрывается до посадки через 15 минут после срока
+        # «Не пришёл». Стенные часы этого момента: после него «да» больше не верим без чтения базы.
+        self._закрыть_в: "float | None" = None
 
     def наступила(self) -> bool:
         if self.кончилась:
             return False
         толкнули = trip_wake.poked_since(self._id, self._спросили_в)
-        if self._да and not толкнули:
+        окно_истекло = self._закрыть_в is not None and _wall() >= self._закрыть_в
+        if self._да and not толкнули and not окно_истекло:
             return True          # началась — пока никто не толкнул, базу не спрашиваем
         if not self._да and _monotonic() < self._не_раньше and not толкнули:
             return False
@@ -236,12 +302,17 @@ class _Пора:
                 self.кончилась = True
                 self.причина = "Trip ended" if self.только_запись else "Access ended"
                 return False
-            if self._да:
+            if self._да and not окно_истекло:
                 # Толчок по идущей поездке («Подъезжаю», отмена, неявка, снятие): назад не откатываем,
                 # но если сделки больше нет — канал закрывается сразу.
                 self.кончилась = b is None or b.status not in (BookingStatus.confirmed, BookingStatus.onboard)
+                if not self.кончилась:
+                    self._закрыть_в = _закрыть_в(b, r)   # «Подъезжаю» сдвигает срок «Не пришёл»
                 return not self.кончилась
+            # Окно брони на остановке истекло (не села к сроку): спрашиваем правило заново — посадка
+            # откроет снова, иначе точка не идёт.
             self._да = trip_is_live(b, r)
+            self._закрыть_в = _закрыть_в(b, r) if self._да else None
         self._не_раньше = _monotonic() + PRE_TRIP_RECHECK_SEC
         return self._да
 
@@ -317,6 +388,12 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     )
     guard = TrackGuard(user_id)   # анти-телепорт (B8-3): фейковые скачки не ретранслируем
     msgs = 0
+    # Канал пассажира сам узнаёт, где машина (18.10.2026, P3 второй проверки безопасности): водитель
+    # мог открыть поездку ДРУГОЙ брони рейса, и в канал этой брони его точка не идёт (задача #44).
+    # Решение «слать или нет» — по правилам ЭТОЙ брони и этого пассажира (`пора` — его собственный
+    # `_Пора`, с толчками): отмена или блокировка — точка перестаёт идти сразу. Водителю ничего
+    # нового не уходит: это его же точка, а точку пассажирки этот поток не трогает.
+    подача = asyncio.create_task(_машина_пассажиру(websocket, booking_id, пора)) if role == "passenger" else None
     try:
         while True:
             data = await websocket.receive_text()
@@ -377,8 +454,55 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     except WebSocketDisconnect:
         pass
     finally:
+        if подача is not None:
+            подача.cancel()     # поток машины живёт ровно столько, сколько канал
         страж.cancel()          # сторож живёт ровно столько, сколько канал
         manager.disconnect(recv_key, websocket)   # снятие регистрации при любом выходе
+
+
+def _машина_для(booking_id: int, пора: "_Пора"):
+    """Один шаг потока машины для пассажира: точка, которую ему можно отправить сейчас, или None.
+
+    Порядок важен: сперва правило этой брони и этого пассажира (`пора` — окно, блокировка, отмена),
+    и только потом чтение точки. Канал водителя ЭТОЙ брони жив (её точка свежая) — не дублируем:
+    пассажир и так получает её пересылкой."""
+    if not пора.наступила() or пора.только_запись:
+        return None
+    with Session(engine) as s:
+        b = s.get(Booking, booking_id)
+        r = s.get(Ride, b.ride_id) if b else None
+        if b is None or r is None:
+            return None
+        своя = livepos.livepos_get("booking", booking_id)
+        if своя:
+            возраст = livepos._age_sec(своя, livepos.utcnow())
+            if возраст is not None and возраст <= OWN_CHANNEL_FRESH_SEC:
+                return None
+        return driver_point_for_booking(s, b, r)
+
+
+async def _машина_пассажиру(websocket: WebSocket, booking_id: int, пора: "_Пора") -> None:
+    """Поток машины в канал пассажира, пока канал открыт (см. `_машина_для`)."""
+    последняя = None
+    try:
+        while True:
+            await asyncio.sleep(CAR_FEED_SEC)
+            поз = _машина_для(booking_id, пора)
+            if пора.кончилась:
+                await websocket.close(code=1008, reason=пора.причина)
+                return
+            if not поз or поз.get("ts") == последняя:
+                continue
+            последняя = поз.get("ts")
+            await websocket.send_text(json.dumps({
+                "type": "loc", "role": "driver",
+                "lat": поз.get("lat"), "lng": поз.get("lng"), "bearing": поз.get("bearing"),
+                "ts": _epoch(поз.get("ts")),
+            }))
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001 — поток машины вторичен: канал и его сторож живут дальше
+        log.warning(f"[TRIP] поток машины для брони {booking_id} остановлен: {type(e).__name__}")
 
 
 @router.websocket("/ws/instant/{order_id}/location")

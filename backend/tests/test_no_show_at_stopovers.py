@@ -307,9 +307,15 @@ def test_blank_waypoints_are_not_stops():
 
 
 def test_a_dot_in_waypoints_keeps_the_gps_check(client, user_factory, at):
-    """«.» в остановках — поездка без остановок: далёкое «Подъезжаю» по-прежнему отказ."""
-    drv, _pax, _ride, bid = _trip(client, user_factory, "gpsdot", pin=True, waypoints=".",
-                                  depart_in=timedelta(minutes=20))
+    """«.» в остановках СТАРОЙ поездки — поездка без остановок: далёкое «Подъезжаю» по-прежнему отказ.
+    (С 18.10.2026 «.» при публикации не пройдёт — 400 `stop_invalid`; в базе такие строки остались.)"""
+    drv, _pax, ride, bid = _trip(client, user_factory, "gpsdot", pin=True, waypoints="",
+                                 depart_in=timedelta(minutes=20))
+    with Session(engine) as s:
+        r = s.get(Ride, ride["id"])
+        r.waypoints = "."
+        s.add(r)
+        s.commit()
     at(FAR, bid)
     r = _arriving(client, drv, bid)
     assert r.status_code == 409 and "км" in r.json()["detail"]["ru"], r.text
@@ -353,9 +359,12 @@ def test_the_trip_screen_arriving_hits_the_same_refusal(client, user_factory, pu
     assert r.status_code == 409 and r.json()["detail"]["code"] == "arriving_too_early", r.text
     assert pushes == []
     assert _booking(bid).arriving_at is None
-    # «Выехал» этим правилом не ограничен — он не обещает пассажиру, что машина у дома.
-    assert client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"],
-                       json={"status": "departed"}).status_code == 200
+    # «Выехал» за три часа до выезда — тоже отказ (вторая проверка безопасности, P2-Г, 18.10.2026):
+    # раньше чем за час он будил пассажира и открывал обеим сторонам живую точку от дома.
+    early = client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": "departed"})
+    assert early.status_code == 409 and early.json()["detail"]["code"] == "departed_too_early", early.text
+    assert early.json()["detail"]["departed_wait_sec"] > 0 and pushes == []
+    assert _booking(bid).driver_phase == ""
 
 
 def test_arriving_opens_exactly_thirty_minutes_before_departure(client, user_factory, clock, pushes):

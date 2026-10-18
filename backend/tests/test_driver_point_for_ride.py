@@ -254,11 +254,24 @@ def test_far_on_every_device_is_still_refused(client, user_factory, redis_on):
 
 APP = pathlib.Path(__file__).resolve().parents[1] / "app"
 HELPER = "driver_points_for_ride"
-# Где помощник МОЖНО упоминать: (файл, функция верхнего уровня). Каждая новая строка — сознательное
+# Обёртка для брони B (PR1, 18.10.2026): та же точка, но по правилам брони B (окно, блокировки).
+BOOKING_HELPER = "driver_point_for_booking"
+# Где помощники МОЖНО упоминать: (файл, функция верхнего уровня). Каждая новая строка — сознательное
 # решение «кому и когда отдаём точку водителя», с проверкой безопасности (§8, гео).
 ALLOWED = {
-    ("livepos.py", HELPER),                    # определение
-    ("routers/bookings.py", "_verify_arrival"),  # честное «Подъезжаю»: отвечает водителю «далеко/рядом»
+    HELPER: {
+        ("livepos.py", HELPER),                         # определение
+        ("routers/bookings.py", "_verify_arrival"),     # честное «Подъезжаю» к пину: ответ водителю
+        ("routers/bookings.py", "_distance_to_stop_km"),  # «Подъезжаю» к остановке: ответ водителю
+        ("routers/location.py", BOOKING_HELPER),        # обёртка по правилам брони B
+    },
+    BOOKING_HELPER: {
+        ("routers/location.py", BOOKING_HELPER),        # определение
+        ("routers/location.py", "_машина_для"),         # канал пассажира B (его `_Пора`)
+        ("routers/share.py", "<module>"),               # импорт
+        ("routers/share.py", "_booking_state"),         # ссылка близким B
+        ("routers/safety.py", "_место_беды"),           # SOS: только «в пути»
+    },
 }
 # Публичные выдачи, где точки водителя не будет НИКОГДА: лента, «Ближайшие», города, карточка
 # поездки, сигнальный канал карты, витрина `/r/{id}` (P3 второй проверки безопасности).
@@ -269,17 +282,17 @@ PUBLIC = {
 }
 
 
-def _mentions(path: pathlib.Path, base: pathlib.Path = APP) -> set[tuple[str, str]]:
+def _mentions(path: pathlib.Path, base: pathlib.Path = APP, name: str = HELPER) -> set[tuple[str, str]]:
     """Где в файле упомянут помощник: {(файл, функция верхнего уровня или «<module>»)}."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     rel = path.relative_to(base).as_posix()
     found: set[tuple[str, str]] = set()
 
     def hit(node) -> bool:
-        return ((isinstance(node, ast.Name) and node.id == HELPER)
-                or (isinstance(node, ast.Attribute) and node.attr == HELPER)
-                or (isinstance(node, ast.alias) and (node.name == HELPER or node.asname == HELPER))
-                or (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == HELPER))
+        return ((isinstance(node, ast.Name) and node.id == name)
+                or (isinstance(node, ast.Attribute) and node.attr == name)
+                or (isinstance(node, ast.alias) and (node.name == name or node.asname == name))
+                or (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name))
 
     for top in tree.body:
         owner = top.name if isinstance(top, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else "<module>"
@@ -288,23 +301,25 @@ def _mentions(path: pathlib.Path, base: pathlib.Path = APP) -> set[tuple[str, st
     return found
 
 
-def _all_mentions() -> set[tuple[str, str]]:
+def _all_mentions(name: str) -> set[tuple[str, str]]:
     out: set[tuple[str, str]] = set()
     for path in APP.rglob("*.py"):
-        out |= _mentions(path)
+        out |= _mentions(path, name=name)
     return out
 
 
-def test_helper_is_used_only_where_allowed():
-    extra = _all_mentions() - ALLOWED
+@pytest.mark.parametrize("name", [HELPER, BOOKING_HELPER])
+def test_helper_is_used_only_where_allowed(name):
+    extra = _all_mentions(name) - ALLOWED[name]
     assert not extra, (
-        f"точка водителя по рейсу ушла туда, где её не разрешали: {sorted(extra)}. Это гео (§8): "
+        f"точка водителя ({name}) ушла туда, где её не разрешали: {sorted(extra)}. Это гео (§8): "
         "сначала план и проверка безопасности, потом строка в ALLOWED")
 
 
-def test_helper_never_reaches_public_feeds():
+@pytest.mark.parametrize("name", [HELPER, BOOKING_HELPER])
+def test_helper_never_reaches_public_feeds(name):
     for rel, funcs in PUBLIC.items():
-        hits = {owner for f, owner in _mentions(APP / rel) if f == rel}
+        hits = {owner for f, owner in _mentions(APP / rel, name=name) if f == rel}
         bad = hits if funcs is None else hits & funcs
         assert not bad, f"{rel}: публичная выдача читает точку водителя ({sorted(bad)})"
 

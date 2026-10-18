@@ -1624,14 +1624,21 @@ def public_ride_payload(item, *, full: bool = False):
     `full=True` — для своих: водителя и пассажира с живой бронью. Им ориентир у дома и телефон
     как раз и написаны.
     """
+    # Остановки старых поездок чистятся тем же правилом, что при публикации (18.10.2026, P2-3):
+    # «ул. Ленина 5» или телефон в поле остановок в выдачу не уходят, выбрать их нельзя.
+    from .ride_stops import clean_waypoints   # лениво: ride_stops тянет geo, а geo — этот модуль
     patch = {"pickup": "", "pickup_lat": None, "pickup_lng": None}
     if isinstance(item, RideOut):
         if not full:
             patch["comment"] = scrub_text(item.comment or "")
+        if item.waypoints:
+            patch["waypoints"] = clean_waypoints(item)
         return item.model_copy(update=patch)
     data = dict(item)
     if not full:
         patch["comment"] = scrub_text(data.get("comment") or "")
+    if data.get("waypoints"):
+        patch["waypoints"] = clean_waypoints(data)
     data.update(patch)
     return data
 

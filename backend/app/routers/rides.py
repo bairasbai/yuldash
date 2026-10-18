@@ -95,6 +95,32 @@ def _guard_route_cities(from_city: str, to_city: str) -> None:
         raise herr(400, "Откуда и куда — разные места. Проверь маршрут",
                    "Ҡайҙан һәм ҡайҙа — төрлө урын. Юлды ҡара")
 
+def _clean_publish_stops(waypoints: str) -> str:
+    """Остановки при публикации (вторая проверка безопасности, P2-3 и P3, 18.10.2026).
+
+    Каждая остановка — название села: буквы (русские, башкирские, латиница), пробел, дефис, точка,
+    скобки; до 60 знаков; без цифр. Номер дома, телефон или адрес так не пройдут — а остановку видит
+    весь район и выбирает пассажир. Списка «запретных слов» нет нарочно: «Улу-Теляк», «Кваркено»,
+    «Домашкино» — честные сёла. Остановок не больше четырёх, как в приложении и на сайте.
+    Возвращает нормализованную строку «А | Б» (пустые части выброшены)."""
+    from ..ride_stops import MAX_STOP_LEN, MAX_STOPS, split_raw, stop_text_ok
+    parts = split_raw(waypoints)
+    if len(parts) > MAX_STOPS:
+        raise HTTPException(400, {
+            "ru": f"Остановок по пути — не больше {MAX_STOPS}. Оставь главные села, остальное — в комментарии.",
+            "ba": f"Юл ыңғайындағы туҡталыштар {MAX_STOPS}-тән артмаһын. Төп ауылдарҙы ҡалдыр, ҡалғанын — аңлатмаға.",
+            "code": "stops_too_many"})
+    for p in parts:
+        if not stop_text_ok(p):
+            raise HTTPException(400, {
+                "ru": (f"Остановка «{p[:MAX_STOP_LEN]}» — напиши только название села или города, буквами, "
+                       f"без цифр и адреса (до {MAX_STOP_LEN} знаков). Точное место договоритесь в чате."),
+                "ba": (f"«{p[:MAX_STOP_LEN]}» туҡталышы — ауыл йәки ҡала исемен генә хәрефтәр менән яҙ, "
+                       f"һандарһыҙ һәм адресһыҙ ({MAX_STOP_LEN} билдәгә тиклем). Теүәл урынды чатта килешегеҙ."),
+                "code": "stop_invalid"})
+    return " | ".join(parts)
+
+
 def _date_bounds(date: Optional[date_type]):
     """F4: границы суток для фильтра «когда едем» (date=YYYY-MM-DD → [00:00, +1день)).
 
@@ -219,6 +245,10 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     # ловим мат и фишинг, телефон НЕ помечаем — обмен номерами между соседями это норма
     # и суть «между своими», комиссии в попутках нет.
     moderate_open_text(body.pickup, user.id, check_contact=False, place="pickup", session=session)
+    # Остановки по пути — тоже открытое поле (их видит весь район, по ним выбирают, где садиться):
+    # строгая проверка формы и та же модерация, что у «Где встречаемся» (18.10.2026).
+    body.waypoints = _clean_publish_stops(body.waypoints)
+    moderate_open_text(body.waypoints, user.id, check_contact=False, place="waypoints", session=session)
     # F22: клиника-назначение (опц.). Если указана — проверяем, что она есть и активна
     # (чтобы не осталось битой ссылки). Это ТОЛЬКО точка назначения, без мед.данных.
     if body.partner_id is not None:

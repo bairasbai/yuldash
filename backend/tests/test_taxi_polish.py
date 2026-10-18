@@ -8,7 +8,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.models import UserRole
 
-from test_api import _ride
+from test_api import _ride, soon
 from test_instant import _offered_order, fake_redis  # noqa: F401 — fixture реэкспорт
 
 
@@ -83,7 +83,7 @@ def test_booking_track_intact_alongside_instant(client, user_factory, fake_redis
     namespace ключей разный, кадры не перетекают между каналами."""
     d, pax, order = _accepted_order(client, user_factory, fake_redis, "WsMixTaxiDrv", "WsMixTaxiPax")
     bdrv = user_factory("WsMixBookDrv", role=UserRole.driver)
-    ride_id = _ride(client, bdrv, seats=1)
+    ride_id = _ride(client, bdrv, seats=1, depart_at=soon())   # «Выехал» — за час до выезда (P2-Г)
     bpax = user_factory("WsMixBookPax")
     booking_id = client.post("/bookings", headers=bpax["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{booking_id}/confirm", headers=bdrv["auth"]).status_code == 200

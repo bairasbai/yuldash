@@ -37,6 +37,7 @@ from ..models import (
 )
 from ..services import public_ride_payload, ride_out
 from ..timeutil import utcnow
+from .location import driver_point_for_booking
 
 router = APIRouter(tags=["share"])
 
@@ -159,10 +160,14 @@ def _booking_state(session: Session, share: TripShare) -> dict:
     # «Машина едет к точке посадки» — только когда поездка правда началась (`trip_is_live`):
     # за три дня до выезда мама читала «едет», а машины на карте не было и быть не могло
     # (проверка безопасности волны 1, 16.10.2026). До того — «Поездка скоро начнётся».
+    #
+    # Машина — по ЛЮБОЙ брони рейса, но по правилам ЭТОЙ брони (18.10.2026, P2-А): водитель мог открыть
+    # поездку другого пассажира, и в кэше этой брони точки нет (задача #44); у брони на остановке окно
+    # позже и не от «Выехал»; блокировки — как у канала (`location.driver_point_for_booking`).
     идёт = trip_is_live(booking, ride)
     phase = "onboard" if booking.status == BookingStatus.onboard else (
         "to_pickup" if booking.status == BookingStatus.confirmed and идёт else "wait")
-    car = livepos_get("booking", booking.id) if идёт else None
+    car = driver_point_for_booking(session, booking, ride) if идёт else None
     return _live(first_name, phase,
                  frm={"lat": ride.from_lat, "lng": ride.from_lng, "text": ride.from_city},
                  to={"lat": ride.to_lat, "lng": ride.to_lng, "text": ride.to_city},
