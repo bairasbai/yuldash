@@ -354,6 +354,7 @@ def test_others_and_public_outputs_learn_nothing(client, user_factory):
 @pytest.mark.parametrize("waypoints,code", [
     ("Ургаза | ул. Ленина 5", "stop_invalid"),
     ("Ургаза | 89171234567", "stop_invalid"),
+    ("Ургаза | ⑧⑨①⑦①②③④⑤⑥⑦", "stop_invalid"),           # телефон обведёнными цифрами (S-P3-1)
     ("Тубинский, поворот на Юлук", "stop_invalid"),     # запятая — не разделитель
     ("Ургаза | Бурибай | Акмурун | Ишмурзино | Юлбарсово", "stops_too_many"),
     ("а" * 61, "stop_invalid"),
@@ -411,6 +412,17 @@ def test_stop_text_rule():
         assert stop_text_ok(ok), ok
     for bad in ("ул. Ленина 5", "8917", "Ургаза, Сибай", "", " ", ".", "а" * 61, "дом_5"):
         assert not stop_text_ok(bad), bad
+
+
+@pytest.mark.parametrize("text", [
+    "⑧⑨①⑦①②③④⑤⑥⑦",            # обведённые цифры — для `\d` не цифры
+    "Акъяр ⁸⁹¹⁷¹²³⁴⁵⁶⁷",           # надстрочные
+    "Ленина Ⅻ",                     # римская цифра
+    "Ургаза ٥",                     # арабско-индийская цифра
+])
+def test_stop_text_rejects_unicode_digit_lookalikes(text):
+    """Телефон или номер дома, набранный «цифрами Юникода», — не название села (S-P3-1)."""
+    assert stop_text_ok(text) is False
 
 
 def _ride_obj(**kw) -> Ride:

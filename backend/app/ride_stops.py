@@ -53,9 +53,14 @@ def split_raw(waypoints: Optional[str]) -> list[str]:
 
 
 def stop_text_ok(part: str) -> bool:
-    """Допустимый текст остановки (правило публикации и показа)."""
+    """Допустимый текст остановки (правило публикации и показа).
+
+    «\\d» в регулярке — только десятичные цифры; обведённые «⑧⑨①», надстрочные «⁸⁹¹» и римские «Ⅻ»
+    для неё «буквы». Телефон, набранный ими, прошёл бы как название села — поэтому отдельно: ни одного
+    символа-числа (`str.isnumeric`, S-P3-1)."""
     t = (part or "").strip()
-    return 0 < len(t) <= MAX_STOP_LEN and bool(_STOP_OK.match(t)) and bool(_LETTER.search(t))
+    return (0 < len(t) <= MAX_STOP_LEN and bool(_STOP_OK.match(t)) and bool(_LETTER.search(t))
+            and not any(ch.isnumeric() for ch in t))
 
 
 def _key(name: str) -> str:
