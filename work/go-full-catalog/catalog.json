@@ -6840,12 +6840,14 @@
       "number": 90,
       "selection_id": "G090",
       "scope": "Go-candidate",
-      "notes": [],
+      "notes": [
+        "Русские тексты модуля описывают выдачу и возврат пауэрбанка. Другие виды оборудования этим не установлены."
+      ],
       "limitations": [
         "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
         "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
         "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены.",
-        "Вид оборудования зарядного сервиса не установлен. Не трактовать как зарядку электромобиля."
+        "В модуле подтверждены тексты о пауэрбанках; работу сервиса и другие виды оборудования не проверяли."
       ],
       "class_proofs": [
         {
@@ -11309,9 +11311,7 @@
       "number": 156,
       "selection_id": "G156",
       "scope": "Go-candidate",
-      "notes": [
-        "Найдены ClaimBenefitAction, BenefitActivationScreenKt и параметры API; условия бонусов не установлены."
-      ],
+      "notes": [],
       "yuldash": {
         "kind": "not-compared",
         "label": "С Юлдашем не сопоставлено",
@@ -11322,10 +11322,7 @@
         "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
         "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
         "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены.",
-        "Есть прямая статическая ссылка из указанного класса на ресурс текста. Показ пользователю и порядок сценария не проверены.",
-        "Наличие класса/типа/ресурса подтверждено статически. Работающий пользовательский сценарий и доступность сервером не подтверждены.",
-        "Тела методов и граф вызовов этого семейства не декомпилированы в данном проходе.",
-        "Найдены ClaimBenefitAction, BenefitActivationScreenKt и параметры API; условия бонусов не установлены."
+        "Есть прямая статическая ссылка из указанного класса на ресурс текста. Показ пользователю и порядок сценария не проверены."
       ],
       "class_proofs": [
         {
@@ -11355,6 +11352,77 @@
             "createSelectView()Lru/yandex/taxi/design/ListItemComponent;",
             "onAttachedToWindow$lambda$0(Lru/yandex/taxi/costcenters/fields/CostCenterFieldsModalView;)V"
           ]
+        }
+      ],
+      "text_proofs": [
+        {
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\resources-utf8.txt",
+          "line": 266568,
+          "resource": "cost_centers_selection_hint",
+          "value": "Искать..."
+        },
+        {
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\resources-utf8.txt",
+          "line": 266572,
+          "resource": "cost_centers_selection_or_enter_hint",
+          "value": "Искать или ввести новый..."
+        }
+      ],
+      "proof_label": "Объявления + тексты",
+      "origins": [
+        {
+          "file": "services-expanded.json",
+          "id": "svc-expanded-059"
+        }
+      ]
+    },
+    {
+      "title": "Центр выгод: получение и активация предложений",
+      "category": "Скидки и программы",
+      "number": 157,
+      "selection_id": "G157",
+      "scope": "Go-candidate",
+      "notes": [
+        "Найдены ClaimBenefitAction, BenefitActivationScreenKt и параметры API; условия бонусов не установлены."
+      ],
+      "yuldash": {
+        "kind": "not-compared",
+        "label": "С Юлдашем не сопоставлено",
+        "note": "",
+        "sources": []
+      },
+      "limitations": [
+        "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
+        "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
+        "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены.",
+        "Наличие класса/типа/ресурса подтверждено статически. Работающий пользовательский сценарий и доступность сервером не подтверждены.",
+        "Тела методов и граф вызовов этого семейства не декомпилированы в данном проходе.",
+        "Найдены ClaimBenefitAction, BenefitActivationScreenKt и параметры API; условия бонусов не установлены."
+      ],
+      "class_proofs": [
+        {
+          "class": "com.yandex.go.benefits_center.data.BenefitsCenterInternalApi",
+          "dex": "classes13.dex",
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
+          "line": 170756,
+          "declared_method_count": 2,
+          "method_examples": []
+        },
+        {
+          "class": "com.yandex.go.benefits_center.benefits.sdk.actions.ClaimBenefitAction",
+          "dex": "classes.dex",
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
+          "line": 159697,
+          "declared_method_count": 2,
+          "method_examples": []
+        },
+        {
+          "class": "com.yandex.go.benefits_center.activation.data.model.BenefitActivationParam",
+          "dex": "classes13.dex",
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
+          "line": 170683,
+          "declared_method_count": 6,
+          "method_examples": []
         },
         {
           "class": "com.yandex.go.benefits_center.claim.data.BenefitsClaimApiService$claim$1",
@@ -11379,29 +11447,9 @@
           "line": 170693,
           "declared_method_count": 4,
           "method_examples": []
-        },
-        {
-          "class": "com.yandex.go.benefits_center.data.BenefitsCenterInternalApi",
-          "dex": "classes13.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 170756,
-          "declared_method_count": 2,
-          "method_examples": []
         }
       ],
       "text_proofs": [
-        {
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\resources-utf8.txt",
-          "line": 266568,
-          "resource": "cost_centers_selection_hint",
-          "value": "Искать..."
-        },
-        {
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\resources-utf8.txt",
-          "line": 266572,
-          "resource": "cost_centers_selection_or_enter_hint",
-          "value": "Искать или ввести новый..."
-        },
         {
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\resources-dump.txt",
           "line": 109943,
@@ -11433,68 +11481,15 @@
           "value": ""
         }
       ],
-      "proof_label": "Объявления + тексты",
-      "origins": [
-        {
-          "file": "services-expanded.json",
-          "id": "svc-expanded-059"
-        },
-        {
-          "file": "missed-families.json",
-          "id": "missed-020"
-        }
-      ]
-    },
-    {
-      "title": "Центр выгод: получение и активация предложений",
-      "category": "Скидки и программы",
-      "number": 157,
-      "selection_id": "G157",
-      "scope": "Go-candidate",
-      "notes": [],
-      "yuldash": {
-        "kind": "not-compared",
-        "label": "С Юлдашем не сопоставлено",
-        "note": "",
-        "sources": []
-      },
-      "limitations": [
-        "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
-        "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
-        "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены."
-      ],
-      "class_proofs": [
-        {
-          "class": "com.yandex.go.benefits_center.data.BenefitsCenterInternalApi",
-          "dex": "classes13.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 170756,
-          "declared_method_count": 2,
-          "method_examples": []
-        },
-        {
-          "class": "com.yandex.go.benefits_center.benefits.sdk.actions.ClaimBenefitAction",
-          "dex": "classes.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 159697,
-          "declared_method_count": 2,
-          "method_examples": []
-        },
-        {
-          "class": "com.yandex.go.benefits_center.activation.data.model.BenefitActivationParam",
-          "dex": "classes13.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 170683,
-          "declared_method_count": 6,
-          "method_examples": []
-        }
-      ],
-      "text_proofs": [],
       "proof_label": "Объявления кода",
       "origins": [
         {
           "file": "services-expanded.json",
           "id": "svc-expanded-060"
+        },
+        {
+          "file": "missed-families.json",
+          "id": "missed-020"
         }
       ]
     },
@@ -11560,6 +11555,43 @@
       "number": 159,
       "selection_id": "G159",
       "scope": "Go-candidate",
+      "notes": [],
+      "yuldash": {
+        "kind": "not-compared",
+        "label": "С Юлдашем не сопоставлено",
+        "note": "",
+        "sources": []
+      },
+      "limitations": [
+        "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
+        "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
+        "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены."
+      ],
+      "class_proofs": [
+        {
+          "class": "com.yandex.go.promocodes.base.impl.promo_codes.data.entities.network.deactivation.PromoCodeDeactivationRequestDto",
+          "dex": "classes9.dex",
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
+          "line": 94970,
+          "declared_method_count": 3,
+          "method_examples": []
+        }
+      ],
+      "text_proofs": [],
+      "proof_label": "Объявления кода",
+      "origins": [
+        {
+          "file": "services-expanded.json",
+          "id": "svc-expanded-062"
+        }
+      ]
+    },
+    {
+      "title": "Подарочные коробки LootBox",
+      "category": "Скидки и программы",
+      "number": 160,
+      "selection_id": "G160",
+      "scope": "Go-candidate",
       "notes": [
         "Экран и активация найдены; правила наград, стоимость и случайность не установлены."
       ],
@@ -11579,14 +11611,6 @@
       ],
       "class_proofs": [
         {
-          "class": "com.yandex.go.promocodes.base.impl.promo_codes.data.entities.network.deactivation.PromoCodeDeactivationRequestDto",
-          "dex": "classes9.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 94970,
-          "declared_method_count": 3,
-          "method_examples": []
-        },
-        {
           "class": "com.yandex.go.lootbox.impl.presentation.modal.LootBoxModalView",
           "dex": "classes14.dex",
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
@@ -11599,6 +11623,14 @@
             "animateGifts$lambda$0$3$1(Lcom/yandex/go/lootbox/impl/presentation/modal/LootBoxModalView;Landroid/widget/ImageView;ILjava/util/List;)V",
             "configureTakeAllButtonClickListener(Lz900;)V"
           ]
+        },
+        {
+          "class": "com.yandex.go.lootbox.impl.data.entities.network.common.gift.LootBoxGiftDto",
+          "dex": "classes14.dex",
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
+          "line": 2397,
+          "declared_method_count": 3,
+          "method_examples": []
         },
         {
           "class": "com.yandex.go.lootbox.impl.data.api.LootBoxApi",
@@ -11665,7 +11697,7 @@
       "origins": [
         {
           "file": "services-expanded.json",
-          "id": "svc-expanded-062"
+          "id": "svc-expanded-063"
         },
         {
           "file": "missed-families.json",
@@ -11674,10 +11706,10 @@
       ]
     },
     {
-      "title": "Подарочные коробки LootBox",
+      "title": "Открытие призов в разделе Vault",
       "category": "Скидки и программы",
-      "number": 160,
-      "selection_id": "G160",
+      "number": 161,
+      "selection_id": "G161",
       "scope": "Go-candidate",
       "notes": [
         "OpenPrizeAction, OpenVaultAction и ShowVaultStoreAction наблюдаются как типы; это не подтверждение покупок или выплаты приза."
@@ -11698,28 +11730,6 @@
       ],
       "class_proofs": [
         {
-          "class": "com.yandex.go.lootbox.impl.presentation.modal.LootBoxModalView",
-          "dex": "classes14.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 2444,
-          "declared_method_count": 30,
-          "method_examples": [
-            "animateGifts(Ljava/util/List;Lcom/yandex/go/taxi/order/models/api/response/typed_experiments/LootBoxAnimationInfo;)V",
-            "animateGifts$lambda$0$1(Lkotlin/jvm/internal/Ref$BooleanRef;)Lmv21;",
-            "animateGifts$lambda$0$3$0(Landroid/widget/ImageView;)V",
-            "animateGifts$lambda$0$3$1(Lcom/yandex/go/lootbox/impl/presentation/modal/LootBoxModalView;Landroid/widget/ImageView;ILjava/util/List;)V",
-            "configureTakeAllButtonClickListener(Lz900;)V"
-          ]
-        },
-        {
-          "class": "com.yandex.go.lootbox.impl.data.entities.network.common.gift.LootBoxGiftDto",
-          "dex": "classes14.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 2397,
-          "declared_method_count": 3,
-          "method_examples": []
-        },
-        {
           "class": "com.yandex.go.vault.ui.PrizeModalView",
           "dex": "classes16.dex",
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
@@ -11734,18 +11744,12 @@
           ]
         },
         {
-          "class": "com.yandex.go.vault.ui.FlexFullscreenPopupModalView",
-          "dex": "classes14.dex",
+          "class": "com.yandex.go.vault.flexsdk.descriptors.widget.actions.OpenPrizeAction",
+          "dex": "classes16.dex",
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 9930,
-          "declared_method_count": 10,
-          "method_examples": [
-            "insetsType$lambda$0(Lcom/yandex/go/vault/ui/FlexFullscreenPopupModalView;)Landroid/view/View;",
-            "backgroundColor()I",
-            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lpky;",
-            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lql41;",
-            "hasCustomBackground()Z"
-          ]
+          "line": 43395,
+          "declared_method_count": 3,
+          "method_examples": []
         },
         {
           "class": "com.yandex.go.vault.data.VaultStoreApi",
@@ -11757,6 +11761,20 @@
             "handleHideWebView(Ljava/lang/String;[Ljava/lang/String;)V",
             "handleSendAnalyticsEvent(Ljava/lang/String;[Ljava/lang/String;)V",
             "openExternal(Ljava/lang/String;[Ljava/lang/String;)V"
+          ]
+        },
+        {
+          "class": "com.yandex.go.vault.ui.FlexFullscreenPopupModalView",
+          "dex": "classes14.dex",
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
+          "line": 9930,
+          "declared_method_count": 10,
+          "method_examples": [
+            "insetsType$lambda$0(Lcom/yandex/go/vault/ui/FlexFullscreenPopupModalView;)Landroid/view/View;",
+            "backgroundColor()I",
+            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lpky;",
+            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lql41;",
+            "hasCustomBackground()Z"
           ]
         },
         {
@@ -11804,7 +11822,7 @@
       "origins": [
         {
           "file": "services-expanded.json",
-          "id": "svc-expanded-063"
+          "id": "svc-expanded-064"
         },
         {
           "file": "missed-families.json",
@@ -11813,10 +11831,10 @@
       ]
     },
     {
-      "title": "Открытие призов в разделе Vault",
+      "title": "Личные задания с получением предложения",
       "category": "Скидки и программы",
-      "number": 161,
-      "selection_id": "G161",
+      "number": 162,
+      "selection_id": "G162",
       "scope": "Go-candidate",
       "notes": [
         "PersonalGoalAcceptParam и PersonalGoalsScreenKt; цели и награды не подтверждены."
@@ -11837,38 +11855,20 @@
       ],
       "class_proofs": [
         {
-          "class": "com.yandex.go.vault.ui.PrizeModalView",
-          "dex": "classes16.dex",
+          "class": "com.yandex.go.personal_goals_v2.data.model.PersonalGoalAcceptParam",
+          "dex": "classes14.dex",
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 43464,
-          "declared_method_count": 27,
-          "method_examples": [
-            "addActionButton(Llz31;Z)V",
-            "addActionButton$lambda$1(Lcom/yandex/go/vault/ui/PrizeModalView;Llz31;)V",
-            "addButtons(Ljava/util/List;)V",
-            "createBackground(I)Landroid/graphics/drawable/Drawable;",
-            "createTextForCopyActionButton(Llz31;)Ljava/lang/CharSequence;"
-          ]
-        },
-        {
-          "class": "com.yandex.go.vault.flexsdk.descriptors.widget.actions.OpenPrizeAction",
-          "dex": "classes16.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 43395,
-          "declared_method_count": 3,
+          "line": 7548,
+          "declared_method_count": 7,
           "method_examples": []
         },
         {
-          "class": "com.yandex.go.vault.data.VaultStoreApi",
-          "dex": "classes16.dex",
+          "class": "com.yandex.go.sharing_personal_goals.data.model.SharingPersonalGoalsDto",
+          "dex": "classes15.dex",
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 43372,
-          "declared_method_count": 12,
-          "method_examples": [
-            "handleHideWebView(Ljava/lang/String;[Ljava/lang/String;)V",
-            "handleSendAnalyticsEvent(Ljava/lang/String;[Ljava/lang/String;)V",
-            "openExternal(Ljava/lang/String;[Ljava/lang/String;)V"
-          ]
+          "line": 83170,
+          "declared_method_count": 3,
+          "method_examples": []
         },
         {
           "class": "com.yandex.go.personal_goals_v2.ui.PersonalGoalsScreenKt$PersonalGoalsScreen$1$1",
@@ -11892,14 +11892,6 @@
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
           "line": 7554,
           "declared_method_count": 4,
-          "method_examples": []
-        },
-        {
-          "class": "com.yandex.go.personal_goals_v2.data.model.PersonalGoalAcceptParam",
-          "dex": "classes14.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 7548,
-          "declared_method_count": 7,
           "method_examples": []
         }
       ],
@@ -11933,56 +11925,11 @@
       "origins": [
         {
           "file": "services-expanded.json",
-          "id": "svc-expanded-064"
+          "id": "svc-expanded-065"
         },
         {
           "file": "missed-families.json",
           "id": "missed-021"
-        }
-      ]
-    },
-    {
-      "title": "Личные задания с получением предложения",
-      "category": "Скидки и программы",
-      "number": 162,
-      "selection_id": "G162",
-      "scope": "Go-candidate",
-      "notes": [],
-      "yuldash": {
-        "kind": "not-compared",
-        "label": "С Юлдашем не сопоставлено",
-        "note": "",
-        "sources": []
-      },
-      "limitations": [
-        "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
-        "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
-        "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены."
-      ],
-      "class_proofs": [
-        {
-          "class": "com.yandex.go.personal_goals_v2.data.model.PersonalGoalAcceptParam",
-          "dex": "classes14.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 7548,
-          "declared_method_count": 7,
-          "method_examples": []
-        },
-        {
-          "class": "com.yandex.go.sharing_personal_goals.data.model.SharingPersonalGoalsDto",
-          "dex": "classes15.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 83170,
-          "declared_method_count": 3,
-          "method_examples": []
-        }
-      ],
-      "text_proofs": [],
-      "proof_label": "Объявления кода",
-      "origins": [
-        {
-          "file": "services-expanded.json",
-          "id": "svc-expanded-065"
         }
       ]
     },
@@ -12168,6 +12115,49 @@
       "number": 166,
       "selection_id": "G166",
       "scope": "Go-candidate",
+      "notes": [],
+      "yuldash": {
+        "kind": "not-compared",
+        "label": "С Юлдашем не сопоставлено",
+        "note": "",
+        "sources": []
+      },
+      "limitations": [
+        "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
+        "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
+        "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены."
+      ],
+      "class_proofs": [
+        {
+          "class": "com.yandex.go.account.upgrade.UpgradeAccountModalView",
+          "dex": "classes13.dex",
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
+          "line": 169991,
+          "declared_method_count": 7,
+          "method_examples": [
+            "onAttachedToWindow$lambda$0(Lcom/yandex/go/account/upgrade/UpgradeAccountModalView;)V",
+            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lb631;",
+            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lql41;",
+            "onAttachedToWindow()V",
+            "onDetachedFromWindow()V"
+          ]
+        }
+      ],
+      "text_proofs": [],
+      "proof_label": "Объявления кода",
+      "origins": [
+        {
+          "file": "services-expanded.json",
+          "id": "svc-expanded-069"
+        }
+      ]
+    },
+    {
+      "title": "Объяснение блокировки аккаунта",
+      "category": "Профиль и вход",
+      "number": 167,
+      "selection_id": "G167",
+      "scope": "Go-candidate",
       "notes": [
         "Экран блокировки найден; причины и серверная политика не установлены."
       ],
@@ -12187,20 +12177,6 @@
       ],
       "class_proofs": [
         {
-          "class": "com.yandex.go.account.upgrade.UpgradeAccountModalView",
-          "dex": "classes13.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 169991,
-          "declared_method_count": 7,
-          "method_examples": [
-            "onAttachedToWindow$lambda$0(Lcom/yandex/go/account/upgrade/UpgradeAccountModalView;)V",
-            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lb631;",
-            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lql41;",
-            "onAttachedToWindow()V",
-            "onDetachedFromWindow()V"
-          ]
-        },
-        {
           "class": "com.yandex.go.blockeduser.BlockedUserModalView",
           "dex": "classes13.dex",
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
@@ -12212,6 +12188,17 @@
             "render(Lru/yandex/taxi/design/ButtonComponent;Lm87;)V",
             "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lql41;",
             "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Ls76;"
+          ]
+        },
+        {
+          "class": "com.yandex.go.blockeduser.api.analytics.BlockedReason",
+          "dex": "classes.dex",
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
+          "line": 159725,
+          "declared_method_count": 3,
+          "method_examples": [
+            "valueOf(Ljava/lang/String;)Lcom/yandex/go/blockeduser/api/analytics/BlockedReason;",
+            "values()[Lcom/yandex/go/blockeduser/api/analytics/BlockedReason;"
           ]
         },
         {
@@ -12231,17 +12218,6 @@
           "method_examples": [
             "valueOf(Ljava/lang/String;)Lcom/yandex/go/blockeduser/api/BlockedUserType;",
             "values()[Lcom/yandex/go/blockeduser/api/BlockedUserType;"
-          ]
-        },
-        {
-          "class": "com.yandex.go.blockeduser.api.analytics.BlockedReason",
-          "dex": "classes.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 159725,
-          "declared_method_count": 3,
-          "method_examples": [
-            "valueOf(Ljava/lang/String;)Lcom/yandex/go/blockeduser/api/analytics/BlockedReason;",
-            "values()[Lcom/yandex/go/blockeduser/api/analytics/BlockedReason;"
           ]
         }
       ],
@@ -12281,7 +12257,7 @@
       "origins": [
         {
           "file": "services-expanded.json",
-          "id": "svc-expanded-069"
+          "id": "svc-expanded-070"
         },
         {
           "file": "missed-families.json",
@@ -12290,10 +12266,10 @@
       ]
     },
     {
-      "title": "Объяснение блокировки аккаунта",
+      "title": "Выбор языка приложения",
       "category": "Профиль и вход",
-      "number": 167,
-      "selection_id": "G167",
+      "number": 168,
+      "selection_id": "G168",
       "scope": "Go-candidate",
       "notes": [
         "Наличие всех локализаций и их серверная доступность этим исследованием не установлены."
@@ -12313,31 +12289,6 @@
         "Наличие всех локализаций и их серверная доступность этим исследованием не установлены."
       ],
       "class_proofs": [
-        {
-          "class": "com.yandex.go.blockeduser.BlockedUserModalView",
-          "dex": "classes13.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 170793,
-          "declared_method_count": 17,
-          "method_examples": [
-            "onAttachedToWindow$lambda$0(Lcom/yandex/go/blockeduser/BlockedUserModalView;)V",
-            "onAttachedToWindow$lambda$1(Lcom/yandex/go/blockeduser/BlockedUserModalView;)V",
-            "render(Lru/yandex/taxi/design/ButtonComponent;Lm87;)V",
-            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lql41;",
-            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Ls76;"
-          ]
-        },
-        {
-          "class": "com.yandex.go.blockeduser.api.analytics.BlockedReason",
-          "dex": "classes.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 159725,
-          "declared_method_count": 3,
-          "method_examples": [
-            "valueOf(Ljava/lang/String;)Lcom/yandex/go/blockeduser/api/analytics/BlockedReason;",
-            "values()[Lcom/yandex/go/blockeduser/api/analytics/BlockedReason;"
-          ]
-        },
         {
           "class": "com.yandex.go.settings.lang.LanguageModalView",
           "dex": "classes15.dex",
@@ -12399,7 +12350,7 @@
       "origins": [
         {
           "file": "services-expanded.json",
-          "id": "svc-expanded-070"
+          "id": "svc-expanded-071"
         },
         {
           "file": "missed-families.json",
@@ -12408,10 +12359,10 @@
       ]
     },
     {
-      "title": "Выбор языка приложения",
+      "title": "Настройки уведомлений и помощь при их отключении в системе",
       "category": "Профиль и вход",
-      "number": 168,
-      "selection_id": "G168",
+      "number": 169,
+      "selection_id": "G169",
       "scope": "Go-candidate",
       "notes": [
         "Назначения отдельных переключателей опираются также на MenuDontCallAnalytics, MenuDontSmsAnalytics, MenuDontShowPromoPushesAnalytics, а не на наблюдённый результат."
@@ -12432,18 +12383,38 @@
       ],
       "class_proofs": [
         {
-          "class": "com.yandex.go.settings.lang.LanguageModalView",
-          "dex": "classes15.dex",
+          "class": "com.yandex.go.settings.push_settings.PushSettingsModalView",
+          "dex": "classes7.dex",
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 83071,
+          "line": 143229,
           "declared_method_count": 14,
           "method_examples": [
-            "onAttachedToWindow$lambda$0(Lcom/yandex/go/settings/lang/LanguageModalView;)V",
+            "content$lambda$0(Lcom/yandex/go/settings/push_settings/PushSettingsModalView;)V",
+            "insetsType$lambda$0(Lcom/yandex/go/settings/push_settings/PushSettingsModalView;)Landroid/view/View;",
+            "insetsType$lambda$1(Lcom/yandex/go/settings/push_settings/PushSettingsModalView;)Landroid/view/View;",
             "animateDismiss(Ljava/lang/Runnable;Ljava/lang/Runnable;)V",
-            "animateShow(Ljava/lang/Runnable;Ljava/lang/Runnable;)V",
-            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lmay;",
-            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lql41;"
+            "animateShow(Ljava/lang/Runnable;Ljava/lang/Runnable;)V"
           ]
+        },
+        {
+          "class": "ru.yandex.taxi.settings.presentation.system_disabled.PushSystemDisabledView",
+          "dex": "classes7.dex",
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
+          "line": 150551,
+          "declared_method_count": 7,
+          "method_examples": [
+            "_init_$openNotificationSettings(Lotg0;)V",
+            "onAttachedToWindow()V",
+            "onDetachedFromWindow()V"
+          ]
+        },
+        {
+          "class": "ru.yandex.taxi.settings.api.PushSettingsApi",
+          "dex": "classes7.dex",
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
+          "line": 150438,
+          "declared_method_count": 2,
+          "method_examples": []
         },
         {
           "class": "com.yandex.go.settings.presentation.AppSettingsScreenKt$SettingsScreen$1$1",
@@ -12523,7 +12494,7 @@
       "origins": [
         {
           "file": "services-expanded.json",
-          "id": "svc-expanded-071"
+          "id": "svc-expanded-072"
         },
         {
           "file": "missed-families.json",
@@ -12532,10 +12503,10 @@
       ]
     },
     {
-      "title": "Настройки уведомлений и помощь при их отключении в системе",
+      "title": "Согласия с условиями сервиса",
       "category": "Профиль и вход",
-      "number": 169,
-      "selection_id": "G169",
+      "number": 170,
+      "selection_id": "G170",
       "scope": "Go-candidate",
       "notes": [
         "Присутствуют отдельные simple/trackable и PhotoUploadEula части; это не юридическая оценка."
@@ -12550,45 +12521,12 @@
         "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
         "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
         "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены.",
+        "Есть прямая статическая ссылка из указанного класса на ресурс текста. Показ пользователю и порядок сценария не проверены.",
         "Наличие класса/типа/ресурса подтверждено статически. Работающий пользовательский сценарий и доступность сервером не подтверждены.",
         "Тела методов и граф вызовов этого семейства не декомпилированы в данном проходе.",
         "Присутствуют отдельные simple/trackable и PhotoUploadEula части; это не юридическая оценка."
       ],
       "class_proofs": [
-        {
-          "class": "com.yandex.go.settings.push_settings.PushSettingsModalView",
-          "dex": "classes7.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 143229,
-          "declared_method_count": 14,
-          "method_examples": [
-            "content$lambda$0(Lcom/yandex/go/settings/push_settings/PushSettingsModalView;)V",
-            "insetsType$lambda$0(Lcom/yandex/go/settings/push_settings/PushSettingsModalView;)Landroid/view/View;",
-            "insetsType$lambda$1(Lcom/yandex/go/settings/push_settings/PushSettingsModalView;)Landroid/view/View;",
-            "animateDismiss(Ljava/lang/Runnable;Ljava/lang/Runnable;)V",
-            "animateShow(Ljava/lang/Runnable;Ljava/lang/Runnable;)V"
-          ]
-        },
-        {
-          "class": "ru.yandex.taxi.settings.presentation.system_disabled.PushSystemDisabledView",
-          "dex": "classes7.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 150551,
-          "declared_method_count": 7,
-          "method_examples": [
-            "_init_$openNotificationSettings(Lotg0;)V",
-            "onAttachedToWindow()V",
-            "onDetachedFromWindow()V"
-          ]
-        },
-        {
-          "class": "ru.yandex.taxi.settings.api.PushSettingsApi",
-          "dex": "classes7.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 150438,
-          "declared_method_count": 2,
-          "method_examples": []
-        },
         {
           "class": "com.yandex.go.agreement.simple.ui.AgreementModalView",
           "dex": "classes13.dex",
@@ -12636,6 +12574,12 @@
       ],
       "text_proofs": [
         {
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\resources-utf8.txt",
+          "line": 266344,
+          "resource": "common_continue",
+          "value": "Продолжить"
+        },
+        {
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\resources-dump.txt",
           "line": 110324,
           "resource": "ru.yandex.taxi:layout/gdpr_agreement",
@@ -12666,11 +12610,11 @@
           "value": ""
         }
       ],
-      "proof_label": "Объявления кода",
+      "proof_label": "Объявления + тексты",
       "origins": [
         {
           "file": "services-expanded.json",
-          "id": "svc-expanded-072"
+          "id": "svc-expanded-073"
         },
         {
           "file": "missed-families.json",
@@ -12679,10 +12623,10 @@
       ]
     },
     {
-      "title": "Согласия с условиями сервиса",
+      "title": "Знакомство с приложением и его сервисами",
       "category": "Профиль и вход",
-      "number": 170,
-      "selection_id": "G170",
+      "number": 171,
+      "selection_id": "G171",
       "scope": "Go-candidate",
       "notes": [],
       "yuldash": {
@@ -12695,46 +12639,23 @@
         "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
         "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
         "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены.",
-        "Есть прямая статическая ссылка из указанного класса на ресурс текста. Показ пользователю и порядок сценария не проверены.",
         "Наличие класса/типа/ресурса подтверждено статически. Работающий пользовательский сценарий и доступность сервером не подтверждены.",
         "Тела методов и граф вызовов этого семейства не декомпилированы в данном проходе."
       ],
       "class_proofs": [
         {
-          "class": "com.yandex.go.agreement.simple.ui.AgreementModalView",
+          "class": "com.yandex.go.beginners.presentation.BeginnersOnboardingModalView",
           "dex": "classes13.dex",
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 170404,
-          "declared_method_count": 42,
+          "line": 170591,
+          "declared_method_count": 24,
           "method_examples": [
-            "_init_$lambda$0(Lcom/yandex/go/agreement/simple/ui/AgreementModalView;)Lmv21;",
-            "applyIconStyle(Lcom/yandex/go/agreement/api/Acceptance$Default$IconStyle;)V",
-            "enableScroll()V",
-            "enableScroll$lambda$0(Lcom/yandex/go/agreement/simple/ui/AgreementModalView;Landroid/view/View;IIII)V",
-            "insetsType$lambda$0(Lcom/yandex/go/agreement/simple/ui/AgreementModalView;)Landroid/view/View;"
+            "insetsType$lambda$0(Lcom/yandex/go/beginners/presentation/BeginnersOnboardingModalView;)Landroid/view/View;",
+            "onAttachedToWindow$lambda$0(Lcom/yandex/go/beginners/presentation/BeginnersOnboardingModalView;)V",
+            "servicesAnimationManager_delegate$lambda$0(Lcom/yandex/go/beginners/presentation/BeginnersOnboardingModalView;)Lcom/yandex/go/beginners/presentation/services_info/animation/a;",
+            "animateDismiss(Ljava/lang/Runnable;Ljava/lang/Runnable;)V",
+            "animateShow(Ljava/lang/Runnable;Ljava/lang/Runnable;)V"
           ]
-        },
-        {
-          "class": "com.yandex.go.agreement.trackable.mvp.TrackableAcceptanceModalView",
-          "dex": "classes13.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 170415,
-          "declared_method_count": 25,
-          "method_examples": [
-            "linkMovementMethod_delegate$lambda$0(Lcom/yandex/go/agreement/trackable/mvp/TrackableAcceptanceModalView;)Lru/yandex/taxi/widget/text/method/LinkMovementMethod;",
-            "linkMovementMethod_delegate$lambda$0$0(Lcom/yandex/go/agreement/trackable/mvp/TrackableAcceptanceModalView;Ljava/lang/String;)Lmv21;",
-            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lql41;",
-            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Luz01;",
-            "onAppearAnimationComplete()V"
-          ]
-        },
-        {
-          "class": "com.yandex.go.agreement.trackable.network.TrackableAcceptanceApi",
-          "dex": "classes13.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 170425,
-          "declared_method_count": 1,
-          "method_examples": []
         },
         {
           "class": "com.yandex.go.beginners.flow.PreGeoAuthOnboardingModalView",
@@ -12748,20 +12669,6 @@
             "wrapAgreementLinkSpans(Ljava/lang/CharSequence;Lczs;)Ljava/lang/CharSequence;",
             "animateDismiss(Ljava/lang/Runnable;Ljava/lang/Runnable;)V",
             "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lcp5;"
-          ]
-        },
-        {
-          "class": "com.yandex.go.beginners.presentation.BeginnersOnboardingModalView",
-          "dex": "classes13.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 170591,
-          "declared_method_count": 24,
-          "method_examples": [
-            "insetsType$lambda$0(Lcom/yandex/go/beginners/presentation/BeginnersOnboardingModalView;)Landroid/view/View;",
-            "onAttachedToWindow$lambda$0(Lcom/yandex/go/beginners/presentation/BeginnersOnboardingModalView;)V",
-            "servicesAnimationManager_delegate$lambda$0(Lcom/yandex/go/beginners/presentation/BeginnersOnboardingModalView;)Lcom/yandex/go/beginners/presentation/services_info/animation/a;",
-            "animateDismiss(Ljava/lang/Runnable;Ljava/lang/Runnable;)V",
-            "animateShow(Ljava/lang/Runnable;Ljava/lang/Runnable;)V"
           ]
         },
         {
@@ -12782,12 +12689,6 @@
         }
       ],
       "text_proofs": [
-        {
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\resources-utf8.txt",
-          "line": 266344,
-          "resource": "common_continue",
-          "value": "Продолжить"
-        },
         {
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\resources-dump.txt",
           "line": 111579,
@@ -12819,72 +12720,15 @@
           "value": ""
         }
       ],
-      "proof_label": "Объявления + тексты",
-      "origins": [
-        {
-          "file": "services-expanded.json",
-          "id": "svc-expanded-073"
-        },
-        {
-          "file": "missed-families.json",
-          "id": "missed-011"
-        }
-      ]
-    },
-    {
-      "title": "Знакомство с приложением и его сервисами",
-      "category": "Профиль и вход",
-      "number": 171,
-      "selection_id": "G171",
-      "scope": "Go-candidate",
-      "notes": [],
-      "yuldash": {
-        "kind": "not-compared",
-        "label": "С Юлдашем не сопоставлено",
-        "note": "",
-        "sources": []
-      },
-      "limitations": [
-        "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
-        "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
-        "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены."
-      ],
-      "class_proofs": [
-        {
-          "class": "com.yandex.go.beginners.presentation.BeginnersOnboardingModalView",
-          "dex": "classes13.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 170591,
-          "declared_method_count": 24,
-          "method_examples": [
-            "insetsType$lambda$0(Lcom/yandex/go/beginners/presentation/BeginnersOnboardingModalView;)Landroid/view/View;",
-            "onAttachedToWindow$lambda$0(Lcom/yandex/go/beginners/presentation/BeginnersOnboardingModalView;)V",
-            "servicesAnimationManager_delegate$lambda$0(Lcom/yandex/go/beginners/presentation/BeginnersOnboardingModalView;)Lcom/yandex/go/beginners/presentation/services_info/animation/a;",
-            "animateDismiss(Ljava/lang/Runnable;Ljava/lang/Runnable;)V",
-            "animateShow(Ljava/lang/Runnable;Ljava/lang/Runnable;)V"
-          ]
-        },
-        {
-          "class": "com.yandex.go.beginners.flow.PreGeoAuthOnboardingModalView",
-          "dex": "classes13.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 170585,
-          "declared_method_count": 39,
-          "method_examples": [
-            "insetsType$lambda$0(Lcom/yandex/go/beginners/flow/PreGeoAuthOnboardingModalView;)Landroid/view/View;",
-            "updateAgreementScrollFadeVisibility()V",
-            "wrapAgreementLinkSpans(Ljava/lang/CharSequence;Lczs;)Ljava/lang/CharSequence;",
-            "animateDismiss(Ljava/lang/Runnable;Ljava/lang/Runnable;)V",
-            "bindingFactory(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;)Lcp5;"
-          ]
-        }
-      ],
-      "text_proofs": [],
       "proof_label": "Объявления кода",
       "origins": [
         {
           "file": "services-expanded.json",
           "id": "svc-expanded-074"
+        },
+        {
+          "file": "missed-families.json",
+          "id": "missed-011"
         }
       ]
     },
@@ -13068,6 +12912,43 @@
       "number": 175,
       "selection_id": "G175",
       "scope": "Go-candidate",
+      "notes": [],
+      "yuldash": {
+        "kind": "not-compared",
+        "label": "С Юлдашем не сопоставлено",
+        "note": "",
+        "sources": []
+      },
+      "limitations": [
+        "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
+        "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
+        "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены."
+      ],
+      "class_proofs": [
+        {
+          "class": "com.yandex.go.taxi.order.chat.api.data.model.Suggestion",
+          "dex": "classes16.dex",
+          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
+          "line": 37665,
+          "declared_method_count": 3,
+          "method_examples": []
+        }
+      ],
+      "text_proofs": [],
+      "proof_label": "Объявления кода",
+      "origins": [
+        {
+          "file": "services-expanded.json",
+          "id": "svc-expanded-079"
+        }
+      ]
+    },
+    {
+      "title": "Общая веб-поддержка приложения",
+      "category": "Связь и помощь",
+      "number": 176,
+      "selection_id": "G176",
+      "scope": "Go-candidate",
       "notes": [
         "CommonSupportWebView и его JS-мост присутствуют; содержимое удалённой страницы не загружалось."
       ],
@@ -13087,12 +12968,18 @@
       ],
       "class_proofs": [
         {
-          "class": "com.yandex.go.taxi.order.chat.api.data.model.Suggestion",
-          "dex": "classes16.dex",
+          "class": "com.yandex.go.support.web.CommonSupportWebView",
+          "dex": "classes15.dex",
           "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 37665,
-          "declared_method_count": 3,
-          "method_examples": []
+          "line": 86094,
+          "declared_method_count": 9,
+          "method_examples": [
+            "_init_$lambda$0(Lcom/yandex/go/support/web/CommonSupportWebView;)V",
+            "insetsType$lambda$0(Lcom/yandex/go/support/web/CommonSupportWebView;)Landroid/view/View;",
+            "insetsType()Ljp30;",
+            "insetsType()Lpp30;",
+            "onAttachedToWindow()V"
+          ]
         },
         {
           "class": "com.yandex.go.support.web.CommonSupportJsNativeApi",
@@ -13112,20 +12999,6 @@
           "line": 86092,
           "declared_method_count": 4,
           "method_examples": []
-        },
-        {
-          "class": "com.yandex.go.support.web.CommonSupportWebView",
-          "dex": "classes15.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 86094,
-          "declared_method_count": 9,
-          "method_examples": [
-            "_init_$lambda$0(Lcom/yandex/go/support/web/CommonSupportWebView;)V",
-            "insetsType$lambda$0(Lcom/yandex/go/support/web/CommonSupportWebView;)Landroid/view/View;",
-            "insetsType()Ljp30;",
-            "insetsType()Lpp30;",
-            "onAttachedToWindow()V"
-          ]
         },
         {
           "class": "com.yandex.go.support.web.a",
@@ -13174,65 +13047,11 @@
       "origins": [
         {
           "file": "services-expanded.json",
-          "id": "svc-expanded-079"
+          "id": "svc-expanded-080"
         },
         {
           "file": "missed-families.json",
           "id": "missed-015"
-        }
-      ]
-    },
-    {
-      "title": "Общая веб-поддержка приложения",
-      "category": "Связь и помощь",
-      "number": 176,
-      "selection_id": "G176",
-      "scope": "Go-candidate",
-      "notes": [],
-      "yuldash": {
-        "kind": "not-compared",
-        "label": "С Юлдашем не сопоставлено",
-        "note": "",
-        "sources": []
-      },
-      "limitations": [
-        "Наличие имён и деклараций типов не доказывает работу, достижимость экрана или доступность для пользователя.",
-        "Приложение не запускалось, тела методов и сетевые ответы для этого пункта не проверялись.",
-        "Доступность по стране, аккаунту, серверному флагу и финансовые условия не установлены."
-      ],
-      "class_proofs": [
-        {
-          "class": "com.yandex.go.support.web.CommonSupportWebView",
-          "dex": "classes15.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 86094,
-          "declared_method_count": 9,
-          "method_examples": [
-            "_init_$lambda$0(Lcom/yandex/go/support/web/CommonSupportWebView;)V",
-            "insetsType$lambda$0(Lcom/yandex/go/support/web/CommonSupportWebView;)Landroid/view/View;",
-            "insetsType()Ljp30;",
-            "insetsType()Lpp30;",
-            "onAttachedToWindow()V"
-          ]
-        },
-        {
-          "class": "com.yandex.go.support.web.CommonSupportJsNativeApi",
-          "dex": "classes7.dex",
-          "file": "C:\\Users\\Bayra\\AppData\\Local\\REA-checks\\yandex-go-20261019\\full-catalog\\dex-members.jsonl",
-          "line": 143299,
-          "declared_method_count": 5,
-          "method_examples": [
-            "toFrontendParam(Ljava/lang/String;)Ljava/lang/String;",
-            "evaluateNavigation(Ljava/lang/String;)V"
-          ]
-        }
-      ],
-      "text_proofs": [],
-      "proof_label": "Объявления кода",
-      "origins": [
-        {
-          "file": "services-expanded.json",
-          "id": "svc-expanded-080"
         }
       ]
     },
@@ -20935,43 +20754,43 @@
     },
     {
       "from": "missed-008",
-      "to": "G167"
-    },
-    {
-      "from": "missed-009",
       "to": "G168"
     },
     {
-      "from": "missed-011",
-      "to": "G170"
-    },
-    {
-      "from": "missed-012",
-      "to": "G166"
-    },
-    {
-      "from": "missed-013",
+      "from": "missed-009",
       "to": "G169"
     },
     {
+      "from": "missed-011",
+      "to": "G171"
+    },
+    {
+      "from": "missed-012",
+      "to": "G167"
+    },
+    {
+      "from": "missed-013",
+      "to": "G170"
+    },
+    {
       "from": "missed-015",
-      "to": "G175"
+      "to": "G176"
     },
     {
       "from": "missed-020",
-      "to": "G156"
+      "to": "G157"
     },
     {
       "from": "missed-021",
-      "to": "G161"
+      "to": "G162"
     },
     {
       "from": "missed-023",
-      "to": "G159"
+      "to": "G160"
     },
     {
       "from": "missed-024",
-      "to": "G160"
+      "to": "G161"
     },
     {
       "from": "missed-026",

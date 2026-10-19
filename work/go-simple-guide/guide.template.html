@@ -1,0 +1,154 @@
+<style>
+  #go-simple-guide-20261019 .guide-facts { margin: 8px 0 16px; }
+  #go-simple-guide-20261019 .guide-facts dt { font-weight: 500; margin-top: 8px; }
+  #go-simple-guide-20261019 .guide-facts dd { margin: 0; }
+  #go-simple-guide-20261019 .guide-scope { margin-top: 8px; }
+</style>
+<div id="go-simple-guide-20261019" aria-label="Объяснение 258 пунктов для выбора">
+  <nav id="guide-topics" class="viz-row" aria-label="Темы справочника"></nav>
+  <div class="viz-row">
+    <output id="guide-count" class="tabular-nums" aria-live="polite">Выбрано: 0</output>
+    <a href="#guide-selected">К выбранному</a>
+  </div>
+  <div id="guide-groups"></div>
+  <hr>
+  <div id="guide-selected" class="viz-row">
+    <span id="guide-footer-count" class="tabular-nums">Выбрано: 0</span>
+    <button id="guide-submit" class="btn btn-primary" type="button" disabled>Обсудить выбранное</button>
+  </div>
+  <div id="guide-fallback" hidden>
+    <label for="guide-selection-text" class="form-label">Твой выбор для сообщения</label>
+    <textarea id="guide-selection-text" class="form-control" rows="8" readonly></textarea>
+  </div>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('go-simple-guide-20261019');
+  const catalog = __GUIDE_DATA__;
+  const topics = root.querySelector('#guide-topics');
+  const groups = root.querySelector('#guide-groups');
+  const count = root.querySelector('#guide-count');
+  const footerCount = root.querySelector('#guide-footer-count');
+  const submit = root.querySelector('#guide-submit');
+  const fallback = root.querySelector('#guide-fallback');
+  const text = root.querySelector('#guide-selection-text');
+  const inputById = new Map();
+  const fields = [['what', 'Что это'], ['problem', 'Какую проблему решает'], ['why', 'Почему удобно'], ['yuldash', 'Когда нужно Юлдашу'], ['tradeoff', 'Что усложнит работу']];
+  let selected = new Set();
+  let pending = false;
+
+  for (const [index, topic] of catalog.topics.entries()) {
+    const topicId = `guide-topic-${index + 1}`;
+    const link = document.createElement('a');
+    link.href = `#${topicId}`;
+    link.textContent = topic;
+    topics.appendChild(link);
+    const section = document.createElement('section');
+    section.id = topicId;
+    const heading = document.createElement('h2');
+    heading.textContent = topic;
+    section.appendChild(heading);
+
+    for (const item of catalog.items.filter(item => item.topic === topic)) {
+      const article = document.createElement('article');
+      article.id = `guide-item-${item.number}`;
+      article.setAttribute('aria-label', `${item.number}. ${item.simple_title}`);
+      article.appendChild(document.createElement('hr'));
+      const choice = document.createElement('label');
+      choice.className = 'form-check';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.className = 'form-check-input';
+      input.value = item.id;
+      const title = document.createElement('span');
+      title.className = 'form-check-label';
+      title.textContent = `${item.number}. ${item.simple_title}`;
+      choice.append(input, title);
+      article.appendChild(choice);
+      const scope = document.createElement('div');
+      scope.className = 'guide-scope';
+      scope.textContent = item.scope_hint;
+      article.appendChild(scope);
+      const facts = document.createElement('dl');
+      facts.className = 'guide-facts';
+      for (const [key, label] of fields) {
+        const term = document.createElement('dt');
+        term.textContent = label;
+        const value = document.createElement('dd');
+        value.textContent = item[key];
+        facts.append(term, value);
+      }
+      article.appendChild(facts);
+      if (item.uncertainty) {
+        const caveat = document.createElement('div');
+        caveat.textContent = `Что пока неясно: ${item.uncertainty}`;
+        article.appendChild(caveat);
+      }
+      inputById.set(item.id, input);
+      input.addEventListener('change', () => {
+        if (input.checked) selected.add(item.id);
+        else selected.delete(item.id);
+        fallback.hidden = true;
+        update();
+        save();
+      });
+      section.appendChild(article);
+    }
+    groups.appendChild(section);
+  }
+
+  function choices() { return catalog.items.filter(item => selected.has(item.id)); }
+  function makePrompt() {
+    const lines = choices().map(item => `${item.number}. ${item.simple_title}`).join('\n');
+    return `Для будущего Юлдаша меня заинтересовали пункты из простого справочника (${catalog.id}):\n${lines}\nОбъясни, как они будут сочетаться, что уже есть в Юлдаше и что потребуется сделать. Сначала обсуждаем и составляем план, ничего пока не внедряй. Этот выбор не даёт согласия на платежи, тарифы, изменения реальных данных, публикацию, push или слияние в main.`;
+  }
+  function update() {
+    for (const [id, input] of inputById) input.checked = selected.has(id);
+    count.textContent = `Выбрано: ${selected.size}`;
+    footerCount.textContent = count.textContent;
+    submit.disabled = pending || selected.size === 0;
+    text.value = selected.size ? makePrompt() : '';
+  }
+  function restore(state) {
+    const saved = state && state.modelContent;
+    const compatible = saved && [catalog.id, catalog.sourceCatalogId, 'go-yuldash-20261019-v1'].includes(saved.catalogId);
+    selected = new Set(compatible && Array.isArray(saved.selectedIds) ? saved.selectedIds.filter(id => inputById.has(id)) : []);
+    fallback.hidden = true;
+    update();
+  }
+  function save() {
+    if (!window.openai || typeof window.openai.setWidgetState !== 'function') return;
+    const state = {modelContent:{catalogId:catalog.id,selectedIds:choices().map(item => item.id),selectedNumbers:choices().map(item => item.number)},privateContent:null};
+    try { Promise.resolve(window.openai.setWidgetState(state)).catch(() => {}); } catch (_) {}
+  }
+  window.addEventListener('openai:set_globals', event => {
+    const globals = event.detail && event.detail.globals;
+    if (globals && Object.prototype.hasOwnProperty.call(globals, 'widgetState')) restore(globals.widgetState);
+  });
+  submit.addEventListener('click', async () => {
+    if (!selected.size || pending) return;
+    if (!window.openai || typeof window.openai.sendFollowUpMessage !== 'function') {
+      fallback.hidden = false;
+      text.focus();
+      text.select();
+      return;
+    }
+    pending = true;
+    update();
+    try { await window.openai.sendFollowUpMessage({prompt:makePrompt(),title:'Обсудить выбранные возможности'}); }
+    catch (_) { fallback.hidden = false; }
+    finally { pending = false; update(); }
+  });
+  for (const link of root.querySelectorAll('a[href^="#"]')) {
+    link.addEventListener('click', event => {
+      const target = root.querySelector(link.getAttribute('href'));
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({block:'start',behavior:'auto'});
+      const control = target.querySelector('input,button:not(:disabled)');
+      if (control) control.focus({preventScroll:true});
+    });
+  }
+  restore(window.openai && window.openai.widgetState);
+})();
+</script>
