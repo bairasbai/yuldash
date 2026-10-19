@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "repository": "bairasbai/yuldash",
+  "target_branch": "main",
+  "trigger": "merged_pull_request",
+  "baseline_sha": "92024467b4642ffb7db63285182079f3fd1ba588",
+  "baseline_audited": false,
+  "initialized_at": "2026-10-19T01:26:39Z",
+  "canonical_audit_registry": "docs/audit-blocks.md",
+  "last_discovered_sha": "92024467b4642ffb7db63285182079f3fd1ba588",
+  "last_reviewed_sha": null,
+  "event_inbox": [],
+  "pending_ranges": [],
+  "completed_ranges": [],
+  "fix_prs": [],
+  "blockers": [],
+  "lease": null
+}
