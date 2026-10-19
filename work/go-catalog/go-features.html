@@ -1,0 +1,142 @@
+<div id="go-choice-20261019" aria-label="Возможности для выбора">
+  <div class="text-small text-muted">Go: найдено название модуля; работа функции не проверена. Статус справа — сравнение с кодом Юлдаша.</div>
+  <div id="go-choice-groups"></div>
+  <hr>
+  <div class="viz-row">
+    <output id="go-choice-count" class="tabular-nums" aria-live="polite">Выбрано: 0</output>
+    <button id="go-choice-submit" class="btn btn-primary" type="button" disabled>Разобрать выбранное</button>
+  </div>
+  <div id="go-choice-fallback" hidden>
+    <label class="form-label" for="go-choice-text">Выбранные пункты — можно отправить сообщением</label>
+    <textarea id="go-choice-text" class="form-control" rows="8" readonly></textarea>
+  </div>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('go-choice-20261019');
+  const catalog = {"id":"go-yuldash-20261019-v1","items":[{"id":"G001","number":1,"title":"Единый поиск адресов","category":"Адреса","status":"Есть в коде; доступность задаёт сервер","note":""},{"id":"G002","number":2,"title":"Выбор адреса на карте","category":"Адреса","status":"Есть в коде; доступность задаёт сервер","note":""},{"id":"G003","number":3,"title":"Уточнение выбранного адреса","category":"Адреса","status":"Частично / другой сценарий","note":"Есть пин, подъезд и комментарий; отдельный сценарий уточнения не сопоставлен."},{"id":"G004","number":4,"title":"Номер подъезда","category":"Адреса","status":"Есть в коде; доступность задаёт сервер","note":""},{"id":"G005","number":5,"title":"Избранные адреса","category":"Адреса","status":"Есть в коде","note":""},{"id":"G006","number":6,"title":"Избранные поездки и их настройки","category":"Адреса","status":"Частично / другой сценарий","note":"Есть частые маршруты; настройки избранной поездки отдельно не проверены."},{"id":"G007","number":7,"title":"Предложения вероятного пункта назначения","category":"Адреса","status":"Частично / другой сценарий","note":"Есть недавние адреса; автоматический выбор вероятного назначения не подтверждён."},{"id":"G008","number":8,"title":"Альтернативная точка подачи","category":"Подача и посадка","status":"Не подтверждено","note":""},{"id":"G009","number":9,"title":"Альтернативный пункт назначения","category":"Подача и посадка","status":"Не подтверждено","note":""},{"id":"G010","number":10,"title":"Пеший участок у альтернативной точки","category":"Подача и посадка","status":"Не подтверждено","note":""},{"id":"G011","number":11,"title":"Подача по фотографии","category":"Подача и посадка","status":"Не подтверждено","note":""},{"id":"G012","number":12,"title":"Код для посадки в машину","category":"Подача и посадка","status":"Частично / другой сценарий","note":"В попутках предусмотрен код посадки; это не утверждение об одинаковом сценарии такси."},{"id":"G013","number":13,"title":"Экран междугородней поездки","category":"Заказ","status":"Частично / другой сценарий","note":"Есть междугородние попутки; отдельный сценарий междугороднего такси не сопоставлен."},{"id":"G014","number":14,"title":"Выбор времени междугородней поездки","category":"Заказ","status":"Частично / другой сценарий","note":"В попутках задаётся время выезда; это другой сценарий."},{"id":"G015","number":15,"title":"Выбор мест в междугородней поездке","category":"Заказ","status":"Частично / другой сценарий","note":"Есть бронирование мест в попутке; отдельный выбор мест в такси не подтверждён."},{"id":"G016","number":16,"title":"Общая лента нескольких заказов","category":"Заказ","status":"Частично / другой сценарий","note":"Есть история заказов; общая лента одновременно действующих заказов не подтверждена."},{"id":"G017","number":17,"title":"Проверка возможности предзаказа","category":"Заказ","status":"Частично / другой сценарий","note":"Предзаказ есть; отдельная проверка его доступности не сопоставлена."},{"id":"G018","number":18,"title":"Пояснение, почему поиск машины затянулся","category":"Заказ","status":"Не подтверждено","note":""},{"id":"G019","number":19,"title":"Причины отмены","category":"Заказ","status":"Не подтверждено","note":""},{"id":"G020","number":20,"title":"Выбор класса машины и тарифа","category":"Заказ","status":"Есть в коде; доступность задаёт сервер","note":""},{"id":"G021","number":21,"title":"Объяснение повышенного спроса","category":"Заказ","status":"Частично / другой сценарий","note":"В чеке есть строка наценки за спрос; отдельное предварительное объяснение не сопоставлено."},{"id":"G022","number":22,"title":"Особые требования к поездке","category":"Настройки поездки","status":"Есть в коде; доступность задаёт сервер","note":""},{"id":"G023","number":23,"title":"Комментарий к заказу","category":"Настройки поездки","status":"Есть в коде; доступность задаёт сервер","note":""},{"id":"G024","number":24,"title":"Информация о платных дорогах","category":"Настройки поездки","status":"Не подтверждено","note":""},{"id":"G025","number":25,"title":"Предупреждение об изменении маршрута","category":"Настройки поездки","status":"Частично / другой сценарий","note":"Назначение можно менять; отдельное предупреждение об изменении маршрута не сопоставлено."},{"id":"G026","number":26,"title":"Изменение точки подачи в заказе","category":"Настройки поездки","status":"Не подтверждено","note":""},{"id":"G027","number":27,"title":"Изменение требований в заказе","category":"Настройки поездки","status":"Не подтверждено","note":""},{"id":"G028","number":28,"title":"Смена пункта назначения после заказа","category":"Настройки поездки","status":"Есть в коде","note":""},{"id":"G029","number":29,"title":"Номер автомобиля в карточке водителя","category":"В пути и после поездки","status":"Частично / другой сценарий","note":"Профиль водителя есть; показ номера в том же сценарии отдельно не сопоставлен."},{"id":"G030","number":30,"title":"Этапы поездки на одной ленте","category":"В пути и после поездки","status":"Частично / другой сценарий","note":"Есть состояние активной поездки; такой вид ленты этапов отдельно не проверен."},{"id":"G031","number":31,"title":"Информация о попутчике","category":"В пути и после поездки","status":"Не подтверждено","note":""},{"id":"G032","number":32,"title":"Поделиться сведениями о поездке","category":"В пути и после поездки","status":"Есть в коде","note":""},{"id":"G033","number":33,"title":"Оценка поездки с выбором причины","category":"В пути и после поездки","status":"Частично / другой сценарий","note":"Отзывы и рейтинг есть; набор причин оценки отдельно не сопоставлен."},{"id":"G034","number":34,"title":"Выбор типа звонка внутри приложения","category":"В пути и после поездки","status":"Частично / другой сценарий","note":"Есть системный звонок водителю; встроенная интернет-телефония не подтверждена."},{"id":"G035","number":35,"title":"Центр безопасности","category":"Безопасность","status":"Частично / другой сценарий","note":"Есть SOS и доверенные контакты; единый центр отдельным экраном не сопоставлен."},{"id":"G036","number":36,"title":"Передача сведений SOS","category":"Безопасность","status":"Частично / другой сценарий","note":"Сценарий SOS есть; состав передаваемых сведений Go не изучен."},{"id":"G037","number":37,"title":"Проверка состояния после ДТП","category":"Безопасность","status":"Частично / другой сценарий","note":"Есть SOS; отдельная проверка состояния после ДТП не подтверждена."},{"id":"G038","number":38,"title":"Передача сведений о ДТП","category":"Безопасность","status":"Частично / другой сценарий","note":"Есть SOS с пояснением; отдельная передача сведений о ДТП не подтверждена."},{"id":"G039","number":39,"title":"Доверенные контакты","category":"Безопасность","status":"Есть в коде","note":""},{"id":"G040","number":40,"title":"Настройка передачи поездки доверенным контактам","category":"Безопасность","status":"Частично / другой сценарий","note":"Есть контакты и ручная ссылка; автоматическая передача не подтверждена."},{"id":"G041","number":41,"title":"Забытые вещи","category":"Безопасность","status":"Есть в коде","note":""},{"id":"G042","number":42,"title":"Инструкции по безопасности","category":"Безопасность","status":"Частично / другой сценарий","note":"Есть сценарий SOS; содержание отдельного набора инструкций не сопоставлено."},{"id":"G043","number":43,"title":"Заказ для другого пассажира","category":"Семья и заказ для другого","status":"Есть в коде; доступность задаёт сервер","note":""},{"id":"G044","number":44,"title":"Выбор особых потребностей пассажира","category":"Доступность и особые потребности","status":"Частично / другой сценарий","note":"Есть простой режим; это не доказательство одинакового набора особых потребностей."},{"id":"G045","number":45,"title":"Доступный для экранного диктора обновляемый текст","category":"Доступность и особые потребности","status":"Частично / другой сценарий","note":"Есть крупный шрифт; озвучивание обновлений в этом исследовании не проверено."},{"id":"G046","number":46,"title":"Выбор способа оплаты","category":"Платежи","status":"Есть в коде","note":""},{"id":"G047","number":47,"title":"Добавление банковской карты","category":"Платежи","status":"Пока «Скоро»","note":"Выбор карты в оплате Юлдаша помечен «Скоро»."},{"id":"G048","number":48,"title":"Дополнительное подтверждение карты банком","category":"Платежи","status":"Не подтверждено","note":""},{"id":"G049","number":49,"title":"СБП внутри приложения","category":"Платежи","status":"Частично / другой сценарий","note":"Есть договорённость о переводе по СБП; само списание приложение не выполняет."},{"id":"G050","number":50,"title":"Подтверждение платежа","category":"Платежи","status":"Не подтверждено","note":""},{"id":"G051","number":51,"title":"Неоплаченные поездки и задолженность","category":"Платежи","status":"Не подтверждено","note":""},{"id":"G052","number":52,"title":"Выбор и настройка чаевых","category":"Платежи","status":"Не подтверждено","note":"В чеке Юлдаша благодарность прямо описана как жест, а не денежные чаевые."},{"id":"G053","number":53,"title":"Семейный счёт, приглашения и общая оплата","category":"Совместная оплата","status":"Не подтверждено","note":""},{"id":"G054","number":54,"title":"Корпоративный счёт для поездок","category":"Совместная оплата","status":"Пока «Скоро»","note":"Корпоративный счёт в выборе оплаты помечен «Скоро»."},{"id":"G055","number":55,"title":"Программы лояльности и баланс бонусов","category":"Скидки и программы","status":"Не подтверждено","note":""},{"id":"G056","number":56,"title":"Ввод промокода","category":"Скидки и программы","status":"Есть в коде","note":""},{"id":"G057","number":57,"title":"Список промокодов и их условия","category":"Скидки и программы","status":"Частично / другой сценарий","note":"Есть применение кода и его состояние; полный список кампаний не сопоставлен."},{"id":"G058","number":58,"title":"Поделиться промокодом","category":"Скидки и программы","status":"Частично / другой сценарий","note":"Есть приглашения знакомым; это не тождественно передаче промокода."},{"id":"G059","number":59,"title":"Состояние подписки Плюс","category":"Скидки и программы","status":"Не подтверждено","note":""},{"id":"G060","number":60,"title":"Профиль и изменение имени","category":"Профиль и история","status":"Есть в коде","note":""},{"id":"G061","number":61,"title":"Информация о рейтинге пассажира","category":"Профиль и история","status":"Не подтверждено","note":""},{"id":"G062","number":62,"title":"Добавление или изменение электронной почты","category":"Профиль и история","status":"Не подтверждено","note":""},{"id":"G063","number":63,"title":"История поездок","category":"Профиль и история","status":"Есть в коде","note":""},{"id":"G064","number":64,"title":"Помощь по текущему заказу","category":"Поддержка и водитель","status":"Частично / другой сценарий","note":"Поддержка есть; привязка обращения к текущему заказу не подтверждена."},{"id":"G065","number":65,"title":"Карточка водителя с фактами о нём","category":"Поддержка и водитель","status":"Есть в коде","note":""},{"id":"G066","number":66,"title":"Запрос замены водителя","category":"Поддержка и водитель","status":"Не подтверждено","note":""},{"id":"G067","number":67,"title":"Чат с водителем","category":"Поддержка и водитель","status":"Есть в коде","note":""},{"id":"G068","number":68,"title":"Перевод сообщений в чате","category":"Поддержка и водитель","status":"Не подтверждено","note":""},{"id":"G069","number":69,"title":"Форма заказа доставки","category":"Доставка","status":"Есть в коде; доступность задаёт сервер","note":""},{"id":"G070","number":70,"title":"Контакты для доставки","category":"Доставка","status":"Частично / другой сценарий","note":"Есть форма курьерской доставки; отдельный редактор контактов не сопоставлен."},{"id":"G071","number":71,"title":"Фотография в комментарии к доставке","category":"Доставка","status":"Частично / другой сценарий","note":"Есть фото получения и вручения; фото в комментарии к заказу отдельно не подтверждено."},{"id":"G072","number":72,"title":"Опция доставки от двери до двери","category":"Доставка","status":"Не подтверждено","note":""},{"id":"G073","number":73,"title":"Подробности стоимости доставки","category":"Доставка","status":"Частично / другой сценарий","note":"Есть предварительный расчёт; состав отдельного экрана начислений не сопоставлен."},{"id":"G074","number":74,"title":"Отслеживание доставки","category":"Доставка","status":"Есть в коде","note":""},{"id":"G075","number":75,"title":"Чат с курьером","category":"Доставка","status":"Есть в коде","note":""},{"id":"G076","number":76,"title":"Грузовая доставка отдельным сценарием","category":"Доставка","status":"Частично / другой сценарий","note":"Есть курьерская доставка; отдельная грузовая форма не подтверждена."},{"id":"G077","number":77,"title":"Самокат: выбор и сканирование QR-кода","category":"Самокаты","status":"Не подтверждено","note":""},{"id":"G078","number":78,"title":"Самокат: тарифы и пакеты поездок","category":"Самокаты","status":"Не подтверждено","note":""},{"id":"G079","number":79,"title":"Самокат: зоны поездок на карте","category":"Самокаты","status":"Не подтверждено","note":""},{"id":"G080","number":80,"title":"Самокат: страхование","category":"Самокаты","status":"Не подтверждено","note":""},{"id":"G081","number":81,"title":"Самокат: фотография для проверки","category":"Самокаты","status":"Не подтверждено","note":""},{"id":"G082","number":82,"title":"Самокат: оформление подписки","category":"Самокаты","status":"Не подтверждено","note":""},{"id":"G083","number":83,"title":"Каршеринг Drive и его тариф","category":"Каршеринг","status":"Не подтверждено","note":""},{"id":"G084","number":84,"title":"Просмотр маршрутов общественного транспорта","category":"Общественный транспорт","status":"Не подтверждено","note":""},{"id":"G085","number":85,"title":"Положение общественного транспорта","category":"Общественный транспорт","status":"Не подтверждено","note":""},{"id":"G086","number":86,"title":"Поиск железнодорожной станции","category":"Общественный транспорт","status":"Не подтверждено","note":""},{"id":"G087","number":87,"title":"Билеты на общественный транспорт","category":"Общественный транспорт","status":"Не подтверждено","note":""},{"id":"G088","number":88,"title":"Маршрут из нескольких видов транспорта","category":"Другие способы передвижения","status":"Не подтверждено","note":""},{"id":"G089","number":89,"title":"Отслеживание заказа Eats","category":"Другие сервисы","status":"Не подтверждено","note":""},{"id":"G090","number":90,"title":"Карточка зарядной станции","category":"Другие сервисы","status":"Не подтверждено","note":""},{"id":"G091","number":91,"title":"Обзор заправок","category":"Другие сервисы","status":"Не подтверждено","note":""},{"id":"G092","number":92,"title":"Защитить новый адрес от старого ответа","category":"Наши предложения для Юлдаша","status":"Подготовлено отдельно","note":"Подготовлено отдельно; в основную версию не переносилось."},{"id":"G093","number":93,"title":"Сохранять остановки при восстановлении формы","category":"Наши предложения для Юлдаша","status":"Предложение для проверки","note":"Сохранение остановок при пересоздании формы требует отдельной проверки."},{"id":"G094","number":94,"title":"Рисовать маршрут через добавленные остановки","category":"Наши предложения для Юлдаша","status":"Предложение для проверки","note":"Линия на карте строится по началу и концу; отображение остановок требует отдельной работы."},{"id":"G095","number":95,"title":"Показывать время подачи только для текущей точки","category":"Наши предложения для Юлдаша","status":"Предложение для проверки","note":"Проверить, не показывается ли время подачи для предыдущего места."}]};
+  const groups = root.querySelector('#go-choice-groups');
+  const count = root.querySelector('#go-choice-count');
+  const submit = root.querySelector('#go-choice-submit');
+  const fallback = root.querySelector('#go-choice-fallback');
+  const text = root.querySelector('#go-choice-text');
+  const validIds = new Set(catalog.items.map(item => item.id));
+  const inputs = new Map();
+  let selected = new Set();
+  let pending = false;
+
+  for (const category of new Set(catalog.items.map(item => item.category))) {
+    const section = document.createElement('section');
+    const heading = document.createElement('h3');
+    heading.textContent = category;
+    section.appendChild(heading);
+    const table = document.createElement('table');
+    table.className = 'table table-sm';
+    const head = table.createTHead().insertRow();
+    for (const title of ['Возможность', 'У Юлдаша']) {
+      const cell = document.createElement('th');
+      cell.scope = 'col';
+      cell.textContent = title;
+      head.appendChild(cell);
+    }
+    const body = table.createTBody();
+    for (const item of catalog.items.filter(item => item.category === category)) {
+      const row = body.insertRow();
+      const choiceCell = row.insertCell();
+      const label = document.createElement('label');
+      label.className = 'form-check';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.className = 'form-check-input';
+      input.value = item.id;
+      const title = document.createElement('span');
+      title.className = 'form-check-label';
+      title.textContent = `${item.number}. ${item.title}`;
+      label.append(input, title);
+      choiceCell.appendChild(label);
+      const statusCell = row.insertCell();
+      const status = document.createElement('div');
+      status.textContent = item.status;
+      statusCell.appendChild(status);
+      if (item.note) {
+        const note = document.createElement('div');
+        note.className = 'text-small text-muted';
+        note.textContent = item.note;
+        statusCell.appendChild(note);
+      }
+      inputs.set(item.id, input);
+      input.addEventListener('change', () => {
+        if (input.checked) selected.add(item.id);
+        else selected.delete(item.id);
+        fallback.hidden = true;
+        update();
+        save();
+      });
+    }
+    section.appendChild(table);
+    groups.appendChild(section);
+  }
+
+  function selectedItems() {
+    return catalog.items.filter(item => selected.has(item.id));
+  }
+
+  function prompt() {
+    const list = selectedItems().map(item => `${item.number}. ${item.title}`).join('\n');
+    return `Я выбрал пункты из каталога Go / Юлдаш от 19.10.2026 (${catalog.id}):\n${list}\nСначала проверь их поведение и что уже есть в Юлдаше. Составь понятный план: что полезно, что потребуется и какие есть риски. Этот выбор означает интерес к изучению: пока ничего не внедряй. Отдельного согласия на деньги, тарифы, изменение данных, выкладку, push или слияние в main я не даю.`;
+  }
+
+  function update() {
+    for (const [id, input] of inputs) input.checked = selected.has(id);
+    count.textContent = `Выбрано: ${selected.size}`;
+    submit.disabled = pending || selected.size === 0;
+    text.value = selected.size ? prompt() : '';
+  }
+
+  function restore(state) {
+    const saved = state && state.modelContent;
+    selected = new Set(saved && saved.catalogId === catalog.id && Array.isArray(saved.selectedIds)
+      ? saved.selectedIds.filter(id => validIds.has(id)) : []);
+    fallback.hidden = true;
+    update();
+  }
+
+  function save() {
+    const api = window.openai;
+    if (!api || typeof api.setWidgetState !== 'function') return;
+    const state = {
+      modelContent: { catalogId: catalog.id, selectedIds: selectedItems().map(item => item.id), selectedNumbers: selectedItems().map(item => item.number) },
+      privateContent: null
+    };
+    try { Promise.resolve(api.setWidgetState(state)).catch(() => {}); } catch (_) {}
+  }
+
+  window.addEventListener('openai:set_globals', event => {
+    const globals = event.detail && event.detail.globals;
+    if (globals && Object.prototype.hasOwnProperty.call(globals, 'widgetState')) restore(globals.widgetState);
+  });
+
+  submit.addEventListener('click', async () => {
+    if (!selected.size || pending) return;
+    const api = window.openai;
+    if (!api || typeof api.sendFollowUpMessage !== 'function') {
+      fallback.hidden = false;
+      text.focus();
+      text.select();
+      return;
+    }
+    pending = true;
+    update();
+    try {
+      await api.sendFollowUpMessage({ prompt: prompt(), title: 'Разобрать выбранные возможности' });
+    } catch (_) {
+      fallback.hidden = false;
+    } finally {
+      pending = false;
+      update();
+    }
+  });
+
+  restore(window.openai && window.openai.widgetState);
+})();
+</script>

@@ -1,0 +1,142 @@
+<div id="go-choice-20261019" aria-label="Возможности для выбора">
+  <div class="text-small text-muted">Go: найдено название модуля; работа функции не проверена. Статус справа — сравнение с кодом Юлдаша.</div>
+  <div id="go-choice-groups"></div>
+  <hr>
+  <div class="viz-row">
+    <output id="go-choice-count" class="tabular-nums" aria-live="polite">Выбрано: 0</output>
+    <button id="go-choice-submit" class="btn btn-primary" type="button" disabled>Разобрать выбранное</button>
+  </div>
+  <div id="go-choice-fallback" hidden>
+    <label class="form-label" for="go-choice-text">Выбранные пункты — можно отправить сообщением</label>
+    <textarea id="go-choice-text" class="form-control" rows="8" readonly></textarea>
+  </div>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('go-choice-20261019');
+  const catalog = __GO_CHOICE_DATA__;
+  const groups = root.querySelector('#go-choice-groups');
+  const count = root.querySelector('#go-choice-count');
+  const submit = root.querySelector('#go-choice-submit');
+  const fallback = root.querySelector('#go-choice-fallback');
+  const text = root.querySelector('#go-choice-text');
+  const validIds = new Set(catalog.items.map(item => item.id));
+  const inputs = new Map();
+  let selected = new Set();
+  let pending = false;
+
+  for (const category of new Set(catalog.items.map(item => item.category))) {
+    const section = document.createElement('section');
+    const heading = document.createElement('h3');
+    heading.textContent = category;
+    section.appendChild(heading);
+    const table = document.createElement('table');
+    table.className = 'table table-sm';
+    const head = table.createTHead().insertRow();
+    for (const title of ['Возможность', 'У Юлдаша']) {
+      const cell = document.createElement('th');
+      cell.scope = 'col';
+      cell.textContent = title;
+      head.appendChild(cell);
+    }
+    const body = table.createTBody();
+    for (const item of catalog.items.filter(item => item.category === category)) {
+      const row = body.insertRow();
+      const choiceCell = row.insertCell();
+      const label = document.createElement('label');
+      label.className = 'form-check';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.className = 'form-check-input';
+      input.value = item.id;
+      const title = document.createElement('span');
+      title.className = 'form-check-label';
+      title.textContent = `${item.number}. ${item.title}`;
+      label.append(input, title);
+      choiceCell.appendChild(label);
+      const statusCell = row.insertCell();
+      const status = document.createElement('div');
+      status.textContent = item.status;
+      statusCell.appendChild(status);
+      if (item.note) {
+        const note = document.createElement('div');
+        note.className = 'text-small text-muted';
+        note.textContent = item.note;
+        statusCell.appendChild(note);
+      }
+      inputs.set(item.id, input);
+      input.addEventListener('change', () => {
+        if (input.checked) selected.add(item.id);
+        else selected.delete(item.id);
+        fallback.hidden = true;
+        update();
+        save();
+      });
+    }
+    section.appendChild(table);
+    groups.appendChild(section);
+  }
+
+  function selectedItems() {
+    return catalog.items.filter(item => selected.has(item.id));
+  }
+
+  function prompt() {
+    const list = selectedItems().map(item => `${item.number}. ${item.title}`).join('\n');
+    return `Я выбрал пункты из каталога Go / Юлдаш от 19.10.2026 (${catalog.id}):\n${list}\nСначала проверь их поведение и что уже есть в Юлдаше. Составь понятный план: что полезно, что потребуется и какие есть риски. Этот выбор означает интерес к изучению: пока ничего не внедряй. Отдельного согласия на деньги, тарифы, изменение данных, выкладку, push или слияние в main я не даю.`;
+  }
+
+  function update() {
+    for (const [id, input] of inputs) input.checked = selected.has(id);
+    count.textContent = `Выбрано: ${selected.size}`;
+    submit.disabled = pending || selected.size === 0;
+    text.value = selected.size ? prompt() : '';
+  }
+
+  function restore(state) {
+    const saved = state && state.modelContent;
+    selected = new Set(saved && saved.catalogId === catalog.id && Array.isArray(saved.selectedIds)
+      ? saved.selectedIds.filter(id => validIds.has(id)) : []);
+    fallback.hidden = true;
+    update();
+  }
+
+  function save() {
+    const api = window.openai;
+    if (!api || typeof api.setWidgetState !== 'function') return;
+    const state = {
+      modelContent: { catalogId: catalog.id, selectedIds: selectedItems().map(item => item.id), selectedNumbers: selectedItems().map(item => item.number) },
+      privateContent: null
+    };
+    try { Promise.resolve(api.setWidgetState(state)).catch(() => {}); } catch (_) {}
+  }
+
+  window.addEventListener('openai:set_globals', event => {
+    const globals = event.detail && event.detail.globals;
+    if (globals && Object.prototype.hasOwnProperty.call(globals, 'widgetState')) restore(globals.widgetState);
+  });
+
+  submit.addEventListener('click', async () => {
+    if (!selected.size || pending) return;
+    const api = window.openai;
+    if (!api || typeof api.sendFollowUpMessage !== 'function') {
+      fallback.hidden = false;
+      text.focus();
+      text.select();
+      return;
+    }
+    pending = true;
+    update();
+    try {
+      await api.sendFollowUpMessage({ prompt: prompt(), title: 'Разобрать выбранные возможности' });
+    } catch (_) {
+      fallback.hidden = false;
+    } finally {
+      pending = false;
+      update();
+    }
+  });
+
+  restore(window.openai && window.openai.widgetState);
+})();
+</script>
