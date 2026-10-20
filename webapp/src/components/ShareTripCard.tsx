@@ -16,7 +16,7 @@
 //  сохраняются на сервере. «Села в машину» близкие получают, когда посадку
 //  отметит водитель («Сел», решение 17.10.2026): своего «Я сел» у пассажира нет.
 // ================================================================
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
@@ -64,6 +64,26 @@ export default function ShareTripCard({
   const [open, setOpen] = useState(false);
   /** Чья ссылка на экране: только что созданная, иначе первая из активных. */
   const [focusId, setFocusId] = useState<number | null>(null);
+  const generation = getSessionGeneration();
+  const targetKey = `booking:${bookingId ?? ""}|order:${orderId ?? ""}`;
+  const linkScope = useRef({ generation, targetKey, shareKey: "", epoch: 0, mounted: false });
+  const previousShareKey = linkScope.current.shareKey;
+  // Смена цели видна уже при render, пока cleanup прежнего effect ещё не прошёл.
+  if (linkScope.current.generation !== generation || linkScope.current.targetKey !== targetKey) linkScope.current.epoch += 1;
+  linkScope.current.generation = generation;
+  linkScope.current.targetKey = targetKey;
+  linkScope.current.shareKey = "";
+  useEffect(() => {
+    const scope = linkScope.current;
+    scope.mounted = true;
+    scope.epoch += 1;
+    return () => { scope.mounted = false; scope.epoch += 1; };
+  }, []);
+
+  function invalidateLinkOperation() {
+    linkScope.current.epoch += 1;
+    linkScope.current.shareKey = "";
+  }
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -108,6 +128,7 @@ export default function ShareTripCard({
           : null;
       setOpen(false);
       if (created) {
+        invalidateLinkOperation();
         // Ссылку показываем сразу, не дожидаясь перечитывания списка.
         setShares((prev) => [...(prev ?? []).filter((s) => s.id !== created.id), created]);
         setFocusId(created.id);
@@ -127,6 +148,7 @@ export default function ShareTripCard({
   }
 
   async function revoke(shareId: number) {
+    invalidateLinkOperation();
     const prev = shares ?? [];
     setShares(prev.filter((s) => s.id !== shareId)); // оптимистично
     if (focusId === shareId) setFocusId(null);
@@ -195,26 +217,47 @@ export default function ShareTripCard({
   // Ссылка, которую человек отправит близкому сам.
   const focusShare = activeShares.find((s) => s.id === focusId) ?? activeShares.find((s) => tripLiveLink(s));
   const liveLink = tripLiveLink(focusShare);
+  const shareKey = liveLink && focusShare ? JSON.stringify([focusShare.id, focusShare.token, liveLink]) : "";
+  if (previousShareKey !== shareKey) linkScope.current.epoch += 1;
+  linkScope.current.shareKey = shareKey;
   const canSystemShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
   const shareText = (link: string) =>
     appText("Следи за моей поездкой в Юлдаш: ", "Юлдашта минең сәфәремде күҙәт: ") + link;
 
-  async function copyLink(link: string) {
+  function captureLinkOperation(link: string) {
+    return { generation, targetKey, shareKey: link === liveLink ? shareKey : "", epoch: linkScope.current.epoch };
+  }
+
+  function currentLinkOperation(owner: ReturnType<typeof captureLinkOperation>): boolean {
+    const scope = linkScope.current;
+    return scope.mounted && scope.epoch === owner.epoch && scope.generation === owner.generation &&
+      getSessionGeneration() === owner.generation && scope.targetKey === owner.targetKey &&
+      owner.shareKey !== "" && scope.shareKey === owner.shareKey;
+  }
+
+  async function copyLink(link: string, owner = captureLinkOperation(link)) {
+    if (!currentLinkOperation(owner)) return;
     try {
       await navigator.clipboard.writeText(link);
+      if (!currentLinkOperation(owner)) return;
       setNote(appText("Ссылка скопирована", "Һылтанма күсерелде"));
     } catch {
+      if (!currentLinkOperation(owner)) return;
       setNote(appText("Не получилось скопировать. Выдели ссылку и скопируй сам.", "Күсереп булманы. Һылтанманы һайлап, үҙең күсер."));
     }
   }
 
   async function sendLink(link: string) {
+    const owner = captureLinkOperation(link);
+    if (!currentLinkOperation(owner)) return;
     try {
       await navigator.share({ title: appText("Отправить ссылку", "Һылтанманы ебәреү"), text: shareText(link) });
+      if (!currentLinkOperation(owner)) return;
     } catch (e) {
+      if (!currentLinkOperation(owner)) return;
       // Закрыл окно «Отправить» сам — не ошибка. Окно не открылось — хотя бы скопируем.
       if (e instanceof DOMException && e.name === "AbortError") return;
-      await copyLink(link);
+      await copyLink(link, owner);
     }
   }
 

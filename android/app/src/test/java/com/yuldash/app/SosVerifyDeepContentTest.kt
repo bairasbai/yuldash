@@ -1,14 +1,27 @@
 package com.yuldash.app
 
+import android.Manifest
+import android.app.Application
+import androidx.test.core.app.ApplicationProvider
+import com.yuldash.app.data.ApiClient
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
+import org.json.JSONObject
+import org.robolectric.Shadows
+import java.util.concurrent.CopyOnWriteArrayList
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.LocalPolice
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -239,9 +252,8 @@ class SosVerifyDeepContentTest {
     @Test
     fun sos_loggedIn_showsSignalDescription() {
         setSos(loggedIn = true)
-        // Текст сменился 16.10.2026: на проде SMS близким выключены (SMS_PROVIDER=mock), поэтому экран
-        // обещает только то, что точно случится — сигнал поддержке с местом и машиной, — и просит позвонить самому.
-        val expected = "Поддержка Юлдаш сразу получит сигнал с твоим местом и машиной, в которой ты едешь. Близким позвони сам, если можешь."
+        // Место, машина и доставка дежурному не гарантируются состоянием этого экрана.
+        val expected = "Сигнал будет отправлен в Юлдаш. Близким позвони сам, если можешь."
         scrollTo(expected)
         composeRule.onNodeWithText(expected).assertIsDisplayed()
     }
@@ -254,6 +266,106 @@ class SosVerifyDeepContentTest {
     }
 
     // ---------------- SosContent: состояния отправки сигнала (sent / failed / rateLimited) ----------------
+
+    @Test
+    @Config(application = Application::class)
+    fun sos_withoutCoordinates_realPostConfirmsOnlySavedSignalRussian() =
+        realSosWithoutCoordinates(AppLanguage.Ru)
+
+    @Test
+    @Config(application = Application::class)
+    fun sos_withoutCoordinates_realPostConfirmsOnlySavedSignalBashkir() =
+        realSosWithoutCoordinates(AppLanguage.Ba)
+
+    @Test
+    @Config(application = Application::class)
+    fun sos_oldMapCacheWithoutPermission_isNotShownCopiedOrSentRussian() =
+        realSosWithoutCoordinates(AppLanguage.Ru, withOldMapCache = true)
+
+    @Test
+    @Config(application = Application::class)
+    fun sos_oldMapCacheWithoutPermission_isNotShownCopiedOrSentBashkir() =
+        realSosWithoutCoordinates(AppLanguage.Ba, withOldMapCache = true)
+
+    private fun realSosWithoutCoordinates(language: AppLanguage, withOldMapCache: Boolean = false) {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val originalLat = LocationPrefs.lastLat
+        val originalLng = LocationPrefs.lastLng
+        val mounted = mutableStateOf(true)
+        val sent = CopyOnWriteArrayList<String>()
+        val server = MockWebServer()
+        try {
+            Shadows.shadowOf(app).denyPermissions(
+                Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            // Карта сохранила другое место раньше. В этом кэше нет времени и разрешения
+            // больше нет: SOS не может представлять его как текущее место человека.
+            LocationPrefs.lastLat = if (withOldMapCache) 54.7351 else null
+            LocationPrefs.lastLng = if (withOldMapCache) 55.9584 else null
+            ApiClient.resetForTest()
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.method == "POST" && request.path == "/sos") {
+                        sent.add(request.body.readUtf8())
+                        return MockResponse().setResponseCode(200).setBody("{}")
+                    }
+                    return MockResponse().setResponseCode(503).setBody("{}")
+                }
+            }
+            server.start()
+            ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+            ApiClient.testTimeoutMs = 1_000
+            ApiClient.init(app)
+            ApiClient.saveToken("local-sos-no-coordinates")
+            composeRule.setContent {
+                if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides language) {
+                    SosScreen(onBack = {}, onLoginRequired = {}, bookingId = 42)
+                }
+            }
+            val isBa = language == AppLanguage.Ba
+            if (withOldMapCache) {
+                scrollTo(if (isBa) "Операторға әйт" else "Продиктуй оператору")
+                composeRule.onNodeWithText(
+                    (if (isBa) "Координаталар: " else "Координаты: ") + "54.73510, 55.95840",
+                ).assertDoesNotExist()
+                composeRule.onNodeWithText(if (isBa) "Күсереү" else "Скопировать").assertDoesNotExist()
+                composeRule.onNodeWithText(if (isBa) "112 — шылтыратыу" else "Позвонить 112").assertIsEnabled()
+            }
+            val before = if (isBa)
+                "Сигнал Юлдашҡа ебәреләсәк. Мөмкин булһа, яҡындарыңа үҙең шылтырат."
+            else "Сигнал будет отправлен в Юлдаш. Близким позвони сам, если можешь."
+            scrollTo(before)
+            composeRule.onNodeWithText(before).assertIsDisplayed()
+            val sendLabel = if (isBa) "Ярҙамға хәбәр итеү" else "Сообщить поддержке"
+            val sendAction = hasText(sendLabel) and hasClickAction()
+            composeRule.onNode(hasScrollToNodeAction()).performScrollToNode(sendAction)
+            composeRule.onNode(sendAction).performClick()
+            val success = if (isBa)
+                "Сигнал Юлдашта һаҡланды. Яуап көтмә — мөмкин булһа, 112-гә һәм яҡындарыңа үҙең шылтырат."
+            else "Сигнал сохранён в Юлдаш. Не жди ответа — если можешь, позвони 112 и близким сам."
+            composeRule.waitUntil(10_000) {
+                runCatching {
+                    scrollTo(success)
+                    composeRule.onNodeWithText(success).assertIsDisplayed()
+                }.isSuccess
+            }
+            assertEquals(1, sent.size)
+            val body = JSONObject(sent.single())
+            assertEquals(42, body.getInt("booking_id"))
+            assertFalse(body.has("order_id"))
+            assertFalse(body.has("lat"))
+            assertFalse(body.has("lng"))
+            assertFalse(body.getString("note").contains("Координаты:"))
+        } finally {
+            composeRule.runOnIdle { mounted.value = false }
+            composeRule.waitForIdle()
+            ApiClient.logout()
+            ApiClient.resetForTest()
+            ApiClient.testTimeoutMs = null
+            LocationPrefs.lastLat = originalLat
+            LocationPrefs.lastLng = originalLng
+            server.shutdown()
+        }
+    }
 
     @Test
     fun sos_sent_showsSentInfoCard() {

@@ -213,6 +213,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.graphics.Bitmap
@@ -327,6 +329,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
     val priceHint = priceHintDto?.takeIf { it.count > 0 }?.avg ?: 0
     var publishing by remember { mutableStateOf(false) }   // ждём ответ сервера, блок двойного нажатия
     var publishError by remember { mutableStateOf<String?>(null) }
+    var showDeparturePicker by remember { mutableStateOf(false) }
     val publishScope = rememberCoroutineScope()
     var geoRoutes by remember { mutableStateOf<List<SettlementRouteDto>>(emptyList()) }
     LaunchedEffect(Unit) { ApiClient.getSettlementPopularRoutes().onSuccess { geoRoutes = it } }
@@ -341,7 +344,6 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
     val dropPinLabel = appText("Точка на карте", "Картала нөктә")
     val errPublish = appText("Не удалось опубликовать. Проверь сеть и повтори.", "Баҫтырып булманы. Селтәрҙе тикшереп ҡабатла.")
     val stopErrors = rideStopErrorMessages()
-    val ctxDt = LocalContext.current
     if (RideCategoryBlocked(category, onBack, onBack) { category = "regular" }) return
     Box(Modifier.fillMaxSize()) {
     Scaffold(
@@ -369,7 +371,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
             partners = partners, selectedPartnerId = partnerId, onSelectPartner = { partnerId = it },
             onReceiverNameChange = { receiverName = it }, onParcelSizeChange = { parcelSize = it },
             onPickupChange = { pickup = it; pickupPointId = null }, onOpenPicker = { showPicker = true },
-            onOpenDatePicker = { openDateTimePicker(ctxDt, "ru") { dateTime = it } },
+            onOpenDatePicker = { showDeparturePicker = true },
             onUsePriceHint = { price = priceHint.toString() },
             onWomenOnly = { womenOnly = it }, onChildSeat = { childSeat = it },
             onPetsAllowed = { petsAllowed = it }, onBaggage = { baggage = it },
@@ -452,6 +454,13 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
             modifier = Modifier.padding(padding),
         )
     }
+        if (showDeparturePicker) {
+            RideDeparturePicker(
+                initialValue = dateTime,
+                onDismiss = { showDeparturePicker = false },
+                onConfirm = { dateTime = it; showDeparturePicker = false },
+            )
+        }
         if (showPicker) {
             PickupPickerOverlay(
                 initial = pickupLat?.let { la -> pickupLng?.let { ln -> Point(la, ln) } },
@@ -541,6 +550,9 @@ internal fun CreateRideFormContent(
 ) {
     val isCargo = typeKey == "parcel" || typeKey == "cargo"
     val isHospital = typeKey == "hospital"
+    val dateLabel = appText("Дата и время", "Дата һәм ваҡыт")
+    val datePlaceholder = appText("Выбери дату и время", "Дата һәм ваҡыт һайла")
+    val datePickerDescription = "$dateLabel: ${dateText.ifBlank { datePlaceholder }}"
     LazyColumn(
         modifier = modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -628,14 +640,15 @@ internal fun CreateRideFormContent(
                     value = dateText,
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text(appText("Дата и время", "Дата һәм ваҡыт")) },
-                    placeholder = { Text(appText("Выбери дату и время", "Дата һәм ваҡыт һайла")) },
+                    label = { Text(dateLabel) },
+                    placeholder = { Text(datePlaceholder) },
                     leadingIcon = { Icon(Icons.Default.Schedule, null) },
                     trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp)
                 )
-                Box(Modifier.matchParentSize().clickable { onOpenDatePicker() })
+                Box(Modifier.matchParentSize().clickable { onOpenDatePicker() }
+                    .semantics { contentDescription = datePickerDescription })
             }
         }
         item {

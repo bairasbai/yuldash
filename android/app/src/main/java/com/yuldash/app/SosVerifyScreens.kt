@@ -220,6 +220,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yandex.mapkit.MapKitFactory
 import com.yandex.mapkit.geometry.Circle
@@ -279,6 +282,28 @@ internal data class SosService(
  *  а человек в беде дольше смотреть на спиннер не должен. */
 private const val SOS_LOCATE_TIMEOUT_MS = 12_000L
 
+// Ограничение свежести места для SOS, не анимация: за минуту машина уже может уехать.
+// Кэш карты без времени не подтверждает текущее место и здесь не используется.
+internal const val SOS_LOCATION_MAX_AGE_MS = 60_000L
+
+internal fun freshSosLocation(
+    location: android.location.Location?,
+    hasPermission: Boolean,
+    nowElapsedNanos: Long = SystemClock.elapsedRealtimeNanos(),
+    nowWallMillis: Long = System.currentTimeMillis(),
+): android.location.Location? {
+    if (!hasPermission || location == null) return null
+    if (!location.latitude.isFinite() || location.latitude !in -90.0..90.0 ||
+        !location.longitude.isFinite() || location.longitude !in -180.0..180.0) return null
+    // Не доверяем отсутствующим/будущим меткам. Монотонные часы защищают от перевода
+    // системных часов назад; обе метки обязаны подтверждать свежесть одной точки.
+    if (location.time <= 0L || location.time > nowWallMillis ||
+        location.elapsedRealtimeNanos <= 0L || location.elapsedRealtimeNanos > nowElapsedNanos) return null
+    if (nowWallMillis - location.time > SOS_LOCATION_MAX_AGE_MS ||
+        nowElapsedNanos - location.elapsedRealtimeNanos > SOS_LOCATION_MAX_AGE_MS * 1_000_000L) return null
+    return android.location.Location(location)
+}
+
 @Composable
 internal fun SosScreen(
     onBack: () -> Unit,
@@ -295,6 +320,7 @@ internal fun SosScreen(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     // Россия, звонок с мобильного: 102 полиция · 101 пожарные · 103 скорая. 112 — единый (по умолчанию / когда выбрано несколько).
     val services = remember {
@@ -321,8 +347,7 @@ internal fun SosScreen(
     val loggedIn = ApiClient.isLoggedIn()
 
     // Живая геолокация для ЧП — запрашиваем прямо здесь (а не ждём кеш с карты). Главное в SOS.
-    var sosLat by remember { mutableStateOf(LocationPrefs.lastLat) }
-    var sosLng by remember { mutableStateOf(LocationPrefs.lastLng) }
+    var sosLocation by remember { mutableStateOf<android.location.Location?>(null) }
     var locating by remember { mutableStateOf(false) }
     // Попытка определить место закончилась ничем. Без этого экран ЧП вечно висел на «Обновляю…»:
     // одноразовый запрос координат ждали без срока, и если фикса не приходило (в помещении,
@@ -332,10 +357,10 @@ internal fun SosScreen(
     val lm = remember { context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager }
     var locListener by remember { mutableStateOf<android.location.LocationListener?>(null) }
     var locTimeout by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    fun applyLoc(loc: android.location.Location) {
-        sosLat = loc.latitude; sosLng = loc.longitude
-        LocationPrefs.lastLat = loc.latitude; LocationPrefs.lastLng = loc.longitude
-    }
+    fun hasLocationPermission() = ContextCompat.checkSelfPermission(
+        context, Manifest.permission.ACCESS_FINE_LOCATION,
+    ) == PackageManager.PERMISSION_GRANTED
+    fun currentLocation() = freshSosLocation(sosLocation, hasLocationPermission())
     // Снять подписку на координаты. Обязательна: без неё каждое нажатие «Обновить» оставляло
     // висеть ещё один слушатель GPS — на экране, который открывают в аварии.
     fun stopLocating() {
@@ -344,63 +369,109 @@ internal fun SosScreen(
         locTimeout?.cancel(); locTimeout = null
         locating = false
     }
+    fun clearLocation() {
+        sosLocation = null
+        stopLocating()
+        locFailed = true
+    }
+    fun applyLoc(loc: android.location.Location): Boolean {
+        val fresh = freshSosLocation(loc, hasLocationPermission()) ?: return false
+        sosLocation = fresh
+        LocationPrefs.lastLat = fresh.latitude; LocationPrefs.lastLng = fresh.longitude
+        return true
+    }
+    fun locationForAction(): android.location.Location? {
+        val fresh = currentLocation()
+        if (!hasLocationPermission()) { clearLocation(); return null }
+        else if (fresh == null && sosLocation != null) { sosLocation = null; locFailed = true }
+        return fresh
+    }
     fun fetchLoc() {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         stopLocating()          // повторное нажатие не должно плодить слушателей
-        // 1) Мгновенно показать последнее известное (чтобы не было пусто).
+        if (!hasLocationPermission()) { clearLocation(); return }
+        sosLocation = currentLocation()
         try {
-            (lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-                ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
-                ?: lm.getLastKnownLocation(android.location.LocationManager.PASSIVE_PROVIDER))?.let { applyLoc(it) }
-        } catch (e: SecurityException) {}
-        // 2) Запросить СВЕЖИЙ одноразовый фикс — это и есть реальное «Обновить» (last-known может быть устаревшим).
-        val provider = when {
-            lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) -> android.location.LocationManager.GPS_PROVIDER
-            lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) -> android.location.LocationManager.NETWORK_PROVIDER
-            else -> null
-        }
-        if (provider == null) {          // все источники выключены — так и говорим, а не «обновляю»
-            locFailed = sosLat == null
-            return
-        }
-        locating = true; locFailed = false
-        try {
+            // 1) Последняя известная точка допустима только со свежим временем.
+            // Старый GPS не должен прятать более свежую точку другого источника.
+            listOf(android.location.LocationManager.GPS_PROVIDER,
+                android.location.LocationManager.NETWORK_PROVIDER,
+                android.location.LocationManager.PASSIVE_PROVIDER)
+                .mapNotNull { freshSosLocation(lm.getLastKnownLocation(it), hasLocationPermission()) }
+                .maxByOrNull { it.elapsedRealtimeNanos }?.let { applyLoc(it) }
+            // 2) Ждём разрешённую свежую точку, затем снимаем подписку.
+            val provider = when {
+                lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) -> android.location.LocationManager.GPS_PROVIDER
+                lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) -> android.location.LocationManager.NETWORK_PROVIDER
+                else -> null
+            }
+            if (provider == null) {
+                locFailed = currentLocation() == null
+                return
+            }
+            locating = true; locFailed = false
             val listener = object : android.location.LocationListener {
-                override fun onLocationChanged(loc: android.location.Location) { applyLoc(loc); stopLocating() }
+                override fun onLocationChanged(loc: android.location.Location) {
+                    if (!hasLocationPermission()) clearLocation()
+                    else if (applyLoc(loc)) stopLocating()
+                }
                 override fun onStatusChanged(p: String?, s: Int, e: android.os.Bundle?) {}
                 override fun onProviderEnabled(p: String) {}
                 override fun onProviderDisabled(p: String) {}
             }
-            lm.requestSingleUpdate(provider, listener, android.os.Looper.getMainLooper())
             locListener = listener
+            lm.requestLocationUpdates(provider, 0L, 0f, listener, android.os.Looper.getMainLooper())
             // Ждём фикс ограниченное время. Не дождались — честно говорим и даём «Повторить»:
             // в ЧП лучше сразу перейти к «продиктуй адрес словами», чем смотреть на спиннер.
             locTimeout = scope.launch {
                 kotlinx.coroutines.delay(SOS_LOCATE_TIMEOUT_MS)
-                val gotNothing = sosLat == null
+                val gotNothing = currentLocation() == null
+                if (gotNothing) sosLocation = null
                 stopLocating()
                 locFailed = gotNothing
             }
-        } catch (e: SecurityException) { stopLocating(); locFailed = sosLat == null }
-        catch (e: Exception) { stopLocating(); locFailed = sosLat == null }
+        } catch (e: SecurityException) { clearLocation() }
+        catch (e: Exception) { stopLocating(); locFailed = currentLocation() == null }
     }
     // Ушли с экрана — подписку снимаем: GPS не должен работать «в никуда».
     DisposableEffect(Unit) { onDispose { stopLocating() } }
-    val locPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) fetchLoc()
+    // Android 12+ требует совместный запрос FINE+COARSE; примерное место не выдаём за точное.
+    val locationPermissions = remember {
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+    }
+    val locPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true) fetchLoc() else clearLocation()
     }
     LaunchedEffect(Unit) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) fetchLoc()
-        else locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (hasLocationPermission()) fetchLoc()
+        else locPermLauncher.launch(locationPermissions)
     }
 
-    val coordsText = if (sosLat != null && sosLng != null) String.format(java.util.Locale.US, "%.5f, %.5f", sosLat, sosLng) else null
+    // Убрали разрешение в настройках и вернулись — старое место сразу исчезает.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) locationForAction()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(sosLocation) {
+        val location = sosLocation ?: return@LaunchedEffect
+        val ageMillis = maxOf(System.currentTimeMillis() - location.time,
+            (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L)
+        delay((SOS_LOCATION_MAX_AGE_MS - ageMillis).coerceAtLeast(0L) + 1L)
+        locationForAction()
+    }
+    fun coords(location: android.location.Location?) = location?.let {
+        String.format(java.util.Locale.US, "%.5f, %.5f", it.latitude, it.longitude)
+    }
+    val coordsText = coords(currentLocation())
 
-    fun dictText(): String = buildString {
+    fun dictText(location: android.location.Location?): String = buildString {
         if (description.isNotBlank()) append(description.trim())
-        if (coordsText != null) {
+        val currentCoords = coords(location)
+        if (currentCoords != null) {
             if (isNotEmpty()) append("\n")
-            append("Координаты: $coordsText")
+            append("Координаты: $currentCoords")
         }
     }
 
@@ -412,8 +483,8 @@ internal fun SosScreen(
     }
 
     fun requestLoc() {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) fetchLoc()
-        else locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (hasLocationPermission()) fetchLoc()
+        else { clearLocation(); locPermLauncher.launch(locationPermissions) }
     }
 
     fun sendSignal() {
@@ -426,17 +497,20 @@ internal fun SosScreen(
         rateLimited = false
         sent = false
         sending = true
-        // В note кладём текст + КООРДИНАТЫ (бэкенд без гео-поля → передаём строкой со ссылкой на карту).
-        val note = buildString {
-            if (!contextNote.isNullOrBlank()) append(contextNote.trim() + ". ")
-            if (description.isNotBlank()) append(description.trim() + " ")
-            if (coordsText != null) append("Координаты: $coordsText (https://yandex.ru/maps/?pt=$sosLng,$sosLat&z=17)")
-        }.trim().ifBlank { "SOS" }
         scope.launch {
+            // Снимок берём прямо перед запросом, а не из последней отрисовки экрана.
+            val location = locationForAction()
+            val currentCoords = coords(location)
+            // Текст для дежурного и отдельные lat/lng используют один разрешённый снимок.
+            val note = buildString {
+                if (!contextNote.isNullOrBlank()) append(contextNote.trim() + ". ")
+                if (description.isNotBlank()) append(description.trim() + " ")
+                if (location != null) append("Координаты: $currentCoords (https://yandex.ru/maps/?pt=${location.longitude},${location.latitude}&z=17)")
+            }.trim().ifBlank { "SOS" }
             // Ждём сервер, НЕ fire-and-forget (кнопка безопасности). orderId — контекст такси-заказа (B7b-2).
             // Координаты шлём ещё и отдельными полями: из текста заметки их читал только админ,
             // а ссылку на карту должны получить близкие — им ехать (аудит 2026-08-06).
-            val r = ApiClient.sos(category, note, orderId, lat = sosLat, lng = sosLng, bookingId = bookingId)
+            val r = ApiClient.sos(category, note, orderId, lat = location?.latitude, lng = location?.longitude, bookingId = bookingId)
             sending = false
             if (r.isSuccess) {
                 sent = true
@@ -465,7 +539,7 @@ internal fun SosScreen(
         onDial = { dial(it) },
         onLocate = { requestLoc() },
         onCopy = {
-            copySensitive(context, dictText())   // марка, номер машины, место человека
+            copySensitive(context, dictText(locationForAction()))   // марка, номер машины, место человека
             Toast.makeText(context, tCopied, Toast.LENGTH_SHORT).show()
         },
         onSendSignal = { sendSignal() },
@@ -648,11 +722,10 @@ internal fun SosContent(
                     Text(appText("Сообщить поддержке", "Ярҙамға хәбәр итеү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center)
                     Text(
                         if (loggedIn)
-                            // Честно говорим, ЧТО именно уйдёт: человек в панике не должен гадать. SMS близким не обещаем —
-                            // на проде канал может быть выключен. Машину называем прямо: по ней ищут, и это же спросит полиция.
+                            // Координаты и контекст поездки могут отсутствовать; доставка дежурному здесь не наблюдается.
                             appText(
-                                "Поддержка Юлдаш сразу получит сигнал с твоим местом и машиной, в которой ты едешь. Близким позвони сам, если можешь.",
-                                "Юлдаш ярҙамы урыныңды һәм барған машинаңды күрһәткән сигналды шунда уҡ ала. Мөмкин булһа, яҡындарыңа үҙең шылтырат.",
+                                "Сигнал будет отправлен в Юлдаш. Близким позвони сам, если можешь.",
+                                "Сигнал Юлдашҡа ебәреләсәк. Мөмкин булһа, яҡындарыңа үҙең шылтырат.",
                             )
                         else
                             appText("Для сигнала поддержке нужно войти. Звонок 112 работает без входа.", "Ярҙамға сигнал өсөн инергә кәрәк. 112 шылтырауы инеүһеҙ эшләй."),
@@ -679,9 +752,8 @@ internal fun SosContent(
                 item {
                     InfoCard(
                         title = appText("Сигнал отправлен", "Сигнал ебәрелде"),
-                        // Честно: сигнал поддержке (Telegram) уходит всегда; SMS близким зависит от оператора и
-                        // при mock-провайдере не доходит. В экстренной ситуации не обещаем SMS — подсказываем позвонить самому.
-                        text = appText("Поддержка Юлдаш получила сигнал с твоими координатами. Не жди — если можешь, позвони 112 и близким сам.", "Юлдаш ярҙамы координаталарың менән сигнал алды. Көтмә — мөмкин булһа, 112-гә һәм яҡындарыңа үҙең шылтырат."),
+                        // Успех API подтверждает сохранение сигнала, а не получение внешним дежурным.
+                        text = appText("Сигнал сохранён в Юлдаш. Не жди ответа — если можешь, позвони 112 и близким сам.", "Сигнал Юлдашта һаҡланды. Яуап көтмә — мөмкин булһа, 112-гә һәм яҡындарыңа үҙең шылтырат."),
                         icon = Icons.Default.Sos
                     )
                 }
