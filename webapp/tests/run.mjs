@@ -59,6 +59,8 @@ const SUITES = [
   { test: "draft-owner-test", src: null, out: null, bundle: false },
   { test: "consent-mirror-owner-test", src: null, out: null, bundle: false },
   { test: "sos-account-boundary-test", src: null, out: null, bundle: false },
+  { test: "sos-network-retry-test", src: null, out: null, bundle: false },
+  { test: "roadside-network-retry-test", src: null, out: null, bundle: false },
   { test: "consents-account-boundary-test", src: null, out: null, bundle: false },
   { test: "auth-provider-cross-tab-test", src: null, out: null, bundle: false },
   { test: "cross-tab-session-test", src: null, out: null, bundle: false },
@@ -132,6 +134,7 @@ const SUITES = [
   { test: "trip-chat-test", src: null, out: null, bundle: false },
   // …и структура: строка ввода прибита к низу экрана, входы из поездки и списка чатов.
   { test: "trip-chat-page-test", src: null, out: null, bundle: false },
+  { test: "voice-network-boundary-test", src: null, out: null, bundle: false },
   // Экран Android без маршрута PWA теперь ломает проверку в том же коммите.
   { test: "parity-test", src: null, out: null, bundle: false },
   // Токены сайта читаются из CanonTokens.kt: цвет, радиус, отступ, кегль разошлись — набор красный.

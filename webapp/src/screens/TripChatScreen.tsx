@@ -182,6 +182,28 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   const [textBusy, setTextBusy] = useState(false);
   const textSending = useRef(false);
   const ownerSession = useRef(getSessionGeneration()).current;
+  const voiceScopeRef = useRef({ bookingId, myId, live: true });
+  if (voiceScopeRef.current.bookingId !== bookingId || voiceScopeRef.current.myId !== myId) {
+    voiceScopeRef.current = { bookingId, myId, live: true };
+  }
+  const voiceScope = voiceScopeRef.current;
+  type VoiceIntent = { owner: string; bookingId: number; voiceUrl: string; key: string; scope: typeof voiceScope };
+  const voiceIntent = useRef<VoiceIntent | null>(null);
+  const voiceSending = useRef<VoiceIntent | null>(null);
+  const [pendingVoice, setPendingVoice] = useState<VoiceIntent | null>(null);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceUnknown, setVoiceUnknown] = useState(false);
+  useEffect(() => {
+    voiceScope.live = true;
+    setPendingVoice(null);
+    setVoiceBusy(false);
+    setVoiceUnknown(false);
+    return () => {
+      voiceScope.live = false;
+      if (voiceIntent.current?.scope === voiceScope) voiceIntent.current = null;
+      if (voiceSending.current?.scope === voiceScope) voiceSending.current = null;
+    };
+  }, [voiceScope]);
   type Intent = { id: string; text: string; persisted: boolean; confirmed?: ChatMessage; acknowledgment: Promise<ChatMessage>; confirm: (m: ChatMessage) => void };
   const intentRef = useRef<Intent | null>(null);
   const [live, setLive] = useState(false);
@@ -464,17 +486,56 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
 
   /** Голос уходит по REST: сокет передаёт только текст, а ссылку надо положить в поле. */
   async function sendVoice(voiceUrl: string) {
-    try {
-      const m = await sendMessageRest(bookingId, "", voiceUrl);
-      upsert(m);
+    const active = () => voiceScope.live && voiceScopeRef.current === voiceScope && ownerSession === getSessionGeneration();
+    if (!voiceUrl || !active() || voiceSending.current) return;
+    let intent = voiceIntent.current;
+    // Не затираем непроверенную запись новым диктантом. Сначала — подтверждение или уход из чата.
+    if (intent && intent.voiceUrl !== voiceUrl) return;
+    if (!intent) {
+      intent = { owner: ownerSession, bookingId, voiceUrl, key: createOutboxId(), scope: voiceScope };
+      voiceIntent.current = intent; // Ключ и URL живут только в этом экране, до первого POST.
+    }
+    const pending = intent;
+    const current = () => active() && voiceIntent.current === pending;
+    const confirms = (message: ChatMessage) => Number.isInteger(message.id) && message.id > 0 &&
+      message.sender_id === myId && message.voice_url === pending.voiceUrl && !message.deleted;
+    const acknowledge = (message: ChatMessage) => {
+      if (!current() || !confirms(message)) return false;
+      upsert(message);
+      voiceIntent.current = null;
+      setPendingVoice(null);
+      setVoiceUnknown(false);
       setAttachNote("");
+      return true;
+    };
+    voiceSending.current = pending;
+    setPendingVoice(pending);
+    setVoiceBusy(true);
+    setVoiceUnknown(false);
+    setAttachNote("");
+    try {
+      const message = await sendMessageRest(pending.bookingId, "", pending.voiceUrl, pending.key, pending.owner);
+      if (!current()) return;
+      if (!acknowledge(message)) throw new Error("Unconfirmed voice reply");
     } catch {
-      // Раньше голосовое пропадало молча: человек говорил в трубку, отпускал —
-      // и не знал, что записи никто не получил. В очередь его не положить
-      // (запись живёт на сервере ограниченно), поэтому честно просим повторить.
-      setAttachNote(
-        appText("Голосовое не ушло. Запиши ещё раз.", "Тауыш китмәне. Тағы яҙып ҡара.")
-      );
+      if (!current()) return;
+      // Ответ мог пропасть ПОСЛЕ сохранения. Голос не входит в текстовую офлайн-очередь.
+      setVoiceUnknown(true);
+      setAttachNote(appText(
+        "Не удалось подтвердить отправку голосового. Проверь связь и повтори отправку.",
+        "Тауыштың ебәрелеүен раҫлап булманы. Селтәрҙе тикшереп, ҡабат ебәр.",
+      ));
+      try {
+        const history = await fetchMessages(pending.bookingId);
+        if (!current()) return;
+        const confirmed = history.find(confirms);
+        if (confirmed) acknowledge(confirmed);
+      } catch { /* Нет подтверждённой истории — исходная запись и ключ ждут ручного повтора. */ }
+    } finally {
+      if (voiceSending.current === pending) {
+        voiceSending.current = null;
+        if (active()) setVoiceBusy(false);
+      }
     }
   }
 
@@ -747,6 +808,12 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
               {attachNote}
             </div>
           )}
+          {voiceUnknown && pendingVoice?.scope === voiceScope && ownerSession === getSessionGeneration() && (
+            <button type="button" className="btn-soft tchat__retry" disabled={voiceBusy}
+              onClick={() => void sendVoice(pendingVoice.voiceUrl)}>
+              {appText("Повторить отправку", "Ҡабат ебәреү")}
+            </button>
+          )}
           {/* Быстрые ответы — один тап отправляет готовую фразу */}
           <QuickReplies onPick={(t) => void sendText(t)} />
           <div className="chat__input tchat__input">
@@ -762,7 +829,8 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
               aria-label={appText("Сообщение", "Хәбәр")}
             />
             <ChatPhotoButton onReady={(t) => void sendText(t)} onProblem={setAttachNote} />
-            <ChatVoiceButton onSend={(u) => void sendVoice(u)} onProblem={setAttachNote} />
+            <ChatVoiceButton bookingId={bookingId} disabled={pendingVoice != null}
+              onSend={sendVoice} onProblem={setAttachNote} />
             <button type="button" onClick={() => void send()} disabled={textBusy} aria-label={appText("Отправить", "Ебәреү")}>
               <IconArrow size={20} />
             </button>

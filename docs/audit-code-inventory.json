@@ -78,24 +78,24 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 151,
+    "android_main": 152,
     "backend_main": 106,
-    "infra_resource_config": 360,
+    "infra_resource_config": 364,
     "public_site_promo": 89,
-    "pwa_main": 287,
-    "test_support": 1002
+    "pwa_main": 289,
+    "test_support": 1020
   },
   "counts_by_block": {
     "B01": 131,
-    "B02": 221,
+    "B02": 226,
     "B03": 119,
     "B04": 76,
-    "B05": 39,
+    "B05": 42,
     "B06": 85,
     "B07": 107,
-    "B08": 175,
-    "B09": 592,
-    "B10": 360,
+    "B08": 182,
+    "B09": 598,
+    "B10": 364,
     "B11": 90
   },
   "excluded_counts": {
@@ -395,6 +395,20 @@
       "lines": 140
     },
     {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/RoadsideReplayUiInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "fc0d8925b6696d2e9a374e85bd9fb3f1c7a4d06bc90fb5089683243c314904fc",
+      "lines": 141
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/SafetyUnknownUiInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "7e91d17e8eff4b602c8e061b09add911c543c5258ec89218a6a77d50ecee9bed",
+      "lines": 122
+    },
+    {
       "path": "android/app/src/androidTest/java/com/yuldash/app/SeedAuthInstrumentedTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -577,6 +591,13 @@
       "lines": 53
     },
     {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/data/SosRetryProcessInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "fa31ec650a36fc6bb4f6ff9344cdb1c4ad1be369e34b64018fc6027395d20549",
+      "lines": 76
+    },
+    {
       "path": "android/app/src/androidTest/java/com/yuldash/app/data/TripPassDeletionProcessInstrumentedTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -608,8 +629,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/AccessibilityScreens.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "29f0191261e6193fabf6780f2ad37e5dd8b41b42a48021b218e79b241f5c15f6",
-      "lines": 2225
+      "sha256": "69037004dd05d617d77e1b3910519a447795fe5efe4898ca32ff9e35ea91f94d",
+      "lines": 2146
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/ActiveTripDetails.kt",
@@ -1203,8 +1224,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RoadsideHelp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "c5a8098f728f587908d4e58112eb26830c63718ce32dd62bcd2da15de19a4b65",
-      "lines": 219
+      "sha256": "88665fe8654028564938370a8f661fbbef2f1e6e91bc6d74633a0fca927bc72d",
+      "lines": 226
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/SavedPlacesScreen.kt",
@@ -1259,8 +1280,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/SosVerifyScreens.kt",
       "kind": "android_main",
       "block": "B08",
-      "sha256": "8727c100c0d9a02a4009cd9998593f0c1edd920f2463f8a083eb6d0cb8fb87da",
-      "lines": 1260
+      "sha256": "beeb457c7d59730939ea6b238145c3e3e9fcb98930264f3b73ea9d965be99372",
+      "lines": 1266
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/StopSuggestField.kt",
@@ -1504,8 +1525,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "f2608e3dc453e2d4aeb052b11b60ded36a34b68c4d013a30f3b490d28bc611b3",
-      "lines": 7823
+      "sha256": "4730707460e9073755ede308d0f22de6befca7d58ab3f4faf069ae32dca43ddf",
+      "lines": 7863
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -1623,8 +1644,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "d2b621b27813cbb894715cc11cd88e8209e4a29b1c38b8c208036dba93af0b7a",
-      "lines": 87
+      "sha256": "34541d501b3096ed41f5d98aafc69f923a470dd8da930d2d9029f2f236246364",
+      "lines": 91
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/SosRetryIntent.kt",
+      "kind": "android_main",
+      "block": "B08",
+      "sha256": "e325baf89d2ff94dea71fad00bfe4100fcba527c6b45281161ee54cc0bdd9479",
+      "lines": 83
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/TripLocationBus.kt",
@@ -2943,11 +2971,25 @@
       "lines": 106
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/PassengerRequestNetworkBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "f41756e7f3a13d58ad3f16accaa8b57ab0cdd5a8bad7d9318b497e7ec28916ef",
+      "lines": 100
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/PassengerRequestPremiumGuardTest.kt",
       "kind": "test_support",
       "block": "B02",
       "sha256": "173004a49328c9f79f32999a5e2706bb5f4928e717115c5e64b7b6704b7afb30",
       "lines": 63
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/PassengerRequestSubmitOwnerBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "b16d295f016ee621518af97268d8cf29f425139bd1c802af83b463dde687d44f",
+      "lines": 142
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/PassengerRequestsPremiumGuardTest.kt",
@@ -3317,8 +3359,22 @@
       "path": "android/app/src/test/java/com/yuldash/app/RoadsideHelpOwnerBoundaryTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "97cdb855ebbd0a9f617c5d7011b5ed6b14cd204cc85d010c8b13c0923773fb67",
+      "sha256": "65c0a8ac24714b7cb94b19f27f282e2b12dd65ef002e7641ff4aebe82f11ef27",
       "lines": 58
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/RoadsideTruthfulNoticeTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "5ed802fad7ce63ba0d45c1980050247c9e5bfd19206c644c881d36df65bcb38b",
+      "lines": 58
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/RoadsideUnknownReplyTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "78deb1840d1af6fc9a93531e1186ea14068617bbbf054d49d1b501bb57e4ba3e",
+      "lines": 45
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RobolectricSmokeTest.kt",
@@ -3489,6 +3545,13 @@
       "lines": 112
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/SosSubmitOwnerBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "12a2840b3a1e48425cef7dacd4c76f581e5b41864654bd4735df922413dbbaa7",
+      "lines": 113
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/SosVerifyContentTest.kt",
       "kind": "test_support",
       "block": "B08",
@@ -3506,7 +3569,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/SosVerifyDeepContentTest.kt",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "d35e0cd2e9ad09b6e95f5557c9620b7eeb0c09a2e988594ae5f1774e5ddd5125",
+      "sha256": "d564c08531ccddbea593f811000c6f56131e8da6add587e5d5fa11ef0ebf15fa",
       "lines": 632
     },
     {
@@ -4133,6 +4196,20 @@
       "lines": 334
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientRideshareTransportBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "74bc9c66286fbaf01a5f44d1c2e45d6c14bf564a7f494d16871f84f7dab190ed",
+      "lines": 92
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientSosRetryIntentTest.kt",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "029ab2634ec910aa594cff2dfe4f1db10822d9fe88bfb2f6d39682cf6bfbc9ea",
+      "lines": 103
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientStaleAccountResponseTest.kt",
       "kind": "test_support",
       "block": "B01",
@@ -4376,6 +4453,13 @@
       "block": "B02",
       "sha256": "57c6988405690e51e58f490fa10faf6443f8173b6225975df90be4d45777fd00",
       "lines": 101
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/SosRetryIntentTest.kt",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "77fa3305387bc74294f123a08c62658ac87abcc0e35b5f4b7aec85580ca84b38",
+      "lines": 113
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/TripPassDeletionFailuresTest.kt",
@@ -5022,6 +5106,13 @@
       "lines": 67
     },
     {
+      "path": "backend/alembic/versions/cb_sos_retry_intent_20261021.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "92fc42e743348039f3bc63e53e92b35c0c453e5638828f991d42d424d5cb1e95",
+      "lines": 37
+    },
+    {
       "path": "backend/alembic/versions/city_profile.py",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -5606,7 +5697,7 @@
       "path": "backend/app/config.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "4045dee487c5ca3a330a14358ed2d4069a3e8e65d4569782bd22821617b9c9c6",
+      "sha256": "d91fe537c893d526d397fec22de6f97f4e1fbb8483b60ad7abb666114569c7c3",
       "lines": 1222
     },
     {
@@ -5767,8 +5858,8 @@
       "path": "backend/app/models.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "7b55b7dac81461e6c3b483f795f6956b159ff799a26bf6929663e48d7f8b8301",
-      "lines": 2125
+      "sha256": "8c46f4a3b826588711c5c79ec13231d1f8e1ee6e495a3cfd035bc5a49928f45c",
+      "lines": 2129
     },
     {
       "path": "backend/app/observability.py",
@@ -5886,8 +5977,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "2aa2a3e978e3c5122fe810112ca6ee1eaee5a6565d12d7646fc5d555f9877e4e",
-      "lines": 1746
+      "sha256": "190fe10196eeaef3e33280121fd6c1a1375c5eb8c0b975fd09f1089f14317070",
+      "lines": 1767
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -5956,8 +6047,8 @@
       "path": "backend/app/routers/family.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "09ef7d1d8ed90ee57edf1e1e5ef62f6815d4545521cda52d18c10aefc5c5eca9",
-      "lines": 617
+      "sha256": "39139d508ac3a1c04b23783b194ec73dfdbe273e575c3ca26fa41eedc65a502f",
+      "lines": 755
     },
     {
       "path": "backend/app/routers/health.py",
@@ -6075,8 +6166,8 @@
       "path": "backend/app/routers/safety.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "fe271eac7548d5b11d3e745b2a8ea8a54a809cae47dbd080675113d16ef95bc3",
-      "lines": 1729
+      "sha256": "c4290a4812375f67585cb0bb257bc26752fceacfb37a8da15c0a0c91703060f3",
+      "lines": 1802
     },
     {
       "path": "backend/app/routers/seasonal.py",
@@ -7155,6 +7246,13 @@
       "block": "B08",
       "sha256": "a2a486160da9537ff2b4275cca56a90666b13cc91e0110ad917220e684529cde",
       "lines": 122
+    },
+    {
+      "path": "backend/tests/test_booking_done_network_retry.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "9d06888c5847b4983b0a2015846aa669c1da8b3922fb7e54be088847dbccc126",
+      "lines": 203
     },
     {
       "path": "backend/tests/test_booking_link_access.py",
@@ -8546,8 +8644,8 @@
       "path": "backend/tests/test_paid_time_and_open_doors_have_limits.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "401e6fb8014898795fe7c9406aee607891f099f57487984d648b434eed462c2a",
-      "lines": 187
+      "sha256": "f2d61b38cd70079950107eba425f0fd46bc11ac23a5a898bfe9670f718420c92",
+      "lines": 213
     },
     {
       "path": "backend/tests/test_parcel_address.py",
@@ -9411,11 +9509,25 @@
       "lines": 170
     },
     {
+      "path": "backend/tests/test_rideshare_network_matrix.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "b3860daadd45165c995fb968049ddae6bb488808cef7593f57bf28c934c794f6",
+      "lines": 502
+    },
+    {
       "path": "backend/tests/test_roadside_everywhere.py",
       "kind": "test_support",
       "block": "B09",
       "sha256": "cddd025b9363ce30678a3db96b9f42b9f373321da5e78f011cc8bc272d1b097c",
       "lines": 149
+    },
+    {
+      "path": "backend/tests/test_roadside_network_retry.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "f819eea1a294c57b66f2955905819d786b5865450e7f2a417a08f6703e837a4a",
+      "lines": 206
     },
     {
       "path": "backend/tests/test_role_business_boundaries.py",
@@ -9586,6 +9698,13 @@
       "lines": 248
     },
     {
+      "path": "backend/tests/test_share_revoke_network_retry.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "85922314e20526c14133c66c7856ac0567c67211425e75977d90be640c8695fc",
+      "lines": 154
+    },
+    {
       "path": "backend/tests/test_shelves_have_a_ceiling.py",
       "kind": "test_support",
       "block": "B09",
@@ -9640,6 +9759,13 @@
       "block": "B08",
       "sha256": "ab85ee78a5a1f12e0e094542b1853807bc5c657518cd12f3645c9a9b0dc637f4",
       "lines": 61
+    },
+    {
+      "path": "backend/tests/test_sos_network_retry.py",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "db06d187fe67bd312530ae1c6f5fa6df16f57de948c547b1912f81d468c9fe2f",
+      "lines": 261
     },
     {
       "path": "backend/tests/test_sos_points_at_the_person_in_trouble.py",
@@ -10354,6 +10480,13 @@
       "block": "B05",
       "sha256": "8b9d5eae8335c8099f98f2a02a5decd5fa3eee2a1606b2cff009c10843d909f6",
       "lines": 170
+    },
+    {
+      "path": "backend/tests/test_voice_webm_compatibility.py",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "d31052e5339e0ed5e118310de8f1d3626e70d2e1b3189ffd9abda04ee23435b3",
+      "lines": 126
     },
     {
       "path": "backend/tests/test_waitlist.py",
@@ -11472,15 +11605,15 @@
       "path": "webapp/src/api/chat.ts",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "ca47b476f34575747534d3fda6aae8d5c200d683ed326b6de22d4b0eea3eff0d",
-      "lines": 347
+      "sha256": "55d49e72f15753cf5b333fc3fb2b56df24ecbbc51a6b50e128bf9d534f77bfb2",
+      "lines": 372
     },
     {
       "path": "webapp/src/api/client.ts",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "ce3d659a2ea000c7a0f9a7d56e9ddc61d2fbe854070b2d6cec4c835e8726ada0",
-      "lines": 428
+      "sha256": "51bb69007df9f99b78868f759808d2fd5a5af2ccbf17ed4360ec46cd0e6a3140",
+      "lines": 439
     },
     {
       "path": "webapp/src/api/coupons.ts",
@@ -11626,8 +11759,8 @@
       "path": "webapp/src/api/safety.ts",
       "kind": "pwa_main",
       "block": "B08",
-      "sha256": "5765e8eb210e37980add7feb2f46be3fc505503bd495706185e59ab10a0d215c",
-      "lines": 284
+      "sha256": "adc5c991f429598948b29550e3badf4d8c6ad5b4f969aa9abb22ef5456d2cdb7",
+      "lines": 326
     },
     {
       "path": "webapp/src/api/seasonal.ts",
@@ -11675,7 +11808,7 @@
       "path": "webapp/src/api/voice.ts",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "45832f1512fc71436e4718dfca9acdcc80dc21651ec5b80af3907e24778f816c",
+      "sha256": "43d6409c9826e49766c6c6cb3d803ffd6882f8af7a614dee5d6757e8b6521e2a",
       "lines": 13
     },
     {
@@ -11759,8 +11892,8 @@
       "path": "webapp/src/components/ChatVoice.tsx",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "a6be4c6bfb8ec133b731ed96c4369ee26623beb826952c75a7a6910ab440a1c3",
-      "lines": 152
+      "sha256": "ee74a422ea24a4cbb1ec94fbf1e13dbcdbb8ad24a7f673906cf68d64784514a0",
+      "lines": 214
     },
     {
       "path": "webapp/src/components/CityField.tsx",
@@ -12074,8 +12207,8 @@
       "path": "webapp/src/components/RoadsideHelp.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "ea5783bac3652a548b209f1d926123a517a1471cfeeb1168de5abaaca205a833",
-      "lines": 109
+      "sha256": "7ecad6c06fb3635b102f5e50cfd14fc930db9c09853b9c7298c4f15683674e87",
+      "lines": 205
     },
     {
       "path": "webapp/src/components/RouteTimeline.tsx",
@@ -12102,8 +12235,8 @@
       "path": "webapp/src/components/ShareTripCard.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "3d461406c6edeb97374b014a8fdd8137c84bde99d9c9a8cf9045aa36e2ce20c0",
-      "lines": 390
+      "sha256": "9995df0537fb449b1a0f6ddeb23f8497c82aeeea9c25f52ee30b9f2f668c6efd",
+      "lines": 391
     },
     {
       "path": "webapp/src/components/States.tsx",
@@ -12319,7 +12452,7 @@
       "path": "webapp/src/screens/ActiveTripScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "f570c5abd8e5ee566184bb7bf1c3262f14ac2c686e3f248775e23bd5be6e19ba",
+      "sha256": "640c61e1f207bd8a1787e99102fdd02632412d7027f13d33f2fe4dccca136a9b",
       "lines": 1176
     },
     {
@@ -12984,8 +13117,8 @@
       "path": "webapp/src/screens/SosScreen.tsx",
       "kind": "pwa_main",
       "block": "B08",
-      "sha256": "54478cdfd88e83d558e3db241f1fd8b308c1e5c63263ce6db79e001435d11a02",
-      "lines": 381
+      "sha256": "c4f9c2b508baa184c92eee2d07cf6bc8c72ef346debcc120f6c42da7d47ec835",
+      "lines": 391
     },
     {
       "path": "webapp/src/screens/SplashScreen.tsx",
@@ -13070,6 +13203,13 @@
       "block": "B03",
       "sha256": "644bd1ef765ce2695b2409f04b8ced990096b11395545e073df7a4e27a0696f6",
       "lines": 536
+    },
+    {
+      "path": "webapp/src/screens/TripChatScreen.tsx",
+      "kind": "pwa_main",
+      "block": "B05",
+      "sha256": "16b8eeff4db74402976c7b911227190330133560ccb79bfa3c90ce9ece8219e2",
+      "lines": 842
     },
     {
       "path": "webapp/src/screens/TripReceiptScreen.tsx",
@@ -13327,8 +13467,8 @@
       "path": "webapp/src/utils/privacy.ts",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "ca5a59457bd266c8db7bd7d3a6c969f5a0643c4d8ec4564eb7729f2fe4a61579",
-      "lines": 81
+      "sha256": "4846dfb24a38caef086d1c6fa824090e746c02f595383d824d63e49d0a7973e2",
+      "lines": 86
     },
     {
       "path": "webapp/src/utils/serverTime.ts",
@@ -13343,6 +13483,13 @@
       "block": "B01",
       "sha256": "945bd0cc3a862245faffbf353f769d0a174506ae6e1255a8a0e402446137bc1b",
       "lines": 29
+    },
+    {
+      "path": "webapp/src/utils/sosIntent.ts",
+      "kind": "pwa_main",
+      "block": "B08",
+      "sha256": "8bb8cec2a4fd63e25bb04519a06168f112e780b880cd82b19c6aa09bd3e764dd",
+      "lines": 145
     },
     {
       "path": "webapp/src/utils/splashTarget.d.ts",
@@ -13504,6 +13651,13 @@
       "block": "B07",
       "sha256": "15475eaef5ae92c92323714e6532ef547fa081f58f24bae8e4471a3ff3daf6b3",
       "lines": 19
+    },
+    {
+      "path": "webapp/tests/confirm-before-action-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "d3619b2ac0acf70bcd16a9b2f94f2778e6af5b5097c45fb2a8c8374659b7b6c4",
+      "lines": 98
     },
     {
       "path": "webapp/tests/consent-mirror-owner-test.mjs",
@@ -13891,6 +14045,13 @@
       "lines": 534
     },
     {
+      "path": "webapp/tests/roadside-network-retry-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "adc3ee18c03b0c48ef04ee864f3303cdb0f439e1232f80414afbc3fdc1e8af63",
+      "lines": 273
+    },
+    {
       "path": "webapp/tests/route-segment-test.mjs",
       "kind": "test_support",
       "block": "B09",
@@ -13901,8 +14062,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "964241a314e38046cdb4299f82d64e2d517202231f318e488f4f7f8d7265bed2",
-      "lines": 271
+      "sha256": "6454c35edcc91327291a2006abd2b5fd09bb91609e50dea73a7ebf772c0d4f03",
+      "lines": 274
     },
     {
       "path": "webapp/tests/session-boundary-test.mjs",
@@ -13929,8 +14090,8 @@
       "path": "webapp/tests/share-trip-link-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "cd2a480ab30d4588480239d9d7f00a611927a0418a691490598a38dfe973a507",
-      "lines": 406
+      "sha256": "b22759f96e0c704f1949a7c05483f832dc639790c1b5767d55ed784e910cbead",
+      "lines": 453
     },
     {
       "path": "webapp/tests/sheet-exit-rest-test.mjs",
@@ -13952,6 +14113,13 @@
       "block": "B09",
       "sha256": "0a1176530ed954bad54930b84b793f76ce9a6fd76b749b80c9458ccca541fb8e",
       "lines": 190
+    },
+    {
+      "path": "webapp/tests/sos-network-retry-test.mjs",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "6b1a0b0a5e957aa40a89242199ed037c1aab24b090eea195e1af78db6622e573",
+      "lines": 331
     },
     {
       "path": "webapp/tests/sos-no-sms-promise-test.mjs",
@@ -14043,6 +14211,13 @@
       "block": "B09",
       "sha256": "97b3c537df78fe7b6a638c362e109093b953aa09abf4fec4ac1ff380988aade3",
       "lines": 74
+    },
+    {
+      "path": "webapp/tests/voice-network-boundary-test.mjs",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "f346b8088c702099d7fbf05d1f795dfa12d58dc97a4b72a9b0f1b94c0c71981d",
+      "lines": 281
     },
     {
       "path": "webapp/tests/web-push-session-test.mjs",
@@ -15700,21 +15875,61 @@
     }
   ],
   "partial_refresh": {
-    "date": "2026-10-18",
-    "reason": "W1-E2E-20261018: both clients completed history navigation, completed GPS boundary, own ride/booking distinction, responsive 48px actions and narrow rating edit; only eleven touched code/test files refreshed",
+    "date": "2026-10-21",
+    "reason": "W1-E2E-20261018/E2E-04 final50 code/test paths, including winter unknown-ACK wording; hashes are inventory, not blanket behavior proof",
     "paths": [
-      "webapp/src/screens/MyRidesScreen.tsx",
-      "webapp/src/components/DriverPassengers.tsx",
-      "webapp/src/ui.css",
-      "webapp/tests/driver-passengers-open-trip-test.mjs",
-      "webapp/tests/trip-chat-page-test.mjs",
-      "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
-      "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
-      "android/app/src/test/java/com/yuldash/app/DriverCabinetWave1Test.kt",
-      "android/app/src/test/java/com/yuldash/app/PassengerSegmentContentTest.kt",
-      "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
-      "android/app/src/test/java/com/yuldash/app/BookingLinkDestinationTest.kt"
+      "android/app/src/androidTest/java/com/yuldash/app/RoadsideReplayUiInstrumentedTest.kt",
+      "android/app/src/androidTest/java/com/yuldash/app/SafetyUnknownUiInstrumentedTest.kt",
+      "android/app/src/androidTest/java/com/yuldash/app/data/SosRetryProcessInstrumentedTest.kt",
+      "android/app/src/main/java/com/yuldash/app/AccessibilityScreens.kt",
+      "android/app/src/main/java/com/yuldash/app/RoadsideHelp.kt",
+      "android/app/src/main/java/com/yuldash/app/SosVerifyScreens.kt",
+      "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
+      "android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt",
+      "android/app/src/main/java/com/yuldash/app/data/SosRetryIntent.kt",
+      "android/app/src/test/java/com/yuldash/app/PassengerRequestNetworkBoundaryTest.kt",
+      "android/app/src/test/java/com/yuldash/app/PassengerRequestSubmitOwnerBoundaryTest.kt",
+      "android/app/src/test/java/com/yuldash/app/RoadsideHelpOwnerBoundaryTest.kt",
+      "android/app/src/test/java/com/yuldash/app/RoadsideTruthfulNoticeTest.kt",
+      "android/app/src/test/java/com/yuldash/app/RoadsideUnknownReplyTest.kt",
+      "android/app/src/test/java/com/yuldash/app/SosSubmitOwnerBoundaryTest.kt",
+      "android/app/src/test/java/com/yuldash/app/SosVerifyDeepContentTest.kt",
+      "android/app/src/test/java/com/yuldash/app/data/ApiClientRideshareTransportBoundaryTest.kt",
+      "android/app/src/test/java/com/yuldash/app/data/ApiClientSosRetryIntentTest.kt",
+      "android/app/src/test/java/com/yuldash/app/data/SosRetryIntentTest.kt",
+      "backend/alembic/versions/cb_sos_retry_intent_20261021.py",
+      "backend/app/config.py",
+      "backend/app/models.py",
+      "backend/app/routers/bookings.py",
+      "backend/app/routers/family.py",
+      "backend/app/routers/safety.py",
+      "backend/tests/test_booking_done_network_retry.py",
+      "backend/tests/test_paid_time_and_open_doors_have_limits.py",
+      "backend/tests/test_rideshare_network_matrix.py",
+      "backend/tests/test_roadside_network_retry.py",
+      "backend/tests/test_share_revoke_network_retry.py",
+      "backend/tests/test_sos_network_retry.py",
+      "backend/tests/test_voice_webm_compatibility.py",
+      "webapp/src/api/chat.ts",
+      "webapp/src/api/client.ts",
+      "webapp/src/api/safety.ts",
+      "webapp/src/api/voice.ts",
+      "webapp/src/components/ChatVoice.tsx",
+      "webapp/src/components/RoadsideHelp.tsx",
+      "webapp/src/components/ShareTripCard.tsx",
+      "webapp/src/screens/ActiveTripScreen.tsx",
+      "webapp/src/screens/SosScreen.tsx",
+      "webapp/src/screens/TripChatScreen.tsx",
+      "webapp/src/utils/privacy.ts",
+      "webapp/src/utils/sosIntent.ts",
+      "webapp/tests/confirm-before-action-test.mjs",
+      "webapp/tests/roadside-network-retry-test.mjs",
+      "webapp/tests/run.mjs",
+      "webapp/tests/share-trip-link-test.mjs",
+      "webapp/tests/sos-network-retry-test.mjs",
+      "webapp/tests/voice-network-boundary-test.mjs"
     ],
-    "other_hashes": "Historical; unchanged by this refresh"
+    "other_hashes": "Historical; unchanged by this partial refresh",
+    "previous_refresh_date": "2026-10-18"
   }
 }

@@ -690,6 +690,7 @@ class TripShare(SQLModel, table=True):
 
 
 class SosEvent(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("user_id", "idempotency_key", name="uq_sos_owner_intent"),)
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
     booking_id: Optional[int] = Field(default=None, foreign_key="booking.id")
@@ -704,6 +705,9 @@ class SosEvent(SQLModel, table=True):
     handled_by: Optional[int] = Field(default=None, foreign_key="user.id")
     handled_note: str = ""                  # что сделали (для истории/полиции)
     escalated_at: Optional[datetime] = None # когда ушёл повторный сигнал (не принят вовремя)
+    # Отпечатки одного явного намерения; никогда не входят в публичный ответ SOS.
+    idempotency_key: Optional[str] = Field(default=None, max_length=64, exclude=True)
+    payload_hash: Optional[str] = Field(default=None, max_length=64, exclude=True)
 
 
 class Report(SQLModel, table=True):

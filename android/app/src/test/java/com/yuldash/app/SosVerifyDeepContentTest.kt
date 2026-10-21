@@ -380,9 +380,9 @@ class SosVerifyDeepContentTest {
     @Test
     fun sos_failedNetwork_showsNotSentCard() {
         setSos(failed = true, rateLimited = false)
-        scrollTo("Сигнал не отправлен")
-        composeRule.onNodeWithText("Сигнал не отправлен").assertIsDisplayed()
-        composeRule.onNodeWithText("Похоже, нет сети. Проверь связь и нажми ещё раз.").assertIsDisplayed()
+        scrollTo("Не удалось подтвердить отправку")
+        composeRule.onNodeWithText("Не удалось подтвердить отправку").assertIsDisplayed()
+        composeRule.onNodeWithText("Проверь связь, повтори сигнал или позвони 112 и близким, если можешь.").assertIsDisplayed()
     }
 
     @Test

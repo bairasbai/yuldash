@@ -4,7 +4,8 @@
 //  SMS доверенным уходят, только если на сервере включён SMS-провайдер (на проде — нет),
 //  поэтому экран ничего про SMS не обещает и показывает подсказку сервера (hint_ru/hint_ba).
 // ================================================================
-import { apiDelete, apiGet, apiPost } from "./client";
+import { apiDelete, apiGet, apiPost, getSessionGeneration } from "./client";
+import { acknowledgeSosIntent, assertSosOwner, normalizeSosBody, prepareSosIntent } from "../utils/sosIntent";
 
 export type SosCategory = "medical" | "breakdown" | "other";
 
@@ -49,15 +50,29 @@ export interface SosEvent {
  * SOS: событие пишется всегда, дежурный Юлдаша получает сигнал. SMS доверенным уходит только
  * если канал включён (на проде выключен) — что дошло, говорит ответ (`hint_*`). Требует входа.
  */
-export function sendSos(body: SosInput): Promise<SosEvent> {
-  return apiPost<SosEvent>("/sos", {
-    category: body.category,
-    booking_id: body.booking_id ?? null,
-    order_id: body.order_id ?? null,
-    note: body.note ?? "",
-    lat: body.lat ?? null,
-    lng: body.lng ?? null,
-  });
+export async function sendSos(body: SosInput, opts: { _generation?: string; readBody?: () => SosInput } = {}): Promise<SosEvent> {
+  const owner = opts._generation ?? getSessionGeneration();
+  return sendSafetyIntent<SosEvent>("/sos", normalizeSosBody(body), owner, "sos",
+    opts.readBody ? () => normalizeSosBody(opts.readBody!()) : undefined);
+}
+
+async function sendSafetyIntent<T>(path: string, body: Record<string, unknown>, owner: string, scope: string,
+                                    readBody?: () => Record<string, unknown>): Promise<T> {
+  assertSosOwner(owner);
+  let outgoing = body;
+  for (;;) {
+    const intent = await prepareSosIntent(outgoing, owner, scope);
+    assertSosOwner(owner);
+    // Hashing is asynchronous; permissions/location can expire before the POST starts.
+    const fresh = readBody?.() ?? outgoing;
+    if (JSON.stringify(fresh) !== JSON.stringify(outgoing)) {
+      outgoing = fresh;
+      continue;
+    }
+    const event = await apiPost<T>(path, outgoing, { idempotencyKey: intent.key, _generation: owner });
+    acknowledgeSosIntent(intent, scope);
+    return event;
+  }
 }
 
 /** «Перезвоните мне» (POST /callback): админ получает телефон из профиля и перезванивает.
@@ -263,10 +278,13 @@ export function winterCheckParcelOk(parcelId: number): Promise<{ ok: boolean }> 
  * «близкие получили твои координаты» всегда, врал тому, кто контактов не заводил.
  */
 export interface RoadsideResult {
-  contacts_notified: number;
-  contacts_total: number;
+  contacts_notified?: number;
+  contacts_total?: number;
   id?: number;
   note?: string;
+  delivery_unconfirmed?: boolean;
+  hint_ru?: string;
+  hint_ba?: string;
 }
 
 interface StuckWhere {
@@ -285,8 +303,16 @@ function stuckBody(w: StuckWhere) {
 }
 
 /** Застрял в поездке-попутке. */
-export function roadsideHelpBooking(bookingId: number, where: StuckWhere): Promise<RoadsideResult> {
-  return apiPost<RoadsideResult>(`/bookings/${bookingId}/stuck`, stuckBody(where));
+export function roadsideHelpBooking(bookingId: number, where: StuckWhere,
+  opts: { _generation?: string; readWhere?: () => StuckWhere } = {}): Promise<RoadsideResult> {
+  const normalize = (w: StuckWhere) => ({
+    lat: w.lat != null && w.lng != null ? w.lat : null,
+    lng: w.lat != null && w.lng != null ? w.lng : null,
+    note: (w.note ?? "").slice(0, 500),
+  });
+  return sendSafetyIntent<RoadsideResult>(`/bookings/${bookingId}/stuck`, normalize(where),
+    opts._generation ?? getSessionGeneration(), `roadside-booking-${bookingId}`,
+    opts.readWhere ? () => normalize(opts.readWhere!()) : undefined);
 }
 
 /** Застрял в такси-заказе. Доступно ОБЕИМ сторонам заказа. */

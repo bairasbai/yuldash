@@ -50,7 +50,9 @@ function SosForm({ generation, bookingId }: { generation: string; bookingId: num
   const [category, setCategory] = useState<SosCategory>("other");
   const [note, setNote] = useState("");
   const [state, setState] = useState<SendState>("idle");
+  const sending = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimited, setRateLimited] = useState(false);
   /** Что сервер сказал про рассылку близким (hint_ru / hint_ba): показываем как есть. */
   const [serverHint, setServerHint] = useState("");
   /** Куда вернуться после входа: с той же бронью, иначе дежурный не узнает, в какой машине человек. */
@@ -191,22 +193,22 @@ function SosForm({ generation, bookingId }: { generation: string; bookingId: num
 
   async function fire() {
     if (!isCurrent()) return;
-    if (state === "sending") return;
+    if (sending.current) return;
+    sending.current = true;
     setState("sending");
     setError(null);
+    setRateLimited(false);
     setServerHint("");
     try {
       // Координаты кладём, если они уже есть: ждать GPS в экстренной ситуации нельзя,
       // сигнал без места всё равно лучше, чем ничего. Бронь — если пришли из поездки:
       // по ней сервер говорит дежурному, в какой машине человек.
-      const snapshot = readFreshPosition();
-      const r = await sendSos({
-        category,
-        note: note.trim(),
-        lat: snapshot?.lat,
-        lng: snapshot?.lng,
-        booking_id: bookingId,
-      });
+      const readBody = () => {
+        if (!isCurrent()) throw new ApiError(409, "");
+        const snapshot = readFreshPosition();
+        return { category, note: note.trim(), lat: snapshot?.lat, lng: snapshot?.lng, booking_id: bookingId };
+      };
+      const r = await sendSos(readBody(), { _generation: generation, readBody });
       if (!isCurrent()) return;
       track("sos");
       const hint = appText(r?.hint_ru ?? "", r?.hint_ba || r?.hint_ru || "").trim();
@@ -218,13 +220,19 @@ function SosForm({ generation, bookingId }: { generation: string; bookingId: num
         navigate("/login", { state: { from: sosPath } });
         return;
       }
+      setRateLimited(e instanceof ApiError && e.status === 429);
       setError(
-        appText(
+        e instanceof ApiError && e.status === 429 ? appText(
           "Не удалось отправить. Позвони в службу выше — это быстрее.",
           "Ебәреп булманы. Юғарыла хеҙмәткә шылтырат — тиҙерәк."
+        ) : appText(
+          "Не удалось подтвердить отправку. Проверь связь, повтори сигнал или позвони 112 и близким, если можешь.",
+          "Ебәреүҙе раҫлап булманы. Бәйләнеште тикшер, сигналды ҡабатла йәки, мөмкин булһа, 112-гә һәм яҡындарыңа шылтырат."
         )
       );
       setState("error");
+    } finally {
+      sending.current = false;
     }
   }
 
@@ -361,7 +369,9 @@ function SosForm({ generation, bookingId }: { generation: string; bookingId: num
             )}
             {state === "error" && (
               <div className="sos-info sos-info--bad">
-                <strong>{appText("Сигнал не отправлен", "Сигнал ебәрелмәне")}</strong>
+                <strong>{rateLimited
+                  ? appText("Сигнал не отправлен", "Сигнал ебәрелмәне")
+                  : appText("Не удалось подтвердить отправку", "Ебәреүҙе раҫлап булманы")}</strong>
                 <span>{error ?? appText("Похоже, нет сети. Проверь связь и нажми ещё раз.", "Бәйләнеш юҡ кеүек. Тикшереп, тағы баҫ.")}</span>
               </div>
             )}

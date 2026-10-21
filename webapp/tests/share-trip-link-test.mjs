@@ -211,6 +211,53 @@ await test("отозвали ссылку — она пропадает с эк�
   await tick();
   assert.ok(!text(render()).includes(LINK));
 });
+// Реальный Card + family.ts; управляемая сеть повторяет контракт DELETE, отдельно
+// проверенный FastAPI/БД в test_share_revoke_network_retry.py: уже удалённая своя
+// ссылка подтверждается повтором. Любой чужой/необъяснённый 404 успехом не становится.
+for (const ba of [false, true]) {
+  const language = ba ? "BA" : "RU";
+  const revokeLabel = ba ? "Рөхсәтте кире алыу" : "Отозвать доступ";
+  const failure = ba ? "Рөхсәтте кире алып булманы." : "Не получилось отозвать доступ.";
+  const revokeButton = () => all(render()).find(n => n.type === "button" && n.props["aria-label"] === revokeLabel);
+
+  await test(`${language}: ответ успешного отзыва потерян — повтор убирает ссылку и прежнюю ошибку`, async () => {
+    await open({ shares: [share], ba });
+    const api = h.api;
+    let deletes = 0;
+    h.api = async (method, path, body) => {
+      const response = await api(method, path, body);
+      if (method === "DELETE" && ++deletes === 1) throw new Error("successful DELETE response lost");
+      return response;
+    };
+
+    await revokeButton().props.onClick();
+    await tick();
+    assert.ok(text(render()).includes(LINK), "пока исход неизвестен, ошибка не выдаётся за подтверждённый отзыв");
+    assert.ok(text(render()).includes(failure));
+    assert.deepEqual(await api("GET", "/bookings/42/shares"), [], "серверная запись уже удалена до повтора");
+
+    await revokeButton().props.onClick();
+    await tick();
+    assert.equal(deletes, 2, "повтор действительно отправлен через family.ts");
+    assert.ok(!text(render()).includes(LINK), "подтверждённо отозванная ссылка не восстанавливается");
+    assert.ok(!text(render()).includes(failure), "после подтверждения старое сообщение об ошибке убирается");
+    assert.deepEqual(await api("GET", "/bookings/42/shares"), []);
+  });
+
+  await test(`${language}: произвольный 404 при отзыве не скрывает действующую ссылку как успех`, async () => {
+    await open({ shares: [share], ba });
+    const api = h.api;
+    h.api = async (method, path, body) => {
+      if (method === "DELETE") throw new h.ApiError(404, "Share not found");
+      return api(method, path, body);
+    };
+    await revokeButton().props.onClick();
+    await tick();
+    assert.ok(text(render()).includes(LINK));
+    assert.ok(text(render()).includes(failure));
+    assert.deepEqual(await api("GET", "/bookings/42/shares"), [share]);
+  });
+}
 await test("отметка «Доехала»: пишем «Сохранено», а не «Близкие получили сообщение»", async () => {
   const props = { bookingId: 42, showStatuses: true, bookingStatus: "onboard" };
   const tree = await open({ shares: [share], props });

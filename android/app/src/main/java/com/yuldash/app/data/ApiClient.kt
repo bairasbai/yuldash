@@ -117,6 +117,7 @@ object ApiClient {
     @Volatile private var token: String? = null
     // Меняется только на границе входа/выхода. Refresh сохраняет поколение.
     private val sessionLock = Any()
+    private var sosRetryIntent = SosRetryIntent(null)
     @Volatile private var sessionGeneration = 0L
     private val mutableSessionChanges = kotlinx.coroutines.flow.MutableStateFlow(0L)
     // Publish only after a complete login/logout mutation; refresh keeps the same owner.
@@ -316,6 +317,7 @@ object ApiClient {
         }
         val p = selected?.prefs
         prefs = p
+        sosRetryIntent = SosRetryIntent(p)
         sessionGeneration++
         clearSessionCaches()
         cachedUserId = null
@@ -773,7 +775,12 @@ object ApiClient {
         val source = authStoreSource ?: return false
         // A nonempty new token skips the guest-startup cleanup; finish the old reset first.
         if (!TripPassStore.ensureResetCommitted() || !Outbox.ensureResetCommitted()) return false
-        return AuthStorePolicy.writeSession(plain, AuthStorePolicy.Selection(selected, source), write)
+        val saved = AuthStorePolicy.writeSession(plain, AuthStorePolicy.Selection(selected, source)) { editor ->
+            write(editor)
+            editor.remove(SosRetryIntent.PREF_KEY)
+        }
+        if (saved) sosRetryIntent = SosRetryIntent(selected)
+        return saved
     }
     /** Старт входа через Telegram. Возвращает request_id — app по нему строит ссылку t.me/<bot>?start=request_id. */
     suspend fun tgStart(): Result<String> =
@@ -1130,6 +1137,7 @@ object ApiClient {
         baggage: Boolean = false,
         onlyTrusted: Boolean = false,   // «только для своих» — заявку видят/берут лишь L3
         pickupPointId: Int? = null,   // F14: выбрана точка сбора из подсказок (пополняет справочник)
+        expectedGeneration: Long? = null,
     ): Result<Int> = call(
         "POST", "/requests",
         JSONObject()
@@ -1157,7 +1165,12 @@ object ApiClient {
                 desiredAt?.takeIf { it.isNotBlank() }?.let { put("desired_at", it) }
             },
         auth = true,
-    ).map { it.optInt("id") }.onSuccess { Analytics.log("create_request") }   // id → оптимистичный LocalRequest.serverId (кнопка отмены сразу)
+        expectedGeneration = expectedGeneration,
+    ).mapCatching { response ->
+        val id = response.opt("id")
+        require(id is Int && id > 0) { "Invalid request identifier" }
+        id
+    }.onSuccess { Analytics.log("create_request") }   // Только подтверждённый id → LocalRequest.serverId.
 
     /** Мои заявки (для вкладки «Заявка»). */
     suspend fun getMyRequests(): Result<List<RequestDto>> =
@@ -1253,13 +1266,24 @@ object ApiClient {
     suspend fun sos(
         category: String, note: String, orderId: Int? = null,
         lat: Double? = null, lng: Double? = null, bookingId: Int? = null,
+        expectedGeneration: Long = queueSessionGeneration(),
     ): Result<Unit> {
         val body = JSONObject().put("category", category).put("note", note)
         if (orderId != null) body.put("order_id", orderId)
         if (bookingId != null) body.put("booking_id", bookingId)
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/sos", body, auth = true).map { }.onSuccess { Analytics.log("sos") }
+        val key = synchronized(sessionLock) {
+            if (!isCurrentSession(expectedGeneration)) return staleSession()
+            sosRetryIntent.prepare(body)
+        }
+        return call("POST", "/sos", body, auth = true, expectedGeneration = expectedGeneration,
+            idempotencyKey = key, singleAttemptMutation = true).map { }.onSuccess {
+            synchronized(sessionLock) {
+                if (isCurrentSession(expectedGeneration)) sosRetryIntent.acknowledge(key)
+            }
+            Analytics.log("sos")
+        }
     }
 
     /** «Поделиться поездкой» из такси-заказа (B7b-2): ссылку на маршрут и статусы человек отправляет близкому сам (SMS на проде выключены).
@@ -1277,11 +1301,11 @@ object ApiClient {
     /** Ответ на «позвать помощь»: скольким близким сообщение реально уйдёт и сколько
      *  доверенных заведено всего. Старый сервер второго числа не присылает — тогда считаем,
      *  что доверенных столько же, скольким ушло (текст экрана останется прежним). */
-    data class RoadsideResult(val notified: Int, val contactsTotal: Int)
+    data class RoadsideResult(val notified: Int, val contactsTotal: Int, val deliveryUnconfirmed: Boolean = false)
 
     private fun roadsideResult(j: JSONObject): RoadsideResult {
         val ушло = j.optInt("contacts_notified")
-        return RoadsideResult(ушло, j.optInt("contacts_total", ушло))
+        return RoadsideResult(ушло, j.optInt("contacts_total", ушло), j.optBoolean("delivery_unconfirmed", false))
     }
 
     /** F12 «Застрял на трассе»: координаты уходят доверенным контактам + запись в SOS-ленту админа.
@@ -1293,7 +1317,17 @@ object ApiClient {
     suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String, expectedGeneration: Long? = null): Result<RoadsideResult> {
         val body = JSONObject().put("note", note)
         if (lat != null && lng != null) body.put("lat", lat).put("lng", lng)
-        return call("POST", "/bookings/$bookingId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }.onSuccess { Analytics.log("roadside_help") }
+        val owner = expectedGeneration ?: queueSessionGeneration()
+        val scope = "roadside-booking-$bookingId"
+        val key = synchronized(sessionLock) {
+            if (!isCurrentSession(owner)) return staleSession()
+            sosRetryIntent.prepare(body, scope)
+        }
+        return call("POST", "/bookings/$bookingId/stuck", body, auth = true, expectedGeneration = owner,
+            idempotencyKey = key).map { roadsideResult(it) }.onSuccess {
+            synchronized(sessionLock) { if (isCurrentSession(owner)) sosRetryIntent.acknowledge(key, scope) }
+            Analytics.log("roadside_help")
+        }
     }
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
@@ -3532,6 +3566,12 @@ object ApiClient {
 
     // ---------- Базовый вызов ----------
 
+    // Попутка: ни EOF после отправки, ни redirect не доказывают, что запись не состоялась.
+    // Очередь/явный повтор решают это на уровне намерения, скрытый повтор транспорта запрещён.
+    private fun rideshareMutation(method: String, path: String): Boolean =
+        !method.equals("GET", ignoreCase = true) &&
+            listOf("/rides", "/requests", "/responses", "/bookings").any { path == it || path.startsWith("$it/") }
+
     private suspend fun call(
         method: String,
         path: String,
@@ -3576,7 +3616,7 @@ object ApiClient {
             try {
                 val code: Int
                 val text: String
-                if (singleAttemptMutation) {
+                if (singleAttemptMutation || rideshareMutation(method, path)) {
                     val bytes = body?.toString()?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
                     val requestBody = object : RequestBody() {
                         override fun contentType() = if (body != null) "application/json; charset=utf-8".toMediaType() else null

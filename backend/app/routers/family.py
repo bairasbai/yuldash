@@ -401,6 +401,10 @@ def revoke_booking_share(booking_id: int, share_id: int, user: User = Depends(cu
     booking, _ = booking_and_ride_for_user(session, booking_id, user)
     if booking.passenger_id != user.id:
         raise herr(403, "Доступно только пассажиру брони", "Тик бронь пассажирына мөмкин")
+    # Ответ удаления мог потеряться: после проверки своей брони отсутствие уже успех.
+    # Существующую строку ниже по-прежнему проверяем по брони и владельцу контакта.
+    if session.get(TripShare, share_id) is None:
+        return {"ok": True}
     return _revoke_share(session, share_id, user, booking_id=booking_id)
 
 
@@ -449,6 +453,14 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
     # посадка другой дверью (очередь без сети у старого клиента отправляет «sat», затем «arrived»).
     if body.status == "sat":
         raise _driver_marks_boarding_refusal()
+    # Очередь могла прочитать «в пути» до отмены/исправления посадки. Перечитываем под теми
+    # же локами Ride→Booking, что у отмены: закрытая поездка не сообщает близким «доехал».
+    session.exec(select(Ride).where(Ride.id == booking.ride_id)
+                 .with_for_update().execution_options(populate_existing=True)).first()
+    booking = session.exec(select(Booking).where(Booking.id == booking_id)
+                           .with_for_update().execution_options(populate_existing=True)).first()
+    if booking.status == BookingStatus.cancelled:
+        raise herr(409, "Поездка не активна", "Сәфәр актив түгел")
     # «Доехал» — только из машины: «в пути» ставит отметка водителя. Иначе пассажир, который не
     # садился, слал бы близким «доехал до места» (приёмка PR174).
     if body.status == "arrived" and booking.status != BookingStatus.onboard:
@@ -459,8 +471,8 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
     if body.status == "arrived" and (arrived_undo_left := boarding_undo_left(booking)) > 0:
         raise _boarding_undo_open_refusal(arrived_undo_left, "arrived")
     # «Завершил поездку» → реально закрываем бронь на сервере (раньше статус уходил только близким,
-    # а бронь висела активной). Идемпотентно: повторный done/отменённую не трогаем.
-    if body.status == "done" and booking.status not in (BookingStatus.done, BookingStatus.cancelled):
+    # а бронь висела активной). Идемпотентно: повторный done не открывает новое завершение.
+    if body.status == "done" and booking.status != BookingStatus.done:
         # Пассажир завершает только ПОСЛЕ «Сел» водителя (решение лида по PR #174, 17.10.2026).
         # Иначе та же неявка другой дверью: не пришёл, а после времени выезда сам «завершил»
         # подтверждённую бронь прямым запросом — и «Не пришёл» водителю уже не поставить.

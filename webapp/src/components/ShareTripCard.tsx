@@ -149,6 +149,7 @@ export default function ShareTripCard({
 
   async function revoke(shareId: number) {
     invalidateLinkOperation();
+    setNote("");
     const prev = shares ?? [];
     setShares(prev.filter((s) => s.id !== shareId)); // оптимистично
     if (focusId === shareId) setFocusId(null);

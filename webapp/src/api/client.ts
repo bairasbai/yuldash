@@ -407,12 +407,13 @@ export function apiGet<T>(
 export function apiPost<T>(
   path: string,
   body?: unknown,
-  opts?: { auth?: boolean; signal?: AbortSignal; idempotencyKey?: string }
+  opts?: { auth?: boolean; signal?: AbortSignal; idempotencyKey?: string; _generation?: string }
 ): Promise<T> {
   return request<T>(path, {
     method: "POST",
     auth: opts?.auth,
     signal: opts?.signal,
+    _generation: opts?._generation,
     headers: {
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       ...(opts?.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {}),
@@ -432,7 +433,7 @@ export function apiDelete<T>(
 export function apiUpload<T>(
   path: string,
   form: FormData,
-  opts?: { signal?: AbortSignal }
+  opts?: { signal?: AbortSignal; _generation?: string }
 ): Promise<T> {
-  return request<T>(path, { method: "POST", body: form, signal: opts?.signal });
+  return request<T>(path, { method: "POST", body: form, signal: opts?.signal, _generation: opts?._generation });
 }

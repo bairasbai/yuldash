@@ -321,6 +321,8 @@ internal fun SosScreen(
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val signalOwner = remember { ApiClient.queueSessionGeneration() }
+    val signalMounted = remember { java.util.concurrent.atomic.AtomicBoolean(true) }
 
     // Россия, звонок с мобильного: 102 полиция · 101 пожарные · 103 скорая. 112 — единый (по умолчанию / когда выбрано несколько).
     val services = remember {
@@ -433,7 +435,7 @@ internal fun SosScreen(
         catch (e: Exception) { stopLocating(); locFailed = currentLocation() == null }
     }
     // Ушли с экрана — подписку снимаем: GPS не должен работать «в никуда».
-    DisposableEffect(Unit) { onDispose { stopLocating() } }
+    DisposableEffect(Unit) { onDispose { signalMounted.set(false); stopLocating() } }
     // Android 12+ требует совместный запрос FINE+COARSE; примерное место не выдаём за точное.
     val locationPermissions = remember {
         arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -489,6 +491,7 @@ internal fun SosScreen(
 
     fun sendSignal() {
         if (sending) return
+        if (!signalMounted.get() || ApiClient.queueSessionGeneration() != signalOwner) return
         if (!loggedIn) {
             onLoginRequired()
             return
@@ -498,6 +501,7 @@ internal fun SosScreen(
         sent = false
         sending = true
         scope.launch {
+            if (!signalMounted.get() || !ApiClient.isCurrentSession(signalOwner)) return@launch
             // Снимок берём прямо перед запросом, а не из последней отрисовки экрана.
             val location = locationForAction()
             val currentCoords = coords(location)
@@ -510,7 +514,9 @@ internal fun SosScreen(
             // Ждём сервер, НЕ fire-and-forget (кнопка безопасности). orderId — контекст такси-заказа (B7b-2).
             // Координаты шлём ещё и отдельными полями: из текста заметки их читал только админ,
             // а ссылку на карту должны получить близкие — им ехать (аудит 2026-08-06).
-            val r = ApiClient.sos(category, note, orderId, lat = location?.latitude, lng = location?.longitude, bookingId = bookingId)
+            val r = ApiClient.sos(category, note, orderId, lat = location?.latitude, lng = location?.longitude,
+                bookingId = bookingId, expectedGeneration = signalOwner)
+            if (!signalMounted.get() || !ApiClient.isCurrentSession(signalOwner)) return@launch
             sending = false
             if (r.isSuccess) {
                 sent = true
@@ -761,11 +767,11 @@ internal fun SosContent(
             if (failed) {
                 item {
                     InfoCard(
-                        title = if (rateLimited) appText("Слишком часто", "Артыҡ йыш") else appText("Сигнал не отправлен", "Сигнал ебәрелмәне"),
+                        title = if (rateLimited) appText("Слишком часто", "Артыҡ йыш") else appText("Не удалось подтвердить отправку", "Ебәрелеүҙе раҫлап булманы"),
                         text = if (rateLimited)
                             appText("Сигнал уже отправлялся недавно. Подожди немного и нажми ещё раз.", "Сигнал күптән түгел ебәрелгән. Бер аҙ көт тә тағы баҫ.")
                         else
-                            appText("Похоже, нет сети. Проверь связь и нажми ещё раз.", "Бәйләнеш юҡ кеүек. Тикшереп, тағы баҫ."),
+                            appText("Проверь связь, повтори сигнал или позвони 112 и близким, если можешь.", "Бәйләнеште тикшер, сигналды ҡабатла йәки, мөмкин булһа, 112-гә һәм яҡындарыңа шылтырат."),
                         icon = Icons.Default.Sos
                     )
                 }

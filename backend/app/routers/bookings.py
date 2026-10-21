@@ -961,27 +961,32 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     if body.status == "boarded":
         return _mark_boarded(session, booking, ride)
     if body.status == "done":
-        # Идемпотентно: уже завершённую/отменённую бронь не трогаем. (pending→done — легитимный
-        # поток: пассажир не «подтверждает» отдельно, водитель завершает поездку напрямую.)
-        if booking.status not in (BookingStatus.done, BookingStatus.cancelled):
-            # Завершить можно только НАЧАВШУЮСЯ поездку. Раньше проверки не было вовсе, и цикл
-            # «опубликовал на 2030 год → забронировал вторым аккаунтом → завершил» из трёх запросов
-            # рисовал бейдж «N поездок» и открывал обеим сторонам оценку — без единого метра пути
-            # (аудит 2026-08-07). Бейдж доверия и есть продукт «между своими», подделывать его
-            # нельзя. Проверка стоит ВНУТРИ ветки «статус меняется»: повторный тап по уже
-            # завершённой броне по-прежнему отвечает «ок», а не ошибкой.
-            if ride.depart_at and utcnow() < ride.depart_at - DONE_EARLY_GRACE:
-                raise herr(409, "Поездка ещё не началась — завершить можно после времени выезда",
-                           "Сәфәр әле башланмаған — сығыу ваҡытынан һуң тамамлап була")
-            booking.status = BookingStatus.done
-            booking.done_at = utcnow()       # окно «Сообщить о проблеме» пассажира считается и от неё
-            booking.driver_phase = ""        # поездка кончилась — фазу сбрасываем
-            session.add(booking)
-            session.commit()
-            trip_wake.poke(booking.id)       # канал координат закрывается сразу (см. cancel_booking)
-            # B8-4: реферальный бонус пригласившему за раскатавшегося водителя (идемпотентно).
-            from .referral import reward_driver_referral
-            reward_driver_referral(session, ride.driver_id)
+        # Потерянный ответ можно повторить, но повтор не создаёт новое уведомление.
+        # pending→done остаётся легитимным: водитель завершает поездку напрямую.
+        if booking.status == BookingStatus.done:
+            return {"ok": True, "status": "done"}
+        if booking.status == BookingStatus.cancelled:
+            raise herr(409, "Поездка не активна", "Сәфәр актив түгел")
+        # Только начавшаяся поездка, иначе поддельное завершение рисовало бы бейдж доверия.
+        if ride.depart_at and utcnow() < ride.depart_at - DONE_EARLY_GRACE:
+            raise herr(409, "Поездка ещё не началась — завершить можно после времени выезда",
+                       "Сәфәр әле башланмаған — сығыу ваҡытынан һуң тамамлап була")
+        # Решение принимает БД, а не прочитанный выше ORM-объект: другой запрос уже мог
+        # завершить или отменить бронь. Побочные действия выполняет только выигравший переход.
+        moved = session.execute(update(Booking).where(
+            Booking.id == booking.id,
+            Booking.status.notin_((BookingStatus.done, BookingStatus.cancelled)),
+        ).values(status=BookingStatus.done, done_at=utcnow(), driver_phase="")).rowcount
+        session.commit()
+        session.refresh(booking)
+        if not moved:
+            if booking.status == BookingStatus.done:
+                return {"ok": True, "status": "done"}
+            raise herr(409, "Поездка не активна", "Сәфәр актив түгел")
+        trip_wake.poke(booking.id)           # канал координат закрывается сразу (см. cancel_booking)
+        # B8-4: прежний идемпотентный бонус, только для состоявшегося перехода.
+        from .referral import reward_driver_referral
+        reward_driver_referral(session, ride.driver_id)
         route = f"{ride.from_city} → {ride.to_city}"
         push_notification(
             session, booking.passenger_id, "ride",
@@ -1707,6 +1712,7 @@ def booking_lost_item(booking_id: int, user: User = Depends(current_user),
 
     Доступно обеим сторонам: водитель тоже находит вещи и ищет, чьи они."""
     from datetime import timedelta
+    from sqlalchemy import func, or_
 
     booking, ride = booking_and_ride_for_user(session, booking_id, user)   # 403/404 если не участник
     if booking.status != BookingStatus.done:
@@ -1722,18 +1728,33 @@ def booking_lost_item(booking_id: int, user: User = Depends(current_user),
     # Две границы. Первая: искать вещь имеет смысл, пока о ней помнят, — через месяц после
     # поездки это уже не поиск вещи, а способ написать человеку. Вторая: не больше трёх раз,
     # иначе даже в пределах месяца получается тот же бесконечный стук.
-    if ride.depart_at is not None and utcnow() - ride.depart_at > LOST_ITEM_WINDOW:
+    now = utcnow()
+    if ride.depart_at is not None and now - ride.depart_at > LOST_ITEM_WINDOW:
         raise herr(409,
                    "Поездка была слишком давно. Если вещь так и не нашлась — напиши в поддержку.",
                    "Сәфәр бик күптән булған. Әйбер табылмаһа — ярҙам хеҙмәтенә яҙ.")
+    # Ответ мог потеряться: пока чат уже открыт, это повтор того же открытия.
+    if booking.lost_item_until is not None and booking.lost_item_until > now:
+        return {"ok": True, "chat_open_until": booking.lost_item_until.isoformat()}
     if (booking.lost_item_calls or 0) >= LOST_ITEM_MAX_CALLS:
         raise herr(409,
                    "Чат уже открывали несколько раз. Дальше поможет поддержка.",
                    "Чат бер нисә тапҡыр асылған инде. Артабан ярҙам хеҙмәте кәрәк.")
-    booking.lost_item_calls = (booking.lost_item_calls or 0) + 1
-    booking.lost_item_until = utcnow() + timedelta(hours=48)
-    session.add(booking)
+    # Два запроса могли прочитать старое закрытое окно. Уведомляет только победитель.
+    moved = session.execute(update(Booking).where(
+        Booking.id == booking.id, Booking.status == BookingStatus.done,
+        func.coalesce(Booking.lost_item_calls, 0) < LOST_ITEM_MAX_CALLS,
+        or_(Booking.lost_item_until.is_(None), Booking.lost_item_until <= now),
+    ).values(lost_item_calls=func.coalesce(Booking.lost_item_calls, 0) + 1,
+             lost_item_until=now + timedelta(hours=48))).rowcount
     session.commit()
+    session.refresh(booking)
+    if not moved:
+        if booking.lost_item_until is not None and booking.lost_item_until > now:
+            return {"ok": True, "chat_open_until": booking.lost_item_until.isoformat()}
+        raise herr(409,
+                   "Чат уже открывали несколько раз. Дальше поможет поддержка.",
+                   "Чат бер нисә тапҡыр асылған инде. Артабан ярҙам хеҙмәте кәрәк.")
     other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
     if other_id:
         push_notification(
