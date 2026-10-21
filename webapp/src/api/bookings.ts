@@ -437,6 +437,6 @@ export function undoBoarded(id: number): Promise<BoardingResult> {
  * У такси такой выход был давно, у попутки — нет: после того как чат стали закрывать
  * через сутки, забытая сумка означала «связи с водителем больше нет».
  */
-export function reportBookingLostItem(id: number): Promise<{ ok?: boolean; until?: string }> {
+export function reportBookingLostItem(id: number): Promise<{ ok: boolean; chat_open_until: string }> {
   return apiPost(`/bookings/${id}/lost-item`);
 }

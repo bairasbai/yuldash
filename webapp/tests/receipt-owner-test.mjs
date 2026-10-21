@@ -22,7 +22,7 @@ const mocks = lang => ({
   "/i18n/lang": langMock(lang),
   "react-router-dom": `export const useNavigate=()=> (...a)=>globalThis.__receiptOwner.routes.push(a),useParams=()=>({id:String(globalThis.__receiptOwner.bookingId)});`,
   "/api/client": `export class ApiError extends Error{constructor(status){super('fixture');this.status=status;}}globalThis.__receiptOwner.ApiError=ApiError;export const getSessionGeneration=()=>globalThis.__receiptOwner.generation;`,
-  "/api/bookings": `export const fetchReceipt=(id,signal)=>{const h=globalThis.__receiptOwner;h.calls.push({kind:'receipt',id,generation:h.generation,signal});return h.receipt(id,signal);};`,
+  "/api/bookings": `export const fetchReceipt=(id,signal)=>{const h=globalThis.__receiptOwner;h.calls.push({kind:'receipt',id,generation:h.generation,signal});return h.receipt(id,signal);};export const reportBookingLostItem=async()=>({ok:true,chat_open_until:'2030-01-01T00:00:00Z'});`,
   "/api/family": `export const fetchBookingTip=(id,signal)=>{const h=globalThis.__receiptOwner;h.calls.push({kind:'tip',id,generation:h.generation,signal});return h.tip(id,signal);};export const thankBooking=id=>{const h=globalThis.__receiptOwner;h.thanks.push({id,generation:h.generation});return h.thank(id);};`,
   "/api/wallet": `export const payBooking=(id,method)=>{const h=globalThis.__receiptOwner;h.pays.push({id,method,generation:h.generation});return h.pay(id,method);};export const payInstantOrder=()=>{throw Error('unexpected order payment');};`,
   "/utils/pendingPayment": `export const rememberPayment=(...a)=>globalThis.__receiptOwner.remembered.push(a);`,

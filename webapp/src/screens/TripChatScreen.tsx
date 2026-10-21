@@ -547,14 +547,15 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
       return;
     }
     setBusyId(msgId);
+    setAttachNote("");
     try {
       replace(await editMessage(bookingId, msgId, t));
       setEditId(null);
     } catch {
-      // Поле остаётся открытым — текст не потерян. Но человек не знает, что
-      // правка не ушла: он видит своё новое сообщение и думает, что сохранил.
+      // Поле остаётся открытым. Ответ мог потеряться уже после сохранения —
+      // результат неизвестен, текст можно явно отправить ещё раз.
       setAttachNote(
-        appText("Правка не сохранилась. Попробуй ещё раз.", "Төҙәтеү һаҡланманы. Тағы ҡабатла.")
+        appText("Не удалось подтвердить изменение. Проверь связь и повтори.", "Үҙгәртеүҙе раҫлап булманы. Бәйләнеште тикшереп ҡабатла.")
       );
     } finally {
       setBusyId(null);
@@ -566,6 +567,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
     if (busyId) return;
     setMenuId(null);
     setBusyId(msgId);
+    setAttachNote("");
     try {
       const m = await deleteMessage(bookingId, msgId, scope);
       // «У себя» сервер не возвращает пустой текст — просто убираем из своего списка.
@@ -575,7 +577,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
       // Сообщение осталось на месте — но человек нажал «удалить» и ждёт,
       // что оно исчезнет. Молчание он прочитает как «кнопка не работает».
       setAttachNote(
-        appText("Не получилось удалить. Попробуй ещё раз.", "Юйып булманы. Тағы ҡабатла.")
+        appText("Не удалось подтвердить удаление. Проверь связь и повтори.", "Юйыуҙы раҫлап булманы. Бәйләнеште тикшереп ҡабатла.")
       );
     } finally {
       setBusyId(null);

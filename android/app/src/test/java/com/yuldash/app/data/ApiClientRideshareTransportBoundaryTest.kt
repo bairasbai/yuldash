@@ -77,6 +77,20 @@ class ApiClientRideshareTransportBoundaryTest {
     @Test fun revokeShareEofDoesNotReplay() = sentOnce { ApiClient.revokeBookingShare(42, 7) }
     @Test fun completeRideEofDoesNotReplay() = sentOnce { ApiClient.completeRide(42) }
     @Test fun driverDoneEofDoesNotReplay() = sentOnce { ApiClient.driverStatus(42, "done") }
+    @Test fun routeWatchCreateEofDoesNotReplay() = sentOnce { ApiClient.createRouteWatch("Баймак", "Сибай") }
+    @Test fun routeWatchDeleteEofDoesNotReplay() = sentOnce { ApiClient.deleteRouteWatch(42) }
+    @Test fun routeWatchDelete503DoesNotReplay() {
+        replyCode = 503
+        sentOnce { ApiClient.deleteRouteWatch(42) }
+    }
+    @Test fun routeWatchOldOwnerCannotDispatchAsNewSession() = runBlocking {
+        val oldOwner = ApiClient.queueSessionGeneration()
+        ApiClient.saveToken("header.eyJzdWIiOiIyMiJ9.signature")
+        assertTrue(ApiClient.getRouteWatches(expectedGeneration = oldOwner).isFailure)
+        assertTrue(ApiClient.createRouteWatch("Баймак", "Сибай", expectedGeneration = oldOwner).isFailure)
+        assertTrue(ApiClient.deleteRouteWatch(42, expectedGeneration = oldOwner).isFailure)
+        assertEquals("Old screen must not send a request as the new owner", 0, received.size)
+    }
     @Test fun request503DoesNotReplay() {
         replyCode = 503
         sentOnce { ApiClient.createRequest("Баймак", "Сибай", 1, "regular", false, "", 300) }

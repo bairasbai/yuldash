@@ -1,5 +1,7 @@
 package com.yuldash.app.data
 
+import android.app.Application
+import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -37,13 +39,17 @@ import java.util.concurrent.TimeUnit
  * тестах (`ApiClientRidesTest`, `ApiClientBookingsTest` и соседних).
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], application = Application::class)
 class ApiClientEndpointContractTest {
 
     private lateinit var server: MockWebServer
 
     @Before
     fun setup() {
+        ApiClient.resetForTest()
+        ApiClient.init(ApplicationProvider.getApplicationContext<Application>())
+        // Protected methods (including roadside intent storage) require a real session boundary.
+        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.signature")
         server = MockWebServer()
         server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
@@ -52,7 +58,7 @@ class ApiClientEndpointContractTest {
     @After
     fun teardown() {
         ApiClient.logout()
-        ApiClient.testBaseUrl = null
+        ApiClient.resetForTest()
         server.shutdown()
     }
 

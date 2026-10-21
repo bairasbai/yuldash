@@ -2040,6 +2040,7 @@ object ApiClient {
         toCity: String,
         direction: String = "forward",     // forward | both (туда-обратно)
         watchDate: String? = null,         // ISO "yyyy-MM-dd'T'HH:mm:ss" — опц. конкретный день
+        expectedGeneration: Long? = null,
     ): Result<Int> = call(
         "POST", "/route-watch",
         JSONObject()
@@ -2048,11 +2049,13 @@ object ApiClient {
             .put("direction", direction)
             .apply { watchDate?.takeIf { it.isNotBlank() }?.let { put("watch_date", it) } },
         auth = true,
+        expectedGeneration = expectedGeneration,
+        singleAttemptMutation = true,
     ).map { it.optInt("id") }.onSuccess { Analytics.log("route_watch_create") }
 
     /** Мои активные подписки на маршрут (непротухшие). */
-    suspend fun getRouteWatches(): Result<List<RouteWatchDto>> =
-        call("GET", "/route-watch", null, auth = true).map { obj ->
+    suspend fun getRouteWatches(expectedGeneration: Long? = null): Result<List<RouteWatchDto>> =
+        call("GET", "/route-watch", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
@@ -2067,8 +2070,9 @@ object ApiClient {
         }
 
     /** Отписаться от маршрута. */
-    suspend fun deleteRouteWatch(id: Int): Result<Unit> =
-        call("DELETE", "/route-watch/$id", null, auth = true).map { }
+    suspend fun deleteRouteWatch(id: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("DELETE", "/route-watch/$id", null, auth = true,
+            expectedGeneration = expectedGeneration, singleAttemptMutation = true).map { }
 
     // Партнёрская реклама — сервер-управляемая.
     suspend fun getAds(): Result<List<AdDto>> =

@@ -8,13 +8,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
-import { fetchReceipt, type TripReceipt } from "../api/bookings";
+import { fetchReceipt, reportBookingLostItem, type TripReceipt } from "../api/bookings";
 import { thankBooking, fetchBookingTip, type TipInfo } from "../api/family";
 import SbpPay from "../components/SbpPay";
 import PayTripCard from "../components/PayTripCard";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
-import { IconArrow, IconReceipt, IconHeart, IconCheck, IconShare } from "../components/Icons";
+import { IconArrow, IconReceipt, IconHeart, IconCheck, IconShare, IconSearch } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 
 type State =
@@ -38,6 +38,7 @@ export default function TripReceiptScreen() {
   const tipRequest = useRef<AbortController | null>(null);
   const readyReceipt = useRef<TripReceipt | null>(null);
   const thanksRequest = useRef<object | null>(null);
+  const lostRequest = useRef<object | null>(null);
   const shareTimer = useRef<number | null>(null);
   const [ownedState, setOwnedState] = useState<{ owner: string; value: State }>({ owner: ownerKey, value: { kind: "loading" } });
   const state: State = ownedState.owner === ownerKey ? ownedState.value : { kind: "loading" };
@@ -52,8 +53,9 @@ export default function TripReceiptScreen() {
       receiptRequest.current?.abort(); tipRequest.current?.abort();
       const ac = new AbortController(); receiptRequest.current = ac;
       const signal = ac.signal;
-      readyReceipt.current = null; thanksRequest.current = null;
+      readyReceipt.current = null; thanksRequest.current = null; lostRequest.current = null;
       setTip(null); setThanked(false); setThanksBusy(false); setShared(false);
+      setLostOpened(false); setLostBusy(false); setLostError("");
       if (shareTimer.current !== null) window.clearTimeout(shareTimer.current);
       if (!Number.isSafeInteger(bookingId) || bookingId <= 0) {
         setState({ kind: "error" });
@@ -86,7 +88,7 @@ export default function TripReceiptScreen() {
     load();
     return () => {
       mounted.current = false; readyReceipt.current = null;
-      receiptRequest.current?.abort(); tipRequest.current?.abort(); thanksRequest.current = null;
+      receiptRequest.current?.abort(); tipRequest.current?.abort(); thanksRequest.current = null; lostRequest.current = null;
       if (shareTimer.current !== null) window.clearTimeout(shareTimer.current);
     };
   }, [load]);
@@ -100,6 +102,9 @@ export default function TripReceiptScreen() {
   const [tip, setTip] = useState<TipInfo | null>(null);
   const [thanked, setThanked] = useState(false);
   const [thanksBusy, setThanksBusy] = useState(false);
+  const [lostOpened, setLostOpened] = useState(false);
+  const [lostBusy, setLostBusy] = useState(false);
+  const [lostError, setLostError] = useState("");
 
   const passengerReceipt = state.kind === "ready" && state.r.role === "passenger";
   const r = state.kind === "ready" ? state.r : null;
@@ -137,6 +142,36 @@ export default function TripReceiptScreen() {
       /* не отправилось — кнопка остаётся, человек повторит */
     } finally {
       if (currentReceipt(r) && thanksRequest.current === operation) { thanksRequest.current = null; setThanksBusy(false); }
+    }
+  }
+
+  async function reopenLostItemChat() {
+    if (!r || !currentReceipt(r) || lostRequest.current || lostOpened) return;
+    const operation = {}; lostRequest.current = operation;
+    setLostBusy(true); setLostError("");
+    let confirmed = false;
+    try {
+      const result = await reportBookingLostItem(bookingId);
+      if (!currentReceipt(r) || lostRequest.current !== operation) return;
+      if (result.ok !== true || typeof result.chat_open_until !== "string" || !Number.isFinite(Date.parse(result.chat_open_until))) {
+        throw new Error("Invalid lost-item acknowledgement");
+      }
+      confirmed = true;
+      setLostOpened(true);
+    } catch (e) {
+      if (!currentReceipt(r) || lostRequest.current !== operation) return;
+      setLostError(
+        e instanceof ApiError && e.status >= 400 && e.status < 500 && e.message
+          ? e.message
+          : appText("Не удалось подтвердить открытие чата. Проверь связь и повтори.",
+              "Чаттың асылыуын раҫлап булманы. Бәйләнеште тикшереп ҡабатла.")
+      );
+    } finally {
+      if (currentReceipt(r) && lostRequest.current === operation) {
+        // Keep the successful operation fenced against an already-retained button callback.
+        if (!confirmed) lostRequest.current = null;
+        setLostBusy(false);
+      }
     }
   }
 
@@ -285,6 +320,31 @@ ${priceLabel(r.amount, false)}`
               canAct={() => currentReceipt(state.r)}
             />
           )}
+
+          {/* Обе стороны могут искать оставленную вещь. Открытие подтверждает только сервер. */}
+          <div className="act-card" style={{ marginTop: "var(--space-md)" }} aria-busy={lostBusy}>
+            <div className="act-card__title">
+              <IconSearch size={18} />{" "}{appText("Забыл вещь?", "Әйбер оноттоңмо?")}
+            </div>
+            <p className="act-card__text" role={lostOpened ? "status" : undefined}>
+              {lostOpened
+                ? appText("Чат открыт — напиши, что искать.", "Чат асыҡ — нимә эҙләргә, яҙ.")
+                : appText("Откроем чат этой поездки на 48 часов, чтобы вы связались.",
+                    "Бәйләнешер өсөн был сәфәр чатын 48 сәғәткә асабыҙ.")}
+            </p>
+            {lostError && <div className="notice" role="alert">{lostError}</div>}
+            {lostOpened ? (
+              <button type="button" className="btn-soft" style={{ width: "100%" }}
+                onClick={() => { if (currentReceipt(state.r)) navigate(`/trip/${bookingId}/chat`); }}>
+                {appText("Открыть чат поездки", "Сәфәр чатын асыу")}
+              </button>
+            ) : (
+              <button type="button" className="btn-soft" style={{ width: "100%" }}
+                disabled={lostBusy} onClick={() => void reopenLostItemChat()}>
+                {lostBusy ? appText("Открываем…", "Асабыҙ…") : appText("Я забыл вещь в машине", "Машинала әйбер ҡалдырҙым")}
+              </button>
+            )}
+          </div>
 
           {/* «Рәхмәт» и придумали для попуток: сосед подвёз бесплатно и заслуживает
               спасибо не меньше таксиста. Кнопка была только в чеке такси, а обе

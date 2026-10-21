@@ -232,6 +232,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.graphics.Bitmap
@@ -572,28 +574,71 @@ internal fun RouteWatchesScreen(
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    var watches by remember { mutableStateOf<List<com.yuldash.app.data.RouteWatchDto>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf(false) }
-    var from by rememberSaveable { mutableStateOf(prefillFrom) }
-    var to by rememberSaveable { mutableStateOf(prefillTo) }
-    var bothWays by rememberSaveable { mutableStateOf(false) }
-    var submitting by remember { mutableStateOf(false) }
+    val owner = ApiClient.sessionChanges.collectAsState().value
+    var mounted by remember(owner) { mutableStateOf(true) }
+    DisposableEffect(owner) { onDispose { mounted = false } }
+    var watches by remember(owner) { mutableStateOf<List<com.yuldash.app.data.RouteWatchDto>>(emptyList()) }
+    var loading by remember(owner) { mutableStateOf(true) }
+    var error by remember(owner) { mutableStateOf(false) }
+    var from by rememberSaveable(owner) { mutableStateOf(prefillFrom) }
+    var to by rememberSaveable(owner) { mutableStateOf(prefillTo) }
+    var bothWays by rememberSaveable(owner) { mutableStateOf(false) }
+    var submitting by remember(owner) { mutableStateOf(false) }
+    var deletingId by remember(owner) { mutableStateOf<Int?>(null) }
+    var failedDeleteId by remember(owner) { mutableStateOf<Int?>(null) }
+    var createError by remember(owner) { mutableStateOf<String?>(null) }
+    var loadVersion by remember(owner) { mutableIntStateOf(0) }
+    var reloading by remember(owner) { mutableStateOf(false) }
+
+    fun current() = mounted && ApiClient.isCurrentSession(owner)
 
     val savedMsg = appText("Готово! Сообщим, как появится поездка", "Әҙер! Сәфәр сыҡҡас, хәбәр итәбеҙ")
     val failMsg = appText("Не получилось. Проверь сеть и повтори", "Булманы. Сетте тикшереп ҡабатла")
     val removedMsg = appText("Подписка удалена", "Яҙылыу юйылды")
 
     fun reload() {
+        if (!current() || reloading || submitting || deletingId != null) return
+        val version = ++loadVersion
+        reloading = true
         loading = true; error = false
         scope.launch {
-            ApiClient.getRouteWatches()
+            if (!current() || version != loadVersion) return@launch
+            val result = ApiClient.getRouteWatches(expectedGeneration = owner)
+            if (!current() || version != loadVersion) return@launch
+            result
                 .onSuccess { watches = it; error = false }
                 .onFailure { error = true }
             loading = false
+            reloading = false
         }
     }
-    LaunchedEffect(Unit) { reload() }
+    LaunchedEffect(owner) {
+        if (current()) reload() else loading = false
+    }
+
+    fun delete(id: Int) {
+        if (!current() || submitting || deletingId != null || watches.none { it.id == id }) return
+        deletingId = id
+        failedDeleteId = null
+        // A list read started before this mutation must not restore the removed row afterwards.
+        loadVersion++
+        reloading = false
+        loading = false
+        scope.launch {
+            if (!current()) return@launch
+            val result = ApiClient.deleteRouteWatch(id, expectedGeneration = owner)
+            if (!current()) return@launch
+            // The row was ours when tapped. 404 also means the intended absence is reached,
+            // including a committed DELETE whose first acknowledgement was lost.
+            if (result.isSuccess || (result.exceptionOrNull() as? ApiException)?.status == 404) {
+                watches = watches.filterNot { it.id == id }
+                Toast.makeText(ctx, removedMsg, Toast.LENGTH_SHORT).show()
+            } else {
+                failedDeleteId = id
+            }
+            deletingId = null
+        }
+    }
 
     Scaffold(
         containerColor = CanonBg,
@@ -620,31 +665,41 @@ internal fun RouteWatchesScreen(
                         OutlinedTextField(
                             from, { from = it }, label = { Text(appText("Откуда", "Ҡайҙан")) },
                             leadingIcon = { Icon(Icons.Default.Route, contentDescription = null, tint = CanonGreen2) },
-                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)
+                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp), enabled = !submitting
                         )
                         OutlinedTextField(
                             to, { to = it }, label = { Text(appText("Куда", "Ҡайҙа")) },
                             leadingIcon = { Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = CanonGreen2) },
-                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp)
+                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp), enabled = !submitting
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(appText("И в обратную сторону", "Кире яҡҡа ла"), color = CanonText, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                            Switch(checked = bothWays, onCheckedChange = { bothWays = it })
+                            Switch(checked = bothWays, onCheckedChange = { bothWays = it }, enabled = !submitting)
                         }
                         val needBothMsg = appText("Укажи откуда и куда", "Ҡайҙан һәм ҡайҙа икәнен яҙ")
                         AppButton(
                             text = appText("Следить за маршрутом", "Маршрутты күҙәтеү"),
                             onClick = {
+                                if (!current() || submitting || deletingId != null) return@AppButton
                                 val f = from.trim(); val t = to.trim()
                                 if (f.isBlank() || t.isBlank()) {
                                     Toast.makeText(ctx, needBothMsg, Toast.LENGTH_SHORT).show()
                                     return@AppButton
                                 }
+                                val direction = if (bothWays) "both" else "forward"
                                 submitting = true
+                                createError = null
+                                loadVersion++
+                                reloading = false
+                                loading = false
                                 scope.launch {
-                                    ApiClient.createRouteWatch(f, t, if (bothWays) "both" else "forward")
+                                    if (!current()) return@launch
+                                    val result = ApiClient.createRouteWatch(f, t, direction, expectedGeneration = owner)
+                                    if (!current()) return@launch
+                                    submitting = false
+                                    result
                                         .onSuccess {
                                             Toast.makeText(ctx, savedMsg, Toast.LENGTH_SHORT).show()
                                             from = ""; to = ""; bothWays = false
@@ -652,14 +707,15 @@ internal fun RouteWatchesScreen(
                                         }
                                         .onFailure {
                                             val m = (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg
-                                            Toast.makeText(ctx, serverSaid(it, m), Toast.LENGTH_LONG).show()
+                                            createError = serverSaid(it, m)
                                         }
-                                    submitting = false
                                 }
                             },
                             icon = Icons.Default.NotificationsActive,
                             loading = submitting,
+                            enabled = deletingId == null,
                         )
+                        createError?.let { Text(it, color = CanonRed, style = CanonBody) }
                     }
                 }
             }
@@ -667,9 +723,19 @@ internal fun RouteWatchesScreen(
             item {
                 Text(appText("Активные подписки", "Әүҙем яҙылыуҙар"), color = CanonGreen, fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.padding(top = 4.dp))
             }
+            failedDeleteId?.let { id ->
+                item {
+                    AppErrorState(
+                        title = appText("Не получилось удалить подписку", "Яҙылыуҙы юйып булманы"),
+                        text = failMsg,
+                        onRetry = { delete(id) },
+                    )
+                }
+            }
+            if (error) item { AppErrorState(onRetry = { reload() }) }
             when {
                 loading && watches.isEmpty() -> item { AppLoading(appText("Загрузка…", "Йөкләнә…")) }
-                error && watches.isEmpty() -> item { AppErrorState(onRetry = { reload() }) }
+                error && watches.isEmpty() -> Unit
                 watches.isEmpty() -> item {
                     AppEmptyState(
                         title = appText("Пока нет подписок", "Әлегә яҙылыуҙар юҡ"),
@@ -680,13 +746,9 @@ internal fun RouteWatchesScreen(
                 else -> items(watches, key = { it.id }) { w ->
                     RouteWatchRow(
                         watch = w,
-                        onDelete = {
-                            scope.launch {
-                                ApiClient.deleteRouteWatch(w.id)
-                                    .onSuccess { watches = watches.filterNot { it.id == w.id }; Toast.makeText(ctx, removedMsg, Toast.LENGTH_SHORT).show() }
-                                    .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
-                            }
-                        }
+                        deleting = deletingId == w.id,
+                        enabled = !submitting && deletingId == null,
+                        onDelete = { delete(w.id) },
                     )
                 }
             }
@@ -695,7 +757,8 @@ internal fun RouteWatchesScreen(
 }
 
 @Composable
-private fun RouteWatchRow(watch: com.yuldash.app.data.RouteWatchDto, onDelete: () -> Unit) {
+private fun RouteWatchRow(watch: com.yuldash.app.data.RouteWatchDto, deleting: Boolean, enabled: Boolean, onDelete: () -> Unit) {
+    val deleteLabel = appText("Удалить", "Юйыу")
     AppCard {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(color = CanonMint, shape = CircleShape) {
@@ -713,8 +776,12 @@ private fun RouteWatchRow(watch: com.yuldash.app.data.RouteWatchDto, onDelete: (
                     color = CanonMuted, fontSize = 14.sp
                 )
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = appText("Удалить", "Юйыу"), tint = CanonRed)
+            IconButton(onClick = onDelete, enabled = enabled) {
+                if (deleting) CircularProgressIndicator(
+                    modifier = Modifier.size(CanonSpace.xl).semantics { contentDescription = deleteLabel },
+                    color = CanonRed,
+                )
+                else Icon(Icons.Default.Delete, contentDescription = appText("Удалить", "Юйыу"), tint = CanonRed)
             }
         }
     }

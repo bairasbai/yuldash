@@ -28,6 +28,7 @@ const SUITES = [
   { test: "boarding-code-contrast-test", src: null, out: null, bundle: false },
   { test: "rideshare-local-regression-test", src: null, out: null, bundle: false },
   { test: "receipt-owner-test", src: null, out: null, bundle: false },
+  { test: "receipt-lost-item-test", src: null, out: null, bundle: false },
   { test: "login-flow-test", src: null, out: null, bundle: false },
   { test: "onboarding-flow-test", src: null, out: null, bundle: false },
   { test: "intro-motion-test", src: null, out: null, bundle: false },
@@ -134,6 +135,7 @@ const SUITES = [
   { test: "trip-chat-test", src: null, out: null, bundle: false },
   // …и структура: строка ввода прибита к низу экрана, входы из поездки и списка чатов.
   { test: "trip-chat-page-test", src: null, out: null, bundle: false },
+  { test: "chat-mutation-unknown-test", src: null, out: null, bundle: false },
   { test: "voice-network-boundary-test", src: null, out: null, bundle: false },
   // Экран Android без маршрута PWA теперь ломает проверку в том же коммите.
   { test: "parity-test", src: null, out: null, bundle: false },
