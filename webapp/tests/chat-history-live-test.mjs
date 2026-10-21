@@ -8,16 +8,20 @@ const original = { id: 17, text: "original saved row", sender_id: 7, deleted: fa
 const other = { id: 18, text: "new live row", sender_id: 8, deleted: false, edited: false };
 const clone = list => list.map(row => ({ ...row }));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
-globalThis.document = { body: { style: { overflow: "" } }, visibilityState: "visible", addEventListener() {}, removeEventListener() {} };
+const listen = (target, name, fn) => { const key = target + ":" + name; if (!h.events.has(key)) h.events.set(key, new Set()); h.events.get(key).add(fn); };
+const unlisten = (target, name, fn) => h.events.get(target + ":" + name)?.delete(fn);
+const emit = key => h.events.get(key)?.forEach(fn => fn());
+globalThis.document = { body: { style: { overflow: "" } }, visibilityState: "visible",
+  addEventListener: (name, fn) => listen("document", name, fn), removeEventListener: (name, fn) => unlisten("document", name, fn) };
 globalThis.window = {
   setTimeout: () => 1, clearTimeout() {},
   setInterval: (fn, ms) => { const id = ++h.timerSerial; h.intervals.set(id, { fn, ms }); return id; },
-  clearInterval: id => h.intervals.delete(id), addEventListener() {}, removeEventListener() {},
+  clearInterval: id => h.intervals.delete(id), addEventListener: (name, fn) => listen("window", name, fn), removeEventListener: (name, fn) => unlisten("window", name, fn),
 };
 function reset() {
   Object.assign(h, {
     generation: "synthetic-owner-A", server: [{ ...original }], gets: 0, inFlight: 0, maxConcurrent: 0,
-    posts: [], deletes: [], edits: [], acknowledgements: [], enqueues: [], intervals: new Map(), timerSerial: 0,
+    posts: [], deletes: [], edits: [], acknowledgements: [], enqueues: [], intervals: new Map(), timerSerial: 0, events: new Map(),
     fetch: () => clone(h.server), post: async () => { throw Error("Unexpected send"); },
     edit: async () => { throw Error("Unexpected edit"); },
     remove: async id => { h.server = h.server.filter(row => row.id !== id); return { ...original }; },
@@ -37,7 +41,7 @@ const mocks = lang => ({
     export const deleteMessage=(booking,id,scope)=>{const h=globalThis.__chatHistoryLive;h.deletes.push([booking,id,scope]);return h.remove(id,scope);};`,
   "/utils/outbox": `export const acknowledgeMessage=async(...args)=>{globalThis.__chatHistoryLive.acknowledgements.push(args);},createOutboxId=()=> 'history-live-intent',
     enqueue=async(...args)=>{globalThis.__chatHistoryLive.enqueues.push(args);},isPermanentRejection=()=>false,outboxCount=()=>0,
-    subscribeOutbox=()=>()=>{},watchOutbox=fn=>{globalThis.__chatHistoryLive.flush=fn;return()=>{};};`,
+    subscribeOutbox=()=>()=>{},watchOutbox=(fn,onReceipt)=>{globalThis.__chatHistoryLive.flush=fn;globalThis.__chatHistoryLive.hiddenReceipt=onReceipt;return()=>{};};`,
 });
 const bodies = s => all(s.tree).filter(n => n.type === "ChatMessageBody").map(n => n.props.text);
 function changed() {
@@ -177,11 +181,12 @@ for (const lang of ["ru", "ba"]) {
     try {
       h.handlers.onClose(); await s.settle();
       const poll = [...h.intervals.values()].find(timer => timer.ms === 7000); assert.ok(poll);
-      h.fetch = call => call === 2 ? held.promise : unintendedFollowUp.promise;
-      poll.fn(); await s.settle(); assert.equal(h.gets, 2);
-      poll.fn(); poll.fn(); poll.fn(); await s.settle(); assert.equal(h.gets, 2); assert.equal(h.maxConcurrent, 1);
+      const baselineGets = h.gets;
+      h.fetch = call => call === baselineGets + 1 ? held.promise : unintendedFollowUp.promise;
+      poll.fn(); await s.settle(); assert.equal(h.gets, baselineGets + 1);
+      poll.fn(); poll.fn(); poll.fn(); await s.settle(); assert.equal(h.gets, baselineGets + 1); assert.equal(h.maxConcurrent, 1);
       held.resolve([{ ...original, text: "accepted slow history" }]); await s.settle();
-      assert.equal(h.gets, 2, "unchanged polling made the slow response stale and caused another GET");
+      assert.equal(h.gets, baselineGets + 1, "unchanged polling made the slow response stale and caused another GET");
       assert.deepEqual(bodies(s), ["accepted slow history"]);
     } finally { s.unmount(); held.resolve([]); unintendedFollowUp.resolve([]); }
   });
@@ -220,6 +225,15 @@ for (const lang of ["ru", "ba"]) {
       assert.equal(h.acknowledgements[0][1], receipt.request_id); assert.equal(h.posts.length, 0); assert.ok(h.gets >= 2);
     } finally { s.unmount(); }
   });
+  await tests.test(`${lang}: background outbox hidden receipt immediately removes a known row even when GET fails`, async () => {
+    reset(); const s = await open();
+    try {
+      h.fetch = () => Promise.reject(Error("unavailable history"));
+      h.hiddenReceipt(42, { id: original.id, sender_id: 7, request_id: "original-intent", hidden_for_me: true }); await s.settle();
+      assert.deepEqual(bodies(s), []);
+      h.handlers.onMessage({ ...original }); await s.settle(); assert.deepEqual(bodies(s), []);
+    } finally { s.unmount(); }
+  });
   await tests.test(`${lang}: late voice receipt cannot expose a row absent from authorized history`, async () => {
     reset(); const s = await open(), receipt = deferred(); const voiceUrl = "https://synthetic.invalid/voice/history-live.m4a";
     try {
@@ -230,6 +244,50 @@ for (const lang of ["ru", "ba"]) {
       assert.deepEqual(bodies(s), []); assert.equal(all(s.tree).filter(n => n.type === "VoiceBubble").length, 0);
       assert.ok(h.gets >= 2); assert.equal(h.posts.length, 1); assert.equal(h.maxConcurrent, 1);
     } finally { receipt.resolve({ id: 20, sender_id: 7, text: "", voice_url: voiceUrl }); s.unmount(); }
+  });
+  await tests.test(`${lang}: original voice response delayed across a lost channel cannot undo a missed hide`, async () => {
+    reset(); const s = await open(), receipt = deferred(); const voiceUrl = "https://synthetic.invalid/delayed.m4a";
+    try {
+      h.post = () => receipt.promise;
+      all(s.tree).find(n => n.type === "ChatVoiceButton").props.onSend(voiceUrl); await s.settle();
+      h.server = []; h.handlers.onClose(); await s.settle();
+      h.fetch = () => Promise.reject(Error("history unavailable after recovered empty snapshot"));
+      receipt.resolve({ id: 20, sender_id: 7, text: "", voice_url: voiceUrl }); await s.settle();
+      assert.equal(all(s.tree).filter(n => n.type === "VoiceBubble").length, 0);
+      assert.equal(h.posts.length, 1); assert.equal(h.maxConcurrent, 1);
+    } finally { receipt.resolve({ id: 20, sender_id: 7, text: "", voice_url: voiceUrl }); s.unmount(); }
+  });
+  for (const boundary of ["online", "visibility"]) await tests.test(`${lang}: ${boundary} return with empty outbox refreshes history and fences delayed original voice`, async () => {
+    reset(); const s = await open(), receipt = deferred(), voiceUrl = "https://synthetic.invalid/return.m4a";
+    try {
+      h.post = () => receipt.promise;
+      all(s.tree).find(n => n.type === "ChatVoiceButton").props.onSend(voiceUrl); await s.settle();
+      h.server = [];
+      if (boundary === "online") emit("window:online");
+      else {
+        document.visibilityState = "hidden"; emit("document:visibilitychange"); await s.settle();
+        document.visibilityState = "visible"; emit("document:visibilitychange");
+      }
+      await s.settle(); assert.deepEqual(bodies(s), []); assert.ok(h.gets >= 2);
+      h.fetch = () => Promise.reject(Error("history unavailable"));
+      receipt.resolve({ id: 20, sender_id: 7, text: "", voice_url: voiceUrl }); await s.settle();
+      assert.equal(all(s.tree).filter(n => n.type === "VoiceBubble").length, 0);
+      assert.equal(h.posts.length, 1); assert.equal(h.maxConcurrent, 1);
+    } finally { document.visibilityState = "visible"; receipt.resolve({ id: 20, sender_id: 7, text: "", voice_url: voiceUrl }); s.unmount(); }
+  });
+  await tests.test(`${lang}: missed own hide and same-key voice retry accepts content-free receipt`, async () => {
+    reset(); const s = await open(), voiceUrl = "https://synthetic.invalid/hidden.m4a";
+    try {
+      h.post = async () => { throw Error("lost committed response"); };
+      all(s.tree).find(n => n.type === "ChatVoiceButton").props.onSend(voiceUrl); await s.settle();
+      assert.ok(button(s.tree, lang === "ru" ? "Повторить отправку" : "Ҡабат ебәреү"));
+      h.post = async (...args) => ({ id: 20, sender_id: 7, request_id: args[3], hidden_for_me: true });
+      h.fetch = () => Promise.reject(Error("history unavailable"));
+      button(s.tree, lang === "ru" ? "Повторить отправку" : "Ҡабат ебәреү").props.onClick(); await s.settle();
+      assert.equal(button(s.tree, lang === "ru" ? "Повторить отправку" : "Ҡабат ебәреү"), undefined);
+      assert.equal(all(s.tree).filter(n => n.type === "VoiceBubble").length, 0);
+      assert.equal(h.posts.length, 2); assert.equal(h.posts[0][3], h.posts[1][3]);
+    } finally { s.unmount(); }
   });
   await tests.test(`${lang}: unknown voice reconciliation and live invalidation share the held history request`, async () => {
     reset(); const s = await open(), held = deferred();

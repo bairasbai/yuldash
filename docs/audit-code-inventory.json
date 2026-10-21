@@ -83,14 +83,14 @@
     "infra_resource_config": 364,
     "public_site_promo": 89,
     "pwa_main": 289,
-    "test_support": 1027
+    "test_support": 1028
   },
   "counts_by_block": {
     "B01": 131,
     "B02": 227,
     "B03": 119,
     "B04": 76,
-    "B05": 48,
+    "B05": 49,
     "B06": 85,
     "B07": 107,
     "B08": 182,
@@ -1427,8 +1427,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/TripChatState.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "a8fcd855e14c328fa2d7d8e9c404749931656943c81500076e81b41310d6c821",
-      "lines": 611
+      "sha256": "16d3ded08258c3f64e5071e581c978e96e8104713734b99c8bfbe31264cca11c",
+      "lines": 665
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/TripLiveLink.kt",
@@ -1532,8 +1532,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "88c38077aa46a8171445a8cb2c94e83cde775d45be3e31f8d512aef74bb45144",
-      "lines": 7868
+      "sha256": "552b14017221f3f2ea1f2843d2c2ec72701a5684bfe2b0e1ba03f84de9d4e19c",
+      "lines": 7900
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -1553,8 +1553,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ChatSocket.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "ba91ba6a00264427c01811ad66c29746fe4527c203d9c5c9907e18114c5b8756",
-      "lines": 231
+      "sha256": "8367a3cbbe1242af13a9c66005db2369bc62035ede7926f7836aabca7fd3bd39",
+      "lines": 240
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/DriverBookings.kt",
@@ -3814,8 +3814,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/TripChatMutationNetworkBoundaryTest.kt",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "8c8ab04fc76564f44153b2fb7083424b7a8254ccf44db55349d528feb395a384",
-      "lines": 581
+      "sha256": "a205c2218b97b763d87d0aa70cf0b3cd5a8eb4feb31e7e193207ed33c0a0f923",
+      "lines": 709
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/TripChatQueuedReconnectTest.kt",
@@ -4220,8 +4220,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientRideshareTransportBoundaryTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "852b08199338af64da167f65437cf724f8219e977d9bd892e849098d3007788a",
-      "lines": 106
+      "sha256": "e34b3f555d8bcf65f61ea3ec676d80c9c439225ce4d0b510e5df6ae9b3b658a9",
+      "lines": 133
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientSosRetryIntentTest.kt",
@@ -6012,8 +6012,8 @@
       "path": "backend/app/routers/chat.py",
       "kind": "backend_main",
       "block": "B05",
-      "sha256": "402f7333e4fecbc5f600715b196b924dd27d0a16ee063e4af47b7a9fa7451496",
-      "lines": 939
+      "sha256": "b428c4d71d2518ad3537c18756c928ffbf98eb3ec783af3208d35f23c3473e15",
+      "lines": 955
     },
     {
       "path": "backend/app/routers/coupons.py",
@@ -7391,8 +7391,8 @@
       "path": "backend/tests/test_chat_message_idempotency.py",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "3a993779445699168425a1fab85da931ab897b2cb2d6eb0fe13a3124981f32e1",
-      "lines": 192
+      "sha256": "75f90f52d4ac891316f55019ebde408ce85e92e9dbe84bae8d82eb1c6dd58127",
+      "lines": 218
     },
     {
       "path": "backend/tests/test_chat_mutations_live.py",
@@ -7414,6 +7414,13 @@
       "block": "B05",
       "sha256": "ddb17fa9a8224b1569f44f4b1c43440baecd784bf6e1c2566378053620fe3a67",
       "lines": 119
+    },
+    {
+      "path": "backend/tests/test_chat_ws_idempotency.py",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "95981f7735d0c820153b0353ac1b1a5bf7a5950e8ce1879c8b9525a85aaf4f7c",
+      "lines": 286
     },
     {
       "path": "backend/tests/test_claim_races.py",
@@ -11633,8 +11640,8 @@
       "path": "webapp/src/api/chat.ts",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "5a3dddcd597d68cc75801126df22c112578daeb46799e4f596c14e2f58bf8e0b",
-      "lines": 376
+      "sha256": "7b670f5d56cfd098ef343ca7982711fa069e3541cd01d92cda152c0228d1d93c",
+      "lines": 389
     },
     {
       "path": "webapp/src/api/client.ts",
@@ -13236,8 +13243,8 @@
       "path": "webapp/src/screens/TripChatScreen.tsx",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "d2181595af331541494dabe7c4dcf6fd990cfde95ba71d3f724d546a7308bc1c",
-      "lines": 915
+      "sha256": "8bbb6fd1274ce82c1e8fffa5699b0334abfa2d4ba16459405d6f125c1b56e39c",
+      "lines": 944
     },
     {
       "path": "webapp/src/screens/TripReceiptScreen.tsx",
@@ -13446,8 +13453,8 @@
       "path": "webapp/src/utils/outbox.ts",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "5d27cebfff231d423eac1d5fdbdc026c8a9bf8030f33f2a7bccc18bf064880ec",
-      "lines": 206
+      "sha256": "629d95ddafe11ed1f66dae7d0a90011bf1b0c9014203e94af6a406b742b00e64",
+      "lines": 216
     },
     {
       "path": "webapp/src/utils/outboxStore.ts",
@@ -13670,8 +13677,8 @@
       "path": "webapp/tests/chat-history-live-test.mjs",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "3afdf796f5b327a2a6e72c83502709aea5ec1531fe07e650e201cf16c5e995b3",
-      "lines": 261
+      "sha256": "3b9933e0e46cf40960b9d17146c5be92bc5ad3602090e71aabe20c6f9cae8926",
+      "lines": 319
     },
     {
       "path": "webapp/tests/chat-mutation-unknown-test.mjs",
@@ -13684,8 +13691,8 @@
       "path": "webapp/tests/chat-ws-ack-test.mjs",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "45da04a2ad387bc67135b9d7e723316414bf140d893ddf4ae88dd2438ac4c9b8",
-      "lines": 82
+      "sha256": "10e4b785416516c7159c7737111196248d662b349da435d862e65a100f3ed482",
+      "lines": 104
     },
     {
       "path": "webapp/tests/client-test.mjs",
@@ -13978,8 +13985,8 @@
       "path": "webapp/tests/outbox-test.mjs",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "c5eeebc6919a67c2ed0c93204489ad881dd73a5f4507441cd9333add143d7b17",
-      "lines": 107
+      "sha256": "ef59ebc342412f55e524dca49b8856c48e67c1688639dfab8c26e32da5d87b07",
+      "lines": 128
     },
     {
       "path": "webapp/tests/outbox-transient-error-test.mjs",
@@ -15990,24 +15997,22 @@
   },
   "last_partial_refresh": {
     "date": "2026-10-21",
-    "reason": "W1-E2E-20261018 live chat invalidation and confirmed voice: 16 current Android/backend/PWA sources/tests from fe92ca43; hashes are inventory, behavior evidence is bounded in audit-blocks",
+    "reason": "W1-E2E-20261018 missed own hide and lost/delayed chat acknowledgement: 14 current sources/tests; includes explicit retry after closed idle connection from 918d8e9c; inventory hashes are not blanket acceptance",
     "paths": [
-      "android/app/src/main/java/com/yuldash/app/TripChatScreen.kt",
       "android/app/src/main/java/com/yuldash/app/TripChatState.kt",
       "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "android/app/src/main/java/com/yuldash/app/data/ChatSocket.kt",
-      "android/app/src/test/java/com/yuldash/app/ActiveTripChatActionsBoundaryTest.kt",
       "android/app/src/test/java/com/yuldash/app/TripChatMutationNetworkBoundaryTest.kt",
-      "android/app/src/test/java/com/yuldash/app/data/ApiClientMoreTest.kt",
-      "android/app/src/test/java/com/yuldash/app/data/ChatSocketSessionBoundaryTest.kt",
+      "android/app/src/test/java/com/yuldash/app/data/ApiClientRideshareTransportBoundaryTest.kt",
       "backend/app/routers/chat.py",
-      "backend/tests/test_chat_mutations_live.py",
+      "backend/tests/test_chat_message_idempotency.py",
+      "backend/tests/test_chat_ws_idempotency.py",
       "webapp/src/api/chat.ts",
       "webapp/src/screens/TripChatScreen.tsx",
+      "webapp/src/utils/outbox.ts",
       "webapp/tests/chat-history-live-test.mjs",
       "webapp/tests/chat-ws-ack-test.mjs",
-      "webapp/tests/run.mjs",
-      "webapp/src/ui.css"
+      "webapp/tests/outbox-test.mjs"
     ],
     "other_hashes": "Historical; unchanged by this partial refresh"
   }

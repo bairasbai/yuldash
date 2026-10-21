@@ -29,7 +29,7 @@ def case(client, user_factory, monkeypatch):
         push_done.set()
 
     monkeypatch.setattr(chat, 'send_push', push)
-    monkeypatch.setattr(chat, 'notify_chat_message', lambda *a, **kw: events.append(('rest_live', a[1]['id'])))
+    monkeypatch.setattr(chat, 'notify_chat_message', lambda *a, **kw: events.append(('rest_live', a[1].get('id'))))
     monkeypatch.setattr(chat, 'push_notification', lambda *a, **kw: events.append(('rest_push', a[1])))
     return driver, passenger, bid, events, push_done
 
@@ -72,6 +72,23 @@ def test_ws_retry_after_reconnect_returns_original_id_without_rebroadcast(client
     assert len(rows(case)) == 1
     with Session(engine) as session:
         assert len(session.exec(select(ChatMessageRequest).where(ChatMessageRequest.booking_id == case[2])).all()) == 1
+
+
+def test_ws_hidden_retry_is_content_free_ack_only_to_sender(client, case):
+    first = rest(client, case).json()
+    assert client.delete(f'/bookings/{case[2]}/messages/{first["id"]}?scope=me', headers=case[1]['auth']).status_code == 200
+    before = list(case[3])
+    with connect(client, case) as sender, connect(client, case) as recipient:
+        auth(sender, case); auth(recipient, case, case[0])
+        receipt = send(sender)
+        assert receipt == {'type': 'hidden_ack', 'id': first['id'], 'sender_id': first['sender_id'],
+                           'request_id': 'shared-request', 'hidden_for_me': True}
+        assert case[3] == before
+        second = send(sender, key='new-after-hidden', text='new visible message')
+        assert recipient.receive_json()['id'] == second['id']
+    peer_history = client.get(f'/bookings/{case[2]}/messages', headers=case[0]['auth']).json()
+    assert next(m for m in peer_history if m['id'] == first['id'])['text'] == 'same logical message'
+    assert len(rows(case)) == 2
 
 
 @pytest.mark.parametrize('first_transport', ['ws', 'rest'])

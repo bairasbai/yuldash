@@ -27,6 +27,8 @@ export interface ChatMessage {
   timestamp?: string;
   /** Идентичность исходящей операции; подтверждаем только собственный sender_id. */
   request_id?: string;
+  /** Content-free confirmation of a committed intent hidden by this account. */
+  hidden_for_me?: boolean;
 }
 
 export function fetchMessages(
@@ -48,7 +50,16 @@ export function sendMessageRest(
   return apiPost<ChatMessage>(`/bookings/${bookingId}/messages`, {
     text,
     voice_url: voiceUrl,
-  }, { idempotencyKey: requestId, _generation: generation });
+  }, { idempotencyKey: requestId, _generation: generation }).then(message => {
+    if ("hidden_for_me" in message) {
+      const payload = getToken()?.split(".")[1];
+      let sender: number | undefined;
+      try { sender = Number(JSON.parse(atob((payload ?? "").replace(/-/g, "+").replace(/_/g, "/"))).sub); } catch { /* Unconfirmed owner. */ }
+      if (message.hidden_for_me !== true || !Number.isSafeInteger(message.id) || message.id <= 0 || !sender || message.sender_id !== sender ||
+          !requestId || message.request_id !== requestId) throw new Error("Unconfirmed hidden receipt");
+    }
+    return message;
+  });
 }
 
 /**
@@ -140,7 +151,9 @@ export function openBookingChat(
     if (!active()) { disconnected(); return; }
     let data;
     try { data = JSON.parse(ev.data); } catch { return; }
-    if (data?.type === "message") {
+    if (data?.type === "message" || data?.type === "hidden_ack") {
+      if (data.type === "hidden_ack" && (data.hidden_for_me !== true || typeof data.request_id !== "string" ||
+          !data.request_id || data.sender_id !== handlers.senderId || !Number.isSafeInteger(data.id) || data.id <= 0)) return;
       if (typeof data.request_id === "string" && data.sender_id === handlers.senderId && Number.isSafeInteger(data.id) && data.id > 0) {
         acknowledged.set(data.request_id, data as ChatMessage);
         if (acknowledged.size > 256) acknowledged.delete(acknowledged.keys().next().value!);

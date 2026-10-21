@@ -1,5 +1,5 @@
 import { ApiError, getSessionGeneration } from "../api/client";
-import { sendMessageRest } from "../api/chat";
+import { sendMessageRest, type ChatMessage } from "../api/chat";
 import { setDriverStatus, type DriverPhase } from "../api/driver";
 import { setTripStatus, type TripStatus } from "../api/family";
 import { clearActions, insertAction, listActions, removeAction } from "./outboxStore";
@@ -15,6 +15,7 @@ export interface OutboxAction {
 }
 
 const listeners = new Set<() => void>();
+const receiptListeners = new Set<(action: OutboxAction, receipt: ChatMessage) => void>();
 let snapshot: OutboxAction[] = [], snapshotSession = "", readVersion = 0, clearVersion = 0;
 let channel: BroadcastChannel | null = null;
 let listening = false;
@@ -106,9 +107,13 @@ export async function acknowledgeMessage(bookingId: number, id: string, expected
 
 async function run(a: OutboxAction): Promise<void> {
   switch (a.kind) {
-    case "message":
-      await sendMessageRest(a.bookingId, a.payload, undefined, String(a.id));
+    case "message": {
+      const receipt = await sendMessageRest(a.bookingId, a.payload, undefined, String(a.id), a.session);
+      if (receipt?.hidden_for_me === true && a.session === getSessionGeneration()) receiptListeners.forEach(listener => {
+        try { listener(a, receipt); } catch { /* A view cannot change confirmed delivery. */ }
+      });
       return;
+    }
     case "trip_status":
       await setTripStatus(a.bookingId, a.payload as TripStatus);
       return;
@@ -156,13 +161,17 @@ export async function flushOutbox(): Promise<boolean> {
   } finally { if (flushing === generation) flushing = null; }
 }
 
-export function watchOutbox(onFlushed: () => void): () => void {
+export function watchOutbox(onFlushed: () => void, onReceipt?: (bookingId: number, receipt: ChatMessage) => void): () => void {
   connect();
   const generation = getSessionGeneration();
   let stopped = false;
   let busy = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
   const active = () => !stopped && generation === getSessionGeneration();
+  const receiptListener = (action: OutboxAction, receipt: ChatMessage) => {
+    if (active() && action.session === generation) onReceipt?.(action.bookingId, receipt);
+  };
+  receiptListeners.add(receiptListener);
   const clearRetry = () => {
     if (retry !== null) clearTimeout(retry);
     retry = null;
@@ -194,6 +203,7 @@ export function watchOutbox(onFlushed: () => void): () => void {
   if (typeof document !== "undefined") document.addEventListener?.("visibilitychange", visible);
   return () => {
     stopped = true;
+    receiptListeners.delete(receiptListener);
     clearRetry();
     unsubscribe();
     window.removeEventListener("online", tryFlush);

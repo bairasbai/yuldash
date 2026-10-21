@@ -187,7 +187,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
     voiceScopeRef.current = { bookingId, myId, live: true };
   }
   const voiceScope = voiceScopeRef.current;
-  type VoiceIntent = { owner: string; bookingId: number; voiceUrl: string; key: string; scope: typeof voiceScope };
+  type VoiceIntent = { owner: string; bookingId: number; voiceUrl: string; key: string; scope: typeof voiceScope; epoch: number; attempted: boolean };
   const voiceIntent = useRef<VoiceIntent | null>(null);
   const voiceSending = useRef<VoiceIntent | null>(null);
   const [pendingVoice, setPendingVoice] = useState<VoiceIntent | null>(null);
@@ -230,7 +230,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
     running: null as Promise<ChatMessage[] | null> | null,
     controller: null as AbortController | null,
     rows: [] as ChatMessage[], hidden: new Set<number>(), suppressed: new Set<number>(),
-    authoritative: false,
+    authoritative: false, epoch: 0,
   }).current;
   const writeMessages = useCallback((rows: ChatMessage[]) => {
     if (!history.alive || ownerSession !== getSessionGeneration()) return;
@@ -280,17 +280,22 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
     return work;
   }, [bookingId, history, ownerSession, writeMessages]);
 
-  const upsert = useCallback((m: ChatMessage) => {
+  const upsert = useCallback((m: ChatMessage, stableNewVoice = false) => {
     if (!history.alive || ownerSession !== getSessionGeneration()) return;
+    if (m.hidden_for_me === true) {
+      if (m.sender_id !== myId || !Number.isSafeInteger(m.id) || m.id <= 0 || !m.request_id) return;
+      history.hidden.add(m.id); history.version++;
+      writeMessages(history.rows.filter(row => row.id !== m.id)); return;
+    }
     if (history.hidden.has(m.id) || history.suppressed.has(m.id) || history.rows.some(row => row.id === m.id)) return;
-    if (history.authoritative && Number.isSafeInteger(m.id) && m.id > 0) {
+    if ((history.authoritative || (history.epoch > 0 && !stableNewVoice)) && Number.isSafeInteger(m.id) && m.id > 0) {
       // A delayed frame/REST receipt may belong to a row hidden in another own
       // window. ACK/Outbox bookkeeping is separate; the GET alone permits display.
       void readHistory(true); return;
     }
     history.version++;
     writeMessages([...history.rows, m]);
-  }, [history, ownerSession, readHistory, writeMessages]);
+  }, [history, myId, ownerSession, readHistory, writeMessages]);
 
   /** Сервер вернул обновлённое сообщение — подменяем его на месте, не дёргая всю историю. */
   const replace = useCallback((m: ChatMessage) => {
@@ -304,6 +309,27 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   }, [history, ownerSession, readHistory, writeMessages]);
 
   const loadHistory = useCallback(() => { void readHistory(); }, [readHistory]);
+  const continuityLost = useCallback(() => {
+    if (!history.alive || ownerSession !== getSessionGeneration()) return;
+    history.epoch++;
+    void readHistory(true);
+  }, [history, ownerSession, readHistory]);
+
+  useEffect(() => {
+    let wasHidden = document.visibilityState === "hidden";
+    const visibility = () => {
+      if (document.visibilityState === "hidden") { wasHidden = true; continuityLost(); }
+      else if (wasHidden) { wasHidden = false; continuityLost(); }
+    };
+    window.addEventListener("offline", continuityLost);
+    window.addEventListener("online", continuityLost);
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      window.removeEventListener("offline", continuityLost);
+      window.removeEventListener("online", continuityLost);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, [continuityLost]);
 
   // История + WS.
   useEffect(() => {
@@ -328,8 +354,8 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
         void readHistory(true);
       },
       onOpen: () => setLive(true),
-      onClose: () => setLive(false),
-      onError: () => setLive(false),
+      onClose: () => { continuityLost(); setLive(false); },
+      onError: () => { continuityLost(); setLive(false); },
     });
     chatRef.current = chat;
     return () => {
@@ -338,7 +364,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
       chat.close();
       chatRef.current = null;
     };
-  }, [bookingId, myId, ownerSession, upsert, loadHistory, readHistory, history]);
+  }, [bookingId, myId, ownerSession, upsert, loadHistory, readHistory, history, continuityLost]);
 
   // Сеть вернулась → досылаем накопленное и забираем историю с сервера (она авторитетная).
   useEffect(() => {
@@ -347,13 +373,13 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
       if (!history.alive || ownerSession !== getSessionGeneration()) return;
       setQueued(outboxCount(bookingId));
       void readHistory(true);
-    });
+    }, (bid, receipt) => { if (bid === bookingId) upsert(receipt); });
     const unsub = subscribeOutbox(() => { if (history.alive && ownerSession === getSessionGeneration()) setQueued(outboxCount(bookingId)); });
     return () => {
       stop();
       unsub();
     };
-  }, [bookingId, history, readHistory, ownerSession]);
+  }, [bookingId, history, readHistory, ownerSession, upsert]);
 
   // Поллинг-фолбэк, когда живого WS нет.
   useEffect(() => {
@@ -539,16 +565,19 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
     // Не затираем непроверенную запись новым диктантом. Сначала — подтверждение или уход из чата.
     if (intent && intent.voiceUrl !== voiceUrl) return;
     if (!intent) {
-      intent = { owner: ownerSession, bookingId, voiceUrl, key: createOutboxId(), scope: voiceScope };
+      intent = { owner: ownerSession, bookingId, voiceUrl, key: createOutboxId(), scope: voiceScope, epoch: history.epoch, attempted: false };
       voiceIntent.current = intent; // Ключ и URL живут только в этом экране, до первого POST.
     }
     const pending = intent;
+    const firstAttempt = !pending.attempted;
+    pending.attempted = true;
     const current = () => active() && voiceIntent.current === pending;
-    const confirms = (message: ChatMessage) => Number.isInteger(message.id) && message.id > 0 &&
-      message.sender_id === myId && message.voice_url === pending.voiceUrl && !message.deleted;
+    const confirms = (message: ChatMessage) => Number.isSafeInteger(message.id) && message.id > 0 &&
+      message.sender_id === myId && (message.hidden_for_me === true
+        ? message.request_id === pending.key : message.voice_url === pending.voiceUrl && !message.deleted);
     const acknowledge = (message: ChatMessage) => {
       if (!current() || !confirms(message)) return false;
-      upsert(message);
+      upsert(message, firstAttempt && pending.epoch === history.epoch);
       voiceIntent.current = null;
       setPendingVoice(null);
       setVoiceUnknown(false);

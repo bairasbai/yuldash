@@ -60,6 +60,7 @@ class TripChatMutationNetworkBoundaryTest {
     @Volatile private var text = "initial"
     @Volatile private var deleted = false
     @Volatile private var hidden = false
+    @Volatile private var hideLedger = false
     @Volatile private var mounted = true
     @Volatile private var uploadCount = 0
     @Volatile private var failHistory = false
@@ -68,6 +69,7 @@ class TripChatMutationNetworkBoundaryTest {
     private val releaseHistory = CountDownLatch(1)
     private val socketOpened = CountDownLatch(1)
     private var serverSocket: WebSocket? = null
+    private val sentFrames = CopyOnWriteArrayList<JSONObject>()
     private val activeReads = AtomicInteger()
     private val maxReads = AtomicInteger()
     private val token = "header.eyJzdWIiOiIxMSJ9.signature"
@@ -86,6 +88,10 @@ class TripChatMutationNetworkBoundaryTest {
                             serverSocket = webSocket; socketOpened.countDown()
                         }
                         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
+                        override fun onMessage(webSocket: WebSocket, text: String) {
+                            val frame = JSONObject(text)
+                            if (frame.optString("type") == "message") sentFrames += frame
+                        }
                     })
                     if (path == "/auth/logout") return MockResponse().setBody("{}")
                     if (request.method == "GET" && path == "/bookings/42/messages") {
@@ -96,7 +102,7 @@ class TripChatMutationNetworkBoundaryTest {
                         if (!hidden) items.put(JSONObject().put("id", 1).put("sender_id", 11).put("text", text).put("deleted", deleted))
                         items.put(JSONObject().put("id", 2).put("sender_id", 22).put("text", "peer"))
                         synchronized(ledger) {
-                            ledger.values.forEachIndexed { i, value -> items.put(JSONObject(value.toString()).put("id", 100+i).put("sender_id", 11)) }
+                            if (!hideLedger) ledger.values.forEachIndexed { i, value -> items.put(JSONObject(value.toString()).put("id", 100+i).put("sender_id", 11)) }
                         }
                         val snapshot = JSONObject().put("items", items).toString()
                         if (holdHistory) {
@@ -133,11 +139,20 @@ class TripChatMutationNetworkBoundaryTest {
                         val payload = JSONObject(request.body.readUtf8())
                         if (mode == "post-refused") return MockResponse().setResponseCode(403).setBody("""{"detail":"blocked"}""")
                         synchronized(ledger) { ledger.getOrPut(key.ifBlank { "unkeyed-${keys.size}" }) { payload } }
-                        if (mode == "post-held-lost") {
+                        if (mode == "post-held-lost" || mode == "post-held") {
                             held.countDown()
                             if (!release.await(12, TimeUnit.SECONDS)) failures += "held voice message timed out"
                         }
                         val reply = JSONObject(payload.toString()).put("id", 100).put("sender_id", 11)
+                        if (mode.startsWith("hidden-receipt")) {
+                            val receipt = JSONObject().put("id", 100).put("sender_id", 11).put("request_id", key).put("hidden_for_me", true)
+                            when (mode) {
+                                "hidden-receipt-id" -> receipt.put("id", 100.5)
+                                "hidden-receipt-owner" -> receipt.put("sender_id", 22)
+                                "hidden-receipt-key" -> receipt.put("request_id", "wrong-key")
+                            }
+                            return MockResponse().setBody(receipt.toString())
+                        }
                         when (mode) {
                             "voice-bad-id" -> reply.put("id", 0)
                             "voice-bad-owner" -> reply.put("sender_id", 22)
@@ -201,6 +216,119 @@ class TripChatMutationNetworkBoundaryTest {
     private fun edit() { chat.startEdit(chat.messages.first { it.id == 1 }); chat.updateDraft("changed"); chat.submitDraft() }
     private fun voiceFile(): File = File.createTempFile("voice_", ".m4a", context.cacheDir).also {
         it.writeBytes(byteArrayOf(1, 2, 3, 4)); files += it
+    }
+
+    @Test fun missedOwnHideThenVoiceRetryAcknowledgesWithoutReappearing() {
+        mode = "post-lost"; chat.sendVoice(voiceFile().absolutePath); idle()
+        assertTrue(chat.canRetryAction)
+        hideLedger = true; chat.scope.launch { chat.loadHistory(42) }; idle()
+        mode = "hidden-receipt"; failHistory = true; chat.retryAction(); idle()
+        assertFalse("Hidden receipt was treated as failed delivery", chat.canRetryAction)
+        assertTrue(chat.visibleMessages.none { it.id == 100 })
+        assertEquals(1, uploadCount); assertEquals(2, keys.size); assertEquals(1, keys.distinct().size)
+    }
+
+    @Test fun delayedOriginalVoiceAfterConnectionLossCannotUndoMissedHide() {
+        connectLive(); mode = "post-held"; chat.sendVoice(voiceFile().absolutePath)
+        waitFor { held.count == 0L }
+        serverSocket!!.close(1000, "synthetic network boundary")
+        waitFor { !chat.wsConnected }
+        hideLedger = true; chat.scope.launch { chat.loadHistory(42) }
+        waitFor { historyCount() >= 2 }; failHistory = true; release.countDown(); idle()
+        assertTrue(chat.visibleMessages.none { it.id == 100 })
+        assertFalse(chat.canRetryAction); assertEquals(1, uploadCount); assertEquals(1, keys.size)
+    }
+
+    @Test fun malformedHiddenVoiceReceiptsKeepSameUncertainIntent() {
+        mode = "post-lost"; chat.sendVoice(voiceFile().absolutePath); idle(); hideLedger = true; failHistory = true
+        for (bad in listOf("id", "owner", "key")) {
+            mode = "hidden-receipt-$bad"; chat.retryAction(); idle()
+            assertTrue("Malformed $bad receipt consumed voice intent", chat.canRetryAction)
+            assertTrue(chat.visibleMessages.none { it.id == 100 })
+        }
+        mode = "hidden-receipt"; chat.retryAction(); idle(); assertFalse(chat.canRetryAction)
+        assertEquals(1, keys.distinct().size); assertEquals(1, uploadCount)
+    }
+
+    @Test fun malformedHiddenQueuedReceiptCannotRemoveDurableIntent() {
+        mode = "post-lost"; chat.sendText("private queued text"); idle()
+        assertEquals(1, Outbox.count(context, 42)); hideLedger = true; failHistory = true
+        for (bad in listOf("id", "owner", "key")) {
+            mode = "hidden-receipt-$bad"; chat.scope.launch { chat.flushQueued() }; idle()
+            assertEquals(1, Outbox.count(context, 42)); assertTrue(chat.messages.any { it.id < 0 })
+        }
+        mode = "hidden-receipt"; chat.scope.launch { chat.flushQueued() }; idle()
+        assertEquals(0, Outbox.count(context, 42)); assertTrue(chat.messages.none { it.id < 0 || it.id == 100 })
+    }
+
+    @Test fun backgroundQueueHiddenReceiptAlsoRemovesPreviouslyLoadedPositiveWhenGetFails() {
+        mode = "post-lost"; chat.sendText("previously loaded private"); idle()
+        chat.scope.launch { chat.loadHistory(42) }; idle()
+        assertTrue(chat.messages.any { it.id == 100 }); assertTrue(chat.messages.any { it.id < 0 })
+        hideLedger = true; failHistory = true; mode = "hidden-receipt"
+        chat.scope.launch { Outbox.flush(context, expectedGeneration = ApiClient.queueSessionGeneration()) }; idle()
+        assertEquals(0, Outbox.count(context, 42)); assertTrue(chat.messages.none { it.id < 0 || it.id == 100 })
+    }
+
+    @Test fun ownedUnknownWsAckRemovesOnlyConfirmedTempEvenWhenHistoryFails() {
+        connectLive(); changed(); waitFor { historyCount() >= 2 }; idle(); failHistory = true
+        chat.sendText("first private"); chat.sendText("second still unconfirmed")
+        waitFor { sentFrames.size == 2 }
+        val key = sentFrames[0].getString("request_id")
+        assertTrue(serverSocket!!.send(JSONObject().put("type", "message").put("id", 777)
+            .put("sender_id", 11).put("request_id", key).put("text", "first private").toString()))
+        waitFor { Outbox.count(context, 42) == 1 && chat.messages.none { it.text == "first private" } }
+        assertTrue(chat.messages.any { it.id < 0 && it.text == "second still unconfirmed" })
+        assertTrue(chat.messages.none { it.id == 777 })
+        mounted = false // Cancel the remaining send before its ordinary timeout; it is still durable.
+    }
+
+    @Test fun ownHiddenWsAckRemovesBothPendingAndKnownRowsWithoutContent() {
+        connectLive(); failHistory = true; chat.sendText("pending hidden")
+        waitFor { sentFrames.size == 1 }
+        assertTrue(serverSocket!!.send(JSONObject().put("type", "hidden_ack").put("id", 1)
+            .put("sender_id", 11).put("request_id", sentFrames.single().getString("request_id"))
+            .put("hidden_for_me", true).toString()))
+        waitFor { Outbox.count(context, 42) == 0 && chat.messages.none { it.id < 0 || it.id == 1 } }
+        assertEquals(listOf(2), chat.messages.map { it.id })
+    }
+
+    @Test fun successfulHistoryRemembersKnownHideWithoutLiveSignal() {
+        hidden = true; chat.scope.launch { chat.loadHistory(42) }; idle()
+        connectLive()
+        assertTrue(serverSocket!!.send("""{"type":"message","id":1,"sender_id":11,"text":"late hidden echo"}"""))
+        Thread.sleep(120); clock.runCurrent(); idle()
+        assertEquals(listOf(2), chat.messages.map { it.id })
+    }
+
+    @Test fun newVoiceAfterEarlierGapStillUsesStableFirstReceiptWhenHistoryFails() {
+        failHistory = true; chat.continuityLost(); idle()
+        chat.sendVoice(voiceFile().absolutePath); idle()
+        assertTrue(chat.historyError); assertEquals(1, chat.visibleMessages.count { it.voiceUrl != null })
+        assertEquals(1, keys.size); assertFalse(chat.canRetryAction)
+    }
+
+    @Test fun returnFencesVoicePostStartedWhileApplicationWasInBackground() {
+        chat.continuityLost(); idle(); mode = "post-held"; chat.sendVoice(voiceFile().absolutePath)
+        waitFor { held.count == 0L }; hideLedger = true; chat.refreshAfterReturn()
+        waitFor { historyCount() >= 3 }; failHistory = true; release.countDown(); idle()
+        assertTrue(chat.visibleMessages.none { it.id == 100 }); assertFalse(chat.canRetryAction)
+        assertEquals(1, keys.size)
+    }
+
+    @Test fun continuityEpochInvalidatesReadBeforeMainCallbackRuns() {
+        holdHistory = true; chat.scope.launch { chat.loadHistory(42) }; waitFor { historyHeld.count == 0L }
+        hidden = true; chat.continuityLost(); releaseHistory.countDown(); idle()
+        assertEquals(listOf(2), chat.messages.map { it.id }); assertEquals(1, maxReads.get())
+        assertTrue(historyCount() >= 3)
+    }
+
+    @Test fun liveSocketReplacementWithoutFalseTransitionRequiresAuthorizedUnknownRows() {
+        connectLive(); chat.socket!!.connect()
+        waitFor { historyCount() >= 2 }; idle()
+        assertTrue(serverSocket!!.send("""{"type":"message","id":777,"sender_id":22,"text":"missed hidden"}"""))
+        waitFor { historyCount() >= 3 }; idle()
+        assertTrue(chat.messages.none { it.id == 777 }); assertTrue(chat.wsConnected)
     }
 
     @Test fun confirmedVoiceRemainsVisibleWhenHistoryReadFails() {

@@ -18,6 +18,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 
 /** Actual HTTP requests, including a disconnect after the server has received the whole intent. */
 @RunWith(RobolectricTestRunner::class)
@@ -102,5 +103,31 @@ class ApiClientRideshareTransportBoundaryTest {
     @Test fun requestRedirectDoesNotForwardMutation() {
         replyCode = 307
         sentOnce { ApiClient.createRequest("Баймак", "Сибай", 1, "regular", false, "", 300) }
+    }
+
+    @Test fun explicitVoiceRetryAfterIdleConnectionClosedReachesServerOnce() = runBlocking {
+        val key = "synthetic-manual-voice-retry"
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                received += request
+                return if (received.size == 1) MockResponse().setResponseCode(503).setBody("{}")
+                    // A normal complete reply, then a server-side keep-alive close without a close header.
+                    .setSocketPolicy(SocketPolicy.DISCONNECT_AT_END)
+                else MockResponse().setBody("""{"id":91,"sender_id":11,"request_id":"$key","hidden_for_me":true}""")
+            }
+        }
+        val first = ApiClient.sendVoiceMessage(42, "/media/synthetic-voice.m4a", key)
+        assertEquals(503, (first.exceptionOrNull() as? ApiException)?.status)
+        assertEquals("The failed original request must not be resent automatically", 1, received.size)
+        // Let the server's FIN arrive, still well below OkHttp's ten-second extensive health check.
+        Thread.sleep(200)
+        val replay = ApiClient.sendVoiceMessage(42, "/media/synthetic-voice.m4a", key).getOrThrow()
+        assertTrue(replay.hiddenForMe)
+        assertEquals(91, replay.id)
+        assertEquals(2, received.size)
+        assertEquals(listOf(key, key), received.map { it.getHeader("Idempotency-Key") })
+        assertEquals(0, server.takeRequest(1, TimeUnit.SECONDS)!!.sequenceNumber)
+        assertEquals("Manual retry needs a fresh connection, not a hidden transport resend", 0,
+            server.takeRequest(1, TimeUnit.SECONDS)!!.sequenceNumber)
     }
 }

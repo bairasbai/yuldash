@@ -22,10 +22,15 @@ const fireOnline = () => (handlers.get("online") ?? []).forEach((f) => f());
 // Режим сети: "down" — до сервера не дозвонились; "ok" — принял; "reject" — отказал.
 let mode = "down";
 const sent = [];
+let hiddenKey = 'hidden-key';
 globalThis.fetch = async (url, init) => {
   if (mode === "down") throw new TypeError("Failed to fetch");
   const body = init?.body ? JSON.parse(init.body) : null;
   sent.push({ url: String(url), body });
+  if (mode === "hidden" || mode === "hidden-bad") return {
+    ok: true, status: 200, json: async () => ({ id: 91, sender_id: 7,
+      request_id: mode === "hidden-bad" ? "wrong-key" : hiddenKey, hidden_for_me: true }),
+  };
   if (mode === "reject") {
     return {
       ok: false,
@@ -92,6 +97,22 @@ await new Promise((r) => setTimeout(r, 20));
 check(ob.outboxCount(9) === 0, "сеть вернулась → ушло само", `count=${ob.outboxCount(9)}`);
 check(flushedCalls === 1, "экран получил сигнал обновить историю", `calls=${flushedCalls}`);
 stop();
+
+// Content-free confirmation must reach even a subscriber whose own flush did not send it.
+store.set('yuldash.token', 'header.' + Buffer.from(JSON.stringify({ sub: '7' })).toString('base64url') + '.signature');
+mode = 'down';
+const receipts = [];
+const stopReceipt = ob.watchOutbox(() => {}, (bid, receipt) => receipts.push({ bid, receipt }));
+await new Promise(r => setTimeout(r, 20)); // Let its empty initial drain finish before the explicit sender below.
+await ob.enqueue(9, 'message', 'private hidden', hiddenKey);
+mode = 'hidden-bad';
+await ob.flushOutbox();
+check(ob.outboxCount(9) === 1 && receipts.length === 0, 'неверное скрытое подтверждение сохраняет очередь и не меняет экран');
+mode = 'hidden';
+await ob.flushOutbox();
+check(ob.outboxCount(9) === 0 && receipts.length === 1 && receipts[0].bid === 9 && receipts[0].receipt.id === 91,
+  'подтверждённое скрытие из фоновой отправки передано открытому чату', JSON.stringify({pending:ob.outboxCount(9),receipts}));
+stopReceipt();
 
 // --- 6. Выход из аккаунта чистит чужое ---
 mode = "down";

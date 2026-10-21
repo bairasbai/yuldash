@@ -3,7 +3,7 @@
 import json
 import hashlib
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, ValidationError
@@ -30,6 +30,20 @@ from ..services import (
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["chat"])
+
+
+class HiddenMessageReceipt(BaseModel):
+    """Delivery acknowledgement only; never return hidden message content to its owner."""
+    id: int
+    sender_id: int
+    request_id: str
+    hidden_for_me: Literal[True] = True
+
+
+def _hidden_receipt(msg: Message, user_id: int, key: Optional[str]):
+    if key is not None and user_id in _hidden_ids(msg):
+        return HiddenMessageReceipt(id=msg.id, sender_id=msg.sender_id, request_id=key)
+    return None
 
 # ---- Чат такси-заказа (B7b-1) ----
 # Namespace ключей ConnectionManager: booking-чат живёт на booking_id (>0), трек-каналы — на
@@ -320,11 +334,13 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                               "chat_closed" if _booking_chat_closed(booking, ride) else "request_conflict")
                     await _reject(websocket, payload, reason=reason, status_code=error.status_code)
                     continue
-                frame = _booking_message_frame(msg, request_id)
                 if not created:
                     # Lost acknowledgement: confirm only to the retrying sender, without republish/push.
-                    await websocket.send_json(frame)
+                    hidden = _hidden_receipt(msg, sender.id, request_id)
+                    await websocket.send_json({"type": "hidden_ack", **hidden.model_dump()} if hidden
+                                              else _booking_message_frame(msg, request_id))
                     continue
+                frame = _booking_message_frame(msg, request_id)
                 await manager.broadcast(booking_id, frame)
                 await run_in_threadpool(
                     send_push, session, current_other,
@@ -760,7 +776,7 @@ def _booking_message_frame(msg: Message, request_id: Optional[str] = None) -> di
     return frame
 
 
-@router.post("/bookings/{booking_id}/messages", response_model=Message)
+@router.post("/bookings/{booking_id}/messages", response_model=Message | HiddenMessageReceipt)
 def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_user), session: Session = Depends(get_session),
                  idempotency_key: Optional[str] = Header(None, min_length=1, max_length=128)):
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
@@ -769,7 +785,7 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
         raise herr(403, "Переписка недоступна", "Яҙышыу мөмкин түгел")
     msg, created = _persist_booking_message(session, booking, ride, user, body, idempotency_key)
     if not created:
-        return msg
+        return _hidden_receipt(msg, user.id, idempotency_key) or msg
     notify_chat_message(booking_id, _booking_message_frame(msg, idempotency_key))
     # Уведомление + push другой стороне брони (кто не отправитель). REST-путь (в отличие от WS)
     # используется, когда получатель НЕ в живом сокете (голос/фото/фолбэк) — тогда запись в Центр
