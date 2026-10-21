@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
@@ -13,8 +14,25 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+
+@Composable
+internal fun rememberBookingPayAmount(ride: Ride, bookingId: Int?, seats: Int): MutableState<String> =
+    remember(ride.id, bookingId, seats) { mutableStateOf(if (ride.price > 0) (ride.price * seats).toString() else "") }
+
+internal fun canBookSeats(available: Int, selected: Int, busy: Boolean): Boolean = !busy && selected in 1..available
+
+internal fun LazyListScope.bookingSeatCountItem(ride: Ride, bookingId: Int?, selected: Int, busy: Boolean, onChange: (Int) -> Unit) {
+    if (bookingId == null) {
+        item(key = "booking-seat-count") {
+            BookingSeatCount(available = ride.seats, selected = selected, price = ride.price, enabled = !busy, onChange = onChange)
+        }
+    }
+}
 
 @Composable
 internal fun BookingSeatCount(available: Int, selected: Int, price: Int, enabled: Boolean, onChange: (Int) -> Unit) {

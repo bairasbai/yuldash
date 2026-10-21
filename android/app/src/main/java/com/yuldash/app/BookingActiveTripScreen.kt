@@ -340,9 +340,7 @@ internal fun BookingScreen(
     // Договорённость об оплате (ЗАПИСЬ, не платёж): что выбрал пассажир до брони.
     // Способ по умолчанию — «договоримся»; сумма по умолчанию — из цены поездки.
     var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
-    var payAmountText by remember(ride.id, bookingId, selectedSeats) {
-        mutableStateOf(if (ride.price > 0) (ride.price * selectedSeats).toString() else "")
-    }
+    var payAmountText by rememberBookingPayAmount(ride, bookingId, selectedSeats)
     // Едет подросток: отметка + взрослый на связи (сервер без него бронь не создаст).
     var minorPassenger by remember { mutableStateOf(false) }
     var guardianName by remember { mutableStateOf("") }
@@ -448,10 +446,7 @@ internal fun BookingScreen(
         details?.driverPlate?.takeIf { it.isNotBlank() }?.let(::add)
     }.joinToString(" · ")
     val shareTitle = appText("Позвать соседа", "Күршене саҡырырға")
-    val shareText = appText(
-        "Еду ${displayRide.from} → ${displayRide.to}, ${displayRide.timeText()}. ${displayRide.price} ₽. Поехали вместе в Юлдаше 👇\nhttps://yulbash.ru",
-        "${displayRide.from} → ${displayRide.to}, ${displayRide.timeText()}. ${displayRide.price} ₽. Әйҙә бергә — Юлдашта 👇\nhttps://yulbash.ru"
-    )
+    val shareText = bookingRideShareText(displayRide)
     // Свежие детали знают статус лучше, чем список, из которого открыли бронь.
     val normalizedBookingStatus = (details?.status?.takeIf { it.isNotBlank() } ?: bookingStatus).trim().lowercase()
     val bookingPending = bookingId != null && normalizedBookingStatus == "pending"
@@ -469,9 +464,8 @@ internal fun BookingScreen(
         canOpenActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
         else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
     }
-    val primaryEnabled = !bookingBusy && if (bookingId == null)
-        canCreateBooking && selectedSeats in 1..ride.seats && segmentReady(ride, pickupStop, dropoffStop)
-        else bookingPending || bookingCancelled || canOpenActiveTrip
+    val primaryEnabled = if (bookingId == null) canCreateBooking && canBookSeats(ride.seats, selectedSeats, bookingBusy) && segmentReady(ride, pickupStop, dropoffStop)
+        else !bookingBusy && (bookingPending || bookingCancelled || canOpenActiveTrip)
     val primaryStyle = if (bookingPending) AppButtonStyle.Danger else AppButtonStyle.Primary
     val primaryIcon = when {
         bookingPending -> Icons.Default.Close
@@ -647,17 +641,10 @@ internal fun BookingScreen(
                     },
                 )
             }
-            item {
-                BookingRouteDecisionCard(
-                    ride = displayRide,
-                    hasBooking = bookingId != null,
-                    distanceText = distanceText,
-                    fromPoint = routeFromPoint,
-                    toPoint = routeToPoint,
-                    contactUnlocked = contactUnlocked,
-                    onShare = { shareRide(context, shareText, shareTitle) },
-                )
-            }
+            bookingRouteDecisionItem(
+                displayRide, bookingId != null, distanceText, routeFromPoint, routeToPoint, contactUnlocked,
+                onShare = { shareRide(context, shareText, shareTitle) },
+            )
             routeAd?.let { ad ->
                 item {
                     PartnerAdCard(
@@ -670,14 +657,7 @@ internal fun BookingScreen(
                     )
                 }
             }
-            if (bookingId == null) {
-                item(key = "booking-seat-count") {
-                    BookingSeatCount(
-                        available = ride.seats, selected = selectedSeats, price = ride.price,
-                        enabled = !bookingBusy, onChange = onSeatsChange,
-                    )
-                }
-            }
+            bookingSeatCountItem(ride, bookingId, selectedSeats, bookingBusy, onSeatsChange)
             item {
                 BookingMeetingCard(
                     contactUnlocked = contactUnlocked,

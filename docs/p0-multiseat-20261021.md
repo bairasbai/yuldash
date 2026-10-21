@@ -23,7 +23,10 @@
 
 ## Среда и ограничения
 
-Java 21, Docker, Chromium и Playwright доступны. При исходной проверке Android SDK,
+Java 21, Docker, Chromium и Playwright доступны. Исходная Java — JRE без `javac`.
+В `/workspace/p0-jdk` установлен официальный Temurin JDK 21.0.12.1+1, проверен SHA-256
+архива `ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94`;
+`javac --version` подтвердил 21.0.12.1. При исходной проверке Android SDK,
 adb и emulator отсутствуют; `/dev/kvm` отсутствует, флагов CPU `vmx`/`svm` нет.
 Это не доказательство прохождения Android UI. Результаты сборок/тестов будут записаны
 после реального выполнения; отсутствие воспроизведения не исключает конкурентный риск.
@@ -79,10 +82,12 @@ adb и emulator отсутствуют; `/dev/kvm` отсутствует, фл�
 |---|---|
 | Прицельный SQLite | Из `backend/`: `/workspace/p0-venv/bin/python -m pytest tests/test_booking_multiseat_retry.py tests/test_last_seat_race.py tests/test_seats_invariant.py tests/test_booking_done_network_retry.py -q --tb=short` — **38 passed, 2 skipped** |
 | Прицельный PostgreSQL 16 | Та же команда с `DATABASE_URL`, направленным на отдельную свежую БД `p0_final` в собственном контейнере на `127.0.0.1:55432` — **39 passed, 1 skipped**; тестовый пароль не публикуется |
+| Полный SQLite | Из `backend/`: `/workspace/p0-venv/bin/python -m pytest tests/ -q -n4 --maxfail=25 --tb=short --junitxml=/workspace/p0-evidence/backend-full-sqlite.xml` — **6253 passed, 81 skipped**, 844.08 с |
 | Серверный линтер | Из `backend/`: `/workspace/p0-venv/bin/ruff check app/ --select F` — **All checks passed!** |
 | PWA | Из `webapp/`: `npm run check` — **123 набора прошли**; `npm run build` — **tsc + Vite успешны** |
 | Chromium UI | `python /tmp/yuldash-p0-browser.py` — **4 cases passed**: RU/BA × light/dark, 320px, fontScale 1.3; выбор 3/сумма/потеря ответа/явный повтор с тем же телом. Настоящий браузер, искусственные HTTP-ответы; это не полный backend E2E |
 | Gradle | `GRADLE_USER_HOME=/workspace/p0-gradle ./gradlew --version` — **Gradle 8.13 / Java 21**; это не Android-сборка |
+| Локальная Android-сборка | С отдельными `JAVA_HOME`, `ANDROID_USER_HOME`, `ANDROID_AVD_HOME`, `GRADLE_USER_HOME`: `./gradlew :app:assembleDebug --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g` — **не выполнена: SDK location not found**; лог `/tmp/yuldash-p0-android-build-jdk.log` |
 
 Оба SQLite-пропуска — PostgreSQL-only проверки завершения поездки. Один PG-пропуск —
 SQLite-only воспроизведение устаревшего чтения при просьбе о переднем месте.
@@ -96,7 +101,49 @@ SQLite-only воспроизведение устаревшего чтения �
 `ix_user_phone`; после создания новой БД выполнен указанный свежий успешный прогон.
 Первый последовательный полный SQLite-прогон остановлен для ускорения после
 894 passed / 9 skipped; он не считается полным успешным прогоном. Итог полного
-прогона в четырёх процессах, Android и CI будет добавлен после завершения.
+контролируемого прогона приведён выше. Предшествующий полный запуск одновременно
+с Gradle и браузером дал 6252 passed / 81 skipped и один таймаут старого GPS-теста
+`test_nan_point_at_the_stop_gives_no_badge_and_does_not_hide_a_far_one` (лимит 30 с).
+Отдельный повтор этого теста прошёл за 8.36 с; после снятия нагрузки полный набор
+также прошёл. Этот первый неуспех не скрывается успешным повтором.
+
+## Публикация, независимое ревью и CI
+
+Первый коммит: `974bc78d717ae37f9e0d5922ef77241639565cf9`.
+Draft PR: https://github.com/bairasbai/yuldash/pull/189, база PR —
+`codex/rideshare-parity-20261018`. Ветка приёмки самостоятельно продвинулась до
+`fe92ca43815facdf2e727ac0d674cecffb9568c9`; повторная проверка перед вторым коммитом
+не выявила пересечений файлов. Исходная точка нашей ветки остаётся `a867c336…`.
+PR 186/188 уже являются предками базы и повторно не переносятся. `main` при последней
+проверке — `92024467b4642ffb7db63285182079f3fd1ba588`. Слияний не выполнялось.
+
+CI первого коммита: https://github.com/bairasbai/yuldash/actions/runs/39585781282.
+Успешны Android debug/release R8 и компиляция инструментальных тестов, оба web-job,
+полный backend SQLite. При этом весь CI не зелёный:
+
+- PostgreSQL: **6321 passed, 12 skipped, 1 failed**. Старый SOS-тест
+  `test_принятый_сигнал_не_повторяют` ошибочно учитывает чужое старое уведомление.
+  То же падение воспроизведено на нетронутом `a867c336…` с отдельной свежей PostgreSQL
+  БД и диагностическим plugin, добавляющим чужой открытый SOS старше 10 минут;
+  `/tmp/yuldash-p0-baseline-sos-repro-valid.log`. Код SOS не изменялся.
+- Android unit: **4307 completed, 14 failed, 2 skipped**. Новые `BookingSeatCountTest`
+  (2) и `BookingConfirmationJourneyTest` (9) прошли. Среди падений был
+  `FileSizeRatchetTest`: собственная добавка к двум большим файлам устранена
+  выделением небольших helpers; `BookingActiveTripScreen.kt` теперь 3587 строк
+  при лимите 3587, `YuldashApp.kt` — 2785 при лимите 2788. Лимиты не повышались.
+  Ещё пять превышений уже существуют в исходной базе и не менялись этим этапом;
+  часть затрагивает занятый общий API/чат. Остальные сбои относятся к UI/чату,
+  session guard, API SOS и outbox; их происхождение не объявляется доказанно
+  исходным только потому, что соответствующие файлы не входят в diff.
+
+Повтор CI после выделения helpers требуется для проверки именно итогового Android-кода.
+Неизменившиеся backend/web результаты остаются применимыми. Актуальные статусы и SHA
+последующего коммита фиксируются в PR, чтобы отчётный push не запускал ещё один цикл CI.
+
+Независимый ревьюер нашёл и помог воспроизвести гонку повтора с передним местом;
+исправление включено. Повторное независимое ревью исправленного кода и выделения
+Android helpers не нашло конкретных новых P0/P1/P2 замечаний. Полная приёмка не
+подтверждена: остаются CI-gates, Android UI и проверка башкирских строк носителем.
 
 Установка SDK требует отдельного согласия с официальной Android SDK License Agreement
 (`https://developer.android.com/studio#terms-and-conditions`). Условия раскрыты, подтверждение

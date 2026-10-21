@@ -1405,25 +1405,9 @@ private fun YuldashAppContent() {
                             }
                         }
                     } else {
-                        val rid = displayedRide?.id?.toIntOrNull()
-                        // Демо-поездка (id не число) сюда не доходит: бронировать пример нельзя,
-                        // и молчать об этом тоже нельзя — иначе кнопка просто «не работает».
-                        if (rid == null) {
-                            Toast.makeText(
-                                context,
-                                if (language == AppLanguage.Ba)
-                                    "Был — өлгө сәфәр. Ысын сәфәрҙәр бәйләнеш ҡайтҡас күренер."
-                                else
-                                    "Это пример поездки. Настоящие появятся, когда вернётся связь.",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                        // Защита от двойного нажатия. Кнопка «Забронировать» гасла только по
-                        // bookingId, а он приходит уже ПОСЛЕ ответа сервера — то есть всё время
-                        // запроса кнопка оставалась живой. На медленной сети второй тап уходил
-                        // вторым запросом: две брони на одну поездку, два занятых места и две
-                        // договорённости об оплате. Остальные пишущие кнопки такой флаг уже имеют
-                        // (оплата, посылка, приём доставки) — эта была единственной без него.
+                        val rid = bookingRideIdOrNotify(displayedRide, context, language)
+                        // Блокируем повторное нажатие до ответа на медленной сети.
+                        // Сервер отдельно проверяет явный повтор после потерянного ответа.
                         if (rid != null && !bookingInFlight && displayedRide != null && selectedSeats in 1..displayedRide.seats && segmentReady(displayedRide, pickupStop, dropoffStop)) {
                             bookingInFlight = true
                             appScope.launch {
