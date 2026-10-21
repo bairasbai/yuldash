@@ -33,9 +33,12 @@ import com.yuldash.app.data.Outbox
 import com.yuldash.app.data.OutboxAction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
@@ -105,6 +108,14 @@ internal class TripChatState(
     var historyError: Boolean by mutableStateOf(false)
     /** bump → перезагрузить историю (кнопка «Повторить»). */
     var historyTick: Int by mutableIntStateOf(0)
+    private val historyMutex = Mutex()
+    private var historyVersion = 0L
+    private var historyPending = false
+    private var historyRefreshJob: Job? = null
+    // After an invalidation, an unknown row needs this owner's authoritative history.
+    // A delayed message/receipt alone cannot reveal a row hidden by another open login.
+    private var authoritativeHistory = false
+    private val hiddenMessageIds = mutableSetOf<Int>()
     // Черновик и режим правки живут здесь, а не в виде: ушёл в поездку и вернулся — текст на месте.
     var draft: String by mutableStateOf("")
         private set
@@ -134,7 +145,50 @@ internal class TripChatState(
      * лента заменяла список целиком, и неотправленное пропадало с экрана (приёмка 18.10.2026).
      */
     private fun applyServer(server: List<MessageDto>) {
-        messages = server + messages.filter { it.id < 0 && it.id !in acknowledged }
+        messages = server.filterNot { it.id in hiddenMessageIds } +
+            messages.filter { it.id < 0 && it.id !in acknowledged }
+    }
+
+    private fun snapshotChanged() { historyVersion++ }
+
+    private fun requestHistoryRefresh() {
+        if (!isActive() || bookingId == null) return
+        historyPending = true
+        if (historyRefreshJob?.isActive != true) historyRefreshJob = scope.launch { drainHistory(bookingId) }
+    }
+
+    private fun historyChanged() {
+        if (!isActive()) return
+        authoritativeHistory = true
+        snapshotChanged()
+        requestHistoryRefresh()
+    }
+
+    /** All readers share one pump; a signal/change during IO invalidates that snapshot. */
+    private suspend fun drainHistory(id: Int): Boolean = historyMutex.withLock {
+        if (!isActive()) return@withLock false
+        try {
+            while (historyPending && isActive()) {
+                historyPending = false
+                historyLoading = true
+                historyError = false
+                val version = historyVersion
+                // Never compare with rows that arrive after this request's server snapshot.
+                val previousIds = messages.filter { it.id > 0 }.map { it.id }.toSet()
+                val result = ApiClient.getMessages(id)
+                if (!isActive()) return@withLock false
+                if (version != historyVersion) {
+                    historyPending = true
+                    continue
+                }
+                result.onSuccess { server ->
+                    if (authoritativeHistory) hiddenMessageIds += previousIds - server.map { it.id }.toSet()
+                    applyServer(server)
+                    markBaseline(server)
+                }.onFailure { historyError = true }
+            }
+            isActive()
+        } finally { if (isActive()) historyLoading = false }
     }
 
     // ── Непрочитанные ───────────────────────────────────────────────────────────────────────
@@ -173,18 +227,19 @@ internal class TripChatState(
         ChatSocket(
             bookingId = id,
             expectedGeneration = tripSession,
+            onHistoryChanged = { scope.launch { historyChanged() } },
             onMessage = { inc ->
                 // WS-колбэк приходит с фонового потока OkHttp → правку Compose-state делаем на main
                 // (read-modify-write `messages` иначе может потерять обновление при гонке потоков).
                 scope.launch {
-                    if (!isActive()) return@launch
+                    if (!isActive() || inc.id <= 0) return@launch
                     // A repeated frame must never consume another same-text pending message.
                     val pending = restAttempts.entries.firstOrNull {
                         inc.senderId == myId && inc.requestId.isNotBlank() &&
                             Outbox.messageRequestKey(it.value) == inc.requestId
                     }
                     if (pending != null) {
-                        acknowledged += pending.key
+                        if (acknowledged.add(pending.key)) snapshotChanged()
                         failedIds = failedIds - pending.key
                         queuedIds = queuedIds - pending.key
                     }
@@ -192,9 +247,11 @@ internal class TripChatState(
                     val dto = MessageDto(inc.id, inc.text, inc.senderId, voiceUrl = inc.voiceUrl, deleted = inc.deleted,
                         edited = inc.edited, flag = inc.flag, fromAdmin = inc.fromAdmin)
                     messages = when {
+                        inc.id in hiddenMessageIds -> messages.filterNot { it.id == pending?.key }
                         inc.id > 0 && messages.any { it.id == inc.id } -> messages.filterNot { it.id == pending?.key }
-                        optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = dto }
-                        else -> messages + dto
+                        authoritativeHistory -> { snapshotChanged(); requestHistoryRefresh(); messages }
+                        optIdx >= 0 -> messages.toMutableList().also { snapshotChanged(); it[optIdx] = dto }
+                        else -> { snapshotChanged(); messages + dto }
                     }
                     if (pending != null) withContext(Dispatchers.IO) {
                         Outbox.acknowledge(context, pending.value, tripSession)
@@ -234,16 +291,9 @@ internal class TripChatState(
      * посадки → детали брони. false — экран уже не тот, цепочку дальше не ведём.
      */
     suspend fun loadHistory(id: Int): Boolean {
-        historyLoading = true
-        historyError = false
-        val historyResult = ApiClient.getMessages(id)
-        // Каждый запрос защищён отдельно, но следующий иначе захватит уже новый аккаунт.
         if (!isActive()) return false
-        historyResult
-            .onSuccess { applyServer(it); markBaseline(it) }
-            .onFailure { historyError = true }
-        historyLoading = false
-        return true
+        historyPending = true
+        return drainHistory(id)
     }
 
     /**
@@ -257,7 +307,7 @@ internal class TripChatState(
         val reconnected = wasEverConnected
         wasEverConnected = true
         if (flushQueued() || !reconnected || !isActive()) return
-        bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { if (isActive()) applyServer(it) } }
+        bookingId?.let { loadHistory(it) }
     }
 
     /**
@@ -282,7 +332,7 @@ internal class TripChatState(
         queuedIds = queuedIds - left.map { it.first }.toSet()
         failedIds = (failedIds - sent.map { it.first }.toSet()) + rejected.map { it.first }
         val queueChanged = changed || left.isNotEmpty()
-        if (queueChanged) bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { if (isActive()) applyServer(it) } }
+        if (queueChanged) { snapshotChanged(); bookingId?.let { loadHistory(it) } }
         return queueChanged
     }
 
@@ -315,12 +365,13 @@ internal class TripChatState(
                 // Same key for uncertain WS delivery, HTTP retry and startup queue flush.
                 ApiClient.sendQueuedAction(action, tripSession)
                     .onSuccess {
+                        if (isActive()) snapshotChanged()
                         acknowledged += tempId
                         withContext(Dispatchers.IO) { Outbox.acknowledge(context, action, tripSession) }
                         if (isActive()) {
                             failedIds = failedIds - tempId
                             queuedIds = queuedIds - tempId
-                            ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) }
+                            loadHistory(bid)
                         }
                     }
                     .onFailure { e ->
@@ -400,11 +451,12 @@ internal class TripChatState(
                     val result = ApiClient.editMessage(bid, eid, t)
                     if (!isActive()) return@launch
                     result.onSuccess {
+                        snapshotChanged()
                         // Confirmation is enough to show our change even if the subsequent read fails.
                         messages = messages.map { if (it.id == eid) it.copy(text = t, edited = true) else it }
                         // A person can type a newer draft while this request is on the road.
                         if (editingId == eid && editVersion == version && draft.trim() == t) { editingId = null; draft = "" }
-                        ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) }
+                        loadHistory(bid)
                     }.onFailure {
                         if (editingId == eid && editVersion == version) {
                             failedEdit = eid to version
@@ -436,9 +488,11 @@ internal class TripChatState(
                 val result = ApiClient.deleteMessage(bid, messageId, who)
                 if (!isActive()) return@launch
                 result.onSuccess {
+                    snapshotChanged()
+                    if (who == "me") { authoritativeHistory = true; hiddenMessageIds += messageId }
                     messages = if (who == "me") messages.filterNot { it.id == messageId }
                     else messages.map { if (it.id == messageId) it.copy(text = "", voiceUrl = null, deleted = true) else it }
-                    ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) }
+                    loadHistory(bid)
                 }.onFailure {
                     failedDelete = messageId to who
                     actionError = mutationFailure(it, texts.value.chatActionFail)
@@ -488,7 +542,18 @@ internal class TripChatState(
         if (!isActive()) return
         val result = ApiClient.sendVoiceMessage(bid, attempt.url, attempt.key)
         if (!isActive()) return
-        result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) } }
+        result.mapCatching { message ->
+            check(message.id > 0 && message.senderId == myId && message.voiceUrl == attempt.url && !message.deleted) {
+                "Unconfirmed voice receipt"
+            }
+            message
+        }.onSuccess { message ->
+            snapshotChanged()
+            if (message.id !in hiddenMessageIds && (!authoritativeHistory || messages.any { it.id == message.id })) {
+                if (messages.none { it.id == message.id }) messages = messages + message
+            }
+            loadHistory(bid)
+        }
             .onFailure { error ->
                 // A known rejection is not an uncertain delivery. Keep a same-key retry only
                 // when the sent message may already have been committed (including proxy 408).

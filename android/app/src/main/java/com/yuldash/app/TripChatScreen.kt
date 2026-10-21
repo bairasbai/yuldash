@@ -304,6 +304,10 @@ internal fun TripChatScreen(
             // B8-6: дисклеймер безопасности при первом открытии чата (закрывается «Понятно») — над полем,
             // чтобы его видел и тот, кто открыл длинную переписку на последнем сообщении.
             ChatSafetyDisclaimer()
+            AnimatedVisibility(visible = visible.isNotEmpty() && (chat.historyError || chat.historyLoading)) {
+                TripChatFeedState(loading = chat.historyLoading, error = chat.historyError,
+                    hasBooking = chat.bookingId != null, onRetry = chat::retryHistory, compact = true)
+            }
             AnimatedVisibility(visible = chat.canWrite() && chat.actionBusy) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
                     CircularProgressIndicator(Modifier.size(CanonSpace.lg), color = CanonGreen2)
@@ -456,9 +460,9 @@ private fun EditingStrip(onCancel: () -> Unit) {
 }
 
 @Composable
-private fun TripChatFeedState(loading: Boolean, error: Boolean, hasBooking: Boolean, onRetry: () -> Unit) {
+private fun TripChatFeedState(loading: Boolean, error: Boolean, hasBooking: Boolean, onRetry: () -> Unit, compact: Boolean = false) {
     Column(
-        Modifier.fillMaxWidth().padding(vertical = CanonSpace.xl),
+        Modifier.fillMaxWidth().padding(vertical = if (compact) CanonSpace.sm else CanonSpace.xl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
     ) {

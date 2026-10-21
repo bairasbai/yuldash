@@ -33,6 +33,7 @@ class ChatSocket(
     private val onRejected: (tempId: Int, reason: String) -> Unit = { _, _ -> },
     expectedGeneration: Long = ApiClient.queueSessionGeneration(),
     private val onRejectedDetailed: (Int, String, Int, String) -> Unit = { _, _, _, _ -> },
+    private val onHistoryChanged: () -> Unit = {},
 ) {
     data class Incoming(
         val id: Int, val senderId: Int, val text: String, val timestamp: String,
@@ -143,6 +144,8 @@ class ChatSocket(
                                         deleted = o.optBoolean("deleted"), edited = o.optBoolean("edited"),
                                         voiceUrl = o.optString("voice_url").takeIf { it.isNotBlank() },
                                     ))
+                                } else if (o.optString("type") == "history_changed") {
+                                    onHistoryChanged()
                                 } else if (o.optString("type") == "rejected") {
                                     // Rejection belongs only to this connection and login.
                                     onRejected(o.optInt("temp_id"), o.optString("reason"))

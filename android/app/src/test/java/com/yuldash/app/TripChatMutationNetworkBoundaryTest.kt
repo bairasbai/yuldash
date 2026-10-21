@@ -22,6 +22,8 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
@@ -36,6 +38,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Real TripChatState handlers, HTTP and Outbox. Synthetic ledger is not the production DB. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -60,6 +63,13 @@ class TripChatMutationNetworkBoundaryTest {
     @Volatile private var mounted = true
     @Volatile private var uploadCount = 0
     @Volatile private var failHistory = false
+    @Volatile private var holdHistory = false
+    private val historyHeld = CountDownLatch(1)
+    private val releaseHistory = CountDownLatch(1)
+    private val socketOpened = CountDownLatch(1)
+    private var serverSocket: WebSocket? = null
+    private val activeReads = AtomicInteger()
+    private val maxReads = AtomicInteger()
     private val token = "header.eyJzdWIiOiIxMSJ9.signature"
 
     @Before fun prepare() {
@@ -71,8 +81,16 @@ class TripChatMutationNetworkBoundaryTest {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val path = request.path.orEmpty()
                     requests += "${request.method} $path"
+                    if (path.startsWith("/ws/bookings/42")) return MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                        override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
+                            serverSocket = webSocket; socketOpened.countDown()
+                        }
+                        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
+                    })
                     if (path == "/auth/logout") return MockResponse().setBody("{}")
                     if (request.method == "GET" && path == "/bookings/42/messages") {
+                        val active = activeReads.incrementAndGet(); maxReads.updateAndGet { maxOf(it, active) }
+                        try {
                         if (failHistory) return MockResponse().setResponseCode(503).setBody("{}")
                         val items = JSONArray()
                         if (!hidden) items.put(JSONObject().put("id", 1).put("sender_id", 11).put("text", text).put("deleted", deleted))
@@ -80,7 +98,13 @@ class TripChatMutationNetworkBoundaryTest {
                         synchronized(ledger) {
                             ledger.values.forEachIndexed { i, value -> items.put(JSONObject(value.toString()).put("id", 100+i).put("sender_id", 11)) }
                         }
-                        return MockResponse().setBody(JSONObject().put("items", items).toString())
+                        val snapshot = JSONObject().put("items", items).toString()
+                        if (holdHistory) {
+                            holdHistory = false; historyHeld.countDown()
+                            if (!releaseHistory.await(12, TimeUnit.SECONDS)) failures += "held history timed out"
+                        }
+                        return MockResponse().setBody(snapshot)
+                        } finally { activeReads.decrementAndGet() }
                     }
                     if (path == "/bookings/42/messages/1/edit" || request.method == "DELETE") {
                         val operationMode = mode
@@ -113,7 +137,15 @@ class TripChatMutationNetworkBoundaryTest {
                             held.countDown()
                             if (!release.await(12, TimeUnit.SECONDS)) failures += "held voice message timed out"
                         }
-                        return MockResponse().setResponseCode(if (mode == "post-lost" || mode == "post-held-lost") 503 else 200).setBody("{}")
+                        val reply = JSONObject(payload.toString()).put("id", 100).put("sender_id", 11)
+                        when (mode) {
+                            "voice-bad-id" -> reply.put("id", 0)
+                            "voice-bad-owner" -> reply.put("sender_id", 22)
+                            "voice-bad-url" -> reply.put("voice_url", "https://invalid.example/other.m4a")
+                            "voice-deleted" -> reply.put("deleted", true)
+                        }
+                        return MockResponse().setResponseCode(if (mode == "post-lost" || mode == "post-held-lost") 503 else 200)
+                            .setBody(if (mode == "voice-empty") "{}" else reply.toString())
                     }
                     return MockResponse().setResponseCode(404).setBody("{}")
                 }
@@ -140,6 +172,7 @@ class TripChatMutationNetworkBoundaryTest {
 
     @After fun cleanup() {
         release.countDown()
+        releaseHistory.countDown()
         chat.socket?.close()
         chat.scope.cancel()
         waitFor { chat.scope.coroutineContext[Job]?.children?.none() != false }
@@ -169,6 +202,116 @@ class TripChatMutationNetworkBoundaryTest {
     private fun voiceFile(): File = File.createTempFile("voice_", ".m4a", context.cacheDir).also {
         it.writeBytes(byteArrayOf(1, 2, 3, 4)); files += it
     }
+
+    @Test fun confirmedVoiceRemainsVisibleWhenHistoryReadFails() {
+        failHistory = true; chat.sendVoice(voiceFile().absolutePath); idle()
+        val voice = chat.visibleMessages.singleOrNull { it.voiceUrl != null }
+        assertNotNull("Confirmed voice was lost only because the following GET failed", voice)
+        assertEquals(100, voice!!.id); assertEquals(11, voice.senderId)
+        assertEquals(1, uploadCount); assertEquals(1, keys.size)
+        assertFalse(chat.canRetryAction)
+        assertTrue(files.none { it.exists() })
+    }
+
+    private fun invalidVoiceReceipt(replyMode: String) {
+        mode = replyMode; chat.sendVoice(voiceFile().absolutePath); idle()
+        assertTrue("An invalid voice receipt must remain an uncertain same-key send", chat.canRetryAction)
+        assertTrue(chat.actionError.isNotBlank())
+        assertTrue(chat.visibleMessages.none { it.voiceUrl != null })
+        mode = "normal"; chat.retryAction(); idle()
+        assertEquals(2, keys.size); assertEquals(keys[0], keys[1]); assertEquals(1, uploadCount)
+        assertEquals(1, chat.visibleMessages.count { it.voiceUrl != null })
+    }
+    @Test fun emptyVoiceReceiptCannotConfirm() = invalidVoiceReceipt("voice-empty")
+    @Test fun foreignVoiceReceiptCannotConfirm() = invalidVoiceReceipt("voice-bad-owner")
+    @Test fun differentVoiceUrlCannotConfirm() = invalidVoiceReceipt("voice-bad-url")
+    @Test fun nonpositiveVoiceIdCannotConfirm() = invalidVoiceReceipt("voice-bad-id")
+    @Test fun deletedVoiceReceiptCannotConfirm() = invalidVoiceReceipt("voice-deleted")
+
+    private fun connectLive() {
+        chat.socket!!.connect(); waitFor { socketOpened.count == 0L && chat.wsConnected }
+    }
+    private fun historyCount() = requests.count { it == "GET /bookings/42/messages" }
+    private fun changed() { assertTrue(serverSocket!!.send("""{"type":"history_changed"}""")) }
+
+    @Test fun liveHistorySignalRefreshesExistingMessageWithoutDuplicate() {
+        connectLive(); text = "edited remotely"; changed()
+        waitFor { chat.messages.firstOrNull { it.id == 1 }?.text == "edited remotely" }
+        assertEquals(listOf(1, 2), chat.messages.map { it.id }); assertEquals(2, historyCount())
+    }
+
+    @Test fun liveSignalsDuringHeldReadCoalesceAndDiscardOldSnapshot() {
+        connectLive(); holdHistory = true; text = "old snapshot"; changed()
+        waitFor { historyHeld.count == 0L }; text = "latest snapshot"; changed(); changed()
+        // Let both signals reach the actual WebSocket callback while the first GET is held.
+        Thread.sleep(120); clock.runCurrent(); releaseHistory.countDown()
+        waitFor { chat.messages.firstOrNull { it.id == 1 }?.text == "latest snapshot" }; idle()
+        assertEquals(1, maxReads.get()); assertEquals(3, historyCount())
+    }
+
+    @Test fun historySignalFailureRetainsRowsAndExposesReadError() {
+        connectLive(); failHistory = true; changed()
+        waitFor { chat.historyError }; idle()
+        assertEquals(listOf(1, 2), chat.messages.map { it.id })
+        assertFalse(chat.canRetryAction); assertEquals(0, keys.size)
+    }
+
+    @Test fun lateUnknownFrameAfterInvalidationMustUseAuthoritativeHistory() {
+        connectLive(); changed(); waitFor { historyCount() == 2 }; idle()
+        assertTrue(serverSocket!!.send("""{"type":"message","id":777,"sender_id":22,"text":"hidden unseen row"}"""))
+        waitFor { historyCount() == 3 }; idle()
+        assertTrue(chat.messages.none { it.id == 777 })
+        assertEquals(listOf(1, 2), chat.messages.map { it.id })
+    }
+
+    @Test fun duplicateFrameCannotUndoAuthoritativeEdit() {
+        connectLive(); text = "current edit"; changed()
+        waitFor { chat.messages.firstOrNull { it.id == 1 }?.text == "current edit" }; idle()
+        assertTrue(serverSocket!!.send("""{"type":"message","id":1,"sender_id":11,"text":"old echo"}"""))
+        Thread.sleep(120); clock.runCurrent(); idle()
+        assertEquals("current edit", chat.messages.first { it.id == 1 }.text)
+        assertEquals(2, historyCount())
+    }
+
+    @Test fun localHideFiltersLateFrameAndSubsequentHistory() {
+        connectLive(); chat.delete(1, "me"); idle()
+        assertTrue(chat.messages.none { it.id == 1 })
+        assertTrue(serverSocket!!.send("""{"type":"message","id":1,"sender_id":11,"text":"late hidden echo"}"""))
+        Thread.sleep(120); clock.runCurrent(); chat.scope.launch { chat.loadHistory(42) }; idle()
+        assertEquals(listOf(2), chat.messages.map { it.id })
+    }
+
+    @Test fun voiceReceiptAfterInvalidationCannotRevealUnknownRowWhenHistoryFails() {
+        connectLive(); changed(); waitFor { historyCount() == 2 }; idle()
+        failHistory = true; chat.sendVoice(voiceFile().absolutePath); idle()
+        assertTrue(chat.historyError); assertFalse(chat.canRetryAction)
+        assertTrue(chat.messages.none { it.voiceUrl != null })
+        failHistory = false; chat.scope.launch { chat.loadHistory(42) }; idle()
+        assertEquals(1, chat.messages.count { it.voiceUrl != null })
+        assertEquals(1, uploadCount); assertEquals(1, keys.size)
+    }
+
+    @Test fun oldReadCannotEraseConfirmedVoiceEvenWhenFollowingReadFails() {
+        holdHistory = true; chat.scope.launch { chat.loadHistory(42) }
+        waitFor { historyHeld.count == 0L }
+        chat.sendVoice(voiceFile().absolutePath)
+        waitFor { chat.messages.any { it.id == 100 && it.voiceUrl != null } }
+        failHistory = true; releaseHistory.countDown(); idle()
+        assertTrue(chat.historyError)
+        assertEquals(1, chat.messages.count { it.id == 100 && it.voiceUrl != null })
+        assertEquals(1, maxReads.get()); assertEquals(1, uploadCount); assertEquals(1, keys.size)
+    }
+
+    private fun lateHistoryBoundary(ownerChange: Boolean) {
+        connectLive(); holdHistory = true; text = "private late change"; changed()
+        waitFor { historyHeld.count == 0L }
+        if (ownerChange) ApiClient.saveToken("header.eyJzdWIiOiIzMyJ9.signature") else mounted = false
+        releaseHistory.countDown(); idle()
+        assertEquals("initial", chat.messages.first { it.id == 1 }.text)
+        assertFalse(chat.historyError)
+    }
+    @Test fun historyInvalidationAfterOwnerChangeCannotApply() = lateHistoryBoundary(true)
+    @Test fun historyInvalidationAfterUnmountCannotApply() = lateHistoryBoundary(false)
 
     @Test fun editNotSavedKeepsDraftAndEditingModeForExplicitRetry() {
         mode = "before"; edit(); idle()

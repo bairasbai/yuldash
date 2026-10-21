@@ -1727,9 +1727,9 @@ object ApiClient {
     suspend fun uploadVoice(bytes: ByteArray): Result<String> =
         callMultipart("/voice", bytes, "m4a", "voice.m4a").map { it.optString("url") }
 
-    suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String, requestKey: String? = null): Result<Unit> =
+    suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String, requestKey: String? = null): Result<MessageDto> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true,
-            idempotencyKey = requestKey, singleAttemptMutation = true).map { }
+            idempotencyKey = requestKey, singleAttemptMutation = true).mapCatching { parseMessageDto(it) }
 
     // Фото в чате: загрузить (multipart) → публичный URL, затем отправить как сообщение с меткой [img].
     suspend fun uploadChatPhoto(bytes: ByteArray, ext: String = "jpg"): Result<String> =

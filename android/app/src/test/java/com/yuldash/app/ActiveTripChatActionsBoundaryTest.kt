@@ -162,8 +162,13 @@ class ActiveTripChatActionsBoundaryTest {
                             if (!releaseAction.await(45, TimeUnit.SECONDS)) fixtureFailures += "Action release timeout: $path"
                         }
                         val code = if (path == heldPath && !(refreshUploads && bearer == "Bearer $tokenA2")) heldCode else 200
-                        return MockResponse().setResponseCode(code).setBody(if (code == 200 && path in listOf("/voice", "/upload/chat-photo"))
-                            """{"url":"https://yulbash.ru/audit-media"}""" else "{}")
+                        val reply = if (code == 200 && path in listOf("/voice", "/upload/chat-photo"))
+                            """{"url":"https://yulbash.ru/audit-media"}"""
+                        else if (code == 200 && request.method == "POST" && path == "/bookings/42/messages" &&
+                            JSONObject(bodies.last().second).has("voice_url"))
+                            """{"id":88,"sender_id":11,"text":"","voice_url":"https://yulbash.ru/audit-media"}"""
+                        else "{}"
+                        return MockResponse().setResponseCode(code).setBody(reply)
                     }
                     if (request.method == "POST" && path.matches(Regex("/bookings/[0-9]+/messages"))) {
                         postKeys += request.getHeader("Idempotency-Key")
@@ -631,6 +636,23 @@ class ActiveTripChatActionsBoundaryTest {
         assertEquals("A stale picker result was decoded during busy", 0, photoReads.get())
         assertFalse(requests.any { it.first == "POST /upload/chat-photo" || it.first == "POST /bookings/42/messages" })
         releaseAction.countDown(); awaitAction()
+    }
+
+    @Test fun historyRefreshFailureWithMessagesOffersGetOnlyRetry() {
+        val cb = mount()
+        holdNextHistory = true; historyCode = 503
+        assertTrue(sockets.single().send("""{"type":"history_changed"}"""))
+        waitFor { historyHeld.count == 0L }; releaseHistory.countDown()
+        waitFor { cb.chat.historyError && !cb.chat.historyLoading }
+        compose.onNodeWithText("Не удалось загрузить чат").assertIsDisplayed()
+        tripList().performScrollToNode(hasText("initial-history"))
+        compose.onNodeWithText("initial-history").assertIsDisplayed()
+        val reads = historyCount(); val writes = messagePosts()
+        holdNextHistory = false; historyCode = 200
+        compose.onNodeWithText("Повторить").performClick()
+        waitFor { historyCount() > reads && !cb.chat.historyError && !cb.chat.historyLoading }
+        assertEquals(reads + 1, historyCount()); assertEquals(writes, messagePosts())
+        assertFalse(requests.any { it.first == "POST /voice" })
     }
 
     @Test fun recordingSurvivesBusyDeleteAndCanBeSentAfterConfirmation() {

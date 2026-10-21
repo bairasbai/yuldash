@@ -108,6 +108,8 @@ export function openBookingChat(
   handlers: {
     senderId: number;
     onMessage: (m: ChatMessage) => void;
+    /** Content-free invalidation: the caller rereads only its authorized history. */
+    onHistoryChanged?: () => void;
     onAcknowledged?: (m: ChatMessage) => void;
     onOpen?: () => void;
     onClose?: () => void;
@@ -146,6 +148,8 @@ export function openBookingChat(
         handlers.onAcknowledged?.(data as ChatMessage);
       }
       handlers.onMessage(data as ChatMessage);
+    } else if (data?.type === "history_changed") {
+      handlers.onHistoryChanged?.();
     } else if (data?.type === "rejected" && typeof data.request_id === "string") {
       const status = Number.isInteger(data.status_code) ? data.status_code : 503;
       finish(data.request_id, null, new ApiError(status, String(data.reason ?? "message rejected")));

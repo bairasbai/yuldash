@@ -838,6 +838,9 @@ def edit_message(booking_id: int, message_id: int, body: MessageEditIn,
     session.add(msg)
     session.commit()
     session.refresh(msg)
+    # Only invalidate: each participant rereads their own filtered history. No text,
+    # message id or hidden-user metadata is disclosed to another open chat.
+    notify_chat_message(booking_id, {"type": "history_changed"})
     return msg
 
 
@@ -862,6 +865,8 @@ def delete_message(booking_id: int, message_id: int, scope: str = "all",
     session.add(msg)
     session.commit()
     session.refresh(msg)
+    # The same content-free signal is safe for "me": the peer's GET is unchanged.
+    notify_chat_message(booking_id, {"type": "history_changed"})
     return msg
 
 

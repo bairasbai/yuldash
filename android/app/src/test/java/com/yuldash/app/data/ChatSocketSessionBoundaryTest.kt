@@ -33,6 +33,7 @@ class ChatSocketSessionBoundaryTest {
     private val outgoing = LinkedBlockingQueue<String>()
     private val rejected = LinkedBlockingQueue<Int>()
     private val connected = LinkedBlockingQueue<Boolean>()
+    private val invalidations = LinkedBlockingQueue<Boolean>()
     private lateinit var chat: ChatSocket
 
     @Before fun prepare() {
@@ -59,7 +60,8 @@ class ChatSocketSessionBoundaryTest {
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.saveToken("local-session-A")
         chat = ChatSocket(42, onMessage = { incoming.offer(it) },
-            onConnected = { connected.offer(it) }, onRejected = { id, _ -> rejected.offer(id) })
+            onConnected = { connected.offer(it) }, onRejected = { id, _ -> rejected.offer(id) },
+            onHistoryChanged = { invalidations.offer(true) })
         chat.connect()
         assertEquals("local-session-A", auth.poll(5, TimeUnit.SECONDS))
         assertEquals(true, connected.poll(5, TimeUnit.SECONDS))
@@ -75,6 +77,23 @@ class ChatSocketSessionBoundaryTest {
 
     private fun frame(id: Int, text: String) =
         """{"type":"message","id":$id,"sender_id":22,"text":"$text","timestamp":"2026-10-07T09:00:00Z"}"""
+
+    @Test fun currentSessionReceivesContentFreeHistorySignal() {
+        assertTrue(sockets.single().send("""{"type":"history_changed"}"""))
+        assertEquals(true, invalidations.poll(5, TimeUnit.SECONDS))
+        assertNull(incoming.poll(120, TimeUnit.MILLISECONDS))
+    }
+
+    @Test fun replacedOwnerCannotReceiveHistorySignal() {
+        ApiClient.saveToken("local-session-B")
+        sockets.single().send("""{"type":"history_changed"}""")
+        assertNull(invalidations.poll(250, TimeUnit.MILLISECONDS))
+    }
+
+    @Test fun closedSocketCannotReceiveHistorySignal() {
+        chat.close(); sockets.single().send("""{"type":"history_changed"}""")
+        assertNull(invalidations.poll(250, TimeUnit.MILLISECONDS))
+    }
 
     @Test fun currentSessionReceivesAndSendsNormally() {
         assertTrue(sockets.first().send(frame(1, "current")))

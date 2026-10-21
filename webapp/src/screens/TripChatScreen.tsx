@@ -209,6 +209,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   const [live, setLive] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [historyRefreshing, setHistoryRefreshing] = useState(false);
   const chatRef = useRef<ReturnType<typeof openBookingChat> | null>(null);
 
   /** Правка/удаление: id сообщения, которое сейчас в работе. */
@@ -222,43 +223,95 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   /** Вложение (голосовое или фото) не ушло — говорим об этом человеку. */
   const [attachNote, setAttachNote] = useState("");
 
+  // All history reads share one pump. A newer signal/receipt invalidates the held
+  // snapshot; only an accepted read may suppress rows absent from its start baseline.
+  const history = useRef({
+    alive: true, lifetime: 0, version: 0, busy: false,
+    running: null as Promise<ChatMessage[] | null> | null,
+    controller: null as AbortController | null,
+    rows: [] as ChatMessage[], hidden: new Set<number>(), suppressed: new Set<number>(),
+    authoritative: false,
+  }).current;
+  const writeMessages = useCallback((rows: ChatMessage[]) => {
+    if (!history.alive || ownerSession !== getSessionGeneration()) return;
+    history.rows = rows;
+    setMessages(rows);
+  }, [history, ownerSession]);
+
+  const readHistory = useCallback((invalidate = false): Promise<ChatMessage[] | null> => {
+    if (!bookingId || !history.alive || ownerSession !== getSessionGeneration()) return Promise.resolve(null);
+    // Empty polling/retry triggers join the current read. Only an actual change
+    // can supersede its snapshot; otherwise a slow GET would starve every 7s.
+    if (invalidate) history.version++;
+    if (history.busy) return history.running ?? Promise.resolve(null);
+    history.busy = true; // Commit synchronously before the adapter can yield/reenter.
+    setHistoryRefreshing(true);
+    const active = () => history.alive && ownerSession === getSessionGeneration();
+    const work = (async (): Promise<ChatMessage[] | null> => {
+      try {
+        while (active()) {
+          const version = history.version, lifetime = history.lifetime;
+          const baseline = new Set(history.rows.filter(row => row.id > 0).map(row => row.id));
+          const controller = new AbortController(); history.controller = controller;
+          try {
+            const list = await fetchMessages(bookingId, controller.signal);
+            if (!active()) return null;
+            if (version !== history.version || lifetime !== history.lifetime) continue;
+            const present = new Set(list.map(row => row.id));
+            for (const id of baseline) if (!present.has(id)) history.suppressed.add(id);
+            const visible = list.filter(row => !history.hidden.has(row.id) && !history.suppressed.has(row.id));
+            writeMessages(visible); setLoadError(false); setLoaded(true);
+            return visible;
+          } catch {
+            if (!active()) return null;
+            if (version !== history.version || lifetime !== history.lifetime) continue;
+            setLoadError(true); setLoaded(true); return null;
+          } finally {
+            if (history.controller === controller) history.controller = null;
+          }
+        }
+        return null;
+      } finally {
+        history.busy = false; history.running = null;
+        if (active()) setHistoryRefreshing(false);
+      }
+    })();
+    history.running = work;
+    return work;
+  }, [bookingId, history, ownerSession, writeMessages]);
+
   const upsert = useCallback((m: ChatMessage) => {
-    if (ownerSession !== getSessionGeneration()) return;
-    setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-  }, []);
+    if (!history.alive || ownerSession !== getSessionGeneration()) return;
+    if (history.hidden.has(m.id) || history.suppressed.has(m.id) || history.rows.some(row => row.id === m.id)) return;
+    if (history.authoritative && Number.isSafeInteger(m.id) && m.id > 0) {
+      // A delayed frame/REST receipt may belong to a row hidden in another own
+      // window. ACK/Outbox bookkeeping is separate; the GET alone permits display.
+      void readHistory(true); return;
+    }
+    history.version++;
+    writeMessages([...history.rows, m]);
+  }, [history, ownerSession, readHistory, writeMessages]);
 
   /** Сервер вернул обновлённое сообщение — подменяем его на месте, не дёргая всю историю. */
   const replace = useCallback((m: ChatMessage) => {
-    setMessages((prev) => prev.map((x) => (x.id === m.id ? m : x)));
-  }, []);
+    if (!history.alive || ownerSession !== getSessionGeneration()) return;
+    history.version++;
+    if (history.hidden.has(m.id) || history.suppressed.has(m.id)) return;
+    // A successful mutation confirms a known visible row even if the following
+    // GET fails. Unknown/hidden rows still require authoritative admission.
+    writeMessages(history.rows.map(row => row.id === m.id && !(row.deleted && !m.deleted) ? m : row));
+    if (history.authoritative) void readHistory();
+  }, [history, ownerSession, readHistory, writeMessages]);
 
-  const loadHistory = useCallback(() => {
-    if (!bookingId || ownerSession !== getSessionGeneration()) return () => {};
-    let alive = true;
-    setLoadError(false);
-    fetchMessages(bookingId)
-      .then((list) => {
-        if (!alive || ownerSession !== getSessionGeneration()) return;
-        setMessages(list);
-        setLoaded(true);
-      })
-      .catch(() => {
-        if (!alive || ownerSession !== getSessionGeneration()) return;
-        setLoadError(true);
-        setLoaded(true);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [bookingId, ownerSession]);
+  const loadHistory = useCallback(() => { void readHistory(); }, [readHistory]);
 
   // История + WS.
   useEffect(() => {
     if (!bookingId || ownerSession !== getSessionGeneration()) return;
-    setMessages([]);
+    history.alive = true; history.lifetime++;
     setLoaded(false);
     setLive(false);
-    const stopHistory = loadHistory();
+    loadHistory();
     const chat = openBookingChat(bookingId, {
       senderId: myId,
       onAcknowledged: (message) => {
@@ -269,53 +322,47 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
         void acknowledgeMessage(bookingId, message.request_id, ownerSession).catch(() => {});
       },
       onMessage: upsert,
+      onHistoryChanged: () => {
+        if (!history.alive || ownerSession !== getSessionGeneration()) return;
+        history.authoritative = true;
+        void readHistory(true);
+      },
       onOpen: () => setLive(true),
       onClose: () => setLive(false),
       onError: () => setLive(false),
     });
     chatRef.current = chat;
     return () => {
-      stopHistory();
+      history.alive = false; history.lifetime++; history.version++;
+      history.controller?.abort();
       chat.close();
       chatRef.current = null;
     };
-  }, [bookingId, myId, ownerSession, upsert, loadHistory]);
+  }, [bookingId, myId, ownerSession, upsert, loadHistory, readHistory, history]);
 
   // Сеть вернулась → досылаем накопленное и забираем историю с сервера (она авторитетная).
   useEffect(() => {
     if (!bookingId || ownerSession !== getSessionGeneration()) return;
     const stop = watchOutbox(() => {
-      if (ownerSession !== getSessionGeneration()) return;
+      if (!history.alive || ownerSession !== getSessionGeneration()) return;
       setQueued(outboxCount(bookingId));
-      fetchMessages(bookingId)
-        .then((list) => {
-          if (ownerSession !== getSessionGeneration()) return;
-          setMessages(list);
-          setLoadError(false);
-        })
-        .catch(() => {});
+      void readHistory(true);
     });
-    const unsub = subscribeOutbox(() => { if (ownerSession === getSessionGeneration()) setQueued(outboxCount(bookingId)); });
+    const unsub = subscribeOutbox(() => { if (history.alive && ownerSession === getSessionGeneration()) setQueued(outboxCount(bookingId)); });
     return () => {
       stop();
       unsub();
     };
-  }, [bookingId]);
+  }, [bookingId, history, readHistory, ownerSession]);
 
   // Поллинг-фолбэк, когда живого WS нет.
   useEffect(() => {
     if (live || !loaded || ownerSession !== getSessionGeneration()) return;
     const iv = window.setInterval(() => {
-      fetchMessages(bookingId)
-        .then((list) => {
-          if (ownerSession !== getSessionGeneration()) return;
-          setMessages(list);
-          setLoadError(false);
-        })
-        .catch(() => {});
+      loadHistory();
     }, 7000);
     return () => window.clearInterval(iv);
-  }, [live, loaded, bookingId]);
+  }, [live, loaded, bookingId, loadHistory, ownerSession]);
 
   // «Соединение восстанавливается»: показываем, если живой канал молчит дольше пары секунд
   // (пока сокет только подключается — не пугаем).
@@ -526,9 +573,9 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
         "Тауыштың ебәрелеүен раҫлап булманы. Селтәрҙе тикшереп, ҡабат ебәр.",
       ));
       try {
-        const history = await fetchMessages(pending.bookingId);
+        const history = await readHistory(true);
         if (!current()) return;
-        const confirmed = history.find(confirms);
+        const confirmed = history?.find(confirms);
         if (confirmed) acknowledge(confirmed);
       } catch { /* Нет подтверждённой истории — исходная запись и ключ ждут ручного повтора. */ }
     } finally {
@@ -541,6 +588,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
 
   /** Сохранить правку своего сообщения. Пустой текст = отмена, а не «стереть текст». */
   async function saveEdit(msgId: number) {
+    if (!history.alive || ownerSession !== getSessionGeneration()) return;
     const t = editText.trim();
     if (!t || busyId) {
       setEditId(null);
@@ -548,39 +596,49 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
     }
     setBusyId(msgId);
     setAttachNote("");
+    history.version++;
     try {
-      replace(await editMessage(bookingId, msgId, t));
+      const edited = await editMessage(bookingId, msgId, t);
+      if (!history.alive || ownerSession !== getSessionGeneration()) return;
+      replace(edited);
       setEditId(null);
     } catch {
+      if (!history.alive || ownerSession !== getSessionGeneration()) return;
       // Поле остаётся открытым. Ответ мог потеряться уже после сохранения —
       // результат неизвестен, текст можно явно отправить ещё раз.
       setAttachNote(
         appText("Не удалось подтвердить изменение. Проверь связь и повтори.", "Үҙгәртеүҙе раҫлап булманы. Бәйләнеште тикшереп ҡабатла.")
       );
     } finally {
-      setBusyId(null);
+      if (history.alive && ownerSession === getSessionGeneration()) setBusyId(null);
     }
   }
 
   /** Удалить: у всех (только своё) или скрыть у себя. */
   async function removeMessage(msgId: number, scope: "all" | "me") {
-    if (busyId) return;
+    if (busyId || !history.alive || ownerSession !== getSessionGeneration()) return;
     setMenuId(null);
     setBusyId(msgId);
     setAttachNote("");
+    history.version++;
     try {
       const m = await deleteMessage(bookingId, msgId, scope);
+      if (!history.alive || ownerSession !== getSessionGeneration()) return;
       // «У себя» сервер не возвращает пустой текст — просто убираем из своего списка.
-      if (scope === "me") setMessages((prev) => prev.filter((x) => x.id !== msgId));
-      else replace(m);
+      if (scope === "me") {
+        history.authoritative = true; history.hidden.add(msgId); history.version++;
+        writeMessages(history.rows.filter(row => row.id !== msgId));
+        void readHistory();
+      } else replace(m);
     } catch {
+      if (!history.alive || ownerSession !== getSessionGeneration()) return;
       // Сообщение осталось на месте — но человек нажал «удалить» и ждёт,
       // что оно исчезнет. Молчание он прочитает как «кнопка не работает».
       setAttachNote(
         appText("Не удалось подтвердить удаление. Проверь связь и повтори.", "Юйыуҙы раҫлап булманы. Бәйләнеште тикшереп ҡабатла.")
       );
     } finally {
-      setBusyId(null);
+      if (history.alive && ownerSession === getSessionGeneration()) setBusyId(null);
     }
   }
 
@@ -791,6 +849,19 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
       <div className="tchat__foot">
         <div className="tchat__foot-in">
           <ChatSafetyDisclaimer />
+          {loaded && loadError && messages.length > 0 && (
+            <div className="chat__queued tchat__strip" role="alert">
+              <p>{appText("Не удалось обновить чат. Проверь связь и повтори.", "Чатты яңыртып булманы. Бәйләнеште тикшереп ҡабатла.")}</p>
+              <button type="button" className="btn-soft tchat__retry" disabled={historyRefreshing} onClick={loadHistory}>
+                {appText("Повторить", "Ҡабатлау")}
+              </button>
+            </div>
+          )}
+          {loaded && historyRefreshing && (
+            <div className="chat__queued tchat__strip" role="status">
+              {appText("Обновляем переписку…", "Яҙышыуҙы яңыртабыҙ…")}
+            </div>
+          )}
           {reconnecting && (
             <div className="chat__queued tchat__strip" role="status">
               {appText("Соединение восстанавливается…", "Бәйләнеш тергеҙелә…")}

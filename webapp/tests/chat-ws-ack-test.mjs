@@ -12,7 +12,7 @@ const api = await import('data:text/javascript;base64,'+Buffer.from(outputFiles[
 const realTimeout=globalThis.setTimeout,realClear=globalThis.clearTimeout;
 let serial=0,passed=0,failed=0;
 function environment(){
- const f=globalThis.wsFixture={generation:'A',token:'fixture-token',timers:new Map(),frames:[],acknowledged:[],messages:[],sockets:[]};
+ const f=globalThis.wsFixture={generation:'A',token:'fixture-token',timers:new Map(),frames:[],acknowledged:[],messages:[],sockets:[],historyChanges:0};
  globalThis.setTimeout=(fn,ms)=>{const id=++serial;f.timers.set(id,{fn,ms});return id;};globalThis.clearTimeout=id=>f.timers.delete(id);
  globalThis.WebSocket=class {
   static OPEN=1;
@@ -23,7 +23,7 @@ function environment(){
   emit(data){this.onmessage?.({data:JSON.stringify(data)});}
   close(){this.readyState=3;this.onclose?.();}
  };
- const chat=api.openBookingChat(42,{senderId:7,onMessage:m=>f.messages.push(m),onAcknowledged:m=>f.acknowledged.push(m)});
+ const chat=api.openBookingChat(42,{senderId:7,onMessage:m=>f.messages.push(m),onAcknowledged:m=>f.acknowledged.push(m),onHistoryChanged:()=>f.historyChanges++});
  const socket=f.sockets[0];f.chat=chat;f.socket=socket;
  f.ack=(key,id=10,sender=7,text='same')=>socket.emit({type:'message',id,sender_id:sender,text,request_id:key});
  f.tick=()=>{for(const [id,t]of [...f.timers]){assert.equal(t.ms,5000);f.timers.delete(id);t.fn();}};
@@ -66,6 +66,17 @@ try{
  await check('separate identical words have distinct intents with out-of-order confirmation',async f=>{
   f.socket.open();const a=f.chat.send('same','a'),b=f.chat.send('same','b');f.ack('b',12);f.ack('a',11);
   assert.equal((await a).id,11);assert.equal((await b).id,12);assert.equal(f.acknowledged.length,2);
+ });
+ await check('history invalidation is separate from message delivery and cannot confirm a pending send',async f=>{
+  f.socket.open();let resolved=false;const pending=f.chat.send('same','pending').then(m=>{resolved=true;return m;});
+  f.socket.emit({type:'history_changed',id:900,sender_id:7,text:'not a message',request_id:'pending'});
+  await Promise.resolve();assert.equal(f.historyChanges,1);assert.equal(resolved,false);
+  assert.equal(f.messages.length,0);assert.equal(f.acknowledged.length,0);assert.equal(f.timers.size,1);
+  f.ack('pending');assert.equal((await pending).id,10);
+ });
+ await check('closed or replaced owner ignores retained history invalidation callbacks',async f=>{
+  f.socket.open();const retained=f.socket.onmessage;f.generation='B';retained({data:JSON.stringify({type:'history_changed'})});
+  assert.equal(f.historyChanges,0);f.chat.close();retained({data:JSON.stringify({type:'history_changed'})});assert.equal(f.historyChanges,0);
  });
 }finally{globalThis.setTimeout=realTimeout;globalThis.clearTimeout=realClear;}
 console.log(`Booking WS ACK cases: ${passed} passed, ${failed} failed`);if(failed)process.exitCode=1;
