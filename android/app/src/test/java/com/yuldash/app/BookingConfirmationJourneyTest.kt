@@ -261,6 +261,27 @@ class BookingConfirmationJourneyTest {
         assertEquals(JSONObject(bookingBodies[0]).toString(), JSONObject(bookingBodies[1]).toString())
     }
 
+    @Test fun multiseatSelectionSendsTotalAndKeepsPayloadOnRetry() {
+        rejectBookingOnce = true
+        mount()
+        choosePublicRide()
+        compose.onNodeWithText("Количество мест").performScrollTo()
+        repeat(2) { compose.onNodeWithContentDescription("Больше мест").performClick() }
+        compose.onNodeWithText("Итого: 2 250 ₽").assertExists()
+        compose.onNodeWithText("Забронировать место").performClick()
+        compose.waitUntil(15000) {
+            settle()
+            org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == "Тестовый временный отказ брони"
+        }
+        compose.onNodeWithText("Забронировать место").performClick()
+        compose.waitUntil(15000) { vm.activeBookingId.value == 42 }
+        assertEquals(2, bookingBodies.size)
+        val first = JSONObject(bookingBodies[0])
+        assertEquals(3, first.getInt("seats"))
+        assertEquals(2250, first.getInt("pay_amount"))
+        assertEquals(first.toString(), JSONObject(bookingBodies[1]).toString())
+    }
+
     @Test fun knownBookingWaitsForSummaryInsteadOfGoingBack() = checkMissingSummary(42, 0)
 
     @Test fun missingRideWithoutBookingStillGoesBack() = checkMissingSummary(null, 1)

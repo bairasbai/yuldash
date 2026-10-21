@@ -312,6 +312,7 @@ internal fun BookingScreen(
     onFindAnotherRide: () -> Unit = {}, frontSeat: Boolean = false, onFrontSeatChange: (Boolean) -> Unit = {},   // + «хочу переднее» (SeatOptions.kt)
     pickupStop: String? = ride?.let(::initialPickupStop), onPickupStopChange: (String) -> Unit = {},
     dropoffStop: String? = ride?.let(::initialDropoffStop), onDropoffStopChange: (String) -> Unit = {},
+    selectedSeats: Int = 1, onSeatsChange: (Int) -> Unit = {}, bookingBusy: Boolean = false,
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
     // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
@@ -339,7 +340,9 @@ internal fun BookingScreen(
     // Договорённость об оплате (ЗАПИСЬ, не платёж): что выбрал пассажир до брони.
     // Способ по умолчанию — «договоримся»; сумма по умолчанию — из цены поездки.
     var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
-    var payAmountText by remember(bookingId) { mutableStateOf(if (ride.price > 0) ride.price.toString() else "") }
+    var payAmountText by remember(ride.id, bookingId, selectedSeats) {
+        mutableStateOf(if (ride.price > 0) (ride.price * selectedSeats).toString() else "")
+    }
     // Едет подросток: отметка + взрослый на связи (сервер без него бронь не создаст).
     var minorPassenger by remember { mutableStateOf(false) }
     var guardianName by remember { mutableStateOf("") }
@@ -466,7 +469,8 @@ internal fun BookingScreen(
         canOpenActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
         else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
     }
-    val primaryEnabled = if (bookingId == null) canCreateBooking && segmentReady(ride, pickupStop, dropoffStop)
+    val primaryEnabled = !bookingBusy && if (bookingId == null)
+        canCreateBooking && selectedSeats in 1..ride.seats && segmentReady(ride, pickupStop, dropoffStop)
         else bookingPending || bookingCancelled || canOpenActiveTrip
     val primaryStyle = if (bookingPending) AppButtonStyle.Danger else AppButtonStyle.Primary
     val primaryIcon = when {
@@ -519,7 +523,7 @@ internal fun BookingScreen(
                 primaryIcon = primaryIcon,
                 onMessage = onMessage,
                 onPrimary = {
-                    if (bookingId == null && (rideCategoryClosed(ride.category) || !segmentReady(ride, pickupStop, dropoffStop))) return@BookingDecisionBar
+                    if (bookingBusy || (bookingId == null && (selectedSeats !in 1..ride.seats || rideCategoryClosed(ride.category) || !segmentReady(ride, pickupStop, dropoffStop)))) return@BookingDecisionBar
                     when {
                         bookingPending -> showCancelConfirmation = true
                         bookingCancelled -> onFindAnotherRide()
@@ -663,6 +667,14 @@ internal fun BookingScreen(
                         label = appText("По маршруту", "Маршрут буйынса"),
                         onImpression = onAdImpression,
                         onClick = onAdClick,
+                    )
+                }
+            }
+            if (bookingId == null) {
+                item(key = "booking-seat-count") {
+                    BookingSeatCount(
+                        available = ride.seats, selected = selectedSeats, price = ride.price,
+                        enabled = !bookingBusy, onChange = onSeatsChange,
                     )
                 }
             }

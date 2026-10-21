@@ -81,7 +81,8 @@ internal fun BookingRouteDecisionCard(
                 BookingDecisionMetric(
                     icon = Icons.Default.Payments,
                     value = "${ride.price} ₽",
-                    label = appText("Цена за место", "Урын хаҡы"),
+                    label = if (hasBooking) appText("Стоимость брони", "Бронь хаҡы")
+                        else appText("Цена за место", "Урын хаҡы"),
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
                 BookingDecisionMetric(

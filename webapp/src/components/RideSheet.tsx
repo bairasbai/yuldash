@@ -66,6 +66,7 @@ export default function RideSheet({
   const [guardPhone, setGuardPhone] = useState("");
   /** «Хочу переднее место»: одно на машину, гонку двух нажатий разводит сервер. */
   const [frontSeat, setFrontSeat] = useState(false);
+  const [seats, setSeats] = useState(1);
   const [pickupStop, setPickupStop] = useState<string | null>(() => initialSegment(ride).pickup);
   const [dropoffStop, setDropoffStop] = useState<string | null>(() => initialSegment(ride).dropoff);
   const selectionOwner = useRef(`${ownerGeneration}:${ride.id}`);
@@ -81,6 +82,7 @@ export default function RideSheet({
       setPickupStop(segment.pickup); setDropoffStop(segment.dropoff);
       bookingInFlight.current = false; setBusy(false);
       setMinor(false); setGuardName(""); setGuardPhone(""); setFrontSeat(false); setError(null);
+      setSeats(1);
     }
     return () => { mounted.current = false; bookingAbort.current?.abort(); };
   }, [ownerGeneration, ride.id]);
@@ -106,6 +108,10 @@ export default function RideSheet({
       setError(appText("Выбери места посадки и высадки, чтобы забронировать.", "Бронлау өсөн ултырыу һәм төшөү урындарын һайла."));
       return;
     }
+    if (!Number.isInteger(seats) || seats < 1 || seats > ride.seats_left) {
+      setError(appText("Мест больше нет. Посмотри другие поездки.", "Буш урындар ҡалманы. Башҡа сәфәрҙәрҙе ҡара."));
+      return;
+    }
     if (minor && (!guardName.trim() || !guardPhone.trim())) {
       setError(
         appText(
@@ -124,7 +130,7 @@ export default function RideSheet({
     try {
       const b = await createBooking({
         ride_id: ride.id,
-        seats: 1,
+        seats,
         minor_passenger: minor || undefined,
         minor_guardian_name: minor ? guardName.trim() : undefined,
         minor_guardian_phone: minor ? guardPhone.trim() : undefined,
@@ -242,6 +248,21 @@ export default function RideSheet({
           <div className="ride-card__price">{priceLabel(ride.price, ru)}</div>
         </div>
 
+        {!ownBooking && <>
+          <label className="field">
+            <span className="field__label">{appText("Количество мест", "Урындар һаны")}</span>
+            <select className="field__input" style={{ minHeight: 48 }} value={seats} disabled={busy || ride.seats_left < 1}
+              onChange={e => { setSeats(Number(e.target.value)); setError(null); }}>
+              {Array.from({ length: ride.seats_left }, (_, index) => index + 1).map(count => <option key={count} value={count}>{count}</option>)}
+            </select>
+          </label>
+          <p className="sheet__note" aria-live="polite">
+            {ride.seats_left > 0
+              ? appText("Итого: ", "Бөтәһе: ") + priceLabel(ride.price * seats, ru)
+              : appText("Мест больше нет. Посмотри другие поездки.", "Буш урындар ҡалманы. Башҡа сәфәрҙәрҙе ҡара.")}
+          </p>
+        </>}
+
         <FrontSeatChoice
           ride={ride}
           ownBooking={ownBooking}
@@ -327,7 +348,7 @@ export default function RideSheet({
           type="button"
           className="btn-primary sheet__cta"
           onClick={book}
-          disabled={busy || (isAuthed && !ownBooking && !pickupReady)}
+          disabled={busy || (isAuthed && !ownBooking && (!pickupReady || seats < 1 || seats > ride.seats_left))}
         >
           {busy
             ? appText("Бронируем…", "Бронлайбыҙ…")

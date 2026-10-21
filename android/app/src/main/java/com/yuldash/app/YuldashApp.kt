@@ -1337,6 +1337,7 @@ private fun YuldashAppContent() {
                     vm.privateNavigationRevision == displayedRevision && ApiClient.queueSessionGeneration() == displayedSession
                 fun isDisplayedBookingCurrent() = isDisplayedBookingUnchanged() && ApiClient.isCurrentSession(displayedSession)
                 var frontSeat by remember(displayedRide?.id) { mutableStateOf(false) }   // «хочу переднее» — своё у каждой поездки
+                var selectedSeats by rememberSaveable(displayedRide?.id, displayedSession) { mutableIntStateOf(1) }
                 var pickupStop by rememberSaveable(displayedRide?.id, displayedSession) { mutableStateOf(displayedRide?.let(::initialPickupStop)) }
                 var dropoffStop by rememberSaveable(displayedRide?.id, displayedSession) { mutableStateOf(displayedRide?.let(::initialDropoffStop)) }
                 BookingScreen(
@@ -1383,6 +1384,8 @@ private fun YuldashAppContent() {
                 },
                 onFindAnotherRide = { openHome(HomeTab.Rides) },
                 frontSeat = frontSeat, onFrontSeatChange = { frontSeat = it },
+                selectedSeats = selectedSeats, onSeatsChange = { if (!bookingInFlight) selectedSeats = it },
+                bookingBusy = bookingInFlight,
                 pickupStop = pickupStop, onPickupStopChange = { pickupStop = it; dropoffStop = displayedRide?.let { ride -> keepValidDropoff(ride, it, dropoffStop) } },
                 dropoffStop = dropoffStop, onDropoffStopChange = { dropoffStop = it },
                 onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
@@ -1421,12 +1424,12 @@ private fun YuldashAppContent() {
                         // вторым запросом: две брони на одну поездку, два занятых места и две
                         // договорённости об оплате. Остальные пишущие кнопки такой флаг уже имеют
                         // (оплата, посылка, приём доставки) — эта была единственной без него.
-                        if (rid != null && !bookingInFlight && displayedRide != null && segmentReady(displayedRide, pickupStop, dropoffStop)) {
+                        if (rid != null && !bookingInFlight && displayedRide != null && selectedSeats in 1..displayedRide.seats && segmentReady(displayedRide, pickupStop, dropoffStop)) {
                             bookingInFlight = true
                             appScope.launch {
                                 try {
                                     if (!isDisplayedBookingCurrent()) return@launch
-                                    val result = ApiClient.bookWithStatus(rid, 1, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop)
+                                    val result = ApiClient.bookWithStatus(rid, selectedSeats, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop)
                                     if (!isDisplayedBookingCurrent()) return@launch
                                     ApiClient.runIfCurrentSession(displayedSession) {
                                         result.onSuccess { booking ->
