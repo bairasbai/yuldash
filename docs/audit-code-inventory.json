@@ -78,19 +78,19 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 152,
+    "android_main": 153,
     "backend_main": 106,
     "infra_resource_config": 364,
     "public_site_promo": 89,
     "pwa_main": 289,
-    "test_support": 1023
+    "test_support": 1024
   },
   "counts_by_block": {
     "B01": 131,
     "B02": 227,
     "B03": 119,
     "B04": 76,
-    "B05": 43,
+    "B05": 45,
     "B06": 85,
     "B07": 107,
     "B08": 182,
@@ -1203,8 +1203,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "d78622cf95f22c013535629991821553275811eeeb9fe23490bc9782989f5eef",
-      "lines": 3353
+      "sha256": "fe5165ec354b798affd89cfeab500dda75826819fafb515132f913d291b88d7d",
+      "lines": 3362
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCompletedScreen.kt",
@@ -1417,11 +1417,18 @@
       "lines": 1629
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/TripChatScreen.kt",
+      "kind": "android_main",
+      "block": "B05",
+      "sha256": "9239662d69590b6ea43068f5b7b183e1895fb031573e64e065ef4d352c10ba45",
+      "lines": 549
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/TripChatState.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "579d22953785152b13abeb98864e43c93ebac4e6ceb451724f54823fc52645ee",
-      "lines": 441
+      "sha256": "a4c184097857c2dc13a4327f0cd4a62cd164aba7c64d0c4b16f0a6d43d551c30",
+      "lines": 546
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/TripLiveLink.kt",
@@ -1525,8 +1532,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "4df86a680bbd79f0e3f6f512abbb1b4347e0e26e5cb2833c2bd240f307d2005d",
-      "lines": 7867
+      "sha256": "d6454b6dc58e6b3c4f1cd8b02406c6c2503b730cd67e0d555e801b9a7343b900",
+      "lines": 7868
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -2071,8 +2078,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripChatActionsBoundaryTest.kt",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "ceae63496d8e695cbf21b7c10dc1ba2e124fd4933693b47a331523624e72fd89",
-      "lines": 581
+      "sha256": "ab4b45d6e2847a49a07bb688d2b996d5330015e716d1b845abdd6b6df1fbd35f",
+      "lines": 662
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripChatTerminalHttpTest.kt",
@@ -3802,6 +3809,13 @@
       "block": "B09",
       "sha256": "58675328d4d688444cbc150d91329c9d67a99993204ec7e3cd4754aadebba4b0",
       "lines": 67
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/TripChatMutationNetworkBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "5510ed599a8d98bbd53e74f17ac42b4b248499f630ce7cebb81c2fd5a8220ff5",
+      "lines": 438
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/TripChatQueuedReconnectTest.kt",
@@ -15955,20 +15969,14 @@
   },
   "last_partial_refresh": {
     "date": "2026-10-21",
-    "reason": "W1-E2E-20261018 additional actual UI network checks; PWA lost item and Android route-watch current code/test files, not blanket behavior proof",
+    "reason": "W1-E2E-20261018 Android chat C02/C03/C04/C05 code and tests only; partial refresh, not blanket behavior proof",
     "paths": [
-      "android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt",
+      "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
+      "android/app/src/main/java/com/yuldash/app/TripChatScreen.kt",
+      "android/app/src/main/java/com/yuldash/app/TripChatState.kt",
       "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
-      "android/app/src/test/java/com/yuldash/app/RouteWatchNetworkBoundaryTest.kt",
-      "android/app/src/test/java/com/yuldash/app/data/ApiClientEndpointContractTest.kt",
-      "android/app/src/test/java/com/yuldash/app/data/ApiClientRideshareTransportBoundaryTest.kt",
-      "webapp/src/api/bookings.ts",
-      "webapp/src/screens/TripChatScreen.tsx",
-      "webapp/src/screens/TripReceiptScreen.tsx",
-      "webapp/tests/chat-mutation-unknown-test.mjs",
-      "webapp/tests/receipt-lost-item-test.mjs",
-      "webapp/tests/receipt-owner-test.mjs",
-      "webapp/tests/run.mjs"
+      "android/app/src/test/java/com/yuldash/app/ActiveTripChatActionsBoundaryTest.kt",
+      "android/app/src/test/java/com/yuldash/app/TripChatMutationNetworkBoundaryTest.kt"
     ],
     "other_hashes": "Historical; unchanged by this partial refresh"
   }
