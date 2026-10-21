@@ -641,10 +641,10 @@ internal fun BookingScreen(
                     },
                 )
             }
-            bookingRouteDecisionItem(
-                displayRide, bookingId != null, distanceText, routeFromPoint, routeToPoint, contactUnlocked,
-                onShare = { shareRide(context, shareText, shareTitle) },
-            )
+            item {
+                BookingRouteDecisionCard(displayRide, bookingId != null, distanceText, routeFromPoint, routeToPoint, contactUnlocked,
+                    onShare = { shareRide(context, shareText, shareTitle) })
+            }
             routeAd?.let { ad ->
                 item {
                     PartnerAdCard(

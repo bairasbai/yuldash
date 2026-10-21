@@ -2,7 +2,6 @@ package com.yuldash.app
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EventSeat
@@ -28,15 +27,6 @@ internal fun bookingRideShareText(ride: Ride): String = appText(
     "Еду ${ride.from} → ${ride.to}, ${ride.timeText()}. ${ride.price} ₽. Поехали вместе в Юлдаше 👇\nhttps://yulbash.ru",
     "${ride.from} → ${ride.to}, ${ride.timeText()}. ${ride.price} ₽. Әйҙә бергә — Юлдашта 👇\nhttps://yulbash.ru",
 )
-
-internal fun LazyListScope.bookingRouteDecisionItem(
-    ride: Ride, hasBooking: Boolean, distanceText: String?, fromPoint: Point?, toPoint: Point?,
-    contactUnlocked: Boolean, onShare: () -> Unit,
-) {
-    item {
-        BookingRouteDecisionCard(ride, hasBooking, distanceText, fromPoint, toPoint, contactUnlocked, onShare)
-    }
-}
 
 @Composable
 internal fun BookingRouteDecisionCard(
