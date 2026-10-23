@@ -27,6 +27,7 @@ from .geo import bare_name, fold, lookup, name_variants, normalize_place, snapsh
 from .services import haversine_km
 
 SEP = "|"
+MEMO_KEY = "_place_keys_memo"   # запоминалка `_place_keys` на один запрос (см. `stop_search.request_snapshot`)
 MAX_STOPS = 4          # как в клиентах: «+ остановка» пропадает после четвёртой
 MAX_STOP_LEN = 60
 # Допустимая остановка: буквы любого алфавита (русский, башкирский, латиница), пробел, дефис,
@@ -68,16 +69,27 @@ def _key(name: str) -> str:
     return fold(normalize_place(bare_name(name or "")))
 
 
-def _place_keys(name: str, entry: dict) -> set[str]:
-    """Ключи всех написаний места: как написано + русское + башкирское по справочнику."""
+def _place_keys(name: str, entry: dict) -> frozenset[str]:
+    """Ключи всех написаний места: как написано + русское + башкирское по справочнику.
+
+    Если в `entry` лежит запоминалка запроса (`MEMO_KEY`, её кладёт `stop_search.request_snapshot`),
+    ответ по этому названию считаем один раз на запрос."""
+    memo = entry.get(MEMO_KEY)
+    if memo is not None:
+        hit = memo.get(name)
+        if hit is not None:
+            return hit
     keys = {_key(name)}
     for v in name_variants(None, normalize_place(name or ""), entry):
         keys.add(_key(v))
     keys.discard("")
+    keys = frozenset(keys)
+    if memo is not None:
+        memo[name] = keys
     return keys
 
 
-def _ends(ride, entry: dict) -> tuple[set[str], set[str]]:
+def _ends(ride, entry: dict) -> tuple[frozenset[str], frozenset[str]]:
     return _place_keys(_f(ride, "from_city", ""), entry), _place_keys(_f(ride, "to_city", ""), entry)
 
 

@@ -22,7 +22,7 @@ from app.geo import snapshot_cached
 from app.models import Block, Ride, UserRole
 from app.routers import rides as rides_mod
 from app.services import haversine_km
-from app.stop_search import route_fit
+from app.stop_search import request_snapshot, route_fit
 
 STOPS = "Ургаза | Бурибай"
 URGAZA = (52.34768, 58.61438)
@@ -202,6 +202,33 @@ def test_pagination_counts_only_real_matches(client, user_factory):
     assert len(allp) == 2 and all(x["id"] in good for x in allp)
 
 
+def test_feed_next_pages_are_the_same_as_slices_of_the_full_list(client, user_factory):
+    """Лента читает выдачу по порядку и останавливается, набрав `offset + limit` совпадений (P2-2):
+    «Показать ещё» отдаёт ровно то же, что срез полного списка, — без пропусков и повторов, и мимо
+    подстрочных совпадений, которые точная проверка отбросила."""
+    day = _day()
+    drv = user_factory("SBS Pages Driver", role=UserRole.driver)
+    ids = []
+    for i in range(5):
+        ids.append(_publish(client, drv, day, tag=f"pg{i}", hour=8 + i)["id"])
+        if i == 1:   # подстрока «Ургаза…Бурибай» есть, а остановкой не считается — в страницы не попадёт
+            junk = _publish(client, drv, day, waypoints="", tag="pgjunk", hour=8)["id"]
+            with Session(engine) as s:
+                r = s.get(Ride, junk)
+                r.waypoints = "Ургаза (ул. Ленина 5) | Бурибай"
+                s.add(r)
+                s.commit()
+    params = {"date": day.isoformat(), "from_city": "Ургаза", "to_city": "Бурибай"}
+    full = [x["id"] for x in client.get("/rides", params={**params, "limit": 200}).json()]
+    assert full == ids, (full, ids)
+    pages = []
+    for offset in (0, 2, 4, 6):
+        page = [x["id"] for x in client.get("/rides", params={**params, "limit": 2, "offset": offset}).json()]
+        assert page == full[offset:offset + 2], (offset, page)
+        pages += page
+    assert pages == full
+
+
 # ── «Ближайшие» ──
 
 def test_near_finds_through_a_stop_and_counts_after_route_fit(client, trip, user_factory):
@@ -299,6 +326,23 @@ def test_near_preselect_follows_the_pickups_all_filters_agree_on(client, user_fa
     assert item["matched_stop"] == "Ургаза" and item["matched_from_start"] is False, item
 
 
+def test_near_same_route_with_different_coordinates_keeps_its_own_distance(client, user_factory):
+    """Ответ по «виду маршрута» считается один раз на запрос (P2-2) — но координаты начала входят в
+    вид: две поездки «Сибай → Акъяр» с разными точками выезда не получают одно расстояние на двоих."""
+    day = _day()
+    drv = user_factory("SBS Coords Driver", role=UserRole.driver)
+    far = _publish(client, drv, day, waypoints="", tag="coords-far", hour=9)
+    near_me = _publish(client, drv, day, waypoints="", tag="coords-near", hour=10)
+    with Session(engine) as s:
+        r = s.get(Ride, near_me["id"])
+        r.from_lat, r.from_lng = URGAZA
+        s.add(r)
+        s.commit()
+    items = {x["id"]: x for x in _near(client, day, lat=URGAZA[0], lng=URGAZA[1])["items"]}
+    assert items[near_me["id"]]["distance_km"] < 1.0
+    assert items[far["id"]]["distance_km"] > 30
+
+
 def test_near_distance_never_from_the_pin(client, user_factory):
     """Пин точки сбора (часто дом водителя) не участвует в расстоянии: только начало маршрута (P2-4)."""
     day = _day()
@@ -378,6 +422,21 @@ def test_postgis_error_is_logged_without_the_query(client, trip, monkeypatch, ca
     lines = [r.getMessage() for r in caplog.records if "PostGIS prefilter skipped" in r.getMessage()]
     assert lines, "предупреждение не записано"
     assert all("ST_" not in ln and "52.34" not in ln and "58.61" not in ln for ln in lines), lines
+
+
+def test_request_snapshot_does_not_change_route_fit(client):
+    """Запоминалка ключей мест на запрос (P2-2) — только скорость: ответ тот же, что без неё, а общий
+    снимок справочника она не пачкает."""
+    base = snapshot_cached()
+    memo = request_snapshot(base)
+    assert memo is not base and "_place_keys_memo" not in base
+    r = _r()
+    cases = [(["Ургаза"], ["Акъяр"]), (["Сибай"], ["Бурибай"]), (["Бурибай"], ["Ургаза"]), (["Урғаҙа"], None),
+             (None, ["Аҡъяр"]), (["Акъяр"], None), (["Темясово"], ["Акъяр"]), (None, None)]
+    for _ in range(2):   # второй проход — ответы уже из запоминалки
+        for fv, tv in cases:
+            assert route_fit(r, fv, tv, memo) == route_fit(r, fv, tv, base), (fv, tv)
+    assert memo["_place_keys_memo"], "запоминалка заполнилась"
 
 
 # ── /rides/cities: остановки — в чипах, только узнанные и только видимые ──

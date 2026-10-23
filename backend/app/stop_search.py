@@ -25,13 +25,20 @@ from typing import Optional
 from sqlalchemy import or_
 
 from .geo import name_variants, normalize_place
-from .ride_stops import _f, _place_keys, parse_stops
+from .ride_stops import MEMO_KEY, _f, _place_keys, parse_stops
 
 NAME_MAX = 120          # длина имени места в запросе (как у города в публикации)
 MAX_VARIANTS = 6        # написаний одного места в SQL (тёзок-сёл бывает десяток — хватит главных)
 MAX_PAIR_VARIANTS = 3   # для попарного LIKE «откуда…куда» в общей ленте: не больше 3×3 = 9 пар
 _DIGIT = re.compile(r"\d")
 _LETTER = re.compile(r"[^\W\d_]")
+
+
+def request_snapshot(entry: dict) -> dict:
+    """Снимок справочника на ОДИН запрос: тот же справочник (не копия) и своя запоминалка ключей мест.
+    Названий в базе тысячи, а разных — десятки: без неё разбор остановок 12 000 поездок считал одно и то
+    же заново (P2-2, приёмка PR #188). Общий снимок не трогаем — запоминалка живёт и умирает с запросом."""
+    return {**entry, MEMO_KEY: {}}
 
 
 def variants(session, name: Optional[str], entry: dict) -> list[str]:
