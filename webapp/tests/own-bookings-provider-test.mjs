@@ -59,6 +59,7 @@ const mocks = {
   boardingwait: `export default "boardingwait";`,
   driverboardeddispute: `export default "driverboardeddispute";`,
   outbox: `export const enqueue=async()=>{};`,
+  refusalhook: `export const useBookingRefusal=()=>{};`,
 };
 const icons = [...readFileSync(root+"src/components/Icons.tsx","utf8").matchAll(/export (?:const|function) (Icon\w+)/g)].map(m=>m[1]);
 mocks.icons=icons.map(name=>`export const ${name}="icon";`).join("\n");
@@ -71,7 +72,7 @@ const suffixes = {
   "/api/safety":"safety", "/utils/winterCheck.js":"winter", "/utils/useVisibleInterval":"interval",
   "/components/WeatherWarningCard":"weather", "/components/RoadsideHelp":"roadside",
   "/components/ShareTripCard":"share", "/components/TripChatCard":"tripchat",
-  "/components/OfflineTripPass":"offline", "/utils/outbox":"outbox", "/components/DriverLocationShare":"driverloc",
+  "/components/OfflineTripPass":"offline", "/utils/outbox":"outbox", "/utils/useBookingRefusal":"refusalhook", "/components/DriverLocationShare":"driverloc",
   "/components/DriverBoarding":"driverboarding", "/components/BoardingWait":"boardingwait", "/components/DriverBoardedDispute":"driverboardeddispute",
 };
 const result=await build({
@@ -122,7 +123,7 @@ function fresh(){
       from_city:"Уфа",to_city:"Сибай",depart_at:"2030-01-01T10:00:00",seats:1,price:500,pay_method:"cash",front_seat:true,driver_name:"Ринат"}),
   };
   globalThis.HTMLElement=class {};
-  globalThis.document={activeElement:null};
+  globalThis.document={activeElement:null,visibilityState:"visible",addEventListener(){},removeEventListener(){}};
   globalThis.window={confirm:()=>true,
     addEventListener:(event,fn)=>{if(!h.listeners.has(event))h.listeners.set(event,new Set());h.listeners.get(event).add(fn);},
     removeEventListener:(event,fn)=>h.listeners.get(event)?.delete(fn)};

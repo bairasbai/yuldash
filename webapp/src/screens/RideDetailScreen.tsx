@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { fetchRide, type Ride } from "../api/rides";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import { useLang } from "../i18n/lang";
 import RideSheet from "../components/RideSheet";
 import ScreenHeader from "../components/ScreenHeader";
 import { ErrorState, LoadingList } from "../components/States";
+import { preserveRideMatch } from "../utils/pickupStops";
 
 /** Прямая ссылка сохраняет выбор поездки при входе и обновлении страницы. */
 export default function RideDetailScreen() {
   const { id } = useParams();
   const rideId = Number(id);
   const navigate = useNavigate();
+  const location = useLocation();
   const { appText } = useLang();
   const [ride, setRide] = useState<Ride | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "gone">("loading");
@@ -23,7 +25,7 @@ export default function RideDetailScreen() {
     if (!Number.isSafeInteger(rideId) || rideId <= 0) { setStatus("error"); return; }
     fetchRide(rideId, signal).then(value => {
       if (signal?.aborted || version !== requestVersion.current) return;
-      setRide(value);
+      setRide(preserveRideMatch(value, location.state, getSessionGeneration()));
       setStatus("ready");
     }).catch(err => {
       if (signal?.aborted || version !== requestVersion.current) return;
@@ -32,7 +34,7 @@ export default function RideDetailScreen() {
       const gone = err instanceof ApiError && [403, 404, 410].includes(err.status);
       setStatus(gone ? "gone" : "error");
     });
-  }, [rideId]);
+  }, [rideId, location.state]);
   useEffect(() => {
     const controller = new AbortController();
     load(controller.signal);

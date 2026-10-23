@@ -14,6 +14,7 @@ import { reportStorageFailure } from "./storageHealth";
 
 /** Ключи одного человека — уходят вместе с ним. */
 const PERSONAL_KEYS = [
+  "yuldash.sos.pending", // только ключ/отпечаток повтора SOS текущего входа, без текста и места
   "yuldash.outbox.changed", // только сигнал обновления очереди, без текста сообщений
   "yuldash.consents", // согласия 152-ФЗ: их даёт человек, а не телефон
   "yuldash.role", // пассажир/водитель — роль этого человека

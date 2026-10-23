@@ -47,6 +47,8 @@ export function loadOfflineTripPass(bookingId: number): TripPass | null {
       !Number.isFinite(pass.price) || pass.price < 0 || !positiveId(pass.seats) ||
       ![pass.fromCity, pass.toCity, pass.departAt, pass.driverName, pass.driverCar, pass.driverPlate,
         pass.driverPhone, pass.boardingCode, pass.pickup].every(value => typeof value === "string")) return null;
+    if ([pass.pickupStop, pass.dropoffStop].some(value => value != null && typeof value !== "string") ||
+      (pass.rideHasStops !== undefined && typeof pass.rideHasStops !== "boolean")) return null;
     if (getToken() !== token || getSessionGeneration() !== generation ||
       storageOperation(() => localStorage.getItem(ownerKey(bookingId))) !== ownerRaw || storageOperation(() => localStorage.getItem(passKey(bookingId))) !== raw) return null;
     const stage = tripPassStage(bookingId, generation);

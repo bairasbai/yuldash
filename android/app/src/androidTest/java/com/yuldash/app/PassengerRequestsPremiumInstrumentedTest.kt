@@ -55,7 +55,7 @@ class PassengerRequestsPremiumInstrumentedTest {
 
     @Test
     fun optionA_alongTheWayFilter_hidesLargeDetour() {
-        renderFeed(rows = listOf(request(id = 8, from = "Сибай", to = "Уфа", detour = 14)))
+        renderFeed(rows = listOf(request(id = 8, from = "Сибай", to = "Уфа", detour = 14, matchedRideId = null)))
 
         composeRule.onNodeWithText("Сибай → Уфа").assertExists()
         composeRule.onNodeWithText("По пути").performClick()
@@ -75,11 +75,20 @@ class PassengerRequestsPremiumInstrumentedTest {
         composeRule.onNodeWithText("Сәфәр тәҡдим итеү").performScrollTo().assertIsDisplayed()
     }
 
+    @Test
+    fun smallDetourWithoutMatchedRideDoesNotClaimAlongTheWay() {
+        renderFeed(rows = listOf(request(matchedRideId = null)))
+        composeRule.onNodeWithText("Крюк ≈ 3 км").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("По пути · крюк ≈ 3 км").assertDoesNotExist()
+        composeRule.onNodeWithText("По пути").performScrollTo().performClick()
+        composeRule.onNodeWithText("Подходящих заявок нет").assertIsDisplayed()
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     @Test
     fun offerSheet_keepsPriceTimeCommentAndSubmitClickable() {
         var submitted = 0
-        val request = request()
+        val request = request(matchedRideId = null)
         composeRule.setContent {
             YuldashTheme {
                 CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
@@ -137,6 +146,7 @@ class PassengerRequestsPremiumInstrumentedTest {
         from: String = "Баймак",
         to: String = "Сибай",
         detour: Int = 3,
+        matchedRideId: Int? = 91,
     ) = RequestFeedDto(
         id = id,
         passengerName = "Айгуль",
@@ -147,6 +157,10 @@ class PassengerRequestsPremiumInstrumentedTest {
         responded = false,
         prefs = listOf("nosmoke", "baggage"),
         detourKm = detour,
+        // «По пути» означает подтверждённое сервером совпадение с поездкой, не только малый крюк.
+        matchedRideId = matchedRideId,
+        matchedRideFromCity = if (matchedRideId != null) "Баймак" else "",
+        matchedRideToCity = if (matchedRideId != null) "Сибай" else "",
         desiredAt = "2026-09-05T13:30:00",
         maxPrice = 450,
         distanceKm = 42.0,

@@ -1,8 +1,9 @@
-/** Android release YuldashApp.splashTarget: onboarding wins over authentication. */
+/** Вошедшему человеку повторное знакомство не нужно, даже если флаг ещё не записан. */
 export function splashTarget(status, onboarded) {
   if (status === "loading" || status === "unavailable") return null;
+  if (status === "authed") return "/map";
   if (!onboarded) return "/intro";
-  return status === "authed" ? "/map" : "/login";
+  return "/login";
 }
 
 /** One replace transition; cancellation covers auth changes and unmount. */

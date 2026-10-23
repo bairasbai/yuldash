@@ -32,7 +32,7 @@ class RoadsideHelpOwnerBoundaryTest : ShareHelpBoundaryHarness() {
     private fun confirm(): () -> Boolean { click("Застрял на трассе"); return text("Позвать помощь") }
     private fun current(kind: String, path: String) {
         mountHelp(kind); val a = confirm(); compose.runOnIdle { dispatch(a) }
-        await { count("POST", "/stuck") == 1 }; await { ShadowToast.getTextOfLatestToast() == null && compose.onAllNodesWithText("Помощь вызвана: близкие и поддержка получили твои координаты.").fetchSemanticsNodes().isNotEmpty() }
+        await { count("POST", "/stuck") == 1 }; await { ShadowToast.getTextOfLatestToast() == null && compose.onAllNodesWithText("Сигнал сохранён в Юлдаш. Попробуем отправить сообщение близким. Если можешь, позвони им и 112 сам.").fetchSemanticsNodes().isNotEmpty() }
         val q = records.single { it[0] == "POST" }; assertEquals(path, q[1]); assertEquals("Bearer $tokenA", q[2])
         val body = JSONObject(q[3]!!); assertEquals(54.735, body.getDouble("lat"), 0.00001); assertEquals(55.958, body.getDouble("lng"), 0.00001)
     }

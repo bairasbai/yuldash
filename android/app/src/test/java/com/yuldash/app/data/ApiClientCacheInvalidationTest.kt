@@ -93,9 +93,12 @@ class ApiClientCacheInvalidationTest {
             val entered = CountDownLatch(1); val leaveTrace = CountDownLatch(1)
             ApiClient.testTrace = { line -> if (line == "вошли в вызов POST /me/update") { entered.countDown(); check(leaveTrace.await(20, TimeUnit.SECONDS)) } }
             try {
-                ApiClient.fireUpdateLanguage(" BA "); assertTrue(entered.await(10, TimeUnit.SECONDS))
                 val bg = ApiClient::class.java.getDeclaredField("bg").apply { isAccessible = true }.get(ApiClient) as CoroutineScope
-                val child = bg.coroutineContext[Job]!!.children.single()
+                // Сброс прошлого теста отменяет задачи общего `bg`, но не ждёт их: задача, застрявшая в сети,
+                // ещё числится среди детей. Берём ровно ту, что создал этот вызов, — по разнице до и после.
+                val before = bg.coroutineContext[Job]!!.children.toSet()
+                ApiClient.fireUpdateLanguage(" BA "); assertTrue(entered.await(10, TimeUnit.SECONDS))
+                val child = (bg.coroutineContext[Job]!!.children.toSet() - before).single()
                 assertTrue(child.isActive); assertFalse(child.isCompleted); leaveTrace.countDown()
                 runBlocking { withTimeout(10000) { child.join() } }; assertTrue(child.isCompleted); assertFalse(child.isCancelled)
                 null // Public fire-and-forget returns Unit: no fabricated Result.failure/success.

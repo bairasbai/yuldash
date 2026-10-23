@@ -15,6 +15,8 @@ import { IconCheck, IconBolt, IconHospital, IconUsers } from "../components/Icon
 import { YuModeRideshare } from "../components/BrandIcons";
 import { AmenityIcon } from "../components/amenityIcons";
 import CityField from "../components/CityField";
+import { rideStopPickText } from "../components/StopSuggestField";
+import type { Settlement } from "../api/geo";
 import { minDateTimeNow } from "../utils/dateInput";
 
 type Opt =
@@ -26,7 +28,7 @@ type Opt =
   | "air_conditioner";
 
 export default function CreateRequestScreen() {
-  const { appText } = useLang();
+  const { appText, lang } = useLang();
   const navigate = useNavigate();
 
   const [from, setFrom] = useState("");
@@ -69,6 +71,10 @@ export default function CreateRequestScreen() {
   ];
 
   const canSubmit = from.trim().length > 0 && to.trim().length > 0 && !busy;
+  // Как Android: сёла-тёзки сохраняют район; городам и райцентрам хватает их имени.
+  const settlementText = (town: Settlement) => town.kind === "village"
+    ? rideStopPickText(town, lang === "ba")
+    : lang === "ba" ? town.name_ba || town.name_ru : town.name_ru;
 
   async function submit() {
     if (!canSubmit) return;
@@ -155,6 +161,7 @@ export default function CreateRequestScreen() {
           label={appText("Откуда", "Ҡайҙан")}
           value={from}
           onChange={setFrom}
+          onPick={(town) => setFrom(settlementText(town))}
           placeholder={appText("Город или село", "Ҡала йәки ауыл")}
         />
 
@@ -162,6 +169,7 @@ export default function CreateRequestScreen() {
           label={appText("Куда", "Ҡайҙа")}
           value={to}
           onChange={setTo}
+          onPick={(town) => setTo(settlementText(town))}
           placeholder={appText("Город или село", "Ҡала йәки ауыл")}
         />
 

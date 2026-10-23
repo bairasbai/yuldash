@@ -27,7 +27,11 @@ export async function openActiveTrip({ lang = "ru", role = "passenger", status =
       "/api/chat": `export const openTripLocation=(id)=>{globalThis.__at.locOpened.push(id);return{close(){}}};`,
       "/booking/OwnBookingsProvider": `export const useRefreshOwnBookings=()=>()=>{globalThis.__at.refreshed++;};`,
       "/analytics": `export const track=(e,p)=>{globalThis.__at.tracked.push([e,p]);};`,
-      "/api/driver": `export const setDriverStatus=async(id,ph)=>{globalThis.__at.phases.push([id,ph]);return{ok:true};};`,
+      // at.offline = true — «трасса без связи»: ApiError со статусом 0, отметка уходит в очередь.
+      "/api/driver": `import { ApiError } from "../api/client";
+        export const setDriverStatus=async(id,ph)=>{if(globalThis.__at.offline)throw new ApiError(0,"offline");globalThis.__at.phases.push([id,ph]);return{ok:true};};`,
+      // Слушатель отказов очереди: экран отдаёт сюда свой обработчик, набор вызывает его сам.
+      "/utils/useBookingRefusal": `export const useBookingRefusal=(id,fn)=>{globalThis.__at.refusal={id,fn};};`,
     },
   });
   const at = (globalThis.__at = {

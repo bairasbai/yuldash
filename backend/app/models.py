@@ -583,6 +583,8 @@ class Booking(SQLModel, table=True):
     # «Подъезжаю», без GPS-отказа). Координат НЕ храним: точку остановки каждый раз берём из
     # своего справочника сёл (`ride_stops.stop_point`). Видят пассажир и водитель этой брони.
     pickup_stop: Optional[str] = None
+    # NULL — старый клиент не указал высадку; "" — конец; иначе опубликованная остановка.
+    dropoff_stop: Optional[str] = None
     # Когда поездку закрыл человек: «Завершить» водителя, «Завершил» пассажира, «Завершить рейс».
     # От неё (и от выезда, и от «Сел») считается окно «Сообщить о проблеме» пассажира после поездки
     # (`bookings.problem_report_left`). Ночная уборка не ставит: автозакрытие — не завершение.
@@ -630,7 +632,10 @@ class Message(SQLModel, table=True):
     transcript: Optional[str] = None        # расшифровка голосового
     deleted: bool = False                   # «удалено у всех» (текст очищен, видна пометка)
     edited: bool = False                    # отредактировано (пометка «изменено»)
-    hidden_user_ids: str = ""               # CSV id юзеров, кто скрыл «у себя» (тред хранится на сервере)
+    # CSV id юзеров, кто скрыл «у себя» (тред хранится на сервере). Только для сервера: в ответах API
+    # поля нет (`exclude=True`) — иначе собеседник читал бы из истории, КТО скрыл его сообщение
+    # (ревью PR190, 23.10.2026). Фильтр «скрытое не показывать» работает на сервере (`chat._hidden_ids`).
+    hidden_user_ids: str = Field(default="", exclude=True)
     # Анти-фишинг (B8-6): "" — обычное; "warn" — похоже на развод (просьба кода из SMS,
     # номер карты, «переведи на другой номер»). НЕ блокируем — клиент показывает получателю
     # плашку «Никому не сообщай коды из SMS. Юлдаш никогда их не просит».
@@ -688,6 +693,7 @@ class TripShare(SQLModel, table=True):
 
 
 class SosEvent(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("user_id", "idempotency_key", name="uq_sos_owner_intent"),)
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
     booking_id: Optional[int] = Field(default=None, foreign_key="booking.id")
@@ -702,6 +708,9 @@ class SosEvent(SQLModel, table=True):
     handled_by: Optional[int] = Field(default=None, foreign_key="user.id")
     handled_note: str = ""                  # что сделали (для истории/полиции)
     escalated_at: Optional[datetime] = None # когда ушёл повторный сигнал (не принят вовремя)
+    # Отпечатки одного явного намерения; никогда не входят в публичный ответ SOS.
+    idempotency_key: Optional[str] = Field(default=None, max_length=64, exclude=True)
+    payload_hash: Optional[str] = Field(default=None, max_length=64, exclude=True)
 
 
 class Report(SQLModel, table=True):
@@ -843,6 +852,12 @@ class RequestResponse(SQLModel, table=True):
     # Компактная история «d:500,p:400,d:450» — видят ОБЕ стороны. Отдельная таблица под 2-3 хода
     # не нужна, а без истории торг превращается в «я же говорил другую цену» (CSV — как evidence_urls).
     bargain_history: str = Field(default="", max_length=200)
+    # Предложение места в существующем рейсе. Старые отклики остаются без привязки.
+    ride_id: Optional[int] = Field(default=None, foreign_key="ride.id", index=True)
+    pickup_stop: Optional[str] = None
+    dropoff_stop: Optional[str] = None
+    route_snapshot: str = ""      # условия, которые пассажир видел до принятия
+    booking_id: Optional[int] = Field(default=None, foreign_key="booking.id", index=True)
 
 
 # ---- Фаза 2: «Быстрый заказ» (такси-режим) — presence/тариф/заказ/matcher ----

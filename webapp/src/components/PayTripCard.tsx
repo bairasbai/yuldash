@@ -28,12 +28,15 @@ export default function PayTripCard({
   id,
   amountLabel,
   onPaid,
+  canAct,
 }: {
   kind: "booking" | "order";
   id: number;
   /** Сумма человеческой строкой — считает вызывающий экран, он знает про скидку. */
   amountLabel: string;
   onPaid?: () => void;
+  /** Receipt owner may change while an old button or bank request is retained. */
+  canAct?: () => boolean;
 }) {
   const { appText } = useLang();
   const [busy, setBusy] = useState<PayMethodKey | null>(null);
@@ -51,12 +54,13 @@ export default function PayTripCard({
   }
 
   async function pay(method: PayMethodKey) {
-    if (busy) return;
+    if (busy || canAct?.() === false) return;
     setBusy(method);
     setError(null);
     try {
       const r: PayTripResult =
         kind === "booking" ? await payBooking(id, method) : await payInstantOrder(id, method);
+      if (canAct?.() === false) return;
       // Банк вернул ссылку — дальше платит человек в своём банке.
       if (r.confirmation_url) {
         if (r.payment_id) rememberPayment(r.payment_id, "trip", window.location.pathname);
@@ -66,6 +70,7 @@ export default function PayTripCard({
       setDone(true);
       onPaid?.();
     } catch (e) {
+      if (canAct?.() === false) return;
       if (e instanceof ApiError && e.status === 503) {
         setOnlineOff(true);
         setError(
@@ -82,7 +87,7 @@ export default function PayTripCard({
         );
       }
     } finally {
-      setBusy(null);
+      if (canAct?.() !== false) setBusy(null);
     }
   }
 

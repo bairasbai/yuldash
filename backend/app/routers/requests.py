@@ -17,7 +17,7 @@ from ..models import (
     Booking, BookingStatus, DeviceToken, DriverProfile, RequestResponse, Ride, RideCategory,
     RideRequest, RideStatus, User, UserRole,
 )
-from ..visibility import FEED_MAX, hidden_author_ids, visible_rides
+from ..visibility import FEED_MAX, booking_contacts_open, hidden_author_ids, visible_rides
 from ..observability import scrub_text
 from ..relative_phone_comment import strip_legacy_relative_phone
 from ..schemas import RideOut
@@ -31,9 +31,12 @@ from ..safety_logic import (account_paused, ensure_active, may_ride_together,
                             MSG_WOMEN_ONLY_RESPOND, guard_women_only)
 from ..antifraud import moderate_open_text
 from ..features import guard_delivery_ride
-from ..timeutil import client_dt_to_utc, utcnow
+from ..timeutil import client_dt_to_utc, local_date, local_day_bounds_utc, utcnow
 from .. import workday as workday_mod
 from ..trust_service import INSIDER_LEVEL, trust_level
+from .. import request_segments
+from ..geo import snapshot_cached
+from ..safety_logic import GENDER_FEMALE, gender_of
 
 
 def _city_match(column, session, city: str):
@@ -492,6 +495,12 @@ class RequestFeedOut(BaseModel):
     passenger_rating: Optional[float] = None
     passenger_rating_count: int = 0
     passenger_verified: bool = False
+    matched_ride_id: Optional[int] = None
+    matched_ride_from_city: Optional[str] = None
+    matched_ride_to_city: Optional[str] = None
+    matched_ride_depart_at: Optional[datetime] = None
+    matched_pickup_stop: Optional[str] = None
+    matched_dropoff_stop: Optional[str] = None
 
 
 def _detour_km(req, rides: list) -> Optional[int]:
@@ -524,79 +533,235 @@ def _detour_km(req, rides: list) -> Optional[int]:
     return None if best is None else int(round(best))
 
 
+# Потолок строк, которые лента/подбор просматривают за один запрос (10 порций по FEED_MAX). Порции
+# вместо одного `limit(FEED_MAX)` нужны, чтобы подходящее не терялось за 200 посторонними, но стоимость
+# запроса обязана быть ограничена: сверка маршрута идёт в Python по каждой паре «заявка × рейс»
+# (ревью PR190, 23.10.2026). Базе отдаём всё, что она умеет отсеять сама (день, категория, места).
+_SCAN_MAX = FEED_MAX * 10
+
+
+def _ride_chunks(session, query):
+    """Ограниченная память, без OFFSET: следующая порция после (выезд, id); не больше `_SCAN_MAX` строк."""
+    after, scanned = None, 0
+    while scanned < _SCAN_MAX:
+        page = query
+        if after is not None:
+            depart, rid = after
+            page = page.where(or_(Ride.depart_at > depart, and_(Ride.depart_at == depart, Ride.id > rid)))
+        rows = session.exec(page.order_by(Ride.depart_at, Ride.id).limit(FEED_MAX)).all()
+        if not rows:
+            return
+        yield rows
+        scanned += len(rows)
+        after = (rows[-1].depart_at, rows[-1].id)
+
+
+def _request_chunks(session, query):
+    """Новые заявки первыми, порциями; не больше `_SCAN_MAX` строк за запрос."""
+    before, scanned = None, 0
+    while scanned < _SCAN_MAX:
+        page = query if before is None else query.where(RideRequest.id < before)
+        rows = session.exec(page.order_by(RideRequest.id.desc()).limit(FEED_MAX)).all()
+        if not rows:
+            return
+        yield rows
+        scanned += len(rows)
+        before = rows[-1].id
+
+
+def _on_route_scope(session, user):
+    """Необходимые условия, при которых заявка вообще может лечь на рейс этого водителя («по пути»).
+
+    `request_segments.segment` отбрасывает рейс, если не совпали категория, день выезда (по местному
+    времени) или не хватает мест, — так что заявки вне этих условий в «по пути» не попадут никогда, и
+    база может не отдавать их Python-у на сверку маршрута. Результат ленты от этого не меняется.
+    None — у водителя нет подходящих рейсов (лента «по пути» пуста)."""
+    rows = session.exec(
+        select(Ride.category, Ride.depart_at, Ride.seats_left)
+        .where(Ride.driver_id == user.id, Ride.status == RideStatus.active,
+               Ride.depart_at >= utcnow() - timedelta(hours=2))
+        .limit(_SCAN_MAX)
+    ).all()
+    rows = [row for row in rows if row[1] is not None]
+    if not rows:
+        return None
+    days = sorted({local_date(depart) for _cat, depart, _seats in rows})
+    windows = []                                   # подряд идущие дни склеиваем в одно окно
+    for day in days:
+        start, end = local_day_bounds_utc(day)
+        if windows and windows[-1][1] == start:
+            windows[-1] = (windows[-1][0], end)
+        else:
+            windows.append((start, end))
+    return ({cat for cat, _depart, _seats in rows}, windows,
+            max(int(seats or 0) for _cat, _depart, seats in rows))
+
+
+def _feed_route_choices(session, user, reqs, passengers, entry, memo=None):
+    """Первая точная поездка по времени/id; крюк остаётся отдельной оценкой по всем рейсам."""
+    choices, detours = {}, {}
+    query = select(Ride).where(Ride.driver_id == user.id, Ride.status == RideStatus.active,
+                               Ride.depart_at >= utcnow() - timedelta(hours=2))
+    for rides in _ride_chunks(session, query):
+        for req in reqs:
+            detour = _detour_km(req, rides)
+            if detour is not None:
+                detours[req.id] = min(detours.get(req.id, detour), detour)
+            if req.id in choices:
+                continue
+            for ride in rides:
+                section = request_segments.segment(ride, req, entry, memo)
+                passenger = passengers.get(req.passenger_id)
+                if section is None or passenger is None:
+                    continue
+                if ride.only_trusted and trust_level(session, passenger) < INSIDER_LEVEL:
+                    continue
+                if ride.women_only and gender_of(passenger) != "female":
+                    continue
+                choices[req.id] = (ride, section)
+                break
+    return choices, detours
+
+
 @router.get("/requests/feed", response_model=List[RequestFeedOut])
-def requests_feed(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def requests_feed(on_route: bool = False, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Активные заявки пассажиров — для водителей (откликнуться). Без своих и заблокированных."""
-    reqs = session.exec(
-        select(RideRequest)
-        .where(*live_request_conds(), *_open_category_conds(), RideRequest.passenger_id != user.id)
-        .order_by(RideRequest.id.desc()).limit(200)
-    ).all()
-    if not reqs:
-        return []
-    pax = {u.id: u for u in session.exec(select(User).where(User.id.in_({r.passenger_id for r in reqs}))).all()}
-    ratings = users_rating_agg(session, set(pax))
-    mine = {rr.request_id: rr.id for rr in session.exec(
-        select(RequestResponse).where(
-            RequestResponse.driver_id == user.id,
-            RequestResponse.request_id.in_([r.id for r in reqs]),
-            # Отозванный отклик — не «я уже откликнулся»: строка теперь остаётся в базе следом
-            # для потолка темпа (волна 51), но в ленте водитель должен снова видеть кнопку
-            # «Откликнуться», а не старый id.
-            RequestResponse.status != "withdrawn",
+    query = select(RideRequest).where(*live_request_conds(), *_open_category_conds(),
+                                      RideRequest.passenger_id != user.id)
+    if on_route:
+        # «По пути» — только заявки, которые могут лечь на рейс водителя: категория, день, места.
+        # Остальные Python-у на сверку маршрута не отдаём (результат ленты тот же, работы меньше).
+        scope = _on_route_scope(session, user)
+        if scope is None:
+            return []
+        categories, windows, max_seats = scope
+        query = query.where(
+            RideRequest.category.in_(categories), RideRequest.seats <= max_seats,
+            or_(RideRequest.desired_at.is_(None),
+                *[and_(RideRequest.desired_at >= start, RideRequest.desired_at < end)
+                  for start, end in windows]),
         )
-    ).all()}
-    # Кого не показываем: заблокированные (в обе стороны) + пассажиры на паузе §2 — принять
-    # отклик им закрыто (волна 9), водитель торговался бы впустую. Множеством, а не проверкой
-    # на каждого: в ленте до 200 заявок. Та же функция, что в «заявках рядом» (волна 72).
     hidden = hidden_author_ids(session, user)
-    is_insider = trust_level(session, user) >= INSIDER_LEVEL   # заявки «только для своих» видит лишь L3
-    # Свои активные поездки — один запрос на всю ленту (не в цикле по 200 заявкам).
-    my_rides = session.exec(
-        select(Ride).where(Ride.driver_id == user.id, Ride.status == RideStatus.active).limit(50)
-    ).all()
-    out: list = []
-    for r in reqs:
-        if r.passenger_id in hidden:
+    is_insider = trust_level(session, user) >= INSIDER_LEVEL
+    entry = snapshot_cached()
+    memo = {}   # сверка маршрута (рейс, откуда, куда) — одна на запрос, а не на каждую заявку
+    out = []
+    for batch in _request_chunks(session, query):
+        reqs = [r for r in batch if r.passenger_id not in hidden
+                and (not r.only_trusted or is_insider)
+                and (not r.women_only or gender_of(user) == "female")]
+        if not reqs:
             continue
-        if getattr(r, "only_trusted", False) and not is_insider:
+        pax = {u.id: u for u in session.exec(select(User).where(
+            User.id.in_({r.passenger_id for r in reqs}))).all()}
+        choices, detours = _feed_route_choices(session, user, reqs, pax, entry, memo)
+        if on_route:
+            reqs = [r for r in reqs if r.id in choices]
+        if not reqs:
             continue
-        p = pax.get(r.passenger_id)
-        rating, rating_count = ratings.get(r.passenger_id, (0.0, 0))
-        start = ((r.from_lat, r.from_lng)
-                 if r.from_lat is not None and r.from_lng is not None
-                 else CITY_COORDS.get(r.from_city))
-        finish = ((r.to_lat, r.to_lng)
-                  if r.to_lat is not None and r.to_lng is not None
-                  else CITY_COORDS.get(r.to_city))
-        route_km = (round(haversine_km(start[0], start[1], finish[0], finish[1]), 1)
-                    if start is not None and finish is not None else None)
-        out.append(RequestFeedOut(
-            id=r.id, passenger_name=(p.name if p and p.name else "Пассажир"),
-            passenger_avatar=(p.avatar_url if p else ""),
-            from_city=r.from_city, to_city=r.to_city, desired_at=r.desired_at,
-            # Свободный комментарий заявки чистим той же мойкой, что и объявления поездок
-            # (волна 138): женщина пишет «жду у дома, ул. Ленина 12, звони +7 999…», и это
-            # читали ВСЕ зарегистрированные — двести заявок на экране, адреса и телефоны
-            # подряд. Ориентир «жду у дома» остаётся, номер дома и телефон — нет: их водитель
-            # получает, когда пассажирка приняла именно его отклик.
-            seats=r.seats, comment=scrub_text(r.comment), responded=(r.id in mine),
-            my_response_id=mine.get(r.id),
-            prefs=request_prefs(r),
-            detour_km=_detour_km(r, my_rides),
-            max_price=r.max_price,
-            distance_km=route_km,
-            category=r.category.value if hasattr(r.category, "value") else str(r.category),
-            passenger_rating=(round(rating, 1) if rating_count > 0 else None),
-            passenger_rating_count=rating_count,
-            passenger_verified=bool(p and p.verified),
-        ))
+        ratings = users_rating_agg(session, {r.passenger_id for r in reqs})
+        mine = {rr.request_id: rr.id for rr in session.exec(select(RequestResponse).where(
+            RequestResponse.driver_id == user.id, RequestResponse.request_id.in_([r.id for r in reqs]),
+            RequestResponse.status != "withdrawn")).all()}
+        for r in reqs:
+            if r.passenger_id in hidden:
+                continue
+            if getattr(r, "only_trusted", False) and not is_insider:
+                continue
+            if r.women_only and gender_of(user) != "female":
+                continue
+            match, section = choices.get(r.id, (None, None))
+            if on_route and match is None:
+                continue
+            p = pax.get(r.passenger_id)
+            rating, rating_count = ratings.get(r.passenger_id, (0.0, 0))
+            start = ((r.from_lat, r.from_lng)
+                     if r.from_lat is not None and r.from_lng is not None
+                     else CITY_COORDS.get(r.from_city))
+            finish = ((r.to_lat, r.to_lng)
+                      if r.to_lat is not None and r.to_lng is not None
+                      else CITY_COORDS.get(r.to_city))
+            route_km = (round(haversine_km(start[0], start[1], finish[0], finish[1]), 1)
+                        if start is not None and finish is not None else None)
+            out.append(RequestFeedOut(
+                id=r.id, passenger_name=(p.name if p and p.name else "Пассажир"),
+                passenger_avatar=(p.avatar_url if p else ""),
+                from_city=r.from_city, to_city=r.to_city, desired_at=r.desired_at,
+                # Свободный комментарий заявки чистим той же мойкой, что и объявления поездок
+                # (волна 138): женщина пишет «жду у дома, ул. Ленина 12, звони +7 999…», и это
+                # читали ВСЕ зарегистрированные — двести заявок на экране, адреса и телефоны
+                # подряд. Ориентир «жду у дома» остаётся, номер дома и телефон — нет: их водитель
+                # получает, когда пассажирка приняла именно его отклик.
+                seats=r.seats, comment=scrub_text(r.comment), responded=(r.id in mine),
+                my_response_id=mine.get(r.id),
+                prefs=request_prefs(r),
+                detour_km=detours.get(r.id),
+                max_price=r.max_price,
+                distance_km=route_km,
+                category=r.category.value if hasattr(r.category, "value") else str(r.category),
+                matched_ride_id=match.id if match else None,
+                matched_ride_from_city=match.from_city if match else None,
+                matched_ride_to_city=match.to_city if match else None,
+                matched_ride_depart_at=match.depart_at if match else None,
+                matched_pickup_stop=(section[0] or match.from_city) if match else None,
+                matched_dropoff_stop=(section[1] or match.to_city) if match else None,
+                passenger_rating=(round(rating, 1) if rating_count > 0 else None),
+                passenger_rating_count=rating_count,
+                passenger_verified=bool(p and p.verified),
+            ))
+            if len(out) >= FEED_MAX:
+                return out
     return out
 
 
 class RespondIn(BaseModel):
     price: int = Field(0, ge=0, le=1_000_000)              # цена ≥0, потолок — защита от отрицательной/мусорной суммы в брони
     comment: str = Field("", max_length=500)
+    ride_id: Optional[int] = Field(None, gt=0)
+
+
+def _guard_request_parties(session, req, driver):
+    if driver is None or req.passenger_id == driver.id:
+        raise herr(409, "Это предложение недоступно", "Был тәҡдим мөмкин түгел")
+    if not may_ride_together(session, req.passenger_id, driver.id):
+        raise herr(409, "Сейчас эту поездку оформить не получится. Заявка активна — дождись другого отклика.",
+                   "Хәҙер был сәфәрҙе асып булмай. Заявка актив — башҡа яуапты көт.")
+    if req.women_only:
+        guard_women_only(driver, msg=MSG_WOMEN_ONLY_RESPOND)
+    if req.only_trusted and trust_level(session, driver) < INSIDER_LEVEL:
+        raise herr(403, "Заявка только для своих", "Заявка тик үҙ кешеләр өсөн")
+
+
+def _bound_section(session, req, driver, ride):
+    """Все применимые правила обычной брони повторно действуют на предложении своего рейса."""
+    _guard_request_parties(session, req, driver)
+    if session.exec(select(RideRequest.id).where(RideRequest.id == req.id, *live_request_conds())).first() is None:
+        raise herr(409, "Заявка уже закрыта или её время прошло", "Заявка ябылған йәки уның ваҡыты үткән инде")
+    if ride.driver_id != driver.id:
+        raise herr(403, "Предложить можно только свой рейс", "Тик үҙ рейсыңды ғына тәҡдим итеп була")
+    passenger = session.get(User, req.passenger_id)
+    if passenger is None:
+        raise herr(409, "Это предложение недоступно", "Был тәҡдим мөмкин түгел")
+    guard_delivery_ride(ride.category)
+    # Правила «только для своих» и «только женщины» на РЕЙСЕ применяем так же строго, как при обычной
+    # брони, но отказ говорим нейтральный и тем же текстом, что «не подходит маршрут» (ревью PR190,
+    # 23.10.2026). Отклик шлёт ВОДИТЕЛЬ, а пассажира это про себя не спрашивало: «Эта поездка только для
+    # женщин» / «Укажи пол» / «Поездка только для своих» выдавали бы ему пол и уровень доверия незнакомого
+    # человека — предложи свой рейс и прочти ответ. Причину знает только сам пассажир, в своей брони.
+    if ride.only_trusted and trust_level(session, passenger) < INSIDER_LEVEL:
+        raise _ride_no_longer_fits()
+    if ride.women_only and gender_of(passenger) != GENDER_FEMALE:
+        raise _ride_no_longer_fits()
+    section = request_segments.segment(ride, req)
+    if section is None:
+        raise _ride_no_longer_fits()
+    return section
+
+
+def _ride_no_longer_fits():
+    """Один нейтральный отказ на все причины «этот рейс не годится этой заявке»."""
+    return herr(409, "Рейс больше не подходит заявке: проверь маршрут, дату и свободные места.",
+                "Рейс заявкаға тура килмәй инде: юлды, көндө һәм буш урындарҙы тикшер.")
 
 
 @router.post("/requests/{request_id}/respond")
@@ -650,14 +815,27 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         RequestResponse.request_id == request_id, RequestResponse.driver_id == user.id,
         RequestResponse.status != "withdrawn")).first()
     if dup:
+        if dup.ride_id != body.ride_id:
+            raise herr(409, "Отклик уже отправлен с другим рейсом. Отзови его перед новым предложением.",
+                       "Яуап икенсе рейс менән ебәрелгән инде. Яңы тәҡдимдән алда уны кире ал.")
         return {"ok": True, "id": dup.id}     # идемпотентно — повторный отклик не плодим
+    bound_ride, section = None, None
+    if body.ride_id is not None:
+        bound_ride = session.get(Ride, body.ride_id)
+        if bound_ride is None or bound_ride.driver_id != user.id:
+            raise herr(403, "Предложить можно только свой рейс", "Тик үҙ рейсыңды ғына тәҡдим итеп була")
+        section = _bound_section(session, req, user, bound_ride)
     # current_price = цена НА СТОЛЕ: пока торга не было, это первое предложение водителя.
     # Модерация открытого поля. В личном чате попутки телефон не трогаем (соседи так и
     # договариваются), но заявку и отклик видят ВСЕ — это уже публичное объявление,
     # и номер там висит для кого угодно. Помечаем, текст не меняем, сохранение не рвём.
     moderate_open_text(body.comment, user.id, place="response", session=session)
     resp = RequestResponse(request_id=request_id, driver_id=user.id, price=body.price,
-                           comment=body.comment, current_price=body.price, last_offer_by="driver")
+                           comment=body.comment, current_price=body.price, last_offer_by="driver",
+                           ride_id=body.ride_id,
+                           pickup_stop=section[0] if section else None,
+                           dropoff_stop=section[1] if section else None,
+                           route_snapshot=request_segments.snapshot(bound_ride, req) if bound_ride else "")
     session.add(resp)
     session.commit()
     session.refresh(resp)
@@ -702,6 +880,46 @@ _PRICE_CAP = 100_000                         # тот же потолок, чт�
 def price_on_table(resp: RequestResponse) -> int:
     """Цена, которая сейчас на столе. У старых откликов (до торга) поля нет → берём исходную."""
     return int(getattr(resp, "current_price", 0) or resp.price or 0)
+
+
+_RESPONSE_TERMS = ("status", "price", "current_price", "last_offer_by", "bargain_rounds", "bargain_history")
+
+
+def _response_terms(resp):
+    return tuple(getattr(resp, field) for field in _RESPONSE_TERMS)
+
+
+def _mutate_response(session, resp, changes):
+    """CAS: устаревший counter/decline/withdraw/accept не переписывает уже принятую сделку.
+
+    FOR UPDATE сериализует PostgreSQL. Условие ВНУТРИ UPDATE обязательно и для SQLite,
+    где SELECT FOR UPDATE не блокирует: проигравший получает 409 и откатывает всю транзакцию.
+    Объект не делаем dirty — поздний ORM flush не вправе затереть свежую строку.
+    """
+    changed = session.execute(update(RequestResponse).where(
+        RequestResponse.id == resp.id,
+        *(getattr(RequestResponse, key) == value for key, value in zip(_RESPONSE_TERMS, _response_terms(resp))),
+    ).values(**changes).execution_options(synchronize_session=False))
+    if changed.rowcount != 1:
+        session.rollback()
+        raise herr(409, "Предложение уже изменилось. Обнови отклики и проверь условия.",
+                   "Тәҡдим үҙгәргән инде. Яуаптарҙы яңырт та шарттарҙы тикшер.")
+
+
+def _locked_response(session, response_id):
+    """Порядок блокировок всех мутаций один: заявка → отклик → рейс (если нужен)."""
+    request_id = session.exec(select(RequestResponse.request_id).where(RequestResponse.id == response_id)).first()
+    if request_id is None:
+        raise herr(404, "Отклик не найден", "Яуап табылманы")
+    req = session.exec(select(RideRequest).where(RideRequest.id == request_id)
+                       .with_for_update().execution_options(populate_existing=True)).first()
+    if req is None:
+        raise herr(404, "Заявка не найдена", "Заявка табылманы")
+    resp = session.exec(select(RequestResponse).where(RequestResponse.id == response_id)
+                        .with_for_update().execution_options(populate_existing=True)).first()
+    if resp is None:
+        raise herr(404, "Отклик не найден", "Яуап табылманы")
+    return req, resp
 
 
 def _bargain_role(resp: RequestResponse, req: RideRequest, user: User) -> Optional[str]:
@@ -754,6 +972,12 @@ class ResponseOut(BaseModel):
     request_seats: int = 0
     request_max_price: int = 0
     request_desired_at: Optional[datetime] = None
+    ride_id: Optional[int] = None
+    ride_from_city: Optional[str] = None
+    ride_to_city: Optional[str] = None
+    ride_depart_at: Optional[datetime] = None
+    pickup_stop: Optional[str] = None
+    dropoff_stop: Optional[str] = None
 
 
 @router.get("/requests/{request_id}/responses", response_model=List[ResponseOut])
@@ -773,6 +997,7 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
     ).all()
     driver_ids = {r.driver_id for r in resps}
     drivers, profiles, ratings, trips = drivers_bundle(session, driver_ids)
+    closed_segments = _closed_response_segments(session, resps, user)
     out: list = []
     for r in resps:
         d = drivers.get(r.driver_id)
@@ -780,13 +1005,30 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
         out.append(_response_out(
             session, r, req, user, d, avg, cnt,
             profile=profiles.get(r.driver_id), trips_count=trips.get(r.driver_id, 0),
+            hide_segment=r.id in closed_segments,
         ))
     return out
 
 
+def _closed_response_segments(session, responses, viewer):
+    """Принятый отклик не даёт водителю вторую дверь к закрытым данным брони. Один запрос пачкой."""
+    candidates = {r.id: r.booking_id for r in responses
+                  if r.driver_id == viewer.id and r.ride_id is not None and r.status == "accepted"}
+    ids = {bid for bid in candidates.values() if bid is not None}
+    visible = set()
+    if ids:
+        rows = session.exec(select(Booking, Ride).join(Ride, Ride.id == Booking.ride_id)
+                            .where(Booking.id.in_(ids))).all()
+        visible = {booking.id for booking, ride in rows
+                   if booking.status != BookingStatus.cancelled and (
+                       booking.status != BookingStatus.done or booking_contacts_open(booking, ride))}
+    return {rid for rid, bid in candidates.items() if bid not in visible}
+
+
 def _response_out(session: Session, r: RequestResponse, req: RideRequest, viewer: User,
                   d: Optional[User] = None, avg: float = 0.0, cnt: int = 0,
-                  profile: Optional[DriverProfile] = None, trips_count: int = 0) -> ResponseOut:
+                  profile: Optional[DriverProfile] = None, trips_count: int = 0,
+                  hide_segment: bool = False) -> ResponseOut:
     """Карточка отклика глазами КОНКРЕТНОГО смотрящего: can_counter/can_accept зависят от того,
     чей сейчас ход. Без этого обе стороны видели бы активные кнопки одновременно и жали их
     вслепую — «принять» свою же цену для торга бессмысленно."""
@@ -797,6 +1039,13 @@ def _response_out(session: Session, r: RequestResponse, req: RideRequest, viewer
     last = (getattr(r, "last_offer_by", "") or "driver")
     live = r.status == "offered" and req.status == "active"
     my_turn = bool(role) and live and last != role
+    # Показываем условия, которые предложены, даже если водитель позднее исправил свой рейс.
+    # При принятии snapshot сравнивается с текущими условиями и изменённый отклик отклоняется.
+    import json
+    try:
+        offered_ride = json.loads(r.route_snapshot).get("ride", {}) if r.ride_id else {}
+    except (ValueError, TypeError, AttributeError):
+        offered_ride = {}
     return ResponseOut(
         id=r.id, driver_id=r.driver_id, driver_name=(d.name if d and d.name else "Водитель"),
         driver_avatar=(d.avatar_url if d else ""),
@@ -814,6 +1063,12 @@ def _response_out(session: Session, r: RequestResponse, req: RideRequest, viewer
         request_seats=req.seats,
         request_max_price=int(req.max_price or 0),
         request_desired_at=req.desired_at,
+        ride_id=r.ride_id,
+        ride_from_city=offered_ride.get("from_city"),
+        ride_to_city=offered_ride.get("to_city"),
+        ride_depart_at=offered_ride.get("depart_at"),
+        pickup_stop=None if hide_segment else r.pickup_stop,
+        dropoff_stop=None if hide_segment else r.dropoff_stop,
     )
 
 
@@ -832,6 +1087,7 @@ def my_responses(user: User = Depends(current_user), session: Session = Depends(
     reqs = {r.id: r for r in session.exec(
         select(RideRequest).where(RideRequest.id.in_({x.request_id for x in resps}))).all()}
     drivers, profiles, ratings, trips = drivers_bundle(session, {user.id})
+    closed_segments = _closed_response_segments(session, resps, user)
     out: list = []
     for r in resps:
         req = reqs.get(r.request_id)
@@ -840,6 +1096,7 @@ def my_responses(user: User = Depends(current_user), session: Session = Depends(
             out.append(_response_out(
                 session, r, req, user, drivers.get(user.id), avg, cnt,
                 profile=profiles.get(user.id), trips_count=trips.get(user.id, 0),
+                hide_segment=r.id in closed_segments,
             ))
     return out
 
@@ -852,14 +1109,7 @@ def counter_offer(response_id: int, body: CounterIn,
     Раньше этого не было вообще: отклик был «бери или уходи». Цена на столе (`current_price`)
     ровно та, по которой создастся поездка при accept — торговаться о числе, которое потом
     не применится, было бы враньём."""
-    resp = session.exec(
-        select(RequestResponse).where(RequestResponse.id == response_id).with_for_update()
-    ).one_or_none()
-    if not resp:
-        raise herr(404, "Отклик не найден", "Яуап табылманы")
-    req = session.get(RideRequest, resp.request_id)
-    if not req:
-        raise herr(404, "Заявка не найдена", "Заявка табылманы")
+    req, resp = _locked_response(session, response_id)
     role = _bargain_role(resp, req, user)
     if not role:
         raise herr(403, "Это не твой торг", "Был һинең һатыулашыуың түгел")
@@ -880,13 +1130,11 @@ def counter_offer(response_id: int, body: CounterIn,
                    f"Һатыулашыу тамам: һәр яҡтан {BARGAIN_MAX_ROUNDS} тәҡдимдән артыҡ түгел. "
                    f"Хаҡты ҡабул ит йәки баш тарт.")
     price = max(0, min(int(body.price), _PRICE_CAP))
-    resp.bargain_history = _append_history(resp, role, price)
-    resp.current_price = price
-    resp.last_offer_by = role
-    resp.bargain_rounds = rounds + 1
+    changes = dict(bargain_history=_append_history(resp, role, price), current_price=price,
+                   last_offer_by=role, bargain_rounds=rounds + 1)
     if body.comment.strip():
-        resp.comment = body.comment.strip()[:500]
-    session.add(resp)
+        changes["comment"] = body.comment.strip()[:500]
+    _mutate_response(session, resp, changes)
     session.commit()
     session.refresh(resp)
     other_id = req.passenger_id if role == "driver" else resp.driver_id
@@ -906,12 +1154,7 @@ def counter_offer(response_id: int, body: CounterIn,
 def decline_response(response_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Закончить торг без сделки. Может любая из сторон; заявка остаётся активной — другие
     водители продолжают откликаться (в этом смысл заявки, а не одного отклика)."""
-    resp = session.get(RequestResponse, response_id)
-    if not resp:
-        raise herr(404, "Отклик не найден", "Яуап табылманы")
-    req = session.get(RideRequest, resp.request_id)
-    if not req:
-        raise herr(404, "Заявка не найдена", "Заявка табылманы")
+    req, resp = _locked_response(session, response_id)
     role = _bargain_role(resp, req, user)
     if not role and user.role != UserRole.admin:
         raise herr(403, "Это не твой торг", "Был һинең һатыулашыуың түгел")
@@ -921,8 +1164,7 @@ def decline_response(response_id: int, user: User = Depends(current_user), sessi
         # Отозванный отклик отклонять нечего — иначе водитель получил бы пуш
         # «не договорились по цене» на предложение, которое сам же снял (волна 51).
         return {"ok": True, "already": True}
-    resp.status = "declined"
-    session.add(resp)
+    _mutate_response(session, resp, {"status": "declined"})
     session.commit()
     other_id = req.passenger_id if role == "driver" else resp.driver_id
     if other_id and other_id != user.id:
@@ -980,7 +1222,8 @@ def close_open_responses(session: Session, req: RideRequest, *, kept_id: int | N
     return закрыто
 
 
-def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
+def accept_request_response(session: Session, resp: RequestResponse, *, actor: Optional[User] = None,
+                            expected_terms=None) -> Booking:
     """Принять отклик водителя: Ride+Booking одной транзакцией, заявка → matched, водителю push.
     Общая логика для приложения (пассажир/админ), автоподбора и Telegram-кнопки ✅ у админа —
     чтобы приём отклика вёл себя одинаково откуда угодно. Заявка должна быть active, иначе 400/404."""
@@ -990,18 +1233,33 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
     # session.get), а SQLAlchemy при повторной загрузке известного объекта поля НЕ перезаписывает —
     # проверка ниже смотрела на статус, каким он был ДО чужого коммита, и защиты не было вовсе
     # (аудит 2026-08-07).
-    req = session.exec(
-        select(RideRequest).where(RideRequest.id == resp.request_id)
-        .with_for_update().execution_options(populate_existing=True)
-    ).first()
-    if not req:
-        raise herr(404, "Заявка не найдена", "Заявка табылманы")
+    expected_terms = _response_terms(resp) if expected_terms is None else expected_terms
+    req, resp = _locked_response(session, resp.id)
+    # HTTP приносит нажимающего. Telegram/автоподбор действуют от имени пассажира.
+    role = _bargain_role(resp, req, actor) if actor is not None else "passenger"
+    if role is None and actor is not None and actor.role == UserRole.admin:
+        role = "passenger"
+    if role is None:
+        raise herr(403, "Нет доступа", "Рөхсәт юҡ")
+    driver = session.get(User, resp.driver_id)
+    _guard_request_parties(session, req, driver)
+    if resp.ride_id is not None and resp.status == "accepted" and resp.booking_id is not None:
+        previous = session.get(Booking, resp.booking_id)
+        if previous and previous.ride_id == resp.ride_id and previous.passenger_id == req.passenger_id:
+            return previous
+        raise herr(409, "Не удалось найти принятую бронь. Обнови список поездок.",
+                   "Ҡабул ителгән бронь табылманы. Сәфәрҙәр исемлеген яңырт.")
     # Приём отклика сам создаёт поездку категории заявки с подтверждённой бронью — мимо замка
     # в rides.py/bookings.py. Одна общая точка для приложения, админа, автоподбора и Telegram ✅.
     guard_delivery_ride(req.category)
     # Быстрый понятный отказ; настоящая защита — атомарный захват заявки ниже.
     if req.status != "active":
         raise herr(400, "Заявка уже закрыта", "Заявка инде ябылған")
+    if resp.status != "offered":
+        raise herr(409, "Это предложение уже закрыто", "Был тәҡдим ябылған инде")
+    if (resp.last_offer_by or "driver") == role or _response_terms(resp) != expected_terms:
+        raise herr(409, "Предложение уже изменилось. Обнови отклики и проверь условия.",
+                   "Тәҡдим үҙгәргән инде. Яуаптарҙы яңырт та шарттарҙы тикшер.")
     # Пауза «Справедливости» и блокировка — здесь, в общей точке, а не только на кнопке в
     # приложении. Дверей три (приложение, авто-подбор «за пожилого», Telegram-кнопка админа),
     # и гейты стояли лишь на первой: авто-подбор сводил пассажира без приложения с отстранённым
@@ -1013,6 +1271,23 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
     if not may_ride_together(session, req.passenger_id, resp.driver_id):
         raise herr(409, "Сейчас эту поездку оформить не получится. Заявка активна — дождись другого отклика.",
                    "Хәҙер был сәфәрҙе асып булмай. Заявка актив — башҡа яуапты көт.")
+    bound_ride, section = None, None
+    if resp.ride_id is not None:
+        bound_ride = session.exec(select(Ride).where(Ride.id == resp.ride_id)
+                                  .with_for_update().execution_options(populate_existing=True)).first()
+        if bound_ride is None:
+            raise herr(409, "Рейс больше недоступен", "Рейс мөмкин түгел инде")
+        section = _bound_section(session, req, driver, bound_ride)
+        if (resp.route_snapshot != request_segments.snapshot(bound_ride, req)
+                or section != (resp.pickup_stop, resp.dropoff_stop)):
+            raise herr(409, "Условия рейса или заявки изменились. Нужен новый отклик.",
+                       "Рейс йәки заявка шарттары үҙгәргән. Яңы яуап кәрәк.")
+        if session.exec(select(Booking.id).where(
+            Booking.ride_id == bound_ride.id, Booking.passenger_id == req.passenger_id,
+            Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
+        )).first() is not None:
+            raise herr(409, "У пассажира уже есть бронь в этом рейсе. Сначала разберитесь с ней в чате.",
+                       "Юлсының был рейста броне бар инде. Тәүҙә уның тураһында чатта килешегеҙ.")
     # Заявку ЗАКРЫВАЕМ атомарно, ДО создания поездки: условие «она всё ещё активна» живёт
     # внутри UPDATE.
     #
@@ -1024,9 +1299,11 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
     # который уже собрался ехать.
     #
     # И как везде: саму защиту не проверял ни один тест — на SQLite блокировка пустая.
+    _mutate_response(session, resp, {"status": "accepted"})
     claimed = session.execute(
         update(RideRequest)
-        .where(RideRequest.id == req.id, RideRequest.status == "active")
+        .where(RideRequest.id == req.id, RideRequest.status == "active",
+               *(getattr(RideRequest, key) == getattr(req, key) for key in request_segments.REQUEST_FIELDS))
         .values(status="matched")
     )
     if claimed.rowcount == 0:
@@ -1037,30 +1314,55 @@ def accept_request_response(session: Session, resp: RequestResponse) -> Booking:
     # Берём цену НА СТОЛЕ (после торга), а не первое предложение водителя: иначе поездка
     # создавалась бы по цене, от которой обе стороны уже отошли.
     price = max(0, min(price_on_table(resp), _PRICE_CAP))
-    depart = req.desired_at or (utcnow() + timedelta(hours=1))
-    ride = Ride(
-        driver_id=resp.driver_id, from_city=req.from_city, to_city=req.to_city, depart_at=depart,
-        seats_total=req.seats, seats_left=0, price=price, category=req.category, status=RideStatus.active,
-    )
-    session.add(ride)
-    session.flush()   # flush выдаёт ride.id БЕЗ commit → Ride+Booking+статусы фиксируем ОДНОЙ транзакцией.
+    if bound_ride is not None:
+        # Условие внутри UPDATE защищает и SQLite, где FOR UPDATE не работает. Захват заявки
+        # выше и списание мест откатываем вместе при отказе; цену опубликованного рейса не меняем.
+        reserved = session.execute(update(Ride).where(
+            Ride.id == bound_ride.id, Ride.driver_id == resp.driver_id,
+            Ride.status == RideStatus.active, Ride.seats_left >= req.seats,
+            *(getattr(Ride, key) == getattr(bound_ride, key) for key in request_segments.RIDE_FIELDS),
+        ).values(seats_left=Ride.seats_left - req.seats))
+        if reserved.rowcount == 0:
+            session.rollback()
+            raise herr(409, "Места или условия рейса только что изменились. Обнови предложения.",
+                       "Рейстың урындары йәки шарттары хәҙер генә үҙгәрҙе. Тәҡдимдәрҙе яңырт.")
+        ride = bound_ride
+    else:
+        depart = req.desired_at or (utcnow() + timedelta(hours=1))
+        ride = Ride(
+            driver_id=resp.driver_id, from_city=req.from_city, to_city=req.to_city, depart_at=depart,
+            seats_total=req.seats, seats_left=0, price=price, category=req.category, status=RideStatus.active,
+        )
+        session.add(ride)
+        session.flush()   # новая поездка нужна только для старых откликов без ride_id
     booking = Booking(   # бронь на ПАССАЖИРА заявки (а не на того, кто принял — важно при admin-accept)
         ride_id=ride.id, passenger_id=req.passenger_id, seats=req.seats, price=price * req.seats,
         status=BookingStatus.confirmed, boarding_code=gen_otp(),
+        pickup_stop=section[0] if section else None,
+        dropoff_stop=section[1] if section else None,
     )
     session.add(booking)
+    session.flush()
     resp.status = "accepted"   # req.status уже выставлен атомарным UPDATE выше
+    resp.booking_id = booking.id
     session.add(resp)
     session.commit()   # атомарно: сбой не оставит «осиротевшую» поездку без брони и не даст принять отклик повторно
     session.refresh(booking)
     notify_map_changed()   # заявка исполнена (matched) → её маркер уходит, новая поездка появляется — live
     pax = session.get(User, req.passenger_id)
     pax_name = pax.name if pax else "Пассажир"
-    route = f"{req.from_city} → {req.to_city}"
+    # Маршрут РЕЙСА, а не заявки, и пометка о посадке на остановке БЕЗ названия села — как в пуше
+    # «Новая бронь» (`bookings.py`, P3 PR186; ревью PR190, 23.10.2026). Заявка пассажирки несёт её
+    # село посадки/высадки, а пуш лежит на экране блокировки водителя. Само место водитель видит
+    # в приложении (бронь, `/driver/bookings`). Старый отклик без `ride_id` создал поездку по
+    # заявке, и её города — те же, что в заявке: для него текст не меняется.
+    route = f"{ride.from_city} → {ride.to_city}"
+    stop_ru = " · посадка по пути" if booking.pickup_stop else ""
+    stop_ba = " · юл ыңғайында ултыра" if booking.pickup_stop else ""
     push_notification(
         session, resp.driver_id, "ride",
         "Заявку приняли", "Заявка ҡабул ителде",
-        f"{pax_name}: {route}", f"{pax_name}: {route}",
+        f"{pax_name}: {route}{stop_ru}", f"{pax_name}: {route}{stop_ba}",
         ref_kind="booking", ref_id=booking.id,
     )
     # Остальные откликнувшиеся держат это время под пассажира, который уже уехал с другим.
@@ -1097,7 +1399,7 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     if resp.status == "declined":
         raise herr(409, "Торг закрыт — по этому отклику не договорились",
                    "Һатыулашыу ябылған — был яуап буйынса килешмәгәндәр")
-    if last == role:
+    if last == role and not (resp.ride_id is not None and resp.status == "accepted"):
         raise herr(409, "Сейчас ход другой стороны — свою же цену принять нельзя",
                    "Хәҙер икенсе яҡтың сираты — үҙ хаҡыңды ҡабул итеп булмай")
     # ⬇️ Пауза «Справедливости» (§2) на ОБЕИХ сторонах. Торг — это две двери, а гейт стоял
@@ -1125,7 +1427,7 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
                        "Был водитель хәҙер юлға сыҡмай. Заявка актив — башҡа яуапты көт.")
         raise herr(409, "Пассажир сейчас не может оформить поездку. Попробуй другую заявку.",
                    "Пассажир хәҙер сәфәр аса алмай. Башҡа заявканы ҡарап ҡара.")
-    booking = accept_request_response(session, resp)
+    booking = accept_request_response(session, resp, actor=user, expected_terms=_response_terms(resp))
     return {"booking_id": booking.id}
 
 
@@ -1134,9 +1436,7 @@ def withdraw_response(response_id: int, user: User = Depends(current_user), sess
     """Водитель отзывает свой отклик на заявку — пока пассажир его не принял.
     Только автор отклика; после accept (status=accepted) отозвать нельзя → 409
     (поездка уже создана, за ней пассажир). Удаляем строку отклика."""
-    resp = session.get(RequestResponse, response_id)
-    if not resp:
-        raise herr(404, "Отклик не найден", "Яуап табылманы")
+    _req, resp = _locked_response(session, response_id)
     if resp.driver_id != user.id:   # только свой отклик (даже админ чужой не трогает — это личное действие водителя)
         raise herr(403, "Можно отозвать только свой отклик", "Тик үҙ яуабыңды ғына кире алып була")
     if resp.status == "accepted":
@@ -1146,8 +1446,9 @@ def withdraw_response(response_id: int, user: User = Depends(current_user), sess
     # отозвал → откликнулся снова, и так сорок раз подряд (проверено запросом, аудит 2026-08-12,
     # волна 51). Счётчик, который живёт в удаляемой строке, обнуляется вместе с уликой — тот же
     # урок, что с рассылкой SMS в волне 48.
-    resp.status = "withdrawn"
-    session.add(resp)
+    if resp.status == "withdrawn":
+        return {"ok": True}
+    _mutate_response(session, resp, {"status": "withdrawn"})
     session.commit()
     return {"ok": True}
 
@@ -1161,12 +1462,17 @@ def match_rides(request_id: int, user: User = Depends(current_user), session: Se
         raise herr(403, "Нет доступа к этой заявке", "Был заявкаға рөхсәт юҡ")
     q = select(Ride).where(
         Ride.status == RideStatus.active,
-        Ride.from_city.contains(req.from_city),
-        Ride.to_city.contains(req.to_city),
         Ride.seats_left >= req.seats,
         Ride.category == req.category,
+        Ride.depart_at >= utcnow() - timedelta(hours=2),
     )
-    rides = session.exec(q.order_by(Ride.depart_at).limit(FEED_MAX)).all()   # потолок витрины (волна 90)
+    if req.desired_at is not None:
+        # Рейс другого дня (по местному времени) `request_segments.segment` отбросит в любом случае —
+        # пусть его отсеет база по индексу даты выезда, а не Python по каждой строке.
+        day_start, day_end = local_day_bounds_utc(local_date(req.desired_at))
+        q = q.where(Ride.depart_at >= day_start, Ride.depart_at < day_end)
+    entry = snapshot_cached()
+    memo = {}   # рейсы одной линии (одинаковые откуда/куда/остановки) сверяются с заявкой один раз
     # Через public-payload: точная точка сбора (pickup/координаты) раскрывается только участнику
     # подтверждённой брони, а не всем, кто ищет попутку по заявке (приватность до брони).
     #
@@ -1174,4 +1480,30 @@ def match_rides(request_id: int, user: User = Depends(current_user), session: Se
     # своя проверка вместо общей означала, что про блокировку и паузу этот подбор не знал —
     # заблокированный водитель приходил к человеку прямо в ответ на его заявку
     # (аудит 2026-08-08, волна 71).
-    return visible_rides(public_rides_payload(rides_out(rides, session)), user, session)
+    out = []
+    for batch in _ride_chunks(session, q):
+        sections, rides = {}, []
+        drivers = {d.id: d for d in session.exec(select(User).where(
+            User.id.in_({r.driver_id for r in batch}))).all()}
+        for ride in batch:
+            driver = drivers.get(ride.driver_id)
+            if req.women_only and gender_of(driver) != "female":
+                continue
+            if req.only_trusted and (driver is None or trust_level(session, driver) < INSIDER_LEVEL):
+                continue
+            if ride.women_only and gender_of(user) != "female":
+                continue
+            section = request_segments.segment(ride, req, entry, memo)
+            if section is not None:
+                sections[ride.id] = section
+                rides.append(ride)
+        page = [r.model_copy(update={
+            "matched_stop": sections[r.id][0] or None,
+            "matched_from_start": sections[r.id][0] == "",
+            "matched_dropoff_stop": sections[r.id][1] or None,
+            "matched_to_end": sections[r.id][1] == "",
+        }) for r in rides_out(rides, session)]
+        out.extend(visible_rides(public_rides_payload(page), user, session))
+        if len(out) >= FEED_MAX:
+            return out[:FEED_MAX]
+    return out

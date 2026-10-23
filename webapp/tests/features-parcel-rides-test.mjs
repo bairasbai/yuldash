@@ -23,7 +23,7 @@ mocks["../api/driver"]="export const fetchPriceHint=async()=>({});export const p
 mocks["../api/bookings"]="export const createBooking=async body=>{globalThis.__parcelRide.booked.push(body);return{id:73};};";
 mocks["../api/client"]="export class ApiError extends Error{}export const getSessionGeneration=()=> 'same-owner';";
 mocks["../booking/OwnBookingsProvider"]="export const useOwnBooking=()=>globalThis.__parcelRide.ownBooking??null;export const useRefreshOwnBookings=()=>()=>{};";
-mocks["../utils/format"]="export const formatWhen=()=>'';export const priceLabel=()=>'';export const rubLabel=()=>'';";
+mocks["../utils/format"]="export const formatWhen=()=>'';export const priceLabel=()=>'';export const rubLabel=()=>'';export const pluralRu=(n,one)=>one;";
 mocks["../components/WeatherWarningCard"]="export default function Weather(){return null;}export const useRouteWeather=()=>null;";
 mocks["../utils/seatOptions"]="export const SEATS_DEFAULT=4;export const clampSeats=n=>n;export const seatCap=()=>4;";
 mocks["../components/ComingSoon"]="export default function ComingSoon(){return null;}";
@@ -31,6 +31,9 @@ mocks["./ComingSoon"]=mocks["../components/ComingSoon"];
 // Уход шторки — настоящий (useSheetExit): ему хватает useState/useRef/useEffect подменённого React,
 // а портал в <body> отдаёт разметку как есть.
 delete mocks["./useSheetExit"];
+delete mocks["../utils/pickupStops"];
+delete mocks["../components/StopSuggestField"];
+mocks["../api/geo"] = "export const searchSettlements=async()=>[];";
 mocks["react-dom"]="export const createPortal=node=>node;";
 globalThis.document ??= { body: {} };
 async function compile(entry){const out=await build({entryPoints:[entry],bundle:true,write:false,format:"esm",platform:"node",jsx:"automatic",plugins:[{name:"parcel-fixtures",setup(b){b.onResolve({filter:/.*/},a=>a.path in mocks?{path:a.path,namespace:"fixture"}:undefined);b.onLoad({filter:/.*/,namespace:"fixture"},a=>({contents:mocks[a.path],loader:"js"}));}}]});return(await import("data:text/javascript;base64,"+Buffer.from(out.outputFiles[0].text).toString("base64"))).default;}

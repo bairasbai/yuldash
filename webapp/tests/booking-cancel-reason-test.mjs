@@ -23,6 +23,7 @@ import { ROOT, all, bundleComponent, button, checker, langMock, mount, ofType, t
 import { openActiveTrip } from "./active-trip-fixture.mjs";
 
 const t = checker();
+globalThis.document ??= { visibilityState: "visible", addEventListener() {}, removeEventListener() {} };
 const L = (lang, ru, ba) => (lang === "ba" ? ba : ru);
 
 // ---------------------------------------------------------------- api: причина уходит в теле

@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs";
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 export const ROOT = fileURLToPath(new URL("../", import.meta.url));
 
@@ -63,7 +64,7 @@ function stubFor({ def, named }) {
  * `transform(src)` — подмена исходника (контроль «старый код»/мутанты).
  */
 export async function bundleComponent(rel, { mocks = {}, real = [], exportName = "default" } = {}) {
-  const entry = ROOT + rel;
+  const entry = resolve(ROOT, rel);
   const own = importsOf(entry);
   const pick = (p) => Object.keys(mocks).find((k) => p === k || p.endsWith(k));
   const result = await build({

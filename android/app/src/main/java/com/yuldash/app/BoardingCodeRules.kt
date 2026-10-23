@@ -26,8 +26,9 @@ internal fun showBoardingCode(passengerStatus: String?, bookingStatus: String): 
  * Копия живёт в офлайн-паспорте поездки (`TripPassStore`) — его создаёт пассажир при брони
  * («без сети назову код водителю»). Водителю копия не нужна: он код сверяет, а не называет,
  * и паспорта у него нет вовсе. Пассажиру, открывшему бронь из списка «Поездки» в обход экрана
- * брони, класть код некуда — паспорта нет, и пугать его нечем: код виден и так.
+ * брони, паспорт создаётся из уже загруженных деталей (RideshareTripContacts.kt), в том числе
+ * после успешного повтора загрузки кода. Без паспорта и подтверждённых деталей сохранять некуда.
  * Неизвестная роль (ответ сервера ещё не пришёл) водителем не считается.
  */
-internal fun needsOfflineCodeCopy(role: String, hasPass: Boolean): Boolean =
-    role != "driver" && hasPass
+internal fun needsOfflineCodeCopy(role: String, hasPass: Boolean, hasDetails: Boolean = false): Boolean =
+    role != "driver" && (hasPass || hasDetails)

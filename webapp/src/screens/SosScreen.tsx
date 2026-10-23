@@ -13,7 +13,7 @@
 //  Из поездки сюда ведёт `/sos?booking=<id>`: бронь уходит в сигнал, и
 //  дежурный знает, в какой машине человек (как Android bookingId).
 // ================================================================
-import { useCallback, useEffect, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
@@ -26,6 +26,13 @@ import { bookingIdFromSearch, sosPath as buildSosPath } from "../utils/sosLink";
 
 type SendState = "idle" | "sending" | "sent" | "error";
 type IconCmp = ComponentType<{ size?: number }>;
+type SosPosition = { lat: number; lng: number; timestamp: number };
+const LOCATION_MAX_AGE_MS = 60_000;
+
+function isFreshPosition(position: SosPosition) {
+  const age = Date.now() - position.timestamp;
+  return Number.isFinite(position.timestamp) && age >= 0 && age < LOCATION_MAX_AGE_MS;
+}
 
 export default function SosScreen() {
   useAuth(); // Публичный маршрут остаётся смонтированным при смене аккаунта.
@@ -43,52 +50,134 @@ function SosForm({ generation, bookingId }: { generation: string; bookingId: num
   const [category, setCategory] = useState<SosCategory>("other");
   const [note, setNote] = useState("");
   const [state, setState] = useState<SendState>("idle");
+  const sending = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimited, setRateLimited] = useState(false);
   /** Что сервер сказал про рассылку близким (hint_ru / hint_ba): показываем как есть. */
   const [serverHint, setServerHint] = useState("");
   /** Куда вернуться после входа: с той же бронью, иначе дежурный не узнает, в какой машине человек. */
   const sosPath = buildSosPath(bookingId);
 
   /**
-   * Своё место. Нужно дважды: уходит вместе с сигналом близким И показывается
+   * Своё место. Нужно дважды: уходит вместе с сигналом в Юлдаш И показывается
    * на экране, чтобы продиктовать оператору 112. Оператор первым делом спросит
    * «где вы?», а человек в чужом селе на трассе этого не знает.
    */
-  const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [pos, setPos] = useState<SosPosition | null>(null);
+  const posRef = useRef<SosPosition | null>(null);
+  const mounted = useRef(false);
+  const geoRequest = useRef(0);
+  const permission = useRef<PermissionStatus | null>(null);
   const [geoBusy, setGeoBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const isCurrent = useCallback(() => mounted.current && generation === getSessionGeneration(), [generation]);
+  const clearPosition = useCallback(() => {
+    posRef.current = null;
+    setPos(null);
+    setCopied(false);
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      geoRequest.current += 1;
+      posRef.current = null;
+    };
+  }, []);
+
+  // Если браузер сообщает об отзыве разрешения, старое место сразу недействительно.
+  // Отсутствие Permissions API не мешает обычному запросу Geolocation.
+  useEffect(() => {
+    if (!navigator.permissions?.query) return;
+    let disposed = false;
+    let status: PermissionStatus | null = null;
+    const changed = () => {
+      if (disposed || !isCurrent() || !status) return;
+      if (status.state !== "granted") {
+        geoRequest.current += 1;
+        clearPosition();
+        setGeoBusy(false);
+      }
+    };
+    void navigator.permissions.query({ name: "geolocation" }).then((result) => {
+      if (disposed || !isCurrent()) return;
+      status = result;
+      permission.current = result;
+      status.addEventListener("change", changed);
+      // Начальное prompt ещё может завершиться согласием на уже открытый запрос.
+      if (status.state === "denied") changed();
+      else if (status.state !== "granted" && posRef.current) clearPosition();
+    }).catch(() => { /* Браузер может не поддерживать запрос этого разрешения. */ });
+    return () => {
+      disposed = true;
+      status?.removeEventListener("change", changed);
+      permission.current = null;
+    };
+  }, [clearPosition, isCurrent]);
+
   const askGeo = useCallback(() => {
-    if (generation !== getSessionGeneration()) return;
+    if (!isCurrent()) return;
+    const request = ++geoRequest.current;
+    clearPosition();
+    setGeoBusy(false);
     if (!navigator.geolocation) return;
     setGeoBusy(true);
     navigator.geolocation.getCurrentPosition(
       (p) => {
-        if (generation !== getSessionGeneration()) return;
-        setPos({ lat: p.coords.latitude, lng: p.coords.longitude });
+        if (!isCurrent() || request !== geoRequest.current) return;
+        const next = { lat: p.coords.latitude, lng: p.coords.longitude, timestamp: p.timestamp };
+        if (isFreshPosition(next) && (!permission.current || permission.current.state === "granted")) {
+          posRef.current = next;
+          setPos(next);
+        } else {
+          clearPosition();
+        }
         setGeoBusy(false);
       },
       () => {
-        if (generation === getSessionGeneration()) setGeoBusy(false);
+        if (!isCurrent() || request !== geoRequest.current) return;
+        clearPosition();
+        setGeoBusy(false);
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
     );
-  }, [generation]);
+  }, [clearPosition, isCurrent]);
 
   // Спрашиваем сразу при открытии: на этом экране секунды на счету.
   useEffect(() => {
     askGeo();
   }, [askGeo]);
 
-  const coordsText = pos ? `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` : "";
+  useEffect(() => {
+    if (!pos) return;
+    const timer = window.setTimeout(() => {
+      if (isCurrent() && posRef.current === pos) clearPosition();
+    }, Math.max(0, pos.timestamp + LOCATION_MAX_AGE_MS - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [pos, clearPosition, isCurrent]);
+
+  const readFreshPosition = useCallback(() => {
+    if (!isCurrent()) return null;
+    const snapshot = posRef.current;
+    if (snapshot && isFreshPosition(snapshot) && (!permission.current || permission.current.state === "granted")) return snapshot;
+    if (snapshot) clearPosition();
+    return null;
+  }, [clearPosition, isCurrent]);
+
+  const visiblePos = pos && isFreshPosition(pos) && (!permission.current || permission.current.state === "granted") ? pos : null;
+  const coordsText = visiblePos ? `${visiblePos.lat.toFixed(5)}, ${visiblePos.lng.toFixed(5)}` : "";
 
   async function copyCoords() {
-    if (generation !== getSessionGeneration()) return;
-    const text = [note.trim(), coordsText ? `${coordsText}` : ""].filter(Boolean).join("\n");
+    if (!isCurrent()) return;
+    const snapshot = readFreshPosition();
+    const coords = snapshot ? `${snapshot.lat.toFixed(5)}, ${snapshot.lng.toFixed(5)}` : "";
+    const text = [note.trim(), coords].filter(Boolean).join("\n");
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
-      if (generation !== getSessionGeneration()) return;
+      if (!isCurrent()) return;
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -103,40 +192,47 @@ function SosForm({ generation, bookingId }: { generation: string; bookingId: num
   ];
 
   async function fire() {
-    if (generation !== getSessionGeneration()) return;
-    if (state === "sending") return;
+    if (!isCurrent()) return;
+    if (sending.current) return;
+    sending.current = true;
     setState("sending");
     setError(null);
+    setRateLimited(false);
     setServerHint("");
     try {
       // Координаты кладём, если они уже есть: ждать GPS в экстренной ситуации нельзя,
       // сигнал без места всё равно лучше, чем ничего. Бронь — если пришли из поездки:
       // по ней сервер говорит дежурному, в какой машине человек.
-      const r = await sendSos({
-        category,
-        note: note.trim(),
-        lat: pos?.lat,
-        lng: pos?.lng,
-        booking_id: bookingId,
-      });
-      if (generation !== getSessionGeneration()) return;
+      const readBody = () => {
+        if (!isCurrent()) throw new ApiError(409, "");
+        const snapshot = readFreshPosition();
+        return { category, note: note.trim(), lat: snapshot?.lat, lng: snapshot?.lng, booking_id: bookingId };
+      };
+      const r = await sendSos(readBody(), { _generation: generation, readBody });
+      if (!isCurrent()) return;
       track("sos");
       const hint = appText(r?.hint_ru ?? "", r?.hint_ba || r?.hint_ru || "").trim();
       setServerHint(hint);
       setState("sent");
     } catch (e) {
-      if (generation !== getSessionGeneration()) return;
+      if (!isCurrent()) return;
       if (e instanceof ApiError && e.status === 401) {
         navigate("/login", { state: { from: sosPath } });
         return;
       }
+      setRateLimited(e instanceof ApiError && e.status === 429);
       setError(
-        appText(
+        e instanceof ApiError && e.status === 429 ? appText(
           "Не удалось отправить. Позвони в службу выше — это быстрее.",
           "Ебәреп булманы. Юғарыла хеҙмәткә шылтырат — тиҙерәк."
+        ) : appText(
+          "Не удалось подтвердить отправку. Проверь связь, повтори сигнал или позвони 112 и близким, если можешь.",
+          "Ебәреүҙе раҫлап булманы. Бәйләнеште тикшер, сигналды ҡабатла йәки, мөмкин булһа, 112-гә һәм яҡындарыңа шылтырат."
         )
       );
       setState("error");
+    } finally {
+      sending.current = false;
     }
   }
 
@@ -227,8 +323,8 @@ function SosForm({ generation, bookingId }: { generation: string; bookingId: num
           <p>
             {isAuthed
               ? appText(
-                  "Поддержка Юлдаш сразу получит сигнал с твоим местом и машиной, в которой ты едешь. Близким позвони сам, если можешь.",
-                  "Юлдаш ярҙамы урыныңды һәм барған машинаңды күрһәткән сигналды шунда уҡ ала. Мөмкин булһа, яҡындарыңа үҙең шылтырат."
+                  "Сигнал будет отправлен в Юлдаш. Близким позвони сам, если можешь.",
+                  "Сигнал Юлдашҡа ебәреләсәк. Мөмкин булһа, яҡындарыңа үҙең шылтырат."
                 )
               : appText(
                   "Для сигнала поддержке нужно войти. Звонок 112 работает без входа.",
@@ -263,8 +359,8 @@ function SosForm({ generation, bookingId }: { generation: string; bookingId: num
                 <strong>{appText("Сигнал отправлен", "Сигнал ебәрелде")}</strong>
                 <span>
                   {appText(
-                    "Поддержка Юлдаш получила сигнал с твоими координатами. Не жди — если можешь, позвони 112 и близким сам.",
-                    "Юлдаш ярҙамы координаталарың менән сигнал алды. Көтмә — мөмкин булһа, 112-гә һәм яҡындарыңа үҙең шылтырат."
+                    "Сигнал сохранён в Юлдаш. Не жди ответа — если можешь, позвони 112 и близким сам.",
+                    "Сигнал Юлдашта һаҡланды. Яуап көтмә — мөмкин булһа, 112-гә һәм яҡындарыңа үҙең шылтырат."
                   )}
                 </span>
                 {/* Что сервер честно сказал про рассылку близким (канал выключен / потолок за час). */}
@@ -273,7 +369,9 @@ function SosForm({ generation, bookingId }: { generation: string; bookingId: num
             )}
             {state === "error" && (
               <div className="sos-info sos-info--bad">
-                <strong>{appText("Сигнал не отправлен", "Сигнал ебәрелмәне")}</strong>
+                <strong>{rateLimited
+                  ? appText("Сигнал не отправлен", "Сигнал ебәрелмәне")
+                  : appText("Не удалось подтвердить отправку", "Ебәреүҙе раҫлап булманы")}</strong>
                 <span>{error ?? appText("Похоже, нет сети. Проверь связь и нажми ещё раз.", "Бәйләнеш юҡ кеүек. Тикшереп, тағы баҫ.")}</span>
               </div>
             )}

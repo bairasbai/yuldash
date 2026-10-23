@@ -24,8 +24,8 @@ from typing import Optional
 
 from sqlalchemy import or_
 
-from .geo import name_variants, normalize_place
-from .ride_stops import MEMO_KEY, _f, _place_keys, parse_stops
+from .geo import bare_name
+from .ride_stops import MEMO_KEY, _district, _f, _lookup_place, _place_keys, _place_variants, parse_stops
 
 NAME_MAX = 120          # длина имени места в запросе (как у города в публикации)
 MAX_VARIANTS = 6        # написаний одного места в SQL (тёзок-сёл бывает десяток — хватит главных)
@@ -46,7 +46,7 @@ def variants(session, name: Optional[str], entry: dict) -> list[str]:
     raw = (name or "").strip()[:NAME_MAX]
     if not raw:
         return []
-    return name_variants(session, normalize_place(raw), entry)[:MAX_VARIANTS]
+    return _place_variants(raw, entry)[:MAX_VARIANTS]
 
 
 def stop_searchable(name: Optional[str]) -> bool:
@@ -65,14 +65,16 @@ def _escape_like(text: str) -> str:
 
 def column_match(column, names: list[str]):
     """Столбец содержит любое из написаний — `contains(autoescape=True)`, как `_city_match`."""
-    conds = [column.contains(v, autoescape=True) for v in names if v]
+    # SQL — только широкий отбор. Район остаётся в names для точного route_fit ниже:
+    # уникальное село водитель мог записать без района, а чужую тёзку Python отбросит.
+    conds = [column.contains(v, autoescape=True) for v in dict.fromkeys(bare_name(n) for n in names) if v]
     return or_(*conds) if conds else None
 
 
 def pair_match(column, froms: list[str], tos: list[str]):
     """`waypoints` содержит «откуда…куда» именно в этом порядке (подстрокой; точный порядок —
     `route_fit`). Не больше MAX_PAIR_VARIANTS² пар; спецсимволы LIKE экранированы."""
-    conds = [column.like(f"%{_escape_like(a)}%{_escape_like(b)}%", escape="\\")
+    conds = [column.like(f"%{_escape_like(bare_name(a))}%{_escape_like(bare_name(b))}%", escape="\\")
              for a in froms[:MAX_PAIR_VARIANTS] for b in tos[:MAX_PAIR_VARIANTS] if a and b]
     return or_(*conds) if conds else None
 
@@ -88,20 +90,36 @@ class Fit:
     pickups: tuple = ()
     matched_stop: Optional[str] = None
     matched_from_start: bool = False
+    matched_dropoff_stop: Optional[str] = None
+    matched_to_end: bool = False
+    exact_pickups: tuple = ()           # позиции, названные запросом точно (`make_fit` выбирает из них)
+    exact_drops: tuple = ()
     extra: dict = field(default_factory=dict)
 
 
 NO_FIT = Fit(False)
 
 
-def _endpoint(value: Optional[str], names: Optional[list[str]]) -> bool:
-    """Начало/конец маршрута совпадает с запросом — тем же правилом, что SQL `contains`."""
+def exact_place(value: Optional[str], names: Optional[list[str]], entry: dict) -> bool:
+    """Полное название/RU/BA и район. Тёзку без района не выбираем даже если она одна в рейсе."""
+    if not value or (not _district(value) and len(_lookup_place(entry, value)) > 1):
+        return False
+    keys = _place_keys(value, entry)
+    return any(not (not _district(n) and len(_lookup_place(entry, n)) > 1)
+               and bool(keys & _place_keys(n, entry)) for n in (names or []))
+
+
+def _endpoint(value: Optional[str], names: Optional[list[str]], entry: dict, *, strict=False) -> bool:
+    """Голый запрос — подстрока как раньше; явно названный район — точное место."""
+    if strict:
+        return exact_place(value, names, entry)
     v = value or ""
-    return any(n and n in v for n in (names or []))
+    return any((_place_keys(n, entry) & _place_keys(v, entry)) if _district(n) else n and n in v
+               for n in (names or []))
 
 
 def route_fit(ride, fv: Optional[list[str]], tv: Optional[list[str]], entry: dict,
-              *, from_stops: bool = True, to_stops: bool = True) -> Fit:
+              *, from_stops: bool = True, to_stops: bool = True, strict: bool = False) -> Fit:
     """Подходит ли поездка запросу «откуда (fv) → куда (tv)». None — фильтра нет.
 
     Позиции маршрута: -1 начало, 0..n-1 допустимые остановки, n конец. Посадка — начало или
@@ -115,17 +133,24 @@ def route_fit(ride, fv: Optional[list[str]], tv: Optional[list[str]], entry: dic
     def stop_hits(names: Optional[list[str]], allowed: bool) -> list[int]:
         if not names or not allowed:
             return []
+        if strict:
+            return [i for i, stop in enumerate(stops) if exact_place(stop, names, entry)]
         asked: set = set()
+        bare_asked: set = set()
         for nm in names:
-            asked |= _place_keys(nm, entry)
-        return [i for i, keys in enumerate(stop_keys) if keys & asked]
+            if _district(nm):
+                asked |= _place_keys(nm, entry)
+            else:
+                bare_asked |= _place_keys(nm, entry)
+        return [i for i, keys in enumerate(stop_keys)
+                if keys & asked or _place_keys(bare_name(stops[i]), entry) & bare_asked]
 
     if fv:
-        froms = ([-1] if _endpoint(_f(ride, "from_city"), fv) else []) + stop_hits(fv, from_stops)
+        froms = ([-1] if _endpoint(_f(ride, "from_city"), fv, entry, strict=strict) else []) + stop_hits(fv, from_stops)
     else:
         froms = [-1] + list(range(n))
     if tv:
-        tos = stop_hits(tv, to_stops) + ([n] if _endpoint(_f(ride, "to_city"), tv) else [])
+        tos = stop_hits(tv, to_stops) + ([n] if _endpoint(_f(ride, "to_city"), tv, entry, strict=strict) else [])
     else:
         tos = list(range(n)) + [n]
     if not froms or not tos:
@@ -134,15 +159,35 @@ def route_fit(ride, fv: Optional[list[str]], tv: Optional[list[str]], entry: dic
     pickups = tuple(p for p in froms if p < last_drop)
     if not pickups:
         return NO_FIT
-    return make_fit(stops, pickups, named=bool(fv))
+    # Подсказка — только из точного выбора человека, даже когда общий поиск разрешает префикс.
+    def hint_place(value, names):
+        if exact_place(value, names, entry):
+            return True
+        # Старый поиск разрешает полное голое имя: в ЭТОМ рейсе должна быть ровно одна
+        # такая остановка. Префикс не превращается в выбор; строгий подбор требует район.
+        return not strict and any(not _district(n) and bool(
+            _place_keys(bare_name(value), entry) & _place_keys(n, entry)) for n in (names or []))
+
+    exact_froms = tuple(p for p in pickups if fv and hint_place(
+        _f(ride, "from_city") if p == -1 else stops[p], fv))
+    exact_tos = tuple(p for p in tos if tv and hint_place(
+        _f(ride, "to_city") if p == n else stops[p], tv))
+    return make_fit(stops, pickups, exact_froms, exact_tos)
 
 
-def make_fit(stops: tuple, pickups: tuple, *, named: bool) -> Fit:
-    """`Fit` по позициям посадки. `named` — человек назвал «Откуда»: тогда `matched_*` — начало, если
-    оно подходит, иначе первая подходящая остановка. Без «Откуда» место не выбираем."""
-    if not named:
-        return Fit(True, stops, pickups)
-    chosen = -1 if -1 in pickups else min(pickups)
+def make_fit(stops: tuple, pickups: tuple, exact_froms: tuple = (), exact_tos: tuple = ()) -> Fit:
+    """`Fit` по позициям. `exact_froms` / `exact_tos` — места, которые запрос человека называет точно.
+    Где сядет (`matched_stop` / `matched_from_start`) — если такое место посадки ровно одно; где выйдет
+    (`matched_dropoff_stop` / `matched_to_end`) — если ровно одно строго после посадки (после выбранного
+    места, а если оно не выбрано — после самого раннего). Иначе не выбираем: человек скажет сам."""
+    n = len(stops)
+    chosen = exact_froms[0] if len(exact_froms) == 1 else None
+    after = chosen if chosen is not None else min(pickups)
+    later = [p for p in exact_tos if p > after]
+    drop = later[0] if len(later) == 1 else None
     return Fit(True, stops, pickups,
-               matched_stop=stops[chosen] if chosen >= 0 else None,
-               matched_from_start=chosen == -1)
+               matched_stop=stops[chosen] if chosen is not None and chosen >= 0 else None,
+               matched_from_start=chosen == -1,
+               matched_dropoff_stop=stops[drop] if drop is not None and drop < n else None,
+               matched_to_end=drop == n,
+               exact_pickups=exact_froms, exact_drops=exact_tos)

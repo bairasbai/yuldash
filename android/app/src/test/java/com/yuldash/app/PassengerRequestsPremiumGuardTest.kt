@@ -10,8 +10,8 @@ class PassengerRequestsPremiumGuardTest {
 
     private val root = generateSequence(File(System.getProperty("user.dir").orEmpty())) { it.parentFile }
         .first { File(it, "src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt").exists() }
-    private val ui = File(root, "src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt").readText()
-    private val api = File(root, "src/main/java/com/yuldash/app/data/ApiClient.kt").readText()
+    private val ui = listOf("RidesRequestsChatScreens.kt", "RequestsFeedScreen.kt", "RequestOfferSheet.kt").joinToString("\n") { File(root, "src/main/java/com/yuldash/app/$it").readText() }
+    private val api = File(root, "src/main/java/com/yuldash/app/data/RequestRouteDtos.kt").readText()
 
     @Test
     fun routeFirstCard_keepsPremiumHierarchyAndRealFacts() {

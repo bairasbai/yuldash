@@ -304,10 +304,32 @@ internal fun TripChatScreen(
             // B8-6: дисклеймер безопасности при первом открытии чата (закрывается «Понятно») — над полем,
             // чтобы его видел и тот, кто открыл длинную переписку на последнем сообщении.
             ChatSafetyDisclaimer()
+            AnimatedVisibility(visible = visible.isNotEmpty() && (chat.historyError || chat.historyLoading)) {
+                TripChatFeedState(loading = chat.historyLoading, error = chat.historyError,
+                    hasBooking = chat.bookingId != null, onRetry = chat::retryHistory, compact = true)
+            }
+            AnimatedVisibility(visible = chat.canWrite() && chat.actionBusy) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                    CircularProgressIndicator(Modifier.size(CanonSpace.lg), color = CanonGreen2)
+                    Text(appText("Ждём подтверждения…", "Раҫлау көтәбеҙ…"), style = CanonBody, color = CanonMuted)
+                }
+            }
+            AnimatedVisibility(visible = chat.canWrite() && chat.actionError.isNotBlank()) {
+                Column(
+                    Modifier.fillMaxWidth().background(CanonWarnBg, CanonFieldShape).padding(CanonSpace.md),
+                    verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+                ) {
+                    Text(chat.actionError, style = CanonBody, color = CanonText)
+                    if (chat.canRetryAction) OutlinedButton(onClick = chat::retryAction) {
+                        Text(appText("Повторить", "Ҡабатлау"))
+                    }
+                }
+            }
             AnimatedVisibility(visible = editing) { EditingStrip(onCancel = chat::cancelEdit) }
             ChatComposer(
                 draft = chat.draft,
                 recordingAllowed = chat.canWrite(),
+                actionsAllowed = !chat.actionBusy,
                 onDraftChange = chat::updateDraft,
                 onSend = chat::submitDraft,
                 onVoiceRecorded = { path, _ -> chat.sendVoice(path) },
@@ -330,9 +352,9 @@ internal fun TripChatScreen(
                     edited = m.edited,
                     flag = m.flag,
                     fromAdmin = m.fromAdmin,
-                    canEdit = saved && mine && m.voiceUrl == null && !m.deleted,
-                    canDeleteAll = saved && mine && !m.deleted,
-                    canDeleteMine = saved && !m.deleted,
+                    canEdit = saved && mine && m.voiceUrl == null && !m.deleted && !chat.actionBusy,
+                    canDeleteAll = saved && mine && !m.deleted && !chat.actionBusy,
+                    canDeleteMine = saved && !m.deleted && !chat.actionBusy,
                     onRetry = { chat.retry(m.id, m.text) },
                     onEdit = { chat.startEdit(m) },
                     onDelete = { who -> chat.delete(m.id, who) },
@@ -438,9 +460,9 @@ private fun EditingStrip(onCancel: () -> Unit) {
 }
 
 @Composable
-private fun TripChatFeedState(loading: Boolean, error: Boolean, hasBooking: Boolean, onRetry: () -> Unit) {
+private fun TripChatFeedState(loading: Boolean, error: Boolean, hasBooking: Boolean, onRetry: () -> Unit, compact: Boolean = false) {
     Column(
-        Modifier.fillMaxWidth().padding(vertical = CanonSpace.xl),
+        Modifier.fillMaxWidth().padding(vertical = if (compact) CanonSpace.sm else CanonSpace.xl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
     ) {

@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import okhttp3.Authenticator
+import okhttp3.ConnectionPool
 import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -83,11 +84,15 @@ object ApiClient {
     private val readMs: Int get() = testTimeoutMs ?: testRetryTimeoutMs ?: 15000
 
     // One-shot mutations (see [authorized]): never replay a sent body after a lost reply or HTTP follow-up.
-    private val oneShotTransport by lazy {
-        OkHttpClient.Builder().retryOnConnectionFailure(false)
-            .followRedirects(false).followSslRedirects(false)
-            .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE).build()
-    }
+    // A NEW client per request, not newBuilder() of a shared one: OkHttp keeps "failed" addresses in the
+    // client's route database, so one lost reply sent every later mutation to the other address (IPv6)
+    // with no fallback. The pool keeps no idle socket: a server-closed one must not eat an explicit retry.
+    private fun oneShotTransport(): OkHttpClient = OkHttpClient.Builder().retryOnConnectionFailure(false)
+        .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
+        .followRedirects(false).followSslRedirects(false)
+        .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE)
+        .connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
+        .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).writeTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()
 
     /**
      * Тест-хук: оборвать всё фоновое и вернуть клиента в исходное состояние.
@@ -117,6 +122,7 @@ object ApiClient {
     @Volatile private var token: String? = null
     // Меняется только на границе входа/выхода. Refresh сохраняет поколение.
     private val sessionLock = Any()
+    private var sosRetryIntent = SosRetryIntent(null)
     @Volatile private var sessionGeneration = 0L
     private val mutableSessionChanges = kotlinx.coroutines.flow.MutableStateFlow(0L)
     // Publish only after a complete login/logout mutation; refresh keeps the same owner.
@@ -157,7 +163,10 @@ object ApiClient {
     }
     @Volatile private var refreshToken: String? = null
     @Volatile private var userName: String? = null
+    private val mutableRoleChanges = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    internal val roleChanges = mutableRoleChanges.asStateFlow()
     @Volatile private var userRole: String? = null
+        set(value) { field = value; mutableRoleChanges.value = value }
 
     // Анти-фрод (B8-1): стабильный идентификатор устройства (ANDROID_ID из Settings.Secure).
     // Уходит заголовком X-Device-Id со ВСЕМИ запросами: сервер ловит обход бана новым номером
@@ -313,6 +322,7 @@ object ApiClient {
         }
         val p = selected?.prefs
         prefs = p
+        sosRetryIntent = SosRetryIntent(p)
         sessionGeneration++
         clearSessionCaches()
         cachedUserId = null
@@ -770,7 +780,12 @@ object ApiClient {
         val source = authStoreSource ?: return false
         // A nonempty new token skips the guest-startup cleanup; finish the old reset first.
         if (!TripPassStore.ensureResetCommitted() || !Outbox.ensureResetCommitted()) return false
-        return AuthStorePolicy.writeSession(plain, AuthStorePolicy.Selection(selected, source), write)
+        val saved = AuthStorePolicy.writeSession(plain, AuthStorePolicy.Selection(selected, source)) { editor ->
+            write(editor)
+            editor.remove(SosRetryIntent.PREF_KEY)
+        }
+        if (saved) sosRetryIntent = SosRetryIntent(selected)
+        return saved
     }
     /** Старт входа через Telegram. Возвращает request_id — app по нему строит ссылку t.me/<bot>?start=request_id. */
     suspend fun tgStart(): Result<String> =
@@ -1044,15 +1059,15 @@ object ApiClient {
      * Способ по умолчанию — "negotiate" (договоримся); сумма опц. (null = сервер возьмёт цену поездки). */
     suspend fun book(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
-        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false,
-    ): Result<Int> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat)
+        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null, dropoffStop: String? = null,
+    ): Result<Int> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop)
         .map { it.optInt("id") }
 
     /** Preserve the server status: a newly requested seat is not yet confirmed by the driver. */
     suspend fun bookWithStatus(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
-        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false,
-    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat)
+        minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null, dropoffStop: String? = null,
+    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop)
         .mapCatching { response ->
             val id = response.getInt("id")
             val status = response.getString("status")
@@ -1066,6 +1081,8 @@ object ApiClient {
         // и водителю есть кому позвонить. Сервер без них бронь не создаст.
         minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "",
         frontSeat: Boolean = false,   // «хочу переднее»: одно на поездку, гонку разводит сервер
+        pickupStop: String? = null,   // начало — названием fromCity; null/пусто не подменяем началом
+        dropoffStop: String? = null,
     ): Result<JSONObject> = call(
         "POST", "/bookings",
         JSONObject().put("ride_id", rideId).put("seats", seats)
@@ -1073,6 +1090,8 @@ object ApiClient {
             .put("pay_amount", payAmount ?: JSONObject.NULL)
             .apply {
                 if (frontSeat) put("front_seat", true)
+                if (pickupStop != null) put("pickup_stop", pickupStop)
+                if (dropoffStop != null) put("dropoff_stop", dropoffStop)
                 if (minorPassenger) {
                     put("minor_passenger", true)
                     put("minor_guardian_name", guardianName)
@@ -1123,6 +1142,7 @@ object ApiClient {
         baggage: Boolean = false,
         onlyTrusted: Boolean = false,   // «только для своих» — заявку видят/берут лишь L3
         pickupPointId: Int? = null,   // F14: выбрана точка сбора из подсказок (пополняет справочник)
+        expectedGeneration: Long? = null,
     ): Result<Int> = call(
         "POST", "/requests",
         JSONObject()
@@ -1150,7 +1170,12 @@ object ApiClient {
                 desiredAt?.takeIf { it.isNotBlank() }?.let { put("desired_at", it) }
             },
         auth = true,
-    ).map { it.optInt("id") }.onSuccess { Analytics.log("create_request") }   // id → оптимистичный LocalRequest.serverId (кнопка отмены сразу)
+        expectedGeneration = expectedGeneration,
+    ).mapCatching { response ->
+        val id = response.opt("id")
+        require(id is Int && id > 0) { "Invalid request identifier" }
+        id
+    }.onSuccess { Analytics.log("create_request") }   // Только подтверждённый id → LocalRequest.serverId.
 
     /** Мои заявки (для вкладки «Заявка»). */
     suspend fun getMyRequests(): Result<List<RequestDto>> =
@@ -1229,31 +1254,34 @@ object ApiClient {
             ConsentDto(kind = o.optString("kind"), grantedAt = o.optString("granted_at"))
         }
 
-    // ---------- SOS (доверенные контакты — ContactsApi + ContactsRepository) ----------
+    // ---------- SOS (доверенные контакты — ContactsApi + ContactsRepository; повторы — SafetyApi) ----------
 
     /**
      * Общий вход доменных HTTP-клиентов (первый — [ContactsApi]): авторизованный запрос входа [owner].
      * [oneShot] — меняющий запрос, который транспорт не повторит молча после потерянного ответа.
      */
-    internal suspend fun authorized(method: String, path: String, body: JSONObject?, owner: Long, oneShot: Boolean = false): Result<JSONObject> =
-        call(method, path, body, auth = true, expectedGeneration = owner, singleAttemptMutation = oneShot)
+    internal suspend fun authorized(method: String, path: String, body: JSONObject?, owner: Long, oneShot: Boolean = false,
+        idempotencyKey: String? = null): Result<JSONObject> =
+        call(method, path, body, auth = true, expectedGeneration = owner, idempotencyKey = idempotencyKey, singleAttemptMutation = oneShot)
+
+    /** Ключ повтора SOS/«застрял» ([SafetyApi]) — только во входе [owner]; null — вход сменился или его нет. */
+    internal fun prepareSafetyIntent(owner: Long, body: JSONObject, scope: String): String? =
+        synchronized(sessionLock) { if (isCurrentSession(owner)) sosRetryIntent.prepare(body, scope) else null }
+    internal fun acknowledgeSafetyIntent(owner: Long, key: String, scope: String) =
+        synchronized(sessionLock) { if (isCurrentSession(owner)) sosRetryIntent.acknowledge(key, scope) }
+    /** Отказ без запроса: «не вошёл» — понятная причина на языке экрана, а не «сессия сменилась». */
+    internal fun <T> refusedSession(owner: Long): Result<T> =
+        if (!sameSession(owner) || !token.isNullOrBlank()) staleSession()
+        else Result.failure(ApiException(401, if (langBa) "Сигнал ебәреү өсөн аккаунтҡа ин." else "Чтобы отправить сигнал, войди в аккаунт.", "not_signed_in"))
 
     /** SOS. orderId — контекст такси-заказа (B7b-2), bookingId — контекст попутки: дежурный
-     *  увидит маршрут и вторую сторону. Раньше поле брони было только на сервере и всегда
-     *  приходило пустым: из такси знали, с кем человек, из попутки — нет (аудит 2026-08-06).
-     *  Координаты обязательны по смыслу, но не по форме: без них близкие получат «нужна срочная
-     *  помощь» и не будут знать, куда ехать. GPS мог не схватиться — тогда шлём хотя бы сигнал. */
+     *  увидит маршрут и вторую сторону. Координаты необязательны: GPS мог не схватиться — тогда
+     *  шлём хотя бы сигнал. Повтор по тому же ключу и проверка входа — в [SafetyApi]. */
     suspend fun sos(
         category: String, note: String, orderId: Int? = null,
         lat: Double? = null, lng: Double? = null, bookingId: Int? = null,
-    ): Result<Unit> {
-        val body = JSONObject().put("category", category).put("note", note)
-        if (orderId != null) body.put("order_id", orderId)
-        if (bookingId != null) body.put("booking_id", bookingId)
-        if (lat != null) body.put("lat", lat)
-        if (lng != null) body.put("lng", lng)
-        return call("POST", "/sos", body, auth = true).map { }.onSuccess { Analytics.log("sos") }
-    }
+        expectedGeneration: Long = queueSessionGeneration(),
+    ): Result<Unit> = SafetyApi.sos(category, note, orderId, lat, lng, bookingId, expectedGeneration)
 
     /** «Поделиться поездкой» из такси-заказа (B7b-2): ссылку на маршрут и статусы человек отправляет близкому сам (SMS на проде выключены).
      *  B7c: сервер возвращает token live-ссылки — отдаём готовый URL (null на старом сервере). */
@@ -1268,26 +1296,13 @@ object ApiClient {
         j.optString("token", "").takeIf { it.isNotBlank() }?.let { "$BASE/t/$it" }
 
     /** Ответ на «позвать помощь»: скольким близким сообщение реально уйдёт и сколько
-     *  доверенных заведено всего. Старый сервер второго числа не присылает — тогда считаем,
-     *  что доверенных столько же, скольким ушло (текст экрана останется прежним). */
-    data class RoadsideResult(val notified: Int, val contactsTotal: Int)
-
-    private fun roadsideResult(j: JSONObject): RoadsideResult {
-        val ушло = j.optInt("contacts_notified")
-        return RoadsideResult(ушло, j.optInt("contacts_total", ушло))
-    }
+     *  доверенных заведено всего (разбор — [parseRoadsideResult]). */
+    data class RoadsideResult(val notified: Int, val contactsTotal: Int, val deliveryUnconfirmed: Boolean = false)
 
     /** F12 «Застрял на трассе»: координаты уходят доверенным контактам + запись в SOS-ленту админа.
-     *  Уровень мягче паники SOS. Координаты необязательны (шлём хотя бы сигнал о помощи). */
-    /** Возвращает, СКОЛЬКИМ близким реально ушло SMS (волна 122): экран обещал помощь даже
-     *  тому, кто доверенных контактов не заводил. Волна 184 добавила второе число — сколько
-     *  доверенных вообще заведено: без него «ушло нулю» и «звать некого» выглядят одинаково,
-     *  а человеку на трассе это разные новости и разные действия. */
-    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String, expectedGeneration: Long? = null): Result<RoadsideResult> {
-        val body = JSONObject().put("note", note)
-        if (lat != null && lng != null) body.put("lat", lat).put("lng", lng)
-        return call("POST", "/bookings/$bookingId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }.onSuccess { Analytics.log("roadside_help") }
-    }
+     *  Возвращает, СКОЛЬКИМ близким реально ушло SMS и сколько их заведено (волны 122, 184). */
+    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String, expectedGeneration: Long? = null): Result<RoadsideResult> =
+        SafetyApi.roadsideHelp(bookingId, lat, lng, note, expectedGeneration ?: queueSessionGeneration())
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
     suspend fun requestCallback(note: String): Result<Unit> =
@@ -1391,16 +1406,16 @@ object ApiClient {
         }
 
     // ---------- Заявки ↔ водители: лента, отклики, принятие ----------
-    suspend fun getRequestsFeed(): Result<List<RequestFeedDto>> =
-        call("GET", "/requests/feed", null, auth = true).map { obj ->
+    suspend fun getRequestsFeed(onRoute: Boolean = false): Result<List<RequestFeedDto>> =
+        call("GET", "/requests/feed" + if (onRoute) "?on_route=true" else "", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 parseRequestFeedDto(arr.getJSONObject(i))
             }
         }
 
-    suspend fun respondToRequest(requestId: Int, price: Int, comment: String): Result<Unit> =
-        call("POST", "/requests/$requestId/respond", JSONObject().put("price", price).put("comment", comment), auth = true).map { }.onSuccess { Analytics.log("respond_request") }
+    suspend fun respondToRequest(requestId: Int, price: Int, comment: String, rideId: Int? = null): Result<Unit> =
+        call("POST", "/requests/$requestId/respond", JSONObject().put("price", price).put("comment", comment).apply { rideId?.let { put("ride_id", it) } }, auth = true).map { }.onSuccess { Analytics.log("respond_request") }
 
     /** Пассажир отменяет свою заявку → сервер ставит status=cancelled (идемпотентно; matched → 400). */
     suspend fun cancelRequest(requestId: Int): Result<Unit> =
@@ -1464,7 +1479,7 @@ object ApiClient {
 
     /** Принять цену, которая сейчас на столе → booking_id. Принимает тот, чей ход. */
     suspend fun acceptResponse(responseId: Int): Result<Int> =
-        call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).map { it.optInt("booking_id") }.onSuccess { Analytics.log("accept_response") }
+        call("POST", "/responses/$responseId/accept", JSONObject(), auth = true).mapCatching { it.getInt("booking_id").also { id -> require(id > 0) { "Invalid accepted booking response" } } }.onSuccess { Analytics.log("accept_response") }
 
     /** Водитель отзывает свой отклик — пока пассажир его не принял (после accept сервер вернёт 409). */
     suspend fun deleteResponse(responseId: Int): Result<Unit> =
@@ -1585,14 +1600,27 @@ object ApiClient {
 
     suspend fun sendMessage(bookingId: Int, text: String, requestKey: String? = null): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true,
-            idempotencyKey = requestKey).map { }
+            idempotencyKey = requestKey).mapCatching { parseBookingSendReceipt(it, requestKey); Unit }
 
     /** Bind queued work before it can suspend or switch to a new account. */
+    private val bookingReceiptListeners = java.util.concurrent.CopyOnWriteArraySet<(Int, Long, MessageDto) -> Unit>()
+
+    internal fun watchBookingReceipts(listener: (Int, Long, MessageDto) -> Unit): () -> Unit {
+        bookingReceiptListeners += listener
+        return { bookingReceiptListeners -= listener }
+    }
+
     internal suspend fun sendQueuedAction(action: OutboxAction, generation: Long): Result<Unit> {
         return when (action.kind) {
             "message" -> call("POST", "/bookings/${action.bookingId}/messages",
                 JSONObject().put("text", action.payload), auth = true, expectedGeneration = generation,
-                idempotencyKey = Outbox.messageRequestKey(action)).map { }
+                idempotencyKey = Outbox.messageRequestKey(action)).mapCatching {
+                    val receipt = parseBookingSendReceipt(it, Outbox.messageRequestKey(action))
+                    if (receipt.hiddenForMe && isCurrentSession(generation)) bookingReceiptListeners.forEach { listener ->
+                        runCatching { listener(action.bookingId, generation, receipt) }
+                    }
+                    Unit
+                }
             "trip_status" -> call("POST", "/bookings/${action.bookingId}/trip-status",
                 JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation).map { }
             "driver_status" -> call("POST", "/bookings/${action.bookingId}/driver-status",
@@ -1686,8 +1714,20 @@ object ApiClient {
     suspend fun uploadVoice(bytes: ByteArray): Result<String> =
         callMultipart("/voice", bytes, "m4a", "voice.m4a").map { it.optString("url") }
 
-    suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String): Result<Unit> =
-        call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true).map { }
+    suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String, requestKey: String? = null): Result<MessageDto> =
+        call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true,
+            idempotencyKey = requestKey, singleAttemptMutation = true).mapCatching { parseBookingSendReceipt(it, requestKey) }
+
+    private fun parseBookingSendReceipt(body: JSONObject, key: String?): MessageDto {
+        val message = parseMessageDto(body)
+        if (body.has("hidden_for_me")) check(body.opt("hidden_for_me") == true &&
+            body.opt("id") is Number && body.optDouble("id") == message.id.toDouble() && message.id > 0 &&
+            body.opt("sender_id") is Number && body.optDouble("sender_id") == message.senderId.toDouble() &&
+            message.senderId == myUserId() && !key.isNullOrBlank() && message.requestId == key) {
+            "Unconfirmed hidden receipt"
+        }
+        return message
+    }
 
     // Фото в чате: загрузить (multipart) → публичный URL, затем отправить как сообщение с меткой [img].
     suspend fun uploadChatPhoto(bytes: ByteArray, ext: String = "jpg"): Result<String> =
@@ -1991,43 +2031,6 @@ object ApiClient {
                 routeSample = o.optInt("route_sample"),
             )
         }
-
-    // ---------- Подписка на маршрут «карауль поездку» (F13) ----------
-    /** Подписаться на маршрут: как только появится подходящая поездка — придёт уведомление. */
-    suspend fun createRouteWatch(
-        fromCity: String,
-        toCity: String,
-        direction: String = "forward",     // forward | both (туда-обратно)
-        watchDate: String? = null,         // ISO "yyyy-MM-dd'T'HH:mm:ss" — опц. конкретный день
-    ): Result<Int> = call(
-        "POST", "/route-watch",
-        JSONObject()
-            .put("from_city", fromCity)
-            .put("to_city", toCity)
-            .put("direction", direction)
-            .apply { watchDate?.takeIf { it.isNotBlank() }?.let { put("watch_date", it) } },
-        auth = true,
-    ).map { it.optInt("id") }.onSuccess { Analytics.log("route_watch_create") }
-
-    /** Мои активные подписки на маршрут (непротухшие). */
-    suspend fun getRouteWatches(): Result<List<RouteWatchDto>> =
-        call("GET", "/route-watch", null, auth = true).map { obj ->
-            val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                RouteWatchDto(
-                    id = o.optInt("id"),
-                    fromCity = o.optString("from_city"),
-                    toCity = o.optString("to_city"),
-                    direction = o.optString("direction").ifBlank { "forward" },
-                    watchDate = o.optString("watch_date").ifBlank { null },
-                )
-            }
-        }
-
-    /** Отписаться от маршрута. */
-    suspend fun deleteRouteWatch(id: Int): Result<Unit> =
-        call("DELETE", "/route-watch/$id", null, auth = true).map { }
 
     // Партнёрская реклама — сервер-управляемая.
     suspend fun getAds(): Result<List<AdDto>> =
@@ -3525,6 +3528,12 @@ object ApiClient {
 
     // ---------- Базовый вызов ----------
 
+    // Попутка: ни EOF после отправки, ни redirect не доказывают, что запись не состоялась.
+    // Очередь/явный повтор решают это на уровне намерения, скрытый повтор транспорта запрещён.
+    private fun rideshareMutation(method: String, path: String): Boolean =
+        !method.equals("GET", ignoreCase = true) &&
+            listOf("/rides", "/requests", "/responses", "/bookings").any { path == it || path.startsWith("$it/") }
+
     private suspend fun call(
         method: String,
         path: String,
@@ -3569,7 +3578,7 @@ object ApiClient {
             try {
                 val code: Int
                 val text: String
-                if (singleAttemptMutation) {
+                if (singleAttemptMutation || rideshareMutation(method, path)) {
                     val bytes = body?.toString()?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
                     val requestBody = object : RequestBody() {
                         override fun contentType() = if (body != null) "application/json; charset=utf-8".toMediaType() else null
@@ -3588,9 +3597,7 @@ object ApiClient {
                         }
                     }.build()
                     val request = Request.Builder().url(BASE + path).method(method, requestBody).headers(headers).build()
-                    val client = oneShotTransport.newBuilder().connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
-                        .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).writeTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()
-                    mutationResponse = client.newCall(request).execute()
+                    mutationResponse = oneShotTransport().newCall(request).execute()
                     code = mutationResponse.code
                     serverUnreachable.value = false
                     text = mutationResponse.body?.string().orEmpty()
@@ -4854,26 +4861,8 @@ object ApiClient {
         call("DELETE", "/places/recent", null, auth = true).map { }
 
     /** Квитанция завершённой поездки (только участник; незавершённая → 409; посторонний → 403). */
-    suspend fun getTripReceipt(bookingId: Int): Result<TripReceiptDto> =
-        call("GET", "/trips/$bookingId/receipt", null, auth = true).map { o ->
-            TripReceiptDto(
-                bookingId = o.optInt("booking_id"),
-                rideId = o.optInt("ride_id"),
-                role = o.optString("role"),
-                fromCity = o.optString("from_city"),
-                toCity = o.optString("to_city"),
-                departAt = o.optString("depart_at"),
-                seats = o.optInt("seats"),
-                amount = o.optInt("amount"),
-                payMethod = o.optString("pay_method"),
-                paid = o.optBoolean("paid"),
-                driverName = o.optString("driver_name"),
-                driverVerified = o.optBoolean("driver_verified"),
-                counterpartyName = o.optString("counterparty_name"),
-                myStars = o.optInt("my_stars"),
-                myRatingTags = o.optString("my_rating_tags"), counterpartyId = o.optInt("counterparty_id"), problemReportSec = o.optInt("problem_report_sec"),
-            )
-        }
+    suspend fun getTripReceipt(bookingId: Int, expectedGeneration: Long? = null): Result<TripReceiptDto> =
+        call("GET", "/trips/$bookingId/receipt", null, auth = true, expectedGeneration = expectedGeneration).map(::parseTripReceiptDto)
 
     // ═══════════ Закрытие пробелов такси / курьера (аудит 2026-07-26) ═══════════
     // Сервер уже умеет всё ниже; здесь только доступ. Все ручки идемпотентны или дают понятный
@@ -4897,7 +4886,7 @@ object ApiClient {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }
+        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { parseRoadsideResult(it) }
     }
 
     /** «Застрял на трассе» в ДОСТАВКЕ. Курьер едет по той же зимней трассе и вдобавок один:
@@ -4907,7 +4896,7 @@ object ApiClient {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/parcels/$parcelId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }
+        return call("POST", "/parcels/$parcelId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { parseRoadsideResult(it) }
             .onSuccess { Analytics.log("roadside_help_parcel") }
     }
 
@@ -5047,8 +5036,8 @@ object ApiClient {
     /** То же для попутки. Пока чат попутки не закрывался, выход был не нужен; после того как
      *  мы закрыли его через сутки после поездки, забытый на заднем сиденье телефон стало
      *  не вернуть — номер второй стороны после поездки не виден (аудит 2026-08-06). */
-    suspend fun bookingLostItem(bookingId: Int): Result<String> =
-        call("POST", "/bookings/$bookingId/lost-item", JSONObject(), auth = true)
+    suspend fun bookingLostItem(bookingId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/bookings/$bookingId/lost-item", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("chat_open_until") }
             .onSuccess { Analytics.log("lost_item_booking") }
 
@@ -5070,8 +5059,8 @@ object ApiClient {
     /** То же для попутки. Сервер умел это с самого начала — «рәхмәт» и придумали для попуток,
      *  но кнопка в итоге появилась только в чеке такси, и обе ручки годами никто не звал
      *  (аудит 2026-08-06). Сосед, который подвёз бесплатно, спасибо заслуживает не меньше. */
-    suspend fun getBookingTipInfo(bookingId: Int): Result<TipInfoDto> =
-        call("GET", "/bookings/$bookingId/tip", null, auth = true).map { o ->
+    suspend fun getBookingTipInfo(bookingId: Int, expectedGeneration: Long? = null): Result<TipInfoDto> =
+        call("GET", "/bookings/$bookingId/tip", null, auth = true, expectedGeneration = expectedGeneration).map { o ->
             val m = o.optJSONObject("money")
             TipInfoDto(
                 driverName = o.optString("driver_name"),
@@ -5081,8 +5070,8 @@ object ApiClient {
         }
 
     /** «Рәхмәт» водителю попутки — тёплый жест без денег. Идемпотентно. */
-    suspend fun sayBookingThanks(bookingId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/thanks", JSONObject(), auth = true).map { }
+    suspend fun sayBookingThanks(bookingId: Int, expectedGeneration: Long? = null): Result<Unit> =
+        call("POST", "/bookings/$bookingId/thanks", JSONObject(), auth = true, expectedGeneration = expectedGeneration).map { }
 
     /** Мои завершённые такси-заказы с расшифровкой: цена, комиссия, чистыми (закрывает
      *  «Юлдаш говорит 4200, я насчитал 4600 — где мои 400?»). */
@@ -6485,6 +6474,8 @@ internal fun JSONObject.toRideDto() = RideDto(
     // Старый сервер полей не знает — переднее тогда свободно, как было всегда.
     backMaxTwo = optBoolean("back_max_two"), frontSeatAvailable = optBoolean("front_seat_available", true), frontSeatTaken = optBoolean("front_seat_taken"),
     waypoints = optString("waypoints").split(" | ").map { it.trim() }.filter { it.isNotBlank() },
+    matchedStop = if (isNull("matched_stop")) null else optString("matched_stop").ifBlank { null }, matchedFromStart = optBoolean("matched_from_start"),
+    matchedDropoffStop = if (isNull("matched_dropoff_stop")) null else optString("matched_dropoff_stop").ifBlank { null }, matchedToEnd = optBoolean("matched_to_end"),
     pickup = optString("pickup"),
     pickupLat = if (isNull("pickup_lat")) null else optDouble("pickup_lat"),
     pickupLng = if (isNull("pickup_lng")) null else optDouble("pickup_lng"),
@@ -6561,6 +6552,8 @@ data class RideDto(
     val noMinors: Boolean = false,   // водитель не берёт младше 18 без взрослого
     val backMaxTwo: Boolean = false, val frontSeatAvailable: Boolean = true, val frontSeatTaken: Boolean = false,   // опции мест
     val waypoints: List<String> = emptyList(),
+    val matchedStop: String? = null, val matchedFromStart: Boolean = false,
+    val matchedDropoffStop: String? = null, val matchedToEnd: Boolean = false,
     val pickup: String = "",          // где водитель забирает (точка сбора)
     val pickupLat: Double? = null,    // координаты точки сбора (пин на карте)
     val pickupLng: Double? = null,
@@ -6689,57 +6682,6 @@ data class ReferralDto(val code: String, val invited: Int, val credits: Int, val
 /** Identity and authoritative status returned by booking creation/replay. */
 data class BookingCreatedDto(val id: Int, val status: String)
 
-/** Моя бронь со сводкой поездки — для экрана «Мои поездки». */
-data class BookingMineDto(
-    val id: Int,
-    val rideId: Int,
-    val seats: Int,
-    val price: Int,
-    val status: String,
-    val boardingCode: String,
-    val fromCity: String,
-    val toCity: String,
-    val departAt: String,
-    val driverName: String,
-    val driverVerified: Boolean,
-)
-
-/** Приватные детали брони для вкладки «Детали поездки». */
-data class BookingDetailsDto(
-    val bookingId: Int,
-    val rideId: Int,
-    val role: String,
-    val status: String,
-    val contactUnlocked: Boolean,
-    val fromCity: String,
-    val toCity: String,
-    val departAt: String,
-    val seats: Int,
-    val price: Int,
-    val payMethod: String = "negotiate",   // договорённость об оплате (запись, не платёж): cash/sbp/negotiate
-    val payAmount: Int? = null,            // сумма договорённости, ₽ (опц.)
-    val driverName: String,
-    val driverVerified: Boolean,
-    val driverPhone: String,
-    val driverCar: String,
-    // Госномер и цвет — чтобы сверить машину у подъезда. Пусто до подтверждения брони.
-    // Дефолты держат старый сервер: клиент новее бэкенда не падает, просто не показывает.
-    val driverPlate: String = "",
-    val driverCarColor: String = "",
-    // Несовершеннолетний пассажир: пометку видят оба, контакты взрослого — только водитель.
-    val minorPassenger: Boolean = false,
-    val minorGuardianName: String = "",
-    val minorGuardianPhone: String = "",
-    val frontSeat: Boolean = false,   // пассажир просил переднее место
-    val pickup: String,
-    val pickupLat: Double?,
-    val pickupLng: Double?,
-    val fromLat: Double?,
-    val fromLng: Double?,
-    val toLat: Double?,
-    val toLng: Double?,
-)
-
 /** Заявка пассажира с сервера. */
 data class RequestDto(
     val id: Int,
@@ -6800,45 +6742,6 @@ data class RestrictionsDto(
     val items: List<RestrictionDto> = emptyList(),
     val supportRu: String = "", val supportBa: String = "",
 )
-data class RequestFeedDto(val id: Int, val passengerName: String, val from: String, val to: String, val seats: Int, val comment: String, val responded: Boolean, val passengerAvatar: String = "", val prefs: List<String> = emptyList(), val myResponseId: Int? = null,
-    // На сколько км заявка уводит с собственного маршрута. null = у водителя нет активных
-    // поездок или где-то нет координат — тогда числа не показываем, а не выдумываем.
-    val detourKm: Int? = null,
-    val desiredAt: String = "",
-    val maxPrice: Int? = null,
-    val distanceKm: Double? = null,
-    val category: String = "regular",
-    val passengerRating: Double? = null,
-    val passengerRatingCount: Int = 0,
-    val passengerVerified: Boolean = false,
-)
-data class ResponseDto(
-    val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?,
-    val price: Int,                    // первая цена водителя (историческая)
-    val comment: String, val status: String, val driverAvatar: String = "",
-    // --- Торг о цене (второй круг). Раньше отклик был «бери или уходи». ---
-    val currentPrice: Int = 0,         // цена, которая сейчас НА СТОЛЕ
-    val lastOfferBy: String = "driver",// чей ход был последним: driver | passenger
-    val bargainRounds: Int = 0,        // сколько встречных сделано
-    val canCounter: Boolean = false,   // я могу предложить свою цену
-    val canAccept: Boolean = false,    // я могу принять то, что на столе
-    val bargainHistory: String = "",   // «d:500,p:400,d:450»
-    // Публичное доверие + контекст заявки для премиального экрана откликов.
-    // Дефолты сохраняют совместимость со старым сервером и существующими тестами.
-    val driverVerified: Boolean = false,
-    val driverTripsCount: Int = 0,
-    val driverCar: String = "",
-    val requestFromCity: String = "",
-    val requestToCity: String = "",
-    val requestSeats: Int = 0,
-    val requestMaxPrice: Int = 0,
-    val requestDesiredAt: String? = null,
-) {
-    /** Что показывать как цену: пока торга не было — первое предложение водителя. */
-    val onTable: Int get() = if (currentPrice > 0) currentPrice else price
-    val haggled: Boolean get() = bargainRounds > 0
-}
-
 /** Активный шаринг поездки близкому (B7c): id для отзыва, к какому контакту, готовая live-ссылка. */
 data class TripShareDto(
     val id: Int,
@@ -6856,6 +6759,8 @@ data class MessageDto(
     val edited: Boolean = false,
     val flag: String = "",           // анти-фишинг (B8-6): "warn" → плашка-предупреждение получателю
     val fromAdmin: Boolean = false,  // официальность (B8-9): бейдж «Юлдаш ✓» у сообщений админа/системы
+    val hiddenForMe: Boolean = false,
+    val requestId: String = "",
 )
 
 /** Диалог в инбоксе: бронь, с кем и последнее сообщение. */
@@ -6899,23 +6804,6 @@ internal fun parseNotifDto(o: JSONObject): NotifDto {
     )
 }
 
-/** Моя бронь в списке поездок. */
-internal fun parseBookingMineDto(o: JSONObject): BookingMineDto {
-    return BookingMineDto(
-        id = o.optInt("id"),
-        rideId = o.optInt("ride_id"),
-        seats = o.optInt("seats", 1),
-        price = o.optInt("price"),
-        status = o.optString("status"),
-        boardingCode = o.optString("boarding_code"),
-        fromCity = o.optString("from_city"),
-        toCity = o.optString("to_city"),
-        departAt = o.optString("depart_at"),
-        driverName = o.optString("driver_name"),
-        driverVerified = o.optBoolean("driver_verified"),
-    )
-}
-
 /** Заявка пассажира «ищу попутку». */
 internal fun parseRequestDto(o: JSONObject): RequestDto {
     return RequestDto(
@@ -6929,7 +6817,7 @@ internal fun parseRequestDto(o: JSONObject): RequestDto {
         comment = o.optString("comment"),
         forRelativeName = o.optString("for_relative_name").ifBlank { null },
         status = o.optString("status"),
-        desiredAt = o.optString("desired_at").ifBlank { null },
+        desiredAt = if (o.isNull("desired_at")) null else o.optString("desired_at").ifBlank { null },
     )
 }
 
@@ -6939,41 +6827,6 @@ internal fun parsePendingPaymentDto(o: JSONObject): PendingPaymentDto {
         o.optInt("payment_id"), o.optString("purpose"), o.optString("tier"),
         o.optInt("amount"), if (o.isNull("ride_id")) null else o.optInt("ride_id"),
         o.optString("payer_name"), o.optString("payer_phone"), o.optString("created_at"), o.optString("note"),
-    )
-}
-
-/** Полная карточка брони. */
-internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
-    return BookingDetailsDto(
-        bookingId = o.optInt("booking_id"),
-        rideId = o.optInt("ride_id"),
-        role = o.optString("role"),
-        status = o.optString("status"),
-        contactUnlocked = o.optBoolean("contact_unlocked"),
-        fromCity = o.optString("from_city"),
-        toCity = o.optString("to_city"),
-        departAt = o.optString("depart_at"),
-        seats = o.optInt("seats", 1),
-        price = o.optInt("price"),
-        payMethod = o.optString("pay_method", "negotiate"),
-        payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
-        driverName = o.optString("driver_name"),
-        driverVerified = o.optBoolean("driver_verified"),
-        driverPhone = o.optString("driver_phone"),
-        driverCar = o.optString("driver_car"),
-        driverPlate = o.optString("driver_plate"),
-        driverCarColor = o.optString("driver_car_color"),
-        minorPassenger = o.optBoolean("minor_passenger"),
-        minorGuardianName = o.optString("minor_guardian_name"),
-        minorGuardianPhone = o.optString("minor_guardian_phone"),
-        frontSeat = o.optBoolean("front_seat"),
-        pickup = o.optString("pickup"),
-        pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
-        pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
-        fromLat = if (o.isNull("from_lat")) null else o.optDouble("from_lat"),
-        fromLng = if (o.isNull("from_lng")) null else o.optDouble("from_lng"),
-        toLat = if (o.isNull("to_lat")) null else o.optDouble("to_lat"),
-        toLng = if (o.isNull("to_lng")) null else o.optDouble("to_lng"),
     )
 }
 
@@ -7035,47 +6888,6 @@ internal fun parseAdDto(o: JSONObject): AdDto {
     )
 }
 
-/** Заявка в ленте водителя. */
-internal fun parseRequestFeedDto(o: JSONObject): RequestFeedDto {
-    val pa = o.optJSONArray("prefs")
-    val prefs = if (pa != null) (0 until pa.length()).map { pa.optString(it) } else emptyList()
-    return RequestFeedDto(
-        id = o.optInt("id"), passengerName = o.optString("passenger_name"),
-        from = o.optString("from_city"), to = o.optString("to_city"),
-        seats = o.optInt("seats"), comment = o.optString("comment"),
-        responded = o.optBoolean("responded"), passengerAvatar = o.optString("passenger_avatar"),
-        prefs = prefs, myResponseId = if (o.isNull("my_response_id")) null else o.optInt("my_response_id"),
-        detourKm = if (o.isNull("detour_km")) null else o.optInt("detour_km"),
-        desiredAt = o.optString("desired_at"),
-        maxPrice = if (o.isNull("max_price")) null else o.optInt("max_price"),
-        distanceKm = if (o.isNull("distance_km")) null else o.optDouble("distance_km"),
-        category = o.optString("category", "regular"),
-        passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
-        passengerRatingCount = o.optInt("passenger_rating_count"),
-        passengerVerified = o.optBoolean("passenger_verified"),
-    )
-}
-
-internal fun JSONObject.toResponseDto() = ResponseDto(
-    id = optInt("id"), driverId = optInt("driver_id"), driverName = optString("driver_name"),
-    driverRating = if (isNull("driver_rating")) null else optDouble("driver_rating"),
-    price = optInt("price"), comment = optString("comment"), status = optString("status"),
-    driverAvatar = optString("driver_avatar"),
-    currentPrice = optInt("current_price"),
-    lastOfferBy = optString("last_offer_by").ifBlank { "driver" },
-    bargainRounds = optInt("bargain_rounds"),
-    canCounter = optBoolean("can_counter"), canAccept = optBoolean("can_accept"),
-    bargainHistory = optString("bargain_history"),
-    driverVerified = optBoolean("driver_verified"),
-    driverTripsCount = optInt("driver_trips_count"),
-    driverCar = optString("driver_car"),
-    requestFromCity = optString("request_from_city"),
-    requestToCity = optString("request_to_city"),
-    requestSeats = optInt("request_seats"),
-    requestMaxPrice = optInt("request_max_price"),
-    requestDesiredAt = optString("request_desired_at").ifBlank { null },
-)
-
 /** Поднятие/донат: статус платежа и реквизиты для перевода. */
 internal fun parseBoostResultDto(o: JSONObject): BoostResultDto {
     val payee = o.optJSONObject("payee")
@@ -7098,9 +6910,6 @@ internal fun parsePopularRouteDto(o: JSONObject): PopularRouteDto =
 /** Человек, на которого можно пожаловаться. */
 internal fun parseReportableUserDto(o: JSONObject): ReportableUserDto =
     ReportableUserDto(o.optInt("id"), o.optString("name"))
-
-/** Отклик водителя на заявку пассажира: цена, торг и доверие. */
-internal fun parseResponseDto(o: JSONObject): ResponseDto = o.toResponseDto()
 
 /** Объявление в кабинете админа: списки размещений и городов приходят массивами. */
 internal fun parseAdminAdDto(a: JSONObject): AdminAdDto {
@@ -7138,6 +6947,8 @@ internal fun parseMessageDto(o: JSONObject): MessageDto =
         edited = o.optBoolean("edited"),
         flag = o.optString("flag"),
         fromAdmin = o.optBoolean("from_admin"),
+        hiddenForMe = o.optBoolean("hidden_for_me"),
+        requestId = o.optString("request_id"),
     )
 
 /**
@@ -7256,15 +7067,6 @@ data class SupportTicketRowDto(
 
 /** Список моих обращений + счётчик непрочитанного (бейдж на входе «Поддержка»). */
 data class SupportListDto(val unread: Int, val items: List<SupportTicketRowDto>)
-
-/** Подписка на маршрут «карауль поездку» (F13). */
-data class RouteWatchDto(
-    val id: Int,
-    val fromCity: String,
-    val toCity: String,
-    val direction: String,          // forward | both
-    val watchDate: String? = null,  // ISO, если задан конкретный день
-)
 
 /** Тариф поднятия (с бэкенда /boost/plans). */
 data class BoostPlanDto(val tier: String, val title: String, val price: Int, val hours: Int)
@@ -7394,18 +7196,6 @@ data class MyDataDto(
 data class RecentPlaceDto(
     val id: Int, val address: String, val lat: Double, val lng: Double, val usedAt: String,
 )
-/** Квитанция завершённой поездки (GET /trips/{booking_id}/receipt).
- *  amount — ₽; pay_method: cash|sbp|negotiate; role — «passenger»|«driver» (чья витрина). */
-data class TripReceiptDto(
-    val bookingId: Int, val rideId: Int, val role: String,
-    val fromCity: String, val toCity: String, val departAt: String,
-    val seats: Int, val amount: Int, val payMethod: String, val paid: Boolean,
-    val driverName: String, val driverVerified: Boolean,
-    val counterpartyName: String = "",
-    val myStars: Int = 0,
-    val myRatingTags: String = "", val counterpartyId: Int = 0, val problemReportSec: Int = 0,  // «Сообщить о проблеме» пассажиру после поездки (PR174)
-)
-
 /** Ответ на «Подожду машину»: до какого времени ищем и обновлённый заказ. */
 data class InstantWaitDto(val waitUntil: String, val waitMinutes: Int, val order: InstantOrderDto?)
 

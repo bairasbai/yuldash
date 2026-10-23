@@ -21,11 +21,14 @@ export default function SbpPay({
   bank,
   name,
   amountRub,
+  canAct,
 }: {
   phone: string;
   bank?: string;
   name?: string;
   amountRub?: number;
+  /** The receipt may have been replaced by another booking or login. */
+  canAct?: () => boolean;
 }) {
   const { appText } = useLang();
   const [copied, setCopied] = useState(false);
@@ -39,10 +42,12 @@ export default function SbpPay({
   }
 
   async function copy() {
+    if (canAct?.() === false) return;
     try {
       await navigator.clipboard.writeText(phone);
+      if (canAct?.() === false) return;
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
+      window.setTimeout(() => { if (canAct?.() !== false) setCopied(false); }, 1600);
     } catch {
       /* буфер недоступен — номер на экране, наберут руками */
     }
@@ -81,7 +86,8 @@ export default function SbpPay({
         </div>
       )}
 
-      <a className="btn-primary sbp-pay__go" href={sberPayLink(phone)} target="_blank" rel="noreferrer">
+      <a className="btn-primary sbp-pay__go" href={sberPayLink(phone)} target="_blank" rel="noreferrer"
+        onClick={event => { if (canAct?.() === false) event.preventDefault(); }}>
         {appText("Оплатить в Сбербанке", "Сбербанкта түләү")}
       </a>
 

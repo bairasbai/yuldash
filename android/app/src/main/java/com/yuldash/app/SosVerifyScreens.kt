@@ -186,10 +186,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
-import android.Manifest
 import android.app.Activity
 import android.speech.RecognizerIntent
-import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.os.Build
@@ -197,7 +195,6 @@ import android.os.SystemClock
 import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import android.content.Context
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
@@ -274,15 +271,13 @@ internal data class SosService(
     val sosCategory: String     // что шлём «своим» в наш бэкенд
 )
 
-/** Сколько ждём координаты в ЧП, прежде чем сказать «не получилось». Не анимация — это срок
- *  ожидания железа, поэтому не со шкалы `CanonMotion`. 12 секунд: холодный GPS обычно успевает,
- *  а человек в беде дольше смотреть на спиннер не должен. */
-private const val SOS_LOCATE_TIMEOUT_MS = 12_000L
-
 @Composable
 internal fun SosScreen(
     onBack: () -> Unit,
     onLoginRequired: () -> Unit,
+    // Вход закончился, пока экран открыт (истёк, 401). Вернуть на SOS после входа можно только того же
+    // человека: id из токена; 0 — экран открыли без входа (вернуть любого), -1 — не знаем, кто это был.
+    onSessionEnded: (previousUser: Int) -> Unit = { onLoginRequired() },
     orderId: Int? = null,
     // Из какой попутки нажали SOS. Аудит 2026-08-06: контекст такси уходил дежурному с самого
     // начала, а из попутки — нет, хотя именно там человек садится в машину к незнакомцу.
@@ -295,6 +290,9 @@ internal fun SosScreen(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
+    val signalOwner = remember { ApiClient.queueSessionGeneration() }
+    val signalUser = remember { if (ApiClient.isLoggedIn()) ApiClient.myUserId() ?: -1 else 0 }
+    val signalMounted = remember { java.util.concurrent.atomic.AtomicBoolean(true) }
 
     // Россия, звонок с мобильного: 102 полиция · 101 пожарные · 103 скорая. 112 — единый (по умолчанию / когда выбрано несколько).
     val services = remember {
@@ -318,89 +316,23 @@ internal fun SosScreen(
     var sending by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     var rateLimited by remember { mutableStateOf(false) }  // 429 — «слишком часто», не «нет сети»
+    var sessionChange by remember { mutableStateOf(SosSessionChange.None) }  // вход сменился, пока экран открыт
     val loggedIn = ApiClient.isLoggedIn()
 
-    // Живая геолокация для ЧП — запрашиваем прямо здесь (а не ждём кеш с карты). Главное в SOS.
-    var sosLat by remember { mutableStateOf(LocationPrefs.lastLat) }
-    var sosLng by remember { mutableStateOf(LocationPrefs.lastLng) }
-    var locating by remember { mutableStateOf(false) }
-    // Попытка определить место закончилась ничем. Без этого экран ЧП вечно висел на «Обновляю…»:
-    // одноразовый запрос координат ждали без срока, и если фикса не приходило (в помещении,
-    // холодный старт GPS, эмулятор) — надпись не менялась никогда. Человек в беде ждёт того,
-    // чего не будет, вместо того чтобы продиктовать адрес словами (живая проверка 2026-08-12).
-    var locFailed by remember { mutableStateOf(false) }
-    val lm = remember { context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager }
-    var locListener by remember { mutableStateOf<android.location.LocationListener?>(null) }
-    var locTimeout by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    fun applyLoc(loc: android.location.Location) {
-        sosLat = loc.latitude; sosLng = loc.longitude
-        LocationPrefs.lastLat = loc.latitude; LocationPrefs.lastLng = loc.longitude
+    // Живая геолокация для ЧП: разрешение, свежесть и подписка на GPS — в SosLocation.kt.
+    val sosLoc = rememberSosLocation()
+    DisposableEffect(Unit) { onDispose { signalMounted.set(false) } }
+    fun coords(location: android.location.Location?) = location?.let {
+        String.format(java.util.Locale.US, "%.5f, %.5f", it.latitude, it.longitude)
     }
-    // Снять подписку на координаты. Обязательна: без неё каждое нажатие «Обновить» оставляло
-    // висеть ещё один слушатель GPS — на экране, который открывают в аварии.
-    fun stopLocating() {
-        locListener?.let { l -> try { lm.removeUpdates(l) } catch (e: SecurityException) {} }
-        locListener = null
-        locTimeout?.cancel(); locTimeout = null
-        locating = false
-    }
-    fun fetchLoc() {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
-        stopLocating()          // повторное нажатие не должно плодить слушателей
-        // 1) Мгновенно показать последнее известное (чтобы не было пусто).
-        try {
-            (lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-                ?: lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
-                ?: lm.getLastKnownLocation(android.location.LocationManager.PASSIVE_PROVIDER))?.let { applyLoc(it) }
-        } catch (e: SecurityException) {}
-        // 2) Запросить СВЕЖИЙ одноразовый фикс — это и есть реальное «Обновить» (last-known может быть устаревшим).
-        val provider = when {
-            lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) -> android.location.LocationManager.GPS_PROVIDER
-            lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) -> android.location.LocationManager.NETWORK_PROVIDER
-            else -> null
-        }
-        if (provider == null) {          // все источники выключены — так и говорим, а не «обновляю»
-            locFailed = sosLat == null
-            return
-        }
-        locating = true; locFailed = false
-        try {
-            val listener = object : android.location.LocationListener {
-                override fun onLocationChanged(loc: android.location.Location) { applyLoc(loc); stopLocating() }
-                override fun onStatusChanged(p: String?, s: Int, e: android.os.Bundle?) {}
-                override fun onProviderEnabled(p: String) {}
-                override fun onProviderDisabled(p: String) {}
-            }
-            lm.requestSingleUpdate(provider, listener, android.os.Looper.getMainLooper())
-            locListener = listener
-            // Ждём фикс ограниченное время. Не дождались — честно говорим и даём «Повторить»:
-            // в ЧП лучше сразу перейти к «продиктуй адрес словами», чем смотреть на спиннер.
-            locTimeout = scope.launch {
-                kotlinx.coroutines.delay(SOS_LOCATE_TIMEOUT_MS)
-                val gotNothing = sosLat == null
-                stopLocating()
-                locFailed = gotNothing
-            }
-        } catch (e: SecurityException) { stopLocating(); locFailed = sosLat == null }
-        catch (e: Exception) { stopLocating(); locFailed = sosLat == null }
-    }
-    // Ушли с экрана — подписку снимаем: GPS не должен работать «в никуда».
-    DisposableEffect(Unit) { onDispose { stopLocating() } }
-    val locPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) fetchLoc()
-    }
-    LaunchedEffect(Unit) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) fetchLoc()
-        else locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
+    val coordsText = coords(sosLoc.current())
 
-    val coordsText = if (sosLat != null && sosLng != null) String.format(java.util.Locale.US, "%.5f, %.5f", sosLat, sosLng) else null
-
-    fun dictText(): String = buildString {
+    fun dictText(location: android.location.Location?): String = buildString {
         if (description.isNotBlank()) append(description.trim())
-        if (coordsText != null) {
+        val currentCoords = coords(location)
+        if (currentCoords != null) {
             if (isNotEmpty()) append("\n")
-            append("Координаты: $coordsText")
+            append("Координаты: $currentCoords")
         }
     }
 
@@ -411,32 +343,43 @@ internal fun SosScreen(
             .onFailure { Toast.makeText(context, tCallFail, Toast.LENGTH_SHORT).show() }
     }
 
-    fun requestLoc() {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) fetchLoc()
-        else locPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    // Сигнал этого экрана принадлежит входу, с которым его открыли. Вход сменился — кнопка не висит
+    // на «Отправляем…» и не молчит: честно говорим, что делать, а 112 остаётся под рукой. До запроса
+    // сигнал точно не ушёл: вход истёк — сразу ко входу, вошли другим аккаунтом — карточка.
+    fun refuseChangedSession(change: SosSessionChange) {
+        sending = false; sent = false; rateLimited = false; failed = false; sessionChange = SosSessionChange.None
+        if (change == SosSessionChange.BeforeSend && !ApiClient.isLoggedIn()) onSessionEnded(signalUser)
+        else { sessionChange = change; failed = true }
     }
 
     fun sendSignal() {
-        if (sending) return
-        if (!loggedIn) {
-            onLoginRequired()
-            return
-        }
-        failed = false
-        rateLimited = false
-        sent = false
-        sending = true
-        // В note кладём текст + КООРДИНАТЫ (бэкенд без гео-поля → передаём строкой со ссылкой на карту).
-        val note = buildString {
-            if (!contextNote.isNullOrBlank()) append(contextNote.trim() + ". ")
-            if (description.isNotBlank()) append(description.trim() + " ")
-            if (coordsText != null) append("Координаты: $coordsText (https://yandex.ru/maps/?pt=$sosLng,$sosLat&z=17)")
-        }.trim().ifBlank { "SOS" }
+        if (sending || !signalMounted.get()) return
+        if (ApiClient.queueSessionGeneration() != signalOwner) { refuseChangedSession(SosSessionChange.BeforeSend); return }
+        if (!loggedIn) { onLoginRequired(); return }
+        failed = false; rateLimited = false; sessionChange = SosSessionChange.None; sent = false; sending = true
         scope.launch {
+            if (!signalMounted.get()) return@launch
+            if (!ApiClient.isCurrentSession(signalOwner)) { refuseChangedSession(SosSessionChange.BeforeSend); return@launch }
+            // Снимок берём прямо перед запросом, а не из последней отрисовки экрана.
+            val location = sosLoc.forAction()
+            val currentCoords = coords(location)
+            // Текст для дежурного и отдельные lat/lng используют один разрешённый снимок.
+            val note = buildString {
+                if (!contextNote.isNullOrBlank()) append(contextNote.trim() + ". ")
+                if (description.isNotBlank()) append(description.trim() + " ")
+                if (location != null) append("Координаты: $currentCoords (https://yandex.ru/maps/?pt=${location.longitude},${location.latitude}&z=17)")
+            }.trim().ifBlank { "SOS" }
             // Ждём сервер, НЕ fire-and-forget (кнопка безопасности). orderId — контекст такси-заказа (B7b-2).
             // Координаты шлём ещё и отдельными полями: из текста заметки их читал только админ,
             // а ссылку на карту должны получить близкие — им ехать (аудит 2026-08-06).
-            val r = ApiClient.sos(category, note, orderId, lat = sosLat, lng = sosLng, bookingId = bookingId)
+            val r = ApiClient.sos(category, note, orderId, lat = location?.latitude, lng = location?.longitude,
+                bookingId = bookingId, expectedGeneration = signalOwner)
+            if (!signalMounted.get()) return@launch
+            // 401 — сервер сигнал не принял (вход истёк, обновить нечем): как до отправки — сразу ко входу.
+            // Иначе запрос ушёл, и сервер мог сигнал сохранить — «не отправлен» сказать нельзя.
+            val refused = (r.exceptionOrNull() as? ApiException)?.status == 401
+            val change = if (refused) SosSessionChange.BeforeSend else SosSessionChange.AfterSend
+            if (refused || !ApiClient.isCurrentSession(signalOwner)) { refuseChangedSession(change); return@launch }
             sending = false
             if (r.isSuccess) {
                 sent = true
@@ -455,17 +398,18 @@ internal fun SosScreen(
         category = category,
         onCategoryChange = { category = it },
         coordsText = coordsText,
-        locating = locating,
-        locFailed = locFailed,
+        locating = sosLoc.locating,
+        locFailed = sosLoc.failed,
         loggedIn = loggedIn,
         sent = sent,
         failed = failed,
         rateLimited = rateLimited,
+        sessionChange = sessionChange,
         sending = sending,
         onDial = { dial(it) },
-        onLocate = { requestLoc() },
+        onLocate = { sosLoc.request() },
         onCopy = {
-            copySensitive(context, dictText())   // марка, номер машины, место человека
+            copySensitive(context, dictText(sosLoc.forAction()))   // марка, номер машины, место человека
             Toast.makeText(context, tCopied, Toast.LENGTH_SHORT).show()
         },
         onSendSignal = { sendSignal() },
@@ -492,6 +436,7 @@ internal fun SosContent(
     sent: Boolean,
     failed: Boolean,
     rateLimited: Boolean,
+    sessionChange: SosSessionChange = SosSessionChange.None,   // вход сменился, пока экран SOS был открыт
     sending: Boolean,
     onDial: (String) -> Unit,
     onLocate: () -> Unit,
@@ -648,11 +593,10 @@ internal fun SosContent(
                     Text(appText("Сообщить поддержке", "Ярҙамға хәбәр итеү"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center)
                     Text(
                         if (loggedIn)
-                            // Честно говорим, ЧТО именно уйдёт: человек в панике не должен гадать. SMS близким не обещаем —
-                            // на проде канал может быть выключен. Машину называем прямо: по ней ищут, и это же спросит полиция.
+                            // Координаты и контекст поездки могут отсутствовать; доставка дежурному здесь не наблюдается.
                             appText(
-                                "Поддержка Юлдаш сразу получит сигнал с твоим местом и машиной, в которой ты едешь. Близким позвони сам, если можешь.",
-                                "Юлдаш ярҙамы урыныңды һәм барған машинаңды күрһәткән сигналды шунда уҡ ала. Мөмкин булһа, яҡындарыңа үҙең шылтырат.",
+                                "Сигнал будет отправлен в Юлдаш. Близким позвони сам, если можешь.",
+                                "Сигнал Юлдашҡа ебәреләсәк. Мөмкин булһа, яҡындарыңа үҙең шылтырат.",
                             )
                         else
                             appText("Для сигнала поддержке нужно войти. Звонок 112 работает без входа.", "Ярҙамға сигнал өсөн инергә кәрәк. 112 шылтырауы инеүһеҙ эшләй."),
@@ -675,29 +619,8 @@ internal fun SosContent(
                     }
                 }
             }
-            if (sent) {
-                item {
-                    InfoCard(
-                        title = appText("Сигнал отправлен", "Сигнал ебәрелде"),
-                        // Честно: сигнал поддержке (Telegram) уходит всегда; SMS близким зависит от оператора и
-                        // при mock-провайдере не доходит. В экстренной ситуации не обещаем SMS — подсказываем позвонить самому.
-                        text = appText("Поддержка Юлдаш получила сигнал с твоими координатами. Не жди — если можешь, позвони 112 и близким сам.", "Юлдаш ярҙамы координаталарың менән сигнал алды. Көтмә — мөмкин булһа, 112-гә һәм яҡындарыңа үҙең шылтырат."),
-                        icon = Icons.Default.Sos
-                    )
-                }
-            }
-            if (failed) {
-                item {
-                    InfoCard(
-                        title = if (rateLimited) appText("Слишком часто", "Артыҡ йыш") else appText("Сигнал не отправлен", "Сигнал ебәрелмәне"),
-                        text = if (rateLimited)
-                            appText("Сигнал уже отправлялся недавно. Подожди немного и нажми ещё раз.", "Сигнал күптән түгел ебәрелгән. Бер аҙ көт тә тағы баҫ.")
-                        else
-                            appText("Похоже, нет сети. Проверь связь и нажми ещё раз.", "Бәйләнеш юҡ кеүек. Тикшереп, тағы баҫ."),
-                        icon = Icons.Default.Sos
-                    )
-                }
-            }
+            // Итог сигнала: отправлен / слишком часто / вход сменился / не подтверждён (SosSignalResult.kt).
+            sosSignalResult(sent, failed, rateLimited, sessionChange)
             item {
                 AppButton(
                     text = if (sending) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Сообщить поддержке", "Ярҙамға хәбәр итеү"),

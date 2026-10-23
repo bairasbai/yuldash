@@ -22,6 +22,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yandex.mapkit.geometry.Point
 
+/** Приглашение соседу. `showPrice = false` — цена места ещё неизвестна (детали брони не загрузились):
+ *  лучше без цены, чем со стоимостью всей брони вместо цены места. */
+@Composable
+internal fun bookingRideShareText(ride: Ride, showPrice: Boolean = true): String {
+    val price = if (showPrice) " ${ride.price} ₽." else ""
+    return appText(
+        "Еду ${ride.from} → ${ride.to}, ${ride.timeText()}.$price Поехали вместе в Юлдаше 👇\nhttps://yulbash.ru",
+        "${ride.from} → ${ride.to}, ${ride.timeText()}.$price Әйҙә бергә — Юлдашта 👇\nhttps://yulbash.ru",
+    )
+}
+
 @Composable
 internal fun BookingRouteDecisionCard(
     ride: Ride,
@@ -31,6 +42,7 @@ internal fun BookingRouteDecisionCard(
     toPoint: Point?,
     contactUnlocked: Boolean,
     onShare: () -> Unit,
+    pending: Boolean = false,   // бронь есть, а её детали ещё не пришли: не гадаем цифры по тому, откуда открыли
 ) {
     AppCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -80,13 +92,14 @@ internal fun BookingRouteDecisionCard(
             ) {
                 BookingDecisionMetric(
                     icon = Icons.Default.Payments,
-                    value = "${ride.price} ₽",
-                    label = appText("Цена за место", "Урын хаҡы"),
+                    value = if (pending) "—" else "${ride.price} ₽",
+                    label = if (hasBooking) appText("Стоимость брони", "Бронь хаҡы")
+                        else appText("Цена за место", "Урын хаҡы"),
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
                 BookingDecisionMetric(
                     icon = Icons.Default.EventSeat,
-                    value = ride.seats.toString(),
+                    value = if (pending) "—" else ride.seats.toString(),
                     label = if (hasBooking) appText("Мест в брони", "Брондәге урындар")
                         else appText("Свободных мест", "Буш урын"),
                     modifier = Modifier.weight(1f).fillMaxHeight(),

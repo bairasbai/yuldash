@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { transform } from 'esbuild';
+import { shouldApplyBookingDetails } from '../src/utils/tripDetailsSync.js';
 const source=readFileSync(new URL('../src/screens/ActiveTripScreen.tsx',import.meta.url),'utf8');
-const h=globalThis.__tripRating={states:[],refs:[],si:0,ri:0,effects:[],calls:[],fail:true,lang:'ru'};
+const h=globalThis.__tripRating={states:[],refs:[],si:0,ri:0,effects:[],calls:[],fail:true,lang:'ru',shouldApplyBookingDetails};
 const definitions={
   useState:`v=>{const i=h.si++;if(!(i in h.states))h.states[i]=typeof v==='function'?v():v;return[h.states[i],v=>h.states[i]=typeof v==='function'?v(h.states[i]):v]}`,
   useRef:`v=>{const i=h.ri++;return h.refs[i]??={current:v}}`,
@@ -15,6 +16,7 @@ const definitions={
   rateBooking:`async(...args)=>{h.calls.push(args);if(h.fail)throw new Error('network offline');return {ok:true}}`,
   ratingTags:`()=>[]`,
   isTerminalBookingStatus:`st=>st==='done'||st==='cancelled'`,
+  shouldApplyBookingDetails:`h.shouldApplyBookingDetails`,
 };
 // Dependencies are inert; the component's loading, form and submission code is unchanged.
 const names=[];

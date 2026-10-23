@@ -27,4 +27,44 @@ for(const status of [400,403,404,409,410,422])await check('confirmed permanent H
  await api.enqueue(42,'message','rejected');await api.enqueue(42,'message','valid');let calls=0;
  globalThis.fetch=async()=>new Response('{}',{status:++calls===1?status:200});await api.flushOutbox();assert.equal(calls,2);assert.equal((await storedActions()).length,0);
 });
+await check('503 retries automatically without online or focus; cleanup cancels retry', async api => {
+ const timers = new Map(), handlers = new Map(); let serial = 0;
+ const realSet = globalThis.setTimeout, realClear = globalThis.clearTimeout;
+ const oldWindow = globalThis.window, oldDocument = globalThis.document;
+ const oldNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+ const add = (name, fn) => { if (!handlers.has(name)) handlers.set(name, new Set()); handlers.get(name).add(fn); };
+ const remove = (name, fn) => handlers.get(name)?.delete(fn);
+ globalThis.window = { addEventListener: add, removeEventListener: remove };
+ globalThis.document = { visibilityState: 'visible', addEventListener: add, removeEventListener: remove };
+ Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: true } });
+ globalThis.setTimeout = (fn, ms) => { const id = ++serial; timers.set(id, { fn, ms }); return id; };
+ globalThis.clearTimeout = id => timers.delete(id);
+ const until = async predicate => { for (let n=0; n<200; n++) { if (predicate()) return; await new Promise(setImmediate); } assert.fail('condition did not settle'); };
+ let stop = () => {};
+ try {
+  await api.enqueue(42, 'message', 'wait for server');
+  let attempts = 0, recovered = false, callbacks = 0; const keys = [];
+  globalThis.fetch = async (_url, init) => { attempts++; keys.push(init.headers['Idempotency-Key']); return new Response('{}', { status: recovered ? 200 : 503 }); };
+  stop = api.watchOutbox(() => callbacks++);
+  await until(() => attempts === 1 && [...timers.values()].some(t => t.ms === 7000));
+  assert.equal(api.outboxCount(42), 1);
+  // Сервер вернулся, интернет не выключался: ни online, ни focus не посылаем.
+  recovered = true;
+  const [retryId, retry] = [...timers].find(([,t]) => t.ms === 7000);
+  timers.delete(retryId); retry.fn();
+  await until(() => api.outboxCount(42) === 0 && callbacks === 1);
+  assert.equal(attempts, 2); assert.equal(keys[0], keys[1]);
+  assert.equal([...timers.values()].filter(t => t.ms === 7000).length, 0);
+  await api.enqueue(42, 'message', 'leave while queued');
+  await until(() => [...timers.values()].some(t => t.ms === 7000));
+  stop();
+  assert.equal([...timers.values()].filter(t => t.ms === 7000).length, 0);
+  assert.equal(handlers.get('visibilitychange')?.size, 0);
+  assert.equal(handlers.get('online')?.size, 0);
+ } finally {
+  stop(); globalThis.setTimeout = realSet; globalThis.clearTimeout = realClear;
+  globalThis.window = oldWindow; globalThis.document = oldDocument;
+  if (oldNavigator) Object.defineProperty(globalThis, 'navigator', oldNavigator); else delete globalThis.navigator;
+ }
+});
 console.log(`Retry failures: ${passed} passed, ${failed} failed`);if(failed)process.exitCode=1;

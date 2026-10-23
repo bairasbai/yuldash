@@ -39,7 +39,9 @@ def accepted_order(user_factory):
     """Живой принятый заказ: телефон водителя и точная точка подачи уже раскрыты — пассажиру."""
     pax = user_factory("Пассажир")
     drv = user_factory("Водитель", role=UserRole.driver)
-    phone = f"+7999000{drv['id']:04d}"       # уникальный на каждый прогон фикстуры
+    # Свой диапазон +7902…: «+7999000» + id совпадал с номерами, вписанными в другие тесты (+79990000114
+    # и т. п.), — в общей базе прогона id водителя доходил до такого номера и падал на UNIQUE user.phone.
+    phone = f"+7902{drv['id']:07d}"
     with Session(engine) as s:
         s.get(User, drv["id"]).phone = phone
         order = InstantOrder(

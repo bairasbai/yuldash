@@ -101,7 +101,7 @@ for (const [file, fn] of [
   ["src/api/rides.ts", "fetchRide"],
   ["src/api/discovery.ts", "fetchRidesNear"],
 ]) {
-  const src = readFileSync(root + file, "utf8");
+  const src = readFileSync(root + file, "utf8").replace(/\r\n/g, "\n");
   const start = src.indexOf(`export function ${fn}(`);
   const body = src.slice(start, src.indexOf("\n}\n", start));
   await test(`${file}: ${fn} без «auth: false»`, async () => {

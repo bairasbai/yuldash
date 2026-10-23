@@ -18,30 +18,38 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const h = (globalThis.__shareLink = {});
 const mocks = {
   react: `const h=globalThis.__shareLink;
- export function useState(v){const x=h.inst,i=x.i++;if(!(i in x.values))x.values[i]=v;return[x.values[i],v=>{x.values[i]=typeof v==='function'?v(x.values[i]):v}];}
- export const useCallback=fn=>fn;
- export const useEffect=fn=>{h.effects.push(fn)};`,
+ const same=(a,b)=>a&&b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i]));
+ export function useState(v){const x=h.inst,i=x.i++;if(!(i in x.values))x.values[i]=typeof v==='function'?v():v;return[x.values[i],v=>{if(x.mounted===false){h.ignoredUpdates.push(i);return;}x.values[i]=typeof v==='function'?v(x.values[i]):v}];}
+ export function useRef(v){const x=h.inst,i=x.i++;return x.values[i]??=( {current:v} );}
+ export function useCallback(fn,deps){const x=h.inst,i=x.i++,old=x.values[i];if(!old||!same(old.deps,deps))x.values[i]={fn,deps};return x.values[i].fn;}
+ export function useEffect(fn,deps){const x=h.inst,i=x.i++,old=x.values[i];if(old&&same(old.deps,deps))return;const next={deps,effect:fn,cleanup:undefined};x.values[i]=next;h.effects.push(()=>{old?.cleanup?.();if(x.mounted!==false)next.cleanup=fn();});}`,
   "react/jsx-runtime": `export const Fragment='fragment';export const jsx=(type,props)=>({type,props:props??{}});export const jsxs=jsx;`,
-  "react-router-dom": `export const Link='Link';`,
+  "react-router-dom": `export const Link='Link',Navigate='Navigate';export const useLocation=()=>({pathname:'/trip/42'});`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>globalThis.__shareLink.ba?ba:ru});`,
-  client: `export const API_BASE='https://yulbash.ru'; export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}} globalThis.__shareLink.ApiError=ApiError; export const getSessionGeneration=()=>'A';
+  auth: `export const useAuth=()=>({status:globalThis.__shareLink.authStatus,retrySession:()=>{}});`,
+  client: `export const API_BASE='https://yulbash.ru'; export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}} globalThis.__shareLink.ApiError=ApiError; export const getSessionGeneration=()=>globalThis.__shareLink.generation;
  export const apiGet=(p)=>globalThis.__shareLink.api('GET',p); export const apiPost=(p,b)=>globalThis.__shareLink.api('POST',p,b); export const apiDelete=(p)=>globalThis.__shareLink.api('DELETE',p);`,
   outbox: `export const enqueue=async()=>{};`,
+  refusal: `export const useBookingRefusal=(id,fn)=>{globalThis.__shareLink.refusal={id,fn};};`,
   icons: `export const IconCheck='i',IconCopy='i',IconShare='i',IconTrash='i',IconUsers='i';`,
   analytics: `export const track=()=>{};`,
 };
+async function compileComponent(path) {
 const result = await build({
-  entryPoints: [root + "src/components/ShareTripCard.tsx"], bundle: true, write: false, format: "esm", platform: "node", jsx: "automatic",
+  entryPoints: [root + path], bundle: true, write: false, format: "esm", platform: "node", jsx: "automatic",
   plugins: [{ name: "share-link", setup(b) {
     b.onResolve({ filter: /.*/ }, (a) => {
       const p = a.path;
-      const k = Object.hasOwn(mocks, p) ? p : p.endsWith("/i18n/lang") ? "lang" : p.endsWith("/api/client") || p === "./client" ? "client" : p.endsWith("/utils/outbox") ? "outbox" : p.endsWith("/components/Icons") || p === "./Icons" ? "icons" : p.endsWith("/analytics") ? "analytics" : null;
+      const k = Object.hasOwn(mocks, p) ? p : p.endsWith("/i18n/lang") ? "lang" : p.endsWith("/auth/AuthProvider") ? "auth" : p.endsWith("/api/client") || p === "./client" ? "client" : p.endsWith("/utils/outbox") ? "outbox" : p.endsWith("/utils/useBookingRefusal") ? "refusal" : p.endsWith("/components/Icons") || p === "./Icons" ? "icons" : p.endsWith("/analytics") ? "analytics" : null;
       return k ? { path: k, namespace: "mock" } : null;
     });
     b.onLoad({ filter: /.*/, namespace: "mock" }, (a) => ({ contents: mocks[a.path], loader: "js" }));
   } }],
 });
-const { default: Card } = await import("data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64"));
+return (await import("data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64"))).default;
+}
+const Card = await compileComponent("src/components/ShareTripCard.tsx");
+const RequireAuth = await compileComponent("src/components/RequireAuth.tsx");
 
 const LINK = "https://yulbash.ru/t/abcDEF123_-xyzQWERT";
 const share = { id: 9, booking_id: 42, order_id: null, parcel_id: null, contact_id: 1, token: "abcDEF123_-xyzQWERT", last_status: "shared", created_at: "", expires_at: null };
@@ -55,18 +63,38 @@ const all = (n) => (n && typeof n === "object" ? [n, ...[n.props?.children].flat
 const text = (tree) => JSON.stringify(tree);
 const byText = (tree, str) => all(tree).find((n) => n.type === "button" && JSON.stringify(n.props.children).includes(str));
 const tick = () => new Promise(setImmediate);
+const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
+function unmount() {
+  if (!h.inst || h.inst.mounted === false) return;
+  h.inst.mounted = false;
+  for (const slot of h.inst.values) slot?.cleanup?.();
+}
+async function flushEffects() { for (const effect of h.effects.splice(0)) effect(); await tick(); await tick(); }
+async function replayStrictEffects() {
+  const effects = h.inst.values.filter(slot => typeof slot?.effect === "function");
+  for (const slot of effects) slot.cleanup?.();
+  for (const slot of effects) slot.cleanup = slot.effect();
+  await tick(); await tick();
+}
+/** Настоящий RequireAuth убирает Card на loading/guest, как текущий /trip/:id. */
+function renderThroughAuth(props = { bookingId: 42 }) {
+  const gate = RequireAuth({ children: { type: Card, props } });
+  if (!all(gate).some(node => node.type === Card)) { unmount(); return gate; }
+  if (!h.inst || h.inst.mounted === false) h.inst = { values: [], i: 0, mounted: true };
+  return render(props);
+}
 
 /** Открыть карточку: сервер знает контакты и уже выданные ссылки. */
-async function open({ shares = [], contacts = [mama], props = { bookingId: 42 }, ba = false, shareFails = null, statusFails = null } = {}) {
-  Object.assign(h, { inst: { values: [], i: 0 }, effects: [], ba, calls: [], clip: [], sys: [] });
+async function open({ shares = [], contacts = [mama], props = { bookingId: 42 }, ba = false, shareFails = null, statusFails = null, createdShare = share } = {}) {
+  Object.assign(h, { inst: { values: [], i: 0, mounted: true }, effects: [], ba, calls: [], clip: [], sys: [], ignoredUpdates: [], generation: "A", authStatus: "authed" });
   h.api = async (method, path, body) => {
     h.calls.push([method, path, body]);
     if (method === "GET" && /shares$/.test(path)) return shares;
     if (method === "GET" && path === "/trusted-contacts") return contacts;
     if (method === "POST" && /\/share$/.test(path)) {
       if (shareFails) throw shareFails;
-      shares = [...shares, share];
-      return share;
+      shares = [...shares, createdShare];
+      return createdShare;
     }
     if (method === "DELETE") { shares = shares.filter((s) => !path.endsWith("/" + s.id)); return { ok: true }; }
     if (method === "POST" && /trip-status$/.test(path)) {
@@ -97,8 +125,9 @@ async function shareWithMama(opts) {
   return render(opts?.props);
 }
 
-let bad = 0;
+let bad = 0, total = 0;
 async function test(name, run) {
+  total++;
   try { setNavigator(); await run(); console.log("✓ " + name); }
   catch (e) { bad++; console.log("✗ " + name + "\n    " + e.message); }
 }
@@ -183,6 +212,53 @@ await test("отозвали ссылку — она пропадает с эк�
   await tick();
   assert.ok(!text(render()).includes(LINK));
 });
+// Реальный Card + family.ts; управляемая сеть повторяет контракт DELETE, отдельно
+// проверенный FastAPI/БД в test_share_revoke_network_retry.py: уже удалённая своя
+// ссылка подтверждается повтором. Любой чужой/необъяснённый 404 успехом не становится.
+for (const ba of [false, true]) {
+  const language = ba ? "BA" : "RU";
+  const revokeLabel = ba ? "Рөхсәтте кире алыу" : "Отозвать доступ";
+  const failure = ba ? "Рөхсәтте кире алып булманы." : "Не получилось отозвать доступ.";
+  const revokeButton = () => all(render()).find(n => n.type === "button" && n.props["aria-label"] === revokeLabel);
+
+  await test(`${language}: ответ успешного отзыва потерян — повтор убирает ссылку и прежнюю ошибку`, async () => {
+    await open({ shares: [share], ba });
+    const api = h.api;
+    let deletes = 0;
+    h.api = async (method, path, body) => {
+      const response = await api(method, path, body);
+      if (method === "DELETE" && ++deletes === 1) throw new Error("successful DELETE response lost");
+      return response;
+    };
+
+    await revokeButton().props.onClick();
+    await tick();
+    assert.ok(text(render()).includes(LINK), "пока исход неизвестен, ошибка не выдаётся за подтверждённый отзыв");
+    assert.ok(text(render()).includes(failure));
+    assert.deepEqual(await api("GET", "/bookings/42/shares"), [], "серверная запись уже удалена до повтора");
+
+    await revokeButton().props.onClick();
+    await tick();
+    assert.equal(deletes, 2, "повтор действительно отправлен через family.ts");
+    assert.ok(!text(render()).includes(LINK), "подтверждённо отозванная ссылка не восстанавливается");
+    assert.ok(!text(render()).includes(failure), "после подтверждения старое сообщение об ошибке убирается");
+    assert.deepEqual(await api("GET", "/bookings/42/shares"), []);
+  });
+
+  await test(`${language}: произвольный 404 при отзыве не скрывает действующую ссылку как успех`, async () => {
+    await open({ shares: [share], ba });
+    const api = h.api;
+    h.api = async (method, path, body) => {
+      if (method === "DELETE") throw new h.ApiError(404, "Share not found");
+      return api(method, path, body);
+    };
+    await revokeButton().props.onClick();
+    await tick();
+    assert.ok(text(render()).includes(LINK));
+    assert.ok(text(render()).includes(failure));
+    assert.deepEqual(await api("GET", "/bookings/42/shares"), [share]);
+  });
+}
 await test("отметка «Доехала»: пишем «Сохранено», а не «Близкие получили сообщение»", async () => {
   const props = { bookingId: 42, showStatuses: true, bookingStatus: "onboard" };
   const tree = await open({ shares: [share], props });
@@ -205,6 +281,21 @@ await test("отказ сервера по отметке — его слова�
   assert.ok(t.includes("завершить поездку можно через 4 мин"), t);
   assert.ok(!t.includes("Не получилось отправить статус"));
 });
+// «Доехала» без сети ждёт в очереди; сервер потом отказал — «Нет сети — отправим позже» больше неправда.
+await test("«Доехала» без сети, потом отказ сервера: вместо «отправим позже» — слова отказа; чужой вид отметки не трогает", async () => {
+  const props = { bookingId: 42, showStatuses: true, bookingStatus: "onboard" };
+  const tree = await open({ shares: [share], props, statusFails: new h.ApiError(0, "offline") });
+  await byText(tree, "Доехала").props.onClick();
+  await tick();
+  assert.ok(text(render(props)).includes("Нет сети — отправим позже"));
+  assert.equal(h.refusal.id, 42, "карточка слушает отказы своей брони");
+  h.refusal.fn({ kind: "driver_status", message: "Отказ водительской отметки" });
+  assert.ok(!text(render(props)).includes("Отказ водительской отметки"), "отметку водителя карточка пассажира не показывает");
+  h.refusal.fn({ kind: "trip_status", message: "Поездка уже завершена" });
+  const t = text(render(props));
+  assert.ok(t.includes("Поездка уже завершена"), t);
+  assert.ok(!t.includes("Нет сети — отправим позже"), "ложное обещание ушло");
+});
 // Посадку отмечает водитель (решение 17.10.2026): до неё у пассажира нет ни «Села в машину»,
 // ни других отметок — нечего отправлять. Старый «sat» сервер и так отклоняет (409).
 await test("до посадки «Села в машину» нет — посадку отмечает водитель", async () => {
@@ -225,5 +316,154 @@ await test("такси-заказ: та же ссылка (shareOrder)", async (
   assert.ok(text(render(props)).includes(LINK));
 });
 
+// Сеть/React — управляемые зависимости; исполняются неизменённые Card, family.ts и
+// RequireAuth. Начатое share ещё относится A; после настоящей parent-ветки loading
+// старый экземпляр размонтирован. Поздний отказ не должен писать linkA в буфер B.
+for (const ba of [false, true]) {
+  const language = ba ? "BA" : "RU";
+  const sendLabel = ba ? "Ебәреү" : "Отправить";
+  const copiedLabel = ba ? "Һылтанма күсерелде" : "Ссылка скопирована";
+  await test(`${language}: late system-share rejection after A→B cannot copy A private link`, async () => {
+    const tree = await open({ shares: [share], ba });
+    const held = deferred();
+    navigator.share = data => { h.sys.push(data); return held.promise; };
+    const pending = byText(tree, sendLabel).props.onClick();
+    assert.equal(h.sys.length, 1);
+    assert.ok(h.sys[0].text.endsWith(LINK), "The original authorized share must actually start");
+    const original = h.inst;
+    h.generation = "B";
+    h.authStatus = "loading";
+    assert.ok(!text(renderThroughAuth()).includes(LINK), "Real RequireAuth loading must remove the old card");
+    assert.equal(original.mounted, false, "The scenario must unmount A rather than reusing its state as B");
+    h.api = async (_method, path) => { if (/shares$/.test(path) || path === "/trusted-contacts") return []; throw Error("Unexpected B API: " + path); };
+    h.authStatus = "authed";
+    renderThroughAuth(); await flushEffects();
+    assert.notEqual(h.inst, original, "B must have a fresh component instance");
+    held.reject(new DOMException("share target unavailable", "NotAllowedError"));
+    await pending;
+    assert.deepEqual(h.clip, [], "A private capability link was copied into B clipboard after A unmounted");
+    assert.ok(!text(renderThroughAuth()).includes(copiedLabel));
+  });
+  await test(`${language}: late system-share rejection after leaving the trip cannot copy its link`, async () => {
+    const tree = await open({ shares: [share], ba });
+    const held = deferred();
+    navigator.share = data => { h.sys.push(data); return held.promise; };
+    const pending = byText(tree, sendLabel).props.onClick();
+    assert.equal(h.sys.length, 1);
+    unmount();
+    held.reject(new DOMException("share target unavailable", "NotAllowedError"));
+    await pending;
+    assert.deepEqual(h.clip, [], "Leaving a private trip must prevent a later clipboard fallback");
+  });
+  await test(`${language}: a late clipboard reply after A→B cannot publish success into B`, async () => {
+    const tree = await open({ shares: [share], ba });
+    const held = deferred();
+    navigator.clipboard.writeText = text => { h.clip.push(text); return held.promise; };
+    const pending = byText(tree, ba ? "Күсереү" : "Скопировать").props.onClick();
+    assert.deepEqual(h.clip, [LINK], "The clipboard operation is authorized while A is still active");
+    const original = h.inst;
+    h.generation = "B"; h.authStatus = "loading"; renderThroughAuth();
+    h.api = async () => [];
+    h.authStatus = "authed"; renderThroughAuth(); await flushEffects();
+    assert.notEqual(h.inst, original);
+    held.resolve(); await pending;
+    assert.ok(!text(renderThroughAuth()).includes(copiedLabel), "A completion must not paint B success");
+    assert.deepEqual(h.clip, [LINK], "Already-started clipboard writes cannot be retroactively undone");
+  });
+  // У текущего /trip/:id loading обычно снимает Card. Здесь отдельно требуемый
+  // контракт самой Card: изменившийся target виден уже в render, до нового effect.
+  for (const [kind, initial, changed] of [
+    ["booking", { bookingId: 42 }, { bookingId: 99 }],
+    ["order", { orderId: 5 }, { orderId: 6 }],
+  ]) await test(`${language}: same-instance ${kind} change invalidates held share before effects`, async () => {
+    const tree = await open({ shares: [share], props: initial, ba });
+    const instance = h.inst;
+    const held = deferred();
+    navigator.share = data => { h.sys.push(data); return held.promise; };
+    const pending = byText(tree, sendLabel).props.onClick();
+    render(changed); // intentionally do not flush target-change effects
+    assert.equal(h.inst, instance, "This is the same component instance, not remount protection");
+    held.reject(new DOMException("share target unavailable", "NotAllowedError"));
+    await pending;
+    assert.deepEqual(h.clip, [], "Old target must not reach clipboard while its old effect is still active");
+  });
+  await test(`${language}: target A→B→A cannot revive an operation started before the switch`, async () => {
+    const tree = await open({ shares: [share], ba });
+    const held = deferred();
+    navigator.share = data => { h.sys.push(data); return held.promise; };
+    const pending = byText(tree, sendLabel).props.onClick();
+    render({ bookingId: 99 }); render({ bookingId: 42 });
+    held.reject(new DOMException("share target unavailable", "NotAllowedError")); await pending;
+    assert.deepEqual(h.clip, [], "Returning to the original target must not restore its previous operation epoch");
+  });
+  await test(`${language}: revoke invalidates held share before its rerender`, async () => {
+    const tree = await open({ shares: [share], ba });
+    const held = deferred();
+    navigator.share = data => { h.sys.push(data); return held.promise; };
+    const pending = byText(tree, sendLabel).props.onClick();
+    const revoke = all(tree).find(node => node.type === "button" && node.props["aria-label"] === (ba ? "Рөхсәтте кире алыу" : "Отозвать доступ"));
+    await revoke.props.onClick();
+    held.reject(new DOMException("share target unavailable", "NotAllowedError"));
+    await pending;
+    assert.deepEqual(h.clip, [], "Revoked private link must not be copied by an earlier operation");
+  });
+  await test(`${language}: a newly focused share invalidates the old held share before rerender`, async () => {
+    const replacement = { ...share, id: 10, contact_id: 2, token: "newTokenDEF123_-xyzQWERT" };
+    const contact = { ...mama, id: 2, name: "Сестра" };
+    let tree = await open({ shares: [share], contacts: [contact], createdShare: replacement, ba });
+    const held = deferred();
+    navigator.share = data => { h.sys.push(data); return held.promise; };
+    const pending = byText(tree, sendLabel).props.onClick();
+    byText(tree, ba ? "Тағы кемгәлер ебәреү" : "Поделиться ещё с кем-то").props.onClick();
+    tree = render();
+    await all(tree).find(node => node.type === "button" && node.props.className?.includes("list-row--link")).props.onClick();
+    held.reject(new DOMException("share target unavailable", "NotAllowedError"));
+    await pending;
+    assert.deepEqual(h.clip, [], "The previous focus link must not be copied after creating the next share");
+    assert.ok(text(render()).includes(replacement.token), "The new share must remain normally usable");
+  });
+  await test(`${language}: StrictMode cleanup/setup cannot revive a held old operation`, async () => {
+    const tree = await open({ shares: [share], ba });
+    const instance = h.inst;
+    const held = deferred();
+    navigator.share = data => { h.sys.push(data); return held.promise; };
+    const pending = byText(tree, sendLabel).props.onClick();
+    await replayStrictEffects();
+    assert.equal(h.inst, instance, "StrictMode replays effects on the same instance");
+    assert.equal(instance.mounted, true, "A mounted boolean alone cannot distinguish the old operation");
+    held.reject(new DOMException("share target unavailable", "NotAllowedError"));
+    await pending;
+    assert.deepEqual(h.clip, [], "Old effect epoch must stay invalid after setup marks the component active again");
+  });
+  await test(`${language}: a fresh share after StrictMode replay retains ordinary clipboard fallback`, async () => {
+    await open({ shares: [share], ba });
+    await replayStrictEffects();
+    navigator.share = async data => { h.sys.push(data); throw new DOMException("share target unavailable", "NotAllowedError"); };
+    await byText(render(), sendLabel).props.onClick();
+    assert.equal(h.sys.length, 1);
+    assert.deepEqual(h.clip, [LINK], "New operations in the current effect epoch must still work");
+    assert.ok(text(render()).includes(copiedLabel));
+  });
+  await test(`${language}: current-owner delayed NotAllowedError copies exactly once`, async () => {
+    const tree = await open({ shares: [share], ba });
+    const held = deferred();
+    navigator.share = data => { h.sys.push(data); return held.promise; };
+    const pending = byText(tree, sendLabel).props.onClick();
+    held.reject(new DOMException("share target unavailable", "NotAllowedError")); await pending;
+    assert.equal(h.sys.length, 1);
+    assert.deepEqual(h.clip, [LINK]);
+  });
+  await test(`${language}: current-owner AbortError never invokes clipboard fallback`, async () => {
+    const tree = await open({ shares: [share], ba });
+    const held = deferred();
+    navigator.share = data => { h.sys.push(data); return held.promise; };
+    const pending = byText(tree, sendLabel).props.onClick();
+    held.reject(new DOMException("closed", "AbortError")); await pending;
+    assert.equal(h.sys.length, 1);
+    assert.deepEqual(h.clip, []);
+  });
+}
+
+console.log(`Share-trip link: ${total - bad}/${total} passed; ${bad} failed`);
 console.log(bad === 0 ? "\nВСЁ СОШЛОСЬ" : `\nПРОВАЛЕНО: ${bad}`);
 process.exit(bad === 0 ? 0 : 1);

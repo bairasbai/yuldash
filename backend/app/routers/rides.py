@@ -612,8 +612,11 @@ def search_rides(
     if fits:
         # Тот же договор предвыбора, что в «Ближайших» (`_matched`): координат человека в ленте нет, значит
         # место выбираем, только если «Откуда» названа и подходящее место ровно одно (приёмка PR #188, P3-2).
-        marks = {r.id: _matched(fits[r.id], None, by_query=bool(fv)) for r in out}
-        out = [r.model_copy(update={"matched_stop": marks[r.id][0], "matched_from_start": marks[r.id][1]})
+        # Где выйдет — по «Куда» человека (`_dropoff`).
+        marks = {r.id: _matched(fits[r.id], None, by_query=bool(fv)) + _dropoff(fits[r.id], None, by_query=bool(fv))
+                 for r in out}
+        out = [r.model_copy(update={"matched_stop": marks[r.id][0], "matched_from_start": marks[r.id][1],
+                                    "matched_dropoff_stop": marks[r.id][2], "matched_to_end": marks[r.id][3]})
                for r in out]
     public_out = public_rides_payload(out)
     if no_filter:
@@ -794,7 +797,7 @@ def _names_variants(session: Session, names: list[str], entry: dict) -> list[str
 
 def _fit_all(r, routes: list, entry: dict):
     """`route_fit` по каждому заданному фильтру; подходит, если подходит всем. Места посадки —
-    общие для всех; «где садится» (`matched_*`) — из общих мест, если человек назвал «Откуда»."""
+    общие для всех; «где садится» / «где выйдет» (`matched_*`) — из мест, точно названных запросом."""
     if not routes:
         return stop_search.route_fit(r, None, None, entry)
     fits = [stop_search.route_fit(r, fv or None, tv or None, entry, from_stops=sf, to_stops=st)
@@ -806,9 +809,14 @@ def _fit_all(r, routes: list, entry: dict):
         common &= set(f.pickups)
     if not common:
         return stop_search.NO_FIT
-    # «Где садится» считаем по ОБЩИМ местам посадки, а не по первому фильтру: у него вариантов
-    # могло быть больше, чем осталось после остальных (P2-1, приёмка PR #188).
-    return stop_search.make_fit(fits[0].stops, tuple(sorted(common)), named=any(fv for fv, *_rest in routes))
+    # «Где садится» — из ОБЩИХ мест посадки, а не из первого фильтра: у него вариантов могло быть
+    # больше, чем осталось после остальных (P2-1, приёмка PR #188). Точным считаем место, которое точно
+    # называет КАЖДЫЙ фильтр с «Откуда» («Куда» — так же); выбор и порядок — `make_fit`.
+    named = [f for f, (fv, *_rest) in zip(fits, routes) if fv]
+    to_named = [f for f, (_fv, tv, *_rest) in zip(fits, routes) if tv]
+    froms = set(common).intersection(*(f.exact_pickups for f in named)) if named else set()
+    tos = set(to_named[0].exact_drops).intersection(*(f.exact_drops for f in to_named[1:])) if to_named else set()
+    return stop_search.make_fit(fits[0].stops, tuple(sorted(common)), tuple(sorted(froms)), tuple(sorted(tos)))
 
 
 def _postgis_dialect(session: Session) -> bool:
@@ -866,6 +874,21 @@ def _matched(fit, pickup, *, by_query: bool):
     if by_query and len(fit.pickups) == 1:
         return fit.matched_stop, fit.matched_from_start
     return None, False
+
+
+def _dropoff(fit, pickup, *, by_query: bool):
+    """`matched_dropoff_stop` / `matched_to_end` — где человек выйдет по своему «Куда»: место, которое запрос
+    называет точно (`fit.exact_drops`), ровно одно и строго после места посадки, КОТОРОЕ ВИДИТ ЧЕЛОВЕК
+    (`_matched`: по расстоянию или по запросу); посадка не показана — после самой ранней. Иначе выход
+    сверялся бы с посадкой, которой на карточке нет (приёмка сведения с Codex, 23.10.2026)."""
+    shown = pickup
+    if shown is None and by_query and len(fit.pickups) == 1 and (fit.matched_stop is not None or fit.matched_from_start):
+        shown = fit.pickups[0]
+    after = shown if shown is not None else min(fit.pickups)
+    later = [p for p in fit.exact_drops if p > after]
+    if len(later) != 1:
+        return None, False
+    return (None, True) if later[0] == len(fit.stops) else (fit.stops[later[0]], False)
 
 
 # Колонки, которые определяют маршрут поездки в «Ближайших»: по ним ответ (подходит ли, расстояние,
@@ -941,7 +964,9 @@ def rides_near(
             q = q.where(Ride.id.in_(ids)) if ids else q.where(Ride.id.is_(None))
         except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк
             session.rollback()  # снять aborted-транзакцию, иначе следующий запрос упадёт InFailedSqlTransaction
-            log.warning(f"[GEO] PostGIS prefilter skipped: {type(e).__name__}")   # в str(e) — SQL с координатами
+            # Только вид ошибки: в её тексте — SQL с координатами человека (`:lat`, `:lng`), а логи
+            # координат не держат (§8).
+            log.warning(f"[GEO] PostGIS prefilter skipped: {type(e).__name__}")
     # Перф (2026-07): фазу «дистанция + фильтры + счёт total» гоним по ЛЁГКИМ колонкам
     # (id/driver_id/only_trusted/координаты), а не по полным ORM-объектам: без from_city
     # запрос матчит ВСЕ активные (12k+), и гидрация полных моделей стоила ~350мс/запрос.
@@ -958,6 +983,7 @@ def rides_near(
     kept: list = []
     dist_by_id: dict = {}
     matched_by_id: dict = {}
+    dropoff_by_id: dict = {}
     by_query = any(fv for fv, *_ in routes)
     # Ответ по поездке зависит только от её маршрута (запрос и точка человека на весь вызов одни):
     # считаем один раз на «вид маршрута», а не на каждую из 12 000 строк (P2-2, приёмка PR #188 —
@@ -969,20 +995,21 @@ def rides_near(
         if verdict is None:
             fit = _fit_all(r, routes, entry)
             if not fit.ok:
-                verdict = (False, None, None)   # совпало подстрокой, а маршрут не тот (порядок, недопустимая остановка)
+                verdict = (False, None, None, None)   # совпало подстрокой, а маршрут не тот (порядок, недопустимая остановка)
             else:
                 dist, pickup = None, None
                 if lat is not None and lng is not None:
                     dist, pickup = _nearest_pickup(r, fit, lat, lng, entry)
-                verdict = (True, dist, _matched(fit, pickup, by_query=by_query))
+                verdict = (True, dist, _matched(fit, pickup, by_query=by_query), _dropoff(fit, pickup, by_query=by_query))
             shape_memo[shape] = verdict
-        ok, dist, matched = verdict
+        ok, dist, matched, dropoff = verdict
         if not ok:
             continue
         if radius_km is not None and dist is not None and dist > radius_km:
             continue
         dist_by_id[r[0]] = dist
         matched_by_id[r[0]] = matched
+        dropoff_by_id[r[0]] = dropoff
         kept.append(r)
     # Прячем до подсчёта total/пагинации: заблокированных, водителей на паузе (бронь им всё
     # равно не подтвердить) и «только для своих» (видит лишь L3). Связку с клиникой снимаем
@@ -1012,6 +1039,7 @@ def rides_near(
         out = public_ride_payload(ride_out_with(r, users_map, profiles, rating_agg, trips_agg, front_taken)).model_dump()
         out["distance_km"] = dist_by_id.get(r.id)
         out["matched_stop"], out["matched_from_start"] = matched_by_id.get(r.id, (None, False))
+        out["matched_dropoff_stop"], out["matched_to_end"] = dropoff_by_id.get(r.id, (None, False))
         items.append(out)
     # Связку с клиникой прячем ЗДЕСЬ, а не выше вместе с соседними фильтрами: там в руках
     # ORM-объекты `Ride`, страница потом перечитывается из базы заново — правка на них

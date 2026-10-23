@@ -143,20 +143,46 @@ def завершённая(client, user_factory):
     return водитель, пассажирка, bid, ride_id
 
 
-def test_забыл_вещь_нельзя_жать_бесконечно(client, завершённая):
-    """Каждое нажатие открывает чат и дёргает человека уведомлением."""
+def test_забыл_вещь_нельзя_жать_бесконечно(client, завершённая, monkeypatch):
+    """Повторы одного окна безопасны; четвёртое НОВОЕ окно открыть нельзя."""
+    from sqlmodel import select
+    from app.config import settings
+    from app.models import Notification
+    from app.routers import bookings as bookings_routes
+
     водитель, _, bid, _ = завершённая
+    base = utcnow()
+    отправлено = []
+    monkeypatch.setattr(settings, "quiet_hours_to", 0)
+    monkeypatch.setattr("app.services.send_push", lambda *a, **kw: отправлено.append(True))
 
-    ответы = [client.post(f"/bookings/{bid}/lost-item", headers=водитель["auth"])
-              for _ in range(LOST_ITEM_MAX_CALLS + 2)]
+    def состояние():
+        with Session(engine) as session:
+            b = session.get(Booking, bid)
+            notes = session.exec(select(Notification.id).where(
+                Notification.ref_kind == "booking", Notification.ref_id == bid,
+                Notification.title_ru == "Забытая вещь").order_by(Notification.id)).all()
+            return b.lost_item_calls, b.lost_item_until, notes
 
-    коды = [r.status_code for r in ответы]
-    прошло = sum(1 for c in коды if c == 200)
-    assert прошло <= LOST_ITEM_MAX_CALLS, (
-        f"кнопку удалось нажать {прошло} раз ({коды}): нажимая раз в двое суток, можно держать "
-        "переписку с человеком открытой сколько угодно"
-    )
-    assert 409 in коды, f"лишние нажатия прошли без внятного отказа: {коды}"
+    for opening in range(LOST_ITEM_MAX_CALLS):
+        now = base + timedelta(hours=49 * opening)
+        monkeypatch.setattr(bookings_routes, "utcnow", lambda: now)
+        first = client.post(f"/bookings/{bid}/lost-item", headers=водитель["auth"])
+        assert first.status_code == 200, first.text
+        before = состояние()
+        assert before[0] == opening + 1 and len(before[2]) == opening + 1
+        assert len(отправлено) == opening + 1
+        # Потерявшийся ответ/быстрый повтор не расходует новое открытие и не тревожит снова.
+        for _ in range(2):
+            retry = client.post(f"/bookings/{bid}/lost-item", headers=водитель["auth"])
+            assert retry.status_code == 200, retry.text
+            assert retry.json() == first.json()
+            assert состояние() == before and len(отправлено) == opening + 1
+
+    monkeypatch.setattr(bookings_routes, "utcnow", lambda: base + timedelta(hours=49 * LOST_ITEM_MAX_CALLS))
+    refused = client.post(f"/bookings/{bid}/lost-item", headers=водитель["auth"])
+    assert refused.status_code == 409, refused.text
+    assert состояние() == before and len(отправлено) == LOST_ITEM_MAX_CALLS
 
 
 def test_первое_нажатие_работает(client, завершённая):

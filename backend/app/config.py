@@ -981,7 +981,7 @@ class Settings(BaseSettings):
     max_upload_mb: int = 10                        # лимит размера загрузки (фото/аудио)
     max_uploads_per_day: int = 60                  # лимит загрузок на юзера в сутки (анти disk-fill / спам)
     allowed_image_ext: str = "jpg,jpeg,png,webp"  # разрешённые расширения фото
-    allowed_audio_ext: str = "m4a,mp3,ogg,wav,aac"  # разрешённые расширения аудио
+    allowed_audio_ext: str = "m4a,mp3,ogg,wav,aac,webm"  # разрешённые расширения аудио
 
     # --- Хранилище медиа (фото/документы/голос): диск сервера или облако S3 ---
     # Пусто → авто: заданы бакет+ключи S3 → облако; иначе локальный диск (как раньше, полный фолбэк).

@@ -16,6 +16,7 @@ import {
 import { IconBlock, IconLock, IconPhone, IconProfile, IconShield, IconTelegram, IconWarn } from "../components/Icons";
 import { track } from "../analytics";
 import { createLoginFlow, filterLoginCode, nextNeedPhone, type LoginError, type LoginFlowDeps } from "../utils/loginFlow";
+import { restampRideMatch } from "../utils/pickupStops";
 
 type Step = "choose" | "code";
 
@@ -30,6 +31,7 @@ export default function LoginScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? "/map";
+  const returnState = (location.state as { returnState?: unknown } | null)?.returnState;
 
   const [step, setStep] = useState<Step>("choose");
   const [requestId, setRequestId] = useState("");
@@ -46,8 +48,8 @@ export default function LoginScreen() {
   const [smsName, setSmsName] = useState("");
   const [smsError, setSmsError] = useState<LoginError | null>(null);
 
-  const live = useRef({ login, navigate, from });
-  live.current = { login, navigate, from };
+  const live = useRef({ login, navigate, from, returnState });
+  live.current = { login, navigate, from, returnState };
   const flow = useRef<ReturnType<typeof createLoginFlow> | null>(null);
   if (!flow.current) {
     const deps: LoginFlowDeps = {
@@ -60,7 +62,7 @@ export default function LoginScreen() {
       telegramStartUrl, telegramChatUrl,
       openTelegram: (url) => window.open(url, "_blank", "noopener,noreferrer"),
       track,
-      navigate: () => live.current.navigate(live.current.from, { replace: true }),
+      navigate: () => live.current.navigate(live.current.from, { replace: true, ...(live.current.returnState ? { state: restampRideMatch(live.current.returnState, getSessionGeneration()) } : {}) }),
       onBusy: setLoading,
       onError: (kind) => {
         setError(kind);

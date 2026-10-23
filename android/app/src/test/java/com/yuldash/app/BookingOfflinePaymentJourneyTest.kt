@@ -6,6 +6,7 @@ import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.lifecycle.Lifecycle
@@ -145,7 +146,6 @@ class BookingOfflinePaymentJourneyTest {
         compose.onNodeWithText(text).assertIsDisplayed()
     }
     private val saveWarning = "Не удалось сохранить поездку без интернета"
-    private val offlineBannerIndex = 2
     /**
      * The save warning is the first card of the list, on screen without scrolling. Do not poll
      * show() for it: scrolling the list while the card animates in could leave the card's reported
@@ -160,19 +160,27 @@ class BookingOfflinePaymentJourneyTest {
     private fun diskJson() = JSONObject(requireNotNull(secure.restarted().getString("pass_42", null)))
 
     /**
-     * Same rule as [awaitSaveWarning]: never poll show() (performScrollToNode, no timeout) while
-     * the banner may still be animating in (appearIn). The banner is list item 2 (boarding-code
-     * slot, tall hero, banner) and is not composed until the list shows that slot, so each poll
-     * makes one bounded jump to the slot and checks for the banner without searching. The banner
-     * appears only after the failed poll reaches the screen, which may follow serverUnreachable.
+     * Same rule as [awaitSaveWarning]: no performScrollToNode search while cards animate.
+     * Details loading/error adds a card before the hero, so the offline banner has no fixed index.
+     * Each poll performs at most one bounded scroll by half the actual viewport, with overlap so
+     * a short banner is not skipped. At the end we restart from the top, within waitFor's deadline.
+     * No hardcoded screen coordinates or item index; assert the actual banner after finding it.
      */
     private fun awaitOfflineBanner(language: AppLanguage) {
         val banner = if (language == AppLanguage.Ba) "Офлайн — мәғлүмәт һаҡланған" else "Офлайн — данные сохранены"
         waitFor { ApiClient.serverUnreachable.value && requests.contains("GET /bookings/42/role") }
         val list = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
         waitFor {
-            list.performScrollToIndex(offlineBannerIndex)
-            compose.onAllNodesWithText(banner).fetchSemanticsNodes().isNotEmpty()
+            if (compose.onAllNodesWithText(banner).fetchSemanticsNodes().isNotEmpty()) true
+            else {
+                val node = list.fetchSemanticsNode()
+                val range = node.config[SemanticsProperties.VerticalScrollAxisRange]
+                if (range.value() >= range.maxValue()) list.performScrollToIndex(0)
+                else list.performSemanticsAction(SemanticsActions.ScrollBy) { scroll ->
+                    scroll(0f, node.boundsInRoot.height / 2f)
+                }
+                compose.onAllNodesWithText(banner).fetchSemanticsNodes().isNotEmpty()
+            }
         }
         compose.waitForIdle()
         compose.onNodeWithText(banner).assertIsDisplayed()

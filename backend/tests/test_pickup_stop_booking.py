@@ -158,7 +158,8 @@ def test_ride_without_stops_always_stores_the_start(client, user_factory):
     pax = user_factory("PS NoStops Pax")
     ride = _publish(client, drv, "nostops", waypoints="")
     r = _book(client, pax, ride["id"], pickup_stop="Ургаза")
-    assert r.status_code == 200 and r.json()["pickup_stop"] == "", r.text
+    assert r.status_code == 400, r.text
+    assert _seats(ride["id"]) == ride["seats_left"], "чужая посадка не списывает место"
 
 
 def test_raw_stops_without_valid_ones_store_unknown(client, user_factory):
@@ -192,18 +193,32 @@ def test_repeat_with_another_place_is_409_same_place_is_idempotent(client, user_
     assert _stored(first.json()["id"]) == "Ургаза"
 
 
-def test_old_unknown_booking_is_returned_as_is(client, user_factory):
+def test_old_unknown_booking_does_not_silently_accept_a_new_pickup(client, user_factory):
     drv = user_factory("PS OldNull Driver", role=UserRole.driver)
     pax = user_factory("PS OldNull Pax")
     ride = _publish(client, drv, "oldnull")
     first = _book(client, pax, ride["id"])
     assert first.json()["pickup_stop"] is None
     again = _book(client, pax, ride["id"], pickup_stop="Ургаза")
-    assert again.status_code == 200 and again.json()["id"] == first.json()["id"]
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "pickup_stop_conflict"
     assert _stored(first.json()["id"]) is None
 
 
 # ── Кто что видит ──
+
+@pytest.mark.parametrize("waypoints,has_stops", [("Ургаза | Бурибай", True), ("", False)])
+def test_my_booking_distinguishes_unknown_pickup_from_a_ride_without_stops(client, user_factory, waypoints, has_stops):
+    drv = user_factory("PS Mine Driver", role=UserRole.driver)
+    pax = user_factory("PS Mine Pax")
+    other = user_factory("PS Mine Other")
+    ride = _publish(client, drv, "mine-place", waypoints=waypoints)
+    bid = _book(client, pax, ride["id"]).json()["id"]
+    rows = client.get("/bookings/mine", headers=pax["auth"]).json()
+    row = next(x for x in rows if x["id"] == bid)
+    assert row["ride_has_stops"] is has_stops
+    assert row["pickup_stop"] == (None if has_stops else "")
+    assert not any(x["id"] == bid for x in client.get("/bookings/mine", headers=other["auth"]).json())
+
 
 def test_driver_push_says_on_the_way_without_the_village(client, user_factory, pushes):
     drv = user_factory("PS Push Driver", role=UserRole.driver)

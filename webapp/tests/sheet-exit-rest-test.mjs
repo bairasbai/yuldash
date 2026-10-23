@@ -230,7 +230,7 @@ const Respond = await load(
   autoStubs(
     "screens/RequestsFeedScreen.tsx",
     [
-      [/\/api\/client$/, `export class ApiError extends Error { constructor(m) { super(m); } }`],
+      [/\/api\/client$/, `export class ApiError extends Error { constructor(m) { super(m); } } export const getSessionGeneration=()=>"test-owner";`],
       [/\/api\/requests$/, `export const fetchRequestsFeed = () => (globalThis.__restExit.feed ? Promise.resolve(globalThis.__restExit.feed) : new Promise(() => {})); export const respondToRequest = (...a) => globalThis.__restExit.api("respond", ...a);`],
       [/\/analytics$/, `export const track = (n) => globalThis.__restExit.calls.push(["track", n]);`],
       [/^react-router-dom$/, `export const useNavigate = () => () => {};`],
@@ -643,7 +643,9 @@ await test("отклик: сервер принял — лента обновл�
   x.s.render();
   x.button("sheet__cta").props.onClick();
   await settle(x.s);
-  assert.deepEqual(called("respond"), [["respond", 9, 450, ""]], "цена и пустой комментарий ушли в заявку 9");
+  assert.deepEqual(called("respond").map(row=>row.slice(0,4)), [["respond", 9, 450, ""]], "цена и пустой комментарий ушли в заявку 9");
+  assert.equal(called("respond")[0][4], undefined, "Старый отклик не привязывается к рейсу");
+  assert.ok(called("respond")[0][5] instanceof AbortSignal, "Уход отменяет сетевой запрос");
   assert.deepEqual(called("done"), [["done", 31]]);
   assert.ok(x.leaving(), "шторка уходит");
   assert.equal(x.closes.length, 0, "а не пропала в тот же кадр");

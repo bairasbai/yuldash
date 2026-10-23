@@ -19,6 +19,7 @@ const deferred = () => { let resolve, reject; const promise = new Promise((a, b)
 const mocks = {
   react: `const h=globalThis.__sosLink;
  export function useState(v){const x=h.current,i=x.i++;if(!(i in x.values))x.values[i]=typeof v==='function'?v():v;return[x.values[i],v=>{if(x.live)x.values[i]=typeof v==='function'?v(x.values[i]):v}];}
+ export function useRef(v){const x=h.current,i=x.i++;return x.values[i]??=( {current:v} );}
  export function useCallback(fn,deps){const x=h.current,i=x.i++,p=x.values[i];if(!p||deps.some((v,j)=>v!==p.deps[j]))x.values[i]={fn,deps};return x.values[i].fn;}
  export function useEffect(fn,deps){const x=h.current,i=x.i++,p=x.values[i];if(!p||!deps||deps.some((v,j)=>v!==p.deps[j])){x.values[i]={deps};h.effects.push(()=>{x.cleanups[i]?.();x.cleanups[i]=fn()});}}`,
   "react/jsx-runtime": `export const Fragment='fragment';export const jsx=(type,props,key)=>({type,props,key}),jsxs=jsx;`,
@@ -132,7 +133,7 @@ await test("гость: «Войти» возвращает на тот же а�
 await test("после отправки показывается подсказка сервера (hint_ru), если она есть", async () => {
   reset("booking=42");
   const pending = danger(render()).props.onClick();
-  const hint = "Сигнал принят, дежурный уже видит его. Отправка SMS сейчас не работает — родным сообщение не уйдёт. Позвони им, если можешь.";
+  const hint = "Сигнал сохранён в Юлдаш. Отправка SMS сейчас не работает — родным сообщение не уйдёт. Позвони им, если можешь.";
   h.sends[0].resolve({ hint_ru: hint, hint_ba: "ба-текст" });
   await pending;
   const t = text(render());

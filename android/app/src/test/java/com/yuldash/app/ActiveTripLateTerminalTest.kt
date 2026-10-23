@@ -44,8 +44,10 @@ class ActiveTripLateTerminalTest {
     private val codeRequested = CountDownLatch(1)
     private val releaseCode = CountDownLatch(1)
     private val detailsRequested = CountDownLatch(1)
+    private val completeTrip = CountDownLatch(1)
     private val requests = CopyOnWriteArrayList<String>()
     private val fixtureFailures = CopyOnWriteArrayList<String>()
+    private val phone = "+7 900 000-00-42"
     private lateinit var server: MockWebServer
 
     @Before fun setup() {
@@ -62,9 +64,9 @@ class ActiveTripLateTerminalTest {
                     if (request.method != "GET") return MockResponse().setResponseCode(405)
                     val body = when (request.path) {
                         "/bookings/42/role" -> {
-                            // Completion cannot win before there is an outstanding code request.
-                            if (!codeRequested.await(30, TimeUnit.SECONDS)) {
-                                fixtureFailures.add("Boarding-code request did not start")
+                            // Terminal follows the UI barrier: details were applied while code is held.
+                            if (!codeRequested.await(30, TimeUnit.SECONDS) || !completeTrip.await(30, TimeUnit.SECONDS)) {
+                                fixtureFailures.add("Ready details / outstanding code barrier did not complete")
                                 return MockResponse().setResponseCode(503)
                             }
                             """{"role":"passenger","status":"done","driver_phase":"departed"}"""
@@ -79,9 +81,9 @@ class ActiveTripLateTerminalTest {
                             """{"code":"5678"}"""
                         }
                         "/bookings/42/details" -> {
-                            // This sequential call follows boarding-code's onSuccess in the real screen.
+                            // Details no longer wait for the outstanding boarding-code request.
                             detailsRequested.countDown()
-                            """{"booking_id":42,"role":"passenger","status":"confirmed","from_city":"Город А","to_city":"Город Б"}"""
+                            """{"booking_id":42,"role":"passenger","status":"confirmed","contact_unlocked":true,"driver_phone":"$phone","from_city":"Город А","to_city":"Город Б"}"""
                         }
                         "/trips/42/receipt" -> """{"booking_id":42,"role":"passenger","from_city":"Город А","to_city":"Город Б","counterparty_name":"Серверный водитель","amount":700,"paid":true}"""
                         "/bookings/42/tip" -> """{"already_thanked":false}"""
@@ -100,6 +102,7 @@ class ActiveTripLateTerminalTest {
         // Release both waiters even when an assertion fails; shutdown must never hang on a fixture.
         releaseCode.countDown()
         codeRequested.countDown()
+        completeTrip.countDown()
         compose.runOnIdle { mounted.value = false }
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         ApiClient.resetForTest()
@@ -118,6 +121,18 @@ class ActiveTripLateTerminalTest {
                 }
             }
         }
+        // Реальный барьер применения details: телефон уже показан экраном, код всё ещё удержан.
+        compose.waitUntil(15000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            codeRequested.count == 0L && detailsRequested.count == 0L && runCatching {
+                compose.onNode(SemanticsMatcher.keyIsDefined(
+                    androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+                    .performScrollToNode(hasText(phone))
+                compose.onNodeWithText(phone).assertIsDisplayed()
+            }.isSuccess
+        }
+        assertEquals(1, requests.count { it == "GET /bookings/42/details" })
+        completeTrip.countDown()
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             codeRequested.count == 0L &&
@@ -125,11 +140,11 @@ class ActiveTripLateTerminalTest {
                 !secure.restarted().contains("pass_42")
         }
         assertEquals("The successful code must still be held after durable deletion", 1L, releaseCode.count)
-        assertEquals("The response chain must not have advanced before release", 1L, detailsRequested.count)
+        assertEquals("Independent details completed before terminal", 0L, detailsRequested.count)
         assertNull(TripPassStore.load(context, 42))
 
         releaseCode.countDown()
-        // The terminal screen now stops the initial request chain after the held code.
+        // Terminal must ignore the late code and must not start another details request.
         // Bounded main/IO observation; absence of a follow-up is not an unbounded join proof.
         repeat(20) {
             compose.mainClock.advanceTimeBy(100)
@@ -137,7 +152,8 @@ class ActiveTripLateTerminalTest {
             Thread.sleep(10)
         }
         compose.waitForIdle()
-        assertEquals("Closed trip must not request details after the late code", 1L, detailsRequested.count)
+        assertEquals("Closed trip must not request details after the late code", 1,
+            requests.count { it == "GET /bookings/42/details" })
         compose.onNodeWithText("Поездка завершена").assertIsDisplayed()
         compose.onAllNodesWithText("5678").assertCountEquals(0)
         compose.onAllNodesWithText("1234").assertCountEquals(0)

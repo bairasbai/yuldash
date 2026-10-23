@@ -1,9 +1,13 @@
 """Безопасность: SOS (с SMS доверенным контактам), жалобы (§9 Качество), блокировки."""
 from datetime import datetime, timedelta
+import hashlib
+import json
+import re
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 from typing import List, Literal, Optional
 
@@ -246,8 +250,83 @@ def _текст_сигнала(*, кто: str, время: str, телефон: 
     return chr(10).join(строки)
 
 
+def _sos_intent(body: BaseModel, raw_key: str | None, *, namespace: str = "sos-v1",
+                context: dict | None = None) -> tuple[str | None, str | None]:
+    # Ошибочный необязательный заголовок не должен блокировать экстренный сигнал.
+    if raw_key is None or re.fullmatch(r"[A-Za-z0-9_-]{16,128}", raw_key) is None:
+        return None, None
+    canonical = json.dumps({**body.model_dump(), **(context or {})}, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=False, allow_nan=False)
+    payload_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    # Повторно использованный ключ с НОВЫМ телом — новый SOS, а не ложный успех прежнего.
+    effective = hashlib.sha256(f"{namespace}\0{raw_key}\0{payload_hash}".encode("utf-8")).hexdigest()
+    return effective, payload_hash
+
+
+def _sos_public(event: SosEvent) -> dict:
+    return {field: getattr(event, field) for field in (
+        "id", "user_id", "booking_id", "order_id", "category", "note", "status", "created_at",
+    )}
+
+
+def _sos_replay(event: SosEvent) -> dict:
+    # Исходные счётчики рассылки не сохраняются: не выдаём их догадку за доставку.
+    return {
+        **_sos_public(event),
+        "hint_ru": "Сигнал уже сохранён в Юлдаш. Доставка сообщений не подтверждена. Позвони 112 и близким, если можешь.",
+        "hint_ba": "Сигнал Юлдашта һаҡланған. Хәбәрҙәрҙең барып етеүе раҫланмаған. Мөмкин булһа, 112-гә һәм яҡындарыңа шылтырат.",
+    }
+
+
+def _saved_sos(session: Session, user_id: int, intent_key: str | None) -> SosEvent | None:
+    if intent_key is None:
+        return None
+    return session.exec(select(SosEvent).where(
+        SosEvent.user_id == user_id, SosEvent.idempotency_key == intent_key,
+    )).first()
+
+
+# Повтором считаем только СВЕЖЕЕ событие: клиент держит неотправленное намерение не дольше 15 минут
+# (`MAX_AGE_MS` в webapp/src/utils/sosIntent.ts) и потом заводит новый ключ. Тот же ключ и то же тело
+# через час или через сутки — это уже НОВАЯ беда, а не потерянный ответ на старую: «сигнал уже
+# сохранён» в такой момент оставил бы человека без рассылки близким и дежурному (ревью PR190, 23.10.2026).
+SOS_RETRY_WINDOW = timedelta(minutes=15)
+
+
+def _is_retry_of(saved: SosEvent | None, payload_hash: str | None) -> bool:
+    return (saved is not None and saved.payload_hash == payload_hash
+            and saved.created_at >= utcnow() - SOS_RETRY_WINDOW)
+
+
+def _hand_over_stale_key(session: Session, saved: SosEvent) -> None:
+    """Старое событие (старше окна повтора) отдаёт ключ НОВОМУ событию того же намерения.
+
+    Ключ уникален на человека (`uq_sos_owner_intent`), поэтому освобождаем его у старой строки
+    сейчас же, в той же транзакции, где следом вставляется новое событие С ключом. Дальше всё как у
+    обычного сигнала: ручной повтор нового — тот же ответ без второй рассылки, а проигравший
+    параллельный повтор упирается в уникальный индекс и возвращает свежее событие. Запись нового
+    события без ключа (первая версия) оставляла каждый следующий повтор старого ключа без защиты:
+    подряд и параллельно выходило по событию и по рассылке на каждый (ревью PR190, 23.10.2026)."""
+    saved.idempotency_key = None
+    session.add(saved)
+    session.flush()         # UPDATE сейчас: вставка нового события с этим ключом идёт следом, до commit
+
+
 @router.post("/sos")
-def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user),
+        session: Session = Depends(get_session), idempotency_key: str | None = Header(default=None)):
+    intent_key, payload_hash = _sos_intent(body, idempotency_key)
+    saved = _saved_sos(session, user.id, intent_key)
+    if saved is not None:
+        if _is_retry_of(saved, payload_hash):
+            return _sos_replay(saved)
+        if saved.payload_hash == payload_hash:
+            # Старое событие того же намерения (старше окна повтора): это новый сигнал, и ключ
+            # переходит к нему — у его повторов та же защита, что у любого сигнала.
+            _hand_over_stale_key(session, saved)
+        else:
+            # Повреждённые внутренние метаданные не подтверждают чужое тело: новый сигнал без ключа.
+            intent_key = payload_hash = None
     # N5 (независимое ревью). Раньше проверка брони/заказа стояла ДО записи сигнала: чужой
     # или удалённый booking_id/order_id (403/404) означал, что SosEvent вообще не создавался —
     # ни Telegram дежурному, ни SMS близким, эскалатору нечего повторять. Красная кнопка не
@@ -288,9 +367,16 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     if отклонено:
         note = (note + " [" + "; ".join(отклонено) + "]").strip()
     fields["note"] = note + where
-    event = SosEvent(user_id=user.id, **fields)
+    event = SosEvent(user_id=user.id, idempotency_key=intent_key, payload_hash=payload_hash, **fields)
     session.add(event)
-    session.commit()                 # событие фиксируем СИНХРОННО (жизнь дороже) — данные не теряются
+    try:
+        session.commit()             # событие и намерение фиксируются вместе ДО любой рассылки.
+    except IntegrityError:
+        session.rollback()
+        saved = _saved_sos(session, user.id, intent_key)
+        if _is_retry_of(saved, payload_hash):
+            return _sos_replay(saved)  # Проигравший параллельный повтор не рассылает ничего.
+        raise                       # Другая ошибка БД не означает «сигнал сохранён».
     session.refresh(event)
     # Машина, в которой человек едет. Родные — самые быстрые помощники: они уже за рулём, пока
     # дежурный читает Telegram. «Уехала на попутке в Сибай» действовать не помогает, «белая Лада
@@ -386,8 +472,8 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     # Женщина в беде видит успех и ждёт маму, которая ничего не получила. Молчание в такой
     # момент опаснее самого потолка — потому что вместо «звони сама» человек выбирает ждать.
     #
-    # Диспетчер узнаёт ВСЕГДА (Telegram намеренно не капится), поэтому и говорим честно:
-    # сигнал приняли, а родным SMS не ушло — позвони им сама.
+    # Фоновая отправка в Telegram не подтверждает прочтение дежурным.
+    # Подтверждаем только сохранение сигнала: родным SMS не ушло — позвони им сама.
     заглушено = notified == 0 and len(recent) >= SOS_SMS_PER_HOUR
     # Вторая причина того же молчания: канал SMS выключен целиком (на проде он такой и есть).
     # Для человека разницы с потолком нет — родные не получат ничего, — а вот текст нужен свой:
@@ -395,17 +481,17 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     канал_молчит = notified == 0 and not заглушено and bool(phones_all)
     подсказка_ru = подсказка_ba = ""
     if канал_молчит:
-        подсказка_ru = ("Сигнал принят, дежурный уже видит его. Отправка SMS сейчас не работает — "
+        подсказка_ru = ("Сигнал сохранён в Юлдаш. Отправка SMS сейчас не работает — "
                         "родным сообщение не уйдёт. Позвони им, если можешь.")
-        подсказка_ba = ("Сигнал ҡабул ителде, дежурный уны күрә инде. SMS ебәреү хәҙер эшләмәй — "
+        подсказка_ba = ("Сигнал Юлдашта һаҡланды. SMS ебәреү хәҙер эшләмәй — "
                         "яҡындарыңа хәбәр китмәйәсәк. Мөмкин булһа, үҙең шылтырат.")
     if заглушено:
-        подсказка_ru = ("Сигнал принят, дежурный уже видит его. Родным SMS сейчас не уходит — "
+        подсказка_ru = ("Сигнал сохранён в Юлдаш. Родным SMS сейчас не уходит — "
                         "слишком много сигналов подряд. Позвони им, если можешь.")
-        подсказка_ba = ("Сигнал ҡабул ителде, дежурный уны күрә инде. Яҡындарға SMS хәҙер "
+        подсказка_ba = ("Сигнал Юлдашта һаҡланды. Яҡындарға SMS хәҙер "
                         "китмәй — сигналдар артыҡ күп. Мөмкин булһа, үҙең шылтырат.")
     return {
-        **event.model_dump(),
+        **_sos_public(event),
         "contacts_notified": notified,      # скольким близким SMS реально уйдёт прямо сейчас
         "contacts_total": len(phones_all),  # сколько доверенных вообще заведено
         "sms_suppressed": заглушено,        # рассылка близким заглушена потолком
@@ -1305,9 +1391,21 @@ def roadside_help(
     background: BackgroundTasks,
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
+    idempotency_key: str | None = Header(default=None),
 ):
     """«Я застрял / нужна помощь на трассе» — уровень мягче паники SOS, но реальный: координаты
     уходят доверенным контактам, событие пишется в SOS-ленту админа. Доступно только участнику поездки."""
+    # В отпечатке — исходный путь и исходное тело, до диагностического дополнения note.
+    intent_key, payload_hash = _sos_intent(body, idempotency_key, namespace="roadside-booking-v1",
+                                         context={"booking_id": booking_id})
+    saved = _saved_sos(session, user.id, intent_key)
+    if saved is not None:
+        if _is_retry_of(saved, payload_hash):
+            return {**_sos_replay(saved), "delivery_unconfirmed": True}
+        if saved.payload_hash == payload_hash:
+            _hand_over_stale_key(session, saved)    # старое событие того же намерения: ключ новому
+        else:
+            intent_key = payload_hash = None        # повреждённый отпечаток: новый сигнал без ключа
     эфф_booking_id = booking_id
     try:
         booking_and_ride_for_user(session, booking_id, user)   # 403/404 если чужой/нет брони
@@ -1316,7 +1414,8 @@ def roadside_help(
         # сигнала «нужна помощь» — пишем его без привязки, а не молчим вовсе.
         эфф_booking_id = None
         body.note = (body.note + f" [бронь #{booking_id} не подошла]").strip()
-    return _roadside(session, background, user, body, booking_id=эфф_booking_id)
+    return _roadside(session, background, user, body, booking_id=эфф_booking_id,
+                     intent_key=intent_key, payload_hash=payload_hash)
 
 
 @router.post("/instant/orders/{order_id}/stuck")
@@ -1383,7 +1482,8 @@ def roadside_help_parcel(
 
 def _roadside(session: Session, background: BackgroundTasks, user: User, body: "StuckIn",
               booking_id: Optional[int] = None, order_id: Optional[int] = None,
-              parcel_id: Optional[int] = None) -> SosEvent:
+              parcel_id: Optional[int] = None, *, intent_key: str | None = None,
+              payload_hash: str | None = None) -> dict:
     """Общая механика «застрял»: событие в ленту админа + SMS доверенным + Telegram.
     Одна реализация на попутку, такси и доставку — иначе они разойдутся при первой же правке.
 
@@ -1404,9 +1504,16 @@ def _roadside(session: Session, background: BackgroundTasks, user: User, body: "
     note = (f"Застрял на трассе (зимний протокол). {body.note}".strip()
             + parcel_line + where).strip()
     event = SosEvent(user_id=user.id, booking_id=booking_id, order_id=order_id,
-                     category="breakdown", note=note)
+                     category="breakdown", note=note, idempotency_key=intent_key, payload_hash=payload_hash)
     session.add(event)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        saved = _saved_sos(session, user.id, intent_key)
+        if _is_retry_of(saved, payload_hash):
+            return {**_sos_replay(saved), "delivery_unconfirmed": True}
+        raise
     session.refresh(event)
     # Телефоны доверенных собираем ПОКА сессия открыта; SMS/Telegram — в фон (не держим коннект,
     # не заставляем человека на морозе ждать sms.ru). Координаты в stdout НЕ пишем (152-ФЗ).

@@ -45,11 +45,13 @@ class RequestResponsesGuardTest {
 
     @Test
     fun `api carries only real request and public driver facts`() {
-        val api = source("data/ApiClient.kt")
+        val api = source("data/RequestRouteDtos.kt")
         assertTrue(api.contains("driverVerified = optBoolean(\"driver_verified\")"))
         assertTrue(api.contains("driverTripsCount = optInt(\"driver_trips_count\")"))
         assertTrue(api.contains("driverCar = optString(\"driver_car\")"))
         assertTrue(api.contains("requestMaxPrice = optInt(\"request_max_price\")"))
-        assertTrue(api.contains("requestDesiredAt = optString(\"request_desired_at\")"))
+        assertTrue("JSON null must remain absent; a real date must still come from the server",
+            Regex("""requestDesiredAt\s*=\s*if\s*\(isNull\("request_desired_at"\)\)\s*null\s*else\s*optString\("request_desired_at"\)\.ifBlank\s*\{\s*null\s*}""")
+                .containsMatchIn(api))
     }
 }

@@ -27,7 +27,7 @@ import org.junit.Test
 class SpacingRatchetGuardTest {
 
     /** Потолок: сколько вызовов `padding(N.dp)` сейчас в коде. Расти нельзя, снижать — нужно. */
-    private val ceiling = 983   // 16.10.2026: −2 вместе с рядом из 12 чипов (NearbyFiltersPanel.kt)
+    private val ceiling = 971   // 18.10.2026: −12 после перевода квитанции на CanonSpace
 
     /**
      * На сколько число может опуститься ниже потолка, прежде чем тест попросит опустить и потолок.

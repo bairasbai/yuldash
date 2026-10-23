@@ -86,6 +86,8 @@ class RideOut(BaseModel):
     # маршрута. Клиент сам выбирает место посадки только по ним: названную остановку или начало
     # при `matched_from_start == true`; иначе — ничего (P2-5). Без фильтра — null / false.
     matched_stop: Optional[str] = None
+    matched_dropoff_stop: Optional[str] = None
+    matched_to_end: bool = False
     matched_from_start: bool = False
     status: RideStatus
     boosted: bool = False             # активный Boost (для подсветки/бейджа на клиенте)

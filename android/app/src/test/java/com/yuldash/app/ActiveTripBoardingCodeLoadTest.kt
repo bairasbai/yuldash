@@ -87,11 +87,8 @@ class ActiveTripBoardingCodeLoadTest {
         codeStatus = status
         codeBody = body
         mount()
-        compose.waitUntil(10000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-            requested.contains("GET /bookings/42/details")
-        }
-        compose.waitForIdle()
+        // Код и детали грузятся независимо: ждём итог самого кода, а не чужой запрос деталей.
+        waitFor("Не удалось загрузить код")
         compose.onNodeWithText("Не удалось загрузить код").performScrollTo().assertIsDisplayed()
         compose.onAllNodesWithText("Код загружается").assertCountEquals(0)
         codeStatus = 200

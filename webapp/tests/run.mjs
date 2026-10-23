@@ -12,21 +12,29 @@
 //  браузерные вещи (localStorage, document) подделываются в самом наборе.
 // ================================================================
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { build } from "esbuild";
+import { countChecks } from "./count-checks.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT = join(HERE, ".bundles");
+// Только для run-count-test: прогнать ЭТОТ ЖЕ run.mjs по подставным наборам из чужой папки (набор с нулём проверок,
+// падающий набор) — не трогая настоящие сборки в tests/.bundles. В обычном запуске переменной нет.
+const SANDBOX = process.env.YULDASH_TESTS_SANDBOX || null;
+const SUITE_DIR = SANDBOX ?? HERE;
+const OUT = join(SUITE_DIR, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
-const SUITES = [
+const ALL_SUITES = [
+  { test: "multiseat-booking-test", src: null, out: null, bundle: false },
   { test: "storage-boundary-test", src: null, out: null, bundle: false },
   { test: "update-banner-test", src: null, out: null, bundle: false },
   { test: "full-offline-trip-test", src: null, out: null, bundle: false },
   { test: "boarding-code-contrast-test", src: null, out: null, bundle: false },
   { test: "rideshare-local-regression-test", src: null, out: null, bundle: false },
+  { test: "receipt-owner-test", src: null, out: null, bundle: false },
+  { test: "receipt-lost-item-test", src: null, out: null, bundle: false },
   { test: "login-flow-test", src: null, out: null, bundle: false },
   { test: "onboarding-flow-test", src: null, out: null, bundle: false },
   { test: "intro-motion-test", src: null, out: null, bundle: false },
@@ -58,6 +66,8 @@ const SUITES = [
   { test: "draft-owner-test", src: null, out: null, bundle: false },
   { test: "consent-mirror-owner-test", src: null, out: null, bundle: false },
   { test: "sos-account-boundary-test", src: null, out: null, bundle: false },
+  { test: "sos-network-retry-test", src: null, out: null, bundle: false },
+  { test: "roadside-network-retry-test", src: null, out: null, bundle: false },
   { test: "consents-account-boundary-test", src: null, out: null, bundle: false },
   { test: "auth-provider-cross-tab-test", src: null, out: null, bundle: false },
   { test: "cross-tab-session-test", src: null, out: null, bundle: false },
@@ -69,6 +79,11 @@ const SUITES = [
   { test: "taxi-wait-cancel-test", src: null, out: null, bundle: false },
   { test: "taxi-origin-picker-test", src: null, out: null, bundle: false },
   { test: "ride-booking-path-test", src: null, out: null, bundle: false },
+  { test: "booking-pending-refresh-test", src: null, out: null, bundle: false },
+  { test: "pickup-stop-test", src: null, out: null, bundle: false },
+  { test: "route-segment-test", src: null, out: null, bundle: false },
+  { test: "requests-route-test", src: null, out: null, bundle: false },
+  { test: "create-ride-stops-test", src: null, out: null, bundle: false },
   { test: "own-front-seat-test", src: null, out: null, bundle: false },
   { test: "own-bookings-provider-test", src: null, out: null, bundle: false },
   { test: "driver-noshow-onboard-test", src: null, out: null, bundle: false },
@@ -126,6 +141,9 @@ const SUITES = [
   { test: "trip-chat-test", src: null, out: null, bundle: false },
   // …и структура: строка ввода прибита к низу экрана, входы из поездки и списка чатов.
   { test: "trip-chat-page-test", src: null, out: null, bundle: false },
+  { test: "chat-mutation-unknown-test", src: null, out: null, bundle: false },
+  { test: "chat-history-live-test", src: null, out: null, bundle: false },
+  { test: "voice-network-boundary-test", src: null, out: null, bundle: false },
   // Экран Android без маршрута PWA теперь ломает проверку в том же коммите.
   { test: "parity-test", src: null, out: null, bundle: false },
   // Токены сайта читаются из CanonTokens.kt: цвет, радиус, отступ, кегль разошлись — набор красный.
@@ -192,7 +210,20 @@ const SUITES = [
   { test: "confirm-before-action-test", src: null, out: null, bundle: false },
   // Одно действие — одно событие аналитики (было: publish_ride, revoke_share, courier_online дважды).
   { test: "analytics-no-double-test", src: null, out: null, bundle: false },
+  // Отчёт «N проверок» понимает все способы печати успеха («✓», «PASS», только итог); нулевой набор — провал.
+  { test: "run-count-test", src: null, out: null, bundle: false },
+  // Выбор посадки в истории вкладки (RideCard → RideDetail, гость → вход) принадлежит входу и не переживает выход (23.10.2026).
+  { test: "login-return-owner-test", src: null, out: null, bundle: false },
+  // «Выехал» без сети: если сервер потом отказал насовсем («Рано», «Поездка отменена»), очередь не снимает отметку
+  // молча — отказ запоминается словами сервера и показывается плашкой поверх любого экрана (23.10.2026).
+  { test: "outbox-refusal-test", src: null, out: null, bundle: false },
+  { test: "outbox-refusal-banner-test", src: null, out: null, bundle: false },
+  // …и экран поездки / карточка «Доехала» после отказа перестают обещать «отправим позже» (повторная проверка 23.10.2026).
+  { test: "driver-queued-refusal-test", src: null, out: null, bundle: false },
+  { test: "booking-refusal-hook-test", src: null, out: null, bundle: false },
 ];
+
+const SUITES = SANDBOX ? ALL_SUITES.filter((s) => existsSync(join(SANDBOX, `${s.test}.mjs`))) : ALL_SUITES;
 
 // Значения, которые Vite подставляет при сборке сайта.
 const ENV = '{"VITE_API_BASE":"https://yulbash.ru","DEV":false}';
@@ -205,12 +236,20 @@ let failed = 0;
 /** Запустить набор и напечатать итог. */
 function runSuite(s) {
   try {
-    const out = execFileSync("node", [join(HERE, `${s.test}.mjs`)], {
-      cwd: HERE,
+    const out = execFileSync("node", [join(SUITE_DIR, `${s.test}.mjs`)], {
+      cwd: SUITE_DIR,
       stdio: "pipe",
       env: { ...process.env },
     }).toString();
-    const passed = (out.match(/^✓/gm) || []).length;
+    // Наборы печатают успех по-разному («✓», «PASS», только итог «N passed» / «N cases») — см. count-checks.mjs.
+    const passed = countChecks(out);
+    if (passed === 0) {
+      // Зелёный набор без единой распознанной проверки — тот же обман, что «0 проверок» в отчёте: не пропускаем.
+      console.log(`  ✗ ${s.test} — набор ничего не проверил (формат вывода не распознан)`);
+      console.log(out.split("\n").filter((l) => l.trim()).slice(-5).map((l) => "      " + l).join("\n"));
+      failed++;
+      return;
+    }
     console.log(`  ✓ ${s.test} — ${passed} проверок`);
   } catch (e) {
     console.log(`  ✗ ${s.test} — ПРОВАЛ`);

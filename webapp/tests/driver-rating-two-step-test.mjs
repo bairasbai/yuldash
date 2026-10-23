@@ -12,7 +12,7 @@
 //  Исполняем настоящий DriverPassengers; сеть и язык подменены (shallow-harness.mjs).
 // ================================================================
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { ROOT, all, bundleComponent, button, checker, langMock, mount, text } from "./shallow-harness.mjs";
 
 const fresh = { booking_id: 7, passenger_id: 17, passenger_name: "Зухра", passenger_rating: null, route: "Сибай → Уфа", status: "done", my_stars: 0 };
@@ -217,9 +217,12 @@ await t.test("вёрстка: имя своей строкой во всю ши�
 });
 
 await t.test("надписи совпадают с Android слово в слово", () => {
-  const kt = ROOT + "../android/app/src/main/java/com/yuldash/app/ProfileScreen.kt";
-  if (!existsSync(kt)) return console.log("    (Android рядом нет — сверка пропущена)");
-  const src = readFileSync(kt, "utf8");
+  // Ищем по всем экранам Android, а не в одном файле: оценка пассажира переезжала между файлами
+  // (ProfileScreen.kt → DriverPassengerRow.kt), и сверка с одним файлом краснела без причины.
+  const dir = ROOT + "../android/app/src/main/java/com/yuldash/app";
+  if (!existsSync(dir)) return console.log("    (Android рядом нет — сверка пропущена)");
+  const src = readdirSync(dir, { recursive: true }).map(String).filter((f) => f.endsWith(".kt"))
+    .map((f) => readFileSync(dir + "/" + f, "utf8")).join("\n");
   for (const s of [
     'appText("Выбери оценку", "Баһа һайла")',
     'appText("Изменить", "Үҙгәртеү")',

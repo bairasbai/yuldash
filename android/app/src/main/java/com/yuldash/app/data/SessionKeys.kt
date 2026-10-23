@@ -26,6 +26,7 @@ internal object SessionKeys {
         "refresh_token",   // токен продления сессии
         "refresh_rotation_id", // секрет одной попытки продления, не переживает смену аккаунта
         "refresh_rotation_token", // ключ, к которому привязана эта попытка
+        "sos_pending_intent", // nonce/hash незавершённого SOS принадлежат этому входу
         "user_name",       // имя человека
         "user_role",       // кем он был в приложении
         "push_token",      // иначе устройство прошлого владельца снова зарегистрируется

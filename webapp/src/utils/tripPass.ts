@@ -62,6 +62,9 @@ export interface TripPass {
   driverPhone: string;
   boardingCode: string;
   pickup: string;
+  pickupStop?: string | null;
+  dropoffStop?: string | null;
+  rideHasStops?: boolean;
   price: number;
   seats: number;
   savedAt: number;
@@ -91,6 +94,8 @@ export function loadTripPass(bookingId: number): TripPass | null {
     if (!raw) return null;
     const v = JSON.parse(raw) as TripPass;
     if (!v || typeof v !== "object" || v.bookingId !== bookingId) return null;
+    if ([v.pickupStop, v.dropoffStop].some(value => value != null && typeof value !== "string") ||
+      (v.rideHasStops !== undefined && typeof v.rideHasStops !== "boolean")) return null;
     if (v.sessionGeneration) {
       const stage = tripPassStage(bookingId, v.sessionGeneration);
       if (stage === "terminal") return null;

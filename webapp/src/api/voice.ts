@@ -6,8 +6,8 @@
 import { apiUpload } from "./client";
 
 /** POST /voice (multipart `file`) → {url}. Расширение сервер определяет сам. */
-export function uploadVoice(blob: Blob, filename = "voice.webm", signal?: AbortSignal): Promise<{ url: string }> {
+export function uploadVoice(blob: Blob, filename = "voice.webm", signal?: AbortSignal, generation?: string): Promise<{ url: string }> {
   const form = new FormData();
   form.append("file", blob, filename);
-  return apiUpload<{ url: string }>("/voice", form, { signal });
+  return apiUpload<{ url: string }>("/voice", form, { signal, _generation: generation });
 }

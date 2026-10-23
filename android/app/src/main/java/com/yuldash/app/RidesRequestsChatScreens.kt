@@ -171,6 +171,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -423,21 +424,7 @@ internal fun RidesScreen(
                     itemsIndexed(visibleBookings, key = { _, b -> b.id }) { i, b ->
                         // Сводку с сервера дополняем feed-поездкой по ride_id (если сервер ещё без джойна).
                         val feed = rides.firstOrNull { it.id == b.rideId.toString() }
-                        val displayRide = Ride(
-                            id = b.id.toString(),   // id = booking_id → onOpenActiveTrip получит верный booking
-                            from = b.fromCity.ifBlank { feed?.from ?: appText("Поездка", "Сәфәр") },
-                            to = b.toCity.ifBlank { feed?.to ?: "№${b.rideId}" },
-                            time = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.time ?: ""),
-                            timeBa = b.departAt.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: (feed?.timeBa ?: feed?.time ?: ""),
-                            driver = b.driverName.ifBlank { feed?.driver ?: "" },
-                            car = feed?.car ?: "",
-                            carBa = feed?.carBa ?: feed?.car ?: "",
-                            price = if (b.price > 0) b.price else (feed?.price ?: 0),
-                            seats = b.seats,
-                            rating = feed?.rating ?: 0.0,
-                            verified = b.driverVerified || (feed?.verified ?: false),
-                            boosted = false
-                        )
+                        val displayRide = bookingTripRide(b, feed)
                         val isHist = b.status in historyStatuses
                         val canOpenReceipt = b.status == "done" && b.id > 0
                         val opensActiveTrip = bookingStatusAllowsActiveTrip(b.status)
@@ -451,6 +438,8 @@ internal fun RidesScreen(
                         Box(Modifier.appearIn(i)) {
                             MyTripCard(
                                 ride = displayRide,
+                                pickupStop = b.pickupStop, dropoffStop = b.dropoffStop, rideHasStops = b.rideHasStops,
+                                showBookingSegment = true,
                                 status = statusLabel,
                                 statusColor = statusColor,
                                 icon = statusIcon,
@@ -545,7 +534,9 @@ internal fun MyTripCard(
     secondaryAction: String,
     onPrimary: () -> Unit,
     onSecondary: () -> Unit,
-    stackActions: Boolean = false
+    stackActions: Boolean = false,
+    pickupStop: String? = null, dropoffStop: String? = null, rideHasStops: Boolean = false,
+    showBookingSegment: Boolean = false,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -580,6 +571,7 @@ internal fun MyTripCard(
                         }
                     }
                     DetailMeta(Icons.Default.Schedule, ride.timeText())
+                    if (showBookingSegment) BookingSegmentNote(pickupStop, dropoffStop, rideHasStops, ride.from, ride.to)
                 DetailMeta(Icons.Default.Person, "${seatsText(ride.seats)} · ${ride.price} ₽")
                 }
             }
@@ -709,7 +701,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
             }
             // F8: стаж/поездки водителя — в гибкой зоне (weight), высоту карточки не увеличивает.
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                CompactTrustLine(trips = dto.driverTrips, since = dto.driverSince)
+                NearbyRideTrustOrPickup(dto)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 dto.distanceKm?.let { km ->
@@ -1183,6 +1175,7 @@ private fun PrefChip(iconRes: Int, label: String) {
 // Лента чипов с условиями поездки (показывается только если есть хоть одно).
 @Composable
 private fun RidePrefChips(ride: Ride, modifier: Modifier = Modifier) {
+    MatchedPickupStopNote(ride)
     // Опции мест показываем всегда: «переднее свободно / занято» — то, что человек хочет знать
     // до брони (2026-10-14). Поэтому ранний выход только когда переднего нет и сзади без обещаний.
     val seatChips = ride.backMaxTwo || ride.frontSeatAvailable
@@ -1905,8 +1898,8 @@ internal fun ChatScreen(
         }
         item {
             InfoCard(
-                title = appText("Телефон открывается только после подтверждения поездки", "Телефон сәфәр раҫланғандан һуң ғына асыла"),
-                text = appText("Мы бережём твою безопасность", "Беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
+                title = appText("Номер телефона — на экране поездки", "Телефон номеры — сәфәр экранында"),   // правило, а не состояние брони (приёмка 18.10)
+                text = appText("Открывается обоим после подтверждения брони. Так мы бережём твою безопасность", "Бронь раҫланғас, ике яҡҡа ла асыла. Шулай беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
                 icon = Icons.Default.Shield
             )
         }
@@ -2156,220 +2149,6 @@ internal fun ChatSafetyDisclaimer(modifier: Modifier = Modifier) {
     }
 }
 
-/** Лента заявок пассажиров — водитель сначала оценивает совместимость маршрута. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun RequestsFeedScreen(onBack: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
-    var feed by remember { mutableStateOf<List<com.yuldash.app.data.RequestFeedDto>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf(false) }
-    var target by remember { mutableStateOf<com.yuldash.app.data.RequestFeedDto?>(null) }
-    var price by remember { mutableStateOf("") }
-    var departureNote by remember { mutableStateOf("") }
-    var comment by remember { mutableStateOf("") }
-    var selectedFilter by remember { mutableStateOf(RequestsFeedFilter.All) }
-    var responding by remember { mutableStateOf(false) }
-    var withdrawTarget by remember { mutableStateOf<com.yuldash.app.data.RequestFeedDto?>(null) }
-    var withdrawing by remember { mutableStateOf(false) }
-    val sentMsg = appText("Отклик отправлен", "Яуап ебәрелде")
-    val respondErr = appText("Не удалось отправить отклик. Проверь сеть и повтори.", "Яуап ебәреп булманы. Сетте тикшереп ҡабатла.")
-    val withdrawnMsg = appText("Отклик отозван", "Яуап кире алынды")
-    val withdrawErr = appText("Не удалось отозвать. Проверь сеть и повтори.", "Кире алып булманы. Сетте тикшереп ҡабатла.")
-    val withdrawTakenErr = appText("Пассажир уже принял отклик — отозвать нельзя.", "Пассажир яуапты ҡабул иткән — кире алып булмай.")
-
-    fun reload() {
-        loading = true
-        error = false
-        scope.launch {
-            ApiClient.getRequestsFeed().onSuccess { feed = it }.onFailure { error = true }
-            loading = false
-        }
-    }
-    LaunchedEffect(Unit) { reload() }
-
-    withdrawTarget?.let { request ->
-        AlertDialog(
-            onDismissRequest = { if (!withdrawing) withdrawTarget = null },
-            containerColor = CanonSurface,
-            title = { Text(appText("Отозвать отклик?", "Яуапты кире аларғамы?"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-            text = { Text(appText("Пассажир больше не увидит твой отклик на «${request.from} → ${request.to}».", "Пассажир «${request.from} → ${request.to}» яуабыңды башҡа күрмәйәсәк."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },
-            confirmButton = {
-                TextButton(enabled = !withdrawing, onClick = {
-                    val responseId = request.myResponseId ?: return@TextButton
-                    withdrawing = true
-                    scope.launch {
-                        ApiClient.deleteResponse(responseId)
-                            .onSuccess {
-                                withdrawing = false
-                                withdrawTarget = null
-                                Toast.makeText(ctx, withdrawnMsg, Toast.LENGTH_SHORT).show()
-                                reload()
-                            }
-                            .onFailure { e ->
-                                withdrawing = false
-                                val taken = (e as? com.yuldash.app.data.ApiException)?.status == 409
-                                // 409 = отклик уже приняли, и наш текст об этом точнее. Любая
-                                // другая причина у сервера своя — её и показываем, а не «проверь сеть».
-                                Toast.makeText(ctx, if (taken) withdrawTakenErr else serverSaid(e, withdrawErr),
-                                               Toast.LENGTH_LONG).show()
-                                if (taken) { withdrawTarget = null; reload() }   // уже принят → обновим ленту
-                            }
-                    }
-                }) { Text(if (withdrawing) appText("Отзываем…", "Кире алабыҙ…") else appText("Отозвать", "Кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = { TextButton(enabled = !withdrawing, onClick = { withdrawTarget = null }) { Text(appText("Оставить", "Ҡалдырыу"), color = CanonMuted) } },
-        )
-    }
-
-    target?.let { request ->
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        AppModalBottomSheet(
-            onDismissRequest = { if (!responding) target = null },
-            sheetState = sheetState,
-            containerColor = CanonSurface,
-        ) {
-            RequestOfferSheet(
-                request = request,
-                price = price,
-                departureNote = departureNote,
-                comment = comment,
-                responding = responding,
-                onPriceChange = { value -> price = value.filter { it.isDigit() }.take(6) },
-                onDepartureNoteChange = { departureNote = it.take(120) },
-                onCommentChange = { comment = it.take(300) },
-                onSubmit = {
-                    val responsePrice = price.toIntOrNull() ?: 0
-                    responding = true
-                    scope.launch {
-                        val details = listOf(departureNote.trim(), comment.trim()).filter { it.isNotBlank() }.joinToString(" · ")
-                        ApiClient.respondToRequest(request.id, responsePrice, details)
-                            .onSuccess {
-                                responding = false
-                                target = null
-                                price = ""
-                                departureNote = ""
-                                comment = ""
-                                Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show()
-                                reload()
-                            }
-                            .onFailure {
-                                responding = false
-                                Toast.makeText(ctx, serverSaid(it, respondErr), Toast.LENGTH_LONG).show()
-                            }
-                    }
-                },
-            )
-        }
-    }
-
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заявки пассажиров", "Пассажир заявкалары"), onBack) }) { padding ->
-        RequestsFeedContent(
-            loading = loading,
-            error = error,
-            feed = feed,
-            selectedFilter = selectedFilter,
-            onFilterChange = { selectedFilter = it },
-            onRetry = { reload() },
-            onRespond = { request ->
-                target = request
-                price = request.maxPrice?.takeIf { it > 0 }?.toString().orEmpty()
-                departureNote = ""
-                comment = ""
-            },
-            onWithdraw = { withdrawTarget = it },
-            modifier = Modifier.padding(padding),
-        )
-    }
-}
-
-internal enum class RequestsFeedFilter { All, AlongTheWay, Today }
-
-@Composable
-internal fun RequestOfferSheet(
-    request: com.yuldash.app.data.RequestFeedDto,
-    price: String,
-    departureNote: String,
-    comment: String,
-    responding: Boolean,
-    onPriceChange: (String) -> Unit,
-    onDepartureNoteChange: (String) -> Unit,
-    onCommentChange: (String) -> Unit,
-    onSubmit: () -> Unit,
-) {
-    Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).navigationBarsPadding(),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(appText("Предложить поездку", "Сәфәр тәҡдим итеү"), color = CanonText, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
-            Text("${request.from} → ${request.to}", color = CanonGreen2, fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.Bold)
-            val facts = buildList {
-                if (request.desiredAt.isNotBlank()) add(formatDepart(request.desiredAt))
-                request.maxPrice?.takeIf { it > 0 }?.let { add(appText("бюджет $it ₽", "бюджет $it һум")) }
-            }
-            if (facts.isNotEmpty()) Text(facts.joinToString(" · "), color = CanonMutedStrong, fontSize = 14.sp, lineHeight = 20.sp)
-        }
-        Surface(color = CanonMint, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
-            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Info, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    appText("Цена фиксируется только после принятия пассажиром", "Хаҡ пассажир ҡабул иткәндән һуң ғына теркәлә"),
-                    color = CanonMutedStrong, fontSize = 12.sp, lineHeight = 17.sp,
-                )
-            }
-        }
-        OutlinedTextField(
-            value = price,
-            onValueChange = onPriceChange,
-            label = { Text(appText("Твоя цена, ₽", "Һинең хаҡың, ₽")) },
-            supportingText = { Text(appText("Можно указать 0 ₽, если везёшь бесплатно", "Бушлай алып барһаң, 0 ₽ күрһәтергә була")) },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            shape = CanonItemShape,
-        )
-        OutlinedTextField(
-            value = departureNote,
-            onValueChange = onDepartureNoteChange,
-            label = { Text(appText("Когда сможешь выехать", "Ҡасан сыға алаһың")) },
-            placeholder = { Text(appText("Например, сегодня в 19:00", "Мәҫәлән, бөгөн 19:00-дә")) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            shape = CanonItemShape,
-        )
-        OutlinedTextField(
-            value = comment,
-            onValueChange = onCommentChange,
-            label = { Text(appText("Комментарий пассажиру", "Пассажирға аңлатма")) },
-            placeholder = { Text(appText("Где удобно встретиться", "Ҡайҙа осрашыу уңайлы")) },
-            modifier = Modifier.fillMaxWidth(),
-            minLines = 2,
-            maxLines = 3,
-            shape = CanonItemShape,
-        )
-        Button(
-            onClick = onSubmit,
-            enabled = !responding,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-            shape = CanonItemShape,
-            colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
-        ) {
-            if (responding) {
-                CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(10.dp))
-            }
-            Text(
-                if (responding) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Отправить предложение", "Тәҡдимде ебәреү"),
-                fontWeight = FontWeight.Bold, fontSize = 16.sp,
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-    }
-}
-
 /** Чистый рендер всех состояний ленты; сеть и диалоги остаются в обёртке. */
 @Composable
 internal fun RequestsFeedContent(
@@ -2382,10 +2161,11 @@ internal fun RequestsFeedContent(
     selectedFilter: RequestsFeedFilter = RequestsFeedFilter.All,
     onFilterChange: (RequestsFeedFilter) -> Unit = {},
     modifier: Modifier = Modifier,
+    hasOwnRides: Boolean? = null,
 ) {
     val visibleFeed = when (selectedFilter) {
         RequestsFeedFilter.All -> feed
-        RequestsFeedFilter.AlongTheWay -> feed.filter { (it.detourKm ?: Int.MAX_VALUE) <= 10 }
+        RequestsFeedFilter.AlongTheWay -> feed.filter { it.matchedRideId != null }
         RequestsFeedFilter.Today -> feed.filter { isRequestToday(it.desiredAt) }
     }
     LazyColumn(
@@ -2407,6 +2187,8 @@ internal fun RequestsFeedContent(
             item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { repeat(3) { SkeletonCard(lines = 3) } } }
         } else if (error) {
             item { ListedError(appText("Не удалось загрузить заявки. Проверь сеть.", "Заявкаларҙы йөкләп булманы. Сетте тикшер."), onRetry = onRetry) }
+        } else if (selectedFilter == RequestsFeedFilter.AlongTheWay && feed.isEmpty()) {
+            item { OwnRouteRequestsEmpty(hasOwnRides) }
         } else if (feed.isEmpty()) {
             item { ListedEmpty(appText("Заявок пока нет", "Әлегә заявкалар юҡ"), appText("Здесь появятся заявки пассажиров.", "Бында пассажир заявкалары күренер")) }
         } else if (visibleFeed.isEmpty()) {
@@ -2483,7 +2265,7 @@ private fun PremiumPassengerRequestCard(
                     }
                 }
                 request.detourKm?.let { km ->
-                    val along = km <= 10
+                    val along = request.matchedRideId != null
                     Surface(color = if (along) CanonMint else CanonBg, shape = CanonItemShape, border = BorderStroke(1.dp, if (along) CanonGreen2.copy(alpha = 0.25f) else CanonBorder)) {
                         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(if (along) Icons.Default.CheckCircle else Icons.Default.AltRoute, contentDescription = null, tint = if (along) CanonGreen2 else CanonMuted, modifier = Modifier.size(17.dp))
@@ -2497,6 +2279,7 @@ private fun PremiumPassengerRequestCard(
                 }
             }
 
+            MatchedRequestRouteNote(request)
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     RequestMetricCell(Icons.Default.EventSeat, request.seats.coerceAtLeast(1).toString(), appText("Мест", "Урын"), Modifier.weight(1f))
@@ -2601,104 +2384,6 @@ private fun ratingsWordRu(count: Int): String {
         ten == 1 -> "оценка"
         ten in 2..4 -> "оценки"
         else -> "оценок"
-    }
-}
-
-/** Отклики водителей на МОЮ заявку — пассажир выбирает → поездка+чат.
- *  Умная обёртка: держит стейт, грузит отклики, ходит в ApiClient.
- *  Рендер вынесен в чистый [ResponsesContent] → его покрывают Robolectric-тесты. */
-@Composable
-internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (Int) -> Unit) {
-    val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
-    var resps by remember { mutableStateOf<List<com.yuldash.app.data.ResponseDto>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf(false) }
-    var accepting by remember { mutableStateOf(false) }
-    var reloadTick by remember { mutableStateOf(0) }
-    var counterFor by remember { mutableStateOf<com.yuldash.app.data.ResponseDto?>(null) }
-    val failMsg = appText("Не получилось принять", "Ҡабул итеп булманы")
-    // Своя цена нужна только пустому экрану — но узнать её можно лишь из списка заявок.
-    // Молчит сервер — кнопка «Поднять цену» просто не появится, врать цифрой нельзя.
-    var myRequest by remember(requestId) { mutableStateOf<com.yuldash.app.data.RequestDto?>(null) }
-    LaunchedEffect(requestId, loading, error, resps.isEmpty()) {
-        // Только когда отклики ЗАГРУЗИЛИСЬ и их правда нет: цена нужна одной кнопке на
-        // пустом экране, а тянуть весь список заявок при каждом открытии — лишняя работа.
-        if (!loading && !error && resps.isEmpty() && myRequest == null) {
-            ApiClient.getMyRequests().onSuccess { list -> myRequest = list.firstOrNull { it.id == requestId } }
-        }
-    }
-    val raiseOk = appText("Цену подняли — водители увидят новую",
-                          "Хаҡ күтәрелде — йөрөтөүселәр яңыһын күрәсәк")
-    val raiseFail = appText("Не получилось поднять цену. Проверь связь.",
-                            "Хаҡты күтәреп булманы. Бәйләнеште тикшер.")
-    // Сбой загрузки откликов больше не выглядит как «откликов нет» — ошибка + «Повторить».
-    LaunchedEffect(requestId, reloadTick) { loading = true; error = false; ApiClient.getRequestResponses(requestId).onSuccess { resps = it }.onFailure { error = true }; loading = false }
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Отклики на заявку", "Заявкаға яуаптар"), onBack) }) { padding ->
-        ResponsesContent(
-            loading = loading,
-            error = error,
-            responses = resps,
-            accepting = accepting,
-            onRetry = { reloadTick++ },
-            maxPrice = myRequest?.maxPrice ?: 0,
-            // Поднять цену прямо отсюда: заявка редактируется той же ручкой, что и на экране
-            // правки, — новая цифра сразу уходит в ленту водителей.
-            onRaisePrice = if (myRequest == null) null else { newPrice ->
-                scope.launch {
-                    ApiClient.editRequest(requestId, maxPrice = newPrice)
-                        .onSuccess {
-                            myRequest = myRequest?.copy(maxPrice = newPrice)
-                            Toast.makeText(ctx, raiseOk, Toast.LENGTH_SHORT).show()
-                            reloadTick++
-                        }
-                        .onFailure {
-                            Toast.makeText(ctx, serverSaid(it, raiseFail), Toast.LENGTH_LONG).show()
-                        }
-                }
-            },
-            // Готовые поездки по этому маршруту живут на карточке заявки (подбор уже там):
-            // возвращаем человека туда, а не плодим второй такой же список.
-            onFindRides = onBack,
-            onAccept = { r ->
-                if (accepting) return@ResponsesContent
-                accepting = true; val id = r.id
-                scope.launch {
-                    ApiClient.acceptResponse(id)
-                        .onSuccess { bid -> onAccepted(bid) }
-                        .onFailure { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show(); accepting = false }
-                }
-            },
-            // Торг: своя цена и «не договорились». Ошибку сервера показываем как есть — она
-            // двуязычная и объясняет причину («сейчас ход другой стороны», «торг окончен»).
-            onCounter = { r -> counterFor = r },
-            onDecline = { r ->
-                if (accepting) return@ResponsesContent
-                accepting = true; val id = r.id
-                scope.launch {
-                    ApiClient.declineResponse(id)
-                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg, Toast.LENGTH_SHORT).show() }
-                    accepting = false; reloadTick++
-                }
-            },
-            modifier = Modifier.padding(padding),
-        )
-    }
-    counterFor?.let { target ->
-        CounterPriceDialog(
-            current = target.onTable,
-            roundsLeft = (BARGAIN_MAX_TOTAL_UI - target.bargainRounds).coerceAtLeast(1),
-            busy = accepting,
-            onDismiss = { counterFor = null },
-            onSend = { price ->
-                accepting = true; val id = target.id
-                scope.launch {
-                    ApiClient.counterOffer(id, price)
-                        .onFailure { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg, Toast.LENGTH_LONG).show() }
-                    accepting = false; counterFor = null; reloadTick++
-                }
-            },
-        )
     }
 }
 
@@ -2878,6 +2563,7 @@ private fun PremiumResponseCard(
         ) {
             ResponseMoneyHero(response)
             ResponseDriverTrust(response)
+            BoundResponseRouteNote(response)
             if (response.comment.isNotBlank()) {
                 Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
                     Row(
@@ -3225,13 +2911,20 @@ internal fun ChatComposer(
     onPhotoPicked: (ByteArray) -> Unit = {},
     onQuickSend: (String) -> Unit = {},   // тап по готовой фразе → отправить сразу (тот же путь, что и обычное сообщение)
     recordingAllowed: Boolean = true,
+    actionsAllowed: Boolean = true,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val recorder = remember(context, lifecycleOwner, recordingAllowed) { VoiceRecorder(context) }
+    // Busy affects actions, not recorder ownership: an active or handed-off recording
+    // must not be closed merely because an unrelated chat request is awaiting its reply.
+    val currentActionsAllowed = rememberUpdatedState(recordingAllowed && actionsAllowed)
+    fun canAct() = currentActionsAllowed.value && !recorder.isClosed
     val voiceScope = rememberCoroutineScope()
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
+        // Activity results may arrive in STARTED before onResume. Check fresh ownership
+        // and busy state, but do not drop a valid result merely because RESUMED is next.
+        if (uri != null && canAct()) {
             // Пережимаем перед отправкой: снимок с камеры весит 5-6 МБ, а в деревне это
             // минута ожидания на слабой сети и реальные деньги за трафик — при обрыве
             // сообщение просто теряется (аудит 2026-08-08, волна 88). Остальные экраны
@@ -3256,9 +2949,10 @@ internal fun ChatComposer(
             recorder.close()
         }
     }
-    fun canRecord() = recordingAllowed && !recorder.isClosed && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+    fun canRecord() = canAct() && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
     fun begin() { if (canRecord() && recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
     fun finish() {
+        if (!canAct()) return
         val p = recorder.stop()
         val dur = ((SystemClock.elapsedRealtime() - startMs) / 1000).toInt().coerceAtLeast(1)
         recording = false
@@ -3279,7 +2973,7 @@ internal fun ChatComposer(
         whyRu = "Микрофон нужен, чтобы записать короткое сообщение попутчику — это удобнее, чем набирать текст за рулём или на морозе.",
         whyBa = "Микрофон юлдашыңа ҡыҫҡа хәбәр яҙыр өсөн кәрәк — руль артында йәки һыуыҡта яҙғандан уңайлыраҡ.",
         onGranted = { voiceScope.launch { lifecycleOwner.withResumed { begin() } } },   // ответ приходит до onResume (STARTED)
-        onDenied = { if (recordingAllowed && !recorder.isClosed) Toast.makeText(context, deniedMic, Toast.LENGTH_LONG).show() },
+        onDenied = { if (canAct()) Toast.makeText(context, deniedMic, Toast.LENGTH_LONG).show() },
     )
     fun requestVoice() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) begin()
@@ -3328,8 +3022,9 @@ internal fun ChatComposer(
                 )
             } else {
                 // «+» — прикрепить фото (голос — отдельной кнопкой-микрофоном справа)
-                IconButton(onClick = { photoPicker.launch("image/*") }, modifier = Modifier.size(48.dp)) {   // тач-цель ≥48dp
-                    Icon(Icons.Default.Add, contentDescription = appText("Прикрепить фото", "Фото беркетеү"), tint = CanonGreen2)
+                IconButton(enabled = recordingAllowed && actionsAllowed,
+                    onClick = { if (canAct()) photoPicker.launch("image/*") }, modifier = Modifier.size(48.dp)) {   // тач-цель ≥48dp
+                    Icon(Icons.Default.Add, contentDescription = appText("Прикрепить фото", "Фото беркетеү"), tint = if (recordingAllowed && actionsAllowed) CanonGreen2 else CanonMuted)
                 }
                 // Пилюля: эмодзи + поле ввода
                 Row(
@@ -3364,9 +3059,9 @@ internal fun ChatComposer(
             }
             // Кнопка справа: микрофон (пусто) / отправить (есть текст или идёт запись)
             IconButton(
-                enabled = recordingAllowed,
+                enabled = recordingAllowed && actionsAllowed,
                 onClick = {
-                    when {
+                    if (canAct()) when {
                         recording -> finish()
                         draft.isNotBlank() -> onSend()
                         else -> requestVoice()

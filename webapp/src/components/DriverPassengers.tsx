@@ -40,6 +40,7 @@ import DriverBoarding from "./DriverBoarding";
 import DriverNoShow from "./DriverNoShow";
 import { SectionHeader } from "./cabinetUi";
 import { pluralRu } from "../utils/format";
+import { BookingSegmentNote } from "./PickupStopChoice";
 
 /** Подтверждённая бронь — по ней можно отметить посадку («Сел») или неявку. */
 const CONFIRMED = "confirmed";
@@ -50,7 +51,7 @@ const ONBOARD = "onboard";
 const DONE = "done";
 
 /** @param onOpenTrip «Открыть поездку» — экран поездки водителя по этой брони (Android onOpenTrip). */
-export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingId: number) => void }) {
+export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpenTrip: (bookingId: number) => void; reloadKey?: number }) {
   const { appText } = useLang();
   const [boot, setBoot] = useState<"loading" | "ready" | "hidden">("loading");
   const [rows, setRows] = useState<DriverBookingRow[]>([]);
@@ -75,6 +76,7 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
   const load = useCallback((signal?: AbortSignal) => {
     fetchDriverBookings(signal)
       .then((r) => {
+        if (signal?.aborted) return;
         setRows(r);
         setBoot("ready");
       })
@@ -109,7 +111,7 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
     const ac = new AbortController();
     load(ac.signal);
     return () => ac.abort();
-  }, [load]);
+  }, [load, reloadKey]);
 
   /** После «Сел» / «Отменить» — перечитать список (без аргументов: ответ действия не сигнал отмены). */
   const reload = useCallback(() => load(), [load]);
@@ -190,6 +192,7 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
         )}
       </div>
       <div className="list-row__sub">{b.route}</div>
+      <BookingSegmentNote pickupStop={b.pickup_stop} dropoffStop={b.dropoff_stop} rideHasStops={b.ride_has_stops} from={b.from_city} to={b.to_city} />
     </div>
   );
 
@@ -330,6 +333,9 @@ export default function DriverPassengers({ onOpenTrip }: { onOpenTrip: (bookingI
               return (
                 <div key={id} className="list-row list-row--stack" data-rate-card={id}>
                   {passengerMain(b)}
+                  <button type="button" className="btn-primary trip-btn" onClick={() => onOpenTrip(id)}>
+                    {appText("Открыть поездку", "Сәфәрҙе асыу")}
+                  </button>
                   {/* Сервер разрешает оценку изменить — значит, и здесь это не тупик. */}
                   <div className="rate-row">
                     <div className="rate-stars rate-stars--sm" role="group" aria-label={appText("Оценка пассажира", "Пассажир баһаһы")}>

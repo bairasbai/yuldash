@@ -404,9 +404,11 @@ class ApiClientMoreTest {
 
     @Test
     fun sendVoiceMessage_postsVoiceUrlToMessages() = runBlocking {
-        server.enqueue(json("{}"))
+        server.enqueue(json("""{"id":77,"sender_id":11,"text":"","voice_url":"https://cdn/v.m4a"}"""))
         val res = ApiClient.sendVoiceMessage(bookingId = 8, voiceUrl = "https://cdn/v.m4a")
         assertTrue(res.isSuccess)
+        assertEquals(77, res.getOrThrow().id)
+        assertEquals("https://cdn/v.m4a", res.getOrThrow().voiceUrl)
         val rec = server.takeRequest()
         assertEquals("POST", rec.method)
         assertEquals("/bookings/8/messages", rec.path)

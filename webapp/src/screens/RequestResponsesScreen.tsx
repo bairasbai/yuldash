@@ -6,10 +6,10 @@
 //  — готовые поездки по маршруту заявки, тап → бронь (RideSheet).
 //  Плюс «Редактировать» → /requests/{id}/edit (форма с префиллом).
 // ================================================================
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import {
   fetchRequestResponses,
   fetchMatchRides,
@@ -23,6 +23,7 @@ import type { Ride } from "../api/rides";
 import RideCard from "../components/RideCard";
 import RideSheet from "../components/RideSheet";
 import BargainTrail from "../components/BargainTrail";
+import ResponseRouteNote from "../components/ResponseRouteNote";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconStar, IconCheck, IconClock, IconPencil, IconBolt } from "../components/Icons";
@@ -35,6 +36,14 @@ export default function RequestResponsesScreen() {
   const navigate = useNavigate();
   const { id } = useParams();
   const requestId = Number(id);
+  const generation = getSessionGeneration();
+  const ownerKey = `${generation}:${requestId}`;
+  const owner = useRef(ownerKey); owner.current = ownerKey;
+  const mounted = useRef(true);
+  const loading = useRef<AbortController | null>(null);
+  const acting = useRef<AbortController | null>(null);
+  const actionBusy = useRef(false);
+  const current = () => mounted.current && owner.current === ownerKey && generation === getSessionGeneration();
 
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [items, setItems] = useState<ResponseItem[]>([]);
@@ -48,8 +57,17 @@ export default function RequestResponsesScreen() {
   const [counterPrice, setCounterPrice] = useState("");
   const [bargaining, setBargaining] = useState(false);
 
+  useEffect(() => {
+    mounted.current = true;
+    setItems([]); setMatches(null); setOpenedRide(null); setCounterFor(null); setCounterPrice(""); setError(null); setAccepting(null); setBargaining(false);
+    return () => { mounted.current = false; loading.current?.abort(); acting.current?.abort(); actionBusy.current = false; };
+  }, [ownerKey]);
+
   const load = useCallback(
-    (signal?: AbortSignal) => {
+    () => {
+      loading.current?.abort();
+      const ac = new AbortController(); loading.current = ac;
+      const signal = ac.signal;
       if (!requestId) {
         setStatus("error");
         return;
@@ -57,21 +75,21 @@ export default function RequestResponsesScreen() {
       setStatus("loading");
       fetchRequestResponses(requestId, signal)
         .then((list) => {
+          if (!current() || signal.aborted) return;
           setItems(list);
           setStatus("ready");
         })
         .catch((e) => {
-          if (signal?.aborted || e?.name === "AbortError") return;
+          if (!current() || signal.aborted || e?.name === "AbortError") return;
           setStatus("error");
         });
     },
-    [requestId]
+    [requestId, generation]
   );
 
   useEffect(() => {
-    const ac = new AbortController();
-    load(ac.signal);
-    return () => ac.abort();
+    load();
+    return () => loading.current?.abort();
   }, [load]);
 
   // Мэтчинг — параллельно откликам. Любая ошибка (404 до деплоя, 403) → блок скрыт.
@@ -80,41 +98,56 @@ export default function RequestResponsesScreen() {
     const ac = new AbortController();
     fetchMatchRides(requestId, ac.signal)
       .then((rides) => {
+        if (!current() || ac.signal.aborted) return;
         setMatches(rides);
         if (rides.length > 0) track("match_shown", { count: rides.length });
       })
-      .catch(() => setMatches(null));
+      .catch(() => { if (current() && !ac.signal.aborted) setMatches(null); });
     return () => ac.abort();
-  }, [requestId]);
+  }, [requestId, generation]);
 
   async function accept(responseId: number) {
+    if (!current() || actionBusy.current) return;
+    actionBusy.current = true;
+    const ac = new AbortController(); acting.current = ac;
     setAccepting(responseId);
     setError(null);
     try {
-      const res = await acceptResponse(responseId);
+      const res = await acceptResponse(responseId, ac.signal);
+      if (!current() || ac.signal.aborted) return;
       navigate(`/trip/${res.booking_id}`);
     } catch (e) {
+      if (!current()) return;
+      // 409 бывает по разным причинам (водитель отозвал, торг закрыт, ход другой стороны, пассажир на паузе…) —
+      // человеку нужно слово сервера, а не наша догадка про «рейс изменился». Своя фраза — только если слов нет.
       setError(
         e instanceof ApiError && e.message
           ? e.message
+          : e instanceof ApiError && e.status === 409
+          ? appText("Рейс изменился или больше не подходит. Обнови отклики и выбери снова.", "Сәфәр үҙгәргән йәки бүтән тап килмәй. Яуаптарҙы яңыртып ҡабат һайла.")
           : appText("Не получилось принять. Попробуй снова.", "Ҡабул итеп булманы. Ҡабат ҡара.") // DRAFT
       );
       setAccepting(null);
-    }
+      if (e instanceof ApiError && e.status === 409) load();
+    } finally { if (acting.current === ac) actionBusy.current = false; }
   }
 
   /** Встречная цена пассажира: «а за 400 поедешь?». Ходят по очереди — сервер решает, чей ход. */
   async function sendCounter(r: ResponseItem) {
     const value = Number(counterPrice);
-    if (!Number.isFinite(value) || value <= 0) return;
+    if (!Number.isFinite(value) || value <= 0 || !current() || actionBusy.current) return;
+    actionBusy.current = true;
+    const ac = new AbortController(); acting.current = ac;
     setBargaining(true);
     setError(null);
     try {
-      const updated = await counterOffer(r.id, Math.round(value));
+      const updated = await counterOffer(r.id, Math.round(value), "", ac.signal);
+      if (!current() || ac.signal.aborted) return;
       setItems((prev) => prev.map((x) => (x.id === r.id ? updated : x)));
       setCounterFor(null);
       setCounterPrice("");
     } catch (e) {
+      if (!current()) return;
       setError(
         e instanceof ApiError && e.message
           ? e.message
@@ -122,20 +155,25 @@ export default function RequestResponsesScreen() {
       );
       load();
     } finally {
-      setBargaining(false);
+      if (current()) setBargaining(false);
+      if (acting.current === ac) actionBusy.current = false;
     }
   }
 
   /** Отказ от отклика — торг закрывается, водитель получит уведомление. */
   async function refuse(r: ResponseItem) {
+    if (!current() || actionBusy.current) return;
+    actionBusy.current = true;
+    const ac = new AbortController(); acting.current = ac;
     const prev = items;
     setItems(items.filter((x) => x.id !== r.id)); // оптимистично
     try {
-      await declineResponse(r.id);
+      await declineResponse(r.id, ac.signal);
     } catch {
+      if (!current() || ac.signal.aborted) return;
       setItems(prev);
       setError(appText("Не получилось отказаться.", "Баш тартып булманы."));
-    }
+    } finally { if (acting.current === ac) actionBusy.current = false; }
   }
 
   return (
@@ -168,6 +206,7 @@ export default function RequestResponsesScreen() {
           <div className="list">
             {items.map((r) => {
               const isAccepted = r.status === "accepted";
+              const isOffered = r.status === "offered";
               return (
                 <div key={r.id} className="offer-card">
                   <div className="offer-card__top">
@@ -190,12 +229,13 @@ export default function RequestResponsesScreen() {
                   {r.comment && <p className="offer-card__comment">{r.comment}</p>}
 
                   {/* Торг: дорожка ходов + чей сейчас ход. Один ход — дорожка не рисуется. */}
+                  <ResponseRouteNote response={r} />
                   <BargainTrail
                     history={parseBargainHistory(r.bargain_history)}
                     mine="passenger"
-                    rounds={r.bargain_rounds}
+                    rounds={isOffered ? r.bargain_rounds : undefined}
                   />
-                  {!isAccepted && r.status === "offered" && (
+                  {isOffered && (
                     <span
                       className={"bargain-turn" + (r.can_accept || r.can_counter ? " bargain-turn--mine" : "")}
                     >
@@ -213,6 +253,16 @@ export default function RequestResponsesScreen() {
                     <div className="offer-card__accepted">
                       <IconCheck size={18} /> {appText("Принят", "Ҡабул ителгән")}
                     </div>
+                  ) : !isOffered ? (
+                    <p className="bargain-turn">
+                      {r.status === "declined"
+                        ? appText("Торг закрыт: по цене не сошлись", "Һатыулашыу ябыҡ: хаҡ буйынса килешмәнек")
+                        : r.status === "withdrawn"
+                        ? appText("Отклик отозван", "Яуап кире алынды")
+                        : r.status === "expired"
+                        ? appText("Заявка закрылась — человек уже уехал", "Заявка ябылған — кеше киткән инде")
+                        : appText("Отклик закрыт", "Яуап ябылған")}
+                    </p>
                   ) : counterFor === r.id ? (
                     <div style={{ marginTop: 12 }}>
                       <label className="field">
@@ -256,7 +306,7 @@ export default function RequestResponsesScreen() {
                         type="button"
                         className="btn-primary"
                         onClick={() => accept(r.id)}
-                        disabled={accepting != null || (r.status === "offered" && !r.can_accept)}
+                        disabled={accepting != null || !r.can_accept}
                       >
                         {accepting === r.id
                           ? appText("Принимаем…", "Ҡабул итәбеҙ…")
@@ -278,7 +328,7 @@ export default function RequestResponsesScreen() {
                     </div>
                   )}
 
-                  {!isAccepted && r.status === "offered" && counterFor !== r.id && (
+                  {isOffered && counterFor !== r.id && (
                     <button
                       type="button"
                       className="link-btn"
@@ -291,9 +341,10 @@ export default function RequestResponsesScreen() {
                 </div>
               );
             })}
-            {error && <div className="auth__error">{error}</div>}
           </div>
         ))}
+
+      {error && <div className="auth__error" role="alert">{error}</div>}
 
       {/* Мэтчинг: готовые поездки по маршруту заявки. Эндпоинта нет/ошибка → блок скрыт. */}
       {status === "ready" && matches !== null && (

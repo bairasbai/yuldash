@@ -6,6 +6,9 @@ import { serverDate } from "../utils/serverTime";
 import { YuStar, YuWomenOnly } from "./BrandIcons";
 import { SeatBadges } from "./SeatOptions";
 import { useOwnBooking } from "../booking/OwnBookingsProvider";
+import { rideMatchState } from "../utils/pickupStops";
+import { getSessionGeneration } from "../api/client";
+import { MatchedPickupStopNote, BookingSegmentNote } from "./PickupStopChoice";
 
 import { dayMonthShort, hhmm, pluralRu } from "../utils/format";
 function initials(name: string): string {
@@ -82,6 +85,10 @@ export default function RideCard({ ride, index, to }: { ride: Ride; index: numbe
         )}
       </div>
 
+      {ownBooking
+        ? <BookingSegmentNote pickupStop={ownBooking.pickup_stop} dropoffStop={ownBooking.dropoff_stop} rideHasStops={ownBooking.ride_has_stops} from={ride.from_city} to={ride.to_city} />
+        : <MatchedPickupStopNote ride={ride} />}
+
       <div className="ride-card__foot">
         <div className="ride-card__driver">
           {ride.driver_avatar ? (
@@ -115,5 +122,5 @@ export default function RideCard({ ride, index, to }: { ride: Ride; index: numbe
       </div>
     </article>
   );
-  return to ? <Link to={to} style={{ display: "block", color: "inherit", textDecoration: "none" }}>{card}</Link> : card;
+  return to ? <Link to={to} state={rideMatchState(ride, getSessionGeneration())} style={{ display: "block", color: "inherit", textDecoration: "none" }}>{card}</Link> : card;
 }

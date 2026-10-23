@@ -745,6 +745,7 @@ internal fun CreatePassengerRequestScreen(
     onBack: () -> Unit,
     onCreateRequest: (LocalRequest) -> Unit
 ) {
+    val submitOwner = remember { ApiClient.queueSessionGeneration() }
     var from by remember { mutableStateOf("Баймаҡ") }
     var to by remember { mutableStateOf("Сибай") }
     var time by remember { mutableStateOf("") }
@@ -794,7 +795,7 @@ internal fun CreatePassengerRequestScreen(
             onAirConditionerChange = { airConditioner = it },
             onOnlyTrustedChange = { onlyTrusted = it },
             onSubmit = {
-                if (submitting) return@CreatePassengerRequestContent   // гард двойного нажатия
+                if (submitting || !ApiClient.isCurrentSession(submitOwner)) return@CreatePassengerRequestContent
                 val (apiCat, withKids) = when (category) {
                     "urgent" -> "urgent" to false
                     "parcel" -> "parcel" to false
@@ -811,6 +812,7 @@ internal fun CreatePassengerRequestScreen(
                 }.getOrNull()
                 submitting = true
                 scope.launch {
+                    if (!ApiClient.isCurrentSession(submitOwner)) return@launch
                     // Ждём ответ сервера: «создано» показываем только при реальном успехе POST.
                     // F14: если выбрана точка сбора — добавляем ориентир в комментарий (у заявки нет pickup-поля),
                     // чтобы водитель видел «где встречаемся»; pickupPointId пополняет справочник.
@@ -828,8 +830,10 @@ internal fun CreatePassengerRequestScreen(
                         airConditioner = airConditioner, baggage = baggage,
                         onlyTrusted = onlyTrusted,
                         pickupPointId = pickupPointId,
+                        expectedGeneration = submitOwner,
                     )
                         .onSuccess { newId ->
+                            if (!ApiClient.isCurrentSession(submitOwner)) return@onSuccess
                             onCreateRequest(
                                 LocalRequest(
                                     title = selectedCategoryText,
@@ -844,6 +848,7 @@ internal fun CreatePassengerRequestScreen(
                             )
                         }
                         .onFailure { e ->
+                            if (!ApiClient.isCurrentSession(submitOwner)) return@onFailure
                             submitting = false
                             Toast.makeText(context, serverSaid(e, sendError), Toast.LENGTH_LONG).show()
                         }

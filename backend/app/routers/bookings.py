@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import update
+from sqlalchemy import case, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -84,8 +84,9 @@ BOARDING_UNDO_WINDOW = timedelta(minutes=5)
 # раньше чем через NO_SHOW_WAIT после времени выезда. Раньше — в любой момент, хоть за неделю до
 # поездки, одним касанием вплотную к «Сел» и без возврата: промахнулся — бронь человека, который
 # стоит у дороги, снята, место ушло в продажу. Срок знает ТОЛЬКО сервер: клиентам он приходит
-# моментом `no_show_at` (`driver_bookings`, отказ `no_show_too_early`), своих 15 минут они не держат.
-NO_SHOW_WAIT = timedelta(minutes=15)
+# моментом `no_show_at` (`driver_bookings`, отказ `no_show_too_early`), своего срока они не держат.
+# Последнее решение Александра 18.10.2026: пять минут; правила места посадки остаются общими.
+NO_SHOW_WAIT = timedelta(minutes=5)
 
 # Пассажиры на промежуточных остановках (решение Александра 18.10.2026). Человека на остановке
 # сажают позже выезда — иногда на час, — и 15 минут от выезда из начальной точки его не защищали:
@@ -284,14 +285,15 @@ class BookIn(BaseModel):
     # `ride.waypoints`. Не прислали или пусто — «неизвестно» (NULL, правила PR184). Своё название
     # вписать нельзя: незнакомое — 400. Потолок — как у остановки при публикации.
     pickup_stop: Optional[str] = Field(None, max_length=60)
+    dropoff_stop: Optional[str] = Field(None, max_length=120)
 
 
 # Отказ, когда переднее уже обещано другому пассажиру. Один текст на проверку и на барьер базы.
 FRONT_SEAT_TAKEN = ("Переднее место уже занято", "Алғы урын инде алынған")
 
 
-def _pickup_refusal(status: int, code: str, ru: str, ba: str) -> HTTPException:
-    return HTTPException(status_code=status, detail={"ru": ru, "ba": ba, "code": code})
+def _pickup_refusal(status: int, code: str, ru: str, ba: str, **extra) -> HTTPException:
+    return HTTPException(status_code=status, detail={"ru": ru, "ba": ba, "code": code, **extra})
 
 
 def _resolve_pickup_stop(ride: Ride, raw: Optional[str], entry) -> Optional[str]:
@@ -305,6 +307,10 @@ def _resolve_pickup_stop(ride: Ride, raw: Optional[str], entry) -> Optional[str]
     • остановка из поездки → её написание из поездки;
     • конец маршрута — 400 `pickup_stop_is_end`; другое — 400 `pickup_stop_unknown`."""
     if not ride_has_stops_raw(ride, entry):
+        if raw and raw.strip() and not is_start(ride, raw.strip(), entry):
+            raise _pickup_refusal(400, "pickup_stop_unknown",
+                "В этой поездке можно сесть только в начале маршрута.",
+                "Был сәфәрҙә юлдың башында ғына ултырып була.")
         return ""
     if not parse_stops(ride, entry):
         return None
@@ -325,6 +331,26 @@ def _resolve_pickup_stop(ride: Ride, raw: Optional[str], entry) -> Optional[str]
         400, "pickup_stop_unknown",
         "Такой остановки нет в этой поездке — выбери из списка: начало маршрута или остановку по пути.",
         "Был сәфәрҙә бындай туҡталыш юҡ — исемлектән һайла: юлдың башы йәки юл ыңғайындағы туҡталыш.")
+
+
+def _resolve_dropoff_stop(ride: Ride, raw: Optional[str], pickup: Optional[str], entry) -> Optional[str]:
+    """Высадка старого клиента остаётся неизвестной. Явный выбор проверяем до списания мест."""
+    if raw is None:
+        return None
+    asked = raw.strip()
+    if not asked or is_end(ride, asked, entry):
+        return ""
+    stop = canonical_stop(ride, asked, entry)
+    if stop is None:
+        raise _pickup_refusal(400, "dropoff_stop_unknown",
+            "Такого места высадки нет в этой поездке. Выбери остановку или конец маршрута.",
+            "Был сәфәрҙә бындай төшөү урыны юҡ. Туҡталышты йәки юлдың аҙағын һайла.")
+    stops = parse_stops(ride, entry)
+    if pickup is None or (pickup and (pickup not in stops or stops.index(pickup) >= stops.index(stop))):
+        raise _pickup_refusal(400, "dropoff_stop_order",
+            "Высадка должна быть после посадки. Сначала выбери, где сядешь.",
+            "Төшөү ултырыуҙан һуң булырға тейеш. Тәүҙә ҡайҙа ултырғаныңды һайла.")
+    return stop
 
 
 def _front_seat_is_taken(session: Session, ride_id: int) -> bool:
@@ -366,6 +392,7 @@ class BookingDetailsOut(BaseModel):
     # Где садится пассажир (18.10.2026): "" — начало маршрута, «Акъяр» — остановка, null —
     # неизвестно (или водителю уже не видно: бронь отменена / поездка давно закрыта).
     pickup_stop: Optional[str] = None
+    dropoff_stop: Optional[str] = None
     ride_has_stops: bool = False      # у поездки есть остановки (null выше = «уточни в чате»)
     pickup: str = ""
     pickup_lat: Optional[float] = Field(None, ge=-90, le=90)
@@ -374,6 +401,50 @@ class BookingDetailsOut(BaseModel):
     from_lng: Optional[float] = Field(None, ge=-180, le=180)
     to_lat: Optional[float] = Field(None, ge=-90, le=90)
     to_lng: Optional[float] = Field(None, ge=-180, le=180)
+
+
+def _booking_retry(existing, body, pickup_stop, dropoff_stop):
+    # Сохраняем прежние конфликты переднего места и обеих точек маршрута. В отказе — номер своей
+    # брони (`booking_id`): приложение и сайт открывают её, а не оставляют человека с отказом.
+    if body.front_seat and not existing.front_seat:
+        raise _pickup_refusal(409, "front_seat_conflict",
+            "У тебя уже есть бронь без переднего места. Отмени её и забронируй заново с передним",
+            "Һинең алғы урынһыҙ бронең бар инде. Уны кире ал да алғы урын менән яңынан бронла", booking_id=existing.id)
+    if body.pickup_stop is not None and existing.pickup_stop != pickup_stop:
+        raise _pickup_refusal(409, "pickup_stop_conflict",
+            "У тебя уже есть бронь с другим местом посадки. Отмени её и забронируй заново — или договорись с водителем в чате.",
+            "Һинең икенсе ултырыу урыны менән бронең бар инде. Уны кире ал да яңынан бронла — йәки водитель менән чатта килеш.", booking_id=existing.id)
+    if body.dropoff_stop is not None and existing.dropoff_stop != dropoff_stop:
+        raise _pickup_refusal(409, "dropoff_stop_conflict",
+            "У тебя уже есть бронь с другим местом высадки. Отмени её и забронируй заново или договорись в чате.",
+            "Һинең икенсе төшөү урыны менән бронең бар инде. Уны кире ал да яңынан бронла йәки чатта килеш.", booking_id=existing.id)
+    if body.minor_passenger and not existing.minor_passenger:
+        # Молча вернуть старую бронь — водитель не узнает, что едет ребёнок (приёмка #189).
+        raise _pickup_refusal(409, "booking_minor_conflict",
+            "У тебя уже есть бронь без отметки «едет подросток». Отмени её и забронируй заново — водитель должен знать о ребёнке.",
+            "Һинең «үҫмер бара» билдәһеҙ бронең бар инде. Уны кире ал да яңынан бронла — водитель бала тураһында белергә тейеш.", booking_id=existing.id)
+    # Способ и сумму оплаты сверять не нужно: это запись «на доверии» (§8), сумма — цена × места, а места сверены ниже.
+    if existing.seats != body.seats:
+        raise _pickup_refusal(409, "booking_seats_conflict",
+            "У тебя уже есть бронь с другим количеством мест. Отмени её и забронируй заново.",
+            "Һинең икенсе һандағы урындар менән бронең бар инде. Уны кире ал да яңынан бронла.", booking_id=existing.id)
+    return existing
+
+
+def _active_booking(session, ride_id, passenger_id):
+    return session.exec(select(Booking).where(
+        Booking.ride_id == ride_id, Booking.passenger_id == passenger_id,
+        Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
+    )).first()
+
+
+def _retry_after_booking_race(session, ride, user, body, pickup_stop, entry):
+    existing = _active_booking(session, body.ride_id, user.id)
+    if existing:
+        effective_pickup = existing.pickup_stop if body.pickup_stop is None else pickup_stop
+        dropoff_stop = _resolve_dropoff_stop(ride, body.dropoff_stop, effective_pickup, entry)
+        return _booking_retry(existing, body, pickup_stop, dropoff_stop)
+    return None
 
 
 @router.post("/bookings", response_model=Booking)
@@ -438,31 +509,15 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         guard_women_only(user, msg=MSG_WOMEN_ONLY_RIDE)
     # Где садится — разбираем ДО списания мест и до повтора (18.10.2026): незнакомое место — 400,
     # мест не тронули.
-    pickup_stop = _resolve_pickup_stop(ride, body.pickup_stop, snapshot_cached())
+    entry = snapshot_cached()
+    pickup_stop = _resolve_pickup_stop(ride, body.pickup_stop, entry)
     # Защита от дубля: один пассажир не бронирует одну поездку повторно (двойной тап / повторный заход).
     # Идемпотентно — возвращаем существующую активную бронь, мест не списываем заново.
-    existing = session.exec(
-        select(Booking).where(
-            Booking.ride_id == ride.id,
-            Booking.passenger_id == user.id,
-            Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
-        )
-    ).first()
+    existing = _active_booking(session, ride.id, user.id)
+    effective_pickup = existing.pickup_stop if existing and body.pickup_stop is None else pickup_stop
+    dropoff_stop = _resolve_dropoff_stop(ride, body.dropoff_stop, effective_pickup, entry)
     if existing:
-        # Повтор с просьбой о переднем, а бронь уже есть без него: молча вернуть старую — значит
-        # потерять просьбу (ревью Opus 2026-10-14). Говорим прямо, что делать.
-        if body.front_seat and not existing.front_seat:
-            raise herr(409, "У тебя уже есть бронь без переднего места. Отмени её и забронируй заново с передним",
-                       "Һинең алғы урынһыҙ бронең бар инде. Уны кире ал да алғы урын менән яңынан бронла")
-        # Повтор с ДРУГИМ известным местом посадки: молча вернуть старую — водитель поедет не туда.
-        # Старая бронь без места (NULL) или повтор без места — возвращаем как есть.
-        if (existing.pickup_stop is not None and pickup_stop is not None
-                and existing.pickup_stop != pickup_stop):
-            raise _pickup_refusal(
-                409, "pickup_stop_conflict",
-                "У тебя уже есть бронь с другим местом посадки. Отмени её и забронируй заново — или договорись с водителем в чате.",
-                "Һинең икенсе ултырыу урыны менән бронең бар инде. Уны кире ал да яңынан бронла — йәки водитель менән чатта килеш.")
-        return existing
+        return _booking_retry(existing, body, pickup_stop, dropoff_stop)
     guard_delivery_ride(ride.category)
     # Быстрая понятная проверка «мест нет» — чтобы не гонять человека через остальные шаги.
     # Настоящая защита ниже: между этой строкой и списанием мест может вклиниться чужая бронь.
@@ -475,6 +530,11 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
             raise herr(409, "Водитель не предлагает переднее место — забронируй без него",
                        "Йөрөтөүсе алғы урынды тәҡдим итмәй — уныһыҙ бронла")
         if _front_seat_is_taken(session, ride.id):
+            # Между existing-read и этой проверкой SQLite мог записать нашу же
+            # бронь. Собственный повтор не превращаем в отказ «переднее занято».
+            retry = _retry_after_booking_race(session, ride, user, body, pickup_stop, entry)
+            if retry is not None:
+                return retry
             raise herr(409, *FRONT_SEAT_TAKEN)
     # Несовершеннолетний пассажир: взрослый обязателен и назван поимённо. Это не бюрократия —
     # без имени и телефона взрослого никто не отвечает за ребёнка в дороге, а водитель узнаёт
@@ -516,6 +576,7 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         minor_guardian_name=guardian_name, minor_guardian_phone=guardian_phone,
         front_seat=bool(body.front_seat),
         pickup_stop=pickup_stop,
+        dropoff_stop=dropoff_stop,
     )
     # Место занимаем АТОМАРНО: «мест хватает» и вычитание — одним запросом к базе.
     #
@@ -533,11 +594,22 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # остальную проверку. Тот же приём у статуса заказа такси (`instant_service.set_status`).
     reserved = session.execute(
         update(Ride)
-        .where(Ride.id == ride.id, Ride.seats_left >= body.seats)
+        .where(Ride.id == ride.id, Ride.seats_left >= body.seats,
+               ~select(Booking.id).where(
+                   Booking.ride_id == body.ride_id, Booking.passenger_id == user.id,
+                   Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
+               ).exists())
         .values(seats_left=Ride.seats_left - body.seats)
     )
     if reserved.rowcount == 0:
         session.rollback()
+        # SQLite не держит FOR UPDATE: другой запрос того же пассажира мог уже
+        # записать бронь между чтением existing и UPDATE. Проверяем после отката,
+        # не создавая вторую бронь и уведомление. Условие UPDATE проверяется под
+        # блокировкой записи самой БД, вместе с проверкой оставшихся мест.
+        retry = _retry_after_booking_race(session, ride, user, body, pickup_stop, entry)
+        if retry is not None:
+            return retry
         raise herr(409, "Места только что разобрали", "Урындар хәҙер генә алынды")
     session.add(booking)
     try:
@@ -617,8 +689,10 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
     entry = snapshot_cached()
     has_stops = ride_has_stops_raw(ride, entry)
     pickup_stop = booking.pickup_stop if has_stops else ""
+    dropoff_stop = booking.dropoff_stop
     if is_driver and not guardian_visible:
         pickup_stop = None
+        dropoff_stop = None
     # Бронь на остановке: место встречи — сама остановка, пин начала маршрута ей не отдаём (он про
     # другую точку, часто у дома водителя).
     on_stop = has_stops and bool(booking.pickup_stop)
@@ -659,6 +733,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "minor_guardian_phone": (booking.minor_guardian_phone if guardian_visible else ""),
         "front_seat": bool(booking.front_seat),
         "pickup_stop": pickup_stop,
+        "dropoff_stop": dropoff_stop,
         "ride_has_stops": has_stops,
         "pickup": ((booking.pickup_stop if on_stop else ride.pickup) if unlocked else ""),
         "pickup_lat": (ride.pickup_lat if unlocked and not on_stop else None),
@@ -753,12 +828,17 @@ def trip_receipt(booking_id: int, user: User = Depends(current_user), session: S
         Rating.rater_id == user.id,
     )).first()
     amount = booking.pay_amount if booking.pay_amount is not None else booking.price
+    # Исторический выбор не восстанавливаем из нынешнего маршрута/справочника: NULL и "" различаются.
+    # Пассажир видит свои места; водителю — то же окно связи, что в деталях и списке броней.
+    segment_visible = role != "driver" or booking_contacts_open(booking, ride)
     return {
         "booking_id": booking.id,
         "ride_id": ride.id,
         "role": role,
         "from_city": ride.from_city,
         "to_city": ride.to_city,
+        "pickup_stop": booking.pickup_stop if segment_visible else None,
+        "dropoff_stop": booking.dropoff_stop if segment_visible else None,
         "depart_at": ride.depart_at.isoformat() if ride.depart_at else "",
         "seats": booking.seats,
         "amount": amount,                       # ₽; договорённость (pay_amount) или цена брони
@@ -922,27 +1002,32 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     if body.status == "boarded":
         return _mark_boarded(session, booking, ride)
     if body.status == "done":
-        # Идемпотентно: уже завершённую/отменённую бронь не трогаем. (pending→done — легитимный
-        # поток: пассажир не «подтверждает» отдельно, водитель завершает поездку напрямую.)
-        if booking.status not in (BookingStatus.done, BookingStatus.cancelled):
-            # Завершить можно только НАЧАВШУЮСЯ поездку. Раньше проверки не было вовсе, и цикл
-            # «опубликовал на 2030 год → забронировал вторым аккаунтом → завершил» из трёх запросов
-            # рисовал бейдж «N поездок» и открывал обеим сторонам оценку — без единого метра пути
-            # (аудит 2026-08-07). Бейдж доверия и есть продукт «между своими», подделывать его
-            # нельзя. Проверка стоит ВНУТРИ ветки «статус меняется»: повторный тап по уже
-            # завершённой броне по-прежнему отвечает «ок», а не ошибкой.
-            if ride.depart_at and utcnow() < ride.depart_at - DONE_EARLY_GRACE:
-                raise herr(409, "Поездка ещё не началась — завершить можно после времени выезда",
-                           "Сәфәр әле башланмаған — сығыу ваҡытынан һуң тамамлап була")
-            booking.status = BookingStatus.done
-            booking.done_at = utcnow()       # окно «Сообщить о проблеме» пассажира считается и от неё
-            booking.driver_phase = ""        # поездка кончилась — фазу сбрасываем
-            session.add(booking)
-            session.commit()
-            trip_wake.poke(booking.id)       # канал координат закрывается сразу (см. cancel_booking)
-            # B8-4: реферальный бонус пригласившему за раскатавшегося водителя (идемпотентно).
-            from .referral import reward_driver_referral
-            reward_driver_referral(session, ride.driver_id)
+        # Потерянный ответ можно повторить, но повтор не создаёт новое уведомление.
+        # pending→done остаётся легитимным: водитель завершает поездку напрямую.
+        if booking.status == BookingStatus.done:
+            return {"ok": True, "status": "done"}
+        if booking.status == BookingStatus.cancelled:
+            raise herr(409, "Поездка не активна", "Сәфәр актив түгел")
+        # Только начавшаяся поездка, иначе поддельное завершение рисовало бы бейдж доверия.
+        if ride.depart_at and utcnow() < ride.depart_at - DONE_EARLY_GRACE:
+            raise herr(409, "Поездка ещё не началась — завершить можно после времени выезда",
+                       "Сәфәр әле башланмаған — сығыу ваҡытынан һуң тамамлап була")
+        # Решение принимает БД, а не прочитанный выше ORM-объект: другой запрос уже мог
+        # завершить или отменить бронь. Побочные действия выполняет только выигравший переход.
+        moved = session.execute(update(Booking).where(
+            Booking.id == booking.id,
+            Booking.status.notin_((BookingStatus.done, BookingStatus.cancelled)),
+        ).values(status=BookingStatus.done, done_at=utcnow(), driver_phase="")).rowcount
+        session.commit()
+        session.refresh(booking)
+        if not moved:
+            if booking.status == BookingStatus.done:
+                return {"ok": True, "status": "done"}
+            raise herr(409, "Поездка не активна", "Сәфәр актив түгел")
+        trip_wake.poke(booking.id)           # канал координат закрывается сразу (см. cancel_booking)
+        # B8-4: прежний идемпотентный бонус, только для состоявшегося перехода.
+        from .referral import reward_driver_referral
+        reward_driver_referral(session, ride.driver_id)
         route = f"{ride.from_city} → {ride.to_city}"
         push_notification(
             session, booking.passenger_id, "ride",
@@ -1266,6 +1351,7 @@ def _booking_out(booking: Booking) -> dict:
         # Место посадки — по тому же правилу (P3, 18.10.2026): сделки нет — села пассажирки у
         # водителя в ответе на действие нет. Своё место пассажир видит в `/bookings/mine`.
         data["pickup_stop"] = None
+        data["dropoff_stop"] = None
     return data
 
 
@@ -1291,11 +1377,18 @@ def confirm_booking(booking_id: int, user: User = Depends(current_user), session
     # второй стороне не сообщаем.
     if is_blocked(session, user.id, booking.passenger_id):
         raise herr(403, "Недоступно", "Мөмкин түгел")
-    booking.status = BookingStatus.confirmed
-    booking.confirmed_at = utcnow()   # доказательство встречи сторон (волна 158)
-    session.add(booking)
+    # Условный UPDATE (приёмка #189): статус читался без замка, и отмена пассажира в ту же секунду
+    # «воскресала» подтверждением — бронь confirmed, а её места уже вернулись в продажу.
+    moved = session.execute(update(Booking).where(
+        Booking.id == booking.id, Booking.status == BookingStatus.pending,
+    ).values(status=BookingStatus.confirmed, confirmed_at=utcnow())   # confirmed_at — доказательство встречи (волна 158)
+        .execution_options(synchronize_session=False)).rowcount
     session.commit()
     session.refresh(booking)
+    if not moved:
+        if booking.status == BookingStatus.confirmed:
+            return _booking_out(booking)
+        raise herr(409, "Бронь уже изменилась — обнови экран", "Бронь үҙгәргән инде — экранды яңырт")
     # Уведомление пассажиру: бронь подтверждена водителем (F2: подтверждение открывает
     # телефон/точку сбора/live-гео — говорим об этом сразу).
     route = f"{ride.from_city} → {ride.to_city}"
@@ -1318,6 +1411,10 @@ class CancelIn(BaseModel):
 @router.post("/bookings/{booking_id}/cancel", response_model=Booking)
 def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
                    user: User = Depends(current_user), session: Session = Depends(get_session)):
+    return _cancel_booking(booking_id, body, user, session, attempts=3)
+
+
+def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, session: Session, *, attempts: int):
     """Отмена поездки пассажиром или водителем. Места возвращаются в поездку.
     B8-8 («увод мимо приложения»): отмена ПОСЛЕ открытия контакта (бронь подтверждена —
     телефон виден — или в чате уже переписывались) помечается contact_then_cancel —
@@ -1355,17 +1452,32 @@ def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
             session.exec(select(Message.id).where(Message.booking_id == booking_id).limit(1)).first()
             is not None
         )
-        booking.status = BookingStatus.cancelled
-        booking.cancelled_at = utcnow()
-        booking.contact_then_cancel = contact_opened
         # Белый список кодов (порт из pr88): произвольная строка в БД не попадает, неизвестный
         # код (старый/будущий клиент) не теряем — сводим к "other".
         _raw_reason = ((body.reason or "").strip()[:80] or None) if body else None
-        booking.cancel_reason = _raw_reason if _raw_reason in CANCEL_REASONS else ("other" if _raw_reason else None)
-        booking.cancelled_by = user.id   # «Надёжность»: поздняя отмена бьёт по инициатору (safety_logic.reliability_for)
-        ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)  # вернуть освобождённые места
-        session.add(booking)
-        session.add(ride)
+        changed = session.execute(update(Booking).where(
+            Booking.id == booking_id, Booking.status == booking.status,
+        ).values(
+            status=BookingStatus.cancelled, cancelled_at=utcnow(), contact_then_cancel=contact_opened,
+            cancel_reason=_raw_reason if _raw_reason in CANCEL_REASONS else ("other" if _raw_reason else None),
+            cancelled_by=user.id,
+        ).execution_options(synchronize_session=False))
+        if changed.rowcount == 0:
+            session.rollback()
+            session.refresh(booking)
+            if booking.status in (BookingStatus.cancelled, BookingStatus.done):
+                return _booking_out(booking)
+            # Стадия успела перейти pending→confirmed/onboard. Снова применяем
+            # правила отмены к новой стадии, включая запрет пассажиру в машине. Без замков (SQLite)
+            # стадия может меняться снова и снова — не больше трёх попыток, потом «обнови экран».
+            if attempts <= 1:
+                raise herr(409, "Бронь уже изменилась — обнови экран", "Бронь үҙгәргән инде — экранды яңырт")
+            return _cancel_booking(booking_id, body, user, session, attempts=attempts - 1)
+        # Арифметика в SQL сохраняет параллельное списание новой брони на SQLite.
+        returned = Ride.seats_left + booking.seats
+        session.execute(update(Ride).where(Ride.id == ride.id).values(
+            seats_left=case((returned > Ride.seats_total, Ride.seats_total), else_=returned),
+        ).execution_options(synchronize_session=False))
         session.commit()
         session.refresh(booking)
         trip_wake.poke(booking.id)   # канал координат закрывается сразу, а не через сторож (≤ 30 с)
@@ -1517,14 +1629,26 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
         raise _no_show_needs_arriving_refusal()
     if no_show_wait_left(ride, booking=booking) > 0:
         raise _no_show_too_early_refusal(ride, booking)
-    booking.status = BookingStatus.cancelled
-    booking.cancelled_at = utcnow()
-    booking.no_show = True
-    booking.cancel_reason = "no_show"
-    booking.cancelled_by = user.id   # кто отметил (неявка бьёт по Надёжности пассажира только после инцидента-подтверждения)
-    ride.seats_left = min(ride.seats_total, ride.seats_left + booking.seats)   # вернуть освобождённые места
-    session.add(booking)
-    session.add(ride)
+    # Условный UPDATE, как в отмене: на SQLite нет FOR UPDATE, и отмена пассажира в ту же секунду иначе
+    # вернула бы места дважды, а «неявка» затёрла бы её причину (приёмка #189). cancelled_by — кто отметил
+    # (неявка бьёт по Надёжности пассажира только после инцидента-подтверждения).
+    moved = session.execute(update(Booking).where(
+        Booking.id == booking.id, Booking.status == BookingStatus.confirmed,
+    ).values(status=BookingStatus.cancelled, cancelled_at=utcnow(), no_show=True,
+             cancel_reason="no_show", cancelled_by=user.id)
+        .execution_options(synchronize_session=False)).rowcount
+    if not moved:
+        session.rollback()
+        session.refresh(booking)
+        if booking.status == BookingStatus.onboard:
+            raise _no_show_onboard_refusal(booking)
+        return _booking_out(booking)           # параллельная отмена/неявка опередила — места уже возвращены
+    # Вернуть освобождённые места арифметикой в SQL, как в отмене: значение из Python затёрло бы
+    # одновременное списание новой брони.
+    returned = Ride.seats_left + booking.seats
+    session.execute(update(Ride).where(Ride.id == ride.id).values(
+        seats_left=case((returned > Ride.seats_total, Ride.seats_total), else_=returned),
+    ).execution_options(synchronize_session=False))
     session.commit()
     session.refresh(booking)
     trip_wake.poke(booking.id)   # канал координат закрывается сразу (см. cancel_booking)
@@ -1579,6 +1703,8 @@ def my_bookings(
             "front_seat": bool(b.front_seat),
             # Где садится (18.10.2026): "" — начало, «Акъяр» — остановка, null — не указано.
             "pickup_stop": (b.pickup_stop if r is not None and ride_has_stops_raw(r, entry) else ""),
+            "dropoff_stop": b.dropoff_stop,
+            "ride_has_stops": r is not None and ride_has_stops_raw(r, entry),
             "from_city": r.from_city if r else "",
             "to_city": r.to_city if r else "",
             "depart_at": r.depart_at.isoformat() if r and r.depart_at else "",
@@ -1630,6 +1756,8 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             "passenger_name": (passenger.name if passenger else "Пассажир"),
             "passenger_rating": (round(avg, 1) if cnt > 0 else None),
             "route": (f"{ride.from_city} → {ride.to_city}" if ride else ""),
+            "from_city": ride.from_city if ride else "",
+            "to_city": ride.to_city if ride else "",
             "status": b.status,
             # 0 = ещё не оценивал. Иначе — сколько звёзд поставил (оценку можно изменить).
             "my_stars": my_stars.get(b.id, 0),
@@ -1637,6 +1765,7 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             # Где садится (18.10.2026): "" — начало маршрута, «Акъяр» — остановка, null — не указано
             # (клиент пишет «Место посадки не указано — уточни в чате») или уже не видно (отмена).
             "pickup_stop": ((b.pickup_stop if has_stops else "") if stop_visible else None),
+            "dropoff_stop": (b.dropoff_stop if stop_visible else None),
             "ride_has_stops": has_stops,
             # Сколько секунд ещё можно отменить свою отметку «Сел» (0 — уже нельзя): «Отменить»
             # в карточке переживает перезапуск приложения и не зависит от часов телефона.
@@ -1665,6 +1794,7 @@ def booking_lost_item(booking_id: int, user: User = Depends(current_user),
 
     Доступно обеим сторонам: водитель тоже находит вещи и ищет, чьи они."""
     from datetime import timedelta
+    from sqlalchemy import func, or_
 
     booking, ride = booking_and_ride_for_user(session, booking_id, user)   # 403/404 если не участник
     if booking.status != BookingStatus.done:
@@ -1680,18 +1810,33 @@ def booking_lost_item(booking_id: int, user: User = Depends(current_user),
     # Две границы. Первая: искать вещь имеет смысл, пока о ней помнят, — через месяц после
     # поездки это уже не поиск вещи, а способ написать человеку. Вторая: не больше трёх раз,
     # иначе даже в пределах месяца получается тот же бесконечный стук.
-    if ride.depart_at is not None and utcnow() - ride.depart_at > LOST_ITEM_WINDOW:
+    now = utcnow()
+    if ride.depart_at is not None and now - ride.depart_at > LOST_ITEM_WINDOW:
         raise herr(409,
                    "Поездка была слишком давно. Если вещь так и не нашлась — напиши в поддержку.",
                    "Сәфәр бик күптән булған. Әйбер табылмаһа — ярҙам хеҙмәтенә яҙ.")
+    # Ответ мог потеряться: пока чат уже открыт, это повтор того же открытия.
+    if booking.lost_item_until is not None and booking.lost_item_until > now:
+        return {"ok": True, "chat_open_until": booking.lost_item_until.isoformat()}
     if (booking.lost_item_calls or 0) >= LOST_ITEM_MAX_CALLS:
         raise herr(409,
                    "Чат уже открывали несколько раз. Дальше поможет поддержка.",
                    "Чат бер нисә тапҡыр асылған инде. Артабан ярҙам хеҙмәте кәрәк.")
-    booking.lost_item_calls = (booking.lost_item_calls or 0) + 1
-    booking.lost_item_until = utcnow() + timedelta(hours=48)
-    session.add(booking)
+    # Два запроса могли прочитать старое закрытое окно. Уведомляет только победитель.
+    moved = session.execute(update(Booking).where(
+        Booking.id == booking.id, Booking.status == BookingStatus.done,
+        func.coalesce(Booking.lost_item_calls, 0) < LOST_ITEM_MAX_CALLS,
+        or_(Booking.lost_item_until.is_(None), Booking.lost_item_until <= now),
+    ).values(lost_item_calls=func.coalesce(Booking.lost_item_calls, 0) + 1,
+             lost_item_until=now + timedelta(hours=48))).rowcount
     session.commit()
+    session.refresh(booking)
+    if not moved:
+        if booking.lost_item_until is not None and booking.lost_item_until > now:
+            return {"ok": True, "chat_open_until": booking.lost_item_until.isoformat()}
+        raise herr(409,
+                   "Чат уже открывали несколько раз. Дальше поможет поддержка.",
+                   "Чат бер нисә тапҡыр асылған инде. Артабан ярҙам хеҙмәте кәрәк.")
     other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
     if other_id:
         push_notification(

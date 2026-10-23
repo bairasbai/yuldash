@@ -47,6 +47,7 @@ data class TripPass(
     // Nullable defaults keep old snapshots honest: their payment method was never saved.
     val payMethod: String? = null,
     val payAmount: Int? = null,
+    val pickupStop: String? = null, val dropoffStop: String? = null, val rideHasStops: Boolean = false,
 ) {
     val effectivePayAmount: Int get() = payAmount ?: price
 
@@ -69,6 +70,9 @@ data class TripPass(
         put("saved_at", savedAt)
         put("pay_method", payMethod ?: JSONObject.NULL)
         put("pay_amount", payAmount ?: JSONObject.NULL)
+        put("pickup_stop", pickupStop ?: JSONObject.NULL)
+        put("dropoff_stop", dropoffStop ?: JSONObject.NULL)
+        put("ride_has_stops", rideHasStops)
     }
 
     companion object {
@@ -91,6 +95,9 @@ data class TripPass(
             savedAt = o.optLong("saved_at"),
             payMethod = if (o.isNull("pay_method")) null else o.optString("pay_method"),
             payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
+            pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"),
+            dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
+            rideHasStops = o.optBoolean("ride_has_stops"),
         )
     }
 }
@@ -268,6 +275,12 @@ object Outbox {
     private var migration: OfflineMigration.Selection? = null
     private val flushMutex = Mutex()
     private var seq = System.currentTimeMillis()
+    // Только ID, без текста: общий отправитель мог снять отказанное сообщение раньше экрана.
+    private val refusedActions = mutableSetOf<Long>()
+
+    init {
+        ApiClient.onSessionReset { synchronized(this) { refusedActions.clear() } }
+    }
 
     /** Меняется при любом изменении очереди → Compose перечитывает [count]. */
     val version = mutableStateOf(0)
@@ -304,6 +317,7 @@ object Outbox {
 
     @Synchronized internal fun initStores(plain: SharedPreferences, secure: SharedPreferences?) {
         queueGeneration++
+        refusedActions.clear()
         plainPrefs = plain
         val available = OfflineStoreReset.availableSecure(plain, secure)
         securePrefs = available
@@ -360,13 +374,21 @@ object Outbox {
     /** Есть ли вообще что отправлять (любая бронь) — чтобы не дёргать flush на пустой очереди при старте (M4). */
     @Synchronized fun hasPending(context: Context): Boolean = readAll(context)?.isNotEmpty() == true
 
+    /** Действие ещё ждёт отправки. Очередь не прочиталась — считаем, что ждёт: не прячем неотправленное. */
+    @Synchronized fun contains(context: Context, action: OutboxAction): Boolean =
+        readAll(context)?.any { it.id == action.id } ?: true
+
+    /** Исход общего отправителя нужен экрану этого же входа; на диск ID не пишется. */
+    @Synchronized fun wasRefused(action: OutboxAction, expectedGeneration: Long): Boolean =
+        expectedGeneration == ApiClient.queueSessionGeneration() && action.id in refusedActions
+
     @Synchronized fun enqueue(context: Context, action: OutboxAction, expectedGeneration: Long? = null): Boolean {
         if (expectedGeneration != null && ApiClient.queueSessionGeneration() != expectedGeneration) return false
         val list = readAll(context) ?: return false
         val existing = list.firstOrNull { it.id == action.id }
         if (existing != null) return existing == action
         list.add(action)
-        return writeAll(context, list)
+        return writeAll(context, list).also { if (it) refusedActions.remove(action.id) }
     }
 
     /** Exact owner/action acknowledgement; a failed disk cleanup never undoes server delivery. */
@@ -384,6 +406,7 @@ object Outbox {
      */
     @Synchronized fun clearAll() {
         queueGeneration++
+        refusedActions.clear()
         plainPrefs?.let { plain ->
             if (!OfflineStoreReset.clear(plain, securePrefs)) {
                 securePrefs = null
@@ -427,6 +450,8 @@ object Outbox {
         context: Context,
         expectedGeneration: Long = ApiClient.queueSessionGeneration(),
         shouldContinue: () -> Boolean = { true },
+        /** Сервер окончательно отказал, действие снято с очереди (чат пометит «Не доставлено»). */
+        onRefused: (OutboxAction) -> Unit = {},
     ): Boolean = flushMutex.withLock {
         // Capture the caller's login before waiting for another flush; never adopt its successor.
         if (expectedGeneration != ApiClient.queueSessionGeneration() || !shouldContinue()) return@withLock false
@@ -479,8 +504,10 @@ object Outbox {
                 val remaining = current.filterNot { it.id == action.id }
                 // Acknowledge this completed request even if its UI closed during HTTP.
                 if (!writeAll(context, remaining)) return@withLock changed
+                if (failure != null) refusedActions.add(action.id) else refusedActions.remove(action.id)
                 changed = true
             }
+            if (failure != null) onRefused(action)
         }
         changed
     }
