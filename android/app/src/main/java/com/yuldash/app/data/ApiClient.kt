@@ -84,14 +84,15 @@ object ApiClient {
     private val readMs: Int get() = testTimeoutMs ?: testRetryTimeoutMs ?: 15000
 
     // One-shot mutations (see [authorized]): never replay a sent body after a lost reply or HTTP follow-up.
-    private val oneShotTransport by lazy {
-        OkHttpClient.Builder().retryOnConnectionFailure(false)
-            // With recovery disabled, a recently closed pooled socket can consume the user's explicit retry.
-            // Close idle connections instead; this never resends a request whose result is unknown.
-            .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
-            .followRedirects(false).followSslRedirects(false)
-            .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE).build()
-    }
+    // A NEW client per request, not newBuilder() of a shared one: OkHttp keeps "failed" addresses in the
+    // client's route database, so one lost reply sent every later mutation to the other address (IPv6)
+    // with no fallback. The pool keeps no idle socket: a server-closed one must not eat an explicit retry.
+    private fun oneShotTransport(): OkHttpClient = OkHttpClient.Builder().retryOnConnectionFailure(false)
+        .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
+        .followRedirects(false).followSslRedirects(false)
+        .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE)
+        .connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
+        .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).writeTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()
 
     /**
      * Тест-хук: оборвать всё фоновое и вернуть клиента в исходное состояние.
@@ -3668,9 +3669,7 @@ object ApiClient {
                         }
                     }.build()
                     val request = Request.Builder().url(BASE + path).method(method, requestBody).headers(headers).build()
-                    val client = oneShotTransport.newBuilder().connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
-                        .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).writeTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()
-                    mutationResponse = client.newCall(request).execute()
+                    mutationResponse = oneShotTransport().newCall(request).execute()
                     code = mutationResponse.code
                     serverUnreachable.value = false
                     text = mutationResponse.body?.string().orEmpty()
