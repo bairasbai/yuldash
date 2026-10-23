@@ -13,9 +13,10 @@ export const apiPost=async(p,b)=>globalThis.__at.post(p,b);`;
 
 /**
  * Открыть экран поездки 42.
- * @param {{lang?:string, role?:string, status?:string, phase?:string, cancel?:(body:any)=>any}} o
+ * `details` / `trip` — поля поверх ответов сервера по умолчанию (например, `cancelled_in_transit`).
+ * @param {{lang?:string, role?:string, status?:string, phase?:string, cancel?:(body:any)=>any, details?:object, trip?:object}} o
  */
-export async function openActiveTrip({ lang = "ru", role = "passenger", status = "confirmed", phase = "", cancel } = {}) {
+export async function openActiveTrip({ lang = "ru", role = "passenger", status = "confirmed", phase = "", cancel, details = {}, trip = {} } = {}) {
   const Screen = await bundleComponent("src/screens/ActiveTripScreen.tsx", {
     real: ["/api/bookings", "/utils/tripLocationShare", "/utils/tripDetailsSync.js"],
     mocks: {
@@ -47,8 +48,9 @@ export async function openActiveTrip({ lang = "ru", role = "passenger", status =
       from_city: "Уфа", to_city: "Сибай", depart_at: "2030-01-01T10:00:00", seats: 1, price: 500,
       pay_method: "cash", driver_name: "Ринат", driver_verified: true, driver_phone: "+79990000000",
       driver_car: "Lada", pickup: "", from_lat: null, from_lng: null, to_lat: null, to_lng: null,
+      ...details,
     },
-    trip: { role, status, driver_phase: phase },
+    trip: { role, status, driver_phase: phase, ...trip },
     async get(p) {
       if (p === "/bookings/42/details") return { ...at.details };
       if (p === "/bookings/42/role") return { ...at.trip };

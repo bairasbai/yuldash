@@ -240,6 +240,19 @@ check(
   stopsRule.every((s) => ak("CreateRideStops.kt").includes(s) && wCreate.includes(s)),
   "создание поездки: правило остановок одинаково в приложении и в вебе (RU и BA)"
 );
+// Отмена в пути (23.10.2026): одни и те же слова пассажиру и водителю в обоих клиентах (RU и BA).
+const inTransitWords = ["Поездку отменили в пути", "Сәфәр юлда кире алынды",
+  "Если нужна помощь — нажми SOS или «Застрял на трассе». Машина и госномер — ниже.",
+  "Ярҙам кәрәк булһа — SOS йәки «Юлда ҡалдым» төймәһенә баҫ. Машина һәм дәүләт номеры — түбәндә."];
+const rideCancelWords = ["Если довёз — нажми «Завершить рейс». Если снимаешь — им придёт уведомление, ",
+  "а близким, с кем они поделились поездкой, — SMS, что поездка отменена в пути.",
+  "Илтеп еткерһәң — «Рейсты тамамлау» төймәһенә баҫ. Алаһың икән — уларға хәбәр, ",
+  "ә улар сәфәр менән бүлешкән яҡындарға сәфәр юлда кире алынды тигән SMS китә."];
+check(
+  inTransitWords.every((s) => ak("CancelledInTransit.kt").includes(s) && web("components/CancelledInTransitCard.tsx").includes(s)) &&
+    rideCancelWords.every((s) => ak("RideCancelWarning.kt").includes(s) && web("utils/rideCancelWarning.ts").includes(s)),
+  "отмена в пути: «Поездку отменили в пути» и предупреждение «Снять поездку?» одинаковы в приложении и в вебе"
+);
 check(
   aCreate.includes('mutableStateOf("4")') && aCreate.includes("SeatOptionsCard(") &&
     wCreate.includes("useState(SEATS_DEFAULT)") && wCreate.includes("<SeatOptionsFields") &&
