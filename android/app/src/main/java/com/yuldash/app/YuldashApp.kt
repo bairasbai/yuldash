@@ -796,8 +796,9 @@ private fun YuldashAppContent() {
                 if (state != null && state.role in listOf("driver", "passenger")) {
                     // Водителя не ведём на пассажирскую «Бронь»: кабинет или экран поездки (BookingLinkDestination.kt).
                     val onCabinet = screen == Screen.DriverCabinet
-                    val target = vm.applyBookingLink(bid, state.role, state.status, completed)
-                    activeTripTerminalHint = knownTerminalTripHint(bid, state.status, state.role)
+                    // Отменили в пути (23.10.2026): пассажира — сразу на экран поездки с SOS, а не на «Найти другую поездку».
+                    val target = vm.applyBookingLink(bid, state.role, state.status, completed, state.cancelledInTransit)
+                    activeTripTerminalHint = knownTerminalTripHint(bid, state.status, state.role, state.cancelledInTransit)
                     if (target != Screen.DriverCabinet) selectedBookingStatus = state.status
                     else if (onCabinet) driverCabinetEpoch++   // уже в кабинете: пересоздаём, чтобы бронь появилась
                 } else {
@@ -898,11 +899,11 @@ private fun YuldashAppContent() {
                     )
                     selectedRide = restoredRide
                     selectedBookingStatus = b.status
-                    activeTripTerminalHint = knownTerminalTripHint(bid, b.status, "passenger")
+                    activeTripTerminalHint = knownTerminalTripHint(bid, b.status, "passenger", b.cancelledInTransit)
                     // Live-гео и карта гейтятся на activeTrip: ставим его только для активной поездки.
                     activeTrip = if (bookingStatusAllowsBoarding(b.status)) restoredRide else null
-                    // Отменённая бронь → детали; done остаётся на экране завершения и оценки.
-                    if (screen.contentScreen() == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status)) screen = Screen.Booking
+                    // Отменённая бронь → детали; done остаётся на экране завершения и оценки; отменённая в пути — на экране поездки (SOS).
+                    if (screen.contentScreen() == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status) && !b.cancelledInTransit) screen = Screen.Booking
                     restored = true
                 }
             }
@@ -1380,6 +1381,7 @@ private fun YuldashAppContent() {
                     }
                 },
                 onFindAnotherRide = { openHome(HomeTab.Rides) },
+                onSos = { openSos(bookingId = activeBookingId ?: 0) },   // отменили в пути: SOS с бронью, как на экране поездки
                 frontSeat = frontSeat, onFrontSeatChange = { frontSeat = it },
                 selectedSeats = selectedSeats, onSeatsChange = { if (!bookingInFlight) selectedSeats = it },
                 bookingBusy = bookingInFlight,

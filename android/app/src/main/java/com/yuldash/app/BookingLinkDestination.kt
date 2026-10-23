@@ -25,11 +25,14 @@ internal fun bookingStatusAllowsBoarding(status: String): Boolean =
  *
  * Завершённая бронь (`completed`) открывает экран поездки у обеих ролей — там итог и оценка.
  * Водитель: подтверждённая, «в пути» или завершённая бронь — экран поездки, всё остальное
- * (ждёт подтверждения, отменена) — кабинет водителя. Пассажир — «Бронь», как и раньше.
+ * (ждёт подтверждения, отменена) — кабинет водителя. Пассажир — «Бронь», как и раньше, кроме
+ * одного случая: поездку отменили, когда он был в машине (`cancelled_in_transit`, 23.10.2026) —
+ * пуш ведёт прямо на экран поездки с SOS и «Застрял на трассе», а не на «Найти другую поездку».
  */
-internal fun bookingLinkScreen(role: String, status: String, completed: Boolean): Screen = when {
+internal fun bookingLinkScreen(role: String, status: String, completed: Boolean, cancelledInTransit: Boolean = false): Screen = when {
     completed -> Screen.ActiveTrip
     role == "driver" -> if (bookingStatusAllowsActiveTrip(status)) Screen.ActiveTrip else Screen.DriverCabinet
+    role == "passenger" && status == "cancelled" && cancelledInTransit -> Screen.ActiveTrip
     else -> Screen.Booking
 }
 
@@ -50,8 +53,9 @@ internal fun bookingLinkStubRide(bookingId: Int): Ride = Ride(
  * «Открыть поездку» в «Брони»; у завершённой оно гаснет; пассажира на «Бронь» не трогаем.
  * Кабинет водителя ничего из брони не берёт: он сам читает свои списки.
  */
-internal fun YuldashViewModel.applyBookingLink(bookingId: Int, role: String, status: String, completed: Boolean): Screen {
-    val target = bookingLinkScreen(role, status, completed)
+internal fun YuldashViewModel.applyBookingLink(bookingId: Int, role: String, status: String, completed: Boolean,
+    cancelledInTransit: Boolean = false): Screen {
+    val target = bookingLinkScreen(role, status, completed, cancelledInTransit)
     if (target != Screen.DriverCabinet) {
         val stub = bookingLinkStubRide(bookingId)
         selectedRide.value = stub

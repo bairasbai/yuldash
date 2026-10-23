@@ -1650,7 +1650,8 @@ object ApiClient {
         call("GET", "/bookings/$bookingId/role", null, auth = true).map {
             TripStateDto(it.optString("role"), it.optString("status"), it.optString("driver_phase"),
                          it.optBoolean("arrival_verified", false),
-                         it.optBoolean("alone_with_driver", false), it.optInt("peer_id"), it.optInt("boarding_undo_sec"))
+                         it.optBoolean("alone_with_driver", false), it.optInt("peer_id"), it.optInt("boarding_undo_sec"),
+                         it.optInt("problem_report_sec"), it.optBoolean("cancelled_in_transit", false))
         }
 
     /** Водитель отмечает «выехал»/«подъезжаю»/«Пассажир сел» → push пассажиру. status: "departed"|"arriving"|"boarded"|"done". */
@@ -6628,6 +6629,9 @@ data class TripStateDto(
     val aloneWithDriver: Boolean = false,
     val peerId: Int = 0,            // вторая сторона брони (пассажиру — водитель): «Сообщить о проблеме»; 0 — старый сервер
     val boardingUndoSec: Int = 0,   // водителю: сколько секунд ещё можно отменить свою отметку «Сел» (17.10.2026)
+    val problemReportSec: Int = 0,  // пассажиру: сколько ещё показывать «Сообщить о проблеме» (после поездки и отмены в пути)
+    // Отменили, когда пассажир был в машине (23.10.2026): экран поездки не закрывается сам. Старый сервер — false.
+    val cancelledInTransit: Boolean = false,
 )
 
 data class RequestNearDto(
