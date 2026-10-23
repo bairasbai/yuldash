@@ -187,7 +187,7 @@ class ActiveTripChatUiBoundaryTest {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         // Запись вне композиции (повторное открытие экрана) не ждёт GlobalSnapshotManager: в Robolectric
         // он может «уснуть» после сброса Looper между тестами (docs/testing.md, правило 5).
-        Snapshot.sendApplyNotifications()
+        // ДИАГНОСТИКА: старое ожидание, без Snapshot.sendApplyNotifications()
         condition()
     }
     private fun tripList() = compose.onNode(hasScrollToNodeAction() and

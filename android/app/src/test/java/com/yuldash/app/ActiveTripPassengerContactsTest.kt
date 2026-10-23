@@ -409,8 +409,7 @@ class ActiveTripPassengerContactsTest {
     // Robolectric может «уснуть» после сброса Looper между тестами (docs/testing.md, правило 5).
     // Ожидание доставляет её само — как ComposeIdlingResource в waitForIdle.
     private fun settle() {
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        Snapshot.sendApplyNotifications()
+        Shadows.shadowOf(Looper.getMainLooper()).idle() // ДИАГНОСТИКА: старое ожидание, без доставки записи
     }
 
     private fun pumpPollPeriod() {
