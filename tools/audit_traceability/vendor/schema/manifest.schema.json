@@ -1,0 +1,683 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:audit-traceability:manifest:1.0",
+  "title": "Strict offline audit traceability manifest 1.0",
+  "description": "Structure only. Python validator adds graph, local byte integrity and acceptance policy checks. Remote schemas are never fetched.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "audit": {
+      "$ref": "#/$defs/audit"
+    },
+    "people": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/person"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/feature"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/requirement"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "implementations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/implementation"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/test"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "acceptances": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/acceptance"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "skip_decisions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/skip_decision"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "audit",
+    "people",
+    "artifacts",
+    "evidence",
+    "features",
+    "requirements",
+    "implementations",
+    "tests",
+    "acceptances",
+    "skip_decisions"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*(?:[._-][A-Z0-9]+)*$(?![\\s\\S])"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$(?![\\s\\S])"
+    },
+    "certainty": {
+      "type": "string",
+      "enum": [
+        "observed",
+        "inferred",
+        "unknown"
+      ]
+    },
+    "audit": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "demo",
+            "real"
+          ]
+        },
+        "target_commit": {
+          "$ref": "#/$defs/commit"
+        },
+        "author_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "claimed_state": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "implemented",
+            "accepted",
+            "accepted_with_skips"
+          ]
+        },
+        "reported_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "scope",
+        "target_commit",
+        "author_ids",
+        "claimed_state"
+      ],
+      "additionalProperties": false
+    },
+    "person": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "$ref": "#/$defs/text"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "audit_author",
+              "implementation",
+              "test",
+              "acceptance"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "roles"
+      ],
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/text"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "source",
+            "implementation",
+            "execution",
+            "acceptance",
+            "decision"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "sha256",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "certainty": {
+          "$ref": "#/$defs/certainty"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "static",
+            "runtime",
+            "public"
+          ]
+        },
+        "claim": {
+          "$ref": "#/$defs/text"
+        },
+        "locator": {
+          "$ref": "#/$defs/text"
+        },
+        "artifact_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "certainty",
+        "kind",
+        "claim",
+        "locator",
+        "artifact_ids"
+      ],
+      "additionalProperties": false
+    },
+    "feature": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "classification": {
+          "type": "string",
+          "enum": [
+            "business_feature",
+            "robustness",
+            "helper"
+          ]
+        },
+        "requirement_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "classification",
+        "requirement_ids"
+      ],
+      "additionalProperties": false
+    },
+    "requirement": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "feature_id": {
+          "$ref": "#/$defs/id"
+        },
+        "text": {
+          "$ref": "#/$defs/text"
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "must",
+            "should",
+            "may"
+          ]
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "P0",
+            "P1",
+            "P2"
+          ]
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "implementation_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "test_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "acceptance_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "active",
+            "skipped"
+          ]
+        },
+        "skip_decision_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "id",
+        "feature_id",
+        "text",
+        "level",
+        "priority",
+        "evidence_ids",
+        "implementation_ids",
+        "test_ids",
+        "acceptance_ids",
+        "disposition"
+      ],
+      "additionalProperties": false
+    },
+    "implementation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "requirement_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "commit": {
+          "$ref": "#/$defs/commit"
+        },
+        "author_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "implemented",
+            "proposed",
+            "unknown"
+          ]
+        },
+        "summary": {
+          "$ref": "#/$defs/text"
+        },
+        "artifact_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "requirement_ids",
+        "commit",
+        "author_ids",
+        "state",
+        "summary",
+        "artifact_ids"
+      ],
+      "additionalProperties": false
+    },
+    "test": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "requirement_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "implementation_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "executed",
+            "proposed",
+            "unknown"
+          ]
+        },
+        "certainty": {
+          "$ref": "#/$defs/certainty"
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "target_commit": {
+          "$ref": "#/$defs/commit"
+        },
+        "executor_id": {
+          "$ref": "#/$defs/id"
+        },
+        "started_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "finished_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "command": {
+          "$ref": "#/$defs/text"
+        },
+        "environment": {
+          "$ref": "#/$defs/text"
+        },
+        "artifact_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "requirement_ids",
+        "implementation_ids",
+        "state",
+        "certainty",
+        "result",
+        "target_commit",
+        "executor_id",
+        "started_at",
+        "finished_at",
+        "command",
+        "environment",
+        "artifact_ids"
+      ],
+      "additionalProperties": false
+    },
+    "acceptance": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "requirement_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "implementation_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "test_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "target_commit": {
+          "$ref": "#/$defs/commit"
+        },
+        "reviewer_id": {
+          "$ref": "#/$defs/id"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "rejected",
+            "pending"
+          ]
+        },
+        "certainty": {
+          "$ref": "#/$defs/certainty"
+        },
+        "reviewed_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "reason": {
+          "$ref": "#/$defs/text"
+        },
+        "reviewed_artifact_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "artifact_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "requirement_ids",
+        "implementation_ids",
+        "test_ids",
+        "target_commit",
+        "reviewer_id",
+        "decision",
+        "certainty",
+        "reviewed_at",
+        "reason",
+        "reviewed_artifact_ids",
+        "artifact_ids"
+      ],
+      "additionalProperties": false
+    },
+    "skip_decision": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "requirement_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "decider_id": {
+          "$ref": "#/$defs/id"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "approved",
+            "rejected",
+            "pending"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/text"
+        },
+        "decided_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "artifact_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "requirement_ids",
+        "decider_id",
+        "decision",
+        "reason",
+        "decided_at",
+        "artifact_ids"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

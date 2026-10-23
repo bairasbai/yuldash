@@ -1,0 +1,204 @@
+{
+  "schema_version": "1.0",
+  "audit": {
+    "id": "W1-E2E-20261018",
+    "title": "Попутка: полная цепочка приёмки, первоначальный перенос требований",
+    "scope": "real",
+    "target_commit": "a1394d58328c9b22b6edc240028f1b7dc98d0143",
+    "author_ids": [
+      "PERSON-CODEX-TRACEABILITY-20261023"
+    ],
+    "claimed_state": "unknown"
+  },
+  "people": [
+    {
+      "id": "PERSON-CODEX-TRACEABILITY-20261023",
+      "name": "Codex/root — автор переноса критериев, не принимающий попутку",
+      "roles": [
+        "audit_author"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "ART-W1-SCOPE",
+      "path": "docs/audit-traceability/rideshare-scope.md",
+      "sha256": "2d5f26ed872a50292189297311529b6ba2c5bbb991154edef531a27e70a5a0ce",
+      "kind": "source"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EVD-W1-SCOPE",
+      "certainty": "observed",
+      "kind": "static",
+      "claim": "В документе зафиксированы семь обязательных критериев; это наблюдение требований, не выполнения приложения",
+      "locator": "docs/audit-traceability/rideshare-scope.md, разделы W1-E2E-01…07",
+      "artifact_ids": [
+        "ART-W1-SCOPE"
+      ]
+    }
+  ],
+  "features": [
+    {
+      "id": "FEATURE-W1-01",
+      "title": "Основная поездка",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "W1-E2E-01"
+      ]
+    },
+    {
+      "id": "FEATURE-W1-02",
+      "title": "Поездка через заявку",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "W1-E2E-02"
+      ]
+    },
+    {
+      "id": "FEATURE-W1-03",
+      "title": "Отказы и места",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "W1-E2E-03"
+      ]
+    },
+    {
+      "id": "FEATURE-W1-04",
+      "title": "Потеря сети и перезапуск",
+      "classification": "robustness",
+      "requirement_ids": [
+        "W1-E2E-04"
+      ]
+    },
+    {
+      "id": "FEATURE-W1-05",
+      "title": "Личные данные и доступ",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "W1-E2E-05"
+      ]
+    },
+    {
+      "id": "FEATURE-W1-06",
+      "title": "Два языка и экран",
+      "classification": "robustness",
+      "requirement_ids": [
+        "W1-E2E-06"
+      ]
+    },
+    {
+      "id": "FEATURE-W1-07",
+      "title": "Телефоны и выпуск",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "W1-E2E-07"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "W1-E2E-01",
+      "feature_id": "FEATURE-W1-01",
+      "text": "Публикация → поиск по остановкам → место посадки и высадки → бронь → подтверждение → чат → посадка → перезапуск → завершение → две оценки/квитанции → история. Android-пассажир/PWA-водитель и обратные роли.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-W1-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "W1-E2E-02",
+      "feature_id": "FEATURE-W1-02",
+      "text": "Заявка → свой существующий рейс → отклик → принятие → полное завершение. Нет второго рейса, повторного занятия места или двойного списания. Обе пары Android/PWA.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-W1-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "W1-E2E-03",
+      "feature_id": "FEATURE-W1-03",
+      "text": "Отказ, отмена, неявка, ошибочная посадка, последнее место. Верные конечные состояния, освобождение мест и отсутствие лишнего рейса/брони.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-W1-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "W1-E2E-04",
+      "feature_id": "FEATURE-W1-04",
+      "text": "Потеря ответа/сети, ручной повтор и смерть процесса без дубля. Обе точки и правильная стадия сохраняются. Серверный тест не заменяет обе клиентские проверки.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-W1-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "W1-E2E-05",
+      "feature_id": "FEATURE-W1-05",
+      "text": "Контакты закрыты до подтверждения. Защищены чужая бронь/участок, смена входа, ссылка близкому, её отзыв/завершение и окно контактов водителя.",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-W1-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "W1-E2E-06",
+      "feature_id": "FEATURE-W1-06",
+      "text": "RU/BA × светлая/тёмная тема; крупный текст и узкий экран. Явно указан охват экранов; башкирский подтверждён носителем. Независимая итоговая приёмка.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-W1-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "W1-E2E-07",
+      "feature_id": "FEATURE-W1-07",
+      "text": "Два физических телефона, согласованная версия Android/сервера/PWA к выпуску, настоящие Telegram/FCM/GPS/MapKit в фоне, третий экран близкого и SOS. Реальные платежи не выполняются; выкладка только с разрешения Александра.",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-W1-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    }
+  ],
+  "implementations": [],
+  "tests": [],
+  "acceptances": [],
+  "skip_decisions": []
+}

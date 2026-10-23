@@ -1,0 +1,1 @@
+SYNTHETIC DEMO public-spec snapshot: reserve one seat; prevent duplicate reservation/overbooking. No real public service was queried.

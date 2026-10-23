@@ -1,0 +1,3 @@
+SYNTHETIC DEMO REVIEW RECORD. Illustrates an independent reviewer ID and complete artifact review declaration.
+No independent human acceptance was performed. No claim about Yuldash, BlaBlaCar, Go or Pro.
+For a real audit, replace this fixture with real independent review of checkout/build provenance, raw executions and failures.

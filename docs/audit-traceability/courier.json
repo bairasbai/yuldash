@@ -1,0 +1,270 @@
+{
+  "schema_version": "1.0",
+  "audit": {
+    "id": "COURIER-E2E-20261023",
+    "title": "Приёмка доставки: исходный состав, без заявленного выполнения",
+    "scope": "real",
+    "target_commit": "4c1f879e091dbd3176c699b94f651afad3979387",
+    "author_ids": [
+      "PERSON-CODEX-MODES-20261023"
+    ],
+    "claimed_state": "unknown"
+  },
+  "people": [
+    {
+      "id": "PERSON-CODEX-MODES-20261023",
+      "name": "Codex/root — автор переноса требований, не принимающий режим",
+      "roles": [
+        "audit_author"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "ART-COURIER-SCOPE",
+      "path": "docs/audit-traceability/courier-scope.md",
+      "sha256": "9663fceaa6f57c69be58e47c99dd321717573a30dbc1d9d38cd5f3214d4592f3",
+      "kind": "source"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EVD-COURIER-SCOPE",
+      "certainty": "observed",
+      "kind": "static",
+      "claim": "Зафиксированы обязательные требования и прежние ID; выполнение приложения не заявлено",
+      "locator": "docs/audit-traceability/courier-scope.md, разделы COURIER-E2E-01…10",
+      "artifact_ids": [
+        "ART-COURIER-SCOPE"
+      ]
+    }
+  ],
+  "features": [
+    {
+      "id": "FEATURE-COURIER-01",
+      "title": "Попутная доставка",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "COURIER-E2E-01"
+      ]
+    },
+    {
+      "id": "FEATURE-COURIER-02",
+      "title": "Профессиональная доставка",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "COURIER-E2E-02"
+      ]
+    },
+    {
+      "id": "FEATURE-COURIER-03",
+      "title": "Покупка и расчёт",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "COURIER-E2E-03"
+      ]
+    },
+    {
+      "id": "FEATURE-COURIER-04",
+      "title": "Отказ и возврат",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "COURIER-E2E-04"
+      ]
+    },
+    {
+      "id": "FEATURE-COURIER-05",
+      "title": "Разрешённый спор",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "COURIER-E2E-05"
+      ]
+    },
+    {
+      "id": "FEATURE-COURIER-06",
+      "title": "Итог и оценка",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "COURIER-E2E-06"
+      ]
+    },
+    {
+      "id": "FEATURE-COURIER-07",
+      "title": "Сеть и конкуренция",
+      "classification": "robustness",
+      "requirement_ids": [
+        "COURIER-E2E-07"
+      ]
+    },
+    {
+      "id": "FEATURE-COURIER-08",
+      "title": "Получатель и приватность",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "COURIER-E2E-08"
+      ]
+    },
+    {
+      "id": "FEATURE-COURIER-09",
+      "title": "Экран и два языка",
+      "classification": "robustness",
+      "requirement_ids": [
+        "COURIER-E2E-09"
+      ]
+    },
+    {
+      "id": "FEATURE-COURIER-10",
+      "title": "Телефоны и выпуск",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "COURIER-E2E-10"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "COURIER-E2E-01",
+      "feature_id": "FEATURE-COURIER-01",
+      "text": "Отправитель создаёт посылку настоящей пустой формой → попутный перевозчик находит/принимает → забирает → вручает полученным кодом → обе стороны видят доставку. Обе пары Android/PWA. Попутному перевозчику профессиональная заявка не требуется.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-COURIER-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "COURIER-E2E-02",
+      "feature_id": "FEATURE-COURIER-02",
+      "text": "Заявка → решение/допуск → линия → созданный заказчиком заказ → получение или покупка → вручение → расчёт. Начало не подменяется подготовленными approved/online.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-COURIER-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "COURIER-E2E-03",
+      "feature_id": "FEATURE-COURIER-03",
+      "text": "Согласованный бюджет покупки, ошибка суммы/сети и повтор с сохранённым вводом, платное ожидание, доставка/возврат, комиссия/ручное подтверждение и состав счёта проверены без двойного зачёта. Цена возврата показана до заказа. Чужое фото не меняет назначение и не останавливает ожидание. Реальные деньги не отправляются.",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-COURIER-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "COURIER-E2E-04",
+      "feature_id": "FEATURE-COURIER-04",
+      "text": "Отказ, недоступность другой стороны, неудачная попытка вручения и возврат доходят до правильного окончательного состояния returned. Ответственность перевозчика сохраняется, координаты прекращаются вовремя; returning не выдаётся за обычную доставку.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-COURIER-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "COURIER-E2E-05",
+      "feature_id": "FEATURE-COURIER-05",
+      "text": "Форма спора → отправка → разбор → результат участникам. Доступ сохраняется после разрешённых конечных исходов. Открытие формы не заменяет отправку и разбор.",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-COURIER-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "COURIER-E2E-06",
+      "feature_id": "FEATURE-COURIER-06",
+      "text": "Delivered/returned/canceled показывают только разрешённые действия; квитанция, своя оценка и повторный вход восстанавливаются. У canceled квитанция возвращает 409 по текущему договору; последние десять записей не называются полной историей. Второй голос доставки запрещён; при неизвестном результате сначала читается сервер.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-COURIER-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "COURIER-E2E-07",
+      "feature_id": "FEATURE-COURIER-07",
+      "text": "Потеря сети/ответа, повтор, перезапуск/смерть процесса и конкурентные действия не дублируют заказ, принятие, вручение, сумму или оценку. Поздний ответ не переносит результат в другую посылку/аккаунт. Совмещение с такси проверяется по существующей политике.",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-COURIER-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "COURIER-E2E-08",
+      "feature_id": "FEATURE-COURIER-08",
+      "text": "Настоящая клиентская ссылка получателя → разрешённое отслеживание → код → вручение → закрытие живых координат. Неверный код не завершает заказ. Чужие посылки/медиа/ссылки, смена входа и поздние события защищены; SOS имеет правильный контекст.",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-COURIER-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "COURIER-E2E-09",
+      "feature_id": "FEATURE-COURIER-09",
+      "text": "Заявленный полный набор экранов четырёх участников: RU/BA × темы, размеры/крупный текст, загрузка/пусто/ошибка/повтор, разрешения, доступность, Canon и анимации. BA подтверждает носитель; итог — свежий независимый принимающий.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-COURIER-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "COURIER-E2E-10",
+      "feature_id": "FEATURE-COURIER-10",
+      "text": "Два физических телефона и настоящий сервер: реальные GPS/MapKit/уведомления в фоне, получатель и закрытие доступа, SOS. Реальная доставка сообщения и физическая передача не подменяются API. Согласованы версии Android/сервера/PWA; выпуск отдельно разрешает Александр.",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-COURIER-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    }
+  ],
+  "implementations": [],
+  "tests": [],
+  "acceptances": [],
+  "skip_decisions": []
+}

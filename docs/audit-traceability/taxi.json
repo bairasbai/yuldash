@@ -1,0 +1,270 @@
+{
+  "schema_version": "1.0",
+  "audit": {
+    "id": "TAXI-E2E-20261023",
+    "title": "Приёмка такси: исходный состав, без заявленного выполнения",
+    "scope": "real",
+    "target_commit": "4c1f879e091dbd3176c699b94f651afad3979387",
+    "author_ids": [
+      "PERSON-CODEX-MODES-20261023"
+    ],
+    "claimed_state": "unknown"
+  },
+  "people": [
+    {
+      "id": "PERSON-CODEX-MODES-20261023",
+      "name": "Codex/root — автор переноса требований, не принимающий режим",
+      "roles": [
+        "audit_author"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "ART-TAXI-SCOPE",
+      "path": "docs/audit-traceability/taxi-scope.md",
+      "sha256": "3a88dd71be43f5f8ae5729a3bb66e6c1cb42bc068d3254b44eba2fa901eb0585",
+      "kind": "source"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EVD-TAXI-SCOPE",
+      "certainty": "observed",
+      "kind": "static",
+      "claim": "Зафиксированы обязательные требования и прежние ID; выполнение приложения не заявлено",
+      "locator": "docs/audit-traceability/taxi-scope.md, разделы TAXI-E2E-01…10",
+      "artifact_ids": [
+        "ART-TAXI-SCOPE"
+      ]
+    }
+  ],
+  "features": [
+    {
+      "id": "FEATURE-TAXI-01",
+      "title": "Непрерывная поездка",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "TAXI-E2E-01"
+      ]
+    },
+    {
+      "id": "FEATURE-TAXI-02",
+      "title": "Допуск и линия",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "TAXI-E2E-02"
+      ]
+    },
+    {
+      "id": "FEATURE-TAXI-03",
+      "title": "Отмена и переназначение",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "TAXI-E2E-03"
+      ]
+    },
+    {
+      "id": "FEATURE-TAXI-04",
+      "title": "Расчёт без дублей",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "TAXI-E2E-04"
+      ]
+    },
+    {
+      "id": "FEATURE-TAXI-05",
+      "title": "Сеть и перезапуск",
+      "classification": "robustness",
+      "requirement_ids": [
+        "TAXI-E2E-05"
+      ]
+    },
+    {
+      "id": "FEATURE-TAXI-06",
+      "title": "Конкурентные действия",
+      "classification": "robustness",
+      "requirement_ids": [
+        "TAXI-E2E-06"
+      ]
+    },
+    {
+      "id": "FEATURE-TAXI-07",
+      "title": "Доступ и безопасность",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "TAXI-E2E-07"
+      ]
+    },
+    {
+      "id": "FEATURE-TAXI-08",
+      "title": "Итог и следующая поездка",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "TAXI-E2E-08"
+      ]
+    },
+    {
+      "id": "FEATURE-TAXI-09",
+      "title": "Экран и два языка",
+      "classification": "robustness",
+      "requirement_ids": [
+        "TAXI-E2E-09"
+      ]
+    },
+    {
+      "id": "FEATURE-TAXI-10",
+      "title": "Телефоны и выпуск",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "TAXI-E2E-10"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "TAXI-E2E-01",
+      "feature_id": "FEATURE-TAXI-01",
+      "text": "Пассажир и водитель проходят общую навигацию: адреса → актуальная цена → заказ → поиск → принятие → прибытие → посадка → завершение. Обе пары Android/PWA. Сохраняются маршрут, остановки, предзаказ и согласование нового адреса.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-TAXI-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "TAXI-E2E-02",
+      "feature_id": "FEATURE-TAXI-02",
+      "text": "Заявка водителя → решение → документы/готовность → линия. Pending/rejected/verified, первая ошибка загрузки, поздние ответы и замена фото дают верный результат. Тяжёлая обработка изображений измерена.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-TAXI-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "TAXI-E2E-03",
+      "feature_id": "FEATURE-TAXI-03",
+      "text": "Отмена обеих сторон, отсутствие машины, ожидание, отказ водителя и переназначение имеют верные конечные состояния. Повтор заказа сначала прекращает прежнюю очередь; неудачная отмена оставляет её видимой.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-TAXI-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "TAXI-E2E-04",
+      "feature_id": "FEATURE-TAXI-04",
+      "text": "Цена, ожидание, отмена, комиссия/долг и отметка наличных согласованы между сторонами и чеком. Копейки не теряются; повтор не удваивает денежную операцию. Отметка оплаты не объявляется переводом денег. Реальные деньги этой проверкой не отправляются.",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-TAXI-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "TAXI-E2E-05",
+      "feature_id": "FEATURE-TAXI-05",
+      "text": "Потеря сети/ответа, ручной повтор, перезагрузка и смерть процесса восстанавливают тот же заказ, стадию и точки. Ошибка чтения заказов не открывает новую форму; поздний геокодер не заменяет ручную точку.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-TAXI-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "TAXI-E2E-06",
+      "feature_id": "FEATURE-TAXI-06",
+      "text": "Два устройства пассажира создают один активный заказ; таксист не принимает два заказа. Совмещение с доставкой сохраняет существующую несимметричную политику, а не придуманную общую блокировку.",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-TAXI-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "TAXI-E2E-07",
+      "feature_id": "FEATURE-TAXI-07",
+      "text": "Чужой заказ закрыт. Контакты и точное гео доступны только в разрешённой стадии. Смена входа, поздние ответы, ссылка/отзыв/завершение и SOS не раскрывают прежний контекст. Завершение закрывает предусмотренные каналы связи.",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-TAXI-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "TAXI-E2E-08",
+      "feature_id": "FEATURE-TAXI-08",
+      "text": "Обе стороны через настоящую навигацию достигают своего итога, чека, оценки и следующего заказа. Ошибка или неготовый чек не выдумывают сумму. Оценка восстанавливается; повтор такси обновляет существующую запись, не запрещается по правилам доставки.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-TAXI-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "TAXI-E2E-09",
+      "feature_id": "FEATURE-TAXI-09",
+      "text": "Заявленный полный набор экранов: RU/BA × темы, узкая/широкая область, крупный текст, загрузка/пусто/ошибка/повтор, разрешения, доступность, Canon и анимации. BA подтверждает носитель; итог — свежий независимый принимающий.",
+      "level": "must",
+      "priority": "P1",
+      "evidence_ids": [
+        "EVD-TAXI-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    },
+    {
+      "id": "TAXI-E2E-10",
+      "feature_id": "FEATURE-TAXI-10",
+      "text": "Два физических телефона, настоящий сервер и реальные вход/уведомления/геокодер/GPS/MapKit в фоне. Проверены прекращение геопередачи, экран близкого и SOS. Согласованы версии Android/сервера/PWA; выпуск отдельно разрешает Александр.",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-TAXI-SCOPE"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    }
+  ],
+  "implementations": [],
+  "tests": [],
+  "acceptances": [],
+  "skip_decisions": []
+}
