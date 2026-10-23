@@ -60,6 +60,12 @@ export default function RoadsideHelp({ target }: { target: Where }) {
     return () => { scope.current.mounted = false; scope.current.epoch++; flight.current = null; };
   }, [generation, targetKey, target.kind]);
 
+  /** 429 — не «нет связи», а «слишком часто»: связь есть, сервер просит подождать. Срочное — 112 и близкие. */
+  const tooOften = () => appText(
+    "Слишком часто — подожди минуту и нажми снова. Если срочно, позвони близким или 112.",
+    "Артыҡ йыш — бер минут көт һәм ҡабат баҫ. Ашығыс булһа, яҡындарыңа йәки 112-гә шылтырат." // DRAFT
+  );
+
   function describe(r: RoadsideResult): string {
     if (r.delivery_unconfirmed) {
       return appText(
@@ -112,8 +118,7 @@ export default function RoadsideHelp({ target }: { target: Where }) {
         })
         .catch(error => {
           if (current()) setNote(error instanceof ApiError && error.status === 429
-            ? appText("Сигнал не ушёл — нет связи. Позвони близким или 112.",
-              "Сигнал китмәне — бәйләнеш юҡ. Ҡәҙерлеләреңә йәки 112-гә шылтырат.")
+            ? tooOften()
             : appText("Не удалось подтвердить отправку. Проверь связь, повтори сигнал или позвони 112 и близким, если можешь.",
               "Ебәреүҙе раҫлап булманы. Бәйләнеште тикшер, сигналды ҡабатла йәки, мөмкин булһа, 112-гә һәм яҡындарыңа шылтырат."));
         })
@@ -153,12 +158,14 @@ export default function RoadsideHelp({ target }: { target: Where }) {
           // вид беды различаем именем: у попутки и у доставки это разные истории.
           track(target.kind === "parcel" ? "roadside_help_parcel" : "roadside_help");
         })
-        .catch(() =>
+        .catch((error) =>
           setNote(
-            appText(
-              "Сигнал не ушёл — нет связи. Позвони близким или 112.",
-              "Сигнал китмәне — бәйләнеш юҡ. Ҡәҙерлеләреңә йәки 112-гә шылтырат."
-            )
+            error instanceof ApiError && error.status === 429
+              ? tooOften()
+              : appText(
+                "Сигнал не ушёл — нет связи. Позвони близким или 112.",
+                "Сигнал китмәне — бәйләнеш юҡ. Ҡәҙерлеләреңә йәки 112-гә шылтырат."
+              )
           )
         )
         .finally(() => setBusy(false));

@@ -49,6 +49,12 @@ export function keepDropoffAfterPickup(ride: Ride, pickup: string, dropoff: stri
 
 export interface RideMatch {
   rideId: number;
+  /**
+   * Чей это выбор: поколение входа (`getSessionGeneration`) на момент, когда состояние положили в историю
+   * вкладки. История переживает выход из аккаунта, а выбор посадки — след человека (куда он едет).
+   * Состояние без метки или с чужой меткой не читаем. Через вход метка переезжает (`restampRideMatch`).
+   */
+  owner?: string;
   matched_stop: string | null;
   matched_from_start: boolean;
   matched_dropoff_stop?: string | null;
@@ -56,15 +62,21 @@ export interface RideMatch {
 }
 
 /** Keep the server's hint when the unfiltered details request has no match metadata. */
-export function rideMatchState(ride: Ride): { rideMatch: RideMatch } | undefined {
+export function rideMatchState(ride: Ride, owner: string): { rideMatch: RideMatch } | undefined {
   if (!ride.matched_stop && !ride.matched_from_start && !ride.matched_dropoff_stop && !ride.matched_to_end) return undefined;
-  return { rideMatch: { rideId: ride.id, matched_stop: ride.matched_stop ?? null, matched_from_start: ride.matched_from_start === true,
+  return { rideMatch: { rideId: ride.id, owner, matched_stop: ride.matched_stop ?? null, matched_from_start: ride.matched_from_start === true,
     matched_dropoff_stop: ride.matched_dropoff_stop ?? null, matched_to_end: ride.matched_to_end === true } };
 }
 
-export function preserveRideMatch(ride: Ride, state: unknown): Ride {
+/** Выбор, сделанный гостем до входа, после входа принадлежит тому, кто вошёл: ставим ему новую метку. */
+export function restampRideMatch(state: unknown, owner: string): unknown {
   const match = (state as { rideMatch?: RideMatch } | null)?.rideMatch;
-  if (match?.rideId !== ride.id) return ride;
+  return match && typeof match === "object" ? { ...(state as object), rideMatch: { ...match, owner } } : state;
+}
+
+export function preserveRideMatch(ride: Ride, state: unknown, owner: string): Ride {
+  const match = (state as { rideMatch?: RideMatch } | null)?.rideMatch;
+  if (match?.rideId !== ride.id || typeof match.owner !== "string" || match.owner !== owner) return ride;
   return { ...ride, matched_stop: typeof match.matched_stop === "string" ? match.matched_stop : null, matched_from_start: match.matched_from_start === true,
     matched_dropoff_stop: typeof match.matched_dropoff_stop === "string" ? match.matched_dropoff_stop : null, matched_to_end: match.matched_to_end === true };
 }

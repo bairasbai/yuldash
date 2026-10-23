@@ -16,6 +16,7 @@ import {
 import { IconBlock, IconLock, IconPhone, IconProfile, IconShield, IconTelegram, IconWarn } from "../components/Icons";
 import { track } from "../analytics";
 import { createLoginFlow, filterLoginCode, nextNeedPhone, type LoginError, type LoginFlowDeps } from "../utils/loginFlow";
+import { restampRideMatch } from "../utils/pickupStops";
 
 type Step = "choose" | "code";
 
@@ -61,7 +62,7 @@ export default function LoginScreen() {
       telegramStartUrl, telegramChatUrl,
       openTelegram: (url) => window.open(url, "_blank", "noopener,noreferrer"),
       track,
-      navigate: () => live.current.navigate(live.current.from, { replace: true, ...(live.current.returnState ? { state: live.current.returnState } : {}) }),
+      navigate: () => live.current.navigate(live.current.from, { replace: true, ...(live.current.returnState ? { state: restampRideMatch(live.current.returnState, getSessionGeneration()) } : {}) }),
       onBusy: setLoading,
       onError: (kind) => {
         setError(kind);

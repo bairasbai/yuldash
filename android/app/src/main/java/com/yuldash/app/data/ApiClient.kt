@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import okhttp3.Authenticator
+import okhttp3.ConnectionPool
 import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -85,6 +86,9 @@ object ApiClient {
     // One-shot mutations (see [authorized]): never replay a sent body after a lost reply or HTTP follow-up.
     private val oneShotTransport by lazy {
         OkHttpClient.Builder().retryOnConnectionFailure(false)
+            // With recovery disabled, a recently closed pooled socket can consume the user's explicit retry.
+            // Close idle connections instead; this never resends a request whose result is unknown.
+            .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
             .followRedirects(false).followSslRedirects(false)
             .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE).build()
     }
@@ -1626,14 +1630,27 @@ object ApiClient {
 
     suspend fun sendMessage(bookingId: Int, text: String, requestKey: String? = null): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true,
-            idempotencyKey = requestKey).map { }
+            idempotencyKey = requestKey).mapCatching { parseBookingSendReceipt(it, requestKey); Unit }
 
     /** Bind queued work before it can suspend or switch to a new account. */
+    private val bookingReceiptListeners = java.util.concurrent.CopyOnWriteArraySet<(Int, Long, MessageDto) -> Unit>()
+
+    internal fun watchBookingReceipts(listener: (Int, Long, MessageDto) -> Unit): () -> Unit {
+        bookingReceiptListeners += listener
+        return { bookingReceiptListeners -= listener }
+    }
+
     internal suspend fun sendQueuedAction(action: OutboxAction, generation: Long): Result<Unit> {
         return when (action.kind) {
             "message" -> call("POST", "/bookings/${action.bookingId}/messages",
                 JSONObject().put("text", action.payload), auth = true, expectedGeneration = generation,
-                idempotencyKey = Outbox.messageRequestKey(action)).map { }
+                idempotencyKey = Outbox.messageRequestKey(action)).mapCatching {
+                    val receipt = parseBookingSendReceipt(it, Outbox.messageRequestKey(action))
+                    if (receipt.hiddenForMe && isCurrentSession(generation)) bookingReceiptListeners.forEach { listener ->
+                        runCatching { listener(action.bookingId, generation, receipt) }
+                    }
+                    Unit
+                }
             "trip_status" -> call("POST", "/bookings/${action.bookingId}/trip-status",
                 JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation).map { }
             "driver_status" -> call("POST", "/bookings/${action.bookingId}/driver-status",
@@ -1727,8 +1744,20 @@ object ApiClient {
     suspend fun uploadVoice(bytes: ByteArray): Result<String> =
         callMultipart("/voice", bytes, "m4a", "voice.m4a").map { it.optString("url") }
 
-    suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String): Result<Unit> =
-        call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true).map { }
+    suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String, requestKey: String? = null): Result<MessageDto> =
+        call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true,
+            idempotencyKey = requestKey, singleAttemptMutation = true).mapCatching { parseBookingSendReceipt(it, requestKey) }
+
+    private fun parseBookingSendReceipt(body: JSONObject, key: String?): MessageDto {
+        val message = parseMessageDto(body)
+        if (body.has("hidden_for_me")) check(body.opt("hidden_for_me") == true &&
+            body.opt("id") is Number && body.optDouble("id") == message.id.toDouble() && message.id > 0 &&
+            body.opt("sender_id") is Number && body.optDouble("sender_id") == message.senderId.toDouble() &&
+            message.senderId == myUserId() && !key.isNullOrBlank() && message.requestId == key) {
+            "Unconfirmed hidden receipt"
+        }
+        return message
+    }
 
     // Фото в чате: загрузить (multipart) → публичный URL, затем отправить как сообщение с меткой [img].
     suspend fun uploadChatPhoto(bytes: ByteArray, ext: String = "jpg"): Result<String> =
@@ -6803,6 +6832,8 @@ data class MessageDto(
     val edited: Boolean = false,
     val flag: String = "",           // анти-фишинг (B8-6): "warn" → плашка-предупреждение получателю
     val fromAdmin: Boolean = false,  // официальность (B8-9): бейдж «Юлдаш ✓» у сообщений админа/системы
+    val hiddenForMe: Boolean = false,
+    val requestId: String = "",
 )
 
 /** Диалог в инбоксе: бронь, с кем и последнее сообщение. */
@@ -6989,6 +7020,8 @@ internal fun parseMessageDto(o: JSONObject): MessageDto =
         edited = o.optBoolean("edited"),
         flag = o.optString("flag"),
         fromAdmin = o.optBoolean("from_admin"),
+        hiddenForMe = o.optBoolean("hidden_for_me"),
+        requestId = o.optString("request_id"),
     )
 
 /**

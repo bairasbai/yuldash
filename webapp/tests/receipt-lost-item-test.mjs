@@ -24,7 +24,12 @@ const mocks = lang => ({
   "/api/family": `export const fetchBookingTip=async()=>({already_thanked:false,money:null}),thankBooking=async()=>({});`,
   "/utils/format": `export const formatWhen=v=>v,priceLabel=v=>String(v)+' ₽',payMethodLabel=v=>v;`,
 });
-const lostButton = (s, lang) => button(s.tree, lang === "ru" ? "Я забыл вещь в машине" : "Машинала әйбер ҡалдырҙым");
+// Слова каждой стороне свои: водитель не «забыл вещь в своей машине», а ищет вещь, оставленную пассажиром.
+const LOST = {
+  passenger: { ru: "Я забыл вещь в машине", ba: "Машинала әйбер ҡалдырҙым", title: { ru: "Забыл вещь?", ba: "Әйбер оноттоңмо?" }, opened: { ru: "Чат открыт — напиши, что искать.", ba: "Чат асыҡ — нимә эҙләргә, яҙ." } },
+  driver: { ru: "Пассажир оставил вещь в машине", ba: "Юлсы машинала әйбер ҡалдырҙы", title: { ru: "Пассажир забыл вещь?", ba: "Юлсы әйбер оноттомо?" }, opened: { ru: "Чат открыт — напиши пассажиру, что осталось в машине.", ba: "Чат асыҡ — юлсыға машинала нимә ҡалғанын яҙ." } },
+};
+const lostButton = (s, lang, role = h.role) => button(s.tree, LOST[role][lang]);
 const chatButton = (s, lang) => button(s.tree, lang === "ru" ? "Открыть чат поездки" : "Сәфәр чатын асыу");
 const alert = s => all(s.tree).find(n => n.props.role === "alert");
 
@@ -33,17 +38,28 @@ for (const lang of ["ru", "ba"]) {
   for (const role of ["passenger", "driver"]) await t.test(`${lang}/${role}: receipt reopens its own chat only after server confirmation`, async () => {
     reset(); h.role = role; const held = deferred(); h.lost = () => held.promise;
     const s = mount(Screen); await s.settle();
-    assert.ok(text(s.tree).includes(lang === "ru" ? "Забыл вещь?" : "Әйбер оноттоңмо?"));
+    assert.ok(text(s.tree).includes(LOST[role].title[lang]), "заголовок своей стороне: " + role);
     const click = lostButton(s, lang)?.props.onClick; assert.equal(typeof click, "function", "receipt has no lost-item action");
     click(); click(); await s.settle();
     assert.deepEqual(h.posts, [{ id: 42, generation: "A" }], "two retained clicks must start one request");
     assert.equal(chatButton(s, lang), undefined, "pending request must not claim the chat is open");
     assert.ok(all(s.tree).some(n => n.type === "button" && n.props.disabled));
     held.resolve(confirmed); await s.settle();
+    assert.ok(text(s.tree).includes(LOST[role].opened[lang]), "после подтверждения — подсказка своей стороне");
     assert.ok(chatButton(s, lang)); assert.equal(lostButton(s, lang), undefined); assert.equal(alert(s), undefined);
     click(); await s.settle(); assert.equal(h.posts.length, 1, "retained pre-success callback reopened again");
     assert.deepEqual(h.routes, [], "opening a chat needs an explicit click");
     chatButton(s, lang).props.onClick(); assert.deepEqual(h.routes, [["/trip/42/chat"]]); s.unmount();
+  });
+
+  await t.test(`${lang}: водитель не видит «я забыл вещь в машине» про свою машину, пассажир — формулировку для водителя`, async () => {
+    for (const [role, other] of [["driver", "passenger"], ["passenger", "driver"]]) {
+      reset(); h.role = role; const s = mount(Screen); await s.settle();
+      assert.ok(lostButton(s, lang, role), role + ": своя кнопка есть");
+      assert.equal(lostButton(s, lang, other), undefined, role + ": кнопки другой стороны нет");
+      assert.ok(!text(s.tree).includes(LOST[other].title[lang]), role + ": заголовка другой стороны нет");
+      s.unmount();
+    }
   });
 
   await t.test(`${lang}: lost acknowledgement keeps uncertainty and explicit retry confirms the same booking`, async () => {

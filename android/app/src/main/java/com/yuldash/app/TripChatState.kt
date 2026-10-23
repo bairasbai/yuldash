@@ -25,6 +25,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.ChatSocket
@@ -33,11 +36,16 @@ import com.yuldash.app.data.Outbox
 import com.yuldash.app.data.OutboxAction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+import java.util.UUID
 
 /** Подсказки чата. Считаются в композиции (два языка), читаются в момент показа. */
 internal class TripChatTexts(
@@ -48,6 +56,8 @@ internal class TripChatTexts(
     val chatSendFail: String,
     val chatActionFail: String,
     val voiceSaved: String,
+    val photoUploadFail: String = chatSendFail,
+    val voiceUploadFail: String = chatSendFail,
 )
 
 @Composable
@@ -58,8 +68,12 @@ internal fun rememberTripChatTexts(queued: String, queueSaveFail: String): State
         queued = queued,
         queueSaveFail = queueSaveFail,
         chatSendFail = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла."),
-        chatActionFail = appText("Не получилось. Повтори.", "Булманы. Ҡабатла."),
+        chatActionFail = appText("Не удалось подтвердить действие. Проверь связь и повтори.", "Ғәмәлде раҫлап булманы. Бәйләнеште тикшереп ҡабатла."),
         voiceSaved = appText("Голос записан", "Тауыш яҙылды"),
+        photoUploadFail = appText("Не удалось подтвердить загрузку фото. Проверь связь и выбери фото ещё раз.",
+            "Фотоның тейәлеүен раҫлап булманы. Бәйләнеште тикшереп фотоны тағы һайла."),
+        voiceUploadFail = appText("Не удалось подтвердить загрузку голосового. Проверь связь и запиши ещё раз.",
+            "Тауыш яҙмаһының тейәлеүен раҫлап булманы. Бәйләнеште тикшереп тағы яҙ."),
     )
 )
 
@@ -98,11 +112,34 @@ internal class TripChatState(
     var historyError: Boolean by mutableStateOf(false)
     /** bump → перезагрузить историю (кнопка «Повторить»). */
     var historyTick: Int by mutableIntStateOf(0)
+    private val historyMutex = Mutex()
+    private var historyVersion = 0L
+    private var historyPending = false
+    private var historyRefreshJob: Job? = null
+    // After an invalidation, an unknown row needs this owner's authoritative history.
+    // A delayed message/receipt alone cannot reveal a row hidden by another open login.
+    private var authoritativeHistory = false
+    private val continuityEpoch = AtomicLong()
+    private val hiddenMessageIds = mutableSetOf<Int>()
     // Черновик и режим правки живут здесь, а не в виде: ушёл в поездку и вернулся — текст на месте.
     var draft: String by mutableStateOf("")
         private set
     var editingId: Int? by mutableStateOf(null)   // id редактируемого сообщения (null — обычная отправка)
         private set
+    var actionBusy: Boolean by mutableStateOf(false)
+        private set
+    var actionError: String by mutableStateOf("")
+        private set
+    private var failedDelete: Pair<Int, String>? = null
+    private var editVersion = 0L
+    private var failedEdit: Pair<Int, Long>? = null
+    private data class VoiceAttempt(val url: String, val key: String, val epoch: Long, var attempted: Boolean = false)
+    // Only an already-uploaded recording in this screen, never a durable media queue.
+    private var failedVoice: VoiceAttempt? = null
+    private val activeVoicePaths = ConcurrentHashMap.newKeySet<String>()
+    val canRetryAction: Boolean
+        get() = !actionBusy && (failedDelete != null || failedVoice != null ||
+            failedEdit?.let { it.first == editingId && it.second == editVersion } == true)
 
     /** Удалённые, голос и непустой текст видимы; «пустые» технические — нет. */
     val visibleMessages: List<MessageDto>
@@ -113,7 +150,60 @@ internal class TripChatState(
      * лента заменяла список целиком, и неотправленное пропадало с экрана (приёмка 18.10.2026).
      */
     private fun applyServer(server: List<MessageDto>) {
-        messages = server + messages.filter { it.id < 0 && it.id !in acknowledged }
+        messages = server.filterNot { it.id in hiddenMessageIds } +
+            messages.filter { it.id < 0 && it.id !in acknowledged }
+    }
+
+    private fun snapshotChanged() { historyVersion++ }
+
+    private fun requestHistoryRefresh() {
+        if (!isActive() || bookingId == null) return
+        historyPending = true
+        if (historyRefreshJob?.isActive != true) historyRefreshJob = scope.launch { drainHistory(bookingId) }
+    }
+
+    private fun historyChanged() {
+        if (!isActive()) return
+        authoritativeHistory = true
+        snapshotChanged()
+        requestHistoryRefresh()
+    }
+
+    // The socket callback advances this before any replacement/late HTTP result can be admitted.
+    fun continuityLost() {
+        if (!isActive()) return
+        continuityEpoch.incrementAndGet()
+        scope.launch { if (isActive()) { snapshotChanged(); requestHistoryRefresh() } }
+    }
+
+    fun refreshAfterReturn() { continuityLost() }
+
+    /** All readers share one pump; a signal/change during IO invalidates that snapshot. */
+    private suspend fun drainHistory(id: Int): Boolean = historyMutex.withLock {
+        if (!isActive()) return@withLock false
+        try {
+            while (historyPending && isActive()) {
+                historyPending = false
+                historyLoading = true
+                historyError = false
+                val version = historyVersion
+                val epoch = continuityEpoch.get()
+                // Never compare with rows that arrive after this request's server snapshot.
+                val previousIds = messages.filter { it.id > 0 }.map { it.id }.toSet()
+                val result = ApiClient.getMessages(id)
+                if (!isActive()) return@withLock false
+                if (version != historyVersion || epoch != continuityEpoch.get()) {
+                    historyPending = true
+                    continue
+                }
+                result.onSuccess { server ->
+                    hiddenMessageIds += previousIds - server.map { it.id }.toSet()
+                    applyServer(server)
+                    markBaseline(server)
+                }.onFailure { historyError = true }
+            }
+            isActive()
+        } finally { if (isActive()) historyLoading = false }
     }
 
     // ── Непрочитанные ───────────────────────────────────────────────────────────────────────
@@ -152,28 +242,38 @@ internal class TripChatState(
         ChatSocket(
             bookingId = id,
             expectedGeneration = tripSession,
+            onHistoryChanged = { scope.launch { historyChanged() } },
+            onContinuityLost = { continuityLost() },
             onMessage = { inc ->
                 // WS-колбэк приходит с фонового потока OkHttp → правку Compose-state делаем на main
                 // (read-modify-write `messages` иначе может потерять обновление при гонке потоков).
                 scope.launch {
-                    if (!isActive()) return@launch
+                    if (!isActive() || inc.id <= 0) return@launch
                     // A repeated frame must never consume another same-text pending message.
                     val pending = restAttempts.entries.firstOrNull {
                         inc.senderId == myId && inc.requestId.isNotBlank() &&
                             Outbox.messageRequestKey(it.value) == inc.requestId
                     }
                     if (pending != null) {
-                        acknowledged += pending.key
+                        if (acknowledged.add(pending.key)) snapshotChanged()
                         failedIds = failedIds - pending.key
                         queuedIds = queuedIds - pending.key
                     }
                     val optIdx = pending?.let { entry -> messages.indexOfFirst { it.id == entry.key } } ?: -1
                     val dto = MessageDto(inc.id, inc.text, inc.senderId, voiceUrl = inc.voiceUrl, deleted = inc.deleted,
                         edited = inc.edited, flag = inc.flag, fromAdmin = inc.fromAdmin)
+                    if (inc.hiddenForMe) {
+                        hiddenMessageIds += inc.id
+                        snapshotChanged()
+                    }
                     messages = when {
+                        inc.id in hiddenMessageIds -> messages.filterNot { it.id == pending?.key || it.id == inc.id }
                         inc.id > 0 && messages.any { it.id == inc.id } -> messages.filterNot { it.id == pending?.key }
-                        optIdx >= 0 -> messages.toMutableList().also { it[optIdx] = dto }
-                        else -> messages + dto
+                        authoritativeHistory || continuityEpoch.get() > 0 -> {
+                            snapshotChanged(); requestHistoryRefresh(); messages.filterNot { it.id == pending?.key }
+                        }
+                        optIdx >= 0 -> messages.toMutableList().also { snapshotChanged(); it[optIdx] = dto }
+                        else -> { snapshotChanged(); messages + dto }
                     }
                     if (pending != null) withContext(Dispatchers.IO) {
                         Outbox.acknowledge(context, pending.value, tripSession)
@@ -206,6 +306,21 @@ internal class TripChatState(
         )
     }
 
+    init {
+        val stop = ApiClient.watchBookingReceipts { bid, generation, receipt ->
+            if (bid == bookingId && generation == tripSession) scope.launch {
+                if (!isActive() || !receipt.hiddenForMe || receipt.senderId != myId) return@launch
+                hiddenMessageIds += receipt.id
+                val pending = restAttempts.filterValues { Outbox.messageRequestKey(it) == receipt.requestId }.keys
+                acknowledged += pending
+                failedIds = failedIds - pending; queuedIds = queuedIds - pending
+                snapshotChanged()
+                messages = messages.filterNot { it.id == receipt.id || it.id in pending }
+            }
+        }
+        scope.coroutineContext[Job]?.invokeOnCompletion { stop() }
+    }
+
     fun canWrite(): Boolean = isActive()
 
     /**
@@ -213,16 +328,9 @@ internal class TripChatState(
      * посадки → детали брони. false — экран уже не тот, цепочку дальше не ведём.
      */
     suspend fun loadHistory(id: Int): Boolean {
-        historyLoading = true
-        historyError = false
-        val historyResult = ApiClient.getMessages(id)
-        // Каждый запрос защищён отдельно, но следующий иначе захватит уже новый аккаунт.
         if (!isActive()) return false
-        historyResult
-            .onSuccess { applyServer(it); markBaseline(it) }
-            .onFailure { historyError = true }
-        historyLoading = false
-        return true
+        historyPending = true
+        return drainHistory(id)
     }
 
     /**
@@ -236,7 +344,7 @@ internal class TripChatState(
         val reconnected = wasEverConnected
         wasEverConnected = true
         if (flushQueued() || !reconnected || !isActive()) return
-        bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { if (isActive()) applyServer(it) } }
+        bookingId?.let { loadHistory(it) }
     }
 
     /**
@@ -258,10 +366,11 @@ internal class TripChatState(
             action.id in refused || Outbox.wasRefused(action, tripSession)
         }
         acknowledged += sent.map { it.first }
+        messages = messages.filterNot { row -> sent.any { it.first == row.id } }
         queuedIds = queuedIds - left.map { it.first }.toSet()
         failedIds = (failedIds - sent.map { it.first }.toSet()) + rejected.map { it.first }
         val queueChanged = changed || left.isNotEmpty()
-        if (queueChanged) bookingId?.let { id -> ApiClient.getMessages(id).onSuccess { if (isActive()) applyServer(it) } }
+        if (queueChanged) { snapshotChanged(); bookingId?.let { loadHistory(it) } }
         return queueChanged
     }
 
@@ -294,12 +403,14 @@ internal class TripChatState(
                 // Same key for uncertain WS delivery, HTTP retry and startup queue flush.
                 ApiClient.sendQueuedAction(action, tripSession)
                     .onSuccess {
+                        if (isActive()) snapshotChanged()
                         acknowledged += tempId
                         withContext(Dispatchers.IO) { Outbox.acknowledge(context, action, tripSession) }
                         if (isActive()) {
+                            messages = messages.filterNot { it.id == tempId }
                             failedIds = failedIds - tempId
                             queuedIds = queuedIds - tempId
-                            ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) }
+                            loadHistory(bid)
                         }
                     }
                     .onFailure { e ->
@@ -333,10 +444,35 @@ internal class TripChatState(
     fun updateDraft(value: String) { if (isActive()) draft = value }
 
     fun startEdit(message: MessageDto) {
-        if (isActive()) { editingId = message.id; draft = message.text }
+        if (isActive() && !actionBusy) {
+            editVersion++
+            editingId = message.id; draft = message.text
+            actionError = ""; failedDelete = null; failedEdit = null; failedVoice = null
+        }
     }
 
-    fun cancelEdit() { editingId = null; draft = "" }
+    fun cancelEdit() {
+        editVersion++; failedEdit = null
+        editingId = null; draft = ""
+        if (failedDelete == null && failedVoice == null) actionError = ""
+    }
+
+    fun retryAction() {
+        if (!isActive() || actionBusy) return
+        val deletion = failedDelete
+        if (deletion != null) delete(deletion.first, deletion.second)
+        else if (failedEdit?.let { it.first == editingId && it.second == editVersion } == true) submitDraft()
+        else failedVoice?.let { attempt ->
+            actionBusy = true; actionError = ""; failedVoice = null
+            scope.launch {
+                try { sendVoiceAttempt(attempt) }
+                finally { if (isActive()) actionBusy = false }
+            }
+        }
+    }
+
+    private fun mutationFailure(error: Throwable, fallback: String): String =
+        if (error is ApiException && error.status in 400..499) serverSaid(error, fallback) else fallback
 
     /** «Отправить» в строке ввода: правка выбранного сообщения или новое сообщение. */
     fun submitDraft() {
@@ -345,71 +481,149 @@ internal class TripChatState(
         if (t.isEmpty() || bid == null || !isActive()) return
         val eid = editingId
         if (eid != null) {
+            if (actionBusy) return
+            val version = editVersion
+            actionBusy = true; actionError = ""; failedDelete = null; failedEdit = null; failedVoice = null
             scope.launch {
-                if (!isActive()) return@launch
-                val result = ApiClient.editMessage(bid, eid, t)
-                if (!isActive()) return@launch
-                result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) } }
-                    .onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatActionFail), long = true) }
+                try {
+                    if (!isActive()) return@launch
+                    val result = ApiClient.editMessage(bid, eid, t)
+                    if (!isActive()) return@launch
+                    result.onSuccess {
+                        snapshotChanged()
+                        // Confirmation is enough to show our change even if the subsequent read fails.
+                        messages = messages.map { if (it.id == eid) it.copy(text = t, edited = true) else it }
+                        // A person can type a newer draft while this request is on the road.
+                        if (editingId == eid && editVersion == version && draft.trim() == t) { editingId = null; draft = "" }
+                        loadHistory(bid)
+                    }.onFailure {
+                        if (editingId == eid && editVersion == version) {
+                            failedEdit = eid to version
+                            actionError = mutationFailure(it, texts.value.chatActionFail)
+                            toast(actionError, long = true)
+                        }
+                    }
+                } finally { if (isActive()) actionBusy = false }
             }
-            editingId = null
         } else {
             sendText(t)
+            draft = ""
         }
-        draft = ""
     }
 
     /** who: "me" — убрать у себя, "all" — у обоих. */
     fun delete(messageId: Int, who: String) {
         val bid = bookingId ?: return
-        if (!isActive()) return
+        if (!isActive() || actionBusy || who !in setOf("me", "all")) return
+        if (messages.none { it.id == messageId && !it.deleted }) {
+            // A fresh authoritative history may already have reached the intended absence.
+            if (failedDelete == (messageId to who)) { failedDelete = null; actionError = "" }
+            return
+        }
+        actionBusy = true; actionError = ""; failedDelete = null; failedEdit = null; failedVoice = null
         scope.launch {
-            if (!isActive()) return@launch
-            val result = ApiClient.deleteMessage(bid, messageId, who)
-            if (!isActive()) return@launch
-            result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) } }
-                .onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatActionFail), long = true) }
+            try {
+                if (!isActive()) return@launch
+                val result = ApiClient.deleteMessage(bid, messageId, who)
+                if (!isActive()) return@launch
+                result.onSuccess {
+                    snapshotChanged()
+                    if (who == "me") { authoritativeHistory = true; hiddenMessageIds += messageId }
+                    messages = if (who == "me") messages.filterNot { it.id == messageId }
+                    else messages.map { if (it.id == messageId) it.copy(text = "", voiceUrl = null, deleted = true) else it }
+                    loadHistory(bid)
+                }.onFailure {
+                    failedDelete = messageId to who
+                    actionError = mutationFailure(it, texts.value.chatActionFail)
+                    toast(actionError, long = true)
+                }
+            } finally { if (isActive()) actionBusy = false }
         }
     }
 
     /** Готовая запись от строки ввода. Файл наш: удаляем его при любом исходе, даже если запуск отменён. */
     fun sendVoice(path: String) {
         val bid = bookingId
-        if (bid == null || !isActive()) {
+        // A retained completion may hand us the same owned file twice. The original job
+        // keeps ownership until completion; the duplicate must not delete it underneath IO.
+        if (path in activeVoicePaths) return
+        if (bid == null || !isActive() || actionBusy) {
             ApiClient.dropVoiceFile(path)
             return
         }
+        activeVoicePaths += path
+        actionBusy = true; actionError = ""; failedDelete = null; failedEdit = null; failedVoice = null
         toast(texts.value.voiceSaved, long = false)
         scope.launch {
-            if (!isActive()) return@launch
-            val bytes = withContext(Dispatchers.IO) { runCatching { File(path).readBytes() }.getOrNull() }
-                ?: return@launch
-            if (!isActive()) return@launch
-            val upload = ApiClient.uploadVoice(bytes)
-            if (!isActive()) return@launch
-            upload.onSuccess { url ->
-                val result = ApiClient.sendVoiceMessage(bid, url)
+            try {
                 if (!isActive()) return@launch
-                result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) } }
-                    .onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatSendFail), long = true) }
-            }.onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatSendFail), long = true) }
+                val bytes = withContext(Dispatchers.IO) { runCatching { File(path).readBytes() }.getOrNull() }
+                if (!isActive()) return@launch
+                if (bytes == null) {
+                    actionError = texts.value.voiceUploadFail
+                    toast(actionError, long = true)
+                    return@launch
+                }
+                val upload = ApiClient.uploadVoice(bytes)
+                if (!isActive()) return@launch
+                upload.onSuccess { url -> sendVoiceAttempt(VoiceAttempt(url, UUID.randomUUID().toString(), continuityEpoch.get())) }
+                    .onFailure {
+                        actionError = mutationFailure(it, texts.value.voiceUploadFail)
+                        toast(actionError, long = true)
+                    }
+            } finally { if (isActive()) actionBusy = false }
         // Completion also runs for a launch cancelled before its body starts.
-        }.invokeOnCompletion { ApiClient.dropVoiceFile(path) }
+        }.invokeOnCompletion { ApiClient.dropVoiceFile(path); activeVoicePaths -= path }
+    }
+
+    private suspend fun sendVoiceAttempt(attempt: VoiceAttempt) {
+        val bid = bookingId ?: return
+        if (!isActive()) return
+        val firstAttempt = !attempt.attempted
+        attempt.attempted = true
+        val result = ApiClient.sendVoiceMessage(bid, attempt.url, attempt.key)
+        if (!isActive()) return
+        result.mapCatching { message ->
+            check(message.id > 0 && message.senderId == myId &&
+                (if (message.hiddenForMe) message.requestId == attempt.key else message.voiceUrl == attempt.url && !message.deleted)) {
+                "Unconfirmed voice receipt"
+            }
+            message
+        }.onSuccess { message ->
+            snapshotChanged()
+            if (message.hiddenForMe) { hiddenMessageIds += message.id; messages = messages.filterNot { it.id == message.id } }
+            val stableNewVoice = firstAttempt && attempt.epoch == continuityEpoch.get() && !authoritativeHistory
+            if (!message.hiddenForMe && message.id !in hiddenMessageIds && (stableNewVoice || messages.any { it.id == message.id })) {
+                if (messages.none { it.id == message.id }) messages = messages + message
+            }
+            loadHistory(bid)
+        }
+            .onFailure { error ->
+                // A known rejection is not an uncertain delivery. Keep a same-key retry only
+                // when the sent message may already have been committed (including proxy 408).
+                failedVoice = attempt.takeIf { error !is ApiException || error.status !in 400..499 || error.status == 408 }
+                actionError = mutationFailure(error, texts.value.chatActionFail)
+                toast(actionError, long = true)
+            }
     }
 
     fun sendPhoto(bytes: ByteArray) {
-        val bid = bookingId ?: return
-        if (!isActive()) return
+        if (bookingId == null || !isActive() || actionBusy) return
+        actionBusy = true; actionError = ""; failedDelete = null; failedEdit = null; failedVoice = null
         scope.launch {
-            if (!isActive()) return@launch
-            val upload = ApiClient.uploadChatPhoto(bytes)
-            if (!isActive()) return@launch
-            upload.onSuccess { url ->
-                val result = ApiClient.sendPhotoMessage(bid, url)
+            try {
                 if (!isActive()) return@launch
-                result.onSuccess { ApiClient.getMessages(bid).onSuccess { if (isActive()) applyServer(it) } }
-                    .onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatSendFail), long = true) }
-            }.onFailure { if (isActive()) toast(serverSaid(it, texts.value.chatSendFail), long = true) }
+                val upload = ApiClient.uploadChatPhoto(bytes)
+                if (!isActive()) return@launch
+                upload.onSuccess { url ->
+                    // The upload is confirmed. Persist the resulting [img] message before sending,
+                    // using the existing text queue and request key, including lost acknowledgements.
+                    sendText(ApiClient.IMG_PREFIX + url)
+                }.onFailure {
+                    actionError = mutationFailure(it, texts.value.photoUploadFail)
+                    toast(actionError, long = true)
+                }
+            } finally { if (isActive()) actionBusy = false }
         }
     }
 
@@ -432,6 +646,16 @@ internal class TripChatState(
  */
 @Composable
 internal fun TripChatConnection(chat: TripChatState, terminal: String?) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(chat, lifecycle) {
+        var stopped = false
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) { stopped = true; chat.continuityLost() }
+            else if (event == Lifecycle.Event.ON_START && stopped) { stopped = false; chat.refreshAfterReturn() }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     DisposableEffect(chat.bookingId, terminal) {
         if (terminal == null) chat.socket?.connect()
         else { chat.wsConnected = false; chat.socket?.close() }

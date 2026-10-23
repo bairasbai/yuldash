@@ -70,6 +70,7 @@ import { IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet, IconClos
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
 import { enqueue } from "../utils/outbox";
+import { useBookingRefusal } from "../utils/useBookingRefusal";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
 import {
   forgetWinterCheck,
@@ -158,6 +159,8 @@ export default function ActiveTripScreen() {
   const [winterAnswerNote, setWinterAnswerNote] = useState("");
   const [phaseBusy, setPhaseBusy] = useState(false); // водитель отправляет «выехал/подъезжаю/завершил»
   const [phaseNote, setPhaseNote] = useState("");
+  // «Выехал» без сети ждал в очереди, а сервер потом отказал: «Нет сети — отправим позже» больше неправда — пишем отказ.
+  useBookingRefusal(bookingId, (refusal) => { if (refusal.kind === "driver_status") setPhaseNote(refusal.message); });
   /** Окно «Завершить поездку?» — завершение нельзя вернуть, случайный тап его не делает. */
   const [confirmFinish, setConfirmFinish] = useState(false);
   // Отмена подтверждённой поездки пассажиром: окно с причиной (по желанию), как в Android.

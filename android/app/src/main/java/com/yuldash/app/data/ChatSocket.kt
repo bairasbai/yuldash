@@ -33,6 +33,8 @@ class ChatSocket(
     private val onRejected: (tempId: Int, reason: String) -> Unit = { _, _ -> },
     expectedGeneration: Long = ApiClient.queueSessionGeneration(),
     private val onRejectedDetailed: (Int, String, Int, String) -> Unit = { _, _, _, _ -> },
+    private val onHistoryChanged: () -> Unit = {},
+    private val onContinuityLost: () -> Unit = {},
 ) {
     data class Incoming(
         val id: Int, val senderId: Int, val text: String, val timestamp: String,
@@ -40,6 +42,7 @@ class ChatSocket(
         val fromAdmin: Boolean = false,  // официальность (B8-9): бейдж «Юлдаш ✓»
         val requestId: String = "",
         val deleted: Boolean = false, val edited: Boolean = false, val voiceUrl: String? = null,
+        val hiddenForMe: Boolean = false,
     )
 
     private var ws: WebSocket? = null
@@ -106,6 +109,7 @@ class ChatSocket(
     @Synchronized
     private fun openSocket() {
         if (closed || !ApiClient.isCurrentSession(ownerSession)) return
+        if (connection > 0) ApiClient.runIfCurrentSession(ownerSession) { onContinuityLost() }
         val currentConnection = ++connection
         var authenticatedToken: String? = null // guarded by this monitor; the token actually sent on this connection
         // Закрываем предыдущий сокет ПЕРЕД созданием нового: при гонке reconnect↔connect иначе оставались
@@ -134,7 +138,12 @@ class ChatSocket(
                         ApiClient.runIfCurrentSession(ownerSession) {
                             runCatching {
                                 val o = JSONObject(text)
-                                if (o.optString("type") == "message") {
+                                if (o.optString("type") == "message" || o.optString("type") == "hidden_ack") {
+                                    val hidden = o.optString("type") == "hidden_ack"
+                                    if (hidden && (o.opt("hidden_for_me") != true || o.optInt("id") <= 0 ||
+                                        o.opt("id") !is Number || o.optDouble("id") != o.optInt("id").toDouble() ||
+                                        o.opt("sender_id") !is Number || o.optDouble("sender_id") != o.optInt("sender_id").toDouble() ||
+                                        o.optInt("sender_id") != ApiClient.myUserId() || o.optString("request_id").isBlank())) return@runIfCurrentSession
                                     onMessage(Incoming(
                                         id = o.optInt("id"), senderId = o.optInt("sender_id"),
                                         text = o.optString("text"), timestamp = o.optString("timestamp"),
@@ -142,7 +151,10 @@ class ChatSocket(
                                         requestId = o.optString("request_id"),
                                         deleted = o.optBoolean("deleted"), edited = o.optBoolean("edited"),
                                         voiceUrl = o.optString("voice_url").takeIf { it.isNotBlank() },
+                                        hiddenForMe = hidden,
                                     ))
+                                } else if (o.optString("type") == "history_changed") {
+                                    onHistoryChanged()
                                 } else if (o.optString("type") == "rejected") {
                                     // Rejection belongs only to this connection and login.
                                     onRejected(o.optInt("temp_id"), o.optString("reason"))
@@ -163,7 +175,7 @@ class ChatSocket(
                         if (closed || connection != currentConnection) return
                         ws = null
                         if (!ApiClient.isCurrentSession(ownerSession)) { close(); return }
-                        ApiClient.runIfCurrentSession(ownerSession) { onConnected(false) }
+                        ApiClient.runIfCurrentSession(ownerSession) { onContinuityLost(); onConnected(false) }
                         // The callback may synchronously open a replacement connection.
                         if (closed || connection != currentConnection) return
                         // Policy/custom failures are terminal; other closures retry with backoff.
@@ -178,7 +190,7 @@ class ChatSocket(
                         if (closed || connection != currentConnection) return
                         ws = null
                         if (!ApiClient.isCurrentSession(ownerSession)) { close(); return }
-                        ApiClient.runIfCurrentSession(ownerSession) { onConnected(false) }
+                        ApiClient.runIfCurrentSession(ownerSession) { onContinuityLost(); onConnected(false) }
                         if (closed || connection != currentConnection) return
                         scheduleReconnect()
                     }

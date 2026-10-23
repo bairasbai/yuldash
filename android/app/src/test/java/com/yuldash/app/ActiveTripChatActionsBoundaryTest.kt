@@ -70,6 +70,7 @@ class ActiveTripChatActionsBoundaryTest {
     private val sockets = CopyOnWriteArrayList<WebSocket>()
     private val auth = LinkedBlockingQueue<String>()
     private val sent = LinkedBlockingQueue<String>()
+    private val wsKeys = CopyOnWriteArrayList<String>()
     private val closed = AtomicInteger()
     private val refreshed = AtomicInteger()
     private val historyHeld = CountDownLatch(1)
@@ -95,18 +96,31 @@ class ActiveTripChatActionsBoundaryTest {
     private val files = CopyOnWriteArrayList<File>()
     private var actionJob: Job? = null
     private lateinit var composerScope: CoroutineScope
+    private val pickerLaunches = AtomicInteger()
+    private val photoReads = AtomicInteger()
+    private var delayPicker = false
+    private var pendingPicker: Int? = null
     private val picker = object : ActivityResultRegistryOwner {
         override val activityResultRegistry = object : ActivityResultRegistry() {
             override fun <I, O> onLaunch(requestCode: Int, contract: ActivityResultContract<I, O>, input: I, options: ActivityOptionsCompat?) {
                 assertEquals("image/*", input)
-                val uri = Uri.parse("content://audit/owned-photo")
-                val bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.GREEN) }
-                val bytes = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
-                bitmap.recycle()
-                Shadows.shadowOf(context.contentResolver).registerInputStream(uri, ByteArrayInputStream(bytes))
-                dispatchResult(requestCode, Activity.RESULT_OK, Intent().setData(uri))
+                pickerLaunches.incrementAndGet()
+                if (delayPicker) pendingPicker = requestCode else deliverPhoto(requestCode)
             }
         }
+    }
+    private fun deliverPhoto(requestCode: Int) {
+        val uri = Uri.parse("content://audit/owned-photo")
+        val bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.GREEN) }
+        val bytes = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        bitmap.recycle()
+        Shadows.shadowOf(context.contentResolver).registerInputStream(uri, object : ByteArrayInputStream(bytes) {
+            override fun read(): Int { photoReads.incrementAndGet(); return super.read() }
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                photoReads.incrementAndGet(); return super.read(buffer, offset, length)
+            }
+        })
+        picker.activityResultRegistry.dispatchResult(requestCode, Activity.RESULT_OK, Intent().setData(uri))
     }
     private var backs = 0
     private var finished = 0
@@ -134,21 +148,27 @@ class ActiveTripChatActionsBoundaryTest {
                         override fun onMessage(webSocket: WebSocket, text: String) {
                             val body = JSONObject(text)
                             if (body.getString("type") == "auth") auth.offer(body.getString("token"))
-                            else sent.offer(body.getString("text"))
+                            else { wsKeys += body.optString("request_id"); sent.offer(body.getString("text")) }
                         }
                         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
                         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { closed.incrementAndGet() }
                     })
                     if (path == "/voice" || path == "/upload/chat-photo" || path.contains("/messages/1") ||
                         request.method == "POST" && path == "/bookings/42/messages") {
+                        if (request.method == "POST" && path == "/bookings/42/messages") postKeys += request.getHeader("Idempotency-Key")
                         bodies += path to request.body.readUtf8()
                         if (path == heldPath) {
                             actionHeld.countDown()
                             if (!releaseAction.await(45, TimeUnit.SECONDS)) fixtureFailures += "Action release timeout: $path"
                         }
                         val code = if (path == heldPath && !(refreshUploads && bearer == "Bearer $tokenA2")) heldCode else 200
-                        return MockResponse().setResponseCode(code).setBody(if (code == 200 && path in listOf("/voice", "/upload/chat-photo"))
-                            """{"url":"https://yulbash.ru/audit-media"}""" else "{}")
+                        val reply = if (code == 200 && path in listOf("/voice", "/upload/chat-photo"))
+                            """{"url":"https://yulbash.ru/audit-media"}"""
+                        else if (code == 200 && request.method == "POST" && path == "/bookings/42/messages" &&
+                            JSONObject(bodies.last().second).has("voice_url"))
+                            """{"id":88,"sender_id":11,"text":"","voice_url":"https://yulbash.ru/audit-media"}"""
+                        else "{}"
+                        return MockResponse().setResponseCode(code).setBody(reply)
                     }
                     if (request.method == "POST" && path.matches(Regex("/bookings/[0-9]+/messages"))) {
                         postKeys += request.getHeader("Idempotency-Key")
@@ -401,6 +421,13 @@ class ActiveTripChatActionsBoundaryTest {
         val generation = ApiClient.queueSessionGeneration()
         refreshUploads = refresh; if (refresh) heldCode = 401
         startAction(kind); waitFor { actionHeld.count == 0L }; releaseAction.countDown(); awaitAction()
+        if (kind == "photo") {
+            assertTrue("Positive control did not read the picker URI", photoReads.get() > 0)
+            // The confirmed upload now starts the reliable text path. This fixture deliberately
+            // withholds WS acknowledgements, so await actual REST fallback and its history read,
+            // rather than treating completion of the upload job as delivery confirmation.
+            waitFor { messagePosts() == 1 && historyCount() == 2 && cb.chat.messages.singleOrNull()?.text == "updated-history" }
+        }
         assertEquals(2, historyCount())
         assertEquals(if (kind in listOf("voice", "photo")) 1 else 0, messagePosts())
         assertEquals("Bearer ${if (refresh) tokenA2 else tokenA}", requests.last { it.first.endsWith(actionPath(kind)) }.second)
@@ -422,6 +449,10 @@ class ActiveTripChatActionsBoundaryTest {
         if (kind == "photo") {
             assertTrue(bodies.last { it.first == "/upload/chat-photo" }.second.contains("filename=\"photo.jpg\""))
             assertEquals("[img]https://yulbash.ru/audit-media", JSONObject(bodies.single { it.first == "/bookings/42/messages" }.second).getString("text"))
+            assertEquals(listOf("[img]https://yulbash.ru/audit-media"), sent.toList())
+            assertTrue(requireNotNull(postKeys.single()).isNotBlank())
+            assertEquals(wsKeys.single(), postKeys.single())
+            assertEquals(0, Outbox.count(context, 42))
         }
         assertFilesClean()
     }
@@ -506,12 +537,16 @@ class ActiveTripChatActionsBoundaryTest {
         assertTrue(sibling.exists())
         assertFalse(requests.drop(before).any { it.first == "POST /voice" || it.first == "POST /bookings/42/messages" })
         if (boundary == "cancelled") {
-            // The terminal composer gets a fresh recorder (recordingAllowed changed); it must stay disabled too.
-            val newMic = compose.onNodeWithContentDescription("Записать голос").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
-            val newRecorder = captures(newMic, VoiceRecorder::class.java).single()
-            compose.onNodeWithContentDescription("Записать голос").performSemanticsAction(SemanticsActions.OnClick) { it() }
+            // Cancelled bookings now replace the entire chat with the terminal state. The
+            // disposed recorder and an explicitly retained old callback must remain inert.
+            compose.onNodeWithText("Поездка отменена").assertIsDisplayed()
+            compose.onNodeWithTag("tripChatScreen").assertDoesNotExist()
+            compose.onNodeWithContentDescription("Записать голос").assertDoesNotExist()
+            assertTrue(recorder.isClosed)
+            compose.runOnIdle { mic() }
             pump(300)
-            assertNull("Cancelled retained route started a new recording", VoiceRecorder::class.java.getDeclaredField("recorder").apply { isAccessible = true }.get(newRecorder))
+            assertNull("Cancelled retained callback started a new recording", VoiceRecorder::class.java.getDeclaredField("recorder").apply { isAccessible = true }.get(recorder))
+            assertFalse(requests.drop(before).any { it.first == "POST /voice" || it.first == "POST /bookings/42/messages" })
         }
     }
     @Test fun recordingInProgressAtDoneWithoutPauseIsReleased() = recordingBoundary("done")
@@ -566,4 +601,84 @@ class ActiveTripChatActionsBoundaryTest {
     @Test fun photoSendHeld503AtDone() = heldMutation("photo", "done", 503, true)
     @Test fun photoSendHeld200AtCancelled() = heldMutation("photo", "cancelled", 200, true)
     @Test fun photoSendHeld503AtCancelled() = heldMutation("photo", "cancelled", 503, true)
+
+    @Test fun heldEditDisablesMediaAndSendIncludingRetainedClicks() {
+        mount()
+        Shadows.shadowOf(context as Application).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        val mic = compose.onNodeWithContentDescription("Записать голос").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
+        val recorder = captures(mic, VoiceRecorder::class.java).single()
+        val photo = compose.onNodeWithContentDescription("Прикрепить фото").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
+        heldPath = actionPath("edit")
+        startAction("edit"); waitFor { actionHeld.count == 0L }
+        compose.onNodeWithContentDescription("Отправить").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Прикрепить фото").assertIsNotEnabled()
+        val send = compose.onNodeWithContentDescription("Отправить").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
+        // Deliberate old callback injection, not a physical click on a disabled control.
+        compose.runOnIdle { mic(); photo(); send() }; pump(300)
+        assertEquals(0, pickerLaunches.get())
+        assertNull("Retained mic started during busy", VoiceRecorder::class.java.getDeclaredField("recorder").apply { isAccessible = true }.get(recorder))
+        assertFalse(recorder.isClosed)
+        assertEquals(1, requests.count { it.first == "POST ${actionPath("edit")}" })
+        assertFalse(requests.any { it.first == "POST /voice" || it.first == "POST /upload/chat-photo" })
+        releaseAction.countDown(); awaitAction()
+        compose.onNodeWithContentDescription("Записать голос").assertIsEnabled()
+        compose.onNodeWithContentDescription("Прикрепить фото").assertIsEnabled()
+    }
+
+    @Test fun pickerResultArrivingDuringHeldEditDoesNotReadOrUploadPhoto() {
+        mount(); delayPicker = true
+        compose.onNodeWithContentDescription("Прикрепить фото").performClick()
+        assertEquals(1, pickerLaunches.get())
+        val requestCode = requireNotNull(pendingPicker)
+        heldPath = actionPath("edit")
+        startAction("edit"); waitFor { actionHeld.count == 0L }
+        compose.runOnIdle { deliverPhoto(requestCode) }; pump(300)
+        assertEquals("A stale picker result was decoded during busy", 0, photoReads.get())
+        assertFalse(requests.any { it.first == "POST /upload/chat-photo" || it.first == "POST /bookings/42/messages" })
+        releaseAction.countDown(); awaitAction()
+    }
+
+    @Test fun historyRefreshFailureWithMessagesOffersGetOnlyRetry() {
+        val cb = mount()
+        holdNextHistory = true; historyCode = 503
+        assertTrue(sockets.single().send("""{"type":"history_changed"}"""))
+        waitFor { historyHeld.count == 0L }; releaseHistory.countDown()
+        waitFor { cb.chat.historyError && !cb.chat.historyLoading }
+        compose.onNodeWithText("Не удалось загрузить чат").assertIsDisplayed()
+        tripList().performScrollToNode(hasText("initial-history"))
+        compose.onNodeWithText("initial-history").assertIsDisplayed()
+        val reads = historyCount(); val writes = messagePosts()
+        holdNextHistory = false; historyCode = 200
+        compose.onNodeWithText("Повторить").performClick()
+        waitFor { historyCount() > reads && !cb.chat.historyError && !cb.chat.historyLoading }
+        assertEquals(reads + 1, historyCount()); assertEquals(writes, messagePosts())
+        assertFalse(requests.any { it.first == "POST /voice" })
+    }
+
+    @Test fun recordingSurvivesBusyDeleteAndCanBeSentAfterConfirmation() {
+        mount()
+        Shadows.shadowOf(context as Application).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        val mic = compose.onNodeWithContentDescription("Записать голос").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
+        val recorder = captures(mic, VoiceRecorder::class.java).single()
+        compose.onNodeWithContentDescription("Записать голос").performClick()
+        waitFor { compose.onAllNodesWithContentDescription("Отправить запись").fetchSemanticsNodes().isNotEmpty() }
+        val native = VoiceRecorder::class.java.getDeclaredField("recorder").apply { isAccessible = true }.get(recorder) as android.media.MediaRecorder
+        val path = VoiceRecorder::class.java.getDeclaredField("path").apply { isAccessible = true }.get(recorder) as String
+        val file = File(path).also { it.writeBytes(byteArrayOf(1, 2, 3, 4)) }; files += file
+        val finish = compose.onNodeWithContentDescription("Отправить запись").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
+        heldPath = actionPath("delete")
+        startAction("delete"); waitFor { actionHeld.count == 0L }
+        compose.onNodeWithContentDescription("Отправить запись").assertIsNotEnabled()
+        compose.runOnIdle { finish() }; pump(300)
+        assertFalse(recorder.isClosed)
+        assertEquals(org.robolectric.shadows.ShadowMediaRecorder.STATE_RECORDING, Shadows.shadowOf(native).state)
+        assertTrue("Busy disposed the current recording", file.exists())
+        assertFalse(requests.any { it.first == "POST /voice" || it.first == "POST /bookings/42/messages" })
+        releaseAction.countDown(); awaitAction()
+        compose.onNodeWithContentDescription("Отправить запись").assertIsEnabled().performClick()
+        waitFor { messagePosts() == 1 && historyCount() == 3 && !file.exists() }
+        assertEquals(1, requests.count { it.first == "POST /voice" })
+        assertTrue(bodies.single { it.first == "/voice" }.second.contains("\u0001\u0002\u0003\u0004"))
+        assertEquals(org.robolectric.shadows.ShadowMediaRecorder.STATE_RELEASED, Shadows.shadowOf(native).state)
+    }
 }

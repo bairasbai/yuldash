@@ -3021,13 +3021,20 @@ internal fun ChatComposer(
     onPhotoPicked: (ByteArray) -> Unit = {},
     onQuickSend: (String) -> Unit = {},   // тап по готовой фразе → отправить сразу (тот же путь, что и обычное сообщение)
     recordingAllowed: Boolean = true,
+    actionsAllowed: Boolean = true,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val recorder = remember(context, lifecycleOwner, recordingAllowed) { VoiceRecorder(context) }
+    // Busy affects actions, not recorder ownership: an active or handed-off recording
+    // must not be closed merely because an unrelated chat request is awaiting its reply.
+    val currentActionsAllowed = rememberUpdatedState(recordingAllowed && actionsAllowed)
+    fun canAct() = currentActionsAllowed.value && !recorder.isClosed
     val voiceScope = rememberCoroutineScope()
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
+        // Activity results may arrive in STARTED before onResume. Check fresh ownership
+        // and busy state, but do not drop a valid result merely because RESUMED is next.
+        if (uri != null && canAct()) {
             // Пережимаем перед отправкой: снимок с камеры весит 5-6 МБ, а в деревне это
             // минута ожидания на слабой сети и реальные деньги за трафик — при обрыве
             // сообщение просто теряется (аудит 2026-08-08, волна 88). Остальные экраны
@@ -3052,9 +3059,10 @@ internal fun ChatComposer(
             recorder.close()
         }
     }
-    fun canRecord() = recordingAllowed && !recorder.isClosed && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+    fun canRecord() = canAct() && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
     fun begin() { if (canRecord() && recorder.start()) { recording = true; startMs = SystemClock.elapsedRealtime() } }
     fun finish() {
+        if (!canAct()) return
         val p = recorder.stop()
         val dur = ((SystemClock.elapsedRealtime() - startMs) / 1000).toInt().coerceAtLeast(1)
         recording = false
@@ -3075,7 +3083,7 @@ internal fun ChatComposer(
         whyRu = "Микрофон нужен, чтобы записать короткое сообщение попутчику — это удобнее, чем набирать текст за рулём или на морозе.",
         whyBa = "Микрофон юлдашыңа ҡыҫҡа хәбәр яҙыр өсөн кәрәк — руль артында йәки һыуыҡта яҙғандан уңайлыраҡ.",
         onGranted = { voiceScope.launch { lifecycleOwner.withResumed { begin() } } },   // ответ приходит до onResume (STARTED)
-        onDenied = { if (recordingAllowed && !recorder.isClosed) Toast.makeText(context, deniedMic, Toast.LENGTH_LONG).show() },
+        onDenied = { if (canAct()) Toast.makeText(context, deniedMic, Toast.LENGTH_LONG).show() },
     )
     fun requestVoice() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) begin()
@@ -3124,8 +3132,9 @@ internal fun ChatComposer(
                 )
             } else {
                 // «+» — прикрепить фото (голос — отдельной кнопкой-микрофоном справа)
-                IconButton(onClick = { photoPicker.launch("image/*") }, modifier = Modifier.size(48.dp)) {   // тач-цель ≥48dp
-                    Icon(Icons.Default.Add, contentDescription = appText("Прикрепить фото", "Фото беркетеү"), tint = CanonGreen2)
+                IconButton(enabled = recordingAllowed && actionsAllowed,
+                    onClick = { if (canAct()) photoPicker.launch("image/*") }, modifier = Modifier.size(48.dp)) {   // тач-цель ≥48dp
+                    Icon(Icons.Default.Add, contentDescription = appText("Прикрепить фото", "Фото беркетеү"), tint = if (recordingAllowed && actionsAllowed) CanonGreen2 else CanonMuted)
                 }
                 // Пилюля: эмодзи + поле ввода
                 Row(
@@ -3160,9 +3169,9 @@ internal fun ChatComposer(
             }
             // Кнопка справа: микрофон (пусто) / отправить (есть текст или идёт запись)
             IconButton(
-                enabled = recordingAllowed,
+                enabled = recordingAllowed && actionsAllowed,
                 onClick = {
-                    when {
+                    if (canAct()) when {
                         recording -> finish()
                         draft.isNotBlank() -> onSend()
                         else -> requestVoice()

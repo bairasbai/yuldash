@@ -30,6 +30,32 @@ def test_lost_response_retry_returns_same_message_once(client, chat_case):
     with Session(engine) as s:
         assert len(s.exec(select(Message).where(Message.booking_id == chat_case[1])).all()) == 1
 
+
+@pytest.mark.parametrize('voice', [False, True])
+def test_hidden_lost_receipt_retry_confirms_without_returning_content(client, chat_case, voice):
+    from app.services import public_media_url
+    passenger, bid, events = chat_case
+    payload = {'text': '' if voice else 'private original',
+               'voice_url': public_media_url('hidden.m4a') if voice else None,
+               'transcript': 'private transcript' if voice else None}
+    headers = {**passenger['auth'], 'Idempotency-Key': 'lost-hidden'}
+    first = client.post(f'/bookings/{bid}/messages', headers=headers, json=payload)
+    assert first.status_code == 200, first.text
+    mid = first.json()['id']
+    assert client.delete(f'/bookings/{bid}/messages/{mid}?scope=me', headers=passenger['auth']).status_code == 200
+    before = list(events)
+    retry = client.post(f'/bookings/{bid}/messages', headers=headers, json=payload)
+    assert retry.status_code == 200, retry.text
+    assert retry.json() == {'id': mid, 'sender_id': first.json()['sender_id'],
+                            'request_id': 'lost-hidden', 'hidden_for_me': True}
+    assert events == before
+    assert client.get(f'/bookings/{bid}/messages', headers=passenger['auth']).json() == []
+    with Session(engine) as s:
+        stored = s.get(Message, mid)
+        assert stored.text == payload['text']
+        assert stored.voice_url == payload['voice_url']
+        assert len(s.exec(select(Message).where(Message.booking_id == bid)).all()) == 1
+
 def test_same_key_different_payload_conflicts(client, chat_case):
     assert post(client, chat_case).status_code == 200
     assert post(client, chat_case, text='changed').status_code == 409

@@ -7,8 +7,9 @@
 отрицательный ключ валиден)."""
 import asyncio
 import json
+import math
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlmodel import Session
@@ -17,13 +18,13 @@ from .. import livepos            # модулем: подмена в теста
 from .. import trip_wake
 from ..antifraud import TrackGuard
 from ..db import engine
-from ..livepos import livepos_set
+from ..livepos import livepos_set, ride_driver_set
 from ..models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, ParcelDelivery, Ride
 from ..security import authenticate_ws
 from ..ws_guard import watch_ws_access
 from ..logs import log
 from ..services import MAP_FEED_KEY, haversine_km, manager
-from ..visibility import trip_is_live
+from ..visibility import LIVE_GEO_LEAD_HOURS, trip_is_live
 
 router = APIRouter(tags=["location"])
 
@@ -221,6 +222,36 @@ def driver_point_for_booking(session: Session, booking, ride, now=None):
     return своя or (точки[0] if точки else None)
 
 
+def _рейс_идёт(depart_at, now=None) -> bool:
+    """Рейс идёт по обычному правилу точки — с depart − LIVE_GEO_LEAD_HOURS (как у брони в начале
+    маршрута). «Выехал» раньше этого срока не принимается (P2-Г), поэтому отдельно его не спрашиваем.
+    Только для внутренней точки водителя по рейсу (`livepos.ride_driver_set`, A1)."""
+    from ..timeutil import utcnow   # лениво, как в `_закрыть_в`: тесты двигают `app.timeutil.utcnow`
+    return depart_at is not None and (now or utcnow()) >= depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS)
+
+
+def _is_point(lat, lng) -> bool:
+    """Кадр — настоящая точка на Земле: конечные числа в пределах широты и долготы.
+
+    `NaN`/`Infinity` проходят `isinstance(float)` (`json.loads` их принимает), а сравнения с NaN
+    всегда ложны. Одна такая «точка» водителя ложилась в кэш, выключала анти-телепорт до конца
+    соединения (якорь NaN) и роняла ссылку близких у ВСЕХ броней рейса — NaN не сериализуется
+    в JSON (приёмка безопасности PR186, 23.10.2026). Отбрасываем на входе всех трёх каналов."""
+    if isinstance(lat, bool) or isinstance(lng, bool) or not isinstance(lat, (int, float)) \
+            or not isinstance(lng, (int, float)):
+        return False
+    return math.isfinite(lat) and math.isfinite(lng) and -90 <= lat <= 90 and -180 <= lng <= 180
+
+
+def _bearing(value):
+    """Направление машины из кадра → конечное число 0..360 или None. Поле уходит в кэш и близким как
+    есть: NaN ронял их страницу у всех броней рейса, а строка на 100 КБ уходила в каждую пересылку
+    (третья проверка безопасности PR186, 23.10.2026)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return value % 360
+
+
 def _закрыть_в(b, r):
     """Стенные часы, когда окно точки брони на остановке закроется до посадки (или None)."""
     if b is None or r is None or b.status != BookingStatus.confirmed or not getattr(b, "pickup_stop", None):
@@ -254,7 +285,8 @@ class _Пора:
     Отмена, неявка и снятие поездки тоже толкают канал (приёмка PR155): по толчку уже начавшаяся
     поездка перечитывает статус брони, и если сделки больше нет — `кончилась`, канал закрывается
     сразу, а не через сторож (до 30 с точка водителя ещё уходила пассажиру отменённой брони).
-    Начавшаяся поездка «назад в не начавшуюся» не откатывается, как и раньше.
+    Начавшаяся поездка «назад в не начавшуюся» не откатывается, как и раньше, — кроме брони на
+    остановке, которую «Отменить» после «Сел» вернул в «подтверждена» до её окна (S3).
 
     Блокировка закрывает канал — кроме канала водителя, когда блокировка случилась «в пути»
     (`_пишем_без_пересылки`): тот переходит в `только_запись` и остаётся в нём до конца
@@ -306,9 +338,20 @@ class _Пора:
                 # Толчок по идущей поездке («Подъезжаю», отмена, неявка, снятие): назад не откатываем,
                 # но если сделки больше нет — канал закрывается сразу.
                 self.кончилась = b is None or b.status not in (BookingStatus.confirmed, BookingStatus.onboard)
-                if not self.кончилась:
-                    self._закрыть_в = _закрыть_в(b, r)   # «Подъезжаю» сдвигает срок «Не пришёл»
-                return not self.кончилась
+                if self.кончилась:
+                    return False
+                if b.status == BookingStatus.confirmed and getattr(b, "pickup_stop", None) \
+                        and not trip_is_live(b, r):
+                    # Бронь на остановке снова «подтверждена» вне своего окна — «Сел» → «Отменить»
+                    # (промахнулся карточкой). Канал открыла только отметка «Сел»; по правилу брони
+                    # её окно ещё закрыто — откатываем, иначе точки шли бы обеим сторонам за час до
+                    # посадки (приёмка PR186, S3). Окно откроется по времени или «Подъезжаю».
+                    self._да = False
+                    self._закрыть_в = None
+                    self._не_раньше = _monotonic() + PRE_TRIP_RECHECK_SEC
+                    return False
+                self._закрыть_в = _закрыть_в(b, r)   # «Подъезжаю» сдвигает срок «Не пришёл»
+                return True
             # Окно брони на остановке истекло (не села к сроку): спрашиваем правило заново — посадка
             # откроет снова, иначе точка не идёт.
             self._да = trip_is_live(b, r)
@@ -354,6 +397,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
             await websocket.close(code=1008, reason=reason)
             return
         driver_id = ride.driver_id
+        ride_id, depart_at = ride.id, ride.depart_at   # для внутренней точки водителя по рейсу (A1)
 
     role = "driver" if user_id == driver_id else "passenger"
     # Два ключа-НАПРАВЛЕНИЯ, чтобы НЕ возвращать отправителю его же позицию (эхо → стрелка попутчика
@@ -404,8 +448,9 @@ async def trip_location(websocket: WebSocket, booking_id: int):
             if payload.get("type") == "loc":
                 lat = payload.get("lat")
                 lng = payload.get("lng")
-                if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+                if not _is_point(lat, lng):
                     continue
+                payload["bearing"] = _bearing(payload.get("bearing"))   # дальше — только число 0..360 или None
                 # Перепроверка ~раз в ~2 мин: токен не отозван/не заблокирован И поездка ещё активна.
                 # Иначе стрим лил бы гео в завершённую/отменённую бронь или у заблокированного — утечка.
                 msgs += 1
@@ -428,6 +473,11 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                     if пора.кончилась:
                         await websocket.close(code=1008, reason=пора.причина)
                         break
+                    # Окно ЭТОЙ брони закрыто (пассажирка дальше по маршруту), а рейс уже идёт:
+                    # точку водителя кладём только во внутренний ключ рейса — для проверки его же
+                    # «Подъезжаю» по другим броням (A1). Никому не пересылаем, в кэш брони не пишем.
+                    if role == "driver" and _рейс_идёт(depart_at) and guard.ok(float(lat), float(lng)):
+                        ride_driver_set(ride_id, lat, lng, payload.get("bearing"))
                     continue
                 if пора.только_запись:
                     # Блокировка «в пути» (`_пишем_без_пересылки`): водитель больше не принимает точку
@@ -441,6 +491,8 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                     # Live-ссылка близкому (B7c): последняя позиция машины → Redis (TTL ~2 мин),
                     # публичный /t/{token}/state.json читает её. В БД/лог координаты НЕ пишем.
                     livepos_set("booking", booking_id, lat, lng, payload.get("bearing"))
+                    if _рейс_идёт(depart_at):
+                        ride_driver_set(ride_id, lat, lng, payload.get("bearing"))   # проверка «Подъезжаю» (A1)
                 if пора.только_запись:
                     continue   # записали для ссылки близким и SOS — по каналу никому из двоих не пересылаем
                 await manager.broadcast(send_key, {   # в inbox ДРУГОГО участника (не себе)
@@ -595,8 +647,9 @@ async def instant_location(websocket: WebSocket, order_id: int):
             if payload.get("type") == "loc":
                 lat = payload.get("lat")
                 lng = payload.get("lng")
-                if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+                if not _is_point(lat, lng):
                     continue
+                payload["bearing"] = _bearing(payload.get("bearing"))   # дальше — только число 0..360 или None
                 # Перепроверка ~раз в ~15 кадров: токен жив И заказ ещё активен —
                 # иначе стрим лил бы гео в завершённый/отменённый заказ (приватность).
                 msgs += 1
@@ -708,8 +761,9 @@ async def parcel_location(websocket: WebSocket, parcel_id: int):
             if payload.get("type") == "loc":
                 lat = payload.get("lat")
                 lng = payload.get("lng")
-                if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+                if not _is_point(lat, lng):
                     continue
+                payload["bearing"] = _bearing(payload.get("bearing"))   # дальше — только число 0..360 или None
                 msgs += 1
                 if msgs % 15 == 0:
                     with Session(engine) as s2:

@@ -7,7 +7,7 @@ const item = { id: 22, passenger_name: "Тест", from_city: "Ургаза", to
   matched_ride_id: 7, matched_ride_from_city: "Сибай", matched_ride_to_city: "Акъяр", matched_ride_depart_at: "2030-01-02T10:00:00Z", matched_pickup_stop: "Ургаза", matched_dropoff_stop: "Бурибай", detour_km: 0 };
 const apiMock = `export const fetchRequestsFeed=(signal,onRoute)=>{globalThis.__requestRoute.feed.push({signal,onRoute});return globalThis.__requestRoute.fetch?.()??Promise.resolve(globalThis.__requestRoute.items??[])};
   export const respondToRequest=(...args)=>{globalThis.__requestRoute.sent.push(args);return globalThis.__requestRoute.send?.()??Promise.resolve({id:82})};`;
-const clientMock = `export class ApiError extends Error {constructor(status){super('fixture');this.status=status;}} globalThis.__requestRoute.ApiError=ApiError; export const getSessionGeneration=()=>globalThis.__requestRoute.generation;`;
+const clientMock = `export class ApiError extends Error {constructor(status,message='fixture'){super(message);this.status=status;}} globalThis.__requestRoute.ApiError=ApiError; export const getSessionGeneration=()=>globalThis.__requestRoute.generation;`;
 const mocks = lang => ({ "/i18n/lang": langMock(lang), "/api/requests": apiMock, "/api/client": clientMock,
   "react-router-dom": `export const useNavigate=()=> (...a)=>globalThis.__requestRoute.routes.push(a);export const useParams=()=>({id:'22'});`,
   "/useSheetExit": `export const useSheetExit=()=>({leaving:false,portal:n=>n,dialogProps:{},close:()=>globalThis.__requestRoute.closed++});`,
@@ -118,16 +118,58 @@ for (const lang of ["ru", "ba"]) {
     fresh.props = { ...fresh.props, item: { ...item, id: 23 } }; fresh.render(); await fresh.settle();
     assert.ok(all(fresh.tree).filter(n => n.type === "input" && n.props.type === "radio").every(n => !n.props.checked)); fresh.unmount();
   });
-  await t.test(`${lang}: устаревший рейс 409 требует обновления; повтор со старой привязкой заблокирован`, async () => {
+  await t.test(`${lang}: «Как повезёшь пассажира?» и «По моим маршрутам» — цвета бренда и подсвеченная выбранная строка`, async () => {
+    h.generation = "a"; h.items = [{ ...item, matched_ride_id: null }]; h.feed = []; h.fetch = undefined;
+    const f = mount(Feed); await f.settle();
+    const rowOf = (tree, input) => all(tree).find(n => n.type === "label" && all(n).includes(input));
+    let box = all(f.tree).find(n => n.type === "input" && n.props.type === "checkbox");
+    assert.equal(box.props.className, "checkbox"); assert.ok(!rowOf(f.tree, box).props.className.includes("list-row--on"));
+    box.props.onChange({ target: { checked: true } }); h.items = []; await f.settle();
+    box = all(f.tree).find(n => n.type === "input" && n.props.type === "checkbox");
+    assert.ok(rowOf(f.tree, box).props.className.includes("list-row--on"), "включённая галочка подсвечивает строку"); f.unmount();
+    const s = mount(Respond, { item, onClose() {}, onDone() {} }); s.render();
+    const radios = () => all(s.tree).filter(n => n.type === "input" && n.props.type === "radio");
+    assert.ok(radios().every(r => r.props.className === "checkbox" && !rowOf(s.tree, r).props.className.includes("list-row--on")));
+    radios()[1].props.onChange(); await s.settle();
+    assert.deepEqual(radios().map(r => rowOf(s.tree, r).props.className.includes("list-row--on")), [false, true]);
+    s.unmount();
+  });
+  // Любой 409 раньше подменялся «Рейс изменился…» и навсегда запирал «Мой рейс». 409 бывает и про закрытую заявку,
+  // и про паузу пассажира, и про «отклик уже ушёл с другим рейсом» — человеку нужно слово сервера.
+  const own409 = lang === "ru" ? "Рейс изменился" : "Сәфәр үҙгәргән";
+  const closed409 = lang === "ru" ? "Заявка уже закрыта или её время прошло" : "Заявка ябылған йәки уның ваҡыты үткән инде";
+  const rideRadio = tree => all(tree).find(n => n.type === "input" && n.props.type === "radio");
+  const sheetCta = tree => all(tree).find(n => n.type === "button" && n.props.className?.includes("sheet__cta"));
+  async function respondWith(error, choice = 0) {
     h.generation = "a"; h.sent = []; let refreshed = 0;
-    h.send = () => Promise.reject(new h.ApiError(409));
+    h.send = () => Promise.reject(error);
     const s = mount(Respond, { item, onClose() {}, onDone() {}, onRefresh() { refreshed++; } }); s.render();
-    all(s.tree).find(n => n.type === "input" && n.props.type === "radio").props.onChange(); await s.settle();
-    await all(s.tree).find(n => n.type === "button" && n.props.className?.includes("sheet__cta")).props.onClick(); await s.settle();
-    assert.ok(text(s.tree).includes(lang === "ru" ? "Рейс изменился" : "Сәфәр үҙгәргән"));
-    assert.equal(all(s.tree).find(n => n.type === "input" && n.props.type === "radio").props.disabled, true);
-    button(s.tree, lang === "ru" ? "Обновить заявки" : "Заявкаларҙы яңыртыу").props.onClick(); assert.equal(refreshed, 1);
-    s.unmount(); h.send = undefined;
+    all(s.tree).filter(n => n.type === "input" && n.props.type === "radio")[choice].props.onChange(); await s.settle();
+    await sheetCta(s.tree).props.onClick(); await s.settle();
+    return { s, refreshed: () => refreshed, done() { s.unmount(); h.send = undefined; } };
+  }
+  await t.test(`${lang}: отклик, 409 — показано слово сервера, а не «рейс изменился»; «Мой рейс» не заперт, есть «Обновить заявки»`, async () => {
+    const r = await respondWith(new h.ApiError(409, closed409));
+    try {
+      assert.ok(text(r.s.tree).includes(closed409), "слова сервера должны дойти до человека");
+      assert.ok(!text(r.s.tree).includes(own409), "наша догадка не должна подменять сервер");
+      assert.equal(rideRadio(r.s.tree).props.disabled, undefined, "выбор рейса не запирается навсегда");
+      assert.equal(sheetCta(r.s.tree).props.disabled, true, "после отказа выбрать рейс надо осознанно заново");
+      button(r.s.tree, lang === "ru" ? "Обновить заявки" : "Заявкаларҙы яңыртыу").props.onClick(); assert.equal(r.refreshed(), 1);
+      rideRadio(r.s.tree).props.onChange(); await r.s.settle();
+      assert.equal(sheetCta(r.s.tree).props.disabled, false, "после нового выбора отправить можно");
+    } finally { r.done(); }
+  });
+  await t.test(`${lang}: отклик, 409 без слов сервера — наша фраза; другой отказ (429) не запирает и не просит обновить`, async () => {
+    let r = await respondWith(new h.ApiError(409, ""));
+    try { assert.ok(text(r.s.tree).includes(own409)); assert.ok(button(r.s.tree, lang === "ru" ? "Обновить заявки" : "Заявкаларҙы яңыртыу")); } finally { r.done(); }
+    const slow = lang === "ru" ? "Слишком часто. Подожди немного." : "Артыҡ йыш. Бер аҙ көт.";
+    r = await respondWith(new h.ApiError(429, slow));
+    try {
+      assert.ok(text(r.s.tree).includes(slow)); assert.ok(!text(r.s.tree).includes(own409));
+      assert.equal(button(r.s.tree, lang === "ru" ? "Обновить заявки" : "Заявкаларҙы яңыртыу"), undefined);
+      assert.equal(rideRadio(r.s.tree).props.checked, true, "рейс остаётся выбранным");
+    } finally { r.done(); }
   });
   await t.test(`${lang}: пассажир до приёма видит общий рейс, выезд и свой участок; legacy NULL не превращается в конечную`, () => {
     const response = { ride_id: 7, ride_from_city: "Сибай", ride_to_city: "Акъяр", ride_depart_at: "2030-01-02T10:00:00Z", pickup_stop: "Ургаза", dropoff_stop: "Бурибай" };
@@ -159,9 +201,9 @@ for (const lang of ["ru", "ba"]) {
     h.generation = "b"; resolve({ booking_id: 88 }); await p; assert.equal(h.routes.length, 0);
   });
   const responsesApi = `
-    export const fetchRequestResponses=()=>Promise.resolve(globalThis.__requestRoute.responses);
+    export const fetchRequestResponses=()=>{globalThis.__requestRoute.responseLoads=(globalThis.__requestRoute.responseLoads??0)+1;return Promise.resolve(globalThis.__requestRoute.responses)};
     export const fetchMatchRides=()=>Promise.resolve([]),parseBargainHistory=raw=>globalThis.__requestRoute.parseHistory(raw);
-    export const acceptResponse=()=>{globalThis.__requestRoute.responseActions.push('accept');return Promise.resolve({booking_id:88})};
+    export const acceptResponse=()=>{globalThis.__requestRoute.responseActions.push('accept');return globalThis.__requestRoute.acceptResult?.()??Promise.resolve({booking_id:88})};
     export const counterOffer=()=>{globalThis.__requestRoute.responseActions.push('counter');return globalThis.__requestRoute.counter()};
     export const declineResponse=()=>{globalThis.__requestRoute.responseActions.push('decline');return Promise.resolve({ok:true})};`;
   const Responses = await bundleComponent("src/screens/RequestResponsesScreen.tsx", { mocks: { ...mocks(lang), "/api/requests": responsesApi } });
@@ -213,6 +255,37 @@ for (const lang of ["ru", "ba"]) {
           ? "Осталось ходов: 5. Торгуемся по очереди." : "Ҡалған сират: 5. Сиратлап һатыулашабыҙ."));
       } finally { trail.unmount(); }
     }
+  });
+  // «Принять» отклик: 409 бывает «водитель отозвал», «торг закрыт», «ход другой стороны» — раньше все три
+  // читались как «Рейс изменился…». Слова сервера доходят; список при 409 перечитывается.
+  async function acceptWith(error) {
+    h.generation = "a"; h.responseActions = []; h.responseLoads = 0; h.routes = []; h.responses = [offer];
+    h.acceptResult = () => Promise.reject(error);
+    const s = mount(Responses); await s.settle();
+    await button(s.tree, lang === "ru" ? "Поехать с ним" : "Уның менән барырға").props.onClick(); await s.settle();
+    return { s, done() { s.unmount(); h.acceptResult = undefined; } };
+  }
+  const alertText = tree => text(all(tree).find(n => n.props?.role === "alert"));
+  await t.test(`${lang}: «Принять», 409 — слова сервера, не «рейс изменился»; список перечитан; в поездку не уходим`, async () => {
+    const withdrawn = lang === "ru" ? "Водитель отозвал это предложение" : "Водитель был тәҡдимен кире алды";
+    const r = await acceptWith(new h.ApiError(409, withdrawn));
+    try {
+      assert.equal(alertText(r.s.tree), withdrawn);
+      assert.ok(!text(r.s.tree).includes(lang === "ru" ? "Рейс изменился" : "Сәфәр үҙгәргән"));
+      assert.equal(h.responseLoads, 2, "после 409 отклики перечитываются");
+      assert.deepEqual(h.routes, []);
+    } finally { r.done(); }
+  });
+  await t.test(`${lang}: «Принять», 409 без слов сервера — наша фраза; другая ошибка — её слова; сеть — общая фраза`, async () => {
+    let r = await acceptWith(new h.ApiError(409, ""));
+    try { assert.equal(alertText(r.s.tree), lang === "ru" ? "Рейс изменился или больше не подходит. Обнови отклики и выбери снова." : "Сәфәр үҙгәргән йәки бүтән тап килмәй. Яуаптарҙы яңыртып ҡабат һайла."); assert.equal(h.responseLoads, 2); } finally { r.done(); }
+    const moved = lang === "ru" ? "Сейчас ход другой стороны — свою же цену принять нельзя" : "Хәҙер икенсе яҡ сираты — үҙ хаҡыңды ҡабул итеп булмай";
+    r = await acceptWith(new h.ApiError(409, moved));
+    try { assert.equal(alertText(r.s.tree), moved); } finally { r.done(); }
+    r = await acceptWith(new h.ApiError(500, lang === "ru" ? "Ошибка на сервере. Попробуй чуть позже." : "Серверҙа хата. Аҙыраҡтан ҡабатла."));
+    try { assert.ok(alertText(r.s.tree).length > 0); assert.equal(h.responseLoads, 1, "перечитывание — только на 409"); } finally { r.done(); }
+    r = await acceptWith(new TypeError("Failed to fetch"));
+    try { assert.equal(alertText(r.s.tree), lang === "ru" ? "Не получилось принять. Попробуй снова." : "Ҡабул итеп булманы. Ҡабат ҡара."); } finally { r.done(); }
   });
   await t.test(`${lang}: живой отклик сохраняет принятие и свою цену; отказ при обновлении закрывает уже открытую форму`, async () => {
     h.generation = "a"; h.responseActions = []; h.responses = [offer];

@@ -19,15 +19,36 @@ await t.test("Участок: без подсказки обе точки не �
 });
 await t.test("Подсказки сервера сохраняют обе точки через карточку/перезагрузку; чужой рейс и обратный порядок не проходят", () => {
   const matched = { ...ride, matched_stop: "Акъяр", matched_dropoff_stop: "Сибай" };
-  const restored = rules.preserveRideMatch(ride, rules.rideMatchState(matched));
+  const restored = rules.preserveRideMatch(ride, rules.rideMatchState(matched, "s1"), "s1");
   assert.deepEqual(rules.initialSegment(restored), { pickup: "Акъяр", dropoff: "Сибай" });
-  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch({ ...ride, id: 9 }, rules.rideMatchState(matched))), { pickup: null, dropoff: null });
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch({ ...ride, id: 9 }, rules.rideMatchState(matched, "s1"), "s1")), { pickup: null, dropoff: null });
   assert.equal(rules.initialSegment({ ...matched, matched_stop: "Сибай", matched_dropoff_stop: "Акъяр" }).dropoff, null);
   assert.deepEqual(rules.initialSegment({ ...ride, matched_from_start: true, matched_to_end: true }), { pickup: "Баймак", dropoff: "Уфа" });
 });
 
+await t.test("Выбор посадки в истории вкладки принадлежит входу: после выхода/смены аккаунта чужой выбор не читается", () => {
+  const matched = { ...ride, matched_stop: "Акъяр", matched_dropoff_stop: "Сибай" };
+  const state = rules.rideMatchState(matched, "A");
+  assert.equal(state.rideMatch.owner, "A");
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch(ride, state, "A")), { pickup: "Акъяр", dropoff: "Сибай" }, "свой вход читает");
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch(ride, state, "B")), { pickup: null, dropoff: null }, "после выхода и входа другого — не читается");
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch(ride, state, "")), { pickup: null, dropoff: null }, "гость после выхода — тоже нет");
+  const legacy = { rideMatch: { rideId: 7, matched_stop: "Акъяр", matched_from_start: false, matched_dropoff_stop: "Сибай" } };
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch(ride, legacy, "A")), { pickup: null, dropoff: null }, "запись старой версии без метки — не читается");
+  assert.equal(rules.preserveRideMatch(ride, { rideMatch: { ...state.rideMatch, owner: 5 } }, "5").matched_stop, undefined, "метка не строка — не читается");
+});
+await t.test("Вход: выбор гостя переезжает к тому, кто вошёл; без выбора и с мусором в состоянии ничего не ломается", () => {
+  const guest = rules.rideMatchState({ ...ride, matched_stop: "Акъяр", matched_dropoff_stop: "Сибай" }, "guest");
+  const moved = rules.restampRideMatch(guest, "user");
+  assert.equal(moved.rideMatch.owner, "user"); assert.equal(moved.rideMatch.matched_stop, "Акъяр"); assert.equal(guest.rideMatch.owner, "guest", "исходное состояние не меняется");
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch(ride, moved, "user")), { pickup: "Акъяр", dropoff: "Сибай" });
+  assert.equal(rules.restampRideMatch(undefined, "user"), undefined);
+  assert.equal(rules.restampRideMatch(null, "user"), null);
+  assert.deepEqual(rules.restampRideMatch({ other: 1 }, "user"), { other: 1 });
+});
+
 const h = globalThis.__segment = { generation: "a", sent: [], routes: [], done: [], closed: 0, feedCalls: [] };
-const clientMock = `export class ApiError extends Error { constructor(status,message=''){super(message);this.status=status;} } export const getSessionGeneration=()=>globalThis.__segment.generation;`;
+const clientMock = `export class ApiError extends Error { constructor(status,message=''){super(message);this.status=status;} } globalThis.__segment.ApiError=ApiError; export const getSessionGeneration=()=>globalThis.__segment.generation;`;
 const sheetMock = `export const useSheetExit=()=>({leaving:false,portal:n=>n,dialogProps:{},close:()=>globalThis.__segment.closed++});`;
 const mockFor = lang => ({
   "/i18n/lang": langMock(lang), "/api/client": clientMock,
@@ -46,7 +67,7 @@ for (const lang of ["ru", "ba"]) {
   await t.test(`${lang}: высадка предлагает только последующие остановки и конечную; legacy NULL честный`, () => {
     let s = mount(Choice, { ride, pickup: "Акъяр", picked: null, onPick() {} }); s.render();
     assert.deepEqual(all(s.tree).filter(n => n.type === "input").map(n => n.props.value), ["Сибай", "Уфа"]);
-    s.unmount(); s = mount(Note, { pickupStop: "Акъяр", dropoffStop: null, from: ride.from_city, to: ride.to_city }); s.render();
+    s.unmount(); s = mount(Note, { pickupStop: "Акъяр", dropoffStop: null, rideHasStops: true, from: ride.from_city, to: ride.to_city }); s.render();
     assert.ok(text(s.tree).includes(lang === "ru" ? "Место высадки не указано — уточни в чате" : "Төшөү урыны күрһәтелмәгән — чатта асыҡла"));
     assert.ok(!text(s.tree).includes("Уфа")); s.unmount();
   });
@@ -72,6 +93,40 @@ for (const lang of ["ru", "ba"]) {
     const pending = cta.props.onClick(); assert.equal(h.sent[0].body.pickup_stop, "Баймак"); assert.equal(h.sent[0].body.dropoff_stop, "Уфа");
     s.unmount(); assert.equal(h.sent[0].signal.aborted, true); h.generation = "b"; resolve({ id: 90 }); await pending;
     assert.equal(h.routes.length, 0); h.send = undefined;
+  });
+  // Отказы сервера по месту посадки/высадки читаются СЛОВАМИ СЕРВЕРА (на языке интерфейса), а не общей фразой
+  // «Не получилось забронировать»: из них человек понимает, что выбрать иначе (приёмка сайта 23.10.2026, M5).
+  const REFUSALS = [
+    [400, "pickup_stop_unknown", "Такой остановки нет в этой поездке — выбери из списка: начало маршрута или остановку по пути.", "Был сәфәрҙә бындай туҡталыш юҡ — исемлектән һайла: юлдың башы йәки юл ыңғайындағы туҡталыш."],
+    [400, "pickup_stop_is_end", "Здесь поездка заканчивается — выбери, где садишься: начало маршрута или остановку по пути.", "Сәфәр бында тамамлана — ҡайҙа ултырғаныңды һайла: юлдың башы йәки юл ыңғайындағы туҡталыш."],
+    [409, "pickup_stop_conflict", "У тебя уже есть бронь с другим местом посадки. Отмени её и забронируй заново — или договорись с водителем в чате.", "Һинең икенсе ултырыу урыны менән бронең бар инде. Уны кире ал да яңынан бронла — йәки водитель менән чатта килеш."],
+    [400, "dropoff_stop_unknown", "Такой остановки для высадки нет в этой поездке.", "Был сәфәрҙә төшөү өсөн бындай туҡталыш юҡ."],
+    [409, "dropoff_stop_conflict", "У тебя уже есть бронь с другим местом высадки. Отмени её и забронируй заново или договорись в чате.", "Һинең икенсе төшөү урыны менән бронең бар инде. Уны кире ал да яңынан бронла йәки чатта килеш."],
+  ];
+  for (const [status, code, ru, ba] of REFUSALS) await t.test(`${lang}: отказ ${code} (${status}) показан словами сервера, не общей фразой`, async () => {
+    h.generation = "a"; h.sent = []; h.ownBooking = null;
+    const words = lang === "ba" ? ba : ru; // клиент уже выбрал язык при разборе detail {ru, ba, code}
+    h.send = () => Promise.reject(new h.ApiError(status, words));
+    const s = mount(Sheet, { ride, onClose() {} }); s.render();
+    const leaf = name => all(s.tree).find(n => n.type === name);
+    leaf("PickupStopChoice").props.onPick("Акъяр"); await s.settle();
+    leaf("DropoffStopChoice").props.onPick("Сибай"); await s.settle();
+    await all(s.tree).find(n => n.type === "button" && n.props.className?.includes("sheet__cta")).props.onClick(); await s.settle();
+    const shown = all(s.tree).find(n => n.props?.className === "auth__error");
+    assert.ok(shown, "отказ должен быть виден");
+    assert.equal(text(shown), words, "слова сервера дошли без подмены");
+    assert.ok(!text(s.tree).includes(lang === "ru" ? "Не получилось забронировать" : "Бронларға булманы"), "общая фраза не заменяет сервер");
+    assert.equal(all(s.tree).find(n => n.type === "button" && n.props.className?.includes("sheet__cta")).props.disabled, false, "после отказа можно выбрать иначе");
+    s.unmount(); h.send = undefined;
+  });
+  await t.test(`${lang}: без слов сервера (не ответ сервера) — общая фраза на языке интерфейса`, async () => {
+    h.generation = "a"; h.sent = []; h.ownBooking = null; h.send = () => Promise.reject(new TypeError("offline"));
+    const s = mount(Sheet, { ride, onClose() {} }); s.render();
+    const leaf = name => all(s.tree).find(n => n.type === name);
+    leaf("PickupStopChoice").props.onPick("Акъяр"); await s.settle(); leaf("DropoffStopChoice").props.onPick("Сибай"); await s.settle();
+    await all(s.tree).find(n => n.type === "button" && n.props.className?.includes("sheet__cta")).props.onClick(); await s.settle();
+    assert.equal(text(all(s.tree).find(n => n.props?.className === "auth__error")), lang === "ru" ? "Не получилось забронировать. Попробуй снова." : "Бронларға булманы. Ҡабат ҡара.");
+    s.unmount(); h.send = undefined;
   });
   await t.test(`${lang}: личная карточка передаёт свою высадку; публичная не получает чужие точки`, async () => {
     const Card = await bundleComponent("src/components/RideCard.tsx", { real: ["/utils/pickupStops"], mocks: mockFor(lang) });

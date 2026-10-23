@@ -1,5 +1,5 @@
 import { ApiError, getSessionGeneration } from "../api/client";
-import { sendMessageRest } from "../api/chat";
+import { sendMessageRest, type ChatMessage } from "../api/chat";
 import { setDriverStatus, type DriverPhase } from "../api/driver";
 import { setTripStatus, type TripStatus } from "../api/family";
 import { clearActions, insertAction, listActions, removeAction } from "./outboxStore";
@@ -15,6 +15,50 @@ export interface OutboxAction {
 }
 
 const listeners = new Set<() => void>();
+
+/**
+ * Отметка из очереди («Выехал», «Доехала»), которую сервер потом отклонил насовсем: «Рано: можно
+ * нажать за час до выезда», «Поездка отменена». Раньше такое действие молча снималось с очереди, а
+ * человек думал, что пассажир уже знает. Теперь отказ запоминается — его показывает плашка в оболочке.
+ * Только в памяти вкладки: отказ принадлежит входу и не переживает выход (`session`).
+ */
+export interface OutboxRefusal {
+  key: string;
+  session: string;
+  bookingId: number;
+  kind: OutboxKind;
+  payload: string;
+  /** Слова сервера на языке интерфейса в момент отказа (иначе общая фраза клиента по коду). */
+  message: string;
+}
+let refusals: OutboxRefusal[] = [];
+const refusalListeners = new Set<() => void>();
+function notifyRefusals(): void { refusalListeners.forEach(fn => { try { fn(); } catch { /* Независимые подписчики. */ } }); }
+export function subscribeOutboxRefusals(fn: () => void): () => void {
+  refusalListeners.add(fn);
+  return () => refusalListeners.delete(fn);
+}
+/** Отказы текущего входа, старые первыми. */
+export function getOutboxRefusals(): OutboxRefusal[] {
+  const session = getSessionGeneration();
+  // Поколение входа не возвращается: отказы прошлых входов уже никому не покажем — выбрасываем.
+  if (refusals.some(r => r.session !== session)) refusals = refusals.filter(r => r.session === session);
+  return refusals.slice();
+}
+export function dismissOutboxRefusal(key: string): void {
+  const before = refusals.length;
+  refusals = refusals.filter(r => r.key !== key);
+  if (refusals.length !== before) notifyRefusals();
+}
+function recordRefusal(action: OutboxAction, error: unknown): void {
+  // Сообщения чата имеют свой путь (в чате видно, что не ушло); здесь — отметки о ходе поездки.
+  if (action.kind === "message" || !(error instanceof ApiError)) return;
+  const key = `${action.session}:${String(action.id)}`;
+  if (refusals.some(r => r.key === key)) return;
+  refusals = [...refusals, { key, session: action.session, bookingId: action.bookingId, kind: action.kind, payload: action.payload, message: error.message }];
+  notifyRefusals();
+}
+const receiptListeners = new Set<(action: OutboxAction, receipt: ChatMessage) => void>();
 let snapshot: OutboxAction[] = [], snapshotSession = "", readVersion = 0, clearVersion = 0;
 let channel: BroadcastChannel | null = null;
 let listening = false;
@@ -80,6 +124,7 @@ export function hasPending(): boolean {
 export async function clearOutbox(): Promise<void> {
   const generation = getSessionGeneration();
   clearVersion++; readVersion++; snapshot = []; snapshotSession = generation; notify();
+  refusals = []; notifyRefusals();
   try { localStorage.removeItem("yuldash.outbox"); } catch { /* Вход не зависит от localStorage cleanup. */ }
   await clearActions(generation);
   changed();
@@ -106,9 +151,13 @@ export async function acknowledgeMessage(bookingId: number, id: string, expected
 
 async function run(a: OutboxAction): Promise<void> {
   switch (a.kind) {
-    case "message":
-      await sendMessageRest(a.bookingId, a.payload, undefined, String(a.id));
+    case "message": {
+      const receipt = await sendMessageRest(a.bookingId, a.payload, undefined, String(a.id), a.session);
+      if (receipt?.hidden_for_me === true && a.session === getSessionGeneration()) receiptListeners.forEach(listener => {
+        try { listener(a, receipt); } catch { /* A view cannot change confirmed delivery. */ }
+      });
       return;
+    }
     case "trip_status":
       await setTripStatus(a.bookingId, a.payload as TripStatus);
       return;
@@ -136,6 +185,7 @@ export async function flushOutbox(): Promise<boolean> {
       catch (error) {
         if (!active()) return false;
         if (!isPermanentRejection(error)) break;
+        recordRefusal(action, error); // отказ насовсем: действие снимаем, но человек должен о нём узнать
       }
       if (!active()) return false;
       await removeAction(action, active);
@@ -156,13 +206,17 @@ export async function flushOutbox(): Promise<boolean> {
   } finally { if (flushing === generation) flushing = null; }
 }
 
-export function watchOutbox(onFlushed: () => void): () => void {
+export function watchOutbox(onFlushed: () => void, onReceipt?: (bookingId: number, receipt: ChatMessage) => void): () => void {
   connect();
   const generation = getSessionGeneration();
   let stopped = false;
   let busy = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
   const active = () => !stopped && generation === getSessionGeneration();
+  const receiptListener = (action: OutboxAction, receipt: ChatMessage) => {
+    if (active() && action.session === generation) onReceipt?.(action.bookingId, receipt);
+  };
+  receiptListeners.add(receiptListener);
   const clearRetry = () => {
     if (retry !== null) clearTimeout(retry);
     retry = null;
@@ -194,6 +248,7 @@ export function watchOutbox(onFlushed: () => void): () => void {
   if (typeof document !== "undefined") document.addEventListener?.("visibilitychange", visible);
   return () => {
     stopped = true;
+    receiptListeners.delete(receiptListener);
     clearRetry();
     unsubscribe();
     window.removeEventListener("online", tryFlush);
@@ -203,4 +258,4 @@ export function watchOutbox(onFlushed: () => void): () => void {
 }
 
 /** Revoke in-memory actions without touching an unavailable disk. */
-export function resetOutboxMemory(): void { clearVersion++; readVersion++; snapshot = []; snapshotSession = ""; notify(); }
+export function resetOutboxMemory(): void { clearVersion++; readVersion++; snapshot = []; snapshotSession = ""; notify(); refusals = []; notifyRefusals(); }

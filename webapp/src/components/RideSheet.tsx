@@ -96,7 +96,7 @@ export default function RideSheet({
       const returnRide = { ...ride,
         ...(pickupStop !== null ? { matched_stop: pickupStop === ride.from_city ? null : pickupStop, matched_from_start: pickupStop === ride.from_city } : {}),
         ...(dropoffStop !== null ? { matched_dropoff_stop: dropoffStop === ride.to_city ? null : dropoffStop, matched_to_end: dropoffStop === ride.to_city } : {}) };
-      const returnState = rideMatchState(returnRide);
+      const returnState = rideMatchState(returnRide, ownerGeneration);
       navigate("/login", { state: { from: `/rides/${ride.id}`, ...(returnState ? { returnState } : {}) } });
       return;
     }
