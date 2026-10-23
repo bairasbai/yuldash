@@ -19,11 +19,32 @@ await t.test("Участок: без подсказки обе точки не �
 });
 await t.test("Подсказки сервера сохраняют обе точки через карточку/перезагрузку; чужой рейс и обратный порядок не проходят", () => {
   const matched = { ...ride, matched_stop: "Акъяр", matched_dropoff_stop: "Сибай" };
-  const restored = rules.preserveRideMatch(ride, rules.rideMatchState(matched));
+  const restored = rules.preserveRideMatch(ride, rules.rideMatchState(matched, "s1"), "s1");
   assert.deepEqual(rules.initialSegment(restored), { pickup: "Акъяр", dropoff: "Сибай" });
-  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch({ ...ride, id: 9 }, rules.rideMatchState(matched))), { pickup: null, dropoff: null });
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch({ ...ride, id: 9 }, rules.rideMatchState(matched, "s1"), "s1")), { pickup: null, dropoff: null });
   assert.equal(rules.initialSegment({ ...matched, matched_stop: "Сибай", matched_dropoff_stop: "Акъяр" }).dropoff, null);
   assert.deepEqual(rules.initialSegment({ ...ride, matched_from_start: true, matched_to_end: true }), { pickup: "Баймак", dropoff: "Уфа" });
+});
+
+await t.test("Выбор посадки в истории вкладки принадлежит входу: после выхода/смены аккаунта чужой выбор не читается", () => {
+  const matched = { ...ride, matched_stop: "Акъяр", matched_dropoff_stop: "Сибай" };
+  const state = rules.rideMatchState(matched, "A");
+  assert.equal(state.rideMatch.owner, "A");
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch(ride, state, "A")), { pickup: "Акъяр", dropoff: "Сибай" }, "свой вход читает");
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch(ride, state, "B")), { pickup: null, dropoff: null }, "после выхода и входа другого — не читается");
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch(ride, state, "")), { pickup: null, dropoff: null }, "гость после выхода — тоже нет");
+  const legacy = { rideMatch: { rideId: 7, matched_stop: "Акъяр", matched_from_start: false, matched_dropoff_stop: "Сибай" } };
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch(ride, legacy, "A")), { pickup: null, dropoff: null }, "запись старой версии без метки — не читается");
+  assert.equal(rules.preserveRideMatch(ride, { rideMatch: { ...state.rideMatch, owner: 5 } }, "5").matched_stop, undefined, "метка не строка — не читается");
+});
+await t.test("Вход: выбор гостя переезжает к тому, кто вошёл; без выбора и с мусором в состоянии ничего не ломается", () => {
+  const guest = rules.rideMatchState({ ...ride, matched_stop: "Акъяр", matched_dropoff_stop: "Сибай" }, "guest");
+  const moved = rules.restampRideMatch(guest, "user");
+  assert.equal(moved.rideMatch.owner, "user"); assert.equal(moved.rideMatch.matched_stop, "Акъяр"); assert.equal(guest.rideMatch.owner, "guest", "исходное состояние не меняется");
+  assert.deepEqual(rules.initialSegment(rules.preserveRideMatch(ride, moved, "user")), { pickup: "Акъяр", dropoff: "Сибай" });
+  assert.equal(rules.restampRideMatch(undefined, "user"), undefined);
+  assert.equal(rules.restampRideMatch(null, "user"), null);
+  assert.deepEqual(rules.restampRideMatch({ other: 1 }, "user"), { other: 1 });
 });
 
 const h = globalThis.__segment = { generation: "a", sent: [], routes: [], done: [], closed: 0, feedCalls: [] };

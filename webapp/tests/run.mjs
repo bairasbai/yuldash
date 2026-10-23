@@ -204,6 +204,8 @@ const SUITES = [
   { test: "confirm-before-action-test", src: null, out: null, bundle: false },
   // Одно действие — одно событие аналитики (было: publish_ride, revoke_share, courier_online дважды).
   { test: "analytics-no-double-test", src: null, out: null, bundle: false },
+  // Выбор посадки в истории вкладки (RideCard → RideDetail, гость → вход) принадлежит входу и не переживает выход (23.10.2026).
+  { test: "login-return-owner-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.

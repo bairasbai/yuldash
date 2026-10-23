@@ -7,6 +7,7 @@ import { YuStar, YuWomenOnly } from "./BrandIcons";
 import { SeatBadges } from "./SeatOptions";
 import { useOwnBooking } from "../booking/OwnBookingsProvider";
 import { rideMatchState } from "../utils/pickupStops";
+import { getSessionGeneration } from "../api/client";
 import { MatchedPickupStopNote, BookingSegmentNote } from "./PickupStopChoice";
 
 import { dayMonthShort, hhmm, pluralRu } from "../utils/format";
@@ -121,5 +122,5 @@ export default function RideCard({ ride, index, to }: { ride: Ride; index: numbe
       </div>
     </article>
   );
-  return to ? <Link to={to} state={rideMatchState(ride)} style={{ display: "block", color: "inherit", textDecoration: "none" }}>{card}</Link> : card;
+  return to ? <Link to={to} state={rideMatchState(ride, getSessionGeneration())} style={{ display: "block", color: "inherit", textDecoration: "none" }}>{card}</Link> : card;
 }
