@@ -6,9 +6,9 @@ from datetime import date as date_type, datetime, timedelta
 from functools import lru_cache
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, text
+from sqlalchemy import and_, or_, text
 from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
@@ -17,13 +17,14 @@ from ..db import get_session
 from ..errors import herr
 from ..features import guard_delivery_ride
 from ..flood import TOO_MANY_RIDES, guard_open_items
-from ..geo import bare_name, by_exact_names, name_variants, settlements_snapshot
+from ..geo import bare_name, by_exact_names, lookup, name_variants, settlements_snapshot
 from ..logs import log
 from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
                       RideStatus, User, UserRole)
 from .. import workday as workday_mod
 from ..safety_logic import (ensure_active, guard_women_only_publish)
 from ..schemas import RideIn, RideOut
+from .. import stop_search
 from ..security import current_user, current_user_optional
 from ..timeutil import client_dt_to_utc, utcnow
 # Планка «завершить можно только начавшуюся поездку» — одна на все три двери
@@ -73,8 +74,38 @@ def _city_match(column, session, city: str, snapshot: Optional[dict] = None):
     variants = name_variants(session, city, snapshot)
     if not variants:
         return None
-    conds = [column.contains(v) for v in variants]
+    # autoescape: «%» и «_» в имени — буквы, а не шаблон LIKE (иначе запрос «%» находил всё подряд).
+    conds = [column.contains(v, autoescape=True) for v in variants]
     return conds[0] if len(conds) == 1 else or_(*conds)
+
+
+def _route_condition(fv: list, tv: list, stops_from: bool, stops_to: bool, *, pairs: bool):
+    """Широкое SQL-условие «Откуда → Куда» с остановками (18.10.2026).
+
+    Общая лента (`pairs=True`): `(F∧T) ∨ (WF∧T) ∨ (F∧WT) ∨ WW`, где F/T — начало/конец маршрута,
+    WF/WT — подстрока в остановках, WW — «откуда…куда» в остановках именно в этом порядке. В
+    «Ближайших» (`pairs=False`) — без попарных LIKE: `(F ∨ WF) ∧ (T ∨ WT)`, порядок проверяет
+    `route_fit`. Запрос с цифрами по остановкам не ищем. None — фильтра нет."""
+    F = stop_search.column_match(Ride.from_city, fv) if fv else None
+    T = stop_search.column_match(Ride.to_city, tv) if tv else None
+    WF = stop_search.column_match(Ride.waypoints, fv) if fv and stops_from else None
+    WT = stop_search.column_match(Ride.waypoints, tv) if tv and stops_to else None
+    if fv and tv:
+        if pairs:
+            parts = [and_(F, T)]
+            if WF is not None:
+                parts.append(and_(WF, T))
+            if WT is not None:
+                parts.append(and_(F, WT))
+            if WF is not None and WT is not None:
+                parts.append(stop_search.pair_match(Ride.waypoints, fv, tv))
+            return or_(*parts)
+        return and_(or_(*[c for c in (F, WF) if c is not None]), or_(*[c for c in (T, WT) if c is not None]))
+    if fv:
+        return or_(*[c for c in (F, WF) if c is not None])
+    if tv:
+        return or_(*[c for c in (T, WT) if c is not None])
+    return None
 
 
 def _guard_route_cities(from_city: str, to_city: str) -> None:
@@ -459,8 +490,8 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
 
 @router.get("/rides", response_model=List[RideOut])
 def search_rides(
-    from_city: Optional[str] = None,
-    to_city: Optional[str] = None,
+    from_city: Optional[str] = Query(None, max_length=stop_search.NAME_MAX),
+    to_city: Optional[str] = Query(None, max_length=stop_search.NAME_MAX),
     category: Optional[RideCategory] = None,
     pets_allowed: Optional[bool] = None,
     child_seat: Optional[bool] = None,
@@ -497,14 +528,16 @@ def search_rides(
         # карточку, жмёт «Забронировать» и получает отказ — выглядит как поломка приложения.
         Ride.seats_left > 0,
     )
-    if from_city:
-        cond = _city_match(Ride.from_city, session, from_city)
-        if cond is not None:
-            q = q.where(cond)
-    if to_city:
-        cond = _city_match(Ride.to_city, session, to_city)
-        if cond is not None:
-            q = q.where(cond)
+    # «Откуда»/«Куда» — и по остановкам (18.10.2026, `stop_search`): широкое условие в SQL, точная
+    # проверка порядка и допустимых остановок — `route_fit` после выборки.
+    entry = stop_search.request_snapshot(settlements_snapshot(session))
+    fv = stop_search.variants(session, from_city, entry)
+    tv = stop_search.variants(session, to_city, entry)
+    stops_from = stop_search.stop_searchable(from_city)
+    stops_to = stop_search.stop_searchable(to_city)
+    route_cond = _route_condition(fv, tv, stops_from, stops_to, pairs=True)
+    if route_cond is not None:
+        q = q.where(route_cond)
     if category:
         # Анониму фильтр «в больницу» не даём: затирать связку в ответе бесполезно, если
         # выборку можно получить самим запросом — человек и так знает, что просил (волна 22).
@@ -542,9 +575,46 @@ def search_rides(
     q = q.order_by(*boost_then_depart_order())   # поднятые (Boost) — первыми
     # Потолок всегда: явный limit капится 200/страница, без limit — DEFAULT_FEED_LIMIT.
     eff_limit = min(max(1, limit), 200) if limit is not None else DEFAULT_FEED_LIMIT
-    q = q.offset(max(0, offset)).limit(eff_limit)
-    rides = session.exec(q).all()
+    fits: dict = {}
+    if route_cond is not None:
+        # По лёгким колонкам — как «Ближайшие»: точный `route_fit` до страницы, иначе подстрочные
+        # совпадения в остановках съедали бы место на странице, а «Показать ещё» врал бы.
+        # P2-2 (приёмка PR #188): без SQL-LIMIT это 12 000 строк на каждый запрос. Читаем по порядку
+        # выдачи и останавливаемся, набрав `offset + limit` настоящих совпадений — страница та же, а
+        # работа Python — на несколько десятков строк; а `route_fit` считаем один раз на «вид
+        # маршрута» (начало, конец, остановки), не на каждую поездку.
+        want = max(0, offset) + eff_limit
+        page_ids: list = []
+        verdicts: dict = {}
+        light = session.execute(q.with_only_columns(
+            Ride.id, Ride.from_city, Ride.to_city, Ride.waypoints))
+        try:
+            for row in light:
+                shape = (row.from_city, row.to_city, row.waypoints)
+                fit = verdicts.get(shape)
+                if fit is None:
+                    fit = verdicts[shape] = stop_search.route_fit(
+                        row, fv or None, tv or None, entry, from_stops=stops_from, to_stops=stops_to)
+                if fit.ok:
+                    fits[row.id] = fit
+                    page_ids.append(row.id)
+                    if len(page_ids) >= want:
+                        break
+        finally:
+            light.close()
+        page_ids = page_ids[max(0, offset):max(0, offset) + eff_limit]
+        by_id = {r.id: r for r in session.exec(select(Ride).where(Ride.id.in_(page_ids))).all()} if page_ids else {}
+        rides = [by_id[i] for i in page_ids if i in by_id]
+    else:
+        q = q.offset(max(0, offset)).limit(eff_limit)
+        rides = session.exec(q).all()
     out = rides_out(rides, session)
+    if fits:
+        # Тот же договор предвыбора, что в «Ближайших» (`_matched`): координат человека в ленте нет, значит
+        # место выбираем, только если «Откуда» названа и подходящее место ровно одно (приёмка PR #188, P3-2).
+        marks = {r.id: _matched(fits[r.id], None, by_query=bool(fv)) for r in out}
+        out = [r.model_copy(update={"matched_stop": marks[r.id][0], "matched_from_start": marks[r.id][1]})
+               for r in out]
     public_out = public_rides_payload(out)
     if no_filter:
         cache_set_json("rides:active:v2", [r.model_dump(mode="json") for r in public_out], 20)
@@ -689,14 +759,9 @@ _MAX_FILTER_CITIES = 12   # сколько городов в списке што
 _MAX_QUERY_CITIES = 30    # сколько выбранных мест принимает фильтр: топ-12 + найденные поиском деревни
 
 
-def _with_any_city(q, column, session: Session, cities: Optional[str]):
-    """Поездка подходит, если город — ЛЮБОЙ из выбранных (с русским и башкирским написанием)."""
-    names = [c.strip() for c in (cities or "").split(",") if c.strip()][:_MAX_QUERY_CITIES]
-    if not names:
-        return q
-    snap = settlements_snapshot(session)   # один снимок на все места, а не сверка базы на каждое (приёмка PR148)
-    conds = [c for c in (_city_match(column, session, n, snap) for n in names) if c is not None]
-    return q.where(or_(*conds)) if conds else q
+def _city_list(cities: Optional[str]) -> list[str]:
+    """Места фильтра через запятую: не больше `_MAX_QUERY_CITIES`, каждое — не длиннее NAME_MAX."""
+    return [c.strip()[:stop_search.NAME_MAX] for c in (cities or "").split(",") if c.strip()][:_MAX_QUERY_CITIES]
 
 
 def _with_passenger_conditions(q, session: Session, conditions: Optional[str]):
@@ -717,10 +782,103 @@ def _with_passenger_conditions(q, session: Session, conditions: Optional[str]):
     return q
 
 
+def _names_variants(session: Session, names: list[str], entry: dict) -> list[str]:
+    """Все написания всех выбранных мест (без повторов) — для SQL и `route_fit`."""
+    out: list[str] = []
+    for n in names:
+        for v in stop_search.variants(session, n, entry):
+            if v not in out:
+                out.append(v)
+    return out
+
+
+def _fit_all(r, routes: list, entry: dict):
+    """`route_fit` по каждому заданному фильтру; подходит, если подходит всем. Места посадки —
+    общие для всех; «где садится» (`matched_*`) — из общих мест, если человек назвал «Откуда»."""
+    if not routes:
+        return stop_search.route_fit(r, None, None, entry)
+    fits = [stop_search.route_fit(r, fv or None, tv or None, entry, from_stops=sf, to_stops=st)
+            for fv, tv, sf, st in routes]
+    if not all(f.ok for f in fits):
+        return stop_search.NO_FIT
+    common = set(fits[0].pickups)
+    for f in fits[1:]:
+        common &= set(f.pickups)
+    if not common:
+        return stop_search.NO_FIT
+    # «Где садится» считаем по ОБЩИМ местам посадки, а не по первому фильтру: у него вариантов
+    # могло быть больше, чем осталось после остальных (P2-1, приёмка PR #188).
+    return stop_search.make_fit(fits[0].stops, tuple(sorted(common)), named=any(fv for fv, *_rest in routes))
+
+
+def _postgis_dialect(session: Session) -> bool:
+    """База — PostgreSQL (префильтр PostGIS по радиусу). Отдельной функцией — тест подставляет."""
+    return session.bind.dialect.name == "postgresql"
+
+
+def _start_point(r, entry: dict):
+    """«Начало» в публичной выдаче — ТОЛЬКО координаты начала маршрута или центр города из
+    справочника; пин точки сбора — никогда (P2-4: это часто дом водителя)."""
+    if r.from_lat is not None and r.from_lng is not None:
+        return (r.from_lat, r.from_lng)
+    c = CITY_COORDS.get(r.from_city)
+    if c:
+        return c
+    cands = lookup(entry, r.from_city or "")
+    return (cands[0].lat, cands[0].lng) if len(cands) == 1 else None
+
+
+def _nearest_pickup(r, fit, lat: float, lng: float, entry: dict):
+    """Расстояние от человека до ближайшего места посадки этой поездки и само место (-1 — начало,
+    i — остановка): из позиций, где по его запросу можно сесть (`fit.pickups`), у которых есть
+    координаты (начало — `_start_point`, остановка — справочник сёл).
+
+    `distance_km` — честное: до ближайшего из тех, чьи координаты известны. А вот МЕСТО называем, только
+    если координаты есть у ВСЕХ вариантов посадки (или вариант один): иначе «ближайшее» — лишь ближайшее
+    из известных, а неизвестное могло быть ближе (приёмка PR #188, P3-3: «Сибай, Поворот на Юлук» без
+    координат у остановки предвыбирал начало, потому что до остановки не посчитать)."""
+    from ..ride_stops import stop_point
+    best, best_pos, unknown = None, None, False
+    for pos in fit.pickups:
+        pt = _start_point(r, entry) if pos == -1 else stop_point(r, fit.stops[pos], entry)
+        if pt is None:
+            unknown = True
+            continue
+        lat2, lng2 = (pt[0], pt[1]) if pos == -1 else (pt.lat, pt.lng)
+        d = haversine_km(lat, lng, lat2, lng2)
+        if best is None or d < best:
+            best, best_pos = d, pos
+    return (round(best, 1) if best is not None else None), (None if unknown else best_pos)
+
+
+def _matched(fit, pickup, *, by_query: bool):
+    """`matched_stop` / `matched_from_start` для карточки — ТО место посадки, до которого посчитано
+    расстояние (P2-1, приёмка PR #188). Расстояние до остановки при предвыбранном начале маршрута
+    отправляло человека из Ургазы в Сибай (41 км) и считалось бы неявкой по правилам «начала».
+
+    Один договор для `/rides` и `/rides/near`:
+    * расстояние посчитано до ВСЕХ вариантов посадки (`pickup`) — то место, до которого оно меньше;
+    * координат нет (или не у всех): выбираем, только если человек назвал «Откуда» и подходящее место
+      ровно одно;
+    * иначе — ничего не выбираем (null / false), человек сам скажет, где сядет."""
+    if pickup is not None:
+        return (fit.stops[pickup], False) if pickup >= 0 else (None, True)
+    if by_query and len(fit.pickups) == 1:
+        return fit.matched_stop, fit.matched_from_start
+    return None, False
+
+
+# Колонки, которые определяют маршрут поездки в «Ближайших»: по ним ответ (подходит ли, расстояние,
+# место посадки) считается один раз на «вид маршрута». Идут в запросе сразу после id/driver_id/only_trusted.
+_NEAR_SHAPE = (Ride.from_lat, Ride.from_lng, Ride.from_city, Ride.to_lat, Ride.to_lng, Ride.to_city,
+               Ride.waypoints)
+_NEAR_SHAPE_AT = 3
+
+
 @router.get("/rides/near")
 def rides_near(
-    from_city: Optional[str] = None,
-    to_city: Optional[str] = None,
+    from_city: Optional[str] = Query(None, max_length=stop_search.NAME_MAX),
+    to_city: Optional[str] = Query(None, max_length=stop_search.NAME_MAX),
     lat: Optional[float] = None,
     lng: Optional[float] = None,
     radius_km: Optional[float] = None,
@@ -742,14 +900,23 @@ def rides_near(
     # проход волны 1, 16.10.2026).
     q = select(Ride).where(Ride.status == RideStatus.active, Ride.seats_left > 0,
                            Ride.depart_at >= utcnow() - timedelta(hours=RIDE_PAST_GRACE_HOURS))
-    if from_city:
-        cond = _city_match(Ride.from_city, session, from_city)
+    # «Откуда»/«Куда» — место из поиска (`from_city`/`to_city`) и места из шторок (`from_cities`/
+    # `to_cities`, «любое из»); заданы оба — поездка должна подойти обоим, как раньше. И по остановкам
+    # (18.10.2026): в SQL широкое условие «столбец ИЛИ остановки» (без попарных LIKE), точный порядок
+    # и допустимые остановки — `route_fit` ниже, до счёта `count` и разбивки на порции.
+    entry = stop_search.request_snapshot(settlements_snapshot(session))
+    routes = []   # [(fv, tv, stops_from, stops_to)] — каждое должно подойти
+    for froms, tos in ((_city_list(from_city), _city_list(to_city)),
+                       (_city_list(from_cities), _city_list(to_cities))):
+        if not froms and not tos:
+            continue
+        fv, tv = _names_variants(session, froms, entry), _names_variants(session, tos, entry)
+        st_f = bool(froms) and all(stop_search.stop_searchable(n) for n in froms)
+        st_t = bool(tos) and all(stop_search.stop_searchable(n) for n in tos)
+        cond = _route_condition(fv, tv, st_f, st_t, pairs=False)
         if cond is not None:
             q = q.where(cond)
-    if to_city:
-        cond = _city_match(Ride.to_city, session, to_city)
-        if cond is not None:
-            q = q.where(cond)
+            routes.append((fv, tv, st_f, st_t))
     bounds = _date_bounds(date)
     if bounds:
         q = q.where(Ride.depart_at >= bounds[0], Ride.depart_at < bounds[1])
@@ -757,18 +924,17 @@ def rides_near(
     # раньше их применял телефон к уже полученной порции, и подходящая поездка двенадцатой
     # в списке превращалась в «поездок нет», а «Показать ещё» при условии пряталась.
     q = _with_passenger_conditions(q, session, conditions)
-    # «Откуда»/«Куда» по нескольким городам: «из Баймака или Сибая в любую сторону».
-    q = _with_any_city(q, Ride.from_city, session, from_cities)
-    q = _with_any_city(q, Ride.to_city, session, to_cities)
     # PostGIS-префильтр по радиусу (только postgres + есть координаты): индекс GiST → быстро на больших
     # объёмах. Фолбэк (sqlite/без PostGIS/ошибка) — Python-haversine ниже даёт тот же результат.
-    if lat is not None and lng is not None and radius_km is not None and session.bind.dialect.name == "postgresql":
+    if lat is not None and lng is not None and radius_km is not None and _postgis_dialect(session):
         try:
             # NULL-координатные поездки НЕ выкидываем (старые/негеокоженные) — их
             # отфильтрует Python-haversine по CITY_COORDS ниже. ST_DWithin (с GiST-индексом)
             # отсекает далёкие среди геокоженных.
+            # Поездки с остановками не выкидываем: ближе может оказаться остановка (18.10.2026) —
+            # расстояние до неё посчитает Python ниже.
             ids = [row[0] for row in session.execute(text(
-                "SELECT id FROM ride WHERE status = 'active' AND (from_lat IS NULL OR "
+                "SELECT id FROM ride WHERE status = 'active' AND (from_lat IS NULL OR waypoints <> '' OR "
                 "ST_DWithin(ST_MakePoint(from_lng, from_lat)::geography, "
                 "ST_MakePoint(:lng, :lat)::geography, :r))"
             ), {"lng": lng, "lat": lat, "r": radius_km * 1000.0}).all()]
@@ -785,23 +951,38 @@ def rides_near(
     # `driver_ok` — проверен ли водитель: тем же подзапросом, каким раньше резал WHERE, но колонкой,
     # чтобы спрятанные поездки можно было посчитать без второго запроса.
     light_rows = session.execute(
-        q.with_only_columns(Ride.id, Ride.driver_id, Ride.only_trusted,
-                            Ride.from_lat, Ride.from_lng, Ride.from_city,
+        q.with_only_columns(Ride.id, Ride.driver_id, Ride.only_trusted, *_NEAR_SHAPE,
                             Ride.driver_id.in_(select(User.id).where(User.verified.is_(True))).label("driver_ok"))
         .order_by(*boost_then_depart_order())   # Boost первыми, затем по времени выезда ↑
     ).all()
     kept: list = []
     dist_by_id: dict = {}
+    matched_by_id: dict = {}
+    by_query = any(fv for fv, *_ in routes)
+    # Ответ по поездке зависит только от её маршрута (запрос и точка человека на весь вызов одни):
+    # считаем один раз на «вид маршрута», а не на каждую из 12 000 строк (P2-2, приёмка PR #188 —
+    # без этого `route_fit` с разбором остановок давал ~6× к времени «Ближайших»).
+    shape_memo: dict = {}
     for r in light_rows:
-        dist = None
-        if lat is not None and lng is not None:
-            # реальные геокодированные координаты концов → иначе известный город → иначе нет дистанции
-            c = (r.from_lat, r.from_lng) if r.from_lat is not None and r.from_lng is not None else CITY_COORDS.get(r.from_city)
-            if c:
-                dist = round(haversine_km(lat, lng, c[0], c[1]), 1)
+        shape = r[_NEAR_SHAPE_AT:_NEAR_SHAPE_AT + len(_NEAR_SHAPE)]   # срез строки, не 7 обращений по имени
+        verdict = shape_memo.get(shape)
+        if verdict is None:
+            fit = _fit_all(r, routes, entry)
+            if not fit.ok:
+                verdict = (False, None, None)   # совпало подстрокой, а маршрут не тот (порядок, недопустимая остановка)
+            else:
+                dist, pickup = None, None
+                if lat is not None and lng is not None:
+                    dist, pickup = _nearest_pickup(r, fit, lat, lng, entry)
+                verdict = (True, dist, _matched(fit, pickup, by_query=by_query))
+            shape_memo[shape] = verdict
+        ok, dist, matched = verdict
+        if not ok:
+            continue
         if radius_km is not None and dist is not None and dist > radius_km:
             continue
-        dist_by_id[r.id] = dist
+        dist_by_id[r[0]] = dist
+        matched_by_id[r[0]] = matched
         kept.append(r)
     # Прячем до подсчёта total/пагинации: заблокированных, водителей на паузе (бронь им всё
     # равно не подтвердить) и «только для своих» (видит лишь L3). Связку с клиникой снимаем
@@ -830,6 +1011,7 @@ def rides_near(
     for r in page:
         out = public_ride_payload(ride_out_with(r, users_map, profiles, rating_agg, trips_agg, front_taken)).model_dump()
         out["distance_km"] = dist_by_id.get(r.id)
+        out["matched_stop"], out["matched_from_start"] = matched_by_id.get(r.id, (None, False))
         items.append(out)
     # Связку с клиникой прячем ЗДЕСЬ, а не выше вместе с соседними фильтрами: там в руках
     # ORM-объекты `Ride`, страница потом перечитывается из базы заново — правка на них
@@ -1037,12 +1219,24 @@ def ride_cities(user: Optional[User] = Depends(current_user_optional),   # ес�
     не тянет всю базу, а города дальних поездок всё равно уходят из топа.
     """
     rows = session.execute(
-        select(Ride.id, Ride.driver_id, Ride.only_trusted, Ride.from_city, Ride.to_city)
+        select(Ride.id, Ride.driver_id, Ride.only_trusted, Ride.from_city, Ride.to_city, Ride.waypoints,
+               Ride.from_lat, Ride.from_lng, Ride.to_lat, Ride.to_lng)
         .where(Ride.status == RideStatus.active, Ride.seats_left > 0,
                Ride.depart_at >= utcnow() - timedelta(hours=RIDE_PAST_GRACE_HOURS))   # уехавшие — как в ленте
         .order_by(Ride.depart_at).limit(FEED_MAX * 10)
     ).all()
     rows = hide_trusted_only(hide_suspended(hide_blocked(rows, user, session), user, session), user, session)
+
+    # Остановки (18.10.2026) — тоже места, откуда и куда едут: «из Ургазы» находит поездку «Сибай →
+    # Акъяр через Ургазу». В чипы — только остановки, которые узнал справочник сёл (свободный текст
+    # «поворот на Юлук» — нет), и только из видимых этому человеку поездок (строки уже отфильтрованы).
+    # Справочник — ОДНИМ снимком на весь ответ (и для остановок, и для городов ниже): список
+    # открывается с картой у каждого (приёмка PR147, `test_no_query_per_item`).
+    from ..ride_stops import parse_stops
+    snap = settlements_snapshot(session)
+    stops_of = [parse_stops(r, snap) if (r.waypoints or "").strip() else [] for r in rows]
+    known_stops = by_exact_names(session, {s for stops in stops_of for s in stops}, snap)
+    stop_names = [s for stops in stops_of for s in stops if known_stops.get(s) is not None]
 
     def _top(names) -> list[dict]:
         # Сначала считаем имена, потом ищем их в справочнике ОДНИМ снимком (by_exact_names): поиск
@@ -1050,7 +1244,7 @@ def ride_cities(user: Optional[User] = Depends(current_user_optional),   # ес�
         # имя это сотни запросов на каждое открытие карты (приёмка PR147, два прохода).
         # Имя с запятой не берём: фильтр передаёт города через запятую и разрезал бы его на два.
         имена = Counter(n for n in (bare_name((raw or "").strip()) for raw in names) if n and "," not in n)
-        найдено = by_exact_names(session, имена)
+        найдено = by_exact_names(session, имена, snap)
         счёт: dict[tuple, int] = {}
         for name, n in имена.items():
             row = найдено[name]
@@ -1059,7 +1253,8 @@ def ride_cities(user: Optional[User] = Depends(current_user_optional),   # ес�
         лучшие = sorted(счёт.items(), key=lambda kv: (-kv[1], kv[0][0]))[:_MAX_FILTER_CITIES]
         return [{"ru": ru, "ba": ba} for (ru, ba), _ in лучшие]
 
-    return {"from": _top(r.from_city for r in rows), "to": _top(r.to_city for r in rows)}
+    return {"from": _top([r.from_city for r in rows] + stop_names),
+            "to": _top([r.to_city for r in rows] + stop_names)}
 
 
 @router.get("/rides/{ride_id}", response_model=RideOut)

@@ -46,7 +46,8 @@ def _city_match(column, session, city: str):
     variants = name_variants(session, city)
     if not variants:
         return None
-    conds = [column.contains(v) for v in variants]
+    # autoescape: «%» и «_» в имени — буквы, а не шаблон LIKE (как в ленте поездок, 18.10.2026).
+    conds = [column.contains(v, autoescape=True) for v in variants]
     return conds[0] if len(conds) == 1 else or_(*conds)
 
 router = APIRouter(tags=["requests"])
