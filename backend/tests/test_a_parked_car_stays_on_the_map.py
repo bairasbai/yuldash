@@ -21,7 +21,7 @@ from app import instant_service as isv
 from app import livepos
 from app.models import UserRole
 
-from test_api import _ride
+from test_api import _ride, soon
 
 # Сломанный канал должен краснеть за 30 с, а не держать CI.
 pytestmark = pytest.mark.timeout(30)
@@ -42,7 +42,7 @@ def едем(client, user_factory):
     """Бронь подтверждена, водитель отметил «Выехал» — точка машины уже идёт близким."""
     водитель = user_factory("СтоянкаВодитель", role=UserRole.driver)
     пассажир = user_factory("СтоянкаПассажирка")
-    ride_id = _ride(client, водитель, seats=2)
+    ride_id = _ride(client, водитель, seats=1, depart_at=soon())   # «Выехал» — за час до выезда (P2-Г)
     bid = client.post("/bookings", headers=пассажир["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{bid}/confirm", headers=водитель["auth"]).status_code == 200
     r = client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"], json={"status": "departed"})

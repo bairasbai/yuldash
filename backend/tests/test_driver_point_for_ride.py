@@ -17,6 +17,7 @@ from __future__ import annotations
 import ast
 import json
 import pathlib
+import re
 from datetime import timedelta
 
 import fakeredis
@@ -254,11 +255,46 @@ def test_far_on_every_device_is_still_refused(client, user_factory, redis_on):
 
 APP = pathlib.Path(__file__).resolve().parents[1] / "app"
 HELPER = "driver_points_for_ride"
-# Где помощник МОЖНО упоминать: (файл, функция верхнего уровня). Каждая новая строка — сознательное
+# Обёртка для брони B (PR1, 18.10.2026): та же точка, но по правилам брони B (окно, блокировки).
+BOOKING_HELPER = "driver_point_for_booking"
+# Где помощники МОЖНО упоминать: (файл, функция верхнего уровня). Каждая новая строка — сознательное
 # решение «кому и когда отдаём точку водителя», с проверкой безопасности (§8, гео).
 ALLOWED = {
-    ("livepos.py", HELPER),                    # определение
-    ("routers/bookings.py", "_verify_arrival"),  # честное «Подъезжаю»: отвечает водителю «далеко/рядом»
+    HELPER: {
+        ("livepos.py", HELPER),                         # определение
+        ("routers/bookings.py", "_verify_arrival"),     # честное «Подъезжаю» к пину: ответ водителю
+        ("routers/bookings.py", "_distance_to_stop_km"),  # «Подъезжаю» к остановке: ответ водителю
+        ("routers/location.py", BOOKING_HELPER),        # обёртка по правилам брони B
+    },
+    BOOKING_HELPER: {
+        ("routers/location.py", BOOKING_HELPER),        # определение
+        ("routers/location.py", "_машина_для"),         # канал пассажира B (его `_Пора`)
+        ("routers/share.py", "<module>"),               # импорт
+        ("routers/share.py", "_booking_state"),         # ссылка близким B
+        ("routers/safety.py", "_место_беды"),           # SOS: только «в пути»
+    },
+}
+# Внутренняя точка водителя по рейсу (приёмка PR186, A1): пишет только канал водителя, читает только
+# проверка «Подъезжаю» — через `driver_points_for_ride(..., with_ride_point=True)`.
+RIDE_WRITER = "ride_driver_set"
+RIDE_FLAG = "with_ride_point"
+RIDE_KIND = "_RIDE_DRIVER"
+ALLOWED |= {
+    RIDE_WRITER: {
+        ("livepos.py", RIDE_WRITER),                    # определение
+        ("routers/location.py", "<module>"),            # импорт
+        ("routers/location.py", "trip_location"),       # канал водителя, рейс идёт (depart − 1 ч)
+    },
+    RIDE_FLAG: {
+        ("livepos.py", HELPER),                         # определение
+        ("routers/bookings.py", "_verify_arrival"),     # «Подъезжаю» к пину
+        ("routers/bookings.py", "_distance_to_stop_km"),  # «Подъезжаю» к остановке
+    },
+    RIDE_KIND: {
+        ("livepos.py", "<module>"),
+        ("livepos.py", RIDE_WRITER),
+        ("livepos.py", HELPER),
+    },
 }
 # Публичные выдачи, где точки водителя не будет НИКОГДА: лента, «Ближайшие», города, карточка
 # поездки, сигнальный канал карты, витрина `/r/{id}` (P3 второй проверки безопасности).
@@ -269,17 +305,18 @@ PUBLIC = {
 }
 
 
-def _mentions(path: pathlib.Path, base: pathlib.Path = APP) -> set[tuple[str, str]]:
+def _mentions(path: pathlib.Path, base: pathlib.Path = APP, name: str = HELPER) -> set[tuple[str, str]]:
     """Где в файле упомянут помощник: {(файл, функция верхнего уровня или «<module>»)}."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     rel = path.relative_to(base).as_posix()
     found: set[tuple[str, str]] = set()
 
     def hit(node) -> bool:
-        return ((isinstance(node, ast.Name) and node.id == HELPER)
-                or (isinstance(node, ast.Attribute) and node.attr == HELPER)
-                or (isinstance(node, ast.alias) and (node.name == HELPER or node.asname == HELPER))
-                or (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == HELPER))
+        return ((isinstance(node, ast.Name) and node.id == name)
+                or (isinstance(node, ast.Attribute) and node.attr == name)
+                or (isinstance(node, ast.alias) and (node.name == name or node.asname == name))
+                or (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name)
+                or (isinstance(node, (ast.keyword, ast.arg)) and node.arg == name))   # with_ride_point=…
 
     for top in tree.body:
         owner = top.name if isinstance(top, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else "<module>"
@@ -288,23 +325,25 @@ def _mentions(path: pathlib.Path, base: pathlib.Path = APP) -> set[tuple[str, st
     return found
 
 
-def _all_mentions() -> set[tuple[str, str]]:
+def _all_mentions(name: str) -> set[tuple[str, str]]:
     out: set[tuple[str, str]] = set()
     for path in APP.rglob("*.py"):
-        out |= _mentions(path)
+        out |= _mentions(path, name=name)
     return out
 
 
-def test_helper_is_used_only_where_allowed():
-    extra = _all_mentions() - ALLOWED
+@pytest.mark.parametrize("name", [HELPER, BOOKING_HELPER, RIDE_WRITER, RIDE_FLAG, RIDE_KIND])
+def test_helper_is_used_only_where_allowed(name):
+    extra = _all_mentions(name) - ALLOWED[name]
     assert not extra, (
-        f"точка водителя по рейсу ушла туда, где её не разрешали: {sorted(extra)}. Это гео (§8): "
+        f"точка водителя ({name}) ушла туда, где её не разрешали: {sorted(extra)}. Это гео (§8): "
         "сначала план и проверка безопасности, потом строка в ALLOWED")
 
 
-def test_helper_never_reaches_public_feeds():
+@pytest.mark.parametrize("name", [HELPER, BOOKING_HELPER, RIDE_WRITER, RIDE_FLAG, RIDE_KIND])
+def test_helper_never_reaches_public_feeds(name):
     for rel, funcs in PUBLIC.items():
-        hits = {owner for f, owner in _mentions(APP / rel) if f == rel}
+        hits = {owner for f, owner in _mentions(APP / rel, name=name) if f == rel}
         bad = hits if funcs is None else hits & funcs
         assert not bad, f"{rel}: публичная выдача читает точку водителя ({sorted(bad)})"
 
@@ -319,3 +358,20 @@ def test_the_guard_sees_a_planted_mention(tmp_path):
         encoding="utf-8")
     found = _mentions(fake_app / "routers" / "rides.py", fake_app)
     assert ("routers/rides.py", "rides_near") in found and ("routers/rides.py", "<module>") in found
+
+
+_RIDE_KEY = re.compile(r"^(livepos:)?ride_driver(:|$)")
+
+
+def test_the_ride_key_is_spelled_only_in_livepos():
+    """Ключ «livepos:ride_driver:…» (или вид «ride_driver» для `livepos_get/livepos_set`) пишется
+    только в livepos.py: иначе любой мог бы прочитать внутреннюю точку мимо `driver_points_for_ride`."""
+    bad = set()
+    for path in APP.rglob("*.py"):
+        rel = path.relative_to(APP).as_posix()
+        if rel == "livepos.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and _RIDE_KEY.match(node.value):
+                bad.add((rel, node.lineno))
+    assert not bad, f"ключ внутренней точки водителя вне livepos.py: {sorted(bad)}"

@@ -33,7 +33,7 @@ from app.routers.chat import _parcel_chat_key
 from app.routers.location import PARCEL_LOC_BASE
 from app.services import manager
 
-from test_api import _ride
+from test_api import _ride, soon
 
 pytestmark = pytest.mark.timeout(60)
 
@@ -41,12 +41,13 @@ pytestmark = pytest.mark.timeout(60)
 def _подтверждённая_бронь(client, user_factory, метка: str):
     водитель = user_factory(метка + "Водитель", role=UserRole.driver)
     пассажирка = user_factory(метка + "Пассажирка")
-    ride_id = _ride(client, водитель, seats=2)
+    ride_id = _ride(client, водитель, seats=1, depart_at=soon())   # полный и скоро — ленту не теснит
     bid = client.post("/bookings", headers=пассажирка["auth"],
                       json={"ride_id": ride_id, "seats": 1}).json()["id"]
     client.post(f"/bookings/{bid}/confirm", headers=водитель["auth"])
     # Поездка идёт: без «выехал» сервер не пересылает точку по брони за годы до выезда
     # (`trip_is_live`, 16.10.2026) — и проверка «блокировка закрывает карту» прошла бы впустую.
+    # «Выехал» принимается за час до выезда (P2-Г) — отсюда выезд через 20 минут.
     r = client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"], json={"status": "departed"})
     assert r.status_code == 200, r.text
     return водитель, пассажирка, bid

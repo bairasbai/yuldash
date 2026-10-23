@@ -145,7 +145,8 @@ def _кто_в_беде(order, нажал: User) -> str:
     return если_везут_другого or (нажал.name or нажал.phone or "")
 
 
-def _место_беды(order, booking_id, нажал_lat, нажал_lng, нажал_id: "int | None" = None) -> tuple:
+def _место_беды(order, booking_id, нажал_lat, нажал_lng, нажал_id: "int | None" = None, *,
+                booking=None, ride=None, session=None) -> tuple:
     """Где человек, которому нужна помощь. Возврат: (lat, lng) или (None, None).
 
     Раньше брали координаты ТОГО ТЕЛЕФОНА, ЧТО НАЖАЛ. Для обычной поездки это правильно —
@@ -159,6 +160,12 @@ def _место_беды(order, booking_id, нажал_lat, нажал_lng, на
     трек, но подмена рушит саму логику «место беды = где человек, а не где телефон»).
 
     Нет свежей позиции — не пишем НИЧЕГО: сигнал без места честнее сигнала с чужим местом.
+
+    Попутка (18.10.2026, P2-Б второй проверки безопасности): запасная точка машины — ТОЛЬКО когда
+    бронь «в пути» (водитель отметил «Сел»). До посадки машина — не место человека: пассажирка ещё
+    дома или на остановке, и сигнал с точкой машины где-то за 30 км увёл бы близких не туда. Точку
+    берём по любой живой брони рейса и по правилам этой брони (`location.driver_point_for_booking`:
+    блокировки, окно) — водитель мог открыть поездку другого пассажира.
     """
     from ..livepos import livepos_get
     # Безопасный дефолт: без явного id нажавшего считаем, что «для другого» НЕ действует
@@ -175,8 +182,10 @@ def _место_беды(order, booking_id, нажал_lat, нажал_lng, на
         поз = livepos_get("order", order.id)
         if поз:
             return (поз.get("lat"), поз.get("lng"))
-    if booking_id is not None:
-        поз = livepos_get("booking", booking_id)
+    if booking_id is not None and booking is not None and ride is not None and session is not None \
+            and booking.status == BookingStatus.onboard:
+        from .location import driver_point_for_booking
+        поз = driver_point_for_booking(session, booking, ride)
         if поз:
             return (поз.get("lat"), поз.get("lng"))
     return (None, None)
@@ -266,7 +275,8 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     ).all()
     # Место кладём в ТЕКСТ события (как у «застрял»): отдельной колонки под координаты нет,
     # а заводить её ради ссылки — миграция ради ссылки. В stdout координаты НЕ пишем (152-ФЗ).
-    место_lat, место_lng = _место_беды(order, эфф_booking_id, body.lat, body.lng, user.id)
+    место_lat, место_lng = _место_беды(order, эфф_booking_id, body.lat, body.lng, user.id,
+                                       booking=booking, ride=ride, session=session)
     link = _maps_link(место_lat, место_lng)
     where = f" Место: {link}" if link else ""
     fields = body.model_dump(exclude={"lat", "lng"})

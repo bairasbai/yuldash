@@ -35,7 +35,7 @@ from app.db import engine
 from app.models import Booking, BookingStatus, UserRole
 from app.services import manager
 
-from test_api import _ride
+from test_api import _ride, soon
 
 ROUTERS = Path(__file__).resolve().parents[1] / "app" / "routers"
 
@@ -55,12 +55,13 @@ def быстрый_сторож(monkeypatch):
 def поездка(client, user_factory):
     водитель = user_factory("ГеоВодитель", role=UserRole.driver)
     пассажирка = user_factory("ГеоПассажирка")
-    ride_id = _ride(client, водитель, comment="живая поездка")
+    ride_id = _ride(client, водитель, seats=1, comment="живая поездка", depart_at=soon())   # полный и скоро
     bid = client.post("/bookings", headers=пассажирка["auth"],
                       json={"ride_id": ride_id, "seats": 1}).json()["id"]
     client.post(f"/bookings/{bid}/confirm", headers=водитель["auth"])
-    # Поездка идёт: водитель выехал. Подтверждённая бронь за годы до выезда — ещё договорённость,
-    # и точку сервер не пересылает (`trip_is_live`, проверка безопасности волны 1, 16.10.2026).
+    # Поездка идёт: выезд через 20 минут, водитель выехал. Подтверждённая бронь за годы до выезда —
+    # ещё договорённость, и точку сервер не пересылает (`trip_is_live`, проверка безопасности волны 1,
+    # 16.10.2026); «Выехал» за годы — 409 (P2-Г, 18.10.2026).
     r = client.post(f"/bookings/{bid}/driver-status", headers=водитель["auth"], json={"status": "departed"})
     assert r.status_code == 200, r.text
     return водитель, пассажирка, bid

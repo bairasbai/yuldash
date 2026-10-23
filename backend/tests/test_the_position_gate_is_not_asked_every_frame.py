@@ -30,7 +30,7 @@ from app.db import engine
 from app.models import Booking, BookingStatus, UserRole
 from app.routers import location
 
-from test_api import _ride
+from test_api import _ride, trip_starts, wait_gate
 from test_no_query_per_item import _Counter
 
 # Если толчок «Выехал» потеряется, слушатель будет вечно ждать точку. Отметка работает с тех пор,
@@ -110,16 +110,21 @@ def test_число_запросов_не_растёт_вместе_с_числ�
     )
 
 
-def test_Выехал_действует_со_следующего_кадра_даже_внутри_окна(client, договорились):
-    """Окно «ещё нет» разогрето тремя кадрами; водитель жмёт «Выехал»; ближайшая точка идёт к пассажиру."""
+def test_начало_поездки_действует_со_следующего_кадра_даже_внутри_окна(client, договорились, gate_seen):
+    """Окно «ещё нет» разогрето тремя кадрами; наступил час до выезда и канал толкнули; ближайшая точка
+    идёт к пассажиру. Раньше здесь жали «Выехал» за годы до выезда — с 18.10.2026 это 409 (P2-Г):
+    «Выехал» принимается за час до выезда, когда точка и так открыта по времени."""
     д = договорились
     путь = f"/ws/trip/{д['booking']}/location"
     with client.websocket_connect(путь) as ухо:
         ухо.send_text(_авторизация(д["пассажир"]))
         with client.websocket_connect(путь) as рот:
             рот.send_text(_авторизация(д["водитель"]))
+            до = gate_seen["n"]
             for i in (1, 2, 3):
                 рот.send_text(_кадр(i))
+            wait_gate(gate_seen, до)         # первый кадр разобран: окно «ещё нет» разогрето
+            trip_starts(д["booking"])        # выезд через 10 минут + толчок канала
             r = client.post(f"/bookings/{д['booking']}/driver-status",
                             headers=д["водитель"]["auth"], json={"status": "departed"})
             assert r.status_code == 200, r.text
@@ -128,8 +133,8 @@ def test_Выехал_действует_со_следующего_кадра_д
             первая = json.loads(ухо.receive_text())["ts"]
 
     assert первая == 4, (
-        f"пришла точка {первая}: до «Выехал» ничего не должно доходить (кадры 1–3), а после — "
-        "первая же точка (4). Если здесь зависание — толчок «Выехал» потерялся"
+        f"пришла точка {первая}: до начала поездки ничего не должно доходить (кадры 1–3), а после — "
+        "первая же точка (4). Если здесь зависание — толчок потерялся"
     )
 
 
@@ -197,6 +202,7 @@ def test_отменённая_бронь_не_открывается_ни_тол
     решение = location._Пора(д["booking"])
     assert решение.наступила() is False
 
+    trip_starts(д["booking"])        # «Выехал» принимается за час до выезда (P2-Г) — переносим выезд
     assert client.post(f"/bookings/{д['booking']}/driver-status", headers=д["водитель"]["auth"],
                        json={"status": "departed"}).status_code == 200
     r = client.post(f"/bookings/{д['booking']}/cancel", headers=д["пассажир"]["auth"])

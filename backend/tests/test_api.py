@@ -20,6 +20,48 @@ def just_left() -> str:
     return (utcnow() - timedelta(minutes=1)).replace(microsecond=0).isoformat() + "+00:00"
 
 
+def soon(minutes: int = 20) -> str:
+    """Время выезда «через `minutes` минут» (UTC с явным поясом): поездка уже идёт по времени.
+
+    Живая точка открывается за час до выезда, и «Выехал» сервер принимает тоже не раньше чем за час
+    (вторая проверка безопасности, P2-Г, 18.10.2026). Раньше тесты канала координат брали рейс на
+    2030 год и жали «Выехал» — теперь это 409 `departed_too_early`. Такой рейс лучше делать ПОЛНЫМ
+    (мест столько, сколько броней): тогда он не попадает в ленту и не теснит чужие тесты в её 200."""
+    from datetime import timedelta
+    from app.timeutil import utcnow
+    return (utcnow() + timedelta(minutes=minutes)).replace(microsecond=0).isoformat() + "+00:00"
+
+
+def trip_starts(bid: int, minutes: int = 10) -> None:
+    """«До выезда меньше часа» — прямо сейчас: переносим выезд рейса брони на +`minutes` минут и
+    толкаем канал координат (как это сделал бы «Выехал»). Для тестов «до начала поездки точка не
+    идёт, после — идёт»: рейс до этого момента далеко в будущем, а «Выехал» за годы — 409 (P2-Г)."""
+    from datetime import timedelta
+
+    from sqlmodel import Session
+
+    from app import trip_wake
+    from app.db import engine
+    from app.models import Booking, Ride
+    from app.timeutil import utcnow
+    with Session(engine) as s:
+        b = s.get(Booking, bid)
+        r = s.get(Ride, b.ride_id)
+        r.depart_at = utcnow() + timedelta(minutes=minutes)
+        s.add(r)
+        s.commit()
+    trip_wake.poke(bid)
+
+
+def wait_gate(seen: dict, before: int, timeout: float = 5.0) -> None:
+    """Ждать, пока канал спросит «пора?» после отметки `before` (кадр разобран)."""
+    import time
+    deadline = time.monotonic() + timeout
+    while seen["n"] <= before:
+        assert time.monotonic() < deadline, "кадр не дошёл до сервера за 5 с"
+        time.sleep(0.01)
+
+
 def _ride(client, drv, seats=3, **extra):
     """Общий помощник «опубликовать поездку». `extra` (например comment=…) нужен там,
     где тесту требуются ДВЕ разные поездки: байт-в-байт одинаковые схлопываются как
@@ -196,13 +238,13 @@ def test_ws_location_relay(client, user_factory):
     import json
     import time
     drv = user_factory("RelayDrv", role=UserRole.driver)
-    rid = _ride(client, drv, seats=1)
+    rid = _ride(client, drv, seats=1, depart_at=soon())
     pax = user_factory("RelayPax")
     bid = client.post("/bookings", headers=pax["auth"], json={"ride_id": rid, "seats": 1}).json()["id"]
     # Live-позиция разрешена только в активной поездке → подтверждаем бронь.
     assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
-    # Поездка идёт: водитель выехал. Без этого сервер не пересылает точку по брони за годы до
-    # выезда (`trip_is_live`, 16.10.2026), и канал молчит.
+    # Поездка идёт: выезд через 20 минут, водитель выехал. Без этого сервер не пересылает точку по
+    # брони за годы до выезда (`trip_is_live`, 16.10.2026), и канал молчит; «Выехал» за годы — 409.
     assert client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"],
                        json={"status": "departed"}).status_code == 200
     with client.websocket_connect(f"/ws/trip/{bid}/location") as ws_d:
