@@ -150,6 +150,9 @@ export default function RideSheet({
       navigate(`/trip/${b.id}`);
     } catch (e) {
       if (!mounted.current || ac.signal.aborted || ownerGeneration !== getSessionGeneration()) return;
+      // 409 «у тебя уже есть бронь» (другое число мест, остановка, подросток): сервер ответил, сеть есть —
+      // перечитываем свои брони, и кнопка сама станет «Открыть поездку» (приёмка #189).
+      if (e instanceof ApiError && e.status === 409) refreshOwnBookings();
       const msg =
         e instanceof ApiError && e.message
           ? e.message

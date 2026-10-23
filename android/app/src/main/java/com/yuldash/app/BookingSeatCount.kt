@@ -56,13 +56,13 @@ internal fun BookingSeatCount(available: Int, selected: Int, price: Int, enabled
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
                     IconButton(enabled = enabled && selected > 1, onClick = { onChange((selected - 1).coerceIn(1, available)) }) {
-                        Icon(Icons.Default.Remove, appText("Меньше мест", "Урындарҙы кәметеү"), tint = CanonGreen2)
+                        Icon(Icons.Default.Remove, appText("Меньше мест", "Урындарҙы кәметеү"), tint = if (enabled && selected > 1) CanonGreen2 else CanonMuted)
                     }
                     AnimatedContent(targetState = selected, label = "bookingSeats") { count ->
                         Text(count.toString(), style = CanonHeading, color = CanonText)
                     }
                     IconButton(enabled = enabled && selected < available, onClick = { onChange((selected + 1).coerceIn(1, available)) }) {
-                        Icon(Icons.Default.Add, appText("Больше мест", "Урындарҙы арттырыу"), tint = CanonGreen2)
+                        Icon(Icons.Default.Add, appText("Больше мест", "Урындарҙы арттырыу"), tint = if (enabled && selected < available) CanonGreen2 else CanonMuted)
                     }
                 }
                 Text(

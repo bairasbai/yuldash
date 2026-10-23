@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { all, bundleComponent, checker, langMock, mount, text } from "./shallow-harness.mjs";
 
 const t = checker();
-const h = globalThis.__multi = { generation: "a", sent: [], routes: [], own: null };
+const h = globalThis.__multi = { generation: "a", sent: [], routes: [], own: null, refreshed: 0 };
 const ride = { id: 7, driver_id: 8, from_city: "Баймак", to_city: "Уфа", waypoints: "", depart_at: "2030-01-02T10:00:00Z", seats_left: 3, price: 500, driver_name: "Тест", category: "regular" };
 for (const lang of ["ru", "ba"]) {
   const Sheet = await bundleComponent("src/components/RideSheet.tsx", { real: ["/utils/pickupStops"], mocks: {
@@ -12,11 +12,11 @@ for (const lang of ["ru", "ba"]) {
     "react-router-dom": `export const useNavigate=()=> (...args)=>globalThis.__multi.routes.push(args);`,
     "/features": `export const useFeatures=()=>({parcels:true}),getFeatures=()=>({parcels:true});`,
     "/AuthProvider": `export const useAuth=()=>({isAuthed:true});`,
-    "/OwnBookingsProvider": `export const useOwnBooking=()=>globalThis.__multi.own,useRefreshOwnBookings=()=>()=>{};`,
+    "/OwnBookingsProvider": `export const useOwnBooking=()=>globalThis.__multi.own,useRefreshOwnBookings=()=>()=>{globalThis.__multi.refreshed++;};`,
     "/utils/format": `export const formatWhen=()=>'',priceLabel=v=>String(v),pluralRu=(n,a,b,c)=>[a,b,c][n%10===1&&n%100!==11?0:n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?1:2];`,
     "/api/bookings": `export const createBooking=(body,signal)=>{globalThis.__multi.sent.push({body,signal});return globalThis.__multi.send?.()??Promise.resolve({id:55});};`,
   } });
-  const reset = () => { h.generation = "a"; h.sent = []; h.routes = []; h.own = null; h.send = undefined; };
+  const reset = () => { h.generation = "a"; h.sent = []; h.routes = []; h.own = null; h.send = undefined; h.refreshed = 0; };
   const selector = s => all(s.tree).find(n => n.type === "select");
   const cta = s => all(s.tree).find(n => n.type === "button" && n.props.className?.includes("sheet__cta"));
   await t.test(`${lang}: диапазон 1…свободные, сумма и выбранные места в запросе; двойной тап`, async () => {
@@ -58,6 +58,10 @@ for (const lang of ["ru", "ba"]) {
     assert.equal(text(cta(s)), lang === "ru" ? "Забронировать 3 места" : "3 урын бронларға");
     await cta(s).props.onClick(); await s.settle();
     assert.ok(text(s.tree).includes("Мест не хватает: осталось 2."), "слова сервера, а не общий текст");
+    assert.equal(h.refreshed, 1, "409 — сервер ответил: свои брони перечитаны, кнопка станет «Открыть поездку»");
+    h.send = () => Promise.reject(new Error("synthetic lost reply"));
+    await cta(s).props.onClick(); await s.settle();
+    assert.equal(h.refreshed, 1, "без ответа сервера список своих броней не трогаем");
     s.unmount();
   });
   await t.test(`${lang}: мест стало меньше выбранного — число уменьшается до свободных`, async () => {

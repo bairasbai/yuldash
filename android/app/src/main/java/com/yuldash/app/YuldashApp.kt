@@ -1421,6 +1421,8 @@ private fun YuldashAppContent() {
                                             val msg = (e as? ApiException)?.message?.takeIf { it.isNotBlank() }
                                                 ?: if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори."
                                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                            // Своя бронь уже есть — открываем её (номер пришёл в отказе).
+                                            existingBookingIdOf(e)?.let { id -> vm.navigateLocally { activeBookingId = id; selectedBookingStatus = ""; screen = Screen.Booking } }
                                         }
                                     }
                                 } finally { bookingInFlight = false }
