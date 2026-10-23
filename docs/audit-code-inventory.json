@@ -2442,8 +2442,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerContactsTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "34c8bd6ae9223b36c50b0c42cfc9fdc8b3dbb97192572f1c9e93a94c2d3a4ed5",
-      "lines": 467
+      "sha256": "588c360ae89ce8b8d00813ef1116475a74eb6ecab59d1a67b3ff797bbf41c388",
+      "lines": 468
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerStatusFailureTest.kt",

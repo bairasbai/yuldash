@@ -321,6 +321,7 @@ class ActiveTripPassengerContactsTest {
             compose.waitForIdle()
         }
         if (lostNotification) withLostGlobalSnapshotNotification(recover) else recover()
+        assertFalse("Старое нажатие не начало загрузку", state.loading)
         assertFalse("Успех уже закрыл причину повтора", state.needsReload)
         assertEquals("Старое нажатие не создаёт третий GET", 2, detailsCalls.get())
     }

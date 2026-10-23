@@ -79,11 +79,13 @@ cd android && ./gradlew.bat :app:jacocoCoverageVerification
      `waitUntil` начинается с `Snapshot.sendApplyNotifications()`. Без этого изменение, сделанное
      вне композиции (`vm.screen.value = …`, `onNewIntent`), может так и не дойти до экрана.
    - С автоматическими часами — то же, если `waitUntil` ждёт простую переменную (счётчик запросов,
-     поле состояния, очередь сокета), а не текст на экране, после записи из теста
-     (`runOnIdle { state.retry() }`, повторный `mounted.value = true`): в шаге ожидания —
-     `settle()` = idle + `Snapshot.sendApplyNotifications()`. `waitUntil` сам изменения не
-     применяет, и после сброса Looper Robolectric экран о записи не узнает (PR #201: два теста
-     #190 падали изредка; контроль — `withLostGlobalSnapshotNotification`).
+     поле состояния, очередь сокета), а не ищет узел на экране: в каждом шаге ожидания — idle
+     главного Looper + `Snapshot.sendApplyNotifications()`. Сам `waitUntil` изменения не применяет;
+     если `GlobalSnapshotManager` после сброса Looper Robolectric «уснул», запись вне композиции
+     (из теста — `runOnIdle { state.retry() }`, повторный `mounted.value = true`; из колбэка или
+     фоновой корутины) до экрана не дойдёт, и тест изредка падает по таймауту (PR #202: два теста
+     #190; контроль — `withLostGlobalSnapshotNotification`). Не каждый `settle()` в тестах это
+     делает: в части файлов он только крутит Looper.
    - «Сервер получил запрос» — ещё не «экран показал ответ». После ожидания записи на сервере
      ждать сам результат: текст на экране, тост, смену экрана, нужную кнопку (так мигал «Я сел»:
      кнопку открывает ответ отдельного опроса `/role`, PR163).
