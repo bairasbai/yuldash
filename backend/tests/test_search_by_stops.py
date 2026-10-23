@@ -15,6 +15,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 import pytest
+import sqlmodel
 from sqlmodel import Session, select
 
 from app.db import engine
@@ -434,6 +435,35 @@ def test_postgis_error_is_logged_without_the_query(client, trip, monkeypatch, ca
     lines = [r.getMessage() for r in caplog.records if "PostGIS prefilter skipped" in r.getMessage()]
     assert lines, "предупреждение не записано"
     assert all("ST_" not in ln and "52.34" not in ln and "58.61" not in ln for ln in lines), lines
+
+
+def test_postgis_prefilter_does_not_drop_rides_with_stops(client, trip, monkeypatch):
+    """PostGIS ни в CI, ни у нас нет, поэтому подменяем `session.execute` и смотрим на ТЕКСТ префильтра:
+    поездки с остановками он не выкидывает (`waypoints <> ''`) — ближе к человеку может быть остановка,
+    а не начало маршрута (Сибай в 41 км от Ургазы). Подставленный ответ базы — «все активные», как
+    у префильтра, который поездок не режет."""
+    day, _drv, ride = trip
+    monkeypatch.setattr(rides_mod, "_postgis_dialect", lambda session: True)
+    real_execute = sqlmodel.Session.execute
+    seen: list = []
+
+    class _AllRides:
+        def all(self):
+            return [(ride["id"],)]
+
+    def spy(self, statement, *args, **kwargs):
+        sql = str(statement)
+        if "ST_DWithin" in sql:
+            seen.append(sql)
+            return _AllRides()
+        return real_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(sqlmodel.Session, "execute", spy)
+    near = _near(client, day, lat=URGAZA[0], lng=URGAZA[1], radius_km=5)
+    assert len(seen) == 1, "префильтр PostGIS не вызван"
+    assert "(from_lat IS NULL OR waypoints <> '' OR ST_DWithin(" in seen[0], seen[0]
+    item = next(x for x in near["items"] if x["id"] == ride["id"])
+    assert item["matched_stop"] == "Ургаза" and item["distance_km"] < 1.0, "остановка в радиусе — поездка видна"
 
 
 # ── Общая лента: метки «где сядет» принадлежат только тому, кто искал ──
