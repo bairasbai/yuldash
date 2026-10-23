@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 132,
     "backend_main": 103,
-    "infra_resource_config": 355,
+    "infra_resource_config": 387,
     "public_site_promo": 89,
     "pwa_main": 280,
-    "test_support": 938
+    "test_support": 942
   },
   "counts_by_block": {
     "B01": 129,
@@ -94,13 +94,13 @@
     "B06": 84,
     "B07": 107,
     "B08": 174,
-    "B09": 553,
-    "B10": 355,
+    "B09": 557,
+    "B10": 387,
     "B11": 90
   },
   "excluded_counts": {
     "binary_asset_or_non_source": 97,
-    "documentation": 14,
+    "documentation": 19,
     "documentation_artifacts_or_private_material": 250,
     "experimental_not_current_product": 21,
     "legacy_flutter_do_not_modify": 22,
@@ -113,6 +113,13 @@
       "block": "B10",
       "sha256": "1d5d71dcc6ccd28ab46a335349ecc74742ca4b81f4fcad212f8d134f70f1f13e",
       "lines": 1
+    },
+    {
+      "path": ".github/workflows/audit-traceability.yml",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "40e7d84f49d49a90f34f36e1ed1c7051485c8b7fb6975f7b58669b9a4687240f",
+      "lines": 47
     },
     {
       "path": ".github/workflows/ci.yml",
@@ -10202,6 +10209,251 @@
       "lines": 96
     },
     {
+      "path": "tools/audit_traceability/.gitattributes",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "38a8da568b2ed5179b8b5d698a289c1b896e7e463ee4a64d5aef88edeab06b3d",
+      "lines": 2
+    },
+    {
+      "path": "tools/audit_traceability/check.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "f8c63b5857d49204dca9d735880215c5eebde00a727ef78370d1a7d859a0bf6a",
+      "lines": 293
+    },
+    {
+      "path": "tools/audit_traceability/run_tests.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "14cf7ba6e08a0d8ea1e2a557260d007c54f846b48a2cf7d82a37623e91437bfb",
+      "lines": 36
+    },
+    {
+      "path": "tools/audit_traceability/tests/test_yuldash.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "43bd095cabf7f805561f3c9257a5d8ba2cbf52e5086bf21c76bb639d4c00deb7",
+      "lines": 479
+    },
+    {
+      "path": "tools/audit_traceability/upstream-files.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "0e4470851eb87559f7fcf576f23047b83c4dcb007ed1f21f3af8d57df91a5d15",
+      "lines": 40
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/__init__.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "56506c868bcc2529c67c651f177ff53f6b4d4ffdf821d106e042272ecafb4e22",
+      "lines": 1
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/accepted-with-optional-skip.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "53333747c2562a9a1521096d7d460fc538cf2f65bfef1a8ee56f3697390ea365",
+      "lines": 381
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/accepted.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "ae33a108fe0547617c2d862ca7e3644f29506bda8ce023bcb150d46bd5f993fb",
+      "lines": 344
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/application.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "9149f962f196ac793c55889c62a2775992883ac22bb43939b8096b63ee357fd4",
+      "lines": 36
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/artifacts/execution-booking.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "cb36ff2f97b0a80059e4b5f6aa2169696943c1f5b8715616bf4545daf3a31214",
+      "lines": 20
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/artifacts/execution-favorites.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "f0c91f95e987df5fa5df2a76d062b4d8fc264810e1fbda8d7b071b6437380586",
+      "lines": 20
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/artifacts/source-booking.txt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "a3d2916f08aa6b3be827122d046b434c5ee911fff5ae897f688f430d4c4a8d5e",
+      "lines": 1
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/artifacts/source-context.txt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "7b30ceade53193db34c43821ee9e42bc70e2a889bd7c69d1e75e4c05c54d0176",
+      "lines": 1
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/artifacts/source-favorites.txt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "948df99bca7b0fe22d7ae4a854b877f2d387ed2e054615fca295c514772a6bb9",
+      "lines": 1
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/artifacts/synthetic-review.txt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "a8d77cd21cc1781cde3c86142bd0a4fc42f8d38a94cd0f4f9614b394706f7427",
+      "lines": 3
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/artifacts/synthetic-skip-decision.txt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "adedfd1edb86030659349adce0d6c561a87975f4eb69ab4b5ff1f6c5ee60826c",
+      "lines": 2
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/bad-duplicate-ids.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "3bde0d6fe84d98607769b66c8e135ba58a29f70d06383624ae46f50b69e68701",
+      "lines": 352
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/bad-incomplete-must-high-score.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "5e6405991783aa7cba9e01172dfc867b43b356e3316f770a018aa9d7016b7695",
+      "lines": 2822
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/bad-mismatch-commit.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "c25b39b357dd6a90182ac24fe7b482b68398f92465d390e8d83e2094438ff8ae",
+      "lines": 344
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/bad-missing-file.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "6af2e923af1c4d03bac85cefd730cb0e7bcb059ad0d3dfc2e0fb2f1e48b361b2",
+      "lines": 344
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/bad-missing-reference.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "844941a33c72e3ebcc8371d443a29b40fc9587e56d5c8896c135e675c829e22c",
+      "lines": 345
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/bad-proposed-test.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "e17f82feb4174205e105be7397362a8576d045b869893ee5ff1213d4dc00d322",
+      "lines": 344
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/bad-schema.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "6b05d11b6f4c9f3a2a9d87dd42e2df88f4174e2063e55a2b01df18d796a583f2",
+      "lines": 345
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/bad-skipped-p0.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "a7d4daa3a50a859b1a524ecb6e1d2f629a20ae6386e5613f280fefb902245949",
+      "lines": 359
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/bad-unknown-test.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "a2840cc456d06bfd735d7cc620c0170933b46a9b881464f2f768c563ecfaaa01",
+      "lines": 344
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/bad-wrong-hash.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "72fef3397e4091a3b73936e33d45151a7856eda253673d61f5579b1b2d7059d4",
+      "lines": 344
+    },
+    {
+      "path": "tools/audit_traceability/vendor/demo/test_application.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "ee1529ebc2c38c476187b921fd744ff0672d64cc275decd3efb9443dfe3f9c7c",
+      "lines": 30
+    },
+    {
+      "path": "tools/audit_traceability/vendor/schema/manifest.schema.json",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "4ac0a9c5ed701ac1cec1c31c786afe687b79f277b22a67ef6519359cb64d8b6f",
+      "lines": 683
+    },
+    {
+      "path": "tools/audit_traceability/vendor/tests/__init__.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "78382d510317105ac8e38d60ba3bc4ef8c05412f2a03555fcd5d4625634647cd",
+      "lines": 1
+    },
+    {
+      "path": "tools/audit_traceability/vendor/tests/test_validator.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "c78a4cb89502023b7e18cec4867de0ce618b88967aaad30abe179e25be4343ac",
+      "lines": 448
+    },
+    {
+      "path": "tools/audit_traceability/vendor/traceability/__init__.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "f26c16c527041f1758d6e2daffcb2bae8f3b1f934c72cf23a3e2860276923238",
+      "lines": 3
+    },
+    {
+      "path": "tools/audit_traceability/vendor/traceability/__main__.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "668a579281e1584cb8d665f1c4d861518c836dd83c830afffd3b3d3e7912de61",
+      "lines": 53
+    },
+    {
+      "path": "tools/audit_traceability/vendor/traceability/io.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "aeee155a8af47fc11ce376f1456e7468963518b9f14bbf3f0f24f26e9f51dc4c",
+      "lines": 33
+    },
+    {
+      "path": "tools/audit_traceability/vendor/traceability/schema_check.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "847ad374b7e4f7a62ca3fa02f2aeb8c38d732e625014d6e5ad048c4932a6d2d4",
+      "lines": 125
+    },
+    {
+      "path": "tools/audit_traceability/vendor/traceability/validator.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "f4d8ca5d6b8142b092a2c9451a49a80c747e0330c4fb551ae6f4084c906c1a9f",
+      "lines": 441
+    },
+    {
       "path": "tools/compile-data-layer.sh",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -14802,6 +15054,26 @@
     },
     {
       "path": "tools/README.md",
+      "reason": "documentation"
+    },
+    {
+      "path": "tools/audit_traceability/UPSTREAM.md",
+      "reason": "documentation"
+    },
+    {
+      "path": "tools/audit_traceability/vendor/CHANGELOG.md",
+      "reason": "documentation"
+    },
+    {
+      "path": "tools/audit_traceability/vendor/MIGRATION.md",
+      "reason": "documentation"
+    },
+    {
+      "path": "tools/audit_traceability/vendor/README.md",
+      "reason": "documentation"
+    },
+    {
+      "path": "tools/audit_traceability/vendor/SCHEMA.md",
       "reason": "documentation"
     },
     {

@@ -1,0 +1,2 @@
+# Preserve the exact reviewed upstream bytes on Windows and Linux.
+vendor/** -text
