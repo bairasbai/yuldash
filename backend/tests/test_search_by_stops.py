@@ -15,14 +15,14 @@ import logging
 from datetime import date, datetime, timedelta
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.db import engine
 from app.geo import snapshot_cached
 from app.models import Block, Ride, UserRole
 from app.routers import rides as rides_mod
 from app.services import haversine_km
-from app.stop_search import request_snapshot, route_fit
+from app.stop_search import pair_match, request_snapshot, route_fit
 
 STOPS = "Ургаза | Бурибай"
 URGAZA = (52.34768, 58.61438)
@@ -152,6 +152,18 @@ def test_like_wildcards_do_not_match_in_sql_itself(client, trip):
     with Session(engine) as s:
         assert s.exec(select(Ride.id).where(column_match(Ride.from_city, ["%"]))).first() is None
         assert s.exec(select(Ride.id).where(column_match(Ride.waypoints, ["_"]))).first() is None
+
+
+def test_pair_match_escapes_wildcards_in_sql(client, trip):
+    """Попарный LIKE общей ленты («откуда…куда» в остановках): «_» и «%» в имени — буквы, порядок держится."""
+    _day_, _drv, ride = trip
+    with Session(engine) as s:
+        def hit(froms, tos):
+            return s.exec(select(Ride.id).where(Ride.id == ride["id"], pair_match(Ride.waypoints, froms, tos))).first()
+        assert hit(["Ург_за"], ["Бур%ай"]) is None, "«_» и «%» сработали как шаблон"
+        assert hit(["Ург_за"], ["Бурибай"]) is None and hit(["Ургаза"], ["Бур%ай"]) is None
+        assert hit(["Ургаза"], ["Бурибай"]) == ride["id"], "контроль: обычная пара совпадает"
+        assert hit(["Бурибай"], ["Ургаза"]) is None, "попарный LIKE держит порядок"
 
 
 def test_price_hint_does_not_treat_percent_as_everything(client, trip):
@@ -422,6 +434,28 @@ def test_postgis_error_is_logged_without_the_query(client, trip, monkeypatch, ca
     lines = [r.getMessage() for r in caplog.records if "PostGIS prefilter skipped" in r.getMessage()]
     assert lines, "предупреждение не записано"
     assert all("ST_" not in ln and "52.34" not in ln and "58.61" not in ln for ln in lines), lines
+
+
+# ── Общая лента: метки «где сядет» принадлежат только тому, кто искал ──
+
+def test_matched_stop_never_reaches_the_shared_feed_cache(client, trip, user_factory, monkeypatch):
+    """Общая лента без фильтров кэшируется на 20 секунд и отдаётся всем. Метки `matched_*` считаются из
+    запроса конкретного человека — в кэш (и в чужие ответы) они не попадают никогда."""
+    store: dict = {}
+    monkeypatch.setattr(rides_mod, "cache_get_json", lambda key: store.get(key))
+    monkeypatch.setattr(rides_mod, "cache_set_json", lambda key, value, ttl: store.__setitem__(key, value))
+    day, _drv, ride = trip
+    searcher = user_factory("SBS Cache Searcher")
+    mine = _feed(client, day, from_city="Ургаза", to_city="Акъяр")
+    assert mine[ride["id"]]["matched_stop"] == "Ургаза", "контроль: поиск видит остановку"
+    for _ in range(2):   # первый раз — свежая лента и запись в кэш, второй — из кэша
+        feed = client.get("/rides", headers=searcher["auth"]).json()
+        marked = [x["id"] for x in feed if x.get("matched_stop") is not None or x.get("matched_from_start")]
+        assert not marked, marked
+    assert store, "контроль: лента без фильтров в кэш записалась"
+    for value in store.values():
+        assert all(x.get("matched_stop") is None and x.get("matched_from_start") is False for x in value), \
+            "в кэше ленты метки чужого поиска"
 
 
 def test_request_snapshot_does_not_change_route_fit(client):
