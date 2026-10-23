@@ -107,6 +107,7 @@ export default function TripReceiptScreen() {
   const [lostError, setLostError] = useState("");
 
   const passengerReceipt = state.kind === "ready" && state.r.role === "passenger";
+  const driverReceipt = state.kind === "ready" && state.r.role === "driver";
   const r = state.kind === "ready" ? state.r : null;
   const pickup = r?.pickup_stop === "" ? r.from_city : r?.pickup_stop;
   const dropoff = r?.dropoff_stop === "" ? r.to_city : r?.dropoff_stop;
@@ -321,14 +322,19 @@ ${priceLabel(r.amount, false)}`
             />
           )}
 
-          {/* Обе стороны могут искать оставленную вещь. Открытие подтверждает только сервер. */}
+          {/* Обе стороны могут искать оставленную вещь. Открытие подтверждает только сервер.
+              Слова — каждой стороне свои: водитель не «забыл вещь в своей машине», а нашёл чужую. */}
           <div className="act-card" style={{ marginTop: "var(--space-md)" }} aria-busy={lostBusy}>
             <div className="act-card__title">
-              <IconSearch size={18} />{" "}{appText("Забыл вещь?", "Әйбер оноттоңмо?")}
+              <IconSearch size={18} />{" "}{driverReceipt
+                ? appText("Пассажир забыл вещь?", "Юлсы әйбер оноттомо?") // DRAFT
+                : appText("Забыл вещь?", "Әйбер оноттоңмо?")}
             </div>
             <p className="act-card__text" role={lostOpened ? "status" : undefined}>
               {lostOpened
-                ? appText("Чат открыт — напиши, что искать.", "Чат асыҡ — нимә эҙләргә, яҙ.")
+                ? driverReceipt
+                  ? appText("Чат открыт — напиши пассажиру, что осталось в машине.", "Чат асыҡ — юлсыға машинала нимә ҡалғанын яҙ.") // DRAFT
+                  : appText("Чат открыт — напиши, что искать.", "Чат асыҡ — нимә эҙләргә, яҙ.")
                 : appText("Откроем чат этой поездки на 48 часов, чтобы вы связались.",
                     "Бәйләнешер өсөн был сәфәр чатын 48 сәғәткә асабыҙ.")}
             </p>
@@ -341,7 +347,11 @@ ${priceLabel(r.amount, false)}`
             ) : (
               <button type="button" className="btn-soft" style={{ width: "100%" }}
                 disabled={lostBusy} onClick={() => void reopenLostItemChat()}>
-                {lostBusy ? appText("Открываем…", "Асабыҙ…") : appText("Я забыл вещь в машине", "Машинала әйбер ҡалдырҙым")}
+                {lostBusy
+                  ? appText("Открываем…", "Асабыҙ…")
+                  : driverReceipt
+                    ? appText("Пассажир оставил вещь в машине", "Юлсы машинала әйбер ҡалдырҙы") // DRAFT
+                    : appText("Я забыл вещь в машине", "Машинала әйбер ҡалдырҙым")}
               </button>
             )}
           </div>
