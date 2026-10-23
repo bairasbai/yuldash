@@ -39,18 +39,19 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.models import UserRole
 
-from test_api import _ride
+from test_api import _ride, soon
 
 
 def _confirmed_booking(client, user_factory, tag: str):
     """Подтверждённая бронь: водитель, пассажир и номер брони."""
     driver = user_factory(f"{tag}Driver", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=2)
+    # Рейс полный (одно место — одна бронь) и через 20 минут: не теснит ленту чужих тестов.
+    ride_id = _ride(client, driver, seats=1, depart_at=soon())
     passenger = user_factory(f"{tag}Passenger")
     bid = client.post("/bookings", headers=passenger["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{bid}/confirm", headers=driver["auth"]).status_code == 200
-    # Поездка идёт: водитель выехал. Без этого сервер не пересылает точку по брони за годы до
-    # выезда (`trip_is_live`, 16.10.2026), и канал молчит.
+    # Поездка идёт: выезд скоро, водитель выехал. Без этого сервер не пересылает точку по брони за
+    # годы до выезда (`trip_is_live`, 16.10.2026), и канал молчит; «Выехал» за годы — 409 (P2-Г).
     assert client.post(f"/bookings/{bid}/driver-status", headers=driver["auth"],
                        json={"status": "departed"}).status_code == 200
     return driver, passenger, bid

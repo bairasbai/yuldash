@@ -19,6 +19,7 @@ geocode_city() и тесты видят те же значения. Коорди
 """
 import json
 import math
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -457,14 +458,14 @@ def by_exact_name(session: Session, name: str) -> Optional[SettlementRow]:
     return _exact_in(_entry(session), raw)
 
 
-def by_exact_names(session: Session, names) -> dict:
+def by_exact_names(session: Session, names, entry: Optional[dict] = None) -> dict:
     """Много имён разом → {имя: НП или None}. Снимок справочника берём ОДИН раз.
 
     `by_exact_name` на каждое имя каждый раз сверяет свежесть снимка запросом в базу. Для
     списка из сотни городов (`/rides/cities` при каждом открытии карты) это сотня лишних
     запросов — приёмка PR147 намерила 284 запроса против 8 у самой ленты.
     """
-    entry = _entry(session)
+    entry = entry if entry is not None else _entry(session)
     out: dict = {}
     for name in names:
         raw = (name or "").strip()
@@ -713,6 +714,50 @@ def popular_routes_payload(session: Session) -> list[dict]:
 def settlements_snapshot(session: Session) -> dict:
     """Снимок справочника на один запрос — чтобы много имён искать без похода в базу на каждое."""
     return _entry(session)
+
+
+def snapshot_cached() -> dict:
+    """Снимок справочника там, где под рукой нет сессии (сборка карточки ленты, правила брони).
+
+    Уже собранный снимок берём без похода в базу, пока не истёк TTL; нет его — собираем одним
+    подключением. Свежесть по (кол-во, max id) здесь не сверяем: справочник меняется только
+    сидом на старте, а запрос на каждую карточку ленты стоил бы сотню обращений к базе."""
+    from .db import engine
+    hit = _cache.get(id(engine))
+    if hit and (time.monotonic() - hit["stamp"]) < _CACHE_TTL_S:
+        return hit
+    with Session(engine) as s:
+        return _entry(s)
+
+
+# «д. Акъяр», «с.Темясово», «пос. Акъяр» — так водители пишут остановки руками. Для справочника
+# приставку снимаем: в нём имена без неё (P3 проверки безопасности, 18.10.2026).
+_PLACE_PREFIX = re.compile(
+    r"^\s*(?:(?:д|дер|с|п|пос|пгт|г)\.\s*|(?:деревня|село|посёлок|поселок|пгт|аул)\s+)", re.IGNORECASE)
+
+
+def normalize_place(name: str) -> str:
+    """«д. Акъяр» → «Акъяр». Остальное — как есть (без обрезки района: это делает bare_name)."""
+    t = (name or "").strip()
+    return _PLACE_PREFIX.sub("", t, count=1).strip() or t
+
+
+def lookup(entry: dict, name: str) -> list[SettlementRow]:
+    """ВСЕ кандидаты справочника для названия остановки — выбирает вызывающий (ride_stops).
+
+    «Берёзовка (Иглинский р-н)» — ровно эта деревня, если район узнан. Без района — все тёзки
+    по имени (города, райцентры и сёла вместе): какая из них «наша», решает близость к маршруту
+    (`ride_stops.stop_point`), а не важность. Приставки «д./с./пос.» снимаются."""
+    raw = normalize_place(name)
+    if not raw:
+        return []
+    if raw.endswith(")") and "(" in raw:
+        head, _, tail = raw.rpartition("(")
+        hit = entry["with_district"].get((fold(normalize_place(head)), fold(tail[:-1])))
+        if hit is not None:
+            return [hit]
+        raw = normalize_place(head) or raw
+    return list(entry.get("namesakes", {}).get(fold(raw), []))
 
 
 def name_variants(session: Session, name: str, entry: Optional[dict] = None) -> list[str]:

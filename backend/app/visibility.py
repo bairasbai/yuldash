@@ -344,7 +344,25 @@ def trip_is_live(booking, ride, now=None) -> bool:
         return True
     if статус != "confirmed":
         return False
+    сейчас = now or utcnow()
+    # Бронь на ОСТАНОВКЕ по пути (18.10.2026, P3 и P2-А второй проверки безопасности): точка
+    # открывается позже — когда машина могла доехать до остановки, или по «Подъезжаю» этой брони;
+    # «Выехал» её не открывает (водитель выехал из дома за час до неё). Не села к сроку «Не пришёл»
+    # + 15 минут — до посадки точка больше не идёт (`bookings.stop_live_window`).
+    окно = _stop_window(booking, ride)
+    if окно is not None:
+        с, до = окно
+        if до is not None and сейчас >= до:
+            return False
+        return getattr(booking, "arriving_at", None) is not None or сейчас >= с
     if (getattr(booking, "driver_phase", "") or "") in ("departed", "arriving"):
         return True
-    сейчас = now or utcnow()
     return ride.depart_at is not None and сейчас >= ride.depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS)
+
+
+def _stop_window(booking, ride):
+    """Окно точки для брони на остановке или None (не на остановке — обычные правила)."""
+    if not getattr(booking, "pickup_stop", None):
+        return None                       # начало маршрута / не указано — справочник не нужен
+    from .routers.bookings import stop_live_window   # лениво: роутер тянет этот модуль при импорте
+    return stop_live_window(ride, booking)

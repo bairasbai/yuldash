@@ -10,7 +10,12 @@
 меньше часа. Канал при этом не рвётся — экран поездки можно открыть заранее.
 
 Проверяем по порядку, а не по молчанию (урок волны 180–181: молчащий канал неотличим от
-закрытого): точка, отправленная до «выехал», не должна прийти раньше точки после «выехал».
+закрытого): точка, отправленная до начала поездки, не должна прийти раньше точки после него.
+
+С 18.10.2026 «Выехал» принимается только за час до выезда (вторая проверка безопасности, P2-Г) —
+к этому моменту точка и так открыта по времени. Поэтому «поездка началась» в тестах ниже — это
+перенос выезда на «через 10 минут» с толчком канала (`test_api.trip_starts`), а «Выехал» за годы
+до выезда проверяем отдельно: 409 и никаких записей.
 """
 from __future__ import annotations
 
@@ -22,7 +27,7 @@ import pytest
 from app.models import Booking, BookingStatus, Ride, UserRole
 from app.visibility import trip_is_live
 
-from test_api import _ride
+from test_api import _ride, trip_starts, wait_gate
 
 # Сломанный «Выехал» должен краснеть за 30 с, а не держать CI до 40 мин (приёмка PR153).
 pytestmark = pytest.mark.timeout(30)
@@ -39,14 +44,18 @@ def договорились(client, user_factory):
     return {"booking": bid, "водитель": водитель, "пассажир": пассажир}
 
 
-def _первая_услышанная(client, д, отправитель: str, слушатель: str) -> int:
-    """Отправитель шлёт точку ts=1, затем водитель «выехал», затем точку ts=2. Что пришло первым?"""
+def _первая_услышанная(client, д, отправитель: str, слушатель: str, seen: dict) -> int:
+    """Отправитель шлёт точку ts=1, затем поездка начинается (час до выезда, водитель «выехал»),
+    затем точку ts=2. Что пришло первым?"""
     путь = f"/ws/trip/{д['booking']}/location"
     with client.websocket_connect(путь) as ухо:
         ухо.send_text(json.dumps({"type": "auth", "token": д[слушатель]["token"]}))
         with client.websocket_connect(путь) as рот:
             рот.send_text(json.dumps({"type": "auth", "token": д[отправитель]["token"]}))
+            до = seen["n"]
             рот.send_text(json.dumps({"type": "loc", "lat": 52.591, "lng": 58.317, "ts": 1}))
+            wait_gate(seen, до)              # кадр «до» разобран сервером
+            trip_starts(д["booking"])
             r = client.post(f"/bookings/{д['booking']}/driver-status",
                             headers=д["водитель"]["auth"], json={"status": "departed"})
             assert r.status_code == 200, r.text
@@ -54,15 +63,15 @@ def _первая_услышанная(client, д, отправитель: str, 
             return json.loads(ухо.receive_text())["ts"]
 
 
-def test_точка_водителя_до_выезда_не_уходит_пассажиру(client, договорились):
-    первая = _первая_услышанная(client, договорились, "водитель", "пассажир")
+def test_точка_водителя_до_выезда_не_уходит_пассажиру(client, договорились, gate_seen):
+    первая = _первая_услышанная(client, договорились, "водитель", "пассажир", gate_seen)
     assert первая == 2, (
         "точка водителя за годы до выезда дошла до пассажира: договорились — не значит поехали, "
         "а это чаще всего его дом")
 
 
-def test_точка_пассажира_до_выезда_не_уходит_водителю(client, договорились):
-    первая = _первая_услышанная(client, договорились, "пассажир", "водитель")
+def test_точка_пассажира_до_выезда_не_уходит_водителю(client, договорились, gate_seen):
+    первая = _первая_услышанная(client, договорились, "пассажир", "водитель", gate_seen)
     assert первая == 2, "точка пассажирки до поездки дошла до водителя — это её дом, работа, сад"
 
 
@@ -106,6 +115,14 @@ def test_страница_близкого_не_пишет_едет_пока_н�
     assert до["status"] == "wait" and до["car"] is None, (
         f"за годы до выезда мама читает «{до['phase_text']['ru']}» — машины на карте нет и быть не может")
 
+    # «Выехал» за годы до выезда — отказ без записей: мама по-прежнему читает «скоро начнётся».
+    рано = client.post(f"/bookings/{д['booking']}/driver-status", headers=д["водитель"]["auth"],
+                       json={"status": "departed"})
+    assert рано.status_code == 409 and рано.json()["detail"]["code"] == "departed_too_early", рано.text
+    assert "Сыҡтым" in рано.json()["detail"]["ba"] and "Я выехал" in рано.json()["detail"]["ru"]
+    assert client.get(f"/t/{share['token']}/state.json").json()["status"] == "wait"
+
+    trip_starts(д["booking"])
     r = client.post(f"/bookings/{д['booking']}/driver-status", headers=д["водитель"]["auth"],
                     json={"status": "departed"})
     assert r.status_code == 200, r.text

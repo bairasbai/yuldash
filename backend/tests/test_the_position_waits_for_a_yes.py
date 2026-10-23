@@ -25,7 +25,7 @@ from sqlmodel import Session
 from app.db import engine
 from app.models import Booking, BookingStatus, UserRole
 
-from test_api import _ride
+from test_api import _ride, trip_starts
 
 # Сломанный «Выехал» должен краснеть за 30 с, а не держать CI до 40 мин (приёмка PR153).
 pytestmark = pytest.mark.timeout(30)
@@ -97,10 +97,12 @@ def test_после_согласия_и_выезда_координаты_иду
     """Обратная сторона: подтвердили и поехали — связь обязана работать, иначе поездка вслепую.
 
     «Выехал» нужен с 16.10.2026: подтверждённая бронь за годы до выезда — ещё договорённость, и
-    точку сервер не пересылает (`trip_is_live`, test_the_position_waits_for_the_trip.py)."""
+    точку сервер не пересылает (`trip_is_live`, test_the_position_waits_for_the_trip.py). С 18.10.2026
+    «Выехал» принимается за час до выезда (P2-Г) — выезд переносим на «через 10 минут»."""
     д = заявка_без_ответа
     ответ = client.post(f"/bookings/{д['booking']}/confirm", headers=д["водитель"]["auth"])
     assert ответ.status_code == 200, ответ.text[:150]
+    trip_starts(д["booking"])
     ответ = client.post(f"/bookings/{д['booking']}/driver-status", headers=д["водитель"]["auth"],
                         json={"status": "departed"})
     assert ответ.status_code == 200, ответ.text[:150]

@@ -1145,7 +1145,7 @@ def send_text(phone: str, text: str) -> bool:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
             return bool(ok)
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[SMS] {mp}: smsru error {e}")
+            log.warning(f"[SMS] {mp}: smsru error {scrub_text(str(e))}")  # HTTPStatusError несёт адрес с api_id и кодом
             if not settings.is_prod:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
             return False
@@ -1157,7 +1157,7 @@ def send_text(phone: str, text: str) -> bool:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
             return bool(ok)
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[SMS] {mp}: smsdar error {e}")
+            log.warning(f"[SMS] {mp}: smsdar error {scrub_text(str(e))}")
             if not settings.is_prod:
                 log.info(f"[SMS-FALLBACK] {mp}: {text}")
             return False
@@ -1252,7 +1252,7 @@ def send_sms(phone: str, code: str) -> None:
                     raise _sms_failed()
                 log.info(f"[OTP] {mp} -> {code}")  # фоллбэк: SMS не ушла → код в лог (только dev)
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[SMS] {mp}: smsru error {e}")
+            log.warning(f"[SMS] {mp}: smsru error {scrub_text(str(e))}")  # HTTPStatusError несёт адрес с api_id и кодом
             if settings.is_prod:
                 raise _sms_failed()
             log.info(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
@@ -1267,7 +1267,7 @@ def send_sms(phone: str, code: str) -> None:
         except HTTPException:
             raise
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[SMS] {mp}: smsdar error {e}")
+            log.warning(f"[SMS] {mp}: smsdar error {scrub_text(str(e))}")
             if settings.is_prod:
                 raise _sms_failed()
             log.info(f"[OTP] {mp} -> {code}")  # фоллбэк при ошибке сети (только dev)
@@ -1624,14 +1624,21 @@ def public_ride_payload(item, *, full: bool = False):
     `full=True` — для своих: водителя и пассажира с живой бронью. Им ориентир у дома и телефон
     как раз и написаны.
     """
+    # Остановки старых поездок чистятся тем же правилом, что при публикации (18.10.2026, P2-3):
+    # «ул. Ленина 5» или телефон в поле остановок в выдачу не уходят, выбрать их нельзя.
+    from .ride_stops import clean_waypoints   # лениво: ride_stops тянет geo, а geo — этот модуль
     patch = {"pickup": "", "pickup_lat": None, "pickup_lng": None}
     if isinstance(item, RideOut):
         if not full:
             patch["comment"] = scrub_text(item.comment or "")
+        if item.waypoints:
+            patch["waypoints"] = clean_waypoints(item)
         return item.model_copy(update=patch)
     data = dict(item)
     if not full:
         patch["comment"] = scrub_text(data.get("comment") or "")
+    if data.get("waypoints"):
+        patch["waypoints"] = clean_waypoints(data)
     data.update(patch)
     return data
 

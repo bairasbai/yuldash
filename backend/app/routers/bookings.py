@@ -19,10 +19,12 @@ from ..errors import herr
 from ..features import guard_delivery_ride
 from ..models import Block, Booking, BookingStatus, DriverProfile, Message, PayMethod, Payment, Rating, Ride, RideStatus, User
 from ..cancel_reason_text import cancel_reason_text
+from ..geo import snapshot_cached
+from ..ride_stops import VILLAGE_KINDS, canonical_stop, is_end, is_start, parse_stops, pickup_of, ride_has_stops_raw
 from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
                             guard_women_only)
 from ..security import current_user, gen_otp
-from ..visibility import booking_contacts_open
+from ..visibility import LIVE_GEO_LEAD_HOURS, booking_contacts_open
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
 from ..trust_service import INSIDER_LEVEL, trust_level
@@ -93,55 +95,129 @@ NO_SHOW_WAIT = timedelta(minutes=15)
 # «Водитель подъезжает» и успеть выйти. Отказ — 409 `no_show_needs_arriving`.
 
 
-def ride_has_stops(ride: Ride) -> bool:
-    """Поездка с промежуточными остановками: в `waypoints` есть хоть одно название с буквой
-    (названия через « | »). Пробелы, пустые разделители и «.»/«-»/«123» остановкой не считаются:
-    иначе одна точка в поле выключала бы GPS-проверку «Подъезжаю» у всей поездки (приёмка PR184)."""
-    return any(any(ch.isalpha() for ch in part) for part in (ride.waypoints or "").split("|"))
+# Место посадки (решение Александра 18.10.2026): пассажир выбирает, где садится, — в начале маршрута
+# (`Booking.pickup_stop = ""`) или на остановке по пути («Акъяр»); NULL — неизвестно (старая бронь,
+# старое приложение). Правила по месту (`ride_stops.pickup_of`):
+#   • начало и любая поездка без остановок — «Подъезжаю» с DONE_EARLY_GRACE до выезда, GPS к пину
+#     800 м; «Не пришёл» — `max(выезд, «Подъезжаю») + NO_SHOW_WAIT`, «Подъезжаю» не требуется;
+#   • остановка — «Подъезжаю» не раньше, чем машина могла доехать (`stop_fast_kmh` по прямой), GPS к
+#     ЕЁ координатам (село/райцентр: отказ дальше `stop_refuse_km`, «подтверждено» ближе
+#     `stop_verified_km`); «Не пришёл» — только после «Подъезжаю» и не раньше расчётного приезда
+#     (`stop_expected_kmh`); живая точка — по окну остановки (`stop_live_window`);
+#   • неизвестно — правила PR184: «Не пришёл» только после «Подъезжаю», без GPS-отказа.
+# Остановку справочник не знает — без раннего предела и GPS-отказа, срок неявки — по оценке пути.
+# Все сроки — нижняя граница (прямая короче дороги): пассажира они защищают, водителя не держат
+# дольше нужного больше, чем на запас прямой.
+
+# Сколько после срока «Не пришёл» пассажирке на остановке, которая так и не села, ещё видна машина
+# (вторая проверка безопасности, P2-А): дальше точка до посадки не идёт.
+LIVE_AFTER_NO_SHOW = timedelta(minutes=15)
 
 
-def arriving_opens_at(ride: Ride):
+def arriving_opens_at(ride: Ride, booking: Optional[Booking] = None, entry=None):
     """С какого момента водитель может нажать «Подъезжаю»: за DONE_EARLY_GRACE до выезда — та же
     планка, что у «Сел» (приёмка PR184). Раньше «Подъезжаю» принималось хоть за неделю: пассажиру
     срочно, мимо тихих часов, уходило «Водитель подъезжает», а на поездке с остановками ещё и
-    запускался срок «Не пришёл». None — у поездки нет выезда, проверять нечем."""
-    return ride.depart_at - DONE_EARLY_GRACE if ride.depart_at else None
+    запускался срок «Не пришёл». None — у поездки нет выезда, проверять нечем.
+
+    Бронь на известной справочнику остановке — позже на время пути до неё по прямой на
+    `stop_fast_kmh` (18.10.2026): у дома в начале маршрута «Подъезжаю» к селу за 40 км — вранье."""
+    if not ride.depart_at:
+        return None
+    base = ride.depart_at - DONE_EARLY_GRACE
+    if booking is None:
+        return base
+    p = pickup_of(ride, booking, entry)
+    if p.kind == "stop" and p.point is not None and p.km:
+        return base + timedelta(hours=p.km / settings.stop_fast_kmh)
+    return base
 
 
-def arriving_wait_left(ride: Ride, now=None) -> int:
+def arriving_wait_left(ride: Ride, now=None, booking: Optional[Booking] = None, entry=None) -> int:
     """Сколько секунд ещё нельзя нажать «Подъезжаю»; 0 — уже можно. Вверх до целой секунды."""
-    at = arriving_opens_at(ride)
+    at = arriving_opens_at(ride, booking, entry)
     if at is None:
         return 0
     return max(0, math.ceil((at - (now or utcnow())).total_seconds()))
 
 
-def no_show_needs_arriving(ride: Ride, booking: Optional[Booking]) -> bool:
-    """На поездке с остановками «Не пришёл» доступна только после «Подъезжаю» по этой брони."""
-    return booking is not None and booking.arriving_at is None and ride_has_stops(ride)
+def departed_opens_at(ride: Ride):
+    """С какого момента принимаем «Выехал» (вторая проверка безопасности, P2-Г): за
+    LIVE_GEO_LEAD_HOURS до выезда — с этого же момента живая точка и так открывается по времени.
+    Раньше «Выехал» принималось хоть за неделю и сразу открывало обеим сторонам живую точку —
+    водитель и пассажирка видели друг друга от дома. None — у поездки нет выезда."""
+    return ride.depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS) if ride.depart_at else None
 
 
-def no_show_available_at(ride: Ride, booking: Optional[Booking] = None):
+def departed_wait_left(ride: Ride, now=None) -> int:
+    at = departed_opens_at(ride)
+    if at is None:
+        return 0
+    return max(0, math.ceil((at - (now or utcnow())).total_seconds()))
+
+
+def no_show_needs_arriving(ride: Ride, booking: Optional[Booking], entry=None) -> bool:
+    """«Не пришёл» доступна только после «Подъезжаю» по этой брони — у пассажира на остановке и у
+    брони без места на поездке с остановками (PR184). Пассажиру начала маршрута «Подъезжаю» не нужно."""
+    if booking is None or booking.arriving_at is not None:
+        return False
+    return pickup_of(ride, booking, entry).kind != "start"
+
+
+def no_show_available_at(ride: Ride, booking: Optional[Booking] = None, entry=None):
     """Момент (наивный UTC, как всё время в базе), с которого водитель может отметить неявку:
-    поздний из «выезд» и первого «Подъезжаю» по брони + NO_SHOW_WAIT.
+    поздний из «выезд», первого «Подъезжаю» по брони и — у брони на остановке — расчётного приезда
+    на неё (`stop_expected_kmh` по прямой или по оценке для неизвестной), + NO_SHOW_WAIT.
 
-    None — считать не от чего: у поездки нет выезда и «Подъезжаю» не было, ИЛИ поездка с
-    остановками ждёт «Подъезжаю» ([no_show_needs_arriving] — тогда неявки нет, а не «можно»)."""
-    if no_show_needs_arriving(ride, booking):
+    None — считать не от чего: у поездки нет выезда и «Подъезжаю» не было, ИЛИ бронь ждёт
+    «Подъезжаю» ([no_show_needs_arriving] — тогда неявки нет, а не «можно»)."""
+    if no_show_needs_arriving(ride, booking, entry):
         return None
     marks = [t for t in (ride.depart_at, booking.arriving_at if booking else None) if t]
+    if booking is not None and ride.depart_at:
+        p = pickup_of(ride, booking, entry)
+        if p.kind == "stop" and p.travel_km:
+            marks.append(ride.depart_at + timedelta(hours=p.travel_km / settings.stop_expected_kmh))
     return max(marks) + NO_SHOW_WAIT if marks else None
 
 
-def no_show_wait_left(ride: Ride, now=None, booking: Optional[Booking] = None) -> int:
+def no_show_wait_left(ride: Ride, now=None, booking: Optional[Booking] = None, entry=None) -> int:
     """Сколько секунд водителю ещё ждать «Не пришёл»; 0 — срок вышел (или его нечем считать).
-    Поездку с остановками без «Подъезжаю» проверяет [no_show_needs_arriving], не эта функция.
+    Бронь, которая ждёт «Подъезжаю», проверяет [no_show_needs_arriving], не эта функция.
 
     Вверх до целой секунды: «0» значит ровно «можно», а не «меньше секунды осталось»."""
-    at = no_show_available_at(ride, booking)
+    at = no_show_available_at(ride, booking, entry)
     if at is None:
         return 0
     return max(0, math.ceil((at - (now or utcnow())).total_seconds()))
+
+
+def stop_live_window(ride: Ride, booking: Optional[Booking], entry=None):
+    """Окно живой точки для брони на ОСТАНОВКЕ: (открывается, закрывается|None) или None — бронь
+    не на остановке (тогда обычное `visibility.trip_is_live`).
+
+    Открывается в `depart − LIVE_GEO_LEAD_HOURS + путь/stop_fast_kmh` (раньше машина до остановки
+    не доедет — водитель и пассажирка не видят друг друга от дома за часы до посадки) или по
+    «Подъезжаю» этой брони — что раньше; «Выехал» его НЕ открывает (P2-Г). Закрывается до посадки
+    через LIVE_AFTER_NO_SHOW после срока «Не пришёл» (P2-А); посадка открывает снова.
+
+    Водитель не нажал «Подъезжаю» (у остановки срока «Не пришёл» тогда нет) — окно всё равно
+    закрывается: через NO_SHOW_WAIT + LIVE_AFTER_NO_SHOW после расчётного приезда на остановку
+    (`stop_expected_kmh`; у неизвестной справочнику — по оценке пути). Иначе проехал мимо, ничего не
+    нажав, — и пассажирка часами видит машину, а водитель её точку (приёмка PR186, S1). Позднее
+    «Подъезжаю» сдвигает срок неявки, а с ним и закрытие — окно открывается снова."""
+    if booking is None or not getattr(booking, "pickup_stop", None) or ride is None or ride.depart_at is None:
+        return None
+    p = pickup_of(ride, booking, entry)
+    if p.kind != "stop":
+        return None
+    km = p.travel_km or 0.0
+    opens = ride.depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS) + timedelta(hours=km / settings.stop_fast_kmh)
+    deadline = no_show_available_at(ride, booking, entry)
+    if deadline is None:   # ждёт «Подъезжаю»: срок — от расчётного приезда, как у неявки
+        deadline = max(ride.depart_at, ride.depart_at + timedelta(hours=km / settings.stop_expected_kmh)) \
+            + NO_SHOW_WAIT
+    return opens, deadline + LIVE_AFTER_NO_SHOW
 
 
 def boarding_undo_left(booking: Booking, now=None) -> int:
@@ -204,10 +280,51 @@ class BookIn(BaseModel):
     minor_guardian_phone: str = Field("", max_length=32)
     # «Хочу переднее место». Одна живая такая бронь на поездку — держит индекс в базе.
     front_seat: bool = False
+    # Где садится (18.10.2026): точное название начала маршрута (`from_city`) или остановки из
+    # `ride.waypoints`. Не прислали или пусто — «неизвестно» (NULL, правила PR184). Своё название
+    # вписать нельзя: незнакомое — 400. Потолок — как у остановки при публикации.
+    pickup_stop: Optional[str] = Field(None, max_length=60)
 
 
 # Отказ, когда переднее уже обещано другому пассажиру. Один текст на проверку и на барьер базы.
 FRONT_SEAT_TAKEN = ("Переднее место уже занято", "Алғы урын инде алынған")
+
+
+def _pickup_refusal(status: int, code: str, ru: str, ba: str) -> HTTPException:
+    return HTTPException(status_code=status, detail={"ru": ru, "ba": ba, "code": code})
+
+
+def _resolve_pickup_stop(ride: Ride, raw: Optional[str], entry) -> Optional[str]:
+    """Что записать в `Booking.pickup_stop` (решения 18.10.2026, P2-5 и P2-В — умолчания в пользу
+    защиты пассажира):
+
+    • поездка без остановок — "" (начало), что бы ни прислали;
+    • остановки в тексте есть, а допустимых нет (старая поездка с «ул. Ленина 5») — NULL;
+    • не прислали или пусто — NULL: невнимательный пассажир остановки не попадает в правила начала;
+    • начало маршрута — только его названием (любое написание: «Баймак»/«Баймаҡ») → "";
+    • остановка из поездки → её написание из поездки;
+    • конец маршрута — 400 `pickup_stop_is_end`; другое — 400 `pickup_stop_unknown`."""
+    if not ride_has_stops_raw(ride, entry):
+        return ""
+    if not parse_stops(ride, entry):
+        return None
+    asked = (raw or "").strip()
+    if not asked:
+        return None
+    if is_start(ride, asked, entry):
+        return ""
+    stop = canonical_stop(ride, asked, entry)
+    if stop is not None:
+        return stop
+    if is_end(ride, asked, entry):
+        raise _pickup_refusal(
+            400, "pickup_stop_is_end",
+            "Здесь поездка заканчивается — выбери, где садишься: начало маршрута или остановку по пути.",
+            "Сәфәр бында тамамлана — ҡайҙа ултырғаныңды һайла: юлдың башы йәки юл ыңғайындағы туҡталыш.")
+    raise _pickup_refusal(
+        400, "pickup_stop_unknown",
+        "Такой остановки нет в этой поездке — выбери из списка: начало маршрута или остановку по пути.",
+        "Был сәфәрҙә бындай туҡталыш юҡ — исемлектән һайла: юлдың башы йәки юл ыңғайындағы туҡталыш.")
 
 
 def _front_seat_is_taken(session: Session, ride_id: int) -> bool:
@@ -246,6 +363,10 @@ class BookingDetailsOut(BaseModel):
     minor_guardian_name: str = ""
     minor_guardian_phone: str = ""
     front_seat: bool = False          # пассажир просил переднее место — видят обе стороны
+    # Где садится пассажир (18.10.2026): "" — начало маршрута, «Акъяр» — остановка, null —
+    # неизвестно (или водителю уже не видно: бронь отменена / поездка давно закрыта).
+    pickup_stop: Optional[str] = None
+    ride_has_stops: bool = False      # у поездки есть остановки (null выше = «уточни в чате»)
     pickup: str = ""
     pickup_lat: Optional[float] = Field(None, ge=-90, le=90)
     pickup_lng: Optional[float] = Field(None, ge=-180, le=180)
@@ -315,6 +436,9 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # последовательные — фильтр в списке ничего не гарантирует.
     if getattr(ride, "women_only", False):
         guard_women_only(user, msg=MSG_WOMEN_ONLY_RIDE)
+    # Где садится — разбираем ДО списания мест и до повтора (18.10.2026): незнакомое место — 400,
+    # мест не тронули.
+    pickup_stop = _resolve_pickup_stop(ride, body.pickup_stop, snapshot_cached())
     # Защита от дубля: один пассажир не бронирует одну поездку повторно (двойной тап / повторный заход).
     # Идемпотентно — возвращаем существующую активную бронь, мест не списываем заново.
     existing = session.exec(
@@ -330,6 +454,14 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         if body.front_seat and not existing.front_seat:
             raise herr(409, "У тебя уже есть бронь без переднего места. Отмени её и забронируй заново с передним",
                        "Һинең алғы урынһыҙ бронең бар инде. Уны кире ал да алғы урын менән яңынан бронла")
+        # Повтор с ДРУГИМ известным местом посадки: молча вернуть старую — водитель поедет не туда.
+        # Старая бронь без места (NULL) или повтор без места — возвращаем как есть.
+        if (existing.pickup_stop is not None and pickup_stop is not None
+                and existing.pickup_stop != pickup_stop):
+            raise _pickup_refusal(
+                409, "pickup_stop_conflict",
+                "У тебя уже есть бронь с другим местом посадки. Отмени её и забронируй заново — или договорись с водителем в чате.",
+                "Һинең икенсе ултырыу урыны менән бронең бар инде. Уны кире ал да яңынан бронла — йәки водитель менән чатта килеш.")
         return existing
     guard_delivery_ride(ride.category)
     # Быстрая понятная проверка «мест нет» — чтобы не гонять человека через остальные шаги.
@@ -383,6 +515,7 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         minor_passenger=bool(body.minor_passenger),
         minor_guardian_name=guardian_name, minor_guardian_phone=guardian_phone,
         front_seat=bool(body.front_seat),
+        pickup_stop=pickup_stop,
     )
     # Место занимаем АТОМАРНО: «мест хватает» и вычитание — одним запросом к базе.
     #
@@ -437,11 +570,16 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     women_hint_ba = " · «тик ҡатын-ҡыҙ» сәфәре — тура килһә, раҫла" if ride.women_only else ""
     front_ru = " · просит переднее место" if booking.front_seat else ""
     front_ba = " · алғы урынды һорай" if booking.front_seat else ""
+    # Садится на остановке — пометка БЕЗ названия села (P3): пуш «Новая бронь» не прячется на
+    # экране блокировки, а название села пассажирки — не для чужих глаз у телефона водителя.
+    # Само место водитель видит в приложении (`/driver/bookings`, детали брони).
+    stop_ru = " · посадка по пути" if booking.pickup_stop else ""
+    stop_ba = " · юл ыңғайында ултыра" if booking.pickup_stop else ""
     push_notification(
         session, ride.driver_id, "booking",
         "Новая бронь", "Яңы бронь",
-        f"{pax_name}: {route}, мест {body.seats}{front_ru}{minor_ru}{women_hint_ru}",
-        f"{pax_name}: {route}, {body.seats} урын{front_ba}{minor_ba}{women_hint_ba}",
+        f"{pax_name}: {route}, мест {body.seats}{stop_ru}{front_ru}{minor_ru}{women_hint_ru}",
+        f"{pax_name}: {route}, {body.seats} урын{stop_ba}{front_ba}{minor_ba}{women_hint_ba}",
         ref_kind="booking", ref_id=booking.id,
     )
     return booking
@@ -474,6 +612,16 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         and booking.status != BookingStatus.cancelled
         and (booking.status != BookingStatus.done or unlocked)
     )
+    # Место посадки: пассажиру — своё всегда; водителю — по правилу контактов взрослого (живая бронь
+    # и недавно завершённая), как в `/driver/bookings` (P3).
+    entry = snapshot_cached()
+    has_stops = ride_has_stops_raw(ride, entry)
+    pickup_stop = booking.pickup_stop if has_stops else ""
+    if is_driver and not guardian_visible:
+        pickup_stop = None
+    # Бронь на остановке: место встречи — сама остановка, пин начала маршрута ей не отдаём (он про
+    # другую точку, часто у дома водителя).
+    on_stop = has_stops and bool(booking.pickup_stop)
     return {
         "booking_id": booking.id,
         "ride_id": ride.id,
@@ -510,9 +658,11 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "minor_guardian_name": (booking.minor_guardian_name if guardian_visible else ""),
         "minor_guardian_phone": (booking.minor_guardian_phone if guardian_visible else ""),
         "front_seat": bool(booking.front_seat),
-        "pickup": (ride.pickup if unlocked else ""),
-        "pickup_lat": (ride.pickup_lat if unlocked else None),
-        "pickup_lng": (ride.pickup_lng if unlocked else None),
+        "pickup_stop": pickup_stop,
+        "ride_has_stops": has_stops,
+        "pickup": ((booking.pickup_stop if on_stop else ride.pickup) if unlocked else ""),
+        "pickup_lat": (ride.pickup_lat if unlocked and not on_stop else None),
+        "pickup_lng": (ride.pickup_lng if unlocked and not on_stop else None),
         # Координаты концов маршрута не раскрывают точную встречу: это город/маршрут,
         # нужен Android-клиенту для настоящей карты вместо мок-превью.
         "from_lat": ride.from_lat,
@@ -710,20 +860,52 @@ def _verify_arrival(session: Session, booking: Booking, ride: Ride) -> Optional[
     (`livepos.driver_points_for_ride`, 18.10.2026), а не только по этой: водитель открыл поездку
     брони A, а «Подъезжаю» жмёт по брони B — кэш B пуст, и раньше проверка молча пропускала.
     Сверяем БЛИЖАЙШУЮ к пину: второе устройство водителя дома (планшет с открытой бронью) не
-    должно давать ложный отказ тому, кто правда у подъезда (приёмка PR0, P2).
+    должно давать ложный отказ тому, кто правда у подъезда (приёмка PR0, P2). Плюс внутренняя
+    точка по рейсу (`with_ride_point`, приёмка PR186, A1): водитель открыл бронь, чьё окно ещё
+    закрыто, — в кэш брони точка не легла, а проверить его слово всё равно есть чем.
     """
     if not settings.arrival_verify_enabled:
         return None
     target = _pickup_point(ride)
     if target is None:
         return None
-    return _nearest_m(livepos.driver_points_for_ride(session, ride), target)
+    return _nearest_m(livepos.driver_points_for_ride(session, ride, with_ride_point=True), target)
 
 
 def _nearest_m(points: list, target: tuple) -> Optional[float]:
-    """Расстояние в метрах от ближайшей из точек до цели; None — точек нет."""
-    dists = [haversine_km(float(p["lat"]), float(p["lng"]), target[0], target[1]) * 1000.0 for p in points]
+    """Расстояние в метрах от ближайшей из точек до цели; None — годных точек нет.
+
+    Негодные точки пропускаем (приёмка PR0, P2): кадр `{"lat": NaN}` проходит проверку типа и
+    анти-телепорт (сравнения с NaN ложны) и ложится в кэш, а «NaN > радиуса» — тоже ложь: без этой
+    защиты такая точка давала «подтверждено по GPS». Пропуск, а не отказ: с одной негодной точкой
+    проверить нечем (без галочки), а рядом с ней нормальная дальняя точка по-прежнему даёт отказ."""
+    dists = []
+    for p in points:
+        try:
+            lat, lng = float(p["lat"]), float(p["lng"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if not (math.isfinite(lat) and math.isfinite(lng) and -90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+            continue
+        dists.append(haversine_km(lat, lng, target[0], target[1]) * 1000.0)
     return min(dists) if dists else None
+
+
+def _distance_to_stop_km(session: Session, ride: Ride, place) -> Optional[float]:
+    """«Подъезжаю» к остановке пассажира: сколько км от машины до неё. None — проверить нечем или
+    нельзя: выключено своим рубильником (`arrival_verify_stops_enabled`), справочник остановку не
+    знает или она — город (центр не подставляем, P2-1), водитель не прислал свежей точки.
+
+    Точки машины — все свежие по подтверждённым броням рейса (`livepos.driver_points_for_ride`, PR0):
+    водитель открыл поездку пассажира начала, а «Подъезжаю» жмёт для пассажирки остановки. Сверяем
+    БЛИЖАЙШУЮ к остановке — второе устройство водителя дома не даёт ложного отказа (приёмка PR0)."""
+    if not settings.arrival_verify_stops_enabled:
+        return None
+    point = place.point
+    if point is None or point.kind not in VILLAGE_KINDS:
+        return None
+    meters = _nearest_m(livepos.driver_points_for_ride(session, ride, with_ride_point=True), (point.lat, point.lng))
+    return meters / 1000.0 if meters is not None else None
 
 
 @router.post("/bookings/{booking_id}/driver-status")
@@ -772,30 +954,43 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     # «выехал/подъезжает» бессмысленны на мёртвой броне — иначе push «Водитель выехал» по отменённой/завершённой.
     if booking.status in (BookingStatus.cancelled, BookingStatus.done):
         raise herr(409, "Поездка не активна", "Сәфәр актив түгел")
+    # «Выехал» — не раньше чем за LIVE_GEO_LEAD_HOURS до выезда (P2-Г): за сутки это не правда, а
+    # кнопка, которая будит пассажира пушем «Водитель выехал». Отказ раньше любых записей.
+    if body.status == "departed" and departed_wait_left(ride) > 0:
+        raise _departed_too_early_refusal(ride)
     # Честное «подъезжаю»: слово водителя сверяем с его же GPS. Пассажир, увидев «подъезжает»,
     # выходит из дома — на морозе цена вранья высокая. Ловим только доказанный случай (см. _verify_arrival).
     #
-    # Поездка с остановками (решение 18.10.2026): пин подачи — это начало маршрута, а пассажир этой
-    # брони может ждать на остановке в соседнем селе. Сверять с пином значило отказывать честному
-    # водителю у остановки («Ты ещё далеко»), и человек не получал «Водитель подъезжает». Где именно
-    # садится пассажир, бронь не знает — поэтому не сверяем и не подтверждаем (`arrival_verified`
-    # = false: пассажир видит «подъезжает» без «GPS подтверждено»).
+    # Где сверять — по месту посадки этой брони (18.10.2026, `ride_stops.pickup_of`): пассажир начала
+    # (и любая поездка без остановок) — с пином подачи; пассажир остановки — с координатами ЕГО
+    # остановки из справочника сёл. Неизвестная справочнику остановка, город и бронь без места
+    # (PR184) — без отказа и без «подтверждено по GPS».
     if body.status == "arriving":
-        # Раньше чем за DONE_EARLY_GRACE до выезда «Подъезжаю» не принимаем (приёмка PR184): ни фазы,
-        # ни `arriving_at`, ни пуша — отказ раньше любых записей.
-        if arriving_wait_left(ride) > 0:
-            raise _arriving_too_early_refusal(ride)
-        meters = None if ride_has_stops(ride) else _verify_arrival(session, booking, ride)
-        if meters is not None and meters > settings.arrival_verify_radius_m:
-            km = meters / 1000.0
-            raise herr(
-                409,
-                f"Ты ещё далеко от места подачи (≈{km:.1f} км). "
-                "Нажми «Подъезжаю», когда будешь рядом — пассажир выйдет ровно к твоему приезду.",
-                f"Һин алыу урынынан алыҫ әле (≈{km:.1f} км). "
-                "«Яҡынлашам»ды яҡын килгәс баҫ — юлсы тап һин килгәнгә сыға.",
-            )
-        booking.arrival_verified = meters is not None
+        entry = snapshot_cached()
+        # Раньше срока «Подъезжаю» не принимаем (приёмка PR184; у остановки — позже на путь до неё):
+        # ни фазы, ни `arriving_at`, ни пуша — отказ раньше любых записей.
+        if arriving_wait_left(ride, booking=booking, entry=entry) > 0:
+            raise _arriving_too_early_refusal(ride, booking=booking, entry=entry)
+        place = pickup_of(ride, booking, entry)
+        verified = False
+        if place.kind == "start":
+            meters = _verify_arrival(session, booking, ride)
+            if meters is not None and meters > settings.arrival_verify_radius_m:
+                km = meters / 1000.0
+                raise herr(
+                    409,
+                    f"Ты ещё далеко от места подачи (≈{km:.1f} км). "
+                    "Нажми «Подъезжаю», когда будешь рядом — пассажир выйдет ровно к твоему приезду.",
+                    f"Һин алыу урынынан алыҫ әле (≈{km:.1f} км). "
+                    "«Яҡынлашам»ды яҡын килгәс баҫ — юлсы тап һин килгәнгә сыға.",
+                )
+            verified = meters is not None
+        elif place.kind == "stop":
+            km = _distance_to_stop_km(session, ride, place)
+            if km is not None and km > settings.stop_refuse_km:
+                raise _arriving_too_far_refusal(place.stop, km)
+            verified = km is not None and km <= settings.stop_verified_km
+        booking.arrival_verified = verified
         # Первое «Подъезжаю» по брони — от него считается «Не пришёл» (`no_show_available_at`).
         # Условный UPDATE: повтор, второй телефон или двойной тап в ту же секунду время не сдвигают.
         session.execute(update(Booking).where(
@@ -842,31 +1037,79 @@ def _no_show_fields(ride: Ride, booking: Booking) -> dict:
     `no_show_needs_arriving` — поездка с остановками, а «Подъезжаю» по этой брони ещё не было:
     вместо кнопки клиент пишет «Сначала нажми «Подъезжаю»». `arriving_opens_at` / `arriving_wait_sec` —
     то же для самой «Подъезжаю» (за DONE_EARLY_GRACE до выезда): до этого кнопка на карточке неактивна."""
-    at = no_show_available_at(ride, booking)
-    arriving_at = arriving_opens_at(ride)
+    entry = snapshot_cached()
+    at = no_show_available_at(ride, booking, entry)
+    arriving_at = arriving_opens_at(ride, booking, entry)
     return {
         "no_show_at": at.isoformat() if at else None,
-        "no_show_wait_sec": no_show_wait_left(ride, booking=booking),
-        "no_show_needs_arriving": no_show_needs_arriving(ride, booking),
+        "no_show_wait_sec": no_show_wait_left(ride, booking=booking, entry=entry),
+        "no_show_needs_arriving": no_show_needs_arriving(ride, booking, entry),
         "arriving_opens_at": arriving_at.isoformat() if arriving_at else None,
-        "arriving_wait_sec": arriving_wait_left(ride),
+        "arriving_wait_sec": arriving_wait_left(ride, booking=booking, entry=entry),
     }
 
 
-def _arriving_too_early_refusal(ride: Ride, now=None) -> HTTPException:
-    """Отказ «Подъезжаю» раньше чем за DONE_EARLY_GRACE до выезда (приёмка PR184).
+def _local_hhmm(moment) -> str:
+    """Наивный UTC → «ЧЧ:ММ» по местному времени (Уфа): человек сверяет со своими часами."""
+    return (moment + timedelta(hours=settings.local_tz_offset_hours)).strftime("%H:%M")
+
+
+def _arriving_too_early_refusal(ride: Ride, now=None, booking: Optional[Booking] = None, entry=None) -> HTTPException:
+    """Отказ «Подъезжаю» раньше срока (приёмка PR184; для остановки — 18.10.2026).
 
     Пассажир по «Водитель подъезжает» выходит к дороге — за неделю или за день до поездки это
     вранье, и срочное (мимо тихих часов). `code` — машинная причина, `arriving_opens_at` — момент,
-    с которого можно, `arriving_wait_sec` — сколько секунд осталось (часы телефона врут на минуты)."""
+    с которого можно, `arriving_wait_sec` — сколько секунд осталось (часы телефона врут на минуты).
+
+    Бронь на остановке, до которой ещё ехать: текст называет остановку и время по местным часам и
+    подсказывает, что делать сейчас (P3): позвонить или написать; «Сел» отметить можно. Только когда
+    «Сел» и правда уже можно — с `depart − DONE_EARLY_GRACE` (A-P3-3); раньше — общий текст про
+    30 минут до выезда (`arriving_opens_at` в ответе — всё равно срок остановки)."""
     minutes = int(DONE_EARLY_GRACE.total_seconds() // 60)
-    at = arriving_opens_at(ride)
+    at = arriving_opens_at(ride, booking, entry)
+    base = arriving_opens_at(ride)
+    place = pickup_of(ride, booking, entry) if booking is not None else None
+    if place is not None and place.kind == "stop" and at is not None and base is not None and at > base \
+            and (now or utcnow()) >= base:
+        hhmm = _local_hhmm(at)
+        ru = (f"Рано: до остановки «{place.stop}» ещё ехать. «Подъезжаю» можно с {hhmm}. "
+              "Позвони или напиши пассажиру; «Сел» отметить можно.")
+        ba = (f"Иртә: «{place.stop}» туҡталышына барып етергә әле бар. «Яҡынлашам»ға {hhmm} үткәс баҫып була. "
+              "Юлсыға шылтырат йәки яҙ; «Ултырҙы»ны билдәләп була.")
+    else:
+        ru = f"Рано: «Подъезжаю» можно нажать за {minutes} минут до выезда — пассажир выйдет к машине вовремя."
+        ba = f"Иртә: «Яҡынлашам»ға сығыуға {minutes} минут ҡалғас ҡына баҫып була — юлсы машинаға ваҡытында сығыр."
     return HTTPException(status_code=409, detail={
-        "ru": f"Рано: «Подъезжаю» можно нажать за {minutes} минут до выезда — пассажир выйдет к машине вовремя.",
-        "ba": f"Иртә: «Яҡынлашам»ға сығыуға {minutes} минут ҡалғас ҡына баҫып була — юлсы машинаға ваҡытында сығыр.",
+        "ru": ru,
+        "ba": ba,
         "code": "arriving_too_early",
         "arriving_opens_at": at.isoformat() if at else None,
-        "arriving_wait_sec": arriving_wait_left(ride, now),
+        "arriving_wait_sec": arriving_wait_left(ride, now, booking, entry),
+    })
+
+
+def _arriving_too_far_refusal(stop: str, km: float) -> HTTPException:
+    """«Подъезжаю» дальше `stop_refuse_km` от остановки пассажира (18.10.2026). Расстояние видит только
+    водитель — это расстояние от него самого. Без записей: ни фазы, ни `arriving_at`, ни пуша."""
+    return HTTPException(status_code=409, detail={
+        "ru": (f"Ты ещё далеко от остановки «{stop}» (≈{km:.1f} км). "
+               "Нажми «Подъезжаю», когда будешь рядом — пассажир выйдет ровно к твоему приезду."),
+        "ba": (f"Һин «{stop}» туҡталышынан алыҫ әле (≈{km:.1f} км). "
+               "«Яҡынлашам»ды яҡын килгәс баҫ — юлсы тап һин килгәнгә сыға."),
+        "code": "arriving_too_far",
+        "distance_km": round(km, 1),
+    })
+
+
+def _departed_too_early_refusal(ride: Ride, now=None) -> HTTPException:
+    """«Выехал» раньше чем за LIVE_GEO_LEAD_HOURS до выезда (P2-Г, 18.10.2026)."""
+    at = departed_opens_at(ride)
+    return HTTPException(status_code=409, detail={
+        "ru": "Рано: «Я выехал» можно нажать за час до выезда — иначе пассажир получит «Водитель выехал» раньше времени.",
+        "ba": "Иртә: «Сыҡтым»ға сығыуға бер сәғәт ҡалғас ҡына баҫып була — юҡһа юлсы «Водитель юлға сыҡты» хәбәрен ваҡытынан алда алыр.",
+        "code": "departed_too_early",
+        "departed_opens_at": at.isoformat() if at else None,
+        "departed_wait_sec": departed_wait_left(ride, now),
     })
 
 
@@ -1020,6 +1263,9 @@ def _booking_out(booking: Booking) -> dict:
     if booking.status in (BookingStatus.cancelled, BookingStatus.done):
         data["minor_guardian_name"] = ""
         data["minor_guardian_phone"] = ""
+        # Место посадки — по тому же правилу (P3, 18.10.2026): сделки нет — села пассажирки у
+        # водителя в ответе на действие нет. Своё место пассажир видит в `/bookings/mine`.
+        data["pickup_stop"] = None
     return data
 
 
@@ -1316,6 +1562,7 @@ def my_bookings(
         {u.id: u for u in session.exec(select(User).where(User.id.in_(driver_ids))).all()}
         if driver_ids else {}
     )
+    entry = snapshot_cached()
     out = []
     for b in bookings:
         r = rides.get(b.ride_id)
@@ -1330,6 +1577,8 @@ def my_bookings(
             "pay_method": b.pay_method.value if hasattr(b.pay_method, "value") else b.pay_method,
             "pay_amount": b.pay_amount,
             "front_seat": bool(b.front_seat),
+            # Где садится (18.10.2026): "" — начало, «Акъяр» — остановка, null — не указано.
+            "pickup_stop": (b.pickup_stop if r is not None and ride_has_stops_raw(r, entry) else ""),
             "from_city": r.from_city if r else "",
             "to_city": r.to_city if r else "",
             "depart_at": r.depart_at.isoformat() if r and r.depart_at else "",
@@ -1362,11 +1611,17 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
                                  Rating.booking_id.in_([b.id for b in bookings]))
         ).all()
     } if bookings else {}
+    entry = snapshot_cached()
     out: list = []
     for b in bookings:
         ride = rides_by_id.get(b.ride_id)
         passenger = passengers_by_id.get(b.passenger_id)
         avg, cnt = user_rating(session, b.passenger_id)
+        has_stops = ride is not None and ride_has_stops_raw(ride, entry)
+        # Место посадки — только у живых и недавно завершённых броней, как контакты взрослого (P3):
+        # отменённая бронь села пассажирки водителю больше не показывает.
+        stop_visible = b.status != BookingStatus.cancelled and (
+            b.status != BookingStatus.done or booking_contacts_open(b, ride))
         out.append({
             "booking_id": b.id,
             # Вторая сторона для «Сообщить о проблеме» (разбор POST /incidents ждёт respondent_id):
@@ -1379,6 +1634,10 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             # 0 = ещё не оценивал. Иначе — сколько звёзд поставил (оценку можно изменить).
             "my_stars": my_stars.get(b.id, 0),
             "front_seat": bool(b.front_seat),   # «просит переднее место» в карточке заявки
+            # Где садится (18.10.2026): "" — начало маршрута, «Акъяр» — остановка, null — не указано
+            # (клиент пишет «Место посадки не указано — уточни в чате») или уже не видно (отмена).
+            "pickup_stop": ((b.pickup_stop if has_stops else "") if stop_visible else None),
+            "ride_has_stops": has_stops,
             # Сколько секунд ещё можно отменить свою отметку «Сел» (0 — уже нельзя): «Отменить»
             # в карточке переживает перезапуск приложения и не зависит от часов телефона.
             "boarding_undo_sec": boarding_undo_left(b),

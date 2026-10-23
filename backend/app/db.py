@@ -24,7 +24,12 @@ _pool_kwargs = {} if _is_sqlite else {
     # увидел ошибку, а соединение всё ещё занято под него. См. db_pool_timeout_sec в config.
     "pool_timeout": settings.db_pool_timeout_sec,
 }
-engine = create_engine(settings.database_url, echo=False, connect_args=connect_args, **_pool_kwargs)
+# hide_parameters: в тексте ошибки SQLAlchemy («[parameters: …]») не будет значений запроса —
+# координат, телефонов, текста сообщений (лог читают шире, чем базу, §8). Это НЕ полная стена:
+# psycopg2 подставляет значения на клиенте, и Postgres сам повторяет их в «LINE 1: …» / «DETAIL:
+# Key (…)=(…)». Поэтому ошибку базы в лог пишем только видом — `type(e).__name__`, не `{e}`.
+engine = create_engine(settings.database_url, echo=False, connect_args=connect_args,
+                       hide_parameters=True, **_pool_kwargs)
 
 
 # Тип колонки SQLModel/SQLAlchemy → DDL-тип SQLite (для ALTER TABLE ADD COLUMN).

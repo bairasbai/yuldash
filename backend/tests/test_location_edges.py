@@ -7,7 +7,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.models import UserRole
 
-from test_api import _ride
+from test_api import _ride, soon
 
 
 def test_map_websocket_rejects_invalid_token(client):
@@ -40,7 +40,7 @@ def test_trip_location_rejects_non_participant(client, user_factory):
 
 def test_trip_location_ignores_bad_frames_before_valid_location(client, user_factory):
     driver = user_factory("LocBadFrameDriver", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=1)
+    ride_id = _ride(client, driver, seats=1, depart_at=soon())   # «Выехал» — за час до выезда (P2-Г)
     passenger = user_factory("LocBadFramePassenger")
     booking_id = client.post("/bookings", headers=passenger["auth"], json={"ride_id": ride_id, "seats": 1}).json()["id"]
     assert client.post(f"/bookings/{booking_id}/confirm", headers=driver["auth"]).status_code == 200

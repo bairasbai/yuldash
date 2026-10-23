@@ -14,6 +14,7 @@ from app.models import Ride
 from app.models import UserRole
 from app.timeutil import utcnow
 from boarding_helpers import board
+from test_api import trip_starts
 
 
 # ----------------------------- helpers -----------------------------
@@ -403,6 +404,11 @@ def test_driver_status_and_role(client, user_factory):
     drv, pax, ride, booking = _trip(client, user_factory)
     assert client.get(f"/bookings/{booking['id']}/role", headers=drv["auth"]).json()["role"] == "driver"
     assert client.get(f"/bookings/{booking['id']}/role", headers=pax["auth"]).json()["role"] == "passenger"
+    # «Выехал» за годы до выезда — 409 без записей (P2-Г, 18.10.2026); за час до выезда — можно.
+    early = client.post(f"/bookings/{booking['id']}/driver-status", headers=drv["auth"], json={"status": "departed"})
+    assert early.status_code == 409 and early.json()["detail"]["code"] == "departed_too_early", early.text
+    assert client.get(f"/bookings/{booking['id']}/role", headers=pax["auth"]).json()["driver_phase"] == ""
+    trip_starts(booking["id"])
     assert client.post(f"/bookings/{booking['id']}/driver-status", headers=drv["auth"], json={"status": "departed"}).status_code == 200
     assert client.post(f"/bookings/{booking['id']}/driver-status", headers=pax["auth"], json={"status": "departed"}).status_code == 403
     assert client.post(f"/bookings/{booking['id']}/driver-status", headers=drv["auth"], json={"status": "xxx"}).status_code == 400

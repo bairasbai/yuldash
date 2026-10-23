@@ -132,6 +132,25 @@ def user_factory(client):
     return make
 
 
+@pytest.fixture
+def gate_seen(monkeypatch) -> dict:
+    """Счётчик вопросов канала «пора ли пересылать точку?» (`location.trip_is_live`).
+
+    Барьер «кадр обработан сервером» для тестов порядка: кадр «до начала поездки» уходит в сокет, а
+    `trip_starts` меняет базу напрямую, мимо сервера. Без барьера база могла смениться раньше, чем
+    сервер разобрал кадр, — и кадр «до» честно уходил как «после» (ложно-красный тест)."""
+    from app.routers import location
+    seen = {"n": 0}
+    real = location.trip_is_live
+
+    def spy(*a, **k):
+        seen["n"] += 1
+        return real(*a, **k)
+
+    monkeypatch.setattr(location, "trip_is_live", spy)
+    return seen
+
+
 # --- Настоящий загруженный документ (селфи курьера, фото прав и т.п.) ---
 # Сервер принимает в заявку ТОЛЬКО ссылку на файл, который этот же человек загрузил через
 # /upload/photo (`_ensure_owned_doc_url`). Раньше тесты слали выдуманную строку

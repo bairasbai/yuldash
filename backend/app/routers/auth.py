@@ -1222,7 +1222,13 @@ def export_my_data(
             r = session.get(Ride, b.ride_id)
             route = f"{r.from_city} → {r.to_city}" if r else "—"
             when = dt(r.depart_at) if r else "—"
-            out.append(f"{when}  {route}  {b.seats} " + L("мест", "урын") + f"  {int(b.price or 0)} ₽")
+            # Место посадки — тоже мои данные (18.10.2026): начало маршрута или название остановки.
+            place = ""
+            if b.pickup_stop:
+                place = "  " + L("посадка", "ултырыу") + ": " + b.pickup_stop
+            elif b.pickup_stop == "" and r is not None and (r.waypoints or "").strip():
+                place = "  " + L("посадка: начало маршрута", "ултырыу: юлдың башы")
+            out.append(f"{when}  {route}  {b.seats} " + L("мест", "урын") + f"  {int(b.price or 0)} ₽{place}")
         out.append("")
 
     msgs = session.exec(
