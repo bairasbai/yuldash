@@ -56,7 +56,8 @@ internal fun PassengerRow(b: DriverBookingDto) {
         b.passengerRating?.let { rating ->
             Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(CanonSpace.xs))
-            Text(String.format(java.util.Locale.US, "%.1f", rating), style = CanonBodyStrong, color = CanonText)
+            // Русская запись рейтинга — «4,8», как на экране поездки, а не «4.8».
+            Text(String.format(java.util.Locale.US, "%.1f", rating).replace('.', ','), style = CanonBodyStrong, color = CanonText)
         }
     }
 }
