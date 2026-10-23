@@ -572,7 +572,7 @@ def notify_family_trip_status(session: Session, booking_id: int, passenger: User
     # кто завёл контакт: про язык его мамы мы ничего не знаем, а он знает.
     status_text_ba = {"sat": "машинаға ултырҙы", "arrived": "урынына етте",
                       "done": "сәфәрҙе тамамланы", "unsat": "— ултырыу билдәһе кире алынды",
-                      "cancelled_onboard": "— сәфәрҙе юлда кире алдылар. Шылтырат һәм барыһы ла яйлымы икәнен бел",
+                      "cancelled_onboard": "— сәфәр юлда кире алынды. Шылтыратып, бөтәһе лә яҡшымы икәнен белеп ал",
                       }.get(status, status_text)
     who = passenger.name or passenger.phone
     for cid in changed_ids:

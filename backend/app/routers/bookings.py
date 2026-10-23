@@ -1533,7 +1533,7 @@ def notify_cancelled_in_transit(session: Session, booking: Booking, ride: Ride) 
     route = f"{ride.from_city} → {ride.to_city}"
     push_notification(
         session, booking.passenger_id, "booking",
-        "Поездку отменили в пути", "Сәфәрҙе юлда кире алдылар",
+        "Поездку отменили в пути", "Сәфәр юлда кире алынды",
         f"{route}. Если нужна помощь — SOS или «Застрял на трассе» в приложении.",
         f"{route}. Ярҙам кәрәк булһа — ҡушымтала SOS йәки «Юлда ҡалдым».",
         ref_kind="booking", ref_id=booking.id, urgent=True,
