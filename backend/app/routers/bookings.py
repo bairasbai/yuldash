@@ -379,6 +379,7 @@ class BookingDetailsOut(BaseModel):
     driver_name: str
     # Кого везёт водитель (приёмка 18.10, п.14). Имя и так есть в /driver/bookings; телефона здесь нет.
     passenger_name: str = ""
+    declined: bool = False   # водитель отклонил неподтверждённую бронь (приёмка 18.10, п.6)
     driver_verified: bool
     driver_phone: str = ""
     driver_car: str = ""
@@ -715,6 +716,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "pay_amount": booking.pay_amount,
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
         "passenger_name": (passenger.name if passenger and passenger.name else "Пассажир"),
+        "declined": booking.cancel_reason == "driver_declined",
         "driver_verified": bool(driver.verified) if driver else False,
         "driver_phone": (driver.phone if (unlocked and driver) else ""),
         "driver_car": driver_car,

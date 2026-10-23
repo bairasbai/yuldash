@@ -36,6 +36,8 @@ def test_driver_declining_pending_booking_tells_passenger_it_was_declined(client
     assert "Посмотри другие поездки" in note["body_ru"]
     with Session(engine) as s:
         assert s.get(Booking, booking["id"]).cancel_reason == "driver_declined"
+    # Экран брони у пассажира тоже говорит «отклонил», а не «отменена».
+    assert client.get(f"/bookings/{booking['id']}/details", headers=pax["auth"]).json()["declined"] is True
 
 
 def test_driver_cancelling_confirmed_booking_is_still_a_cancellation(client, user_factory):
@@ -51,6 +53,7 @@ def test_driver_cancelling_confirmed_booking_is_still_a_cancellation(client, use
     titles = [n["title_ru"] for n in _notes(client, pax) if n["ref_id"] == booking["id"]]
     assert "Бронь отменена" in titles
     assert "Водитель отклонил бронь" not in titles
+    assert client.get(f"/bookings/{booking['id']}/details", headers=pax["auth"]).json()["declined"] is False
 
 
 def test_passenger_withdrawing_pending_booking_is_not_a_decline(client, user_factory):

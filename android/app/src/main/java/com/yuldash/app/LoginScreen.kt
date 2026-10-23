@@ -347,7 +347,7 @@ internal fun LoginScreen(
         modifier = Modifier.fillMaxSize(),
         color = CanonBg
     ) {
-        // Клавиатура поджимает прокрутку, а не сдвигает окно: строка состояния наезжала на текст, «Войти» пряталась (приёмка 18.10, п.15).
+        ResizeWindowForKeyboard()   // клавиатура поджимает прокрутку (imePadding ниже), а не сдвигает окно — приёмка 18.10, п.15
         Column(
             modifier = Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())
         ) {
