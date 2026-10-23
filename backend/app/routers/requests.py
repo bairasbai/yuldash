@@ -254,7 +254,7 @@ def requests_near(
             q = q.where(RideRequest.id.in_(ids)) if ids else q.where(RideRequest.id.is_(None))
         except Exception as e:  # noqa: BLE001 — нет PostGIS/ошибка → Python-фолбэк ниже
             session.rollback()  # снять aborted-транзакцию, иначе следующий запрос упадёт InFailedSqlTransaction
-            log.warning(f"[GEO] requests PostGIS prefilter skipped: {e}")
+            log.warning(f"[GEO] requests PostGIS prefilter skipped: {type(e).__name__}")   # в str(e) — SQL с координатами
     reqs = session.exec(q.order_by(RideRequest.id.desc())).all()
     pax = {u.id: u for u in session.exec(select(User).where(User.id.in_({r.passenger_id for r in reqs}))).all()} if reqs else {}
     is_insider = trust_level(session, user) >= INSIDER_LEVEL   # заявки «только для своих» видит лишь L3

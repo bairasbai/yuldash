@@ -24,7 +24,11 @@ _pool_kwargs = {} if _is_sqlite else {
     # увидел ошибку, а соединение всё ещё занято под него. См. db_pool_timeout_sec в config.
     "pool_timeout": settings.db_pool_timeout_sec,
 }
-engine = create_engine(settings.database_url, echo=False, connect_args=connect_args, **_pool_kwargs)
+# hide_parameters: в тексте ошибки SQLAlchemy («[parameters: …]») не будет значений запроса —
+# координат, телефонов, текста сообщений. Ошибку часто пишут в лог целиком (`{e}`), а лог
+# читают шире, чем базу (§8). Сам SQL в тексте остаётся — по нему видно, что сломалось.
+engine = create_engine(settings.database_url, echo=False, connect_args=connect_args,
+                       hide_parameters=True, **_pool_kwargs)
 
 
 # Тип колонки SQLModel/SQLAlchemy → DDL-тип SQLite (для ALTER TABLE ADD COLUMN).
