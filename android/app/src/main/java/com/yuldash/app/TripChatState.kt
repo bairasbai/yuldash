@@ -353,11 +353,11 @@ internal class TripChatState(
         val action = restAttempts.getOrPut(tempId) { Outbox.newMessage(bid, text) }
         scope.launch {
             try {
-                // Commit before network (process death). Без sendOrder фоновая запись меняла местами быстрые сообщения.
-                val (saved, sentViaWs) = sendOrder.withLock {
+                // Commit before network: и при закрытом экране (NonCancellable) — по очереди нажатий; сокет — только isActive().
+                val (saved, sentViaWs) = withContext(kotlinx.coroutines.NonCancellable) { sendOrder.withLock {
                     val ok = withContext(Dispatchers.IO) { Outbox.enqueue(context, action, tripSession) }
                     ok to (ok && isActive() && wsConnected && socket?.send(action.payload, tempId, Outbox.messageRequestKey(action)) == true)
-                }
+                } }
                 if (!isActive()) return@launch
                 if (!saved) {
                     failedIds = failedIds + tempId
