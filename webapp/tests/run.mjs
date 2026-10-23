@@ -12,17 +12,21 @@
 //  браузерные вещи (localStorage, document) подделываются в самом наборе.
 // ================================================================
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { countChecks } from "./count-checks.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT = join(HERE, ".bundles");
+// Только для run-count-test: прогнать ЭТОТ ЖЕ run.mjs по подставным наборам из чужой папки (набор с нулём проверок,
+// падающий набор) — не трогая настоящие сборки в tests/.bundles. В обычном запуске переменной нет.
+const SANDBOX = process.env.YULDASH_TESTS_SANDBOX || null;
+const SUITE_DIR = SANDBOX ?? HERE;
+const OUT = join(SUITE_DIR, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
-const SUITES = [
+const ALL_SUITES = [
   { test: "storage-boundary-test", src: null, out: null, bundle: false },
   { test: "update-banner-test", src: null, out: null, bundle: false },
   { test: "full-offline-trip-test", src: null, out: null, bundle: false },
@@ -218,6 +222,8 @@ const SUITES = [
   { test: "booking-refusal-hook-test", src: null, out: null, bundle: false },
 ];
 
+const SUITES = SANDBOX ? ALL_SUITES.filter((s) => existsSync(join(SANDBOX, `${s.test}.mjs`))) : ALL_SUITES;
+
 // Значения, которые Vite подставляет при сборке сайта.
 const ENV = '{"VITE_API_BASE":"https://yulbash.ru","DEV":false}';
 
@@ -229,8 +235,8 @@ let failed = 0;
 /** Запустить набор и напечатать итог. */
 function runSuite(s) {
   try {
-    const out = execFileSync("node", [join(HERE, `${s.test}.mjs`)], {
-      cwd: HERE,
+    const out = execFileSync("node", [join(SUITE_DIR, `${s.test}.mjs`)], {
+      cwd: SUITE_DIR,
       stdio: "pipe",
       env: { ...process.env },
     }).toString();
