@@ -243,6 +243,15 @@ def _is_point(lat, lng) -> bool:
     return math.isfinite(lat) and math.isfinite(lng) and -90 <= lat <= 90 and -180 <= lng <= 180
 
 
+def _bearing(value):
+    """Направление машины из кадра → конечное число 0..360 или None. Поле уходит в кэш и близким как
+    есть: NaN ронял их страницу у всех броней рейса, а строка на 100 КБ уходила в каждую пересылку
+    (третья проверка безопасности PR186, 23.10.2026)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return value % 360
+
+
 def _закрыть_в(b, r):
     """Стенные часы, когда окно точки брони на остановке закроется до посадки (или None)."""
     if b is None or r is None or b.status != BookingStatus.confirmed or not getattr(b, "pickup_stop", None):
@@ -441,6 +450,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                 lng = payload.get("lng")
                 if not _is_point(lat, lng):
                     continue
+                payload["bearing"] = _bearing(payload.get("bearing"))   # дальше — только число 0..360 или None
                 # Перепроверка ~раз в ~2 мин: токен не отозван/не заблокирован И поездка ещё активна.
                 # Иначе стрим лил бы гео в завершённую/отменённую бронь или у заблокированного — утечка.
                 msgs += 1
@@ -639,6 +649,7 @@ async def instant_location(websocket: WebSocket, order_id: int):
                 lng = payload.get("lng")
                 if not _is_point(lat, lng):
                     continue
+                payload["bearing"] = _bearing(payload.get("bearing"))   # дальше — только число 0..360 или None
                 # Перепроверка ~раз в ~15 кадров: токен жив И заказ ещё активен —
                 # иначе стрим лил бы гео в завершённый/отменённый заказ (приватность).
                 msgs += 1
@@ -752,6 +763,7 @@ async def parcel_location(websocket: WebSocket, parcel_id: int):
                 lng = payload.get("lng")
                 if not _is_point(lat, lng):
                     continue
+                payload["bearing"] = _bearing(payload.get("bearing"))   # дальше — только число 0..360 или None
                 msgs += 1
                 if msgs % 15 == 0:
                     with Session(engine) as s2:
