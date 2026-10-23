@@ -7,6 +7,7 @@
 отрицательный ключ валиден)."""
 import asyncio
 import json
+import math
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -229,6 +230,19 @@ def _рейс_идёт(depart_at, now=None) -> bool:
     return depart_at is not None and (now or utcnow()) >= depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS)
 
 
+def _is_point(lat, lng) -> bool:
+    """Кадр — настоящая точка на Земле: конечные числа в пределах широты и долготы.
+
+    `NaN`/`Infinity` проходят `isinstance(float)` (`json.loads` их принимает), а сравнения с NaN
+    всегда ложны. Одна такая «точка» водителя ложилась в кэш, выключала анти-телепорт до конца
+    соединения (якорь NaN) и роняла ссылку близких у ВСЕХ броней рейса — NaN не сериализуется
+    в JSON (приёмка безопасности PR186, 23.10.2026). Отбрасываем на входе всех трёх каналов."""
+    if isinstance(lat, bool) or isinstance(lng, bool) or not isinstance(lat, (int, float)) \
+            or not isinstance(lng, (int, float)):
+        return False
+    return math.isfinite(lat) and math.isfinite(lng) and -90 <= lat <= 90 and -180 <= lng <= 180
+
+
 def _закрыть_в(b, r):
     """Стенные часы, когда окно точки брони на остановке закроется до посадки (или None)."""
     if b is None or r is None or b.status != BookingStatus.confirmed or not getattr(b, "pickup_stop", None):
@@ -425,7 +439,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
             if payload.get("type") == "loc":
                 lat = payload.get("lat")
                 lng = payload.get("lng")
-                if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+                if not _is_point(lat, lng):
                     continue
                 # Перепроверка ~раз в ~2 мин: токен не отозван/не заблокирован И поездка ещё активна.
                 # Иначе стрим лил бы гео в завершённую/отменённую бронь или у заблокированного — утечка.
@@ -623,7 +637,7 @@ async def instant_location(websocket: WebSocket, order_id: int):
             if payload.get("type") == "loc":
                 lat = payload.get("lat")
                 lng = payload.get("lng")
-                if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+                if not _is_point(lat, lng):
                     continue
                 # Перепроверка ~раз в ~15 кадров: токен жив И заказ ещё активен —
                 # иначе стрим лил бы гео в завершённый/отменённый заказ (приватность).
@@ -736,7 +750,7 @@ async def parcel_location(websocket: WebSocket, parcel_id: int):
             if payload.get("type") == "loc":
                 lat = payload.get("lat")
                 lng = payload.get("lng")
-                if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+                if not _is_point(lat, lng):
                     continue
                 msgs += 1
                 if msgs % 15 == 0:

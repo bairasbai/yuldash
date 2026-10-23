@@ -809,3 +809,34 @@ def test_passenger_frame_never_reaches_the_ride_point(client, user_factory, redi
         mouth.send_text(json.dumps({"type": "loc", "lat": 52.0, "lng": 58.0, "ts": 1}))
         wait_gate(gate_seen, before)
     assert redis_on.get(f"livepos:ride_driver:{ride['id']}") is None
+
+# ── Сторожа A1 при закрытом окне брони (повторная проверка безопасности PR186, 23.10.2026) ──
+
+
+def test_g1_passenger_in_closed_window_never_writes_the_ride_key(client, user_factory, redis_on, gate_seen):
+    """Сторож A1 для ветки «окно закрыто»: Зарина (Бурибай, окно — за 2 мин до выезда), рейс уже идёт
+    (выезд через 20 минут). Её кадр не должен лечь во внутренний ключ рейса — иначе её точка стала бы
+    «машиной» для «Подъезжаю», а `distance_km` в отказе сказал бы водителю, где она."""
+    _drv, (zarina,), ride, (b,) = _trip(client, user_factory, "g1", places=("Бурибай",),
+                                        depart_in=timedelta(minutes=20))
+    with client.websocket_connect(f"/ws/trip/{b}/location") as mouth:
+        mouth.send_text(json.dumps({"type": "auth", "token": zarina["token"]}))
+        before = gate_seen["n"]
+        mouth.send_text(json.dumps({"type": "loc", "lat": 52.0, "lng": 58.0, "ts": 1}))
+        wait_gate(gate_seen, before)
+    assert redis_on.get(f"livepos:ride_driver:{ride['id']}") is None, "кадр пассажирки лёг в ключ рейса"
+
+
+def test_g2_ride_key_respects_the_anti_teleport_in_a_closed_window(client, user_factory, redis_on, gate_seen):
+    """Сторож A1: в ветке «окно брони закрыто» ключ рейса пишется только после анти-телепорта."""
+    drv, (_zarina,), ride, (b,) = _trip(client, user_factory, "g2", places=("Бурибай",),
+                                        depart_in=timedelta(minutes=20))
+    key = f"livepos:ride_driver:{ride['id']}"
+    with client.websocket_connect(f"/ws/trip/{b}/location") as mouth:
+        mouth.send_text(json.dumps({"type": "auth", "token": drv["token"]}))
+        before = gate_seen["n"]
+        mouth.send_text(json.dumps({"type": "loc", "lat": SIBAY[0], "lng": SIBAY[1], "ts": 1}))
+        wait_gate(gate_seen, before)
+        mouth.send_text(json.dumps({"type": "loc", "lat": 54.735, "lng": 55.958, "ts": 2}))   # Уфа за секунду
+    pos = json.loads(redis_on.get(key))
+    assert abs(pos["lat"] - SIBAY[0]) < 1e-6, f"телепорт лёг в ключ рейса: {pos}"

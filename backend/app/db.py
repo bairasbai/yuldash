@@ -25,8 +25,9 @@ _pool_kwargs = {} if _is_sqlite else {
     "pool_timeout": settings.db_pool_timeout_sec,
 }
 # hide_parameters: в тексте ошибки SQLAlchemy («[parameters: …]») не будет значений запроса —
-# координат, телефонов, текста сообщений. Ошибку часто пишут в лог целиком (`{e}`), а лог
-# читают шире, чем базу (§8). Сам SQL в тексте остаётся — по нему видно, что сломалось.
+# координат, телефонов, текста сообщений (лог читают шире, чем базу, §8). Это НЕ полная стена:
+# psycopg2 подставляет значения на клиенте, и Postgres сам повторяет их в «LINE 1: …» / «DETAIL:
+# Key (…)=(…)». Поэтому ошибку базы в лог пишем только видом — `type(e).__name__`, не `{e}`.
 engine = create_engine(settings.database_url, echo=False, connect_args=connect_args,
                        hide_parameters=True, **_pool_kwargs)
 
