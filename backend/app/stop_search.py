@@ -123,7 +123,13 @@ def route_fit(ride, fv: Optional[list[str]], tv: Optional[list[str]], entry: dic
     pickups = tuple(p for p in froms if p < last_drop)
     if not pickups:
         return NO_FIT
-    if not fv:
+    return make_fit(stops, pickups, named=bool(fv))
+
+
+def make_fit(stops: tuple, pickups: tuple, *, named: bool) -> Fit:
+    """`Fit` по позициям посадки. `named` — человек назвал «Откуда»: тогда `matched_*` — начало, если
+    оно подходит, иначе первая подходящая остановка. Без «Откуда» место не выбираем."""
+    if not named:
         return Fit(True, stops, pickups)
     chosen = -1 if -1 in pickups else min(pickups)
     return Fit(True, stops, pickups,

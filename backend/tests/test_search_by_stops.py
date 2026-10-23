@@ -21,6 +21,7 @@ from app.db import engine
 from app.geo import snapshot_cached
 from app.models import Block, Ride, UserRole
 from app.routers import rides as rides_mod
+from app.services import haversine_km
 from app.stop_search import route_fit
 
 STOPS = "Ургаза | Бурибай"
@@ -221,6 +222,81 @@ def test_near_distance_to_the_nearer_stop(client, trip):
     item = next(x for x in near["items"] if x["id"] == ride["id"])
     assert item["distance_km"] is not None and item["distance_km"] < 1.0
     assert item["matched_stop"] == "Ургаза" and item["matched_from_start"] is False
+
+
+def _picked_point(item, ride_id):
+    """Где на самом деле то место, которое карточка предлагает как посадку (начало маршрута — из базы)."""
+    if item["matched_stop"] == "Ургаза":
+        return URGAZA
+    assert item["matched_from_start"] is True and item["matched_stop"] is None, item
+    with Session(engine) as s:
+        ride = s.get(Ride, ride_id)
+        return ride.from_lat, ride.from_lng
+
+
+def test_near_multi_from_distance_matches_the_preselected_pickup(client, user_factory):
+    """Человек в Ургазе выбрал в шторке «Откуда: Сибай, Ургаза». Расстояние ≈ 0 — до Ургазы, поэтому и
+    карточка зовёт садиться в Ургазе, а не в начале маршрута (Сибай, 41 км): иначе клиент предвыберет
+    начало, и пассажирка окажется «не пришедшей» по правилам начала (P2-1, приёмка PR #188)."""
+    day = _day()
+    drv = user_factory("SBS Multi Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, tag="multi")
+    near = _near(client, day, from_cities="Сибай,Ургаза", lat=URGAZA[0], lng=URGAZA[1])
+    item = next(x for x in near["items"] if x["id"] == ride["id"])
+    assert item["distance_km"] is not None and item["distance_km"] < 1.0, item
+    assert item["matched_stop"] == "Ургаза" and item["matched_from_start"] is False, item
+
+
+@pytest.mark.parametrize("where", [
+    URGAZA,                     # у остановки
+    (52.7160, 58.6640),         # в начале маршрута (Сибай)
+    (54.735, 55.958),           # в стороне от всего (Уфа)
+])
+@pytest.mark.parametrize("query", [{"from_cities": "Сибай,Ургаза"}, {"from_city": "Сибай,Ургаза"}])
+def test_near_distance_is_always_to_the_place_the_card_preselects(client, user_factory, where, query):
+    """Что бы ни выбрала «ближайшая», расстояние на карточке — ровно до того места, которое она
+    предлагает как посадку (а не до одного места и посадка в другом)."""
+    day = _day()
+    drv = user_factory("SBS Same Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, tag="same")
+    near = _near(client, day, lat=where[0], lng=where[1], **query)
+    item = next(x for x in near["items"] if x["id"] == ride["id"])
+    point = _picked_point(item, ride["id"])
+    assert item["distance_km"] == round(haversine_km(where[0], where[1], point[0], point[1]), 1), item
+
+
+def test_near_several_pickups_without_coordinates_preselect_nothing(client, user_factory):
+    """Нет точки человека — расстояния нет, а подходящих мест посадки два (начало и Ургаза): выбирать
+    за него нечем — ни остановки, ни «начала»."""
+    day = _day()
+    drv = user_factory("SBS NoCoord Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, tag="nocoord")
+    near = _near(client, day, from_cities="Сибай,Ургаза")
+    item = next(x for x in near["items"] if x["id"] == ride["id"])
+    assert item["distance_km"] is None
+    assert item["matched_stop"] is None and item["matched_from_start"] is False, item
+
+
+def test_near_single_pickup_without_coordinates_is_preselected(client, user_factory):
+    """Место одно — выбирать есть что и без координат: «из Сибая» — начало, «из Ургазы» — остановка."""
+    day = _day()
+    drv = user_factory("SBS Single Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, tag="single")
+    item = next(x for x in _near(client, day, from_city="Сибай")["items"] if x["id"] == ride["id"])
+    assert item["matched_from_start"] is True and item["matched_stop"] is None
+    item = next(x for x in _near(client, day, from_city="Ургаза")["items"] if x["id"] == ride["id"])
+    assert item["matched_stop"] == "Ургаза" and item["matched_from_start"] is False
+
+
+def test_near_preselect_follows_the_pickups_all_filters_agree_on(client, user_factory):
+    """Два фильтра вместе: общее место посадки одно — Ургаза. Начало, подошедшее только первому фильтру
+    («Сибай, Ургаза»), предлагать нельзя: второй («Ургаза») его не допускает."""
+    day = _day()
+    drv = user_factory("SBS Common Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, tag="common")
+    near = _near(client, day, from_city="Сибай,Ургаза", from_cities="Ургаза")
+    item = next(x for x in near["items"] if x["id"] == ride["id"])
+    assert item["matched_stop"] == "Ургаза" and item["matched_from_start"] is False, item
 
 
 def test_near_distance_never_from_the_pin(client, user_factory):

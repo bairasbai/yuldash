@@ -777,7 +777,7 @@ def _names_variants(session: Session, names: list[str], entry: dict) -> list[str
 
 def _fit_all(r, routes: list, entry: dict):
     """`route_fit` по каждому заданному фильтру; подходит, если подходит всем. Места посадки —
-    общие для всех; «где садится» — по первому фильтру с «Откуда»."""
+    общие для всех; «где садится» (`matched_*`) — из общих мест, если человек назвал «Откуда»."""
     if not routes:
         return stop_search.route_fit(r, None, None, entry)
     fits = [stop_search.route_fit(r, fv or None, tv or None, entry, from_stops=sf, to_stops=st)
@@ -789,10 +789,9 @@ def _fit_all(r, routes: list, entry: dict):
         common &= set(f.pickups)
     if not common:
         return stop_search.NO_FIT
-    named = next((f for f, (fv, *_rest) in zip(fits, routes) if fv), None)
-    first = named or fits[0]
-    return stop_search.Fit(True, first.stops, tuple(sorted(common)),
-                           matched_stop=first.matched_stop, matched_from_start=first.matched_from_start)
+    # «Где садится» считаем по ОБЩИМ местам посадки, а не по первому фильтру: у него вариантов
+    # могло быть больше, чем осталось после остальных (P2-1, приёмка PR #188).
+    return stop_search.make_fit(fits[0].stops, tuple(sorted(common)), named=any(fv for fv, *_rest in routes))
 
 
 def _postgis_dialect(session: Session) -> bool:
@@ -830,13 +829,18 @@ def _nearest_pickup(r, fit, lat: float, lng: float, entry: dict):
 
 
 def _matched(fit, pickup, *, by_query: bool):
-    """`matched_stop` / `matched_from_start` для карточки: по «Откуда» — из `route_fit`; без него —
-    по ближайшему к человеку месту посадки; ни того ни другого — null / false."""
-    if by_query:
+    """`matched_stop` / `matched_from_start` для карточки — ТО место посадки, до которого посчитано
+    расстояние (P2-1, приёмка PR #188). Расстояние до остановки при предвыбранном начале маршрута
+    отправляло человека из Ургазы в Сибай (41 км) и считалось бы неявкой по правилам «начала».
+
+    * расстояние посчитано (`pickup`) — это место, и никакое другое;
+    * координат нет: выбираем, только если человек назвал «Откуда» и подходящее место ровно одно;
+    * иначе — ничего не выбираем (null / false), человек сам скажет, где сядет."""
+    if pickup is not None:
+        return (fit.stops[pickup], False) if pickup >= 0 else (None, True)
+    if by_query and len(fit.pickups) == 1:
         return fit.matched_stop, fit.matched_from_start
-    if pickup is None:
-        return None, False
-    return (fit.stops[pickup], False) if pickup >= 0 else (None, True)
+    return None, False
 
 
 @router.get("/rides/near")
