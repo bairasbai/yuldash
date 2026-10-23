@@ -48,7 +48,7 @@ await t.test("Вход: выбор гостя переезжает к тому, 
 });
 
 const h = globalThis.__segment = { generation: "a", sent: [], routes: [], done: [], closed: 0, feedCalls: [] };
-const clientMock = `export class ApiError extends Error { constructor(status,message=''){super(message);this.status=status;} } export const getSessionGeneration=()=>globalThis.__segment.generation;`;
+const clientMock = `export class ApiError extends Error { constructor(status,message=''){super(message);this.status=status;} } globalThis.__segment.ApiError=ApiError; export const getSessionGeneration=()=>globalThis.__segment.generation;`;
 const sheetMock = `export const useSheetExit=()=>({leaving:false,portal:n=>n,dialogProps:{},close:()=>globalThis.__segment.closed++});`;
 const mockFor = lang => ({
   "/i18n/lang": langMock(lang), "/api/client": clientMock,
@@ -93,6 +93,40 @@ for (const lang of ["ru", "ba"]) {
     const pending = cta.props.onClick(); assert.equal(h.sent[0].body.pickup_stop, "Баймак"); assert.equal(h.sent[0].body.dropoff_stop, "Уфа");
     s.unmount(); assert.equal(h.sent[0].signal.aborted, true); h.generation = "b"; resolve({ id: 90 }); await pending;
     assert.equal(h.routes.length, 0); h.send = undefined;
+  });
+  // Отказы сервера по месту посадки/высадки читаются СЛОВАМИ СЕРВЕРА (на языке интерфейса), а не общей фразой
+  // «Не получилось забронировать»: из них человек понимает, что выбрать иначе (приёмка сайта 23.10.2026, M5).
+  const REFUSALS = [
+    [400, "pickup_stop_unknown", "Такой остановки нет в этой поездке — выбери из списка: начало маршрута или остановку по пути.", "Был сәфәрҙә бындай туҡталыш юҡ — исемлектән һайла: юлдың башы йәки юл ыңғайындағы туҡталыш."],
+    [400, "pickup_stop_is_end", "Здесь поездка заканчивается — выбери, где садишься: начало маршрута или остановку по пути.", "Сәфәр бында тамамлана — ҡайҙа ултырғаныңды һайла: юлдың башы йәки юл ыңғайындағы туҡталыш."],
+    [409, "pickup_stop_conflict", "У тебя уже есть бронь с другим местом посадки. Отмени её и забронируй заново — или договорись с водителем в чате.", "Һинең икенсе ултырыу урыны менән бронең бар инде. Уны кире ал да яңынан бронла — йәки водитель менән чатта килеш."],
+    [400, "dropoff_stop_unknown", "Такой остановки для высадки нет в этой поездке.", "Был сәфәрҙә төшөү өсөн бындай туҡталыш юҡ."],
+    [409, "dropoff_stop_conflict", "У тебя уже есть бронь с другим местом высадки. Отмени её и забронируй заново или договорись в чате.", "Һинең икенсе төшөү урыны менән бронең бар инде. Уны кире ал да яңынан бронла йәки чатта килеш."],
+  ];
+  for (const [status, code, ru, ba] of REFUSALS) await t.test(`${lang}: отказ ${code} (${status}) показан словами сервера, не общей фразой`, async () => {
+    h.generation = "a"; h.sent = []; h.ownBooking = null;
+    const words = lang === "ba" ? ba : ru; // клиент уже выбрал язык при разборе detail {ru, ba, code}
+    h.send = () => Promise.reject(new h.ApiError(status, words));
+    const s = mount(Sheet, { ride, onClose() {} }); s.render();
+    const leaf = name => all(s.tree).find(n => n.type === name);
+    leaf("PickupStopChoice").props.onPick("Акъяр"); await s.settle();
+    leaf("DropoffStopChoice").props.onPick("Сибай"); await s.settle();
+    await all(s.tree).find(n => n.type === "button" && n.props.className?.includes("sheet__cta")).props.onClick(); await s.settle();
+    const shown = all(s.tree).find(n => n.props?.className === "auth__error");
+    assert.ok(shown, "отказ должен быть виден");
+    assert.equal(text(shown), words, "слова сервера дошли без подмены");
+    assert.ok(!text(s.tree).includes(lang === "ru" ? "Не получилось забронировать" : "Бронларға булманы"), "общая фраза не заменяет сервер");
+    assert.equal(all(s.tree).find(n => n.type === "button" && n.props.className?.includes("sheet__cta")).props.disabled, false, "после отказа можно выбрать иначе");
+    s.unmount(); h.send = undefined;
+  });
+  await t.test(`${lang}: без слов сервера (не ответ сервера) — общая фраза на языке интерфейса`, async () => {
+    h.generation = "a"; h.sent = []; h.ownBooking = null; h.send = () => Promise.reject(new TypeError("offline"));
+    const s = mount(Sheet, { ride, onClose() {} }); s.render();
+    const leaf = name => all(s.tree).find(n => n.type === name);
+    leaf("PickupStopChoice").props.onPick("Акъяр"); await s.settle(); leaf("DropoffStopChoice").props.onPick("Сибай"); await s.settle();
+    await all(s.tree).find(n => n.type === "button" && n.props.className?.includes("sheet__cta")).props.onClick(); await s.settle();
+    assert.equal(text(all(s.tree).find(n => n.props?.className === "auth__error")), lang === "ru" ? "Не получилось забронировать. Попробуй снова." : "Бронларға булманы. Ҡабат ҡара.");
+    s.unmount(); h.send = undefined;
   });
   await t.test(`${lang}: личная карточка передаёт свою высадку; публичная не получает чужие точки`, async () => {
     const Card = await bundleComponent("src/components/RideCard.tsx", { real: ["/utils/pickupStops"], mocks: mockFor(lang) });
