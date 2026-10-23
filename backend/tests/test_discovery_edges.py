@@ -22,7 +22,7 @@ def test_popular_routes_and_feed_return_cache_hits(client, monkeypatch):
     def fake_cache_get(key):
         if key == "popular_routes:v1":
             return [{"from_city": "CachedA", "to_city": "CachedB", "count": 9}]
-        if key == "feed:v2":
+        if key == "feed:v3":
             return {"today": 1, "week": 2, "month": 3, "year": 4, "drivers": 5, "top_route": None, "donations_total": 6}
         return None
 

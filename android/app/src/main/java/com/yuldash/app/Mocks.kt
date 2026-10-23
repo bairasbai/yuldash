@@ -492,43 +492,9 @@ internal val demoRides = listOf(
     )
 )
 
-internal val demoPopularRoutes = listOf(
-    PopularRoute(
-        from = "Баймаҡ",
-        to = "Сибай",
-        minutes = "15 мин",
-        minutesBa = "15 мин",
-        distance = "43 км",
-        nearbyCount = 3,
-        label = "Популярный маршрут",
-        labelBa = "Популяр маршрут"
-    ),
-    PopularRoute(
-        from = "Сибай",
-        to = "Баймаҡ",
-        minutes = "18 мин",
-        minutesBa = "18 мин",
-        distance = "43 км",
-        nearbyCount = 2,
-        label = "Возвращаются домой",
-        labelBa = "Өйгә ҡайталар"
-    ),
-    PopularRoute(
-        from = "Темясово",
-        to = "Уфа",
-        minutes = "3 ч 40 мин",
-        minutesBa = "3 сәғ 40 мин",
-        distance = "310 км",
-        nearbyCount = 1,
-        label = "Межгород сегодня",
-        labelBa = "Бөгөн ҡалалар араһы"
-    )
-)
-
 // ── Лента-карусель на карте ──────────────────────────────────────────────
-// MOCK: микс карточек — маршруты (тапаются на «Найти поездку») + живые цифры дня/недели/месяца + факты.
-// Всё про поездки. Реальные числа подставит бэкенд позже (один шов — mapFeedFrom).
-internal enum class FeedKind { Route, Live, Top, Fact, Community, Donate }
+// Карточки: маршруты (тапаются на «Найти поездку») + настоящие цифры с сервера (mapFeedFrom).
+internal enum class FeedKind { Route, Live, Top, Community, Donate }
 
 internal data class MapFeedCard(
     val kind: FeedKind,

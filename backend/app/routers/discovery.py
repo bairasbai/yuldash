@@ -12,7 +12,7 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..middleware import user_over_limit
-from ..models import AppReview, Booking, Payment, Ride, User
+from ..models import AppReview, Booking, BookingStatus, Payment, Ride, User
 from ..security import current_user
 from ..services import (
     cache_get_json, cache_set_json,
@@ -41,23 +41,37 @@ def popular_routes(session: Session = Depends(get_session)):
     return result
 
 
+# Поездка «состоялась», если водитель отметил посадку или поездка завершена. Отменённые,
+# отклонённые и так и не подтверждённые брони в ленту не идут: раньше «Сегодня N поездок»
+# и «За месяц» считали все брони подряд, а «Хит недели» — даже отменённые поездки, и человек
+# видел цифры больше настоящих (решение Александра 23.10.2026: вариант А, «как на сайте»).
+HAPPENED = (BookingStatus.onboard, BookingStatus.done)
+
+
 @router.get("/feed")
 def feed(session: Session = Depends(get_session)):
-    """Живая лента карты: счётчики поездок за период (день/неделя/месяц/год) + топ-маршрут недели
-    + сумма донатов от пользователей за всё время. Из реальных данных. Кеш 60с."""
-    cached = cache_get_json("feed:v2")
+    """Живая лента карты: сколько поездок СОСТОЯЛОСЬ за день/неделю/месяц/год (по времени
+    выезда), сколько водителей реально возили людей за месяц, самый частый маршрут недели
+    среди состоявшихся поездок + сумма донатов за всё время. Из реальных данных. Кеш 60с."""
+    cached = cache_get_json("feed:v3")
     if cached is not None:
         return cached
     now = utcnow()
-    bookings = session.exec(select(Booking).order_by(Booking.id.desc()).limit(SCAN_LIMIT)).all()
+    year_edge = now - timedelta(days=365)
+    trips = session.exec(
+        select(Ride.depart_at, Ride.driver_id, Ride.from_city, Ride.to_city)
+        .join(Booking, Booking.ride_id == Ride.id)
+        .where(Booking.status.in_(HAPPENED), Ride.depart_at >= year_edge)
+        .order_by(Booking.id.desc()).limit(SCAN_LIMIT)
+    ).all()
 
-    def since(days: int) -> int:
+    def within(days: int):
         edge = now - timedelta(days=days)
-        return sum(1 for b in bookings if b.created_at and b.created_at >= edge)
+        return [t for t in trips if t.depart_at >= edge]
 
-    rides = session.exec(select(Ride).order_by(Ride.id.desc()).limit(SCAN_LIMIT)).all()
-    week_rides = [r for r in rides if r.created_at and r.created_at >= now - timedelta(days=7) and r.from_city and r.to_city]
-    top = Counter((r.from_city, r.to_city) for r in week_rides).most_common(1)
+    week = within(7)
+    month = within(30)
+    top = Counter((t.from_city, t.to_city) for t in week if t.from_city and t.to_city).most_common(1)
     top_route = ({"from_city": top[0][0][0], "to_city": top[0][0][1], "count": top[0][1]} if top else None)
     # Донаты пользователей за всё время — сумма подтверждённых (succeeded) платежей purpose=donate, в рублях.
     donate_kop = sum(
@@ -66,12 +80,12 @@ def feed(session: Session = Depends(get_session)):
         ).all()
     )
     result = {
-        "today": since(1), "week": since(7), "month": since(30), "year": since(365),
-        "drivers": len({r.driver_id for r in rides}),
+        "today": len(within(1)), "week": len(week), "month": len(month), "year": len(trips),
+        "drivers": len({t.driver_id for t in month}),   # возили людей за последние 30 дней
         "top_route": top_route,
         "donations_total": donate_kop // 100,   # ₽, за всё время
     }
-    cache_set_json("feed:v2", result, 60)
+    cache_set_json("feed:v3", result, 60)
     return result
 
 
