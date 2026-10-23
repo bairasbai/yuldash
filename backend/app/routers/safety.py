@@ -286,15 +286,28 @@ def _saved_sos(session: Session, user_id: int, intent_key: str | None) -> SosEve
     )).first()
 
 
+# Повтором считаем только СВЕЖЕЕ событие: клиент держит неотправленное намерение не дольше 15 минут
+# (`MAX_AGE_MS` в webapp/src/utils/sosIntent.ts) и потом заводит новый ключ. Тот же ключ и то же тело
+# через час или через сутки — это уже НОВАЯ беда, а не потерянный ответ на старую: «сигнал уже
+# сохранён» в такой момент оставил бы человека без рассылки близким и дежурному (ревью PR190, 23.10.2026).
+SOS_RETRY_WINDOW = timedelta(minutes=15)
+
+
+def _is_retry_of(saved: SosEvent | None, payload_hash: str | None) -> bool:
+    return (saved is not None and saved.payload_hash == payload_hash
+            and saved.created_at >= utcnow() - SOS_RETRY_WINDOW)
+
+
 @router.post("/sos")
 def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user),
         session: Session = Depends(get_session), idempotency_key: str | None = Header(default=None)):
     intent_key, payload_hash = _sos_intent(body, idempotency_key)
     saved = _saved_sos(session, user.id, intent_key)
     if saved is not None:
-        if saved.payload_hash == payload_hash:
+        if _is_retry_of(saved, payload_hash):
             return _sos_replay(saved)
-        # Повреждённые внутренние метаданные не подтверждают чужое тело и не теряют новый SOS.
+        # Старое событие с этим ключом (старше окна повтора) или повреждённые метаданные: это новый
+        # сигнал. Ключ у старой строки занят (уникальный индекс), поэтому новый пишем без ключа.
         intent_key = payload_hash = None
     # N5 (независимое ревью). Раньше проверка брони/заказа стояла ДО записи сигнала: чужой
     # или удалённый booking_id/order_id (403/404) означал, что SosEvent вообще не создавался —
@@ -343,7 +356,7 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     except IntegrityError:
         session.rollback()
         saved = _saved_sos(session, user.id, intent_key)
-        if saved is not None and saved.payload_hash == payload_hash:
+        if _is_retry_of(saved, payload_hash):
             return _sos_replay(saved)  # Проигравший параллельный повтор не рассылает ничего.
         raise                       # Другая ошибка БД не означает «сигнал сохранён».
     session.refresh(event)
@@ -1369,9 +1382,10 @@ def roadside_help(
                                          context={"booking_id": booking_id})
     saved = _saved_sos(session, user.id, intent_key)
     if saved is not None:
-        if saved.payload_hash == payload_hash:
+        if _is_retry_of(saved, payload_hash):
             return {**_sos_replay(saved), "delivery_unconfirmed": True}
-        intent_key = payload_hash = None  # Повреждённый отпечаток не подтверждает другой сигнал.
+        # Старое событие (старше окна повтора) или повреждённый отпечаток: это другой сигнал, без ключа.
+        intent_key = payload_hash = None
     эфф_booking_id = booking_id
     try:
         booking_and_ride_for_user(session, booking_id, user)   # 403/404 если чужой/нет брони
@@ -1477,7 +1491,7 @@ def _roadside(session: Session, background: BackgroundTasks, user: User, body: "
     except IntegrityError:
         session.rollback()
         saved = _saved_sos(session, user.id, intent_key)
-        if saved is not None and saved.payload_hash == payload_hash:
+        if _is_retry_of(saved, payload_hash):
             return {**_sos_replay(saved), "delivery_unconfirmed": True}
         raise
     session.refresh(event)
