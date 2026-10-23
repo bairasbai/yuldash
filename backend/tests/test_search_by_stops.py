@@ -134,6 +134,22 @@ def test_query_with_digits_is_not_searched_in_stops(client, user_factory):
     assert ride["id"] in _feed(client, day, from_city="Ургаза", to_city="Акъяр")
 
 
+@pytest.mark.parametrize("query", ["Ургаза (⑤)", "Ургаза (٥)", "Ургаза (⁵)", "Ургаза (Ⅴ)"])
+def test_query_with_unicode_digits_is_not_searched_in_stops(client, user_factory, query):
+    """Как в публикации остановки (S-P3-1 в PR1): обведённые, арабские, надстрочные и римские цифры —
+    тоже цифры. Для регулярки `\\d` они «буквы», и «Ургаза (⑤)» искалась бы как остановка «Ургаза»."""
+    day = _day()
+    drv = user_factory("SBS UDigits Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, waypoints="Ургаза", tag="udigits")
+    assert ride["id"] not in _feed(client, day, from_city=query, to_city="Акъяр"), query
+    assert ride["id"] not in _feed(client, day, from_city="Сибай", to_city=query), query
+    near = _near(client, day, from_city=query, to_city="Акъяр")
+    assert all(x["id"] != ride["id"] for x in near["items"]), query
+    near = _near(client, day, from_cities=query, to_cities="Акъяр")
+    assert all(x["id"] != ride["id"] for x in near["items"]), query
+    assert ride["id"] in _feed(client, day, from_city="Ургаза", to_city="Акъяр"), "контроль: без цифр находится"
+
+
 def test_like_wildcards_in_the_query_are_letters(client, trip):
     """«%» и «_» — не шаблон: запрос «%» не находит всё подряд (autoescape)."""
     day, _drv, ride = trip

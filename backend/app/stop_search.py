@@ -30,7 +30,6 @@ from .ride_stops import MEMO_KEY, _f, _place_keys, parse_stops
 NAME_MAX = 120          # длина имени места в запросе (как у города в публикации)
 MAX_VARIANTS = 6        # написаний одного места в SQL (тёзок-сёл бывает десяток — хватит главных)
 MAX_PAIR_VARIANTS = 3   # для попарного LIKE «откуда…куда» в общей ленте: не больше 3×3 = 9 пар
-_DIGIT = re.compile(r"\d")
 _LETTER = re.compile(r"[^\W\d_]")
 
 
@@ -50,9 +49,13 @@ def variants(session, name: Optional[str], entry: dict) -> list[str]:
 
 
 def stop_searchable(name: Optional[str]) -> bool:
-    """Искать ли это место среди остановок: только название (буквы), без цифр (P3)."""
+    """Искать ли это место среди остановок: только название (буквы), без цифр (P3).
+
+    «Без цифр» — как в публикации остановки (`ride_stops.stop_text_ok`, S-P3-1): `str.isnumeric`, а не
+    регулярка `\\d`. Обведённые «⑤», надстрочные «⁵» и римские «Ⅴ» для `\\d` — «буквы», и «Ургаза (⑤)»
+    искалась бы как остановка «Ургаза»."""
     t = (name or "").strip()
-    return bool(t) and not _DIGIT.search(t) and bool(_LETTER.search(t))
+    return bool(_LETTER.search(t)) and not any(ch.isnumeric() for ch in t)
 
 
 def _escape_like(text: str) -> str:
