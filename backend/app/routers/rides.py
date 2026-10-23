@@ -610,8 +610,11 @@ def search_rides(
         rides = session.exec(q).all()
     out = rides_out(rides, session)
     if fits:
-        out = [r.model_copy(update={"matched_stop": fits[r.id].matched_stop,
-                                    "matched_from_start": fits[r.id].matched_from_start}) for r in out]
+        # Тот же договор предвыбора, что в «Ближайших» (`_matched`): координат человека в ленте нет, значит
+        # место выбираем, только если «Откуда» названа и подходящее место ровно одно (приёмка PR #188, P3-2).
+        marks = {r.id: _matched(fits[r.id], None, by_query=bool(fv)) for r in out}
+        out = [r.model_copy(update={"matched_stop": marks[r.id][0], "matched_from_start": marks[r.id][1]})
+               for r in out]
     public_out = public_rides_payload(out)
     if no_filter:
         cache_set_json("rides:active:v2", [r.model_dump(mode="json") for r in public_out], 20)

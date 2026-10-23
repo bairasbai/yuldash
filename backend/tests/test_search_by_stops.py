@@ -337,6 +337,19 @@ def test_near_several_pickups_without_coordinates_preselect_nothing(client, user
     assert item["matched_stop"] is None and item["matched_from_start"] is False, item
 
 
+def test_feed_and_near_agree_when_several_pickups(client, user_factory):
+    """Один договор предвыбора для ленты и «Ближайших» (приёмка PR #188, P3-2). Начало «Сибай автовокзал»
+    совпадает с запросом «Сибай» подстрокой, остановка «Сибай» — по ключу: два варианта посадки, координат
+    человека нет. «Ближайшие» ничего не выбирают — и лента тоже (раньше она брала начало)."""
+    day = _day()
+    drv = user_factory("SBS Both Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, frm="Сибай автовокзал", waypoints="Сибай | Ургаза", tag="both")
+    near = next(x for x in _near(client, day, from_city="Сибай", to_city="Акъяр")["items"] if x["id"] == ride["id"])
+    feed = _feed(client, day, from_city="Сибай", to_city="Акъяр")[ride["id"]]
+    assert (near["matched_stop"], near["matched_from_start"]) == (None, False), near
+    assert (feed["matched_stop"], feed["matched_from_start"]) == (None, False), feed
+
+
 def test_near_single_pickup_without_coordinates_is_preselected(client, user_factory):
     """Место одно — выбирать есть что и без координат: «из Сибая» — начало, «из Ургазы» — остановка."""
     day = _day()
