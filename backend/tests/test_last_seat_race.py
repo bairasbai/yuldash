@@ -61,7 +61,7 @@ def _live_bookings(ride_id: int) -> int:
         ).all())
 
 
-def _book_together(client, ride_id: int, riders: list[dict]) -> list[int]:
+def _book_together(client, ride_id: int, riders: list[dict], seats: int = 1) -> list[int]:
     """Все пассажиры жмут «Забронировать» в один момент. Барьер держит потоки до последнего,
     иначе они разъезжаются по времени и гонки не получается."""
     codes: list[int] = []
@@ -69,8 +69,8 @@ def _book_together(client, ride_id: int, riders: list[dict]) -> list[int]:
     barrier = threading.Barrier(len(riders))
 
     def book(rider: dict) -> None:
-        barrier.wait()
-        r = client.post("/bookings", headers=rider["auth"], json={"ride_id": ride_id, "seats": 1})
+        barrier.wait(timeout=10)
+        r = client.post("/bookings", headers=rider["auth"], json={"ride_id": ride_id, "seats": seats})
         with lock:
             codes.append(r.status_code)
 
@@ -78,8 +78,24 @@ def _book_together(client, ride_id: int, riders: list[dict]) -> list[int]:
     for t in threads:
         t.start()
     for t in threads:
-        t.join()
+        t.join(timeout=20)
+        assert not t.is_alive(), "booking worker did not finish"
+    assert len(codes) == len(riders), "booking worker failed without a response"
     return codes
+
+
+def test_multiseat_competitors_cannot_split_the_last_capacity(client, user_factory):
+    """Три семьи просят по два места в машине на пять: ровно две брони, одно место осталось."""
+    drv = user_factory("MultiCapacityDriver", role=UserRole.driver)
+    ride_id = _ride(client, drv, seats=5)
+    riders = [user_factory(f"MultiCapacityPassenger{i}") for i in range(3)]
+    codes = _book_together(client, ride_id, riders, seats=2)
+    assert codes.count(200) == 2 and len([c for c in codes if c in (400, 409)]) == 1, codes
+    assert _live_bookings(ride_id) == 2 and _seats_left(ride_id) == 1
+    with Session(engine) as session:
+        bookings = session.exec(select(Booking).where(Booking.ride_id == ride_id)).all()
+        assert sum(b.seats for b in bookings) == 4
+        assert all(b.seats == 2 and b.price == 600 for b in bookings)
 
 
 def test_последнее_место_не_уходит_двоим(client, user_factory):

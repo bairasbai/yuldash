@@ -2383,6 +2383,10 @@ button.list-row:active {
   display: flex;
   gap: 12px;
 }
+/* «Количество мест» в шторке поездки: отступ от строки водителя (приёмка #189). */
+.sheet__seats {
+  margin-top: var(--space-md);
+}
 .stepper {
   display: flex;
   align-items: center;

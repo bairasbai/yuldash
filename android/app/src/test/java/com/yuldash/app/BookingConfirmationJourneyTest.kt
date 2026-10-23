@@ -36,6 +36,7 @@ class BookingConfirmationJourneyTest {
     private val bookingBodies = CopyOnWriteArrayList<String>()
     private val tripStatuses = CopyOnWriteArrayList<String>()
     private var rejectBookingOnce = false
+    private var conflictBooking = false
     private val ratingBodies = CopyOnWriteArrayList<String>()
     private lateinit var vm: YuldashViewModel
     private lateinit var server: MockWebServer
@@ -59,6 +60,7 @@ class BookingConfirmationJourneyTest {
                         request.method == "POST" && path == "/bookings" -> {
                             bookingBodies.add(request.body.readUtf8())
                             if (rejectBookingOnce && bookingBodies.size == 1) return json("""{"detail":"Тестовый временный отказ брони"}""", 503)
+                            if (conflictBooking) return json("""{"detail":{"ru":"У тебя уже есть бронь с другим количеством мест.","ba":"Һинең икенсе һандағы урындар менән бронең бар инде.","code":"booking_seats_conflict","booking_id":42}}""", 409)
                             """{"id":42,"ride_id":7,"status":"$status"}"""
                         }
                         path == "/bookings/42/confirm" -> {
@@ -259,6 +261,39 @@ class BookingConfirmationJourneyTest {
         compose.onNodeWithText("Отменить бронь").assertIsDisplayed()
         assertEquals(2, bookingBodies.size)
         assertEquals(JSONObject(bookingBodies[0]).toString(), JSONObject(bookingBodies[1]).toString())
+    }
+
+    @Test fun multiseatSelectionSendsTotalAndKeepsPayloadOnRetry() {
+        rejectBookingOnce = true
+        mount()
+        choosePublicRide()
+        compose.onNodeWithText("Количество мест").performScrollTo()
+        repeat(2) { compose.onNodeWithContentDescription("Больше мест").performClick() }
+        compose.onNodeWithText("Итого: 2 250 ₽").assertExists()
+        // Кнопка называет выбранное число мест (приёмка #189).
+        compose.onNodeWithText("Забронировать 3 места").performClick()
+        compose.waitUntil(15000) {
+            settle()
+            org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == "Тестовый временный отказ брони"
+        }
+        compose.onNodeWithText("Забронировать 3 места").performClick()
+        compose.waitUntil(15000) { vm.activeBookingId.value == 42 }
+        assertEquals(2, bookingBodies.size)
+        val first = JSONObject(bookingBodies[0])
+        assertEquals(3, first.getInt("seats"))
+        assertEquals(2250, first.getInt("pay_amount"))
+        assertEquals(first.toString(), JSONObject(bookingBodies[1]).toString())
+    }
+
+    /** Бронь на 2 места уже есть (например, по заявке), человек открыл ту же поездку из ленты: отказ
+     *  «другое число мест» называет его бронь — приложение открывает её (приёмка #189). */
+    @Test fun existingBookingConflictOpensOwnBooking() {
+        conflictBooking = true
+        mount()
+        choosePublicRide()
+        compose.onNodeWithText("Забронировать место").performClick()
+        compose.waitUntil(15000) { settle(); vm.activeBookingId.value == 42 }
+        assertEquals(1, bookingBodies.size)
     }
 
     @Test fun knownBookingWaitsForSummaryInsteadOfGoingBack() = checkMissingSummary(42, 0)

@@ -27,7 +27,7 @@ const Sheet = (
     [/\/booking\/OwnBookingsProvider$/, `export const useOwnBooking = () => globalThis.__rideExit.own; export const useRefreshOwnBookings = () => () => {};`],
     [/\/api\/bookings$/, `export const createBooking = (body) => (globalThis.__rideExit.calls.push(body), globalThis.__rideExit.booking(body));`],
     [/\/analytics$/, `export const track = () => {};`],
-    [/\/utils\/format$/, `export const formatWhen = () => "завтра, 10:00"; export const priceLabel = () => "500 ₽";`],
+    [/\/utils\/format$/, `export const formatWhen = () => "завтра, 10:00"; export const priceLabel = () => "500 ₽"; export const pluralRu = (n, one) => one;`],
     [/\/Icons$/, `export const IconArrow = "Icon", IconCheck = "Icon";`],
     [/\/BrandIcons$/, `export const YuStar = "Icon", YuWomenOnly = "Icon", YuLuggage = "Icon", YuChildSeat = "Icon";`],
     [/\/SeatOptions$/, `export const FrontSeatChoice = "FrontSeatChoice", SeatBadges = "SeatBadges";`],
