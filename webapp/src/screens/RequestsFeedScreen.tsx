@@ -236,7 +236,7 @@ export function RespondSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tripChoice, setTripChoice] = useState<"ride" | "separate" | null>(null);
-  const [staleRide, setStaleRide] = useState(false);
+  const [needsRefresh, setNeedsRefresh] = useState(false);
   const mounted = useRef(true);
   const inFlight = useRef(false);
   const requestAbort = useRef<AbortController | null>(null);
@@ -250,14 +250,14 @@ export function RespondSheet({
     const key = `${generation}:${item.id}`;
     if (identity.current !== key) {
       inFlight.current = false;
-      identity.current = key; setTripChoice(null); setStaleRide(false); setPrice(""); setComment(""); setError(null); setBusy(false);
+      identity.current = key; setTripChoice(null); setNeedsRefresh(false); setPrice(""); setComment(""); setError(null); setBusy(false);
     }
     return () => { mounted.current = false; requestAbort.current?.abort(); };
   }, [generation, item.id]);
 
   async function submit() {
     if (exit.leaving || inFlight.current || !mounted.current || generation !== getSessionGeneration() || identity.current !== `${generation}:${item.id}`) return;
-    if (matched && (tripChoice === null || (tripChoice === "ride" && staleRide))) {
+    if (matched && tripChoice === null) {
       setError(appText("Выбери свой рейс или отдельную поездку.", "Үҙ сәфәреңде йәки айырым сәфәрҙе һайла.")); return;
     }
     inFlight.current = true;
@@ -279,12 +279,16 @@ export function RespondSheet({
       exit.close(); // кнопка остаётся «Отправляем…» (busy не сбрасываем), пока шторка уходит
     } catch (e) {
       if (!mounted.current || ac.signal.aborted || generation !== getSessionGeneration()) return;
-      if (e instanceof ApiError && e.status === 409 && tripChoice === "ride") { setStaleRide(true); setTripChoice(null); }
+      // 409 бывает по разным причинам (рейс не подходит, заявка закрыта, пассажир на паузе, отклик уже
+      // отправлен с другим рейсом) — показываем слово сервера. Выбор рейса не запираем: сервер каждый
+      // раз проверяет заново, а «Обновить заявки» даёт свежие данные. Выбор снимаем — выбрать надо осознанно.
+      const conflict = e instanceof ApiError && e.status === 409 && tripChoice === "ride";
+      if (conflict) { setNeedsRefresh(true); setTripChoice(null); }
       setError(
-        e instanceof ApiError && e.status === 409 && tripChoice === "ride"
-          ? appText("Рейс изменился или больше не подходит. Обнови заявки и выбери снова.", "Сәфәр үҙгәргән йәки бүтән тап килмәй. Заявкаларҙы яңыртып ҡабат һайла.")
-          : e instanceof ApiError && e.message
+        e instanceof ApiError && e.message
           ? e.message
+          : conflict
+          ? appText("Рейс изменился или больше не подходит. Обнови заявки и выбери снова.", "Сәфәр үҙгәргән йәки бүтән тап килмәй. Заявкаларҙы яңыртып ҡабат һайла.")
           : appText("Не получилось. Попробуй снова.", "Булманы. Ҡабат ҡара.") // DRAFT
       );
       setBusy(false);
@@ -318,7 +322,7 @@ export function RespondSheet({
               <span className="list-row__sub">{appText("Выезд рейса", "Сәфәргә сығыу")}: {formatWhen(item.matched_ride_depart_at, lang !== "ba")}</span>
               <span className="list-row__sub">{appText("Участок пассажира", "Юлсының юл өлөшө")}: {item.matched_pickup_stop} → {item.matched_dropoff_stop}</span>
             </span>
-            <input type="radio" name={`respond-trip-${item.id}`} checked={tripChoice === "ride"} disabled={staleRide} onChange={() => { setTripChoice("ride"); setError(null); }} />
+            <input type="radio" name={`respond-trip-${item.id}`} checked={tripChoice === "ride"} onChange={() => { setTripChoice("ride"); setError(null); }} />
           </label>
           <label className="list-row list-row--check" style={{ minHeight: 48 }}>
             <span className="list-row__main">{appText("Отдельная поездка", "Айырым сәфәр")}</span>
@@ -348,7 +352,7 @@ export function RespondSheet({
           />
         </label>
         {error && <div className="auth__error">{error}</div>}
-        {staleRide && <button type="button" className="btn-soft" onClick={() => { if (!inFlight.current) { if (onRefresh) onRefresh(); else onClose(); } }}>{appText("Обновить заявки", "Заявкаларҙы яңыртыу")}</button>}
+        {needsRefresh && <button type="button" className="btn-soft" onClick={() => { if (!inFlight.current) { if (onRefresh) onRefresh(); else onClose(); } }}>{appText("Обновить заявки", "Заявкаларҙы яңыртыу")}</button>}
         <button type="button" className="btn-primary sheet__cta" onClick={submit} disabled={busy || exit.leaving || (matched && tripChoice === null)}>
           {busy ? appText("Отправляем…", "Ебәрәбеҙ…") : appText("Отправить отклик", "Яуап ебәрергә")}
         </button>
