@@ -440,14 +440,20 @@ def delete_user_account(session: Session, user: User) -> None:
     # ссылку (FK resolved_by). Профиль безопасности (страйки/паузы) удаляем целиком.
     session.execute(update(Incident).where(Incident.resolved_by == uid).values(resolved_by=None))
     session.execute(delete(SafetyProfile).where(SafetyProfile.user_id == uid))
-    # 3.8 Брони (после всех детей, что на них ссылаются).
-    if booking_ids:
-        session.execute(delete(Booking).where(Booking.id.in_(booking_ids)))
-    # 3.9 Отклики на заявки: мои (как водитель) + на мои заявки.
+    # 3.8 Отклики на заявки: мои (как водитель) + на мои заявки. Идут РАНЬШЕ броней и поездок:
+    # принятый отклик «водитель предложил свой рейс» держит внешние ключи на бронь
+    # (`requestresponse.booking_id`) и на рейс (`requestresponse.ride_id`) — миграция
+    # ca_booking_segments_20261018. Раньше отклики шли после броней, и удаление аккаунта падало
+    # по внешнему ключу (ревью PR190, 23.10.2026): человек не мог стереть свои данные (152-ФЗ).
+    # Чужих откликов на наши брони/рейсы не бывает: отклик со своим рейсом даёт сам водитель
+    # рейса, а бронь из него — на пассажира заявки. Обе стороны сделки — это «мои» условия ниже.
     resp = [RequestResponse.driver_id == uid]
     if request_ids:
         resp.append(RequestResponse.request_id.in_(request_ids))
     dele(RequestResponse, *resp)
+    # 3.9 Брони (после всех детей, что на них ссылаются).
+    if booking_ids:
+        session.execute(delete(Booking).where(Booking.id.in_(booking_ids)))
     # 3.10 Заявки + поездки.
     session.execute(delete(RideRequest).where(RideRequest.passenger_id == uid))
     session.execute(delete(Ride).where(Ride.driver_id == uid))

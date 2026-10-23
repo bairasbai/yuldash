@@ -23,6 +23,7 @@ import CreateRequestScreen from "./screens/CreateRequestScreen";
 import BookingScreen from "./screens/BookingScreen";
 import ActiveTripScreen from "./screens/ActiveTripScreen";
 import UpdateBanner from "./components/UpdateBanner";
+import OutboxRefusalBanner from "./components/OutboxRefusalBanner";
 import { watchOutbox } from "./utils/outbox";
 import InstantOrderScreen, { taxiGateView } from "./screens/InstantOrderScreen";
 import InstantDriverTripScreen from "./screens/InstantDriverTripScreen";
@@ -171,6 +172,8 @@ function Shell() {
       {/* Новая версия скачана — применится только после перезагрузки.
           Пока человек не нажал, исправленный баг у него всё ещё есть. */}
       <UpdateBanner />
+      {/* Отметка из очереди («Выехал» без сети), которую сервер потом отклонил, — не молчим. */}
+      <OutboxRefusalBanner />
       <main className="app-main">
         <ActiveTaxiBar visible={onMainTab && !taxiOrderOnScreen} />
         {/* Экран из отдельного куска ещё летит — показываем скелетон,

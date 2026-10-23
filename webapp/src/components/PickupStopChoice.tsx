@@ -11,9 +11,9 @@ export function PickupStopChoice({ ride, picked, onPick, disabled = false }: {
   return <fieldset disabled={disabled} style={{ border: 0, padding: 0, margin: "var(--space-md) 0" }}>
     <legend className="list-row__title">{appText("Где садишься?", "Ҡайҙа ултыраһың?")}</legend>
     <p className="sheet__note">{appText("Выбери начало маршрута или остановку по пути.", "Юлдың башын йәки юл ыңғайындағы туҡталышты һайла.")}</p>
-    {[ride.from_city, ...stops].map(place => <label key={place} className="list-row list-row--check" style={{ minHeight: 48 }}>
+    {[ride.from_city, ...stops].map(place => <label key={place} className={"list-row list-row--check" + (picked === place ? " list-row--on" : "")} style={{ minHeight: 48 }}>
       <span className="list-row__main">{place === ride.from_city ? appText(`Начало маршрута · ${place}`, `Юлдың башы · ${place}`) : place}</span>
-      <input type="radio" name={`pickup-stop-${ride.id}`} value={place} checked={picked === place} onChange={() => onPick(place)} />
+      <input type="radio" className="checkbox" name={`pickup-stop-${ride.id}`} value={place} checked={picked === place} onChange={() => onPick(place)} />
     </label>)}
     {picked === null && <p className="sheet__note" role="status">{appText("Выбери место посадки, чтобы забронировать.", "Бронлау өсөн ултырыу урынын һайла.")}</p>}
   </fieldset>;
@@ -53,9 +53,9 @@ export function DropoffStopChoice({ ride, pickup, picked, onPick, disabled = fal
     <p className="sheet__note">{pickup === null
       ? appText("Сначала выбери место посадки.", "Башта ултырыу урынын һайла.")
       : appText("Выбери остановку после посадки или конец маршрута.", "Ултырғандан һуңғы туҡталышты йәки юлдың аҙағын һайла.")}</p>
-    {places.map(place => <label key={place} className="list-row list-row--check" style={{ minHeight: 48 }}>
+    {places.map(place => <label key={place} className={"list-row list-row--check" + (picked === place ? " list-row--on" : "")} style={{ minHeight: 48 }}>
       <span className="list-row__main">{place === ride.to_city ? appText(`Конец маршрута · ${place}`, `Юлдың аҙағы · ${place}`) : place}</span>
-      <input type="radio" name={`dropoff-stop-${ride.id}`} value={place} checked={picked === place} onChange={() => onPick(place)} />
+      <input type="radio" className="checkbox" name={`dropoff-stop-${ride.id}`} value={place} checked={picked === place} onChange={() => onPick(place)} />
     </label>)}
     {pickup !== null && picked === null && <p className="sheet__note" role="status">{appText("Выбери место высадки, чтобы забронировать.", "Бронлау өсөн төшөү урынын һайла.")}</p>}
   </fieldset>;
@@ -71,10 +71,12 @@ export function BookingSegmentNote({ pickupStop, dropoffStop, rideHasStops, from
   return <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
     {fromPlace && toPlace && <p className="list-row__title">{appText("Участок пассажира", "Юлсының юл өлөшө")}: {fromPlace} → {toPlace}</p>}
     <PickupStopNote pickupStop={pickupStop} rideHasStops={rideHasStops} from={from} />
-    <p className="list-row__sub">{dropoffStop == null
+    {/* Зеркало защиты посадки: про высадку говорим, только если у рейса есть остановки или высадка названа.
+        На рейсе без остановок и на старой брони (сервер без поля) «не указано — уточни в чате» было бы ложью. */}
+    {(rideHasStops === true || dropoffStop != null) && <p className="list-row__sub">{dropoffStop == null
       ? appText("Место высадки не указано — уточни в чате", "Төшөү урыны күрһәтелмәгән — чатта асыҡла")
       : dropoffStop === ""
         ? appText("Высадка: конец маршрута", "Төшөү: юлдың аҙағы") + (to ? ` · ${to}` : "")
-        : appText(`Высадка: ${dropoffStop}`, `Төшөү: ${dropoffStop}`)}</p>
+        : appText(`Высадка: ${dropoffStop}`, `Төшөү: ${dropoffStop}`)}</p>}
   </div>;
 }

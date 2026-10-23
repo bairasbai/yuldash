@@ -27,6 +27,13 @@ def history(client, bid, actor):
     return response.json()
 
 
+def signal_for(operation):
+    """(ожидаемый кадр, сколько ждать): «у себя» молчит, правка и «у всех» — history_changed."""
+    if operation == "me":
+        return None, 0.1
+    return {"type": "history_changed"}, 1
+
+
 @pytest.mark.parametrize("actor_role", ["driver", "passenger"])
 @pytest.mark.parametrize("operation", ["edit", "all", "me"])
 def test_committed_mutation_reaches_both_open_chats_as_content_free_invalidation(
@@ -42,8 +49,10 @@ def test_committed_mutation_reaches_both_open_chats_as_content_free_invalidation
         assert receive(other)["id"] == saved["id"]
         response = mutation(client, bid, saved["id"], actor, operation)
         assert response.status_code == 200, response.text
-        assert receive(own) == {"type": "history_changed"}, "own chat missed safe invalidation"
-        assert receive(other) == {"type": "history_changed"}, "peer chat missed safe invalidation"
+        # Скрытие «у себя» — тихое: история собеседника не меняется, сигнала ему не шлём.
+        expected, wait = signal_for(operation)
+        assert receive(own, wait) == expected, "own chat: wrong invalidation"
+        assert receive(other, wait) == expected, "peer chat: wrong invalidation"
         assert receive(own, 0.1) is None
         assert receive(other, 0.1) is None
     own_rows, peer_rows = history(client, bid, actor), history(client, bid, peer)
@@ -68,7 +77,8 @@ def test_mutation_invalidation_does_not_reach_another_booking(
         saved = send(client, bid, driver)
         assert receive(own)["id"] == saved["id"]
         assert mutation(client, bid, saved["id"], driver, operation).status_code == 200
-        assert receive(own) == {"type": "history_changed"}
+        expected, wait = signal_for(operation)
+        assert receive(own, wait) == expected
         assert receive(unrelated, 0.1) is None
 
 
@@ -105,7 +115,8 @@ def test_retry_only_reasserts_state_and_invalidation_without_new_push(
             response = mutation(client, bid, saved["id"], driver, operation)
             assert response.status_code == 200
             assert response.json()["id"] == saved["id"]
-            assert receive(receiver) == {"type": "history_changed"}
+            expected, wait = signal_for(operation)
+            assert receive(receiver, wait) == expected
             assert receive(receiver, 0.1) is None
     assert pushes == []
     assert len(history(client, bid, passenger)) == 1
@@ -120,8 +131,9 @@ def test_hidden_history_remains_hidden_after_later_peer_edit_and_delete_all(
         for actor, operation in [(passenger, "me"), (driver, "edit"), (driver, "all")]:
             response = mutation(client, bid, saved["id"], actor, operation)
             assert response.status_code == 200
-            assert receive(own) == {"type": "history_changed"}
-            assert receive(peer) == {"type": "history_changed"}
+            expected, wait = signal_for(operation)
+            assert receive(own, wait) == expected
+            assert receive(peer, wait) == expected
             assert history(client, bid, passenger) == []
         peer_rows = history(client, bid, driver)
         assert len(peer_rows) == 1 and peer_rows[0]["deleted"]

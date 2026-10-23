@@ -881,8 +881,11 @@ def delete_message(booking_id: int, message_id: int, scope: str = "all",
     session.add(msg)
     session.commit()
     session.refresh(msg)
-    # The same content-free signal is safe for "me": the peer's GET is unchanged.
-    notify_chat_message(booking_id, {"type": "history_changed"})
+    # Скрытие «у себя» собеседнику не видно: его история не меняется, а сигнал по общему каналу
+    # брони сказал бы ему, что другая сторона только что что-то скрыла (ревью PR190, 23.10.2026).
+    # Рассылаем только то, что меняет историю обеих сторон — «удалить у всех».
+    if scope != "me":
+        notify_chat_message(booking_id, {"type": "history_changed"})
     return msg
 
 

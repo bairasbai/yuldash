@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { fetchRide, type Ride } from "../api/rides";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import { useLang } from "../i18n/lang";
 import RideSheet from "../components/RideSheet";
 import ScreenHeader from "../components/ScreenHeader";
@@ -25,7 +25,7 @@ export default function RideDetailScreen() {
     if (!Number.isSafeInteger(rideId) || rideId <= 0) { setStatus("error"); return; }
     fetchRide(rideId, signal).then(value => {
       if (signal?.aborted || version !== requestVersion.current) return;
-      setRide(preserveRideMatch(value, location.state));
+      setRide(preserveRideMatch(value, location.state, getSessionGeneration()));
       setStatus("ready");
     }).catch(err => {
       if (signal?.aborted || version !== requestVersion.current) return;

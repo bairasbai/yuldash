@@ -94,6 +94,24 @@ for (const lang of ["ru", "ba"]) {
       assert.equal(ofType(h.tree, "ul").length, 0);
     } finally { h.unmount(); }
   });
+  await t.test(`${lang}: разметка списка для диктора — listbox владеет только option, <li> между ними прозрачны`, async () => {
+    fresh();
+    const h = mount(Field, { value: "", endpoints: ["Уфа", "Сибай"], onChange(value) { h.props = { ...h.props, value }; } });
+    try {
+      h.render(); ofType(h.tree, "input")[0].props.onChange({ target: { value: L("Бер", "Ҡай") } });
+      await h.settle(); await new Promise((r) => setTimeout(r, 280)); await h.settle();
+      const lists = ofType(h.tree, "ul"); assert.equal(lists.length, 1);
+      assert.equal(lists[0].props.role, "listbox"); assert.ok(lists[0].props["aria-label"], "у списка есть название");
+      const rows = [lists[0].props.children].flat(Infinity).filter(Boolean);
+      assert.ok(rows.length >= 2, "в списке несколько вариантов");
+      for (const row of rows) {
+        assert.equal(row.type, "li"); assert.equal(row.props.role, "presentation", "<li> без роли станет listitem внутри listbox — это ошибка разметки");
+        const options = ofType(row, "button"); assert.equal(options.length, 1);
+        assert.equal(options[0].props.role, "option"); assert.equal(typeof options[0].props["aria-selected"], "boolean");
+      }
+      assert.equal(ofType(lists[0], "button").length, rows.length, "кнопок-вариантов ровно столько же, сколько строк");
+    } finally { h.unmount(); }
+  });
   await t.test(`${lang}: ошибка подсказок сохраняет ввод, повтор восстанавливает список`, async () => {
     fresh(); const search = fixture.search;
     fixture.search = async () => { throw new globalThis.__stopApiError("Справочник временно закрыт"); };

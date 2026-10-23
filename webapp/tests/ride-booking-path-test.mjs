@@ -20,7 +20,7 @@ const modules = {
   auth: `export const useAuth=()=>({isAuthed:globalThis.__ridePath.authed});`,
   bookings: `export const createBooking=body=>{globalThis.__ridePath.calls.push(body);return globalThis.__ridePath.booking(body)};`,
   rides: `export const fetchRide=(id,signal)=>globalThis.__ridePath.fetchRide(id,signal);`,
-  client: `export class ApiError extends Error {} export const getSessionGeneration=()=>"same-session";`,
+  client: `export class ApiError extends Error {} export const getSessionGeneration=()=>globalThis.__ridePath.generation??"same-session";`,
   ownBookings: `export const useOwnBooking=()=>null,useRefreshOwnBookings=()=>()=>{};`,
   features: `const flags={rides:true,taxi:true,courier:true,parcels:true,ads:true,business:true,ready:true};export const useFeatures=()=>flags,getFeatures=()=>flags;`,
   soon: `export default ()=>null;`,
@@ -157,3 +157,25 @@ h.reset(); h.authed = false; h.locationState = undefined;
 await button(render(Sheet, { ride: matchedRide, onClose() {} })).props.onClick();
 assert.deepEqual(h.routes[0][1].state.returnState, state, 'Переход на вход сохраняет найденную остановку');
 console.log('✓ Посадка: нет умолчания, явные начало/остановка, защита отправки, найденная подсказка и переход на вход');
+
+// Выбор посадки в истории вкладки принадлежит входу (23.10.2026): история переживает выход из аккаунта,
+// а выбор — след человека. Свой вход читает, после выхода и входа другого — нет.
+{
+  const readBack = async (state, generation) => {
+    h.reset(); h.generation = generation; h.locationState = state; h.fetchRide = async () => withStops;
+    render(Detail); h.effects[0](); await new Promise(setImmediate);
+    return all(render(Detail)).find(n => n.props.ride)?.props.ride;
+  };
+  h.reset(); h.generation = 'A';
+  const stateA = render(Card, { ride: matchedRide, index: 0, to: '/rides/42' }).props.state;
+  assert.equal(stateA.rideMatch.owner, 'A', 'Карточка кладёт в историю метку владельца');
+  assert.equal((await readBack(stateA, 'A')).matched_stop, 'Акъяр', 'Свой вход читает выбор');
+  assert.equal((await readBack(stateA, 'B')).matched_stop, undefined, 'После выхода и входа другого выбор не подставляется');
+  assert.equal((await readBack(stateA, '')).matched_dropoff_stop, undefined, 'Гость после выхода тоже не видит чужую высадку');
+  const legacy = { rideMatch: { rideId: 42, matched_stop: 'Акъяр', matched_from_start: false } };
+  assert.equal((await readBack(legacy, 'A')).matched_stop, undefined, 'Запись старой версии без метки не читается');
+  h.reset(); h.authed = false; h.generation = 'guest';
+  await button(render(Sheet, { ride: matchedRide, onClose() {} })).props.onClick();
+  assert.equal(h.routes[0][1].state.returnState.rideMatch.owner, 'guest', 'Выбор гостя несёт метку гостя; после входа её перепишет LoginScreen');
+}
+console.log('✓ Выбор посадки в истории принадлежит входу: чужой после выхода не читается');

@@ -8,7 +8,7 @@
 //
 //  Читает CSS напрямую — сборка не нужна.
 // ================================================================
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -107,6 +107,11 @@ const PAIRS = [
   ["--canon-gold-ink", "--canon-gold-soft", 4.5, "текст на жёлтой плашке"],
   ["--green", "--surface", 4.5, "подпись активной вкладки («Карта»)"],
   ["--gold-ink", "--canon-gold", 3.0, "значок активной вкладки на золотой плашке"],
+  // Выбранная строка «выбери одно» (.list-row--on): мятная подложка, на ней заголовок и подпись строки.
+  ["--text", "--mint", 4.5, "заголовок выбранной строки (.list-row--on)"],
+  ["--muted", "--mint", 4.5, "подпись выбранной строки (.list-row--on)"],
+  // Кружок и флажок (.checkbox, accent-color) — элемент управления: ≥ 3.0 на карточке.
+  ["--green-btn", "--surface", 3.0, "выбранный кружок / флажок (.checkbox) на карточке"],
 ];
 
 for (const [theme, p] of THEMES) {
@@ -155,6 +160,7 @@ const MUST_COUNT = [
   ".chat-tab__badge",
   ".tchat__badge",
   ".sos-112",
+  ".refusal-banner", // «Отметка не принята» (отказ сервера по «Выехал» из очереди) — тёплая плашка
 ];
 
 const tokenOf = (body, prop) =>
@@ -224,6 +230,40 @@ check(light["--green-on-warm"] === light["--green2"], "светлая: --green-o
   const chip = code(ui).match(/(?:^|\})\s*\.chip \{([^}]*)\}/)?.[1] ?? "";
   check(/display:\s*inline-flex/.test(chip) && /align-items:\s*center/.test(chip), ".chip: надпись и значок по центру высоты в любом теге (inline-flex + align-items: center)");
   check(/gap:\s*var\(--space-/.test(chip), ".chip: зазор значок—слово со шкалы (во flex пробел между ними пропадает)");
+}
+
+// ---------------- радио и флажки: цвет бренда, а не браузерный синий ----------------
+//
+// В выборе посадки/высадки, «Как повезёшь пассажира?» и «По моим маршрутам» стояли голые <input> —
+// браузер красил их синим (живая проверка 23.10.2026). Принятый в проекте способ — класс `.checkbox`
+// (accent-color: var(--green-btn)); выбранная строка — `.list-row--on` (мятная, рамка --green2).
+{
+  const u = code(ui);
+  const checkbox = u.match(/(?:^|\})\s*\.checkbox \{([^}]*)\}/)?.[1] ?? "";
+  check(/accent-color:\s*var\(--green-btn\)/.test(checkbox), ".checkbox: accent-color — токен бренда, не синий браузера");
+  check(/width:\s*2[2-9]px/.test(checkbox) && /height:\s*2[2-9]px/.test(checkbox), ".checkbox: кружок крупнее браузерного (≥ 22px) — в него попадает палец");
+  const on = u.match(/(?:^|\})\s*\.list-row--on \{([^}]*)\}/)?.[1] ?? "";
+  check(tokenOf(on, "background") === "--mint", ".list-row--on: подложка выбранной строки — --mint");
+  check(/box-shadow:\s*inset 0 0 0 2px var\(--green2\)/.test(on), ".list-row--on: зелёная рамка 2px изнутри (--green2) — выбранное видно не только цветом кружка");
+  for (const wrap of [".admin-check input", ".taxi-women input"]) {
+    const body = u.match(new RegExp("(?:^|\\})\\s*" + wrap.replace(/[.]/g, "\\.") + " \\{([^}]*)\\}"))?.[1] ?? "";
+    check(/accent-color:\s*var\(--green/.test(body), `${wrap}: accent-color — токен бренда (подпись-обёртка красит вложенный флажок)`);
+  }
+  // Любой <input type=radio|checkbox> в экранах и компонентах обязан нести .checkbox — иначе синий.
+  const bare = [];
+  for (const dir of ["components", "screens"]) {
+    for (const f of readdirSync(join(SRC, dir))) {
+      if (!f.endsWith(".tsx")) continue;
+      const src = readFileSync(join(SRC, dir, f), "utf8");
+      for (const m of src.matchAll(/<input\b[^>]*?\btype=(?:"|\{?["'])(radio|checkbox)[\s\S]*?\/>/g)) {
+        const tag = m[0];
+        // Свой класс у самого <input> или подпись-обёртка, которая красит вложенный input (accent-color в ui.css).
+        const wrapped = /className="(?:admin-check|taxi-women)"/.test(src.slice(Math.max(0, m.index - 160), m.index));
+        if (!/className=/.test(tag) && !wrapped) bare.push(`${dir}/${f}:${src.slice(0, m.index).split("\n").length}`);
+      }
+    }
+  }
+  check(bare.length === 0, "у каждого радио и флажка есть класс (.checkbox и др.): голых нет", bare.slice(0, 8).join("; "));
 }
 
 // ---------------- тач-цели ----------------
