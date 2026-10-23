@@ -831,18 +831,24 @@ def _start_point(r, entry: dict):
 def _nearest_pickup(r, fit, lat: float, lng: float, entry: dict):
     """Расстояние от человека до ближайшего места посадки этой поездки и само место (-1 — начало,
     i — остановка): из позиций, где по его запросу можно сесть (`fit.pickups`), у которых есть
-    координаты (начало — `_start_point`, остановка — справочник сёл)."""
+    координаты (начало — `_start_point`, остановка — справочник сёл).
+
+    `distance_km` — честное: до ближайшего из тех, чьи координаты известны. А вот МЕСТО называем, только
+    если координаты есть у ВСЕХ вариантов посадки (или вариант один): иначе «ближайшее» — лишь ближайшее
+    из известных, а неизвестное могло быть ближе (приёмка PR #188, P3-3: «Сибай, Поворот на Юлук» без
+    координат у остановки предвыбирал начало, потому что до остановки не посчитать)."""
     from ..ride_stops import stop_point
-    best, best_pos = None, None
+    best, best_pos, unknown = None, None, False
     for pos in fit.pickups:
         pt = _start_point(r, entry) if pos == -1 else stop_point(r, fit.stops[pos], entry)
         if pt is None:
+            unknown = True
             continue
         lat2, lng2 = (pt[0], pt[1]) if pos == -1 else (pt.lat, pt.lng)
         d = haversine_km(lat, lng, lat2, lng2)
         if best is None or d < best:
             best, best_pos = d, pos
-    return (round(best, 1) if best is not None else None), best_pos
+    return (round(best, 1) if best is not None else None), (None if unknown else best_pos)
 
 
 def _matched(fit, pickup, *, by_query: bool):
@@ -850,8 +856,10 @@ def _matched(fit, pickup, *, by_query: bool):
     расстояние (P2-1, приёмка PR #188). Расстояние до остановки при предвыбранном начале маршрута
     отправляло человека из Ургазы в Сибай (41 км) и считалось бы неявкой по правилам «начала».
 
-    * расстояние посчитано (`pickup`) — это место, и никакое другое;
-    * координат нет: выбираем, только если человек назвал «Откуда» и подходящее место ровно одно;
+    Один договор для `/rides` и `/rides/near`:
+    * расстояние посчитано до ВСЕХ вариантов посадки (`pickup`) — то место, до которого оно меньше;
+    * координат нет (или не у всех): выбираем, только если человек назвал «Откуда» и подходящее место
+      ровно одно;
     * иначе — ничего не выбираем (null / false), человек сам скажет, где сядет."""
     if pickup is not None:
         return (fit.stops[pickup], False) if pickup >= 0 else (None, True)

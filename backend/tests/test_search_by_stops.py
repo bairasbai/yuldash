@@ -350,6 +350,38 @@ def test_feed_and_near_agree_when_several_pickups(client, user_factory):
     assert (feed["matched_stop"], feed["matched_from_start"]) == (None, False), feed
 
 
+def test_unknown_stop_and_start_with_coordinates_preselect_nothing(client, user_factory):
+    """«Откуда: Сибай, Поворот на Юлук»: остановку справочник не знает — координат у неё нет. Человек стоит
+    в стороне от Сибая. Расстояние честное — до Сибая, единственного известного места; но предвыбирать
+    начало нельзя: неизвестная остановка могла быть ближе (приёмка PR #188, P3-3)."""
+    day = _day()
+    drv = user_factory("SBS Unknown Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, waypoints="Поворот на Юлук | Ургаза", tag="unknown")
+    where = (52.55, 58.40)
+    item = next(x for x in _near(client, day, from_cities="Сибай,Поворот на Юлук", lat=where[0], lng=where[1])["items"]
+                if x["id"] == ride["id"])
+    with Session(engine) as s:
+        start = s.get(Ride, ride["id"])
+        expected = round(haversine_km(where[0], where[1], start.from_lat, start.from_lng), 1)
+    assert item["distance_km"] == expected, "расстояние — честное, до единственного известного места"
+    assert item["matched_stop"] is None and item["matched_from_start"] is False, item
+    # Спросили только места с известными координатами — выбор есть, и он по расстоянию: человек в Ургазе.
+    item = next(x for x in _near(client, day, from_cities="Сибай,Ургаза", lat=URGAZA[0], lng=URGAZA[1])["items"]
+                if x["id"] == ride["id"])
+    assert item["matched_stop"] == "Ургаза" and item["matched_from_start"] is False, item
+
+
+def test_near_unknown_stop_without_from_filter_selects_nothing(client, user_factory):
+    """Без «Откуда» тот же договор: в поездке есть остановка без координат — какая из мест посадки ближе,
+    неизвестно, поэтому не выбираем; расстояние остаётся до ближайшего из известных."""
+    day = _day()
+    drv = user_factory("SBS Unknown2 Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, waypoints="Поворот на Юлук", tag="unknown2")
+    item = next(x for x in _near(client, day, lat=URGAZA[0], lng=URGAZA[1])["items"] if x["id"] == ride["id"])
+    assert item["distance_km"] is not None and item["distance_km"] > 30, "до начала (Сибай) — единственное известное"
+    assert item["matched_stop"] is None and item["matched_from_start"] is False, item
+
+
 def test_near_single_pickup_without_coordinates_is_preselected(client, user_factory):
     """Место одно — выбирать есть что и без координат: «из Сибая» — начало, «из Ургазы» — остановка."""
     day = _day()
