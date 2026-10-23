@@ -77,8 +77,10 @@ export function rideStopErrorMessage(problem: StopProblem, appText: (ru: string,
 }
 
 /** Только /settlements: остановка не превращается в адрес из внешнего геокодера. */
-export default function StopSuggestField({ value, onChange, endpoints }: {
+export default function StopSuggestField({ value, onChange, endpoints, describedBy }: {
   value: string; onChange: (value: string) => void; endpoints: string[];
+  /** id строки с правилом остановок: диктор зачитает её при переходе в поле. */
+  describedBy?: string;
 }) {
   const { appText, lang } = useLang();
   const [open, setOpen] = useState(false);
@@ -111,7 +113,7 @@ export default function StopSuggestField({ value, onChange, endpoints }: {
     }}>
       <label className="field">
         <span className="field__label">{appText("Остановка по пути", "Юл ыңғайындағы туҡталыш")}</span>
-        <input className="field__input" value={value} autoComplete="off" aria-invalid={invalid}
+        <input className="field__input" value={value} autoComplete="off" aria-invalid={invalid} aria-describedby={describedBy}
           onChange={(event) => { setOpen(true); onChange(event.target.value); }} onFocus={() => setOpen(true)}
           placeholder={appText("Например, Темясово", "Мәҫәлән, Темәс")} />
       </label>
