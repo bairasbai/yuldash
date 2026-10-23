@@ -140,8 +140,10 @@ internal fun BookingSegmentPicker(
     }
 }
 
+/** Как [PickupStopNote]: «не указано» — только у поездки с остановками; без остановок и у старой брони молчим. */
 @Composable
-internal fun DropoffStopNote(dropoffStop: String?, to: String = "") {
+internal fun DropoffStopNote(dropoffStop: String?, to: String = "", rideHasStops: Boolean = true) {
+    if (dropoffStop == null && !rideHasStops) return
     val text = when {
         dropoffStop == null -> appText("Место высадки не указано — уточни в чате", "Төшөү урыны күрһәтелмәгән — чатта асыҡла")
         dropoffStop.isEmpty() -> appText("Высадка: конец маршрута", "Төшөү: юлдың аҙағы") + if (to.isNotBlank()) " · $to" else ""
@@ -157,6 +159,6 @@ internal fun BookingSegmentNote(pickup: String?, dropoff: String?, hasStops: Boo
         val alighting = dropoff?.ifEmpty { to }?.takeIf(String::isNotBlank)
         if (boarding != null && alighting != null) Text(appText("Участок: $boarding → $alighting", "Юл өлөшө: $boarding → $alighting"), style = CanonBodyStrong, color = CanonText)
         PickupStopNote(pickup, hasStops, from)
-        DropoffStopNote(dropoff, to)
+        DropoffStopNote(dropoff, to, hasStops)
     }
 }
