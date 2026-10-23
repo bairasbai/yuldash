@@ -19,7 +19,7 @@ checker = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(checker)
 
 
-class YuldashGateTest(unittest.TestCase):
+class RepositoryFixture(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="yuldash-traceability-synthetic-")
         self.addCleanup(self.directory.cleanup)
@@ -87,6 +87,8 @@ class YuldashGateTest(unittest.TestCase):
         self.assertIn(code, {r["code"] for r in result["blockers"]}, result)
         return result
 
+
+class YuldashGateTest(RepositoryFixture):
     def test_synthetic_complete_chain_returns_zero(self):
         result = self.run_cli()
         self.assertTrue(result["gate_passed"])
@@ -278,6 +280,162 @@ class YuldashGateTest(unittest.TestCase):
         self.assertFalse(marker.exists())
 
 
+class AllModesGateTest(RepositoryFixture):
+    def setUp(self):
+        super().setUp()
+        self.old_base = self.base
+        self.documents = {}
+        for mode, profile in checker.PROFILES.items():
+            document = copy.deepcopy(self.data)
+            document["audit"].update(id=profile["audit"], title=f"SYNTHETIC {mode} contract only")
+            mapping = {r["id"]: f"{profile['prefix']}-E2E-{i:02}"
+                       for i, r in enumerate(document["requirements"], 1)}
+            for row in document["requirements"]:
+                row["id"] = mapping[row["id"]]
+            for group in ("features", "implementations", "tests", "acceptances", "skip_decisions"):
+                for row in document[group]:
+                    row["requirement_ids"] = [mapping[r] for r in row["requirement_ids"]]
+            template = document["requirements"][-1]
+            for i in range(len(mapping) + 1, profile["count"] + 1):
+                row = copy.deepcopy(template)
+                row.update(id=f"{profile['prefix']}-E2E-{i:02}", text=f"SYNTHETIC {mode} criterion {i}")
+                document["requirements"].append(row)
+                for group in ("features", "implementations", "tests", "acceptances"):
+                    for linked in document[group]:
+                        if template["id"] in linked["requirement_ids"]:
+                            linked["requirement_ids"].append(row["id"])
+            self.documents[mode] = document
+            self.write_mode(mode)
+        self.git("add", "docs/audit-traceability")
+        self.git("-c", "core.hooksPath=", "commit", "--quiet", "-m", "Synthetic immutable mode baselines")
+        self.base = self.git("rev-parse", "HEAD").decode().strip()
+        for mode, document in self.documents.items():
+            document["audit"]["target_commit"] = self.base
+            for group, field in (("implementations", "commit"), ("tests", "target_commit"), ("acceptances", "target_commit")):
+                for row in document[group]:
+                    row[field] = self.base
+            self.write_mode(mode)
+        self.data = self.documents["rideshare"]
+
+    def write_mode(self, mode, package=None):
+        path = checker.PROFILES[mode]["manifest"] if package is None else f"{package}/{mode}.json"
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(self.documents[mode]), encoding="utf-8")
+
+    def test_each_mode_accepts_its_own_complete_synthetic_graph(self):
+        for mode, profile in checker.PROFILES.items():
+            with self.subTest(mode=mode):
+                result = self.run_cli("--mode", mode)
+                self.assertTrue(result["accepted"])
+                self.assertEqual(result["mode"], mode)
+                self.assertEqual(result["yuldash"]["baseline_path"], profile["manifest"])
+                self.assertEqual(result["diagnostics"]["accepted_requirements"], profile["count"])
+
+    def test_explicit_rideshare_preserves_default_command(self):
+        self.assertEqual(self.run_cli(), self.run_cli("--mode", "rideshare"))
+
+    def test_other_modes_candidate_cannot_pass(self):
+        for mode, other in (("taxi", "rideshare"), ("courier", "taxi"), ("rideshare", "courier")):
+            with self.subTest(mode=mode, other=other):
+                result = self.run_cli("--mode", mode, "--manifest", checker.PROFILES[other]["manifest"], expected=1)
+                self.assertFalse(result["accepted"])
+                self.assertIn("YULDASH_SCOPE", {r["code"] for r in result["blockers"]})
+
+    def test_all_complete_modes_return_zero(self):
+        result = self.run_cli("--all")
+        self.assertTrue(result["accepted"])
+        self.assertEqual(set(result["modes"]), set(checker.PROFILES))
+        self.assertEqual(len(result["requirements"]), 27)
+        self.assertEqual([v["exit_code"] for v in result["modes"].values()], [0, 0, 0])
+
+    def test_all_preserves_zero_one_two_and_input_failure_priority(self):
+        self.documents["taxi"]["tests"][0]["result"] = "failed"
+        self.write_mode("taxi")
+        (self.root / checker.PROFILES["courier"]["manifest"]).unlink()
+        result = self.run_cli("--all", expected=2)
+        self.assertEqual([result["modes"][m]["exit_code"] for m in checker.PROFILES], [0, 1, 2])
+        self.assertFalse(result["gate_passed"])
+        self.assertFalse(result["accepted"])
+
+    def test_single_blocker_prevents_all_success(self):
+        self.documents["taxi"]["tests"][0]["result"] = "failed"
+        self.write_mode("taxi")
+        result = self.run_cli("--all", expected=1)
+        self.assertEqual([result["modes"][m]["exit_code"] for m in checker.PROFILES], [0, 1, 0])
+        self.assertFalse(result["accepted"])
+
+    def test_optional_skip_never_claims_full_acceptance_of_all_modes(self):
+        document = self.documents["taxi"]
+        document["features"].append({"id": "FEATURE-OPTIONAL", "title": "SYNTHETIC optional helper",
+                                      "classification": "helper", "requirement_ids": ["REQ-OPTIONAL"]})
+        document["requirements"].append({"id": "REQ-OPTIONAL", "feature_id": "FEATURE-OPTIONAL",
+            "text": "SYNTHETIC optional helper", "level": "may", "priority": "P2",
+            "evidence_ids": ["EVD-DEMO-FAVORITES"], "implementation_ids": [], "test_ids": [],
+            "acceptance_ids": [], "disposition": "skipped", "skip_decision_id": "SKIP-OPTIONAL"})
+        document["skip_decisions"].append({"id": "SKIP-OPTIONAL", "requirement_ids": ["REQ-OPTIONAL"],
+            "decider_id": "PERSON-DEMO-REVIEWER", "decision": "approved", "reason": "SYNTHETIC optional skip",
+            "decided_at": "2026-10-23T10:00:00Z", "artifact_ids": ["ART-DEMO-SKIP"]})
+        document["audit"]["claimed_state"] = "accepted_with_skips"
+        self.write_mode("taxi")
+        result = self.run_cli("--all")
+        self.assertTrue(result["gate_passed"])
+        self.assertFalse(result["accepted"])
+        self.assertIn("полной приёмки всех режимов без пропусков нет", checker.render(result))
+
+    def test_complete_candidate_package_is_supported(self):
+        for mode in checker.PROFILES:
+            self.write_mode(mode, "candidate-package")
+        result = self.run_cli("--all", "--manifest-dir", "candidate-package")
+        self.assertTrue(result["accepted"])
+
+    def test_missing_package_candidate_never_falls_back_to_canonical(self):
+        for mode in ("rideshare", "taxi"):
+            self.write_mode(mode, "candidate-package")
+        # Canonical courier is complete; using it silently would incorrectly return zero.
+        result = self.run_cli("--all", "--manifest-dir", "candidate-package", expected=2)
+        self.assertEqual([result["modes"][m]["exit_code"] for m in checker.PROFILES], [0, 0, 2])
+
+    def test_unsafe_package_paths_never_reach_manifest_reader(self):
+        for path in ("mobile", ".git", "../outside", "/absolute", "a/../mobile", "C:/outside"):
+            with self.subTest(path=path):
+                with patch.object(checker, "read_document", side_effect=AssertionError("reader invoked")):
+                    result, code = checker.check_all(self.root, self.base, path)
+                self.assertEqual(code, 2)
+                self.assertEqual(len(result["modes"]), 3)
+
+    def test_candidate_and_worktree_tampering_cannot_replace_git_scope(self):
+        document = self.documents["taxi"]
+        removed = document["requirements"].pop()
+        for group in ("features", "implementations", "tests", "acceptances"):
+            for row in document[group]:
+                row["requirement_ids"] = [r for r in row["requirement_ids"] if r != removed["id"]]
+        self.write_mode("taxi")
+        self.write_mode("taxi", "candidate-package")
+        result = self.run_cli("--mode", "taxi", "--manifest", "candidate-package/taxi.json", expected=1)
+        self.assertIn("REQUIREMENT_ID_REMOVED", {r["code"] for r in result["blockers"]})
+        self.assertIn("YULDASH_REQUIRED_SCOPE", {r["code"] for r in result["blockers"]})
+
+    def test_each_profiles_mandatory_scope_cannot_be_downgraded(self):
+        for mode in checker.PROFILES:
+            with self.subTest(mode=mode):
+                self.documents[mode]["requirements"][-1]["level"] = "should"
+                self.write_mode(mode)
+                result = self.run_cli("--mode", mode, expected=1)
+                self.assertIn("YULDASH_REQUIRED_SCOPE", {r["code"] for r in result["blockers"]})
+
+    def test_unknown_and_ambiguous_mode_arguments_are_input_errors(self):
+        for args in (("--mode", "cargo"), ("--all", "--manifest", checker.MANIFEST),
+                     ("--mode", "taxi", "--manifest-dir", "package"), ("--all", "--mode", "taxi")):
+            with self.subTest(args=args):
+                result = self.run_cli(*args, expected=2)
+                self.assertEqual(result["blockers"][0]["code"], "USAGE")
+
+    def test_old_git_base_does_not_silently_invent_new_profiles(self):
+        result = self.run_cli("--all", "--baseline-ref", self.old_base, expected=2)
+        self.assertEqual([result["modes"][m]["exit_code"] for m in checker.PROFILES], [0, 2, 2])
+
+
 class VendoredSourceTest(unittest.TestCase):
     def test_all_selected_upstream_bytes_are_unchanged(self):
         manifest = json.loads((HERE / "upstream-files.json").read_text(encoding="utf-8"))
@@ -288,23 +446,27 @@ class VendoredSourceTest(unittest.TestCase):
 
     def test_real_manifest_has_required_scope_and_valid_source_bytes(self):
         root = HERE.parents[1]
-        document = json.loads((root / checker.MANIFEST).read_text(encoding="utf-8"))
-        self.assertFalse(checker.validate_structure(document))
-        self.assertEqual(document["audit"]["id"], checker.AUDIT)
-        self.assertEqual(document["audit"]["scope"], "real")
-        by_id = {r["id"]: r for r in document["requirements"]}
-        self.assertTrue(checker.REQUIREMENTS.issubset(by_id))
-        self.assertTrue(all(by_id[r]["level"] == "must" for r in checker.REQUIREMENTS))
-        for artifact in document["artifacts"]:
-            if artifact["kind"] != "source":
-                continue
-            path = checker.safe_path(root, artifact["path"])
-            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), artifact["sha256"])
+        for mode, profile in checker.PROFILES.items():
+            with self.subTest(mode=mode):
+                document = json.loads((root / profile["manifest"]).read_text(encoding="utf-8"))
+                self.assertFalse(checker.validate_structure(document))
+                self.assertEqual(document["audit"]["id"], profile["audit"])
+                self.assertEqual(document["audit"]["scope"], "real")
+                by_id = {r["id"]: r for r in document["requirements"]}
+                self.assertTrue(profile["requirements"].issubset(by_id))
+                self.assertTrue(all(by_id[r]["level"] == "must" for r in profile["requirements"]))
+                for artifact in document["artifacts"]:
+                    if artifact["kind"] != "source":
+                        continue
+                    path = checker.safe_path(root, artifact["path"])
+                    self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), artifact["sha256"])
 
     def test_agent_entrypoint_documentation_links_resolve(self):
         root = HERE.parents[1]
         for path in (HERE / "UPSTREAM.md", root / "docs/audit-traceability/README.md",
                      root / "docs/audit-traceability/rideshare-scope.md",
+                     root / "docs/audit-traceability/taxi-scope.md",
+                     root / "docs/audit-traceability/courier-scope.md",
                      root / ".claude/skills/audit-traceability/SKILL.md"):
             for target in re.findall(r"\]\(([^)]+)\)", path.read_text(encoding="utf-8")):
                 if "://" in target or target.startswith("#"):

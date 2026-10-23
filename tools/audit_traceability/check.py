@@ -15,9 +15,18 @@ from traceability.schema_check import validate_structure  # noqa: E402
 from traceability.validator import validate  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = "docs/audit-traceability/rideshare.json"
-AUDIT = "W1-E2E-20261018"
-REQUIREMENTS = {f"W1-E2E-{i:02}" for i in range(1, 8)}
+PROFILES = {
+    "rideshare": {"title": "попутки", "audit": "W1-E2E-20261018", "prefix": "W1", "count": 7},
+    "taxi": {"title": "такси", "audit": "TAXI-E2E-20261023", "prefix": "TAXI", "count": 10},
+    "courier": {"title": "доставки", "audit": "COURIER-E2E-20261023", "prefix": "COURIER", "count": 10},
+}
+for _mode, _profile in PROFILES.items():
+    _profile["manifest"] = f"docs/audit-traceability/{_mode}.json"
+    _profile["requirements"] = {f"{_profile['prefix']}-E2E-{i:02}" for i in range(1, _profile["count"] + 1)}
+# Backward-compatible defaults for existing rideshare callers.
+MANIFEST = PROFILES["rideshare"]["manifest"]
+AUDIT = PROFILES["rideshare"]["audit"]
+REQUIREMENTS = PROFILES["rideshare"]["requirements"]
 COMMIT = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 FORBIDDEN = {"mobile", ".git", "local.properties", "google-services.json",
              "keystore.properties", "key.properties", "signing.properties", "buildconfig.java"}
@@ -67,14 +76,14 @@ def safe_path(root, raw):
     return path
 
 
-def baseline_document(root, ref):
+def baseline_document(root, ref, manifest_path=MANIFEST):
     if not COMMIT.fullmatch(ref):
         raise InputFailure("База задаётся полным SHA локального проверенного коммита")
     resolved = git(root, "rev-parse", "--verify", f"{ref}^{{commit}}").decode().strip()
     if resolved != ref:
         raise InputFailure("SHA базы должен указывать прямо на коммит")
-    spec = f"{ref}:{MANIFEST}"
-    entry = git(root, "ls-tree", ref, "--", MANIFEST).split()
+    spec = f"{ref}:{manifest_path}"
+    entry = git(root, "ls-tree", ref, "--", manifest_path).split()
     if len(entry) < 3 or entry[0] not in (b"100644", b"100755"):
         raise InputFailure("В выбранной базе нет обычного файла состава приёмки")
     if int(git(root, "cat-file", "-s", spec)) > MAX_MANIFEST_BYTES:
@@ -104,7 +113,11 @@ def empty_result():
             "requirements": [], "blockers": [], "limitations": []}
 
 
-def check(root, manifest, baseline_ref):
+def check(root, manifest, baseline_ref, mode="rideshare"):
+    if mode not in PROFILES:
+        raise InputFailure("Неизвестный режим приёмки")
+    profile = PROFILES[mode]
+    manifest = profile["manifest"] if manifest is None else manifest
     root = root.resolve()
     if git(root, "rev-parse", "--show-toplevel").decode().strip().replace("\\", "/").lower() != root.as_posix().lower():
         raise InputFailure("Укажи корень отдельного рабочего чекаута Git")
@@ -124,14 +137,15 @@ def check(root, manifest, baseline_ref):
     if result["blockers"]:
         return result
 
-    baseline = baseline_document(root, baseline_ref)
+    baseline = baseline_document(root, baseline_ref, profile["manifest"])
     result = validate(document, root, baseline=baseline)
     additional = []
-    if document["audit"]["id"] != AUDIT or document["audit"]["scope"] != "real":
-        additional.append(blocker("YULDASH_SCOPE", "Нужен реальный аудит W1-E2E-20261018; demo не принимается"))
+    if document["audit"]["id"] != profile["audit"] or document["audit"]["scope"] != "real":
+        additional.append(blocker("YULDASH_SCOPE", f"Нужен реальный аудит {profile['audit']}; чужой режим и demo не принимаются"))
     by_id = {row["id"]: row for row in document["requirements"]}
-    if not REQUIREMENTS.issubset(by_id) or any(by_id[r]["level"] != "must" for r in REQUIREMENTS & by_id.keys()):
-        additional.append(blocker("YULDASH_REQUIRED_SCOPE", "Все семь W1-E2E-критериев обязательны"))
+    required = profile["requirements"]
+    if not required.issubset(by_id) or any(by_id[r]["level"] != "must" for r in required & by_id.keys()):
+        additional.append(blocker("YULDASH_REQUIRED_SCOPE", f"Все {profile['count']} критериев {profile['audit']} обязательны"))
     head = git(root, "rev-parse", "HEAD").decode().strip()
     if document["audit"]["target_commit"] != head:
         additional.append(blocker("YULDASH_TARGET", "Доказательства относятся к другому коммиту; текущий HEAD не принят"))
@@ -164,19 +178,27 @@ def check(root, manifest, baseline_ref):
     if additional:
         result["blockers"].extend(additional)
         result.update(gate_passed=False, accepted=False, valid=False, computed_state="blocked")
-    result["yuldash"] = {"head": head, "baseline_ref": baseline_ref, "baseline_path": MANIFEST,
+    result["yuldash"] = {"head": head, "baseline_ref": baseline_ref, "baseline_path": profile["manifest"],
                          "manifest_path": manifest, "registry": "docs/audit-blocks.md"}
     result["limitations"] = [
         "Проверены декларации и байты. Это не доказательство запуска теста или личности принимающего.",
         "Независимый принимающий проверяет первичные журналы, код завершения, окружение и происхождение сборки.",
         "Проверяются заявленные реализации; полнота зависимостей требует отдельной проверки.",
-        "Статусы меняются только вручную в docs/audit-blocks.md. Зелёные self-tests не принимают попутку.",
+        "Статусы меняются только вручную в docs/audit-blocks.md. Зелёные self-tests не принимают режимы приложения.",
     ]
     return result
 
 
 def render(result):
-    lines = ["Проверка приёмки попутки: " + ("ПРОЙДЕНА" if result["gate_passed"] else "НЕ ПРОЙДЕНА")]
+    if "modes" in result:
+        lines = ["Проверка всех режимов: " + ("ПРОЙДЕНА" if result["gate_passed"] else "НЕ ПРОЙДЕНА")]
+        if result["gate_passed"] and not result["accepted"]:
+            lines.append("Есть согласованные необязательные пропуски; полной приёмки всех режимов без пропусков нет.")
+        for mode, entry in result["modes"].items():
+            lines.extend([f"\n{mode}: код {entry['exit_code']}", render(entry["report"])])
+        return "\n".join(lines)
+    title = result.get("mode_title", "выбранного режима")
+    lines = [f"Проверка приёмки {title}: " + ("ПРОЙДЕНА" if result["gate_passed"] else "НЕ ПРОЙДЕНА")]
     if result["gate_passed"] and not result["accepted"]:
         lines.append("Есть согласованные необязательные пропуски; полной приёмки без пропусков нет.")
     if result.get("yuldash"):
@@ -207,21 +229,59 @@ class Parser(argparse.ArgumentParser):
         self.exit(2)
 
 
-def main(argv=None):
-    parser = Parser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=ROOT, help="Корень проверяемого чекаута")
-    parser.add_argument("--manifest", default=MANIFEST, help="Относительный путь манифеста внутри чекаута")
-    parser.add_argument("--baseline-ref", required=True, help="Полный SHA отдельно проверенного локального коммита с исходным составом")
-    parser.add_argument("--json", action="store_true", help="Машинный отчёт вместо русского текста")
-    args = parser.parse_args(argv)
+def run_check(root, manifest, baseline_ref, mode):
     try:
-        result = check(args.root, args.manifest, args.baseline_ref)
+        result = check(root, manifest, baseline_ref, mode)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         result = empty_result()
         result["blockers"] = [blocker("INPUT", str(exc))]
         code = 2
     else:
         code = 0 if result["gate_passed"] else 1
+    result.update(mode=mode, mode_title=PROFILES[mode]["title"])
+    return result, code
+
+
+def check_all(root, baseline_ref, manifest_dir=None):
+    modes = {}
+    for mode, profile in PROFILES.items():
+        # Keep the raw path: never normalize traversal or fall back on a missing candidate.
+        candidate = None if manifest_dir is None else f"{manifest_dir}/{Path(profile['manifest']).name}"
+        report, code = run_check(root, candidate, baseline_ref, mode)
+        modes[mode] = {"exit_code": code, "report": report}
+    code = max(entry["exit_code"] for entry in modes.values())
+    result = empty_result()
+    result.update(mode="all", modes=modes, exit_code=code,
+                  gate_passed=code == 0,
+                  accepted=code == 0 and all(entry["report"]["accepted"] for entry in modes.values()),
+                  requirements=[dict(row, mode=mode) for mode, entry in modes.items()
+                                for row in entry["report"]["requirements"]])
+    result["computed_state"] = ("invalid" if code == 2 else "blocked") if code else (
+        "accepted" if result["accepted"] else "accepted_with_skips")
+    result["blockers"] = [dict(item, mode=mode) for mode, entry in modes.items()
+                          for item in entry["report"]["blockers"]]
+    return result, code
+
+
+def main(argv=None):
+    parser = Parser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=ROOT, help="Корень проверяемого чекаута")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--mode", choices=tuple(PROFILES), help="Режим; по умолчанию rideshare")
+    modes.add_argument("--all", action="store_true", help="Проверить все три режима, сохранив каждый результат")
+    parser.add_argument("--manifest", help="Кандидатный манифест одного выбранного режима")
+    parser.add_argument("--manifest-dir", help="Папка пакета rideshare.json/taxi.json/courier.json; только с --all")
+    parser.add_argument("--baseline-ref", required=True, help="Полный SHA отдельно проверенного локального коммита с исходным составом")
+    parser.add_argument("--json", action="store_true", help="Машинный отчёт вместо русского текста")
+    args = parser.parse_args(argv)
+    if args.all and args.manifest is not None:
+        parser.error("--all нельзя сочетать с одиночным --manifest; используй --manifest-dir")
+    if not args.all and args.manifest_dir is not None:
+        parser.error("--manifest-dir разрешён только вместе с --all")
+    if args.all:
+        result, code = check_all(args.root, args.baseline_ref, args.manifest_dir)
+    else:
+        result, code = run_check(args.root, args.manifest, args.baseline_ref, args.mode or "rideshare")
     if args.json:
         print(json.dumps(result, ensure_ascii=True, sort_keys=True, indent=2))
     else:

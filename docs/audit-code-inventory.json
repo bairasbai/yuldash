@@ -10219,8 +10219,8 @@
       "path": "tools/audit_traceability/check.py",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "82ab9c408dbb471905fc402584de66e831998e7b890da3208809641096ba918f",
-      "lines": 233
+      "sha256": "f8c63b5857d49204dca9d735880215c5eebde00a727ef78370d1a7d859a0bf6a",
+      "lines": 293
     },
     {
       "path": "tools/audit_traceability/run_tests.py",
@@ -10233,8 +10233,8 @@
       "path": "tools/audit_traceability/tests/test_yuldash.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "7203b07d0f4ee967f2e376eb4c3decf28ca1e7cea2be21de56b04e6d30c309ce",
-      "lines": 317
+      "sha256": "43bd095cabf7f805561f3c9257a5d8ba2cbf52e5086bf21c76bb639d4c00deb7",
+      "lines": 479
     },
     {
       "path": "tools/audit_traceability/upstream-files.json",
