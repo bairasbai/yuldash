@@ -76,6 +76,11 @@ internal fun passengerContacts(d: BookingDetailsDto): TripContacts? =
         pickupLng = d.pickupLng,
     )
 
+/** Водитель звонит пассажиру только по живой подтверждённой брони, номер которой сервер открыл. */
+internal fun driverCanCallPassenger(d: BookingDetailsDto?, bookingStatus: String, terminal: Boolean): Boolean =
+    !terminal && d != null && d.role == "driver" && d.contactUnlocked && d.passengerPhone.isNotBlank() &&
+        (bookingStatus.isBlank() || bookingStatus in CONTACT_STATUSES)
+
 /** Поздние details не откатывают уже известную посадку/закрытие брони. */
 internal fun offlinePassDetails(d: BookingDetailsDto?, bookingId: Int, status: String): BookingDetailsDto? =
     d?.takeIf { it.bookingId == bookingId && passengerContacts(it) != null && (status.isBlank() || it.status == status) }

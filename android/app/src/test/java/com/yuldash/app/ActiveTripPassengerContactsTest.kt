@@ -71,6 +71,7 @@ class ActiveTripPassengerContactsTest {
     @Volatile private var holdFirstRole = false
     private val phone = "+7 900 111-22-33"
     private val pickup = "У ТЦ «Мега», главный вход"
+    private val passengerPhone = "+7 900 555-66-77"
 
     @Before fun setup() {
         ApiClient.resetForTest()
@@ -149,6 +150,7 @@ class ActiveTripPassengerContactsTest {
         .put("contact_unlocked", unlocked).put("from_city", "Город А").put("to_city", "Город Б")
         .put("depart_at", "2031-02-03T09:00:00").put("price", 700).put("seats", 1)
         .put("driver_name", "Айдар").put("driver_car", "Lada Vesta").put("passenger_name", "Гульнара")
+        .put("passenger_phone", if (role == "driver" && unlocked) passengerPhone else "")
         .put("driver_phone", if (unlocked) phone else "")
         .put("driver_plate", if (unlocked) "А123ВС 102" else "")
         .put("driver_car_color", if (unlocked) "белая" else "")
@@ -217,6 +219,17 @@ class ActiveTripPassengerContactsTest {
         compose.onAllNodesWithText("Айдар").assertCountEquals(0)          // его же имя ему не нужно
         compose.onAllNodesWithText("Водитель").assertCountEquals(0)
         compose.onAllNodesWithText("Lada Vesta", substring = true).assertCountEquals(0)
+        // Решение 23.10.2026: после подтверждения водитель звонит пассажиру — одна кнопка у его имени.
+        compose.onAllNodesWithContentDescription("Позвонить").assertCountEquals(1)
+        compose.onAllNodesWithText(passengerPhone).assertCountEquals(0)   // номер не печатаем — только звонок
+    }
+
+    @Test fun driverCannotCallBeforeConfirmation() {
+        role = "driver"
+        status = "pending"
+        unlocked = false
+        openScreen()
+        waitForDetails()
         compose.onAllNodesWithContentDescription("Позвонить").assertCountEquals(0)
     }
 

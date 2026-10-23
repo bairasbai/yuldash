@@ -3,7 +3,7 @@
 Детали брони отдавали только поля водителя (`driver_*`), и водительский экран рисовал вверху
 карточку «Водитель» — то есть самого себя без имени. Имя пассажира водитель и так видит в списке
 броней (`/driver/bookings`), поэтому в деталях оно не раскрывает ничего нового. Телефон пассажира
-сюда НЕ добавляем: это отдельное решение о приватности.
+открывается водителю только после подтверждения (решение 23.10.2026, test_driver_sees_passenger_phone.py).
 """
 from app.models import UserRole
 
@@ -20,5 +20,6 @@ def test_details_name_the_passenger_for_the_driver(client, user_factory):
         r = client.get(f"/bookings/{booking['id']}/details", headers=who["auth"])
         assert r.status_code == 200, r.text
         assert r.json()["passenger_name"] == "Гульшат"
+    # Телефон пассажира — только после подтверждения (test_driver_sees_passenger_phone.py); бронь ждёт.
     driver_view = client.get(f"/bookings/{booking['id']}/details", headers=drv["auth"]).json()
-    assert "passenger_phone" not in driver_view
+    assert driver_view["passenger_phone"] == ""

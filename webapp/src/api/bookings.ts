@@ -81,6 +81,8 @@ export interface BookingDetails {
   driver_name: string;
   driver_verified: boolean;
   driver_phone: string; // пусто до разблокировки
+  /** Телефон пассажира — только водителю и только пока связь открыта (решение 23.10.2026). */
+  passenger_phone?: string;
   driver_car: string;
   /** Госномер и цвет — чтобы сверить машину у обочины. Пусто до подтверждения брони (ПДн). */
   driver_plate?: string;

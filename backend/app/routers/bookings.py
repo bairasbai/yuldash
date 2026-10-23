@@ -377,8 +377,11 @@ class BookingDetailsOut(BaseModel):
     pay_method: str = "negotiate"
     pay_amount: Optional[int] = None
     driver_name: str
-    # Кого везёт водитель (приёмка 18.10, п.14). Имя и так есть в /driver/bookings; телефона здесь нет.
+    # Кого везёт водитель (приёмка 18.10, п.14). Имя и так есть в /driver/bookings.
     passenger_name: str = ""
+    # Телефон пассажира — только водителю и только пока связь открыта (решение Александра 23.10.2026:
+    # «после подтверждения можно открыть номер»), по тому же окну, что телефон водителя пассажиру.
+    passenger_phone: str = ""
     declined: bool = False   # водитель отклонил неподтверждённую бронь (приёмка 18.10, п.6)
     driver_verified: bool
     driver_phone: str = ""
@@ -716,6 +719,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "pay_amount": booking.pay_amount,
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
         "passenger_name": (passenger.name if passenger and passenger.name else "Пассажир"),
+        "passenger_phone": (passenger.phone if (unlocked and is_driver and passenger) else ""),
         "declined": booking.cancel_reason == "driver_declined",
         "driver_verified": bool(driver.verified) if driver else False,
         "driver_phone": (driver.phone if (unlocked and driver) else ""),

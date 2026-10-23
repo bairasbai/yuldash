@@ -1899,8 +1899,10 @@ private fun ActiveTripContent(
                     trips = heroRide?.driverTrips ?: 0,
                     since = heroRide?.driverSince.orEmpty(),
                     carSummary = tripCarSummary(tripContacts, heroRide?.car),
-                    phoneUnlocked = !tripContacts?.phone.isNullOrBlank(),
-                    onCall = { dialDriver(context, tripContacts?.phone.orEmpty()) },
+                    // Водителю — звонок пассажиру, пока бронь подтверждена (решение 23.10.2026; сервер сам закрывает номер).
+                    phoneUnlocked = if (role == "driver") driverCanCallPassenger(pickupDetails, bookingStatus, terminalBooking != null)
+                        else !tripContacts?.phone.isNullOrBlank(),
+                    onCall = { dialDriver(context, if (role == "driver") pickupDetails?.passengerPhone.orEmpty() else tripContacts?.phone.orEmpty()) },
                     boardingCode = boardingCode,
                     boardingCodeLoadFailed = codeLoadFailed,
                     onRetryBoardingCode = { if (isTripSessionCurrent()) codeLoadRetry++ },
