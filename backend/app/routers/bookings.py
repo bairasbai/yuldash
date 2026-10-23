@@ -26,7 +26,7 @@ from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused,
 from ..security import current_user, gen_otp
 from ..visibility import LIVE_GEO_LEAD_HOURS, booking_contacts_open
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
-from ..rating_service import RATING_WINDOW_DAYS
+from ..rating_service import guard_rating_on_pause, guard_rating_window
 from ..timeutil import utcnow
 from ..trust_service import INSIDER_LEVEL, trust_level
 
@@ -719,7 +719,9 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "pay_amount": booking.pay_amount,
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
         "passenger_name": (passenger.name if passenger and passenger.name else "Пассажир"),
-        "passenger_phone": (passenger.phone if (unlocked and is_driver and passenger) else ""),
+        # Подросток — нет: у водителя прямая связь со взрослым (minor_guardian_phone), а не с ребёнком
+        # (правило Q14, decisions.md; ревью Opus 23.10, P1-2).
+        "passenger_phone": (passenger.phone if (unlocked and is_driver and passenger and not booking.minor_passenger) else ""),
         "declined": booking.cancel_reason == "driver_declined",
         "driver_verified": bool(driver.verified) if driver else False,
         "driver_phone": (driver.phone if (unlocked and driver) else ""),
@@ -817,6 +819,17 @@ def boarding_code(booking_id: int, user: User = Depends(current_user), session: 
     return {"code": booking.boarding_code or ""}
 
 
+def _rating_allowed(session: Session, user_id: int, happened_at) -> bool:
+    """Те же проверки, что у /rate: срок 60 дней и пауза аккаунта (ревью Opus 23.10: человек на паузе
+    видел звёзды и получал отказ). Звёзды в квитанции — только когда оценка правда пройдёт."""
+    try:
+        guard_rating_window(happened_at)
+        guard_rating_on_pause(session, user_id, happened_at)
+    except HTTPException:
+        return False
+    return True
+
+
 @router.get("/trips/{booking_id}/receipt")
 def trip_receipt(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Квитанция завершённой поездки (по брони): маршрут, дата/время, сумма и способ оплаты,
@@ -863,7 +876,7 @@ def trip_receipt(booking_id: int, user: User = Depends(current_user), session: S
         "my_rating_tags": (my_rating.tags or "") if my_rating else "",
         # Срок оценки ещё открыт (как проверяет /rate): квитанция предлагает «Оценить водителя»
         # тому, кто пропустил экран «Поездка завершена» (приёмка 18.10, п.7).
-        "can_rate": ride.depart_at is None or utcnow() - ride.depart_at <= timedelta(days=RATING_WINDOW_DAYS),
+        "can_rate": _rating_allowed(session, user.id, ride.depart_at),
         # Вторая сторона — для «Сообщить о проблеме» пассажира (разбор по брони, POST /incidents).
         "counterparty_id": counterparty.id if counterparty else 0,
         "problem_report_sec": problem_report_left(booking, ride) if role == "passenger" else 0,

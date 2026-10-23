@@ -69,3 +69,34 @@ def test_passenger_withdrawing_pending_booking_is_not_a_decline(client, user_fac
     assert "Водитель отклонил бронь" not in titles
     with Session(engine) as s:
         assert s.get(Booking, booking["id"]).cancel_reason is None
+
+
+def test_decline_with_a_reason_is_still_a_decline_on_both_screens(client, user_factory):
+    """Водитель отклонил неподтверждённую бронь, выбрав причину: пуш и экран брони говорят одно (ревью Opus 23.10)."""
+    drv = user_factory("Причина Водитель", role=UserRole.driver)
+    pax = user_factory("Причина Пассажир")
+    booking = _book(client, pax, _publish(client, drv)["id"])
+
+    assert client.post(f"/bookings/{booking['id']}/cancel", headers=drv["auth"],
+                       json={"reason": "not_going"}).status_code == 200
+
+    note = next(n for n in _notes(client, pax) if n["ref_id"] == booking["id"])
+    assert note["title_ru"] == "Водитель отклонил бронь"
+    assert "Поездка не состоится" in note["body_ru"], "причину водителя пассажир всё равно видит"
+    assert client.get(f"/bookings/{booking['id']}/details", headers=pax["auth"]).json()["declined"] is True
+
+
+def test_client_cannot_forge_a_decline(client, user_factory):
+    """Код «driver_declined» от клиента не принимаем: пассажир, отменивший сам, — не «отклонённый»."""
+    drv = user_factory("Подделка Водитель", role=UserRole.driver)
+    pax = user_factory("Подделка Пассажир")
+    booking = _book(client, pax, _publish(client, drv)["id"])
+
+    assert client.post(f"/bookings/{booking['id']}/cancel", headers=pax["auth"],
+                       json={"reason": "driver_declined"}).status_code == 200
+
+    with Session(engine) as s:
+        assert s.get(Booking, booking["id"]).cancel_reason == "other"
+    assert client.get(f"/bookings/{booking['id']}/details", headers=pax["auth"]).json()["declined"] is False
+    titles = [n["title_ru"] for n in _notes(client, drv) if n["ref_id"] == booking["id"]]
+    assert "Водитель отклонил бронь" not in titles

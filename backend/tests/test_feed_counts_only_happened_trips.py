@@ -88,3 +88,49 @@ def test_top_route_ignores_cancelled_rides(client, user_factory, monkeypatch):
     top = _feed(client, monkeypatch)["top_route"]
 
     assert top is None or (top["from_city"], top["to_city"]) != ("ЛентаОтмена", "ЛентаНикуда")
+
+
+def test_popular_routes_ignore_cancelled_rides(client, user_factory, monkeypatch):
+    """«Популярно · Здесь часто ездят» — тоже не из отменённых поездок (ревью Opus 23.10)."""
+    driver = user_factory("ПопулярСпамер", role=UserRole.driver)
+    template_id = _publish(client, driver, frm="ПопулярОтмена", to="ПопулярНикуда")["id"]
+    with Session(engine) as s:
+        template = s.get(Ride, template_id)
+        template.status = RideStatus.cancelled
+        s.add(template)
+        for _ in range(60):
+            clone = Ride.model_validate(template.model_dump(exclude={"id"}))
+            clone.status = RideStatus.cancelled
+            s.add(clone)
+        s.commit()
+    monkeypatch.setattr("app.routers.discovery.cache_get_json", lambda _key: None)
+    monkeypatch.setattr("app.routers.discovery.cache_set_json", lambda *_a, **_k: None)
+
+    routes = client.get("/popular-routes").json()
+
+    assert ("ПопулярОтмена", "ПопулярНикуда") not in [(r["from_city"], r["to_city"]) for r in routes]
+
+
+def test_landing_counts_happened_trips_and_drivers_who_drove(client, user_factory, monkeypatch):
+    """Лендинг yulbash.ru — те же честные числа, что главная приложения (ревью Opus 23.10)."""
+    def stats():
+        monkeypatch.setattr("app.routers.discovery.cache_get_json", lambda _key: None)
+        monkeypatch.setattr("app.routers.discovery.cache_set_json", lambda *_a, **_k: None)
+        rows = client.get("/landing-stats").json()
+        return {r["ru"]: int(r["value"].rstrip("+")) for r in rows if r["value"].rstrip("+").isdigit()}
+
+    # Порог «пре-запуска» — 15 опубликованных поездок; в общей тестовой базе их заведомо больше.
+    for i in range(16):
+        _publish(client, user_factory(f"ЛендингФон{i}", role=UserRole.driver))
+    before = stats()
+
+    driver = user_factory("ЛендингВодитель", role=UserRole.driver)
+    paxes = [user_factory(f"ЛендингПассажир{i}") for i in range(3)]
+    ride_id = _ride_departed_hour_ago(client, driver, "ЛендингА", "ЛендингБ")
+    _add_bookings(ride_id, paxes, [BookingStatus.done, BookingStatus.cancelled, BookingStatus.pending])
+    idle = user_factory("ЛендингБезПоездок", role=UserRole.driver)
+    _ride_departed_hour_ago(client, idle, "ЛендингВ", "ЛендингГ")
+
+    after = stats()
+    assert after["поездок за месяц"] - before["поездок за месяц"] == 1
+    assert after["водителей за месяц"] - before["водителей за месяц"] == 1

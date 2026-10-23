@@ -9,7 +9,7 @@ from datetime import timedelta
 from sqlmodel import Session
 
 from app.db import engine
-from app.models import Booking, BookingStatus, Ride, UserRole
+from app.models import Booking, BookingStatus, Ride, SafetyProfile, UserRole
 from app.rating_service import RATING_WINDOW_DAYS
 from app.timeutil import utcnow
 
@@ -44,3 +44,13 @@ def test_old_trip_is_not_offered_for_rating(client, user_factory):
     pax, bid = _done_trip(client, user_factory, days_ago=RATING_WINDOW_DAYS + 1)
     assert client.get(f"/trips/{bid}/receipt", headers=pax["auth"]).json()["can_rate"] is False
     assert client.post(f"/bookings/{bid}/rate", headers=pax["auth"], json={"stars": 4}).status_code == 409
+
+
+def test_paused_account_is_not_offered_old_trips(client, user_factory):
+    """На паузе старую поездку оценить нельзя — и звёзд в квитанции нет (ревью Opus 23.10)."""
+    pax, bid = _done_trip(client, user_factory, days_ago=10)
+    with Session(engine) as s:
+        s.add(SafetyProfile(user_id=pax["id"], suspended_until=utcnow() + timedelta(days=7)))
+        s.commit()
+    assert client.get(f"/trips/{bid}/receipt", headers=pax["auth"]).json()["can_rate"] is False
+    assert client.post(f"/bookings/{bid}/rate", headers=pax["auth"], json={"stars": 1}).status_code >= 400

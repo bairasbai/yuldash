@@ -8,7 +8,7 @@
 from sqlmodel import Session
 
 from app.db import engine
-from app.models import User, UserRole
+from app.models import Booking, User, UserRole
 
 from test_flows import _book, _publish
 
@@ -47,3 +47,19 @@ def test_stranger_still_gets_nothing(client, user_factory):
     _drv, _pax, bid, _phone_no = _pair(client, user_factory)
     stranger = user_factory("Номер Чужой")
     assert client.get(f"/bookings/{bid}/details", headers=stranger["auth"]).status_code in (403, 404)
+
+
+def test_minor_passengers_own_number_stays_with_the_child(client, user_factory):
+    """Едет подросток: водитель звонит взрослому, а не ребёнку (правило Q14; ревью Opus 23.10, P1-2)."""
+    drv, _pax, bid, _phone_no = _pair(client, user_factory)
+    with Session(engine) as s:
+        b = s.get(Booking, bid)
+        b.minor_passenger = True
+        b.minor_guardian_name = "Мама"
+        b.minor_guardian_phone = "+79170009900"
+        s.add(b)
+        s.commit()
+    assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+    details = client.get(f"/bookings/{bid}/details", headers=drv["auth"]).json()
+    assert details["passenger_phone"] == ""
+    assert details["minor_guardian_phone"] == "+79170009900"

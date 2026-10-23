@@ -37,7 +37,7 @@ internal fun ResizeWindowForKeyboard() {
             window.adjust(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         }
         onDispose {
-            if (window != null && --KeyboardResizeMode.holders == 0) KeyboardResizeMode.previous?.let(window::setSoftInputMode)
+            if (window != null && --KeyboardResizeMode.holders == 0) window.setSoftInputMode(restoredMode(KeyboardResizeMode.previous ?: 0))
         }
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -52,6 +52,17 @@ internal fun ResizeWindowForKeyboard() {
         }
     }
 }
+
+/**
+ * Какой режим вернуть, когда экран ушёл. «Не задан» (так у приложения: в манифесте режима нет)
+ * Android назад не принимает — окно осталось бы «поджимать», и на Android 15+ поля без `imePadding`
+ * уходили бы под клавиатуру (ревью Opus 23.10, P1-1). Поэтому вместо «не задан» — то, что система сама
+ * выбирает для такого окна: «сдвигать». Явно заданный прежний режим возвращается как был.
+ */
+internal fun restoredMode(previous: Int): Int =
+    if ((previous and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST) == WindowManager.LayoutParams.SOFT_INPUT_ADJUST_UNSPECIFIED)
+        (previous and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+    else previous
 
 @Suppress("DEPRECATION")   // на API 30+ режим по-прежнему действует, иначе окно сдвигается целиком
 private fun Window.adjust(mode: Int) =
