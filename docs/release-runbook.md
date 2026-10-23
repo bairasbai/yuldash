@@ -310,14 +310,14 @@ ssh root@85.239.52.55 "hostname; systemctl is-active yuldash-api; curl -s http:/
 ```powershell
 cd C:\Users\Bayra\Yuldash
 git fetch origin main
-$COMMIT = '<<КОММИТ MAIN после слияния ветки Codex rideshare-parity — подставит разработчик>>'   # серверный код проверен 23.10.2026 на 1258f276 (голова ветки codex/rideshare-parity-20261018); прежнее значение da80cbdc (17.10) устарело: в нём 134 миграции
+$COMMIT = '3860c0f59c7e3114e806de87053f0fa9017014e8'   # main после слияния ветки Codex (#190), 23.10.2026; прежнее значение da80cbdc (17.10) устарело: в нём 134 миграции
 if ($COMMIT -like '<<*') { 'СТОП: хеш коммита не подставлен — скажи разработчику' } else {
   git diff --stat $COMMIT origin/main -- backend/app backend/alembic backend/alembic.ini backend/requirements.txt backend/ops backend/scripts
   git archive --format=tar.gz -o "$env:USERPROFILE\yuldash-backend-release.tar.gz" $COMMIT backend/app backend/alembic backend/alembic.ini backend/requirements.txt backend/ops backend/scripts
 }
 ```
 - Если в третьей строке всё ещё стоит `<<КОММИТ MAIN ...>>`, блок `if … else` не запустит `git` и напишет «СТОП: хеш коммита не подставлен» (фигурные скобки держат команды вместе, как ни вставляй). Скажи разработчику.
-- **Разработчику — как выбрать хеш** (23.10.2026). Инструкция проверена на серверном коде ветки Codex, коммит `1258f27649a98d36632d76a9b7abe4bad1852f1d`. После слияния ветки в `main` подставь хеш `main` и убедись, что серверный код тот же: `git diff --stat 1258f276 <хеш> -- backend/app backend/alembic backend/alembic.ini backend/requirements.txt backend/ops backend/scripts` — пусто, а `git ls-tree <хеш> backend/alembic/versions/ | grep -c '\.py$'` — `139`. Не пусто или другое число — сначала обнови и проверь эту инструкцию (раздел «Как проверена инструкция»).
+- **Разработчику — откуда хеш** (23.10.2026). Шаги инструкции проверены на серверном коде ветки Codex `1258f27649a98d36632d76a9b7abe4bad1852f1d`; в `main` она влита коммитом `3860c0f59c7e3114e806de87053f0fa9017014e8`. Между ними поменялись только три файла логики (`backend/app/routers/bookings.py` — бронь на несколько мест и защита мест, `backend/app/routers/rides.py` и `backend/app/stop_search.py` — поиск по остановкам); миграции, `alembic.ini`, `requirements.txt`, `ops`, `scripts` и настройки — те же, ревизий `139`. Полный набор тестов (SQLite и PostgreSQL) прошёл именно на этом коде (CI #190 на `abeeffc9`, дерево совпадает с `3860c0f5`). Если в `main` после `3860c0f5` серверный код поменяется — `git diff --stat 3860c0f5 origin/main -- backend/app backend/alembic backend/alembic.ini backend/requirements.txt backend/ops backend/scripts` не пусто, — сначала обнови и проверь эту инструкцию (раздел «Как проверена инструкция»).
 - `git` написал `fatal: ...` — **стоп**: коммита с таким хешем нет, архив не годится.
 - Команда `git diff --stat` показывает, менялся ли серверный код в `main` после этого коммита.
   - Пусто — выкатываем именно его, всё сходится.
