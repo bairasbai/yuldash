@@ -8343,8 +8343,8 @@
       "path": "backend/tests/test_booking_link_access.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "d924aaff8dce8a3419a8ad8feca644c1233426090876a459ae63d8ddb9a8f661",
-      "lines": 60
+      "sha256": "89449b23aad252b8db8df002a0c37a57a523b24e178ab113f767a97f81999a03",
+      "lines": 62
     },
     {
       "path": "backend/tests/test_booking_multiseat_retry.py",
