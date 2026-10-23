@@ -94,7 +94,6 @@ class Fit:
     matched_to_end: bool = False
     exact_pickups: tuple = ()           # позиции, названные запросом точно (`make_fit` выбирает из них)
     exact_drops: tuple = ()
-    dropoff_at: Optional[int] = None    # позиция выбранного места выхода (`rides._dropoff`)
     extra: dict = field(default_factory=dict)
 
 
@@ -191,4 +190,4 @@ def make_fit(stops: tuple, pickups: tuple, exact_froms: tuple = (), exact_tos: t
                matched_from_start=chosen == -1,
                matched_dropoff_stop=stops[drop] if drop is not None and drop < n else None,
                matched_to_end=drop == n,
-               exact_pickups=exact_froms, exact_drops=exact_tos, dropoff_at=drop)
+               exact_pickups=exact_froms, exact_drops=exact_tos)

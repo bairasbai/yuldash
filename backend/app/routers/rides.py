@@ -613,7 +613,8 @@ def search_rides(
         # Тот же договор предвыбора, что в «Ближайших» (`_matched`): координат человека в ленте нет, значит
         # место выбираем, только если «Откуда» названа и подходящее место ровно одно (приёмка PR #188, P3-2).
         # Где выйдет — по «Куда» человека (`_dropoff`).
-        marks = {r.id: _matched(fits[r.id], None, by_query=bool(fv)) + _dropoff(fits[r.id], None) for r in out}
+        marks = {r.id: _matched(fits[r.id], None, by_query=bool(fv)) + _dropoff(fits[r.id], None, by_query=bool(fv))
+                 for r in out}
         out = [r.model_copy(update={"matched_stop": marks[r.id][0], "matched_from_start": marks[r.id][1],
                                     "matched_dropoff_stop": marks[r.id][2], "matched_to_end": marks[r.id][3]})
                for r in out]
@@ -875,14 +876,19 @@ def _matched(fit, pickup, *, by_query: bool):
     return None, False
 
 
-def _dropoff(fit, pickup):
-    """`matched_dropoff_stop` / `matched_to_end` — где человек выйдет по своему «Куда» (`route_fit`), и только
-    если это дальше по маршруту, чем место посадки (`pickup` — выбранное по расстоянию; иначе `route_fit` уже
-    сверил выход с посадкой по запросу)."""
-    at = fit.dropoff_at
-    if at is None or (pickup is not None and at <= pickup):
+def _dropoff(fit, pickup, *, by_query: bool):
+    """`matched_dropoff_stop` / `matched_to_end` — где человек выйдет по своему «Куда»: место, которое запрос
+    называет точно (`fit.exact_drops`), ровно одно и строго после места посадки, КОТОРОЕ ВИДИТ ЧЕЛОВЕК
+    (`_matched`: по расстоянию или по запросу); посадка не показана — после самой ранней. Иначе выход
+    сверялся бы с посадкой, которой на карточке нет (приёмка сведения с Codex, 23.10.2026)."""
+    shown = pickup
+    if shown is None and by_query and len(fit.pickups) == 1 and (fit.matched_stop is not None or fit.matched_from_start):
+        shown = fit.pickups[0]
+    after = shown if shown is not None else min(fit.pickups)
+    later = [p for p in fit.exact_drops if p > after]
+    if len(later) != 1:
         return None, False
-    return fit.matched_dropoff_stop, fit.matched_to_end
+    return (None, True) if later[0] == len(fit.stops) else (fit.stops[later[0]], False)
 
 
 # Колонки, которые определяют маршрут поездки в «Ближайших»: по ним ответ (подходит ли, расстояние,
@@ -994,7 +1000,7 @@ def rides_near(
                 dist, pickup = None, None
                 if lat is not None and lng is not None:
                     dist, pickup = _nearest_pickup(r, fit, lat, lng, entry)
-                verdict = (True, dist, _matched(fit, pickup, by_query=by_query), _dropoff(fit, pickup))
+                verdict = (True, dist, _matched(fit, pickup, by_query=by_query), _dropoff(fit, pickup, by_query=by_query))
             shape_memo[shape] = verdict
         ok, dist, matched, dropoff = verdict
         if not ok:
