@@ -68,6 +68,13 @@ class RideDeparturePickerTest {
         assertEquals(LocalDate.of(2030, 5, 15), clampRideDepartureDate(2030, 5, 15, today))
     }
 
+    @Test fun yearChoiceStopsAtAReasonableHorizonInsteadOf9999() {
+        val today = LocalDate.of(2026, 10, 19)
+        assertEquals(LocalDate.of(2031, 1, 1), clampRideDepartureDate(9999, 1, 1, today))
+        assertEquals(LocalDate.of(2031, 12, 31),
+            initialRideDeparture("31.12.9999, 09:45", LocalDateTime.of(2026, 10, 19, 8, 0)).toLocalDate())
+    }
+
     @Test fun noDateBeforeTodayCanBeSelected() {
         val today = LocalDate.of(2026, 10, 19)
         assertEquals(today, clampRideDepartureDate(2020, 1, 1, today))
