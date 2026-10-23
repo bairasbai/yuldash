@@ -268,12 +268,13 @@ class BookingConfirmationJourneyTest {
         compose.onNodeWithText("Количество мест").performScrollTo()
         repeat(2) { compose.onNodeWithContentDescription("Больше мест").performClick() }
         compose.onNodeWithText("Итого: 2 250 ₽").assertExists()
-        compose.onNodeWithText("Забронировать место").performClick()
+        // Кнопка называет выбранное число мест (приёмка #189).
+        compose.onNodeWithText("Забронировать 3 места").performClick()
         compose.waitUntil(15000) {
             settle()
             org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == "Тестовый временный отказ брони"
         }
-        compose.onNodeWithText("Забронировать место").performClick()
+        compose.onNodeWithText("Забронировать 3 места").performClick()
         compose.waitUntil(15000) { vm.activeBookingId.value == 42 }
         assertEquals(2, bookingBodies.size)
         val first = JSONObject(bookingBodies[0])

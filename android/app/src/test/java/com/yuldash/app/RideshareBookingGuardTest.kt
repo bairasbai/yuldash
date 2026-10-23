@@ -28,8 +28,12 @@ class RideshareBookingGuardTest {
         assertTrue(booking.contains("BookingRouteDecisionCard("))
         assertTrue(booking.contains("BookingDecisionBar("))
         assertTrue(booking.contains("bottomBar = {"))
-        assertTrue(booking.contains("Забронировать место"))
-        assertTrue(booking.contains("Урынды бронләү"))
+        // Надпись главной кнопки — в BookingSeatCount.kt: она называет число мест («Забронировать 3 места»,
+        // приёмка #189), а одно место — по-прежнему «Забронировать место» / «Урынды бронләү».
+        assertTrue(booking.contains("bookSeatsLabel(selectedSeats)"))
+        val seats = source("BookingSeatCount.kt")
+        assertTrue(seats.contains("Забронировать место"))
+        assertTrue(seats.contains("Урынды бронләү"))
     }
 
     @Test
