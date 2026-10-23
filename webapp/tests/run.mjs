@@ -213,6 +213,9 @@ const SUITES = [
   // молча — отказ запоминается словами сервера и показывается плашкой поверх любого экрана (23.10.2026).
   { test: "outbox-refusal-test", src: null, out: null, bundle: false },
   { test: "outbox-refusal-banner-test", src: null, out: null, bundle: false },
+  // …и экран поездки / карточка «Доехала» после отказа перестают обещать «отправим позже» (повторная проверка 23.10.2026).
+  { test: "driver-queued-refusal-test", src: null, out: null, bundle: false },
+  { test: "booking-refusal-hook-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.
