@@ -31,12 +31,12 @@ from ..safety_logic import (account_paused, ensure_active, may_ride_together,
                             MSG_WOMEN_ONLY_RESPOND, guard_women_only)
 from ..antifraud import moderate_open_text
 from ..features import guard_delivery_ride
-from ..timeutil import client_dt_to_utc, utcnow
+from ..timeutil import client_dt_to_utc, local_date, local_day_bounds_utc, utcnow
 from .. import workday as workday_mod
 from ..trust_service import INSIDER_LEVEL, trust_level
 from .. import request_segments
 from ..geo import snapshot_cached
-from ..safety_logic import MSG_WOMEN_ONLY_RIDE, gender_of
+from ..safety_logic import GENDER_FEMALE, gender_of
 
 
 def _city_match(column, session, city: str):
@@ -533,10 +533,17 @@ def _detour_km(req, rides: list) -> Optional[int]:
     return None if best is None else int(round(best))
 
 
+# Потолок строк, которые лента/подбор просматривают за один запрос (10 порций по FEED_MAX). Порции
+# вместо одного `limit(FEED_MAX)` нужны, чтобы подходящее не терялось за 200 посторонними, но стоимость
+# запроса обязана быть ограничена: сверка маршрута идёт в Python по каждой паре «заявка × рейс»
+# (ревью PR190, 23.10.2026). Базе отдаём всё, что она умеет отсеять сама (день, категория, места).
+_SCAN_MAX = FEED_MAX * 10
+
+
 def _ride_chunks(session, query):
-    """Ограниченная память, без OFFSET: следующая порция после (выезд, id)."""
-    after = None
-    while True:
+    """Ограниченная память, без OFFSET: следующая порция после (выезд, id); не больше `_SCAN_MAX` строк."""
+    after, scanned = None, 0
+    while scanned < _SCAN_MAX:
         page = query
         if after is not None:
             depart, rid = after
@@ -545,21 +552,52 @@ def _ride_chunks(session, query):
         if not rows:
             return
         yield rows
+        scanned += len(rows)
         after = (rows[-1].depart_at, rows[-1].id)
 
 
 def _request_chunks(session, query):
-    before = None
-    while True:
+    """Новые заявки первыми, порциями; не больше `_SCAN_MAX` строк за запрос."""
+    before, scanned = None, 0
+    while scanned < _SCAN_MAX:
         page = query if before is None else query.where(RideRequest.id < before)
         rows = session.exec(page.order_by(RideRequest.id.desc()).limit(FEED_MAX)).all()
         if not rows:
             return
         yield rows
+        scanned += len(rows)
         before = rows[-1].id
 
 
-def _feed_route_choices(session, user, reqs, passengers, entry):
+def _on_route_scope(session, user):
+    """Необходимые условия, при которых заявка вообще может лечь на рейс этого водителя («по пути»).
+
+    `request_segments.segment` отбрасывает рейс, если не совпали категория, день выезда (по местному
+    времени) или не хватает мест, — так что заявки вне этих условий в «по пути» не попадут никогда, и
+    база может не отдавать их Python-у на сверку маршрута. Результат ленты от этого не меняется.
+    None — у водителя нет подходящих рейсов (лента «по пути» пуста)."""
+    rows = session.exec(
+        select(Ride.category, Ride.depart_at, Ride.seats_left)
+        .where(Ride.driver_id == user.id, Ride.status == RideStatus.active,
+               Ride.depart_at >= utcnow() - timedelta(hours=2))
+        .limit(_SCAN_MAX)
+    ).all()
+    rows = [row for row in rows if row[1] is not None]
+    if not rows:
+        return None
+    days = sorted({local_date(depart) for _cat, depart, _seats in rows})
+    windows = []                                   # подряд идущие дни склеиваем в одно окно
+    for day in days:
+        start, end = local_day_bounds_utc(day)
+        if windows and windows[-1][1] == start:
+            windows[-1] = (windows[-1][0], end)
+        else:
+            windows.append((start, end))
+    return ({cat for cat, _depart, _seats in rows}, windows,
+            max(int(seats or 0) for _cat, _depart, seats in rows))
+
+
+def _feed_route_choices(session, user, reqs, passengers, entry, memo=None):
     """Первая точная поездка по времени/id; крюк остаётся отдельной оценкой по всем рейсам."""
     choices, detours = {}, {}
     query = select(Ride).where(Ride.driver_id == user.id, Ride.status == RideStatus.active,
@@ -572,7 +610,7 @@ def _feed_route_choices(session, user, reqs, passengers, entry):
             if req.id in choices:
                 continue
             for ride in rides:
-                section = request_segments.segment(ride, req, entry)
+                section = request_segments.segment(ride, req, entry, memo)
                 passenger = passengers.get(req.passenger_id)
                 if section is None or passenger is None:
                     continue
@@ -590,9 +628,23 @@ def requests_feed(on_route: bool = False, user: User = Depends(current_user), se
     """Активные заявки пассажиров — для водителей (откликнуться). Без своих и заблокированных."""
     query = select(RideRequest).where(*live_request_conds(), *_open_category_conds(),
                                       RideRequest.passenger_id != user.id)
+    if on_route:
+        # «По пути» — только заявки, которые могут лечь на рейс водителя: категория, день, места.
+        # Остальные Python-у на сверку маршрута не отдаём (результат ленты тот же, работы меньше).
+        scope = _on_route_scope(session, user)
+        if scope is None:
+            return []
+        categories, windows, max_seats = scope
+        query = query.where(
+            RideRequest.category.in_(categories), RideRequest.seats <= max_seats,
+            or_(RideRequest.desired_at.is_(None),
+                *[and_(RideRequest.desired_at >= start, RideRequest.desired_at < end)
+                  for start, end in windows]),
+        )
     hidden = hidden_author_ids(session, user)
     is_insider = trust_level(session, user) >= INSIDER_LEVEL
     entry = snapshot_cached()
+    memo = {}   # сверка маршрута (рейс, откуда, куда) — одна на запрос, а не на каждую заявку
     out = []
     for batch in _request_chunks(session, query):
         reqs = [r for r in batch if r.passenger_id not in hidden
@@ -602,7 +654,7 @@ def requests_feed(on_route: bool = False, user: User = Depends(current_user), se
             continue
         pax = {u.id: u for u in session.exec(select(User).where(
             User.id.in_({r.passenger_id for r in reqs}))).all()}
-        choices, detours = _feed_route_choices(session, user, reqs, pax, entry)
+        choices, detours = _feed_route_choices(session, user, reqs, pax, entry, memo)
         if on_route:
             reqs = [r for r in reqs if r.id in choices]
         if not reqs:
@@ -691,15 +743,25 @@ def _bound_section(session, req, driver, ride):
     if passenger is None:
         raise herr(409, "Это предложение недоступно", "Был тәҡдим мөмкин түгел")
     guard_delivery_ride(ride.category)
+    # Правила «только для своих» и «только женщины» на РЕЙСЕ применяем так же строго, как при обычной
+    # брони, но отказ говорим нейтральный и тем же текстом, что «не подходит маршрут» (ревью PR190,
+    # 23.10.2026). Отклик шлёт ВОДИТЕЛЬ, а пассажира это про себя не спрашивало: «Эта поездка только для
+    # женщин» / «Укажи пол» / «Поездка только для своих» выдавали бы ему пол и уровень доверия незнакомого
+    # человека — предложи свой рейс и прочти ответ. Причину знает только сам пассажир, в своей брони.
     if ride.only_trusted and trust_level(session, passenger) < INSIDER_LEVEL:
-        raise herr(403, "Поездка только для своих", "Сәфәр тик үҙ кешеләр өсөн")
-    if ride.women_only:
-        guard_women_only(passenger, msg=MSG_WOMEN_ONLY_RIDE)
+        raise _ride_no_longer_fits()
+    if ride.women_only and gender_of(passenger) != GENDER_FEMALE:
+        raise _ride_no_longer_fits()
     section = request_segments.segment(ride, req)
     if section is None:
-        raise herr(409, "Рейс больше не подходит заявке: проверь маршрут, дату и свободные места.",
-                   "Рейс заявкаға тура килмәй инде: юлды, көндө һәм буш урындарҙы тикшер.")
+        raise _ride_no_longer_fits()
     return section
+
+
+def _ride_no_longer_fits():
+    """Один нейтральный отказ на все причины «этот рейс не годится этой заявке»."""
+    return herr(409, "Рейс больше не подходит заявке: проверь маршрут, дату и свободные места.",
+                "Рейс заявкаға тура килмәй инде: юлды, көндө һәм буш урындарҙы тикшер.")
 
 
 @router.post("/requests/{request_id}/respond")
@@ -1289,11 +1351,18 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
     notify_map_changed()   # заявка исполнена (matched) → её маркер уходит, новая поездка появляется — live
     pax = session.get(User, req.passenger_id)
     pax_name = pax.name if pax else "Пассажир"
-    route = f"{req.from_city} → {req.to_city}"
+    # Маршрут РЕЙСА, а не заявки, и пометка о посадке на остановке БЕЗ названия села — как в пуше
+    # «Новая бронь» (`bookings.py`, P3 PR186; ревью PR190, 23.10.2026). Заявка пассажирки несёт её
+    # село посадки/высадки, а пуш лежит на экране блокировки водителя. Само место водитель видит
+    # в приложении (бронь, `/driver/bookings`). Старый отклик без `ride_id` создал поездку по
+    # заявке, и её города — те же, что в заявке: для него текст не меняется.
+    route = f"{ride.from_city} → {ride.to_city}"
+    stop_ru = " · посадка по пути" if booking.pickup_stop else ""
+    stop_ba = " · юл ыңғайында ултыра" if booking.pickup_stop else ""
     push_notification(
         session, resp.driver_id, "ride",
         "Заявку приняли", "Заявка ҡабул ителде",
-        f"{pax_name}: {route}", f"{pax_name}: {route}",
+        f"{pax_name}: {route}{stop_ru}", f"{pax_name}: {route}{stop_ba}",
         ref_kind="booking", ref_id=booking.id,
     )
     # Остальные откликнувшиеся держат это время под пассажира, который уже уехал с другим.
@@ -1397,7 +1466,13 @@ def match_rides(request_id: int, user: User = Depends(current_user), session: Se
         Ride.category == req.category,
         Ride.depart_at >= utcnow() - timedelta(hours=2),
     )
+    if req.desired_at is not None:
+        # Рейс другого дня (по местному времени) `request_segments.segment` отбросит в любом случае —
+        # пусть его отсеет база по индексу даты выезда, а не Python по каждой строке.
+        day_start, day_end = local_day_bounds_utc(local_date(req.desired_at))
+        q = q.where(Ride.depart_at >= day_start, Ride.depart_at < day_end)
     entry = snapshot_cached()
+    memo = {}   # рейсы одной линии (одинаковые откуда/куда/остановки) сверяются с заявкой один раз
     # Через public-payload: точная точка сбора (pickup/координаты) раскрывается только участнику
     # подтверждённой брони, а не всем, кто ищет попутку по заявке (приватность до брони).
     #
@@ -1418,7 +1493,7 @@ def match_rides(request_id: int, user: User = Depends(current_user), session: Se
                 continue
             if ride.women_only and gender_of(user) != "female":
                 continue
-            section = request_segments.segment(ride, req, entry)
+            section = request_segments.segment(ride, req, entry, memo)
             if section is not None:
                 sections[ride.id] = section
                 rides.append(ride)
