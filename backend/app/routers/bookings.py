@@ -1448,6 +1448,9 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
         # пропадали чат, «поделиться с близким» и SOS по ней (приёмка PR155, 17.10.2026).
         if booking.status == BookingStatus.onboard and user.id == booking.passenger_id:
             raise _onboard_cancel_refusal()
+        # Водитель снимает бронь, которую ещё не подтверждал, — это отказ, а не отмена поездки
+        # (приёмка 18.10, п.6: пассажиру приходило «Бронь отменена», будто сорвалось что-то общее).
+        declined = booking.status == BookingStatus.pending and user.id == ride.driver_id
         contact_opened = booking.status in (BookingStatus.confirmed, BookingStatus.onboard) or (
             session.exec(select(Message.id).where(Message.booking_id == booking_id).limit(1)).first()
             is not None
@@ -1455,11 +1458,16 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
         # Белый список кодов (порт из pr88): произвольная строка в БД не попадает, неизвестный
         # код (старый/будущий клиент) не теряем — сводим к "other".
         _raw_reason = ((body.reason or "").strip()[:80] or None) if body else None
+        # «Отклонил» ставит только сервер: подделанный код от клиента — «другое» (ревью Opus 23.10).
+        # Отказ помечаем всегда, даже с причиной: экран брони и пуш говорят одно и то же;
+        # причину водителя сохраняем для текста пуша.
+        _reason = _raw_reason if _raw_reason in CANCEL_REASONS else ("other" if _raw_reason else None)
+        причина_код = _reason if _reason != "driver_declined" else ("other" if not declined else None)
         changed = session.execute(update(Booking).where(
             Booking.id == booking_id, Booking.status == booking.status,
         ).values(
             status=BookingStatus.cancelled, cancelled_at=utcnow(), contact_then_cancel=contact_opened,
-            cancel_reason=_raw_reason if _raw_reason in CANCEL_REASONS else ("other" if _raw_reason else None),
+            cancel_reason="driver_declined" if declined else причина_код,
             cancelled_by=user.id,
         ).execution_options(synchronize_session=False))
         if changed.rowcount == 0:
@@ -1491,15 +1499,18 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
         # отменивший (список CANCEL_REASONS), а хвост про другие поездки — только пассажиру:
         # водителю искать нечего, у него своя поездка на месте.
         отменил_водитель = user.id != booking.passenger_id
-        причина_ru, причина_ba = cancel_reason_text(booking.cancel_reason)
+        причина_ru, причина_ba = cancel_reason_text(причина_код if declined and причина_код not in (None, "other")
+                                                    else booking.cancel_reason)
         тело_ru = route + (f". {причина_ru}" if причина_ru else "")
         тело_ba = route + (f". {причина_ba}" if причина_ba else "")
         if отменил_водитель:
             тело_ru += " Посмотри другие поездки по этому маршруту — они есть."
             тело_ba += " Был юл буйынса башҡа сәфәрҙәрҙе ҡара — улар бар."
+        заголовок_ru, заголовок_ba = (("Водитель отклонил бронь", "Йөрөтөүсе бронде кире ҡаҡты") if declined
+                                      else ("Бронь отменена", "Бронь ҡалдырылды"))
         push_notification(
             session, other_id, "booking",
-            "Бронь отменена", "Бронь ҡалдырылды",
+            заголовок_ru, заголовок_ba,
             тело_ru, тело_ba,
             ref_kind="booking", ref_id=booking.id,
         )

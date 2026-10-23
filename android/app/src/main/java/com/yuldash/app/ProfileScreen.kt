@@ -3255,11 +3255,7 @@ internal fun DriverCabinetContent(
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                             ) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                            OutlinedButton(
-                                onClick = { onRejectBooking(b.bookingId) },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(14.dp)
-                            ) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                            DeclineBookingButton(b.passengerName, { onRejectBooking(b.bookingId) }, Modifier.weight(1f))   // сперва «Отклонить бронь?»
                         }
                     }
                 }
