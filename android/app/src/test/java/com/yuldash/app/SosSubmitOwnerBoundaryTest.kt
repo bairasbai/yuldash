@@ -26,6 +26,8 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class, qualifiers = "w411dp-h1400dp")
@@ -36,6 +38,10 @@ class SosSubmitOwnerBoundaryTest {
     private val posts = CopyOnWriteArrayList<RecordedRequest>()
     private lateinit var server: MockWebServer
     private var dropReply = false
+    private var loginRequests = 0
+    private val releaseReply = CountDownLatch(1)
+    private val replyHeld = CountDownLatch(1)
+    @Volatile private var holdReply = false
     @Before fun prepare() {
         ApiClient.resetForTest()
         ApiClient.init(ApplicationProvider.getApplicationContext<Application>())
@@ -43,7 +49,10 @@ class SosSubmitOwnerBoundaryTest {
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
-                    if (request.method == "POST" && request.path == "/sos") posts += request
+                    if (request.method == "POST" && request.path == "/sos") {
+                        posts += request
+                        if (holdReply) { replyHeld.countDown(); releaseReply.await(10, TimeUnit.SECONDS) }
+                    }
                     if (dropReply) return MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)
                     return MockResponse().setBody("{\"id\":7,\"status\":\"new\"}")
                 }
@@ -54,6 +63,7 @@ class SosSubmitOwnerBoundaryTest {
         ApiClient.testTimeoutMs = 1000
     }
     @After fun cleanup() {
+        releaseReply.countDown()
         compose.runOnIdle { mounted.value = false }
         ApiClient.logout()
         ApiClient.resetForTest()
@@ -63,7 +73,7 @@ class SosSubmitOwnerBoundaryTest {
     private fun retainedSend(): () -> Boolean {
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                YuldashTheme { if (mounted.value) SosScreen({}, {}, bookingId = 42) }
+                YuldashTheme { if (mounted.value) SosScreen({}, { loginRequests++ }, bookingId = 42) }
             }
         }
         return compose.onNode(hasText("Сообщить поддержке") and hasClickAction())
@@ -99,6 +109,49 @@ class SosSubmitOwnerBoundaryTest {
         compose.runOnIdle { send() }
         settle()
         assertTrue(posts.isEmpty())
+    }
+    private fun scrollTo(text: String) = compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text))
+
+    // Приёмка 23.10.2026 (P3): вход истёк, пока экран SOS был открыт, — сразу ко входу, без «закрой и открой».
+    @Test fun expiredLoginLeadsStraightToLogin() {
+        val send = retainedSend()
+        ApiClient.logout()
+        compose.runOnIdle { send() }
+        settle()
+        assertEquals(1, loginRequests)
+        assertTrue(posts.isEmpty())
+        compose.onAllNodesWithText("Вход в аккаунт сменился").assertCountEquals(0)
+    }
+    // Вошли другим аккаунтом: сигнал не ушёл — честная карточка, а не экран входа.
+    @Test fun anotherAccountGetsNotSentCard() {
+        val send = retainedSend()
+        ApiClient.saveToken("synthetic-owner-b")
+        compose.runOnIdle { send() }
+        settle()
+        assertEquals(0, loginRequests)
+        assertTrue(posts.isEmpty())
+        scrollTo("Вход в аккаунт сменился")
+        compose.onNodeWithText("Вход в аккаунт сменился").assertIsDisplayed()
+        compose.onNodeWithText("Сигнал не отправлен. Закрой экран и открой SOS снова. Позвонить 112 можно и без входа.").assertIsDisplayed()
+    }
+    // Вход сменился, пока запрос шёл: сервер мог сигнал сохранить — «не отправлен» было бы неправдой.
+    @Test fun loginChangedWhileSignalWasOnTheRoadDoesNotClaimNotSent() {
+        ApiClient.testTimeoutMs = 10000
+        holdReply = true
+        val send = retainedSend()
+        compose.runOnIdle { send() }
+        compose.waitUntil(10000) { Shadows.shadowOf(Looper.getMainLooper()).idle(); replyHeld.count == 0L }
+        ApiClient.saveToken("synthetic-owner-b")
+        releaseReply.countDown()
+        val after = "Вход в аккаунт сменился, пока сигнал отправлялся, — он мог дойти. Если можешь, позвони 112 и открой SOS снова."
+        compose.waitUntil(10000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodesWithText(after).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Не удалось подтвердить отправку").assertIsDisplayed()
+        compose.onAllNodesWithText("Сигнал не отправлен", substring = true).assertCountEquals(0)
+        assertEquals(1, posts.size)
+        assertEquals(0, loginRequests)
     }
     @Test fun lostReplyShowsUnconfirmedInsteadOfClaimingNothingWasSent() {
         dropReply = true

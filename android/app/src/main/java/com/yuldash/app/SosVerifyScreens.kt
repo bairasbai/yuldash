@@ -312,7 +312,7 @@ internal fun SosScreen(
     var sending by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     var rateLimited by remember { mutableStateOf(false) }  // 429 — «слишком часто», не «нет сети»
-    var sessionChanged by remember { mutableStateOf(false) }  // вход сменился, пока экран открыт
+    var sessionChange by remember { mutableStateOf(SosSessionChange.None) }  // вход сменился, пока экран открыт
     val loggedIn = ApiClient.isLoggedIn()
 
     // Живая геолокация для ЧП: разрешение, свежесть и подписка на GPS — в SosLocation.kt.
@@ -340,24 +340,29 @@ internal fun SosScreen(
     }
 
     // Сигнал этого экрана принадлежит входу, с которым его открыли. Вход сменился — кнопка не висит
-    // на «Отправляем…» и не молчит: честно говорим, что делать, а 112 остаётся под рукой.
-    fun refuseChangedSession() { sending = false; sent = false; rateLimited = false; sessionChanged = true; failed = true }
+    // на «Отправляем…» и не молчит: честно говорим, что делать, а 112 остаётся под рукой. До запроса
+    // сигнал точно не ушёл: вход истёк — сразу ко входу, вошли другим аккаунтом — карточка.
+    fun refuseChangedSession(change: SosSessionChange) {
+        sending = false; sent = false; rateLimited = false; failed = false; sessionChange = SosSessionChange.None
+        if (change == SosSessionChange.BeforeSend && !ApiClient.isLoggedIn()) onLoginRequired()
+        else { sessionChange = change; failed = true }
+    }
 
     fun sendSignal() {
         if (sending || !signalMounted.get()) return
-        if (ApiClient.queueSessionGeneration() != signalOwner) { refuseChangedSession(); return }
+        if (ApiClient.queueSessionGeneration() != signalOwner) { refuseChangedSession(SosSessionChange.BeforeSend); return }
         if (!loggedIn) {
             onLoginRequired()
             return
         }
         failed = false
         rateLimited = false
-        sessionChanged = false
+        sessionChange = SosSessionChange.None
         sent = false
         sending = true
         scope.launch {
             if (!signalMounted.get()) return@launch
-            if (!ApiClient.isCurrentSession(signalOwner)) { refuseChangedSession(); return@launch }
+            if (!ApiClient.isCurrentSession(signalOwner)) { refuseChangedSession(SosSessionChange.BeforeSend); return@launch }
             // Снимок берём прямо перед запросом, а не из последней отрисовки экрана.
             val location = sosLoc.forAction()
             val currentCoords = coords(location)
@@ -373,7 +378,8 @@ internal fun SosScreen(
             val r = ApiClient.sos(category, note, orderId, lat = location?.latitude, lng = location?.longitude,
                 bookingId = bookingId, expectedGeneration = signalOwner)
             if (!signalMounted.get()) return@launch
-            if (!ApiClient.isCurrentSession(signalOwner)) { refuseChangedSession(); return@launch }
+            // Запрос уже ушёл: сервер мог сохранить сигнал — «не отправлен» сказать нельзя.
+            if (!ApiClient.isCurrentSession(signalOwner)) { refuseChangedSession(SosSessionChange.AfterSend); return@launch }
             sending = false
             if (r.isSuccess) {
                 sent = true
@@ -398,7 +404,7 @@ internal fun SosScreen(
         sent = sent,
         failed = failed,
         rateLimited = rateLimited,
-        sessionChanged = sessionChanged,
+        sessionChange = sessionChange,
         sending = sending,
         onDial = { dial(it) },
         onLocate = { sosLoc.request() },
@@ -430,7 +436,7 @@ internal fun SosContent(
     sent: Boolean,
     failed: Boolean,
     rateLimited: Boolean,
-    sessionChanged: Boolean = false,   // вход сменился, пока экран SOS был открыт
+    sessionChange: SosSessionChange = SosSessionChange.None,   // вход сменился, пока экран SOS был открыт
     sending: Boolean,
     onDial: (String) -> Unit,
     onLocate: () -> Unit,
@@ -613,34 +619,8 @@ internal fun SosContent(
                     }
                 }
             }
-            if (sent) {
-                item {
-                    InfoCard(
-                        title = appText("Сигнал отправлен", "Сигнал ебәрелде"),
-                        // Успех API подтверждает сохранение сигнала, а не получение внешним дежурным.
-                        text = appText("Сигнал сохранён в Юлдаш. Не жди ответа — если можешь, позвони 112 и близким сам.", "Сигнал Юлдашта һаҡланды. Яуап көтмә — мөмкин булһа, 112-гә һәм яҡындарыңа үҙең шылтырат."),
-                        icon = Icons.Default.Sos
-                    )
-                }
-            }
-            if (failed) {
-                item {
-                    InfoCard(
-                        title = when {
-                            rateLimited -> appText("Слишком часто", "Артыҡ йыш")
-                            sessionChanged -> appText("Вход в аккаунт сменился", "Аккаунтҡа инеү алмашынды")
-                            else -> appText("Не удалось подтвердить отправку", "Ебәрелеүҙе раҫлап булманы")
-                        },
-                        text = when {
-                            rateLimited -> appText("Сигнал уже отправлялся недавно. Подожди немного и нажми ещё раз.", "Сигнал күптән түгел ебәрелгән. Бер аҙ көт тә тағы баҫ.")
-                            sessionChanged -> appText("Сигнал не отправлен. Закрой экран и открой SOS снова. Позвонить 112 можно и без входа.",
-                                "Сигнал ебәрелмәне. Экранды яп та SOS-ты яңынан ас. 112-гә инеүһеҙ ҙә шылтыратырға була.")
-                            else -> appText("Проверь связь, повтори сигнал или позвони 112 и близким, если можешь.", "Бәйләнеште тикшер, сигналды ҡабатла йәки, мөмкин булһа, 112-гә һәм яҡындарыңа шылтырат.")
-                        },
-                        icon = Icons.Default.Sos
-                    )
-                }
-            }
+            // Итог сигнала: отправлен / слишком часто / вход сменился / не подтверждён (SosSignalResult.kt).
+            sosSignalResult(sent, failed, rateLimited, sessionChange)
             item {
                 AppButton(
                     text = if (sending) appText("Отправляем…", "Ебәрәбеҙ…") else appText("Сообщить поддержке", "Ярҙамға хәбәр итеү"),

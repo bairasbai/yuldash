@@ -41,7 +41,7 @@ class FileSizeRatchetTest {
         "FairnessScreens.kt" to 1612,   // 14.10.2026: +1 — initialType у FileIncidentDialog (разбор «Пассажир не вышел» сразу с типом)
         "LoginScreen.kt" to 1330,
         "TaxiDocsScreens.kt" to 1200,
-        "SosVerifyScreens.kt" to 1131,   // 23.10.2026: −135 — место для SOS (свежесть, разрешение, GPS) уехало в SosLocation.kt; потолок опущен
+        "SosVerifyScreens.kt" to 1111,   // 23.10.2026: −20 — карточки итога сигнала уехали в SosSignalResult.kt; −135 — место для SOS (свежесть, разрешение, GPS) уехало в SosLocation.kt; потолок опущен
         "CreateRideScreen.kt" to 1167,   // 14.10.2026: +9 — состояние и проводка опций мест (карточка — SeatOptions.kt)
         "TaxiOnboardingScreen.kt" to 1108,
         "TaxiReceiptScreen.kt" to 1070,
