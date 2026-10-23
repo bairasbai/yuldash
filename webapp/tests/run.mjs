@@ -16,6 +16,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { build } from "esbuild";
+import { countChecks } from "./count-checks.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, ".bundles");
@@ -204,6 +205,8 @@ const SUITES = [
   { test: "confirm-before-action-test", src: null, out: null, bundle: false },
   // Одно действие — одно событие аналитики (было: publish_ride, revoke_share, courier_online дважды).
   { test: "analytics-no-double-test", src: null, out: null, bundle: false },
+  // Отчёт «N проверок» понимает все способы печати успеха («✓», «PASS», только итог); нулевой набор — провал.
+  { test: "run-count-test", src: null, out: null, bundle: false },
   // Выбор посадки в истории вкладки (RideCard → RideDetail, гость → вход) принадлежит входу и не переживает выход (23.10.2026).
   { test: "login-return-owner-test", src: null, out: null, bundle: false },
   // «Выехал» без сети: если сервер потом отказал насовсем («Рано», «Поездка отменена»), очередь не снимает отметку
@@ -228,7 +231,15 @@ function runSuite(s) {
       stdio: "pipe",
       env: { ...process.env },
     }).toString();
-    const passed = (out.match(/^✓/gm) || []).length;
+    // Наборы печатают успех по-разному («✓», «PASS», только итог «N passed» / «N cases») — см. count-checks.mjs.
+    const passed = countChecks(out);
+    if (passed === 0) {
+      // Зелёный набор без единой распознанной проверки — тот же обман, что «0 проверок» в отчёте: не пропускаем.
+      console.log(`  ✗ ${s.test} — набор ничего не проверил (формат вывода не распознан)`);
+      console.log(out.split("\n").filter((l) => l.trim()).slice(-5).map((l) => "      " + l).join("\n"));
+      failed++;
+      return;
+    }
     console.log(`  ✓ ${s.test} — ${passed} проверок`);
   } catch (e) {
     console.log(`  ✗ ${s.test} — ПРОВАЛ`);
