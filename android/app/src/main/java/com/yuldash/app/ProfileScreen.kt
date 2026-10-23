@@ -295,9 +295,10 @@ import kotlinx.coroutines.launch
  * подписи вида «Пассажир · Баймаҡ» были захардкожены у всех, теперь показываем только настоящую роль.
  */
 @Composable
-internal fun roleLabel(role: String): String = when (role) {
-    "driver" -> appText("Водитель", "Йөрөтөүсе")
-    "admin" -> appText("Администратор", "Администратор")
+internal fun roleLabel(role: String, verifiedDriver: Boolean = false): String = when {
+    role == "admin" -> appText("Администратор", "Администратор")
+    // Документы одобрены — водитель, даже если роль на сервере осталась «пассажир» (приёмка 18.10, п.13).
+    role == "driver" || verifiedDriver -> appText("Водитель", "Йөрөтөүсе")
     else -> appText("Пассажир", "Пассажир")
 }
 
@@ -349,6 +350,7 @@ internal fun ProfileScreen(
     var displayName by remember { mutableStateOf(ApiClient.cachedName() ?: (if (isBashkir) "Мин" else "Я")) }
     var avatarUrl by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("") }
+    var verifiedDriver by remember { mutableStateOf(false) }   // /me `verified`: документы водителя одобрены
     var city by remember { mutableStateOf("") }   // родной город: показываем в шапке, редактируется тапом
     // Пол ("" | female | male). Спрашиваем только ради отметки «Только женщины»: сервер
     // пускает в такую поездку одних женщин, и проверять это ему больше нечем. Никому,
@@ -377,7 +379,7 @@ internal fun ProfileScreen(
                 myRating = if (o.isNull("rating")) null else o.optDouble("rating")
                 o.optString("name").takeIf { it.isNotBlank() }?.let { displayName = it }
                 o.optString("avatar_url").takeIf { it.isNotBlank() }?.let { avatarUrl = it }
-                role = o.optString("role")
+                role = o.optString("role"); verifiedDriver = o.optBoolean("verified")
                 city = o.optString("city")
                 gender = o.optString("gender")
             }
@@ -767,7 +769,8 @@ internal fun ProfileScreen(
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     // Настоящая роль с сервера (пассажир/водитель/админ).
-                                    Text(roleLabel(role), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp)
+                                    Text(roleLabel(role, verifiedDriver), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp)
+                                    if (verifiedDriver) ProfileVerifiedMark()
                                     myRating?.let { r ->
                                         Spacer(Modifier.width(8.dp))
                                         Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))

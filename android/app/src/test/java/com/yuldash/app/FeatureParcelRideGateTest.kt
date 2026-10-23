@@ -82,6 +82,17 @@ class FeatureParcelRideGateTest {
         }
         assertEquals("regular", Ride("42", "Уфа", "Сибай", "завтра", driver = "Ринат", car = "Lada", price = 300, seats = 2, rating = 5.0, verified = true, boosted = false).category)
     }
+    /** Приёмка 18.10, п.16: доставка закрыта — в форме водителя нет «Посылки» и «Груза», а не тупик «Скоро». */
+    @Test fun driverFormOffersNoClosedDeliveryTypes() {
+        compose.setContent { if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+            YuldashTheme { CreateRideScreen({}, { fail("nothing to publish") }) }
+        } }
+        compose.onNodeWithText("Тип поездки").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Посылка").assertCountEquals(0)
+        compose.onAllNodesWithText("Груз").assertCountEquals(0)
+        compose.runOnIdle { flags(true) }
+        compose.onNodeWithText("Посылка").performScrollTo().assertIsDisplayed()
+    }
     @Test fun onlyExactDeliveryCategoriesAreClosed() {
         for (category in listOf("regular", "urgent", "hospital", "unknown", "")) assertFalse(rideCategoryClosed(category))
         for (category in listOf("parcel", "cargo")) { assertTrue(rideCategoryClosed(category)); flags(true); assertFalse(rideCategoryClosed(category)); flags(false) }

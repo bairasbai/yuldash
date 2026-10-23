@@ -510,7 +510,7 @@ internal fun BookingScreen(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Детали поездки", "Сәфәр тураһында"), onBack) },
         bottomBar = {
-            BookingDecisionBar(
+            if (bookingId == null && isOwnRide(displayRide)) OwnRideBar() else BookingDecisionBar(
                 primaryText = primaryLabel,
                 primaryEnabled = primaryEnabled,
                 primaryStyle = primaryStyle,
@@ -1333,6 +1333,7 @@ internal fun ActiveTripScreen(
     // null — без навигации (тесты, превью): вид переключается внутри экрана.
     onChatOpenChange: ((Boolean) -> Unit)? = null,
     terminalHint: ActiveTripTerminalHint? = null,
+    onTrustedContacts: () -> Unit = {},   // «Поделиться с близким» без контактов → добавить близкого (приёмка 18.10, п.8)
 ) {
     val currentSession by ApiClient.sessionChanges.collectAsState()
     val tripSession = remember(bookingId) { currentSession }
@@ -1346,7 +1347,7 @@ internal fun ActiveTripScreen(
     }
     key(bookingId, tripSession) {
         ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession, chatOpen, onChatOpenChange,
-            terminalHint?.takeIf { it.bookingId == bookingId && it.status in setOf("done", "cancelled") })
+            terminalHint?.takeIf { it.bookingId == bookingId && it.status in setOf("done", "cancelled") }, onTrustedContacts)
     }
 }
 
@@ -1357,7 +1358,7 @@ private fun ActiveTripContent(
     onBack: () -> Unit, onTripEnd: () -> Unit, onSos: () -> Unit,
     onSupport: () -> Unit, onOpenReceipt: (Int) -> Unit, tripSession: Long,
     chatOpen: Boolean?, onChatOpenChange: ((Boolean) -> Unit)?,
-    terminalHint: ActiveTripTerminalHint?,
+    terminalHint: ActiveTripTerminalHint?, onTrustedContacts: () -> Unit,
 ) {
     val context = LocalContext.current
     val voiceScope = rememberCoroutineScope()
@@ -2429,6 +2430,9 @@ private fun ActiveTripContent(
                 Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = CanonSpace.sm))
                 if (contacts.isEmpty()) {
                     Text(appText("Сначала добавь доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтә"), color = CanonMuted)
+                    TextButton(onClick = { if (isShareCurrent()) { showShare = false; onTrustedContacts() } }, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(appText("Добавить близкого", "Яҡын кешене өҫтәү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                    }
                 }
                 contacts.forEach { c ->
                     Row(

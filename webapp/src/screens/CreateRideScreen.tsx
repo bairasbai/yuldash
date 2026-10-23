@@ -170,7 +170,8 @@ export default function CreateRideScreen() {
     // едет с ним. Без этой категории объявление «могу взять посылку» в вебе создать
     // было нельзя вообще.
     { key: "parcel", label: appText("Возьму посылку", "Аҫылма алам"), icon: <IconBox size={20} /> },
-  ];
+    // Пока доставка закрыта, «Возьму посылку» не предлагаем — вела в тупик «Скоро» (приёмка 18.10, п.16).
+  ].filter((c) => c.key !== "parcel" || features.parcels);
 
   const amenList: { key: Amenity; label: string }[] = [
     { key: "baggage", label: appText("Багаж", "Багаж") },

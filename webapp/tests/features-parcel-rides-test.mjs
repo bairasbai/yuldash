@@ -68,4 +68,12 @@ for(const category of ["parcel","cargo"])for(const status of ["pending","confirm
   assert.equal(h.routes[0][0],status==="pending"?"/booking/89":"/trip/89");
   total++;
 }
+// Приёмка 18.10, п.16: доставка закрыта — в форме водителя нет «Возьму посылку» (а не тупик «Скоро»).
+for(const lang of ["ru","ba"]){
+  const label=lang==="ru"?"Возьму посылку":"Аҫылма алам";
+  const offered=parcels=>nodes(render(fresh(parcels,"regular",lang),Create)).some(n=>n.type==="button"&&text(n).includes(label));
+  assert.equal(offered(false),false,`${lang}: closed delivery is not offered to the driver`);
+  assert.equal(offered(true),true,`${lang}: open delivery is offered`);
+  total++;
+}
 console.log(`Parcel ride gates: ${total}/${total} passed`);

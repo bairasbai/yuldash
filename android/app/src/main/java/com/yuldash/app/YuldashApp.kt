@@ -1440,7 +1440,8 @@ private fun YuldashAppContent() {
                 // Дежурный должен узнать из сигнала, с кем и куда человек уехал (аудит 2026-08-06).
                 onSos = { openSos(bookingId = activeBookingId ?: 0) },
                 onSupport = { screen = Screen.Support },
-                onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt }
+                onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt },
+                onTrustedContacts = { openTrustedContacts(returnScreen = Screen.ActiveTrip) },
             )
             Screen.Sos -> SosScreen(
                 onBack = { goBack() },

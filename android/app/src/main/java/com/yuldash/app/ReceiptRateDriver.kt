@@ -33,9 +33,9 @@ import androidx.compose.ui.unit.sp
 internal fun ReceiptRateDriver(busy: Boolean, onRate: (Int) -> Unit) {
     AppCard {
         Column(
-            Modifier.fillMaxWidth().padding(16.dp),
+            Modifier.fillMaxWidth().padding(CanonSpace.lg),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
         ) {
             Text(appText("Оценить водителя", "Йөрөтөүсене баһалау"),
                 color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -44,7 +44,7 @@ internal fun ReceiptRateDriver(busy: Boolean, onRate: (Int) -> Unit) {
                     "Сәфәрҙән һуң баһаларға өлгөрмәнеңме? Бер нисә йондоҙ башҡаларға һайларға ярҙам итер."),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
                 for (v in 1..5) {
                     val label = appText("$v из 5", "5-тән $v")
                     IconButton(
