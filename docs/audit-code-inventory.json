@@ -83,11 +83,11 @@
     "infra_resource_config": 406,
     "public_site_promo": 89,
     "pwa_main": 323,
-    "test_support": 1263
+    "test_support": 1264
   },
   "counts_by_block": {
     "B01": 159,
-    "B02": 284,
+    "B02": 285,
     "B03": 123,
     "B04": 80,
     "B05": 61,
@@ -979,8 +979,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/CreateRideStops.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "f796b85d41e4fda784d5c48a282c19fba2e08aeca3e69f5ab143ee0a307142a2",
-      "lines": 135
+      "sha256": "bf8ee16e323fa35e2018b7c5329e86538aa4b2e5be5bb4d86737e8aed500ea42",
+      "lines": 141
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/DeliveryGate.kt",
@@ -2885,6 +2885,13 @@
       "block": "B02",
       "sha256": "e271309f615401baeba6df574d890ee748e4ad4a85770a6936cc8e61ccba301b",
       "lines": 271
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/CreateRideStopsHintTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "1e18ee40198619e29b5a3459dbf8694ab497fec5b9c1dc9a49a321e822701d68",
+      "lines": 50
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CreateRideStopsJourneyTest.kt",
@@ -14916,8 +14923,8 @@
       "path": "webapp/src/screens/CreateRideScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "1642d2bd44e4da72b5a3db16cd600e73b9d7ccf7d3657300f774820ca0df4dd5",
-      "lines": 641
+      "sha256": "1792744c867a98e6bf067c4b04059877ea3bf2bdb75c120acc989afb5f35179b",
+      "lines": 651
     },
     {
       "path": "webapp/src/screens/DriverCabinetScreen.tsx",
@@ -16043,8 +16050,8 @@
       "path": "webapp/tests/create-ride-stops-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "2ea21454a662c9ae1fdd756d0862bcf688e0854e29994c6859372a64f027cfcf",
-      "lines": 180
+      "sha256": "ef15cbb5ce87e12ae11922f48bc463bf43c7bab846483336e68aaa916bc4bd4c",
+      "lines": 195
     },
     {
       "path": "webapp/tests/cross-tab-session-test.mjs",
@@ -16456,8 +16463,8 @@
       "path": "webapp/tests/parity-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "456dc05d07df60b2cc365845d32c2dff8b39dfac6ee655e19cc62c1edcb2a2b2",
-      "lines": 262
+      "sha256": "46e3480aff6e887ce93bc90c5ef1f684f9fcdaccb27877c21419de5dbf63fd84",
+      "lines": 269
     },
     {
       "path": "webapp/tests/passenger-trip-location-test.mjs",

@@ -108,6 +108,12 @@ internal fun CreateRideStopsEditor(values: List<String>, onChange: (List<String>
                 Text(appText("Остановки по пути", "Юл буйындағы туҡталыштар"), style = CanonBodyStrong, color = CanonText)
             }
             Text(appText("Куда заезжаешь по дороге — так тебя найдут попутчики с этих мест.", "Юлда ҡайҙа туҡтайһың — шул урындарҙан юлдаштар һине табыр."), style = CanonCaption, color = CanonMuted)
+            // Правило — до ввода, а не только ошибкой после «Опубликовать» (те же границы, что resolveRideStops и сервер).
+            if (values.isNotEmpty()) Text(
+                appText("Только сёла и города из подсказок — без адреса и цифр. До четырёх остановок.",
+                    "Тәҡдимдәрҙән ауылдар һәм ҡалалар ғына — адресһыҙ һәм һандарһыҙ. Дүрткә тиклем туҡталыш."),
+                style = CanonCaption, color = CanonMuted,
+            )
             values.forEachIndexed { index, value ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                     Box(Modifier.weight(1f)) {

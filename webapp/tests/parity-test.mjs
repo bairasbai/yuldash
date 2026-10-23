@@ -233,6 +233,13 @@ const ak = (f) => readFileSync(join(ROOT, "android/app/src/main/java/com/yuldash
 const web = (f) => readFileSync(join(ROOT, "webapp/src", f), "utf8");
 const aCreate = ak("CreateRideScreen.kt");
 const wCreate = web("screens/CreateRideScreen.tsx");
+// Правило остановок (23.10.2026): одна и та же строка до ввода в обоих клиентах.
+const stopsRule = ["Только сёла и города из подсказок — без адреса и цифр. До четырёх остановок.",
+  "Тәҡдимдәрҙән ауылдар һәм ҡалалар ғына — адресһыҙ һәм һандарһыҙ. Дүрткә тиклем туҡталыш."];
+check(
+  stopsRule.every((s) => ak("CreateRideStops.kt").includes(s) && wCreate.includes(s)),
+  "создание поездки: правило остановок одинаково в приложении и в вебе (RU и BA)"
+);
 check(
   aCreate.includes('mutableStateOf("4")') && aCreate.includes("SeatOptionsCard(") &&
     wCreate.includes("useState(SEATS_DEFAULT)") && wCreate.includes("<SeatOptionsFields") &&

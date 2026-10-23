@@ -176,5 +176,20 @@ for (const lang of ["ru", "ba"]) {
       assert.equal(stops(h.tree)[0].props.value, stop); assert.equal(fixture.cleared, 0);
     } finally { h.unmount(); }
   });
+  await t.test(`${lang}: правило остановок видно с первой остановкой — до ввода, а не ошибкой после публикации`, async () => {
+    fresh(); fixture.draft.waypoints = [];
+    const rule = L("Только сёла и города из подсказок — без адреса и цифр. До четырёх остановок.",
+      "Тәҡдимдәрҙән ауылдар һәм ҡалалар ғына — адресһыҙ һәм һандарһыҙ. Дүрткә тиклем туҡталыш.");
+    const h = mount(Form);
+    try {
+      h.render(); await h.settle();
+      assert.ok(!text(h.tree).includes(rule), "без остановок лишней строки нет");
+      button(h.tree, L("Добавить остановку", "Туҡталыш өҫтәү")).props.onClick(); await h.settle();
+      assert.equal(stops(h.tree).length, 1);
+      assert.ok(text(h.tree).includes(rule));
+      button(h.tree, L("Убрать", "Алып ташлау")).props.onClick(); await h.settle();
+      assert.ok(!text(h.tree).includes(rule));
+    } finally { h.unmount(); }
+  });
 }
 t.done();

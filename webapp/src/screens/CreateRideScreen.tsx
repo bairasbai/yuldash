@@ -487,6 +487,16 @@ export default function CreateRideScreen() {
               "Юлда ҡайҙа туҡтайһың — шул урындарҙан юлдаштар һине табыр."
             )}
           </p>
+          {/* Правило — до ввода, а не только ошибкой после «Опубликовать» (те же границы,
+              что resolveRideStops и сервер). Как в приложении — с первой остановкой. */}
+          {waypoints.length > 0 && (
+            <p className="sheet__note" style={{ marginTop: 4 }}>
+              {appText(
+                "Только сёла и города из подсказок — без адреса и цифр. До четырёх остановок.",
+                "Тәҡдимдәрҙән ауылдар һәм ҡалалар ғына — адресһыҙ һәм һандарһыҙ. Дүрткә тиклем туҡталыш."
+              )}
+            </p>
+          )}
           {waypoints.map((w, i) => (
             <div key={i} className="trip-stops__row" style={{ background: "transparent", padding: 0, marginTop: 8 }}>
               <StopSuggestField
