@@ -67,6 +67,7 @@ internal class TripChatState(
     private val restAttempts = mutableMapOf<Int, OutboxAction>()
     private val delivering = mutableMapOf<Int, Any>()
     private val acknowledged = mutableSetOf<Int>()
+    private val sendOrder = Mutex()   // честный: сохранить и отдать в сокет — по одному, в порядке нажатий
     internal val wsConnectedState: MutableState<Boolean> = mutableStateOf(false)
     var wsConnected: Boolean by wsConnectedState
     private var wasEverConnected = false
@@ -352,15 +353,17 @@ internal class TripChatState(
         val action = restAttempts.getOrPut(tempId) { Outbox.newMessage(bid, text) }
         scope.launch {
             try {
-                // Commit before network: process death must not forget an accepted WS send.
-                val saved = withContext(Dispatchers.IO) { Outbox.enqueue(context, action, tripSession) }
+                // Commit before network (process death). Без sendOrder фоновая запись меняла местами быстрые сообщения.
+                val (saved, sentViaWs) = sendOrder.withLock {
+                    val ok = withContext(Dispatchers.IO) { Outbox.enqueue(context, action, tripSession) }
+                    ok to (ok && isActive() && wsConnected && socket?.send(action.payload, tempId, Outbox.messageRequestKey(action)) == true)
+                }
                 if (!isActive()) return@launch
                 if (!saved) {
                     failedIds = failedIds + tempId
                     toast(texts.value.queueSaveFail, long = false)
                     return@launch
                 }
-                val sentViaWs = wsConnected && socket?.send(action.payload, tempId, Outbox.messageRequestKey(action)) == true
                 if (sentViaWs) delay(WS_ACK_TIMEOUT_MS)
                 if (!isActive() || tempId in acknowledged || delivering[tempId] !== attempt) return@launch
                 // Same key for uncertain WS delivery, HTTP retry and startup queue flush.
@@ -587,9 +590,8 @@ internal class TripChatState(
         }
     }
 
-    private fun toast(text: String, long: Boolean) {
+    private fun toast(text: String, long: Boolean) =
         Toast.makeText(context, text, if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
-    }
 
     internal companion object {
         private val PERMANENT_REJECTIONS = setOf(400, 403, 404, 405, 409, 410, 413, 415, 422)

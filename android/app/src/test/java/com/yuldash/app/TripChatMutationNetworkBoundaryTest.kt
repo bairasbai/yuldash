@@ -283,6 +283,19 @@ class TripChatMutationNetworkBoundaryTest {
         mounted = false // Cancel the remaining send before its ordinary timeout; it is still durable.
     }
 
+    // CI #197 (job 120337935339): тест выше брал ключ «первого» из первого кадра сокета, а кадры уходили
+    // в порядке окончания фоновой записи в очередь — быстрые сообщения менялись местами. Порядок нажатий
+    // держит sendOrder в TripChatState: и в сокете, и в очереди на диске.
+    @Test fun rapidMessagesLeaveSocketInTapOrder() {
+        connectLive(); failHistory = true
+        val texts = (1..40).map { "burst $it" }
+        texts.forEach { chat.sendText(it) }
+        waitFor { sentFrames.size == texts.size }
+        assertEquals(texts, sentFrames.map { it.getString("text") })
+        assertEquals(texts.size, Outbox.count(context, 42))
+        mounted = false // Cancel the pending sends before their ordinary timeout; they stay durable.
+    }
+
     @Test fun ownHiddenWsAckRemovesBothPendingAndKnownRowsWithoutContent() {
         connectLive(); failHistory = true; chat.sendText("pending hidden")
         waitFor { sentFrames.size == 1 }
