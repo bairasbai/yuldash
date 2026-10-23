@@ -118,6 +118,22 @@ for (const lang of ["ru", "ba"]) {
     fresh.props = { ...fresh.props, item: { ...item, id: 23 } }; fresh.render(); await fresh.settle();
     assert.ok(all(fresh.tree).filter(n => n.type === "input" && n.props.type === "radio").every(n => !n.props.checked)); fresh.unmount();
   });
+  await t.test(`${lang}: «Как повезёшь пассажира?» и «По моим маршрутам» — цвета бренда и подсвеченная выбранная строка`, async () => {
+    h.generation = "a"; h.items = [{ ...item, matched_ride_id: null }]; h.feed = []; h.fetch = undefined;
+    const f = mount(Feed); await f.settle();
+    const rowOf = (tree, input) => all(tree).find(n => n.type === "label" && all(n).includes(input));
+    let box = all(f.tree).find(n => n.type === "input" && n.props.type === "checkbox");
+    assert.equal(box.props.className, "checkbox"); assert.ok(!rowOf(f.tree, box).props.className.includes("list-row--on"));
+    box.props.onChange({ target: { checked: true } }); h.items = []; await f.settle();
+    box = all(f.tree).find(n => n.type === "input" && n.props.type === "checkbox");
+    assert.ok(rowOf(f.tree, box).props.className.includes("list-row--on"), "включённая галочка подсвечивает строку"); f.unmount();
+    const s = mount(Respond, { item, onClose() {}, onDone() {} }); s.render();
+    const radios = () => all(s.tree).filter(n => n.type === "input" && n.props.type === "radio");
+    assert.ok(radios().every(r => r.props.className === "checkbox" && !rowOf(s.tree, r).props.className.includes("list-row--on")));
+    radios()[1].props.onChange(); await s.settle();
+    assert.deepEqual(radios().map(r => rowOf(s.tree, r).props.className.includes("list-row--on")), [false, true]);
+    s.unmount();
+  });
   // Любой 409 раньше подменялся «Рейс изменился…» и навсегда запирал «Мой рейс». 409 бывает и про закрытую заявку,
   // и про паузу пассажира, и про «отклик уже ушёл с другим рейсом» — человеку нужно слово сервера.
   const own409 = lang === "ru" ? "Рейс изменился" : "Сәфәр үҙгәргән";

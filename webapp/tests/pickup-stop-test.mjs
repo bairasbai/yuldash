@@ -50,6 +50,22 @@ for (const lang of ["ru", "ba"]) {
     assert.ok(!choices.some(n => n.props.value === "Уфа")); choices[2].props.onChange(); assert.equal(picked, "Сибай");
     s.unmount();
   });
+  // Радио — цвета бренда (.checkbox, accent-color), не браузерный синий; выбранная строка подсвечена (.list-row--on).
+  const Dropoff = await bundleComponent("src/components/PickupStopChoice.tsx", { ...options, exportName: "DropoffStopChoice" });
+  await t.test(lang + ": радио посадки и высадки — класс бренда, выбранная строка подсвечена, невыбранные нет", () => {
+    for (const [Comp, props, pick, name] of [[Choice, { ride, picked: "Акъяр", onPick() {} }, "Акъяр", "pickup-stop-7"], [Dropoff, { ride, pickup: "Баймак", picked: "Сибай", onPick() {} }, "Сибай", "dropoff-stop-7"]]) {
+      const s = mount(Comp, props); s.render();
+      const rows = all(s.tree).filter(n => n.type === "label");
+      assert.ok(rows.length >= 3);
+      for (const row of rows) {
+        const input = all(row).find(n => n.type === "input");
+        assert.equal(input.props.className, "checkbox", "радио без .checkbox красится браузерным синим");
+        assert.equal(input.props.name, name);
+        assert.equal(row.props.className.includes("list-row--on"), input.props.value === pick, "подсвечена только выбранная строка: " + input.props.value);
+      }
+      s.unmount();
+    }
+  });
   await t.test(lang + ": feed hint is public server metadata, never a private passenger choice", () => {
     let s = mount(Hint, { ride }); s.render(); assert.equal(s.tree, null); s.unmount();
     s = mount(Hint, { ride: { ...ride, matched_stop: "Акъяр" } }); s.render(); assert.ok(text(s.tree).includes("Акъяр")); s.unmount();

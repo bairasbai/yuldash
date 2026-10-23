@@ -1697,6 +1697,13 @@ button.list-row:active {
 }
 .list-row--check {
   cursor: pointer;
+  transition: background var(--motion-quick) ease, box-shadow var(--motion-quick) ease;
+}
+/* Выбранная строка в списке «выбери одно» (радио / флажок): мятная подложка и зелёная рамка внутри, как у
+   выбранного тарифа (.adpkg.is-on). Сам кружок красит .checkbox (accent-color), а не браузерный синий. */
+.list-row--on {
+  background: var(--mint);
+  box-shadow: inset 0 0 0 2px var(--green2);
 }
 .checkbox {
   flex: none;

@@ -83,12 +83,12 @@ export default function RequestsFeedScreen() {
         onBack={() => navigate(-1)}
       />
 
-      <label className="list-row list-row--check" style={{ minHeight: 48 }}>
+      <label className={"list-row list-row--check" + (onRoute ? " list-row--on" : "")} style={{ minHeight: 48 }}>
         <span className="list-row__main" style={{ display: "grid", gap: "var(--space-xs)", minWidth: 0, overflowWrap: "anywhere" }}>
           <span className="list-row__title">{appText("По моим маршрутам", "Минең юлдарым буйынса")}</span>
           <span className="list-row__sub">{appText("Посадка и высадка идут по порядку остановок твоего рейса.", "Ултырыу һәм төшөү һинең сәфәр туҡталыштары тәртибендә.")}</span>
         </span>
-        <input type="checkbox" checked={onRoute} onChange={e => setOnRoute(e.target.checked)} />
+        <input type="checkbox" className="checkbox" checked={onRoute} onChange={e => setOnRoute(e.target.checked)} />
       </label>
 
       {status === "loading" && <LoadingList count={4} />}
@@ -316,17 +316,17 @@ export function RespondSheet({
         </p>
         {matched && <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: "var(--space-md) 0" }}>
           <legend className="list-row__title">{appText("Как повезёшь пассажира?", "Юлсыны нисек алып бараһың?")}</legend>
-          <label className="list-row list-row--check" style={{ minHeight: 48 }}>
+          <label className={"list-row list-row--check" + (tripChoice === "ride" ? " list-row--on" : "")} style={{ minHeight: 48 }}>
             <span className="list-row__main" style={{ display: "grid", gap: "var(--space-xs)", minWidth: 0, overflowWrap: "anywhere" }}>
               <span className="list-row__title">{appText("Мой рейс", "Минең сәфәрем")}: {item.matched_ride_from_city} → {item.matched_ride_to_city}</span>
               <span className="list-row__sub">{appText("Выезд рейса", "Сәфәргә сығыу")}: {formatWhen(item.matched_ride_depart_at, lang !== "ba")}</span>
               <span className="list-row__sub">{appText("Участок пассажира", "Юлсының юл өлөшө")}: {item.matched_pickup_stop} → {item.matched_dropoff_stop}</span>
             </span>
-            <input type="radio" name={`respond-trip-${item.id}`} checked={tripChoice === "ride"} onChange={() => { setTripChoice("ride"); setError(null); }} />
+            <input type="radio" className="checkbox" name={`respond-trip-${item.id}`} checked={tripChoice === "ride"} onChange={() => { setTripChoice("ride"); setError(null); }} />
           </label>
-          <label className="list-row list-row--check" style={{ minHeight: 48 }}>
+          <label className={"list-row list-row--check" + (tripChoice === "separate" ? " list-row--on" : "")} style={{ minHeight: 48 }}>
             <span className="list-row__main">{appText("Отдельная поездка", "Айырым сәфәр")}</span>
-            <input type="radio" name={`respond-trip-${item.id}`} checked={tripChoice === "separate"} onChange={() => { setTripChoice("separate"); setError(null); }} />
+            <input type="radio" className="checkbox" name={`respond-trip-${item.id}`} checked={tripChoice === "separate"} onChange={() => { setTripChoice("separate"); setError(null); }} />
           </label>
           <p className="sheet__note">{appText("Время посадки уточни в чате.", "Ултырыу ваҡытын чатта асыҡла.")}</p>
         </fieldset>}
