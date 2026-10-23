@@ -61,7 +61,8 @@ class RideshareSmallFixesTest {
 
     private fun details(driverId: Int) {
         compose.setContent { if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-            YuldashTheme { BookingScreen(ride(driverId), null, emptyList(), emptyMap(), {}, {}, {}, {}) }
+            YuldashTheme { BookingScreen(ride(driverId), null, emptyList(), emptyMap(), {}, {}, {}, {},
+                onConfirmRide = { _, _, _, _, _ -> }) }
         } }
         compose.waitForIdle()
     }
