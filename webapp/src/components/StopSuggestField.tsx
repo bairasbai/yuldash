@@ -122,7 +122,8 @@ export default function StopSuggestField({ value, onChange, endpoints }: {
               <><p className="sheet__note" role="alert">{error}</p><button type="button" className="btn-soft" style={{ minHeight: 48 }} onClick={() => setRetry((n) => n + 1)}>{appText("Повторить", "Ҡабатлау")}</button></> :
               shown.length === 0 ? <p className="sheet__note">{appText("Не нашли. Попробуй другое название.", "Табылманы. Башҡа атама яҙып ҡара.")}</p> :
                 <><ul role="listbox" aria-label={appText("Остановки по пути", "Юл буйындағы туҡталыштар")} style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                  {shown.map((town) => <li key={town.id}><button type="button" className="city-field__item" role="option" aria-selected={false}
+                  {/* listbox владеет только option: <li> между ними — role="presentation", иначе диктор читает «пункт списка» вместо варианта. */}
+                  {shown.map((town) => <li key={town.id} role="presentation"><button type="button" className="city-field__item" role="option" aria-selected={false}
                     onClick={() => { onChange(rideStopPickText(town, lang === "ba")); setOpen(false); }}>
                     <span className="city-field__name">{rideStopPickText(town, lang === "ba")}</span>
                     <span className="city-field__sub">{town.region}</span>
