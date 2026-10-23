@@ -11780,8 +11780,8 @@
       "path": "backend/tests/test_unanswered_sos_calls_again.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "1a9bfd0ad13bb523692e0d5f967d0d0493816c7d1324a087005ef6d3f6b57cc9",
-      "lines": 96
+      "sha256": "c701b3be1278622dd44fcfd1c500e3ba73eea4ecb3df1a8331ab5496f71a9fc9",
+      "lines": 106
     },
     {
       "path": "backend/tests/test_villages.py",

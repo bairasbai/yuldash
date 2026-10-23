@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 import pytest
@@ -32,8 +33,16 @@ def caught_admin(monkeypatch):
     """Ловим повторные сигналы дежурному (Telegram + SMS)."""
     sent: list[str] = []
     monkeypatch.setattr(sos_escalate, "notify_admin_telegram", lambda text: sent.append(text))
-    monkeypatch.setattr(sos_escalate, "send_text", lambda phone, text: sent.append(f"SMS:{phone}"))
+    monkeypatch.setattr(sos_escalate, "send_text", lambda phone, text: sent.append(f"SMS:{phone}: {text}"))
     return sent
+
+
+def _about(sent: list[str], event_id: int) -> list[str]:
+    """Повторы ровно про ЭТОТ сигнал. Воркер берёт все непринятые сигналы базы, а соседние тесты
+    оставляют свои, уже «старые» (`test_sos_retry_window.py` старит сигнал на 14 и 16 минут). При
+    запуске в несколько процессов они попадали сюда, и «дежурного не дёргали» падало на чужом
+    сигнале; по одному процессу их по алфавиту успевал «съесть» первый тест этого файла."""
+    return [t for t in sent if re.search(rf"Сигнал #{event_id}\b", t)]
 
 
 def _sos(user_id: int, minutes_ago: int, status: str = "open") -> int:
@@ -61,8 +70,9 @@ def test_сигнал_ждавший_дольше_порога_зовёт_сно
     event_id = _sos(gulnara["id"], minutes_ago=30)
 
     assert event_id in _escalate(), "непринятый сигнал так и остался без повтора"
-    assert caught_admin, "повтор никому не ушёл"
-    assert "НЕ ПРИНЯТ" in caught_admin[0], caught_admin[0]
+    mine = _about(caught_admin, event_id)
+    assert mine, "повтор никому не ушёл"
+    assert "НЕ ПРИНЯТ" in mine[0], mine[0]
     assert _event(event_id).escalated_at is not None, "повтор ушёл, а следа о нём не осталось"
 
 
@@ -72,7 +82,7 @@ def test_свежий_сигнал_не_дёргают(client, user_factory, cau
     event_id = _sos(rinat["id"], minutes_ago=1)
 
     assert event_id not in _escalate(), "повтор ушёл через минуту после сигнала"
-    assert not caught_admin
+    assert not _about(caught_admin, event_id)
 
 
 def test_принятый_сигнал_не_повторяют(client, user_factory, caught_admin):
@@ -81,7 +91,7 @@ def test_принятый_сигнал_не_повторяют(client, user_fact
     event_id = _sos(aigul["id"], minutes_ago=60, status="handled")
 
     assert event_id not in _escalate(), "повтор ушёл по сигналу, который уже приняли"
-    assert not caught_admin
+    assert not _about(caught_admin, event_id)
 
 
 def test_повтор_ровно_один(client, user_factory, caught_admin):
@@ -93,4 +103,4 @@ def test_повтор_ровно_один(client, user_factory, caught_admin):
     caught_admin.clear()
 
     assert event_id not in _escalate(), "второй повтор по тому же сигналу"
-    assert not caught_admin, f"дежурного зовут снова и снова: {caught_admin}"
+    assert not _about(caught_admin, event_id), f"дежурного зовут снова и снова: {caught_admin}"
