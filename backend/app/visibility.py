@@ -297,6 +297,18 @@ FEED_MAX = 200
 #
 # Срок берём тот же, что у чата после поездки (`chat_after_trip_hours`): держать два разных
 # окна для связи по одной поездке — значит однажды их рассинхронизировать.
+def cancelled_in_transit(booking) -> bool:
+    """Бронь отменили, когда пассажир уже был в машине (решение 23.10.2026).
+
+    Посадку отмечает водитель (`onboard_at`), «Отменить» в первые минуты её снимает (`onboard_at=None`),
+    а отмена брони или поездки её не трогает. Пассажир «в пути» отменить не может
+    (`bookings._onboard_cancel_refusal`) — значит, отменил водитель или администратор.
+    Тогда пассажир, возможно, стоит на трассе: близким и SOS нельзя говорить «поездка завершена»."""
+    статус = booking.status.value if hasattr(booking.status, "value") else booking.status
+    return (статус == "cancelled" and getattr(booking, "onboard_at", None) is not None
+            and getattr(booking, "cancelled_by", None) != booking.passenger_id)
+
+
 def booking_contacts_open(booking, ride, now=None) -> bool:
     """Открыт ли ПРЯМО СЕЙЧАС телефон второй стороны по этой брони."""
     from datetime import timedelta

@@ -24,7 +24,7 @@ from ..ride_stops import VILLAGE_KINDS, canonical_stop, is_end, is_start, parse_
 from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
                             guard_women_only)
 from ..security import current_user, gen_otp
-from ..visibility import LIVE_GEO_LEAD_HOURS, booking_contacts_open
+from ..visibility import LIVE_GEO_LEAD_HOURS, booking_contacts_open, cancelled_in_transit
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
 from ..trust_service import INSIDER_LEVEL, trust_level
@@ -244,7 +244,12 @@ PROBLEM_REPORT_WINDOW = timedelta(hours=6)
 
 
 def problem_report_left(booking: Booking, ride: Ride, now=None) -> int:
-    """Сколько секунд пассажиру ещё показывать «Сообщить о проблеме» на завершённой поездке."""
+    """Сколько секунд пассажиру ещё показывать «Сообщить о проблеме» на завершённой поездке.
+
+    И на поездке, которую отменили, когда пассажир был в машине (23.10.2026): поспорить с такой
+    отменой — его право; окно считаем от отмены."""
+    if cancelled_in_transit(booking) and booking.cancelled_at is not None:
+        return max(0, int((booking.cancelled_at + PROBLEM_REPORT_WINDOW - (now or utcnow())).total_seconds()))
     if booking.status != BookingStatus.done:
         return 0
     anchor = max((t for t in (ride.depart_at, booking.onboard_at, booking.done_at) if t is not None), default=None)
@@ -389,6 +394,8 @@ class BookingDetailsOut(BaseModel):
     minor_guardian_name: str = ""
     minor_guardian_phone: str = ""
     front_seat: bool = False          # пассажир просил переднее место — видят обе стороны
+    # Отменена, когда пассажир был в машине (23.10.2026): экран не закрывается сам, а ведёт к SOS.
+    cancelled_in_transit: bool = False
     # Где садится пассажир (18.10.2026): "" — начало маршрута, «Акъяр» — остановка, null —
     # неизвестно (или водителю уже не видно: бронь отменена / поездка давно закрыта).
     pickup_stop: Optional[str] = None
@@ -672,6 +679,10 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
     driver_car = f"{profile.car_make} {profile.car_model}".strip() if profile else ""
     unlocked = booking_contacts_open(booking, ride)
     is_driver = ride.driver_id == user.id
+    in_transit = cancelled_in_transit(booking)
+    # Машина и госномер остаются у пассажира, которого высадили в пути (23.10.2026): по ним родные
+    # и полиция ищут машину. Телефон водителя — нет: связь после отмены — через SOS и разбор.
+    car_open = unlocked or (in_transit and not is_driver)
     # Контакты взрослого за подростка — водителю, пока бронь ЖИВАЯ. Отменённая ничего не
     # открывает: см. комментарий у полей ниже.
     # Завершённая поездка тоже перестаёт открывать контакты взрослого (волна 160). Отменённую
@@ -718,8 +729,8 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         # пассажир идёт к машине, которую выбрал сам по объявлению. Разбор конкурентов
         # 2026-08-07: у BlaBlaCar приезжала ДРУГАЯ машина с другим человеком за рулём, и сверить
         # было нечем. Отдаём только участникам и только после подтверждения брони (ПДн).
-        "driver_plate": ((profile.car_plate or "") if (unlocked and profile) else ""),
-        "driver_car_color": ((profile.car_color or "") if (unlocked and profile) else ""),
+        "driver_plate": ((profile.car_plate or "") if (car_open and profile) else ""),
+        "driver_car_color": ((profile.car_color or "") if (car_open and profile) else ""),
         # Пометку видят оба; контакты взрослого — только водителю (и сразу, ещё до подтверждения:
         # именно на этих данных он и решает, берёт ли ответственность).
         #
@@ -732,6 +743,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "minor_guardian_name": (booking.minor_guardian_name if guardian_visible else ""),
         "minor_guardian_phone": (booking.minor_guardian_phone if guardian_visible else ""),
         "front_seat": bool(booking.front_seat),
+        "cancelled_in_transit": in_transit,
         "pickup_stop": pickup_stop,
         "dropoff_stop": dropoff_stop,
         "ride_has_stops": has_stops,
@@ -910,6 +922,8 @@ def booking_role(booking_id: int, user: User = Depends(current_user), session: S
         "boarding_undo_sec": boarding_undo_left(booking) if is_driver else 0,
         # Сколько ещё пассажиру показывать «Сообщить о проблеме» после завершения (водителю 0).
         "problem_report_sec": 0 if is_driver else problem_report_left(booking, ride),
+        # Отменена, когда пассажир был в машине (23.10.2026): экран остаётся и ведёт к SOS.
+        "cancelled_in_transit": cancelled_in_transit(booking),
     }
 
 
@@ -1482,6 +1496,11 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
         session.refresh(booking)
         trip_wake.poke(booking.id)   # канал координат закрывается сразу, а не через сторож (≤ 30 с)
         notify_map_changed()   # места вернулись → поездка снова видна на карте live
+        # Водитель отменил, когда человек уже в машине (решение 23.10.2026): пассажир, возможно,
+        # на трассе — ему не «посмотри другие поездки», а путь к помощи; близким — правда.
+        if cancelled_in_transit(booking):
+            notify_cancelled_in_transit(session, booking, ride)
+            return _booking_out(booking)
         # Уведомление ДРУГОЙ стороне: кто не отменял (пассажир отменил → водителю, и наоборот).
         other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
         route = f"{ride.from_city} → {ride.to_city}"
@@ -1504,6 +1523,31 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
             ref_kind="booking", ref_id=booking.id,
         )
     return _booking_out(booking)
+
+
+def notify_cancelled_in_transit(session: Session, booking: Booking, ride: Ride) -> None:
+    """Бронь отменили, когда пассажир был в машине (`cancelled_in_transit`): пассажиру — срочный пуш
+    с путём к помощи (SOS и «Застрял» работают и по отменённой брони), близким, с кем он поделился
+    поездкой, — SMS «отменили в пути» (один раз, под общим потолком SMS, «Только SOS» не тревожим).
+    Причину отмены не пишем: «пассажир опоздал» и прочие причины до посадки здесь неправда."""
+    route = f"{ride.from_city} → {ride.to_city}"
+    push_notification(
+        session, booking.passenger_id, "booking",
+        "Поездку отменили в пути", "Сәфәрҙе юлда кире алдылар",
+        f"{route}. Если нужна помощь — SOS или «Застрял на трассе» в приложении.",
+        f"{route}. Ярҙам кәрәк булһа — ҡушымтала SOS йәки «Юлда ҡалдым».",
+        ref_kind="booking", ref_id=booking.id, urgent=True,
+    )
+    passenger = session.get(User, booking.passenger_id)
+    if passenger is not None:
+        from .family import notify_family_trip_status
+        notify_family_trip_status(session, booking.id, passenger, "cancelled_onboard")
+    # Дежурному — номер брони и поездки, без телефонов и координат: человек мог остаться на трассе,
+    # а SOS он может и не нажать. Сбой Telegram отмену не откатывает (она уже сохранена).
+    from .. import services
+    services.notify_admin_telegram(
+        f"⚠️ Поездку отменили в пути: бронь #{booking.id}, поездка #{ride.id} ({route})"
+        + (", пассажир — несовершеннолетний" if booking.minor_passenger else ""))
 
 
 def _onboard_cancel_refusal() -> HTTPException:
@@ -1701,6 +1745,7 @@ def my_bookings(
             "pay_method": b.pay_method.value if hasattr(b.pay_method, "value") else b.pay_method,
             "pay_amount": b.pay_amount,
             "front_seat": bool(b.front_seat),
+            "cancelled_in_transit": cancelled_in_transit(b),
             # Где садится (18.10.2026): "" — начало, «Акъяр» — остановка, null — не указано.
             "pickup_stop": (b.pickup_stop if r is not None and ride_has_stops_raw(r, entry) else ""),
             "dropoff_stop": b.dropoff_stop,

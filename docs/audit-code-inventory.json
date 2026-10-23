@@ -83,7 +83,7 @@
     "infra_resource_config": 406,
     "public_site_promo": 89,
     "pwa_main": 323,
-    "test_support": 1264
+    "test_support": 1265
   },
   "counts_by_block": {
     "B01": 159,
@@ -94,7 +94,7 @@
     "B06": 101,
     "B07": 144,
     "B08": 215,
-    "B09": 723,
+    "B09": 724,
     "B10": 406,
     "B11": 90
   },
@@ -6950,8 +6950,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "b9a2c6441d77104e776b2a0410aa4e3e10c53fc4188de1edc13caf6268b7325f",
-      "lines": 1849
+      "sha256": "b79530d11feb30bd33ef826994e319cdbdba5c935219f791a24c07f0d524baaf",
+      "lines": 1894
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -7020,8 +7020,8 @@
       "path": "backend/app/routers/family.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "39139d508ac3a1c04b23783b194ec73dfdbe273e575c3ca26fa41eedc65a502f",
-      "lines": 755
+      "sha256": "7b1926cae2de800d7ea3d23a2cdca0924b6257c7416d75e48401c5fc860fda25",
+      "lines": 761
     },
     {
       "path": "backend/app/routers/health.py",
@@ -7125,8 +7125,8 @@
       "path": "backend/app/routers/rides.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "0665c1c62ccae040d0673ca1d88ce2d83950832720ffed0099c75b54dd4226c9",
-      "lines": 1306
+      "sha256": "19e16c2dad9fe97bd85e00a8c7afe4d72d6fd6899d9844bc04fb86fe2ed3a143",
+      "lines": 1323
     },
     {
       "path": "backend/app/routers/route_watch.py",
@@ -7139,8 +7139,8 @@
       "path": "backend/app/routers/safety.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "401e2810ecc5ae3a329c8ba40cb6589796d7403da8eba2b7c9d2625b7526c70f",
-      "lines": 1836
+      "sha256": "d8e69622d6d942a4600dbaef48b357f16d9ab70a66953b6a783069ab9f4b8eef",
+      "lines": 1839
     },
     {
       "path": "backend/app/routers/seasonal.py",
@@ -7160,8 +7160,8 @@
       "path": "backend/app/routers/share.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "18e522b2aeb9a85190e6416e47153f69f1cd0667c13d4df5d032387c59f3c743",
-      "lines": 804
+      "sha256": "7759f4e444b23774cb7f1fddef8712c6edccc7cd6a2094f31486edae992528e3",
+      "lines": 818
     },
     {
       "path": "backend/app/routers/stats.py",
@@ -7307,8 +7307,8 @@
       "path": "backend/app/visibility.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "26882dc4be3795a73d220ab969ee058862af0cc94273fb92bb01fbc49dd024d7",
-      "lines": 368
+      "sha256": "15f639a8bca23c56c1ad2d7b886e0c09b2d2e8478ff62a9ff3aed991fd765388",
+      "lines": 380
     },
     {
       "path": "backend/app/waiting_on_us.py",
@@ -8417,6 +8417,13 @@
       "lines": 199
     },
     {
+      "path": "backend/tests/test_cancel_in_transit_honest.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "5a246bfde48f4ec2e69b5e3d099908f97ac0adfa533b1e8bfdc4f70253b0ac03",
+      "lines": 269
+    },
+    {
       "path": "backend/tests/test_cancel_reason.py",
       "kind": "test_support",
       "block": "B02",
@@ -9400,7 +9407,7 @@
       "path": "backend/tests/test_live_link.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "2b14e803656b3a5c79ccb3fa812721aa3ec5ddc0c370c4e4192aea58e13dfbc8",
+      "sha256": "08d3b9f93079dcac5bec2ebc2f2acbb52ccb4359e82463ebbf2e1768c947e428",
       "lines": 301
     },
     {

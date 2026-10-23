@@ -563,11 +563,17 @@ def notify_family_trip_status(session: Session, booking_id: int, passenger: User
         session.refresh(share)  # после commit объекты «обнуляются» — перечитываем
     # Реально уведомляем близких по SMS о статусе поездки.
     status_text = {"sat": "сел в машину", "arrived": "доехал до места", "done": "завершил поездку",
-                   "unsat": "— отметку посадки отменили"}.get(status, status)
+                   "unsat": "— отметку посадки отменили",
+                   # Отмена, когда человек уже в машине (решение 23.10.2026): близкий не должен
+                   # узнавать об этом по «завершена ✅» на странице слежения.
+                   "cancelled_onboard": "— поездку отменили в пути. Позвони и узнай, всё ли в порядке",
+                   }.get(status, status)
     # То же по-башкирски: SMS близким уходили только по-русски (волна 95). Язык берём у того,
     # кто завёл контакт: про язык его мамы мы ничего не знаем, а он знает.
     status_text_ba = {"sat": "машинаға ултырҙы", "arrived": "урынына етте",
-                      "done": "сәфәрҙе тамамланы", "unsat": "— ултырыу билдәһе кире алынды"}.get(status, status_text)
+                      "done": "сәфәрҙе тамамланы", "unsat": "— ултырыу билдәһе кире алынды",
+                      "cancelled_onboard": "— сәфәрҙе юлда кире алдылар. Шылтырат һәм барыһы ла яйлымы икәнен бел",
+                      }.get(status, status_text)
     who = passenger.name or passenger.phone
     for cid in changed_ids:
         c = session.get(TrustedContact, cid)
