@@ -17008,6 +17008,12 @@ button.settings-row:active {
   font-size: var(--font-micro);
   line-height: var(--line-micro);
 }
+.rcpt-rate__hint {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  text-align: center;
+}
 .rcpt-more {
   padding-top: var(--space-xs);
   color: var(--text);

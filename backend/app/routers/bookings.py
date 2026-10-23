@@ -26,6 +26,7 @@ from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused,
 from ..security import current_user, gen_otp
 from ..visibility import LIVE_GEO_LEAD_HOURS, booking_contacts_open
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
+from ..rating_service import RATING_WINDOW_DAYS
 from ..timeutil import utcnow
 from ..trust_service import INSIDER_LEVEL, trust_level
 
@@ -854,6 +855,9 @@ def trip_receipt(booking_id: int, user: User = Depends(current_user), session: S
                               ("Пассажир" if role == "driver" else "Водитель")),
         "my_stars": int(my_rating.stars) if my_rating else 0,
         "my_rating_tags": (my_rating.tags or "") if my_rating else "",
+        # Срок оценки ещё открыт (как проверяет /rate): квитанция предлагает «Оценить водителя»
+        # тому, кто пропустил экран «Поездка завершена» (приёмка 18.10, п.7).
+        "can_rate": ride.depart_at is None or utcnow() - ride.depart_at <= timedelta(days=RATING_WINDOW_DAYS),
         # Вторая сторона — для «Сообщить о проблеме» пассажира (разбор по брони, POST /incidents).
         "counterparty_id": counterparty.id if counterparty else 0,
         "problem_report_sec": problem_report_left(booking, ride) if role == "passenger" else 0,

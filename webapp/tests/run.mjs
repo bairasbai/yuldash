@@ -193,6 +193,8 @@ const ALL_SUITES = [
   { test: "driver-passengers-open-trip-test", src: null, out: null, bundle: false },
   // «Отклонить» бронь — сначала «Отклонить бронь?», как в Android (приёмка 18.10, п.6).
   { test: "driver-decline-confirm-test", src: null, out: null, bundle: false },
+  // «Оценить водителя» в квитанции попутки — для тех, кто пропустил экран завершения (приёмка 18.10, п.7).
+  { test: "receipt-rate-later-test", src: null, out: null, bundle: false },
   // Оценка пассажира в два шага, как в Android: выбрал → «Отправить оценку»; «Изменить» / «Отмена».
   { test: "driver-rating-two-step-test", src: null, out: null, bundle: false },
   // Отмена: на «Брони» — только ждущая и своим окном; подтверждённая — на экране поездки с причиной {reason}; «в пути» — никак.

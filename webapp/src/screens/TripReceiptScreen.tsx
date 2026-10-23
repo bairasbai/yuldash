@@ -12,6 +12,7 @@ import { fetchReceipt, reportBookingLostItem, type TripReceipt } from "../api/bo
 import { thankBooking, fetchBookingTip, type TipInfo } from "../api/family";
 import SbpPay from "../components/SbpPay";
 import PayTripCard from "../components/PayTripCard";
+import ReceiptRateDriver from "../components/ReceiptRateDriver";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow, IconReceipt, IconHeart, IconCheck, IconShare, IconSearch } from "../components/Icons";
@@ -55,7 +56,7 @@ export default function TripReceiptScreen() {
       const signal = ac.signal;
       readyReceipt.current = null; thanksRequest.current = null; lostRequest.current = null;
       setTip(null); setThanked(false); setThanksBusy(false); setShared(false);
-      setLostOpened(false); setLostBusy(false); setLostError("");
+      setLostOpened(false); setLostBusy(false); setLostError(""); setRatedStars(0);
       if (shareTimer.current !== null) window.clearTimeout(shareTimer.current);
       if (!Number.isSafeInteger(bookingId) || bookingId <= 0) {
         setState({ kind: "error" });
@@ -105,6 +106,8 @@ export default function TripReceiptScreen() {
   const [lostOpened, setLostOpened] = useState(false);
   const [lostBusy, setLostBusy] = useState(false);
   const [lostError, setLostError] = useState("");
+  // Оценка позже — прямо в квитанции (приёмка 18.10, п.7); ушла — строка «Твоя оценка» сразу на месте.
+  const [ratedStars, setRatedStars] = useState(0);
 
   const passengerReceipt = state.kind === "ready" && state.r.role === "passenger";
   const driverReceipt = state.kind === "ready" && state.r.role === "driver";
@@ -112,7 +115,8 @@ export default function TripReceiptScreen() {
   const pickup = r?.pickup_stop === "" ? r.from_city : r?.pickup_stop;
   const dropoff = r?.dropoff_stop === "" ? r.to_city : r?.dropoff_stop;
   const hasSegment = typeof pickup === "string" && !!pickup.trim() && typeof dropoff === "string" && !!dropoff.trim();
-  const ownStars = Number.isInteger(r?.my_stars) && r!.my_stars! >= 1 && r!.my_stars! <= 5 ? r!.my_stars : null;
+  const ownStars = ratedStars > 0 ? ratedStars
+    : Number.isInteger(r?.my_stars) && r!.my_stars! >= 1 && r!.my_stars! <= 5 ? r!.my_stars : null;
 
   useEffect(() => {
     if (!r || !currentReceipt(r) || !passengerReceipt) {
@@ -296,6 +300,10 @@ ${priceLabel(r.amount, false)}`
             <span>{appText("Итого", "Барлығы")}</span>
             <b>{priceLabel(state.r.amount, ru)}</b>
           </div>
+
+          {r && passengerReceipt && r.can_rate && ownStars === null && (
+            <ReceiptRateDriver bookingId={r.booking_id} canAct={() => currentReceipt(r)} onRated={setRatedStars} />
+          )}
 
           {/* Квитанцию просят на работе и в бухгалтерии — пусть уходит одной кнопкой,
               а не переписыванием цифр с экрана. Телефонов в ней нет. */}

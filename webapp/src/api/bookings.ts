@@ -138,6 +138,8 @@ export interface TripReceipt {
   pickup_stop?: string | null;
   dropoff_stop?: string | null;
   my_stars?: number | null;
+  /** Срок оценки ещё открыт — пассажиру квитанция предлагает «Оценить водителя» (приёмка 18.10, п.7). */
+  can_rate?: boolean;
   booking_id: number;
   ride_id: number;
   role: string;
