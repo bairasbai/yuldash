@@ -1,9 +1,11 @@
 package com.yuldash.app
 
 import com.yuldash.app.data.SessionKeys
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import kotlin.random.Random
 
 /**
  * Сторож: у каждого ключа на диске записано, переживает ли он выход из аккаунта.
@@ -26,10 +28,23 @@ class SessionKeysGuardTest {
 
     private val root = File("src/main/java/com/yuldash/app")
 
-    private fun sources(): List<String> {
+    /**
+     * Файлы исходников в ОДНОМ и том же порядке на любой машине.
+     *
+     * `walkTopDown` отдаёт файлы в порядке файловой системы, а он зависит от машины. 23.10.2026
+     * GitHub сменил образ (ubuntu-26.04), порядок поменялся — и сторож, не тронутый ни на строчку,
+     * покраснел: одноимённая константа `KEY` из одного файла затёрла `KEY` из другого. Сортировка —
+     * страховка, но главное лекарство от этого — чтение констант внутри файла (см. `keysInSources`).
+     */
+    private fun sourceFiles(): List<File> {
         assertTrue("не нашёл исходники приложения: ${root.absolutePath}", root.isDirectory)
-        return root.walkTopDown().filter { it.isFile && it.extension == "kt" }.map { it.readText() }.toList()
+        return root.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .sortedBy { it.invariantSeparatorsPath }
+            .toList()
     }
+
+    private fun sources(): List<String> = sourceFiles().map { it.readText() }
 
     /**
      * Все ключи, которые приложение пишет на диск.
@@ -37,23 +52,52 @@ class SessionKeysGuardTest {
      * Ищем несколько написаний, потому что до волны 109 сторож знал только первое и восемь
      * ключей прошли мимо него незамеченными:
      *  • `putString("mode_last", …)` — имя ключа прямо в строке;
-     *  • `putString(KEY_PARCELS, …)` — имя спрятано в константе, её значение ищем отдельно.
+     *  • `putString(KEY_PARCELS, …)` — имя спрятано в константе, её значение ищем отдельно;
+     *  • `commitOfflineString(prefs, KEY, …)` — так пишется очередь исходящих (`queue`): обёртка
+     *    над `putString`, поэтому самого `putString(KEY, …)` в её файле нет.
      * И `putStringSet` тоже: им сохраняются фильтры поиска, среди которых «только женщины».
+     *
+     * Константа читается из СВОЕГО файла. Раньше все `const val` из всех файлов сваливались в одну
+     * таблицу по имени, и четыре разных `KEY` ("queue", "default_filters", "font_scale",
+     * "trip_pass_deletions_v1") затирали друг друга: побеждал тот, кого прочли последним.
+     * Теперь сперва смотрим в тот же файл; константу из другого файла берём, только если во всём
+     * проекте у этого имени одно значение. Неоднозначность не угадываем — падаем и говорим об этом.
+     *
+     * [files] можно подать в любом порядке: результат от него не зависит (это проверяет тест ниже).
      */
-    private fun keysInSources(): Set<String> {
+    private fun keysInSources(files: List<File> = sourceFiles()): Set<String> {
         val literal = Regex("""put(?:String|Boolean|Int|Long|Float|StringSet)\("([a-z_0-9.]+)"""")
         val viaConst = Regex("""put(?:String|Boolean|Int|Long|Float|StringSet)\(\s*([A-Za-z_][A-Za-z_0-9]*)\s*,""")
+        val viaCommit = Regex("""commitOfflineString\(\s*[^,]+,\s*([A-Za-z_][A-Za-z_0-9]*)\s*,""")
         val constDef = Regex("""val\s+([A-Z_][A-Z_0-9]*)\s*(?::\s*String\s*)?=\s*"([^"]+)"""")
 
-        val consts = mutableMapOf<String, String>()
-        val names = mutableSetOf<String>()
-        val found = mutableSetOf<String>()
-        for (text in sources()) {
-            constDef.findAll(text).forEach { consts[it.groupValues[1]] = it.groupValues[2] }
-            found += literal.findAll(text).map { it.groupValues[1] }
-            names += viaConst.findAll(text).map { it.groupValues[1] }
+        val texts = files.associateWith { it.readText() }
+        // имя → значения, объявленные в этом файле
+        val own: Map<File, Map<String, Set<String>>> = texts.mapValues { (_, text) ->
+            constDef.findAll(text).groupBy({ it.groupValues[1] }, { it.groupValues[2] }).mapValues { it.value.toSet() }
         }
-        found += names.mapNotNull { consts[it] }
+        // имя → значения по всему проекту (запасной путь для константы, объявленной в другом файле)
+        val project: Map<String, Set<String>> = own.values.flatMap { it.entries }
+            .groupBy({ it.key }, { it.value })
+            .mapValues { (_, sets) -> sets.flatten().toSet() }
+
+        val found = mutableSetOf<String>()
+        val unclear = mutableListOf<String>()
+        for ((file, text) in texts) {
+            found += literal.findAll(text).map { it.groupValues[1] }
+            val names = (viaConst.findAll(text) + viaCommit.findAll(text)).map { it.groupValues[1] }.toSet()
+            for (name in names) {
+                // Нет такой константы — это переменная (`key`, `k`), значение из исходников не узнать.
+                val values = own.getValue(file)[name] ?: project[name] ?: continue
+                if (values.size == 1) found += values.single()
+                else unclear += "$name в ${file.relativeTo(root).invariantSeparatorsPath} — это ${values.sorted()}"
+            }
+        }
+        assertTrue(
+            "сторож не может однозначно понять, какой ключ пишется через константу: $unclear. " +
+                "Назови константу по-разному в разных файлах или напиши ключ строкой прямо в вызове.",
+            unclear.isEmpty(),
+        )
         return found - notOurs
     }
 
@@ -62,8 +106,11 @@ class SessionKeysGuardTest {
      *
      * Тест ниже устроен так, что ослепить его — значит сделать зелёным: чем меньше ключей он
      * находит, тем меньше «забытых». Ровно так он и жил до волны 109 — не видел ключи, спрятанные
-     * в константах, и восемь штук молча проходили мимо. Поэтому здесь названы три ключа,
+     * в константах, и восемь штук молча проходили мимо. Поэтому здесь названы ключи,
      * заведомо записанные разными способами: пропал хоть один — сторож снова слепнет.
+     *
+     * Четыре ключа ниже живут в константах с одним и тем же именем `KEY`, по одному на файл.
+     * Они здесь не случайно: 23.10.2026 именно на них сторож и споткнулся.
      */
     @Test
     fun `сторож видит ключи всех написаний, а не только строкой`() {
@@ -71,7 +118,10 @@ class SessionKeysGuardTest {
         val mustSee = mapOf(
             "user_name" to "прямо строкой: putString(\"user_name\", …)",
             "last_parcels" to "через константу: putString(KEY_PARCELS, …)",
-            "default_filters" to "через putStringSet — им сохраняются фильтры поиска",
+            "default_filters" to "через putStringSet — им сохраняются фильтры поиска (KEY в SecondaryScreens.kt)",
+            "font_scale" to "через KEY в CanonTokens.kt — одноимённая константа из другого файла её не перекрывает",
+            "trip_pass_deletions_v1" to "через KEY в TripPassDeletion.kt — метки удалённых паспортов поездок",
+            "queue" to "через commitOfflineString(…, KEY, …) в TripPass.kt — очередь неотправленных сообщений",
         )
         val blind = mustSee.filterKeys { it !in seen }
         assertTrue(
@@ -79,6 +129,28 @@ class SessionKeysGuardTest {
                 "и бесполезным: ненайденный ключ выглядит как «забытых нет».",
             blind.isEmpty(),
         )
+    }
+
+    /**
+     * Сторож не должен зависеть от порядка, в котором система отдаёт файлы.
+     *
+     * Он уже один раз покраснел «сам по себе» — когда у GitHub сменился образ (23.10.2026). Здесь
+     * тот же набор файлов читается в прямом, обратном и перемешанном порядке — ответ обязан быть
+     * одинаковым. Если когда-нибудь снова кто-то начнёт складывать данные из файлов в общую
+     * таблицу «последний победил», этот тест покраснеет на любой машине, а не только на новой.
+     */
+    @Test
+    fun `сторож видит одно и то же, в каком бы порядке ни лежали файлы`() {
+        val files = sourceFiles()
+        val straight = keysInSources(files)
+        assertEquals("обратный порядок файлов дал другой набор ключей", straight, keysInSources(files.reversed()))
+        repeat(5) { round ->
+            assertEquals(
+                "перемешанный порядок файлов (раунд $round) дал другой набор ключей",
+                straight,
+                keysInSources(files.shuffled(Random(round))),
+            )
+        }
     }
 
     @Test
