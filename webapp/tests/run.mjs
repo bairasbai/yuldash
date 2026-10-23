@@ -206,6 +206,10 @@ const SUITES = [
   { test: "analytics-no-double-test", src: null, out: null, bundle: false },
   // Выбор посадки в истории вкладки (RideCard → RideDetail, гость → вход) принадлежит входу и не переживает выход (23.10.2026).
   { test: "login-return-owner-test", src: null, out: null, bundle: false },
+  // «Выехал» без сети: если сервер потом отказал насовсем («Рано», «Поездка отменена»), очередь не снимает отметку
+  // молча — отказ запоминается словами сервера и показывается плашкой поверх любого экрана (23.10.2026).
+  { test: "outbox-refusal-test", src: null, out: null, bundle: false },
+  { test: "outbox-refusal-banner-test", src: null, out: null, bundle: false },
 ];
 
 // Значения, которые Vite подставляет при сборке сайта.

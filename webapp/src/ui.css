@@ -8447,6 +8447,46 @@ select.field__input {
   color: var(--green2);
 }
 
+/* ---- Отметка из очереди не принята сервером (OutboxRefusalBanner) ----
+   Тёплая плашка, как .notice: пара --canon-gold-ink на --canon-gold-soft считается сторожем ui-test. */
+.refusal-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--canon-gold-soft);
+  color: var(--canon-gold-ink);
+  border-bottom: 1px solid var(--border);
+  animation: fadeUp var(--motion-normal) ease both;
+}
+.refusal-banner__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  overflow-wrap: anywhere;
+}
+.refusal-banner__actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.refusal-banner__btn {
+  min-height: var(--space-huge);
+  padding: 0 var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-tiny);
+  background: transparent;
+  color: var(--canon-gold-ink);
+  font-size: var(--font-micro);
+  font-weight: var(--weight-bold);
+  text-align: right;
+}
+
 /* ---- Общий блок оплаты по СБП ---- */
 .sbp-pay {
   margin-top: var(--space-md);

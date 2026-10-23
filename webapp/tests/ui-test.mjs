@@ -160,6 +160,7 @@ const MUST_COUNT = [
   ".chat-tab__badge",
   ".tchat__badge",
   ".sos-112",
+  ".refusal-banner", // «Отметка не принята» (отказ сервера по «Выехал» из очереди) — тёплая плашка
 ];
 
 const tokenOf = (body, prop) =>
