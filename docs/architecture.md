@@ -1,3 +1,14 @@
+## Отмена в пути: экраны клиентов — 23.10.2026
+
+Признак сервера `cancelled_in_transit` (`/role`, `/details`, `/bookings/mine`) держит экран поездки пассажира открытым: вместо автозакрытия — «Поездку отменили в пути», SOS с бронью, «Застрял на трассе», «Сообщить о проблеме» (пока `problem_report_sec` > 0), машина и госномер (без телефона). Неизвестно / старый сервер — обычная отмена, экран закрывается, как раньше. Новый экран `Screen` не заводился: это вид `Screen.ActiveTrip` и `Screen.Booking`.
+
+| Файл | Что в нём | Откуда зовётся |
+|---|---|---|
+| `CancelledInTransit.kt` | `CancelledInTransitState` (признак, водитель, окно разбора, машина из деталей или паспорта до его удаления), `CancelledInTransitScreen` | `BookingActiveTripScreen.kt` (экран поездки и «Детали поездки») |
+| `RideCancelWarning.kt` | `RideCancelConfirmText` — текст «Снять поездку?» + «В машине пассажиры: N», `onboardPassengers` по `ride_id` | `ProfileScreen.kt` (кабинет водителя) |
+| `BookingLinkDestination.kt` | пуш пассажиру с отменой в пути → `Screen.ActiveTrip` | `YuldashApp.kt` |
+| `webapp/src/components/CancelledInTransitCard.tsx`, `webapp/src/utils/rideCancelWarning.ts` | то же на сайте; «Бронь» уводит на `/trip/:id` (`utils/bookingLink.ts`) | `ActiveTripScreen.tsx`, `DriverCabinetScreen.tsx` |
+
 ## Android: слои после ветки Codex — 23.10.2026 (PR #192)
 
 Код вынесен из больших файлов без изменения поведения (потолки `FileSizeRatchetTest` не подняты, у похудевших опущены):
