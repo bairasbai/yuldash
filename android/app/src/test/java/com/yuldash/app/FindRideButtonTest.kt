@@ -52,7 +52,9 @@ class FindRideButtonTest {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     requests.add(URLDecoder.decode("${request.method} ${request.path}", "UTF-8"))
+                    // Карточка «Популярно» — только из настоящих маршрутов сервера (демо-маршрутов нет с 23.10).
                     val body = if (request.path.orEmpty().startsWith("/rides/near")) """{"items":[],"count":0}"""
+                    else if (request.path == "/popular-routes") """{"items":[{"from_city":"Баймаҡ","to_city":"Сибай","count":5}]}"""
                     else return MockResponse().setResponseCode(404).setBody("{}")
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
                 }

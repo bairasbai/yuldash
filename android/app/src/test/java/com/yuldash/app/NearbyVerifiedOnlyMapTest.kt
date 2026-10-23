@@ -60,6 +60,9 @@ class NearbyVerifiedOnlyMapTest {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val path = URLDecoder.decode(request.path.orEmpty(), "UTF-8")
                     requests.add("${request.method} $path")
+                    // Карточка «Популярно» — только из настоящих маршрутов сервера (демо-маршрутов нет с 23.10).
+                    if (path == "/popular-routes") return MockResponse().setHeader("Content-Type", "application/json")
+                        .setBody("""{"items":[{"from_city":"Баймаҡ","to_city":"Сибай","count":5}]}""")
                     if (!path.startsWith("/rides/near")) return MockResponse().setResponseCode(404).setBody("{}")
                     val body = if ("verified_only=true" in path) """{"items":[],"count":0,"hidden_unverified":2}"""
                     else """{"items":[${ride(41)},${ride(42)}],"count":2}"""
