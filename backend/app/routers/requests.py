@@ -1299,11 +1299,18 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
     notify_map_changed()   # заявка исполнена (matched) → её маркер уходит, новая поездка появляется — live
     pax = session.get(User, req.passenger_id)
     pax_name = pax.name if pax else "Пассажир"
-    route = f"{req.from_city} → {req.to_city}"
+    # Маршрут РЕЙСА, а не заявки, и пометка о посадке на остановке БЕЗ названия села — как в пуше
+    # «Новая бронь» (`bookings.py`, P3 PR186; ревью PR190, 23.10.2026). Заявка пассажирки несёт её
+    # село посадки/высадки, а пуш лежит на экране блокировки водителя. Само место водитель видит
+    # в приложении (бронь, `/driver/bookings`). Старый отклик без `ride_id` создал поездку по
+    # заявке, и её города — те же, что в заявке: для него текст не меняется.
+    route = f"{ride.from_city} → {ride.to_city}"
+    stop_ru = " · посадка по пути" if booking.pickup_stop else ""
+    stop_ba = " · юл ыңғайында ултыра" if booking.pickup_stop else ""
     push_notification(
         session, resp.driver_id, "ride",
         "Заявку приняли", "Заявка ҡабул ителде",
-        f"{pax_name}: {route}", f"{pax_name}: {route}",
+        f"{pax_name}: {route}{stop_ru}", f"{pax_name}: {route}{stop_ba}",
         ref_kind="booking", ref_id=booking.id,
     )
     # Остальные откликнувшиеся держат это время под пассажира, который уже уехал с другим.
