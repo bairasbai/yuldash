@@ -114,14 +114,6 @@ NO_SHOW_WAIT = timedelta(minutes=15)
 LIVE_AFTER_NO_SHOW = timedelta(minutes=15)
 
 
-def ride_has_stops(ride: Ride) -> bool:
-    """Поездка с промежуточными остановками — для правил безопасности (`ride_stops.ride_has_stops_raw`):
-    в `waypoints` есть название с буквой, не равное началу или концу маршрута. Пробелы, пустые
-    разделители и «.»/«-»/«123» остановкой не считаются: иначе одна точка в поле выключала бы
-    GPS-проверку «Подъезжаю» у всей поездки (приёмка PR184)."""
-    return ride_has_stops_raw(ride)
-
-
 def arriving_opens_at(ride: Ride, booking: Optional[Booking] = None, entry=None):
     """С какого момента водитель может нажать «Подъезжаю»: за DONE_EARLY_GRACE до выезда — та же
     планка, что у «Сел» (приёмка PR184). Раньше «Подъезжаю» принималось хоть за неделю: пассажиру
@@ -207,16 +199,25 @@ def stop_live_window(ride: Ride, booking: Optional[Booking], entry=None):
     Открывается в `depart − LIVE_GEO_LEAD_HOURS + путь/stop_fast_kmh` (раньше машина до остановки
     не доедет — водитель и пассажирка не видят друг друга от дома за часы до посадки) или по
     «Подъезжаю» этой брони — что раньше; «Выехал» его НЕ открывает (P2-Г). Закрывается до посадки
-    через LIVE_AFTER_NO_SHOW после срока «Не пришёл» (P2-А); посадка открывает снова."""
+    через LIVE_AFTER_NO_SHOW после срока «Не пришёл» (P2-А); посадка открывает снова.
+
+    Водитель не нажал «Подъезжаю» (у остановки срока «Не пришёл» тогда нет) — окно всё равно
+    закрывается: через NO_SHOW_WAIT + LIVE_AFTER_NO_SHOW после расчётного приезда на остановку
+    (`stop_expected_kmh`; у неизвестной справочнику — по оценке пути). Иначе проехал мимо, ничего не
+    нажав, — и пассажирка часами видит машину, а водитель её точку (приёмка PR186, S1). Позднее
+    «Подъезжаю» сдвигает срок неявки, а с ним и закрытие — окно открывается снова."""
     if booking is None or not getattr(booking, "pickup_stop", None) or ride is None or ride.depart_at is None:
         return None
     p = pickup_of(ride, booking, entry)
     if p.kind != "stop":
         return None
-    opens = ride.depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS) + timedelta(
-        hours=(p.travel_km or 0.0) / settings.stop_fast_kmh)
+    km = p.travel_km or 0.0
+    opens = ride.depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS) + timedelta(hours=km / settings.stop_fast_kmh)
     deadline = no_show_available_at(ride, booking, entry)
-    return opens, (deadline + LIVE_AFTER_NO_SHOW if deadline else None)
+    if deadline is None:   # ждёт «Подъезжаю»: срок — от расчётного приезда, как у неявки
+        deadline = max(ride.depart_at, ride.depart_at + timedelta(hours=km / settings.stop_expected_kmh)) \
+            + NO_SHOW_WAIT
+    return opens, deadline + LIVE_AFTER_NO_SHOW
 
 
 def boarding_undo_left(booking: Booking, now=None) -> int:
@@ -859,14 +860,16 @@ def _verify_arrival(session: Session, booking: Booking, ride: Ride) -> Optional[
     (`livepos.driver_points_for_ride`, 18.10.2026), а не только по этой: водитель открыл поездку
     брони A, а «Подъезжаю» жмёт по брони B — кэш B пуст, и раньше проверка молча пропускала.
     Сверяем БЛИЖАЙШУЮ к пину: второе устройство водителя дома (планшет с открытой бронью) не
-    должно давать ложный отказ тому, кто правда у подъезда (приёмка PR0, P2).
+    должно давать ложный отказ тому, кто правда у подъезда (приёмка PR0, P2). Плюс внутренняя
+    точка по рейсу (`with_ride_point`, приёмка PR186, A1): водитель открыл бронь, чьё окно ещё
+    закрыто, — в кэш брони точка не легла, а проверить его слово всё равно есть чем.
     """
     if not settings.arrival_verify_enabled:
         return None
     target = _pickup_point(ride)
     if target is None:
         return None
-    return _nearest_m(livepos.driver_points_for_ride(session, ride), target)
+    return _nearest_m(livepos.driver_points_for_ride(session, ride, with_ride_point=True), target)
 
 
 def _nearest_m(points: list, target: tuple) -> Optional[float]:
@@ -901,7 +904,7 @@ def _distance_to_stop_km(session: Session, ride: Ride, place) -> Optional[float]
     point = place.point
     if point is None or point.kind not in VILLAGE_KINDS:
         return None
-    meters = _nearest_m(livepos.driver_points_for_ride(session, ride), (point.lat, point.lng))
+    meters = _nearest_m(livepos.driver_points_for_ride(session, ride, with_ride_point=True), (point.lat, point.lng))
     return meters / 1000.0 if meters is not None else None
 
 
@@ -1059,12 +1062,15 @@ def _arriving_too_early_refusal(ride: Ride, now=None, booking: Optional[Booking]
     с которого можно, `arriving_wait_sec` — сколько секунд осталось (часы телефона врут на минуты).
 
     Бронь на остановке, до которой ещё ехать: текст называет остановку и время по местным часам и
-    подсказывает, что делать сейчас (P3): позвонить или написать; «Сел» отметить можно."""
+    подсказывает, что делать сейчас (P3): позвонить или написать; «Сел» отметить можно. Только когда
+    «Сел» и правда уже можно — с `depart − DONE_EARLY_GRACE` (A-P3-3); раньше — общий текст про
+    30 минут до выезда (`arriving_opens_at` в ответе — всё равно срок остановки)."""
     minutes = int(DONE_EARLY_GRACE.total_seconds() // 60)
     at = arriving_opens_at(ride, booking, entry)
     base = arriving_opens_at(ride)
     place = pickup_of(ride, booking, entry) if booking is not None else None
-    if place is not None and place.kind == "stop" and at is not None and base is not None and at > base:
+    if place is not None and place.kind == "stop" and at is not None and base is not None and at > base \
+            and (now or utcnow()) >= base:
         hhmm = _local_hhmm(at)
         ru = (f"Рано: до остановки «{place.stop}» ещё ехать. «Подъезжаю» можно с {hhmm}. "
               "Позвони или напиши пассажиру; «Сел» отметить можно.")

@@ -25,7 +25,22 @@ def _redis():
 
 
 def _key(kind: str, ref_id: int) -> str:
-    return f"livepos:{kind}:{ref_id}"   # kind: order | booking
+    return f"livepos:{kind}:{ref_id}"   # kind: order | booking | ride_driver (внутренний, см. ниже)
+
+
+# Внутренняя точка водителя по РЕЙСУ (приёмка PR186, A1). Водитель открыл поездку брони, чьё окно
+# ещё закрыто (пассажирка в Бурибае: окно за 2 минуты до выезда), — её канал точку не пересылает и
+# в кэш брони не пишет. Без этого ключа «Подъезжаю» для Ургазы и для начала маршрута не видело
+# машину вовсе и пропускало слово водителя без проверки. Пишет ТОЛЬКО канал водителя
+# (`location.trip_location`), когда рейс идёт по обычному правилу — с depart − LIVE_GEO_LEAD_HOURS;
+# читает ТОЛЬКО `driver_points_for_ride(..., with_ride_point=True)` для ответа водителю «далеко /
+# рядом». Никому не пересылается и наружу не отдаётся (сторож — `test_driver_point_for_ride.py`).
+_RIDE_DRIVER = "ride_driver"
+
+
+def ride_driver_set(ride_id: int, lat: float, lng: float, bearing=None) -> None:
+    """Записать внутреннюю точку водителя по рейсу (TTL — `LIVEPOS_TTL_SEC`, как у броней)."""
+    livepos_set(_RIDE_DRIVER, ride_id, lat, lng, bearing)
 
 
 def livepos_set(kind: str, ref_id: int, lat: float, lng: float, bearing=None) -> None:
@@ -63,9 +78,13 @@ def _age_sec(pos: dict, now: datetime):
     return (now - ts).total_seconds()
 
 
-def driver_points_for_ride(session, ride, now=None) -> list:
+def driver_points_for_ride(session, ride, now=None, *, with_ride_point: bool = False) -> list:
     """ВСЕ свежие точки ВОДИТЕЛЯ этой поездки — по её подтверждённым броням и броням «в пути»
     (18.10.2026, PR0). Свежие первыми; у каждой — `booking_id` брони, чей канал её записал.
+
+    `with_ride_point=True` — ещё и внутренняя точка по рейсу (`ride_driver_set`, `booking_id` None):
+    ТОЛЬКО для проверки «Подъезжаю» (`bookings._verify_arrival`, `bookings._distance_to_stop_km`).
+    Обёртка наружу (`location.driver_point_for_booking`) её не просит и не получит никогда.
 
     Напрямую — ТОЛЬКО ДЛЯ ВНУТРЕННИХ ПРОВЕРОК СЕРВЕРА: честное «Подъезжаю» (`bookings._verify_arrival`,
     `bookings._distance_to_stop_km`). Наружу — только через `location.driver_point_for_booking`,
@@ -106,13 +125,18 @@ def driver_points_for_ride(session, ride, now=None) -> list:
     )).all())
     if not ids:
         return []
+    keys = [_key("booking", bid) for bid in ids]
+    owners: list = list(ids)
+    if with_ride_point:
+        keys.append(_key(_RIDE_DRIVER, ride.id))
+        owners.append(None)
     try:
-        raw = r.mget([_key("booking", bid) for bid in ids])
+        raw = r.mget(keys)
     except Exception:  # noqa: BLE001 — кэш best-effort: Redis молчит → проверить нечем
         return []
     now = now or utcnow()
     found = []
-    for bid, v in zip(ids, raw or []):
+    for bid, v in zip(owners, raw or []):
         if not v:
             continue
         try:
