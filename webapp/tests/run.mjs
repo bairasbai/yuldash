@@ -197,6 +197,8 @@ const ALL_SUITES = [
   { test: "receipt-rate-later-test", src: null, out: null, bundle: false },
   // Водитель звонит пассажиру после подтверждения (решение 23.10.2026).
   { test: "driver-calls-passenger-test", src: null, out: null, bundle: false },
+  // Подпись роли в профиле по делу: «Водитель и пассажир», «Проверен» (просьба Александра 23.10.2026).
+  { test: "profile-role-test", src: null, out: null, bundle: false },
   // Оценка пассажира в два шага, как в Android: выбрал → «Отправить оценку»; «Изменить» / «Отмена».
   { test: "driver-rating-two-step-test", src: null, out: null, bundle: false },
   // Отмена: на «Брони» — только ждущая и своим окном; подтверждённая — на экране поездки с причиной {reason}; «в пути» — никак.

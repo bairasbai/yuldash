@@ -1991,6 +1991,13 @@ button.list-row:active {
 .profile-card__city.is-empty {
   opacity: 0.78;
 }
+/* «Проверен» рядом с ролью — как в Android ProfileVerifiedMark: белый на зелёной шапке. */
+.profile-card__verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: var(--weight-semibold);
+}
 .profile-card__note {
   margin-top: var(--space-sm);
   font-size: var(--font-caption);

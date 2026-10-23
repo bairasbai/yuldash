@@ -289,19 +289,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/**
- * Человекочитаемая роль пользователя (с сервера: passenger/driver/admin) на двух языках.
- * Пустая/неизвестная роль → «Пассажир» (роль по умолчанию на бэкенде). Города в профиле нет —
- * подписи вида «Пассажир · Баймаҡ» были захардкожены у всех, теперь показываем только настоящую роль.
- */
-@Composable
-internal fun roleLabel(role: String, verifiedDriver: Boolean = false): String = when {
-    role == "admin" -> appText("Администратор", "Администратор")
-    // Документы одобрены — водитель, даже если роль на сервере осталась «пассажир» (приёмка 18.10, п.13).
-    role == "driver" || verifiedDriver -> appText("Водитель", "Йөрөтөүсе")
-    else -> appText("Пассажир", "Пассажир")
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ProfileScreen(
@@ -351,6 +338,7 @@ internal fun ProfileScreen(
     var avatarUrl by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("") }
     var verifiedDriver by remember { mutableStateOf(false) }   // /me `verified`: документы водителя одобрены
+    var drives by remember { mutableStateOf(false) }; var books by remember { mutableStateOf(false) }   // /me: возил / бронировал
     var city by remember { mutableStateOf("") }   // родной город: показываем в шапке, редактируется тапом
     // Пол ("" | female | male). Спрашиваем только ради отметки «Только женщины»: сервер
     // пускает в такую поездку одних женщин, и проверять это ему больше нечем. Никому,
@@ -379,7 +367,7 @@ internal fun ProfileScreen(
                 myRating = if (o.isNull("rating")) null else o.optDouble("rating")
                 o.optString("name").takeIf { it.isNotBlank() }?.let { displayName = it }
                 o.optString("avatar_url").takeIf { it.isNotBlank() }?.let { avatarUrl = it }
-                role = o.optString("role"); verifiedDriver = o.optBoolean("verified")
+                role = o.optString("role"); verifiedDriver = o.optBoolean("verified"); drives = o.optBoolean("drives"); books = o.optBoolean("books")
                 city = o.optString("city")
                 gender = o.optString("gender")
             }
@@ -769,7 +757,7 @@ internal fun ProfileScreen(
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     // Настоящая роль с сервера (пассажир/водитель/админ).
-                                    Text(roleLabel(role, verifiedDriver), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp)
+                                    Text(roleLabel(role, verifiedDriver, drives, books), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp)
                                     if (verifiedDriver) ProfileVerifiedMark()
                                     myRating?.let { r ->
                                         Spacer(Modifier.width(8.dp))

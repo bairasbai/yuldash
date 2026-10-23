@@ -95,6 +95,24 @@ class RideshareSmallFixesTest {
         for (text in listOf("Водитель", "Проверен", "Йөрөтөүсе", "Тикшерелгән")) compose.onNodeWithText(text).assertIsDisplayed()
     }
 
+    /** Один аккаунт и возит, и ездит: подпись по делу, а не по роли на сервере (просьба Александра 23.10). */
+    @Test fun roleLabelFollowsWhatThePersonDoes() {
+        compose.setContent { androidx.compose.foundation.layout.Column {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                Text(roleLabel("passenger", drives = true))
+                Text(roleLabel("passenger", drives = true, books = true))
+                Text(roleLabel("passenger", books = true))
+            }
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
+                Text(roleLabel("passenger", verifiedDriver = true, books = true))
+            }
+        } }
+        compose.onNodeWithText("Водитель").assertIsDisplayed()
+        compose.onNodeWithText("Водитель и пассажир").assertIsDisplayed()
+        compose.onNodeWithText("Пассажир").assertIsDisplayed()
+        compose.onNodeWithText("Йөрөтөүсе һәм пассажир").assertIsDisplayed()
+    }
+
     @Test fun roleLabelKeepsPassengersAndAdmins() {
         compose.setContent { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
             Row { Text(roleLabel("passenger")); Text(" / "); Text(roleLabel("admin", verifiedDriver = true)) }
