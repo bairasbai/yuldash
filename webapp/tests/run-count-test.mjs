@@ -2,7 +2,9 @@
 // Раньше считал только «✓» в начале строки — у 38 наборов в отчёте стояло «0 проверок» (23.10.2026).
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { countChecks } from "./count-checks.mjs";
 
@@ -58,13 +60,50 @@ for (const [suite, what] of [["update-banner-test", "PASS + итог"], ["taxi-u
   });
 }
 
-// run.mjs считает именно этой функцией (не своим регулярным выражением) и не пропускает набор с нулём.
-check("run.mjs использует countChecks и считает нулевой набор провалом", () => {
-  const run = readFileSync(HERE + "run.mjs", "utf8");
-  assert.match(run, /import \{ countChecks \} from "\.\/count-checks\.mjs"/);
-  assert.match(run, /countChecks\(out\)/);
-  assert.match(run, /ничего не проверил/);
-  assert.doesNotMatch(run, /match\(\/\^✓\/gm\)/, "старый счётчик «только ✓» вернулся");
+// ПОВЕДЕНИЕ run.mjs, а не его текст: настоящий run.mjs прогоняем по подставным наборам (YULDASH_TESTS_SANDBOX —
+// папка с «наборами»; run.mjs берёт из неё только те, чьи имена есть в его списке). Набор, который ничего не
+// проверил, обязан дать провал; настоящие итоги — честные числа; падающий набор — провал.
+function runRunner(suites) {
+  const dir = mkdtempSync(join(tmpdir(), "yuldash-run-count-"));
+  try {
+    for (const [name, body] of Object.entries(suites)) writeFileSync(join(dir, name + ".mjs"), body);
+    try {
+      const out = execFileSync("node", [HERE + "run.mjs"], { cwd: dir, stdio: "pipe", env: { ...process.env, YULDASH_TESTS_SANDBOX: dir } }).toString();
+      return { code: 0, out };
+    } catch (e) {
+      return { code: e.status ?? 1, out: String(e.stdout || "") + String(e.stderr || "") };
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+const say = (text, code = 0) => `console.log(${JSON.stringify(text)});process.exit(${code});`;
+
+check("run.mjs: набор вышел с нулём и не распознан ни одной проверки — ПРОВАЛ, а не зелёный «0 проверок»", () => {
+  for (const nothing of ["просто текст\nбез итогов", "", "Suite: 0 failed", "0 failures"]) {
+    const r = runRunner({ "update-banner-test": say(nothing) });
+    assert.equal(r.code, 1, "нулевой набор обязан дать провал прогона. Вывод:\n" + r.out);
+    assert.match(r.out, /ничего не проверил/);
+    assert.doesNotMatch(r.out, /✓ update-banner-test/, "зелёной отметки быть не должно");
+    assert.match(r.out, /ПРОВАЛЕНО НАБОРОВ: 1/);
+  }
+});
+check("run.mjs: наборы разных видов печати — честное число, прогон зелёный", () => {
+  const r = runRunner({
+    "update-banner-test": say("PASS a\nPASS b\nPASS c\nUpdate banner: 3 passed, 0 failed"),
+    "full-offline-trip-test": say("Full offline trip: 52/52 passed"),
+    "taxi-unavailable-gate-test": say("18 cases, 0 failures"),
+    "commission-label-test": say("PASS: rate (22 assertions)."),
+    "pickup-stop-test": say("✓ раз\n✓ два"),
+  });
+  assert.equal(r.code, 0, r.out);
+  for (const [name, n] of [["update-banner-test", 3], ["full-offline-trip-test", 52], ["taxi-unavailable-gate-test", 18], ["commission-label-test", 22], ["pickup-stop-test", 2]])
+    assert.match(r.out, new RegExp(`✓ ${name} — ${n} проверок`), name);
+  assert.match(r.out, /ВСЕ НАБОРЫ ПРОШЛИ/);
+});
+check("run.mjs: один нулевой набор среди хороших роняет весь прогон; упавший набор — тоже ПРОВАЛ", () => {
+  const mixed = runRunner({ "update-banner-test": say("PASS a"), "full-offline-trip-test": say("тишина") });
+  assert.equal(mixed.code, 1, mixed.out); assert.match(mixed.out, /✓ update-banner-test — 1 проверок/); assert.match(mixed.out, /✗ full-offline-trip-test — набор ничего не проверил/);
+  const broken = runRunner({ "update-banner-test": say("✓ a\n✗ b", 1) });
+  assert.equal(broken.code, 1, broken.out); assert.match(broken.out, /✗ update-banner-test — ПРОВАЛ/);
 });
 
 console.log(bad === 0 ? "\nВСЁ СОШЛОСЬ" : `\nПРОВАЛЕНО: ${bad}`);

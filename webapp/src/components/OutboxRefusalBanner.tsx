@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
+import { getSessionGeneration } from "../api/client";
 import { dismissOutboxRefusal, getOutboxRefusals, subscribeOutboxRefusals, type OutboxRefusal } from "../utils/outbox";
 
 /** Как человек называл эту отметку на кнопке. */
@@ -33,9 +34,26 @@ export default function OutboxRefusalBanner() {
   useEffect(() => {
     const sync = () => setItems(getOutboxRefusals());
     sync();
-    return subscribeOutboxRefusals(sync);
+    const unsubscribe = subscribeOutboxRefusals(sync);
+    // Вход сменили в СОСЕДНЕЙ вкладке (мама вышла, зашёл сын): события очереди здесь не будет, а плашка
+    // осталась бы чужой, и «К поездке» вела бы на чужую бронь. Узнаём по записи поколения входа.
+    const onStorage = (event: StorageEvent) => { if (event.key === "yuldash.session" || event.key === null) sync(); };
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", onStorage);
+      window.addEventListener("focus", sync); // подстраховка: вкладка проснулась после смены входа
+    }
+    return () => {
+      unsubscribe();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("storage", onStorage);
+        window.removeEventListener("focus", sync);
+      }
+    };
   }, []);
-  const first = items[0];
+  // Фильтр и при отрисовке: список в состоянии мог остаться от прошлого входа, пока событие не дошло.
+  let session: string | null = null;
+  try { session = getSessionGeneration(); } catch { /* хранилище недоступно — чужого не показываем */ }
+  const first = session === null ? undefined : items.find((r) => r.session === session);
   if (!first) return null;
   return (
     <div className="refusal-banner" role="alert">

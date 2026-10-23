@@ -21,6 +21,7 @@ import { Link } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
 import { enqueue } from "../utils/outbox";
+import { useBookingRefusal } from "../utils/useBookingRefusal";
 import {
   fetchBookingShares,
   fetchOrderShares,
@@ -61,6 +62,8 @@ export default function ShareTripCard({
   const [shares, setShares] = useState<TripShare[] | null>(null); // null = блок скрыт
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  // То же для «Доехала» / «Поездка завершена» из очереди: отказ сервера заменяет «Нет сети — отправим позже».
+  useBookingRefusal(bookingId, (refusal) => { if (refusal.kind === "trip_status") setNote(refusal.message); });
   const [open, setOpen] = useState(false);
   /** Чья ссылка на экране: только что созданная, иначе первая из активных. */
   const [focusId, setFocusId] = useState<number | null>(null);

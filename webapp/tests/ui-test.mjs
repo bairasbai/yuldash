@@ -249,7 +249,14 @@ check(light["--green-on-warm"] === light["--green2"], "светлая: --green-o
     const body = u.match(new RegExp("(?:^|\\})\\s*" + wrap.replace(/[.]/g, "\\.") + " \\{([^}]*)\\}"))?.[1] ?? "";
     check(/accent-color:\s*var\(--green/.test(body), `${wrap}: accent-color — токен бренда (подпись-обёртка красит вложенный флажок)`);
   }
-  // Любой <input type=radio|checkbox> в экранах и компонентах обязан нести .checkbox — иначе синий.
+  // Известные классы САМОГО input (каждый красит accent-color) и подписи-обёртки (выше); любой другой класс — «голый».
+  const OWN_CLASSES = ["checkbox", "await__check"];
+  const WRAPPERS = ["admin-check", "taxi-women"];
+  for (const name of OWN_CLASSES) {
+    const body = u.match(new RegExp("(?:^|\\})\\s*\\." + name + " \\{([^}]*)\\}"))?.[1] ?? "";
+    check(/accent-color:\s*var\(--green/.test(body), `.${name}: accent-color — токен бренда`);
+  }
+  // Любой <input type=radio|checkbox> в экранах и компонентах обязан нести .checkbox (или известный класс) — иначе синий.
   const bare = [];
   for (const dir of ["components", "screens"]) {
     for (const f of readdirSync(join(SRC, dir))) {
@@ -257,13 +264,26 @@ check(light["--green-on-warm"] === light["--green2"], "светлая: --green-o
       const src = readFileSync(join(SRC, dir, f), "utf8");
       for (const m of src.matchAll(/<input\b[^>]*?\btype=(?:"|\{?["'])(radio|checkbox)[\s\S]*?\/>/g)) {
         const tag = m[0];
-        // Свой класс у самого <input> или подпись-обёртка, которая красит вложенный input (accent-color в ui.css).
-        const wrapped = /className="(?:admin-check|taxi-women)"/.test(src.slice(Math.max(0, m.index - 160), m.index));
-        if (!/className=/.test(tag) && !wrapped) bare.push(`${dir}/${f}:${src.slice(0, m.index).split("\n").length}`);
+        // Либо у самого <input> класс .checkbox, либо подпись-обёртка из списка, которая красит вложенный input
+        // (accent-color в ui.css: .admin-check, .taxi-women). Любой другой класс («foo») не красит ничего — браузерный синий.
+        const own = [...tag.matchAll(/className=(?:"([^"]*)"|\{([^}]*)\})/g)].map((x) => x[1] ?? x[2]).join(" ");
+        const hasPaintedClass = OWN_CLASSES.some((name) => new RegExp("(?:^|[\\s\"'`])" + name + "(?:$|[\\s\"'`])").test(own));
+        const wrapped = WRAPPERS.some((name) => src.slice(Math.max(0, m.index - 160), m.index).includes(`className="${name}"`));
+        if (!hasPaintedClass && !wrapped) bare.push(`${dir}/${f}:${src.slice(0, m.index).split("\n").length}`);
       }
     }
   }
   check(bare.length === 0, "у каждого радио и флажка есть класс (.checkbox и др.): голых нет", bare.slice(0, 8).join("; "));
+}
+
+// ---------------- плашка отказа не уходит под вырез iPhone ----------------
+//
+// Плашка стоит в самом верху оболочки, над шапкой экрана. Страница открывается с viewport-fit=cover, и в
+// установленной PWA верх уходит под вырез: без env(safe-area-inset-top) текст плашки и кнопки под ним.
+{
+  const body = code(ui).match(/(?:^|\})\s*\.refusal-banner \{([^}]*)\}/)?.[1] ?? "";
+  check(/padding(?:-top)?:\s*calc\([^;]*env\(safe-area-inset-top\)/.test(body), ".refusal-banner: верхний отступ включает env(safe-area-inset-top) — плашка не под вырезом");
+  check(/viewport-fit=cover/.test(readFileSync(join(SRC, "..", "index.html"), "utf8")), "страница открывается с viewport-fit=cover (иначе вырез не учитывать и не нужно)");
 }
 
 // ---------------- тач-цели ----------------

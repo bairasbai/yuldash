@@ -30,6 +30,7 @@ const mocks = {
   client: `export const API_BASE='https://yulbash.ru'; export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}} globalThis.__shareLink.ApiError=ApiError; export const getSessionGeneration=()=>globalThis.__shareLink.generation;
  export const apiGet=(p)=>globalThis.__shareLink.api('GET',p); export const apiPost=(p,b)=>globalThis.__shareLink.api('POST',p,b); export const apiDelete=(p)=>globalThis.__shareLink.api('DELETE',p);`,
   outbox: `export const enqueue=async()=>{};`,
+  refusal: `export const useBookingRefusal=(id,fn)=>{globalThis.__shareLink.refusal={id,fn};};`,
   icons: `export const IconCheck='i',IconCopy='i',IconShare='i',IconTrash='i',IconUsers='i';`,
   analytics: `export const track=()=>{};`,
 };
@@ -39,7 +40,7 @@ const result = await build({
   plugins: [{ name: "share-link", setup(b) {
     b.onResolve({ filter: /.*/ }, (a) => {
       const p = a.path;
-      const k = Object.hasOwn(mocks, p) ? p : p.endsWith("/i18n/lang") ? "lang" : p.endsWith("/auth/AuthProvider") ? "auth" : p.endsWith("/api/client") || p === "./client" ? "client" : p.endsWith("/utils/outbox") ? "outbox" : p.endsWith("/components/Icons") || p === "./Icons" ? "icons" : p.endsWith("/analytics") ? "analytics" : null;
+      const k = Object.hasOwn(mocks, p) ? p : p.endsWith("/i18n/lang") ? "lang" : p.endsWith("/auth/AuthProvider") ? "auth" : p.endsWith("/api/client") || p === "./client" ? "client" : p.endsWith("/utils/outbox") ? "outbox" : p.endsWith("/utils/useBookingRefusal") ? "refusal" : p.endsWith("/components/Icons") || p === "./Icons" ? "icons" : p.endsWith("/analytics") ? "analytics" : null;
       return k ? { path: k, namespace: "mock" } : null;
     });
     b.onLoad({ filter: /.*/, namespace: "mock" }, (a) => ({ contents: mocks[a.path], loader: "js" }));
@@ -279,6 +280,21 @@ await test("отказ сервера по отметке — его слова�
   const t = text(render(props));
   assert.ok(t.includes("завершить поездку можно через 4 мин"), t);
   assert.ok(!t.includes("Не получилось отправить статус"));
+});
+// «Доехала» без сети ждёт в очереди; сервер потом отказал — «Нет сети — отправим позже» больше неправда.
+await test("«Доехала» без сети, потом отказ сервера: вместо «отправим позже» — слова отказа; чужой вид отметки не трогает", async () => {
+  const props = { bookingId: 42, showStatuses: true, bookingStatus: "onboard" };
+  const tree = await open({ shares: [share], props, statusFails: new h.ApiError(0, "offline") });
+  await byText(tree, "Доехала").props.onClick();
+  await tick();
+  assert.ok(text(render(props)).includes("Нет сети — отправим позже"));
+  assert.equal(h.refusal.id, 42, "карточка слушает отказы своей брони");
+  h.refusal.fn({ kind: "driver_status", message: "Отказ водительской отметки" });
+  assert.ok(!text(render(props)).includes("Отказ водительской отметки"), "отметку водителя карточка пассажира не показывает");
+  h.refusal.fn({ kind: "trip_status", message: "Поездка уже завершена" });
+  const t = text(render(props));
+  assert.ok(t.includes("Поездка уже завершена"), t);
+  assert.ok(!t.includes("Нет сети — отправим позже"), "ложное обещание ушло");
 });
 // Посадку отмечает водитель (решение 17.10.2026): до неё у пассажира нет ни «Села в машину»,
 // ни других отметок — нечего отправлять. Старый «sat» сервер и так отклоняет (409).

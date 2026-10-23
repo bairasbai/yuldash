@@ -15,13 +15,15 @@ import logging
 from datetime import date, datetime, timedelta
 
 import pytest
-from sqlmodel import Session
+import sqlmodel
+from sqlmodel import Session, select
 
 from app.db import engine
 from app.geo import snapshot_cached
 from app.models import Block, Ride, UserRole
 from app.routers import rides as rides_mod
-from app.stop_search import route_fit
+from app.services import haversine_km
+from app.stop_search import column_match, pair_match, request_snapshot, route_fit
 
 STOPS = "Ургаза | Бурибай"
 URGAZA = (52.34768, 58.61438)
@@ -132,6 +134,22 @@ def test_query_with_digits_is_not_searched_in_stops(client, user_factory):
     assert ride["id"] in _feed(client, day, from_city="Ургаза", to_city="Акъяр")
 
 
+@pytest.mark.parametrize("query", ["Ургаза (⑤)", "Ургаза (٥)", "Ургаза (⁵)", "Ургаза (Ⅴ)"])
+def test_query_with_unicode_digits_is_not_searched_in_stops(client, user_factory, query):
+    """Как в публикации остановки (S-P3-1 в PR1): обведённые, арабские, надстрочные и римские цифры —
+    тоже цифры. Для регулярки `\\d` они «буквы», и «Ургаза (⑤)» искалась бы как остановка «Ургаза»."""
+    day = _day()
+    drv = user_factory("SBS UDigits Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, waypoints="Ургаза", tag="udigits")
+    assert ride["id"] not in _feed(client, day, from_city=query, to_city="Акъяр"), query
+    assert ride["id"] not in _feed(client, day, from_city="Сибай", to_city=query), query
+    near = _near(client, day, from_city=query, to_city="Акъяр")
+    assert all(x["id"] != ride["id"] for x in near["items"]), query
+    near = _near(client, day, from_cities=query, to_cities="Акъяр")
+    assert all(x["id"] != ride["id"] for x in near["items"]), query
+    assert ride["id"] in _feed(client, day, from_city="Ургаза", to_city="Акъяр"), "контроль: без цифр находится"
+
+
 def test_like_wildcards_in_the_query_are_letters(client, trip):
     """«%» и «_» — не шаблон: запрос «%» не находит всё подряд (autoescape)."""
     day, _drv, ride = trip
@@ -143,19 +161,35 @@ def test_like_wildcards_in_the_query_are_letters(client, trip):
 
 
 def test_like_wildcards_do_not_match_in_sql_itself(client, trip):
-    """Вторая стена после `route_fit`: само SQL-условие с «%» не совпадает с каждой строкой
-    (поездка `trip` в базе есть — иначе пустая таблица прошла бы и без экранирования)."""
-    from sqlmodel import select
-
-    from app.stop_search import column_match
+    """Вторая стена после `route_fit`: само SQL-условие с «%» не совпадает с каждой строкой. Смотрим
+    СВОЮ поездку (`trip`): она в базе есть — иначе пустая таблица прошла бы и без экранирования, — а
+    чужие строки общей базы (у кого-то в остановках бывает «_») тест не задевают."""
+    _day_, _drv, ride = trip
     with Session(engine) as s:
-        assert s.exec(select(Ride.id).where(column_match(Ride.from_city, ["%"]))).first() is None
-        assert s.exec(select(Ride.id).where(column_match(Ride.waypoints, ["_"]))).first() is None
+        mine = Ride.id == ride["id"]
+        assert s.exec(select(Ride.id).where(mine, column_match(Ride.from_city, ["%"]))).first() is None
+        assert s.exec(select(Ride.id).where(mine, column_match(Ride.waypoints, ["_"]))).first() is None
+
+
+def test_pair_match_escapes_wildcards_in_sql(client, trip):
+    """Попарный LIKE общей ленты («откуда…куда» в остановках): «_» и «%» в имени — буквы, порядок держится."""
+    _day_, _drv, ride = trip
+    with Session(engine) as s:
+        def hit(froms, tos):
+            return s.exec(select(Ride.id).where(Ride.id == ride["id"], pair_match(Ride.waypoints, froms, tos))).first()
+        assert hit(["Ург_за"], ["Бур%ай"]) is None, "«_» и «%» сработали как шаблон"
+        assert hit(["Ург_за"], ["Бурибай"]) is None and hit(["Ургаза"], ["Бур%ай"]) is None
+        assert hit(["Ургаза"], ["Бурибай"]) == ride["id"], "контроль: обычная пара совпадает"
+        assert hit(["Бурибай"], ["Ургаза"]) is None, "попарный LIKE держит порядок"
 
 
 def test_price_hint_does_not_treat_percent_as_everything(client, trip):
-    """`_city_match` (подсказка цены, советы водителю) — тоже с autoescape: «%» не берёт все поездки
-    (поездка `trip` с ценой в базе есть)."""
+    """`_city_match` (подсказка цены, советы водителю) — тоже с autoescape: «%» не берёт все поездки.
+    Своя поездка `trip` с ценой в базе есть; чужие строки общей базы — только в проверке ответа."""
+    _day_, _drv, ride = trip
+    with Session(engine) as s:
+        cond = rides_mod._city_match(Ride.from_city, s, "%")
+        assert s.exec(select(Ride.id).where(Ride.id == ride["id"], cond)).first() is None
     r = client.get("/rides/price_hint", params={"from_city": "%"})
     assert r.status_code == 200 and r.json()["count"] == 0, r.json()
 
@@ -201,6 +235,33 @@ def test_pagination_counts_only_real_matches(client, user_factory):
     assert len(allp) == 2 and all(x["id"] in good for x in allp)
 
 
+def test_feed_next_pages_are_the_same_as_slices_of_the_full_list(client, user_factory):
+    """Лента читает выдачу по порядку и останавливается, набрав `offset + limit` совпадений (P2-2):
+    «Показать ещё» отдаёт ровно то же, что срез полного списка, — без пропусков и повторов, и мимо
+    подстрочных совпадений, которые точная проверка отбросила."""
+    day = _day()
+    drv = user_factory("SBS Pages Driver", role=UserRole.driver)
+    ids = []
+    for i in range(5):
+        ids.append(_publish(client, drv, day, tag=f"pg{i}", hour=8 + i)["id"])
+        if i == 1:   # подстрока «Ургаза…Бурибай» есть, а остановкой не считается — в страницы не попадёт
+            junk = _publish(client, drv, day, waypoints="", tag="pgjunk", hour=8)["id"]
+            with Session(engine) as s:
+                r = s.get(Ride, junk)
+                r.waypoints = "Ургаза (ул. Ленина 5) | Бурибай"
+                s.add(r)
+                s.commit()
+    params = {"date": day.isoformat(), "from_city": "Ургаза", "to_city": "Бурибай"}
+    full = [x["id"] for x in client.get("/rides", params={**params, "limit": 200}).json()]
+    assert full == ids, (full, ids)
+    pages = []
+    for offset in (0, 2, 4, 6):
+        page = [x["id"] for x in client.get("/rides", params={**params, "limit": 2, "offset": offset}).json()]
+        assert page == full[offset:offset + 2], (offset, page)
+        pages += page
+    assert pages == full
+
+
 # ── «Ближайшие» ──
 
 def test_near_finds_through_a_stop_and_counts_after_route_fit(client, trip, user_factory):
@@ -221,6 +282,143 @@ def test_near_distance_to_the_nearer_stop(client, trip):
     item = next(x for x in near["items"] if x["id"] == ride["id"])
     assert item["distance_km"] is not None and item["distance_km"] < 1.0
     assert item["matched_stop"] == "Ургаза" and item["matched_from_start"] is False
+
+
+def _picked_point(item, ride_id):
+    """Где на самом деле то место, которое карточка предлагает как посадку (начало маршрута — из базы)."""
+    if item["matched_stop"] == "Ургаза":
+        return URGAZA
+    assert item["matched_from_start"] is True and item["matched_stop"] is None, item
+    with Session(engine) as s:
+        ride = s.get(Ride, ride_id)
+        return ride.from_lat, ride.from_lng
+
+
+def test_near_multi_from_distance_matches_the_preselected_pickup(client, user_factory):
+    """Человек в Ургазе выбрал в шторке «Откуда: Сибай, Ургаза». Расстояние ≈ 0 — до Ургазы, поэтому и
+    карточка зовёт садиться в Ургазе, а не в начале маршрута (Сибай, 41 км): иначе клиент предвыберет
+    начало, и пассажирка окажется «не пришедшей» по правилам начала (P2-1, приёмка PR #188)."""
+    day = _day()
+    drv = user_factory("SBS Multi Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, tag="multi")
+    near = _near(client, day, from_cities="Сибай,Ургаза", lat=URGAZA[0], lng=URGAZA[1])
+    item = next(x for x in near["items"] if x["id"] == ride["id"])
+    assert item["distance_km"] is not None and item["distance_km"] < 1.0, item
+    assert item["matched_stop"] == "Ургаза" and item["matched_from_start"] is False, item
+
+
+@pytest.mark.parametrize("where", [
+    URGAZA,                     # у остановки
+    (52.7160, 58.6640),         # в начале маршрута (Сибай)
+    (54.735, 55.958),           # в стороне от всего (Уфа)
+])
+@pytest.mark.parametrize("query", [{"from_cities": "Сибай,Ургаза"}, {"from_city": "Сибай,Ургаза"}])
+def test_near_distance_is_always_to_the_place_the_card_preselects(client, user_factory, where, query):
+    """Что бы ни выбрала «ближайшая», расстояние на карточке — ровно до того места, которое она
+    предлагает как посадку (а не до одного места и посадка в другом)."""
+    day = _day()
+    drv = user_factory("SBS Same Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, tag="same")
+    near = _near(client, day, lat=where[0], lng=where[1], **query)
+    item = next(x for x in near["items"] if x["id"] == ride["id"])
+    point = _picked_point(item, ride["id"])
+    assert item["distance_km"] == round(haversine_km(where[0], where[1], point[0], point[1]), 1), item
+
+
+def test_near_several_pickups_without_coordinates_preselect_nothing(client, user_factory):
+    """Нет точки человека — расстояния нет, а подходящих мест посадки два (начало и Ургаза): выбирать
+    за него нечем — ни остановки, ни «начала»."""
+    day = _day()
+    drv = user_factory("SBS NoCoord Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, tag="nocoord")
+    near = _near(client, day, from_cities="Сибай,Ургаза")
+    item = next(x for x in near["items"] if x["id"] == ride["id"])
+    assert item["distance_km"] is None
+    assert item["matched_stop"] is None and item["matched_from_start"] is False, item
+
+
+def test_feed_and_near_agree_when_several_pickups(client, user_factory):
+    """Один договор предвыбора для ленты и «Ближайших» (приёмка PR #188, P3-2). Начало «Сибай автовокзал»
+    совпадает с запросом «Сибай» подстрокой, остановка «Сибай» — по ключу: два варианта посадки, координат
+    человека нет. «Ближайшие» ничего не выбирают — и лента тоже (раньше она брала начало)."""
+    day = _day()
+    drv = user_factory("SBS Both Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, frm="Сибай автовокзал", waypoints="Сибай | Ургаза", tag="both")
+    near = next(x for x in _near(client, day, from_city="Сибай", to_city="Акъяр")["items"] if x["id"] == ride["id"])
+    feed = _feed(client, day, from_city="Сибай", to_city="Акъяр")[ride["id"]]
+    assert (near["matched_stop"], near["matched_from_start"]) == (None, False), near
+    assert (feed["matched_stop"], feed["matched_from_start"]) == (None, False), feed
+
+
+def test_unknown_stop_and_start_with_coordinates_preselect_nothing(client, user_factory):
+    """«Откуда: Сибай, Поворот на Юлук»: остановку справочник не знает — координат у неё нет. Человек стоит
+    в стороне от Сибая. Расстояние честное — до Сибая, единственного известного места; но предвыбирать
+    начало нельзя: неизвестная остановка могла быть ближе (приёмка PR #188, P3-3)."""
+    day = _day()
+    drv = user_factory("SBS Unknown Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, waypoints="Поворот на Юлук | Ургаза", tag="unknown")
+    where = (52.55, 58.40)
+    item = next(x for x in _near(client, day, from_cities="Сибай,Поворот на Юлук", lat=where[0], lng=where[1])["items"]
+                if x["id"] == ride["id"])
+    with Session(engine) as s:
+        start = s.get(Ride, ride["id"])
+        expected = round(haversine_km(where[0], where[1], start.from_lat, start.from_lng), 1)
+    assert item["distance_km"] == expected, "расстояние — честное, до единственного известного места"
+    assert item["matched_stop"] is None and item["matched_from_start"] is False, item
+    # Спросили только места с известными координатами — выбор есть, и он по расстоянию: человек в Ургазе.
+    item = next(x for x in _near(client, day, from_cities="Сибай,Ургаза", lat=URGAZA[0], lng=URGAZA[1])["items"]
+                if x["id"] == ride["id"])
+    assert item["matched_stop"] == "Ургаза" and item["matched_from_start"] is False, item
+
+
+def test_near_unknown_stop_without_from_filter_selects_nothing(client, user_factory):
+    """Без «Откуда» тот же договор: в поездке есть остановка без координат — какая из мест посадки ближе,
+    неизвестно, поэтому не выбираем; расстояние остаётся до ближайшего из известных."""
+    day = _day()
+    drv = user_factory("SBS Unknown2 Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, waypoints="Поворот на Юлук", tag="unknown2")
+    item = next(x for x in _near(client, day, lat=URGAZA[0], lng=URGAZA[1])["items"] if x["id"] == ride["id"])
+    assert item["distance_km"] is not None and item["distance_km"] > 30, "до начала (Сибай) — единственное известное"
+    assert item["matched_stop"] is None and item["matched_from_start"] is False, item
+
+
+def test_near_single_pickup_without_coordinates_is_preselected(client, user_factory):
+    """Место одно — выбирать есть что и без координат: «из Сибая» — начало, «из Ургазы» — остановка."""
+    day = _day()
+    drv = user_factory("SBS Single Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, tag="single")
+    item = next(x for x in _near(client, day, from_city="Сибай")["items"] if x["id"] == ride["id"])
+    assert item["matched_from_start"] is True and item["matched_stop"] is None
+    item = next(x for x in _near(client, day, from_city="Ургаза")["items"] if x["id"] == ride["id"])
+    assert item["matched_stop"] == "Ургаза" and item["matched_from_start"] is False
+
+
+def test_near_preselect_follows_the_pickups_all_filters_agree_on(client, user_factory):
+    """Два фильтра вместе: общее место посадки одно — Ургаза. Начало, подошедшее только первому фильтру
+    («Сибай, Ургаза»), предлагать нельзя: второй («Ургаза») его не допускает."""
+    day = _day()
+    drv = user_factory("SBS Common Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, tag="common")
+    near = _near(client, day, from_city="Сибай,Ургаза", from_cities="Ургаза")
+    item = next(x for x in near["items"] if x["id"] == ride["id"])
+    assert item["matched_stop"] == "Ургаза" and item["matched_from_start"] is False, item
+
+
+def test_near_same_route_with_different_coordinates_keeps_its_own_distance(client, user_factory):
+    """Ответ по «виду маршрута» считается один раз на запрос (P2-2) — но координаты начала входят в
+    вид: две поездки «Сибай → Акъяр» с разными точками выезда не получают одно расстояние на двоих."""
+    day = _day()
+    drv = user_factory("SBS Coords Driver", role=UserRole.driver)
+    far = _publish(client, drv, day, waypoints="", tag="coords-far", hour=9)
+    near_me = _publish(client, drv, day, waypoints="", tag="coords-near", hour=10)
+    with Session(engine) as s:
+        r = s.get(Ride, near_me["id"])
+        r.from_lat, r.from_lng = URGAZA
+        s.add(r)
+        s.commit()
+    items = {x["id"]: x for x in _near(client, day, lat=URGAZA[0], lng=URGAZA[1])["items"]}
+    assert items[near_me["id"]]["distance_km"] < 1.0
+    assert items[far["id"]]["distance_km"] > 30
 
 
 def test_near_distance_never_from_the_pin(client, user_factory):
@@ -300,8 +498,76 @@ def test_postgis_error_is_logged_without_the_query(client, trip, monkeypatch, ca
         near = _near(client, day, lat=URGAZA[0], lng=URGAZA[1], radius_km=5)
     assert near["count"] >= 1, "Python-фолбэк отработал"
     lines = [r.getMessage() for r in caplog.records if "PostGIS prefilter skipped" in r.getMessage()]
+    if not lines and engine.dialect.name == "postgresql":
+        pytest.skip("на этом Postgres есть PostGIS — префильтр не упал, ловить нечего")
     assert lines, "предупреждение не записано"
     assert all("ST_" not in ln and "52.34" not in ln and "58.61" not in ln for ln in lines), lines
+
+
+def test_postgis_prefilter_does_not_drop_rides_with_stops(client, trip, monkeypatch):
+    """PostGIS ни в CI, ни у нас нет, поэтому подменяем `session.execute` и смотрим на ТЕКСТ префильтра:
+    поездки с остановками он не выкидывает (`waypoints <> ''`) — ближе к человеку может быть остановка,
+    а не начало маршрута (Сибай в 41 км от Ургазы). Подставленный ответ базы — «все активные», как
+    у префильтра, который поездок не режет."""
+    day, _drv, ride = trip
+    monkeypatch.setattr(rides_mod, "_postgis_dialect", lambda session: True)
+    real_execute = sqlmodel.Session.execute
+    seen: list = []
+
+    class _AllRides:
+        def all(self):
+            return [(ride["id"],)]
+
+    def spy(self, statement, *args, **kwargs):
+        sql = str(statement)
+        if "ST_DWithin" in sql:
+            seen.append(sql)
+            return _AllRides()
+        return real_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(sqlmodel.Session, "execute", spy)
+    near = _near(client, day, lat=URGAZA[0], lng=URGAZA[1], radius_km=5)
+    assert len(seen) == 1, "префильтр PostGIS не вызван"
+    assert "(from_lat IS NULL OR waypoints <> '' OR ST_DWithin(" in seen[0], seen[0]
+    item = next(x for x in near["items"] if x["id"] == ride["id"])
+    assert item["matched_stop"] == "Ургаза" and item["distance_km"] < 1.0, "остановка в радиусе — поездка видна"
+
+
+# ── Общая лента: метки «где сядет» принадлежат только тому, кто искал ──
+
+def test_matched_stop_never_reaches_the_shared_feed_cache(client, trip, user_factory, monkeypatch):
+    """Общая лента без фильтров кэшируется на 20 секунд и отдаётся всем. Метки `matched_*` считаются из
+    запроса конкретного человека — в кэш (и в чужие ответы) они не попадают никогда."""
+    store: dict = {}
+    monkeypatch.setattr(rides_mod, "cache_get_json", lambda key: store.get(key))
+    monkeypatch.setattr(rides_mod, "cache_set_json", lambda key, value, ttl: store.__setitem__(key, value))
+    day, _drv, ride = trip
+    searcher = user_factory("SBS Cache Searcher")
+    mine = _feed(client, day, from_city="Ургаза", to_city="Акъяр")
+    assert mine[ride["id"]]["matched_stop"] == "Ургаза", "контроль: поиск видит остановку"
+    for _ in range(2):   # первый раз — свежая лента и запись в кэш, второй — из кэша
+        feed = client.get("/rides", headers=searcher["auth"]).json()
+        marked = [x["id"] for x in feed if x.get("matched_stop") is not None or x.get("matched_from_start")]
+        assert not marked, marked
+    assert store, "контроль: лента без фильтров в кэш записалась"
+    for value in store.values():
+        assert all(x.get("matched_stop") is None and x.get("matched_from_start") is False for x in value), \
+            "в кэше ленты метки чужого поиска"
+
+
+def test_request_snapshot_does_not_change_route_fit(client):
+    """Запоминалка ключей мест на запрос (P2-2) — только скорость: ответ тот же, что без неё, а общий
+    снимок справочника она не пачкает."""
+    base = snapshot_cached()
+    memo = request_snapshot(base)
+    assert memo is not base and "_place_keys_memo" not in base
+    r = _r()
+    cases = [(["Ургаза"], ["Акъяр"]), (["Сибай"], ["Бурибай"]), (["Бурибай"], ["Ургаза"]), (["Урғаҙа"], None),
+             (None, ["Аҡъяр"]), (["Акъяр"], None), (["Темясово"], ["Акъяр"]), (None, None)]
+    for _ in range(2):   # второй проход — ответы уже из запоминалки
+        for fv, tv in cases:
+            assert route_fit(r, fv, tv, memo) == route_fit(r, fv, tv, base), (fv, tv)
+    assert memo["_place_keys_memo"], "запоминалка заполнилась"
 
 
 # ── /rides/cities: остановки — в чипах, только узнанные и только видимые ──
@@ -349,3 +615,38 @@ def test_route_fit_positions(client):
     every = route_fit(r, None, None, entry)
     assert every.ok and every.pickups == (-1, 0, 1) and every.matched_stop is None
     assert not route_fit(r, ["Ургаза"], ["Акъяр"], entry, from_stops=False).ok, "без поиска по остановкам"
+
+
+def test_make_fit_never_drops_off_before_the_pickup():
+    """«Где выйдет» — только дальше по маршруту, чем посадка (сведение #188 с веткой Codex, 23.10.2026).
+    Посадка не выбрана — выход сверяем с самым ранним местом посадки: остановка до него — не выход."""
+    from app.stop_search import make_fit
+    stops = ("Ургаза", "Бурибай")
+    assert make_fit(stops, (1,), (), (0,)).matched_dropoff_stop is None, "выход раньше любой посадки"
+    assert make_fit(stops, (1,), (), (0, 2)).matched_to_end is True, "из двух точных годится только конец"
+    chosen = make_fit(stops, (-1, 0, 1), (0,), (1, 2))
+    assert chosen.matched_stop == "Ургаза" and chosen.matched_dropoff_stop is None, "после посадки два варианта"
+
+
+def test_near_dropoff_is_after_the_pickup_chosen_by_distance(client, user_factory):
+    """«Ближайшие»: посадку выбрало расстояние (Бурибай — рядом с человеком), а «Куда» точно называет ту же
+    остановку — карточка не скажет «сядешь в Бурибае, выйдешь в Бурибае»."""
+    from app.geo import lookup
+    day = _day()
+    drv = user_factory("SBS Drop Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, to="Бурибай-2", tag="drop-after")
+    entry = snapshot_cached()
+    here, end = lookup(entry, "Бурибай"), lookup(entry, "Акъяр")
+    assert len(here) == 1 and len(end) == 1
+    with Session(engine) as s:   # «Бурибай-2» справочник не знает: конец маршрута — у Акъяра, остановки в коридоре
+        r = s.get(Ride, ride["id"])
+        r.to_lat, r.to_lng = end[0].lat, end[0].lng
+        s.add(r)
+        s.commit()
+    item = next(x for x in _near(client, day, to_city="Бурибай", lat=here[0].lat, lng=here[0].lng)["items"]
+                if x["id"] == ride["id"])
+    assert item["matched_stop"] == "Бурибай", item
+    assert item["matched_dropoff_stop"] is None and item["matched_to_end"] is False, item
+    far = next(x for x in _near(client, day, to_city="Бурибай", lat=URGAZA[0], lng=URGAZA[1])["items"]
+               if x["id"] == ride["id"])
+    assert far["matched_stop"] == "Ургаза" and far["matched_dropoff_stop"] == "Бурибай", far
