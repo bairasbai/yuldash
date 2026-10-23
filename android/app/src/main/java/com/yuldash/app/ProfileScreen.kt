@@ -3242,7 +3242,7 @@ internal fun DriverCabinetContent(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onConfirmBooking(b.bookingId) },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),   // как «Отклонить» рядом — пара одной высоты
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                             ) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }

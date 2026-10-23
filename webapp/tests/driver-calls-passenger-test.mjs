@@ -27,4 +27,11 @@ await t.test("тип деталей брони знает поле passenger_pho
   assert.ok(/passenger_phone\?: string;/.test(api));
 });
 
+await t.test("экран брони пассажира говорит «Водитель отклонил бронь», если сервер так решил", () => {
+  const booking = readFileSync(ROOT + "src/screens/BookingScreen.tsx", "utf8");
+  assert.ok(booking.includes('d.status === "cancelled" && d.declined'), "условие отказа");
+  assert.ok(booking.includes("Водитель отклонил бронь"), "текст отказа");
+  assert.ok(/declined\?: boolean;/.test(api), "поле в типе деталей");
+});
+
 t.done();

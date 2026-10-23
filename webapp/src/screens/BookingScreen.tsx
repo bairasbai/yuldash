@@ -175,6 +175,15 @@ export default function BookingScreen() {
               </span>
               <StatusPill status={d.status} />
             </div>
+            {/* Отказ водителя — не «отмена»: как в пуше и в Android (приёмка 18.10, п.6). */}
+            {d.status === "cancelled" && d.declined && (
+              <p className="taxi-note">
+                {appText(
+                  "Водитель отклонил бронь — он не сможет взять тебя в эту поездку. Найди подходящую поездку в списке.",
+                  "Йөрөтөүсе бронде кире ҡаҡты — һине был сәфәргә ала алмай. Исемлектән уңайлы сәфәр тап."
+                )}
+              </p>
+            )}
           </div>
 
           {d.from_lat != null && d.to_lat != null && (
