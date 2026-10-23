@@ -81,11 +81,19 @@ internal object SessionKeys {
         "features_at" to "когда флаги направлений спрашивали у сервера — служебная метка свежести, не личные данные",
     )
 
-    /** Cleared by each store's atomic reset, never separately through CLEARED_BY_FILE. */
+    /**
+     * Cleared by each store's atomic reset, never separately through CLEARED_BY_FILE.
+     *
+     * Очередь исходящих (`queue`) — неотправленные сообщения и статусы («сел», «доехал»). Это
+     * чужая переписка, и выход из аккаунта стирает её целиком: `Outbox.clearAll` → общий сброс
+     * хранилища (`OfflineStoreReset.clear`) чистит ящик и его зашифрованного двойника, а старые
+     * ящики без `_v2` добивает `OfflineLegacyStores.clear`. Поэтому `queue` записана именно здесь,
+     * а не в `CLEARED_BY_FILE`: поштучно её удалять не нужно, сброс забирает ящик целиком.
+     */
     val CLEARED_BY_STORE: Map<String, List<String>> = mapOf(
         "yuldash_trippass_v2" to listOf(OfflineMigration.JOURNAL, TripPassDeletion.KEY),
-        "yuldash_outbox_v2" to listOf(OfflineMigration.JOURNAL),
+        "yuldash_outbox_v2" to listOf(OfflineMigration.JOURNAL, "queue"),
         "yuldash_trippass" to listOf(OfflineMigration.JOURNAL, TripPassDeletion.KEY),
-        "yuldash_outbox" to listOf(OfflineMigration.JOURNAL),
+        "yuldash_outbox" to listOf(OfflineMigration.JOURNAL, "queue"),
     )
 }
