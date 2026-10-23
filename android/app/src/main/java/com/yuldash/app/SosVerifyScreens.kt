@@ -351,10 +351,7 @@ internal fun SosScreen(
     fun sendSignal() {
         if (sending || !signalMounted.get()) return
         if (ApiClient.queueSessionGeneration() != signalOwner) { refuseChangedSession(SosSessionChange.BeforeSend); return }
-        if (!loggedIn) {
-            onLoginRequired()
-            return
-        }
+        if (!loggedIn) { onLoginRequired(); return }
         failed = false
         rateLimited = false
         sessionChange = SosSessionChange.None
@@ -378,8 +375,11 @@ internal fun SosScreen(
             val r = ApiClient.sos(category, note, orderId, lat = location?.latitude, lng = location?.longitude,
                 bookingId = bookingId, expectedGeneration = signalOwner)
             if (!signalMounted.get()) return@launch
-            // Запрос уже ушёл: сервер мог сохранить сигнал — «не отправлен» сказать нельзя.
-            if (!ApiClient.isCurrentSession(signalOwner)) { refuseChangedSession(SosSessionChange.AfterSend); return@launch }
+            // 401 — сервер сигнал не принял (вход истёк, обновить нечем): как до отправки — сразу ко входу.
+            // Иначе запрос ушёл, и сервер мог сигнал сохранить — «не отправлен» сказать нельзя.
+            val refused = (r.exceptionOrNull() as? ApiException)?.status == 401
+            val change = if (refused) SosSessionChange.BeforeSend else SosSessionChange.AfterSend
+            if (refused || !ApiClient.isCurrentSession(signalOwner)) { refuseChangedSession(change); return@launch }
             sending = false
             if (r.isSuccess) {
                 sent = true
