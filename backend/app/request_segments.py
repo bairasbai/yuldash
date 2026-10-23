@@ -15,8 +15,13 @@ RIDE_FIELDS = ("driver_id", "from_city", "to_city", "waypoints", "depart_at", "c
                "women_only", "child_seat", "pets_allowed", "baggage", "smoking", "air_conditioner")
 
 
-def segment(ride, req, entry=None):
-    """Каноническая пара (посадка, высадка); пустая строка означает начало/конец."""
+def segment(ride, req, entry=None, memo=None):
+    """Каноническая пара (посадка, высадка); пустая строка означает начало/конец.
+
+    `memo` — словарь на ОДИН запрос (лента, подбор): тяжёлая часть — сверка маршрута рейса с городами
+    заявки — зависит только от маршрута рейса (откуда, куда, остановки) и городов заявки, а не от
+    самого рейса или заявки: у соседних заявок города повторяются, у рейсов одной линии маршрут один.
+    Дешёвые проверки выше (статус, дата, места, пожелания) в кэш не идут: они зависят от строки."""
     if (ride.status != RideStatus.active or ride.depart_at is None
             or ride.depart_at < utcnow() - timedelta(hours=2)
             or ride.seats_left < req.seats or ride.category != req.category):
@@ -33,8 +38,15 @@ def segment(ride, req, entry=None):
     if getattr(req, "wheelchair", False):
         return None
     entry = entry if entry is not None else snapshot_cached()
-    fit = stop_search.route_fit(ride, stop_search.variants(None, req.from_city, entry),
-                               stop_search.variants(None, req.to_city, entry), entry, strict=True)
+    # route_fit читает у рейса только откуда/куда/остановки — по ним и ключ (Fit неизменяем).
+    key = (ride.from_city, ride.to_city, ride.waypoints, req.from_city, req.to_city)
+    if memo is not None and key in memo:
+        fit = memo[key]
+    else:
+        fit = stop_search.route_fit(ride, stop_search.variants(None, req.from_city, entry),
+                                    stop_search.variants(None, req.to_city, entry), entry, strict=True)
+        if memo is not None:
+            memo[key] = fit
     if not fit.ok or (not fit.matched_from_start and fit.matched_stop is None):
         return None
     if not fit.matched_to_end and fit.matched_dropoff_stop is None:

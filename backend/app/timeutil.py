@@ -58,6 +58,17 @@ def local_date(dt: Optional[datetime]):
     return (dt + timedelta(hours=settings.local_tz_offset_hours)).date()
 
 
+def local_day_bounds_utc(day) -> tuple:
+    """[начало, конец) МЕСТНЫХ суток `day`, выраженные в наивном UTC — для сравнения с колонками БД.
+
+    Ровно та же граница, что у `local_date`: `local_day_bounds_utc(d)[0] <= dt < …[1]` равносильно
+    `local_date(dt) == d`. Нужна, чтобы отбор «рейсы / заявки на этот день» делала база
+    (индекс по дате выезда), а не Python по каждой строке (ревью PR190, 23.10.2026)."""
+    from .config import settings   # локальный импорт: config сам тянет timeutil
+    start = datetime(day.year, day.month, day.day) - timedelta(hours=settings.local_tz_offset_hours)
+    return start, start + timedelta(days=1)
+
+
 def local_month_start(dt: Optional[datetime]) -> Optional[datetime]:
     """Начало МЕСТНОГО календарного месяца, выраженное в наивном UTC.
 
