@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,6 +33,10 @@ class CreateRideFormContentTest {
 
     @get:Rule
     val composeRule = createComposeRule()
+
+    // «Груз» в форме — только пока доставка открыта (приёмка 18.10, п.16). Флаги — общий объект
+    // процесса: без явной установки тест зависел от того, какой тест шёл перед ним.
+    @Before fun openDelivery() = FeatureFlags.resetForTest()
 
     @androidx.compose.runtime.Composable
     private fun Content(
