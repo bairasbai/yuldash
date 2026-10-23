@@ -1,6 +1,6 @@
 ## Ожидание в Compose-тестах Robolectric — 23.10.2026
 
-Ошибка дважды (26.09 — `TaxiReceiptNavigationTest`, `BookingConfirmationJourneyTest`; 23.10 — два теста #190). Если `waitUntil` ждёт простую переменную (счётчик запросов, поле состояния, очередь сокета), а не узел на экране, — в каждом шаге ожидания idle главного Looper + `Snapshot.sendApplyNotifications()`. Иначе запись вне композиции после «уснувшего» `GlobalSnapshotManager` до экрана не дойдёт, и тест изредка падает по 15 с. Новый тест, который сам пишет состояние экрана, — с контролем `withLostGlobalSnapshotNotification` (`RobolectricSnapshotDeliveryTestSupport.kt`): без доставки он красный всегда. Подробно — `testing.md`, правило 5.
+Ошибка дважды (26.09 — `TaxiReceiptNavigationTest`, `BookingConfirmationJourneyTest`; 23.10 — два теста #190). Если `waitUntil` ждёт простую переменную (счётчик запросов, поле состояния, очередь сокета), а не узел на экране, — в каждом шаге ожидания idle главного Looper + `Snapshot.sendApplyNotifications()`. Иначе запись вне композиции после «уснувшего» `GlobalSnapshotManager` может не дойти до экрана, и тест изредка падает по 15 с. Новый тест, который сам пишет состояние экрана, — с контролем `withLostGlobalSnapshotNotification` (`RobolectricSnapshotDeliveryTestSupport.kt`); проверь, что без доставки контроль красный (иначе он ничего не доказывает). Подробно — `testing.md`, правило 5.
 
 ## Пропущенное скрытие и потерянный ответ чата — 21.10.2026
 
