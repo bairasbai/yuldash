@@ -70,6 +70,8 @@ internal class TripChatState(
     internal val wsConnectedState: MutableState<Boolean> = mutableStateOf(false)
     var wsConnected: Boolean by wsConnectedState
     private var wasEverConnected = false
+    // Был разрыв живого канала: историю дотягиваем один раз, когда канал снова жив (refreshAfterReconnect).
+    private var resyncPending = false
     // Состояние первой загрузки истории: спиннер, ошибка (с «Повторить»), пусто.
     var historyLoading: Boolean by mutableStateOf(bookingId != null)
     var historyError: Boolean by mutableStateOf(false)
@@ -133,13 +135,21 @@ internal class TripChatState(
     }
 
     // The socket callback advances this before any replacement/late HTTP result can be admitted.
+    // Обрыв и неудачные попытки переподключения ленту не перекачивают: в селе со слабой сетью это
+    // лишний трафик и мигание. Начатое чтение отбрасывается, а историю читаем ОДИН раз — когда
+    // канал снова жив (refreshAfterReconnect) или человек вернулся в приложение (refreshAfterReturn).
     fun continuityLost() {
+        if (!isActive()) return
+        continuityEpoch.incrementAndGet()
+        scope.launch { if (isActive()) { snapshotChanged(); resyncPending = true } }
+    }
+
+    /** Вернулись в приложение: пока оно было в фоне, кадры могли потеряться — один раз перечитать. */
+    fun refreshAfterReturn() {
         if (!isActive()) return
         continuityEpoch.incrementAndGet()
         scope.launch { if (isActive()) { snapshotChanged(); requestHistoryRefresh() } }
     }
-
-    fun refreshAfterReturn() { continuityLost() }
 
     /** All readers share one pump; a signal/change during IO invalidates that snapshot. */
     private suspend fun drainHistory(id: Int): Boolean = historyMutex.withLock {
@@ -186,6 +196,8 @@ internal class TripChatState(
             onHistoryChanged = { scope.launch { historyChanged() } },
             onContinuityLost = { continuityLost() },
             onMessage = { inc ->
+                // Граница непрерывности на момент приёма кадра: кадр, «переживший» обрыв, — задержанный.
+                val receivedEpoch = continuityEpoch.get()
                 // WS-колбэк приходит с фонового потока OkHttp → правку Compose-state делаем на main
                 // (read-modify-write `messages` иначе может потерять обновление при гонке потоков).
                 scope.launch {
@@ -210,7 +222,9 @@ internal class TripChatState(
                     messages = when {
                         inc.id in hiddenMessageIds -> messages.filterNot { it.id == pending?.key || it.id == inc.id }
                         inc.id > 0 && messages.any { it.id == inc.id } -> messages.filterNot { it.id == pending?.key }
-                        authoritativeHistory || continuityEpoch.get() > 0 -> {
+                        // Неизвестную строку после history_changed/своего «у себя» или кадр, задержанный
+                        // через обрыв, допускает только история. Свежий кадр живого канала — сразу.
+                        authoritativeHistory || receivedEpoch != continuityEpoch.get() -> {
                             snapshotChanged(); requestHistoryRefresh(); messages.filterNot { it.id == pending?.key }
                         }
                         optIdx >= 0 -> messages.toMutableList().also { snapshotChanged(); it[optIdx] = dto }
@@ -222,7 +236,11 @@ internal class TripChatState(
                 }
             },
             onConnected = { connected ->
-                scope.launch { if (isActive()) wsConnected = connected }
+                scope.launch {
+                    if (!isActive()) return@launch
+                    wsConnected = connected
+                    if (connected) refreshAfterReconnect()
+                }
             },
             // Сервер не принял сообщение (слишком быстрый поток). Помечаем его
             // «Не доставлено · Повторить» — тем же способом, что и отказ по обычному
@@ -282,8 +300,9 @@ internal class TripChatState(
      */
     suspend fun refreshAfterReconnect() {
         if (!isActive() || !wsConnected) return
-        val reconnected = wasEverConnected
+        val reconnected = wasEverConnected || resyncPending
         wasEverConnected = true
+        resyncPending = false
         if (flushQueued() || !reconnected || !isActive()) return
         bookingId?.let { loadHistory(it) }
     }
