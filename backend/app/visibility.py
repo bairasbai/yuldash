@@ -297,18 +297,6 @@ FEED_MAX = 200
 #
 # Срок берём тот же, что у чата после поездки (`chat_after_trip_hours`): держать два разных
 # окна для связи по одной поездке — значит однажды их рассинхронизировать.
-def cancelled_in_transit(booking) -> bool:
-    """Бронь отменили, когда пассажир уже был в машине (решение 23.10.2026).
-
-    Посадку отмечает водитель (`onboard_at`), «Отменить» в первые минуты её снимает (`onboard_at=None`),
-    а отмена брони или поездки её не трогает. Пассажир «в пути» отменить не может
-    (`bookings._onboard_cancel_refusal`) — значит, отменил водитель или администратор.
-    Тогда пассажир, возможно, стоит на трассе: близким и SOS нельзя говорить «поездка завершена»."""
-    статус = booking.status.value if hasattr(booking.status, "value") else booking.status
-    return (статус == "cancelled" and getattr(booking, "onboard_at", None) is not None
-            and getattr(booking, "cancelled_by", None) != booking.passenger_id)
-
-
 def booking_contacts_open(booking, ride, now=None) -> bool:
     """Открыт ли ПРЯМО СЕЙЧАС телефон второй стороны по этой брони."""
     from datetime import timedelta
@@ -329,6 +317,35 @@ def booking_contacts_open(booking, ride, now=None) -> bool:
     if ride is None or ride.depart_at is None:
         return True                     # времени выезда нет — закрывать не по чему
     return сейчас <= ride.depart_at + timedelta(hours=settings.chat_after_trip_hours)
+
+
+def cancelled_in_transit(booking) -> bool:
+    """Бронь отменили, когда пассажир уже был в машине (решение 23.10.2026).
+
+    Посадку отмечает водитель (`onboard_at`), «Отменить» в первые минуты её снимает (`onboard_at=None`),
+    а отмена брони или поездки её не трогает. Пассажир «в пути» отменить не может
+    (`bookings._onboard_cancel_refusal`) — значит, отменил водитель или администратор.
+    Тогда пассажир, возможно, стоит на трассе: близким и SOS нельзя говорить «поездка завершена»."""
+    статус = booking.status.value if hasattr(booking.status, "value") else booking.status
+    return (статус == "cancelled" and getattr(booking, "onboard_at", None) is not None
+            and getattr(booking, "cancelled_by", None) != booking.passenger_id)
+
+
+def transit_cancel_car_open(booking, now=None) -> bool:
+    """Госномер и цвет машины пассажиру после отмены в пути (решение 23.10.2026): для SOS, разбора
+    и заявления. Окно то же, что у связи после поездки (`chat_after_trip_hours`), только от момента
+    отмены: через год это уже не помощь на трассе, а архив чужой машины (приёмка PR205)."""
+    from datetime import timedelta
+
+    from .config import settings
+    from .timeutil import utcnow
+
+    if not cancelled_in_transit(booking):
+        return False
+    когда = getattr(booking, "cancelled_at", None)
+    if когда is None:
+        return False
+    return (now or utcnow()) <= когда + timedelta(hours=settings.chat_after_trip_hours)
 
 
 # За сколько до выезда точка на карте открывается сама, даже если водитель ещё не нажал

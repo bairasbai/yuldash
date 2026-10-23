@@ -527,7 +527,11 @@ def _family_step(last: str, status: str) -> tuple[str, bool]:
     Итого на всю посадку — не больше двух SMS (сел → отменили), сколько бы раз ни жали кнопки.
     Повторное «сел» после отмены не шлём (повторная приёмка PR174): цикл «Сел → Отменить → Сел →
     Отменить» иначе оставлял у близкого ложное «сел в машину». «Ещё не в машине» — ошибка
-    безопаснее; правду скажет «доехал до места»."""
+    безопаснее; правду скажет «доехал до места».
+    «Отменили в пути» — последнее слово (приёмка PR205): запоздавшая отметка «Сел» той же
+    секунды не должна прийти маме после него и переписать строку обратно в «сел»."""
+    if last == "cancelled_onboard":
+        return last, False
     if status == "sat":
         if last in ("sat", "sat_again"):
             return last, False
@@ -550,17 +554,31 @@ def notify_family_trip_status(session: Session, booking_id: int, passenger: User
     contact_ids = [c.id for c in session.exec(select(TrustedContact).where(TrustedContact.user_id == passenger.id)).all()]
     if not contact_ids:
         return []
-    shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id, TripShare.contact_id.in_(contact_ids))).all()
+    # Замки вызывающего (Ride → Booking у «Доехал») над отправкой SMS не держим — как и раньше,
+    # отпускаем их до неё. Правду о брони ниже даёт перечитывание под замком строк шаринга.
+    session.commit()
+    # Строки шаринга — под замком от чтения шага до отправки SMS (приёмка PR205): отметка «Сел»
+    # и «отменили в пути» в ту же секунду шли параллельно, и запоздавшее «сел в машину» уходило
+    # маме ПОСЛЕ «отменили». Под замком вызовы по одной брони идут строго по очереди.
+    shares = session.exec(select(TripShare).where(TripShare.booking_id == booking_id, TripShare.contact_id.in_(contact_ids))
+                          .with_for_update().execution_options(populate_existing=True)).all()
+    # «Сел» и «доехал» — только про живую бронь: отмена успела сохраниться — устаревший шаг
+    # близким не шлём. Бронь читаем без замка: её замок берут ДО строк шаринга (Ride → Booking →
+    # TripShare), обратный порядок дал бы взаимную блокировку. «Отметку посадки отменили» шлём и
+    # по отменённой: иначе последним словом у мамы осталось бы «сел в машину».
+    stale = False
+    if status in ("sat", "arrived"):
+        booking = session.exec(select(Booking).where(Booking.id == booking_id)
+                               .execution_options(populate_existing=True)).first()
+        stale = booking is None or booking.status == BookingStatus.cancelled
     # SMS шлём ТОЛЬКО тем, у кого статус реально сменился — иначе повторный вызов того же
     # статуса (sat→sat) = бесконечные SMS за счёт платформы (у SOS троттл есть, тут не было).
-    steps = {s.id: _family_step(s.last_status, status) for s in shares}
+    steps = {s.id: ((s.last_status, False) if stale else _family_step(s.last_status, status)) for s in shares}
     changed_ids = [s.contact_id for s in shares if steps[s.id][1]]
     for share in shares:
         share.last_status = steps[share.id][0]
         session.add(share)
-    session.commit()
-    for share in shares:
-        session.refresh(share)  # после commit объекты «обнуляются» — перечитываем
+    session.flush()     # commit — после отправки: он отпустил бы замок строк раньше SMS
     # Реально уведомляем близких по SMS о статусе поездки.
     status_text = {"sat": "сел в машину", "arrived": "доехал до места", "done": "завершил поездку",
                    "unsat": "— отметку посадки отменили",
@@ -587,13 +605,14 @@ def notify_family_trip_status(session: Session, booking_id: int, passenger: User
         if c and c.phone and c.notify_by_default:
             # Тихо: статус едет автоматом по ходу поездки, и красная ошибка «слишком много
             # сообщений» посреди дороги человеку не поможет. Потолок всё равно общий.
-            if may_send_family_sms(session, passenger.id, "status"):
+            if may_send_family_sms(session, passenger.id, "status", commit=False):
                 lang = sms_lang_of(session, passenger.id)
                 send_text(c.phone, pick_lang(
                     lang, f"Юлдаш: {who} {status_text}.", f"Юлдаш: {who} {status_text_ba}.",
                 ))
-    # Учёт SMS коммитит сессию — после него объекты «обнуляются». Перечитываем ПЕРЕД ответом,
-    # иначе клиент получил бы пустые поля вместо статусов (поймал tests/test_flows.py).
+    session.commit()    # шаги и расход SMS — разом; замок строк шаринга отпускаем здесь
+    # После commit объекты «обнуляются». Перечитываем ПЕРЕД ответом, иначе клиент получил бы
+    # пустые поля вместо статусов (поймал tests/test_flows.py).
     for share in shares:
         session.refresh(share)
     return shares
