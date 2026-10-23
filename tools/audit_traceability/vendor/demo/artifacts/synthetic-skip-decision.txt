@@ -1,0 +1,2 @@
+SYNTHETIC DEMO explicit decision example: defer optional cross-device synchronization; no product/backend available.
+This decision NEVER closes must/P0, and is not a real audit decision.

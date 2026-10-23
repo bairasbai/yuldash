@@ -1,0 +1,1 @@
+SYNTHETIC DEMO: saving a ride twice keeps one favorite. No Yuldash observation.

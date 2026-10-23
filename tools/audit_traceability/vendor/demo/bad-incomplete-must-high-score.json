@@ -1,0 +1,2822 @@
+{
+  "schema_version": "1.0",
+  "audit": {
+    "id": "AUDIT-DEMO-001",
+    "title": "SYNTHETIC DEMO: favorites and booking; NOT Yuldash",
+    "scope": "demo",
+    "target_commit": "dddddddddddddddddddddddddddddddddddddddd",
+    "author_ids": [
+      "PERSON-DEMO-AUTHOR"
+    ],
+    "claimed_state": "accepted",
+    "reported_score": 99
+  },
+  "people": [
+    {
+      "id": "PERSON-DEMO-AUTHOR",
+      "name": "SYNTHETIC author",
+      "roles": [
+        "audit_author",
+        "implementation"
+      ]
+    },
+    {
+      "id": "PERSON-DEMO-TESTER",
+      "name": "SYNTHETIC execution identity",
+      "roles": [
+        "test"
+      ]
+    },
+    {
+      "id": "PERSON-DEMO-REVIEWER",
+      "name": "SYNTHETIC separate reviewer, no real human attestation",
+      "roles": [
+        "acceptance"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "ART-DEMO-SOURCE-FAVORITES",
+      "path": "artifacts/source-favorites.txt",
+      "kind": "source",
+      "sha256": "948df99bca7b0fe22d7ae4a854b877f2d387ed2e054615fca295c514772a6bb9"
+    },
+    {
+      "id": "ART-DEMO-SOURCE-BOOKING",
+      "path": "artifacts/source-booking.txt",
+      "kind": "source",
+      "sha256": "a3d2916f08aa6b3be827122d046b434c5ee911fff5ae897f688f430d4c4a8d5e"
+    },
+    {
+      "id": "ART-DEMO-SOURCE-CONTEXT",
+      "path": "artifacts/source-context.txt",
+      "kind": "source",
+      "sha256": "7b30ceade53193db34c43821ee9e42bc70e2a889bd7c69d1e75e4c05c54d0176"
+    },
+    {
+      "id": "ART-DEMO-APPLICATION",
+      "path": "application.py",
+      "kind": "implementation",
+      "sha256": "9149f962f196ac793c55889c62a2775992883ac22bb43939b8096b63ee357fd4"
+    },
+    {
+      "id": "ART-DEMO-TEST-SOURCE",
+      "path": "test_application.py",
+      "kind": "implementation",
+      "sha256": "ee1529ebc2c38c476187b921fd744ff0672d64cc275decd3efb9443dfe3f9c7c"
+    },
+    {
+      "id": "ART-DEMO-EXECUTION-FAVORITES",
+      "path": "artifacts/execution-favorites.json",
+      "kind": "execution",
+      "sha256": "f0c91f95e987df5fa5df2a76d062b4d8fc264810e1fbda8d7b071b6437380586"
+    },
+    {
+      "id": "ART-DEMO-EXECUTION-BOOKING",
+      "path": "artifacts/execution-booking.json",
+      "kind": "execution",
+      "sha256": "cb36ff2f97b0a80059e4b5f6aa2169696943c1f5b8715616bf4545daf3a31214"
+    },
+    {
+      "id": "ART-DEMO-REVIEW",
+      "path": "artifacts/synthetic-review.txt",
+      "kind": "acceptance",
+      "sha256": "a8d77cd21cc1781cde3c86142bd0a4fc42f8d38a94cd0f4f9614b394706f7427"
+    },
+    {
+      "id": "ART-DEMO-SKIP",
+      "path": "artifacts/synthetic-skip-decision.txt",
+      "kind": "decision",
+      "sha256": "adedfd1edb86030659349adce0d6c561a87975f4eb69ab4b5ff1f6c5ee60826c"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "EVD-DEMO-FAVORITES",
+      "certainty": "observed",
+      "kind": "static",
+      "claim": "DEMO specification states idempotent saving",
+      "locator": "DEMO source-favorites.txt line 1",
+      "artifact_ids": [
+        "ART-DEMO-SOURCE-FAVORITES"
+      ]
+    },
+    {
+      "id": "EVD-DEMO-BOOKING",
+      "certainty": "observed",
+      "kind": "public",
+      "claim": "Synthetic specification states seat reservation criteria",
+      "locator": "DEMO public-spec fixture; not fetched from the internet",
+      "artifact_ids": [
+        "ART-DEMO-SOURCE-BOOKING"
+      ]
+    },
+    {
+      "id": "EVD-DEMO-BOOKING-RUNTIME",
+      "certainty": "observed",
+      "kind": "runtime",
+      "claim": "Bundled miniature booking test executed locally",
+      "locator": "execution-booking.json / stderr",
+      "artifact_ids": [
+        "ART-DEMO-EXECUTION-BOOKING"
+      ]
+    },
+    {
+      "id": "EVD-DEMO-INFERRED",
+      "certainty": "inferred",
+      "kind": "static",
+      "claim": "Persistence might be useful; not demonstrated",
+      "locator": "DEMO auxiliary hypothesis",
+      "artifact_ids": [
+        "ART-DEMO-SOURCE-CONTEXT"
+      ]
+    },
+    {
+      "id": "EVD-DEMO-UNKNOWN",
+      "certainty": "unknown",
+      "kind": "public",
+      "claim": "Cross-device behavior is unknown",
+      "locator": "DEMO unknown; no real public observation",
+      "artifact_ids": [
+        "ART-DEMO-SOURCE-CONTEXT"
+      ]
+    }
+  ],
+  "features": [
+    {
+      "id": "FEATURE-DEMO-HELPERS",
+      "title": "DEMO 99 helpers cannot close a must",
+      "classification": "helper",
+      "requirement_ids": [
+        "REQ-DEMO-HELPER-001",
+        "REQ-DEMO-HELPER-002",
+        "REQ-DEMO-HELPER-003",
+        "REQ-DEMO-HELPER-004",
+        "REQ-DEMO-HELPER-005",
+        "REQ-DEMO-HELPER-006",
+        "REQ-DEMO-HELPER-007",
+        "REQ-DEMO-HELPER-008",
+        "REQ-DEMO-HELPER-009",
+        "REQ-DEMO-HELPER-010",
+        "REQ-DEMO-HELPER-011",
+        "REQ-DEMO-HELPER-012",
+        "REQ-DEMO-HELPER-013",
+        "REQ-DEMO-HELPER-014",
+        "REQ-DEMO-HELPER-015",
+        "REQ-DEMO-HELPER-016",
+        "REQ-DEMO-HELPER-017",
+        "REQ-DEMO-HELPER-018",
+        "REQ-DEMO-HELPER-019",
+        "REQ-DEMO-HELPER-020",
+        "REQ-DEMO-HELPER-021",
+        "REQ-DEMO-HELPER-022",
+        "REQ-DEMO-HELPER-023",
+        "REQ-DEMO-HELPER-024",
+        "REQ-DEMO-HELPER-025",
+        "REQ-DEMO-HELPER-026",
+        "REQ-DEMO-HELPER-027",
+        "REQ-DEMO-HELPER-028",
+        "REQ-DEMO-HELPER-029",
+        "REQ-DEMO-HELPER-030",
+        "REQ-DEMO-HELPER-031",
+        "REQ-DEMO-HELPER-032",
+        "REQ-DEMO-HELPER-033",
+        "REQ-DEMO-HELPER-034",
+        "REQ-DEMO-HELPER-035",
+        "REQ-DEMO-HELPER-036",
+        "REQ-DEMO-HELPER-037",
+        "REQ-DEMO-HELPER-038",
+        "REQ-DEMO-HELPER-039",
+        "REQ-DEMO-HELPER-040",
+        "REQ-DEMO-HELPER-041",
+        "REQ-DEMO-HELPER-042",
+        "REQ-DEMO-HELPER-043",
+        "REQ-DEMO-HELPER-044",
+        "REQ-DEMO-HELPER-045",
+        "REQ-DEMO-HELPER-046",
+        "REQ-DEMO-HELPER-047",
+        "REQ-DEMO-HELPER-048",
+        "REQ-DEMO-HELPER-049",
+        "REQ-DEMO-HELPER-050",
+        "REQ-DEMO-HELPER-051",
+        "REQ-DEMO-HELPER-052",
+        "REQ-DEMO-HELPER-053",
+        "REQ-DEMO-HELPER-054",
+        "REQ-DEMO-HELPER-055",
+        "REQ-DEMO-HELPER-056",
+        "REQ-DEMO-HELPER-057",
+        "REQ-DEMO-HELPER-058",
+        "REQ-DEMO-HELPER-059",
+        "REQ-DEMO-HELPER-060",
+        "REQ-DEMO-HELPER-061",
+        "REQ-DEMO-HELPER-062",
+        "REQ-DEMO-HELPER-063",
+        "REQ-DEMO-HELPER-064",
+        "REQ-DEMO-HELPER-065",
+        "REQ-DEMO-HELPER-066",
+        "REQ-DEMO-HELPER-067",
+        "REQ-DEMO-HELPER-068",
+        "REQ-DEMO-HELPER-069",
+        "REQ-DEMO-HELPER-070",
+        "REQ-DEMO-HELPER-071",
+        "REQ-DEMO-HELPER-072",
+        "REQ-DEMO-HELPER-073",
+        "REQ-DEMO-HELPER-074",
+        "REQ-DEMO-HELPER-075",
+        "REQ-DEMO-HELPER-076",
+        "REQ-DEMO-HELPER-077",
+        "REQ-DEMO-HELPER-078",
+        "REQ-DEMO-HELPER-079",
+        "REQ-DEMO-HELPER-080",
+        "REQ-DEMO-HELPER-081",
+        "REQ-DEMO-HELPER-082",
+        "REQ-DEMO-HELPER-083",
+        "REQ-DEMO-HELPER-084",
+        "REQ-DEMO-HELPER-085",
+        "REQ-DEMO-HELPER-086",
+        "REQ-DEMO-HELPER-087",
+        "REQ-DEMO-HELPER-088",
+        "REQ-DEMO-HELPER-089",
+        "REQ-DEMO-HELPER-090",
+        "REQ-DEMO-HELPER-091",
+        "REQ-DEMO-HELPER-092",
+        "REQ-DEMO-HELPER-093",
+        "REQ-DEMO-HELPER-094",
+        "REQ-DEMO-HELPER-095",
+        "REQ-DEMO-HELPER-096",
+        "REQ-DEMO-HELPER-097",
+        "REQ-DEMO-HELPER-098",
+        "REQ-DEMO-HELPER-099"
+      ]
+    },
+    {
+      "id": "FEATURE-DEMO-CRITICAL",
+      "title": "DEMO mandatory business behavior is incomplete",
+      "classification": "business_feature",
+      "requirement_ids": [
+        "REQ-DEMO-CRITICAL"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "REQ-DEMO-HELPER-001",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-001",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-002",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-002",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-003",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-003",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-004",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-004",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-005",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-005",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-006",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-006",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-007",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-007",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-008",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-008",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-009",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-009",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-010",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-010",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-011",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-011",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-012",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-012",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-013",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-013",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-014",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-014",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-015",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-015",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-016",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-016",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-017",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-017",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-018",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-018",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-019",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-019",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-020",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-020",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-021",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-021",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-022",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-022",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-023",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-023",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-024",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-024",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-025",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-025",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-026",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-026",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-027",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-027",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-028",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-028",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-029",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-029",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-030",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-030",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-031",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-031",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-032",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-032",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-033",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-033",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-034",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-034",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-035",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-035",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-036",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-036",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-037",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-037",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-038",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-038",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-039",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-039",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-040",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-040",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-041",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-041",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-042",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-042",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-043",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-043",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-044",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-044",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-045",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-045",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-046",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-046",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-047",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-047",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-048",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-048",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-049",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-049",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-050",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-050",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-051",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-051",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-052",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-052",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-053",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-053",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-054",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-054",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-055",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-055",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-056",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-056",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-057",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-057",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-058",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-058",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-059",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-059",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-060",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-060",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-061",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-061",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-062",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-062",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-063",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-063",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-064",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-064",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-065",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-065",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-066",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-066",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-067",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-067",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-068",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-068",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-069",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-069",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-070",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-070",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-071",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-071",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-072",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-072",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-073",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-073",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-074",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-074",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-075",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-075",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-076",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-076",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-077",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-077",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-078",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-078",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-079",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-079",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-080",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-080",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-081",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-081",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-082",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-082",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-083",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-083",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-084",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-084",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-085",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-085",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-086",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-086",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-087",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-087",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-088",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-088",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-089",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-089",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-090",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-090",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-091",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-091",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-092",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-092",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-093",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-093",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-094",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-094",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-095",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-095",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-096",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-096",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-097",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-097",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-098",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-098",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-HELPER-099",
+      "feature_id": "FEATURE-DEMO-HELPERS",
+      "text": "DEMO synthetic helper REQ-DEMO-HELPER-099",
+      "level": "may",
+      "priority": "P2",
+      "evidence_ids": [
+        "EVD-DEMO-FAVORITES",
+        "EVD-DEMO-INFERRED",
+        "EVD-DEMO-UNKNOWN"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "acceptance_ids": [
+        "ACC-DEMO-FAVORITES"
+      ],
+      "disposition": "active"
+    },
+    {
+      "id": "REQ-DEMO-CRITICAL",
+      "feature_id": "FEATURE-DEMO-CRITICAL",
+      "text": "DEMO must remains incomplete at 99 percent",
+      "level": "must",
+      "priority": "P0",
+      "evidence_ids": [
+        "EVD-DEMO-BOOKING"
+      ],
+      "implementation_ids": [],
+      "test_ids": [],
+      "acceptance_ids": [],
+      "disposition": "active"
+    }
+  ],
+  "implementations": [
+    {
+      "id": "IMP-DEMO-FAVORITES",
+      "requirement_ids": [
+        "REQ-DEMO-HELPER-001",
+        "REQ-DEMO-HELPER-002",
+        "REQ-DEMO-HELPER-003",
+        "REQ-DEMO-HELPER-004",
+        "REQ-DEMO-HELPER-005",
+        "REQ-DEMO-HELPER-006",
+        "REQ-DEMO-HELPER-007",
+        "REQ-DEMO-HELPER-008",
+        "REQ-DEMO-HELPER-009",
+        "REQ-DEMO-HELPER-010",
+        "REQ-DEMO-HELPER-011",
+        "REQ-DEMO-HELPER-012",
+        "REQ-DEMO-HELPER-013",
+        "REQ-DEMO-HELPER-014",
+        "REQ-DEMO-HELPER-015",
+        "REQ-DEMO-HELPER-016",
+        "REQ-DEMO-HELPER-017",
+        "REQ-DEMO-HELPER-018",
+        "REQ-DEMO-HELPER-019",
+        "REQ-DEMO-HELPER-020",
+        "REQ-DEMO-HELPER-021",
+        "REQ-DEMO-HELPER-022",
+        "REQ-DEMO-HELPER-023",
+        "REQ-DEMO-HELPER-024",
+        "REQ-DEMO-HELPER-025",
+        "REQ-DEMO-HELPER-026",
+        "REQ-DEMO-HELPER-027",
+        "REQ-DEMO-HELPER-028",
+        "REQ-DEMO-HELPER-029",
+        "REQ-DEMO-HELPER-030",
+        "REQ-DEMO-HELPER-031",
+        "REQ-DEMO-HELPER-032",
+        "REQ-DEMO-HELPER-033",
+        "REQ-DEMO-HELPER-034",
+        "REQ-DEMO-HELPER-035",
+        "REQ-DEMO-HELPER-036",
+        "REQ-DEMO-HELPER-037",
+        "REQ-DEMO-HELPER-038",
+        "REQ-DEMO-HELPER-039",
+        "REQ-DEMO-HELPER-040",
+        "REQ-DEMO-HELPER-041",
+        "REQ-DEMO-HELPER-042",
+        "REQ-DEMO-HELPER-043",
+        "REQ-DEMO-HELPER-044",
+        "REQ-DEMO-HELPER-045",
+        "REQ-DEMO-HELPER-046",
+        "REQ-DEMO-HELPER-047",
+        "REQ-DEMO-HELPER-048",
+        "REQ-DEMO-HELPER-049",
+        "REQ-DEMO-HELPER-050",
+        "REQ-DEMO-HELPER-051",
+        "REQ-DEMO-HELPER-052",
+        "REQ-DEMO-HELPER-053",
+        "REQ-DEMO-HELPER-054",
+        "REQ-DEMO-HELPER-055",
+        "REQ-DEMO-HELPER-056",
+        "REQ-DEMO-HELPER-057",
+        "REQ-DEMO-HELPER-058",
+        "REQ-DEMO-HELPER-059",
+        "REQ-DEMO-HELPER-060",
+        "REQ-DEMO-HELPER-061",
+        "REQ-DEMO-HELPER-062",
+        "REQ-DEMO-HELPER-063",
+        "REQ-DEMO-HELPER-064",
+        "REQ-DEMO-HELPER-065",
+        "REQ-DEMO-HELPER-066",
+        "REQ-DEMO-HELPER-067",
+        "REQ-DEMO-HELPER-068",
+        "REQ-DEMO-HELPER-069",
+        "REQ-DEMO-HELPER-070",
+        "REQ-DEMO-HELPER-071",
+        "REQ-DEMO-HELPER-072",
+        "REQ-DEMO-HELPER-073",
+        "REQ-DEMO-HELPER-074",
+        "REQ-DEMO-HELPER-075",
+        "REQ-DEMO-HELPER-076",
+        "REQ-DEMO-HELPER-077",
+        "REQ-DEMO-HELPER-078",
+        "REQ-DEMO-HELPER-079",
+        "REQ-DEMO-HELPER-080",
+        "REQ-DEMO-HELPER-081",
+        "REQ-DEMO-HELPER-082",
+        "REQ-DEMO-HELPER-083",
+        "REQ-DEMO-HELPER-084",
+        "REQ-DEMO-HELPER-085",
+        "REQ-DEMO-HELPER-086",
+        "REQ-DEMO-HELPER-087",
+        "REQ-DEMO-HELPER-088",
+        "REQ-DEMO-HELPER-089",
+        "REQ-DEMO-HELPER-090",
+        "REQ-DEMO-HELPER-091",
+        "REQ-DEMO-HELPER-092",
+        "REQ-DEMO-HELPER-093",
+        "REQ-DEMO-HELPER-094",
+        "REQ-DEMO-HELPER-095",
+        "REQ-DEMO-HELPER-096",
+        "REQ-DEMO-HELPER-097",
+        "REQ-DEMO-HELPER-098",
+        "REQ-DEMO-HELPER-099"
+      ],
+      "commit": "dddddddddddddddddddddddddddddddddddddddd",
+      "author_ids": [
+        "PERSON-DEMO-AUTHOR"
+      ],
+      "state": "implemented",
+      "summary": "DEMO: save a ride as favorite",
+      "artifact_ids": [
+        "ART-DEMO-APPLICATION",
+        "ART-DEMO-TEST-SOURCE"
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "id": "TEST-DEMO-FAVORITES",
+      "requirement_ids": [
+        "REQ-DEMO-HELPER-001",
+        "REQ-DEMO-HELPER-002",
+        "REQ-DEMO-HELPER-003",
+        "REQ-DEMO-HELPER-004",
+        "REQ-DEMO-HELPER-005",
+        "REQ-DEMO-HELPER-006",
+        "REQ-DEMO-HELPER-007",
+        "REQ-DEMO-HELPER-008",
+        "REQ-DEMO-HELPER-009",
+        "REQ-DEMO-HELPER-010",
+        "REQ-DEMO-HELPER-011",
+        "REQ-DEMO-HELPER-012",
+        "REQ-DEMO-HELPER-013",
+        "REQ-DEMO-HELPER-014",
+        "REQ-DEMO-HELPER-015",
+        "REQ-DEMO-HELPER-016",
+        "REQ-DEMO-HELPER-017",
+        "REQ-DEMO-HELPER-018",
+        "REQ-DEMO-HELPER-019",
+        "REQ-DEMO-HELPER-020",
+        "REQ-DEMO-HELPER-021",
+        "REQ-DEMO-HELPER-022",
+        "REQ-DEMO-HELPER-023",
+        "REQ-DEMO-HELPER-024",
+        "REQ-DEMO-HELPER-025",
+        "REQ-DEMO-HELPER-026",
+        "REQ-DEMO-HELPER-027",
+        "REQ-DEMO-HELPER-028",
+        "REQ-DEMO-HELPER-029",
+        "REQ-DEMO-HELPER-030",
+        "REQ-DEMO-HELPER-031",
+        "REQ-DEMO-HELPER-032",
+        "REQ-DEMO-HELPER-033",
+        "REQ-DEMO-HELPER-034",
+        "REQ-DEMO-HELPER-035",
+        "REQ-DEMO-HELPER-036",
+        "REQ-DEMO-HELPER-037",
+        "REQ-DEMO-HELPER-038",
+        "REQ-DEMO-HELPER-039",
+        "REQ-DEMO-HELPER-040",
+        "REQ-DEMO-HELPER-041",
+        "REQ-DEMO-HELPER-042",
+        "REQ-DEMO-HELPER-043",
+        "REQ-DEMO-HELPER-044",
+        "REQ-DEMO-HELPER-045",
+        "REQ-DEMO-HELPER-046",
+        "REQ-DEMO-HELPER-047",
+        "REQ-DEMO-HELPER-048",
+        "REQ-DEMO-HELPER-049",
+        "REQ-DEMO-HELPER-050",
+        "REQ-DEMO-HELPER-051",
+        "REQ-DEMO-HELPER-052",
+        "REQ-DEMO-HELPER-053",
+        "REQ-DEMO-HELPER-054",
+        "REQ-DEMO-HELPER-055",
+        "REQ-DEMO-HELPER-056",
+        "REQ-DEMO-HELPER-057",
+        "REQ-DEMO-HELPER-058",
+        "REQ-DEMO-HELPER-059",
+        "REQ-DEMO-HELPER-060",
+        "REQ-DEMO-HELPER-061",
+        "REQ-DEMO-HELPER-062",
+        "REQ-DEMO-HELPER-063",
+        "REQ-DEMO-HELPER-064",
+        "REQ-DEMO-HELPER-065",
+        "REQ-DEMO-HELPER-066",
+        "REQ-DEMO-HELPER-067",
+        "REQ-DEMO-HELPER-068",
+        "REQ-DEMO-HELPER-069",
+        "REQ-DEMO-HELPER-070",
+        "REQ-DEMO-HELPER-071",
+        "REQ-DEMO-HELPER-072",
+        "REQ-DEMO-HELPER-073",
+        "REQ-DEMO-HELPER-074",
+        "REQ-DEMO-HELPER-075",
+        "REQ-DEMO-HELPER-076",
+        "REQ-DEMO-HELPER-077",
+        "REQ-DEMO-HELPER-078",
+        "REQ-DEMO-HELPER-079",
+        "REQ-DEMO-HELPER-080",
+        "REQ-DEMO-HELPER-081",
+        "REQ-DEMO-HELPER-082",
+        "REQ-DEMO-HELPER-083",
+        "REQ-DEMO-HELPER-084",
+        "REQ-DEMO-HELPER-085",
+        "REQ-DEMO-HELPER-086",
+        "REQ-DEMO-HELPER-087",
+        "REQ-DEMO-HELPER-088",
+        "REQ-DEMO-HELPER-089",
+        "REQ-DEMO-HELPER-090",
+        "REQ-DEMO-HELPER-091",
+        "REQ-DEMO-HELPER-092",
+        "REQ-DEMO-HELPER-093",
+        "REQ-DEMO-HELPER-094",
+        "REQ-DEMO-HELPER-095",
+        "REQ-DEMO-HELPER-096",
+        "REQ-DEMO-HELPER-097",
+        "REQ-DEMO-HELPER-098",
+        "REQ-DEMO-HELPER-099"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "state": "executed",
+      "certainty": "observed",
+      "result": "passed",
+      "target_commit": "dddddddddddddddddddddddddddddddddddddddd",
+      "executor_id": "PERSON-DEMO-TESTER",
+      "started_at": "2026-10-23T09:46:40.253826+00:00",
+      "finished_at": "2026-10-23T09:46:40.320890+00:00",
+      "command": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3 -m unittest demo.test_application.DemoFavoritesTest -v",
+      "environment": "Linux-6.18.55-x86_64-with-glibc2.41 / 3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+      "artifact_ids": [
+        "ART-DEMO-EXECUTION-FAVORITES"
+      ]
+    }
+  ],
+  "acceptances": [
+    {
+      "id": "ACC-DEMO-FAVORITES",
+      "requirement_ids": [
+        "REQ-DEMO-HELPER-001",
+        "REQ-DEMO-HELPER-002",
+        "REQ-DEMO-HELPER-003",
+        "REQ-DEMO-HELPER-004",
+        "REQ-DEMO-HELPER-005",
+        "REQ-DEMO-HELPER-006",
+        "REQ-DEMO-HELPER-007",
+        "REQ-DEMO-HELPER-008",
+        "REQ-DEMO-HELPER-009",
+        "REQ-DEMO-HELPER-010",
+        "REQ-DEMO-HELPER-011",
+        "REQ-DEMO-HELPER-012",
+        "REQ-DEMO-HELPER-013",
+        "REQ-DEMO-HELPER-014",
+        "REQ-DEMO-HELPER-015",
+        "REQ-DEMO-HELPER-016",
+        "REQ-DEMO-HELPER-017",
+        "REQ-DEMO-HELPER-018",
+        "REQ-DEMO-HELPER-019",
+        "REQ-DEMO-HELPER-020",
+        "REQ-DEMO-HELPER-021",
+        "REQ-DEMO-HELPER-022",
+        "REQ-DEMO-HELPER-023",
+        "REQ-DEMO-HELPER-024",
+        "REQ-DEMO-HELPER-025",
+        "REQ-DEMO-HELPER-026",
+        "REQ-DEMO-HELPER-027",
+        "REQ-DEMO-HELPER-028",
+        "REQ-DEMO-HELPER-029",
+        "REQ-DEMO-HELPER-030",
+        "REQ-DEMO-HELPER-031",
+        "REQ-DEMO-HELPER-032",
+        "REQ-DEMO-HELPER-033",
+        "REQ-DEMO-HELPER-034",
+        "REQ-DEMO-HELPER-035",
+        "REQ-DEMO-HELPER-036",
+        "REQ-DEMO-HELPER-037",
+        "REQ-DEMO-HELPER-038",
+        "REQ-DEMO-HELPER-039",
+        "REQ-DEMO-HELPER-040",
+        "REQ-DEMO-HELPER-041",
+        "REQ-DEMO-HELPER-042",
+        "REQ-DEMO-HELPER-043",
+        "REQ-DEMO-HELPER-044",
+        "REQ-DEMO-HELPER-045",
+        "REQ-DEMO-HELPER-046",
+        "REQ-DEMO-HELPER-047",
+        "REQ-DEMO-HELPER-048",
+        "REQ-DEMO-HELPER-049",
+        "REQ-DEMO-HELPER-050",
+        "REQ-DEMO-HELPER-051",
+        "REQ-DEMO-HELPER-052",
+        "REQ-DEMO-HELPER-053",
+        "REQ-DEMO-HELPER-054",
+        "REQ-DEMO-HELPER-055",
+        "REQ-DEMO-HELPER-056",
+        "REQ-DEMO-HELPER-057",
+        "REQ-DEMO-HELPER-058",
+        "REQ-DEMO-HELPER-059",
+        "REQ-DEMO-HELPER-060",
+        "REQ-DEMO-HELPER-061",
+        "REQ-DEMO-HELPER-062",
+        "REQ-DEMO-HELPER-063",
+        "REQ-DEMO-HELPER-064",
+        "REQ-DEMO-HELPER-065",
+        "REQ-DEMO-HELPER-066",
+        "REQ-DEMO-HELPER-067",
+        "REQ-DEMO-HELPER-068",
+        "REQ-DEMO-HELPER-069",
+        "REQ-DEMO-HELPER-070",
+        "REQ-DEMO-HELPER-071",
+        "REQ-DEMO-HELPER-072",
+        "REQ-DEMO-HELPER-073",
+        "REQ-DEMO-HELPER-074",
+        "REQ-DEMO-HELPER-075",
+        "REQ-DEMO-HELPER-076",
+        "REQ-DEMO-HELPER-077",
+        "REQ-DEMO-HELPER-078",
+        "REQ-DEMO-HELPER-079",
+        "REQ-DEMO-HELPER-080",
+        "REQ-DEMO-HELPER-081",
+        "REQ-DEMO-HELPER-082",
+        "REQ-DEMO-HELPER-083",
+        "REQ-DEMO-HELPER-084",
+        "REQ-DEMO-HELPER-085",
+        "REQ-DEMO-HELPER-086",
+        "REQ-DEMO-HELPER-087",
+        "REQ-DEMO-HELPER-088",
+        "REQ-DEMO-HELPER-089",
+        "REQ-DEMO-HELPER-090",
+        "REQ-DEMO-HELPER-091",
+        "REQ-DEMO-HELPER-092",
+        "REQ-DEMO-HELPER-093",
+        "REQ-DEMO-HELPER-094",
+        "REQ-DEMO-HELPER-095",
+        "REQ-DEMO-HELPER-096",
+        "REQ-DEMO-HELPER-097",
+        "REQ-DEMO-HELPER-098",
+        "REQ-DEMO-HELPER-099"
+      ],
+      "implementation_ids": [
+        "IMP-DEMO-FAVORITES"
+      ],
+      "test_ids": [
+        "TEST-DEMO-FAVORITES"
+      ],
+      "target_commit": "dddddddddddddddddddddddddddddddddddddddd",
+      "reviewer_id": "PERSON-DEMO-REVIEWER",
+      "decision": "accepted",
+      "certainty": "observed",
+      "reviewed_at": "2026-10-23T09:46:40.387440+00:00",
+      "reason": "SYNTHETIC review declaration only; no real independent human acceptance performed",
+      "reviewed_artifact_ids": [
+        "ART-DEMO-APPLICATION",
+        "ART-DEMO-EXECUTION-FAVORITES",
+        "ART-DEMO-SOURCE-CONTEXT",
+        "ART-DEMO-SOURCE-FAVORITES",
+        "ART-DEMO-TEST-SOURCE"
+      ],
+      "artifact_ids": [
+        "ART-DEMO-REVIEW"
+      ]
+    }
+  ],
+  "skip_decisions": []
+}

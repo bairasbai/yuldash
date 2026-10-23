@@ -25,6 +25,7 @@ git ls-files --others --exclude-standard                   # новые файл
 | Бэкенд | `backend/**` |
 | PWA | `webapp/**` |
 | Лендинг | `web/**` |
+| Проверка цепочек приёмки | `tools/audit_traceability/**` — `python -B tools/audit_traceability/run_tests.py`; это тесты инструмента |
 | Только `docs/`, `.claude/` | сборка не нужна — переходи к шагу 3 |
 
 ## 2. Проверки (как в `.github/workflows/ci.yml`)
@@ -69,6 +70,11 @@ python -m pytest tests/ -q --maxfail=25
 
 ## 3. Правила проекта (не проверяются компилятором)
 
+- При закрытии попутки W1-E2E прочитай `/audit-traceability` и `docs/audit-traceability/README.md`.
+  Запусти оболочку с отдельно сверенным полным SHA базы; сохрани её настоящий код выхода.
+  Семь обязательных критериев нельзя убрать ради зелёного отчёта. Первоначальный манифест ожидаемо
+  возвращает 1 — цепочки текущей версии ещё не связаны. Это не отменяет реальные тесты шага 2;
+  зелёные self-tests инструмента не принимают попутку. Статусы — только в `docs/audit-blocks.md`.
 - Новые надписи — `appText(ru, ba)`; черновой башкирский — в `docs/tasks.md`, «Переводы на проверку».
 - Новый экран — `enum Screen` (в `MainActivity.kt`) + ветка в `YuldashApp.kt` или `AppNav*.kt`
   (раздел «Навигация разрезана» в `docs/architecture.md`) + строка в `docs/architecture.md`.
