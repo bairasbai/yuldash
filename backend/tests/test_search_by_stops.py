@@ -23,7 +23,7 @@ from app.geo import snapshot_cached
 from app.models import Block, Ride, UserRole
 from app.routers import rides as rides_mod
 from app.services import haversine_km
-from app.stop_search import pair_match, request_snapshot, route_fit
+from app.stop_search import column_match, pair_match, request_snapshot, route_fit
 
 STOPS = "Ургаза | Бурибай"
 URGAZA = (52.34768, 58.61438)
@@ -161,14 +161,14 @@ def test_like_wildcards_in_the_query_are_letters(client, trip):
 
 
 def test_like_wildcards_do_not_match_in_sql_itself(client, trip):
-    """Вторая стена после `route_fit`: само SQL-условие с «%» не совпадает с каждой строкой
-    (поездка `trip` в базе есть — иначе пустая таблица прошла бы и без экранирования)."""
-    from sqlmodel import select
-
-    from app.stop_search import column_match
+    """Вторая стена после `route_fit`: само SQL-условие с «%» не совпадает с каждой строкой. Смотрим
+    СВОЮ поездку (`trip`): она в базе есть — иначе пустая таблица прошла бы и без экранирования, — а
+    чужие строки общей базы (у кого-то в остановках бывает «_») тест не задевают."""
+    _day_, _drv, ride = trip
     with Session(engine) as s:
-        assert s.exec(select(Ride.id).where(column_match(Ride.from_city, ["%"]))).first() is None
-        assert s.exec(select(Ride.id).where(column_match(Ride.waypoints, ["_"]))).first() is None
+        mine = Ride.id == ride["id"]
+        assert s.exec(select(Ride.id).where(mine, column_match(Ride.from_city, ["%"]))).first() is None
+        assert s.exec(select(Ride.id).where(mine, column_match(Ride.waypoints, ["_"]))).first() is None
 
 
 def test_pair_match_escapes_wildcards_in_sql(client, trip):
@@ -184,8 +184,12 @@ def test_pair_match_escapes_wildcards_in_sql(client, trip):
 
 
 def test_price_hint_does_not_treat_percent_as_everything(client, trip):
-    """`_city_match` (подсказка цены, советы водителю) — тоже с autoescape: «%» не берёт все поездки
-    (поездка `trip` с ценой в базе есть)."""
+    """`_city_match` (подсказка цены, советы водителю) — тоже с autoescape: «%» не берёт все поездки.
+    Своя поездка `trip` с ценой в базе есть; чужие строки общей базы — только в проверке ответа."""
+    _day_, _drv, ride = trip
+    with Session(engine) as s:
+        cond = rides_mod._city_match(Ride.from_city, s, "%")
+        assert s.exec(select(Ride.id).where(Ride.id == ride["id"], cond)).first() is None
     r = client.get("/rides/price_hint", params={"from_city": "%"})
     assert r.status_code == 200 and r.json()["count"] == 0, r.json()
 
