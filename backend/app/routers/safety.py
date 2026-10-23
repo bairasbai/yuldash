@@ -298,6 +298,20 @@ def _is_retry_of(saved: SosEvent | None, payload_hash: str | None) -> bool:
             and saved.created_at >= utcnow() - SOS_RETRY_WINDOW)
 
 
+def _hand_over_stale_key(session: Session, saved: SosEvent) -> None:
+    """Старое событие (старше окна повтора) отдаёт ключ НОВОМУ событию того же намерения.
+
+    Ключ уникален на человека (`uq_sos_owner_intent`), поэтому освобождаем его у старой строки
+    сейчас же, в той же транзакции, где следом вставляется новое событие С ключом. Дальше всё как у
+    обычного сигнала: ручной повтор нового — тот же ответ без второй рассылки, а проигравший
+    параллельный повтор упирается в уникальный индекс и возвращает свежее событие. Запись нового
+    события без ключа (первая версия) оставляла каждый следующий повтор старого ключа без защиты:
+    подряд и параллельно выходило по событию и по рассылке на каждый (ревью PR190, 23.10.2026)."""
+    saved.idempotency_key = None
+    session.add(saved)
+    session.flush()         # UPDATE сейчас: вставка нового события с этим ключом идёт следом, до commit
+
+
 @router.post("/sos")
 def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_user),
         session: Session = Depends(get_session), idempotency_key: str | None = Header(default=None)):
@@ -306,9 +320,13 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     if saved is not None:
         if _is_retry_of(saved, payload_hash):
             return _sos_replay(saved)
-        # Старое событие с этим ключом (старше окна повтора) или повреждённые метаданные: это новый
-        # сигнал. Ключ у старой строки занят (уникальный индекс), поэтому новый пишем без ключа.
-        intent_key = payload_hash = None
+        if saved.payload_hash == payload_hash:
+            # Старое событие того же намерения (старше окна повтора): это новый сигнал, и ключ
+            # переходит к нему — у его повторов та же защита, что у любого сигнала.
+            _hand_over_stale_key(session, saved)
+        else:
+            # Повреждённые внутренние метаданные не подтверждают чужое тело: новый сигнал без ключа.
+            intent_key = payload_hash = None
     # N5 (независимое ревью). Раньше проверка брони/заказа стояла ДО записи сигнала: чужой
     # или удалённый booking_id/order_id (403/404) означал, что SosEvent вообще не создавался —
     # ни Telegram дежурному, ни SMS близким, эскалатору нечего повторять. Красная кнопка не
@@ -1384,8 +1402,10 @@ def roadside_help(
     if saved is not None:
         if _is_retry_of(saved, payload_hash):
             return {**_sos_replay(saved), "delivery_unconfirmed": True}
-        # Старое событие (старше окна повтора) или повреждённый отпечаток: это другой сигнал, без ключа.
-        intent_key = payload_hash = None
+        if saved.payload_hash == payload_hash:
+            _hand_over_stale_key(session, saved)    # старое событие того же намерения: ключ новому
+        else:
+            intent_key = payload_hash = None        # повреждённый отпечаток: новый сигнал без ключа
     эфф_booking_id = booking_id
     try:
         booking_and_ride_for_user(session, booking_id, user)   # 403/404 если чужой/нет брони

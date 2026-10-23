@@ -71,7 +71,8 @@ def test_same_key_and_body_after_the_window_is_a_new_signal(client, emergency, k
     assert again.json()["id"] != first_id                # новый сигнал, а не «уже сохранён»
     rows = _rows(user)
     assert [row.id for row in rows][0] == first_id and len(rows) == 2
-    assert rows[1].idempotency_key is None               # ключ старой строки занят: новый — без ключа
+    assert rows[0].idempotency_key is None               # старая строка отдала ключ…
+    assert rows[1].idempotency_key is not None           # …новое событие держит его (повторы защищены)
     assert len(calls["telegram"]) == 2                   # и разослан целиком: дежурному ушёл второй сигнал
     assert len(calls["sms"]) == 2                        # близким — тоже
 
