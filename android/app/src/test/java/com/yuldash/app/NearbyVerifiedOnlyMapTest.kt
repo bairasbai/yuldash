@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -83,10 +84,15 @@ class NearbyVerifiedOnlyMapTest {
 
     private fun nearRequests() = requests.filter { it.startsWith("GET /rides/near?") }
 
+    // Ждём простую переменную (запросы к серверу), а «Показать» пишет состояние из колбэка нажатия —
+    // вне композиции. Если GlobalSnapshotManager после сброса Looper «уснул», запись до экрана не
+    // доходила, и тест изредка падал по таймауту (полный прогон 24.10.2026). Каждый шаг ожидания
+    // доставляет её сам (docs/testing.md, правило 5); контроль — тест с withLostGlobalSnapshotNotification.
     private fun waitFor(what: String, condition: () -> Boolean) {
         try {
             compose.waitUntil(15000) {
                 Shadows.shadowOf(Looper.getMainLooper()).idle()
+                Snapshot.sendApplyNotifications()
                 condition()
             }
         } catch (e: Throwable) {
@@ -118,6 +124,16 @@ class NearbyVerifiedOnlyMapTest {
         waitFor("лента того же поиска без фильтра") { nearRequests().any { "verified_only" !in it } }
         waitFor("подсказка ушла — показаны поездки") { compose.onAllNodesWithText(hint).fetchSemanticsNodes().isEmpty() }
         assertTrue("«Показать» поменял настройку «Безопасности»", AppPrefs.verifiedOnly(ctx))
+    }
+
+    /** Контроль правила 5: без доставки в ожидании этот тест красный всегда, а не через раз. */
+    @Test fun showReloadsFeedEvenWhenSnapshotNotificationIsLost() {
+        mount()
+        waitFor("подсказка о непроверенных") { compose.onAllNodesWithText(hint).fetchSemanticsNodes().isNotEmpty() }
+        withLostGlobalSnapshotNotification {
+            compose.onNodeWithText("Показать").performSemanticsAction(SemanticsActions.OnClick)
+            waitFor("лента того же поиска без фильтра") { nearRequests().any { "verified_only" !in it } }
+        }
     }
 
     @Test fun passengerWhoTurnedItOffKeepsTheChoice() {
