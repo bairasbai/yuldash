@@ -1,6 +1,8 @@
 package com.yuldash.app
 
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -62,5 +64,22 @@ internal fun DeclineBookingButton(
                 Text(appText("Не отклонять", "Кире ҡаҡмаҫҡа"), color = CanonGreen2, fontWeight = FontWeight.Bold)
             }
         },
+    )
+}
+
+/** Бронь снята. Отказ водителя — не «отмена»: пассажир должен понять, что решил водитель (приёмка 18.10, п.6). */
+@Composable
+internal fun BookingCancelledCard(declined: Boolean) {
+    InfoCard(
+        title = if (declined) appText("Водитель отклонил бронь", "Йөрөтөүсе бронде кире ҡаҡты")
+            else appText("Бронь отменена", "Бронь кире алынды"),
+        text = if (declined) appText(
+            "Водитель не сможет взять тебя в эту поездку. Найди подходящую поездку в списке.",
+            "Йөрөтөүсе һине был сәфәргә ала алмай. Исемлектән уңайлы сәфәр тап.",
+        ) else appText(
+            "Место больше не забронировано. Найди подходящую поездку в списке.",
+            "Урын бүтән бронләнмәгән. Исемлектән уңайлы сәфәр тап.",
+        ),
+        icon = Icons.Default.Close,
     )
 }

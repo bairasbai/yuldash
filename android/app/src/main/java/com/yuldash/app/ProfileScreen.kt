@@ -755,17 +755,8 @@ internal fun ProfileScreen(
                                         Icon(Icons.Default.Edit, contentDescription = appText("Изменить имя", "Исемде үҙгәртеү"), tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
                                     }
                                 }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    // Настоящая роль с сервера (пассажир/водитель/админ).
-                                    Text(roleLabel(role, verifiedDriver, drives, books), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp)
-                                    if (verifiedDriver) ProfileVerifiedMark()
-                                    myRating?.let { r ->
-                                        Spacer(Modifier.width(8.dp))
-                                        Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text(String.format(java.util.Locale.US, "%.1f", r), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
+                                // Роль по делу, «Проверен» и рейтинг — с переносом на узком экране (ProfileRole.kt).
+                                ProfileRoleLine(roleLabel(role, verifiedDriver, drives, books), verifiedDriver, myRating)
                                 // Родной город — тап открывает редактирование (48dp тач-цель).
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,

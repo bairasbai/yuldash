@@ -176,13 +176,8 @@ internal class TripChatState(
         } finally { if (isActive()) historyLoading = false }
     }
 
-    // ── Непрочитанные ── метка «прочитано до» этого входа и брони (TripChatSeenMark, TripChatWiring.kt).
-    private val seen = TripChatSeenMark("$tripSession:${bookingId ?: 0}")
-
-    val unread: Int get() = seen.unread(visibleMessages, myId)
-
-    /** Лента на экране и внизу — всё, что в ней есть, прочитано. До истории метку не ставим. */
-    fun markSeen() { if (!historyLoading) seen.advance(messages.maxOfOrNull { it.id } ?: 0) }
+    // ── Непрочитанные ── метка «прочитано до» этого входа и брони; unread и markSeen — в TripChatWiring.kt.
+    internal val seen = TripChatSeenMark("$tripSession:${bookingId ?: 0}")
 
     // ── Живой канал ─────────────────────────────────────────────────────────────────────────
     // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.

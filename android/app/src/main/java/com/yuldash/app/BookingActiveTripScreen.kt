@@ -572,21 +572,7 @@ internal fun BookingScreen(
                     )
                 }
             } else if (bookingCancelled) {
-                item {
-                    // Отказ водителя — не «отмена»: пассажир должен понять, что решил водитель (приёмка 18.10, п.6).
-                    InfoCard(
-                        title = if (details?.declined == true) appText("Водитель отклонил бронь", "Йөрөтөүсе бронде кире ҡаҡты")
-                            else appText("Бронь отменена", "Бронь кире алынды"),
-                        text = if (details?.declined == true) appText(
-                            "Водитель не сможет взять тебя в эту поездку. Найди подходящую поездку в списке.",
-                            "Йөрөтөүсе һине был сәфәргә ала алмай. Исемлектән уңайлы сәфәр тап.",
-                        ) else appText(
-                            "Место больше не забронировано. Найди подходящую поездку в списке.",
-                            "Урын бүтән бронләнмәгән. Исемлектән уңайлы сәфәр тап.",
-                        ),
-                        icon = Icons.Default.Close,
-                    )
-                }
+                item { BookingCancelledCard(declined = details?.declined == true) }   // RideshareDecline.kt
             }
             if (detailsLoading) {
                 item {
@@ -2435,12 +2421,7 @@ private fun ActiveTripContent(
                     }
                 } else {
                 Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = CanonSpace.sm))
-                if (contacts.isEmpty()) {
-                    Text(appText("Сначала добавь доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтә"), color = CanonMuted)
-                    TextButton(onClick = { if (isShareCurrent()) { showShare = false; onTrustedContacts() } }, modifier = Modifier.heightIn(min = 48.dp)) {
-                        Text(appText("Добавить близкого", "Яҡын кешене өҫтәү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
-                    }
-                }
+                if (contacts.isEmpty()) NoTrustedContactsHint { if (isShareCurrent()) { showShare = false; onTrustedContacts() } }   // RideshareTripContacts.kt
                 contacts.forEach { c ->
                     Row(
                         Modifier.fillMaxWidth().clickable(enabled = !mutationBusy) {

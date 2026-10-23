@@ -35,6 +35,12 @@ internal fun persistedQueue(context: Context, bookingId: Int, generation: Long):
 internal val TripChatState.visibleMessages: List<MessageDto>
     get() = messages.filter { it.deleted || it.voiceUrl != null || it.text.isNotBlank() }
 
+/** Сколько чужих сообщений ещё не прочитано (метка «прочитано до» — TripChatSeenMark). */
+internal val TripChatState.unread: Int get() = seen.unread(visibleMessages, myId)
+
+/** Лента на экране и внизу — всё, что в ней есть, прочитано. До истории метку не ставим. */
+internal fun TripChatState.markSeen() { if (!historyLoading) seen.advance(messages.maxOfOrNull { it.id } ?: 0) }
+
 /** Подсказки чата. Считаются в композиции (два языка), читаются в момент показа. */
 internal class TripChatTexts(
     val sendFail: String,

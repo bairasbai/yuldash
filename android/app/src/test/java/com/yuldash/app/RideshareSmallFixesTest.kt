@@ -3,11 +3,13 @@ package com.yuldash.app
 import android.app.Application
 import android.content.Context
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.ui.theme.YuldashTheme
@@ -89,10 +91,26 @@ class RideshareSmallFixesTest {
     @Test fun verifiedDriverIsADriverWithAMarkInBothLanguages() {
         compose.setContent { androidx.compose.foundation.layout.Column {
             for (lang in listOf(AppLanguage.Ru, AppLanguage.Ba)) CompositionLocalProvider(LocalAppLanguage provides lang) {
-                Row { Text(roleLabel("passenger", verifiedDriver = true)); ProfileVerifiedMark() }
+                ProfileRoleLine(roleLabel("passenger", verifiedDriver = true), verified = true, rating = null)
             }
         } }
         for (text in listOf("Водитель", "Проверен", "Йөрөтөүсе", "Тикшерелгән")) compose.onNodeWithText(text).assertIsDisplayed()
+    }
+
+    /** Ревью 23.10: на 360dp «Йөрөтөүсе һәм пассажир» + «Тикшерелгән» + рейтинг не влезают в строку. */
+    @Test fun narrowHeaderWrapsWholePiecesInsteadOfLosingTheRating() {
+        compose.setContent { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
+            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.width(214.dp)) {
+                ProfileRoleLine(roleLabel("passenger", verifiedDriver = true, books = true), verified = true, rating = 4.8)
+            }
+        } }
+        val role = compose.onNodeWithText("Йөрөтөүсе һәм пассажир").assertIsDisplayed().getUnclippedBoundsInRoot()
+        val mark = compose.onNodeWithText("Тикшерелгән").assertIsDisplayed().getUnclippedBoundsInRoot()
+        val stars = compose.onNodeWithText("4.8").assertIsDisplayed().getUnclippedBoundsInRoot()
+        assertTrue("«Проверен» не ломается по слогам: ${mark.bottom - mark.top}", mark.bottom - mark.top < 28.dp)
+        assertTrue("рейтинг не сжат в ноль: ${stars.right - stars.left}", stars.right - stars.left > 12.dp)
+        assertTrue("лишнее ушло строкой ниже, а не за край", maxOf(mark.right, stars.right) <= 214.dp)
+        assertTrue("перенос был нужен — значит, это проверка узкого экрана", stars.top >= role.bottom || mark.top >= role.bottom)
     }
 
     /** Один аккаунт и возит, и ездит: подпись по делу, а не по роли на сервере (просьба Александра 23.10). */

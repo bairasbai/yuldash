@@ -1,13 +1,19 @@
 package com.yuldash.app
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -34,14 +40,29 @@ internal fun roleLabel(role: String, verifiedDriver: Boolean = false, drives: Bo
 }
 
 /**
- * «Проверен» в шапке профиля (приёмка 18.10, п.13): водитель прошёл проверку документов, а в профиле
- * у него было написано «Пассажир» и не было ни следа проверки — хотя пассажиры видят этот бейдж
- * на его поездках. Шапка зелёная, поэтому знак белый, как подпись роли рядом.
+ * Строка под именем: роль, «Проверен» (приёмка 18.10, п.13) и рейтинг. «Водитель и пассажир»
+ * с «Проверен» и рейтингом не влезают в одну строку на экране 360dp — тем более по-башкирски
+ * («Йөрөтөүсе һәм пассажир» + «Тикшерелгән»). Раньше это был Row: «Проверен» ломалось по слогам,
+ * а рейтинг пропадал. Теперь каждая часть — целый кусок, лишнее переносится строкой ниже
+ * (ревью 23.10.2026). Шапка зелёная — знаки белые, как подпись роли.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun ProfileVerifiedMark() {
-    Spacer(Modifier.width(CanonSpace.sm))
-    Icon(Icons.Default.Verified, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-    Spacer(Modifier.width(CanonSpace.xs))
-    Text(appText("Проверен", "Тикшерелгән"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+internal fun ProfileRoleLine(label: String, verified: Boolean, rating: Double?) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
+        verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
+    ) {
+        Text(label, color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp, modifier = Modifier.align(Alignment.CenterVertically))
+        if (verified) Row(Modifier.align(Alignment.CenterVertically), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Verified, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(CanonSpace.xs))
+            Text(appText("Проверен", "Тикшерелгән"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        if (rating != null) Row(Modifier.align(Alignment.CenterVertically), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(CanonSpace.xs))
+            Text(String.format(java.util.Locale.US, "%.1f", rating), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+    }
 }

@@ -1982,6 +1982,7 @@ button.list-row:active {
 .profile-card__meta {
   margin-top: var(--space-xs);
   display: flex;
+  flex-wrap: wrap; /* «Йөрөтөүсе һәм пассажир» + «Тикшерелгән» + рейтинг на 360px — строкой ниже, не за край */
   align-items: center;
   gap: var(--space-sm);
   font-size: var(--font-caption);
@@ -1997,6 +1998,7 @@ button.list-row:active {
   align-items: center;
   gap: 4px;
   font-weight: var(--weight-semibold);
+  white-space: nowrap;
 }
 .profile-card__note {
   margin-top: var(--space-sm);
@@ -2011,6 +2013,7 @@ button.list-row:active {
   font-size: var(--font-caption);
   font-weight: var(--weight-semibold);
   color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
 }
 .profile-guest {
   margin-top: 16px;
