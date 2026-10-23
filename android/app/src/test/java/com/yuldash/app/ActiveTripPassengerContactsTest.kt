@@ -304,11 +304,16 @@ class ActiveTripPassengerContactsTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             state.failure != null && !state.loading
         }
+        println("DIAG first wait: calls=${detailsCalls.get()} failure=${state.failure} requests=$requests")
         detailsUnavailable = false
+        val firstFailure = state.failure
         compose.runOnIdle { state.serverReached(state.failure) }
-        compose.waitUntil(15000) {
+        try { compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             detailsCalls.get() == 2 && state.failure == null && !state.loading
+        } } catch (e: Throwable) {
+            throw AssertionError("DIAG calls=${detailsCalls.get()} first=$firstFailure failure=${state.failure} loading=${state.loading} " +
+                "needsReload=${state.needsReload} tick=${state.reloadTick} gen=${ApiClient.queueSessionGeneration()} requests=$requests", e)
         }
         compose.runOnIdle { retainedErrorTap() }
         compose.waitForIdle()

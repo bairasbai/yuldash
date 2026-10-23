@@ -371,7 +371,13 @@ class ActiveTripChatUiBoundaryTest {
         compose.runOnIdle { mounted.value = false }
         compose.waitForIdle()
         compose.runOnIdle { mounted.value = true }
-        waitFor { auth.peek() == tokenB }
+        try { waitFor { auth.peek() == tokenB } } catch (e: Throwable) {
+            throw AssertionError("DIAG auth=${auth.toList().map { it.takeLast(9) }} loggedIn=${ApiClient.isLoggedIn()} " +
+                "token=${ApiClient.currentToken()?.takeLast(9)} gen=${ApiClient.queueSessionGeneration()} " +
+                "published=${ApiClient.sessionChanges.value} sockets=${sockets.size} closed=${closed.get()} backs=$backs " +
+                "requests=${requests.map { it.first + " " + it.second?.takeLast(9) }} " +
+                "tree=${runCatching { compose.onRoot(useUnmergedTree = true).printToString(maxDepth = 40) }.getOrElse { it.toString() }.take(4000)}", e)
+        }
         assertEquals(tokenB, auth.poll(10, TimeUnit.SECONDS))
         waitFor { compose.onAllNodesWithText("Написать").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Написать").performClick()

@@ -105,6 +105,14 @@ class ActiveTripBoardingCodeLoadTest {
     @Test fun serverOutageLeavesLoadingAndOffersTheSameCodeRetry() = rejectsThenRetries(503, "{}")
     @Test fun forbiddenCodeLeavesLoadingAndOffersTheSameCodeRetry() = rejectsThenRetries(403, "{}")
     @Test fun blankSuccessfulPayloadDoesNotBecomeAnEndlessSpinner() = rejectsThenRetries(200, """{"code":""}""")
+    /** ВРЕМЕННО (диагностика п.6): падение посреди живого экрана — как прежняя гонка этого класса. */
+    @Test fun diagForcedFailureWhileScreenIsLoading() {
+        codeStatus = 200
+        codeBody = """{"code":""}"""
+        mount()
+        compose.onNodeWithText("Не удалось загрузить код").performScrollTo()
+    }
+
     @Test fun validCodeAppearsWithoutAnErrorOrExtraRequests() {
         mount()
         waitFor("1234")

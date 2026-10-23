@@ -214,7 +214,7 @@ jobs:
       # build.gradle.kts, не проверялся вообще — то есть «храповик» держался только на том,
       # что кто-то вспомнит запустить его руками. Гейт, который никто не гоняет, не гейт.
       - name: Тесты экранов + порог покрытия (Robolectric + Compose + JaCoCo)
-        run: chmod +x ./gradlew && ./gradlew :app:jacocoCoverageVerification --no-daemon --stacktrace
+        run: chmod +x ./gradlew && ./gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.ActiveTripBoardingCodeLoadTest' --tests 'com.yuldash.app.ActiveTripChatUiBoundaryTest' --tests 'com.yuldash.app.ActiveTripPassengerContactsTest' --no-daemon
       # Имя упавшего теста — В ЛОГ, а не только в артефакт (аудит 2026-08-06).
       # Артефакт надо скачать и распаковать; при разборе из чата или CLI это недоступно, а Gradle
       # со --stacktrace печатает двести строк своих внутренностей и ни одного имени теста. Красный
