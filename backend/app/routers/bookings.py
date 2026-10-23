@@ -24,6 +24,7 @@ from ..ride_stops import VILLAGE_KINDS, canonical_stop, is_end, is_start, parse_
 from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
                             guard_women_only)
 from ..security import current_user, gen_otp
+from ..logs import log
 from ..visibility import LIVE_GEO_LEAD_HOURS, booking_contacts_open, cancelled_in_transit, transit_cancel_car_open
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
@@ -1538,8 +1539,23 @@ def notify_cancelled_in_transit(session: Session, booking: Booking, ride: Ride,
     """Бронь отменили, когда пассажир был в машине (`cancelled_in_transit`): пассажиру — срочный пуш
     с путём к помощи (SOS и «Застрял» работают и по отменённой брони), близким, с кем он поделился
     поездкой, — SMS «отменили в пути» (один раз, под общим потолком SMS, «Только SOS» не тревожим).
-    Причину отмены не пишем: «пассажир опоздал» и прочие причины до посадки здесь неправда."""
+    Причину отмены не пишем: «пассажир опоздал» и прочие причины до посадки здесь неправда.
+
+    Отмена к этому моменту уже сохранена — ни один шаг здесь её не роняет: дежурный первым, сбой
+    шага SMS близким только в лог (приёмка PR205: иначе водитель получал 500, дежурный — ничего,
+    а остальные пассажиры «Снять поездку» — ни слова, и повтор отмены уже ничего не досылал)."""
     route = f"{ride.from_city} → {ride.to_city}"
+    bid = booking.id
+    # Дежурному — номер брони и поездки, без телефонов и координат: человек мог остаться на трассе,
+    # а SOS он может и не нажать. Сбой Telegram отмену не откатывает (она уже сохранена). После
+    # ответа (как SEVERE-инцидент): медленный Telegram не держит водителя у кнопки «Отменить».
+    from .. import services
+    text = (f"⚠️ Поездку отменили в пути: бронь #{bid}, поездка #{ride.id} ({route})"
+            + (", пассажир — несовершеннолетний" if booking.minor_passenger else ""))
+    if background is not None:
+        background.add_task(services.notify_admin_telegram, text)
+    else:
+        services.notify_admin_telegram(text)
     push_notification(
         session, booking.passenger_id, "booking",
         "Поездку отменили в пути", "Сәфәр юлда кире алынды",
@@ -1550,17 +1566,11 @@ def notify_cancelled_in_transit(session: Session, booking: Booking, ride: Ride,
     passenger = session.get(User, booking.passenger_id)
     if passenger is not None:
         from .family import notify_family_trip_status
-        notify_family_trip_status(session, booking.id, passenger, "cancelled_onboard")
-    # Дежурному — номер брони и поездки, без телефонов и координат: человек мог остаться на трассе,
-    # а SOS он может и не нажать. Сбой Telegram отмену не откатывает (она уже сохранена). После
-    # ответа (как SEVERE-инцидент): медленный Telegram не держит водителя у кнопки «Отменить».
-    from .. import services
-    text = (f"⚠️ Поездку отменили в пути: бронь #{booking.id}, поездка #{ride.id} ({route})"
-            + (", пассажир — несовершеннолетний" if booking.minor_passenger else ""))
-    if background is not None:
-        background.add_task(services.notify_admin_telegram, text)
-    else:
-        services.notify_admin_telegram(text)
+        try:
+            notify_family_trip_status(session, bid, passenger, "cancelled_onboard")
+        except Exception as e:  # noqa: BLE001 — отмена уже сохранена, остальные уведомления важнее
+            session.rollback()
+            log.warning(f"[CANCEL-IN-TRANSIT] SMS близким по брони #{bid} не ушли: {type(e).__name__}")
 
 
 def _onboard_cancel_refusal() -> HTTPException:

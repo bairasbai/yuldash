@@ -20,6 +20,7 @@ import subprocess
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import event
 from sqlmodel import Session, select
 
 import app.routers.safety as safety
@@ -40,6 +41,7 @@ pytestmark = pytest.mark.timeout(30)
 PLATE = "М555ОР102"
 MAMA = "+79170000777"
 ONLY_SOS = "+79170000778"
+SISTER = "+79170000779"
 
 
 def _trip(client, user_factory, tag: str, monkeypatch, *, contacts=((MAMA, True),)):
@@ -435,3 +437,65 @@ def test_значок_страницы_слежения(scenario):
     code = code.replace("__PAGE_SCRIPT__", json.dumps(_page_script())).replace("__SCENARIO__", json.dumps(scenario))
     result = subprocess.run([NODE, "-"], input=code, capture_output=True, text=True, timeout=10, encoding="utf-8")
     assert result.returncode == 0, f"{scenario}: {result.stderr.strip()}"
+
+
+# ── Сбой шага SMS близким не роняет отмену (приёмка PR205, повторная) ──
+
+def test_сбой_смс_близким_не_роняет_снятие_поездки(client, user_factory, monkeypatch):
+    """Отмена уже сохранена — что бы ни случилось с SMS близким (база, исчезнувшая строка шаринга),
+    водитель получает ответ, дежурный — весть, а кто ждал у дороги — «Поездка отменена». Раньше
+    исключение на этом шаге давало водителю 500, остальным — тишину, а повтор отмены уже ничего не
+    досылал: отмена сохранена, повтор ничего не делает."""
+    driver, pax, ride, bid, token, sms, tg, pushes = _trip(client, user_factory, "сбой", monkeypatch)
+    _board(client, driver, bid)
+    other = user_factory("Отмена сбой второй у дороги")
+    bid2 = client.post("/bookings", headers=other["auth"], json={"ride_id": ride["id"], "seats": 1}).json()["id"]
+    assert client.post(f"/bookings/{bid2}/confirm", headers=driver["auth"]).status_code == 200
+    pushes.clear()
+
+    def broken_family_step(*_a, **_kw):
+        raise RuntimeError("база недоступна")
+
+    monkeypatch.setattr(family_router, "notify_family_trip_status", broken_family_step)
+    r = client.post(f"/rides/{ride['id']}/cancel", headers=driver["auth"])
+
+    assert r.status_code == 200, r.text
+    assert len(tg) == 1 and f"#{bid}" in tg[0], tg
+    by_user = {}
+    for p in pushes:
+        by_user.setdefault(p["user"], []).append(p["title"])
+    assert by_user.get(pax["id"]) == ["Поездку отменили в пути"], by_user
+    assert by_user.get(other["id"]) == ["Поездка отменена"], by_user
+    with Session(engine) as s:
+        assert s.get(Booking, bid).status == BookingStatus.cancelled
+        assert s.get(Booking, bid2).status == BookingStatus.cancelled
+
+
+def test_ссылку_отозвали_сразу_после_отправки_статус_не_падает(client, user_factory, monkeypatch):
+    """Строку шаринга удалили (отозвали ссылку сестры) сразу после того, как статус ушёл и
+    сохранился. Перечитывание каждой строки по одной падало на удалённой — и с ним весь запрос:
+    «Доехал», «Сел», отмена в пути (приёмка PR205). Теперь ответ — оставшиеся строки."""
+    driver, pax, ride, bid, token, sms, tg, pushes = _trip(
+        client, user_factory, "отзыв", monkeypatch, contacts=((MAMA, True), (SISTER, True)))
+    _board(client, driver, bid)
+    with Session(engine) as s:
+        rows = s.exec(select(TripShare).where(TripShare.booking_id == bid).order_by(TripShare.id)).all()
+        mama_id, sister_id = rows[0].id, rows[1].id
+    sms.clear()
+    sent, revoked = [], []
+    monkeypatch.setattr(family_router, "send_text", lambda phone, text: sent.append((phone, text)))
+
+    def revoke_after_commit(_session):
+        if sent and not revoked:          # статус ушёл и сохранён — пассажир отзывает ссылку сестры
+            revoked.append(sister_id)
+            with Session(engine) as other:
+                other.delete(other.get(TripShare, sister_id))
+                other.commit()
+
+    with Session(engine) as s:
+        event.listen(s, "after_commit", revoke_after_commit)
+        result = notify_family_trip_status(s, bid, s.get(User, pax["id"]), "arrived")
+        ids = [row.id for row in result]
+    assert revoked == [sister_id]
+    assert ids == [mama_id], ids
+    assert len(sent) == 2 and all("доехал" in t for _, t in sent), sent

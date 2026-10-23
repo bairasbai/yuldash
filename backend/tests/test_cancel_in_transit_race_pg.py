@@ -13,11 +13,14 @@ import time
 from datetime import timedelta
 
 import pytest
-from sqlmodel import Session
+from fastapi.testclient import TestClient
+from sqlalchemy import event
+from sqlmodel import Session, select
 
 from app import services
 from app.db import engine
-from app.models import Booking, BookingStatus, DriverProfile, UserRole
+from app.main import app
+from app.models import Booking, BookingStatus, DriverProfile, TripShare, UserRole
 from app.routers import family as family_router
 from app.timeutil import utcnow
 
@@ -27,6 +30,7 @@ pytestmark = [
 ]
 
 MAMA = "+79170000991"
+SISTER = "+79170000992"
 
 
 @pytest.fixture
@@ -206,3 +210,54 @@ def test_двойное_доехал_при_медленном_шлюзе_одн
     first.join(30)
     assert out["r"].status_code == 200 and second.status_code == 200, (out["r"].text, second.text)
     assert len([t for p, t in spies["sms"] if p == MAMA and "доехал" in t]) == 1, spies["sms"]
+
+
+def test_снять_поездку_пока_отзывают_ссылку_сестры(client, user_factory, spies, monkeypatch):
+    """Пока отмена шлёт SMS близким (замок строк шаринга взят), пассажир отзывает ссылку сестры:
+    отзыв ждёт замка и удаляет строку сразу после commit отмены. Раньше перечитывание удалённой
+    строки давало водителю 500, дежурному — ничего, а второму пассажиру у дороги — тишину."""
+    driver, pax, ride, bid = _trip(client, user_factory, "отзыв")
+    cid = client.post("/trusted-contacts", headers=pax["auth"], json={
+        "name": "Сестра", "relation": "сестра", "phone": SISTER, "notify_by_default": True}).json()["id"]
+    assert client.post(f"/bookings/{bid}/share", headers=pax["auth"], json={"contact_id": cid}).status_code == 200
+    with Session(engine) as s:
+        sister_share = s.exec(select(TripShare.id).where(TripShare.booking_id == bid, TripShare.contact_id == cid)).one()
+    assert client.post(f"/bookings/{bid}/driver-status", headers=driver["auth"],
+                       json={"status": "boarded"}).status_code == 200
+    other = user_factory("Гонка отзыв второй у дороги")
+    bid2 = client.post("/bookings", headers=other["auth"], json={"ride_id": ride["id"], "seats": 1}).json()["id"]
+    assert client.post(f"/bookings/{bid2}/confirm", headers=driver["auth"]).status_code == 200
+    _clear(spies)
+    api = TestClient(app, raise_server_exceptions=False)     # 500 — ответом, а не исключением теста
+    state = {"thread": None, "tid": None, "revoke": None}
+
+    def slow_gateway(phone, text):
+        with spies["lock"]:
+            spies["sms"].append((phone, text))
+        if "отменили в пути" in text and state["thread"] is None:
+            state["tid"] = threading.get_ident()
+            revoke = threading.Thread(target=lambda: state.update(revoke=api.delete(
+                f"/bookings/{bid}/share/{sister_share}", headers=pax["auth"])))
+            state["thread"] = revoke
+            revoke.start()
+            time.sleep(0.5)                                    # отзыв упирается в замок строки
+
+    def after_commit(_session):
+        if state["thread"] and threading.get_ident() == state["tid"]:
+            revoke, state["thread"] = state["thread"], False
+            revoke.join(10)                                    # замок отпущен — строка удалена
+
+    monkeypatch.setattr(family_router, "send_text", slow_gateway)
+    event.listen(Session, "after_commit", after_commit)
+    try:
+        cancel = api.post(f"/rides/{ride['id']}/cancel", headers=driver["auth"])
+    finally:
+        event.remove(Session, "after_commit", after_commit)
+    assert state["thread"] is False and state["revoke"].status_code == 200, state
+    assert cancel.status_code == 200, cancel.text
+    assert len(spies["tg"]) == 1, spies["tg"]
+    titles = {}
+    for user_id, title in spies["pushes"]:
+        titles.setdefault(user_id, []).append(title)
+    assert titles.get(pax["id"]) == ["Поездку отменили в пути"], titles
+    assert titles.get(other["id"]) == ["Поездка отменена"], titles

@@ -204,8 +204,9 @@ def _finished(first_name: str, *, kind: str = "ride", phases: dict = _PHASES, ou
     """Завершена/отменена: БЕЗ координат (маршрут и позиция после поездки — не дело ссылки).
 
     `status` — всегда «finished»: по нему страница любой версии перестаёт опрашивать сервер.
-    `outcome` — чем кончилось (done / cancelled / cancelled_onboard / returned): по нему страница
-    ставит значок, ✅ — только у настоящего завершения."""
+    `outcome` — чем кончилось, по нему страница ставит значок (✅ — только у настоящего завершения):
+    попутка и такси — done / cancelled / cancelled_onboard; посылка — done / returned / canceled
+    (одна «l» — как статус посылки в базе)."""
     return {
         "kind": kind,
         "status": "finished",

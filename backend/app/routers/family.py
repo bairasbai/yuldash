@@ -550,7 +550,10 @@ def notify_family_trip_status(session: Session, booking_id: int, passenger: User
 
     Зовут оба пути: пассажир («Доехал», «Завершил») и водитель — его отметка «Сел» шлёт «sat»
     (`bookings._mark_boarded`, решение 17.10.2026). Имя, язык и счёт SMS — пассажира: это его
-    близкие, и потолок SMS один на все его входы. Возвращает строки шаринга этой брони."""
+    близкие, и потолок SMS один на все его входы. Возвращает строки шаринга этой брони.
+
+    Коммитит сессию вызывающего В НАЧАЛЕ (отпускает его замки до отправки SMS) — звать после того,
+    как всё своё вызывающий уже проверил и записал."""
     contact_ids = [c.id for c in session.exec(select(TrustedContact).where(TrustedContact.user_id == passenger.id)).all()]
     if not contact_ids:
         return []
@@ -610,12 +613,14 @@ def notify_family_trip_status(session: Session, booking_id: int, passenger: User
                 send_text(c.phone, pick_lang(
                     lang, f"Юлдаш: {who} {status_text}.", f"Юлдаш: {who} {status_text_ba}.",
                 ))
+    # Номера строк — ДО commit: после него даже чтение `share.id` идёт в базу и падает на строке,
+    # которую успели удалить (отозвали ссылку, удалили контакт).
+    ids = [share.id for share in shares]
     session.commit()    # шаги и расход SMS — разом; замок строк шаринга отпускаем здесь
     # После commit объекты «обнуляются». Перечитываем ПЕРЕД ответом, иначе клиент получил бы
-    # пустые поля вместо статусов (поймал tests/test_flows.py).
-    for share in shares:
-        session.refresh(share)
-    return shares
+    # пустые поля вместо статусов (поймал tests/test_flows.py). Запросом, а не refresh каждой
+    # строки: refresh удалённой ронял весь запрос — «Доехал», «Сел» и отмену в пути (приёмка PR205).
+    return session.exec(select(TripShare).where(TripShare.id.in_(ids))).all() if ids else []
 
 
 class RateIn(BaseModel):
