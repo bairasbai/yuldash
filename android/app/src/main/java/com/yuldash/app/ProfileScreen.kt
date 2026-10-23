@@ -3243,7 +3243,7 @@ internal fun DriverCabinetContent(
                             b.passengerRating?.let { r ->
                                 Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text(String.format(java.util.Locale.US, "%.1f", r), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = CanonText)
+                                Text(passengerRatingText(r), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = CanonText)
                             }
                         }
                         if (b.frontSeat) FrontSeatRequestBadge()   // до решения: водитель знает, кого куда посадит
@@ -3304,93 +3304,12 @@ internal fun DriverCabinetContent(
                 )
             }
             items(ratableBookings, key = { it.bookingId }) { b ->
-                // Оценка ставится в ДВА шага. Раньше первое касание сразу уходило на сервер:
-                // промахнулся пальцем по первой звезде — человеку упал единицей рейтинг,
-                // и вернуть было нечем. Теперь звёзды выбираешь, потом подтверждаешь.
-                var stars by remember(b.bookingId, b.myStars) { mutableStateOf(b.myStars) }
-                var editing by remember(b.bookingId, b.myStars) { mutableStateOf(b.myStars == 0) }
-                var sending by remember(b.bookingId, b.myStars) { mutableStateOf(false) }
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         PassengerRow(b)
                         AppButton(text = appText("Открыть поездку", "Сәфәрҙе асыу"), onClick = { onOpenCompletedTrip(b.bookingId) })
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            (1..5).forEach { n ->
-                                val lit = n <= stars
-                                // Звезда «зажигается»: цвет и размер догоняют выбор — оценка
-                                // ощущается нажатием, а не молчаливой сменой картинки.
-                                val starTint by animateColorAsState(if (lit) CanonStar else CanonMuted, tween(CanonMotion.NORMAL), label = "starTint")
-                                val starScale by animateFloatAsState(if (lit) 1.14f else 1f, tween(CanonMotion.NORMAL), label = "starScale")
-                                // Тач-цель ≥48dp (иконка визуально 34dp внутри).
-                                Box(
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .then(
-                                            if (editing && !sending) Modifier.clickable { stars = n } else Modifier
-                                        ),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        Icons.Default.Star,
-                                        contentDescription = starsText(n),
-                                        tint = starTint,
-                                        modifier = Modifier.size(34.dp).scale(starScale),
-                                    )
-                                }
-                            }
-                        }
-                        // Уже оценил — показываем сколько и даём переставить. Сервер оценку
-                        // разрешает изменить, значит и в приложении это не тупик.
-                        if (!editing) {
-                            TextButton(
-                                onClick = { editing = true },
-                                modifier = Modifier.heightIn(min = 48.dp),
-                                colors = ButtonDefaults.textButtonColors(contentColor = CanonGreen2),
-                            ) { Text(appText("Изменить", "Үҙгәртеү"), fontWeight = FontWeight.Bold, fontSize = 14.sp) }
-                        }
-                        // Подпись под звёздами = состояние словами. Незрячим она же читает оценку.
-                        Text(
-                            when {
-                                !editing -> appText("Твоя оценка: ${starsText(stars)}", "Һинең баһаң: ${starsText(stars)}")
-                                stars == 0 -> appText("Выбери оценку", "Баһа һайла")
-                                else -> appText("Выбрано ${starsText(stars)} — подтверди", "${starsText(stars)} һайланды — раҫла")
-                            },
-                            color = CanonMuted, fontSize = 12.sp,
-                        )
-                        AnimatedVisibility(visible = editing && stars > 0) {
-                            Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-                                Button(
-                                    onClick = {
-                                        sending = true
-                                        onRate(b.bookingId, stars) { ok ->
-                                            sending = false
-                                            // Не ушло — возвращаем как было, чтобы на экране не
-                                            // осталась «поставленная» оценка, которой нет на сервере.
-                                            if (ok) editing = false else stars = b.myStars
-                                        }
-                                    },
-                                    enabled = !sending,
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
-                                ) {
-                                    Text(
-                                        if (sending) appText("Отправляем…", "Ебәрәбеҙ…")
-                                        else appText("Отправить оценку", "Баһаны ебәреү"),
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
-                                // Отмена нужна только когда есть что отменять — уже поставленную раньше оценку.
-                                if (b.myStars > 0) {
-                                    OutlinedButton(
-                                        onClick = { stars = b.myStars; editing = false },
-                                        enabled = !sending,
-                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                                        shape = RoundedCornerShape(14.dp),
-                                    ) { Text(appText("Отмена", "Кире алыу"), color = CanonMuted) }
-                                }
-                            }
-                        }
+                        // Оценка в два шага — выбрать звёзды, потом подтвердить (DriverPassengerRow.kt).
+                        PassengerStarsRating(b, onRate)
                         // B8-7: «пассажир не заплатил» одним тапом — только по завершённой поездке.
                         UnpaidReportButton(bookingId = b.bookingId)
                     }

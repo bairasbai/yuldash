@@ -12,6 +12,14 @@ package com.yuldash.app
 // отменить можно одним нажатием. Подтверждает водитель в своём кабинете («Ждут подтверждения»),
 // а когда пассажир уже подтверждён, ему нужен экран поездки («Я выехал / Подъезжаю / Завершить»).
 
+/** Экран поездки открывается брони подтверждённой, в пути или завершённой (оценка и квитанция). */
+internal fun bookingStatusAllowsActiveTrip(status: String): Boolean =
+    status == "confirmed" || status == "onboard" || status == "done"
+
+/** Посадка и живое гео — только у идущей поездки. */
+internal fun bookingStatusAllowsBoarding(status: String): Boolean =
+    status == "confirmed" || status == "onboard"
+
 /**
  * Экран, на который ведёт ссылка на бронь.
  *

@@ -310,8 +310,10 @@ class TripChatMutationNetworkBoundaryTest {
 
     @Test fun returnFencesVoicePostStartedWhileApplicationWasInBackground() {
         chat.continuityLost(); idle(); mode = "post-held"; chat.sendVoice(voiceFile().absolutePath)
+        assertEquals("Уход в фон историю не перекачивает", 1, historyCount())
         waitFor { held.count == 0L }; hideLedger = true; chat.refreshAfterReturn()
-        waitFor { historyCount() >= 3 }; failHistory = true; release.countDown(); idle()
+        // Возврат читает историю один раз — уже со скрытием на сервере.
+        waitFor { historyCount() >= 2 }; failHistory = true; release.countDown(); idle()
         assertTrue(chat.visibleMessages.none { it.id == 100 }); assertFalse(chat.canRetryAction)
         assertEquals(1, keys.size)
     }
@@ -324,11 +326,33 @@ class TripChatMutationNetworkBoundaryTest {
     }
 
     @Test fun liveSocketReplacementWithoutFalseTransitionRequiresAuthorizedUnknownRows() {
-        connectLive(); chat.socket!!.connect()
-        waitFor { historyCount() >= 2 }; idle()
+        connectLive(); idle()
+        // Кадр принят живым каналом ДО замены сокета, а применяется ПОСЛЕ неё (планировщик экрана стоит):
+        // такой задержанный кадр не показывает неизвестную строку — решает только история (её там нет).
         assertTrue(serverSocket!!.send("""{"type":"message","id":777,"sender_id":22,"text":"missed hidden"}"""))
-        waitFor { historyCount() >= 3 }; idle()
+        awaitQueuedCallback()
+        chat.socket!!.connect()
+        waitFor { historyCount() >= 2 }; idle()
         assertTrue(chat.messages.none { it.id == 777 }); assertTrue(chat.wsConnected)
+    }
+
+    @Test fun freshFrameAfterReconnectIsShownLiveWithoutAnotherHistoryRead() {
+        connectLive(); chat.socket!!.connect()
+        // Замена сокета: историю дотягиваем один раз, когда новый канал жив.
+        waitFor { historyCount() >= 2 }; idle()
+        val reads = historyCount()
+        assertTrue(serverSocket!!.send("""{"type":"message","id":778,"sender_id":22,"text":"fresh after reconnect"}"""))
+        waitFor { chat.messages.any { it.id == 778 } }; idle()
+        assertEquals("Новое сообщение после переподключения не перекачивает историю", reads, historyCount())
+    }
+
+    /** Настоящий WS-колбэк уже поставил работу экрана в очередь; сам планировщик экрана не двигаем. */
+    private fun awaitQueuedCallback() {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (chat.scope.coroutineContext[Job]!!.children.none()) {
+            assertTrue("Кадр не дошёл до колбэка клиента", System.nanoTime() < deadline)
+            Thread.sleep(5)
+        }
     }
 
     @Test fun confirmedVoiceRemainsVisibleWhenHistoryReadFails() {

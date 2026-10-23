@@ -1,5 +1,7 @@
 package com.yuldash.app.data
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -12,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.TimeUnit
 
 /**
  * POST/action-методы `ApiClient` для БРОНЕЙ / ЗАЯВОК / ПОЕЗДКИ на локальном MockWebServer.
@@ -179,6 +182,9 @@ class ApiClientActionsTest {
 
     @Test
     fun sos_postsCategoryAndNote() = runBlocking {
+        // SOS шлёт только вошедший человек (экран SOS без входа ведёт на вход) — входим, как в ApiClientSosRetryIntentTest.
+        ApiClient.init(ApplicationProvider.getApplicationContext<Context>())
+        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.synthetic")
         server.enqueue(json("{}"))
         ApiClient.sos(category = "danger", note = "нужна помощь").getOrThrow()
         val rec = server.takeRequest()
@@ -187,6 +193,21 @@ class ApiClientActionsTest {
         val body = rec.body.readUtf8()
         assertTrue(body.contains("\"category\":\"danger\""))
         assertTrue(body.contains("\"note\":\"нужна помощь\""))
+        // Выходим здесь и дожидаемся серверного выхода: фоновый /auth/logout из @After мог бы прийти к соседнему тесту.
+        ApiClient.logout()
+        assertEquals("/auth/logout", server.takeRequest(5, TimeUnit.SECONDS)?.path)
+    }
+
+    @Test
+    fun sos_withoutLogin_refusesLocallyWithClearReason() = runBlocking {
+        ApiClient.logout()
+        val error = ApiClient.sos(category = "danger", note = "нужна помощь").exceptionOrNull()
+        assertTrue("без входа — понятный отказ, а не «сессия сменилась»: $error", error is ApiException)
+        assertEquals(401, (error as ApiException).status)
+        assertEquals("not_signed_in", error.detailCode)
+        assertTrue(error.message.orEmpty().isNotBlank())
+        val paths = generateSequence { server.takeRequest(200, TimeUnit.MILLISECONDS) }.map { it.path }.toList()
+        assertFalse("без входа сигнал не уходит: $paths", "/sos" in paths)
     }
 
     // ---------- Ветки ошибок (общие для всех POST через call()) ----------

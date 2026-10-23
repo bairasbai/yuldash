@@ -2765,63 +2765,6 @@ private fun ActiveTripDriverCard(
 }
 
 @Composable
-private fun ActiveTripBoardingCodeCard(code: String, role: String, loadFailed: Boolean, onRetry: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
-        color = CanonGreen2,
-        contentColor = CanonOnFilled,
-        shape = CanonCardShape,
-        shadowElevation = CanonDepth.raised,
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 17.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Icon(Icons.Default.Pin, contentDescription = null, modifier = Modifier.size(19.dp))
-                Text(appText("Код посадки", "Ултырыу коды"), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
-            if (code.isNotBlank()) {
-                Text(
-                    code,
-                    fontSize = 34.sp,
-                    lineHeight = 40.sp,
-                    letterSpacing = 8.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
-                Text(
-                    if (role == "driver") {
-                        appText("Попроси пассажира назвать код", "Пассажирҙан кодты әйтеүен һора")
-                    } else {
-                        appText("Назови код водителю перед посадкой", "Ултырыр алдынан кодты йөрөтөүсегә әйт")
-                    },
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                    textAlign = TextAlign.Center,
-                )
-            } else if (loadFailed) {
-                Text(appText("Не удалось загрузить код", "Кодты йөкләп булманы"),
-                    fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
-                TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(appText("Повторить загрузку кода", "Кодты яңынан йөкләргә"), color = CanonOnFilled)
-                }
-            } else {
-                Row(
-                    Modifier.heightIn(min = 52.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(19.dp), color = CanonOnFilled, strokeWidth = 2.dp)
-                    Text(appText("Код загружается", "Код йөкләнә"), fontWeight = FontWeight.Medium)
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun ActiveTripProgressCard(
     role: String,
     driverPhase: String,

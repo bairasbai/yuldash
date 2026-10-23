@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsSelected
@@ -64,6 +65,24 @@ class PickupStopTest {
         assertEquals("Акъяр", selected.value)
         compose.onNodeWithText("Начало маршрута · Баймак").performClick().assertIsSelected()
         assertEquals("Баймак", selected.value)
+    }
+
+    /** Поездка без остановок и старая бронь: высадка — конец маршрута, «уточни в чате» не к месту (п.9 приёмки). */
+    private fun noStopsSegment(language: AppLanguage) {
+        compose.setContent { CompositionLocalProvider(LocalAppLanguage provides language) {
+            Column { BookingSegmentNote(null, null, false, "Баймак", "Уфа"); DropoffStopNote(null, "Уфа", rideHasStops = false) }
+        } }
+        listOf("Место высадки не указано — уточни в чате", "Төшөү урыны күрһәтелмәгән — чатта асыҡла",
+            "Место посадки не указано — уточни в чате", "Ултырыу урыны күрһәтелмәгән — чатта асыҡла")
+            .forEach { compose.onNodeWithText(it).assertDoesNotExist() }
+    }
+    @Test fun rideWithoutStopsDoesNotAskToClarifyDropoff() = noStopsSegment(AppLanguage.Ru)
+    @Test fun bashkirRideWithoutStopsDoesNotAskToClarifyDropoff() = noStopsSegment(AppLanguage.Ba)
+
+    @Test fun rideWithStopsStillAsksToClarifyUnknownDropoff() {
+        compose.setContent { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) { BookingSegmentNote("Акъяр", null, true, "Баймак", "Уфа") } }
+        compose.onNodeWithText("Место высадки не указано — уточни в чате").assertExists()
+        compose.onNodeWithText("Высадка: конец маршрута · Уфа").assertDoesNotExist()
     }
 
     @Test fun bashkirUnknownBookingDoesNotPretendToBeStart() {

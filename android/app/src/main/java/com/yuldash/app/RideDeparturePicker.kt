@@ -76,6 +76,9 @@ internal const val RIDE_DEPARTURE_MINUTE = "ride-departure-minute"
 internal const val RIDE_DEPARTURE_CONFIRM = "ride-departure-confirm"
 internal const val RIDE_DEPARTURE_CANCEL = "ride-departure-cancel"
 
+/** Срок вперёд для даты поездки (лет), не анимация: список лет — короткий, а не до 9999 года. */
+internal const val RIDE_DEPARTURE_YEARS_AHEAD = 5
+
 private val rideDepartureFormat = DateTimeFormatter.ofPattern("dd.MM.uuuu, HH:mm", Locale.US)
     .withResolverStyle(ResolverStyle.STRICT)
 
@@ -88,11 +91,12 @@ internal fun formatRideDeparture(date: LocalDate, time: LocalTime): String =
 internal fun initialRideDeparture(value: String, now: LocalDateTime): LocalDateTime {
     val initial = parseRideDeparture(value) ?: now.plusHours(3)
     val date = initial.toLocalDate().coerceAtLeast(now.toLocalDate())
+        .coerceAtMost(LocalDate.of(now.year + RIDE_DEPARTURE_YEARS_AHEAD, 12, 31))
     return date.atTime(initial.toLocalTime().withSecond(0).withNano(0))
 }
 
 internal fun clampRideDepartureDate(year: Int, month: Int, day: Int, today: LocalDate): LocalDate {
-    val validYear = year.coerceIn(today.year, 9999)
+    val validYear = year.coerceIn(today.year, today.year + RIDE_DEPARTURE_YEARS_AHEAD)
     val validMonth = month.coerceIn(if (validYear == today.year) today.monthValue else 1, 12)
     val minDay = if (validYear == today.year && validMonth == today.monthValue) today.dayOfMonth else 1
     val validDay = day.coerceIn(minDay, YearMonth.of(validYear, validMonth).lengthOfMonth())
@@ -170,7 +174,7 @@ internal fun RideDeparturePicker(initialValue: String, onDismiss: () -> Unit, on
                         onSelect = { selectDate(newDay = it) }, modifier = Modifier.weight(1f),
                     )
                     DepartureChoice(
-                        label = appText("Год", "Йыл"), value = year, range = today.year..9999,
+                        label = appText("Год", "Йыл"), value = year, range = today.year..today.year + RIDE_DEPARTURE_YEARS_AHEAD,
                         valueLabel = Int::toString, tag = RIDE_DEPARTURE_YEAR,
                         onSelect = { selectDate(newYear = it) }, modifier = Modifier.weight(1f),
                     )
