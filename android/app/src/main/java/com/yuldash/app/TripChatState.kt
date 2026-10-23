@@ -238,8 +238,10 @@ internal class TripChatState(
             onConnected = { connected ->
                 scope.launch {
                     if (!isActive()) return@launch
+                    // «Нет связи → есть» ловит TripChatConnection; замена живого сокета — здесь.
+                    val replaced = connected && wsConnected
                     wsConnected = connected
-                    if (connected) refreshAfterReconnect()
+                    if (replaced) refreshAfterReconnect()
                 }
             },
             // Сервер не принял сообщение (слишком быстрый поток). Помечаем его

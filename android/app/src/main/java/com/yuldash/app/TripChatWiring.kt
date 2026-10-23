@@ -5,6 +5,7 @@ package com.yuldash.app
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -81,7 +82,7 @@ internal class TripChatSeenMark(private val key: String) {
 
 /**
  * Живое соединение чата: сокет открыт, пока поездка не закрыта (done/cancelled — закрываем).
- * Пропущенное после обрыва дотягивает само состояние, один раз — когда канал снова жив
+ * Пропущенное после обрыва дотягиваем один раз — когда канал снова жив
  * ([TripChatState.refreshAfterReconnect]); уход в фон только отмечает разрыв, возврат читает
  * историю один раз. Вызывается у владельца состояния, а не у вида — переход «поездка ↔ чат»
  * сокет не рвёт.
@@ -103,4 +104,5 @@ internal fun TripChatConnection(chat: TripChatState, terminal: String?) {
         else { chat.wsConnected = false; chat.socket?.close() }
         onDispose { chat.socket?.close() }
     }
+    LaunchedEffect(chat.wsConnected) { chat.refreshAfterReconnect() }
 }
