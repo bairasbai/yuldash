@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.LocalPolice
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -78,6 +79,7 @@ class SosVerifyDeepContentTest {
         sent: Boolean = false,
         failed: Boolean = false,
         rateLimited: Boolean = false,
+        sessionChange: SosSessionChange = SosSessionChange.None,
         sending: Boolean = false,
         onDial: (String) -> Unit = {},
         onLocate: () -> Unit = {},
@@ -98,6 +100,7 @@ class SosVerifyDeepContentTest {
                     sent = sent,
                     failed = failed,
                     rateLimited = rateLimited,
+                    sessionChange = sessionChange,
                     sending = sending,
                     onDial = onDial,
                     onLocate = onLocate,
@@ -393,6 +396,34 @@ class SosVerifyDeepContentTest {
         composeRule.onNodeWithText("Слишком часто").assertIsDisplayed()
         composeRule.onNodeWithText("Сигнал уже отправлялся недавно. Подожди немного и нажми ещё раз.").assertIsDisplayed()
     }
+
+    // Вход сменился ДО запроса: сигнал точно не ушёл — так и говорим (приёмка 23.10.2026, P3).
+    private fun sessionChangedBeforeSend(lang: AppLanguage) {
+        setSos(lang = lang, failed = true, sessionChange = SosSessionChange.BeforeSend)
+        val ba = lang == AppLanguage.Ba
+        val title = if (ba) "Аккаунтҡа инеү алмашынды" else "Вход в аккаунт сменился"
+        scrollTo(title)
+        composeRule.onNodeWithText(title).assertIsDisplayed()
+        composeRule.onNodeWithText(if (ba) "Сигнал ебәрелмәне. Экранды яп та SOS-ты яңынан ас. 112-гә инеүһеҙ ҙә шылтыратырға була."
+            else "Сигнал не отправлен. Закрой экран и открой SOS снова. Позвонить 112 можно и без входа.").assertIsDisplayed()
+    }
+    @Test fun sos_sessionChangedBeforeSend_saysNotSentRu() = sessionChangedBeforeSend(AppLanguage.Ru)
+    @Test fun sos_sessionChangedBeforeSend_saysNotSentBa() = sessionChangedBeforeSend(AppLanguage.Ba)
+
+    // Вход сменился, пока запрос шёл: сервер мог сигнал уже сохранить — «не отправлен» было бы неправдой.
+    private fun sessionChangedAfterSend(lang: AppLanguage) {
+        setSos(lang = lang, failed = true, sessionChange = SosSessionChange.AfterSend)
+        val ba = lang == AppLanguage.Ba
+        val title = if (ba) "Ебәрелеүҙе раҫлап булманы" else "Не удалось подтвердить отправку"
+        scrollTo(title)
+        composeRule.onNodeWithText(title).assertIsDisplayed()
+        composeRule.onNodeWithText(if (ba)
+            "Сигнал ебәрелеп ятҡанда аккаунтҡа инеү алмашынды — ул барып етеүе мөмкин. Мөмкин булһа, 112-гә шылтырат һәм SOS-ты яңынан ас."
+            else "Вход в аккаунт сменился, пока сигнал отправлялся, — он мог дойти. Если можешь, позвони 112 и открой SOS снова.").assertIsDisplayed()
+        composeRule.onAllNodesWithText(if (ba) "Сигнал ебәрелмәне" else "Сигнал не отправлен", substring = true).assertCountEquals(0)
+    }
+    @Test fun sos_sessionChangedAfterSend_doesNotClaimNotSentRu() = sessionChangedAfterSend(AppLanguage.Ru)
+    @Test fun sos_sessionChangedAfterSend_doesNotClaimNotSentBa() = sessionChangedAfterSend(AppLanguage.Ba)
 
     // Прим.: при sending=true AppButton рисует ТОЛЬКО спиннер (бесконечная анимация) без текста —
     // проверять надпись бессмысленно и опасно (зависание waitForIdle). Состояние «отправляем»

@@ -50,6 +50,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
     val fail = appText("Не удалось отправить отклик. Проверь сеть и повтори.", "Яуап ебәреп булманы. Сетте тикшереп ҡабатла.")
     val withdrawn = appText("Отклик отозван", "Яуап кире алынды")
     val withdrawFail = appText("Не удалось отозвать. Проверь сеть и повтори.", "Кире алып булманы. Сетте тикшереп ҡабатла.")
+    val withdrawTaken = appText("Пассажир уже принял отклик — отозвать нельзя.", "Пассажир яуапты ҡабул иткән — кире алып булмай.")
     LaunchedEffect(session, ownerRole, selectedFilter, tick) {
         if (!current()) return@LaunchedEffect
         loading = true; error = false
@@ -67,7 +68,9 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { if (!withdrawing) withdrawTarget = null }, containerColor = CanonSurface,
             title = { Text(appText("Отозвать отклик?", "Яуапты кире аларғамы?"), style = CanonBodyStrong, color = CanonText) },
-            text = { Text("${request.from} → ${request.to}", style = CanonBody, color = CanonMuted) },
+            // Последствие словами: пассажир больше не увидит отклик (как было до переноса экрана).
+            text = { Text(appText("Пассажир больше не увидит твой отклик на «${request.from} → ${request.to}».",
+                "Пассажир «${request.from} → ${request.to}» яуабыңды башҡа күрмәйәсәк."), style = CanonBody, color = CanonMuted) },
             confirmButton = { TextButton(enabled = !withdrawing, onClick = {
                 val id = request.myResponseId ?: return@TextButton
                 if (!current() || withdrawing) return@TextButton
@@ -79,9 +82,14 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
                     if (!current() || session != capturedSession) return@launch
                     withdrawing = false
                     result.onSuccess { withdrawTarget = null; Toast.makeText(ctx, withdrawn, Toast.LENGTH_SHORT).show(); tick++ }
-                        .onFailure { Toast.makeText(ctx, serverSaid(it, withdrawFail), Toast.LENGTH_LONG).show() }
+                        .onFailure { e ->
+                            // 409 — отклик уже приняли: наш текст точнее, диалог закрываем и обновляем ленту.
+                            val taken = (e as? com.yuldash.app.data.ApiException)?.status == 409
+                            Toast.makeText(ctx, if (taken) withdrawTaken else serverSaid(e, withdrawFail), Toast.LENGTH_LONG).show()
+                            if (taken) { withdrawTarget = null; tick++ }
+                        }
                 }
-            }) { Text(appText("Отозвать", "Кире алыу"), color = CanonRed) } },
+            }) { Text(if (withdrawing) appText("Отзываем…", "Кире алабыҙ…") else appText("Отозвать", "Кире алыу"), color = CanonRed) } },
             dismissButton = { TextButton(enabled = !withdrawing, onClick = { withdrawTarget = null }) { Text(appText("Оставить", "Ҡалдырыу"), color = CanonMuted) } },
         )
     }

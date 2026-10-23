@@ -1,6 +1,12 @@
 package com.yuldash.app
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -60,7 +66,7 @@ internal fun PickupStopPicker(ride: Ride, picked: String?, onPick: (String) -> U
                     )
                 }
             }
-            AnimatedContent(targetState = picked == null, label = "pickupStopChoice") { missing ->
+            AnimatedContent(targetState = picked == null, transitionSpec = { stopHintFade() }, label = "pickupStopChoice") { missing ->
                 if (missing) Text(
                     appText("Выбери место посадки, чтобы забронировать.", "Бронлау өсөн ултырыу урынын һайла."),
                     style = CanonCaption, color = CanonMuted,
@@ -69,6 +75,10 @@ internal fun PickupStopPicker(ride: Ride, picked: String?, onPick: (String) -> U
         }
     }
 }
+
+/** Подсказка «выбери место» появляется и уходит спокойно, по шкале CanonMotion. */
+private fun AnimatedContentTransitionScope<Boolean>.stopHintFade(): ContentTransform =
+    fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK))
 
 /** Private values come only from booking APIs; public ride data cannot establish a passenger's choice. */
 @Composable
@@ -131,7 +141,7 @@ internal fun BookingSegmentPicker(
                                 modifier = Modifier.weight(1f).padding(start = CanonSpace.sm), style = CanonBody, color = CanonText)
                         }
                     }
-                    AnimatedContent(targetState = dropoff == null && choices.isNotEmpty(), label = "dropoffStopChoice") { missing ->
+                    AnimatedContent(targetState = dropoff == null && choices.isNotEmpty(), transitionSpec = { stopHintFade() }, label = "dropoffStopChoice") { missing ->
                         if (missing) Text(appText("Выбери место высадки, чтобы забронировать.", "Бронлау өсөн төшөү урынын һайла."), style = CanonCaption, color = CanonMuted)
                     }
                 }
@@ -140,8 +150,10 @@ internal fun BookingSegmentPicker(
     }
 }
 
+/** Как [PickupStopNote]: «не указано» — только у поездки с остановками; без остановок и у старой брони молчим. */
 @Composable
-internal fun DropoffStopNote(dropoffStop: String?, to: String = "") {
+internal fun DropoffStopNote(dropoffStop: String?, to: String = "", rideHasStops: Boolean = true) {
+    if (dropoffStop == null && !rideHasStops) return
     val text = when {
         dropoffStop == null -> appText("Место высадки не указано — уточни в чате", "Төшөү урыны күрһәтелмәгән — чатта асыҡла")
         dropoffStop.isEmpty() -> appText("Высадка: конец маршрута", "Төшөү: юлдың аҙағы") + if (to.isNotBlank()) " · $to" else ""
@@ -157,6 +169,6 @@ internal fun BookingSegmentNote(pickup: String?, dropoff: String?, hasStops: Boo
         val alighting = dropoff?.ifEmpty { to }?.takeIf(String::isNotBlank)
         if (boarding != null && alighting != null) Text(appText("Участок: $boarding → $alighting", "Юл өлөшө: $boarding → $alighting"), style = CanonBodyStrong, color = CanonText)
         PickupStopNote(pickup, hasStops, from)
-        DropoffStopNote(dropoff, to)
+        DropoffStopNote(dropoff, to, hasStops)
     }
 }

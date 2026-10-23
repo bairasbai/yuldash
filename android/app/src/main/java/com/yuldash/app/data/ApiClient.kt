@@ -84,14 +84,15 @@ object ApiClient {
     private val readMs: Int get() = testTimeoutMs ?: testRetryTimeoutMs ?: 15000
 
     // One-shot mutations (see [authorized]): never replay a sent body after a lost reply or HTTP follow-up.
-    private val oneShotTransport by lazy {
-        OkHttpClient.Builder().retryOnConnectionFailure(false)
-            // With recovery disabled, a recently closed pooled socket can consume the user's explicit retry.
-            // Close idle connections instead; this never resends a request whose result is unknown.
-            .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
-            .followRedirects(false).followSslRedirects(false)
-            .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE).build()
-    }
+    // A NEW client per request, not newBuilder() of a shared one: OkHttp keeps "failed" addresses in the
+    // client's route database, so one lost reply sent every later mutation to the other address (IPv6)
+    // with no fallback. The pool keeps no idle socket: a server-closed one must not eat an explicit retry.
+    private fun oneShotTransport(): OkHttpClient = OkHttpClient.Builder().retryOnConnectionFailure(false)
+        .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
+        .followRedirects(false).followSslRedirects(false)
+        .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE)
+        .connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
+        .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).writeTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()
 
     /**
      * Тест-хук: оборвать всё фоновое и вернуть клиента в исходное состояние.
@@ -1253,42 +1254,34 @@ object ApiClient {
             ConsentDto(kind = o.optString("kind"), grantedAt = o.optString("granted_at"))
         }
 
-    // ---------- SOS (доверенные контакты — ContactsApi + ContactsRepository) ----------
+    // ---------- SOS (доверенные контакты — ContactsApi + ContactsRepository; повторы — SafetyApi) ----------
 
     /**
      * Общий вход доменных HTTP-клиентов (первый — [ContactsApi]): авторизованный запрос входа [owner].
      * [oneShot] — меняющий запрос, который транспорт не повторит молча после потерянного ответа.
      */
-    internal suspend fun authorized(method: String, path: String, body: JSONObject?, owner: Long, oneShot: Boolean = false): Result<JSONObject> =
-        call(method, path, body, auth = true, expectedGeneration = owner, singleAttemptMutation = oneShot)
+    internal suspend fun authorized(method: String, path: String, body: JSONObject?, owner: Long, oneShot: Boolean = false,
+        idempotencyKey: String? = null): Result<JSONObject> =
+        call(method, path, body, auth = true, expectedGeneration = owner, idempotencyKey = idempotencyKey, singleAttemptMutation = oneShot)
+
+    /** Ключ повтора SOS/«застрял» ([SafetyApi]) — только во входе [owner]; null — вход сменился или его нет. */
+    internal fun prepareSafetyIntent(owner: Long, body: JSONObject, scope: String): String? =
+        synchronized(sessionLock) { if (isCurrentSession(owner)) sosRetryIntent.prepare(body, scope) else null }
+    internal fun acknowledgeSafetyIntent(owner: Long, key: String, scope: String) =
+        synchronized(sessionLock) { if (isCurrentSession(owner)) sosRetryIntent.acknowledge(key, scope) }
+    /** Отказ без запроса: «не вошёл» — понятная причина на языке экрана, а не «сессия сменилась». */
+    internal fun <T> refusedSession(owner: Long): Result<T> =
+        if (!sameSession(owner) || !token.isNullOrBlank()) staleSession()
+        else Result.failure(ApiException(401, if (langBa) "Сигнал ебәреү өсөн аккаунтҡа ин." else "Чтобы отправить сигнал, войди в аккаунт.", "not_signed_in"))
 
     /** SOS. orderId — контекст такси-заказа (B7b-2), bookingId — контекст попутки: дежурный
-     *  увидит маршрут и вторую сторону. Раньше поле брони было только на сервере и всегда
-     *  приходило пустым: из такси знали, с кем человек, из попутки — нет (аудит 2026-08-06).
-     *  Координаты обязательны по смыслу, но не по форме: без них близкие получат «нужна срочная
-     *  помощь» и не будут знать, куда ехать. GPS мог не схватиться — тогда шлём хотя бы сигнал. */
+     *  увидит маршрут и вторую сторону. Координаты необязательны: GPS мог не схватиться — тогда
+     *  шлём хотя бы сигнал. Повтор по тому же ключу и проверка входа — в [SafetyApi]. */
     suspend fun sos(
         category: String, note: String, orderId: Int? = null,
         lat: Double? = null, lng: Double? = null, bookingId: Int? = null,
         expectedGeneration: Long = queueSessionGeneration(),
-    ): Result<Unit> {
-        val body = JSONObject().put("category", category).put("note", note)
-        if (orderId != null) body.put("order_id", orderId)
-        if (bookingId != null) body.put("booking_id", bookingId)
-        if (lat != null) body.put("lat", lat)
-        if (lng != null) body.put("lng", lng)
-        val key = synchronized(sessionLock) {
-            if (!isCurrentSession(expectedGeneration)) return staleSession()
-            sosRetryIntent.prepare(body)
-        }
-        return call("POST", "/sos", body, auth = true, expectedGeneration = expectedGeneration,
-            idempotencyKey = key, singleAttemptMutation = true).map { }.onSuccess {
-            synchronized(sessionLock) {
-                if (isCurrentSession(expectedGeneration)) sosRetryIntent.acknowledge(key)
-            }
-            Analytics.log("sos")
-        }
-    }
+    ): Result<Unit> = SafetyApi.sos(category, note, orderId, lat, lng, bookingId, expectedGeneration)
 
     /** «Поделиться поездкой» из такси-заказа (B7b-2): ссылку на маршрут и статусы человек отправляет близкому сам (SMS на проде выключены).
      *  B7c: сервер возвращает token live-ссылки — отдаём готовый URL (null на старом сервере). */
@@ -1303,36 +1296,13 @@ object ApiClient {
         j.optString("token", "").takeIf { it.isNotBlank() }?.let { "$BASE/t/$it" }
 
     /** Ответ на «позвать помощь»: скольким близким сообщение реально уйдёт и сколько
-     *  доверенных заведено всего. Старый сервер второго числа не присылает — тогда считаем,
-     *  что доверенных столько же, скольким ушло (текст экрана останется прежним). */
+     *  доверенных заведено всего (разбор — [parseRoadsideResult]). */
     data class RoadsideResult(val notified: Int, val contactsTotal: Int, val deliveryUnconfirmed: Boolean = false)
 
-    private fun roadsideResult(j: JSONObject): RoadsideResult {
-        val ушло = j.optInt("contacts_notified")
-        return RoadsideResult(ушло, j.optInt("contacts_total", ушло), j.optBoolean("delivery_unconfirmed", false))
-    }
-
     /** F12 «Застрял на трассе»: координаты уходят доверенным контактам + запись в SOS-ленту админа.
-     *  Уровень мягче паники SOS. Координаты необязательны (шлём хотя бы сигнал о помощи). */
-    /** Возвращает, СКОЛЬКИМ близким реально ушло SMS (волна 122): экран обещал помощь даже
-     *  тому, кто доверенных контактов не заводил. Волна 184 добавила второе число — сколько
-     *  доверенных вообще заведено: без него «ушло нулю» и «звать некого» выглядят одинаково,
-     *  а человеку на трассе это разные новости и разные действия. */
-    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String, expectedGeneration: Long? = null): Result<RoadsideResult> {
-        val body = JSONObject().put("note", note)
-        if (lat != null && lng != null) body.put("lat", lat).put("lng", lng)
-        val owner = expectedGeneration ?: queueSessionGeneration()
-        val scope = "roadside-booking-$bookingId"
-        val key = synchronized(sessionLock) {
-            if (!isCurrentSession(owner)) return staleSession()
-            sosRetryIntent.prepare(body, scope)
-        }
-        return call("POST", "/bookings/$bookingId/stuck", body, auth = true, expectedGeneration = owner,
-            idempotencyKey = key).map { roadsideResult(it) }.onSuccess {
-            synchronized(sessionLock) { if (isCurrentSession(owner)) sosRetryIntent.acknowledge(key, scope) }
-            Analytics.log("roadside_help")
-        }
-    }
+     *  Возвращает, СКОЛЬКИМ близким реально ушло SMS и сколько их заведено (волны 122, 184). */
+    suspend fun roadsideHelp(bookingId: Int, lat: Double?, lng: Double?, note: String, expectedGeneration: Long? = null): Result<RoadsideResult> =
+        SafetyApi.roadsideHelp(bookingId, lat, lng, note, expectedGeneration ?: queueSessionGeneration())
 
     /** Запрос «перезвоните мне» → уведомление админу в Telegram (помощь пожилым/без интернета). */
     suspend fun requestCallback(note: String): Result<Unit> =
@@ -2061,47 +2031,6 @@ object ApiClient {
                 routeSample = o.optInt("route_sample"),
             )
         }
-
-    // ---------- Подписка на маршрут «карауль поездку» (F13) ----------
-    /** Подписаться на маршрут: как только появится подходящая поездка — придёт уведомление. */
-    suspend fun createRouteWatch(
-        fromCity: String,
-        toCity: String,
-        direction: String = "forward",     // forward | both (туда-обратно)
-        watchDate: String? = null,         // ISO "yyyy-MM-dd'T'HH:mm:ss" — опц. конкретный день
-        expectedGeneration: Long? = null,
-    ): Result<Int> = call(
-        "POST", "/route-watch",
-        JSONObject()
-            .put("from_city", fromCity)
-            .put("to_city", toCity)
-            .put("direction", direction)
-            .apply { watchDate?.takeIf { it.isNotBlank() }?.let { put("watch_date", it) } },
-        auth = true,
-        expectedGeneration = expectedGeneration,
-        singleAttemptMutation = true,
-    ).map { it.optInt("id") }.onSuccess { Analytics.log("route_watch_create") }
-
-    /** Мои активные подписки на маршрут (непротухшие). */
-    suspend fun getRouteWatches(expectedGeneration: Long? = null): Result<List<RouteWatchDto>> =
-        call("GET", "/route-watch", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
-            val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                RouteWatchDto(
-                    id = o.optInt("id"),
-                    fromCity = o.optString("from_city"),
-                    toCity = o.optString("to_city"),
-                    direction = o.optString("direction").ifBlank { "forward" },
-                    watchDate = o.optString("watch_date").ifBlank { null },
-                )
-            }
-        }
-
-    /** Отписаться от маршрута. */
-    suspend fun deleteRouteWatch(id: Int, expectedGeneration: Long? = null): Result<Unit> =
-        call("DELETE", "/route-watch/$id", null, auth = true,
-            expectedGeneration = expectedGeneration, singleAttemptMutation = true).map { }
 
     // Партнёрская реклама — сервер-управляемая.
     suspend fun getAds(): Result<List<AdDto>> =
@@ -3668,9 +3597,7 @@ object ApiClient {
                         }
                     }.build()
                     val request = Request.Builder().url(BASE + path).method(method, requestBody).headers(headers).build()
-                    val client = oneShotTransport.newBuilder().connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
-                        .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).writeTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()
-                    mutationResponse = client.newCall(request).execute()
+                    mutationResponse = oneShotTransport().newCall(request).execute()
                     code = mutationResponse.code
                     serverUnreachable.value = false
                     text = mutationResponse.body?.string().orEmpty()
@@ -4959,7 +4886,7 @@ object ApiClient {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }
+        return call("POST", "/instant/orders/$orderId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { parseRoadsideResult(it) }
     }
 
     /** «Застрял на трассе» в ДОСТАВКЕ. Курьер едет по той же зимней трассе и вдобавок один:
@@ -4969,7 +4896,7 @@ object ApiClient {
         val body = JSONObject().put("note", note.take(500))
         if (lat != null) body.put("lat", lat)
         if (lng != null) body.put("lng", lng)
-        return call("POST", "/parcels/$parcelId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { roadsideResult(it) }
+        return call("POST", "/parcels/$parcelId/stuck", body, auth = true, expectedGeneration = expectedGeneration).map { parseRoadsideResult(it) }
             .onSuccess { Analytics.log("roadside_help_parcel") }
     }
 
@@ -7140,15 +7067,6 @@ data class SupportTicketRowDto(
 
 /** Список моих обращений + счётчик непрочитанного (бейдж на входе «Поддержка»). */
 data class SupportListDto(val unread: Int, val items: List<SupportTicketRowDto>)
-
-/** Подписка на маршрут «карауль поездку» (F13). */
-data class RouteWatchDto(
-    val id: Int,
-    val fromCity: String,
-    val toCity: String,
-    val direction: String,          // forward | both
-    val watchDate: String? = null,  // ISO, если задан конкретный день
-)
 
 /** Тариф поднятия (с бэкенда /boost/plans). */
 data class BoostPlanDto(val tier: String, val title: String, val price: Int, val hours: Int)
