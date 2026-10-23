@@ -424,16 +424,19 @@ private fun YuldashAppContent() {
     var sosBookingId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("sosBookingId", screenStateOwner)) { mutableStateOf(0) }         // SOS с контекстом попутки; 0 = без поездки
     var sosContextNote by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("sosContextNote", screenStateOwner)) { mutableStateOf("") }      // подпись дежурному (курьер: маршрут доставки)
     var returnToSosAfterLogin by rememberSaveable(saver = rootNavigationStateSaver<Boolean>("returnToSosAfterLogin")) { mutableStateOf(false) }
+    var returnToSosUser by rememberSaveable(saver = rootNavigationStateSaver<Int>("returnToSosUser")) { mutableStateOf(0) }   // 0 — любой вход; иначе только этот id (-1 — никто)
     LaunchedEffect(returnToSosAfterLogin, screen) {
         if (!returnToSosAfterLogin || !ApiClient.isLoggedIn()) return@LaunchedEffect
         if (screen == Screen.Splash || screen == Screen.Intro || screen == Screen.Onboarding) return@LaunchedEffect
         // После входа аккаунт мог смениться. Возвращаем только экран, без чужого контекста
-        // и без автоматической отправки: пользователь должен снова нажать кнопку SOS.
+        // и без автоматической отправки: пользователь должен снова нажать кнопку SOS. Если вход
+        // закончился на SOS, возвращаем только того же человека — чужой аккаунт попадает к себе.
+        val sameUser = returnToSosUser == 0 || returnToSosUser == ApiClient.myUserId()
         sosOrderId = 0
         sosBookingId = 0
         sosContextNote = ""
-        returnToSosAfterLogin = false
-        screen = Screen.Sos
+        returnToSosAfterLogin = false; returnToSosUser = 0
+        if (sameUser) screen = Screen.Sos
     }
     var receiptBookingId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("receiptBookingId", screenStateOwner)) { mutableStateOf(0) }     // Квитанция завершённой поездки: id брони
     var taxiReceiptOrderId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("taxiReceiptOrderId", screenStateOwner)) { mutableStateOf(0) }   // Чек за такси-поездку: id заказа
@@ -1455,7 +1458,8 @@ private fun YuldashAppContent() {
             )
             Screen.Sos -> SosScreen(
                 onBack = { goBack() },
-                onLoginRequired = { returnToSosAfterLogin = true; screen = Screen.Login },
+                onLoginRequired = { returnToSosUser = 0; returnToSosAfterLogin = true; screen = Screen.Login },
+                onSessionEnded = { user -> returnToSosUser = user; returnToSosAfterLogin = true; screen = Screen.Login },
                 orderId = sosOrderId.takeIf { it > 0 },     // контекст такси-заказа (B7b-2); 0 = обычный SOS
                 bookingId = sosBookingId.takeIf { it > 0 }, // контекст попутки; 0 = обычный SOS
                 contextNote = sosContextNote.takeIf { it.isNotBlank() },  // курьер: маршрут доставки
