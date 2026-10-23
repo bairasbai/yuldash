@@ -107,10 +107,6 @@ internal class TripChatState(
         get() = !actionBusy && (failedDelete != null || failedVoice != null ||
             failedEdit?.let { it.first == editingId && it.second == editVersion } == true)
 
-    /** Удалённые, голос и непустой текст видимы; «пустые» технические — нет. */
-    val visibleMessages: List<MessageDto>
-        get() = messages.filter { it.deleted || it.voiceUrl != null || it.text.isNotBlank() }
-
     /**
      * Лента с сервера + свои ещё не подтверждённые сообщения («В очереди», «Не доставлено»). Раньше
      * лента заменяла список целиком, и неотправленное пропадало с экрана (приёмка 18.10.2026).
@@ -284,7 +280,12 @@ internal class TripChatState(
         scope.coroutineContext[Job]?.invokeOnCompletion { stop() }
         bookingId?.let { id -> persistedQueue(context, id, tripSession).forEach(::adoptQueued) }   // TripChatWiring.kt
     }
-    internal fun adoptQueued(action: OutboxAction) { val id = tempSeq--; restAttempts[id] = action; queuedIds = queuedIds + id; messages = messages + MessageDto(id, action.payload, myId) }
+    private fun adoptQueued(action: OutboxAction) {
+        val id = tempSeq--
+        restAttempts[id] = action
+        queuedIds = queuedIds + id
+        messages = messages + MessageDto(id, action.payload, myId)
+    }
 
     fun canWrite(): Boolean = isActive()
 

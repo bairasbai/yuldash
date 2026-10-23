@@ -31,6 +31,10 @@ import java.util.concurrent.ConcurrentHashMap
 internal fun persistedQueue(context: Context, bookingId: Int, generation: Long): List<OutboxAction> =
     runCatching { Outbox.pendingMessages(context, bookingId, generation) }.getOrDefault(emptyList())
 
+/** Удалённые, голос и непустой текст видимы; «пустые» технические — нет. */
+internal val TripChatState.visibleMessages: List<MessageDto>
+    get() = messages.filter { it.deleted || it.voiceUrl != null || it.text.isNotBlank() }
+
 /** Подсказки чата. Считаются в композиции (два языка), читаются в момент показа. */
 internal class TripChatTexts(
     val sendFail: String,
