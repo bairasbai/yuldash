@@ -446,7 +446,7 @@ internal fun BookingScreen(
         details?.driverPlate?.takeIf { it.isNotBlank() }?.let(::add)
     }.joinToString(" · ")
     val shareTitle = appText("Позвать соседа", "Күршене саҡырырға")
-    val shareText = bookingRideShareText(displayRide.copy(price = details?.takeIf { it.seats > 1 && it.price > 0 }?.let { it.price / it.seats } ?: displayRide.price))   // соседу — цена места, не всей брони
+    val shareText = bookingRideShareText(displayRide.copy(price = details?.takeIf { it.seats > 1 && it.price > 0 }?.let { it.price / it.seats } ?: displayRide.price), showPrice = bookingId == null || details != null)   // соседу — цена места, не всей брони
     // Свежие детали знают статус лучше, чем список, из которого открыли бронь.
     val normalizedBookingStatus = (details?.status?.takeIf { it.isNotBlank() } ?: bookingStatus).trim().lowercase()
     val bookingPending = bookingId != null && normalizedBookingStatus == "pending"
@@ -642,8 +642,8 @@ internal fun BookingScreen(
                 )
             }
             item {
-                BookingRouteDecisionCard(displayRide, bookingId != null && details != null, distanceText, routeFromPoint, routeToPoint, contactUnlocked,
-                    onShare = { shareRide(context, shareText, shareTitle) })
+                BookingRouteDecisionCard(displayRide, bookingId != null, distanceText, routeFromPoint, routeToPoint, contactUnlocked,
+                    onShare = { shareRide(context, shareText, shareTitle) }, pending = bookingId != null && details == null)
             }
             routeAd?.let { ad ->
                 item {

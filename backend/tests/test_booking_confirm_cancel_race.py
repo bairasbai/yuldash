@@ -6,6 +6,7 @@
 И повтор брони после потерянного ответа молча отдавал старую бронь, даже если человек теперь отметил
 «едет подросток»: водитель не узнавал о ребёнке.
 """
+import pytest
 from sqlmodel import Session
 
 from app.db import engine
@@ -71,3 +72,48 @@ def test_seats_conflict_names_the_own_booking(client, user_factory):
     detail = reply.json()["detail"]
     assert detail["code"] == "booking_seats_conflict" and detail["booking_id"] == first.json()["id"]
     assert _seats_left(ride_id) == 1
+
+
+@pytest.mark.skipif(engine.dialect.name == "postgresql",
+                    reason="на Postgres «Не пришёл» держит строку замком — отмена ждёт; гонка возможна только без замков (SQLite)")
+def test_no_show_and_cancel_in_the_same_second_return_seats_once(client, user_factory, monkeypatch):
+    """Водитель жмёт «Не пришёл», пассажир в ту же секунду — «Отменить» (приёмка #189): места возвращаются
+    один раз, причина отмены пассажира не затирается «неявкой»."""
+    from datetime import timedelta
+
+    from app.routers.bookings import NO_SHOW_WAIT
+    from app.timeutil import utcnow
+
+    driver = user_factory("NoShowRaceDriver", role=UserRole.driver)
+    passenger = user_factory("NoShowRacePassenger")
+    other = user_factory("NoShowRaceOther")
+    ride = client.post("/rides", headers=driver["auth"], json={
+        "from_city": "Баймак", "to_city": "Уфа", "waypoints": "", "seats_total": 5, "price": 500,
+        "depart_at": (utcnow() - NO_SHOW_WAIT - timedelta(minutes=1)).isoformat() + "+00:00"})
+    assert ride.status_code == 200, ride.text
+    ride_id = ride.json()["id"]
+    late = client.post("/bookings", headers=passenger["auth"], json={"ride_id": ride_id, "seats": 3})
+    assert late.status_code == 200, late.text
+    bid = late.json()["id"]
+    assert client.post(f"/bookings/{bid}/confirm", headers=driver["auth"]).status_code == 200
+    assert client.post("/bookings", headers=other["auth"], json={"ride_id": ride_id, "seats": 1}).status_code == 200
+    assert _seats_left(ride_id) == 1
+
+    real_wait_left = bookings_mod.no_show_wait_left
+    calls = {"n": 0}
+
+    def cancel_after_the_lock(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:   # вторая проверка — уже после перечитывания под «замком»
+            reply = client.post(f"/bookings/{bid}/cancel", headers=passenger["auth"], json={"reason": "plans_changed"})
+            assert reply.status_code == 200, reply.text
+        return real_wait_left(*args, **kwargs)
+
+    monkeypatch.setattr(bookings_mod, "no_show_wait_left", cancel_after_the_lock)
+    reply = client.post(f"/bookings/{bid}/no-show", headers=driver["auth"])
+    assert reply.status_code == 200, reply.text
+    assert calls["n"] == 2
+    with Session(engine) as s:
+        b = s.get(Booking, bid)
+        assert b.status == BookingStatus.cancelled and b.no_show is False and b.cancel_reason == "plans_changed"
+    assert _seats_left(ride_id) == 4, "места брони вернулись один раз: 5 − 1 чужое"
