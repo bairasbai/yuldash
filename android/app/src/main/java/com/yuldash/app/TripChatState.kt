@@ -354,10 +354,10 @@ internal class TripChatState(
         scope.launch {
             try {
                 // Commit before network (process death). Без sendOrder фоновая запись меняла местами быстрые сообщения.
-                val (saved, sentViaWs) = sendOrder.withLock {
-                    val ok = withContext(Dispatchers.IO) { Outbox.enqueue(context, action, tripSession) }
-                    ok to (ok && isActive() && wsConnected && socket?.send(action.payload, tempId, Outbox.messageRequestKey(action)) == true)
-                }
+                // DIAG: порядок не держим (как до исправления)
+                val ok = withContext(Dispatchers.IO) { Outbox.enqueue(context, action, tripSession) }
+                val saved = ok
+                val sentViaWs = ok && isActive() && wsConnected && socket?.send(action.payload, tempId, Outbox.messageRequestKey(action)) == true
                 if (!isActive()) return@launch
                 if (!saved) {
                     failedIds = failedIds + tempId
