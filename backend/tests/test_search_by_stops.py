@@ -551,7 +551,8 @@ def test_matched_stop_never_reaches_the_shared_feed_cache(client, trip, user_fac
         assert not marked, marked
     assert store, "контроль: лента без фильтров в кэш записалась"
     for value in store.values():
-        assert all(x.get("matched_stop") is None and x.get("matched_from_start") is False for x in value), \
+        assert all(x.get("matched_stop") is None and x.get("matched_from_start") is False
+                   and x.get("matched_dropoff_stop") is None and not x.get("matched_to_end") for x in value), \
             "в кэше ленты метки чужого поиска"
 
 
@@ -626,6 +627,8 @@ def test_make_fit_never_drops_off_before_the_pickup():
     assert make_fit(stops, (1,), (), (0, 2)).matched_to_end is True, "из двух точных годится только конец"
     chosen = make_fit(stops, (-1, 0, 1), (0,), (1, 2))
     assert chosen.matched_stop == "Ургаза" and chosen.matched_dropoff_stop is None, "после посадки два варианта"
+    same = make_fit(stops, (0,), (0,), (0, 2))
+    assert same.matched_to_end is True, "выход строго после посадки: «Ургаза» → «Ургаза» не выход"
 
 
 def test_near_dropoff_is_after_the_pickup_chosen_by_distance(client, user_factory):
@@ -650,3 +653,42 @@ def test_near_dropoff_is_after_the_pickup_chosen_by_distance(client, user_factor
     far = next(x for x in _near(client, day, to_city="Бурибай", lat=URGAZA[0], lng=URGAZA[1])["items"]
                if x["id"] == ride["id"])
     assert far["matched_stop"] == "Ургаза" and far["matched_dropoff_stop"] == "Бурибай", far
+
+
+def test_near_prefix_alone_does_not_preselect_the_start(client, user_factory):
+    """«Сиб» — лишь начало слова: поездка находится, но место посадки «Ближайшие» без координат не выбирают
+    (точно названное место — только полное имя; сведение с Codex, 23.10.2026)."""
+    day = _day()
+    drv = user_factory("SBS Prefix Driver", role=UserRole.driver)
+    ride = _publish(client, drv, day, waypoints="", tag="prefix")
+    item = next(x for x in _near(client, day, from_city="Сиб")["items"] if x["id"] == ride["id"])
+    assert item["matched_stop"] is None and item["matched_from_start"] is False, item
+    full = next(x for x in _near(client, day, from_city="Сибай")["items"] if x["id"] == ride["id"])
+    assert full["matched_from_start"] is True, "контроль: полное имя выбирает начало"
+
+
+def test_near_dropoff_must_be_named_exactly_by_every_to_filter(client, trip):
+    """Два фильтра «Куда»: «Ургаза» точно, «Акъ» — лишь начало «Акъяр». Выход должен точно называть КАЖДЫЙ
+    фильтр — здесь такого нет, и карточка выход не выбирает."""
+    day, _drv, ride = trip
+    item = next(x for x in _near(client, day, to_city="Ургаза", to_cities="Акъ")["items"] if x["id"] == ride["id"])
+    assert item["matched_dropoff_stop"] is None and item["matched_to_end"] is False, item
+
+
+def test_near_dropoff_is_strictly_after_the_pickup_named_by_the_query(client, trip):
+    """«Откуда: Ургаза», «Куда: Ургаза или Акъяр» — сесть и выйти в одном месте нельзя: выход — конец."""
+    day, _drv, ride = trip
+    item = next(x for x in _near(client, day, from_city="Ургаза", to_city="Ургаза,Акъяр")["items"]
+                if x["id"] == ride["id"])
+    assert item["matched_stop"] == "Ургаза" and item["matched_to_end"] is True, item
+
+
+def test_feed_dropoff_counts_from_the_pickup_the_card_shows(client, user_factory):
+    """Лента не показывает посадку (вариантов два) — выход считается от самой ранней посадки, а не от той,
+    что запрос назвал бы «точно»: после начала маршрута два «Ургаза»-подобных выхода — выход не выбираем."""
+    from app.stop_search import make_fit
+    fit = make_fit(("Абзаково", "Сибай"), (-1, 1), (1,), (0, 2))
+    assert fit.matched_dropoff_stop is None and fit.matched_to_end is True, "контроль: от посадки «Сибай» — конец"
+    assert rides_mod._matched(fit, None, by_query=True) == (None, False), "в ленте посадка не показана"
+    assert rides_mod._dropoff(fit, None, by_query=True) == (None, False), "от начала — два выхода: не выбираем"
+    assert rides_mod._dropoff(fit, 1, by_query=True) == (None, True), "показана посадка «Сибай» — выход в конце"
