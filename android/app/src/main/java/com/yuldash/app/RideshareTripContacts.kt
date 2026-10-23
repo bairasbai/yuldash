@@ -99,6 +99,15 @@ internal fun tripCarSummary(contacts: TripContacts?, rideCar: String?): String =
     listOf(contacts?.car.orEmpty().ifBlank { rideCar.orEmpty() }, contacts?.plate.orEmpty())
         .filter { it.isNotBlank() }.joinToString(" · ")
 
+/** Поделиться текстом (поездка, ссылка, квитанция) через системный выбор приложения. */
+internal fun shareRide(context: Context, text: String, chooserTitle: String) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    context.startActivity(Intent.createChooser(intent, chooserTitle))
+}
+
 /** Набрать номер водителя: звонит сам человек, приложение только открывает «Телефон». */
 internal fun dialDriver(context: Context, phone: String) {
     if (phone.isBlank()) return

@@ -14,20 +14,13 @@ package com.yuldash.app
 
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.ChatSocket
@@ -46,36 +39,6 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.UUID
-
-/** Подсказки чата. Считаются в композиции (два языка), читаются в момент показа. */
-internal class TripChatTexts(
-    val sendFail: String,
-    val tooFast: String,
-    val queued: String,
-    val queueSaveFail: String,
-    val chatSendFail: String,
-    val chatActionFail: String,
-    val voiceSaved: String,
-    val photoUploadFail: String = chatSendFail,
-    val voiceUploadFail: String = chatSendFail,
-)
-
-@Composable
-internal fun rememberTripChatTexts(queued: String, queueSaveFail: String): State<TripChatTexts> = rememberUpdatedState(
-    TripChatTexts(
-        sendFail = appText("Сообщение не отправлено", "Хәбәр ебәрелмәне"),
-        tooFast = appText("Слишком быстро. Подожди минуту и продолжи.", "Артыҡ тиҙ. Бер минут көт тә дауам ит."),
-        queued = queued,
-        queueSaveFail = queueSaveFail,
-        chatSendFail = appText("Не отправилось. Повтори.", "Ебәрелмәне. Ҡабатла."),
-        chatActionFail = appText("Не удалось подтвердить действие. Проверь связь и повтори.", "Ғәмәлде раҫлап булманы. Бәйләнеште тикшереп ҡабатла."),
-        voiceSaved = appText("Голос записан", "Тауыш яҙылды"),
-        photoUploadFail = appText("Не удалось подтвердить загрузку фото. Проверь связь и выбери фото ещё раз.",
-            "Фотоның тейәлеүен раҫлап булманы. Бәйләнеште тикшереп фотоны тағы һайла."),
-        voiceUploadFail = appText("Не удалось подтвердить загрузку голосового. Проверь связь и запиши ещё раз.",
-            "Тауыш яҙмаһының тейәлеүен раҫлап булманы. Бәйләнеште тикшереп тағы яҙ."),
-    )
-)
 
 @Stable
 internal class TripChatState(
@@ -199,42 +162,20 @@ internal class TripChatState(
                 result.onSuccess { server ->
                     hiddenMessageIds += previousIds - server.map { it.id }.toSet()
                     applyServer(server)
-                    markBaseline(server)
+                    seen.baseline(server)
                 }.onFailure { historyError = true }
             }
             isActive()
         } finally { if (isActive()) historyLoading = false }
     }
 
-    // ── Непрочитанные ───────────────────────────────────────────────────────────────────────
-    // Сервер «прочитано» для чата брони не хранит, поэтому считаем честно и локально: сколько
-    // сообщений собеседника пришло после того, как человек последний раз смотрел в ленту.
-    // Метка живёт в памяти процесса и привязана ко входу: другой аккаунт её не увидит.
-    // Нет метки (первый показ) — уже загруженная история считается прочитанной: лучше не
-    // показать бейдж, чем показать «12 новых» на переписку, которую человек давно прочёл.
-    private val seenKey = "$tripSession:${bookingId ?: 0}"
-    var seenId: Int by mutableIntStateOf(seenMarks[seenKey] ?: NO_MARK)
-        private set
+    // ── Непрочитанные ── метка «прочитано до» этого входа и брони (TripChatSeenMark, TripChatWiring.kt).
+    private val seen = TripChatSeenMark("$tripSession:${bookingId ?: 0}")
 
-    val unread: Int
-        get() = if (seenId == NO_MARK) 0
-        else visibleMessages.count { it.id > seenId && it.senderId != myId && !it.deleted }
+    val unread: Int get() = seen.unread(visibleMessages, myId)
 
     /** Лента на экране и внизу — всё, что в ней есть, прочитано. До истории метку не ставим. */
-    fun markSeen() {
-        if (historyLoading) return
-        val top = messages.maxOfOrNull { it.id } ?: 0
-        if (top > seenId) {
-            seenId = top
-            seenMarks[seenKey] = top
-        }
-    }
-
-    private fun markBaseline(history: List<MessageDto>) {
-        if (seenId != NO_MARK) return
-        seenId = history.maxOfOrNull { it.id } ?: 0
-        seenMarks[seenKey] = seenId
-    }
+    fun markSeen() { if (!historyLoading) seen.advance(messages.maxOfOrNull { it.id } ?: 0) }
 
     // ── Живой канал ─────────────────────────────────────────────────────────────────────────
     // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
@@ -634,32 +575,5 @@ internal class TripChatState(
     internal companion object {
         private val PERMANENT_REJECTIONS = setOf(400, 403, 404, 405, 409, 410, 413, 415, 422)
         internal const val WS_ACK_TIMEOUT_MS = 5_000L
-        const val NO_MARK = Int.MIN_VALUE
-        private val seenMarks = ConcurrentHashMap<String, Int>()
     }
-}
-
-/**
- * Живое соединение чата: сокет открыт, пока поездка не закрыта (done/cancelled — закрываем);
- * после обрыва и возврата связи дотягиваем пропущенное по REST. Вызывается у владельца
- * состояния, а не у вида — переход «поездка ↔ чат» сокет не рвёт.
- */
-@Composable
-internal fun TripChatConnection(chat: TripChatState, terminal: String?) {
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(chat, lifecycle) {
-        var stopped = false
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) { stopped = true; chat.continuityLost() }
-            else if (event == Lifecycle.Event.ON_START && stopped) { stopped = false; chat.refreshAfterReturn() }
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
-    DisposableEffect(chat.bookingId, terminal) {
-        if (terminal == null) chat.socket?.connect()
-        else { chat.wsConnected = false; chat.socket?.close() }
-        onDispose { chat.socket?.close() }
-    }
-    LaunchedEffect(chat.wsConnected) { chat.refreshAfterReconnect() }
 }

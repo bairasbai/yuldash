@@ -273,12 +273,6 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.isActive
 import androidx.compose.ui.platform.testTag
 
-internal fun bookingStatusAllowsActiveTrip(status: String): Boolean =
-    status == "confirmed" || status == "onboard" || status == "done"
-
-internal fun bookingStatusAllowsBoarding(status: String): Boolean =
-    status == "confirmed" || status == "onboard"
-
 /** Код места показа с сервера → место в приложении. Незнакомое имя (сервер завёл новое,
  *  приложение ещё не знает) → null: такое объявление просто не покажем в этом слоте,
  *  вместо того чтобы уронить разбор всего списка рекламы. */
@@ -1782,14 +1776,6 @@ private inline fun <reified T> rootNavigationStateSaver(field: String, ownerId: 
         else null
     },
 )
-
-internal fun shareRide(context: android.content.Context, text: String, chooserTitle: String) {
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, text)
-    }
-    context.startActivity(Intent.createChooser(intent, chooserTitle))
-}
 
 @Composable
 private fun OnboardingScreen(
