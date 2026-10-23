@@ -378,6 +378,11 @@ object Outbox {
     @Synchronized fun contains(context: Context, action: OutboxAction): Boolean =
         readAll(context)?.any { it.id == action.id } ?: true
 
+    /** Неотправленные сообщения брони — чат показывает их «В очереди» и после ухода с экрана или перезапуска. */
+    @Synchronized fun pendingMessages(context: Context, bookingId: Int, expectedGeneration: Long): List<OutboxAction> =
+        if (expectedGeneration != ApiClient.queueSessionGeneration()) emptyList()
+        else readAll(context)?.filter { it.bookingId == bookingId && it.kind == "message" }.orEmpty()
+
     /** Исход общего отправителя нужен экрану этого же входа; на диск ID не пишется. */
     @Synchronized fun wasRefused(action: OutboxAction, expectedGeneration: Long): Boolean =
         expectedGeneration == ApiClient.queueSessionGeneration() && action.id in refusedActions

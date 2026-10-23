@@ -1,3 +1,18 @@
+## Чат попутки: «В очереди» не пропадает и уходит отовсюду — 23.10.2026 (ветка `claude/chat-queue-visible-20261023`)
+
+Поверх `claude/codex-fix-android-20261023` (облачная починка ветки Codex). Найдено ревью 23.10 к приёмке 18.10 (P1-4):
+сообщение, написанное, пока сервер был недоступен, жило строкой «В очереди» только в памяти экрана чата — ушёл на карту,
+процесс убит → строки нет, хотя сообщение лежит в очереди на диске; а отправлялась очередь только при запуске и на экране
+поездки.
+
+- [x] Новый экран чата сразу показывает очередь с диска «В очереди» (`TripChatWiring.persistedQueue` →
+  `TripChatState.adoptQueued`), ушедшее снимается как обычно, повтор — тем же ключом (дубля нет).
+- [x] Пока приложение на экране, очередь пробует уйти раз в 30 с, где бы человек ни был (`OutboxAutoFlush.kt` вместо
+  разовой отправки при старте), чтение и запись очереди — не на главном потоке.
+- [x] Тесты: `TripChatQueuedReconnectTest.queuedMessageSurvivesScreenRecreationAndIsSentOnce` (без правки падал),
+  `OutboxAutoFlushTest`. Эмулятор (та же логика в ветке `claude/p1-acceptance-on-parity-20261023`): сообщение, пережившее
+  смерть процесса, ушло через 3 с и 21 с после возврата сервера, пока человек был на списке поездок; одна копия.
+- [ ] Отправка в GitHub — по «да» Александра.
 ## Android: два изредка падающих теста из #190 — 23.10.2026
 
 Ветка `claude/android-race-fix-20261023`. На PR #201 (только документ) упали `ActiveTripPassengerContactsTest.staleRetryTapAfterSuccessfulRecoveryDoesNotRequestDetailsAgain` и `ActiveTripChatUiBoundaryTest.reopenedSameBookingBelongsToBAndDoesNotRestoreAsHistoryOrDraft` (таймаут 15 с); тот же код дважды прошёл. Причина — уснувший `GlobalSnapshotManager` (разбор в `lessons.md`, 23.10). Приложение не затронуто: это ожидание в тестах.

@@ -3,6 +3,7 @@ package com.yuldash.app
 // Обвязка состояния чата попутки (TripChatState.kt): подсказки на двух языках, метка
 // «прочитано» и живое соединение у экрана-владельца. Вынесено, чтобы файл состояния не рос.
 
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -17,7 +18,18 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
+import com.yuldash.app.data.Outbox
+import com.yuldash.app.data.OutboxAction
 import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * Очередь на диске переживает уход с экрана, смерть процесса и смену экрана: новый экран чата сразу
+ * показывает её строками «В очереди» (TripChatState.adoptQueued), до любой отправки. Раньше строка жила
+ * только в памяти прежнего экрана — сообщение пропадало до следующего запуска (ревью 23.10.2026).
+ * Только сообщения этой брони и этого входа; очередь не прочиталась — показываем, что есть.
+ */
+internal fun persistedQueue(context: Context, bookingId: Int, generation: Long): List<OutboxAction> =
+    runCatching { Outbox.pendingMessages(context, bookingId, generation) }.getOrDefault(emptyList())
 
 /** Подсказки чата. Считаются в композиции (два языка), читаются в момент показа. */
 internal class TripChatTexts(

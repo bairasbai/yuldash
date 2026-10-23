@@ -282,7 +282,9 @@ internal class TripChatState(
             }
         }
         scope.coroutineContext[Job]?.invokeOnCompletion { stop() }
+        bookingId?.let { id -> persistedQueue(context, id, tripSession).forEach(::adoptQueued) }   // TripChatWiring.kt
     }
+    internal fun adoptQueued(action: OutboxAction) { val id = tempSeq--; restAttempts[id] = action; queuedIds = queuedIds + id; messages = messages + MessageDto(id, action.payload, myId) }
 
     fun canWrite(): Boolean = isActive()
 

@@ -910,12 +910,9 @@ private fun YuldashAppContent() {
         }
     }
 
-    // M4 — разгружаем очередь исходящих (TripPass Outbox) на СТАРТЕ приложения, а не только на экране
-    // поездки: накопленные «сел/доехал»/сообщения уйдут, даже если пользователь не открывал ActiveTrip.
-    // Переиспользуем ту же Outbox.flush (Mutex/FIFO) — второго параллельного отправителя не создаём.
-    LaunchedEffect(Unit) {
-        if (com.yuldash.app.data.Outbox.hasPending(context)) com.yuldash.app.data.Outbox.flush(context)
-    }
+    // M4 — очередь исходящих уходит не только с экрана поездки: при старте и, пока приложение на экране,
+    // раз в 30 с (OutboxAutoFlush.kt) — та же Outbox.flush (Mutex/FIFO), второго отправителя нет.
+    OutboxAutoFlush(sessionVersion)
 
     fun finishOnboarding(role: RideRole) {
         // Сохраняем выбор роли (раньше выбор был «мёртвым» — никуда не уходил).
