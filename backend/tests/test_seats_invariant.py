@@ -17,14 +17,93 @@
 from __future__ import annotations
 
 import pytest
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, Event
+from types import SimpleNamespace
 from sqlmodel import Session, select
 
 from app.db import engine
-from app.models import Booking, BookingStatus, Ride, UserRole
+from app.models import Booking, BookingStatus, Notification, Ride, UserRole
 
 from test_api import _ride
 
 _LIVE = (BookingStatus.pending, BookingStatus.confirmed)
+
+
+def test_parallel_multiseat_cancellation_returns_n_once(client, user_factory, monkeypatch):
+    driver = user_factory("MultiCancelDriver", role=UserRole.driver)
+    passenger = user_factory("MultiCancelPassenger")
+    ride_id = _ride(client, driver, seats=5)
+    bid = _book(client, passenger, ride_id, seats=3)
+    _book(client, user_factory("MultiCancelUnaffectedPassenger"), ride_id, seats=1)
+    start = Barrier(2)
+    reread = Barrier(2)
+    original = Session.exec
+
+    def hold_sqlite_reread(session, statement, *args, **kwargs):
+        result = original(session, statement, *args, **kwargs)
+        if (engine.dialect.name == "sqlite" and getattr(statement, "_for_update_arg", None) is not None
+                and any(d.get("entity") is Booking for d in getattr(statement, "column_descriptions", []))):
+            booking = result.first()
+            if booking and booking.id == bid:
+                reread.wait(timeout=10)
+            return SimpleNamespace(first=lambda: booking)
+        return result
+
+    def cancel(actor):
+        start.wait(timeout=10)
+        return client.post(f"/bookings/{bid}/cancel", headers=actor["auth"], json={"reason": "changed_mind"})
+
+    monkeypatch.setattr(Session, "exec", hold_sqlite_reread)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(cancel, actor) for actor in (passenger, driver)]
+        replies = [f.result(timeout=20) for f in futures]
+    assert [r.status_code for r in replies] == [200, 200], [r.text for r in replies]
+    assert all(r.json()["status"] == "cancelled" for r in replies)
+    _check(ride_id, "две одновременные отмены трёх мест")
+    with Session(engine) as session:
+        notes = session.exec(select(Notification.id).where(
+            Notification.ref_kind == "booking", Notification.ref_id == bid,
+            Notification.title_ru == "Бронь отменена",
+        )).all()
+        assert len(notes) == 1
+
+
+def test_multiseat_cancellation_against_new_booking_keeps_capacity(client, user_factory, monkeypatch):
+    driver = user_factory("MultiCancelNewDriver", role=UserRole.driver)
+    passenger = user_factory("MultiCancelOldPassenger")
+    newcomer = user_factory("MultiCancelNewPassenger")
+    ride_id = _ride(client, driver, seats=5)
+    bid = _book(client, passenger, ride_id, seats=3)
+    ready, release = Event(), Event()
+    original = Session.exec
+
+    def hold_sqlite_cancel(session, statement, *args, **kwargs):
+        result = original(session, statement, *args, **kwargs)
+        if (engine.dialect.name == "sqlite" and getattr(statement, "_for_update_arg", None) is not None
+                and any(d.get("entity") is Booking for d in getattr(statement, "column_descriptions", []))):
+            booking = result.first()
+            if booking and booking.id == bid:
+                ready.set()
+                assert release.wait(timeout=10), "cancel was not released"
+            return SimpleNamespace(first=lambda: booking)
+        return result
+
+    monkeypatch.setattr(Session, "exec", hold_sqlite_cancel)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        cancelled = pool.submit(client.post, f"/bookings/{bid}/cancel", headers=passenger["auth"], json={})
+        try:
+            if engine.dialect.name == "sqlite":
+                assert ready.wait(timeout=10), "cancel did not reach locked re-read"
+            booked = pool.submit(client.post, "/bookings", headers=newcomer["auth"],
+                                 json={"ride_id": ride_id, "seats": 2})
+            reply = booked.result(timeout=20)
+        finally:
+            release.set()
+        cancel_reply = cancelled.result(timeout=20)
+    assert cancel_reply.status_code == 200, cancel_reply.text
+    assert reply.status_code == 200, reply.text
+    _check(ride_id, "отмена трёх мест против новой брони двух")
 
 
 def _check(ride_id: int, where: str) -> None:
