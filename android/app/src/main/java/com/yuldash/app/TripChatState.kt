@@ -242,7 +242,7 @@ internal class TripChatState(
                     // эпоху не трогает (начатое чтение верно), но пришедшее до успеха дочитаем один раз.
                     val replaced = connected && wsConnected
                     wsConnected = connected
-                    if (replaced) refreshAfterReconnect() else if (!connected) resyncPending = true
+                    if (replaced) refreshAfterReconnect() // DIAG: исправление P1 убрано
                 }
             },
             // Сервер не принял сообщение (слишком быстрый поток). Помечаем его
