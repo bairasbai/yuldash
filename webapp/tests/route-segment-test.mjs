@@ -46,7 +46,7 @@ for (const lang of ["ru", "ba"]) {
   await t.test(`${lang}: высадка предлагает только последующие остановки и конечную; legacy NULL честный`, () => {
     let s = mount(Choice, { ride, pickup: "Акъяр", picked: null, onPick() {} }); s.render();
     assert.deepEqual(all(s.tree).filter(n => n.type === "input").map(n => n.props.value), ["Сибай", "Уфа"]);
-    s.unmount(); s = mount(Note, { pickupStop: "Акъяр", dropoffStop: null, from: ride.from_city, to: ride.to_city }); s.render();
+    s.unmount(); s = mount(Note, { pickupStop: "Акъяр", dropoffStop: null, rideHasStops: true, from: ride.from_city, to: ride.to_city }); s.render();
     assert.ok(text(s.tree).includes(lang === "ru" ? "Место высадки не указано — уточни в чате" : "Төшөү урыны күрһәтелмәгән — чатта асыҡла"));
     assert.ok(!text(s.tree).includes("Уфа")); s.unmount();
   });

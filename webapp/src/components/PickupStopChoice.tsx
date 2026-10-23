@@ -71,10 +71,12 @@ export function BookingSegmentNote({ pickupStop, dropoffStop, rideHasStops, from
   return <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
     {fromPlace && toPlace && <p className="list-row__title">{appText("Участок пассажира", "Юлсының юл өлөшө")}: {fromPlace} → {toPlace}</p>}
     <PickupStopNote pickupStop={pickupStop} rideHasStops={rideHasStops} from={from} />
-    <p className="list-row__sub">{dropoffStop == null
+    {/* Зеркало защиты посадки: про высадку говорим, только если у рейса есть остановки или высадка названа.
+        На рейсе без остановок и на старой брони (сервер без поля) «не указано — уточни в чате» было бы ложью. */}
+    {(rideHasStops === true || dropoffStop != null) && <p className="list-row__sub">{dropoffStop == null
       ? appText("Место высадки не указано — уточни в чате", "Төшөү урыны күрһәтелмәгән — чатта асыҡла")
       : dropoffStop === ""
         ? appText("Высадка: конец маршрута", "Төшөү: юлдың аҙағы") + (to ? ` · ${to}` : "")
-        : appText(`Высадка: ${dropoffStop}`, `Төшөү: ${dropoffStop}`)}</p>
+        : appText(`Высадка: ${dropoffStop}`, `Төшөү: ${dropoffStop}`)}</p>}
   </div>;
 }
