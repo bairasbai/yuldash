@@ -8,6 +8,7 @@ import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.lifecycle.Lifecycle
@@ -184,6 +185,9 @@ class ActiveTripChatUiBoundaryTest {
     private fun waitFor(condition: () -> Boolean) = compose.waitUntil(15000) {
         compose.mainClock.advanceTimeBy(100)
         Shadows.shadowOf(Looper.getMainLooper()).idle()
+        // Запись вне композиции (повторное открытие экрана) не ждёт GlobalSnapshotManager: в Robolectric
+        // он может «уснуть» после сброса Looper между тестами (docs/testing.md, правило 5).
+        Snapshot.sendApplyNotifications()
         condition()
     }
     private fun tripList() = compose.onNode(hasScrollToNodeAction() and
@@ -361,28 +365,34 @@ class ActiveTripChatUiBoundaryTest {
         pump()
         assertOldScreenHidden()
     }
-    @Test fun reopenedSameBookingBelongsToBAndDoesNotRestoreAsHistoryOrDraft() {
+    @Test fun reopenedSameBookingBelongsToBAndDoesNotRestoreAsHistoryOrDraft() = reopenSameBookingAsB(false)
+    /** CI PR #201: повторное открытие экрана — запись из теста, а GlobalSnapshotManager после сброса Looper молчал. */
+    @Test fun reopenedSameBookingSurvivesLostGlobalSnapshotNotification() = reopenSameBookingAsB(true)
+    private fun reopenSameBookingAsB(lostNotification: Boolean) {
         mount()
         compose.onNode(hasSetTextAction()).performTextInput("private-draft-A")
         compose.runOnIdle { switchAccount() }
         assertEquals(ApiClient.queueSessionGeneration(), ApiClient.sessionChanges.value)
         pump()
         assertOldScreenHidden()
-        compose.runOnIdle { mounted.value = false }
-        compose.waitForIdle()
-        compose.runOnIdle { mounted.value = true }
-        waitFor { auth.peek() == tokenB }
-        assertEquals(tokenB, auth.poll(10, TimeUnit.SECONDS))
-        waitFor { compose.onAllNodesWithText("Написать").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Написать").performClick()
-        pump(1000)
-        tripList().performScrollToNode(hasText("private-history-B"))
-        compose.onNodeWithText("private-history-B").assertIsDisplayed()
-        compose.onAllNodesWithText("private-history-A").assertCountEquals(0)
-        compose.onNode(hasSetTextAction()).assertTextEquals("")
-        assertTrue(sockets.last().send("""{"type":"message","id":88,"sender_id":22,"text":"wire-message-B"}"""))
-        waitFor { compose.onAllNodesWithText("wire-message-B").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("wire-message-B").assertIsDisplayed()
+        val reopen: () -> Unit = {
+            compose.runOnIdle { mounted.value = false }
+            compose.waitForIdle()
+            compose.runOnIdle { mounted.value = true }
+            waitFor { auth.peek() == tokenB }
+            assertEquals(tokenB, auth.poll(10, TimeUnit.SECONDS))
+            waitFor { compose.onAllNodesWithText("Написать").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Написать").performClick()
+            pump(1000)
+            tripList().performScrollToNode(hasText("private-history-B"))
+            compose.onNodeWithText("private-history-B").assertIsDisplayed()
+            compose.onAllNodesWithText("private-history-A").assertCountEquals(0)
+            compose.onNode(hasSetTextAction()).assertTextEquals("")
+            assertTrue(sockets.last().send("""{"type":"message","id":88,"sender_id":22,"text":"wire-message-B"}"""))
+            waitFor { compose.onAllNodesWithText("wire-message-B").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("wire-message-B").assertIsDisplayed()
+        }
+        if (lostNotification) withLostGlobalSnapshotNotification(reopen) else reopen()
         assertEquals(1, backs)
     }
 }

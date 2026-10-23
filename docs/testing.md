@@ -78,6 +78,12 @@ cd android && ./gradlew.bat :app:jacocoCoverageVerification
    - Compose с ручными часами (`mainClock.autoAdvance = false`): каждый шаг своего «насоса» и
      `waitUntil` начинается с `Snapshot.sendApplyNotifications()`. Без этого изменение, сделанное
      вне композиции (`vm.screen.value = …`, `onNewIntent`), может так и не дойти до экрана.
+   - С автоматическими часами — то же, если `waitUntil` ждёт простую переменную (счётчик запросов,
+     поле состояния, очередь сокета), а не текст на экране, после записи из теста
+     (`runOnIdle { state.retry() }`, повторный `mounted.value = true`): в шаге ожидания —
+     `settle()` = idle + `Snapshot.sendApplyNotifications()`. `waitUntil` сам изменения не
+     применяет, и после сброса Looper Robolectric экран о записи не узнает (PR #201: два теста
+     #190 падали изредка; контроль — `withLostGlobalSnapshotNotification`).
    - «Сервер получил запрос» — ещё не «экран показал ответ». После ожидания записи на сервере
      ждать сам результат: текст на экране, тост, смену экрана, нужную кнопку (так мигал «Я сел»:
      кнопку открывает ответ отдельного опроса `/role`, PR163).

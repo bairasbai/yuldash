@@ -1,3 +1,10 @@
+## Android: два изредка падающих теста из #190 — 23.10.2026
+
+Ветка `claude/android-race-fix-20261023`. На PR #201 (только документ) упали `ActiveTripPassengerContactsTest.staleRetryTapAfterSuccessfulRecoveryDoesNotRequestDetailsAgain` и `ActiveTripChatUiBoundaryTest.reopenedSameBookingBelongsToBAndDoesNotRestoreAsHistoryOrDraft` (таймаут 15 с); тот же код дважды прошёл. Причина — уснувший `GlobalSnapshotManager` (разбор в `lessons.md`, 23.10). Приложение не затронуто: это ожидание в тестах.
+- [x] Ожидания обоих классов — через `settle()`; два контрольных теста с `withLostGlobalSnapshotNotification`.
+- [x] Правило 5 в `testing.md` — и для автоматических часов.
+- [ ] Остальные самодельные `waitUntil` по простым переменным (задача 26.09 ниже, «95 ожиданий в 37 файлах») — тот же перевод на `settle()`.
+
 <!-- AUDIT-TRACEABILITY-ALL-MODES-20261023 -->
 ## Единая проверяемая приёмка всех режимов — 23.10.2026
 
