@@ -148,7 +148,7 @@ class ActiveTripPassengerContactsTest {
         .put("booking_id", 42).put("ride_id", 17).put("role", role).put("status", status)
         .put("contact_unlocked", unlocked).put("from_city", "Город А").put("to_city", "Город Б")
         .put("depart_at", "2031-02-03T09:00:00").put("price", 700).put("seats", 1)
-        .put("driver_name", "Айдар").put("driver_car", "Lada Vesta")
+        .put("driver_name", "Айдар").put("driver_car", "Lada Vesta").put("passenger_name", "Гульнара")
         .put("driver_phone", if (unlocked) phone else "")
         .put("driver_plate", if (unlocked) "А123ВС 102" else "")
         .put("driver_car_color", if (unlocked) "белая" else "")
@@ -202,6 +202,22 @@ class ActiveTripPassengerContactsTest {
         compose.onAllNodesWithText("Телефон водителя").assertCountEquals(0)
         compose.onAllNodesWithText(phone).assertCountEquals(0)
         assertNull(TripPassStore.load(context, 42))
+    }
+
+    /** Приёмка 18.10, п.14: у водителя вверху экрана была карточка «Водитель» вместо того, кого он везёт. */
+    @Test fun driverSeesWhoHeIsDrivingNotADriverCard() {
+        role = "driver"
+        openScreen()
+        waitForDetails()
+        compose.waitUntil(15000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodesWithText("Гульнара").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onAllNodesWithText("Гульнара")[0].assertIsDisplayed()
+        compose.onAllNodesWithText("Айдар").assertCountEquals(0)          // его же имя ему не нужно
+        compose.onAllNodesWithText("Водитель").assertCountEquals(0)
+        compose.onAllNodesWithText("Lada Vesta", substring = true).assertCountEquals(0)
+        compose.onAllNodesWithContentDescription("Позвонить").assertCountEquals(0)
     }
 
     @Test fun retryCodeCreatesCompletePassportFromAlreadyLoadedDetailsWithoutExistingCopy() {

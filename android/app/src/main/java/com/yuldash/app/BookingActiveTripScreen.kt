@@ -1804,8 +1804,8 @@ private fun ActiveTripContent(
     }
 
     // Шапка чата — с кем переписка. Имя из вкладки «Чат» известно сразу; пассажиру собеседник —
-    // водитель брони; имя пассажира водительский экран не получает — тогда пишем роль.
-    val chatPeer = ride?.chatPeer?.takeIf { it.isNotBlank() } ?: if (role != "passenger") null
+    // водитель брони, водителю — пассажир из деталей брони; пока имени нет — пишем роль.
+    val chatPeer = ride?.chatPeer?.takeIf { it.isNotBlank() } ?: if (role != "passenger") pickupDetails?.passengerName?.takeIf { it.isNotBlank() }
         else ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() }.takeIf { it.isNotBlank() }
     val chatTitle = chatPeer ?: when (role) {
         "driver" -> appText("Чат с пассажиром", "Пассажир менән чат")
@@ -1880,16 +1880,19 @@ private fun ActiveTripContent(
                 }
             }
             if (terminalBooking == null && (tripDetails.loading || tripDetails.failure != null)) item(key = "trip-details-load") { ActiveTripDetailsNotice(tripDetails.loading, tripDetails.failure, tripDetails::retry) }
+            // Водителю вверху — тот, кого он везёт, а не карточка «Водитель» с ним самим (приёмка 18.10, п.14).
+            val heroRide = ride.takeIf { role != "driver" }
             item {
                 ActiveTripOptionBHero(
-                    driverName = ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
-                    avatarUrl = ride?.driverAvatar.orEmpty(),
-                    rating = ride?.rating?.takeIf { it > 0.0 }
+                    driverName = if (role == "driver") pickupDetails?.passengerName.orEmpty().ifBlank { appText("Пассажир", "Пассажир") }
+                        else heroRide?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
+                    avatarUrl = heroRide?.driverAvatar.orEmpty(),
+                    rating = heroRide?.rating?.takeIf { it > 0.0 }
                         ?.let { String.format(java.util.Locale.US, "%.1f", it).replace('.', ',') },
-                    verified = ride?.verified == true,
-                    trips = ride?.driverTrips ?: 0,
-                    since = ride?.driverSince.orEmpty(),
-                    carSummary = tripCarSummary(tripContacts, ride?.car),
+                    verified = heroRide?.verified == true,
+                    trips = heroRide?.driverTrips ?: 0,
+                    since = heroRide?.driverSince.orEmpty(),
+                    carSummary = tripCarSummary(tripContacts, heroRide?.car),
                     phoneUnlocked = !tripContacts?.phone.isNullOrBlank(),
                     onCall = { dialDriver(context, tripContacts?.phone.orEmpty()) },
                     boardingCode = boardingCode,

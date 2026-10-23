@@ -376,6 +376,8 @@ class BookingDetailsOut(BaseModel):
     pay_method: str = "negotiate"
     pay_amount: Optional[int] = None
     driver_name: str
+    # Кого везёт водитель (приёмка 18.10, п.14). Имя и так есть в /driver/bookings; телефона здесь нет.
+    passenger_name: str = ""
     driver_verified: bool
     driver_phone: str = ""
     driver_car: str = ""
@@ -668,6 +670,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     _ensure_route_coords(session, ride)
     driver = session.get(User, ride.driver_id)
+    passenger = session.get(User, booking.passenger_id)
     profile = session.exec(select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)).first()
     driver_car = f"{profile.car_make} {profile.car_model}".strip() if profile else ""
     unlocked = booking_contacts_open(booking, ride)
@@ -710,6 +713,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "pay_method": booking.pay_method.value if hasattr(booking.pay_method, "value") else booking.pay_method,
         "pay_amount": booking.pay_amount,
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
+        "passenger_name": (passenger.name if passenger and passenger.name else "Пассажир"),
         "driver_verified": bool(driver.verified) if driver else False,
         "driver_phone": (driver.phone if (unlocked and driver) else ""),
         "driver_car": driver_car,
