@@ -16,7 +16,7 @@ import { useOwnBooking, useRefreshOwnBookings } from "../booking/OwnBookingsProv
 import { createBooking } from "../api/bookings";
 import { track } from "../analytics";
 import type { Ride } from "../api/rides";
-import { formatWhen, priceLabel } from "../utils/format";
+import { formatWhen, pluralRu, priceLabel } from "../utils/format";
 import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
 import { FrontSeatChoice, SeatBadges } from "./SeatOptions";
@@ -86,6 +86,8 @@ export default function RideSheet({
     }
     return () => { mounted.current = false; bookingAbort.current?.abort(); };
   }, [ownerGeneration, ride.id]);
+  // Свободных мест стало меньше выбранного (поездку обновили) — не держим число, которого уже нет.
+  useEffect(() => { setSeats(s => Math.min(s, Math.max(1, ride.seats_left))); }, [ride.seats_left]);
 
   async function book() {
     if (exit.leaving) return; // шторка уже уходит (Esc, затемнение) — бронь из неё не отправляем (приёмка PR154)
@@ -109,7 +111,9 @@ export default function RideSheet({
       return;
     }
     if (!Number.isInteger(seats) || seats < 1 || seats > ride.seats_left) {
-      setError(appText("Мест больше нет. Посмотри другие поездки.", "Буш урындар ҡалманы. Башҡа сәфәрҙәрҙе ҡара."));
+      setError(ride.seats_left < 1
+        ? appText("Мест больше нет. Посмотри другие поездки.", "Буш урындар ҡалманы. Башҡа сәфәрҙәрҙе ҡара.")
+        : appText(`Осталось мест: ${ride.seats_left}. Выбери меньше.`, `Ҡалған урындар: ${ride.seats_left}. Әҙерәк һайла.`));
       return;
     }
     if (minor && (!guardName.trim() || !guardPhone.trim())) {
@@ -249,7 +253,7 @@ export default function RideSheet({
         </div>
 
         {!ownBooking && <>
-          <label className="field">
+          <label className="field sheet__seats">
             <span className="field__label">{appText("Количество мест", "Урындар һаны")}</span>
             <select className="field__input" style={{ minHeight: 48 }} value={seats} disabled={busy || ride.seats_left < 1}
               onChange={e => { setSeats(Number(e.target.value)); setError(null); }}>
@@ -355,7 +359,9 @@ export default function RideSheet({
             : isAuthed
               ? ownBooking
                 ? appText("Открыть поездку", "Сәфәрҙе асыу")
-                : appText("Забронировать место", "Урын бронларға")
+                : seats > 1
+                  ? appText(`Забронировать ${seats} ${pluralRu(seats, "место", "места", "мест")}`, `${seats} урын бронларға`)
+                  : appText("Забронировать место", "Урын бронларға")
               : appText("Войти и забронировать", "Инеп бронларға")}
         </button>
         <p className="sheet__note">

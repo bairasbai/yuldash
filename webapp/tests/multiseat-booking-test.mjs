@@ -7,13 +7,13 @@ const ride = { id: 7, driver_id: 8, from_city: "Баймак", to_city: "Уфа"
 for (const lang of ["ru", "ba"]) {
   const Sheet = await bundleComponent("src/components/RideSheet.tsx", { real: ["/utils/pickupStops"], mocks: {
     "/i18n/lang": langMock(lang),
-    "/api/client": `export class ApiError extends Error {} export const getSessionGeneration=()=>globalThis.__multi.generation;`,
+    "/api/client": `export class ApiError extends Error { constructor(status,message){super(message);this.status=status;} } export const getSessionGeneration=()=>globalThis.__multi.generation; globalThis.__multi.ApiError=ApiError;`,
     "/useSheetExit": `export const useSheetExit=()=>({leaving:false,portal:n=>n,close:()=>{}});`,
     "react-router-dom": `export const useNavigate=()=> (...args)=>globalThis.__multi.routes.push(args);`,
     "/features": `export const useFeatures=()=>({parcels:true}),getFeatures=()=>({parcels:true});`,
     "/AuthProvider": `export const useAuth=()=>({isAuthed:true});`,
     "/OwnBookingsProvider": `export const useOwnBooking=()=>globalThis.__multi.own,useRefreshOwnBookings=()=>()=>{};`,
-    "/utils/format": `export const formatWhen=()=>'',priceLabel=v=>String(v);`,
+    "/utils/format": `export const formatWhen=()=>'',priceLabel=v=>String(v),pluralRu=(n,a,b,c)=>[a,b,c][n%10===1&&n%100!==11?0:n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?1:2];`,
     "/api/bookings": `export const createBooking=(body,signal)=>{globalThis.__multi.sent.push({body,signal});return globalThis.__multi.send?.()??Promise.resolve({id:55});};`,
   } });
   const reset = () => { h.generation = "a"; h.sent = []; h.routes = []; h.own = null; h.send = undefined; };
@@ -49,6 +49,25 @@ for (const lang of ["ru", "ba"]) {
     const own = mount(Sheet, { ride, onClose() {} }); own.render();
     assert.equal(selector(own), undefined); await cta(own).props.onClick(); assert.equal(h.sent.length, 0);
     assert.ok(h.routes[0][0].includes("90")); own.unmount();
+  });
+  await t.test(`${lang}: кнопка называет число мест; отказ сервера — его словами`, async () => {
+    reset(); h.send = () => Promise.reject(new h.ApiError(409, "Мест не хватает: осталось 2."));
+    const s = mount(Sheet, { ride, onClose() {} }); s.render();
+    assert.equal(text(cta(s)), lang === "ru" ? "Забронировать место" : "Урын бронларға");
+    selector(s).props.onChange({ target: { value: "3" } }); await s.settle();
+    assert.equal(text(cta(s)), lang === "ru" ? "Забронировать 3 места" : "3 урын бронларға");
+    await cta(s).props.onClick(); await s.settle();
+    assert.ok(text(s.tree).includes("Мест не хватает: осталось 2."), "слова сервера, а не общий текст");
+    s.unmount();
+  });
+  await t.test(`${lang}: мест стало меньше выбранного — число уменьшается до свободных`, async () => {
+    reset(); const s = mount(Sheet, { ride, onClose() {} }); s.render();
+    selector(s).props.onChange({ target: { value: "3" } }); await s.settle();
+    s.props = { ...s.props, ride: { ...ride, seats_left: 2 } }; s.render(); await s.settle();
+    assert.equal(selector(s).props.value, 2);
+    assert.ok(text(s.tree).includes((lang === "ru" ? "Итого: " : "Бөтәһе: ") + "1000"));
+    assert.equal(cta(s).props.disabled, false);
+    s.unmount();
   });
   await t.test(`${lang}: смена аккаунта сбрасывает количество мест`, async () => {
     reset(); const s = mount(Sheet, { ride, onClose() {} }); s.render();

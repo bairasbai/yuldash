@@ -458,7 +458,7 @@ internal fun BookingScreen(
     val canCreateBooking = bookingId == null && displayRide.seats > 0
     val primaryLabel = when {
         bookingId == null && !canCreateBooking -> appText("Мест нет", "Урын юҡ")
-        bookingId == null -> appText("Забронировать место", "Урынды бронләү")
+        bookingId == null -> bookSeatsLabel(selectedSeats)
         bookingPending -> appText("Отменить бронь", "Бронде кире алыу")
         bookingCancelled -> appText("Найти другую поездку", "Башҡа сәфәр табыу")
         canOpenActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")

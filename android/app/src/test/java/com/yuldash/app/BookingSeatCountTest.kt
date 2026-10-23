@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,4 +54,30 @@ class BookingSeatCountTest {
 
     @Test fun quantityAndTotalRu() = check(AppLanguage.Ru)
     @Test fun quantityAndTotalBa() = check(AppLanguage.Ba)
+
+    /** Поездку обновили: свободных мест стало меньше выбранного — число уменьшается, кнопка не гаснет молча. */
+    private fun shrinks(language: AppLanguage) {
+        val selected = mutableIntStateOf(3)
+        val available = mutableIntStateOf(3)
+        compose.setContent {
+            YuldashTheme {
+                CompositionLocalProvider(LocalAppLanguage provides language) {
+                    BookingSeatCount(available = available.intValue, selected = selected.intValue, price = 500,
+                        enabled = true, onChange = { selected.intValue = it })
+                    Text(bookSeatsLabel(selected.intValue))
+                }
+            }
+        }
+        val ba = language == AppLanguage.Ba
+        compose.onNodeWithText(if (ba) "3 урынды бронләү" else "Забронировать 3 места").assertExists()
+        compose.runOnIdle { available.intValue = 2 }
+        compose.runOnIdle { assertEquals(2, selected.intValue) }
+        compose.onNodeWithText(if (ba) "2 урынды бронләү" else "Забронировать 2 места").assertExists()
+        compose.onNodeWithText((if (ba) "Бөтәһе: " else "Итого: ") + "1 000 ₽").assertExists()
+        compose.runOnIdle { selected.intValue = 1 }
+        compose.onNodeWithText(if (ba) "Урынды бронләү" else "Забронировать место").assertExists()
+    }
+
+    @Test fun shrinksToAvailableRu() = shrinks(AppLanguage.Ru)
+    @Test fun shrinksToAvailableBa() = shrinks(AppLanguage.Ba)
 }
