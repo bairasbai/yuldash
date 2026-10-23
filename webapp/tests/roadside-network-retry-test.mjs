@@ -245,12 +245,26 @@ for (const ba of [false, true]) await check(`${ba ? 'BA' : 'RU'} first lost ACK 
   assert.ok(!text.includes(ba ? 'Сигнал китмәне' : 'Сигнал не ушёл'));
 });
 
-for (const ba of [false, true]) await check(`${ba ? 'BA' : 'RU'} known booking-roadside429 retains its previous refusal copy`, async ({ api }) => {
+// 429 — связь есть, сервер просит подождать. Раньше экран писал «нет связи» (23.10.2026, проверка сайта).
+const TOO_OFTEN = ba => ba
+  ? 'Артыҡ йыш — бер минут көт һәм ҡабат баҫ. Ашығыс булһа, яҡындарыңа йәки 112-гә шылтырат.'
+  : 'Слишком часто — подожди минуту и нажми снова. Если срочно, позвони близким или 112.';
+for (const ba of [false, true]) for (const target of [{ kind: 'booking', id: 73 }, { kind: 'parcel', id: 5 }]) await check(`${ba ? 'BA' : 'RU'} roadside429 (${target.kind}) says "too often, wait a minute", not "no connection"`, async ({ api }) => {
   h.ba = ba; globalThis.fetch = async () => new Response('{}', { status: 429 });
-  confirm(api)(); await until(() => nodes(render(api)).some(n => n.props.role === 'status'));
-  const text = JSON.stringify(render(api));
-  assert.ok(text.includes(ba ? 'Сигнал китмәне — бәйләнеш юҡ. Ҡәҙерлеләреңә йәки 112-гә шылтырат.' : 'Сигнал не ушёл — нет связи. Позвони близким или 112.'));
+  confirm(api, target)(); await until(() => nodes(render(api, target)).some(n => n.props.role === 'status'));
+  const text = JSON.stringify(render(api, target));
+  assert.ok(text.includes(TOO_OFTEN(ba)));
+  assert.ok(!text.includes(ba ? 'бәйләнеш юҡ' : 'нет связи'), '429 is not an outage');
   assert.ok(!text.includes(ba ? 'Ебәреүҙе раҫлап булманы.' : 'Не удалось подтвердить отправку.'));
+});
+
+for (const ba of [false, true]) await check(`${ba ? 'BA' : 'RU'} parcel roadside network failure still says "no connection"`, async ({ api }) => {
+  h.ba = ba; globalThis.fetch = async () => { throw new TypeError('offline'); };
+  const target = { kind: 'parcel', id: 5 };
+  confirm(api, target)(); await until(() => nodes(render(api, target)).some(n => n.props.role === 'status'));
+  const text = JSON.stringify(render(api, target));
+  assert.ok(text.includes(ba ? 'Сигнал китмәне — бәйләнеш юҡ.' : 'Сигнал не ушёл — нет связи.'));
+  assert.ok(!text.includes(TOO_OFTEN(ba)));
 });
 
 for (const ba of [false, true]) for (const [scheduled, total] of [[0, 0], [0, 2], [2, 2]]) await check(`${ba ? 'BA' : 'RU'} null-location roadside saved ${scheduled}/${total} never promises coordinates or delivery`, async ({ api }) => {
