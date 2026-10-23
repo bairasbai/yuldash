@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -159,7 +160,7 @@ class ActiveTripPassengerContactsTest {
         // LazyColumn не создаёт невидимую карточку заранее. Ждём применения HTTP-ответа по
         // записанному паспорту, затем прокручиваем настоящий список до контактов.
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             TripPassStore.load(context, 42)?.driverPhone == phone
         }
         scrollTo(phone)
@@ -172,7 +173,7 @@ class ActiveTripPassengerContactsTest {
         compose.onNodeWithText(pickup).assertIsDisplayed()
         // Тот же офлайн-паспорт, что пишет экран брони: на трассе без связи номер и точка на месте.
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             TripPassStore.load(context, 42)?.driverPhone == phone
         }
         val saved = requireNotNull(TripPassStore.load(context, 42))
@@ -209,7 +210,7 @@ class ActiveTripPassengerContactsTest {
         scrollTo("Повторить загрузку кода")
         compose.onNodeWithText("Повторить загрузку кода").performClick()
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             TripPassStore.load(context, 42)?.boardingCode == "5678"
         }
         val saved = requireNotNull(TripPassStore.load(context, 42))
@@ -229,7 +230,7 @@ class ActiveTripPassengerContactsTest {
         scrollTo("Повторить загрузку кода")
         compose.onNodeWithText("Повторить загрузку кода").performClick()
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             retryHeld.count == 0L
         }
         compose.runOnIdle { ApiClient.saveToken("local-account-B") }
@@ -252,12 +253,12 @@ class ActiveTripPassengerContactsTest {
         holdRetry = true
         scrollTo("Повторить загрузку кода")
         compose.onNodeWithText("Повторить загрузку кода").performClick()
-        compose.waitUntil(15000) { Shadows.shadowOf(Looper.getMainLooper()).idle(); retryHeld.count == 0L }
+        compose.waitUntil(15000) { settle(); retryHeld.count == 0L }
         awaitConfirmedRole()
         status = "onboard"
         pumpPollPeriod()
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             detailsStatuses.lastOrNull() == "onboard"
         }
         releaseRetry.countDown()
@@ -291,7 +292,12 @@ class ActiveTripPassengerContactsTest {
         compose.onAllNodesWithText("Не удалось загрузить данные поездки").assertCountEquals(0)
     }
 
-    @Test fun staleRetryTapAfterSuccessfulRecoveryDoesNotRequestDetailsAgain() {
+    @Test fun staleRetryTapAfterSuccessfulRecoveryDoesNotRequestDetailsAgain() = staleRetryAfterRecovery(false)
+
+    /** CI PR #201: retry() пишет состояние из теста, а GlobalSnapshotManager после сброса Looper молчал. */
+    @Test fun staleRetryTapSurvivesLostGlobalSnapshotNotification() = staleRetryAfterRecovery(true)
+
+    private fun staleRetryAfterRecovery(lostNotification: Boolean) {
         detailsUnavailable = true
         val state = ActiveTripDetailsState(42, ApiClient.queueSessionGeneration())
         val retainedErrorTap = state::retry // Кнопка могла остаться в уходящей анимации ошибки.
@@ -301,17 +307,21 @@ class ActiveTripPassengerContactsTest {
             }
         }
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             state.failure != null && !state.loading
         }
-        detailsUnavailable = false
-        compose.runOnIdle { state.serverReached(state.failure) }
-        compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-            detailsCalls.get() == 2 && state.failure == null && !state.loading
+        val recover: () -> Unit = {
+            detailsUnavailable = false
+            compose.runOnIdle { state.serverReached(state.failure) }
+            compose.waitUntil(15000) {
+                settle()
+                detailsCalls.get() == 2 && state.failure == null && !state.loading
+            }
+            compose.runOnIdle { retainedErrorTap() }
+            compose.waitForIdle()
         }
-        compose.runOnIdle { retainedErrorTap() }
-        compose.waitForIdle()
+        if (lostNotification) withLostGlobalSnapshotNotification(recover) else recover()
+        assertFalse("Старое нажатие не начало загрузку", state.loading)
         assertFalse("Успех уже закрыл причину повтора", state.needsReload)
         assertEquals("Старое нажатие не создаёт третий GET", 2, detailsCalls.get())
     }
@@ -336,7 +346,7 @@ class ActiveTripPassengerContactsTest {
     @Test fun lateInitialDetailsFailureCannotReplaceNewSuccessfulBoardingDetails() {
         holdFirstDetails = true
         openScreen()
-        compose.waitUntil(15000) { Shadows.shadowOf(Looper.getMainLooper()).idle(); firstDetailsHeld.count == 0L }
+        compose.waitUntil(15000) { settle(); firstDetailsHeld.count == 0L }
         awaitConfirmedRole()
         status = "onboard"
         pumpPollPeriod()
@@ -354,7 +364,7 @@ class ActiveTripPassengerContactsTest {
     @Test fun stalledChatHistoryDoesNotBlockContactsCodeOrFullPassport() {
         holdHistory = true
         openScreen()
-        compose.waitUntil(15000) { Shadows.shadowOf(Looper.getMainLooper()).idle(); historyHeld.count == 0L }
+        compose.waitUntil(15000) { settle(); historyHeld.count == 0L }
         awaitCompletePassport()
         assertEquals("История всё ещё ждёт ответа", 1L, releaseHistory.count)
         assertEquals(1, detailsCalls.get())
@@ -363,14 +373,14 @@ class ActiveTripPassengerContactsTest {
 
     private fun awaitConfirmedRole() {
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty()
         }
     }
 
     private fun waitForDetailsError() {
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             compose.onAllNodesWithText("Не удалось загрузить данные поездки").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("Не удалось загрузить данные поездки").assertIsDisplayed()
@@ -379,7 +389,7 @@ class ActiveTripPassengerContactsTest {
 
     private fun awaitCompletePassport() {
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             TripPassStore.load(context, 42)?.boardingCode == "5678"
         }
         val saved = requireNotNull(TripPassStore.load(context, 42))
@@ -396,6 +406,14 @@ class ActiveTripPassengerContactsTest {
         assertTrue(requests.all { it.startsWith("GET ") })
     }
 
+    // Запись вне композиции (retry() из теста) экран узнаёт через GlobalSnapshotManager, а он в
+    // Robolectric может «уснуть» после сброса Looper между тестами (docs/testing.md, правило 5).
+    // Ожидание доставляет её само — как ComposeIdlingResource в waitForIdle.
+    private fun settle() {
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        Snapshot.sendApplyNotifications()
+    }
+
     private fun pumpPollPeriod() {
         repeat(140) {
             compose.mainClock.advanceTimeBy(100)
@@ -409,13 +427,13 @@ class ActiveTripPassengerContactsTest {
         codeUnavailable = true
         openScreen()
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             requests.contains("GET /bookings/42/details") &&
                 runCatching { scrollTo(phone) }.isSuccess
         }
         compose.onNodeWithText(phone).assertIsDisplayed()
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             compose.onAllNodesWithText("Повторить загрузку кода").fetchSemanticsNodes().isNotEmpty()
         }
         assertNull(TripPassStore.load(context, 42))
@@ -437,7 +455,7 @@ class ActiveTripPassengerContactsTest {
 
     private fun waitForDetails() {
         compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            settle()
             requests.contains("GET /bookings/42/details") && requests.contains("GET /bookings/42/role")
         }
         compose.waitForIdle()

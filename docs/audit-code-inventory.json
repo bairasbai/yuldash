@@ -2414,8 +2414,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripChatUiBoundaryTest.kt",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "907489052cb8e6e59e89d64c4990543f3dc101dc7ad754c26fef467f10ad54ec",
-      "lines": 388
+      "sha256": "f2b83121b5a2091b9b28239978a65e0b872e0e5b98375d63bc510de1cad86510",
+      "lines": 398
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripDeletionTest.kt",
@@ -2442,8 +2442,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerContactsTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "493e322b28b71b7fe31d77aa3a92fdea8ec9baf4d0f9f9b3b86ff20e134e09b0",
-      "lines": 450
+      "sha256": "588c360ae89ce8b8d00813ef1116475a74eb6ecab59d1a67b3ff797bbf41c388",
+      "lines": 468
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerStatusFailureTest.kt",
