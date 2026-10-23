@@ -42,6 +42,8 @@ type Recur = "none" | "daily" | "weekdays" | "weekly";
 
 /** Ключ черновика формы «Опубликовать поездку». */
 const RIDE_DRAFT = "create-ride";
+/** Строка с правилом остановок; поля остановок ссылаются на неё через aria-describedby. */
+const STOPS_RULE_ID = "create-ride-stops-rule";
 
 export default function CreateRideScreen() {
   const { appText, lang } = useLang();
@@ -487,6 +489,16 @@ export default function CreateRideScreen() {
               "Юлда ҡайҙа туҡтайһың — шул урындарҙан юлдаштар һине табыр."
             )}
           </p>
+          {/* Правило — до ввода, а не только ошибкой после «Опубликовать» (те же границы,
+              что resolveRideStops и сервер). Как в приложении — с первой остановкой. */}
+          {waypoints.length > 0 && (
+            <p id={STOPS_RULE_ID} className="sheet__note" style={{ marginTop: "var(--space-xs)" }}>
+              {appText(
+                "Только сёла и города из подсказок — без адреса и цифр. До четырёх остановок.",
+                "Тәҡдимдәрҙән ауылдар һәм ҡалалар ғына — адресһеҙ һәм һандарһыҙ. Иң күбе — дүрт туҡталыш."
+              )}
+            </p>
+          )}
           {waypoints.map((w, i) => (
             <div key={i} className="trip-stops__row" style={{ background: "transparent", padding: 0, marginTop: 8 }}>
               <StopSuggestField
@@ -495,6 +507,7 @@ export default function CreateRideScreen() {
                   setWaypoints((prev) => prev.map((x, j) => (j === i ? value : x)))
                 }
                 endpoints={[from, to]}
+                describedBy={STOPS_RULE_ID}
               />
               <button
                 type="button"
