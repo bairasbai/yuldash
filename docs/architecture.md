@@ -1,3 +1,18 @@
+## Android: слои после ветки Codex — 23.10.2026 (PR #192)
+
+Код вынесен из больших файлов без изменения поведения (потолки `FileSizeRatchetTest` не подняты, у похудевших опущены):
+
+| Файл | Что в нём | Откуда |
+|---|---|---|
+| `data/SafetyApi.kt` | SOS и «застрял»: запрос, ключ повтора `SosRetryIntent` (готовится и снимается в фоне), отказ без входа `ApiException(401, "not_signed_in")` | `ApiClient.kt` |
+| `data/RouteWatchApi.kt` | подписки на маршрут (функции-расширения `ApiClient`) | `ApiClient.kt` |
+| `RouteWatchesScreen.kt` | экран `Screen.RouteWatches` | `SecondaryScreens.kt` |
+| `RequestResponsesScreen.kt` | `ResponsesScreen` — экран `Screen.RequestResponses` (отклики водителей на заявку) | `RidesRequestsChatScreens.kt` |
+| `SosLocation.kt`, `SosSignalResult.kt` | место для SOS; карточки результата отправки и `SosSessionChange` (вход не менялся / сменился до / после отправки) | `SosVerifyScreens.kt` |
+| `TripChatWiring.kt` | связка `TripChatConnection` и состояния чата, тексты, `tripChatMutationFailure` | `TripChatState.kt` (598 строк из 600) |
+| `DriverPassengerRow.kt` | `PassengerStarsRating`, `passengerRatingText` («4,8» и в «Пассажирах», и в «Ждут подтверждения») | `ProfileScreen.kt` |
+| `RideshareBoarding.kt` | карточка кода посадки | `BookingActiveTripScreen.kt` |
+
 ## Попутка: безопасная отложенная отправка и выбор даты на языке приложения — 19.10.2026
 
 `ShareTripCard.tsx` связывает системную отправку и резервное копирование ссылки с владельцем сессии, целевой поездкой, монтажом карточки и текущей ссылкой. Проверка выполняется перед внешним действием и после ожидания; уход/смена аккаунта/отзыв/новая ссылка запрещают запоздалое копирование. Обычная отправка сохраняется.
@@ -2385,7 +2400,7 @@ wc -l android/app/src/main/java/com/yuldash/app/*.kt | sort -rn | head -20
 ## F13 — Подписка на маршрут «карауль поездку» (2026-07-05, ветка `feat/route-watch`)
 Retention-двигатель: юзер подписывается на маршрут (Сибай→Уфа), и как только водитель публикует подходящую поездку — приходит push + запись в ленте уведомлений.
 - **Бэкенд:** модель `RouteWatch` (user_id, from_city, to_city, опц. `watch_date`, `direction` forward/both, анти-спам `last_notified_at`, `expires_at`=+14 дней) + `Notification` (персистентная лента). Роутер `app/routers/route_watch.py`: `POST /route-watch` (создать; дубль того же маршрута → продлеваем, не плодим), `GET /route-watch` (мои непротухшие), `DELETE /route-watch/{id}` (только свою). Матчинг — `services.notify_route_watchers(session, ride)`, вызывается из `rides.create_ride` после коммита. Анти-спам: ≤1 пуш на подписку в сутки; протухшие (>14 дней) не матчатся и скрыты. Пуш/запись двуязычны по `user.language`. Города — как есть. Лента `/notifications` (chat.py) теперь мержит `Notification`. Миграция `alembic/versions/0005_route_watch.py` (идемпотентна). Тесты `tests/test_route_watch.py` (10): CRUD, матчинг right/not-wrong, self-skip, both-направление, анти-спам, протухание, дата-фильтр, валидация.
-- **Android:** `Screen.RouteWatches` + ветка в `YuldashApp.kt`. Экран `RouteWatchesScreen` (`SecondaryScreens.kt`): форма (откуда/куда + тумблер «туда-обратно») + список подписок с удалением, все состояния (loading/error/empty). Вход: карточка «Мои подписки на маршрут» в `NotificationsScreen` + кнопка «Следить за маршрутом» на пустой выдаче «Ближайших» (`NearbyEmptyCard` в `RidesRequestsChatScreens.kt`, проброс `onRouteWatch(from,to)` через `MapScreen`→`HomeScreen`). `ApiClient`: `createRouteWatch`/`getRouteWatches`/`deleteRouteWatch` + `RouteWatchDto`. Двуязычие через `appText` (черновой ба → `docs/tasks.md` «Переводы — F13»).
+- **Android:** `Screen.RouteWatches` + ветка в `YuldashApp.kt`. Экран `RouteWatchesScreen` (`RouteWatchesScreen.kt`; до 23.10.2026 — `SecondaryScreens.kt`): форма (откуда/куда + тумблер «туда-обратно») + список подписок с удалением, все состояния (loading/error/empty). Вход: карточка «Мои подписки на маршрут» в `NotificationsScreen` + кнопка «Следить за маршрутом» на пустой выдаче «Ближайших» (`NearbyEmptyCard` в `RidesRequestsChatScreens.kt`, проброс `onRouteWatch(from,to)` через `MapScreen`→`HomeScreen`). `ApiClient`: `createRouteWatch`/`getRouteWatches`/`deleteRouteWatch` + `RouteWatchDto`. Двуязычие через `appText` (черновой ба → `docs/tasks.md` «Переводы — F13»).
 
 ## Что ещё фейковое (только UI)
 Платежи (донат/Boost — мок), проверка водителя, реальное распознавание голоса (имитация), звонок оператору, «скрытый номер»/код посадки (UI). Реклама — локальные счётчики показов/кликов. **SMS** — код провайдера готов (`sms.ru`), но без ключа работает мок (код в логе сервера). Полные чат-треды списком диалогов — `ChatScreen` всё ещё показывает мок-карточки (реальный тред — в `ActiveTripScreen`).
