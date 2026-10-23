@@ -42,6 +42,7 @@ class SosSubmitOwnerBoundaryTest {
     private val releaseReply = CountDownLatch(1)
     private val replyHeld = CountDownLatch(1)
     @Volatile private var holdReply = false
+    @Volatile private var unauthorizedReply = false
     @Before fun prepare() {
         ApiClient.resetForTest()
         ApiClient.init(ApplicationProvider.getApplicationContext<Application>())
@@ -52,6 +53,8 @@ class SosSubmitOwnerBoundaryTest {
                     if (request.method == "POST" && request.path == "/sos") {
                         posts += request
                         if (holdReply) { replyHeld.countDown(); releaseReply.await(10, TimeUnit.SECONDS) }
+                        // Токен истёк, обновить нечем: сервер сигнал не принимает.
+                        if (unauthorizedReply) return MockResponse().setResponseCode(401).setBody("{\"detail\":\"expired\"}")
                     }
                     if (dropReply) return MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)
                     return MockResponse().setBody("{\"id\":7,\"status\":\"new\"}")
@@ -70,13 +73,14 @@ class SosSubmitOwnerBoundaryTest {
         ApiClient.testTimeoutMs = null
         server.shutdown()
     }
-    private fun retainedSend(): () -> Boolean {
+    private fun sendLabel(lang: AppLanguage) = if (lang == AppLanguage.Ba) "Ярҙамға хәбәр итеү" else "Сообщить поддержке"
+    private fun retainedSend(lang: AppLanguage = AppLanguage.Ru): () -> Boolean {
         compose.setContent {
-            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+            CompositionLocalProvider(LocalAppLanguage provides lang) {
                 YuldashTheme { if (mounted.value) SosScreen({}, { loginRequests++ }, bookingId = 42) }
             }
         }
-        return compose.onNode(hasText("Сообщить поддержке") and hasClickAction())
+        return compose.onNode(hasText(sendLabel(lang)) and hasClickAction())
             .performScrollTo().fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
     }
     private fun settle() {
@@ -153,6 +157,30 @@ class SosSubmitOwnerBoundaryTest {
         assertEquals(1, posts.size)
         assertEquals(0, loginRequests)
     }
+    // Приёмка #192 (P3): токен истёк и обновить нечем — сервер отвечает на /sos 401, сигнал НЕ сохранён,
+    // вход закрыт. Это «до отправки»: сразу экран входа (с возвратом к SOS), а не «мог дойти… открой SOS снова».
+    private fun expiredTokenOnSosLeadsToLogin(lang: AppLanguage) {
+        unauthorizedReply = true
+        val ba = lang == AppLanguage.Ba
+        val unconfirmed = if (ba) "Ебәрелеүҙе раҫлап булманы" else "Не удалось подтвердить отправку"
+        val send = retainedSend(lang)
+        compose.runOnIdle { send() }
+        compose.waitUntil(10000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            loginRequests > 0 || compose.onAllNodesWithText(unconfirmed).fetchSemanticsNodes().isNotEmpty()
+        }
+        settle()
+        assertEquals("401 на SOS — сразу экран входа", 1, loginRequests)
+        assertEquals(1, posts.size)
+        assertFalse(ApiClient.isLoggedIn())
+        compose.onAllNodesWithText(if (ba) "барып етеүе мөмкин" else "он мог дойти", substring = true).assertCountEquals(0)
+        compose.onAllNodesWithText(unconfirmed).assertCountEquals(0)
+        compose.onAllNodesWithText(if (ba) "Аккаунтҡа инеү алмашынды" else "Вход в аккаунт сменился").assertCountEquals(0)
+        // Кнопка не висит на «Отправляем…»: после входа можно нажать снова.
+        assertTrue(compose.onAllNodesWithText(sendLabel(lang)).fetchSemanticsNodes().isNotEmpty())
+    }
+    @Test fun expiredTokenOnSosLeadsToLoginRu() = expiredTokenOnSosLeadsToLogin(AppLanguage.Ru)
+    @Test fun expiredTokenOnSosLeadsToLoginBa() = expiredTokenOnSosLeadsToLogin(AppLanguage.Ba)
     @Test fun lostReplyShowsUnconfirmedInsteadOfClaimingNothingWasSent() {
         dropReply = true
         val send = retainedSend()

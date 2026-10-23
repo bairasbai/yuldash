@@ -283,6 +283,31 @@ class TripChatMutationNetworkBoundaryTest {
         mounted = false // Cancel the remaining send before its ordinary timeout; it is still durable.
     }
 
+    // CI #197 (job 120337935339): тест выше брал ключ «первого» из первого кадра сокета, а кадры уходили
+    // в порядке окончания фоновой записи в очередь — быстрые сообщения менялись местами. Порядок нажатий
+    // держит sendOrder в TripChatState: и в сокете, и в очереди на диске.
+    @Test fun rapidMessagesLeaveSocketInTapOrder() {
+        connectLive(); failHistory = true
+        val texts = (1..40).map { "burst $it" }
+        texts.forEach { chat.sendText(it) }
+        waitFor { sentFrames.size == texts.size }
+        assertEquals(texts, sentFrames.map { it.getString("text") })
+        assertEquals(texts.size, Outbox.count(context, 42))
+        mounted = false // Cancel the pending sends before their ordinary timeout; they stay durable.
+    }
+
+    // Приёмка #197 (P3): быстрые сообщения ждут sendOrder, а экран в это время закрыли. Запись в очередь на
+    // диске отменяться не должна — иначе показанное человеку сообщение не уйдёт никогда. Сокет — уже нет.
+    @Test fun rapidMessagesReachDiskQueueEvenWhenScreenClosesWhileTheyWait() {
+        connectLive(); failHistory = true
+        val texts = (1..8).map { "closing $it" }
+        texts.forEach { chat.sendText(it) }
+        clock.runCurrent() // Все отправки начались: первая пишет на диск, остальные ждут sendOrder.
+        mounted = false; chat.scope.cancel()
+        waitFor { Outbox.count(context, 42) == texts.size }
+        assertEquals("После закрытия экрана в сокет не отправляем", 0, sentFrames.size)
+    }
+
     @Test fun ownHiddenWsAckRemovesBothPendingAndKnownRowsWithoutContent() {
         connectLive(); failHistory = true; chat.sendText("pending hidden")
         waitFor { sentFrames.size == 1 }

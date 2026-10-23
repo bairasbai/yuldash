@@ -275,6 +275,9 @@ internal data class SosService(
 internal fun SosScreen(
     onBack: () -> Unit,
     onLoginRequired: () -> Unit,
+    // Вход закончился, пока экран открыт (истёк, 401). Вернуть на SOS после входа можно только того же
+    // человека: id из токена; 0 — экран открыли без входа (вернуть любого), -1 — не знаем, кто это был.
+    onSessionEnded: (previousUser: Int) -> Unit = { onLoginRequired() },
     orderId: Int? = null,
     // Из какой попутки нажали SOS. Аудит 2026-08-06: контекст такси уходил дежурному с самого
     // начала, а из попутки — нет, хотя именно там человек садится в машину к незнакомцу.
@@ -288,6 +291,7 @@ internal fun SosScreen(
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val signalOwner = remember { ApiClient.queueSessionGeneration() }
+    val signalUser = remember { if (ApiClient.isLoggedIn()) ApiClient.myUserId() ?: -1 else 0 }
     val signalMounted = remember { java.util.concurrent.atomic.AtomicBoolean(true) }
 
     // Россия, звонок с мобильного: 102 полиция · 101 пожарные · 103 скорая. 112 — единый (по умолчанию / когда выбрано несколько).
@@ -344,22 +348,15 @@ internal fun SosScreen(
     // сигнал точно не ушёл: вход истёк — сразу ко входу, вошли другим аккаунтом — карточка.
     fun refuseChangedSession(change: SosSessionChange) {
         sending = false; sent = false; rateLimited = false; failed = false; sessionChange = SosSessionChange.None
-        if (change == SosSessionChange.BeforeSend && !ApiClient.isLoggedIn()) onLoginRequired()
+        if (change == SosSessionChange.BeforeSend && !ApiClient.isLoggedIn()) onSessionEnded(signalUser)
         else { sessionChange = change; failed = true }
     }
 
     fun sendSignal() {
         if (sending || !signalMounted.get()) return
         if (ApiClient.queueSessionGeneration() != signalOwner) { refuseChangedSession(SosSessionChange.BeforeSend); return }
-        if (!loggedIn) {
-            onLoginRequired()
-            return
-        }
-        failed = false
-        rateLimited = false
-        sessionChange = SosSessionChange.None
-        sent = false
-        sending = true
+        if (!loggedIn) { onLoginRequired(); return }
+        failed = false; rateLimited = false; sessionChange = SosSessionChange.None; sent = false; sending = true
         scope.launch {
             if (!signalMounted.get()) return@launch
             if (!ApiClient.isCurrentSession(signalOwner)) { refuseChangedSession(SosSessionChange.BeforeSend); return@launch }
@@ -378,8 +375,11 @@ internal fun SosScreen(
             val r = ApiClient.sos(category, note, orderId, lat = location?.latitude, lng = location?.longitude,
                 bookingId = bookingId, expectedGeneration = signalOwner)
             if (!signalMounted.get()) return@launch
-            // Запрос уже ушёл: сервер мог сохранить сигнал — «не отправлен» сказать нельзя.
-            if (!ApiClient.isCurrentSession(signalOwner)) { refuseChangedSession(SosSessionChange.AfterSend); return@launch }
+            // 401 — сервер сигнал не принял (вход истёк, обновить нечем): как до отправки — сразу ко входу.
+            // Иначе запрос ушёл, и сервер мог сигнал сохранить — «не отправлен» сказать нельзя.
+            val refused = (r.exceptionOrNull() as? ApiException)?.status == 401
+            val change = if (refused) SosSessionChange.BeforeSend else SosSessionChange.AfterSend
+            if (refused || !ApiClient.isCurrentSession(signalOwner)) { refuseChangedSession(change); return@launch }
             sending = false
             if (r.isSuccess) {
                 sent = true
