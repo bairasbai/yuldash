@@ -266,6 +266,16 @@ check(light["--green-on-warm"] === light["--green2"], "светлая: --green-o
   check(bare.length === 0, "у каждого радио и флажка есть класс (.checkbox и др.): голых нет", bare.slice(0, 8).join("; "));
 }
 
+// ---------------- плашка отказа не уходит под вырез iPhone ----------------
+//
+// Плашка стоит в самом верху оболочки, над шапкой экрана. Страница открывается с viewport-fit=cover, и в
+// установленной PWA верх уходит под вырез: без env(safe-area-inset-top) текст плашки и кнопки под ним.
+{
+  const body = code(ui).match(/(?:^|\})\s*\.refusal-banner \{([^}]*)\}/)?.[1] ?? "";
+  check(/padding(?:-top)?:\s*calc\([^;]*env\(safe-area-inset-top\)/.test(body), ".refusal-banner: верхний отступ включает env(safe-area-inset-top) — плашка не под вырезом");
+  check(/viewport-fit=cover/.test(readFileSync(join(SRC, "..", "index.html"), "utf8")), "страница открывается с viewport-fit=cover (иначе вырез не учитывать и не нужно)");
+}
+
 // ---------------- тач-цели ----------------
 //
 // Правило проекта: всё, что нажимают пальцем, — не меньше 48px.
