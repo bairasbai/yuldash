@@ -25,12 +25,25 @@ class PassengerRatingTextTest {
     }
 
     @Test fun passengersAndPendingRequestsShareOneFormatter() {
-        val root = File("src/main/java/com/yuldash/app")
+        val root = requireNotNull(sourceRoot()) { "не нашёл исходники Android — тест ничего не проверяет" }
         val row = File(root, "DriverPassengerRow.kt").readText()
         val profile = File(root, "ProfileScreen.kt").readText()
         assertTrue("«Пассажиры»: рейтинг — через общую функцию", row.contains("Text(passengerRatingText(rating)"))
         val pending = profile.substringAfter("b.passengerRating?.let { r ->").substringBefore("}")
         assertTrue("«Ждут подтверждения»: рейтинг — через общую функцию", pending.contains("passengerRatingText(r)"))
         assertFalse("Рейтинг пассажира с точкой вместо запятой", pending.contains("\"%.1f\""))
+    }
+
+    /** Корень пакета — как в FileSizeRatchetTest: тест запускают и из android/, и из android/app/. */
+    private fun sourceRoot(): File? {
+        var dir = File("").absoluteFile
+        repeat(4) {
+            listOf("app/src/main/java/com/yuldash/app", "src/main/java/com/yuldash/app").forEach { path ->
+                val src = File(dir, path)
+                if (src.isDirectory) return src
+            }
+            dir = dir.parentFile ?: return null
+        }
+        return null
     }
 }
