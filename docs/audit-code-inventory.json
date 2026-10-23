@@ -979,7 +979,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/CreateRideStops.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "bf8ee16e323fa35e2018b7c5329e86538aa4b2e5be5bb4d86737e8aed500ea42",
+      "sha256": "d594a14b7ae48ad3558ee9f4f110e579bc93e618cd4b7f3ccaf55e715fe90bd4",
       "lines": 141
     },
     {
@@ -2890,7 +2890,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/CreateRideStopsHintTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "1e18ee40198619e29b5a3459dbf8694ab497fec5b9c1dc9a49a321e822701d68",
+      "sha256": "1d1e5f4d85ec7761e546ca8e4d1cda6093c787f19f8a783bd4c7d75f0badfb41",
       "lines": 50
     },
     {
@@ -14923,7 +14923,7 @@
       "path": "webapp/src/screens/CreateRideScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "1792744c867a98e6bf067c4b04059877ea3bf2bdb75c120acc989afb5f35179b",
+      "sha256": "f42c640c35035b0a693b3d89beae5e83a2f01fdc6d5453abc40761ff03b6bb02",
       "lines": 651
     },
     {
@@ -16050,7 +16050,7 @@
       "path": "webapp/tests/create-ride-stops-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "ef15cbb5ce87e12ae11922f48bc463bf43c7bab846483336e68aaa916bc4bd4c",
+      "sha256": "05c1692775c4580104500d80c00611ee499a7c1b444388f87255bd2f5fad5dac",
       "lines": 195
     },
     {
@@ -16463,7 +16463,7 @@
       "path": "webapp/tests/parity-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "46e3480aff6e887ce93bc90c5ef1f684f9fcdaccb27877c21419de5dbf63fd84",
+      "sha256": "f1969d4bc0c41fc651cc7e0c8991c04207ca8df007b9c15deacf972221a42b28",
       "lines": 269
     },
     {

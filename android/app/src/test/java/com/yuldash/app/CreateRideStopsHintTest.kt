@@ -30,7 +30,7 @@ class CreateRideStopsHintTest {
 
     @Test fun ruleAppearsWithFirstStopBa() = ruleAppearsWithFirstStop(
         AppLanguage.Ba, "Туҡталыш өҫтәү",
-        "Тәҡдимдәрҙән ауылдар һәм ҡалалар ғына — адресһыҙ һәм һандарһыҙ. Дүрткә тиклем туҡталыш.",
+        "Тәҡдимдәрҙән ауылдар һәм ҡалалар ғына — адресһеҙ һәм һандарһыҙ. Иң күбе — дүрт туҡталыш.",
     )
 
     private fun ruleAppearsWithFirstStop(language: AppLanguage, add: String, rule: String) {

@@ -111,7 +111,7 @@ internal fun CreateRideStopsEditor(values: List<String>, onChange: (List<String>
             // Правило — до ввода, а не только ошибкой после «Опубликовать» (те же границы, что resolveRideStops и сервер).
             if (values.isNotEmpty()) Text(
                 appText("Только сёла и города из подсказок — без адреса и цифр. До четырёх остановок.",
-                    "Тәҡдимдәрҙән ауылдар һәм ҡалалар ғына — адресһыҙ һәм һандарһыҙ. Дүрткә тиклем туҡталыш."),
+                    "Тәҡдимдәрҙән ауылдар һәм ҡалалар ғына — адресһеҙ һәм һандарһыҙ. Иң күбе — дүрт туҡталыш."),
                 style = CanonCaption, color = CanonMuted,
             )
             values.forEachIndexed { index, value ->
