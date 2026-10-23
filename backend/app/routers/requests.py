@@ -36,7 +36,7 @@ from .. import workday as workday_mod
 from ..trust_service import INSIDER_LEVEL, trust_level
 from .. import request_segments
 from ..geo import snapshot_cached
-from ..safety_logic import MSG_WOMEN_ONLY_RIDE, gender_of
+from ..safety_logic import GENDER_FEMALE, gender_of
 
 
 def _city_match(column, session, city: str):
@@ -691,15 +691,25 @@ def _bound_section(session, req, driver, ride):
     if passenger is None:
         raise herr(409, "Это предложение недоступно", "Был тәҡдим мөмкин түгел")
     guard_delivery_ride(ride.category)
+    # Правила «только для своих» и «только женщины» на РЕЙСЕ применяем так же строго, как при обычной
+    # брони, но отказ говорим нейтральный и тем же текстом, что «не подходит маршрут» (ревью PR190,
+    # 23.10.2026). Отклик шлёт ВОДИТЕЛЬ, а пассажира это про себя не спрашивало: «Эта поездка только для
+    # женщин» / «Укажи пол» / «Поездка только для своих» выдавали бы ему пол и уровень доверия незнакомого
+    # человека — предложи свой рейс и прочти ответ. Причину знает только сам пассажир, в своей брони.
     if ride.only_trusted and trust_level(session, passenger) < INSIDER_LEVEL:
-        raise herr(403, "Поездка только для своих", "Сәфәр тик үҙ кешеләр өсөн")
-    if ride.women_only:
-        guard_women_only(passenger, msg=MSG_WOMEN_ONLY_RIDE)
+        raise _ride_no_longer_fits()
+    if ride.women_only and gender_of(passenger) != GENDER_FEMALE:
+        raise _ride_no_longer_fits()
     section = request_segments.segment(ride, req)
     if section is None:
-        raise herr(409, "Рейс больше не подходит заявке: проверь маршрут, дату и свободные места.",
-                   "Рейс заявкаға тура килмәй инде: юлды, көндө һәм буш урындарҙы тикшер.")
+        raise _ride_no_longer_fits()
     return section
+
+
+def _ride_no_longer_fits():
+    """Один нейтральный отказ на все причины «этот рейс не годится этой заявке»."""
+    return herr(409, "Рейс больше не подходит заявке: проверь маршрут, дату и свободные места.",
+                "Рейс заявкаға тура килмәй инде: юлды, көндө һәм буш урындарҙы тикшер.")
 
 
 @router.post("/requests/{request_id}/respond")
