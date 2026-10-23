@@ -14363,8 +14363,8 @@
       "path": "webapp/src/components/StopSuggestField.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "def63de49ed96ac5f612bd76ac7d339e66ab8c7d701f21516e1e69ec5c545d0f",
-      "lines": 136
+      "sha256": "6ec6c25d5a5735869022c0af810efe68a0c210fff6c7365752386055cf3991fd",
+      "lines": 138
     },
     {
       "path": "webapp/src/components/StorageBoundary.tsx",
@@ -14923,8 +14923,8 @@
       "path": "webapp/src/screens/CreateRideScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "f42c640c35035b0a693b3d89beae5e83a2f01fdc6d5453abc40761ff03b6bb02",
-      "lines": 651
+      "sha256": "eb2d14846aff95f624e42160560b46a1a30d6db880590ef7a21d0373aff6f22b",
+      "lines": 654
     },
     {
       "path": "webapp/src/screens/DriverCabinetScreen.tsx",
@@ -16050,8 +16050,8 @@
       "path": "webapp/tests/create-ride-stops-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "05c1692775c4580104500d80c00611ee499a7c1b444388f87255bd2f5fad5dac",
-      "lines": 195
+      "sha256": "fdcfa72ff1037d7e4092c6addb40185b290a87fbeb04639becdba4b4dd42e564",
+      "lines": 207
     },
     {
       "path": "webapp/tests/cross-tab-session-test.mjs",

@@ -112,6 +112,14 @@ for (const lang of ["ru", "ba"]) {
       assert.equal(ofType(lists[0], "button").length, rows.length, "кнопок-вариантов ровно столько же, сколько строк");
     } finally { h.unmount(); }
   });
+  await t.test(`${lang}: поле передаёт описание диктору (aria-describedby)`, async () => {
+    fresh();
+    const h = mount(Field, { value: "", endpoints: [], onChange() {}, describedBy: "stops-rule" });
+    try {
+      h.render();
+      assert.equal(ofType(h.tree, "input")[0].props["aria-describedby"], "stops-rule");
+    } finally { h.unmount(); }
+  });
   await t.test(`${lang}: ошибка подсказок сохраняет ввод, повтор восстанавливает список`, async () => {
     fresh(); const search = fixture.search;
     fixture.search = async () => { throw new globalThis.__stopApiError("Справочник временно закрыт"); };
@@ -187,6 +195,10 @@ for (const lang of ["ru", "ba"]) {
       button(h.tree, L("Добавить остановку", "Туҡталыш өҫтәү")).props.onClick(); await h.settle();
       assert.equal(stops(h.tree).length, 1);
       assert.ok(text(h.tree).includes(rule));
+      const ruleNode = all(h.tree).find((node) => node.type === "p" && text(node).includes(rule));
+      assert.ok(ruleNode?.props.id, "у строки правила есть id");
+      assert.equal(stops(h.tree)[0].props.describedBy, ruleNode.props.id,
+        "поле остановки ссылается на правило — диктор зачитает его при переходе в поле");
       button(h.tree, L("Убрать", "Алып ташлау")).props.onClick(); await h.settle();
       assert.ok(!text(h.tree).includes(rule));
     } finally { h.unmount(); }
