@@ -56,11 +56,17 @@ internal fun PassengerRow(b: DriverBookingDto) {
         b.passengerRating?.let { rating ->
             Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(CanonSpace.xs))
-            // Русская запись рейтинга — «4,8», как на экране поездки, а не «4.8».
-            Text(String.format(java.util.Locale.US, "%.1f", rating).replace('.', ','), style = CanonBodyStrong, color = CanonText)
+            Text(passengerRatingText(rating), style = CanonBodyStrong, color = CanonText)
         }
     }
 }
+
+/**
+ * Рейтинг пассажира у водителя — одна запись для «Пассажиров» и «Ждут подтверждения» (ProfileScreen.kt):
+ * «4,8», как на экране поездки, а не «4.8», и не зависит от языка телефона.
+ */
+internal fun passengerRatingText(rating: Double): String =
+    String.format(java.util.Locale.US, "%.1f", rating).replace('.', ',')
 
 /**
  * Оценка пассажира водителем в кабинете (ProfileScreen.kt, «Пассажиры — оцените после поездки»).

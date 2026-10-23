@@ -3243,7 +3243,7 @@ internal fun DriverCabinetContent(
                             b.passengerRating?.let { r ->
                                 Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text(String.format(java.util.Locale.US, "%.1f", r), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = CanonText)
+                                Text(passengerRatingText(r), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = CanonText)
                             }
                         }
                         if (b.frontSeat) FrontSeatRequestBadge()   // до решения: водитель знает, кого куда посадит
