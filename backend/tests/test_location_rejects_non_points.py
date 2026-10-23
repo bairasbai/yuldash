@@ -86,3 +86,30 @@ def test_parcel_channel_drops_nan_before_relay(client, user_factory):
             courier_ws.send_text(json.dumps({"type": "loc", "lat": 54.05, "lng": 55.96, "ts": 2}))
             msg = json.loads(sender_ws.receive_text())
     assert msg["ts"] == 2 and msg["lng"] == 55.96, msg
+
+
+@pytest.mark.parametrize("value,expected", [
+    (90, 90), (359.5, 359.5), (360, 0), (-90, 270), (725, 5),
+    (NAN, None), (float("inf"), None), ("x" * 100_000, None), (True, None), (None, None), ([1], None),
+])
+def test_bearing_is_a_number_or_nothing(value, expected):
+    assert location._bearing(value) == expected
+
+
+def test_every_channel_cleans_the_bearing():
+    """Сторож: направление машины чистится в тех же трёх местах, что и координаты."""
+    src = inspect.getsource(location)
+    assert src.count('payload["bearing"] = _bearing(payload.get("bearing"))') == 3
+
+
+def test_booking_channel_relays_a_clean_bearing(client, user_factory, redis_on):
+    """NaN или огромная строка в направлении не уходят пассажиру и в кэш (страница близких падала с 500)."""
+    drv, (pax,), _ride, (bid,) = _trip(client, user_factory, "nanbear", places=("Сибай",),
+                                       depart_in=timedelta(minutes=20))
+    with client.websocket_connect(f"/ws/trip/{bid}/location") as ear:
+        ear.send_text(json.dumps({"type": "auth", "token": pax["token"]}))
+        with client.websocket_connect(f"/ws/trip/{bid}/location") as mouth:
+            mouth.send_text(json.dumps({"type": "auth", "token": drv["token"]}))
+            mouth.send_text(json.dumps({"type": "loc", "lat": SIBAY[0], "lng": SIBAY[1], "bearing": NAN, "ts": 1}))
+            got = json.loads(ear.receive_text())
+    assert got["ts"] == 1 and got["bearing"] is None, got
