@@ -29,7 +29,7 @@ from app.geo import lookup, normalize_place, snapshot_cached
 from app.models import Booking, Notification, Ride, UserRole
 from app.ride_stops import (canonical_stop, parse_stops, pickup_of, ride_has_stops_raw, stop_point,
                             stop_text_ok)
-from app.timeutil import utcnow
+from app.timeutil import local_date, utcnow
 
 STOPS = "Ургаза | Бурибай"          # сёла Баймакского и Хайбуллинского районов по пути Сибай → Акъяр
 SIBAY = (52.716, 58.664)
@@ -41,16 +41,24 @@ def _when(days: int = 400) -> str:
     return (utcnow() + timedelta(days=days)).replace(microsecond=0).isoformat() + "+00:00"
 
 
+_MY_RIDES: list[int] = []   # рейсы ЭТОГО теста (один процесс-воркер гоняет тесты по очереди)
+
+
 @pytest.fixture(autouse=True)
 def _rides_full_after_test():
-    """Рейсы этого файла (`comment` «pickup-…») после теста — без свободных мест: полный рейс не попадает
-    ни в ленту, ни в «Ближайшие», и тесты общей базы, которые листают ленту, их не видят (A-P3-4)."""
+    """Рейсы теста после него — без свободных мест: полный рейс не попадает ни в ленту, ни в «Ближайшие»,
+    и тесты общей базы, которые листают ленту, их не видят (A-P3-4). Только свои — по id из `_publish`:
+    при `-n 4` на общей базе другой воркер в этот момент может бронировать СВОЙ рейс «pickup-…»."""
+    _MY_RIDES.clear()
     yield
     with Session(engine) as s:
-        for r in s.exec(select(Ride).where(Ride.comment.startswith("pickup-"), Ride.seats_left > 0)).all():
-            r.seats_left = 0
-            s.add(r)
+        for rid in _MY_RIDES:
+            r = s.get(Ride, rid)
+            if r is not None and r.seats_left:
+                r.seats_left = 0
+                s.add(r)
         s.commit()
+    _MY_RIDES.clear()
 
 
 def _publish(client, drv, tag: str, *, waypoints: str = STOPS, frm: str = "Сибай", to: str = "Акъяр",
@@ -62,6 +70,7 @@ def _publish(client, drv, tag: str, *, waypoints: str = STOPS, frm: str = "Си�
         body |= {"pickup_lat": SIBAY[0], "pickup_lng": SIBAY[1]}
     r = client.post("/rides", headers=drv["auth"], json=body)
     assert r.status_code == 200, r.text
+    _MY_RIDES.append(r.json()["id"])
     return r.json()
 
 
@@ -382,7 +391,10 @@ def test_old_ride_bad_stops_are_hidden_in_public_outputs(client, user_factory):
     """«Ближайшие» — только этот день и этот маршрут: тест не зависит от чужих поездок общей базы
     (свой день; остальные рейсы файла после тестов полные)."""
     drv = user_factory("PS Clean Driver", role=UserRole.driver)
-    depart = _when(days=433)
+    # Час выезда фиксирован (06:00 UTC = 11:00 по Уфе), а день в запросе — местный, как его считает
+    # фильтр `/rides/near`: иначе с 19:00 до 24:00 UTC рейс уезжал в «завтра» и тест краснел ночью.
+    at = (utcnow() + timedelta(days=433)).replace(hour=6, minute=0, second=0, microsecond=0)
+    depart = at.isoformat() + "+00:00"
     ride = _publish(client, drv, "clean", waypoints="Ургаза", frm="Сибай", to="Акъяр", depart=depart)
     with Session(engine) as s:
         r = s.get(Ride, ride["id"])
@@ -391,7 +403,7 @@ def test_old_ride_bad_stops_are_hidden_in_public_outputs(client, user_factory):
         s.commit()
     card = client.get(f"/rides/{ride['id']}").json()
     assert card["waypoints"] == "Ургаза", card["waypoints"]
-    near = client.get("/rides/near", params={"from_city": "Сибай", "to_city": "Акъяр", "date": depart[:10]}).json()
+    near = client.get("/rides/near", params={"from_city": "Сибай", "to_city": "Акъяр", "date": local_date(at).isoformat()}).json()
     mine = [x for x in near["items"] if x["id"] == ride["id"]]
     assert mine and mine[0]["waypoints"] == "Ургаза", near
 

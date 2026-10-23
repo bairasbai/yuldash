@@ -2,8 +2,10 @@
 
 Префильтр PostGIS в «Ближайших» (поездки и заявки) ловит ошибку и пишет предупреждение. Текст
 ошибки SQLAlchemy — это SQL с ``ST_MakePoint(:lng, :lat)`` и строка ``[parameters: …]`` с самими
-координатами. Две стены: в предупреждение — только вид ошибки; движок базы прячет значения
-параметров в тексте любой ошибки (``hide_parameters``) — на случай, если где-то ещё пишут ``{e}``.
+координатами. Главная стена — в предупреждение пишем только вид ошибки (``type(e).__name__``).
+Вторая — движок прячет строку ``[parameters: …]`` SQLAlchemy (``hide_parameters``). Она НЕ полная:
+psycopg2 подставляет значения в запрос на клиенте, и сам Postgres повторяет их в своём тексте
+(``LINE 1: SELECT f(52.34…)``, ``DETAIL: Key (phone)=(…)``) — поэтому ``{e}`` в лог не пишем нигде.
 """
 from __future__ import annotations
 
@@ -54,7 +56,8 @@ def test_postgis_prefilter_logs_only_the_error_type(client, user_factory, monkey
 
 
 def test_db_errors_hide_query_parameters():
-    """Любая ошибка базы с параметрами: в её тексте нет значений (координат, телефонов)."""
+    """Строка параметров SQLAlchemy в тексте ошибки скрыта. На SQLite значений нет вовсе; на Postgres
+    сервер сам повторяет подставленный запрос (см. шапку) — там проверяем только скрытую строку."""
     assert engine.hide_parameters is True
     with Session(engine) as s:
         with pytest.raises(Exception) as exc:
@@ -63,4 +66,7 @@ def test_db_errors_hide_query_parameters():
         s.rollback()
     msg = str(exc.value)
     assert "no_such_function_yuldash" in msg, "сам SQL в тексте ошибки остаётся — по нему видно, что сломалось"
-    assert "52.345" not in msg and "79170001122" not in msg, msg
+    assert "[SQL parameters hidden due to hide_parameters=True]" in msg, msg
+    assert "[parameters:" not in msg, msg
+    if engine.dialect.name == "sqlite":
+        assert "52.345" not in msg and "79170001122" not in msg, msg
