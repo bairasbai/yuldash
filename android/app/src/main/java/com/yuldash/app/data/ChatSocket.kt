@@ -51,7 +51,7 @@ class ChatSocket(
     private val ownerSession = expectedGeneration
     private var connection = 0L // guarded by this monitor; callbacks from replaced sockets are stale
     // Текущее соединение дошло до onOpen (канал жил). Разрыв живого канала — потеря непрерывности;
-    // неудачная попытка подключиться — нет: терять было нечего, и начатое чтение истории не устарело.
+    // неудачная попытка подключиться — нет: начатое чтение не устарело; пришедшее до успеха владелец дочитает по onConnected(false).
     private var live = false // guarded by this monitor
 
     // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:

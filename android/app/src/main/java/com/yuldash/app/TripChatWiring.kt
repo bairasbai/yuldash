@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
 import java.util.concurrent.ConcurrentHashMap
 
@@ -47,6 +48,10 @@ internal fun rememberTripChatTexts(queued: String, queueSaveFail: String): State
             "Тауыш яҙмаһының тейәлеүен раҫлап булманы. Бәйләнеште тикшереп тағы яҙ."),
     )
 )
+
+/** Отказ сервера (4xx) — его же словами; сбой связи и 5xx — общей подсказкой. */
+internal fun tripChatMutationFailure(error: Throwable, fallback: String): String =
+    if (error is ApiException && error.status in 400..499) serverSaid(error, fallback) else fallback
 
 /**
  * Непрочитанные. Сервер «прочитано» для чата брони не хранит, поэтому считаем честно и локально:

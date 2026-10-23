@@ -70,7 +70,7 @@ internal class TripChatState(
     internal val wsConnectedState: MutableState<Boolean> = mutableStateOf(false)
     var wsConnected: Boolean by wsConnectedState
     private var wasEverConnected = false
-    // Был разрыв живого канала: историю дотягиваем один раз, когда канал снова жив (refreshAfterReconnect).
+    // Был разрыв или неудачная попытка подключиться: историю дотягиваем один раз, когда канал жив (refreshAfterReconnect).
     private var resyncPending = false
     // Состояние первой загрузки истории: спиннер, ошибка (с «Повторить»), пусто.
     var historyLoading: Boolean by mutableStateOf(bookingId != null)
@@ -238,10 +238,11 @@ internal class TripChatState(
             onConnected = { connected ->
                 scope.launch {
                     if (!isActive()) return@launch
-                    // «Нет связи → есть» ловит TripChatConnection; замена живого сокета — здесь.
+                    // «Нет связи → есть» ловит TripChatConnection; замена живого сокета — здесь. Неудачная попытка
+                    // эпоху не трогает (начатое чтение верно), но пришедшее до успеха дочитаем один раз.
                     val replaced = connected && wsConnected
                     wsConnected = connected
-                    if (replaced) refreshAfterReconnect()
+                    if (replaced) refreshAfterReconnect() else if (!connected) resyncPending = true
                 }
             },
             // Сервер не принял сообщение (слишком быстрый поток). Помечаем его
@@ -298,7 +299,7 @@ internal class TripChatState(
      * Сокет подключился — сервер снова на связи. Сперва отправляем то, что ждало в очереди: раньше оно
      * уходило лишь при следующем запуске, если интернет у телефона не пропадал, а лежал сервер
      * (приёмка 18.10.2026). После обрыва дотягиваем пропущенные сообщения по REST: живой приём мог
-     * простоять, пока сокет был мёртв. Первый коннект ленту не трогает — историю уже грузит экран.
+     * простоять, пока сокет был мёртв. Первый коннект с первой попытки ленту не трогает — историю грузит экран.
      */
     suspend fun refreshAfterReconnect() {
         if (!isActive() || !wsConnected) return
@@ -433,9 +434,6 @@ internal class TripChatState(
         }
     }
 
-    private fun mutationFailure(error: Throwable, fallback: String): String =
-        if (error is ApiException && error.status in 400..499) serverSaid(error, fallback) else fallback
-
     /** «Отправить» в строке ввода: правка выбранного сообщения или новое сообщение. */
     fun submitDraft() {
         val t = draft.trim()
@@ -461,7 +459,7 @@ internal class TripChatState(
                     }.onFailure {
                         if (editingId == eid && editVersion == version) {
                             failedEdit = eid to version
-                            actionError = mutationFailure(it, texts.value.chatActionFail)
+                            actionError = tripChatMutationFailure(it, texts.value.chatActionFail)
                             toast(actionError, long = true)
                         }
                     }
@@ -496,7 +494,7 @@ internal class TripChatState(
                     loadHistory(bid)
                 }.onFailure {
                     failedDelete = messageId to who
-                    actionError = mutationFailure(it, texts.value.chatActionFail)
+                    actionError = tripChatMutationFailure(it, texts.value.chatActionFail)
                     toast(actionError, long = true)
                 }
             } finally { if (isActive()) actionBusy = false }
@@ -530,7 +528,7 @@ internal class TripChatState(
                 if (!isActive()) return@launch
                 upload.onSuccess { url -> sendVoiceAttempt(VoiceAttempt(url, UUID.randomUUID().toString(), continuityEpoch.get())) }
                     .onFailure {
-                        actionError = mutationFailure(it, texts.value.voiceUploadFail)
+                        actionError = tripChatMutationFailure(it, texts.value.voiceUploadFail)
                         toast(actionError, long = true)
                     }
             } finally { if (isActive()) actionBusy = false }
@@ -564,7 +562,7 @@ internal class TripChatState(
                 // A known rejection is not an uncertain delivery. Keep a same-key retry only
                 // when the sent message may already have been committed (including proxy 408).
                 failedVoice = attempt.takeIf { error !is ApiException || error.status !in 400..499 || error.status == 408 }
-                actionError = mutationFailure(error, texts.value.chatActionFail)
+                actionError = tripChatMutationFailure(error, texts.value.chatActionFail)
                 toast(actionError, long = true)
             }
     }
@@ -582,7 +580,7 @@ internal class TripChatState(
                     // using the existing text queue and request key, including lost acknowledgements.
                     sendText(ApiClient.IMG_PREFIX + url)
                 }.onFailure {
-                    actionError = mutationFailure(it, texts.value.photoUploadFail)
+                    actionError = tripChatMutationFailure(it, texts.value.photoUploadFail)
                     toast(actionError, long = true)
                 }
             } finally { if (isActive()) actionBusy = false }
