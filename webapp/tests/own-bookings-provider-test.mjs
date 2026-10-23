@@ -59,6 +59,7 @@ const mocks = {
   boardingwait: `export default "boardingwait";`,
   driverboardeddispute: `export default "driverboardeddispute";`,
   outbox: `export const enqueue=async()=>{};`,
+  refusalhook: `export const useBookingRefusal=()=>{};`,
 };
 const icons = [...readFileSync(root+"src/components/Icons.tsx","utf8").matchAll(/export (?:const|function) (Icon\w+)/g)].map(m=>m[1]);
 mocks.icons=icons.map(name=>`export const ${name}="icon";`).join("\n");
@@ -71,7 +72,7 @@ const suffixes = {
   "/api/safety":"safety", "/utils/winterCheck.js":"winter", "/utils/useVisibleInterval":"interval",
   "/components/WeatherWarningCard":"weather", "/components/RoadsideHelp":"roadside",
   "/components/ShareTripCard":"share", "/components/TripChatCard":"tripchat",
-  "/components/OfflineTripPass":"offline", "/utils/outbox":"outbox", "/components/DriverLocationShare":"driverloc",
+  "/components/OfflineTripPass":"offline", "/utils/outbox":"outbox", "/utils/useBookingRefusal":"refusalhook", "/components/DriverLocationShare":"driverloc",
   "/components/DriverBoarding":"driverboarding", "/components/BoardingWait":"boardingwait", "/components/DriverBoardedDispute":"driverboardeddispute",
 };
 const result=await build({

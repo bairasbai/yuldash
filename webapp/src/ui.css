@@ -8453,7 +8453,8 @@ select.field__input {
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
+  /* viewport-fit=cover: в установленной PWA на iPhone верх страницы уходит под вырез — отступ на его высоту (как у .offline-banner). */
+  padding: calc(var(--space-md) + env(safe-area-inset-top)) var(--space-lg) var(--space-md);
   background: var(--canon-gold-soft);
   color: var(--canon-gold-ink);
   border-bottom: 1px solid var(--border);

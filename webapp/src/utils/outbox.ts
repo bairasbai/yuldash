@@ -41,7 +41,9 @@ export function subscribeOutboxRefusals(fn: () => void): () => void {
 /** Отказы текущего входа, старые первыми. */
 export function getOutboxRefusals(): OutboxRefusal[] {
   const session = getSessionGeneration();
-  return refusals.filter(r => r.session === session);
+  // Поколение входа не возвращается: отказы прошлых входов уже никому не покажем — выбрасываем.
+  if (refusals.some(r => r.session !== session)) refusals = refusals.filter(r => r.session === session);
+  return refusals.slice();
 }
 export function dismissOutboxRefusal(key: string): void {
   const before = refusals.length;
