@@ -16,11 +16,14 @@ export default function ReceiptRateDriver({
   bookingId,
   canAct,
   onRated,
+  hint,
 }: {
   bookingId: number;
   /** Квитанция ещё та же (тот же вход и та же бронь) — поздний ответ не трогает чужой экран. */
   canAct: () => boolean;
   onRated: (stars: number) => void;
+  /** Своя подпись: тот же блок — на карточке «Поездку отменили в пути» (решение 24.10.2026). */
+  hint?: string;
 }) {
   const { appText } = useLang();
   const [busy, setBusy] = useState(false);
@@ -48,10 +51,11 @@ export default function ReceiptRateDriver({
     <div className="rcpt-rate">
       <span>{appText("Оценить водителя", "Йөрөтөүсене баһалау")}</span>
       <small className="rcpt-rate__hint">
-        {appText(
-          "Не успел оценить после поездки? Пара звёзд поможет другим выбрать.",
-          "Сәфәрҙән һуң баһаларға өлгөрмәнеңме? Бер нисә йондоҙ башҡаларға һайларға ярҙам итер."
-        )}
+        {hint ??
+          appText(
+            "Не успел оценить после поездки? Пара звёзд поможет другим выбрать.",
+            "Сәфәрҙән һуң баһаларға өлгөрмәнеңме? Бер нисә йондоҙ башҡаларға һайларға ярҙам итер."
+          )}
       </small>
       <div className="rcpt-rate__stars" role="group" aria-label={appText("Оценить водителя", "Йөрөтөүсене баһалау")}>
         {[1, 2, 3, 4, 5].map((v) => (

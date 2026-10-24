@@ -340,6 +340,12 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
             session.add(Ride(driver_id=user.id, seats_left=body.seats_total, **{**dump, "depart_at": dt}, **geo))
             made += 1
     # Перенесённое с отменённой поездки поднятие достаётся этой — молча и сразу.
+    # Остаток читаем под замком строки водителя (тот же мягкий замок, что у «Снять поездку»): иначе
+    # отмена другой его поездки в ту же секунду дописывала остаток, а эта публикация затирала его своим
+    # устаревшим «0» (проверка плана 24.10.2026). Чужих поездок здесь не запираем — порядок замков цел.
+    if user.boost_credit_sec > 0:
+        session.exec(select(User).where(User.id == user.id).with_for_update(key_share=True)
+                     .execution_options(populate_existing=True)).first()
     if apply_boost_credit(user, ride, utcnow()):
         session.add(user)
         session.add(ride)
@@ -1119,8 +1125,17 @@ def cancel_ride(ride_id: int, background: BackgroundTasks, user: User = Depends(
     now = utcnow()
     # Оплаченное поднятие не сгорает вместе с поездкой: остаток переезжает водителю
     # и сам ляжет на его следующую поездку.
-    if stash_boost_credit(user, ride, now):
-        session.add(user)
+    #
+    # Именно ВОДИТЕЛЮ поездки, а не тому, кто снимает (решение Александра 24.10.2026, «да» на деньги):
+    # дежурный снимает поездку по звонку — раньше остаток уезжал на счёт дежурного (`user`).
+    # Строку водителя берём под замок и перечитываем — порядок Ride → Booking → User; мягкий замок
+    # (FOR NO KEY UPDATE), как у денег водителя (`debt.py`): не спорит со вставками строк, которые ссылаются
+    # на этого человека. Берём, только если переносить есть что: без поднятия строку водителя не трогаем.
+    if ride.boosted_until and ride.boosted_until > now:
+        driver = session.exec(select(User).where(User.id == ride.driver_id).with_for_update(key_share=True)
+                              .execution_options(populate_existing=True)).first()
+        if driver is not None and stash_boost_credit(driver, ride, now):
+            session.add(driver)
     for b in affected:
         b.status = BookingStatus.cancelled
         # КТО отменил — обязательно. Без этой пометки «Надёжность» водителя не знала о его

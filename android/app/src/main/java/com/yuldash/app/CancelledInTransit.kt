@@ -1,7 +1,9 @@
 package com.yuldash.app
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -40,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,6 +61,7 @@ import com.yuldash.app.data.TripStateDto
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // Поездку отменили, когда пассажир уже был в машине (решение Александра 23.10.2026, сервер —
@@ -101,6 +105,16 @@ internal class CancelledInTransitState(initial: Boolean) {
     /** null — машину ещё не знаем: экран сам дочитает детали брони. */
     var car by mutableStateOf<InTransitCar?>(null)
         private set
+    /**
+     * Можно ли оценить водителя (решение 24.10.2026): `can_rate` из деталей ОТМЕНЁННОЙ брони — сервер
+     * проверил, кто, срок и паузу. null — ещё не знаем: экран дочитает детали один раз; детали живой поездки
+     * не в счёт (там оценки ещё нет).
+     */
+    var canRate by mutableStateOf<Boolean?>(null)
+        private set
+    /** Сколько звёзд я уже поставил (0 — не ставил). Только своя оценка. */
+    var myStars by mutableIntStateOf(0)
+        private set
 
     fun accept(st: TripStateDto) {
         if (st.status == "cancelled" && st.cancelledInTransit) cancelled = true
@@ -111,6 +125,12 @@ internal class CancelledInTransitState(initial: Boolean) {
         if (d.status == "cancelled" && d.cancelledInTransit) cancelled = true
         if (d.driverName.isNotBlank()) driverName = d.driverName
         inTransitCarOf(d).takeIf { it.known }?.let { car = it }
+        if (d.status == "cancelled") { canRate = d.canRate; if (d.myStars in 1..5) myStars = d.myStars }
+    }
+
+    /** Оценка ушла на сервер: блок звёзд сменяется строкой «Твоя оценка». */
+    fun rated(stars: Int) {
+        if (stars in 1..5) myStars = stars
     }
 
     /** Перед удалением офлайн-паспорта: машина и номер из него остаются на экране, телефон — нет. */
@@ -319,13 +339,16 @@ internal fun CancelledInTransitScreen(
     loadRole: Boolean = false,
     fetchDetails: suspend (Int) -> Result<BookingDetailsDto> = { ApiClient.getBookingDetails(it) },
     fetchRole: suspend (Int) -> Result<TripStateDto> = { ApiClient.getTripState(it) },
+    rateDriver: suspend (Int, Int) -> Result<Unit> = { id, stars -> ApiClient.rateBooking(id, stars) },
 ) {
     fun isCurrent() = ownerGeneration == ApiClient.queueSessionGeneration()
     var carLoading by remember(bookingId) { mutableStateOf(state.car == null) }
     var carFailed by remember(bookingId) { mutableStateOf(false) }
     var retry by remember(bookingId) { mutableIntStateOf(0) }
+    // Детали брони дочитываем, если не знаем машину — или можно ли оценить водителя (машина бывает известна
+    // из паспорта, а оценка — только из деталей отменённой брони). Сбой ради оценки экран помощи не трогает.
     LaunchedEffect(bookingId, retry) {
-        if (state.car != null || !isCurrent()) { carLoading = false; return@LaunchedEffect }
+        if ((state.car != null && state.canRate != null) || !isCurrent()) { carLoading = false; return@LaunchedEffect }
         carLoading = true; carFailed = false
         val result = fetchDetails(bookingId)
         if (!isCurrent()) return@LaunchedEffect
@@ -373,6 +396,8 @@ internal fun CancelledInTransitScreen(
             if (state.reportSec > 0 && state.driverId > 0) {
                 InTransitProblemReport(bookingId, state.driverId, state.driverName, ownerGeneration, Modifier.appearIn(3))
             }
+            // Оценка — ниже помощи и разбора (проверка плана 24.10.2026): сначала безопасность, потом звёзды.
+            InTransitRateDriver(bookingId, state, ::isCurrent, rateDriver, Modifier.appearIn(3))
             AppButton(appText("Закрыть", "Ябырға"), onClick = onClose, style = AppButtonStyle.Secondary, modifier = Modifier.appearIn(3))
         }
     }
@@ -440,6 +465,65 @@ private fun InTransitCarCard(car: InTransitCar?, loading: Boolean, failed: Boole
                             appText("Водитель не указал машину и госномер", "Йөрөтөүсе машинаһын һәм дәүләт номерын күрһәтмәгән"),
                             style = CanonCaption, color = CanonMuted,
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * «Оценить водителя» после отмены в пути (решение Александра 24.10.2026): иначе водитель уходил от плохого
+ * отзыва, отменив поездку перед прибытием. Звёзды — пока сервер разрешает (`can_rate`: срок и пауза как у
+ * завершённой) и своей оценки нет; поставил — строка «Твоя оценка». Тот же блок, что в квитанции.
+ */
+@Composable
+private fun InTransitRateDriver(
+    bookingId: Int,
+    state: CancelledInTransitState,
+    isCurrent: () -> Boolean,
+    rateDriver: suspend (Int, Int) -> Result<Unit>,
+    modifier: Modifier,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var busy by remember(bookingId) { mutableStateOf(false) }
+    var justRated by remember(bookingId) { mutableStateOf(false) }
+    val rateErr = appText("Оценка не ушла. Проверь сеть и попробуй ещё раз.", "Баһа ебәрелмәне. Селтәрҙе тикшереп, тағы бер тапҡыр ҡара.")
+    val stars = state.myStars
+    // Нельзя оценить (срок вышел, пауза, старый сервер) и оценки нет — блока нет вовсе, без пустого места.
+    AnimatedVisibility(visible = stars in 1..5 || state.canRate == true, modifier = modifier.testTag("inTransitRate")) {
+        AnimatedContent(
+            targetState = if (stars in 1..5) stars else 0,
+            transitionSpec = { fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
+            label = "in-transit-rate",
+        ) { shown ->
+            if (shown > 0) {
+                AppCard {
+                    Column(Modifier.fillMaxWidth().padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                        if (justRated) {
+                            Text(appText("Спасибо! Оценка учтена.", "Рәхмәт! Баһа иҫәпкә алынды."), style = CanonBodyStrong, color = CanonGreen2)
+                        }
+                        Text("${appText("Твоя оценка", "Һинең баһаң")}: ${appText("$shown из 5", "5-тән $shown")}",
+                            style = CanonBody, color = CanonText)
+                    }
+                }
+            } else {
+                ReceiptRateDriver(
+                    busy = busy,
+                    hint = appText("Как ехалось до отмены? Оценка поможет другим выбрать водителя.",
+                        "Кире алынғансы нисек барҙың? Баһаң башҡаларға йөрөтөүсе һайларға ярҙам итер."),
+                ) { value ->
+                    if (busy || !isCurrent()) return@ReceiptRateDriver
+                    busy = true
+                    scope.launch {
+                        rateDriver(bookingId, value)
+                            .onSuccess { if (isCurrent()) { justRated = true; state.rated(value) } }
+                            .onFailure { e ->
+                                if (e is CancellationException) throw e
+                                if (isCurrent()) Toast.makeText(context, serverSaid(e, rateErr), Toast.LENGTH_LONG).show()
+                            }
+                        if (isCurrent()) busy = false
                     }
                 }
             }

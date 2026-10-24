@@ -79,13 +79,19 @@ class CancelledInTransitTest {
     @Volatile private var roleAfterDetails = false   // опрос /role отвечает позже первых деталей
     private val roleServed = CountDownLatch(1)
     private val detailsServed = CountDownLatch(1)
+    // Оценка водителя после отмены в пути (решение 24.10.2026): что разрешает сервер и что он ответит на звёзды.
+    @Volatile private var canRate = false
+    @Volatile private var myStars = 0
+    @Volatile private var rateRefusal: String? = null   // текст отказа сервера (409) вместо 200
+    private val rated = CopyOnWriteArrayList<String>()
 
     private fun roleJson() = """{"role":"$role","status":"cancelled","driver_phase":"","peer_id":9,""" +
         """"problem_report_sec":$reportSec,"cancelled_in_transit":$roleFlag}"""
 
     private fun detailsJson() = """{"booking_id":42,"ride_id":7,"role":"$role","status":"cancelled","contact_unlocked":false,""" +
         """"from_city":"Город А","to_city":"Город Б","driver_name":"Ринат","driver_car":"Лада Веста",""" +
-        """"driver_car_color":"серая","driver_plate":"М555ОР102","driver_phone":"","cancelled_in_transit":$detailsFlag}"""
+        """"driver_car_color":"серая","driver_plate":"М555ОР102","driver_phone":"","cancelled_in_transit":$detailsFlag,""" +
+        """"can_rate":$canRate,"my_stars":$myStars}"""
 
     @Before fun setup() {
         ApiClient.resetForTest()
@@ -113,6 +119,14 @@ class CancelledInTransitTest {
                         }
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/boarding-code" -> """{"code":""}"""
+                        "/bookings/42/rate" -> {
+                            rated += request.body.readUtf8()
+                            rateRefusal?.let { msg ->
+                                return MockResponse().setResponseCode(409).setHeader("Content-Type", "application/json")
+                                    .setBody("""{"detail":{"ru":"$msg","ba":"$msg"}}""")
+                            }
+                            """{"ratee_id":9,"rating":4.0,"count":1}"""
+                        }
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
@@ -470,6 +484,98 @@ class CancelledInTransitTest {
         repeat(10) { settle() }
         assertEquals("ушли с экрана помощи", 0, tripEndCalls)
         compose.onNodeWithText("Поездку отменили в пути").assertIsDisplayed()
+    }
+
+    // ── Оценка водителя после отмены в пути (решение Александра 24.10.2026) ──
+
+    @Test fun `оценка водителя на экране помощи — звёзды, отправка, «Твоя оценка»`() {
+        canRate = true
+        openTrip(hint = knownTerminalTripHint(42, "cancelled", "passenger", inTransit = true))
+        waitForText("Оценить водителя")
+        compose.onNodeWithText("Как ехалось до отмены? Оценка поможет другим выбрать водителя.").performScrollTo().assertIsDisplayed()
+        // Помощь — выше звёзд: SOS и «Застрял на трассе» никуда не делись.
+        compose.onNodeWithText("SOS — нужна помощь").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("4 из 5").performScrollTo().performClick()
+        waitForText("Спасибо! Оценка учтена.")
+        assertEquals(1, rated.size)
+        assertEquals(4, JSONObject(rated.single()).getInt("stars"))
+        compose.onNodeWithText("Твоя оценка: 4 из 5").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Оценить водителя").assertCountEquals(0)
+        assertEquals(0, tripEndCalls)
+    }
+
+    @Test fun `оценить нельзя — блока звёзд нет`() {
+        canRate = false
+        openTrip(hint = knownTerminalTripHint(42, "cancelled", "passenger", inTransit = true))
+        waitForText("М555ОР102")
+        repeat(10) { settle() }
+        compose.onAllNodesWithText("Оценить водителя").assertCountEquals(0)
+        compose.onAllNodesWithText("Твоя оценка", substring = true).assertCountEquals(0)
+    }
+
+    @Test fun `уже оценил — «Твоя оценка», без звёзд`() {
+        canRate = true; myStars = 3
+        openTrip(hint = knownTerminalTripHint(42, "cancelled", "passenger", inTransit = true))
+        waitForText("Твоя оценка: 3 из 5")
+        compose.onAllNodesWithText("Оценить водителя").assertCountEquals(0)
+        compose.onAllNodesWithText("Спасибо! Оценка учтена.").assertCountEquals(0)
+    }
+
+    @Test fun `сервер отказал — текст сервера, звёзды остаются`() {
+        canRate = true; rateRefusal = "Эту поездку оценить уже нельзя"
+        openTrip(hint = knownTerminalTripHint(42, "cancelled", "passenger", inTransit = true))
+        waitForText("Оценить водителя")
+        compose.onNodeWithContentDescription("2 из 5").performScrollTo().performClick()
+        waitFor("отказ не показан") { org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == "Эту поездку оценить уже нельзя" }
+        compose.onNodeWithText("Оценить водителя").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Твоя оценка", substring = true).assertCountEquals(0)
+    }
+
+    @Test fun `машина известна из паспорта — детали брони всё равно дочитаны ради оценки`() {
+        canRate = true
+        savePass()
+        openTrip()
+        waitForText("Поездку отменили в пути")
+        waitForText("Оценить водителя")
+        assertTrue(requests.contains("GET /bookings/42/details"))
+    }
+
+    @Test fun `оценка по-башкирски`() {
+        canRate = true
+        openTrip(AppLanguage.Ba, knownTerminalTripHint(42, "cancelled", "passenger", inTransit = true))
+        waitForText("Йөрөтөүсене баһалау")
+        compose.onNodeWithText("Кире алынғансы нисек барҙың? Баһаң башҡаларға йөрөтөүсе һайларға ярҙам итер.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("5-тән 5").performScrollTo().performClick()
+        waitForText("Рәхмәт! Баһа иҫәпкә алынды.")
+        compose.onNodeWithText("Һинең баһаң: 5-тән 5").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun `оценка из истории — «Детали поездки» отменённой в пути брони`() {
+        canRate = true
+        openBooking()
+        waitForText("Поездку отменили в пути")
+        waitForText("Оценить водителя")
+        compose.onNodeWithContentDescription("5 из 5").performScrollTo().performClick()
+        waitForText("Твоя оценка: 5 из 5")
+        assertEquals(1, rated.size)
+    }
+
+    @Test fun `разбор деталей — оценка из ответа, старый сервер даёт false и 0`() {
+        canRate = true; myStars = 4
+        val d = parseBookingDetailsDto(JSONObject(detailsJson()))
+        assertTrue(d.canRate)
+        assertEquals(4, d.myStars)
+        val old = parseBookingDetailsDto(JSONObject("""{"booking_id":42,"status":"cancelled"}"""))
+        assertFalse(old.canRate)
+        assertEquals(0, old.myStars)
+        // Детали живой поездки «можно ли оценить» не решают: оценка — только по деталям отменённой брони.
+        val state = CancelledInTransitState(true)
+        state.accept(d.copy(status = "onboard", canRate = true))
+        assertNull(state.canRate)
+        state.accept(d)
+        assertEquals(true, state.canRate)
+        assertEquals(4, state.myStars)
     }
 
     @Test fun `детали отменённой брони ещё грузятся — загрузка, а не «Найти другую поездку»`() {

@@ -130,8 +130,12 @@ export default function SettingsScreen() {
       navigate("/splash", { replace: true });
     } catch (e) {
       const notReady = e instanceof ApiError && (e.status === 404 || e.status === 405);
+      // 409 — сервер объяснил, что закрыть до удаления и когда можно (комиссия, живая поездка, отмена в
+      // пути — решение 24.10.2026). Его текст уже на языке человека; «проверь связь» тут неправда.
+      const explained = e instanceof ApiError && e.status === 409 && e.message ? e.message : "";
       setDelError(
-        notReady
+        explained ||
+        (notReady
           ? appText(
               "Удаление аккаунта скоро заработает. Пока напиши нам в поддержку — удалим вручную.",
               "Аккаунт бөтөрөү тиҙҙән эшләй. Хәҙергә ярҙамға яҙ — ҡулдан бөтөрәбеҙ."
@@ -139,7 +143,7 @@ export default function SettingsScreen() {
           : appText(
               "Не получилось удалить аккаунт. Проверь связь и попробуй ещё раз.",
               "Аккаунтты бөтөрөп булманы. Бәйләнеште тикшереп, ҡабат ҡара."
-            )
+            ))
       );
       setDel("confirm");
     }
