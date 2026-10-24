@@ -81,7 +81,7 @@
     "android_main": 198,
     "backend_main": 109,
     "infra_resource_config": 406,
-    "public_site_promo": 89,
+    "public_site_promo": 91,
     "pwa_main": 326,
     "test_support": 1269
   },
@@ -96,11 +96,11 @@
     "B08": 215,
     "B09": 730,
     "B10": 406,
-    "B11": 90
+    "B11": 92
   },
   "excluded_counts": {
-    "binary_asset_or_non_source": 103,
-    "documentation": 19,
+    "binary_asset_or_non_source": 105,
+    "documentation": 20,
     "documentation_artifacts_or_private_material": 338,
     "experimental_not_current_product": 21,
     "legacy_flutter_do_not_modify": 22,
@@ -13002,6 +13002,20 @@
       "lines": 18
     },
     {
+      "path": "web/app/fonts/OFL-Inter.txt",
+      "kind": "public_site_promo",
+      "block": "B11",
+      "sha256": "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57",
+      "lines": 93
+    },
+    {
+      "path": "web/app/fonts/OFL-Montserrat.txt",
+      "kind": "public_site_promo",
+      "block": "B11",
+      "sha256": "8b7141c03fa4f8d44e6345d5d4931709290f0f67875e452e95ac1fd3a027802e",
+      "lines": 93
+    },
+    {
       "path": "web/app/globals.css",
       "kind": "public_site_promo",
       "block": "B11",
@@ -13019,8 +13033,8 @@
       "path": "web/app/layout.tsx",
       "kind": "public_site_promo",
       "block": "B11",
-      "sha256": "a181155b75c84602becd5f408b691563ff35d851fe53229c7b08eeccf785da21",
-      "lines": 112
+      "sha256": "915ce243a62f6cde9cfbf3fa6dee6380973154a406763e46a777a563cb4d688c",
+      "lines": 118
     },
     {
       "path": "web/app/manifest.ts",
@@ -18690,6 +18704,18 @@
     },
     {
       "path": "web/README.md",
+      "reason": "documentation"
+    },
+    {
+      "path": "web/app/fonts/Inter-latin-cyrillic.woff2",
+      "reason": "binary_asset_or_non_source"
+    },
+    {
+      "path": "web/app/fonts/Montserrat-700-900-latin-cyrillic.woff2",
+      "reason": "binary_asset_or_non_source"
+    },
+    {
+      "path": "web/app/fonts/README.md",
       "reason": "documentation"
     },
     {
