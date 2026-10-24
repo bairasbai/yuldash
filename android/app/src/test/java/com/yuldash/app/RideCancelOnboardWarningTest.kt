@@ -85,7 +85,7 @@ class RideCancelOnboardWarningTest {
         compose.onAllNodesWithText("В машине пассажиры", substring = true).assertCountEquals(0)
     }
 
-    @Test fun `счёт — только «в пути» этой поездки; старый сервер без ride_id — ноль`() {
+    @Test fun `счёт — только «в пути» этой поездки, старый сервер без ride_id — ноль`() {
         assertEquals(2, onboardPassengers(7, sameRide))
         assertEquals(0, onboardPassengers(8, sameRide))
         assertEquals("поездка без числового id", 0, onboardPassengers(null, sameRide))
