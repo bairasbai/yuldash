@@ -23,8 +23,8 @@ from ..errors import herr
 from ..logs import admin_action, log
 from ..observability import scrub_exc
 from ..models import (
-    Ad, Booking, DeviceToken, DriverProfile, InstantOrder, Message, Notification, OtpCode,
-    Rating, RequestResponse, Ride, SosEvent, TgAuth, User, UserRole,
+    Ad, Booking, BookingStatus, DeviceToken, DriverProfile, InstantOrder, Message, Notification, OtpCode,
+    Rating, RequestResponse, Ride, RideStatus, SosEvent, TgAuth, User, UserRole,
     WebPushSubscription,
 )
 from ..security import (
@@ -1041,8 +1041,17 @@ def me(user: User = Depends(current_user), session: Session = Depends(get_sessio
     avg, cnt = user_rating(session, user.id)
     # Один аккаунт и возит, и ездит; роль на сервере от публикации не меняется. Подпись профиля
     # («Водитель», «Пассажир», «Водитель и пассажир») клиенты берут из того, что человек делал.
-    drives = session.exec(select(Ride.id).where(Ride.driver_id == user.id).limit(1)).first() is not None
-    books = session.exec(select(Booking.id).where(Booking.passenger_id == user.id).limit(1)).first() is not None
+    # Считаем только живое и состоявшееся: одна ошибочная и сразу отменённая бронь или поездка
+    # навсегда делала подпись «Водитель и пассажир» (приёмка PR210). Посадку, отмеченную водителем
+    # (`onboard_at`), считаем и после отмены в пути — человек всё-таки ехал.
+    drives = session.exec(select(Ride.id).where(
+        Ride.driver_id == user.id, Ride.status.in_((RideStatus.active, RideStatus.done))).limit(1)).first() is not None
+    drives = drives or session.exec(select(Booking.id).join(Ride, Booking.ride_id == Ride.id).where(
+        Ride.driver_id == user.id, Booking.onboard_at.is_not(None)).limit(1)).first() is not None
+    books = session.exec(select(Booking.id).where(
+        Booking.passenger_id == user.id,
+        or_(Booking.status != BookingStatus.cancelled, Booking.onboard_at.is_not(None)),
+    ).limit(1)).first() is not None
     return {**user.model_dump(), "rating": round(avg, 1) if cnt > 0 else None, "rating_count": cnt,
             "drives": drives, "books": books}
 

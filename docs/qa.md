@@ -140,6 +140,15 @@ $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"         # local.properties н�
 Подробности и история — `docs/lessons.md`, поиск «Локальный стенд».
 
 
+## Клавиатура на экране с полем ввода (24.10.2026)
+
+Экран с `imePadding()` / `WindowInsets.ime` включает `ResizeWindowForKeyboard()` — иначе на Android 15+ окно
+сдвигается целиком поверх нашего отступа (двойной скачок, шапка под строкой состояния). Сторож —
+`KeyboardResizeGuardTest`. Проверка на эмуляторе: касайся поля **у нижнего края** экрана — поле вверху окно не
+сдвигает и поломку не покажет; проще всего поднять шрифт (`adb shell settings put system font_scale 1.3`, потом
+вернуть `1.0`). Режим окна: `adb shell dumpsys window windows` → строка `sim={adjust=…}` у `MainActivity`
+(`resize` — верно, `pan` — сдвигает). Заодно проверь, что кнопка формы достаётся прокруткой при открытой клавиатуре.
+
 ## ADB и эмулятор
 
 ```powershell

@@ -889,7 +889,7 @@ internal fun PretripCheckScreen(onBack: () -> Unit, onConfirmed: () -> Unit = {}
     var errText by remember { mutableStateOf<String?>(null) }
 
     val errFallback = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
-
+    ResizeWindowForKeyboard()   // Клавиатура сжимает окно, а не сдвигает: иначе на Android 15+ к сдвигу добавляется imePadding — двойной скачок (приёмка PR210, эмулятор 24.10).
     LaunchedEffect(reload) {
         loading = true; error = false
         ApiClient.getPretrip().onSuccess { state = it }.onFailure { error = true }

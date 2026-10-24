@@ -20,6 +20,9 @@ const CLASS: Record<BookingStatus, string> = {
   cancelled: "badge--danger",
 };
 
+/** Отказ водителя — не «отмена» (приёмка PR210): рядом с «Водитель отклонил бронь» пометка говорит то же. */
+const DECLINED: [string, string] = ["Отклонена", "Кире ҡағылған"];
+
 /** Живая фаза водителя поверх статуса (departed/arriving). */
 const PHASE: Record<Exclude<DriverPhase, "">, [string, string]> = {
   departed: ["Водитель выехал к тебе", "Водитель юлға сыҡты"],
@@ -30,12 +33,15 @@ export function StatusPill({
   status,
   phase,
   arrivalVerified = false,
+  declined = false,
 }: {
   status: BookingStatus;
   phase?: DriverPhase;
   /** true → к «подъезжает» добавляем «✓ GPS»: сервер сверил позицию водителя с точкой подачи.
    *  Показываем ТОЛЬКО по факту проверки — ложная галочка хуже её отсутствия. */
   arrivalVerified?: boolean;
+  /** true → бронь сняла не отмена, а отказ водителя (`declined` из деталей брони). */
+  declined?: boolean;
 }) {
   const { appText } = useLang();
   if (phase && status === "confirmed") {
@@ -48,7 +54,7 @@ export function StatusPill({
       </span>
     );
   }
-  const l = LABEL[status] ?? LABEL.pending;
+  const l = status === "cancelled" && declined ? DECLINED : LABEL[status] ?? LABEL.pending;
   const c = CLASS[status] ?? "badge--gold";
   return <span className={`badge ${c}`}>{appText(l[0], l[1])}</span>;
 }

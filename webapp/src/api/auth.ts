@@ -35,7 +35,7 @@ export interface Me {
   rating: number | null;
   rating_count: number;
   created_at?: string;
-  /** Публиковал поездки (водитель по делу) / бронировал чужие — для подписи роли в профиле. */
+  /** Есть живая или состоявшаяся своя поездка / бронь чужой (отменённые не в счёт) — для подписи роли в профиле. */
   drives?: boolean;
   books?: boolean;
 }

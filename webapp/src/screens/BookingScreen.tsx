@@ -174,7 +174,7 @@ export default function BookingScreen() {
               <span>
                 <b>{d.seats}</b> {appText("мест", "урын")}
               </span>
-              <StatusPill status={d.status} />
+              <StatusPill status={d.status} declined={d.declined === true} />
             </div>
             {/* Отказ водителя — не «отмена»: как в пуше и в Android (приёмка 18.10, п.6). */}
             {d.status === "cancelled" && d.declined && (
