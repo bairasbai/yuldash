@@ -67,6 +67,7 @@ import BoardingWait from "../components/BoardingWait";
 import DriverBoardedDispute from "../components/DriverBoardedDispute";
 import TripChatCard from "../components/TripChatCard";
 import CancelledInTransitCard from "../components/CancelledInTransitCard";
+import { loadInTransitCancel, rememberInTransitCancel } from "../utils/inTransitCancel";
 import { IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet, IconClose } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
@@ -190,13 +191,26 @@ export default function ActiveTripScreen() {
   const lastDetailsAtRef = useRef(Date.now());
   /** Счётчик «Сел» / «Отменить» водителя: опрос, начатый до действия, его ответ не перетирает. */
   const boardingSeqRef = useRef(0);
+  /**
+   * Отмена в пути (`cancelled_in_transit`) — признак из ЛЮБОЙ ручки: /role или /details, что пришло
+   * первым (приёмка PR207, №4). Последние детали с сервера держим нестёртыми: признак мог прийти из
+   * /role уже после того, как показанные детали стёрли как обычную отмену, — машину и номер берём отсюда.
+   */
+  const inTransitRef = useRef(false);
+  const rawDetailsRef = useRef<BookingDetails | null>(null);
+  const inTransitDetailsAskedRef = useRef(false);
 
   /** `inTransit` — сервер сказал `cancelled_in_transit`: машина и госномер на экране остаются. */
   const applyCancelledState = useCallback((inTransit = false) => {
+    if (inTransit) inTransitRef.current = true;
+    const keep = inTransitRef.current;
     detailsStatusRef.current = "cancelled";
     if (tripRef.current) tripRef.current = { ...tripRef.current, status: "cancelled", driver_phase: "", arrival_verified: false };
     setTrip((current) => current ? { ...current, status: "cancelled", driver_phase: "", arrival_verified: false } : current);
-    setDetails((current) => current ? cancelledDetails(current, inTransit || current.cancelled_in_transit === true) : current);
+    setDetails((current) => {
+      const base = keep && rawDetailsRef.current ? rawDetailsRef.current : current;
+      return base ? cancelledDetails(base, keep || base.cancelled_in_transit === true) : base;
+    });
     dropTripPass(bookingId, sessionGeneration);
     setPass(null);
     setCode(null);
@@ -211,9 +225,11 @@ export default function ActiveTripScreen() {
       if (!shouldApplyBookingDetails(tripRef.current?.status, d.status)) return;
       detailsStatusRef.current = d.status;
       lastDetailsAtRef.current = Date.now();
-      setDetails(d.status === "cancelled" ? cancelledDetails(d, d.cancelled_in_transit === true) : d);
+      rawDetailsRef.current = d;
+      if (d.cancelled_in_transit === true) inTransitRef.current = true;
+      setDetails(d.status === "cancelled" ? cancelledDetails(d, inTransitRef.current) : d);
       if (d.status === "cancelled") {
-        applyCancelledState(d.cancelled_in_transit === true);
+        applyCancelledState(inTransitRef.current);
         return;
       }
       if (d.status === "onboard") clearTripPassBoardingCode(bookingId, sessionGeneration);
@@ -292,6 +308,9 @@ export default function ActiveTripScreen() {
   useEffect(() => {
     tripRef.current = null;
     detailsStatusRef.current = null;
+    inTransitRef.current = false;
+    rawDetailsRef.current = null;
+    inTransitDetailsAskedRef.current = false;
     detailsSyncBusyRef.current = false;
     lastDetailsAtRef.current = Date.now();
     setPass(loadOfflineTripPass(bookingId));
@@ -324,6 +343,7 @@ export default function ActiveTripScreen() {
         const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;
         if (previousStatus === "cancelled" && fresh.status !== "cancelled") return;
         if (!shouldApplyBookingDetails(previousStatus, fresh.status)) return;
+        if (fresh.cancelled_in_transit === true) inTransitRef.current = true;
         tripRef.current = fresh;
         setTrip(fresh);
         if (fresh.status === "onboard") {
@@ -337,8 +357,12 @@ export default function ActiveTripScreen() {
           setPass(null);
           setCode(null);
           setDriverLoc(null);
-          if (fresh.status === "cancelled") applyCancelledState(fresh.cancelled_in_transit === true);
-          if (previousStatus !== fresh.status) void syncBookingDetails();
+          if (fresh.status === "cancelled") applyCancelledState(inTransitRef.current);
+          // Признак пришёл из /role, а машины и номера у экрана нет — один раз дочитать детали брони.
+          const needCar = inTransitRef.current && !inTransitDetailsAskedRef.current &&
+            !(rawDetailsRef.current?.driver_plate || rawDetailsRef.current?.driver_car);
+          if (needCar) inTransitDetailsAskedRef.current = true;
+          if (previousStatus !== fresh.status || needCar) void syncBookingDetails();
           return;
         }
         const elapsed = Date.now() - lastDetailsAtRef.current;
@@ -401,6 +425,18 @@ export default function ActiveTripScreen() {
   let savedStage: "confirmed" | "onboard" | "terminal" = "terminal";
   try { savedStage = tripPassStage(bookingId, sessionGeneration); } catch { /* no safe saved state */ }
   const needsBoardingCode = details?.role === "passenger" && st === "confirmed" && savedStage === "confirmed";
+
+  // Отменили, когда пассажир был в машине: экран не прячет помощь (CancelledInTransitCard) и не
+  // показывает ничего от живой поездки — ни чата с водителем, ни карты (приёмка PR207, №1).
+  const inTransitCancel = details?.role === "passenger" && st === "cancelled" &&
+    (trip?.cancelled_in_transit === true || details?.cancelled_in_transit === true || inTransitRef.current);
+  const inTransitCar = details ? [details.driver_car_color, details.driver_car].filter(Boolean).join(" ") : "";
+  const inTransitPlate = details?.driver_plate ?? "";
+  // Вкладка помнит эту отмену (без телефона): вернулся с SOS, перезагрузил, нет сети — помощь на месте.
+  useEffect(() => {
+    if (inTransitCancel) rememberInTransitCancel(bookingId, user?.id, inTransitCar, inTransitPlate);
+  }, [inTransitCancel, bookingId, user?.id, inTransitCar, inTransitPlate]);
+  const savedInTransit = status === "ready" ? null : loadInTransitCancel(bookingId, user?.id);
 
   // ---- Код нужен пассажиру до посадки, не после неё ----
   useEffect(() => {
@@ -682,11 +718,15 @@ export default function ActiveTripScreen() {
     }
   }
 
+  // Отмена в пути уже была видна этой вкладке: помощь сразу, пока грузимся или без сети.
+  const savedInTransitCard = savedInTransit && (
+    <CancelledInTransitCard bookingId={bookingId} car={savedInTransit.car} plate={savedInTransit.plate} driverName="" />
+  );
   if (status === "loading") {
     return (
       <>
         <SubHeader title={appText("Поездка", "Сәфәр")} onBack={() => navigate(-1)} />
-        <LoadingList count={2} />
+        {savedInTransitCard || <LoadingList count={2} />}
       </>
     );
   }
@@ -694,43 +734,48 @@ export default function ActiveTripScreen() {
     return (
       <>
         <SubHeader title={appText("Поездка", "Сәфәр")} onBack={() => navigate(-1)} />
+        {savedInTransitCard}
         {/* Сервер не ответил — но если поездку уже открывали, снимок брони лежит рядом.
             Сверяют машину как раз там, где связи нет: перевал, ночная трасса, обочина
             у выезда из села. Пустой экран в этот момент — худшее, что можно показать. */}
-        {pass && savedStage !== "terminal"
+        {!savedInTransit && pass && savedStage !== "terminal"
           ? <OfflineTripPass pass={savedStage === "onboard" ? { ...pass, boardingCode: "" } : pass} /> : null}
         <ErrorState onRetry={() => load()} />
       </>
     );
   }
 
-  // Отменили, когда пассажир был в машине: экран не прячет помощь (CancelledInTransitCard).
-  const inTransitCancel = details.role === "passenger" && st === "cancelled" &&
-    (trip?.cancelled_in_transit === true || details.cancelled_in_transit === true);
-
   const from =
     details.from_lat != null ? { lat: details.from_lat, lng: details.from_lng ?? 0 } : null;
   const to =
     details.to_lat != null ? { lat: details.to_lat, lng: details.to_lng ?? 0 } : null;
 
-  return (
-    <>
-      <SubHeader
-        title={`${appText("Рейс водителя", "Йөрөтөүсенең сәфәре")}: ${details.from_city} → ${details.to_city}`}
-        subtitle={formatWhen(details.depart_at, ru)}
-        onBack={() => navigate(-1)}
-      />
-
-      {inTransitCancel && (
+  const header = (
+    <SubHeader
+      title={`${appText("Рейс водителя", "Йөрөтөүсенең сәфәре")}: ${details.from_city} → ${details.to_city}`}
+      subtitle={formatWhen(details.depart_at, ru)}
+      onBack={() => navigate(-1)}
+    />
+  );
+  if (inTransitCancel) {
+    return (
+      <>
+        {header}
         <CancelledInTransitCard
           bookingId={bookingId}
-          car={[details.driver_car_color, details.driver_car].filter(Boolean).join(" ")}
-          plate={details.driver_plate ?? ""}
+          car={inTransitCar}
+          plate={inTransitPlate}
           driverId={trip?.peer_id}
           driverName={details.driver_name}
           problemReportSec={trip?.problem_report_sec ?? 0}
         />
-      )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {header}
 
       <BookingSegmentNote pickupStop={details.pickup_stop} dropoffStop={details.dropoff_stop} rideHasStops={details.ride_has_stops} from={details.from_city} to={details.to_city} />
 

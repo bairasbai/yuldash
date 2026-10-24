@@ -2,14 +2,21 @@
 //  Отмена, когда пассажир уже в машине, — честная (решение Александра 23.10.2026). Сайт.
 //
 //  Было: водитель снял поездку на трассе — экран поездки пассажира стирал машину и госномер
-//  (как при любой отмене) и прятал SOS и «Застряли» (они только у живой поездки). Пуш вёл на
+//  (как при любой отмене) и прятал SOS и «Застрял на трассе» (они только у живой поездки). Пуш вёл на
 //  «Бронь» — там «Отменена», и всё. Стало (зеркало Android CancelledInTransit.kt):
 //   • по признаку сервера `cancelled_in_transit` экран поездки показывает «Поездку отменили в
-//     пути»: SOS с бронью, «Застряли на трассе», «Сообщить о проблеме» (окно 6 ч), машина и
+//     пути»: SOS с бронью, «Застрял на трассе», «Сообщить о проблеме» (окно 6 ч), машина и
 //     госномер; телефона водителя нет;
 //   • «Бронь» такого пассажира уводит на экран поездки;
 //   • «Снять поездку?» у водителя предупреждает, сколько пассажиров этой поездки уже в машине.
 //  Обычная отмена — как раньше: машина стирается, помощи «в пути» нет.
+//
+//  Приёмка PR207 (24.10.2026):
+//   • №1 — при отмене в пути на экране ТОЛЬКО помощь: ни чата с водителем, ни карты, ни живого статуса;
+//   • №3 — вкладка помнит отмену (номер брони, машина, госномер — без телефона): ушёл на SOS и вернулся
+//     без связи — экран помощи на месте, а не «Не удалось загрузить»;
+//   • №4 — признак приходит из любой ручки: только /details или только /role — машина не стирается,
+//     а если её нет — детали брони дочитываются один раз.
 //
 //  Исполняем настоящие экраны и компонент на стенде shallow-harness.mjs.
 // ================================================================
@@ -20,6 +27,16 @@ import { build } from "esbuild";
 
 const t = checker();
 globalThis.document ??= { visibilityState: "visible", addEventListener() {}, removeEventListener() {} };
+// sessionStorage вкладки (в node его нет; без него экран молча ничего не помнит — как в приватном режиме).
+const session = new Map();
+globalThis.sessionStorage = {
+  getItem: (k) => (session.has(k) ? session.get(k) : null),
+  setItem: (k, v) => { session.set(k, String(v)); },
+  removeItem: (k) => { session.delete(k); },
+  key: (i) => [...session.keys()][i] ?? null,
+  get length() { return session.size; },
+  clear: () => session.clear(),
+};
 const L = (lang, ru, ba) => (lang === "ba" ? ba : ru);
 
 const IN_TRANSIT = {
@@ -27,7 +44,14 @@ const IN_TRANSIT = {
   driver_car: "Лада Веста", driver_car_color: "серая", driver_plate: "М555ОР102",
 };
 const TRIP_IN_TRANSIT = { status: "cancelled", cancelled_in_transit: true, peer_id: 9, problem_report_sec: 3600 };
+const { cancelled_in_transit: _roleFlag, ...TRIP_NO_FLAG } = TRIP_IN_TRANSIT;
+const { cancelled_in_transit: _detailsFlag, ...DETAILS_NO_FLAG } = IN_TRANSIT;
 const card = (tree) => ofType(tree, "CancelledInTransitCard")[0];
+/** Компоненты на экране (заглушки с заглавной буквы), по порядку. */
+const parts = (tree) => all(tree).filter((n) => typeof n.type === "string" && /^[A-Z]/.test(n.type)).map((n) => n.type);
+const tick = async (h) => { await h.calls("useVisibleInterval").at(-1)[1](); await h.settle(); };
+const detailsGets = (at) => at.gets.filter((p) => p === "/bookings/42/details").length;
+const NO_NET = () => { throw new Error("нет сети"); };
 
 // ---------------------------------------------------------------- экран поездки
 await t.test("экран поездки: отменили в пути — карточка помощи с машиной и госномером, без телефона", async () => {
@@ -78,6 +102,120 @@ await t.test("водителю отмена в пути карточку пом�
   assert.equal(card(h.tree), undefined);
 });
 
+// ---------------------------------------------------------------- приёмка PR207, №1: только помощь
+await t.test("отменили в пути — на экране только помощь: ни чата с водителем, ни карты, ни живого статуса", async () => {
+  session.clear();
+  const ROUTE = { from_lat: 54.73, from_lng: 55.95, to_lat: 52.71, to_lng: 58.66 };
+  // Сразу открыли уже отменённую в пути поездку.
+  const opened = await openActiveTrip({ status: "cancelled", details: { ...IN_TRANSIT, ...ROUTE }, trip: TRIP_IN_TRANSIT });
+  assert.deepEqual(parts(opened.h.tree), ["SubHeader", "CancelledInTransitCard"], parts(opened.h.tree).join(", "));
+  // Экран был открыт в пути — чат и карта были; отмена пришла опросом — их нет.
+  const { h, at } = await openActiveTrip({ status: "onboard", details: { ...ROUTE, driver_plate: "М555ОР102" } });
+  assert.ok(ofType(h.tree, "TripChatCard").length === 1 && ofType(h.tree, "YandexMap").length === 1, "в пути чат и карта есть");
+  Object.assign(at.trip, TRIP_IN_TRANSIT);
+  Object.assign(at.details, IN_TRANSIT);
+  await tick(h);
+  for (const live of ["TripChatCard", "YandexMap", "StatusPill", "ShareTripCard", "RoadsideHelp", "BookingSegmentNote"]) {
+    assert.equal(ofType(h.tree, live).length, 0, `после отмены в пути осталось живое: ${live}`);
+  }
+  assert.deepEqual(parts(h.tree), ["SubHeader", "CancelledInTransitCard"], parts(h.tree).join(", "));
+  assert.ok(!all(h.tree).some((n) => n.props?.className === "trip-banner"), "живой баннер статуса остался");
+});
+
+// ---------------------------------------------------------------- №4: признак из одной ручки
+await t.test("признак только в деталях брони (/role его не знает) — помощь, машина и номер на месте", async () => {
+  session.clear();
+  const { h } = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_NO_FLAG });
+  await tick(h); // ещё один опрос /role без признака экран помощи не гасит
+  const c = card(h.tree);
+  assert.ok(c, "признак из /details потерялся");
+  assert.equal(c.props.car, "серая Лада Веста");
+  assert.equal(c.props.plate, "М555ОР102");
+  assert.ok(!JSON.stringify(h.tree).includes("tel:"));
+});
+
+await t.test("признак только в опросе /role — машина и номер из деталей брони не стираются", async () => {
+  session.clear();
+  const { h, at } = await openActiveTrip({ status: "cancelled", details: DETAILS_NO_FLAG, trip: TRIP_IN_TRANSIT });
+  const c = card(h.tree);
+  assert.ok(c, "признак из /role потерялся");
+  assert.equal(c.props.car, "серая Лада Веста", "машину стёрли как при обычной отмене");
+  assert.equal(c.props.plate, "М555ОР102", "госномер стёрли как при обычной отмене");
+  assert.equal(detailsGets(at), 1, "машина уже известна — детали брони второй раз не просим");
+});
+
+await t.test("признак только в /role, а машины в деталях нет — детали брони дочитываются, и только один раз", async () => {
+  session.clear();
+  const EMPTY = { ...DETAILS_NO_FLAG, driver_car: "", driver_car_color: "", driver_plate: "" };
+  let n = 0;
+  const { h, at } = await openActiveTrip({ status: "cancelled", details: EMPTY, trip: TRIP_IN_TRANSIT,
+    intercept: (p, at) => (p === "/bookings/42/details" && ++n === 2 ? { ...at.details, ...IN_TRANSIT } : undefined) });
+  assert.equal(detailsGets(at), 2, "детали брони не дочитали — у пассажира нет машины и номера");
+  assert.equal(card(h.tree)?.props.plate, "М555ОР102");
+  await tick(h);
+  assert.equal(detailsGets(at), 2, "машина уже есть — больше не просим");
+  // Сервер машину так и не прислал — просим один раз, а не на каждом опросе.
+  const never = await openActiveTrip({ status: "cancelled", details: EMPTY, trip: TRIP_IN_TRANSIT });
+  await tick(never.h);
+  await tick(never.h);
+  assert.equal(detailsGets(never.at), 2, "детали брони переспрашиваются на каждом опросе");
+  assert.ok(card(never.h.tree), "экран помощи есть и без машины");
+});
+
+// ---------------------------------------------------------------- №3: вкладка помнит отмену в пути
+await t.test("SOS и назад без сети — экран помощи с машиной и госномером на месте; телефона в памяти нет", async () => {
+  session.clear();
+  const first = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT });
+  assert.ok(card(first.h.tree));
+  first.h.unmount(); // ушёл на SOS — экран поездки закрылся
+  assert.deepEqual([...session.keys()], ["yuldash.inTransit.42"]);
+  assert.deepEqual(JSON.parse(session.get("yuldash.inTransit.42")), { owner: 1, car: "серая Лада Веста", plate: "М555ОР102" },
+    "вкладка помнит только номер брони, машину и госномер");
+  // Назад — а связи нет.
+  const { h } = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT, intercept: NO_NET });
+  const c = card(h.tree);
+  assert.ok(c, "без сети экран помощи пропал — только «Не удалось загрузить»");
+  assert.equal(c.props.bookingId, 42);
+  assert.equal(c.props.car, "серая Лада Веста");
+  assert.equal(c.props.plate, "М555ОР102");
+  assert.equal(ofType(h.tree, "ErrorState").length, 1, "«Повторить» на месте");
+  assert.ok(!JSON.stringify(h.tree).includes("tel:"));
+});
+
+await t.test("вернулся, а ответ сервера ещё идёт — сразу экран помощи, а не заглушка загрузки", async () => {
+  session.clear();
+  (await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT })).h.unmount();
+  const { h } = await openActiveTrip({ intercept: () => new Promise(() => {}) });
+  assert.equal(card(h.tree)?.props.plate, "М555ОР102", "пока грузимся, помощи нет");
+  assert.equal(ofType(h.tree, "LoadingList").length, 0);
+});
+
+await t.test("другой вход в той же вкладке чужую отмену в пути не видит", async () => {
+  session.clear();
+  (await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT })).h.unmount();
+  const { h } = await openActiveTrip({ userId: 2, intercept: NO_NET });
+  assert.equal(card(h.tree), undefined, "чужая машина и госномер на экране другого человека");
+  assert.ok(!JSON.stringify(h.tree).includes("М555ОР102"));
+});
+
+await t.test("обычная отмена вкладке не запоминается", async () => {
+  session.clear();
+  (await openActiveTrip({ status: "cancelled", details: DETAILS_NO_FLAG, trip: TRIP_NO_FLAG })).h.unmount();
+  assert.equal(session.size, 0);
+});
+
+await t.test("выход из аккаунта стирает память об отмене в пути", async () => {
+  session.clear();
+  session.set("yuldash.inTransit.42", JSON.stringify({ owner: 1, car: "серая Лада Веста", plate: "М555ОР102" }));
+  session.set("yuldash.lang", "ba");
+  const clearPersonalLocal = await bundleComponent("src/utils/privacy.ts", {
+    mocks: { "/storageHealth": "export const reportStorageFailure=()=>{};" },
+    exportName: "clearPersonalLocal",
+  });
+  clearPersonalLocal();
+  assert.deepEqual([...session.keys()], ["yuldash.lang"], "машина и госномер пережили выход");
+});
+
 // ---------------------------------------------------------------- сама карточка
 async function openCard(lang, props) {
   const Card = await bundleComponent("src/components/CancelledInTransitCard.tsx", {
@@ -96,7 +234,7 @@ async function openCard(lang, props) {
 }
 
 for (const lang of ["ru", "ba"]) {
-  await t.test(`${lang}: карточка — что делать, машина, SOS с бронью, «Застряли», разбор без готового типа`, async () => {
+  await t.test(`${lang}: карточка — что делать, машина, SOS с бронью, «Застрял на трассе», разбор без готового типа`, async () => {
     const h = await openCard(lang);
     const s = text(h.tree);
     assert.ok(s.includes(L(lang, "Поездку отменили в пути", "Сәфәр юлда кире алынды")));
