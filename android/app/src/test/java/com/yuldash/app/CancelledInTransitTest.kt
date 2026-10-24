@@ -59,6 +59,7 @@ class CancelledInTransitTest {
     private val mounted = mutableStateOf(false)
     private lateinit var server: MockWebServer
     private val requests = CopyOnWriteArrayList<String>()
+    private val trace = CopyOnWriteArrayList<String>()   // ApiClient.testTrace: вызовы сети и кадры экрана поездки
     private var tripEndCalls = 0
     private var sosCalls = 0
     private var stoppedCalls = 0
@@ -117,6 +118,7 @@ class CancelledInTransitTest {
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 1000
+        ApiClient.testTrace = { trace += it }
     }
 
     @After fun cleanup() {
@@ -126,6 +128,7 @@ class CancelledInTransitTest {
         ApiClient.logout()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
+        ApiClient.testTrace = null
         TripPassStore.initStores(MemoryDiskPreferences(), null)
         InTransitCancels.clearForTest()
         server.shutdown()
@@ -143,7 +146,7 @@ class CancelledInTransitTest {
         } catch (e: ComposeTimeoutException) {
             throw AssertionError("$what: запросы=${requests.toList()}, tripEnd=$tripEndCalls, stopped=$stoppedCalls, " +
                 "память=[${InTransitCancels.describeForTest()}], сессия=${ApiClient.queueSessionGeneration()}, " +
-                "экран=${screenTree()}", e)
+                "след=${trace.takeLast(30)}, экран=${screenTree()}", e)
         }
     }
 
@@ -379,6 +382,7 @@ class CancelledInTransitTest {
             !mounted.value && compose.onAllNodesWithText("Поездку отменили в пути").fetchSemanticsNodes().isEmpty()
         }
         offline = true   // паспорт уже удалён, сервер недоступен — помнит только этот вход
+        requests += "— возврат —"; trace += "— возврат (stopped=$stoppedCalls) —"
         val back = {
             compose.runOnIdle { mounted.value = true }
             waitForText("Поездку отменили в пути")

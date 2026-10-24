@@ -33,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
@@ -216,6 +217,8 @@ internal fun ActiveTripTerminalCleanup(
     val finish by rememberUpdatedState(onFinish)
     val dropPass by rememberUpdatedState(onPassDropped)
     val currentRole by rememberUpdatedState(role)
+    // След для тестов (ApiClient.testTrace, в проде null): с чем экран поездки пришёл к этому кадру.
+    SideEffect { ApiClient.testTrace?.invoke("кадр поездки: роль=$role итог=$terminal в пути=${inTransit.cancelled} #${System.identityHashCode(inTransit)}") }
     // Observe server completion too, not only a local finish button. Keep this above the
     // completed-screen early return so failed durable writes can still be retried there.
     LaunchedEffect(bookingId, terminal, removalRetry) {
@@ -344,6 +347,10 @@ internal fun CancelledInTransitScreen(
     // кадром позже, и SOS, нажатый сразу, уводил с экрана раньше записи (CI PR207).
     SideEffect {
         if (isCurrent()) InTransitCancels.record(bookingId, ownerGeneration, state.car, state.driverName)
+    }
+    DisposableEffect(bookingId) {
+        ApiClient.testTrace?.invoke("экран помощи показан #${System.identityHashCode(state)}")
+        onDispose { ApiClient.testTrace?.invoke("экран помощи убран #${System.identityHashCode(state)}") }
     }
     LaunchedEffect(state.reportSec) {
         val left = state.reportSec

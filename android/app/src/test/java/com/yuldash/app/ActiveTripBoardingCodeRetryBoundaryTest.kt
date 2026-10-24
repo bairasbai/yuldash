@@ -116,9 +116,7 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         .put("booking_id", id).put("boarding_code", code).put("price", 700)
         .put("pay_method", method).put("pay_amount", amount))
     private fun disk(id: Int = 42) = secure.restarted().getString("pass_$id", null)
-    // idle главного Looper + доставка снимков (testing.md, правило 5): ответ сервера пишет код в
-    // состояние экрана с фонового потока, а сам waitUntil эту запись не применяет — экран мог ещё
-    // показывать «Код загружается», когда на диске уже «5678» (CI PR207, twoRapidPointerTaps…).
+    // Каждый шаг ожидания — idle главного Looper + доставка снимков (testing.md, правило 5).
     private fun waitFor(condition: () -> Boolean) = compose.waitUntil(15000) {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         Snapshot.sendApplyNotifications()
