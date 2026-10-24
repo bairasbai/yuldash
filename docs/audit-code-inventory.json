@@ -2386,8 +2386,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripBoardingCodeRetryBoundaryTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "0ea522bb3eb17580f4dcc342de80f4fbd4e9c96514f4ad9c23007df16ce08e62",
-      "lines": 251
+      "sha256": "90ddc527f1080cff11d6237c89259bf77f81c162993b49e3122e087432f6f2d2",
+      "lines": 249
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripBoardingCodeSaveTest.kt",
