@@ -35,7 +35,9 @@ pytestmark = [
 def _ride(api, driver, hours_boost=6):
     r = api.post("/rides", headers=driver["auth"], json={
         "from_city": "Баймаҡ", "to_city": "Сибай", "price": 300, "seats_total": 3,
-        "depart_at": (utcnow() + timedelta(hours=5)).isoformat()})
+        # Явный UTC: время без пояса сервер читает как уфимское (UTC+5), и «через 5 ч» стало бы «сейчас» —
+        # пауза снимает только будущие поездки.
+        "depart_at": (utcnow() + timedelta(hours=5)).isoformat() + "+00:00"})
     assert r.status_code == 200, r.text
     rid = r.json()["id"]
     if hours_boost:
@@ -94,6 +96,62 @@ def test_снятие_дежурным_и_новая_поездка_водите
         f"остаток потерян: на новой поездке {applied:.0f} с, на счету {left} с, а было 2 ч + снятые 6 ч")
     with Session(engine) as s:
         assert s.get(User, admin["id"]).boost_credit_sec == 0, "дежурному на счёт — ничего"
+
+
+def test_пауза_и_новая_поездка_водителя_остаток_не_теряется(client, user_factory, monkeypatch):
+    """Пауза снимает поднятую поездку (решение 24.10.2026: остаток — водителю), а водитель в ту же секунду
+    публикует новую. Каскад паузы держит строку водителя под замком — публикация ждёт и берёт свежий остаток."""
+    from app import services
+    from app.safety_logic import cancel_upcoming_after_suspension
+
+    driver = user_factory("Гонка пауза водитель", role=UserRole.driver)
+    rid = _ride(client, driver, hours_boost=6)
+    with Session(engine) as s:
+        u = s.get(User, driver["id"])
+        u.boost_credit_sec, u.boost_credit_until = 2 * 3600, utcnow() + timedelta(days=5)
+        s.add(u)
+        s.commit()
+
+    stashed, release = threading.Event(), threading.Event()
+    real_stash = services.stash_boost_credit
+
+    def slow_stash(user, ride, now, usable_from=None):
+        moved = real_stash(user, ride, now, usable_from=usable_from)
+        stashed.set()
+        release.wait(10)
+        return moved
+
+    monkeypatch.setattr(services, "stash_boost_credit", slow_stash)
+    api = TestClient(app, raise_server_exceptions=False)
+    out = {}
+
+    def pause():
+        with Session(engine) as s:
+            out["pause"] = cancel_upcoming_after_suspension(s, driver["id"])
+
+    cascade = threading.Thread(target=pause)
+    cascade.start()
+    assert stashed.wait(10), "каскад паузы не перенёс остаток поднятия"
+    publish = threading.Thread(target=lambda: out.__setitem__("publish", api.post("/rides", headers=driver["auth"], json={
+        "from_city": "Сибай", "to_city": "Баймаҡ", "price": 300, "seats_total": 3,
+        "depart_at": (utcnow() + timedelta(hours=8)).isoformat()})))
+    publish.start()
+    time.sleep(0.7)
+    release.set()
+    cascade.join(20)
+    publish.join(20)
+    assert out["publish"].status_code == 200, out["publish"].text
+
+    now = utcnow()
+    with Session(engine) as s:
+        u = s.get(User, driver["id"])
+        old = s.get(Ride, rid)
+        new_ride = s.get(Ride, out["publish"].json()["id"])
+        applied = (new_ride.boosted_until - now).total_seconds() if new_ride.boosted_until else 0
+        left = u.boost_credit_sec if (u.boost_credit_until and u.boost_credit_until > now) else 0
+    assert old.status.value == "cancelled" and old.boosted_until is None
+    assert abs((applied + left) - 8 * 3600) < 30, (
+        f"остаток потерян: на новой поездке {applied:.0f} с, на счету {left} с, а было 2 ч + снятые паузой 6 ч")
 
 
 def test_один_бонус_два_одновременных_подъёма_списывается_один_раз(client, user_factory):
