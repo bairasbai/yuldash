@@ -43,7 +43,7 @@ def _share(client, pax, order_id, cid):
 
 #: Полный набор полей завершённой поездки (см. share._finished). Закрытый список — чтобы
 #: новое поле с гео нельзя было добавить незаметно: тест упадёт на самом факте появления ключа.
-_FINISHED_KEYS = {"kind", "status", "phase_text", "car", "passenger_first_name", "updated_at"}
+_FINISHED_KEYS = {"kind", "status", "outcome", "phase_text", "car", "passenger_first_name", "updated_at"}
 
 #: Ключи, где числа с точкой — это НЕ координата (время и версии). Их не смотрим.
 _NOT_A_PLACE = {"updated_at", "created_at", "ts"}

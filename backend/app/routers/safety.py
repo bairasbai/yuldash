@@ -26,7 +26,7 @@ from ..security import current_user
 from ..services import (booking_and_ride_for_user, notify_admin_telegram, pick_lang, push_bilingual,
                         sms_lang_of, push_notification, send_text, sms_will_reach)
 from ..timeutil import utcnow
-from ..visibility import booking_contacts_open
+from ..visibility import booking_contacts_open, transit_cancel_car_open
 from .. import quality, trip_wake
 
 router = APIRouter(tags=["safety"])
@@ -388,7 +388,10 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     # До подтверждения родным уходят цвет, марка и модель. Водитель жмёт в своей поездке —
     # машина его собственная, номер его родным отдаём всегда. Дежурному — всё (`_ride_context_line`).
     if ride is not None:
-        номер_открыт = ride.driver_id == user.id or booking_contacts_open(booking, ride)
+        # …и после отмены в пути (23.10.2026): бронь была подтверждена и пассажир сидел в машине,
+        # а номер нужен ровно сейчас — родным и полиции искать машину (в окне связи после поездки).
+        номер_открыт = (ride.driver_id == user.id or booking_contacts_open(booking, ride)
+                        or transit_cancel_car_open(booking))
         car = _car_of(session, ride.driver_id, with_plate=номер_открыт)
     else:
         car = _car_of(session, order.driver_id if order else None)

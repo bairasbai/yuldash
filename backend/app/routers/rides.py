@@ -6,7 +6,7 @@ from datetime import date as date_type, datetime, timedelta
 from functools import lru_cache
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_, text
 from sqlmodel import Session, select
@@ -29,7 +29,7 @@ from ..security import current_user, current_user_optional
 from ..timeutil import client_dt_to_utc, utcnow
 # Планка «завершить можно только начавшуюся поездку» — одна на все три двери
 # к этому переходу (bookings.py, family.py и эта ручка).
-from .bookings import DONE_EARLY_GRACE
+from .bookings import DONE_EARLY_GRACE, notify_cancelled_in_transit
 
 # Сколько времени до выезда бронь должна провисеть, чтобы «не подтвердил» считалось виной
 # водителя. Бронь за пять минут до отправления он мог физически не увидеть; полчаса и больше —
@@ -37,7 +37,7 @@ from .bookings import DONE_EARLY_GRACE
 _CONFIRM_GRACE = timedelta(minutes=30)
 from ..workday import local_now
 from .. import trip_wake
-from ..visibility import (FEED_MAX, hide_blocked, hide_health_hint, hide_suspended,
+from ..visibility import (FEED_MAX, cancelled_in_transit, hide_blocked, hide_health_hint, hide_suspended,
                           hide_trusted_only, is_ride_insider, may_see_ride_by_id, visible_rides)
 from ..services import (
     CITY_COORDS, apply_boost_credit, boost_then_depart_order, cache_get_json, cache_set_json,
@@ -1095,7 +1095,8 @@ def _live_bookings(session: Session, ride_id: int) -> list:
 
 
 @router.post("/rides/{ride_id}/cancel", response_model=RideOut)
-def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def cancel_ride(ride_id: int, background: BackgroundTasks, user: User = Depends(current_user),
+                session: Session = Depends(get_session)):
     """Водитель снимает поездку (сломался/передумал). Каскад: все живые брони → cancelled,
     каждому пассажиру push «Поездка отменена» (он увидит альтернативы в /rides/near).
     Идемпотентно: повторная отмена — no-op. Завершённую отменить нельзя."""
@@ -1104,7 +1105,15 @@ def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Sessi
         return public_ride_payload(ride_out(ride, session), full=True)   # идемпотентно (двойной тап); свой рейс — свой текст
     if ride.status == RideStatus.done:
         raise herr(400, "Поездка уже завершена", "Сәфәр инде тамамланған")
-    affected = _live_bookings(session, ride_id)
+    # Замки Ride → Booking (порядок V4, как у отмены брони): поездку уже держит `_ride_owned` (и
+    # читает её первой в этой сессии — поля свежие), брони берём под замок и перечитываем. Без
+    # этого «Сел» водителя в ту же секунду расходился с отменой: бронь в памяти «подтверждена», а в
+    # базе уже «в пути» — и пассажиру, близким и странице слежения ушли бы разные правды
+    # (проверка безопасности 23.10.2026).
+    affected = session.exec(select(Booking).where(
+        Booking.ride_id == ride_id,
+        Booking.status.notin_((BookingStatus.cancelled, BookingStatus.done)),  # type: ignore[attr-defined]
+    ).with_for_update().execution_options(populate_existing=True)).all()
     ride.status = RideStatus.cancelled
     session.add(ride)
     now = utcnow()
@@ -1142,6 +1151,11 @@ def cancel_ride(ride_id: int, user: User = Depends(current_user), session: Sessi
     # И на двух языках: раньше текст был только русский.
     route = f"{ride.from_city} → {ride.to_city}"
     for b in affected:
+        # Пассажир уже в машине (решение 23.10.2026): не «посмотри другие поездки», а путь к помощи;
+        # близким, с кем он поделился поездкой, — SMS «отменили в пути».
+        if cancelled_in_transit(b):
+            notify_cancelled_in_transit(session, b, ride, background)
+            continue
         push_notification(
             session, b.passenger_id, "booking",
             "Поездка отменена", "Сәфәр кире алынды",
