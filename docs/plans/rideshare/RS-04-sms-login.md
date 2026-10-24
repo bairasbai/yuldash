@@ -33,29 +33,29 @@
 ## 3. Что сделать
 ### Сервер (`backend/`)
 **А1. Выключатели владельца (D1).**
-1. `owner_switches.py` — реестр ключей: значения, по умолчанию (прод / вне прода), блокеры, правило группы. Ключи `login.sms|telegram|vk|whatsapp` (RS-08 добавит `rideshare_card_payments`). По умолчанию: `telegram` — вкл.; `sms` — выкл. на проде, **вкл. вне прода** (17 тестов ходят через `request-code`); `vk`, `whatsapp` — выкл.
+1. `owner_switches.py` — реестр: значения, умолчание (прод / вне прода), блокеры, правило группы. Ключи `login.sms|telegram|vk|whatsapp` (RS-08 добавит `rideshare_card_payments`). Умолчания: `telegram` — вкл.; `sms` — выкл. на проде, **вкл. вне прода** (17 тестов через `request-code`); `vk`, `whatsapp` — выкл.
 2. Таблицы `appsetting` (`key` PK, `value`, `updated_at`, `updated_by` nullable, ON DELETE SET NULL) и `appsettingchange` (`key`, `old_value`, `new_value`, `admin_id` nullable SET NULL, `created_at`, `note`); строки ключей заводит миграция, `value = NULL` = «по умолчанию».
 3. Блокеры — имена недостающих переменных: `sms` — `SMS_PROVIDER=smsru` + `SMS_RU_API_ID` (или smsdar); `telegram` — `TELEGRAM_BOT_TOKEN` + `TELEGRAM_WEBHOOK_SECRET`; `vk` — `VK_ID_CLIENT_ID`, `VK_ID_REDIRECT_URIS`; `whatsapp` — `WHATSAPP_PROVIDER` + ключи.
 4. Группа `login.*`: нельзя выключить последний действующий способ (`switch_last_login_method`) и `login.telegram` (через него входит админ, А2 п. 8); выключение `sms`, если у `N > 0` аккаунтов не останется способа (нет `telegram_id`, `vk_id`, WhatsApp не действует), — только с `confirm: true`, иначе 409 `switch_needs_confirm` + `affected`.
 5. Запись — `SELECT … FOR UPDATE` по ключам группы в порядке ключей; то же значение — 200 без строки; иначе `appsettingchange` + `admin_action`. Чтение — кеш ≤ 10 с.
 6. `routers/admin_switches.py`, только `role == admin`: `GET /admin/switches`, `POST /admin/switches/{key}` `{value, confirm?, note?}` → `{stored, effective, blockers, updated_at, updated_by_name, history[50]}`.
-7. `available_methods()` (RS-01) = `login.*` с `effective`. Людям видно ≤ 40 с (кеш 10 с + `max-age=30`) и сразу при открытии экрана входа.
+7. `available_methods()` (RS-01) = `login.*` с `effective`; людям видно ≤ 40 с (кеш 10 с + `max-age=30`).
 
 **А2. СМС, один аккаунт, роль админа.**
 1. Номер — только `+79\d{9}`, иначе 422 `phone_not_supported` (иностранные платные номера — главный способ разорить счёт).
-2. Строки выдачи живут ≥ 24 ч: из вебхука убрать уборку `OtpCode` и `TgAuth` (`auth.py:690-705`), остаётся ночная `cleanup.py:152`.
-3. Лимиты выдачи (под замком номера, все каналы вместе): номер — раз в 60 с, ≤ 5/час, ≤ 10/сутки; IP — ≤ 40/час (село за общим IP оператора; опора — лимит номера и потолок дня); устройство (`X-Device-Id`, только Android) — ≤ 5/час; сервис — `SMS_DAILY_CAP`/сутки (по умолчанию 300) → 503 `sms_daily_cap` + одно сообщение дежурному. Превышение → 429 `otp_rate_limited` + `retry_after_sec`.
+2. Строки выдачи живут ≥ 24 ч: уборку `OtpCode`/`TgAuth` из вебхука (`auth.py:690-705`) убрать, остаётся ночная (`cleanup.py:152`).
+3. Лимиты выдачи (под замком номера, все каналы вместе): номер — раз в 60 с, ≤ 5/час, ≤ 10/сутки; IP — ≤ 40/час (село за общим IP оператора — опора на лимит номера и потолок дня); устройство (`X-Device-Id`, Android) — ≤ 5/час; сервис — `SMS_DAILY_CAP`/сутки (300) → 503 `sms_daily_cap` + одно сообщение дежурному. Иначе → 429 `otp_rate_limited` + `retry_after_sec`.
 4. `OtpCode` + `channel`, `ip_hash`, `device_hash` (HMAC с секретом сервера); `OtpCode.code` и `TgAuth.code` — HMAC, сверка `compare_digest` (живые коды при выкладке пропадут — 5 мин, допустимо).
-5. Ответ один для любого номера: `{"sent": true, "resend_after_sec": 60, "expires_in_sec": 300}`. Тело — `{phone, lang, channel: "sms"|"whatsapp"}`. СМС — на языке экрана, ≤ 70 знаков кириллицы, последней строкой `@app.yulbash.ru #<код>`; отправитель `SMS_FROM`.
+5. Ответ один для любого номера: `{"sent": true, "resend_after_sec": 60, "expires_in_sec": 300}`; тело — `{phone, lang, channel}`. СМС — на языке экрана, ≤ 70 знаков, последней строкой `@app.yulbash.ru #<код>`.
 6. Журнал: код — никогда, номер — `mask_phone`; код в лог при сбое — только `env == "dev"`.
 7. `send_text` — отдельный `SMS_NOTIFY_ENABLED` (по умолчанию `false`), им же `sms_will_reach`: вход по СМС молча не включает СМС SOS и уведомлений (Q2, Q11).
 8. **Роль админа (D8):** СМС, VK, WhatsApp → `_complete_login(promote_admin=False)`; аккаунт с ролью `admin` так не входит — 403 `admin_login_telegram_only`. Повышение — только входом через Telegram.
-9. **Один аккаунт:** ключ — подтверждённый номер (`auth.py:989-993`). СМС/WhatsApp → по номеру. Telegram/VK → по своему id, иначе по номеру провайдера; слот пуст — привязать; занят другим id → 409 `method_linked_other` без второго аккаунта (и вместо застревания `auth.py:958, 986-993`); нашли по id, а номер у другого аккаунта → 409 `phone_taken_other_account`, слияние — поддержка. Текст `method_linked_other` сервер собирает из действующих способов; нет ни одного — «напиши в поддержку».
+9. **Один аккаунт:** ключ — подтверждённый номер (`auth.py:989-993`). СМС/WhatsApp → по номеру. Telegram/VK → по своему id, иначе по номеру провайдера; слот пуст — привязать; занят другим id → 409 `method_linked_other` без второго аккаунта (и вместо застревания `auth.py:958, 986-993`); нашли по id, а номер у другого аккаунта → 409 `phone_taken_other_account`, слияние — поддержка. Текст `method_linked_other` — из действующих способов, нет их — «напиши в поддержку».
 10. Бот при выключенном Telegram отвечает «Вход через Telegram сейчас выключен» без кода.
 
 **Б. VK ID** (`vk_id.py`, `User.vk_id` уникальный): PKCE (S256) на клиенте, `code_verifier` не покидает устройство; `client_id`, `scope`, `redirect_uri` — в `/config/login-methods`. `POST /auth/vk/finish` `{code, code_verifier, vk_device_id, redirect_uri}`: `redirect_uri` — только из `VK_ID_REDIRECT_URIS`; наш `X-Device-Id` — только из заголовка; код у VK меняет сервер и сам читает профиль (по документации VK ID). `vk_id` от клиента не принимаем (старая дыра, `auth.py:1022-1026`). Берём `vk_id`, имя (`_safe_display_name`), подтверждённый номер; токен VK не храним; нет номера → 403 `phone_required_vk`. Дальше — А2 п. 8–9.
 
-**В. WhatsApp** (`whatsapp_otp.py`): тот же код другим каналом — общие `OtpCode`, лимиты, сверка. Только официальный WhatsApp Business API (шаблон «authentication») у провайдера с договором в России; личный номер и «серые» рассылки — нельзя. Адаптер `send_code(phone, code, lang) -> bool` + реализация под выбор Александра. Доставка в России нестабильна — только запасной.
+**В. WhatsApp** (`whatsapp_otp.py`): тот же код другим каналом — общие `OtpCode`, лимиты, сверка. Только официальный WhatsApp Business API (шаблон «authentication») у провайдера с договором в России; личный номер и «серые» рассылки — нельзя. Адаптер `send_code(phone, code, lang) -> bool` под выбор Александра; доставка нестабильна — только запасной.
 
 **Г. Профиль и смена номера:** `GET /me/login-methods` (номер маской, Telegram, VK); привязка — поток Telegram/VK с токеном сессии; `unlink` — если остаётся другой действующий способ. `refreshtoken.auth_time` — момент проверки кода, переносится при продлении (`rotate_refresh`, `security.py:183`) и им не обновляется. Смена номера: `POST /me/phone/request-code` → `/me/phone/confirm` — `auth_time` ≤ 10 мин, новый свободный номер, раз в 7 дней (`user.phone_changed_at`); потом `revoke_all_refresh` и пуш.
 
@@ -66,9 +66,9 @@
 
 ### Android (`android/`)
 1. `LoginScreen.kt`: как сайт п. 1, ошибки по `detailCode`; конец таймера — в `rememberSaveable`; `Color.White` (`:970`) → `CanonOnFilled`.
-2. Автоподстановка без `READ_SMS`: `contentType = ContentType.SmsOtpCode` у поля кода (без библиотек; проверить в BOM 2026.06.00). SMS Retriever не берём — нужен хеш подписи в тексте СМС, у отладочной и выпускной сборки он разный. Запасной — SMS User Consent API (`play-services-auth-api-phone`): новая зависимость, только с обоснованием (§10).
+2. Автоподстановка без `READ_SMS`: `contentType = ContentType.SmsOtpCode` (без библиотек; проверить в BOM 2026.06.00). SMS Retriever не берём — нужен хеш подписи в СМС, разный у отладочной и выпускной сборки. Запасной — SMS User Consent API: новая зависимость, только с обоснованием (§10).
 3. VK: браузер (`Intent.ACTION_VIEW`), возврат — схема из кабинета VK ID в `AndroidManifest.xml`; сверить `state`; `code_verifier`/`state` — `rememberSaveable`.
-4. `AdminSwitchesScreen.kt` (⭐ п. 4: `Screen.AdminSwitches`, `AppNavAdmin.kt`, плитка, `architecture.md`): название, состояние («Включён» / «Выключен» / «Не настроен: не хватает …»), переключатель (серый при блокере), «вкл. 24.10, 14:05 · Александр»; платное и выключение СМС — подтверждение с числом людей; журнал.
+4. `AdminSwitchesScreen.kt` (⭐ п. 4: `Screen.AdminSwitches`, `AppNavAdmin.kt`, плитка, `architecture.md`): состояние («Включён» / «Выключен» / «Не настроен: не хватает …»), переключатель (серый при блокере), «вкл. 24.10, 14:05 · Александр»; платное и выключение СМС — с подтверждением; журнал.
 5. `LoginMethodsProfileScreen.kt` (⭐ п. 4: `Screen.LoginMethods`, ветка `YuldashApp.kt`/`AppNav*.kt`, пункт в `ProfileScreen.kt`, `architecture.md`).
 
 ## 4. База данных
