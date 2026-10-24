@@ -3,10 +3,13 @@
 | | |
 |---|---|
 | Статус | не начато |
-| Ждёт «да» Александра | да — только часть Б: миграция (таблица «как водитель принимает оплату»). Части А и В — нет: правила отмены не меняются, денег через приложение нет |
-| Зависит от | — (зона брони общая с RS-02, RS-03, RS-05 — по очереди) |
+| Ждёт «да» Александра | да — только часть Б: миграция (таблица способов оплаты водителя). Условия и предупреждение — нет: правила отмены не меняются, денег через приложение нет |
+| Зависит от | RS-01 (`herr(..., code=)`, честные тексты оплаты) |
+| Не параллельно с | RS-01–RS-06, RS-08–RS-15 — по общим файлам (индекс, «Очередь по общим файлам») |
+| Деление на PR | `[RS-07А]` — условия и предупреждение: сервер и сайт; `[RS-07В]` — то же на Android (агент на компьютере); `[RS-07Б]` — способы оплаты водителя: миграция, ждёт «да», после А и В. Шаги ниже помечены тегом PR |
+| Проверка `yuldash-security-privacy` | да — антифрод-тексты, личная отметка на устройстве, новая таблица аккаунта |
 | Двигает сценарии приёмки | W1-E2E-01 (карточка до брони); попутно W1-E2E-03 (честные слова об отмене) |
-| Зона файлов | сервер: `routers/incidents.py`, `routers/bookings.py`, `routers/drivers.py`, `models.py`, `schemas.py`, `services.py`, новая миграция, `tests/test_rs07_*.py`; Android: `BookingActiveTripScreen.kt`, `BookingSeatCount.kt`, новый `BookingTermsCard.kt`, `ProfileScreen.kt`, `Domain.kt`, `MainActivity.kt` (1 строка), `data/ApiClient.kt`, `data/BookingDtos.kt`, `data/SessionKeys.kt`, тесты; сайт: `RideSheet.tsx`, новый `components/BookingTerms.tsx`, `ActiveTripScreen.tsx`, `BookingScreen.tsx`, `HelpScreen.tsx`, `DriverCabinetScreen.tsx`, `api/rides.ts`, `api/safety.ts`, `api/bookings.ts`, `utils/privacy.ts`, `tests/`; мозг: `docs/tasks.md`, `docs/decisions.md` |
+| Зона файлов | сервер: `routers/incidents.py`, `routers/bookings.py`, `routers/drivers.py`, `models.py`, `schemas.py`, `services.py`, `cleanup.py`, `account.py`, новая миграция, `tests/test_rs07_*.py`; Android: `BookingActiveTripScreen.kt`, `BookingSeatCount.kt`, новый `BookingTermsCard.kt`, `ProfileScreen.kt`, `Domain.kt`, `MainActivity.kt` (1 строка), `data/ApiClient.kt`, `data/BookingDtos.kt`, `data/SessionKeys.kt`, тесты; сайт: `RideSheet.tsx`, новый `components/BookingTerms.tsx`, `ActiveTripScreen.tsx`, `BookingScreen.tsx`, `HelpScreen.tsx`, `DriverCabinetScreen.tsx`, `api/rides.ts`, `api/safety.ts`, `api/bookings.ts`, `utils/privacy.ts`, `webapp/tests/booking-cancel-reason-test.mjs`, новый `webapp/tests/booking-terms-test.mjs`, `webapp/tests/run.mjs` (строка); мозг: `docs/tasks.md`, `docs/decisions.md` |
 | Источник | исследование: `master/part-001.md` п. 8, 19, 20; `continuation/part-027.md` «ScamDisclaimer»; `continuation/part-022.md` «причина отмены», «сумма перед отменой»; решения 24.10 (Q5, Q17.6) |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
@@ -23,81 +26,92 @@
 ## 2. Что уже есть в коде
 - `webapp/src/components/RideSheet.tsx:226` водитель и цена, `:268` «Итого», `:372` «Телефон… после подтверждения»; оплаты, отмены, предупреждения нет; бронь `:135` без `pay_method`.
 - `android/.../BookingSeatCount.kt:69` «Итого» через `kopToRub(price * selected * 100)`; цена 0 → «0 ₽» (сайт: «Договорная», `utils/format.ts:105`).
-- `BookingActiveTripScreen.kt:296` `BookingScreen`, `:342` `negotiate` по умолчанию, `:690` `PayAgreementBlock` (чипы `:936`) — на Android выбор есть, на сайте нет. Отмена: `:476-507`, `:2195` «Отмена бесплатна до начала поездки…», `:2198`; сайт `ActiveTripScreen.tsx:1124`, `:1136`, `BookingScreen.tsx:303`.
-- Сервер, оплата: `models.py:46` `PayMethod` — запись, не платёж; `:608` `Booking.pay_method/pay_amount` (₽); `:370` `Ride.price` — целые ₽; `bookings.py:276` `BookIn`, `:574` `total_price`, `:782` `/pay-agreement`. «Какие способы принимает водитель» — не нашёл (`Ride` `models.py:359`, `DriverProfile` `:221`, `RideOut` `schemas.py:51`).
-- Отмена: `bookings.py:1466` `_cancel_booking` — места назад, другой стороне пуш; «в пути» пассажиру нельзя (`:1617`); `rides.py:1095` `cancel_ride` — «посмотри другие поездки». Штрафов и возвратов нет. `safety_logic.py:385` `is_late_cancel` (позже `config.py:113` = 60 мин до выезда или водитель выехал), `:397` `reliability_for` — поздняя отмена снижает «Надёжность», ранняя — нет, неявка — только по разбору; Надёжность видят другие (`incidents.py:697`).
-- Неявка: `bookings.py:1686` — водитель, подтверждённая бронь, через `NO_SHOW_WAIT` (`:91`, 5 мин) от «выезд»/«Подъезжаю»; окно жалобы `:245`; причины `safety_logic.py:41`.
-- `incidents.py:712` `/safety/policy` — пороги с сервера (образец), окон отмены нет; читают `api/safety.ts:231`, `ApiClient.kt:5393`.
-- Мошенники: `antifraud.py:273-296` паттерны, `:395` `moderate_text` (фишинг — `:406`); `ChatSafety.tsx:54`, `TripChatScreen.tsx:880`; Android `RidesRequestsChatScreens.kt:2061`, `:2116`. До брони — не нашёл. `HelpScreen.tsx:44` — оплата только в «Помощи».
+- `BookingActiveTripScreen.kt:296` `BookingScreen`, `:342` `negotiate`, `:690` `PayAgreementBlock` (чипы `:936`; у СБП значок карты, `:947`) — на Android выбор есть, на сайте нет. Отмена: `:476-507`, `:2195` «Отмена бесплатна до начала поездки…», `:2198`; сайт `ActiveTripScreen.tsx:1124`, `:1136`, `BookingScreen.tsx:303`; старые фразы проверяет `webapp/tests/booking-cancel-reason-test.mjs:111`, `:156`, `:166`.
+- Сервер, оплата: `models.py:46` `PayMethod` — запись, не платёж; `:608` `Booking.pay_method/pay_amount` (целые ₽); `:370` `Ride.price` — целые ₽; `bookings.py:276` `BookIn`, `:574` `total_price`, `:782` `/pay-agreement`. «Какие способы принимает водитель» — не нашёл (`Ride` `models.py:359`, `DriverProfile` `:221`, `RideOut` `schemas.py:51`).
+- Отмена: `bookings.py:1466` `_cancel_booking` — места назад, пуш другой стороне; «в пути» пассажиру нельзя (`:1617`); `rides.py:1095` `cancel_ride`. Штрафов и возвратов нет. `safety_logic.py:385` `is_late_cancel` (позже `config.py:113` = 60 мин до выезда или водитель выехал), `:397` — поздняя отмена снижает «Надёжность», ранняя — нет, неявка — только по разбору; Надёжность видят другие (`incidents.py:697`). Фаза водителя — `/bookings/{id}/role` `driver_phase` (`bookings.py:943`).
+- Неявка: `bookings.py:1686` — водитель, подтверждённая бронь, через `NO_SHOW_WAIT` (`:91`, 5 мин) после выезда, а после «Подъезжаю» — от него (`:170`); причины `safety_logic.py:41`.
+- `incidents.py:712` `/safety/policy` — пороги с сервера, окон отмены нет; читают `api/safety.ts:231`, `ApiClient.kt:5393`.
+- Мошенники: `antifraud.py:273-296`, `:406`; `ChatSafety.tsx:54`, `TripChatScreen.tsx:880`; Android `RidesRequestsChatScreens.kt:2061`, `:2116` — только в чате. `HelpScreen.tsx:44` — оплата только в «Помощи».
 - `auth.py:1039` `/me.books` — бронировал ли хоть раз. Ключи «стереть при выходе»: `utils/privacy.ts:16`, Android `data/SessionKeys.kt:24`.
+- Сроки хранения: `cleanup.py:74` `KEEP_FOREVER` (сторож `tests/test_nothing_grows_forever.py:27`); удаление аккаунта — `account.py:218` `delete_user_account` (профиль водителя — `:588`; сторож `tests/test_account_deletion.py:67`).
 
 ## 3. Что сделать
-Части: **А** — условия и тексты; **Б** — способы оплаты водителя (миграция, ждёт «да»); **В** — предупреждение. А и В можно отдельным PR раньше Б.
+Теги шагов: **А** — PR `[RS-07А]`, **В** — PR `[RS-07В]`, **Б** — PR `[RS-07Б]` (см. шапку). Отказы — только `herr(status, ru, ba, code=...)` из RS-01.
 
 ### Сервер (`backend/`)
 1. **А.** `/safety/policy` (`incidents.py:712`) — добавить `late_cancel_before_min`, `no_show_wait_min`, `boarding_undo_min`, `problem_report_hours` из `settings` и `bookings.py:83/91/245` (ленивый импорт, как `bookings.py:1608`); старые ключи не трогать.
-2. **А.** `BookingDetailsOut` (`bookings.py:370`) — `late_cancel_from` (ISO UTC = выезд − окно), `late_cancel_now` = `is_late_cancel(...)`; для `pending`/`confirmed`.
+2. **А.** `BookingDetailsOut` (`bookings.py:371`) — `late_cancel_from` (ISO UTC = выезд − окно; для `pending`/`confirmed`, иначе `null`) и `server_now` (ISO UTC). Готового флага «поздно» не отдавать: он устаревает, пока экран открыт.
 3. **А.** `_cancel_booking`, `cancel_ride`, `mark_no_show`, `reliability_for`, пуши — **не менять**; иначе стоп, «ждёт «да»».
-4. **Б.** Модель `DriverPaySettings`: `id`, `user_id` (FK, unique), `methods` (CSV `cash`/`sbp`, пусто — «не указал»), `updated_at`. Не в `DriverProfile`: у части водителей его нет (`services.py:1573`), а заводить — задеть такси-подбор. RS-08 добавит `accepts_card`.
-5. **Б.** `GET`/`PUT /driver/pay-settings` (`routers/drivers.py`), только свои; неизвестный способ/дубль — 400 `pay_method_unknown` (`{ru, ba, code}` как `_pickup_refusal`, `bookings.py:302`); гонка двух PUT: `IntegrityError` → обновление; повтор — 200.
-6. **Б.** `driver_pay_methods: list[str] = []` в `RideOut` (пакетно в `rides_out`, `services.py:1608` → `ride_out_with` `:1569`) и `BookingDetailsOut`. Кеш ленты 20 с (`rides.py:623`) не чинить.
-7. **Б.** `book()` (`:466`): после `_booking_retry` (`:461`, `:535`), до списания мест — `cash`/`sbp` вне непустого списка → 409 `pay_method_not_accepted` (`accepted: [...]`). `negotiate`/пустой список — можно. `set_pay_agreement` (`:783`): пассажиру тот же 409, водителю — любой.
+4. **Б.** Модель `DriverPaySettings`: `id`, `user_id` (FK, unique), `methods` (CSV `cash`/`sbp`, пусто — «не указал»), `updated_at`. Не в `DriverProfile`: его есть не у всех (`services.py:1573`). RS-08 добавит `accepts_card`.
+5. **Б.** `driverpaysettings` — в `cleanup.KEEP_FOREVER` («как водитель принимает оплату — часть аккаунта») и `delete(...)` в `delete_user_account` (`account.py:218`, рядом с `:588`), иначе краснеют `test_nothing_grows_forever.py`, `test_account_deletion.py`. Оба файла — после RS-05 и RS-06.
+6. **Б.** `GET`/`PUT /driver/pay-settings` (`routers/drivers.py`), только свои; неизвестный способ/дубль — 400 `code="pay_method_unknown"`; гонка двух PUT: `IntegrityError` → обновление; повтор — 200.
+7. **Б.** `driver_pay_methods: list[str] = []` в `RideOut` (пакетно в `rides_out`, `services.py:1608` → `ride_out_with` `:1569`) и `BookingDetailsOut`. Кеш ленты 20 с (`rides.py:623`) не чинить.
+8. **Б.** `book()` (`:466`): после `_booking_retry` (`:461`, `:535`), до списания мест — `cash`/`sbp` вне непустого списка → 409 `code="pay_method_not_accepted"`, `accepted=[...]`. `negotiate`/пустой список — можно. `set_pay_agreement` (`:783`): пассажиру тот же 409, водителю — любой.
 
 ### Android (`android/`)
-1. **А.** `getSafetyPolicy` (`ApiClient.kt:5393`) — новые поля, нет → `null`; числа только с сервера, без них — «незадолго до выезда».
-2. **А.** Новый `BookingTermsCard.kt`: «Как платить», «Если планы поменяются», «Подробнее» (`AnimatedVisibility` + `CanonMotion`, тач-цель ≥ 48dp; `AppCard`, `CanonSpace`, `Canon*`). В `BookingScreen` — `item(key = "booking-terms")` перед `:690`, только `bookingId == null`.
-3. **А.** `BookingSeatCount.kt:69`: цена 0 → «Цена — по договорённости с водителем»; без `/ 100`. Влит RS-02 — брать его цену участка.
-4. **А.** Диалоги `:483`, `:2203` — по `late_cancel_now`/`late_cancel_from` и фазе «выехал»; `:2195` — честный текст. Ожидание `:568` и подтверждено `:667` — по строке из раздела 5.
-5. **В.** `ScamTipCard` там же: `bookingId == null`, `ApiClient.me().books == false` (ошибка — показать), нет отметки. «Понятно» → `prefs` `scam_tip_seen` (в `SessionKeys.CLEARED_ON_LOGOUT`); «Назад»/жест не отмечают; бронь не блокирует; на сервер — ничего (не согласие). Под чипами при `sbp` — короткая строка, всегда.
-6. **Б.** `Domain.kt:6` `payMethods`; разбор `toRideDto` (`ApiClient.kt:6448`), `toUiRide` (`MainActivity.kt:750`, замок §11), `BookingDtos.kt:89`. Чипы (`:991`) — принятые + «Договоримся»; непринятый выбор → `negotiate`; текст 409 — с сервера.
-7. **Б.** `DriverCabinetScreen` (`ProfileScreen.kt:1373`) — карточка «Как принимаю оплату» (два флажка, «Сохранить»), без нового экрана.
+1. **В.** `getSafetyPolicy` (`ApiClient.kt:5393`) — новые поля, нет → `null`; числа только с сервера, без них — «незадолго до выезда».
+2. **В.** Новый `BookingTermsCard.kt`: «Как платить», «Если планы поменяются», «Подробнее» (`AnimatedVisibility` + `CanonMotion`, ≥ 48dp, `AppCard`, `Canon*`) — `item(key = "booking-terms")` перед `:690` при `bookingId == null`.
+3. **В.** `BookingSeatCount.kt:69`: цена 0 → «Цена — по договорённости с водителем»; расчёт суммы не трогать (раздел 4, единицы).
+4. **В.** Поздняя ли отмена — решать **в момент открытия** диалога (`:483`, `:2203`): `сейчас + (server_now − время получения деталей) ≥ late_cancel_from` или `driver_phase` ∈ {`departed`, `arriving`}. Подпись под кнопкой `:2195` — текст из раздела 5. Ожидание `:568` и подтверждено `:667` — по строке из раздела 5.
+5. **В.** `ScamTipCard` там же: `bookingId == null`, `ApiClient.me().books == false` (ошибка — показать), нет отметки. «Понятно» → `prefs` `scam_tip_seen` (в `SessionKeys.CLEARED_ON_LOGOUT`); «Назад»/жест не отмечают; бронь не блокирует; на сервер — ничего. Под чипами при `sbp` — короткая строка, всегда.
+6. **В.** Значок СБП (`:947`) `CreditCard` → значок перевода (`Icons.Default.SwapHoriz`).
+7. **Б.** `Domain.kt:6` `payMethods`; разбор `toRideDto` (`ApiClient.kt:6448`), `toUiRide` (`MainActivity.kt:750`, замок §11), `BookingDtos.kt:89`. Чипы (`:991`) — принятые + «Договоримся»; непринятый выбор → `negotiate`; отказ — по `detailCode` (RS-01), текст с сервера.
+8. **Б.** `DriverCabinetScreen` (`ProfileScreen.kt:1373`) — карточка «Как принимаю оплату» (два флажка, «Сохранить»), без нового экрана.
 
 ### Сайт (`webapp/`)
-1. **А.** `SafetyPolicy` (`api/safety.ts:231`) — необязательные поля. Новый `components/BookingTerms.tsx`: `BookingTerms` (раскрытие с анимацией, `prefers-reduced-motion`) и `ScamTip`; токены `index.css`.
-2. **А.** `RideSheet.tsx`: после `:268` — выбор способа (как `ActiveTripScreen.tsx:970`, ≥ 48px) и `BookingTerms`; `pay_method` в `createBooking` (`:135`); `ScamTip` над кнопкой `:356`. Тексты отмены — `ActiveTripScreen.tsx:1124`, `:1136`, `BookingScreen.tsx:303`; про предоплату — `HelpScreen.tsx:44`.
-3. **В.** `ScamTip`: `/me.books === false` (`api/auth.ts:40`), ключ `yuldash.scamTipSeen` в `PERSONAL_KEYS`; Esc и закрытие шторки не отмечают.
-4. **Б.** `api/rides.ts:12` `driver_pay_methods?`; варианты по нему; блок «Как принимаю оплату» в `DriverCabinetScreen.tsx`.
+1. **А.** `SafetyPolicy` (`api/safety.ts:231`) — необязательные поля; детали брони — `late_cancel_from`, `server_now`. Новый `components/BookingTerms.tsx`: `BookingTerms` (раскрытие с анимацией, `prefers-reduced-motion`) и `ScamTip`; токены `index.css`.
+2. **А.** `RideSheet.tsx`: после `:268` — выбор способа (как `ActiveTripScreen.tsx:970`, ≥ 48px) и `BookingTerms`; `pay_method` в `createBooking` (`:135`); `ScamTip` над кнопкой `:356`.
+3. **А.** Отмена: подпись `ActiveTripScreen.tsx:1124`, диалоги `:1136` и `BookingScreen.tsx:303` — «поздно» считать при открытии диалога, как Android шаг 4. Про предоплату — строка в ответе `HelpScreen.tsx:44`.
+4. **А.** Обновить `webapp/tests/booking-cancel-reason-test.mjs` (`:111`, `:156`, `:166` и комментарий `:12`) под новые тексты, проверки причин и сервера не ослаблять.
+5. **А.** `ScamTip`: `/me.books === false` (`api/auth.ts:40`), ключ `yuldash.scamTipSeen` в `PERSONAL_KEYS`; Esc и закрытие шторки не отмечают.
+6. **Б.** `Ride` (`api/rides.ts:14`) — `driver_pay_methods?`; варианты по нему; отказ — по `ApiError.code` (RS-01); блок «Как принимаю оплату» в `DriverCabinetScreen.tsx`.
 
 ## 4. База данных
-Только Б: миграция `cc_driver_pay_settings_<ГГГГММДД>.py` — таблица `driverpaysettings` (`id`, `user_id` FK unique, `methods` varchar(32) default `''`, `updated_at`); нет строки — «как договоритесь»; `downgrade` — удалить. `down_revision` — по `alembic heads` (24.10 — `cb_sos_retry_intent_20261021`; RS-02/03/05/06 тоже добавляют миграции).
+- Только Б: имя `<префикс>_driver_pay_settings_<дата>`, префикс и `down_revision` — по индексу («Порядок миграций», очередь 7) и `alembic heads` свежего `origin/main`. Таблица `driverpaysettings` (`id`, `user_id` FK unique, `methods` varchar(32) default `''`, `updated_at`); нет строки — «как договоритесь»; `downgrade` — удалить. Одна голова; up → down → up на SQLite и PostgreSQL; `test_migrations_reach_production.py`, `test_migrations_match_the_models.py`.
+- Срок хранения (`cleanup`/`KEEP_FOREVER`) и удаление аккаунта (`account.py`): `driverpaysettings` — `KEEP_FOREVER` как часть аккаунта, стирается в `delete_user_account` (шаг Б.5). Личного (телефона, реквизитов СБП) в таблице нет.
+- **Деньги (D7).** Единицы — по решению Александра (вопрос от 24.10): вариант А — осознанное исключение «цены попутки — целые рубли», в копейки только на границе показа (`kopToRub(rub*100)`), смешивать единицы в одной поездке нельзя, серверный тест на единицу; вариант Б — перевод попутки в копейки отдельной миграцией до RS-02. До решения денежную часть не реализовывать: RS-07 новых денежных полей не вводит, расчёт и формат суммы «Итого» (`BookingSeatCount.kt:69`, `RideSheet.tsx:268`) остаются как есть — меняются только подписи.
 
 ## 5. Надписи
 Русский; башкирский — черновик `yuldash-bashkir-linguist` в `docs/tasks.md` «Переводы на проверку». Совпадает русский слово в слово с готовой парой (например «Понятно», `RidesRequestsChatScreens.kt:2138`) — бери её.
 - «Как платить» · «Водителю напрямую: {наличными / переводом по СБП}. Через Юлдаш деньги не идут.» · не указал: «Наличными или переводом — как договоритесь с водителем. Через Юлдаш деньги не идут.» · «Итого за {N} {место/места/мест}: {сумма}» · «Цена — по договорённости с водителем».
 - «Если планы поменяются» · «Отменить можно бесплатно. Позже чем за {N} мин до выезда отмена попадёт в «Надёжность» — её видят другие.» · «Подробнее» / «Свернуть».
-- Подробнее: «Отменил заранее — место вернётся, водитель получит уведомление.» · «Незадолго до выезда или когда водитель выехал — бесплатно, но снизит «Надёжность».» · «Отменил водитель — придёт уведомление, покажем другие поездки.» · «Не пришёл — водитель отметит это через {M} мин после выезда или «Подъезжаю»; в «Надёжность» — только если разбор подтвердит.» · «Водитель не приехал — сообщи о проблеме.» · «Уже в машине — отменить нельзя; что-то не так — «Сообщить о проблеме» или SOS.»
+- Подпись под кнопкой отмены (Android `:2195`, сайт `ActiveTripScreen.tsx:1124`): «Отменить можно бесплатно. Позже чем за {N} мин до выезда — попадёт в «Надёжность».»
+- Подробнее: «Отменил заранее — место вернётся, водитель получит уведомление.» · «Незадолго до выезда или когда водитель выехал — бесплатно, но снизит «Надёжность».» · «Отменил водитель — придёт уведомление, покажем другие поездки.» · «Не пришёл — водитель может отметить это через {M} мин после выезда, а если он нажал «Подъезжаю» — после этого. В «Надёжность» — только если разбор подтвердит.» · «Водитель не приехал — сообщи о проблеме.» · «Уже в машине — отменить нельзя; «Сообщить о проблеме» или SOS.»
 - Диалог отмены: рано — «Отмена бесплатна. Место вернётся, водитель получит уведомление.»; поздно — «До выезда меньше {N} мин — бесплатно, но попадёт в твою «Надёжность».»; водитель выехал — «Водитель уже в пути — бесплатно, но попадёт в «Надёжность». Предупреди его в чате.»
 - Ожидание: «Платить пока ничего не нужно — рассчитаешься при встрече.» Подтверждено: «Перед посадкой сверь машину и госномер. Деньги — только водителю этой поездки.»
 - «Береги себя и деньги» · «Не переводи предоплату до встречи — особенно «на другой номер» или чужую карту.» · «Никому не называй коды из СМС. Юлдаш их никогда не просит.» · «Понятно». Под СБП: «Переводи только водителю этой поездки, лучше после встречи.»
 - 409: «Водитель принимает: {список}. Выбери этот способ или «Договоримся».» Водитель: «Как принимаю оплату» · «Наличными» · «Переводом по СБП» · «Пассажиры увидят это до брони. Деньги идут тебе напрямую.» · «Не сохранилось. Повторить?» Тон §9: «Надёжность» — факт, не угроза.
 
 ## 6. Состояния экрана
-- Пороги грузятся / ошибка — карточка сразу, без чисел, бронь не ждёт; `/me` не ответил — предупреждение показать.
+- Пороги грузятся / ошибка — карточка сразу, без чисел, бронь не ждёт; `/me` не ответил — предупреждение показать. Порог прошёл, пока экран открыт, — диалог скажет «поздно».
 - Кабинет водителя: скелетон; ошибка / нет сети — «Не получилось загрузить. Повторить?»; пусто — «Не выбрано — пассажиры увидят «как договоритесь»».
-- Длинный башкирский, крупный шрифт, 320dp — перенос, чипы `FlowRow`. Тёмная тема — `Canon*` (`CanonWarnBg`/`CanonWarn`). Рано/поздно в диалоге — `AnimatedContent`.
+- Длинный башкирский, крупный шрифт, 320dp — перенос, чипы `FlowRow`; тёмная тема — `Canon*`; рано/поздно — `AnimatedContent`.
 
 ## 7. Тесты
-- Сервер `tests/test_rs07_booking_terms.py`: поля `/safety/policy` = настройкам (окно 90 → 90); `late_cancel_now` до/после порога и при «выехал»; регрессия Надёжности (ранняя — не трогает, поздняя — снижает).
-- Сервер `tests/test_rs07_driver_pay_methods.py` (Б): PUT/GET/400; поле в ленте; непринятый способ — 409, `seats_left` прежний; `negotiate`/пустой — 200; `pay-agreement` пассажир 409 / водитель 200; два параллельных PUT — одна строка; `rides_out` на 20 водителей — не больше +1 запроса. Мутации: убрать проверку в `book()` или захардкодить 60 — красный.
-- Android: `BookingTermsCardTest` (числа, запасной текст, «Понятно» запоминает, «Назад» — нет, строка под СБП, чипы), `BookingSeatCountTest` (цена 0), `ApiClientEndpointContractTest`, все `*GuardTest` (особенно `Money`, `SessionKeys`, `Bilingual`, `Canon`, `Contrast`), `:app:assembleDebug`.
-- Сайт: `tests/booking-terms-test.mjs`, `privacy-guard-test.mjs`; `npm run check`, `npm run build`.
+- Сервер `tests/test_rs07_booking_terms.py` (А): поля `/safety/policy` = настройкам (окно 90 → 90); `late_cancel_from` = выезд − окно, `null` у `done`/`cancelled`; `server_now` есть; регрессия Надёжности (ранняя — не трогает, поздняя — снижает).
+- Сервер `tests/test_rs07_driver_pay_methods.py` (Б): PUT/GET/400 с `code`; поле в ленте; непринятый способ — 409, `seats_left` прежний; `negotiate`/пустой — 200; `pay-agreement` пассажир 409 / водитель 200; два параллельных PUT — одна строка; `rides_out` на 20 водителей — ≤ +1 запрос; `test_nothing_grows_forever.py`, `test_account_deletion.py` зелёные. Мутации: убрать проверку в `book()` или захардкодить 60 — красный.
+- Android (В): `BookingTermsCardTest` (числа, запасной текст, «Понятно» запоминает, «Назад» — нет, строка под СБП, чипы); подмена часов — детали до порога, диалог после → «поздно», и наоборот; `BookingSeatCountTest` (цена 0); `ApiClientEndpointContractTest`; все `*GuardTest`; `:app:assembleDebug`.
+- Сайт (А): `booking-cancel-reason-test.mjs` под новые тексты; новый `booking-terms-test.mjs` (числа, `pay_method` в теле, закрытие ≠ «Понятно», «поздно» при открытии диалога с подменой `Date.now`); `privacy-guard-test.mjs`; `npm run check`, `npm run build`.
 
 ## 8. Приёмка
 Агент другой «семьи» (Q9), по умолчанию «не принято»:
-- [ ] До брони (Android и сайт): способы оплаты водителя, сумма за места (цена 0 — «по договорённости»), «не через Юлдаш».
-- [ ] Отмена — как делает сервер, числа с `/safety/policy`, захардкоженных окон нет; нет слов о штрафе и возврате; «Отмена бесплатна до начала поездки» не осталось.
+- [ ] До брони (Android и сайт): способы оплаты водителя, сумма за места (цена 0 — «по договорённости»), «не через Юлдаш»; расчёт суммы не менялся (D7).
+- [ ] Отмена — как делает сервер, числа с `/safety/policy`, захардкоженных окон нет; нет слов о штрафе и возврате; «Отмена бесплатна до начала поездки» не осталось; «поздно» считается при открытии диалога.
 - [ ] Diff `_cancel_booking`, `cancel_ride`, `mark_no_show`, `reliability_for` пуст.
 - [ ] Предупреждение — только при первой брони; «Понятно» запоминает, «Назад»/Esc/закрытие — нет; бронь не блокирует; на сервер не пишет; после выхода отметка стёрта.
-- [ ] (Б) Прямой запрос с непринятым способом — 409, места не списаны.
-- [ ] Все надписи двуязычные, башкирский — в «Переводах на проверку».
+- [ ] (Б) Прямой запрос с непринятым способом — 409 с `code`, места не списаны; `driverpaysettings` в `KEEP_FOREVER` и в удалении аккаунта.
+- [ ] Все надписи двуязычные, башкирский — в «Переводах на проверку»; у СБП нет значка карты.
 - [ ] Эмулятор и сайт: бронь, отмена рано/поздно, кабинет водителя — RU/BA × светлая/тёмная, крупный шрифт, 320dp (нет эмулятора — так и написать). Для W1-E2E-01 остаётся полный прогон (RS-16).
 
+**Мозг.** `decisions.md` — «условия отмены с сервера, «поздно» — при открытии диалога», «предупреждение — не согласие»; `tasks.md` — переводы, вопрос D7; `architecture.md` — новых экранов нет; `lessons.md` — «подпись об отмене расходилась с Надёжностью».
+
 ## 9. Риски и границы
-- Не входит: оплата картой (RS-08), изменение правил отмены, штрафы, «прочитал» как согласие. Номер СБП водителя до брони не показываем — только способ.
-- Общие файлы `models.py`, `bookings.py`, `MainActivity.kt`, `ApiClient.kt` — «один файл — один агент»; с RS-02/03/05 — по очереди.
-- Старые клиенты без `pay_method` получают «договоримся» — проверку Б не задевают. Шторка сайта: условия свёрнуты до «Подробнее», кнопка брони не уезжает.
+- Не входит: оплата картой (RS-08), правила отмены, штрафы, «прочитал» как согласие. Номер СБП водителя до брони не показываем.
+- Часы телефона могут врать — поправка по `server_now`. Общие файлы — очередь индекса.
+- Старые клиенты без `pay_method` получают «договоримся». Шторка сайта: условия свёрнуты, кнопка брони не уезжает.
 
 ## 10. Журнал статуса
 | Дата | Статус | Кто | PR / коммит | Заметка |
 |---|---|---|---|---|
 | 24.10.2026 | не начато | — | — | план написан |
+| 24.10.2026 | не начато | — | — | правки по независимой приёмке: деление на PR, D1–D7, сроки хранения, тест сайта, «поздно» при открытии диалога |
