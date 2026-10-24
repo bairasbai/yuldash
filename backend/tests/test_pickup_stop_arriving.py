@@ -104,6 +104,12 @@ def _arriving(client, drv, bid):
     return client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": "arriving"})
 
 
+def _departed(client, drv, bid):
+    """Водитель нажал «Выехал» по брони `bid`: машина правда поехала (P2-2 для ссылки близким)."""
+    r = client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": "departed"})
+    assert r.status_code == 200, r.text
+
+
 def _driver_at(point, bid):
     """Водитель прислал точку в канал брони `bid` (как это делает `location.py`, роль driver)."""
     livepos.livepos_set("booking", bid, point[0], point[1])
@@ -457,6 +463,7 @@ def test_family_link_loses_the_car_hours_after_a_missed_stop(client, user_factor
                                                 depart_in=timedelta(minutes=20))
     token = _share(client, zarina, b, "+79170000999")
     _driver_at(SIBAY, a)
+    _departed(client, drv, a)                   # машина поехала (P2-2): без этого близким машины нет
     assert client.get(f"/t/{token}/state.json").json()["car"] is not None, "окно Ургазы открыто — машина видна"
     # Выезд — 5 часов назад (мимо ручки: с бронями время поездки не правится).
     with Session(engine) as s:
@@ -582,6 +589,7 @@ def test_family_of_b_sees_the_car_from_a_inside_b_window(client, user_factory, r
                                               depart_in=timedelta(minutes=20))
     token = _share(client, bota, b, "+79170000941")
     _driver_at(SIBAY, a)                        # водитель открыл поездку Айгуль
+    _departed(client, drv, a)                   # и нажал там «Выехал» (P2-2)
     state = client.get(f"/t/{token}/state.json").json()
     assert state["status"] == "to_pickup" and state["car"] is not None, state
     assert abs(state["car"]["lat"] - SIBAY[0]) < 1e-6
@@ -593,6 +601,7 @@ def test_family_of_b_prefers_b_own_channel_point(client, user_factory, redis_on)
     drv, (_aigul, bota), _ride, (a, b) = _trip(client, user_factory, "shareown", places=("Сибай", "Сибай"),
                                                depart_in=timedelta(minutes=20))
     token = _share(client, bota, b, "+79170000946")
+    _departed(client, drv, a)
     _driver_at(SIBAY, b)
     _driver_at(NEAR_URGAZA, a)                  # позже и в другом месте (второе устройство)
     state = client.get(f"/t/{token}/state.json").json()
@@ -604,6 +613,7 @@ def test_family_of_b_sees_nothing_before_b_window(client, user_factory, redis_on
                                                  depart_in=timedelta(minutes=20))
     token = _share(client, zarina, b, "+79170000942")
     _driver_at(SIBAY, a)
+    _departed(client, drv, a)                   # машина поехала — но окно Зарины ещё закрыто
     state = client.get(f"/t/{token}/state.json").json()
     # Бурибай — 87 км: окно Зарины откроется за 2 минуты до выезда, а сейчас 20 минут до него.
     assert state["status"] == "wait" and state["car"] is None, state
@@ -627,6 +637,8 @@ def test_block_before_boarding_hides_the_car_from_b(client, user_factory, redis_
                                                depart_in=timedelta(minutes=20))
     token = _share(client, bota, b, "+79170000943")
     _driver_at(SIBAY, a)
+    _departed(client, drv, a)
+    assert client.get(f"/t/{token}/state.json").json()["car"] is not None, "без блокировки машина видна"
     with Session(engine) as s:
         s.add(Block(user_id=bota["id"], blocked_user_id=drv["id"]))
         s.commit()
@@ -726,7 +738,7 @@ def test_passenger_b_step_respects_her_rules(client, user_factory, redis_on):
     assert location._машина_для(b2, пора) is None and пора.кончилась is True
 
 
-# ── Внутренняя точка водителя по рейсу (приёмка PR186, A1) ──
+# ── Точка водителя по рейсу (приёмка PR186, A1; наружу — с 24.10.2026, только по правилам брони) ──
 
 def _driver_sends_in_closed_window(client, drv, bid, ride_id, point, redis):
     """Водитель открыл поездку брони `bid`, чьё окно ещё закрыто, и прислал точку. В кэш брони она
@@ -768,22 +780,31 @@ def test_driver_at_a_stop_cannot_arrive_at_the_start(client, user_factory, redis
     assert _booking(a).arriving_at is None, "отказ ничего не записал"
 
 
-def test_the_ride_point_is_shown_to_no_one(client, user_factory, redis_on):
-    """Внутренняя точка рейса — только для ответа водителю «далеко/рядом». Пассажирке начала, у
-    которой окно открыто, её близким и обёртке наружу она не отдаётся."""
-    drv, (aigul, _zarina), ride, (a, b) = _trip(client, user_factory, "ridekeyhidden", places=("Сибай", "Бурибай"),
-                                                depart_in=timedelta(minutes=30))
-    token = _share(client, aigul, a, "+79170000951")
+def test_the_ride_point_reaches_only_a_live_booking_by_its_rules(client, user_factory, redis_on):
+    """Точка рейса наружу — только через обёртку и по правилам брони (24.10.2026, задача «машину видит
+    только ОДИН пассажир»; заменяет правило A1 «наружу никогда»). Водитель открыл поездку Зарины (окно
+    закрыто), его точка лежит только в ключе рейса. Раньше Айгуль с открытым окном не видела машину
+    вовсе. Теперь видит в приложении, её близкие — когда машина поехала (P2-2). Зарине — ничего."""
+    drv, (aigul, zarina), ride, (a, b) = _trip(client, user_factory, "ridekeylive", places=("Сибай", "Бурибай"),
+                                               depart_in=timedelta(minutes=30))
+    token_a = _share(client, aigul, a, "+79170000951")
+    token_b = _share(client, zarina, b, "+79170000952")
     _driver_sends_in_closed_window(client, drv, b, ride["id"], SIBAY, redis_on)
     with Session(engine) as s:
         r = s.get(Ride, ride["id"])
         assert [p["booking_id"] for p in livepos.driver_points_for_ride(s, r, with_ride_point=True)] == [None]
-        assert livepos.driver_points_for_ride(s, r) == [], "без флага проверки — не видно"
+        assert livepos.driver_points_for_ride(s, r) == [], "без флага — по-прежнему только кэши броней"
         ak = s.get(Booking, a)
-        assert trip_is_live(ak, r) is True, "окно Айгуль открыто — точку ей отдали бы, будь она в её кэше"
-        assert location.driver_point_for_booking(s, ak, r) is None
-    assert location._машина_для(a, location._Пора(a, aigul["id"])) is None
-    assert client.get(f"/t/{token}/state.json").json()["car"] is None
+        assert trip_is_live(ak, r) is True
+        got = location.driver_point_for_booking(s, ak, r)
+        assert got is not None and abs(got["lat"] - SIBAY[0]) < 1e-6, got
+        assert location.driver_point_for_booking(s, s.get(Booking, b), r) is None, "окно Зарины закрыто"
+    assert location._машина_для(a, location._Пора(a, aigul["id"])) is not None, "машина в приложении Айгуль"
+    assert location._машина_для(b, location._Пора(b, zarina["id"])) is None
+    assert client.get(f"/t/{token_a}/state.json").json()["car"] is None, "водитель ещё не выехал (P2-2)"
+    _departed(client, drv, a)
+    assert client.get(f"/t/{token_a}/state.json").json()["car"] is not None
+    assert client.get(f"/t/{token_b}/state.json").json()["car"] is None, "окно Зарины закрыто"
 
 
 def test_no_ride_point_before_the_ride_is_live(client, user_factory, redis_on, gate_seen):

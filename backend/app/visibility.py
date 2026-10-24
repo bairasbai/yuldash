@@ -395,3 +395,84 @@ def _stop_window(booking, ride):
         return None                       # начало маршрута / не указано — справочник не нужен
     from .routers.bookings import stop_live_window   # лениво: роутер тянет этот модуль при импорте
     return stop_live_window(ride, booking)
+
+
+def pre_boarding_until(booking, ride):
+    """До какого момента пассажир, который ещё НЕ сел, видит машину не по своему каналу (24.10.2026).
+
+    Решение задачи «машину видят все пассажиры рейса» (проверка безопасности, находка 1, вариант «а»).
+    Машину брони B показывают и тогда, когда водитель открыл поездку ДРУГОЙ брони (`location.
+    driver_point_for_booking`). У брони в начале маршрута окно до посадки не закрывалось никогда:
+    Бота не вышла, «Не пришёл» никто не нажал — и она часами видела, у каких домов машина высаживает
+    других. У брони на остановке такой срок уже есть (`bookings.stop_live_window`, S1), здесь — тот же
+    для остальных: срок «Не пришёл» (`max(выезд, первое «Подъезжаю»)` + NO_SHOW_WAIT) + LIVE_AFTER_NO_SHOW.
+
+    «Выезд» — `Ride.depart_at`: времени нажатия «Выехал» в базе нет. `arriving_at` пишется только
+    первым «Подъезжаю», повтор срок не двигает. На границе — уже закрыто (`now >= срок`).
+
+    None — срока нет: бронь «в пути» (человек в машине), не подтверждена (её и так не пускают), на
+    остановке (окно закрывает `trip_is_live`, с учётом пути до неё) или у поездки нет выезда."""
+    статус = booking.status.value if hasattr(booking.status, "value") else booking.status
+    if статус != "confirmed" or ride is None or ride.depart_at is None:
+        return None
+    if _stop_window(booking, ride) is not None:
+        return None
+    from .routers.bookings import LIVE_AFTER_NO_SHOW, NO_SHOW_WAIT   # лениво, как в `_stop_window`
+    подъезжаю = getattr(booking, "arriving_at", None)
+    отсчёт = max(ride.depart_at, подъезжаю) if подъезжаю is not None else ride.depart_at
+    return отсчёт + NO_SHOW_WAIT + LIVE_AFTER_NO_SHOW
+
+
+def ride_started(session, ride) -> bool:
+    """Машина правда поехала: по какой-то брони рейса водитель нажал «Выехал»/«Подъезжаю» или отметил
+    посадку (приёмка PR179, P2-2).
+
+    «Выехал» — про машину, а не про бронь: водитель жмёт его на экране ОДНОЙ брони. Считаются:
+    * посадка с временем (`onboard_at`) — в любом статусе: высаженные («done») и отменённые в пути
+      тоже ехали в этой машине; «Отменить» посадку время стирает — и признак уходит;
+    * «в пути» без времени (старый «Я сел» пассажира);
+    * «Выехал»/«Подъезжаю» — ТОЛЬКО у живой брони (подтверждена или «в пути»): сервер принимает
+      «Выехал» и по брони, которую ещё не подтвердили, а у отменённой и с неявкой фаза остаётся
+      (проверка безопасности, находка 5)."""
+    if ride is None or ride.id is None:
+        return False
+    from sqlalchemy import and_, or_
+    from sqlmodel import select
+
+    from .models import Booking, BookingStatus
+    живые = (BookingStatus.confirmed, BookingStatus.onboard)
+    return session.exec(select(Booking.id).where(
+        Booking.ride_id == ride.id,
+        or_(
+            Booking.onboard_at.is_not(None),  # type: ignore[union-attr]
+            Booking.status == BookingStatus.onboard,
+            and_(Booking.status.in_(живые),  # type: ignore[attr-defined]
+                 Booking.driver_phase.in_(("departed", "arriving"))),  # type: ignore[attr-defined]
+        ),
+    ).limit(1)).first() is not None
+
+
+def family_car_open(session, booking, ride, now=None) -> bool:
+    """Показывать ли машину близким по ссылке «Поделиться поездкой» (приёмка PR179, P2-2).
+
+    Поверх `trip_is_live` — никогда не шире его. С пульсом стоянки (45 с) стоящая машина, чаще всего у
+    дома водителя, висела у мамы пассажира весь час до выезда, когда никто ещё никуда не ехал, и после
+    несостоявшегося выезда — до ночной уборки. Теперь:
+    * пассажир «в пути» — машина видна, как раньше (блокировки решает `driver_point_for_booking`);
+    * до посадки — только когда машина поехала (`ride_started`) и не позже срока до посадки
+      (`pre_boarding_until`; у брони на остановке — её окно в `trip_is_live`).
+
+    В приложении пассажира срок `pre_boarding_until` сужает только точки через чужие брони и ключ
+    рейса (`location.driver_point_for_booking`); пересылка по своему каналу брони и SOS — как были."""
+    if not trip_is_live(booking, ride, now):
+        return False
+    статус = booking.status.value if hasattr(booking.status, "value") else booking.status
+    if статус == "onboard":
+        return True
+    if not ride_started(session, ride):
+        return False
+    до = pre_boarding_until(booking, ride)
+    if до is None:
+        return True
+    from .timeutil import utcnow
+    return (now or utcnow()) < до
