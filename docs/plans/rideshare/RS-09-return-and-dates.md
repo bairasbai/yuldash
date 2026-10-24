@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Статус | не начато |
-| Ждёт «да» Александра | да — денежная часть шаблона и серии после gate D7 (legacy-рубли — рекомендация, исключение требует владельца); разворот цен остановок А-S1 после RS-02 Б |
+| Ждёт «да» Александра | да — денежная часть шаблона и серии (целые рубли, D7): в ветке, вливается после «да»; разворот цен остановок А-S1 после RS-02 Б |
 | Зависит от | **А:** RS-02. **Б:** RS-02, RS-05 (ключ повтора), RS-10 А (единственный владелец рассылки и siblings); `car_id` копируется после RS-14 |
 | Не параллельно с | RS-02, RS-05, RS-14, RS-15 (`rides.py`, `CreateRideScreen.*`, `ProfileScreen.kt`, `DriverCabinetScreen.tsx`), RS-10 (`services.py`), RS-12 (`YuldashApp.kt`) |
 | Деление на PR | **[RS-09А] «Обратно»** — нужен только RS-02, можно раньше: сервер → сайт → Android. **[RS-09Б] «Несколько дат»** — после RS-05 и RS-10 А: сервер → сайт → Android. Замок — по тегу части |
@@ -27,7 +27,7 @@
 
 ## 3. Что сделать
 ### Часть А — «Обратно»
-**Сервер.** **А-S1.** `GET /rides/{ride_id}/return-template` — только владелец (чужая → `herr(403, "Это не твоя поездка", "Был һинең сәфәрең түгел", code="not_owner")`), ничего не пишет. `RideTemplateOut`: `from_city`/`to_city` переставлены, `waypoints` задом наперёд, `category` hospital/parcel/cargo → `regular`; места, цена, удобства (в т.ч. `only_trusted`, `women_only`), после RS-14 `car_id`. Не берутся: `depart_at`, `pickup*`, `comment`, `receiver_name`, `parcel_size`, `partner_id`, `recurrence`. Плюс `dropped`, `suggested_date`. **Денежная часть — после gate D7 и RS-02 Б:** входные накопленные цены `stop_prices: list[int]` разворачиваются как `[price − p for p in reversed(stop_prices)]` (Ургаза 300 из 500 → 200 из 500); в ответе шаблона использовать именно входной shape RS-02, не объекты `RideOut.stop_prices`. До gate денежный шаблон не реализовывать.
+**Сервер.** **А-S1.** `GET /rides/{ride_id}/return-template` — только владелец (чужая → `herr(403, "Это не твоя поездка", "Был һинең сәфәрең түгел", code="not_owner")`), ничего не пишет. `RideTemplateOut`: `from_city`/`to_city` переставлены, `waypoints` задом наперёд, `category` hospital/parcel/cargo → `regular`; места, цена, удобства (в т.ч. `only_trusted`, `women_only`), после RS-14 `car_id`. Не берутся: `depart_at`, `pickup*`, `comment`, `receiver_name`, `parcel_size`, `partner_id`, `recurrence`. Плюс `dropped`, `suggested_date`. **Денежная часть — после RS-02 Б (рубли, D7):** входные накопленные цены `stop_prices: list[int]` разворачиваются как `[price − p for p in reversed(stop_prices)]` (Ургаза 300 из 500 → 200 из 500); в ответе шаблона использовать именно входной shape RS-02, не объекты `RideOut.stop_prices`. Денежный шаблон вливается после «да» (D7).
 
 **Сайт.** `fetchReturnTemplate` (`api/driver.ts`), `utils/rideTemplate.ts`. «Обратно» в `DriverCabinetScreen.tsx:486` и в архиве (`:591`) → `navigate("/create-ride", {state:{template}})`. `CreateRideScreen.tsx`: брать `location.state.template`; **до первого рендера** `clearDraft(RIDE_DRAFT)` (иначе `:133-150` вернёт черновик поверх); потом `navigate(path, {replace:true, state:null})` — F5 не применит повторно; заметка «Не перенесли: …». На экране «опубликовано» (`:259`) — «Опубликовать обратно» (шаблон по `createdId`).
 
@@ -70,7 +70,7 @@
 - **Мозг:** `architecture.md` — ручки серии/шаблона, `DatesPicker`; `decisions.md` — частичный успех, шаблон на сервере, ключ ≤ 115; `tasks.md` — BA; `lessons.md` — модерация и геокод «на дату».
 
 ## 9. Риски и границы
-- **Деньги — gate D7:** сохранение legacy-рублей рекомендовано и требует явного исключения владельца; до него денежные изменения не реализуются; после согласования — целые рубли; разворот `stop_prices` — в рублях, после RS-02 Б; `price` копируется как есть.
+- **Деньги — D7:** целые рубли; разворот `stop_prices` — в рублях, после RS-02 Б; `price` копируется как есть; денежная часть вливается после «да».
 - Не входит: отмена серии, разное время по датам, «Обратно» для пассажира. `comment` и место встречи не переносим (там адреса, телефоны).
 
 ## 10. Журнал статуса
