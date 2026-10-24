@@ -3,6 +3,7 @@ package com.yuldash.app
 import android.app.Application
 import android.content.Context
 import android.os.Looper
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
@@ -115,8 +116,12 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         .put("booking_id", id).put("boarding_code", code).put("price", 700)
         .put("pay_method", method).put("pay_amount", amount))
     private fun disk(id: Int = 42) = secure.restarted().getString("pass_$id", null)
+    // idle главного Looper + доставка снимков (testing.md, правило 5): ответ сервера пишет код в
+    // состояние экрана с фонового потока, а сам waitUntil эту запись не применяет — экран мог ещё
+    // показывать «Код загружается», когда на диске уже «5678» (CI PR207, twoRapidPointerTaps…).
     private fun waitFor(condition: () -> Boolean) = compose.waitUntil(15000) {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
+        Snapshot.sendApplyNotifications()
         condition()
     }
     private fun observeAfterReleasedResponse() {
@@ -167,6 +172,8 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         val sibling = disk(99)
         release.countDown()
         waitFor { JSONObject(requireNotNull(disk())).optString("boarding_code") == "5678" }
+        // Диск и экран — разные события: ждём и сам код на экране, а не только запись на диск.
+        waitFor { compose.onAllNodesWithText("5678").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("5678").performScrollTo().assertIsDisplayed()
         val saved = JSONObject(requireNotNull(disk()))
         assertEquals("cash", saved.getString("pay_method"))
