@@ -1186,7 +1186,7 @@ def family_sms_sent_today(session: Session, user_id: int) -> int:
     ).all())
 
 
-def may_send_family_sms(session: Session, user_id: int, kind: str) -> bool:
+def may_send_family_sms(session: Session, user_id: int, kind: str, *, commit: bool = True) -> bool:
     """Можно ли отправить ещё одну SMS близкому за счёт платформы. True — можно (расход уже
     записан), False — потолок исчерпан.
 
@@ -1209,7 +1209,12 @@ def may_send_family_sms(session: Session, user_id: int, kind: str) -> bool:
         log.info(f"[SMS] потолок «близким» на сегодня исчерпан у user={user_id} ({kind})")
         return False
     session.add(FamilySmsLog(user_id=user_id, kind=kind))
-    session.commit()
+    # commit=False — расход в той же транзакции, вызывающий закоммитит его сам после отправки:
+    # статусы поездки держат замок строк шаринга до SMS (`family.notify_family_trip_status`).
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return True
 
 

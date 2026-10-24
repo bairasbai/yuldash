@@ -4,7 +4,7 @@ import math
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import case, update
 from sqlalchemy.exc import IntegrityError
@@ -24,7 +24,8 @@ from ..ride_stops import VILLAGE_KINDS, canonical_stop, is_end, is_start, parse_
 from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
                             guard_women_only)
 from ..security import current_user, gen_otp
-from ..visibility import LIVE_GEO_LEAD_HOURS, booking_contacts_open, cancelled_in_transit
+from ..logs import log
+from ..visibility import LIVE_GEO_LEAD_HOURS, booking_contacts_open, cancelled_in_transit, transit_cancel_car_open
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
 from ..timeutil import utcnow
 from ..trust_service import INSIDER_LEVEL, trust_level
@@ -681,8 +682,9 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
     is_driver = ride.driver_id == user.id
     in_transit = cancelled_in_transit(booking)
     # Машина и госномер остаются у пассажира, которого высадили в пути (23.10.2026): по ним родные
-    # и полиция ищут машину. Телефон водителя — нет: связь после отмены — через SOS и разбор.
-    car_open = unlocked or (in_transit and not is_driver)
+    # и полиция ищут машину — в окне связи после поездки, не навсегда. Телефон водителя — нет:
+    # связь после отмены — через SOS и разбор.
+    car_open = unlocked or (not is_driver and transit_cancel_car_open(booking))
     # Контакты взрослого за подростка — водителю, пока бронь ЖИВАЯ. Отменённая ничего не
     # открывает: см. комментарий у полей ниже.
     # Завершённая поездка тоже перестаёт открывать контакты взрослого (волна 160). Отменённую
@@ -1273,6 +1275,12 @@ def _mark_boarded(session: Session, booking: Booking, ride: Ride) -> dict:
     # Пока поездка не началась, канал координат перепроверяет базу раз в 30 с (`trip_wake`):
     # «в пути» — ровно тот момент, когда точка обязана пойти сразу.
     trip_wake.poke(booking.id)
+    # Отмена в ту же секунду (водитель снял поездку, админ) уже сказала пассажиру и близким
+    # «отменили в пути» — запоздавшее «Водитель отметил посадку» после неё было бы неправдой
+    # (приёмка PR205). Близким порядок держит замок строк шаринга (`family.notify_family_trip_status`).
+    session.refresh(booking)
+    if booking.status != BookingStatus.onboard:
+        return _boarding_out(booking)
     route = f"{ride.from_city} → {ride.to_city}"
     # Пассажиру — сразу: если водитель промахнулся карточкой, человек у подъезда узнает об этом
     # из уведомления, а не когда машина уедет без него. urgent — как «Выехал / Подъезжаю»: ранний
@@ -1423,12 +1431,13 @@ class CancelIn(BaseModel):
 
 
 @router.post("/bookings/{booking_id}/cancel", response_model=Booking)
-def cancel_booking(booking_id: int, body: Optional[CancelIn] = None,
+def cancel_booking(booking_id: int, background: BackgroundTasks, body: Optional[CancelIn] = None,
                    user: User = Depends(current_user), session: Session = Depends(get_session)):
-    return _cancel_booking(booking_id, body, user, session, attempts=3)
+    return _cancel_booking(booking_id, body, user, session, attempts=3, background=background)
 
 
-def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, session: Session, *, attempts: int):
+def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, session: Session, *, attempts: int,
+                    background: Optional[BackgroundTasks] = None):
     """Отмена поездки пассажиром или водителем. Места возвращаются в поездку.
     B8-8 («увод мимо приложения»): отмена ПОСЛЕ открытия контакта (бронь подтверждена —
     телефон виден — или в чате уже переписывались) помечается contact_then_cancel —
@@ -1486,7 +1495,7 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
             # стадия может меняться снова и снова — не больше трёх попыток, потом «обнови экран».
             if attempts <= 1:
                 raise herr(409, "Бронь уже изменилась — обнови экран", "Бронь үҙгәргән инде — экранды яңырт")
-            return _cancel_booking(booking_id, body, user, session, attempts=attempts - 1)
+            return _cancel_booking(booking_id, body, user, session, attempts=attempts - 1, background=background)
         # Арифметика в SQL сохраняет параллельное списание новой брони на SQLite.
         returned = Ride.seats_left + booking.seats
         session.execute(update(Ride).where(Ride.id == ride.id).values(
@@ -1499,7 +1508,7 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
         # Водитель отменил, когда человек уже в машине (решение 23.10.2026): пассажир, возможно,
         # на трассе — ему не «посмотри другие поездки», а путь к помощи; близким — правда.
         if cancelled_in_transit(booking):
-            notify_cancelled_in_transit(session, booking, ride)
+            notify_cancelled_in_transit(session, booking, ride, background)
             return _booking_out(booking)
         # Уведомление ДРУГОЙ стороне: кто не отменял (пассажир отменил → водителю, и наоборот).
         other_id = ride.driver_id if user.id == booking.passenger_id else booking.passenger_id
@@ -1525,12 +1534,28 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
     return _booking_out(booking)
 
 
-def notify_cancelled_in_transit(session: Session, booking: Booking, ride: Ride) -> None:
+def notify_cancelled_in_transit(session: Session, booking: Booking, ride: Ride,
+                                background: Optional[BackgroundTasks] = None) -> None:
     """Бронь отменили, когда пассажир был в машине (`cancelled_in_transit`): пассажиру — срочный пуш
     с путём к помощи (SOS и «Застрял» работают и по отменённой брони), близким, с кем он поделился
     поездкой, — SMS «отменили в пути» (один раз, под общим потолком SMS, «Только SOS» не тревожим).
-    Причину отмены не пишем: «пассажир опоздал» и прочие причины до посадки здесь неправда."""
+    Причину отмены не пишем: «пассажир опоздал» и прочие причины до посадки здесь неправда.
+
+    Отмена к этому моменту уже сохранена — ни один шаг здесь её не роняет: дежурный первым, сбой
+    шага SMS близким только в лог (приёмка PR205: иначе водитель получал 500, дежурный — ничего,
+    а остальные пассажиры «Снять поездку» — ни слова, и повтор отмены уже ничего не досылал)."""
     route = f"{ride.from_city} → {ride.to_city}"
+    bid = booking.id
+    # Дежурному — номер брони и поездки, без телефонов и координат: человек мог остаться на трассе,
+    # а SOS он может и не нажать. Сбой Telegram отмену не откатывает (она уже сохранена). После
+    # ответа (как SEVERE-инцидент): медленный Telegram не держит водителя у кнопки «Отменить».
+    from .. import services
+    text = (f"⚠️ Поездку отменили в пути: бронь #{bid}, поездка #{ride.id} ({route})"
+            + (", пассажир — несовершеннолетний" if booking.minor_passenger else ""))
+    if background is not None:
+        background.add_task(services.notify_admin_telegram, text)
+    else:
+        services.notify_admin_telegram(text)
     push_notification(
         session, booking.passenger_id, "booking",
         "Поездку отменили в пути", "Сәфәр юлда кире алынды",
@@ -1541,13 +1566,11 @@ def notify_cancelled_in_transit(session: Session, booking: Booking, ride: Ride) 
     passenger = session.get(User, booking.passenger_id)
     if passenger is not None:
         from .family import notify_family_trip_status
-        notify_family_trip_status(session, booking.id, passenger, "cancelled_onboard")
-    # Дежурному — номер брони и поездки, без телефонов и координат: человек мог остаться на трассе,
-    # а SOS он может и не нажать. Сбой Telegram отмену не откатывает (она уже сохранена).
-    from .. import services
-    services.notify_admin_telegram(
-        f"⚠️ Поездку отменили в пути: бронь #{booking.id}, поездка #{ride.id} ({route})"
-        + (", пассажир — несовершеннолетний" if booking.minor_passenger else ""))
+        try:
+            notify_family_trip_status(session, bid, passenger, "cancelled_onboard")
+        except Exception as e:  # noqa: BLE001 — отмена уже сохранена, остальные уведомления важнее
+            session.rollback()
+            log.warning(f"[CANCEL-IN-TRANSIT] SMS близким по брони #{bid} не ушли: {type(e).__name__}")
 
 
 def _onboard_cancel_refusal() -> HTTPException:

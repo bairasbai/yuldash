@@ -83,7 +83,7 @@
     "infra_resource_config": 406,
     "public_site_promo": 89,
     "pwa_main": 325,
-    "test_support": 1268
+    "test_support": 1269
   },
   "counts_by_block": {
     "B01": 159,
@@ -94,7 +94,7 @@
     "B06": 101,
     "B07": 144,
     "B08": 215,
-    "B09": 728,
+    "B09": 729,
     "B10": 406,
     "B11": 90
   },
@@ -1385,8 +1385,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideCancelWarning.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "011dc32931ba303451aceab7b80f422723d48738d8f18a7f1eae985b11ab38e0",
-      "lines": 71
+      "sha256": "63b34a037f230e455f79e7cc911b7f5af163cea65fbcb831b67cdf073fe315eb",
+      "lines": 72
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideDeparturePicker.kt",
@@ -3877,7 +3877,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/RideCancelOnboardWarningTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "10c973eaec01c2f4d80ff449f229c91808b64ee4782d3c734abf9c462c6b524f",
+      "sha256": "e9a3ef05a3681bacb5addb97c69d1a4ac6ccac5335384ded7792481f3144ead0",
       "lines": 95
     },
     {
@@ -4199,8 +4199,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/SosNoSmsPromiseGuardTest.kt",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "8799d486829ec1b339e4da03f97765f4b32e8e8115dd5fc73e8faad63dd6bd51",
-      "lines": 82
+      "sha256": "f7355bd7adad52cf809c060ec303e783bef671cbdb57082190e54c6fe94b6f85",
+      "lines": 87
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/SosSubmitOwnerBoundaryTest.kt",
@@ -6852,7 +6852,7 @@
       "path": "backend/app/models.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "040739c36002bbabbd02ee94aa5c6a18467ab117be80fef7e48a23e64a4d38ef",
+      "sha256": "0d000e11a479eb9bf62e8ddebc7dc399cc13008335e22e223e9e58f77a12e9ad",
       "lines": 2132
     },
     {
@@ -6978,8 +6978,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "525ba16659d3f9c349a1a5b17fa1e32467e674ddbee86299332bf2e16c48aa9f",
-      "lines": 1897
+      "sha256": "5b2d5dae699fde3ebad53178b0bc86b3fddc4801d3a5a73d21e906c0e77bc383",
+      "lines": 1920
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -7048,8 +7048,8 @@
       "path": "backend/app/routers/family.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "e87cdf2cd38c4341d7c83016a7c7f02baabf16cee1fa9f1688a99b714f376835",
-      "lines": 761
+      "sha256": "dc2891d1adcaad146a1ac5a2fa31c1b93206a747e0dcaf03489c2bd1390f2984",
+      "lines": 785
     },
     {
       "path": "backend/app/routers/health.py",
@@ -7153,8 +7153,8 @@
       "path": "backend/app/routers/rides.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "19e16c2dad9fe97bd85e00a8c7afe4d72d6fd6899d9844bc04fb86fe2ed3a143",
-      "lines": 1323
+      "sha256": "075aa898f7917409dc57aee4855d15acad8f70f7328e1f5fc9292683c5766049",
+      "lines": 1320
     },
     {
       "path": "backend/app/routers/route_watch.py",
@@ -7167,7 +7167,7 @@
       "path": "backend/app/routers/safety.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "d8e69622d6d942a4600dbaef48b357f16d9ab70a66953b6a783069ab9f4b8eef",
+      "sha256": "508df719ba9f2833b4d7b81e3a8b8669b5565b2c69f91a092f69635c08e7ea02",
       "lines": 1839
     },
     {
@@ -7188,8 +7188,8 @@
       "path": "backend/app/routers/share.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "c9f871f26cfa48d10e911ec07b97274f287366ff9dd819433a7be156a39c596c",
-      "lines": 818
+      "sha256": "1e67ead57a1b5cde53eb4a7aba5f1a63e02f263f1be6783a3ee87854bd5b25af",
+      "lines": 819
     },
     {
       "path": "backend/app/routers/stats.py",
@@ -7272,8 +7272,8 @@
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "1ac0bd22429aa110f682d5bc745abcfdea06cdab9bf04e012b008a308a1238cf",
-      "lines": 2186
+      "sha256": "03500fac3eb389cac743a5970fa0302dbc1a0ece2dbcf7d5466fe66b6fa0517d",
+      "lines": 2191
     },
     {
       "path": "backend/app/sos_escalate.py",
@@ -7335,8 +7335,8 @@
       "path": "backend/app/visibility.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "15f639a8bca23c56c1ad2d7b886e0c09b2d2e8478ff62a9ff3aed991fd765388",
-      "lines": 380
+      "sha256": "e37ddf5cf034000388ba6bbc743444f9a754412e76829793aef1f15f1d009885",
+      "lines": 397
     },
     {
       "path": "backend/app/waiting_on_us.py",
@@ -8448,8 +8448,15 @@
       "path": "backend/tests/test_cancel_in_transit_honest.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "e2bd2d3395bdfa44d04c296390febe26b087676bdfa4b7cdf6c732fd8d93f22e",
-      "lines": 280
+      "sha256": "2a5e54ba4cdd602c7b87b01b175fbeef71355ad402cf02cca7bdc3caea569f9c",
+      "lines": 512
+    },
+    {
+      "path": "backend/tests/test_cancel_in_transit_race_pg.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "0166a90f4a8ac0ae5cb9ba6873e4be35a0f2915eb596745f865ab5828146e12d",
+      "lines": 263
     },
     {
       "path": "backend/tests/test_cancel_reason.py",
@@ -15714,8 +15721,8 @@
       "path": "webapp/src/utils/rideCancelWarning.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "856bf3b8bb6ee8d2352d9b94b90ae7373b0dbe8dccaaa71ee1939d783405808f",
-      "lines": 25
+      "sha256": "00ed084829105b5dd226e9d235b5e0b30dd86e1ecf866a3207daac966c9758dd",
+      "lines": 26
     },
     {
       "path": "webapp/src/utils/seatOptions.ts",
@@ -15987,7 +15994,7 @@
       "path": "webapp/tests/cancelled-in-transit-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "08814d6685b54230372f2274c1f96dda3d6e0ab18a607213c378fdff7aa008a6",
+      "sha256": "4f30c0675f6c916b140a3a035635113f4034cdd4d38c89cca45286ff2072dc95",
       "lines": 238
     },
     {
@@ -16519,7 +16526,7 @@
       "path": "webapp/tests/parity-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "6aa2efc74765575e5cb35157112a720187b0d3f565ff31abf373ee62e799d4b6",
+      "sha256": "0b27982a40f53235b86e19553d2dcc8e6f8f75f2f56840179e6e3918d60f2080",
       "lines": 282
     },
     {
@@ -16715,8 +16722,8 @@
       "path": "webapp/tests/sos-no-sms-promise-test.mjs",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "33cb1394f6a39181e73bfd7b35dca5c220b4a904aa8be9d298a3d42d406953cf",
-      "lines": 146
+      "sha256": "8cd83835ff85861af6fbf6aefa07fddd6f23022f7f25086f2eb5ea6b558229e2",
+      "lines": 151
     },
     {
       "path": "webapp/tests/splash-navigation-test.mjs",
