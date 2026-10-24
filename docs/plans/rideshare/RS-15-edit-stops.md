@@ -10,7 +10,7 @@
 | Проверка `yuldash-security-privacy` | нет — личных данных не касается; гонки проверяет приёмка (§8) |
 | Двигает сценарии приёмки | W1-E2E-01, W1-E2E-03 (`docs/audit-traceability/rideshare-scope.md`) |
 | Зона файлов | `backend/app/routers/rides.py`, `backend/app/routers/bookings.py` (одно условие в `book()`), `backend/app/ride_seats.py` (RS-02, проверка остановок в `take`), `backend/tests/test_edit_ride_stops.py`*. `android/app/src/main/java/com/yuldash/app/`: `ProfileScreen.kt`, `EditRideStopsSheet.kt`*, `data/ApiClient.kt`; `android/app/src/test/.../EditRideStopsTest.kt`*. `webapp/src/`: `api/rides.ts`, `components/RideEditActions.tsx`; `webapp/tests/edit-ride-stops-test.mjs`*, `webapp/tests/run.mjs`. `docs/{tasks,decisions,architecture,lessons}.md`. (* — новый файл) |
-| Источник | `master/part-001.md` п. 13, п. 6; `master/part-002.md` контракт 5 «Изменение», «Места и календарь»; решения 24.10: Q17, Q12 (RS-02), Q10 |
+| Источник | `c5be55a:docs/research/apps/master/part-001.md` п. 13, п. 6; `c5be55a:docs/research/apps/master/part-002.md` контракт 5 «Изменение», «Места и календарь»; решения 24.10: Q17, Q12 (RS-02), Q10 |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек
@@ -78,9 +78,9 @@
    названиям); `[]` — одна цена на весь путь. Правка одних цен — правило RS-02 (п. 10: при бронях только вниз).
 10. **Сторожа маршрута — правило дыры между планами:** кто из RS-10 и RS-15 вливается **вторым**, тот добавляет вызов рассылки
     при правке остановок и его тест. RS-15 первым — шаг не делает и пишет в PR «вызов добавит RS-10»; вторым — делает: после `commit`
-    `notify_route_watchers(session, ride, siblings=None)` (сигнатура RS-10: `siblings: list[Ride] | None = None`), затем
-    `session.refresh(ride)`. `siblings=None`: правится один рейс, а «братья» серии (S2 RS-10) ищутся по одинаковым остановкам — у
-    исправленного рейса их больше нет. RS-10 сверяет остановки (S1) и не шлёт повторно по рейсу (S5). Без RS-10 вызов не делать:
+    `notify_route_watchers(session, ride, siblings=())` (сигнатура RS-10: `siblings: Sequence[Ride] | None = None`), затем
+    `session.refresh(ride)`. `siblings=()`: правится один рейс, запасной поиск «братьев» серии (S2 RS-10) не нужен — они ищутся по
+    одинаковым остановкам, а у исправленного рейса их больше нет. RS-10 сверяет остановки (S1) и не шлёт повторно по рейсу (S5). Без RS-10 вызов не делать:
     нынешняя функция смотрит только концы и через сутки повторила бы старое оповещение.
 11. **Поиск и карта:** поиск по остановкам видит правку сразу; лента без фильтров — через ≤20 с кэша, как после публикации.
 12. **Повтор и границы:** тот же запрос второй раз — 200 без уведомлений; права — существующие 403/400; правится один рейс серии.

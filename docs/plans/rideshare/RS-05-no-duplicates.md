@@ -4,13 +4,13 @@
 |---|---|
 | Статус | не начато |
 | Ждёт «да» Александра | да — миграция рабочей базы (таблица `commandreceipt`) |
-| Зависит от | RS-01 (договор ошибок `herr(..., code=)`, D2), RS-02 (общая зона брони) |
+| Зависит от | RS-01 (договор ошибок `herr(..., code=)`, D2 — общие решения, `docs/plans/README.md`), RS-02 (общая зона брони) |
 | Не параллельно с | RS-02, RS-03, RS-09 (`bookings.py`, `rides.py`, формы публикации и брони); RS-06 (`models.py`, `ApiClient.kt`, `cleanup.py`, `account.py`, `BookingActiveTripScreen.kt`, миграции) — по индексу |
 | Деление на PR | `[RS-05А]` сервер с миграцией (облачный агент) → `[RS-05Б]` сайт и Android (Android — агент на компьютере Александра) |
 | Проверка `yuldash-security-privacy` | да — повтор не должен обходить права, паузу и блокировку; в квитанции нет ПДн |
 | Двигает сценарии приёмки | W1-E2E-04 (главный); W1-E2E-02, W1-E2E-03 («нет второго рейса/брони») |
 | Зона файлов | `backend/app/`: `idempotency.py` (новый), `models.py` (`CommandReceipt`), `routers/rides.py` (`create_ride`, `cancel_ride`, `complete_ride`), `routers/bookings.py` (`book`, `confirm_booking`, `_cancel_booking`, `mark_no_show`, `driver_status`, `_mark_boarded`), `routers/family.py` (`set_trip_status`), `cleanup.py`, `account.py`; `backend/alembic/versions/<префикс>_command_receipt_<дата>.py`; `backend/tests/test_command_idempotency{,_postgres}.py`. `android/app/src/main/java/com/yuldash/app/`: `data/CommandIntent.kt` (новый), `data/ApiClient.kt`, `data/TripPass.kt` (`Outbox`), `data/SessionKeys.kt`, `CreateRideScreen.kt`, `YuldashApp.kt` (ветка брони), `BookingActiveTripScreen.kt` (`updateTripStatus`), `data/BoardingApi.kt` (`markBoarded`, `markArriving`); тесты в `android/app/src/test/…/app/`: `data/CommandIntentTest.kt`, `data/ApiClientCommandKeyTest.kt`, `CreateRideLostResponseTest.kt`, `BookingLostResponseTest.kt`. `webapp/src/`: `utils/commandIntent.ts` (новый), `api/driver.ts`, `api/bookings.ts`, `api/rides.ts`, `api/family.ts`, `utils/outbox.ts`, `screens/CreateRideScreen.tsx`, `screens/ActiveTripScreen.tsx` (`sendPhase`), `components/RideSheet.tsx`; `webapp/tests/command-intent-test.mjs`. Мозг: `docs/tasks.md`, `docs/decisions.md` |
-| Источник | `c5be55a:docs/research/apps/master/part-002.md` «Минимальные контракты надёжности», `master/part-001.md` п. 4, 10, 28; решения 24.10: Q9, Q10, Q11 |
+| Источник | `c5be55a:docs/research/apps/master/part-002.md` «Минимальные контракты надёжности», `c5be55a:docs/research/apps/master/part-001.md` п. 4, 10, 28; решения 24.10: Q9, Q10, Q11 |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек

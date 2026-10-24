@@ -6,11 +6,11 @@
 | Ждёт «да» Александра | да — миграция рабочей базы (часть А), ночная зачистка координат (удаление данных, часть А) |
 | Зависит от | RS-01 (`herr(code=)`, `ApiError.code`), RS-02 (общая зона брони и цепочка миграций) — строго после их слияния |
 | Не параллельно с | RS-01, RS-02, RS-04, RS-05, RS-06, RS-07, RS-08, RS-13, RS-14, RS-15 — по «Очереди по общим файлам» индекса |
-| Деление на PR | `[RS-03А]` точка при брони, видимость, зачистка, «Мои данные» (вся миграция — здесь); `[RS-03Б]` предложить/сменить место (три команды); `[RS-03В]` «Подъезжаю» по точке. Внутри части — сервер → сайт → Android (D4) |
+| Деление на PR | `[RS-03А]` точка при брони, видимость, зачистка, «Мои данные» (вся миграция — здесь); `[RS-03Б]` предложить/сменить место (три команды); `[RS-03В]` «Подъезжаю» по точке. Внутри части — сервер → сайт → Android (D4 — общие решения, `docs/plans/README.md`) |
 | Проверка `yuldash-security-privacy` | да — точные координаты, видимость, срок хранения, выгрузка |
 | Двигает сценарии приёмки | W1-E2E-01, W1-E2E-05 (`docs/audit-traceability/rideshare-scope.md`) |
 | Зона файлов | `backend/app/`: `models.py`, `config.py`, `meeting_points.py`*, `routers/meeting.py`*, `routers/__init__.py`, `routers/bookings.py`, `routers/auth.py`, `cleanup.py`; миграция* в `backend/alembic/versions/`; `backend/tests/test_meeting_points.py`*, `test_meeting_points_privacy.py`*, `test_cleanup.py`. `android/app/src/main/java/com/yuldash/app/`: `data/ApiClient.kt`, `data/BookingDtos.kt`, `data/DriverBookings.kt`, `data/TripPass.kt`, `PickupStopPicker.kt`, `BookingActiveTripScreen.kt`, `DriverPassengerRow.kt`, `MeetingPointPicker.kt`*; `android/app/src/test/.../MeetingPointTest.kt`*. `webapp/src/`: `api/bookings.ts`, `components/YandexMap.tsx`, `components/RideSheet.tsx`, `components/DriverPassengers.tsx`, `components/MeetingPointPicker.tsx`*, `screens/ActiveTripScreen.tsx`; `webapp/tests/meeting-point-test.mjs`*, `webapp/tests/run.mjs`. `docs/{tasks,decisions,architecture,lessons}.md`. (* — новый файл) |
-| Источник | `master/part-001.md` п. 5, п. 13; `master/part-002.md` контракты 4–6, «Места и календарь», K01–K02; решения 24.10: Q15 а, Q14 а, Q10 а |
+| Источник | `c5be55a:docs/research/apps/master/part-001.md` п. 5, п. 13; `c5be55a:docs/research/apps/master/part-002.md` контракты 4–6, «Места и календарь», K01–K02; решения 24.10: Q15 а, Q14 а, Q10 а |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек
@@ -168,3 +168,4 @@
 | Дата | Статус | Кто | PR / коммит | Заметка |
 |---|---|---|---|---|
 | 24.10.2026 | не начато | — | — | план написан |
+| 24.10.2026 | не начато | — | — | исправлен по замечаниям независимой приёмки |

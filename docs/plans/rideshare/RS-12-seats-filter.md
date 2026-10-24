@@ -10,7 +10,7 @@
 | Проверка `yuldash-security-privacy` | нет |
 | Двигает сценарии приёмки | W1-E2E-01 (поиск → бронь на нужное число мест) |
 | Зона файлов | сервер: `routers/rides.py` (только `search_rides`, `rides_near` — их правит и RS-02: по очереди), `tests/test_rides_seats_filter.py`. Android: `data/ApiClient.kt` (`getNearbyRidesPaged`, `NearbyPage`: ≤ 12 строк, общий), `NearbyFeedSearch.kt`, `NearbyFiltersPanel.kt`, `SecondaryScreens.kt` (`FilterPrefs`, `FiltersScreen`), `data/SessionKeys.kt`, `MapScreen.kt` (≤ 15 строк), `YuldashViewModel.kt` (поле `wantedSeats`), `YuldashApp.kt` (одна строка `:1335`, «замок»), новый `NearbySeats.kt`. Сайт: `api/discovery.ts`, `api/rides.ts`, `nearbyFeed.ts`, `filterPrefs.ts`, `components/NearbyFilters.tsx`, `components/RideSheet.tsx`, `screens/FiltersScreen.tsx`, `screens/HomeScreen.tsx` (≤ 15 строк), новый `components/NearbySeatsCard.tsx`, `tests/*`, `tests/run.mjs` |
-| Источник | решения Александра 24.10: Q12 (места по участкам), Q10, Q17; `master/part-002.md`, «# P1» (удобства поиска) |
+| Источник | решения Александра 24.10: Q12 (места по участкам), Q10, Q17; `c5be55a:docs/research/apps/master/part-002.md`, «# P1» (удобства поиска) |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек

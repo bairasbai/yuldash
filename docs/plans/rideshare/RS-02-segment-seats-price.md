@@ -11,7 +11,7 @@
 | Проверка `yuldash-security-privacy` | да — деньги (`pay_amount`, `expected_price`), публичная загрузка участков |
 | Двигает сценарии приёмки | W1-E2E-01, -02, -03 (`docs/audit-traceability/rideshare-scope.md`) |
 | Зона файлов | А: `backend/app/ride_seats.py` (новый), `models.py`, `schemas.py`, `services.py`, `request_segments.py`, `safety_logic.py`, `account.py`, `routers/{bookings,rides,requests,medical}.py`, `backend/alembic/versions/<префикс>_ride_segment_seats_<дата>.py`. Б: те же файлы без `safety_logic.py`/`account.py`/`medical.py` + `<префикс>_ride_stop_prices_<дата>.py`. Тесты — раздел 7. В (`android/app/src/main/java/com/yuldash/app/`): `Domain.kt`, `MainActivity.kt` (только `toUiRide`), `YuldashApp.kt` (только вызов брони), `data/{ApiClient,DriverBookings,RequestRouteDtos}.kt`, `PickupStopRules.kt`, `BookingSeatCount.kt`, `BookingActiveTripScreen.kt`, `CreateRideStops.kt`, `CreateRideScreen.kt`, `ProfileScreen.kt`, `RidesRequestsChatScreens.kt`, `RequestsFeedScreen.kt`, `RideshareLegsLoad.kt` (новый). Г (`webapp/src/`): `api/{rides,driver,bookings,requests}.ts`, `utils/pickupStops.ts`, `components/{RideSheet,RideCard,RideEditActions,DriverPassengers}.tsx`, `screens/{CreateRideScreen,DriverCabinetScreen,RequestsFeedScreen}.tsx`. Мозг: `docs/{decisions,tasks,architecture,lessons}.md` |
-| Источник | исследование `master/part-001.md` п. 6, 9, 10, 12, 13, 29; решение Q12 б (24.10) |
+| Источник | исследование `c5be55a:docs/research/apps/master/part-001.md` п. 6, 9, 10, 12, 13, 29; решение Q12 б (24.10) |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек

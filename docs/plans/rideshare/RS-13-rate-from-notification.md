@@ -4,13 +4,13 @@
 |---|---|
 | Статус | не начато |
 | Ждёт «да» Александра | нет (миграций нет, денег нет; выкладка — по общему правилу §8) |
-| Зависит от | — |
+| Зависит от | RS-01 (`herr(code=)`) |
 | Не параллельно с | RS-02, 03, 04 (`AndroidManifest.xml`, §12), 05, 06, 14: общие `services.py`, `bookings.py`, `ApiClient.kt`, `TripPass.kt`, `FcmService.kt`, `ActiveTripScreen.tsx` |
 | Деление на PR | `[RS-13А]` сервер (облачный агент); `[RS-13Б]` сайт; `[RS-13В]` Android (агент на компьютере Александра) |
 | Проверка `yuldash-security-privacy` | да (чужие руки на телефоне, адресат, честность рейтинга) |
 | Двигает сценарии приёмки | W1-E2E-01 (две оценки); косвенно E2E-04 (очередь без сети), E2E-05 (аккаунт) |
 | Зона файлов | `backend/app/`: `rate_reminder.py`, `rating_service.py`, `routers/{family,bookings,instant}.py`, `services.py` (`_send_web_push`); `android/app/src/main/`: `java/com/yuldash/app/data/{FcmService,TripPass,ApiClient}.kt`, `data/RateNotificationAction.kt` (новый), `AndroidManifest.xml`; `webapp/`: `public/push-sw.js`, `src/push/rateDraft.ts` (новый), `src/auth/AuthProvider.tsx`, `src/api/bookings.ts`, `src/screens/ActiveTripScreen.tsx`, `tests/run.mjs`; новые тесты; `docs/{decisions,tasks,lessons,architecture}.md` |
-| Источник | исследование `continuation/part-019.md:15,77`, `part-018.md:77` (идея); Q17; «оценка в два шага» W1-FIN-27 (`docs/audit-blocks.md:2971`) |
+| Источник | исследование `c5be55a:docs/research/apps/continuation/part-019.md:15,77`, `part-018.md:77` (идея); Q17; «оценка в два шага» W1-FIN-27 (`docs/audit-blocks.md:2971`) |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек
@@ -19,7 +19,7 @@
 Кнопок нет, если оценить нельзя (прошло 60 дней, аккаунт на паузе). На заблокированном телефоне оценка не ставится при любой настройке шторки: «Разблокируй телефон, чтобы оценить». Стоящую оценку уведомление не перезапишет; при смене входа не уйдёт. Ночное напоминание придёт утром. На сайте то же в Chrome; без кнопок нажатие открывает поездку.
 
 ## 2. Что уже есть в коде
-- Напоминание: `rate_reminder.py` — попутка `ключ="booking"` (`:153`), отправка `:230`, пометка `rate_reminded` `:240`; таймер раз в 30 минут (`backend/deploy/yuldash-rate-reminder.timer`). Тип пуша сейчас `booking` (`services.py:792`): Android открывает бронь, сайт — `/booking/{id}` (`:517`).
+- Напоминание: `rate_reminder.py` — попутка `ключ="booking"` (`:153`), отправка `:230`, пометка `rate_reminded` `:240`; таймер раз в 30 минут (`backend/deploy/yuldash-rate-reminder.timer`). Тип пуша сейчас `booking` (`services.py:792`): Android открывает бронь, сайт — `/booking/{id}` (`:519`).
 - Оценка: `POST /bookings/{id}/rate`, `family.py:635` (`RateIn` `:627`): участник (403), `done` (409, `:654`), окно 60 дней (`:659`, `rating_service.py:37`), пауза; `can_rate` — `bookings.py:893`.
 - **Повторная оценка разрешена:** `apply_rating` (`rating_service.py:125`) перезаписывает звёзды (`:151`), гонку закрывает `_lock_rating_slot` (`:90`); ключа повтора нет, повтор безопасен. Оценка водителя пересчитывает `DriverProfile.rating`, по нему такси подбирает заказы (`:171–181`).
 - Пауза: `account_paused` — запрос на человека (`safety_logic.py:228`), `suspended_user_ids` — один на всех (`:240`); `test_no_query_per_item.py:113–136`: 8 броней — не больше запросов, чем 3. Ночью пуш `ride` не уходит (`services.py:655, 753`), а бронь помечалась «напомнили».
@@ -31,7 +31,7 @@
 ### Сервер `[RS-13А]`
 1. `rating_service.py`: `apply_rating(…, only_if_new=False)` возвращает `RatingResult(avg, count, kept, my_stars)`; вызовы `family.py:660`, `instant.py:930` читают `.avg/.count`, поведение прежнее. При `only_if_new` и существующей оценке — ничего не писать и **завершить транзакцию** (`rollback`: иначе держатся advisory-lock и блокировка SQLite). Рядом `rating_allowed_fast(user_id, happened_at, suspended_ids, now)` — окно и пауза без базы.
 2. `RateIn.from_notification: bool = False`: оценка уже есть — 200 `{ratee_id, rating, count, kept: true, my_stars}` без изменений; проверки 403/409/окно/пауза прежние, ошибки `herr(…, code=…)` по RS-01 (клиенты ветвят по `code`). Журнал: `[RATE] src=notification|app stars=N` (без id и имён).
-3. `rate_reminder.py`, только `booking`: (а) раз за проход `suspended_user_ids(session)` и `rating_allowed_fast` (нельзя — стороне не напоминать); (б) в тихие часы проход ничего не делает (`_is_quiet_hour()`, `services.py:674`): бронь не помечается, утренний проход отправит; (в) **смена типа:** `data={"type":"booking_done","id":<бронь>,"rate":"1","rate_role":"passenger|driver","rate_until":<выезд + 60 дней, секунды>}` вместо `booking`: Android открывает завершённую поездку, сайт — `/trip/{id}`. Центр уведомлений (`ref_kind="booking"`), такси и доставку не трогать.
+3. `rate_reminder.py`, только `booking`: (а) раз за проход `suspended_user_ids(session)` и `rating_allowed_fast` (нельзя — стороне не напоминать); (б) в тихие часы пропускается только сервис `booking` (`_is_quiet_hour()`, `services.py:674`): бронь не помечается, утренний проход отправит; (в) **смена типа:** `data={"type":"booking_done","id":<бронь>,"rate":"1","rate_role":"passenger|driver","rate_until":<выезд + 60 дней, секунды>}` вместо `booking`: Android открывает завершённую поездку, сайт — `/trip/{id}`. Центр уведомлений (`ref_kind="booking"`), такси и доставку не трогать.
 4. `_send_web_push`: при `rate=1` — `actions` («5 ★», «Есть замечания» на языке получателя) и `rate:{booking_id, recipient_user_id, until}`.
 ### Сайт `[RS-13Б]`
 5. `push-sw.js`: `actions` из payload (≤ `Notification.maxActions`). «5 ★» — черновик в IndexedDB `yuldash-rate-draft` (бронь, звёзды, `recipient_user_id`, время) и переход на `/trip/{id}` **без параметров** (чужая ссылка оценку не поставит). «Есть замечания» и браузеры без кнопок — обычный переход.

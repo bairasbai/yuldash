@@ -3,14 +3,14 @@
 | | |
 |---|---|
 | Статус | не начато |
-| Ждёт «да» Александра | **да**: миграция рабочей базы (таблица, колонки, перенос данных); класс такси (смена основной машины пересчитывает класс и цену такси) |
+| Ждёт «да» Александра | **да**: миграция рабочей базы (таблица, колонки, перенос данных); класс такси (смена основной машины пересчитывает класс и цену такси); удаление данных (чистка номеров архивных машин, `CAR_ARCHIVE_DAYS`) |
 | Зависит от | — |
 | Не параллельно с | RS-02, 03, 04 (`auth.py`), 05, 06, 09, 13, 15: общие `rides.py`, `bookings.py`, `models.py`, `BookingActiveTripScreen.kt`, форма публикации |
 | Деление на PR | `[RS-14А]` сервер (модель, миграция, «одна дверь», зеркало, ручки, значок, читатели); `[RS-14Б]` Android; `[RS-14В]` сайт; `[RS-14Г]` смена машины в рейсе (после Б и В) |
 | Проверка `yuldash-security-privacy` | да (номер, фото, SOS) |
 | Двигает сценарии приёмки | W1-E2E-01 (пассажир сверяет номер), W1-E2E-05 (номер виден после подтверждения) |
 | Зона файлов | `backend/app/`: `cars.py`, `routers/cars.py` (новые), `models.py`, `config.py`, `schemas.py`, `main.py`, `routers/{drivers,rides,bookings,requests,safety,auth}.py`, `services.py`, `account.py`, `cleanup.py`, `safety_logic.py`, `cancel_reason_text.py`, `alembic/versions/`; Android `.../com/yuldash/app/`: `MainActivity.kt` (`Screen`, `toUiRide`), `Domain.kt`, `YuldashApp.kt`, `MyCarsScreen.kt`, `data/CarsApi.kt` (новые), `CreateRideScreen.kt`, `SosVerifyScreens.kt`, `BookingActiveTripScreen.kt`, `RideshareTripContacts.kt`, `data/{ApiClient,BookingDtos,TripPass}.kt`; `webapp/src/`: `App.tsx`, `api/{cars,driver}.ts`, `utils/{tripPass,offlineTripPass}.ts`, `screens/{MyCarsScreen,CreateRideScreen,VerifyDriverScreen,ActiveTripScreen}.tsx`; `docs/`; тесты |
-| Источник | `master/part-003.md:21` (K06 «сверка автомобиля»); Q17 |
+| Источник | `c5be55a:docs/research/apps/master/part-003.md:21` (K06 «сверка автомобиля»); Q17 |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек
@@ -44,7 +44,7 @@
 
 ## 4. База данных
 Ревизия `<префикс>_driver_cars_<дата>` (префикс по индексу; перед слиянием свежий `origin/main`, `alembic heads` → `down_revision` = голова, одна голова; up→down→up на SQLite и PostgreSQL; `test_migrations_match_the_models`, `test_migrations_reach_production`; перед рабочей базой — `backup-db.sh`). Создаёт `drivercar` (частичный уникальный индекс, индекс по владельцу), `ride.car_id`, `booking.car_seen_id`. **Данные:** каждому профилю с машиной — одна `DriverCar` (`is_default`, статус, фото, места и характеристики такси из профиля); всем рейсам водителя — `car_id` основной (иначе смена основной подменит машину в прошлом); `car_seen_id = car_id`. Откат — удалить таблицу и колонки. **На рабочую базу — только после «да» Александра.**
-**Срок хранения и удаление аккаунта:** `drivercar` — в `KEEP_FOREVER` («часть аккаунта»); чистка стирает номер и цвет архивных машин через `CAR_ARCHIVE_DAYS=365` (срок — предложение, подтвердить), фото — сразу при архиве; удаление аккаунта (`account.py:227, 588`) стирает все машины и фото.
+**Срок хранения и удаление аккаунта:** `drivercar` — в `KEEP_FOREVER` («часть аккаунта»); чистка стирает номер и цвет архивных машин через `CAR_ARCHIVE_DAYS=365` (срок — предложение, подтвердить), фото — сразу при архиве; удаление аккаунта (`account.py:227, 588`) стирает все машины и фото; машины в `account.py` удалять после `delete(Ride)` (`:459`); `ride.car_id` и `booking.car_seen_id` — nullable, `ON DELETE SET NULL`.
 
 ## 5. Надписи
 RU: «Мои машины», «Добавить машину», «Основная», «В архив», «На какой машине едешь», «Машина изменилась», «Понятно», «Отменить без последствий», «Проверена / На проверке / Не проверена», «Сначала сойди с линии». Башкирский — черновик `yuldash-bashkir-linguist` (`docs/tasks.md`).

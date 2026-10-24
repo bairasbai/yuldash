@@ -10,7 +10,7 @@
 | Проверка `yuldash-security-privacy` | да — каждая часть до слияния, вердикт в PR |
 | Двигает сценарии приёмки | W1-E2E-05; W1-E2E-07 (живые СМС — по Q11 пока не проходим) |
 | Зона файлов | `backend/app/`: новые `owner_switches.py`, `vk_id.py`, `whatsapp_otp.py`, `routers/admin_switches.py`; `login_methods.py`, `routers/{auth,health,__init__}.py`, `models.py`, `services.py`, `security.py`, `config.py`, `account.py`, `cleanup.py`; `alembic/versions/`; `.env.example` (имена); `tests/`. Android `…/yuldash/app/`: новые `AdminSwitchesScreen.kt`, `LoginMethodsProfileScreen.kt`; `LoginScreen.kt`, `LoginMethods.kt`, `data/ApiClient.kt`, `AppNavAdmin.kt`, `MainActivity.kt` (`enum Screen`), `SecondaryScreens.kt` (`AdminCabinetScreen`), `ProfileScreen.kt`, `YuldashApp.kt`/`AppNav*.kt`, `AndroidManifest.xml`; тесты. `webapp/src/`: новые `screens/{AdminSwitches,LoginVkReturn,LoginMethods}Screen.tsx`; `screens/{Login,Profile,AdminCabinet}Screen.tsx`, `api/auth.ts`, `utils/loginFlow.js` + `.d.ts`, `App.tsx`; `webapp/tests/`. Мозг: `docs/{architecture,decisions,tasks,lessons}.md` |
-| Источник | `master/part-001.md` п. 1, 26; Q13, Q9, Q11 (24.10), Q2, Q11 (17.10); D1–D5, D8 |
+| Источник | `c5be55a:docs/research/apps/master/part-001.md` п. 1, 26; Q13, Q9, Q11 (24.10), Q2, Q11 (17.10); D1–D5, D8 (общие решения, `docs/plans/README.md`) |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек

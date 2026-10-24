@@ -5,12 +5,12 @@
 | Статус | не начато |
 | Ждёт «да» Александра | нет — сервер не меняется, базы и денег нет |
 | Зависит от | — |
-| Не параллельно с | RS-10, RS-12 (`MapScreen.kt`, `HomeScreen.tsx`, `RidesScreen.tsx`, `tests/run.mjs`); RS-12 (строка `yuldash_filters` в `SessionKeys.kt`); RS-09 (`CreateRideScreen.kt` — не трогаем) |
+| Не параллельно с | RS-10, RS-12 (`MapScreen.kt`, `NearbyFilters.tsx` — общий с RS-12, `RidesScreen.tsx`, `tests/run.mjs`); RS-12 (строка `yuldash_filters` в `SessionKeys.kt`); RS-09 (`CreateRideScreen.kt` — не трогаем) |
 | Деление на PR | **[RS-11А]** сайт → **[RS-11Б]** Android (сервера нет). Замок — по тегу части |
 | Проверка `yuldash-security-privacy` | да (маршруты человека; стирание при выходе и удалении аккаунта) |
 | Двигает сценарии приёмки | W1-E2E-05 (личные данные: история стирается при выходе) |
 | Зона файлов | Android: новый `SearchHistory.kt`; `NearbyCityFilter.kt` (шторка «Откуда/Куда» + запись при закрытии), `MapScreen.kt` (≤ 3 строк на `:383`), `data/SessionKeys.kt` (одна строка); тесты. Сайт: новые `utils/searchHistory.ts`, `components/SearchHistory.tsx`; `utils/privacy.ts` (один ключ), `components/NearbyFilters.tsx` (шторка городов), `screens/RidesScreen.tsx` (запись), `ui.css`, `tests/search-history-test.mjs`, `tests/privacy-test.mjs`, `tests/run.mjs`. Сервер не трогаем |
-| Источник | `continuation/part-015.md:109`, `part-016.md:1-13` (история BlaBlaCar: 5 записей, выбор, замена той же записи; удаление и очистка там НЕ установлены — делаем сами); Q10, Q17 |
+| Источник | `c5be55a:docs/research/apps/continuation/part-015.md:109`, `part-016.md:1-13` (история BlaBlaCar: 5 записей, выбор, замена той же записи; удаление и очистка там НЕ установлены — делаем сами); Q10, Q17 |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек
