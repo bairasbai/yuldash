@@ -727,8 +727,15 @@ def push_notification(
     push: bool = True,
     data: "dict | None" = None,
     urgent: bool = False,
+    storm_exempt: bool = False,
 ) -> None:
     """Единая точка события: пишет строку в Центр уведомлений (двуязычно RU+BA) И шлёт FCM-push.
+
+    `storm_exempt=True` — мимо потолка «шторма» (`_notify_storm`). Только для событий, которые по
+    своей природе случаются раз на объект и где тишина опасна: «Поездку отменили в пути» —
+    человек, возможно, на трассе, а потолок проглатывал пуш, если водитель перед этим написал
+    в чат 6–8 сообщений (приёмка PR205). Ради «срочно» (`urgent`) потолок не снимаем: «Сел» и
+    «Отменить» водитель может жать по кругу.
 
     `urgent=True` — звонить и в тихие часы, хотя тип сам по себе «новостной». Для событий
     идущей поездки, которые делят тип с новостями: «Водитель выехал/подъезжает» уходят типом
@@ -747,7 +754,7 @@ def push_notification(
         push = False
     try:
         with Session(engine) as s:
-            if _notify_storm(s, user_id, ref_kind, ref_id):
+            if not storm_exempt and _notify_storm(s, user_id, ref_kind, ref_id):
                 return
             s.add(Notification(
                 user_id=user_id,

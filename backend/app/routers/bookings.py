@@ -1561,7 +1561,9 @@ def notify_cancelled_in_transit(session: Session, booking: Booking, ride: Ride,
         "Поездку отменили в пути", "Сәфәр юлда кире алынды",
         f"{route}. Если нужна помощь — SOS или «Застрял на трассе» в приложении.",
         f"{route}. Ярҙам кәрәк булһа — ҡушымтала SOS йәки «Юлда ҡалдым».",
-        ref_kind="booking", ref_id=booking.id, urgent=True,
+        # Мимо потолка «шторма»: отмена в пути бывает раз на бронь, а чат перед ней (6–8 сообщений
+        # водителя за минуту) иначе глушил ровно этот пуш (приёмка PR205).
+        ref_kind="booking", ref_id=booking.id, urgent=True, storm_exempt=True,
     )
     passenger = session.get(User, booking.passenger_id)
     if passenger is not None:
@@ -1570,7 +1572,8 @@ def notify_cancelled_in_transit(session: Session, booking: Booking, ride: Ride,
             notify_family_trip_status(session, bid, passenger, "cancelled_onboard")
         except Exception as e:  # noqa: BLE001 — отмена уже сохранена, остальные уведомления важнее
             session.rollback()
-            log.warning(f"[CANCEL-IN-TRANSIT] SMS близким по брони #{bid} не ушли: {type(e).__name__}")
+            log.warning(f"[CANCEL-IN-TRANSIT] сбой на шаге SMS близким по брони #{bid} "
+                        f"(часть могла уйти): {type(e).__name__}")
 
 
 def _onboard_cancel_refusal() -> HTTPException:
