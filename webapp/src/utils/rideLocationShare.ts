@@ -80,6 +80,7 @@ export function createRideShare(deps: RideShareDeps) {
   let handoff: { token: symbol; timer: unknown } | null = null; // «Завершить» → кабинет: держим, пока он не взял
   let pendingTimer: unknown = null; // срок ожидания ответа на закрывающий шаг
   let actionInFlight = false; // сервер принял шаг, ждём список рейса
+  let beforeOpen: { id: number; owner: string; until: number } | null = null; // первый шаг пришёл до страницы GPS
   const holders = new Set<symbol>();
   const listeners = new Set<(s: RideShareSnapshot) => void>();
 
@@ -113,6 +114,7 @@ export function createRideShare(deps: RideShareDeps) {
     clearTimer(pendingTimer);
     pendingTimer = null;
     actionInFlight = false;
+    beforeOpen = null;
     holders.clear();
     bookingId = null;
     state = null;
@@ -211,8 +213,18 @@ export function createRideShare(deps: RideShareDeps) {
   }
 
   /** Шаг водителя на этом устройстве принят сервером: включить режим рейса / сразу сменить несущую. */
-  async function action(id: number, closedNow: boolean): Promise<void> {
-    if (bookingId === null || !sessionOk()) return;
+  async function action(id: number, closedNow: boolean, until = deps.now() + RIDE_SHARE_MAX_MS): Promise<void> {
+    if (owner !== null && !sessionOk()) stopAll();
+    if (bookingId === null) {
+      if (closedNow && beforeOpen?.id === id) beforeOpen = null;
+      if (!closedNow && deps.hasToken()) {
+        const session = deps.session();
+        // Повторные шаги до открытия не продлевают уже начавшийся срок того же входа/брони.
+        if (!beforeOpen || beforeOpen.id !== id || beforeOpen.owner !== session) beforeOpen = { id, owner: session, until };
+      }
+      return; // доказательство локального шага не начинает GPS само
+    }
+    if (!sessionOk()) return;
     if (ride && ride.bookings.has(id)) {
       if (!closedNow) return;
       closed.add(id);
@@ -235,7 +247,7 @@ export function createRideShare(deps: RideShareDeps) {
         // как поиск следующей брони (вторая приёмка Д2, P2).
         retryTimer = deps.setTimer(() => {
           retryTimer = null;
-          void action(id, closedNow);
+          void action(id, closedNow, until);
         }, Math.min(30_000, 1000 * 2 ** Math.min(attempts, 5)));
         return;
       }
@@ -249,6 +261,7 @@ export function createRideShare(deps: RideShareDeps) {
     attempts = 0;
     pendingClose = 0;
     if (!sessionOk()) return stopAll();
+    if (deps.now() >= until) return stopAll();
     const actionRide = rows.find((r) => r.booking_id === id)?.ride_id ?? 0;
     const carrierRide = rows.find((r) => r.booking_id === bookingId)?.ride_id ?? 0;
     if (!actionRide || actionRide !== carrierRide) {
@@ -256,7 +269,7 @@ export function createRideShare(deps: RideShareDeps) {
       return;
     }
     const bookings = new Set(rows.filter((r) => r.ride_id === actionRide).map((r) => r.booking_id));
-    ride = ride && ride.rideId === actionRide ? { ...ride, bookings } : { rideId: actionRide, bookings, until: deps.now() + RIDE_SHARE_MAX_MS };
+    ride = ride && ride.rideId === actionRide ? { ...ride, bookings } : { rideId: actionRide, bookings, until };
     if (closedNow) closed.add(id);
     // Первый «Выехал» / «Подъезжаю» тоже обязан поставить срок confirmed в начале маршрута.
     apply(rows);
@@ -334,6 +347,11 @@ export function createRideShare(deps: RideShareDeps) {
       }
       const token = Symbol("trip");
       hold(token);
+      const first = beforeOpen;
+      beforeOpen = null; // другое открытие/вход/истёкший шаг не смогут воскресить эту подсказку позже
+      if (first && first.id === id && first.owner === owner && deps.now() < first.until) {
+        void action(first.id, false, first.until);
+      }
       return () => release(token);
     },
     /**

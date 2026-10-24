@@ -26,9 +26,12 @@ class SegmentProvisionInstrumentedTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext.applicationContext
         assertTrue(context is YuldashApplication)
-        assertEquals("http://127.0.0.1:5198", BuildConfig.YULDASH_API_BASE_URL)
+        val isolatedBase = args.getString("auditApiBase") ?: "http://127.0.0.1:5198"
+        assertTrue(isolatedBase in setOf("http://127.0.0.1:5198", "http://127.0.0.1:8009"))
+        assertEquals(isolatedBase, BuildConfig.YULDASH_API_BASE_URL)
         assertNull(ApiClient.testBaseUrl)
         assertFalse(ApiClient.secureStorageUnavailable)
+        if (args.getString("auditClearSession") == "true") ApiClient.logout()
         ApiClient.saveToken(token)
         assertTrue(ApiClient.isLoggedIn())
         assertEquals(userId, ApiClient.myUserId())

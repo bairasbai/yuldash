@@ -1,5 +1,7 @@
 package com.yuldash.app
 
+import androidx.compose.foundation.verticalScroll
+
 // Профиль + кабинет рекламы. Вынесено из MainActivity (Фаза 2). Импорты целиком — лишние = варнинги.
 
 import com.yuldash.app.R

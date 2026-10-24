@@ -190,6 +190,7 @@ export default function ActiveTripScreen() {
   const tripRef = useRef<TripState | null>(null);
   const detailsStatusRef = useRef<BookingStatus | null>(null);
   const detailsSyncBusyRef = useRef(false);
+  const [detailsSyncStatus, setDetailsSyncStatus] = useState<"idle" | "loading" | "error">("idle");
   const lastDetailsAtRef = useRef(Date.now());
   /** Счётчик «Сел» / «Отменить» водителя: опрос, начатый до действия, его ответ не перетирает. */
   const boardingSeqRef = useRef(0);
@@ -291,21 +292,27 @@ export default function ActiveTripScreen() {
 
   /** Фоновая сверка не переводит весь экран в loading и не скрывает старые данные при ошибке. */
   const syncBookingDetails = useCallback(async () => {
-    if (!bookingId || currentBookingIdRef.current !== bookingId || detailsSyncBusyRef.current) return;
+    if (!bookingId || currentBookingIdRef.current !== bookingId || detailsSyncBusyRef.current ||
+      getSessionGeneration() !== sessionGeneration) return;
     detailsSyncBusyRef.current = true;
+    setDetailsSyncStatus("loading");
     lastDetailsAtRef.current = Date.now();
     try {
       const fresh = await fetchBookingDetails(bookingId);
-      if (currentBookingIdRef.current !== bookingId) return;
+      if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
       if (shouldApplyBookingDetails(tripRef.current?.status, fresh.status)) {
         applyBookingDetails(fresh);
       }
+      setDetailsSyncStatus(inTransitRef.current && rawDetailsRef.current?.status !== "cancelled" ? "error" : "idle");
     } catch {
-      /* Оставляем последний честный снимок; следующий редкий тик повторит. */
+      // Помощь остаётся на месте; после отмены старое can_rate не принимаем за свежий отказ в оценке.
+      if (currentBookingIdRef.current === bookingId && getSessionGeneration() === sessionGeneration) {
+        setDetailsSyncStatus(inTransitRef.current ? "error" : "idle");
+      }
     } finally {
-      if (currentBookingIdRef.current === bookingId) detailsSyncBusyRef.current = false;
+      if (currentBookingIdRef.current === bookingId && getSessionGeneration() === sessionGeneration) detailsSyncBusyRef.current = false;
     }
-  }, [applyBookingDetails, bookingId]);
+  }, [applyBookingDetails, bookingId, sessionGeneration]);
 
   useEffect(() => {
     tripRef.current = null;
@@ -314,6 +321,7 @@ export default function ActiveTripScreen() {
     rawDetailsRef.current = null;
     inTransitDetailsAskedRef.current = false;
     detailsSyncBusyRef.current = false;
+    setDetailsSyncStatus("idle");
     lastDetailsAtRef.current = Date.now();
     setPass(loadOfflineTripPass(bookingId));
   }, [bookingId]);
@@ -783,9 +791,20 @@ export default function ActiveTripScreen() {
           driverName={details.driver_name}
           problemReportSec={trip?.problem_report_sec ?? 0}
           /* Оценка водителя после отмены в пути (решение 24.10.2026) — из деталей брони. */
-          canRate={details.can_rate === true}
+          canRate={rawDetailsRef.current?.status === "cancelled" && details.can_rate === true}
           myStars={details.my_stars ?? 0}
         />
+        {detailsSyncStatus === "loading" && (
+          <div className="act-card" role="status">
+            {appText("Загружаем данные для оценки", "Баһалау өсөн мәғлүмәтте йөкләйбеҙ")}
+          </div>
+        )}
+        {detailsSyncStatus === "error" && (
+          <ErrorState
+            title={appText("Не удалось загрузить данные для оценки", "Баһалау өсөн мәғлүмәтте йөкләп булманы")}
+            onRetry={() => { void syncBookingDetails(); }}
+          />
+        )}
       </>
     );
   }

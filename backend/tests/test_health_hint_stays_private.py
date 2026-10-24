@@ -13,12 +13,13 @@
 иначе это не починка, а поломка функции.
 """
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from sqlmodel import Session, select
 
 from app.db import engine
-from app.models import MedicalPartner, UserRole
+from app.models import MedicalPartner, Ride, UserRole
 from app.timeutil import utcnow
 
 
@@ -85,17 +86,27 @@ def test_фильтром_по_больнице_анониму_выборку_н
     поездка. Если её нет — значит выборка всё-таки сузилась до больничных, и человек знает,
     что перед ним они, как бы мы ни затирали метку в полях.
     """
+    # Общая тестовая БД живёт весь набор. В первой странице лишь 200 рейсов: чужие более ранние
+    # поездки могли вытеснить обычную и ложно выглядеть как фильтрация по больнице. Обе свои
+    # поездки помещаем в уникальную область поиска; ограничения и фильтры настоящей ручки не меняем.
+    origin = f"Медтест {uuid4().hex}"
+    with Session(engine) as s:
+        own_hospital = s.get(Ride, hospital_ride["id"])
+        own_hospital.from_city = origin
+        s.add(own_hospital)
+        s.commit()
     drv = user_factory("Фильтр: обычный водитель", role=UserRole.driver)
     ordinary = client.post("/rides", headers=drv["auth"], json={
-        "from_city": "Баймак", "to_city": "Сибай",
+        "from_city": origin, "to_city": "Сибай",
         "depart_at": (utcnow() + timedelta(hours=11)).replace(microsecond=0).isoformat(),
         "seats_total": 3, "price": 300})
     assert ordinary.status_code == 200, ordinary.text
     ordinary_id = ordinary.json()["id"]
 
-    r = client.get("/rides?category=hospital")
+    r = client.get("/rides", params={"category": "hospital", "from_city": origin})
     assert r.status_code == 200
     items = r.json()
+    assert any(x["id"] == hospital_ride["id"] for x in items), "контрольная поездка не попала в свою выборку"
     assert not _hits(items, hospital_ride["partner_id"])
     assert any(x["id"] == ordinary_id for x in items), "выборка сузилась до больничных"
 

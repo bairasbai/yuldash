@@ -437,6 +437,10 @@ class TripLocationRideTest {
         gps(lat0 + 0.01)
         assertTrue("повторный старт обнулил срок, и точка ушла старой confirmed", noFrames())
         expectOpened(102)
+        assertEquals("служба должна уже вести допустимую замену", 102, TripLocationBus.bookingId)
+        assertFalse("после перевыбора режим рейса не должен остановиться", stopped(s))
+        // Слушатель GPS один: следующую точку Android доставляет не раньше штатного интервала, а не в тот же миг.
+        ShadowSystemClock.advanceBy(Duration.ofMillis(TripLocationService.FIX_INTERVAL_MS))
         gps(lat0 + 0.01)
         assertEquals("точку должна нести допустимая бронь того же рейса", 102, frameTo())
         assertFalse(stopped(s))

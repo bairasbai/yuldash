@@ -322,6 +322,32 @@ await t.test("экран поездки передаёт карточке оце
   assert.equal(card(plain.h.tree).props.canRate, false, "старый сервер без can_rate — без звёзд");
 });
 
+for (const lang of ["ru", "ba"]) {
+  await t.test(`отмена в пути: сбой деталей при известной машине — видимый повтор оценки (${lang})`, async () => {
+    session.clear();
+    let failed = false;
+    const { h, at } = await openActiveTrip({ lang, status: "onboard", details: { can_rate: false },
+      intercept: (path) => { if (failed && path.endsWith("/details")) throw new Error("нет сети"); } });
+    Object.assign(at.trip, TRIP_IN_TRANSIT);
+    Object.assign(at.details, IN_TRANSIT, { can_rate: true, my_stars: 0 });
+    failed = true;
+    await tick(h);
+    assert.ok(card(h.tree), "экран помощи не потерян");
+    assert.equal(card(h.tree).props.canRate, false, "старые детали не разрешают оценку");
+    const retry = ofType(h.tree, "ErrorState")[0];
+    assert.equal(retry?.props.title, L(lang, "Не удалось загрузить данные для оценки", "Баһалау өсөн мәғлүмәтте йөкләп булманы"));
+    const before = detailsGets(at);
+    failed = false;
+    retry.props.onRetry();
+    await h.settle();
+    assert.equal(detailsGets(at), before + 1, "повтор заново читает настоящие детали");
+    assert.equal(card(h.tree).props.canRate, true);
+    assert.equal(ofType(h.tree, "ErrorState").length, 0);
+    assert.ok(!JSON.stringify(h.tree).includes("tel:"), "телефон после отмены не вернулся");
+    h.unmount();
+  });
+}
+
 // ---------------------------------------------------------------- «Бронь» уводит на экран поездки
 async function openBooking(details) {
   const Screen = await bundleComponent("src/screens/BookingScreen.tsx", {

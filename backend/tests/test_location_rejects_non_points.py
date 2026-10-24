@@ -91,7 +91,8 @@ def test_parcel_channel_drops_nan_before_relay(client, user_factory):
 @pytest.mark.parametrize("value,expected", [
     (90, 90), (359.5, 359.5), (360, 0), (-90, 270), (725, 5),
     (NAN, None), (float("inf"), None), ("x" * 100_000, None), (True, None), (None, None), ([1], None),
-])
+], ids=["east", "fraction", "full-circle", "negative", "multi-turn", "nan", "infinite",
+        "oversized-string", "boolean", "missing", "list"])
 def test_bearing_is_a_number_or_nothing(value, expected):
     assert location._bearing(value) == expected
 

@@ -338,6 +338,18 @@ print("EVENTS_JSON:" + json.dumps(events, ensure_ascii=False, default=str))
 '''
 
 
+def _изолированная_sdk_проба(скрипт: str) -> str:
+    """Не импортировать чужую RQ из глобального Python Windows; проект её не использует.
+
+    Автопоиск Sentry импортирует RQ, чья scheduler.py требует multiprocessing fork ещё при
+    импорте. ImportError — штатный путь «RQ не установлена»; FastAPI, Starlette, httpx и
+    остальные реальные интеграции продолжают включаться, все проверки событий остаются.
+    """
+    if sys.platform != "win32":
+        return скрипт
+    return "import sys\nsys.modules['rq'] = None\n" + скрипт
+
+
 def _события_пробы(скрипт: str, tmp_path, **env_extra) -> list:
     """Запустить пробу настоящего SDK отдельным процессом и вернуть собранные события."""
     env = dict(os.environ)
@@ -348,7 +360,7 @@ def _события_пробы(скрипт: str, tmp_path, **env_extra) -> list
         "PYTHONIOENCODING": "utf-8",
         **env_extra,
     })
-    proc = subprocess.run([sys.executable, "-c", скрипт], cwd=BACKEND, env=env,
+    proc = subprocess.run([sys.executable, "-c", _изолированная_sdk_проба(скрипт)], cwd=BACKEND, env=env,
                           capture_output=True, text=True, encoding="utf-8", timeout=180)
     lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("EVENTS_JSON:")]
     assert proc.returncode == 0 and lines, proc.stdout[-2000:] + proc.stderr[-3000:]
@@ -726,7 +738,7 @@ def test_настоящий_sentry_не_уносит_секрет_вебхука
         "TELEGRAM_WEBHOOK_SECRET": СЕКРЕТ_ВЕБХУКА, "PROBE_DEVICE_ID": ID_УСТРОЙСТВА,
         "YANDEX_ROUTER_KEY": "router-" + "key-probe-0001", "RATE_LIMIT_ENABLED": "false",
     })
-    proc = subprocess.run([sys.executable, "-c", _SDK_PROBE_WEBHOOK],
+    proc = subprocess.run([sys.executable, "-c", _изолированная_sdk_проба(_SDK_PROBE_WEBHOOK)],
                           cwd=BACKEND, env=env, capture_output=True, text=True, encoding="utf-8",
                           timeout=240)
     out = {ln.split(":", 1)[0]: ln.split(":", 1)[1] for ln in proc.stdout.splitlines()

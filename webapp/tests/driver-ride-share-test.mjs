@@ -72,6 +72,57 @@ function rig() {
 const row = (id, status, o = {}) => ({ booking_id: id, ride_id: 7, status, pickup_stop: "", no_show_wait_sec: 0, ...o });
 const settle = async () => { for (let i = 0; i < 12; i++) await new Promise((res) => setImmediate(res)); };
 
+let wireId = 0;
+/** Настоящие API шага, шина, проводка и store; подменены только HTTP и браузерная отправка. */
+async function wiredRig() {
+  const r = { starts: [], fetches: 0, requests: [], rows: [], session: "A", now: 0, timers: [], token: true };
+  r.window = {
+    setTimeout(fn, ms) { const tm = { fn, ms, done: false }; r.timers.push(tm); return tm; },
+    clearTimeout(tm) { if (tm) tm.done = true; },
+    addEventListener() {}, removeEventListener() {},
+  };
+  r.performance = { now: () => r.now };
+  r.fire = (upTo = R.HOLD_GRACE_MS) => { for (const tm of [...r.timers]) if (!tm.done && tm.ms <= upTo) { tm.done = true; tm.fn(); } };
+  r.last = () => r.starts.at(-1);
+  globalThis.__gpsWire = r;
+  const mocks = {
+    client: `const f=()=>globalThis.__gpsWire;
+      export const getSessionGeneration=()=>f().session;
+      export const getToken=()=>f().token?"token":null;
+      export const refreshRejectedToken=async()=>true;
+      export const apiPost=async(path,data)=>{f().requests.push([path,data]);return {};};
+      export const apiGet=async()=>({});export const apiDelete=async()=>({});export const apiUpload=async()=>({});`,
+    bookings: `export const fetchDriverBookings=async()=>{const f=globalThis.__gpsWire;f.fetches++;return JSON.parse(JSON.stringify(f.rows));};`,
+    chat: `export const wsBase=()=>"ws://localhost";`,
+    transport: `export const startDriverLocationShare=(hooks)=>{const f=globalThis.__gpsWire;
+      const h={hooks,stopped:false,stop(){this.stopped=true;},retry(){}};f.starts.push(h);return h;};
+      export const tripLocationUrl=(_base,id)=>String(id);`,
+  };
+  const lib = await build({
+    stdin: { contents: `export {setDriverStatus} from "./src/api/driver.ts";
+      export {rideShareOpen} from "./src/utils/driverRideShare.ts";
+      export {rideShareKeep,subscribeRideShare} from "./src/utils/rideShareStore.ts";
+      export const instance=${++wireId};`, resolveDir: ROOT, loader: "ts" },
+    bundle: true, write: false, format: "esm", platform: "node", logLevel: "silent",
+    define: { window: "globalThis.__gpsWire.window", performance: "globalThis.__gpsWire.performance" },
+    plugins: [{ name: "gps-transport-only", setup(b) {
+      b.onResolve({ filter: /.*/ }, (a) => {
+        let key = null;
+        if (a.path.endsWith("/api/client") || (a.path === "./client" && /[\\/]src[\\/]api[\\/]/.test(a.importer))) key = "client";
+        else if (a.path.endsWith("/api/bookings")) key = "bookings";
+        else if (a.path.endsWith("/api/chat")) key = "chat";
+        else if (a.path.endsWith("/tripLocationShare")) key = "transport";
+        return key ? { path: key, namespace: "gps-wire" } : undefined;
+      });
+      b.onLoad({ filter: /.*/, namespace: "gps-wire" }, (a) => ({ contents: mocks[a.path], loader: "js" }));
+    } }],
+  });
+  r.api = await import("data:text/javascript;base64," + Buffer.from(lib.outputFiles[0].text).toString("base64"));
+  r.snapshot = { bookingId: null, state: null, ride: false };
+  r.api.subscribeRideShare((s) => { r.snapshot = s; });
+  return r;
+}
+
 /** Страница поездки 101 открыта, «Сел» по 101 на этом устройстве включил режим рейса вместе со 102. */
 async function rideOf101and102() {
   const r = rig();
@@ -84,6 +135,89 @@ async function rideOf101and102() {
 }
 
 // ---------------------------------------------------------------- без режима рейса — как раньше
+await t.test("первая настоящая API-отметка до первого open: кабинет держит GPS, а срок confirmed сохраняется", async () => {
+  const r = await wiredRig();
+  await r.api.setDriverStatus(101, "departed"); // driverStep done уже пришёл, fetchTripState ещё не включил inTransit/open
+  assert.equal(r.starts.length, 0, "сам шаг запустил геолокацию без страницы поездки");
+  assert.equal(r.fetches, 0, "до открытия не нужен даже запрос списка");
+  r.now += 60_000;
+  r.rows = [row(101, "confirmed", { no_show_wait_sec: 120 })];
+  const releaseTrip = r.api.rideShareOpen(101);
+  await settle();
+  assert.deepEqual(r.requests, [["/bookings/101/driver-status", { status: "departed" }]]);
+  assert.equal(r.snapshot.ride, true, "первый шаг потерялся до подписки отправки GPS");
+  const releaseCabinet = r.api.rideShareKeep(r.rows);
+  assert.equal(typeof releaseCabinet, "function", "кабинет не может держать первый рейс вкладки");
+  releaseTrip();
+  r.fire();
+  assert.equal(r.last().stopped, false, "через 1,5 с после перехода в кабинет GPS погас");
+  assert.equal(r.last().hooks.allowSend(), true);
+  r.now += 121_000;
+  r.rows = [row(101, "confirmed", { no_show_wait_sec: 0 })];
+  assert.equal(r.last().hooks.allowSend(), false, "первый потерянный шаг оставил confirmed без срока");
+  r.fire(0);
+  await settle();
+  assert.equal(r.snapshot.bookingId, null);
+  releaseCabinet();
+});
+
+await t.test("ожидание первого open и повторная API-отметка не продлевают исходные 6 часов", async () => {
+  const r = await wiredRig();
+  await r.api.setDriverStatus(101, "departed");
+  r.now += 3600_000;
+  await r.api.setDriverStatus(101, "arriving");
+  r.rows = [row(101, "onboard"), row(102, "onboard")];
+  const releaseTrip = r.api.rideShareOpen(101);
+  await settle();
+  assert.equal(r.snapshot.ride, true);
+  const releaseCabinet = r.api.rideShareKeep(r.rows);
+  assert.equal(typeof releaseCabinet, "function");
+  releaseTrip();
+  r.fire();
+  assert.equal(r.last().stopped, false);
+  r.now += 5 * 3600_000 + 1000;
+  assert.equal(r.last().hooks.allowSend(), false, "6 часов отсчитаны от open или от повторного шага");
+  r.fire(0);
+  assert.equal(r.snapshot.bookingId, null);
+  releaseCabinet();
+});
+
+for (const [name, change] of [
+  ["другой вход", (r) => { r.session = "B"; }],
+  ["другой рейс", (r) => { r.openId = 201; }],
+  ["истёкшие 6 часов", (r) => { r.now += C.RIDE_SHARE_MAX_MS + 1; }],
+  ["вход без ключа", (r) => { r.token = false; }],
+]) {
+  await t.test(`шаг до первого open не оживляет GPS рейса: ${name}`, async () => {
+    const r = await wiredRig();
+    await r.api.setDriverStatus(101, "departed");
+    r.openId = 101;
+    change(r);
+    r.rows = [row(r.openId, "onboard", { ride_id: r.openId === 201 ? 9 : 7 })];
+    const release = r.api.rideShareOpen(r.openId);
+    await settle();
+    assert.equal(r.snapshot.ride, false);
+    assert.equal(r.fetches, 0, "старый шаг начал поиск брони другого входа/рейса");
+    assert.equal(r.api.rideShareKeep(r.rows), null);
+    release();
+    r.fire();
+    assert.equal(r.last().stopped, true);
+  });
+}
+
+await t.test("первое открытие по одному состоянию сервера не заменяет локальный шаг водителя", async () => {
+  const r = await wiredRig();
+  r.rows = [row(101, "onboard")];
+  const release = r.api.rideShareOpen(101);
+  await settle();
+  assert.equal(r.snapshot.ride, false);
+  assert.equal(r.fetches, 0);
+  assert.equal(r.api.rideShareKeep(r.rows), null);
+  release();
+  r.fire();
+  assert.equal(r.last().stopped, true);
+});
+
 await t.test("без шага водителя: канал закрылся — отправка гаснет, список не спрашиваем (планшет дома)", async () => {
   const r = rig();
   r.share.open(101);

@@ -51,11 +51,17 @@ function rideShare(): RideShare {
     setTimer: (fn, ms) => window.setTimeout(fn, ms),
     clearTimer: (t) => window.clearTimeout(t as number),
   });
-  onDriverAction((id, closed, step) => (step === "done" ? void ride.action(id, closed) : ride.step(id, closed, step)));
   installRideShare(ride);
   shared = ride;
   return ride;
 }
+
+// Первый «Выехал» принимается ДО появления DriverLocationShare. Подписка нужна уже тогда;
+// action до open запоминает только доказанный шаг, без GPS, сокета и запроса списка.
+onDriverAction((id, closed, step) => {
+  if (step === "done") void rideShare().action(id, closed);
+  else shared?.step(id, closed, step);
+});
 
 /** Страница поездки водителя «в пути»: отправка в канал этой брони; вернёт «отпустить». */
 export function rideShareOpen(bookingId: number): () => void {
