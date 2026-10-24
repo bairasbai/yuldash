@@ -5,7 +5,8 @@
 бронь отменялась, места возвращались в продажу, неявка ложилась в Надёжность пассажира.
 
 С 17.10.2026 посадку отмечает сам водитель («Сел»), но правило то же: «в пути» неявкой не снять.
-Промахнулся карточкой — «Отменить» в первые минуты (`test_driver_marks_boarding.py`), позже —
+Промахнулся карточкой — запросить исправление в первые минуты, пассажир подтверждает
+(`test_driver_marks_boarding.py`); позже —
 разбор: водитель сообщает о проблеме (`POST /incidents` по брони, тип passenger_no_show),
 пассажир объясняется, решает админ.
 """
@@ -51,8 +52,9 @@ def test_no_show_refused_for_onboard_booking(client, user_factory):
     r = client.post(f"/bookings/{bid}/no-show", headers=drv["auth"])
     assert r.status_code == 409, r.text
     detail = r.json()["detail"]
-    # Понятный отказ на двух языках: что случилось и что делать («Отменить» или сообщить о проблеме).
-    assert "в машине" in detail["ru"] and "Отменить" in detail["ru"] and "сообщи о проблеме" in detail["ru"]
+    # Понятный отказ на двух языках: исправление подтвердит пассажир; после окна — разбор.
+    assert "в машине" in detail["ru"] and "Исправить посадку" in detail["ru"] and "сообщи о проблеме" in detail["ru"]
+    assert "подтвердит пассажир" in detail["ru"]
     assert detail["ba"].strip() and detail["ba"] != detail["ru"]
     # Машинная причина: клиент по ней сразу меняет «Не пришёл» на «Сообщить о проблеме».
     assert detail["code"] == "passenger_onboard"

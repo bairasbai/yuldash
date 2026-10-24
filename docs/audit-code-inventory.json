@@ -83,11 +83,11 @@
     "infra_resource_config": 440,
     "public_site_promo": 91,
     "pwa_main": 337,
-    "test_support": 1315
+    "test_support": 1316
   },
   "counts_by_block": {
     "B01": 163,
-    "B02": 320,
+    "B02": 321,
     "B03": 123,
     "B04": 80,
     "B05": 62,
@@ -8630,8 +8630,8 @@
       "path": "backend/tests/test_booking_link_access.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "89449b23aad252b8db8df002a0c37a57a523b24e178ab113f767a97f81999a03",
-      "lines": 62
+      "sha256": "f38df4865aa1e38bf2f25a551fc76b31b5c4db613ff64f241a4e6adb7ee75340",
+      "lines": 73
     },
     {
       "path": "backend/tests/test_booking_multiseat_retry.py",
@@ -9526,8 +9526,8 @@
       "path": "backend/tests/test_full_ride_is_not_in_the_feed.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "9560a69acb2c7d3c042fd57d1df512fa31cd7f9d4e656fe9ebdf09f981fb1a38",
-      "lines": 47
+      "sha256": "fa1369bfa46adcd88673685116b4a85f70c5230c57d28db8fb50e6f68405fa9c",
+      "lines": 67
     },
     {
       "path": "backend/tests/test_funnel.py",
@@ -10037,8 +10037,8 @@
       "path": "backend/tests/test_no_show_refused_onboard.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "71cea511a27f6aca4bea917f35181c1fda48ddb215777e47fc7baa55a85729a1",
-      "lines": 170
+      "sha256": "3e198220e9c7ae9a02c16b7142a041f5773614922c57d1c0462eef904ddfb449",
+      "lines": 172
     },
     {
       "path": "backend/tests/test_no_show_waits_for_departure.py",
@@ -13306,15 +13306,15 @@
       "path": "tools/rideshare_e2e/lib/android.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "d5257dbcca1281b5486556b86ff21f3f1bf6949012a6daa96e6ba00062155379",
-      "lines": 184
+      "sha256": "4531da66606f1170c819f9a80d36c9bdc807e2fd4fdc4987c4d1d4b69b9a6858",
+      "lines": 185
     },
     {
       "path": "tools/rideshare_e2e/lib/common.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "1e6a363fb7762a378be6f866884c6b212b3de7a04d4472fd3f4ed3b85a4ceeb3",
-      "lines": 62
+      "sha256": "c003318394f1a545d9cf80eaaa491a1c504f3e598965a60ef402f569bbb49df0",
+      "lines": 64
     },
     {
       "path": "tools/rideshare_e2e/lib/provenance.mjs",
@@ -14258,8 +14258,8 @@
       "path": "webapp/src/api/bookings.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "3fdd85ded1c6b1b2ee7cc059e5454d7e45314e98446c69ad5f9cfae27e2ec58a",
-      "lines": 490
+      "sha256": "06354766bade751970406638f7311579d99aa36c69f1a28f3151ea2f4da1fe00",
+      "lines": 492
     },
     {
       "path": "webapp/src/api/boost.ts",
@@ -15308,7 +15308,7 @@
       "path": "webapp/src/screens/ActiveTripScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "081cd905d70435f747ef4f2690f880c903bb6cce0d8f48042029c918a93161b3",
+      "sha256": "3f1e7d7a0a53be8c474a4b3198fd5c544013ee3d2cac0bea945a879f1cbde605",
       "lines": 1329
     },
     {
@@ -16078,8 +16078,8 @@
       "path": "webapp/src/screens/TripChatScreen.tsx",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "8bbb6fd1274ce82c1e8fffa5699b0334abfa2d4ba16459405d6f125c1b56e39c",
-      "lines": 944
+      "sha256": "f7bc36f3a11889639ab07723fc9ff47378aa1b6491594766f8ff23761dce2f6a",
+      "lines": 945
     },
     {
       "path": "webapp/src/screens/TripReceiptScreen.tsx",
@@ -16239,8 +16239,8 @@
       "path": "webapp/src/utils/formDraft.ts",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "ce48c8bebe43ec89fc5acec4e97552ddbd7b1d4f493ed48475159c9cce4ce39d",
-      "lines": 140
+      "sha256": "35f6c4404e5ebe92fdee3a44c495b9626277ac5e2efd59f5de86f7ba5229c9da",
+      "lines": 154
     },
     {
       "path": "webapp/src/utils/format.ts",
@@ -16848,8 +16848,8 @@
       "path": "webapp/tests/draft-owner-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "56aa0ad979cec9329ae37715c39d6571bde5bf4c53cf4fc76b4cb66850513576",
-      "lines": 93
+      "sha256": "8d5e39c826f3873d741641006406843ce8c724f272f7c798cb702ab4cf74ca03",
+      "lines": 134
     },
     {
       "path": "webapp/tests/draft-test.mjs",
@@ -17363,6 +17363,13 @@
       "lines": 181
     },
     {
+      "path": "webapp/tests/rideshare-acceptance-labels-test.mjs",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "9d79faf4d2c58e5ecd405d466adab9993a9eacf0fb6e60334035531c611f5bde",
+      "lines": 35
+    },
+    {
       "path": "webapp/tests/rideshare-local-regression-test.mjs",
       "kind": "test_support",
       "block": "B02",
@@ -17394,8 +17401,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "7d0dfde9dcce54a85fd3ca249a146a0fc9c7bc7d46ac7d8353cb38da1a69d148",
-      "lines": 325
+      "sha256": "7f357abe62ca68bebde7821eb43d33e833e7fc41e7fc085bc4d2676e1b9bfa8b",
+      "lines": 326
     },
     {
       "path": "webapp/tests/seat-options-test.mjs",

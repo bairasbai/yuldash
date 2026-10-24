@@ -20,7 +20,9 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let runLog = null;
 export function setRunLog(path) { mkdirSync(dirname(path), { recursive: true }); runLog = path; }
 export function log(step, data = {}) {
-  const line = JSON.stringify({ at: new Date().toISOString(), step, ...redact(data) });
+  const safe = redact(data);
+  if (safe.at !== undefined) { safe.screen_at = safe.at; delete safe.at; }
+  const line = JSON.stringify({ at: new Date().toISOString(), step, ...safe });
   if (runLog) appendFileSync(runLog, line + "\n");
   if (!process.env.QUIET) console.log(line);
 }

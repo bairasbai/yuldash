@@ -24,13 +24,24 @@ def test_participant_can_validate_private_booking_link(client, user_factory, sta
     # пассажир — из карточки поездки); boarding_undo_sec — окно отмены «Сел» (решение 17.10.2026).
     # problem_report_sec — сколько ещё пассажиру показывать «Сообщить о проблеме» после поездки
     # (приёмка PR174). cancelled_in_transit — бронь отменили, когда пассажир был в машине: экран не
-    # закрывается сам, а ведёт к SOS (23.10.2026). Ни телефонов, ни координат: набор полей закрыт.
+    # закрывается сам, а ведёт к SOS (23.10.2026). Исправление посадки требует ответа пассажира:
+    # отдельные поля запроса/receipt привязаны к onboard_at (24.10.2026).
+    # Ни телефонов, ни координат: набор полей остаётся закрытым.
     assert set(response.json()) == {"role", "status", "driver_phase", "alone_with_driver", "arrival_verified",
-                                    "peer_id", "boarding_undo_sec", "problem_report_sec", "cancelled_in_transit"}
+                                    "peer_id", "boarding_undo_sec", "problem_report_sec", "cancelled_in_transit",
+                                    "boarding_undo_pending", "boarding_undo_request_id", "boarding_undo_wait_sec",
+                                    "onboard_at", "boarding_undo_confirmed_id", "boarding_undo_onboard_at"}
     assert response.json()["cancelled_in_transit"] is False
     other = (passenger, driver)[participant]
     assert response.json()["peer_id"] == other["id"]
     assert response.json()["boarding_undo_sec"] == 0
+    # В этих подтверждённых/завершённых бронях посадки и запроса исправления не было.
+    assert response.json()["boarding_undo_pending"] is False
+    assert response.json()["boarding_undo_request_id"] is None
+    assert response.json()["boarding_undo_wait_sec"] == 0
+    assert response.json()["onboard_at"] is None
+    assert response.json()["boarding_undo_confirmed_id"] is None
+    assert response.json()["boarding_undo_onboard_at"] is None
     assert isinstance(response.json()["problem_report_sec"], int) and response.json()["problem_report_sec"] >= 0
 
 

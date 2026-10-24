@@ -154,7 +154,8 @@ export async function scrollTo(want, { max = 8, index = 0 } = {}) {
   let n = ok();
   if (n) return n;
   for (let i = 0; i < max; i++) { await swipeUp(0.35); if ((n = ok())) return n; }
-  for (let i = 0; i < max * 2; i++) { await swipeDown(0.35, { from: i % 2 ? 0.25 : 0.5 }); if ((n = ok())) return n; }
+  // The home hero is pinned: downward swipes must begin inside the lower scrolling feed.
+  for (let i = 0; i < max * 2; i++) { await swipeDown(0.35, { from: 0.72 }); if ((n = ok())) return n; }
   throw new Error("android: not reachable by scrolling: " + want);
 }
 export async function scrollTap(want, opts = {}) {
