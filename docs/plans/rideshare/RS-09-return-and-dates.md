@@ -6,7 +6,7 @@
 | Ждёт «да» Александра | да — только денежная часть (разворот цен остановок, А-S1): ждёт ответа Александра по единицам денег (вопрос от 24.10, §9). Остальное — нет |
 | Зависит от | **А:** RS-02. **Б:** RS-02, RS-05 (ключ повтора); `car_id` копируется после RS-14 |
 | Не параллельно с | RS-02, RS-05, RS-14, RS-15 (`rides.py`, `CreateRideScreen.*`, `ProfileScreen.kt`, `DriverCabinetScreen.tsx`), RS-10 (`services.py`), RS-12 (`YuldashApp.kt`) |
-| Деление на PR | **[RS-09А] «Обратно»** — нужен только RS-02, можно раньше: сервер → сайт → Android. **[RS-09Б] «Несколько дат»** — после RS-05: сервер → сайт → Android. Замок — по тегу части |
+| Деление на PR | **[RS-09А] «Обратно»** — нужен только RS-02, можно раньше: сервер → сайт → Android. **[RS-09Б] «Несколько дат»** — после RS-05: сервер → сайт → Android. замок — по тегу части |
 | Проверка `yuldash-security-privacy` | нет (шаблон — только владельцу, новых данных нет) |
 | Двигает сценарии приёмки | W1-E2E-01 (публикация), частично E2E-04 |
 | Зона файлов | сервер: `routers/rides.py`, `schemas.py`, `services.py` (только `siblings`), `tests/test_ride_series.py`. Android: `CreateRideScreen.kt`, `ProfileScreen.kt`, `YuldashApp.kt` («замок», §12), новые `RideTemplate.kt`, `RideDatesPicker.kt`, `RideSeriesResultSheet.kt`, `data/RideSeriesApi.kt`. Сайт: `CreateRideScreen.tsx`, `DriverCabinetScreen.tsx`, `api/driver.ts`, `ui.css`, новые `utils/rideTemplate.ts`, `components/DatesPicker.tsx`, `tests/*`, `run.mjs` |
@@ -20,18 +20,18 @@
 
 ## 2. Что уже есть в коде
 - `rides.py:214` `create_ride`: `:220` блок отдыха (одна попутка), `:224` потолок 30, `:240` `guard_women_only_publish`, `:263` «время прошло» (400, без `code`), `:273/:278/:282` модерация ×3, `:290-291` `geocode_city` ×2, `:175` `_recent_twin_ride` (60 с, только первый рейс), `:325-341` `recurrence` — ещё 4 рейса, `:355` оповещение. Поля «серия» нет (`models.py:389`).
-- Метка модерации пишет `TextFlag` и копит `af:txtc` (`antifraud.py:428-441`): 3 за неделю — «подозрительный». 10 дат через готовый `create_ride` дали бы 10 меток и 20 геокодирований.
-- Android: `CreateRideScreen.kt:284` (на входе только `prefillDate`), `:380-430` одна `ApiClient.publishRide` (`ApiClient.kt:967`), потом `onPublish` уводит с экрана; `:658-676` ряд «Повтор»; `RideDeparturePicker.kt:124` — ОДНА дата; `YuldashApp.kt:954`, `:415`, `:1305`, `:1579`; `ProfileScreen.kt:3143`, `:3417` — карточки поездки и архива.
-- Сайт: `CreateRideScreen.tsx:111`, `:127-151` черновик (`formDraft.ts:119` при открытии ПЕРЕЗАПИСЫВАЕТ поля), `:202-257`, `:259-299` экран «опубликовано»; `DriverCabinetScreen.tsx:483-488` кнопки без данных, `:589` архив. `RepeatTripScreen.tsx:88-117` — повтор пассажира = заявка; не трогаем.
+- Метка модерации пишет `TextFlag` и копит `af:txtc` (`antifraud.py:428-441`): 3 за неделю — «подозрительный». 10 дат через готовый `create_ride` — 10 меток и 20 геокодирований.
+- Android: `CreateRideScreen.kt:284` (на входе только `prefillDate`), `:380-430` одна `ApiClient.publishRide` (`ApiClient.kt:967`), потом `onPublish` уводит с экрана; `:658-676` ряд «Повтор»; `RideDeparturePicker.kt:124` — ОДНА дата; `YuldashApp.kt:954`, `:415`, `:1305`, `:1579`; `ProfileScreen.kt:3143`, `:3417` — карточки.
+- Сайт: `CreateRideScreen.tsx:111`, `:127-151` черновик (`formDraft.ts:119` ПЕРЕЗАПИСЫВАЕТ поля при открытии), `:202-257`, `:259-299` экран «опубликовано»; `DriverCabinetScreen.tsx:483-488` кнопки без данных, `:589` архив. `RepeatTripScreen.tsx:88-117` — повтор пассажира = заявка; не трогаем.
 - Не нашёл: «Обратно», несколько дат, ответ по каждой дате.
 
 ## 3. Что сделать
 ### Часть А — «Обратно»
 **Сервер.** **А-S1.** `GET /rides/{ride_id}/return-template` — только владелец (чужая → `herr(403, "Это не твоя поездка", "Был һинең сәфәрең түгел", code="not_owner")`), ничего не пишет. `RideTemplateOut`: `from_city`/`to_city` переставлены, `waypoints` задом наперёд, `category` hospital/parcel/cargo → `regular`; места, цена, удобства (в т.ч. `only_trusted`, `women_only`), после RS-14 `car_id`. Не берутся: `depart_at`, `pickup*`, `comment`, `receiver_name`, `parcel_size`, `partner_id`, `recurrence`. Плюс `dropped`, `suggested_date`. **Денежная часть — после ответа Александра:** `stop_prices` (RS-02) → `[price − p for p in reversed(stop_prices)]` (Ургаза 300 из 500 → 200 из 500); до ответа — без `stop_prices`.
 
-**Сайт.** `fetchReturnTemplate` (`api/driver.ts`), `utils/rideTemplate.ts` («шаблон → поля формы»). «Обратно» в `DriverCabinetScreen.tsx:486` и в архиве (`:591`) → `navigate("/create-ride", {state:{template}})`. `CreateRideScreen.tsx`: брать `location.state.template`; **до первого рендера** `clearDraft(RIDE_DRAFT)` (иначе `:133-150` вернёт черновик поверх); потом `navigate(path, {replace:true, state:null})` — F5 не применит повторно; заметка «Не перенесли: …». На экране «опубликовано» (`:259`) — «Опубликовать обратно» (шаблон по `createdId`).
+**Сайт.** `fetchReturnTemplate` (`api/driver.ts`), `utils/rideTemplate.ts`. «Обратно» в `DriverCabinetScreen.tsx:486` и в архиве (`:591`) → `navigate("/create-ride", {state:{template}})`. `CreateRideScreen.tsx`: брать `location.state.template`; **до первого рендера** `clearDraft(RIDE_DRAFT)` (иначе `:133-150` вернёт черновик поверх); потом `navigate(path, {replace:true, state:null})` — F5 не применит повторно; заметка «Не перенесли: …». На экране «опубликовано» (`:259`) — «Опубликовать обратно» (шаблон по `createdId`).
 
-**Android.** `data/RideSeriesApi.kt` `getReturnTemplate(id)` (образец — `RouteWatchApi.kt`), `RideTemplate.kt`. Кнопка «Обратно» (`SwapHoriz`, ≥ 48dp, `contentDescription` RU+BA) в карточке (`ProfileScreen.kt:3143`) и на `ArchiveRideCard` (`:3417`) → шаблон → форма; ошибка — «Повторить». `YuldashApp.kt`: состояние `createRideTemplateJson` (saver как `:415`), `openCreateRide`, `:1305`, `:1579`. `CreateRideScreen.kt`: параметр `template`; дата пустая, пикер на `suggested_date`. После одиночной публикации — шторка «Опубликовано» с «Опубликовать обратно» и «Готово» (в Б — список по датам). Само ничего не публикуется.
+**Android.** `data/RideSeriesApi.kt` `getReturnTemplate(id)` (образец — `RouteWatchApi.kt`), `RideTemplate.kt`. Кнопка «Обратно» (`SwapHoriz`, ≥ 48dp, `contentDescription` RU+BA) в карточке (`ProfileScreen.kt:3143`) и на `ArchiveRideCard` (`:3417`) → шаблон → форма; ошибка — «Повторить». `YuldashApp.kt`: состояние `createRideTemplateJson` (saver как `:415`), `:1305`, `:1579`. `CreateRideScreen.kt`: параметр `template`; дата пустая, пикер на `suggested_date`. После одиночной публикации — шторка «Опубликовано» с «Опубликовать обратно» и «Готово» (в Б — список дат). Само не публикуется.
 
 ### Часть Б — «Несколько дат»
 **Сервер.**
@@ -43,7 +43,7 @@
 
 **Сайт.** `publishRideSeries` (`api/driver.ts`; ключ — `commandIntent.ts` RS-05: один базовый на пачку); `components/DatesPicker.tsx` + `ui.css` (сетка `role="grid"`, ячейки ≥ 48px, до 10 дат, одно `<input type="time">`); «Несколько дат» в блоке `:594` исключает остальные. Экран `:259` → итог по датам: «Опубликовано 2 из 3»; «в ленте» / «уже была опубликована» / причина; `time_passed` → «Выбрать другую дату»; «Повторить для не опубликованных».
 
-**Android.** `ApiClient.publishRideSeries` (`CommandIntent.prepare("ride.series", …)` RS-05, отпечаток без дат). `RideDatesPicker.kt`: сетка месяца, до 10 дней не раньше сегодня, одно время; в ряд «Повтор» (`:658`) — «Несколько дат», взаимоисключает остальные; ≥ 2 дат → серия, иначе прежний `publishRide`. `RideSeriesResultSheet.kt` — итог как на сайте, «Готово» → `onPublish`; 0 опубликовано — остаёмся в форме, даты целы; строки — `AnimatedVisibility`, `CanonMotion`.
+**Android.** `ApiClient.publishRideSeries` (`CommandIntent.prepare("ride.series", …)` RS-05, отпечаток без дат). `RideDatesPicker.kt`: сетка месяца, до 10 дней не раньше сегодня, одно время; в ряд «Повтор» (`:658`) — «Несколько дат», взаимоисключает остальные; ≥ 2 дат → серия, иначе прежний `publishRide`. `RideSeriesResultSheet.kt` — итог как на сайте, «Готово» → `onPublish`; 0 опубликовано — форма и даты целы; строки — `AnimatedVisibility`, `CanonMotion`.
 
 ## 4. База данных
 Не меняется; связь «рейсы одной серии» не хранится. Срок хранения (`cleanup`/`KEEP_FOREVER`) и удаление аккаунта (`account.py`): ничего нового не хранится (квитанции — по RS-05).
@@ -60,13 +60,13 @@
 - Мутации: убрать разворот остановок → красен тест шаблона; вернуть модерацию в цикл → красен «1 `TextFlag`»; убрать `clearDraft` → красен тест сайта.
 
 ## 8. Приёмка
-Агент другой «семьи» (Q9). Эмулятор + сайт, RU/BA × светлая/тёмная, шрифт 200% (Q11: телефоны не нужны). Часть А — отдельно от Б.
+Агент другой «семьи» (Q9). Эмулятор + сайт, RU/BA × светлая/тёмная, шрифт 200% (Q11: телефоны не нужны). А — отдельно от Б.
 - [ ] **А.** «Обратно» у Сибай → Акъяр через Ургазу: Акъяр → Сибай, Ургаза посередине, места те же, время пусто, видна заметка; до «Опубликовать» нового в ленте и броней нет. Шаблон переживает выгрузку приложения; F5 на сайте его не повторяет.
 - [ ] **Б.** 3 даты, у одной время прошло: «Опубликовано 2 из 3», причина у третьей; в ленте ровно две.
 - [ ] **Б.** Комментарий с телефоном × 3 даты → в журнале модерации (админка) одна пометка.
 - [ ] **Б.** Двойной тап и обрыв сети → после «Повторить» рейсов ровно по числу дат; «Повторить для не опубликованных» дублей не даёт. «Повтор» и «Несколько дат» вместе не выбрать; «Раз в неделю» — прежние 5.
 - [ ] `/gotovo` с выводом: `ruff check app/ --select F`, `pytest`, `:app:assembleDebug`, сторожа, `check`, `build`.
-- **Мозг:** `architecture.md` — ручки серии и шаблона, `DatesPicker`; `decisions.md` — частичный успех, шаблон строит сервер, ключ ≤ 115; `tasks.md` — BA; `lessons.md` — модерация и геокод «на каждую дату».
+- **Мозг:** `architecture.md` — ручки серии/шаблона, `DatesPicker`; `decisions.md` — частичный успех, шаблон на сервере, ключ ≤ 115; `tasks.md` — BA; `lessons.md` — модерация и геокод «на дату».
 
 ## 9. Риски и границы
 - **Единицы денег — решение Александра (вопрос от 24.10).** Вариант А — осознанное исключение «цены попутки — целые рубли», в копейки только на границе показа (`kopToRub(rub*100)`), смешивать единицы в одной поездке нельзя, серверный тест на единицу; вариант Б — перевод попутки в копейки отдельной миграцией до RS-02. До решения денежную часть (разворот `stop_prices`) не реализовывать; `price` копируется как есть.

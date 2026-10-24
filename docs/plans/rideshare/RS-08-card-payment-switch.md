@@ -3,10 +3,13 @@
 | | |
 |---|---|
 | Статус | не начато |
-| Ждёт «да» Александра | **да — деньги** (оплата картой), миграция (две таблицы и два поля), выкладка |
-| Зависит от | RS-07 (таблица `driverpaysettings`, блок «Как принимаю оплату», `/driver/pay-settings`) |
+| Ждёт «да» Александра | **да — деньги** (оплата картой), миграция (ключ в `appsetting`, поля `accepts_card`) |
+| Зависит от | RS-04 (А1: `owner_switches.py`, экран «Выключатели»), RS-01 (`herr(code=)`, замок оплаты брони, сторож), RS-07 (Б: `driverpaysettings`, `/driver/pay-settings`) |
+| Не параллельно с | RS-01–RS-07, RS-09, RS-10, RS-12–RS-15 — по общим файлам (индекс, «Очередь по общим файлам») |
+| Деление на PR | `[RS-08А]` — сервер → `[RS-08Б]` — сайт → `[RS-08В]` — Android (агент на компьютере). Шаги помечены тегом |
+| Проверка `yuldash-security-privacy` | да — деньги, права администратора |
 | Двигает сценарии приёмки | — (заготовка; W1-E2E-07 «реальные платежи не выполняются» не нарушается) |
-| Зона файлов | сервер: `config.py`, `models.py`, новый `card_switch.py`, `routers/payments.py`, `routers/drivers.py`, `routers/wallet.py`, `routers/bookings.py`, `schemas.py`, `services.py`, новая миграция, `tests/conftest.py`, новый `tests/test_rs08_card_switch.py` + 8 тестов оплаты (шаг 10); Android: новый `AdminCardPaymentsScreen.kt`, `MainActivity.kt` (`enum Screen`), `AppNavAdmin.kt`, `YuldashApp.kt`, `SecondaryScreens.kt` (`AdminCabinetScreen`), `ProfileScreen.kt`, `BookingTermsCard.kt` (из RS-07), `BookingActiveTripScreen.kt`, `RideshareCompletedScreen.kt`, `Domain.kt`, `data/ApiClient.kt`, `data/BookingDtos.kt`, тесты; сайт: новый `screens/AdminCardPaymentsScreen.tsx`, `App.tsx`, `AdminCabinetScreen.tsx`, `DriverCabinetScreen.tsx`, `components/PayTripCard.tsx`, `TripReceiptScreen.tsx`, `components/BookingTerms.tsx`, `api/admin.ts`, `api/rides.ts`, `tests/`; мозг: `docs/architecture.md`, `docs/decisions.md`, `docs/tasks.md` |
+| Зона файлов | сервер: `config.py`, новый `card_payments.py`, `owner_switches.py` (только запись ключа в реестр), `models.py` (`DriverPaySettings`), `routers/drivers.py`, `routers/wallet.py`, `routers/bookings.py`, `schemas.py`, `services.py`, `cleanup.py` и `account.py` (сверка; правка — только если RS-04 А1 / RS-07 Б не покрыли), новая миграция, `tests/conftest.py`, новый `tests/test_rs08_card_switch.py`, 8 тестов оплаты (шаг А.8); Android: раздел экрана «Выключатели» (файл RS-04 А1), `ProfileScreen.kt`, `BookingTermsCard.kt`, `BookingActiveTripScreen.kt`, `RideshareCompletedScreen.kt`, `Domain.kt`, `MainActivity.kt` (1 строка `toUiRide`), `data/ApiClient.kt`, `data/BookingDtos.kt`, `HonestPromisesGuardTest.kt` (RS-01), тесты; сайт: раздел экрана «Выключатели» (файл RS-04 А1), `DriverCabinetScreen.tsx`, `components/PayTripCard.tsx`, `TripReceiptScreen.tsx`, `components/BookingTerms.tsx`, `api/rides.ts`, `api/bookings.ts`, `webapp/tests/honest-promises-test.mjs` (RS-01), `pay-test.mjs`, новый `card-switch-test.mjs`; мозг: `docs/decisions.md`, `docs/tasks.md`, `docs/architecture.md` |
 | Источник | исследование: `master/part-001.md` п. 20 «Онлайн-оплата», п. 21 «Выплата водителю»; решения 24.10 (Q5, Q8 в, Q9) |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
@@ -14,88 +17,96 @@
 **Сейчас** за попутку платят только водителю напрямую — наличными или переводом (решение Q5). Картой через
 приложение нельзя: нет договора с банком.
 
-**Станет (только заготовка).** В админке у Александра — строка «Оплата картой». Пока договора с банком нет, она
-серая с подписью «нужен договор с банком», и включить её не даст сам сервер. Когда договор будет, ключи банка
-стоят на сервере и выплаты водителям работают — Александр включит её одним касанием. Тогда водитель из Сибая
-в кабинете увидит «Принимаю оплату картой», а пассажир — кнопку «Картой» после поездки только у таких водителей.
-Каждое включение и выключение записано: кто и когда. Настоящие деньги, возвраты и выплаты — отдельный проект с банком.
+**Станет (только заготовка).** На экране «Выключатели» в админке появится строка «Оплата картой». Пока договора
+с банком нет, она серая с подписью «нужен договор с банком», и включить её не даст сам сервер. Когда договор будет,
+ключи банка стоят на сервере и выплаты водителям работают — её можно включить одним касанием. Тогда водитель из
+Сибая в кабинете увидит «Принимаю оплату картой», а пассажир — кнопку «Картой» после поездки только у таких
+водителей. Каждое включение и выключение записано: кто и когда. Настоящие деньги, возвраты и выплаты — отдельный
+проект с банком.
 
 ## 2. Что уже есть в коде
-- `backend/app/config.py:9` `PAYMENTS_PROVIDERS`; `:147` `payments_provider = "mock"`; `:1001` неизвестное — сервер не стартует; `:1074` `validate_production` (ЮKassa `:1108`, выплаты `:1119`); `:198` `payouts_enabled = False`, `:1026` `payouts_ready`; `:183` комиссия попутки 0%.
+- `backend/app/config.py:9` `PAYMENTS_PROVIDERS`; `:147` `payments_provider = "mock"`; `:1001` неизвестное — сервер не стартует; `:198` `payouts_enabled = False`, `:1026` `payouts_ready`; `:183` комиссия попутки 0%. `:1074` `validate_production` валит запуск; `:1152` `launch_warnings` — только предупреждает, там же `:1186` `money_on` (оферта обещает «расчёты напрямую»).
 - `payments.py:1-5` — ЮKassa как самозанятый для своих услуг (Boost, реклама), «оплата проезда… мимо приложения»; `:25` `payments_closed()`, `:36` `_yookassa_live()`.
-- `routers/wallet.py:41` `_METHODS` cash/card/sbp; `:84` в проде безнал только при `yookassa`, иначе 503; `:258` `/bookings/{id}/pay` — пассажир, только `done`; `cash` — отметка, `card`/`sbp` — через банк.
-- `routers/health.py:83` `/health.payments`; `:144` `/config/features` — флаги из `.env`, без базы.
-- Android `PayOnlineCard.kt:65` `OnlinePayGate` прячет карту после 503 (`:165`); `ApiClient.kt:2766` считает «включено» и `sbp_manual`, хотя прод пропускает только `yookassa`. Вызовы — `BookingActiveTripScreen.kt:2108`, `RideshareCompletedScreen.kt:361`. Сайт: `PayTripCard.tsx:46`, `:74`; `TripReceiptScreen.tsx:324`.
-- Выключателя в админке нет: `routers/admin*.py` нет, админ-ручки по роутерам (`payments.py:775` — отказ только по-русски; двуязычный — `debt.py:32`). Android: `Admin*Screen.kt` (16), кабинет `SecondaryScreens.kt:1526`, `AppNavAdmin.kt:23`, `YuldashApp.kt:1182`; сайт `AdminCabinetScreen.tsx`, `App.tsx:827` (`RequireAdmin`).
-- Настроек «на ходу» в базе нет (68 таблиц `models.py`, не нашёл); журнал админа — строка в логе `logs.py:67`. Админ — номер из `ADMIN_PHONES` (`auth.py:147`).
+- `routers/wallet.py:41` `_METHODS` cash/card/sbp; `:76` `_pay_cashless`, `:84` в проде безнал только при `yookassa`; `:258` `/bookings/{id}/pay` — пассажир, только `done`; `cash` — отметка, `card`/`sbp` — через банк.
+- `routers/health.py:83` `/health.payments`; `:144` `/config/features` — флаги из `.env`.
+- Android `PayOnlineCard.kt:65` `OnlinePayGate`; `ApiClient.kt:2766` считает «включено» и `sbp_manual`. Вызовы в попутке — `BookingActiveTripScreen.kt:2108`, `RideshareCompletedScreen.kt:361`. Сайт: `PayTripCard.tsx:46`, `:74`; `TripReceiptScreen.tsx:324`.
+- **RS-01 (до этого плана):** убирает `PayOnlineCard` из экранов попутки, ставит сторож `HonestPromisesGuardTest` (запрет `PayOnlineCard(` в попутке) и серверный замок «оплата брони картой/онлайн → всегда 503» (D6); `PayTripCard.tsx` для брони — без «Картой»/«СБП».
+- **RS-04 А1 (до этого плана):** общий механизм «настройки владельца с журналом» — `owner_switches.py`, таблицы `appsetting` и `appsettingchange`, реестр ключей с блокерами, общие ручки админки, экран «Выключатели» (Android + сайт). На `0ef03f4` его ещё нет.
+- Админом становятся по номеру из `ADMIN_PHONES` или по Telegram-id владельца `admin_telegram_chat_id` (`auth.py:147-160`); роль сверяется при каждом входе.
 
 ## 3. Что сделать
-### Сервер (`backend/`)
-1. **Готовность банка.** `config.py` у `:198`: `ride_card_bank_contract: bool = False` — «договор с банком на приём оплаты ПОЕЗДОК подписан» (`.env`, ставит Александр; ключи Boost-ЮKassa этого не значат). `validate_production` (`:1074`): флаг при `payments_provider != "yookassa"` — проблема запуска (как `:1119`).
-2. **`app/card_switch.py`.** `bank_blockers()` → коды `bank_contract` (флаг выключен), `provider` (прод — не `_yookassa_live()`, dev — не `mock`/`yookassa`), `payouts` (`not payouts_ready`) + тексты `{ru, ba}`. `switch_stored`, `switch_effective = stored and not blockers`, `card_drivers(session, ids) -> set[int]` (не действует — пусто без запроса). Без кеша.
-3. **Модели.** `AppSetting` (`key` PK, `value`, `updated_at`, `updated_by` FK) и `AppSettingChange` (`id`, `key`, `old_value`, `new_value`, `admin_id` FK, `created_at` index, `note` ≤ 200). Белый список ключей: `rideshare_card_payments` ∈ {`on`, `off`}, нет строки = `off`. В `DriverPaySettings` (RS-07): `accepts_card = False`, `accepts_card_at`.
-4. **Админ-ручки** (`routers/payments.py` у `:775`, отказы двуязычные как `debt.py:32`, не админ — 403): `GET /admin/payments/card-switch` → `{stored, effective, blockers, updated_at, updated_by_name, history[50]}`; `POST {enabled, note?}`: включить при блокерах — 409 `card_switch_bank_not_ready` с `blockers`, ничего не пишется; выключить — всегда; строка под `with_for_update` (новая — при `IntegrityError` перечитать); то же значение — 200 без журнала; иначе одной транзакцией `AppSetting` + `AppSettingChange` + `admin_action(...)` (`logs.py:67`).
-5. **Водитель** (`/driver/pay-settings` RS-07): GET + `card_switch_on`, `accepts_card`; PUT `accepts_card: true` при недействующем — 409 `card_switch_off`, `false` — всегда.
-6. **Итог для рейса:** `card_payment: bool = False` в `RideOut` (пакетно в `rides_out`, `services.py:1608`), `BookingDetailsOut` (`bookings.py:370`), квитанции (`bookings.py:848`).
-7. **Замок.** `pay_booking` (`wallet.py:258`), `card`/`sbp`, водитель не в `card_drivers` → **503** `card_not_available`, `Payment` не создаётся (503 — старые клиенты по нему прячут карту). `cash` — без изменений.
-8. **Выключили на ходу:** новые оплаты — сразу 503; начатый в банке платёж вебхук проводит как раньше — записать в `docs/decisions.md`.
-9. **Не трогать:** такси `/instant/orders/{id}/pay`, `/health`, `/config/features`, комиссию, выплаты, вебхук.
-10. **Старые тесты** с `/bookings/{id}/pay` картой: `test_booking_payment_agreement_amount.py`, `test_pay_agreement_payment_concurrency.py`, `test_pay_agreement_only_driver_lowers.py`, `test_audit_fix_be35.py`, `test_pay_agreement_after_charge.py`, `test_ledger.py`, `test_audit_fix_be06_retries.py`, `test_promises.py`. Фикстура `card_on` в `tests/conftest.py` (не autouse): подмена флагов договора и выплат, `on`, водителю `accepts_card`. Подключить, где `method != "cash"`; проверки тестов не менять.
+Отказы — только `herr(status, ru, ba, code=...)` (RS-01). Своих таблиц настроек, ручек админки и отдельного экрана не заводить (D1).
 
-### Android (`android/`)
-1. **Новый экран** `AdminCardPaymentsScreen.kt` (⭐ п.4): `Screen.AdminCardPayments` в `enum Screen` (`MainActivity.kt`, блок админских ~`:534-597`, замок §11), ветка в `AppNavAdmin.kt:23`, строка в списке `YuldashApp.kt:1182`, пункт и параметр `onCardPayments` в `AdminCabinetScreen` (`SecondaryScreens.kt:1526`), строка в `docs/architecture.md` («Навигация разрезана»).
-2. Экран: статус, `Switch` (≥ 48dp); при блокерах и выключенном — `enabled = false`, «Нужен договор с банком» и причины с сервера. Вкл/выкл — `AlertDialog` с последствиями и заметкой. Журнал — `LazyColumn` с `key = id`, `appearIn`; смена статуса — `AnimatedContent`; только `Canon*`.
-3. **Водитель:** в карточке RS-07 «Как принимаю оплату» (`ProfileScreen.kt:1373`) — переключатель «Принимаю оплату картой», только при `card_switch_on`; 409 — текст с сервера.
-4. **Кнопка оплаты:** `BookingDtos.kt:89` — `cardPayment`; `PayOnlineCard` показывать только при `cardPayment == true` (`BookingActiveTripScreen.kt:2108`, `RideshareCompletedScreen.kt:361`). `OnlinePayGate` оставить (такси). `Domain.kt` / `toRideDto` — `cardPayment`; в `BookingTermsCard` — строка «Картой в приложении — после поездки», только при `true`.
+### Сервер (`backend/`) — `[RS-08А]`
+1. **Флаг договора.** `config.py` у `:198`: `ride_card_bank_contract: bool = False` — «договор с банком на приём оплаты ПОЕЗДОК подписан» (`.env`; ключи Boost-ЮKassa этого не значат). Запуск прода не валить: в `launch_warnings()` (`:1152`) — предупреждение, если флаг включён без `payments_provider == "yookassa"`; `RIDE_CARD_BANK_CONTRACT` добавить в `money_on` (`:1186`).
+2. **`app/card_payments.py`.** `bank_blockers()` → коды `bank_contract` (флаг выключен), `provider` (прод — не `_yookassa_live()`, dev — не `mock`/`yookassa`), `payouts` (`not payouts_ready`) + тексты `{ru, ba}`; `card_drivers(session, ids) -> set[int]` — водители с `accepts_card`, если выключатель действует, иначе пусто без запроса.
+3. **Ключ в реестре `owner_switches` (RS-04 А1).** `rideshare_card_payments`: значения `on`/`off`, по умолчанию `off`, блокер `bank_blockers()` (мешает только включению; выключить можно всегда), правила группы нет. Запись, журнал, `admin_action`, ответ `{stored, effective, blockers, updated_at, updated_by_name, history[50]}` — общие из RS-04. `effective` = `on` и блокеров нет.
+4. **Водитель.** `DriverPaySettings` (RS-07 Б): `accepts_card: bool = False`, `accepts_card_at`. `/driver/pay-settings` (`routers/drivers.py`): GET + `card_switch_on` (= `effective`) и `accepts_card`; PUT `accepts_card: true` при недействующем — 409 `code="card_switch_off"`, `false` — всегда.
+5. **Итог для рейса:** `card_payment: bool = False` в `RideOut` (пакетно в `rides_out`, `services.py:1608`), `BookingDetailsOut` (`bookings.py:371`), квитанции (`bookings.py:848`).
+6. **Замок.** Замок оплаты брони в `pay_booking` (`wallet.py:258`) вводит RS-01. RS-08 добавляет одно исключение: `card`/`sbp` и водитель брони в `card_drivers` → дальше прежний путь `_pay_cashless` (`:76`, со своей проверкой провайдера `:84`). Иначе — отказ RS-01 с его `code`, `Payment` не создаётся. Выключатель здесь читать без кеша `owner_switches` (деньги); если RS-04 даёт только кешированное чтение — задержка ≤ 10 с, записать в `docs/decisions.md`.
+7. **Выключили на ходу:** новые оплаты — сразу отказ; начатый в банке платёж вебхук проводит как раньше — записать в `docs/decisions.md`. **Не трогать:** такси `/instant/orders/{id}/pay`, `/health`, `/config/features`, комиссию, выплаты, вебхук.
+8. **Старые тесты** оплаты брони картой: `test_booking_payment_agreement_amount.py`, `test_pay_agreement_payment_concurrency.py`, `test_pay_agreement_only_driver_lowers.py`, `test_audit_fix_be35.py`, `test_pay_agreement_after_charge.py`, `test_ledger.py`, `test_audit_fix_be06_retries.py`, `test_promises.py`. Как их перевёл RS-01 — сверить по его PR. RS-08 даёт фикстуру `card_on` в `tests/conftest.py` (не autouse: флаги договора и выплат, ключ `on`, водителю `accepts_card`) и возвращает в них проверку настоящего пути (ledger, гонки, повтор); проверки денег не ослаблять.
+9. **Строка для `docs/decisions.md` (решит Александр):** «Денежный выключатель включает только владелец (вход через Telegram `admin_telegram_chat_id`) или любой админ из `ADMIN_PHONES`?» До решения — любой админ, как у всех ключей RS-04.
 
-### Сайт (`webapp/`)
-1. `screens/AdminCardPaymentsScreen.tsx` — то же, что Android; маршрут `/admin/card-payments` в `App.tsx` (рядом с `:827`, под админ-гардом); плитка в `AdminCabinetScreen.tsx`; запросы в `api/admin.ts`.
-2. `DriverCabinetScreen.tsx` — переключатель в блоке RS-07, только при `card_switch_on`.
-3. `PayTripCard.tsx` — проп `cardAllowed?: boolean`; `false` — карта/СБП скрыты с начала (`onlineOff`, `:46`), наличные остаются. `TripReceiptScreen.tsx:324` передаёт `card_payment === true`.
-4. `api/rides.ts` `card_payment?: boolean`; `BookingTerms` — та же строка, что на Android.
+### Сайт (`webapp/`) — `[RS-08Б]`
+1. Раздел «Оплата картой» на экране «Выключатели» (RS-04 А1): статус, серый переключатель с причинами, подтверждение вкл/выкл с последствиями, журнал — общими компонентами экрана.
+2. `DriverCabinetScreen.tsx` — переключатель «Принимаю оплату картой» в блоке RS-07, только при `card_switch_on`; отказ — по `ApiError.code`.
+3. `PayTripCard.tsx` — **на версии RS-01** (бронь без «Картой»/«СБП»): проп `cardAllowed?: boolean`; для `kind="booking"` кнопки «Картой»/«СБП» — только при `cardAllowed === true`, наличные остаются. `TripReceiptScreen.tsx:324` передаёт `card_payment === true`. В `honest-promises-test.mjs` (RS-01) — поимённое исключение с причиной.
+4. `Ride` (`api/rides.ts:14`) и детали брони — `card_payment?`; `BookingTerms` — строка «Картой в приложении — после поездки», только при `true`.
+
+### Android (`android/`) — `[RS-08В]`
+1. Раздел «Оплата картой» на экране «Выключатели» (RS-04 А1): то же, что сайт; `Switch` ≥ 48dp, `AnimatedContent` на смену статуса, только `Canon*`. Нового `Screen` нет (⭐ п.4 не нужен) — в `docs/architecture.md` строка о разделе у экрана «Выключатели».
+2. Водитель: в карточке RS-07 «Как принимаю оплату» (`ProfileScreen.kt:1373`) — переключатель, только при `card_switch_on`; отказ — по `detailCode`.
+3. `BookingDtos.kt:89` — `cardPayment`; `PayOnlineCard` вернуть в `BookingActiveTripScreen.kt` (~`:2108`) и `RideshareCompletedScreen.kt` (~`:361`) **только** под условием `cardPayment == true`. `OnlinePayGate` — для такси, не трогать.
+4. `HonestPromisesGuardTest` (RS-01): общий запрет `PayOnlineCard(` в попутке заменить поимённым исключением для этих двух файлов — вызов допустим, только если в нём или в 3 строках выше есть `cardPayment == true`; причина в тесте: «RS-08: карту разрешили владелец и водитель, решает сервер».
+5. `Domain.kt`, `toRideDto`, `toUiRide` (`MainActivity.kt:750`) — `cardPayment`; в `BookingTermsCard` — та же строка, только при `true`.
 
 ## 4. База данных
-Миграция `cd_card_switch_<ГГГГММДД>.py` (после миграции RS-07): таблицы `appsetting`, `appsettingchange`; в `driverpaysettings` — `accepts_card` (bool, `server_default false`), `accepts_card_at` (nullable). Данные не переносятся: нет строки — выключено, никто карту не принимает. `downgrade` — удалить поля и таблицы. `down_revision` — голова по `alembic heads`.
+- Имя `<префикс>_card_switch_<дата>`, префикс и `down_revision` — по индексу («Порядок миграций», очередь 8: строго после RS-04 А1 и RS-07 Б) и `alembic heads` свежего `origin/main`. Добавляет строку `appsetting` (`rideshare_card_payments`, `off`) и в `driverpaysettings` — `accepts_card` (`server_default false`), `accepts_card_at` (nullable). `downgrade` — удалить строку ключа и поля (строки журнала остаются историей). Одна голова; up → down → up на SQLite и PostgreSQL; `test_migrations_reach_production.py`, `test_migrations_match_the_models.py`.
+- Срок хранения (`cleanup`/`KEEP_FOREVER`) и удаление аккаунта (`account.py`): новых таблиц нет. `accepts_card*` — в `driverpaysettings` (бессрочно как часть аккаунта, стирается с ним — RS-07 Б). Журнал `appsettingchange` — RS-04 А1: бессрочно, `admin_id` при удалении аккаунта админа — `ON DELETE SET NULL`. Личных данных RS-08 не добавляет.
 
 ## 5. Надписи
 Русский; башкирский — черновик `yuldash-bashkir-linguist` в `docs/tasks.md`, «Переводы на проверку».
-- Админ: «Оплата картой» · «Пассажиры платят картой через банк — только водителям, которые это включили. Перевод водителю напрямую не меняется.» · «Выключено» / «Включено» / «Включено, но не работает» · «Нужен договор с банком».
+- Раздел: «Оплата картой» · «Пассажиры платят картой через банк — только водителям, которые это включили. Перевод водителю напрямую не меняется.» · «Нужен договор с банком».
 - Причины: «Нет договора с банком на приём оплаты поездок» · «На сервере не настроен приём карт» · «Выключены выплаты водителям».
-- Включить: «Включить оплату картой?» · «Водители смогут принять карту, пассажиры — заплатить после поездки. Деньги пойдут через банк.» · «Включить» / «Отмена». Выключить: «Выключить оплату картой?» · «Новые оплаты картой остановятся сразу. Уже начатые в банке завершатся.» · «Выключить».
-- «Заметка (необязательно)» · «Журнал» · «Ещё не меняли» · «{дата, время} · {имя} · включил / выключил».
-- Ошибки: «Включить нельзя: нужен договор с банком.» · «Не получилось загрузить. Повторить?» · «Не сохранилось. Повторить?»
-- Водитель: «Принимаю оплату картой» · «Пассажир сможет заплатить картой в приложении после поездки.» · 409: «Оплата картой сейчас выключена.» Пассажир: «Картой в приложении — после поездки» · 503: «Оплата картой для этой поездки недоступна. Рассчитайтесь, как договорились.» Слова про зачисление водителю финализирует проект с банком.
+- Включить: «Включить оплату картой?» · «Водители смогут принять карту, пассажиры — заплатить после поездки. Деньги пойдут через банк.» Выключить: «Выключить оплату картой?» · «Новые оплаты картой остановятся сразу. Уже начатые в банке завершатся.» (Статусы, журнал, «Повторить» — общие тексты экрана RS-04.)
+- Водитель: «Принимаю оплату картой» · «Пассажир сможет заплатить картой в приложении после поездки.» · 409: «Оплата картой сейчас выключена.»
+- Пассажир: «Картой в приложении — после поездки». Отказ оплаты — текст RS-01 на «ты» («…Рассчитайся, как договорились.»). Слова про зачисление водителю финализирует проект с банком.
 
 ## 6. Состояния экрана
-- Админ-экран: загрузка (скелетон), ошибка / нет сети («Повторить»), журнал пуст — «Ещё не меняли», блокеры — серый выключатель + причины, повторное нажатие во время запроса — кнопки неактивны.
-- Водитель: выключатель скрыт при `card_switch_on == false`; ошибка сохранения — откат переключателя и «Повторить».
+- Раздел админки: загрузка, ошибка / нет сети, пустой журнал, серый переключатель с причинами, повторное нажатие во время запроса — общие состояния экрана RS-04.
+- Водитель: переключатель скрыт при `card_switch_on == false`; ошибка сохранения — откат и «Повторить».
 - Пассажир: нет `card_payment` (старый сервер) — карты нет, наличные/договорённость как раньше.
 - Длинный башкирский, крупный шрифт, 320dp — перенос строк; тёмная тема — `Canon*` (`ContrastGuardTest`).
 
 ## 7. Тесты
-- Сервер `tests/test_rs08_card_switch.py`: по умолчанию выключено, блокер `bank_contract`; не админ — 403; включить с блокерами — 409, журнал пуст; с подменой — 200 и строка журнала (`admin_id`, время), повтор — без строки; выключить — всегда; прод + `mock` + договор — блокер `provider`; `accepts_card` при выключенном — 409; `card_payment` только при «выключатель + водитель», после выключения — `false`, выбор водителя цел; `/pay` `card` без разрешения — 503 и ноль `Payment`, `cash` работает; лента +1 запрос при включённом, 0 — при выключенном; два параллельных POST — итог = последняя строка журнала (PostgreSQL — как `tests/walk/l1_2/test_l1_2_wallet_race_pg.py`).
-- Регрессия: 8 файлов шага 10 зелёные, `test_wave_launch_switches.py` не менялся. Мутации: убрать замок в `pay_booking` или разрешить включение без банка — красный.
-- Android: Compose-тест экрана (серый выключатель с причинами, диалоги, журнал); `PayOnlineCard` не показан при `cardPayment=false` (`walk/l1_4/PayOnlineCardTest.kt` или тест вызова); `ApiClientEndpointContractTest` — новые ручки; все `*GuardTest`; `:app:assembleDebug`.
-- Сайт: `tests/card-switch-test.mjs`, `pay-test.mjs` (`cardAllowed=false` — только наличные); `npm run check`, `npm run build`.
+- Сервер `tests/test_rs08_card_switch.py` (А): ключ по умолчанию `off`, блокер `bank_contract`; включить с блокерами — 409 через общую ручку, журнал пуст; с подменой флагов — 200 и строка журнала; выключить — всегда; прод + `mock` + договор — блокер `provider`; флаг договора без `yookassa` на проде — предупреждение в `launch_warnings`, запуск не падает; `accepts_card` при недействующем — 409 `card_switch_off`; `card_payment` только при «выключатель + водитель», после выключения — `false`, выбор водителя цел; `/pay` `card` без разрешения — отказ RS-01 и ноль `Payment`, с разрешением — прежний путь; `cash` работает; лента — +1 запрос при включённом, 0 при выключенном.
+- Регрессия: 8 файлов шага А.8 зелёные. Мутации: убрать исключение (оплата не проходит при разрешении) или разрешить без водителя — красный.
+- Сайт (Б): `card-switch-test.mjs`; `pay-test.mjs` (`cardAllowed=false` — только наличные, `true` — «Картой»/«СБП»); `honest-promises-test.mjs` с исключением; `npm run check`, `npm run build`.
+- Android (В): Compose-тест раздела (серый переключатель с причинами, диалоги); `PayOnlineCard` нет при `cardPayment=false` и есть при `true`; `HonestPromisesGuardTest` — исключение работает, вызов без условия краснеет; `ApiClientEndpointContractTest`; все `*GuardTest`; `:app:assembleDebug`.
 
 ## 8. Приёмка
 Агент другой «семьи» (Q9), по умолчанию «не принято»:
-- [ ] Прямым запросом админ не включает выключатель без договора, ключей ЮKassa и выплат (409); интерфейс тут ни при чём.
-- [ ] Журнал: каждое изменение — кто, когда, было/стало; повтор того же значения строку не добавляет.
+- [ ] Своих таблиц настроек, ручек админки и отдельного экрана нет — только ключ в реестре RS-04 и раздел на экране «Выключатели».
+- [ ] Прямым запросом ключ не включается без договора, ключей ЮKassa и выплат (409); журнал — кто, когда, было/стало.
+- [ ] Флаг договора не валит запуск прода — только предупреждение.
 - [ ] Водитель не включит «принимаю карту», пока выключатель не действует; переключатель скрыт.
-- [ ] `card_payment` считает сервер; клиенты не показывают «Картой», если `false`; `/bookings/{id}/pay` с `card`/`sbp` без разрешения — 503 и ни одной строки `Payment`.
-- [ ] В diff нет: настоящего списания, возвратов, выплат, правок вебхука, такси, комиссии; `payments_provider` и `payouts_enabled` по умолчанию прежние.
-- [ ] Новый экран: `enum Screen` + `AppNavAdmin.kt` + `YuldashApp.kt` + `docs/architecture.md`; все надписи двуязычные.
-- [ ] Эмулятор: админ-экран (серый и включённый через подмену в dev), кабинет водителя, оплата после поездки — RU/BA × светлая/тёмная. Нет эмулятора — так и написать. Сайт — те же экраны.
-- [ ] Вливать и выкладывать — только после «да» Александра (деньги). Включать на проде — отдельное решение после договора с банком.
+- [ ] `card_payment` считает сервер; клиенты не показывают «Картой» при `false`; `/bookings/{id}/pay` картой без разрешения — отказ RS-01, ни одной строки `Payment`; сторожа RS-01 — с поимённым исключением, не выключены.
+- [ ] В diff нет: настоящего списания, возвратов, выплат, правок вебхука, такси, комиссии; `payments_provider`, `payouts_enabled` по умолчанию прежние.
+- [ ] Все надписи двуязычные, на «ты».
+- [ ] Эмулятор и сайт: раздел (серый и включённый через подмену в dev), кабинет водителя, оплата после поездки — RU/BA × светлая/тёмная (нет эмулятора — написать).
+- [ ] Вливать — только после «да» Александра (деньги). Включать на проде — отдельное решение после договора с банком и новой оферты.
+
+**Мозг.** `decisions.md` — кто включает денежный выключатель (вопрос, шаг А.9), «выключение не отменяет начатый в банке платёж», задержка чтения (шаг А.6); `tasks.md` — переводы; `architecture.md` — раздел «Оплата картой» у экрана «Выключатели»; `lessons.md` — нет.
 
 ## 9. Риски и границы
 - **Не входит:** договор и подключение банка, настоящая оплата поездки картой, возвраты, споры, выплаты, чеки за проезд, комиссия — отдельный будущий проект с банком (исследование п. 20–21: идемпотентность, вебхук, сверка, возврат).
-- ЮKassa сейчас — самозанятый для своих услуг (`payments.py:1-5`), деньги за проезд через неё нельзя — поэтому отдельный флаг договора, а не «есть ключи».
-- «Владелец» = любой админ из `ADMIN_PHONES`; помощники появятся — отдельная роль, отдельное решение.
-- `paymentsOnlineEnabled` (`ApiClient.kt:2766`) остаётся для такси. Общие файлы (`models.py`, `bookings.py`, `MainActivity.kt`, `YuldashApp.kt`, `conftest.py`) — «один файл — один агент», после RS-07.
+- ЮKassa сейчас — самозанятый для своих услуг (`payments.py:1-5`), деньги за проезд через неё нельзя — поэтому отдельный флаг договора, а не «есть ключи». Публичная оферта обещает расчёты напрямую — перед включением на проде её менять (`web/components/legal-content.ts`, «ждёт «да»: текст соглашения»).
+- Роль админа выдаётся и по Telegram-id (`auth.py:147-160`); после RS-04 — только через Telegram владельца (D8). Кто включает деньги — решение Александра.
+- `paymentsOnlineEnabled` (`ApiClient.kt:2766`) остаётся для такси. Общие файлы — очередь индекса, после RS-01, RS-04, RS-07.
 
 ## 10. Журнал статуса
 | Дата | Статус | Кто | PR / коммит | Заметка |
 |---|---|---|---|---|
 | 24.10.2026 | не начато | — | — | план написан |
+| 24.10.2026 | не начато | — | — | переписан по независимой приёмке: общий механизм RS-04 (D1), замок в RS-01 (D6), исключение в сторож RS-01, предупреждение вместо падения запуска, деление на PR |
