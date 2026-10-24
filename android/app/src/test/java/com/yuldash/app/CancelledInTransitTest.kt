@@ -73,6 +73,7 @@ class CancelledInTransitTest {
         set(value) { roleFlag = value; detailsFlag = value }
     @Volatile private var reportSec = 3600
     @Volatile private var offline = false   // трасса без связи: каждое соединение рвётся
+    @Volatile private var roleBody: String? = null   // ответ /role вместо обычного (пустой 200 — сбой прокси или сервера)
     @Volatile private var detailsGate: CountDownLatch? = null   // детали брони отвечают только после открытия
     @Volatile private var detailsAfterRole = false   // детали отвечают позже первого опроса /role
     @Volatile private var roleAfterDetails = false   // опрос /role отвечает позже первых деталей
@@ -94,11 +95,14 @@ class CancelledInTransitTest {
         InTransitCancels.clearForTest()
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
+                // Обрыв «в самом начале» MockWebServer берёт только из peek(): из dispatch() он отвечал
+                // пустым 200, и «без сети» на деле было «сервер ответил пусто» (CI PR207; ApiClientNetworkTest).
+                override fun peek(): MockResponse =
+                    if (offline) MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START) else super.peek()
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     requests.add("${request.method} ${request.path}")
-                    if (offline) return MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)
                     val body = when (request.path) {
-                        "/bookings/42/role" -> {
+                        "/bookings/42/role" -> roleBody ?: run {
                             if (roleAfterDetails) { detailsServed.await(10, TimeUnit.SECONDS); Thread.sleep(300) }
                             roleJson().also { roleServed.countDown() }
                         }
@@ -398,6 +402,19 @@ class CancelledInTransitTest {
     @Test fun `SOS и назад без сети — экран помощи и госномер на месте`() = sosAndBackWithoutNetwork(false)
 
     @Test fun `SOS и назад без сети — и когда сигнал снимка потерялся`() = sosAndBackWithoutNetwork(true)
+
+    @Test fun `ответ сервера без роли не убирает экран помощи`() {
+        // Пустой 200 на опрос (сбой прокси или сервера) стирал роль пассажира — и с ней экран помощи (CI PR207).
+        roleBody = "{}"
+        openTrip(hint = knownTerminalTripHint(42, "cancelled", "passenger", inTransit = true))
+        waitForText("Поездку отменили в пути")
+        waitFor("опрос /role не вернулся") { trace.any { it.contains("ВЫШЛИ из вызова GET /bookings/42/role") } }
+        repeat(10) { settle() }
+        compose.waitForIdle()
+        compose.onNodeWithText("Поездку отменили в пути").assertIsDisplayed()
+        compose.onAllNodesWithText("Поездка отменена").assertCountEquals(0)
+        assertEquals(0, tripEndCalls)
+    }
 
     @Test fun `чужой вход не видит запомненную отмену в пути`() {
         val owner = ApiClient.queueSessionGeneration()

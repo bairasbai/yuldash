@@ -846,7 +846,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "56ce58f24a073db0663fc7e4360e37df7b35e3836d7db38822a217bdd4851ed2",
+      "sha256": "3aad65187a7f70aa1485bbee721b3dd6b81099b2650d585fef818947f1e4a5b0",
       "lines": 3499
     },
     {
@@ -888,8 +888,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/CancelledInTransit.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "342a50a4cd06b83d49f99afcdafa3bc1dd2a7e789391ba44dc1c752276d79d60",
-      "lines": 501
+      "sha256": "92a24d9f3a58ef7d795bd9ef6e1538ad95fe9c1a36d237e914297f7a844d8d40",
+      "lines": 494
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -2799,8 +2799,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CancelledInTransitTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "1161c04128b108950717370efff0cf5c188b27d83b30f3add3623074388810ef",
-      "lines": 470
+      "sha256": "594eb07b0a216b2f555a9a3785bf939c76f5b2d4f6c139768a4eb29fc0c9d406",
+      "lines": 487
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CanonScaleTest.kt",

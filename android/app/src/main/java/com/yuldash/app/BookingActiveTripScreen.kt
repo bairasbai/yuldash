@@ -1427,7 +1427,7 @@ private fun ActiveTripContent(
                 stateResult
                     .onSuccess { st ->
                         if (offline || Outbox.hasPending(context)) serverBack++
-                        role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; inTransit.accept(st); acceptBookingStatus(st.status); offline = false
+                        if (st.role.isNotBlank()) role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; inTransit.accept(st); acceptBookingStatus(st.status); offline = false
                         if (isTripChatActive()) tripDetails.serverReached(detailsFailure)
                     }
                     // Сетевой сбой (не ApiException) → уходим в офлайн-режим: поднимаем сохранённый паспорт.
@@ -1588,7 +1588,7 @@ private fun ActiveTripContent(
             if (!isTripChatActive() || !chat.flushQueued() || !isTripChatActive()) return@launch
             ApiClient.getTripState(id).onSuccess { st ->
                 if (!isTripChatActive()) return@onSuccess
-                role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified
+                if (st.role.isNotBlank()) role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified
                 aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; inTransit.accept(st); acceptBookingStatus(st.status); offline = false
             }
         }
@@ -1637,7 +1637,7 @@ private fun ActiveTripContent(
                             Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
                             ApiClient.getTripState(bid).onSuccess { s ->
                                 if (!isTripSessionCurrent()) return@onSuccess
-                                role = s.role
+                                if (s.role.isNotBlank()) role = s.role
                                 driverPhase = s.driverPhase
                                 arrivalVerified = s.arrivalVerified
                                 aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec
@@ -1674,7 +1674,7 @@ private fun ActiveTripContent(
                             bookingStatus = "done"
                         } else ApiClient.getTripState(bid).onSuccess { s ->
                             if (!isTripSessionCurrent()) return@onSuccess
-                            role = s.role
+                            if (s.role.isNotBlank()) role = s.role
                             driverPhase = s.driverPhase
                             arrivalVerified = s.arrivalVerified
                             aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec
