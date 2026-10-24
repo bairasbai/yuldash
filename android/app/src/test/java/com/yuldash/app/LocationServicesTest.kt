@@ -80,15 +80,29 @@ class LocationServicesTest {
 
     @Test
     fun `воскрешение без данных продолжает ту же поездку`() {
-        // Android убил процесс и поднял сервис заново — intent приходит пустым.
-        tripPrefs().edit().putInt("last_booking", 77).putString("last_lang", "Ba").apply()
+        // Android убил процесс и поднял сервис заново — intent приходит пустым. Продолжаем только тем же
+        // входом и до прежнего срока (Д2, P1-2/P1-6): запись хранит, чья поездка и до когда.
+        com.yuldash.app.data.ApiClient.testBaseUrl = "http://127.0.0.1:9"   // никуда не подключаемся по-настоящему
+        com.yuldash.app.data.ApiClient.init(app)
+        val enc = java.util.Base64.getUrlEncoder().withoutPadding()
+        com.yuldash.app.data.ApiClient.saveToken(enc.encodeToString("""{"alg":"none"}""".toByteArray()) + "." +
+            enc.encodeToString("""{"sub":"5"}""".toByteArray()) + ".x")
+        tripPrefs().edit().putInt("last_booking", 77).putString("last_lang", "Ba").putInt("last_user", 5)
+            .putLong("until_elapsed", android.os.SystemClock.elapsedRealtime() + 3_600_000L)
+            .putLong("until_wall", System.currentTimeMillis() + 3_600_000L).apply()
 
-        val svc = Robolectric.buildService(TripLocationService::class.java).create().get()
-        val result = svc.onStartCommand(null, 0, 1)
+        try {
+            val svc = Robolectric.buildService(TripLocationService::class.java).create().get()
+            val result = svc.onStartCommand(null, 0, 1)
 
-        assertEquals(Service.START_STICKY, result)
-        assertEquals("долгая поездка оборвалась бы на середине", 77, TripLocationBus.bookingId)
-        svc.onDestroy()
+            assertEquals(Service.START_STICKY, result)
+            assertEquals("долгая поездка оборвалась бы на середине", 77, TripLocationBus.bookingId)
+            svc.onDestroy()
+        } finally {
+            com.yuldash.app.data.ApiClient::class.java.getDeclaredMethod("clearLocalSession")
+                .apply { isAccessible = true }.invoke(com.yuldash.app.data.ApiClient)
+            com.yuldash.app.data.ApiClient.testBaseUrl = null
+        }
     }
 
     @Test

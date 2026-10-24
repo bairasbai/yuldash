@@ -41,6 +41,8 @@ import DriverNoShow from "./DriverNoShow";
 import { SectionHeader } from "./cabinetUi";
 import { pluralRu } from "../utils/format";
 import { BookingSegmentNote } from "./PickupStopChoice";
+import { rideShareKeep, takeRidingFocus } from "../utils/rideShareStore";
+import RideShareNote from "./RideShareNote";
 
 /** Подтверждённая бронь — по ней можно отметить посадку («Сел») или неявку. */
 const CONFIRMED = "confirmed";
@@ -115,6 +117,24 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
 
   /** После «Сел» / «Отменить» — перечитать список (без аргументов: ответ действия не сигнал отмены). */
   const reload = useCallback(() => load(), [load]);
+
+  // Д2: точку рейса, начатую на странице поездки, держит и этот список — пока в нём есть живая бронь рейса.
+  // Сам список отправку не начинает (rideShareKeep вернёт null, если её нет).
+  useEffect(() => {
+    const release = rideShareKeep(rows);
+    return () => {
+      release?.();
+    };
+  }, [rows]);
+
+  // Водитель вернулся из закрытой поездки к оставшимся (Д2) — один раз подвести «Едут с тобой» к верху,
+  // плавно (без движения — если человек отключил его в системе).
+  useEffect(() => {
+    if (boot !== "ready" || takeRidingFocus() !== true || typeof document === "undefined") return;
+    const anchor = document.querySelector<HTMLElement>("[data-riding-anchor]");
+    const still = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    anchor?.scrollIntoView?.({ behavior: still ? "auto" : "smooth", block: "start" });
+  }, [boot]);
 
   /** `done` — что сказать после успеха (как тост в приложении: «Пассажир уведомлён»). */
   async function act(id: number, fn: () => Promise<unknown>, fail: { ru: string; ba: string }, done?: { ru: string; ba: string }) {
@@ -200,13 +220,16 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
     <>
       {riding.length > 0 && (
         <>
-          <SectionHeader
-            title={appText("Едут с тобой", "Һинең менән баралар")}
-            subtitle={appText(
-              "Поездка ещё не закончилась. Оценить сможешь, когда завершишь рейс.",
-              "Сәфәр әле тамамланманы. Рейсты тамамлағас баһалай алаһың."
-            )}
-          />
+          <div data-riding-anchor="">
+            <SectionHeader
+              title={appText("Едут с тобой", "Һинең менән баралар")}
+              subtitle={appText(
+                "Поездка ещё не закончилась. Оценить сможешь, когда завершишь рейс.",
+                "Сәфәр әле тамамланманы. Рейсты тамамлағас баһалай алаһың."
+              )}
+            />
+            <RideShareNote />
+          </div>
           <div className="list">
             {riding.map((b) => {
               const st = String(b.status);

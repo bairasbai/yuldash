@@ -1329,6 +1329,8 @@ internal fun ActiveTripScreen(
     onTrustedContacts: () -> Unit = {},   // «Поделиться с близким» без контактов → добавить близкого (приёмка 18.10, п.8)
     // Поездка кончилась, а экран остаётся (отмена в пути): живое гео и маршрут на карте — гасить сразу.
     onTripStopped: () -> Unit = {},
+    // Водитель завершил бронь, а у рейса есть ещё пассажиры: true — увели в «Едут с тобой», итог не показываем (Д2).
+    onDriverFinished: (suspend (Int) -> Boolean)? = null,
 ) {
     val currentSession by ApiClient.sessionChanges.collectAsState()
     val tripSession = remember(bookingId) { currentSession }
@@ -1345,7 +1347,7 @@ internal fun ActiveTripScreen(
         val hint = terminalHint?.takeIf { it.bookingId == bookingId && it.status in setOf("done", "cancelled") }
             ?: InTransitCancels.hint(bookingId, tripSession)
         ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession, chatOpen, onChatOpenChange,
-            hint, onTripStopped, onTrustedContacts)
+            hint, onTripStopped, onTrustedContacts, onDriverFinished)
     }
 }
 
@@ -1357,7 +1359,7 @@ private fun ActiveTripContent(
     onSupport: () -> Unit, onOpenReceipt: (Int) -> Unit, tripSession: Long,
     chatOpen: Boolean?, onChatOpenChange: ((Boolean) -> Unit)?,
     terminalHint: ActiveTripTerminalHint?,
-    onTripStopped: () -> Unit, onTrustedContacts: () -> Unit,
+    onTripStopped: () -> Unit, onTrustedContacts: () -> Unit, onDriverFinished: (suspend (Int) -> Boolean)?,
 ) {
     val context = LocalContext.current
     val voiceScope = rememberCoroutineScope()
@@ -1462,6 +1464,7 @@ private fun ActiveTripContent(
     // Ключуем по bookingId: выбранный статус не должен утекать в другую бронь (черновик — в TripChatState).
     var status by remember(bookingId) { mutableStateOf<String?>(null) }
     var showDriverFinishConfirmation by rememberSaveable(bookingId) { mutableStateOf(false) }
+    var driverFinishing by remember(bookingId) { mutableStateOf(false) }   // «Завершить» ушло, ждём сервер и список рейса
     var showShare by remember { mutableStateOf(false) }
     val shareSheet = rememberModalBottomSheetState()
     val tripSharedPrefix = appText("Ссылка готова", "Һылтанма әҙер")
@@ -1618,12 +1621,13 @@ private fun ActiveTripContent(
         if (role == "driver") {
             if (bid == null) {
                 bookingStatus = when (st) { "done" -> "done"; "boarded" -> "onboard"; else -> bookingStatus }
-            } else voiceScope.launch {
+            } else voiceScope.launch { try {
                 if (!isTripSessionCurrent()) return@launch
                 ApiClient.driverStatus(bid, st)
                     .onSuccess {
                         if (!isTripSessionCurrent()) return@onSuccess
                         if (st == "done") {
+                            if (onDriverFinished?.invoke(bid) == true) return@onSuccess   // остальные едут — ушли в «Едут с тобой»
                             bookingStatus = "done"
                         } else {
                             Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
@@ -1651,7 +1655,7 @@ private fun ActiveTripContent(
                                            Toast.LENGTH_LONG).show()
                         }
                     }
-            }
+            } finally { if (st == "done") { driverFinishing = false; showDriverFinishConfirmation = false } } }
         } else {
             val previousStatus = status
             status = st
@@ -1726,43 +1730,9 @@ private fun ActiveTripContent(
         return
     }
 
-    if (showDriverFinishConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showDriverFinishConfirmation = false },
-            title = { Text(appText("Завершить поездку?", "Сәфәрҙе тамамларғамы?")) },
-            text = {
-                Text(
-                    appText(
-                        "Подтверди, что поездка действительно закончилась.",
-                        "Сәфәр ысынлап та тамамланғанын раҫла.",
-                    ),
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDriverFinishConfirmation = false
-                        updateTripStatus("done")
-                    },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text(
-                        appText("Да, завершить", "Эйе, тамамларға"),
-                        color = CanonGreen2,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showDriverFinishConfirmation = false },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text(appText("Не завершать", "Тамамламаҫҡа"))
-                }
-            },
-        )
-    }
+    // Окно держится, пока сервер не ответил и не пришёл список рейса (DriverRideUi.kt); без брони (демо) — сразу.
+    if (showDriverFinishConfirmation) DriverFinishDialog(busy = driverFinishing, onDismiss = { showDriverFinishConfirmation = false },
+        onConfirm = { driverFinishing = bookingId != null; if (bookingId == null) showDriverFinishConfirmation = false; updateTripStatus("done") })
 
     // Шапка чата — с кем переписка. Имя из вкладки «Чат» известно сразу; пассажиру собеседник —
     // водитель брони, водителю — пассажир из деталей брони; пока имени нет — пишем роль.

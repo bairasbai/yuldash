@@ -74,7 +74,9 @@ class TripLocationHeartbeatTest {
         server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.init(app)
-        ApiClient.saveToken("local-trip-heartbeat-test")
+        // Ключ с номером человека (sub = 5): воскрешение сверяет, что поездка того же входа (Д2, P1-6).
+        val enc = java.util.Base64.getUrlEncoder().withoutPadding()
+        ApiClient.saveToken(enc.encodeToString("""{"alg":"none"}""".toByteArray()) + "." + enc.encodeToString("""{"sub":"5"}""".toByteArray()) + ".x")
     }
 
     @After fun cleanup() {
@@ -216,7 +218,10 @@ class TripLocationHeartbeatTest {
 
     @Test fun revivedDriverServiceKeepsTheHeartbeat() {
         // Android убил процесс посреди поездки и поднял сервис сам: intent пустой, роль — из prefs.
-        prefs.edit().putInt("last_booking", 42).putString("last_lang", "Ru").putBoolean("last_driver", true).apply()
+        // Запись службы: бронь, роль, чей вход и до какого срока (воскрешение срок не продлевает — Д2, P1-2).
+        prefs.edit().putInt("last_booking", 42).putString("last_lang", "Ru").putBoolean("last_driver", true)
+            .putInt("last_user", 5).putLong("until_elapsed", SystemClock.elapsedRealtime() + 3_600_000L)
+            .putLong("until_wall", System.currentTimeMillis() + 3_600_000L).apply()
         startTrip(revive = true)
         gps(lat0)
         assertNotNull(nextFrame())

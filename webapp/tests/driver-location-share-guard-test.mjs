@@ -239,17 +239,23 @@ await t.test("сессия сменилась — слежение за мест
 });
 
 // ---------------------------------------------------------------- проводка экрана
+// С Д2 (24.10.2026) экран берёт отправку у общей на вкладку (utils/driverRideShare.ts → rideLocationShare.ts):
+// проводка к браузеру живёт там, поэтому собираем её по-настоящему, подменяя только сеть и саму отправку.
 async function view() {
   return bundleComponent("src/components/DriverLocationShare.tsx", {
+    real: ["/utils/driverRideShare", "/utils/rideShareStore"],
     mocks: {
       "/i18n/lang": langMock("ru"),
       "/api/client": `export const getSessionGeneration=()=>globalThis.__gen;export const getToken=()=>"SECRET";export const refreshRejectedToken=async()=>true;`,
       "/api/chat": `export const wsBase=()=>"ws://x";`,
-      "/utils/tripLocationShare": `export const tripLocationUrl=(b,id)=>b+"/ws/trip/"+id+"/location";
+      "/api/bookings": `export const fetchDriverBookings=async()=>[];`,
+      "/tripLocationShare": `export const tripLocationUrl=(b,id)=>b+"/ws/trip/"+id+"/location";
         export function startDriverLocationShare(deps){const rec={deps,stops:0};(globalThis.__starts??=[]).push(rec);return{stop(){rec.stops++;},retry(){}};}`,
     },
   });
 }
+/** Ушли со страницы: отправка гаснет после короткой паузы на смену маршрута (rideLocationShare.HOLD_GRACE_MS). */
+const afterGrace = () => new Promise((r) => setTimeout(r, 1600));
 
 await t.test("ушёл со страницы / «Завершить» сняло «в пути» — отправка останавливается (stop)", async () => {
   globalThis.__starts = [];
@@ -261,10 +267,12 @@ await t.test("ушёл со страницы / «Завершить» сняло
   assert.equal(globalThis.__starts.length, 1);
   h.props = { bookingId: 42, inTransit: false };
   h.render();
+  await afterGrace();
   assert.equal(globalThis.__starts[0].stops, 1, "смена «в пути» → нет: stop не вызван");
   h.props = { bookingId: 42, inTransit: true };
   h.render();
   h.unmount();
+  await afterGrace();
   assert.equal(globalThis.__starts[1].stops, 1, "уход со страницы: stop не вызван");
 });
 
@@ -285,6 +293,10 @@ await t.test("канал открывается без ключа в адрес�
   assert.equal(d.isCurrent(), false, "смена сессии не останавливает отправку");
   assert.equal(typeof d.refreshToken, "function", "истёкший ключ экран не обновляет — точка погаснет до конца поездки");
   assert.equal(typeof d.subscribeOnline, "function", "«сеть вернулась» не подключено");
+  assert.equal(typeof d.onEnd, "function", "конец отправки не доходит до отправки на весь рейс");
+  globalThis.__gen = "A";
+  h.unmount();
+  await afterGrace();
 });
 
 await t.test("экран подписывается на «online» окна и отписывается", async () => {
@@ -305,6 +317,8 @@ await t.test("экран подписывается на «online» окна и 
   assert.deepEqual(listeners, [["online", fn]], "логика не узнает, что сеть вернулась");
   off();
   assert.equal(listeners.length, 0);
+  h.unmount();
+  await afterGrace();
 });
 
 t.done();

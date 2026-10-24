@@ -1625,6 +1625,7 @@ object ApiClient {
                 JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation).map { }
             "driver_status" -> call("POST", "/bookings/${action.bookingId}/driver-status",
                 JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation).map { }
+                .onSuccess { TripLocationBus.driverAction(action.bookingId, closed = action.payload == "done") }   // Д2: шаг водителя дошёл
             else -> Result.success(Unit)
         }
     }
@@ -1657,6 +1658,7 @@ object ApiClient {
     /** Водитель отмечает «выехал»/«подъезжаю»/«Пассажир сел» → push пассажиру. status: "departed"|"arriving"|"boarded"|"done". */
     suspend fun driverStatus(bookingId: Int, status: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true).map { }
+            .onSuccess { TripLocationBus.driverAction(bookingId, closed = status == "done") }   // Д2: GPS ведёт весь рейс
 
     /** Мой реферал: код, сколько привёл, бонусы, вводил ли чей-то код. */
     suspend fun getReferral(): Result<ReferralDto> = cachedGet("referral", TTL_PERSONAL) {
@@ -1776,8 +1778,8 @@ object ApiClient {
         call("POST", "/driver/gender", JSONObject().put("gender", gender), auth = true).map { }
 
     /** Брони на поездки водителя — чтобы оценить пассажиров. */
-    suspend fun getDriverBookings(): Result<List<DriverBookingDto>> =
-        call("GET", "/driver/bookings", null, auth = true).map { obj ->
+    suspend fun getDriverBookings(expectedGeneration: Long? = null): Result<List<DriverBookingDto>> =
+        call("GET", "/driver/bookings", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
@@ -2354,7 +2356,7 @@ object ApiClient {
     // Водитель отмечает неявку пассажира (no-show): бронь снимается, места возвращаются.
     suspend fun markNoShow(bookingId: Int): Result<Unit> =
         call("POST", "/bookings/$bookingId/no-show", JSONObject(), auth = true).map { }
-            .onSuccess { Analytics.log("booking_no_show") }
+            .onSuccess { Analytics.log("booking_no_show"); TripLocationBus.driverAction(bookingId, closed = true) }
 
     /** F2: водитель подтверждает бронь → пассажиру открываются телефон/точка сбора, приходит push. */
     suspend fun confirmBooking(bookingId: Int): Result<Unit> =

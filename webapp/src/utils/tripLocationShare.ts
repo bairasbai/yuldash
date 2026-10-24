@@ -109,7 +109,17 @@ export interface ShareDeps {
   refreshToken?: (rejected: string) => Promise<boolean>;
   /** Подписка на «сеть вернулась» (`window` «online»); возвращает отписку. */
   subscribeOnline?: (fn: () => void) => () => void;
+  /**
+   * Отправка кончилась насовсем и почему (Д2, отправка на весь рейс — rideLocationShare.ts): «trip» — сервер
+   * закрыл канал брони (завершена, отменена, неявка, блок, не наша), «auth» — входа больше нет или ключ
+   * отозван, «gave-up» — бронь так и не стала активной. Состояние на экране — то же «ended».
+   */
+  onEnd?: (why: ShareEnd) => void;
+  /** Можно ли слать точку прямо сейчас (Д2: срок несущей брони, потолок рейса). false — точку не шлём. */
+  allowSend?: () => boolean;
 }
+
+export type ShareEnd = "trip" | "auth" | "gave-up";
 
 export interface ShareHandle {
   /** Остановить всё: слежение за местом, сокет, таймеры. Повторный вызов безопасен. */
@@ -192,6 +202,13 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     unsubscribeOnline?.();
   }
 
+  /** Конец с причиной: экран видит «ended», отправка на весь рейс — почему (Д2). */
+  function end(why: ShareEnd) {
+    if (stopped) return;
+    retire("ended");
+    deps.onEnd?.(why);
+  }
+
   const ladder = (n: number) => Math.min(MAX_RECONNECT_MS, 1000 * 2 ** Math.min(n - 1, 5));
 
   /**
@@ -209,7 +226,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     if (!rejected || !deps.refreshToken) return;
     deps.refreshToken(rejected).then(
       (fresh) => {
-        if (!fresh && current() && deps.token() === rejected) retire("ended");
+        if (!fresh && current() && deps.token() === rejected) end("auth");
       },
       () => {
         /* нет сети — обновим на следующем шаге лестницы */
@@ -228,6 +245,8 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
       return;
     }
     if (!last || !socket || !authed || socket.readyState !== OPEN) return;
+    // Срок несущей брони вышел или потолок рейса (Д2): точку не шлём — отправка на рейс сама решит, что дальше.
+    if (deps.allowSend && !deps.allowSend()) return;
     const now = deps.now();
     if (!force && now - lastSentAt < SEND_EVERY_MS) {
       if (trail === null) {
@@ -270,7 +289,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     // без первого кадра {type:"auth"} точка ушла бы на сервер от неизвестно кого.
     const token = deps.token();
     if (!token) {
-      retire("ended");
+      end("auth");
       return;
     }
     if (token === rejectedToken) {
@@ -322,7 +341,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
       if (ev?.code === 1008 && /not active/i.test(reason)) {
         // Бронь ещё не подтверждена — подождём, но не вечно (Android: ~10 минут).
         if (softAttempt >= MAX_SOFT_RETRIES) {
-          retire("ended");
+          end("gave-up");
           return;
         }
         softAttempt++;
@@ -341,7 +360,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
         // Отказ сервера — конец, как в Android LocationSocket: поездка закончилась («Trip ended»),
         // бронь не наша («Forbidden»), доступ закрыт блокировкой («Access ended»). Повторять
         // бессмысленно: точка больше не уходит, слежение за местом снято.
-        retire("ended");
+        end("trip");
         return;
       }
       attempt++;

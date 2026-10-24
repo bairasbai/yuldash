@@ -1463,6 +1463,8 @@ private fun YandexMapCard(
     // которая ПЛАВНО «догоняет» новую позицию каждый кадр (как навигаторы), а не телепортируется на каждый
     // GPS-апдейт. Иначе при апдейте раз в ~7с (реальный GPS) или раз в ~0.4с (демо) были бы рывки.
     // Курс (bearing) тоже плавно доводится по кратчайшему углу. Стрелка скрыта, когда позиции нет.
+    // Поездки на карте нет (водитель вернулся к «Едут с тобой», Д2) — точку попутчика не рисуем; демо — без брони.
+    val peerTrip by rememberUpdatedState(activeTrip)
     LaunchedEffect(directionSurfaceArgb, directionBodyArgb, directionRoadArgb) {
         val map = mapView.mapWindow.map
         val pm = map.mapObjects.addPlacemark().apply {
@@ -1486,6 +1488,7 @@ private fun YandexMapCard(
             while (true) {
                 val now = androidx.compose.runtime.withFrameNanos { it }   // ждём кадр (60fps) + берём время кадра
                 val p = com.yuldash.app.data.TripLocationBus.peer
+                    ?.takeIf { peerTrip != null || com.yuldash.app.data.TripLocationBus.bookingId == null }
                 if (p == null) {                  // поездки нет → прячем стрелку, опрашиваем редко (не жжём кадры)
                     if (has) { pm.isVisible = false; has = false; prevLat = Double.NaN; lastChangeNanos = 0L }
                     kotlinx.coroutines.delay(200)

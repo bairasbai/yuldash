@@ -206,6 +206,9 @@ const ALL_SUITES = [
   { test: "family-order-no-phone-test", src: null, out: null, bundle: false },
   // Точка водителя с сайта в канал /ws/trip/{id}/location: только в пути, без журнала и аналитики, отказ не роняет экран.
   { test: "driver-location-share-test", src: null, out: null, bundle: false },
+  // Д2: точка водителя на весь рейс — «Завершить» по одному пассажиру не гасит её, пока у рейса есть живые брони;
+  // только после шага водителя на этом устройстве, не дольше 6 ч, без утечки не севшей пассажирке (общий набор с Android).
+  { test: "driver-ride-share-test", src: null, out: null, bundle: false },
   // …и сторожа приёмки PR155: без шторма соединений (лестница 1-2-4…30 с), отказ в ключе — ждём
   // обновлённый (отказ обновления — конец), без ключа — ни одного соединения, «online» — сразу.
   { test: "driver-location-share-guard-test", src: null, out: null, bundle: false },

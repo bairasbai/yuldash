@@ -50,7 +50,9 @@ internal object SessionKeys {
         "yuldash_prefs" to listOf("preferred_role", "mode_last", "pay_method"),
         // Номер брони: по нему сервис поездки воскресает и продолжает трансляцию. Роль в ней
         // («я водитель» — шлём пульс стоянки) — тоже про аккаунт и ту же поездку.
-        "trip_location_svc" to listOf("last_booking", "last_lang", "last_driver"),
+        // Д2: чей это рейс, его потолок жизни и брони рейса — всё про ту же поездку и тот же аккаунт.
+        "trip_location_svc" to listOf("last_booking", "last_lang", "last_driver", "last_user", "until_elapsed", "until_wall",
+            "ride_id", "ride_bookings"),
         // Номера посылок, которые человек вёз: и сами по себе чужие данные, и воскрешение сервиса.
         "courier_location_svc" to listOf("last_parcels", "last_lang"),
         // Фильтры поиска: среди них «только женщины» — он рассказывает о прошлом владельце.

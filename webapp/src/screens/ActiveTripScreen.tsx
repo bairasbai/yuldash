@@ -49,6 +49,8 @@ import RoadsideHelp from "../components/RoadsideHelp";
 import AlertDialog from "../components/AlertDialog";
 import DriverLocationShare from "../components/DriverLocationShare";
 import { driverInTransit } from "../utils/tripLocationShare";
+import { driverRideRemains } from "../utils/driverRideShare";
+import { requestRidingFocus } from "../utils/rideShareStore";
 import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { track } from "../analytics";
 import { clearTripPassBoardingCode, dropTripPass, tripPassStage, type TripPass } from "../utils/tripPass";
@@ -592,7 +594,16 @@ export default function ActiveTripScreen() {
       tripRef.current = fresh;
       setTrip(fresh);
       if (fresh.status === "cancelled") applyCancelledState(fresh.cancelled_in_transit === true);
-      if (phase === "done") setPhaseNote(appText("Поездка завершена", "Сәфәр тамамланды"));
+      if (phase === "done") {
+        setPhaseNote(appText("Поездка завершена", "Сәфәр тамамланды"));
+        // Д2: у рейса ещё есть пассажиры — водитель возвращается к «Едут с тобой», точка идёт дальше
+        // через другую живую бронь (driverRideShare.ts). Последний — остаёмся здесь: оценка и квитанция.
+        const remains = await driverRideRemains(bookingId);
+        if (remains === true && currentSession() && currentBookingIdRef.current === bookingId) {
+          requestRidingFocus();
+          navigate("/driver", { replace: true });
+        }
+      }
     } catch (e) {
       if (!currentSession()) return;
       if (e instanceof ApiError && e.status === 0) {

@@ -1387,6 +1387,7 @@ internal fun DriverCabinetScreen(
     onMyResponses: () -> Unit = {},      // «Мои отклики»: торг о цене по заявкам пассажиров
     onOpenTrip: (Int) -> Unit = {},      // «Едут с тобой» → экран поездки этой брони (id брони)
     onOpenCompletedTrip: (Int) -> Unit = {},
+    focusRiding: Boolean = false, onFocusRidingDone: () -> Unit = {},   // Д2: вернулись из закрытой поездки — к «Едут с тобой»
 ) {
     val taxiOn = rememberFeatures().isOn(Feature.Taxi)   // запуск волнами: такси выключено → без линии, панели и поездок такси
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
@@ -1785,7 +1786,7 @@ internal fun DriverCabinetScreen(
             onTaxiDocs = onTaxiDocs,
             onPretrip = onPretrip,
             pretripNeeded = pretripNeeded,
-            taxiOn = taxiOn, onOpenTrip = onOpenTrip,
+            taxiOn = taxiOn, onOpenTrip = onOpenTrip, focusRiding = focusRiding, onFocusRidingDone = onFocusRidingDone,
             onOpenCompletedTrip = onOpenCompletedTrip,
         )
         }
@@ -2931,6 +2932,7 @@ internal fun DriverCabinetContent(
     taxiOn: Boolean = true,          // такси включено на сервере; нет → линия, панель и поездки такси спрятаны
     onOpenTrip: (Int) -> Unit = {},  // «Едут с тобой»: открыть экран поездки этой брони (id брони)
     onOpenCompletedTrip: (Int) -> Unit = {},
+    focusRiding: Boolean = false, onFocusRidingDone: () -> Unit = {},   // Д2: список сам доезжает до «Едут с тобой»
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
     val ridesDone = archive.count { it.status == "done" }
@@ -2959,8 +2961,9 @@ internal fun DriverCabinetContent(
     }
     // F3: какая поездка правится сейчас (null = диалог закрыт).
     var editing by remember { mutableStateOf<Ride?>(null) }
+    val cabinetList = rememberRidingFocusList(focusRiding, driverBookings.any { it.status == "confirmed" || it.status == "onboard" }, onFocusRidingDone)
     LazyColumn(
-        modifier = modifier.padding(horizontal = 16.dp),
+        modifier = modifier.padding(horizontal = 16.dp), state = cabinetList,
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
@@ -3234,7 +3237,7 @@ internal fun DriverCabinetContent(
         // состоялась — сервер вернёт 409), а вот «Сел» и «пассажир не вышел» нужны именно тут.
         val ridingBookings = driverBookings.filter { it.status == "confirmed" || it.status == "onboard" }
         if (ridingBookings.isNotEmpty()) {
-            item {
+            item(key = RIDING_HEADER_KEY) {
                 SectionHeader(
                     appText("Едут с тобой", "Һинең менән баралар"),
                     appText(
@@ -3242,6 +3245,7 @@ internal fun DriverCabinetContent(
                         "Сәфәр әле тамамланманы. Рейсты тамамлағас баһалай алаһың.",
                     ),
                 )
+                DriverRideShareNote()   // машину сейчас видят пассажиры рейса (DriverRideUi.kt)
             }
             items(ridingBookings, key = { "ride-${it.bookingId}" }) { b ->
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
