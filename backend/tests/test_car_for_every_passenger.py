@@ -1,4 +1,6 @@
-"""Машину видят все пассажиры рейса, а не один (24.10.2026; находка проверки PR170 и P2-2 приёмки PR179).
+"""Машину видят пассажиры рейса с открытым окном, а не только тот, чью поездку открыл водитель
+(24.10.2026; находка проверки PR170 и P2-2 приёмки PR179). Открыто Д2 (клиент): «Завершить» по одной
+брони гасит GPS водителя — тогда машина пропадает у остальных (`docs/tasks.md`).
 
 Что было. Водитель открывает поездку ОДНОЙ брони («Едут с тобой» → бронь). Если у этой брони окно
 точки закрыто (Зарина садится в Бурибае, её окно — за 2 минуты до выезда), его точка лежала только во
@@ -177,7 +179,7 @@ def _sos_note(client, pax, bid) -> str:
 
 # ── Главный сценарий ──
 
-def test_every_passenger_sees_the_car_while_the_driver_holds_another_trip(
+def test_passengers_with_an_open_window_see_the_car_while_the_driver_holds_another_trip(
         client, user_factory, redis_on, fast_feed, quiet_sos):
     drv, (zarina, aigul, bota), ride, (z, a, b) = _trip(client, user_factory, "main", ("Бурибай", "Сибай", "Сибай"))
     tokens = {bid: _share(client, pax, bid) for pax, bid in ((zarina, z), (aigul, a), (bota, b))}
@@ -218,6 +220,34 @@ def test_passengers_never_get_each_others_points(client, user_factory, redis_on,
     assert _point_for(b) is None
     assert _app_feed(b, bota["id"]) is None
     assert _family(client, token_b)["car"] is None
+
+
+def test_passenger_frames_on_a_closed_window_channel_never_reach_any_key(client, user_factory, redis_on, gate_seen):
+    """Кадр Зарины (её окно закрыто) не ложится ни в кэш брони, ни в ключ рейса — Айгуль его не получит."""
+    _drv, (zarina, _aigul), _ride, (z, a) = _trip(client, user_factory, "paxclosed", ("Бурибай", "Сибай"))
+    with client.websocket_connect(f"/ws/trip/{z}/location") as mouth:
+        mouth.send_text(json.dumps({"type": "auth", "token": zarina["token"]}))
+        before = gate_seen["n"]
+        mouth.send_text(json.dumps({"type": "loc", "lat": ON_ROAD[0], "lng": ON_ROAD[1], "ts": 1}))
+        wait_gate(gate_seen, before)
+    assert redis_on.keys("livepos:*") == []
+    assert _point_for(a) is None
+
+
+def test_her_block_in_transit_with_only_the_ride_point(client, user_factory, redis_on):
+    """Q16 при одном ключе рейса: Бота «в пути» заблокировала водителя после посадки — её близкие
+    машину видят, в её приложение машина не идёт (как и при кэше брони)."""
+    drv, (_zarina, bota), ride, (z, b) = _trip(client, user_factory, "q16ride", ("Бурибай", "Сибай"),
+                                               depart_in=timedelta(minutes=10))
+    token = _share(client, bota, b)
+    _status(client, drv, b, "boarded")
+    with Session(engine) as s:
+        s.add(Block(user_id=bota["id"], blocked_user_id=drv["id"], created_at=utcnow() + timedelta(seconds=1)))
+        s.commit()
+    _driver_frame(client, drv, z, ride["id"], ON_ROAD, redis_on)   # водитель держит поездку Зарины
+    st = _family(client, token)
+    assert st["status"] == "onboard" and st["car"] is not None, st
+    assert _app_feed(b, bota["id"]) is None, "в её приложение — нет"
 
 
 # ── Порядок выбора точки (находка 4) ──
@@ -446,3 +476,24 @@ def test_a_foreign_booking_gets_nothing(client, user_factory, redis_on, fast_fee
         with client.websocket_connect(f"/ws/trip/{a}/location") as ws:
             ws.send_text(json.dumps({"type": "auth", "token": stranger["token"]}))
             ws.receive_text()
+
+
+def test_the_same_drivers_other_ride_gets_nothing(client, user_factory, redis_on):
+    """Пассажир рейса X того же водителя не получает ключ его рейса Y — ни в приложении, ни у близких."""
+    drv, (zarina,), ride_y, (y,) = _trip(client, user_factory, "sameY", ("Бурибай",))
+    rx = client.post("/rides", headers=drv["auth"], json={
+        "from_city": "Сибай", "to_city": "Акъяр", "comment": "cep-sameX", "waypoints": STOPS,
+        "depart_at": (utcnow() + timedelta(minutes=25)).isoformat() + "+00:00",
+        "seats_total": 1, "price": 700, "pickup_lat": SIBAY[0], "pickup_lng": SIBAY[1], "pickup": "Автовокзал"})
+    assert rx.status_code == 200, rx.text
+    px = user_factory("CEP Pax sameX")
+    x = client.post("/bookings", headers=px["auth"], json={"ride_id": rx.json()["id"], "seats": 1, "pickup_stop": "Сибай"})
+    assert x.status_code == 200, x.text
+    x = x.json()["id"]
+    assert client.post(f"/bookings/{x}/confirm", headers=drv["auth"]).status_code == 200
+    token = _share(client, px, x)
+    _driver_frame(client, drv, y, ride_y["id"], ON_ROAD, redis_on)   # точка лежит в ключе рейса Y
+    _status(client, drv, x, "departed")
+    assert _point_for(x) is None, "ключ рейса Y ушёл пассажиру рейса X"
+    assert _app_feed(x, px["id"]) is None
+    assert _family(client, token)["car"] is None

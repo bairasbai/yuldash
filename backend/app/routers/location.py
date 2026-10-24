@@ -245,7 +245,8 @@ def driver_point_for_booking(session: Session, booking, ride, now=None):
 def _рейс_идёт(depart_at, now=None) -> bool:
     """Рейс идёт по обычному правилу точки — с depart − LIVE_GEO_LEAD_HOURS (как у брони в начале
     маршрута). «Выехал» раньше этого срока не принимается (P2-Г), поэтому отдельно его не спрашиваем.
-    Только для внутренней точки водителя по рейсу (`livepos.ride_driver_set`, A1)."""
+    Только для точки водителя по рейсу (`livepos.ride_driver_set`, A1): её читают проверка «Подъезжаю»
+    и — с 24.10.2026 — `driver_point_for_booking` по правилам брони."""
     from ..timeutil import utcnow   # лениво, как в `_закрыть_в`: тесты двигают `app.timeutil.utcnow`
     return depart_at is not None and (now or utcnow()) >= depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS)
 
@@ -417,7 +418,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
             await websocket.close(code=1008, reason=reason)
             return
         driver_id = ride.driver_id
-        ride_id, depart_at = ride.id, ride.depart_at   # для внутренней точки водителя по рейсу (A1)
+        ride_id, depart_at = ride.id, ride.depart_at   # для точки водителя по рейсу (A1; наружу — с 24.10)
 
     role = "driver" if user_id == driver_id else "passenger"
     # Два ключа-НАПРАВЛЕНИЯ, чтобы НЕ возвращать отправителю его же позицию (эхо → стрелка попутчика
@@ -494,8 +495,10 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                         await websocket.close(code=1008, reason=пора.причина)
                         break
                     # Окно ЭТОЙ брони закрыто (пассажирка дальше по маршруту), а рейс уже идёт:
-                    # точку водителя кладём только во внутренний ключ рейса — для проверки его же
-                    # «Подъезжаю» по другим броням (A1). Никому не пересылаем, в кэш брони не пишем.
+                    # точку водителя кладём только в ключ рейса. Его читают проверка «Подъезжаю» по
+                    # другим броням (A1) и — с 24.10.2026 — `driver_point_for_booking`, только по
+                    # правилам ДРУГОЙ брони (её окно, блокировки, срок до посадки). Пассажирке этой
+                    # брони по каналу не пересылаем, в кэш этой брони не пишем.
                     if role == "driver" and _рейс_идёт(depart_at) and guard.ok(float(lat), float(lng)):
                         ride_driver_set(ride_id, lat, lng, payload.get("bearing"))
                     continue
@@ -512,7 +515,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                     # публичный /t/{token}/state.json читает её. В БД/лог координаты НЕ пишем.
                     livepos_set("booking", booking_id, lat, lng, payload.get("bearing"))
                     if _рейс_идёт(depart_at):
-                        ride_driver_set(ride_id, lat, lng, payload.get("bearing"))   # проверка «Подъезжаю» (A1)
+                        ride_driver_set(ride_id, lat, lng, payload.get("bearing"))   # «Подъезжаю» (A1) и другие брони рейса
                 if пора.только_запись:
                     continue   # записали для ссылки близким и SOS — по каналу никому из двоих не пересылаем
                 await manager.broadcast(send_key, {   # в inbox ДРУГОГО участника (не себе)
