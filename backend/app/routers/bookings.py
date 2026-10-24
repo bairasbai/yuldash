@@ -1811,6 +1811,9 @@ def my_bookings(
             "pay_amount": b.pay_amount,
             "front_seat": bool(b.front_seat),
             "cancelled_in_transit": cancelled_in_transit(b),
+            # Отказ водителя — не «отмена»: «Мои поездки» подписывают его «Отклонена», как экран брони
+            # (`/details` → `declined`, приёмка PR210).
+            "declined": b.cancel_reason == "driver_declined",
             # Где садится (18.10.2026): "" — начало, «Акъяр» — остановка, null — не указано.
             "pickup_stop": (b.pickup_stop if r is not None and ride_has_stops_raw(r, entry) else ""),
             "dropoff_stop": b.dropoff_stop,

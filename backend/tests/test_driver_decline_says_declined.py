@@ -86,6 +86,30 @@ def test_decline_with_a_reason_is_still_a_decline_on_both_screens(client, user_f
     assert client.get(f"/bookings/{booking['id']}/details", headers=pax["auth"]).json()["declined"] is True
 
 
+def test_my_bookings_list_says_declined_not_cancelled(client, user_factory):
+    """«Мои поездки» подписывают отказ водителя «Отклонена»: список броней знает об отказе (приёмка PR210).
+    Отмена самим пассажиром и отмена водителем после подтверждения — по-прежнему не отказ."""
+    drv = user_factory("Список Водитель", role=UserRole.driver)
+    pax = user_factory("Список Пассажир")
+    declined = _book(client, pax, _publish(client, drv)["id"])
+    assert client.post(f"/bookings/{declined['id']}/cancel", headers=drv["auth"],
+                       json={"reason": "safety"}).status_code == 200
+    withdrawn = _book(client, pax, _publish(client, drv)["id"])
+    assert client.post(f"/bookings/{withdrawn['id']}/cancel", headers=pax["auth"]).status_code == 200
+    cancelled = _book(client, pax, _publish(client, drv)["id"])
+    assert client.post(f"/bookings/{cancelled['id']}/confirm", headers=drv["auth"]).status_code == 200
+    assert client.post(f"/bookings/{cancelled['id']}/cancel", headers=drv["auth"],
+                       json={"reason": "not_going"}).status_code == 200
+    live = _book(client, pax, _publish(client, drv)["id"])
+
+    mine = {b["id"]: b for b in client.get("/bookings/mine", headers=pax["auth"]).json()}
+
+    assert mine[declined["id"]]["declined"] is True
+    assert mine[withdrawn["id"]]["declined"] is False
+    assert mine[cancelled["id"]]["declined"] is False
+    assert mine[live["id"]]["declined"] is False
+
+
 def test_decline_keeps_the_drivers_reason_for_review(client, user_factory):
     """Причина отказа не теряется в пуше: она в базе отдельным полем — для разборов и статистики (приёмка PR210)."""
     drv = user_factory("ПричинаБаза Водитель", role=UserRole.driver)
