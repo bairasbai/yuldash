@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
@@ -43,10 +45,12 @@ internal fun rideCancelOnboardWarning(onboard: Int): String = appText(
  * предупреждение отдельной тёплой плашкой. «Все брони будут отменены» — правда, но безличная:
  * одно дело снять пустой рейс, другое — оставить на дороге троих (аудит сценариев 30.08).
  * [booked] — мест всего минус свободные; [onboard] — брони «в пути» ([onboardPassengers]).
+ * Текст прокручивается: при крупном системном шрифте и башкирском он длиннее окна.
  */
 @Composable
 internal fun RideCancelConfirmText(from: String, to: String, booked: Int, onboard: Int) {
-    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+    Column(Modifier.verticalScroll(rememberScrollState()).testTag("rideCancelConfirmText"),
+        verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
         Text(appText(
             "$from → $to. " + when (booked) {
                 0 -> "Пассажиров пока нет — отменяем только объявление."

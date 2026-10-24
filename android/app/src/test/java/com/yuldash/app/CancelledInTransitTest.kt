@@ -12,6 +12,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MemoryDiskPreferences
 import com.yuldash.app.data.TripPass
+import com.yuldash.app.data.TripPassDeletion
 import com.yuldash.app.data.TripPassStore
 import com.yuldash.app.data.TripStateDto
 import com.yuldash.app.data.parseBookingDetailsDto
@@ -21,6 +22,7 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.*
@@ -32,7 +34,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Отмена, когда пассажир уже в машине, — честная (решение Александра 23.10.2026), экраны приложения.
@@ -56,29 +61,51 @@ class CancelledInTransitTest {
     private val requests = CopyOnWriteArrayList<String>()
     private var tripEndCalls = 0
     private var sosCalls = 0
+    private var stoppedCalls = 0
+    private var leaveOnSos = false
     @Volatile private var role = "passenger"
-    @Volatile private var inTransit = true
+    // Признак отмены в пути — у каждой ручки свой: проверяем и случай, когда он пришёл только из одной.
+    @Volatile private var roleFlag = true
+    @Volatile private var detailsFlag = true
+    private var inTransit: Boolean
+        get() = roleFlag && detailsFlag
+        set(value) { roleFlag = value; detailsFlag = value }
     @Volatile private var reportSec = 3600
+    @Volatile private var offline = false   // трасса без связи: каждое соединение рвётся
+    @Volatile private var detailsGate: CountDownLatch? = null   // детали брони отвечают только после открытия
+    @Volatile private var detailsAfterRole = false   // детали отвечают позже первого опроса /role
+    @Volatile private var roleAfterDetails = false   // опрос /role отвечает позже первых деталей
+    private val roleServed = CountDownLatch(1)
+    private val detailsServed = CountDownLatch(1)
 
     private fun roleJson() = """{"role":"$role","status":"cancelled","driver_phase":"","peer_id":9,""" +
-        """"problem_report_sec":$reportSec,"cancelled_in_transit":$inTransit}"""
+        """"problem_report_sec":$reportSec,"cancelled_in_transit":$roleFlag}"""
 
     private fun detailsJson() = """{"booking_id":42,"ride_id":7,"role":"$role","status":"cancelled","contact_unlocked":false,""" +
         """"from_city":"Город А","to_city":"Город Б","driver_name":"Ринат","driver_car":"Лада Веста",""" +
-        """"driver_car_color":"серая","driver_plate":"М555ОР102","driver_phone":"","cancelled_in_transit":$inTransit}"""
+        """"driver_car_color":"серая","driver_plate":"М555ОР102","driver_phone":"","cancelled_in_transit":$detailsFlag}"""
 
     @Before fun setup() {
         ApiClient.resetForTest()
         ApiClient.init(ApplicationProvider.getApplicationContext<Application>())
         ApiClient.logout()   // без входа ChatSocket не открывает настоящий WebSocket
         TripPassStore.initStores(plain, secure)
+        InTransitCancels.clearForTest()
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     requests.add("${request.method} ${request.path}")
+                    if (offline) return MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)
                     val body = when (request.path) {
-                        "/bookings/42/role" -> roleJson()
-                        "/bookings/42/details" -> detailsJson()
+                        "/bookings/42/role" -> {
+                            if (roleAfterDetails) { detailsServed.await(10, TimeUnit.SECONDS); Thread.sleep(300) }
+                            roleJson().also { roleServed.countDown() }
+                        }
+                        "/bookings/42/details" -> {
+                            detailsGate?.await(10, TimeUnit.SECONDS)
+                            if (detailsAfterRole) { roleServed.await(10, TimeUnit.SECONDS); Thread.sleep(300) }
+                            detailsJson().also { detailsServed.countDown() }
+                        }
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/boarding-code" -> """{"code":""}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
@@ -93,12 +120,14 @@ class CancelledInTransitTest {
     }
 
     @After fun cleanup() {
+        detailsGate?.countDown()
         compose.runOnIdle { mounted.value = false }
         settle()
         ApiClient.logout()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         TripPassStore.initStores(MemoryDiskPreferences(), null)
+        InTransitCancels.clearForTest()
         server.shutdown()
     }
 
@@ -135,7 +164,9 @@ class CancelledInTransitTest {
                 CompositionLocalProvider(LocalAppLanguage provides language) {
                     // Без поездки и координат городов настоящий MapKit не поднимается.
                     ActiveTripScreen(ride = null, contacts = emptyList(), bookingId = 42, terminalHint = hint,
-                        onBack = {}, onTripEnd = { tripEndCalls++; mounted.value = false }, onSos = { sosCalls++ })
+                        onBack = {}, onTripEnd = { tripEndCalls++; mounted.value = false },
+                        onSos = { sosCalls++; if (leaveOnSos) mounted.value = false },   // уход на экран SOS
+                        onTripStopped = { stoppedCalls++ })
                 }
             }
         }
@@ -308,5 +339,108 @@ class CancelledInTransitTest {
         assertFalse(parseBookingMineDto(JSONObject("""{"id":42,"status":"cancelled"}""")).cancelledInTransit)
         assertEquals(7, parseDriverBookingDto(JSONObject("""{"booking_id":42,"ride_id":7,"status":"onboard"}""")).rideId)
         assertEquals("старый сервер без ride_id", 0, parseDriverBookingDto(JSONObject("""{"booking_id":42}""")).rideId)
+    }
+
+    // ── Приёмка PR207: поездка гаснет сразу, экран помощи переживает уход и сеть, признак из одной ручки ──
+
+    @Test fun `экран помощи сразу гасит живое гео и маршрут, но сам остаётся`() {
+        savePass()
+        openTrip()
+        waitForText("Поездку отменили в пути")
+        waitFor("поездку не остановили") { stoppedCalls == 1 }
+        repeat(10) { settle() }
+        assertEquals("ровно один раз", 1, stoppedCalls)
+        assertEquals("экран помощи не закрылся", 0, tripEndCalls)
+        // Приложение по этому сигналу гасит activeTrip: сервис живого гео и маршрут на главной карте.
+        val app = File("src/main/java/com/yuldash/app/YuldashApp.kt").readText()
+        assertTrue("YuldashApp не гасит поездку", app.contains("onTripStopped = { activeTrip = null }"))
+    }
+
+    private fun sosAndBackWithoutNetwork(lostNotification: Boolean) {
+        savePass()
+        leaveOnSos = true
+        openTrip()
+        waitForText("М555ОР102")
+        compose.onNodeWithText("SOS — нужна помощь").performScrollTo().performClick()
+        waitFor("не ушли на SOS") {
+            !mounted.value && compose.onAllNodesWithText("Поездку отменили в пути").fetchSemanticsNodes().isEmpty()
+        }
+        offline = true   // паспорт уже удалён, сервер недоступен — помнит только этот вход
+        val back = {
+            compose.runOnIdle { mounted.value = true }
+            waitForText("Поездку отменили в пути")
+            waitForText("М555ОР102")
+        }
+        if (lostNotification) withLostGlobalSnapshotNotification(back) else back()
+        compose.onNodeWithText("SOS — нужна помощь").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Обновляем данные поездки").assertCountEquals(0)
+        assertEquals(1, sosCalls)
+        assertEquals(0, tripEndCalls)
+    }
+
+    @Test fun `SOS и назад без сети — экран помощи и госномер на месте`() = sosAndBackWithoutNetwork(false)
+
+    @Test fun `SOS и назад без сети — и когда сигнал снимка потерялся`() = sosAndBackWithoutNetwork(true)
+
+    @Test fun `чужой вход не видит запомненную отмену в пути`() {
+        val owner = ApiClient.queueSessionGeneration()
+        InTransitCancels.record(42, owner, InTransitCar("серая Лада Веста", "М555ОР102"), "Ринат")
+        assertEquals(knownTerminalTripHint(42, "cancelled", "passenger", inTransit = true), InTransitCancels.hint(42, owner))
+        assertNull("другой вход", InTransitCancels.hint(42, owner + 1))
+        assertNull("запись прошлого входа стёрта", InTransitCancels.hint(42, owner))
+        val state = CancelledInTransitState(false)
+        InTransitCancels.restoreInto(42, owner, state)
+        assertFalse(state.cancelled)
+        assertNull(state.car)
+    }
+
+    @Test fun `признак только в деталях брони — экран помощи всё равно остаётся`() {
+        roleFlag = false   // опрос /role о пути молчит
+        roleAfterDetails = true   // детали брони (экран читает их сам, пока поездка жива) пришли первыми
+        savePass()
+        openTrip()
+        waitForText("Поездку отменили в пути")
+        waitForText("М555ОР102")
+        // Ответ опроса применён (водитель и окно разбора — только из /role), и экран всё ещё здесь.
+        waitForText("Сообщить о проблеме")
+        repeat(10) { settle() }
+        assertEquals("опрос без признака закрыл экран помощи", 0, tripEndCalls)
+    }
+
+    @Test fun `признак только в опросе — экран помощи, машина из деталей`() {
+        detailsFlag = false   // детали о пути молчат, но машину и номер отдают
+        detailsAfterRole = true
+        openTrip()
+        waitForText("Поездку отменили в пути")
+        waitForText("М555ОР102")
+        repeat(10) { settle() }
+        assertEquals("экран помощи закрылся", 0, tripEndCalls)
+    }
+
+    @Test fun `паспорт не удалился — «Закрыть» убирает окно, экран помощи остаётся`() {
+        plain.failWriteOf = TripPassDeletion.KEY
+        savePass()
+        openTrip()
+        waitForText("Не удалось удалить сохранённую поездку")
+        compose.onNode(hasText("Закрыть") and hasAnyAncestor(isDialog())).performClick()
+        waitFor("окно не закрылось") {
+            compose.onAllNodesWithText("Не удалось удалить сохранённую поездку").fetchSemanticsNodes().isEmpty()
+        }
+        repeat(10) { settle() }
+        assertEquals("ушли с экрана помощи", 0, tripEndCalls)
+        compose.onNodeWithText("Поездку отменили в пути").assertIsDisplayed()
+    }
+
+    @Test fun `детали отменённой брони ещё грузятся — загрузка, а не «Найти другую поездку»`() {
+        val gate = CountDownLatch(1)
+        detailsGate = gate
+        openBooking()
+        waitFor("детали не запрошены") { requests.contains("GET /bookings/42/details") }
+        repeat(5) { settle() }
+        compose.onNodeWithTag("cancelledBookingLoading").assertIsDisplayed()
+        compose.onAllNodesWithText("Найти другую поездку").assertCountEquals(0)
+        gate.countDown()
+        waitForText("Поездку отменили в пути")
+        compose.onAllNodesWithText("Найти другую поездку").assertCountEquals(0)
     }
 }

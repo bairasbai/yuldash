@@ -398,7 +398,9 @@ internal fun BookingScreen(
         historyRemovalBusy = true
         val removalSession = detailsSession
         try {
-            val result = withContext(Dispatchers.IO) { TripPassStore.requestRemoval(context, id, expectedGeneration = removalSession) }
+            val result = withContext(Dispatchers.IO) {
+                TripPassStore.requestRemoval(context, id, expectedGeneration = removalSession)
+            }
             if (removalSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
             historyRemovalFailed = result == TripPassStore.RemovalResult.NOT_SAVED
         } finally {
@@ -504,7 +506,8 @@ internal fun BookingScreen(
             },
         )
     }
-    if (bookingId != null && details?.let(::showsCancelledInTransit) == true) { CancelledInTransitScreen(details!!, onSos, onBack); return }   // отменили в пути: помощь, а не «Найти другую поездку»
+    // Отменили в пути — экран помощи; детали отменённой брони ещё грузятся — загрузка (CancelledInTransit.kt).
+    if (bookingId != null && bookingCancelledOverride(details, normalizedBookingStatus, detailsLoading, onSos, onBack)) return
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Детали поездки", "Сәфәр тураһында"), onBack) },
@@ -1332,6 +1335,8 @@ internal fun ActiveTripScreen(
     // null — без навигации (тесты, превью): вид переключается внутри экрана.
     onChatOpenChange: ((Boolean) -> Unit)? = null,
     terminalHint: ActiveTripTerminalHint? = null,
+    // Поездка кончилась, а экран остаётся (отмена в пути): живое гео и маршрут на карте — гасить сразу.
+    onTripStopped: () -> Unit = {},
 ) {
     val currentSession by ApiClient.sessionChanges.collectAsState()
     val tripSession = remember(bookingId) { currentSession }
@@ -1344,8 +1349,11 @@ internal fun ActiveTripScreen(
         return
     }
     key(bookingId, tripSession) {
+        // Отмену в пути этот вход уже видел (CancelledInTransit.kt): экран помощи сразу, даже без сети.
+        val hint = terminalHint?.takeIf { it.bookingId == bookingId && it.status in setOf("done", "cancelled") }
+            ?: InTransitCancels.hint(bookingId, tripSession)
         ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession, chatOpen, onChatOpenChange,
-            terminalHint?.takeIf { it.bookingId == bookingId && it.status in setOf("done", "cancelled") })
+            hint, onTripStopped)
     }
 }
 
@@ -1357,6 +1365,7 @@ private fun ActiveTripContent(
     onSupport: () -> Unit, onOpenReceipt: (Int) -> Unit, tripSession: Long,
     chatOpen: Boolean?, onChatOpenChange: ((Boolean) -> Unit)?,
     terminalHint: ActiveTripTerminalHint?,
+    onTripStopped: () -> Unit,
 ) {
     val context = LocalContext.current
     val voiceScope = rememberCoroutineScope()
@@ -1381,7 +1390,7 @@ private fun ActiveTripContent(
     var contactsLoaded by remember(bookingId) { mutableStateOf(false) }
     var pickupDetails by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
     val tripDetails = remember(bookingId) { ActiveTripDetailsState(bookingId, tripSession) }
-    val inTransit = remember(bookingId) { CancelledInTransitState(terminalHint?.inTransit == true) }   // отменили в пути: экран остаётся (CancelledInTransit.kt)
+    val inTransit = rememberCancelledInTransitState(bookingId, terminalHint, tripSession)   // отменили в пути: экран остаётся
     fun acceptBookingStatus(value: String) {
         // A delayed poll must not revive a terminal booking or interrupt cleanup/retry.
         if (bookingStatus == "done" || bookingStatus == "cancelled") return
@@ -1392,57 +1401,14 @@ private fun ActiveTripContent(
     var tripPass by remember(bookingId) { mutableStateOf(bookingId?.let { TripPassStore.load(context, it) }) }
     fun isTripSessionCurrent() = tripSession == ApiClient.queueSessionGeneration()
     fun isTripChatActive() = voiceScope.isActive && isTripSessionCurrent() && bookingStatus != "done" && bookingStatus != "cancelled"
-    var removalFailed by remember(bookingId) { mutableStateOf(false) }
-    var removalBusy by remember(bookingId) { mutableStateOf(false) }
-    var removalRetry by remember(bookingId) { mutableStateOf(0) }
-    val finishAfterRemoval by rememberUpdatedState(onTripEnd)
     val terminalBooking = bookingStatus.takeIf { it == "done" || it == "cancelled" }
-    // Observe server completion too, not only a local finish button. Keep this above the
-    // completed-screen early return so failed durable writes can still be retried there.
-    LaunchedEffect(bookingId, terminalBooking, removalRetry) {
-        val id = bookingId ?: return@LaunchedEffect
-        if (terminalBooking == null || tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
-        inTransit.keep(tripPass); tripPass = null   // машина и госномер из паспорта остаются на экране отмены в пути, телефон — нет
-        removalBusy = true
-        try {
-            val result = withContext(Dispatchers.IO) { TripPassStore.requestRemoval(context, id, expectedGeneration = tripSession) }
-            if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
-            removalFailed = result == TripPassStore.RemovalResult.NOT_SAVED
-            // DEFERRED already has a durable barrier; inaccessible storage is cleaned on init. Отменили в пути — экран не закрываем сам.
-            if (!removalFailed && terminalBooking == "cancelled" && !inTransit.keepsScreen(role)) finishAfterRemoval()
-        } finally {
-            removalBusy = false
-        }
-    }
-    if (removalFailed) {
-        AlertDialog(
-            onDismissRequest = {},
-            containerColor = CanonSurface,
-            shape = CanonCardShape,
-            title = { Text(appText("Не удалось удалить сохранённую поездку", "Һаҡланған сәфәрҙе юйып булманы")) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(appText(
-                        "Поездка уже закрыта. Её копия может остаться на телефоне. Попробуй удалить ещё раз.",
-                        "Сәфәр ябылған инде. Уның күсермәһе телефонда ҡалырға мөмкин. Тағы юйып ҡара.",
-                    ))
-                    if (removalBusy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { removalRetry++ }, enabled = !removalBusy,
-                    modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(appText("Повторить удаление", "Тағы юйырға"), color = CanonGreen2)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = finishAfterRemoval, enabled = !removalBusy,
-                    modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(appText("Закрыть", "Ябырға"))
-                }
-            },
-        )
-    }
+    // Конец поездки: паспорт удаляется, экран закрывается сам — кроме отмены в пути (CancelledInTransit.kt).
+    ActiveTripTerminalCleanup(bookingId, terminalBooking, tripSession, role, inTransit,
+        onPassDropped = {
+            inTransit.keep(tripPass)   // машина и госномер из паспорта остаются на экране помощи, телефон — нет
+            tripPass = null
+        },
+        onFinish = onTripEnd)
     // offline = последний опрос состояния упал по СЕТИ (не по ответу сервера). Тогда показываем паспорт+плашку.
     var offline by remember(bookingId) { mutableStateOf(false) }
     var serverBack by remember(bookingId) { mutableIntStateOf(0) }   // опрос снова дошёл до сервера → разгрузить очередь
@@ -1755,7 +1721,10 @@ private fun ActiveTripContent(
     }
 
     // Отменили, когда пассажир был в машине (23.10.2026): не закрываемся — SOS, «Застрял», разбор, машина и номер.
-    if (bookingId != null && bookingStatus == "cancelled" && inTransit.keepsScreen(role)) { CancelledInTransitScreen(bookingId, inTransit, tripSession, onSos, onClose = onTripEnd); return }
+    if (bookingId != null && bookingStatus == "cancelled" && inTransit.keepsScreen(role)) {
+        CancelledInTransitScreen(bookingId, inTransit, tripSession, onSos, onClose = onTripEnd, onShown = onTripStopped)
+        return
+    }
     // An unknown booking is not a confirmed ride. Keep the independent loaders and retry alive,
     // but do not expose a boarding code, contacts, map or trip actions before authoritative data.
     // A passenger's existing encrypted offline passport remains usable without the role response.

@@ -1445,6 +1445,8 @@ private fun YuldashAppContent() {
                 // Дежурный должен узнать из сигнала, с кем и куда человек уехал (аудит 2026-08-06).
                 onSos = { openSos(bookingId = activeBookingId ?: 0) },
                 onSupport = { screen = Screen.Support },
+                // Отменили в пути: экран помощи остаётся, а живое гео и маршрут на карте гаснут сразу.
+                onTripStopped = { activeTrip = null },
                 onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt }
             )
             Screen.Sos -> SosScreen(

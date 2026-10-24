@@ -1,8 +1,10 @@
 package com.yuldash.app
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -77,6 +79,11 @@ class RideCancelOnboardWarningTest {
         openCancelDialog(sameRide, AppLanguage.Ba)
         compose.onNodeWithText("Машинала юлаусылар: 2.", substring = true).assertIsDisplayed()
         compose.onNodeWithText("«Рейсты тамамлау»", substring = true).assertIsDisplayed()
+    }
+
+    @Test fun `длинный текст окна прокручивается — крупный шрифт его не обрежет`() {
+        openCancelDialog(sameRide, AppLanguage.Ba)
+        compose.onNodeWithTag("rideCancelConfirmText").assert(hasScrollAction())
     }
 
     @Test fun `никого в машине — предупреждения нет`() {

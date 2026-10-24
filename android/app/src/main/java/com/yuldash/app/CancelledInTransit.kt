@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,6 +24,8 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
@@ -36,9 +39,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -47,16 +52,22 @@ import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.BookingDetailsDto
 import com.yuldash.app.data.TripPass
+import com.yuldash.app.data.TripPassStore
 import com.yuldash.app.data.TripStateDto
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 // Поездку отменили, когда пассажир уже был в машине (решение Александра 23.10.2026, сервер —
 // `visibility.cancelled_in_transit`). Отменить «в пути» может только водитель или администратор:
 // «сломалась машина», «высадил за поведение». Человек, возможно, стоит на трассе — поэтому экран
 // поездки не закрывается сам (как при обычной отмене), а ведёт к помощи: SOS, «Застрял на трассе»,
 // «Сообщить о проблеме» (окно сервера `problem_report_sec`, 6 ч от отмены), машина и госномер —
-// по ним родные и полиция ищут машину. Телефона водителя и чата нет: сервер их после отмены не даёт,
-// связь — через SOS и разбор. Экран общий: экран поездки и «Детали поездки», куда ведёт пуш.
+// по ним родные и полиция ищут машину. Телефона водителя, чата и карты нет: сервер телефон после
+// отмены не даёт, связь — через SOS и разбор. Экран общий: экран поездки и «Детали поездки».
+// Здесь же — конец поездки на экране поездки (удаление паспорта, закрыть или остаться) и память
+// об отмене в пути на этот вход ([InTransitCancels]): человек на трассе часто без сети.
 
 /** Машина, в которой человек ехал: «серая Лада Веста» и госномер. Телефона водителя здесь нет. */
 internal data class InTransitCar(val car: String, val plate: String) {
@@ -110,6 +121,166 @@ internal class CancelledInTransitState(initial: Boolean) {
 
     /** Экран поездки остаётся открытым: только у пассажира — водитель отменил сам и знает почему. */
     fun keepsScreen(role: String): Boolean = cancelled && role == "passenger"
+
+    /** Эта отмена уже была видна этому входу ([InTransitCancels]): экран помощи — сразу, без сети. */
+    fun restore(knownCar: InTransitCar?, knownDriver: String) {
+        cancelled = true
+        if (car == null) car = knownCar
+        if (driverName.isBlank()) driverName = knownDriver
+    }
+
+    /** Окно разбора вышло по часам («Детали поездки» читают /role один раз — без этого кнопка висела бы). */
+    fun expireReport() {
+        reportSec = 0
+    }
+}
+
+/**
+ * Отмены в пути, которые этот вход уже видел: номер брони, машина, госномер и имя водителя —
+ * без телефона. Память процесса: переживает уход на SOS и обратно, поворот экрана, второй пуш —
+ * а офлайн-паспорт к этому моменту уже удалён, и сети на трассе может не быть. Запись чужого
+ * входа (другое поколение сессии) не видна и стирается при первом же обращении.
+ */
+internal object InTransitCancels {
+    private data class Entry(val owner: Long, val car: InTransitCar?, val driverName: String)
+
+    private val entries = HashMap<Int, Entry>()
+
+    @Synchronized
+    fun record(bookingId: Int, owner: Long, car: InTransitCar?, driverName: String) {
+        val old = entries[bookingId]?.takeIf { it.owner == owner }
+        entries[bookingId] = Entry(owner, car?.takeIf { it.known } ?: old?.car, driverName.ifBlank { old?.driverName.orEmpty() })
+    }
+
+    @Synchronized
+    private fun entry(bookingId: Int?, owner: Long): Entry? {
+        entries.values.removeAll { it.owner != owner }
+        return if (bookingId == null) null else entries[bookingId]
+    }
+
+    /** Подсказка экрану поездки: отменённая в пути бронь пассажира — экран помощи сразу, без опроса. */
+    fun hint(bookingId: Int?, owner: Long): ActiveTripTerminalHint? =
+        entry(bookingId, owner)?.let { knownTerminalTripHint(bookingId, "cancelled", "passenger", inTransit = true) }
+
+    fun restoreInto(bookingId: Int?, owner: Long, state: CancelledInTransitState) {
+        entry(bookingId, owner)?.let { state.restore(it.car, it.driverName) }
+    }
+
+    @Synchronized
+    internal fun clearForTest() {
+        entries.clear()
+    }
+}
+
+/** Состояние экрана поездки: признак из подсказки или из [InTransitCancels] — отмена уже была видна. */
+@Composable
+internal fun rememberCancelledInTransitState(bookingId: Int?, hint: ActiveTripTerminalHint?, owner: Long): CancelledInTransitState =
+    remember(bookingId) {
+        CancelledInTransitState(hint?.inTransit == true).also { InTransitCancels.restoreInto(bookingId, owner, it) }
+    }
+
+/**
+ * Конец поездки на экране поездки (`done` / `cancelled`). Офлайн-паспорт с телефоном водителя
+ * удаляется всегда; при отмене экран закрывается сам — кроме отмены в пути у пассажира (признак — из
+ * /role или /details, что пришло первым; лишних запросов после конца поездки нет — их сторожат тесты
+ * ActiveTripChatTerminalHttpTest). Удалить не вышло — окно с повтором; его «Закрыть» уводит
+ * с экрана, но экран помощи после отмены в пути остаётся (человеку на трассе он нужнее копии).
+ * [onPassDropped] — экран убирает паспорт из памяти, машина и номер из него остаются в [inTransit].
+ */
+@Composable
+internal fun ActiveTripTerminalCleanup(
+    bookingId: Int?,
+    terminal: String?,
+    tripSession: Long,
+    role: String,
+    inTransit: CancelledInTransitState,
+    onPassDropped: () -> Unit,
+    onFinish: () -> Unit,
+) {
+    val context = LocalContext.current
+    var removalFailed by remember(bookingId) { mutableStateOf(false) }
+    var removalBusy by remember(bookingId) { mutableStateOf(false) }
+    var removalRetry by remember(bookingId) { mutableIntStateOf(0) }
+    val finish by rememberUpdatedState(onFinish)
+    val dropPass by rememberUpdatedState(onPassDropped)
+    val currentRole by rememberUpdatedState(role)
+    // Observe server completion too, not only a local finish button. Keep this above the
+    // completed-screen early return so failed durable writes can still be retried there.
+    LaunchedEffect(bookingId, terminal, removalRetry) {
+        val id = bookingId ?: return@LaunchedEffect
+        if (terminal == null || tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        dropPass()
+        removalBusy = true
+        try {
+            val result = withContext(Dispatchers.IO) {
+                TripPassStore.requestRemoval(context, id, expectedGeneration = tripSession)
+            }
+            if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+            removalFailed = result == TripPassStore.RemovalResult.NOT_SAVED
+            if (removalFailed || terminal != "cancelled") return@LaunchedEffect
+            // DEFERRED already has a durable barrier; inaccessible storage is cleaned on init.
+            if (!inTransit.keepsScreen(currentRole)) finish()
+        } finally {
+            removalBusy = false
+        }
+    }
+    if (removalFailed) {
+        AlertDialog(
+            onDismissRequest = {},
+            containerColor = CanonSurface,
+            shape = CanonCardShape,
+            title = { Text(appText("Не удалось удалить сохранённую поездку", "Һаҡланған сәфәрҙе юйып булманы")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+                    Text(appText(
+                        "Поездка уже закрыта. Её копия может остаться на телефоне. Попробуй удалить ещё раз.",
+                        "Сәфәр ябылған инде. Уның күсермәһе телефонда ҡалырға мөмкин. Тағы юйып ҡара.",
+                    ))
+                    if (removalBusy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { removalRetry++ }, enabled = !removalBusy,
+                    modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(appText("Повторить удаление", "Тағы юйырға"), color = CanonGreen2)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { if (inTransit.keepsScreen(currentRole)) removalFailed = false else finish() },
+                    enabled = !removalBusy, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(appText("Закрыть", "Ябырға"))
+                }
+            },
+        )
+    }
+}
+
+/**
+ * «Детали поездки» отменённой брони — до основного экрана: отмена в пути — экран помощи; статус
+ * «отменена» пришёл из списка, а детали ещё грузятся — загрузка, а не мелькнувшая «Найти другую
+ * поездку» (это может оказаться отмена в пути). true — экран уже нарисован здесь.
+ */
+@Composable
+internal fun bookingCancelledOverride(
+    details: BookingDetailsDto?,
+    listStatus: String,
+    loading: Boolean,
+    onSos: () -> Unit,
+    onBack: () -> Unit,
+): Boolean {
+    if (details != null && showsCancelledInTransit(details)) {
+        CancelledInTransitScreen(details, onSos, onBack)
+        return true
+    }
+    if (details == null && loading && listStatus == "cancelled") {
+        Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Детали поездки", "Сәфәр тураһында"), onBack) }) { insets ->
+            Box(Modifier.fillMaxSize().padding(insets).testTag("cancelledBookingLoading"), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = CanonGreen2)
+            }
+        }
+        return true
+    }
+    return false
 }
 
 /** «Детали поездки» (сюда ведёт пуш): детали уже прочитаны, водителя и окно разбора дочитаем из /role. */
@@ -131,6 +302,8 @@ internal fun CancelledInTransitScreen(
     ownerGeneration: Long,
     onSos: () -> Unit,
     onClose: () -> Unit,
+    // Экран поездки: экран помощи на месте, а поездка кончилась — живое гео и маршрут на карте гаснут.
+    onShown: () -> Unit = {},
     loadRole: Boolean = false,
     fetchDetails: suspend (Int) -> Result<BookingDetailsDto> = { ApiClient.getBookingDetails(it) },
     fetchRole: suspend (Int) -> Result<TripStateDto> = { ApiClient.getTripState(it) },
@@ -151,6 +324,19 @@ internal fun CancelledInTransitScreen(
     if (loadRole) LaunchedEffect(bookingId, retry) {
         val st = fetchRole(bookingId).getOrNull() ?: return@LaunchedEffect
         if (isCurrent()) state.accept(st)
+    }
+    val shown by rememberUpdatedState(onShown)
+    LaunchedEffect(bookingId) { if (isCurrent()) shown() }
+    // Запомнить на этот вход: вернулся с SOS, повернул экран, открыл пуш без сети — экран помощи на месте.
+    LaunchedEffect(bookingId, state.car, state.driverName) {
+        if (isCurrent()) InTransitCancels.record(bookingId, ownerGeneration, state.car, state.driverName)
+    }
+    LaunchedEffect(state.reportSec) {
+        val left = state.reportSec
+        if (left > 0) {
+            delay(left * 1000L)
+            state.expireReport()
+        }
     }
     BackHandler(onBack = onClose)
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Моя поездка", "Минең сәфәр"), onClose) }) { insets ->
@@ -262,7 +448,9 @@ private fun InTransitProblemReport(bookingId: Int, driverId: Int, driverName: St
                 ),
                 style = CanonCaption, color = CanonMuted,
             )
-            AnimatedContent(filed, label = "in-transit-report") { done ->
+            AnimatedContent(filed, transitionSpec = {
+                fadeIn(tween(CanonMotion.QUICK)) togetherWith fadeOut(tween(CanonMotion.QUICK))
+            }, label = "in-transit-report") { done ->
                 if (done) {
                     Text(
                         appText(
