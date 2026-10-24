@@ -17,6 +17,7 @@ from .config import settings
 from .errors import herr
 from .models import (Booking, BookingStatus, DriverProfile, Incident, Rating, Ride, RideStatus,
                      SafetyProfile, User)
+from .ride_publication_lock import lock_driver_ride_publication
 from .services import driver_rating, is_blocked
 from .timeutil import utcnow
 
@@ -293,7 +294,13 @@ def trip_really_happened(session: Session, *, booking_id=None, order_id=None,
     return False
 
 
-def ensure_active(session: Session, user_id: int) -> None:
+def active_suspension_until(session: Session, user_id: int, *, now=None):
+    """Свежий срок действующей паузы без identity map, создания профиля и commit."""
+    until = session.exec(select(SafetyProfile.suspended_until).where(SafetyProfile.user_id == user_id)).first()
+    return until if until is not None and until > (now or utcnow()) else None
+
+
+def ensure_active(session: Session, user_id: int, *, fresh: bool = False) -> None:
     """Гейт лестницы (§2): приостановленный аккаунт не совершает активных действий — жалобы,
     брони, публикации поездок/заявок, отклики на заявки, торг о цене, такси-заказы и предзаказы,
     доставка. Иначе «пауза 3/7/30 дней» из решения админа была бы декорацией.
@@ -302,7 +309,7 @@ def ensure_active(session: Session, user_id: int) -> None:
     обходится в два тапа. Полноту сторожит `tests/test_suspension_reaches_everywhere.py`.
     Намеренно НЕ закрываем: SOS и завершение уже начатой поездки (пауза не должна отбирать
     экстренную помощь и бросать пассажира на полдороге)."""
-    if account_paused(session, user_id):
+    if (active_suspension_until(session, user_id) is not None if fresh else account_paused(session, user_id)):
         raise herr(403,
                "Аккаунт на паузе до разбора. Загляни в Центр справедливости — там причина и срок.",
                "Аккаунт тикшереүгә тиклем паузала. Ғәҙеллек үҙәгенә ин — сәбәбе һәм ваҡыты шунда.")
@@ -463,8 +470,10 @@ def cancel_upcoming_after_suspension(session: Session, user_id: int) -> int:
     считается от конца паузы — во время паузы поездку не опубликовать. Никому другому остаток не
     достаётся. Замки — в том же порядке, что у «Снять поездку»: поездки → брони → строка водителя.
     """
-    from .services import push_notification, stash_boost_credit   # локальный импорт: services тянет safety_logic
+    from .services import (extend_boost_credit_until, push_notification,
+                           stash_boost_credit)   # локальный импорт: services тянет safety_logic
 
+    lock_driver_ride_publication(session, user_id)
     now = utcnow()
     задето = 0
 
@@ -495,17 +504,6 @@ def cancel_upcoming_after_suspension(session: Session, user_id: int) -> int:
         ).with_for_update().execution_options(populate_existing=True)).all():
             _снять_бронь(b)
             пассажирам.append((b.passenger_id, f"{ride.from_city} → {ride.to_city}", b.id))
-    if поднятые:
-        # Строка водителя — последней и мягким замком, как в `rides.cancel_ride`.
-        водитель = session.exec(select(User).where(User.id == user_id).with_for_update(key_share=True)
-                                .execution_options(populate_existing=True)).first()
-        профиль = session.exec(select(SafetyProfile).where(SafetyProfile.user_id == user_id)).first()
-        конец_паузы = профиль.suspended_until if профиль is not None else None
-        if водитель is not None:
-            for ride in поднятые:
-                stash_boost_credit(водитель, ride, now, usable_from=конец_паузы)
-            session.add(водитель)
-
     # 2) Он пассажир: его места в чужих будущих рейсах освобождаем — иначе «пауза» означала бы
     #    только «нельзя забронировать новое», и водитель ждал бы отстранённого на остановке.
     водителям: list[tuple[int, str, int]] = []
@@ -520,7 +518,21 @@ def cancel_upcoming_after_suspension(session: Session, user_id: int) -> int:
         _снять_бронь(b)
         водителям.append((ride.driver_id, f"{ride.from_city} → {ride.to_city}", b.id))
 
-    if not рейсы and not водителям:
+    # User — после всех броней. Берём и без снятого поднятия: на счёте уже мог быть живой остаток,
+    # а подтверждение старого платежа в ту же секунду может добавить первые часы. Оба пути читают
+    # свежую паузу ПОСЛЕ этого замка, поэтому более ранний commit не теряет продление срока.
+    водитель = session.exec(select(User).where(User.id == user_id).with_for_update(key_share=True)
+                            .execution_options(populate_existing=True)).first()
+    конец_паузы = active_suspension_until(session, user_id, now=now)
+    продлён = False
+    if водитель is not None:
+        продлён = extend_boost_credit_until(водитель, now, usable_from=конец_паузы)
+        for ride in поднятые:
+            stash_boost_credit(водитель, ride, now, usable_from=конец_паузы)
+        if продлён or поднятые:
+            session.add(водитель)
+
+    if not рейсы and not водителям and not продлён:
         return 0
     # Атомарно: поездки, брони и остаток поднятия — одной транзакцией. Коммитим и когда предупреждать
     # некого: раньше поездку без броней до базы доводил лишь следующий commit вызывающего — страховка,

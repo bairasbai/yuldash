@@ -258,8 +258,8 @@ export function createRideShare(deps: RideShareDeps) {
     const bookings = new Set(rows.filter((r) => r.ride_id === actionRide).map((r) => r.booking_id));
     ride = ride && ride.rideId === actionRide ? { ...ride, bookings } : { rideId: actionRide, bookings, until: deps.now() + RIDE_SHARE_MAX_MS };
     if (closedNow) closed.add(id);
-    if ((closedNow && id === bookingId) || !handle) apply(rows);
-    else notify();
+    // Первый «Выехал» / «Подъезжаю» тоже обязан поставить срок confirmed в начале маршрута.
+    apply(rows);
   }
 
   /**
@@ -315,7 +315,8 @@ export function createRideShare(deps: RideShareDeps) {
       if (owner !== null && deps.session() !== owner) stopAll(); // другой вход — с чистого листа
       if (owner === null) owner = deps.session();
       // Устаревшая страница закрытой брони, а рейс везёт живая (или её уже ищут) — в мёртвый канал не идём.
-      if (!(ride && closed.has(id))) {
+      // Повторное открытие той же страницы не обнуляет срок несущей и не отменяет её перевыбор.
+      if (!(ride && (closed.has(id) || bookingId === id))) {
         if (ride && !ride.bookings.has(id)) {
           ride = null; // другая бронь не этого рейса — режим рейса снят
         }
@@ -325,7 +326,11 @@ export function createRideShare(deps: RideShareDeps) {
         pendingClose = 0;
         clearTimer(pendingTimer);
         pendingTimer = null;
-        if (bookingId !== id || !handle) connect(id);
+        if (ride) {
+          // Другая бронь того же рейса: до свежего выбора ни кадра в confirmed без проверенного срока.
+          bookingId = id;
+          void resolve(id);
+        } else if (bookingId !== id || !handle) connect(id);
       }
       const token = Symbol("trip");
       hold(token);

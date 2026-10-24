@@ -599,15 +599,17 @@ internal fun ProfileScreen(
     // Удаление аккаунта (необратимо): подтверждение + лоадер + ошибка. Стирает данные и на сервере.
     var showDeleteAccount by remember(deletionSession) { mutableStateOf(false) }
     var deletingAccount by remember(deletionSession) { mutableStateOf(false) }
+    var deleteAccountError by remember(deletionSession) { mutableStateOf<String?>(null) }
     val deleteOkMsg = appText("Аккаунт удалён", "Иҫәп бөтөрөлдө")
     val deleteErrMsg = appText("Не удалось удалить. Проверь сеть и попробуй снова.", "Бөтөрөп булманы. Селтәрҙе тикшереп ҡабатла.")
     if (showDeleteAccount) {
         AlertDialog(
-            onDismissRequest = { if (!deletingAccount) showDeleteAccount = false },
+            onDismissRequest = { if (!deletingAccount) { showDeleteAccount = false; deleteAccountError = null } },
             containerColor = CanonSurface,
             icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = CanonRed) },
             title = { Text(appText("Удалить аккаунт?", "Иҫәпте бөтөрәһеңме?"), color = CanonText, fontWeight = FontWeight.Bold) },
             text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
                 Text(
                     // Обещание должно совпадать с тем, что код делает на самом деле.
                     // Раньше здесь стояло «удалит все данные», а часть остаётся по закону:
@@ -622,8 +624,10 @@ internal fun ProfileScreen(
                             "Закон буйынса ҡала: аҡса яҙмалары (бухучёт һәм һалым) һәм һиңә зарҙар — исемеңһеҙ, тик ҡарар һәм икенсе яҡтың дәлилдәре.\n\n" +
                             "Кире ҡайтарып булмай.",
                     ),
-                    color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
+                    color = CanonMuted, style = CanonCaption,
                 )
+                deleteAccountError?.let { Text(it, color = CanonRed, style = CanonCaption, modifier = Modifier.appearIn(0)) }
+                }
             },
             confirmButton = {
                 TextButton(
@@ -632,6 +636,7 @@ internal fun ProfileScreen(
                         ApiClient.runIfCurrentSession(deletionSession) {
                             if (editScope.isActive) {
                                 deletingAccount = true
+                                deleteAccountError = null
                                 editScope.launch {
                                     ApiClient.deleteAccount(deletionSession)
                                         .onSuccess { deletedSession ->
@@ -648,7 +653,7 @@ internal fun ProfileScreen(
                                             ApiClient.runIfCurrentSession(deletionSession) {
                                                 if (editScope.isActive) {
                                                     deletingAccount = false
-                                                    Toast.makeText(editCtx, serverSaid(error, deleteErrMsg), Toast.LENGTH_LONG).show()
+                                                    deleteAccountError = serverSaid(error, deleteErrMsg)
                                                 }
                                             }
                                         }
@@ -664,7 +669,7 @@ internal fun ProfileScreen(
                     }
                 }
             },
-            dismissButton = { TextButton(enabled = !deletingAccount, onClick = { showDeleteAccount = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
+            dismissButton = { TextButton(enabled = !deletingAccount, onClick = { showDeleteAccount = false; deleteAccountError = null }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )
     }
     // Отступ под статус-бар уже дал общий Scaffold вкладок — свой не дублируем (см. RidesScreen).

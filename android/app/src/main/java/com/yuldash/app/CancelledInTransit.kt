@@ -397,6 +397,13 @@ internal fun CancelledInTransitScreen(
                 InTransitProblemReport(bookingId, state.driverId, state.driverName, ownerGeneration, Modifier.appearIn(3))
             }
             // Оценка — ниже помощи и разбора (проверка плана 24.10.2026): сначала безопасность, потом звёзды.
+            if (carFailed && state.car?.known == true && state.canRate == null) {
+                AppErrorState(
+                    onRetry = { if (!carLoading) retry++ },
+                    modifier = Modifier.appearIn(3).testTag("inTransitDetailsRetry"),
+                    title = appText("Не удалось загрузить данные для оценки", "Баһалау өсөн мәғлүмәтте йөкләп булманы"),
+                )
+            }
             InTransitRateDriver(bookingId, state, ::isCurrent, rateDriver, Modifier.appearIn(3))
             AppButton(appText("Закрыть", "Ябырға"), onClick = onClose, style = AppButtonStyle.Secondary, modifier = Modifier.appearIn(3))
         }

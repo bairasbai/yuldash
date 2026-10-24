@@ -1662,6 +1662,31 @@ def public_rides_payload(items: list, *, full: bool = False):
 BOOST_CARRY_DAYS = 30
 
 
+def add_boost_credit(user, seconds: int, now, usable_from=None) -> int:
+    """Добавить оплаченные секунды под замком User; не коммитит и не меняет тариф."""
+    if seconds <= 0:
+        return 0
+    alive = bool(user.boost_credit_until and user.boost_credit_until > now)
+    kept = user.boost_credit_sec if alive else 0
+    user.boost_credit_sec = kept + seconds
+    start = max(now, usable_from) if usable_from is not None else now
+    until = start + timedelta(days=BOOST_CARRY_DAYS)
+    user.boost_credit_until = max(until, user.boost_credit_until) if alive else until
+    return seconds
+
+
+def extend_boost_credit_until(user, now, usable_from=None) -> bool:
+    """Пауза продлевает срок живого остатка; истёкший остаток не воскрешаем."""
+    if (usable_from is None or usable_from <= now or user.boost_credit_sec <= 0
+            or user.boost_credit_until is None or user.boost_credit_until <= now):
+        return False
+    until = usable_from + timedelta(days=BOOST_CARRY_DAYS)
+    if until <= user.boost_credit_until:
+        return False
+    user.boost_credit_until = until
+    return True
+
+
 def stash_boost_credit(user, ride, now, usable_from=None) -> int:
     """Поездку сняли, а поднятие было оплачено — остаток кладём водителю на счёт.
 
@@ -1682,13 +1707,7 @@ def stash_boost_credit(user, ride, now, usable_from=None) -> int:
     left = int((ride.boosted_until - now).total_seconds())
     if left <= 0:
         return 0
-    # Прежний остаток складываем только если он ещё жив: протухший не воскрешаем.
-    alive = bool(user.boost_credit_until and user.boost_credit_until > now)
-    kept = user.boost_credit_sec if alive else 0
-    user.boost_credit_sec = kept + left
-    start = max(now, usable_from) if usable_from is not None else now
-    until = start + timedelta(days=BOOST_CARRY_DAYS)
-    user.boost_credit_until = max(until, user.boost_credit_until) if alive else until
+    add_boost_credit(user, left, now, usable_from=usable_from)
     ride.boosted_until = None      # на снятой поездке поднятие больше не действует
     return left
 

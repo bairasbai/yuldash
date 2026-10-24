@@ -277,7 +277,11 @@ def test_идущая_поднятая_поездка_и_пауза_без_по�
     with Session(engine) as s:
         r = s.get(Ride, в_пути)
     assert r.status == RideStatus.active and r.boosted_until is not None, "идущую поездку не рвём, поднятие на ней"
-    assert _credit(водитель["id"]) == (2 * 3600, until), "без снятых поднятых поездок счёт не трогаем"
+    sec, kept_until = _credit(водитель["id"])
+    with Session(engine) as s:
+        prof = s.exec(select(SafetyProfile).where(SafetyProfile.user_id == водитель["id"])).one()
+    assert sec == 2 * 3600, "пауза не добавляет секунд к прежнему остатку"
+    assert kept_until >= prof.suspended_until + timedelta(days=30), "живой остаток не сгорает во время паузы"
 
 
 def test_срок_остатка_не_укорачивается_обычной_отменой_после_паузы():

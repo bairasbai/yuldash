@@ -113,6 +113,7 @@ class CancelledInTransitTest {
                             roleJson().also { roleServed.countDown() }
                         }
                         "/bookings/42/details" -> {
+                            if (detailsUnavailable) return MockResponse().setResponseCode(503).setBody("{}")
                             detailsGate?.await(10, TimeUnit.SECONDS)
                             if (detailsAfterRole) { roleServed.await(10, TimeUnit.SECONDS); Thread.sleep(300) }
                             detailsJson().also { detailsServed.countDown() }
@@ -538,6 +539,24 @@ class CancelledInTransitTest {
         waitForText("Поездку отменили в пути")
         waitForText("Оценить водителя")
         assertTrue(requests.contains("GET /bookings/42/details"))
+    }
+
+    @Volatile private var detailsUnavailable = false
+
+    @Test fun `машина известна — отказ загрузки оценки можно повторить без ухода с помощи`() {
+        canRate = true
+        detailsUnavailable = true
+        savePass()
+        openTrip()
+        waitForText("Не удалось загрузить данные для оценки")
+        compose.onNodeWithText("SOS — нужна помощь").performScrollTo().assertIsDisplayed()
+        val before = requests.count { it == "GET /bookings/42/details" }
+        detailsUnavailable = false
+        compose.onNodeWithText("Повторить").performScrollTo().performClick()
+        waitForText("Оценить водителя")
+        assertTrue(requests.count { it == "GET /bookings/42/details" } > before)
+        assertTrue(rated.isEmpty())
+        assertEquals(0, tripEndCalls)
     }
 
     @Test fun `оценка по-башкирски`() {

@@ -116,6 +116,13 @@ class TripLocationService : Service() {
         if (driver && bookingId in closed && (r != null || actionLookup)) { foreground(); return START_STICKY }
         isDriver = driver
         if (!driver || (r != null && bookingId !in r.bookings)) leaveRide()   // другая бронь не этого рейса — режим рейса снят
+        if (ride != null && bookingId == currentBookingId) {
+            // Тот же экран (в том числе смена языка) не отменяет срок несущей и не прерывает её перевыбор.
+            foreground()
+            persist()
+            armWatchdog()
+            return START_STICKY
+        }
         if (ride == null) {
             // Явный старт с экрана: сторож — 6 ч от него, как раньше. Воскрешение срок не продлевает (P1-2).
             untilElapsed = SystemClock.elapsedRealtime() + MAX_LIFETIME_MS
@@ -130,7 +137,11 @@ class TripLocationService : Service() {
         pendingClose = 0
         watchdog.removeCallbacks(pendingExpiry)
         foreground()
-        connect(bookingId)
+        if (ride != null) {
+            // Другая бронь того же рейса: до свежего выбора ни кадра в confirmed без проверенного срока.
+            currentBookingId = bookingId
+            resolve(anchor = bookingId)
+        } else connect(bookingId)
         persist()
         armWatchdog()
         return START_STICKY
@@ -288,7 +299,8 @@ class TripLocationService : Service() {
             armWatchdog()
             persist()
             TripLocationBus.rideShareActive = true
-            if (closedNow && bookingId == currentBookingId || socket == null) applyPick(list, receivedAt)
+            // Первый «Выехал» / «Подъезжаю» тоже обязан поставить срок confirmed в начале маршрута.
+            applyPick(list, receivedAt)
         }
     }
 

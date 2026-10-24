@@ -19,7 +19,7 @@ from ..logs import admin_action, log
 from ..models import Ad, Payment, Ride, RideStatus, User, UserRole
 from ..payments import BOOST_PLANS, BOOST_WEIGHT as _BOOST_WEIGHT, create_payment, fetch_payment, payments_closed
 from ..security import current_user
-from ..services import notify_admin_telegram
+from ..services import add_boost_credit, notify_admin_telegram
 from ..timeutil import utcnow
 
 # Из каких состояний оплата вправе поднять рекламу в эфир. Всё, что снято человеком
@@ -312,10 +312,25 @@ def _activate_payment(session: Session, payment: Payment) -> None:
     # donate / support → только отметка succeeded (доход платформы, ledger не трогаем).
     _mark_succeeded(payment)
     session.add(payment)
+    boost_credited = False
     if payment.purpose == "boost" and payment.ride_id is not None:
-        ride = session.get(Ride, payment.ride_id)
+        # Payment → Ride → User, без барьера публикации: каскад паузы берёт его ДО Ride.
+        # Повторное чтение под замком нужно и для отмены, и для двух разных оплаченных счетов.
+        ride = session.exec(select(Ride).where(Ride.id == payment.ride_id).with_for_update()
+                            .execution_options(populate_existing=True)).first()
         plan = BOOST_PLANS.get(payment.tier)
-        if ride and plan:
+        if ride and plan and ride.status != RideStatus.active:
+            # Оплата пришла после снятия рейса: оплаченные часы остаются у его водителя.
+            # Срок паузы читаем после общего с каскадом User-lock, без скрытого commit.
+            from ..safety_logic import active_suspension_until
+            driver = session.exec(select(User).where(User.id == ride.driver_id).with_for_update(key_share=True)
+                                  .execution_options(populate_existing=True)).one()
+            now = utcnow()
+            add_boost_credit(driver, int(plan[2] * 3600), now,
+                             usable_from=active_suspension_until(session, driver.id, now=now))
+            session.add(driver)
+            boost_credited = True
+        elif ride and plan:
             # Второй платёж ДОБАВЛЯЕТ к остатку, а не обрезает его (аудит 2026-08-08, волна 151).
             #
             # Раньше срок просто переписывался «сейчас + период». Проверено пробой: человек купил
@@ -412,7 +427,7 @@ def _activate_payment(session: Session, payment: Payment) -> None:
                 )
             session.add(partner)
     session.commit()
-    _tell_about_payment(session, payment, ok=True)
+    _tell_about_payment(session, payment, ok=True, boost_credited=boost_credited)
 
 
 def _sync_provider_status(session: Session, payment: Payment) -> tuple[Payment, dict | None]:
@@ -470,7 +485,7 @@ _PAID_TEXT = {
 }
 
 
-def _tell_about_payment(session: Session, payment: Payment, ok: bool) -> None:   # noqa: D401
+def _tell_about_payment(session: Session, payment: Payment, ok: bool, *, boost_credited: bool = False) -> None:   # noqa: D401
     """Сказать человеку, чем кончился его перевод.
 
     Переводы у нас «на доверии»: человек отправляет деньги по СБП и ждёт, пока админ увидит
@@ -486,6 +501,9 @@ def _tell_about_payment(session: Session, payment: Payment, ok: bool) -> None:  
     """
     from ..services import push_notification   # локальный импорт: services тянет роутеры на старте
     ru_ba = _PAID_TEXT.get(payment.purpose or "")
+    if boost_credited:
+        ru_ba = ("Оплата получена — часы поднятия сохранены для следующей поездки 💚",
+                 "Түләү ҡабул ителде — өҫкә күтәреү ваҡыты киләһе сәфәргә һаҡланды 💚")
     if ok and ru_ba is None:
         return   # служебные (ride/booking) человек и так видит по состоянию поездки
     if ok:

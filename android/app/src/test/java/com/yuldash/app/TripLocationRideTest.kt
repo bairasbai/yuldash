@@ -95,7 +95,8 @@ class TripLocationRideTest {
                 }
                 if (path == "/driver/bookings") {
                     lookups.incrementAndGet()
-                    if (failLookups > 0) { failLookups--; return MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AT_START) }
+                    // DISCONNECT_AT_START из dispatch() не рвёт связь: MockWebServer отвечает пустым 200.
+                    if (failLookups > 0) { failLookups--; return MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE) }
                     lookupGate?.await(5, TimeUnit.SECONDS)
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(rows)
                 }
@@ -112,6 +113,7 @@ class TripLocationRideTest {
         service?.onDestroy()
         logout()
         ApiClient.testBaseUrl = null
+        ApiClient.testRetryTimeoutMs = null
         server.shutdown()
         prefs.edit().clear().apply()
         TripLocationBus.bookingId = null
@@ -138,10 +140,11 @@ class TripLocationRideTest {
     private fun svc(): TripLocationService =
         service ?: Robolectric.buildService(TripLocationService::class.java).create().get().also { service = it }
 
-    private fun start(id: Int, driver: Boolean = true): TripLocationService {
+    private fun start(id: Int, driver: Boolean = true, language: AppLanguage = AppLanguage.Ru): TripLocationService {
         val s = svc()
         s.onStartCommand(Intent(app, TripLocationService::class.java)
-            .putExtra(TripLocationService.EXTRA_BOOKING, id).putExtra(TripLocationService.EXTRA_DRIVER, driver), 0, id)
+            .putExtra(TripLocationService.EXTRA_BOOKING, id).putExtra(TripLocationService.EXTRA_DRIVER, driver)
+            .putExtra(TripLocationService.EXTRA_LANG, language.name), 0, id)
         return s
     }
 
@@ -325,6 +328,7 @@ class TripLocationRideTest {
     }
 
     @Test fun noNetworkForTheRideListAfterFinishIsRetried() {
+        ApiClient.testRetryTimeoutMs = 200   // короткое чтение, но все три сетевые попытки и паузы клиента сохранены
         val s = start(101)
         expectOpened(101)
         serve(row(101, "done"), row(102, "onboard"))
@@ -396,13 +400,64 @@ class TripLocationRideTest {
         waitUntil("подходящей несущей нет — GPS гаснет") { stopped(s) }
     }
 
+    @Test fun firstDriverStepOnTheCurrentChannelSetsItsNoShowDeadline() {
+        val s = start(101)
+        expectOpened(101)
+        serve(row(101, "confirmed", wait = 120))
+        TripLocationBus.driverAction(101, closed = false)   // «Выехал»: канал уже открыт
+        waitUntil("режим рейса не включился") { TripLocationBus.rideShareActive }
+        gps()
+        assertEquals(101, frameTo())
+
+        serve(row(101, "confirmed", wait = 0))
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(121))
+        gps(lat0 + 0.01)
+        assertTrue("первый шаг оставил confirmed без срока — ушла лишняя точка", noFrames())
+        waitUntil("срок вышел, другой допустимой брони нет — GPS обязан погаснуть") { stopped(s) }
+        assertTrue(gpsOff())
+        assertTrue(prefs.all.isEmpty())
+    }
+
+    @Test fun sameStartAndLanguageChangeKeepTheCarrierDeadlineAndPickAReplacement() {
+        val s = start(101)
+        expectOpened(101)
+        serve(row(101, "confirmed", wait = 120))
+        TripLocationBus.driverAction(101, closed = false)
+        waitUntil("режим рейса не включился") { TripLocationBus.rideShareActive }
+        val until = prefs.getLong("until_elapsed", 0L)
+        gps()
+        assertEquals(101, frameTo())
+
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(60))
+        start(101, language = AppLanguage.Ba)   // тот же экран перезапустил службу после смены языка
+        assertEquals("повторный старт продлил потолок рейса", until, prefs.getLong("until_elapsed", 0L))
+        assertEquals("после воскрешения уведомление должно сохранить башкирский язык", AppLanguage.Ba.name, prefs.getString("last_lang", null))
+        serve(row(101, "confirmed", wait = 0), row(102, "onboard"))
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(61))
+        gps(lat0 + 0.01)
+        assertTrue("повторный старт обнулил срок, и точка ушла старой confirmed", noFrames())
+        expectOpened(102)
+        gps(lat0 + 0.01)
+        assertEquals("точку должна нести допустимая бронь того же рейса", 102, frameTo())
+        assertFalse(stopped(s))
+    }
+
+    @Test fun anotherScreenInRideModeDoesNotOpenAnExpiredConfirmedChannel() {
+        rideOf101and102()
+        serve(row(101, "onboard"), row(102, "confirmed", wait = 0))
+        start(102)
+        expectOpened(101)   // серверный список сохраняет допустимую несущую, а не явно открытую expired confirmed
+        gps()
+        assertEquals(101, frameTo())
+    }
+
     @Test fun rideCeilingIsNotExtendedBySwitchesOrScreens() {
         val s = rideOf101and102()
         val until = prefs.getLong("until_elapsed", 0L)
         assertTrue(until > SystemClock.elapsedRealtime())
         ShadowSystemClock.advanceBy(Duration.ofHours(1))
         start(102)   // открыл поездку второго пассажира того же рейса
-        expectOpened(102)
+        expectOpened(101)   // свежий выбор: меньшая живая бронь того же рейса
         assertEquals("явный экран в режиме рейса потолок не продлевает", until, prefs.getLong("until_elapsed", 0L))
         ShadowSystemClock.advanceBy(Duration.ofHours(5).plusSeconds(1))
         gps()

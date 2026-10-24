@@ -19,6 +19,7 @@ from ..features import guard_delivery_ride
 from ..flood import TOO_MANY_RIDES, guard_open_items
 from ..geo import bare_name, by_exact_names, lookup, name_variants, settlements_snapshot
 from ..logs import log
+from ..ride_publication_lock import lock_driver_ride_publication
 from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
                       RideStatus, User, UserRole)
 from .. import workday as workday_mod
@@ -311,7 +312,12 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     # это тот же самый тап. «Исправил и опубликовал заново» отличается хотя бы одним полем
     # и проходит как новая поездка. Лочим строку водителя: иначе два запроса пройдут SELECT
     # одновременно и оба вставят.
-    session.exec(select(User).where(User.id == user.id).with_for_update()).first()
+    lock_driver_ride_publication(session, user.id)
+    user = session.exec(select(User).where(User.id == user.id).with_for_update(key_share=True)
+                        .execution_options(populate_existing=True)).one()
+    # Начальная проверка была до модерации и ожидания замка. Сейчас читаем сам срок из БД,
+    # без ленивого пересчёта standing: его внутренний commit отпустил бы оба замка.
+    ensure_active(session, user.id, fresh=True)
     twin = _recent_twin_ride(session, user.id, body)
     if twin is not None:
         return twin
@@ -340,12 +346,8 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
             session.add(Ride(driver_id=user.id, seats_left=body.seats_total, **{**dump, "depart_at": dt}, **geo))
             made += 1
     # Перенесённое с отменённой поездки поднятие достаётся этой — молча и сразу.
-    # Остаток читаем под замком строки водителя (тот же мягкий замок, что у «Снять поездку»): иначе
-    # отмена другой его поездки в ту же секунду дописывала остаток, а эта публикация затирала его своим
-    # устаревшим «0» (проверка плана 24.10.2026). Чужих поездок здесь не запираем — порядок замков цел.
-    if user.boost_credit_sec > 0:
-        session.exec(select(User).where(User.id == user.id).with_for_update(key_share=True)
-                     .execution_options(populate_existing=True)).first()
+    # Строка водителя уже перечитана под замком выше, в том числе при прежнем нулевом остатке:
+    # встречная отмена могла как раз положить на счёт первые часы. Чужих рейсов здесь не запираем.
     if apply_boost_credit(user, ride, utcnow()):
         session.add(user)
         session.add(ride)

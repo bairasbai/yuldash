@@ -239,10 +239,51 @@ await t.test("рейс — не дольше 6 часов от начала ре
   const r = await rideOf101and102();
   r.now += 3600_000;
   r.share.open(102); // открыл поездку второго пассажира — срок не продлевается
+  await settle(); // проверяем новую живую отправку, а не уже закрытый обработчик старой
   r.now += 5 * 3600_000 + 1000;
   assert.equal(r.last().hooks.allowSend(), false);
   r.fire(0);
   assert.equal(r.share.snapshot().bookingId, null);
+});
+
+await t.test("первый шаг на уже открытом канале тоже ставит срок confirmed в начале маршрута", async () => {
+  const r = rig();
+  r.share.open(101);
+  r.rows = [row(101, "confirmed", { no_show_wait_sec: 120 })];
+  await r.share.action(101, false);
+  assert.equal(r.last().hooks.allowSend(), true);
+  r.now += 121_000;
+  r.rows = [row(101, "confirmed", { no_show_wait_sec: 0 })];
+  assert.equal(r.last().hooks.allowSend(), false, "первый шаг оставил confirmed без срока — ушла лишняя точка");
+  r.fire(0);
+  await settle();
+  assert.equal(r.share.snapshot().bookingId, null, "срок вышел, другой допустимой брони нет — конец");
+});
+
+await t.test("повторное открытие той же страницы сохраняет срок и после него выбирает допустимую замену", async () => {
+  const r = rig();
+  r.share.open(101);
+  r.rows = [row(101, "confirmed", { no_show_wait_sec: 120 })];
+  await r.share.action(101, false);
+  r.now += 60_000;
+  r.share.open(101);
+  r.now += 61_000;
+  r.rows = [row(101, "confirmed", { no_show_wait_sec: 0 }), row(102, "onboard")];
+  assert.equal(r.last().hooks.allowSend(), false, "повторное открытие обнулило срок, и точка ушла старой confirmed");
+  r.fire(0);
+  await settle();
+  assert.equal(r.last().id, 102);
+  assert.equal(r.last().hooks.allowSend(), true);
+});
+
+await t.test("другая страница в режиме рейса не открывает просроченную confirmed", async () => {
+  const r = await rideOf101and102();
+  r.rows = [row(101, "onboard"), row(102, "confirmed", { no_show_wait_sec: 0 })];
+  r.share.open(102);
+  await settle();
+  assert.equal(r.last().id, 101);
+  assert.equal(r.starts.some((h) => h.id === 102), false, "до проверки срока открыли просроченный канал");
+  assert.equal(r.last().hooks.allowSend(), true);
 });
 
 await t.test("«Едут с тобой» держит отправку рейса после ухода со страницы поездки, отпустил — конец", async () => {
