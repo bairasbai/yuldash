@@ -4,10 +4,11 @@
 
 | Файл | Что в нём | Откуда зовётся |
 |---|---|---|
-| `CancelledInTransit.kt` | `CancelledInTransitState` (признак, водитель, окно разбора, машина из деталей или паспорта до его удаления), `CancelledInTransitScreen` | `BookingActiveTripScreen.kt` (экран поездки и «Детали поездки») |
+| `CancelledInTransit.kt` | `CancelledInTransitState` (признак, водитель, окно разбора, машина из деталей или паспорта до его удаления), `CancelledInTransitScreen`; `InTransitCancels` — память процесса «бронь → машина, водитель» без телефона, только своего входа (переживает уход на SOS, поворот экрана и сеть; не переживает выгрузку приложения); `ActiveTripTerminalCleanup` — удаление паспорта и автозакрытие (при отмене в пути не закрывает, «Закрыть» окна сбоя тоже); `bookingCancelledOverride` — «Детали поездки»: помощь или загрузка вместо мигающего «Найти другую поездку» (приёмка PR207) | `BookingActiveTripScreen.kt` (экран поездки и «Детали поездки»); `onTripStopped` → `YuldashApp.kt` гасит `activeTrip` (живое гео и маршрут), экран помощи остаётся |
 | `RideCancelWarning.kt` | `RideCancelConfirmText` — текст «Снять поездку?» + «В машине пассажиры: N», `onboardPassengers` по `ride_id` | `ProfileScreen.kt` (кабинет водителя) |
 | `BookingLinkDestination.kt` | пуш пассажиру с отменой в пути → `Screen.ActiveTrip` | `YuldashApp.kt` |
 | `webapp/src/components/CancelledInTransitCard.tsx`, `webapp/src/utils/rideCancelWarning.ts` | то же на сайте; «Бронь» уводит на `/trip/:id` (`utils/bookingLink.ts`) | `ActiveTripScreen.tsx`, `DriverCabinetScreen.tsx` |
+| `webapp/src/utils/inTransitCancel.ts` | память вкладки `yuldash.inTransit.<id>` в sessionStorage: владелец, машина, госномер — без телефона; стирается при выходе (`utils/privacy.ts`). Экран поездки при отмене в пути рисует ТОЛЬКО шапку и карточку помощи (без чата, карты, статуса); признак — из `/role` или `/details`, что пришло первым; без машины — один раз дочитывает `/details` | `ActiveTripScreen.tsx` |
 
 ## Android: слои после ветки Codex — 23.10.2026 (PR #192)
 
