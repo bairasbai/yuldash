@@ -19,6 +19,7 @@ data class BookingMineDto(
     val driverVerified: Boolean,
     val pickupStop: String? = null, val dropoffStop: String? = null, val rideHasStops: Boolean = false,
     val cancelledInTransit: Boolean = false,   // отменили, когда пассажир был в машине (23.10.2026); старый сервер — false
+    val declined: Boolean = false,   // водитель отклонил неподтверждённую бронь — «Отклонена», не «Отменена» (приёмка PR210)
 )
 
 /** Приватные детали брони для вкладки «Детали поездки». */
@@ -65,6 +66,7 @@ data class BookingDetailsDto(
     // и сколько звёзд я уже поставил (только своя оценка). Старый сервер — false / 0.
     val canRate: Boolean = false,
     val myStars: Int = 0,
+    val boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
 )
 
 
@@ -85,6 +87,7 @@ internal fun parseBookingMineDto(o: JSONObject): BookingMineDto {
         dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
         pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"), rideHasStops = o.optBoolean("ride_has_stops"),
         cancelledInTransit = o.optBoolean("cancelled_in_transit", false),
+        declined = o.optBoolean("declined", false),
     )
 }
 
@@ -127,6 +130,6 @@ internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
         pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"), rideHasStops = o.optBoolean("ride_has_stops"),
         cancelledInTransit = o.optBoolean("cancelled_in_transit", false),
         canRate = o.optBoolean("can_rate", false),
-        myStars = o.optInt("my_stars", 0),
+        myStars = o.optInt("my_stars", 0), boardingUndo = parseBoardingUndo(o),
     )
 }

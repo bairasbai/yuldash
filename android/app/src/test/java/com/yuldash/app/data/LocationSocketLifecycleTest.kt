@@ -383,6 +383,61 @@ class LocationSocketLifecycleTest {
         }.invoke(NetworkMonitor)
     }
 
+    @Test fun boardingCorrectionNotifiesItsOwnerOnceWithoutTerminatingTheBooking() {
+        socket.close()
+        var corrected = 0
+        socket = LocationSocket(42, onPeer = {}, socketFactory = factory,
+            onTerminated = { terminated++ }, onBoardingCorrected = { corrected++ },
+            scheduleTask = { task, _, _ -> scheduled.addLast(task) })
+        socket.connect()
+        factory.latest.open()
+        factory.latest.serverClose(1008, "Boarding corrected")
+        factory.latest.listener.onClosed(factory.latest, 1008, "Boarding corrected")
+        assertEquals(1, corrected)
+        assertEquals(0, terminated)
+        assertFalse(socket.sendLoc(54.0, 56.0))
+        networkReturned()
+        assertEquals(1, factory.connections.size)
+        assertTrue(scheduled.isEmpty())
+    }
+
+    @Test fun similarReasonRemainsTerminalRatherThanReopeningPrivateLocation() {
+        socket.connect()
+        factory.latest.open()
+        factory.latest.serverClose(1008, "Boarding corrected ")
+        assertEquals(1, terminated)
+        networkReturned()
+        assertEquals(1, factory.connections.size)
+    }
+
+    @Test fun correctionOfAReplacedChannelDoesNotReachTheOwner() {
+        socket.close()
+        var corrected = 0
+        socket = LocationSocket(42, onPeer = {}, socketFactory = factory,
+            onBoardingCorrected = { corrected++ }, scheduleTask = { _, _, _ -> })
+        socket.connect()
+        val old = factory.latest
+        networkReturned()
+        old.listener.onClosed(old, 1008, "Boarding corrected")
+        assertEquals(0, corrected)
+        assertEquals(2, factory.connections.size)
+    }
+
+    @Test fun correctionAfterLogoutCannotRequestAnotherPassengersChannel() {
+        socket.close()
+        var corrected = 0
+        socket = LocationSocket(42, onPeer = {}, socketFactory = factory,
+            onTerminated = { terminated++ }, onBoardingCorrected = { corrected++ })
+        socket.connect()
+        factory.latest.open()
+        ApiClient::class.java.getDeclaredMethod("clearLocalSession").apply { isAccessible = true }.invoke(ApiClient)
+        factory.latest.serverClose(1008, "Boarding corrected")
+        assertEquals(0, corrected)
+        assertEquals(1, terminated)
+        networkReturned()
+        assertEquals(1, factory.connections.size)
+    }
+
     private class ControlledFactory : WebSocket.Factory {
         val connections = mutableListOf<ControlledSocket>()
         val latest get() = connections.last()

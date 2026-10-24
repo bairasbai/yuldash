@@ -38,6 +38,7 @@ import {
   ratingTags,
   setPayAgreement,
   type BoardingResult,
+  type BoardingUndoTerms,
   type BookingDetails,
   type BookingStatus,
   type CancelReason,
@@ -53,7 +54,7 @@ import { driverRideRemains } from "../utils/driverRideShare";
 import { requestRidingFocus, rideShareHandoff } from "../utils/rideShareStore";
 import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { track } from "../analytics";
-import { clearTripPassBoardingCode, dropTripPass, tripPassStage, type TripPass } from "../utils/tripPass";
+import { clearTripPassBoardingCode, dropTripPass, restoreConfirmedTripPass, tripPassStage, type TripPass } from "../utils/tripPass";
 import { sosPath } from "../utils/sosLink";
 import { loadOfflineTripPass, saveVerifiedTripPass } from "../utils/offlineTripPass";
 import OfflineTripPass from "../components/OfflineTripPass";
@@ -66,6 +67,8 @@ import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarnin
 import ShareTripCard from "../components/ShareTripCard";
 import DriverBoarding from "../components/DriverBoarding";
 import BoardingWait from "../components/BoardingWait";
+import PassengerBoardingUndo from "../components/PassengerBoardingUndo";
+import { isStaleBoardingAfterUndo, isConfirmedBoardingUndo, sameBoardingTimestamp } from "../utils/boardingUndo";
 import DriverBoardedDispute from "../components/DriverBoardedDispute";
 import TripChatCard from "../components/TripChatCard";
 import CancelledInTransitCard from "../components/CancelledInTransitCard";
@@ -220,12 +223,35 @@ export default function ActiveTripScreen() {
     setDriverLoc(null);
   }, [bookingId, sessionGeneration]);
 
+  /** The server receipt redeems only its original boarding, including a saved offline flag. */
+  const acceptBoardingSnapshot = useCallback((incoming: BoardingUndoTerms & { status: BookingStatus }) => {
+    if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return false;
+    const current = tripRef.current ?? rawDetailsRef.current;
+    const currentStatus = current?.status ?? detailsStatusRef.current;
+    if ((isTerminalBookingStatus(currentStatus) || isTerminalBookingStatus(detailsStatusRef.current)) && incoming.status !== currentStatus) return false;
+    if (isStaleBoardingAfterUndo(current, incoming)) return false;
+    const undo = currentStatus === "onboard" && incoming.status === "confirmed" && isConfirmedBoardingUndo(current, incoming);
+    if (!shouldApplyBookingDetails(currentStatus, incoming.status) && !undo) return false;
+    if (incoming.status === "confirmed" && incoming.boarding_undo_confirmed_id) {
+      const blocked = tripPassStage(bookingId, sessionGeneration) === "onboard";
+      if (!restoreConfirmedTripPass(bookingId, sessionGeneration, current, incoming, getSessionGeneration)) return false;
+      if (undo || blocked) {
+        boardingSeqRef.current += 1;
+        detailsStatusRef.current = "confirmed";
+        if (rawDetailsRef.current) rawDetailsRef.current = { ...rawDetailsRef.current, status: "confirmed", onboard_at: null };
+        setDetails(previous => previous ? { ...previous, status: "confirmed", onboard_at: null } : previous);
+        setDetailsSyncStatus("idle");
+        setCode(null);
+        setPass(loadOfflineTripPass(bookingId));
+      }
+    }
+    return true;
+  }, [bookingId, sessionGeneration]);
+
   /** Один путь применения details: UI, форма оплаты и офлайн-паспорт не расходятся. */
   const applyBookingDetails = useCallback(
     (d: BookingDetails) => {
-      if (currentBookingIdRef.current !== bookingId) return;
-      if ((tripRef.current?.status === "cancelled" || detailsStatusRef.current === "cancelled") && d.status !== "cancelled") return;
-      if (!shouldApplyBookingDetails(tripRef.current?.status, d.status)) return;
+      if (!acceptBoardingSnapshot(d)) return;
       detailsStatusRef.current = d.status;
       lastDetailsAtRef.current = Date.now();
       rawDetailsRef.current = d;
@@ -235,7 +261,7 @@ export default function ActiveTripScreen() {
         applyCancelledState(inTransitRef.current);
         return;
       }
-      if (d.status === "onboard") clearTripPassBoardingCode(bookingId, sessionGeneration);
+      if (d.status === "onboard") clearTripPassBoardingCode(bookingId, sessionGeneration, d.onboard_at);
       if (isTerminalBookingStatus(d.status)) {
         dropTripPass(bookingId, sessionGeneration);
         setPass(null);
@@ -266,7 +292,7 @@ export default function ActiveTripScreen() {
         });
       }
     },
-    [applyCancelledState, bookingId, user?.id, sessionGeneration]
+    [acceptBoardingSnapshot, applyCancelledState, bookingId, user?.id, sessionGeneration]
   );
 
   // ---- Загрузка деталей ----
@@ -277,36 +303,37 @@ export default function ActiveTripScreen() {
         return;
       }
       setStatus("loading");
+      const boardingSeq = boardingSeqRef.current;
       fetchBookingDetails(bookingId, signal)
         .then((d) => {
+          if (boardingSeq !== boardingSeqRef.current || currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
           applyBookingDetails(d);
           setStatus("ready");
         })
         .catch((e) => {
-          if (signal?.aborted || e?.name === "AbortError") return;
+          if (signal?.aborted || e?.name === "AbortError" || boardingSeq !== boardingSeqRef.current || currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
           setStatus("error");
         });
     },
-    [applyBookingDetails, bookingId]
+    [applyBookingDetails, bookingId, sessionGeneration]
   );
 
   /** Фоновая сверка не переводит весь экран в loading и не скрывает старые данные при ошибке. */
   const syncBookingDetails = useCallback(async () => {
     if (!bookingId || currentBookingIdRef.current !== bookingId || detailsSyncBusyRef.current ||
       getSessionGeneration() !== sessionGeneration) return;
+    const boardingSeq = boardingSeqRef.current;
     detailsSyncBusyRef.current = true;
     setDetailsSyncStatus("loading");
     lastDetailsAtRef.current = Date.now();
     try {
       const fresh = await fetchBookingDetails(bookingId);
-      if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
-      if (shouldApplyBookingDetails(tripRef.current?.status, fresh.status)) {
-        applyBookingDetails(fresh);
-      }
+      if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration || boardingSeq !== boardingSeqRef.current) return;
+      applyBookingDetails(fresh);
       setDetailsSyncStatus(inTransitRef.current && rawDetailsRef.current?.status !== "cancelled" ? "error" : "idle");
     } catch {
       // Помощь остаётся на месте; после отмены старое can_rate не принимаем за свежий отказ в оценке.
-      if (currentBookingIdRef.current === bookingId && getSessionGeneration() === sessionGeneration) {
+      if (currentBookingIdRef.current === bookingId && getSessionGeneration() === sessionGeneration && boardingSeq === boardingSeqRef.current) {
         setDetailsSyncStatus(inTransitRef.current ? "error" : "idle");
       }
     } finally {
@@ -351,13 +378,12 @@ export default function ActiveTripScreen() {
         // Опрос ушёл до «Сел» / «Отменить» водителя — его ответ старше ответа самого действия.
         if (boardingSeq !== boardingSeqRef.current) return;
         const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;
-        if (previousStatus === "cancelled" && fresh.status !== "cancelled") return;
-        if (!shouldApplyBookingDetails(previousStatus, fresh.status)) return;
+        if (!acceptBoardingSnapshot(fresh)) return;
         if (fresh.cancelled_in_transit === true) inTransitRef.current = true;
         tripRef.current = fresh;
         setTrip(fresh);
         if (fresh.status === "onboard") {
-          clearTripPassBoardingCode(bookingId, sessionGeneration);
+          clearTripPassBoardingCode(bookingId, sessionGeneration, fresh.onboard_at);
           setPass((previous) => previous?.bookingId === bookingId && previous.boardingCode
             ? { ...previous, boardingCode: "" }
             : previous);
@@ -383,7 +409,7 @@ export default function ActiveTripScreen() {
       .catch(() => {
         /* сеть моргнула — попробуем в следующий тик */
       });
-  }, [applyCancelledState, bookingId, syncBookingDetails, sessionGeneration]);
+  }, [acceptBoardingSnapshot, applyCancelledState, bookingId, syncBookingDetails, sessionGeneration]);
 
   useEffect(() => {
     if (status === "ready") tickTrip();
@@ -399,16 +425,20 @@ export default function ActiveTripScreen() {
    */
   const applyBoarding = useCallback(
     (result?: BoardingResult) => {
+      if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
       if (!result) return tickTrip();
-      boardingSeqRef.current += 1;
       const current = tripRef.current;
       if (!current) return tickTrip();
       if (isTerminalBookingStatus(current.status) || detailsStatusRef.current === "cancelled") return;
-      const next = { ...current, status: result.status, boarding_undo_sec: result.boarding_undo_sec };
+      if (current.status === "onboard" && result.status === "onboard" && !sameBoardingTimestamp(current.onboard_at, result.onboard_at)) return;
+      if (!acceptBoardingSnapshot(result)) return;
+      boardingSeqRef.current += 1;
+      if (result.status === "onboard") clearTripPassBoardingCode(bookingId, sessionGeneration, result.onboard_at);
+      const next = { ...current, ...result };
       tripRef.current = next;
       setTrip(next);
     },
-    [tickTrip]
+    [acceptBoardingSnapshot, tickTrip, bookingId, sessionGeneration]
   );
 
   useEffect(() => {
@@ -599,9 +629,7 @@ export default function ActiveTripScreen() {
       if (phase === "done") rideShareHandoff();
       const fresh = await fetchTripState(bookingId);
       if (!currentSession() || currentBookingIdRef.current !== bookingId) return;
-      const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;
-      if (previousStatus === "cancelled" && fresh.status !== "cancelled") return;
-      if (!shouldApplyBookingDetails(previousStatus, fresh.status)) return;
+      if (!acceptBoardingSnapshot(fresh)) return;
       tripRef.current = fresh;
       setTrip(fresh);
       if (fresh.status === "cancelled") applyCancelledState(fresh.cancelled_in_transit === true);
@@ -897,6 +925,10 @@ export default function ActiveTripScreen() {
         />
       )}
 
+      {details.role === "passenger" && st === "onboard" && trip && (
+        <PassengerBoardingUndo key={bookingId} bookingId={bookingId} terms={trip} onChanged={applyBoarding} />
+      )}
+
       {/* Оплата (read-only) + контакт */}
       <div className="info-list">
         {st !== "cancelled" && details.role === "passenger" && details.contact_unlocked && details.driver_car && (
@@ -1078,6 +1110,7 @@ export default function ActiveTripScreen() {
               bookingId={bookingId}
               status={st ?? ""}
               undoSec={trip?.boarding_undo_sec ?? 0}
+              undoPending={trip?.boarding_undo_pending === true}
               variant="chip"
               onChanged={applyBoarding}
               onError={setPhaseNote}

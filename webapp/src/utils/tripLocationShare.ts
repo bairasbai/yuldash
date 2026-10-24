@@ -119,7 +119,7 @@ export interface ShareDeps {
   allowSend?: () => boolean;
 }
 
-export type ShareEnd = "trip" | "auth" | "gave-up";
+export type ShareEnd = "trip" | "auth" | "gave-up" | "boarding-corrected";
 
 export interface ShareHandle {
   /** Остановить всё: слежение за местом, сокет, таймеры. Повторный вызов безопасен. */
@@ -338,6 +338,10 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
         return;
       }
       const reason = String(ev?.reason ?? "");
+      if (ev?.code === 1008 && reason === "Boarding corrected") {
+        end("boarding-corrected");
+        return;
+      }
       if (ev?.code === 1008 && /not active/i.test(reason)) {
         // Бронь ещё не подтверждена — подождём, но не вечно (Android: ~10 минут).
         if (softAttempt >= MAX_SOFT_RETRIES) {

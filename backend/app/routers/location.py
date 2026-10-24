@@ -51,6 +51,7 @@ CAR_FEED_SEC = 5.0
 # Канал водителя ЭТОЙ брони жив, если её точка свежее этого: тогда пассажир и так получает её
 # пересылкой, второй поток не нужен.
 OWN_CHANNEL_FRESH_SEC = 15.0
+_UNDO_RECEIPT_UNSEEN = object()
 
 
 @router.websocket("/ws/map")
@@ -315,9 +316,12 @@ class _Пора:
     закрывает и его, с «Trip ended».
     """
 
-    def __init__(self, booking_id: int, я: "int | None" = None) -> None:
+    def __init__(self, booking_id: int, я: "int | None" = None, *, initial_onboard_at=None,
+                 initial_undo_id=_UNDO_RECEIPT_UNSEEN) -> None:
         self._id = booking_id
         self._я = я              # кто на этом конце канала; без него блокировка закрывает канал всегда
+        self._посадка = initial_onboard_at  # исходная посадка именно этого соединения, не receipt другого цикла
+        self._исправление = initial_undo_id  # receipt на момент авторизации, чтобы не пропустить короткую onboard-эпоху
         self._да = False
         self.кончилась = False   # толчок показал: сделки нет или блокировка — канал закрыть
         self.причина = "Trip ended"   # с какой причиной закрыть: блокировка — как у сторожа
@@ -342,6 +346,21 @@ class _Пора:
         with Session(engine) as s:
             b = s.get(Booking, self._id)
             r = s.get(Ride, b.ride_id) if b else None
+            if b is not None:
+                receipt = b.boarding_undo_request_id if b.status == BookingStatus.confirmed and b.boarding_undo_answer is True else None
+                if self._исправление is _UNDO_RECEIPT_UNSEEN:
+                    self._исправление = receipt
+                if b.status == BookingStatus.onboard and b.onboard_at is not None:
+                    self._посадка = b.onboard_at
+                elif (receipt and (receipt != self._исправление or (self._посадка is not None
+                      and receipt.startswith(self._посадка.isoformat(timespec="microseconds") + "~")))):
+                    # Пассажир подтвердил исправление этой посадки на другом устройстве. Старый
+                    # драйверский carrier мог быть onboard без TTL: нужен свежий выбор/срок, а не
+                    # бессрочная отправка по ставшей confirmed брони. Закрываем только этот канал;
+                    # отдельная причина разрешает клиенту перевыбор БЕЗ записи брони в terminal/closed.
+                    self.кончилась = True
+                    self.причина = "Boarding corrected"
+                    return False
             if b is not None and r is not None and _заблокированы(s, b.passenger_id, r.driver_id):
                 if _пишем_без_пересылки(s, b, r, self._я):
                     # Заблокировали «в пути»: точку машины пишем дальше для ссылки близким и SOS,
@@ -419,6 +438,8 @@ async def trip_location(websocket: WebSocket, booking_id: int):
             return
         driver_id = ride.driver_id
         ride_id, depart_at = ride.id, ride.depart_at   # для точки водителя по рейсу (A1; наружу — с 24.10)
+        initial_onboard_at = booking.onboard_at if booking.status == BookingStatus.onboard else None
+        initial_undo_id = booking.boarding_undo_request_id if booking.status == BookingStatus.confirmed and booking.boarding_undo_answer is True else None
 
     role = "driver" if user_id == driver_id else "passenger"
     # Два ключа-НАПРАВЛЕНИЯ, чтобы НЕ возвращать отправителю его же позицию (эхо → стрелка попутчика
@@ -426,7 +447,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     # -bid*2 = inbox водителя (туда шлёт пассажир), -bid*2-1 = inbox пассажира (туда шлёт водитель).
     recv_key = (-booking_id * 2) if role == "driver" else (-booking_id * 2 - 1)
     send_key = (-booking_id * 2 - 1) if role == "driver" else (-booking_id * 2)
-    пора = _Пора(booking_id, user_id)   # поездка началась? (`trip_is_live`) — пока нет, точки не пересылаем
+    пора = _Пора(booking_id, user_id, initial_onboard_at=initial_onboard_at, initial_undo_id=initial_undo_id)
 
     def _ещё_можно(s2: Session) -> bool:
         b = s2.get(Booking, booking_id)

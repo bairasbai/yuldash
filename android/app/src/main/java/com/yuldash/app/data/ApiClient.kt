@@ -1652,7 +1652,7 @@ object ApiClient {
             TripStateDto(it.optString("role"), it.optString("status"), it.optString("driver_phase"),
                          it.optBoolean("arrival_verified", false),
                          it.optBoolean("alone_with_driver", false), it.optInt("peer_id"), it.optInt("boarding_undo_sec"),
-                         it.optInt("problem_report_sec"), it.optBoolean("cancelled_in_transit", false))
+                         it.optInt("problem_report_sec"), it.optBoolean("cancelled_in_transit", false), parseBoardingUndo(it))
         }
 
     /** Водитель отмечает «выехал»/«подъезжаю»/«Пассажир сел» → push пассажиру. status: "departed"|"arriving"|"boarded"|"done". */
@@ -6621,20 +6621,6 @@ data class PublicReviewDto(
 /** Заявка пассажира рядом (/requests/near) — для маркера «ищет попутку» на карте. Без телефона. */
 /** Состояние активной поездки: роль + статус брони + подфаза водителя (""/departed/arriving). */
 /** arrivalVerified — сервер сам сверил «подъезжаю» с GPS водителя: машина правда рядом. */
-data class TripStateDto(
-    val role: String,
-    val status: String,
-    val driverPhase: String,
-    val arrivalVerified: Boolean = false,
-    // Ехал(а) не один(на), а теперь остался(ась) в машине один на один с водителем. Клиент
-    // ТИХО (без пуша и звука) предлагает поделиться поездкой с близким. Водителю не видно.
-    val aloneWithDriver: Boolean = false,
-    val peerId: Int = 0,            // вторая сторона брони (пассажиру — водитель): «Сообщить о проблеме»; 0 — старый сервер
-    val boardingUndoSec: Int = 0,   // водителю: сколько секунд ещё можно отменить свою отметку «Сел» (17.10.2026)
-    val problemReportSec: Int = 0,  // пассажиру: сколько ещё показывать «Сообщить о проблеме» (после поездки и отмены в пути)
-    // Отменили, когда пассажир был в машине (23.10.2026): экран поездки не закрывается сам. Старый сервер — false.
-    val cancelledInTransit: Boolean = false,
-)
 
 data class RequestNearDto(
     val id: Int,

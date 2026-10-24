@@ -133,6 +133,7 @@ export function listenDriverLocation(deps: ListenDeps): { stop(): void } {
     };
     s.onmessage = (ev) => {
       if (socket !== s) return;
+      if (!current()) { stop(); return; }
       try {
         const d = JSON.parse(String((ev as { data?: unknown } | null)?.data ?? ""));
         if (d?.type === "loc" && d.role === "driver" && typeof d.lat === "number" && typeof d.lng === "number") {
@@ -156,6 +157,12 @@ export function listenDriverLocation(deps: ListenDeps): { stop(): void } {
         return;
       }
       const reason = String(ev?.reason ?? "");
+      if (ev?.code === 1008 && reason === "Boarding corrected") {
+        // Новый канал снова авторизуется сервером; прочие 1008 остаются окончательными.
+        attempt = 0;
+        schedule(0, "net");
+        return;
+      }
       if (ev?.code === 1008 && /not active/i.test(reason)) {
         if (softAttempt >= MAX_SOFT_RETRIES) {
           stop();

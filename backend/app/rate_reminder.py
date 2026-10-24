@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Callable
 
+from fastapi import HTTPException
+from sqlalchemy import and_, or_
 from sqlmodel import Session, select
 
 from .config import settings
@@ -34,6 +36,9 @@ from .models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, Pa
 from .logs import log
 from .services import push_notification
 from .timeutil import utcnow
+from .rating_service import FRESH_RATING_HOURS, guard_rating_window
+from .safety_logic import suspended_user_ids
+from .visibility import cancelled_in_transit
 
 # Пол по возрасту поездки: бронь живёт от создания до поездки считанные дни → 30 дней
 # покрывают любой честный цикл. Без пола скан шёл бы по ВСЕМ завершённым всех времён
@@ -66,9 +71,11 @@ def _свежие(колонка):
 def _брони(session: Session) -> list:
     return list(session.exec(
         select(Booking).where(
-            Booking.status == BookingStatus.done,
+            or_(
+                and_(Booking.status == BookingStatus.done, _свежие(Booking.created_at)),
+                and_(Booking.status == BookingStatus.cancelled, Booking.onboard_at.is_not(None)),
+            ),
             Booking.rate_reminded == False,   # noqa: E712 — SQL-сравнение, не Python is
-            _свежие(Booking.created_at),
         )
     ).all())
 
@@ -79,15 +86,29 @@ def _рейсы(session: Session, items: list) -> dict:
     ровно то, что сторожит `tests/test_no_query_per_item.py`."""
     if not items:
         return {}
-    return {
-        r.id: r
-        for r in session.exec(select(Ride).where(Ride.id.in_({b.ride_id for b in items}))).all()
-    }
+    # Plain values stay available after each reminder commit, without ORM lazy reloads.
+    rides = {rid: (driver, depart) for rid, driver, depart in session.exec(
+        select(Ride.id, Ride.driver_id, Ride.depart_at).where(Ride.id.in_({b.ride_id for b in items}))
+    ).all()}
+    paused = suspended_user_ids(session) if any(b.status == BookingStatus.cancelled for b in items) else set()
+    return {"rides": rides, "paused": paused, "now": utcnow()}
 
 
-def _стороны_брони(рейсы: dict, b: Booking) -> tuple:
-    ride = рейсы.get(b.ride_id)
-    return (b.passenger_id, ride.driver_id if ride else None)
+def _стороны_брони(контекст: dict, b: Booking) -> tuple | None:
+    ride = контекст["rides"].get(b.ride_id)
+    if b.status == BookingStatus.done:
+        return (b.passenger_id, ride[0] if ride else None)
+    if not ride or not cancelled_in_transit(b) or b.cancel_reason == "no_show":
+        return ()
+    try:
+        guard_rating_window(ride[1], now=контекст["now"])
+    except HTTPException:
+        return ()
+    if b.passenger_id in контекст["paused"] and (
+        ride[1] is None or контекст["now"] - ride[1] > timedelta(hours=FRESH_RATING_HOURS)
+    ):
+        return None  # temporary pause: keep a later allowed reminder available
+    return (b.passenger_id,)
 
 
 def _оценки_броней(session: Session, items: list) -> set:
@@ -218,6 +239,8 @@ def _по_сервису(session: Session, сервис: Сервис, dry_run: 
     справочник = сервис.справочник(session, items)
     for item in items:
         стороны = сервис.стороны(справочник, item)
+        if стороны is None:
+            continue  # rating temporarily unavailable; no push and no consumed reminder
         # Нет второй стороны — оценивать некого, молчим обоим. Так было и у попутки
         # (там проверяли `if ride`): заказ, который никто не взял, закрывается
         # без водителя, и «оцени поездку» человеку, который так и не уехал, — это насмешка.

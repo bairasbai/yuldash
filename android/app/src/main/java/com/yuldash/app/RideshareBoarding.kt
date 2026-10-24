@@ -52,6 +52,7 @@ import androidx.compose.animation.animateContentSize
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.BoardingApi
 import com.yuldash.app.data.BoardingResult
+import com.yuldash.app.data.BoardingUndoTerms
 import com.yuldash.app.data.NoShowTerms
 import com.yuldash.app.data.afterRefusal
 import com.yuldash.app.data.TripReceiptDto
@@ -97,6 +98,7 @@ internal fun DriverBoardingControls(
     noShowNeedsArriving: Boolean = false,
     // С какого момента можно нажать «Подъезжаю» (`arriving_opens_at`: за 30 минут до выезда); null — старый сервер.
     arrivingOpensAt: String? = null,
+    boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
@@ -129,7 +131,8 @@ internal fun DriverBoardingControls(
             "onboard" -> BoardingInCarRow(
                 bookingId = bookingId,
                 undoSec = undoSec,
-                onUndone = { r -> undoSec = r.undoSec; shown = r.status.ifBlank { "confirmed" } },
+                onUndone = { r -> undoSec = r.undoSec; shown = r.status.ifBlank { "onboard" } },
+                undoTerms = boardingUndo,
             ) { BoardedDisputeBlock(bookingId, passengerId, passengerName) }
             "no_show" -> NoShowSentNote()
             else -> Box(Modifier)   // ждёт ответа / закрыта — ни посадке, ни неявке не место
@@ -246,12 +249,14 @@ internal fun BoardingInCarRow(
     undoSec: Int,
     onUndone: (BoardingResult) -> Unit,
     modifier: Modifier = Modifier,
+    undoTerms: BoardingUndoTerms = BoardingUndoTerms(),
     afterWindow: @Composable () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var left by remember(bookingId, undoSec) { mutableIntStateOf(undoSec) }
     var undoing by remember(bookingId) { mutableStateOf(false) }
+    var requested by remember(bookingId, undoTerms.pending) { mutableStateOf(undoTerms.pending) }
     val failMsg = appText("Не получилось отменить. Проверь сеть.", "Кире алып булманы. Селтәрҙе тикшер.")
     LaunchedEffect(bookingId, left) {
         if (left > 0) {
@@ -272,14 +277,14 @@ internal fun BoardingInCarRow(
                 appText("Пассажир в машине", "Пассажир машинала"),
                 color = CanonGreen2, style = CanonBodyStrong, modifier = Modifier.weight(1f),
             )
-            AnimatedVisibility(visible = left > 0) {
+            AnimatedVisibility(visible = left > 0 && !requested) {
                 TextButton(
                     onClick = {
                         if (!undoing) {
                             undoing = true
                             scope.launch {
                                 BoardingApi.undoBoarded(bookingId)
-                                    .onSuccess(onUndone)
+                                    .onSuccess { requested = it.undo.pending; onUndone(it) }
                                     .onFailure { e ->
                                         // 409 — окно вышло или поездка ушла вперёд: дальше только разбор.
                                         if (e is ApiException && e.status == 409) left = 0
@@ -293,12 +298,13 @@ internal fun BoardingInCarRow(
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
                     Text(
-                        appText("Отменить · $clock", "Кире алырға · $clock"),
+                        appText("Исправить посадку · $clock", "Ултырыуҙы төҙәтергә · $clock"),
                         color = CanonGreen2, style = CanonCaption, fontWeight = FontWeight.Bold,
                     )
                 }
             }
         }
+        if (requested) Text(appText("Ждём подтверждения пассажира", "Пассажирҙың раҫлауын көтәбеҙ"), style = CanonCaption, color = CanonMuted)
         AnimatedVisibility(visible = left <= 0) { afterWindow() }
     }
 }
@@ -429,16 +435,22 @@ internal fun activeTripBoardingSlot(
     peerName: String,
     undoSec: Int,
     onUndone: (BoardingResult) -> Unit,
+    undoTerms: BoardingUndoTerms = BoardingUndoTerms(),
 ): (@Composable () -> Unit)? {
     if (bookingId == null) return null
     if (role == "passenger" && (bookingStatus == "confirmed" || bookingStatus == "onboard")) {
         val stage = if (bookingStatus == "onboard") PassengerReportStage.Marked else PassengerReportStage.Waiting
-        val wait: @Composable () -> Unit = { PassengerBoardingWait(bookingId, peerId, peerName, stage = stage) }
+        val wait: @Composable () -> Unit = {
+            Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                if (bookingStatus == "onboard") PassengerBoardingUndo(bookingId, undoTerms, onUndone)
+                PassengerBoardingWait(bookingId, peerId, peerName, stage = stage)
+            }
+        }
         return wait
     }
     if (role == "driver" && bookingStatus == "onboard") {
         val inCar: @Composable () -> Unit = {
-            BoardingInCarRow(bookingId, undoSec, onUndone) {
+            BoardingInCarRow(bookingId, undoSec, onUndone, undoTerms = undoTerms) {
                 BoardedDisputeBlock(bookingId, peerId, peerName.ifBlank { appText("пассажира", "юлсыны") })
             }
         }

@@ -25,6 +25,8 @@ from datetime import timedelta
 
 import fakeredis
 import pytest
+
+from boarding_helpers import confirm_boarding_undo
 from sqlmodel import Session, select
 from starlette.websockets import WebSocketDisconnect
 
@@ -390,7 +392,7 @@ def test_the_deadline_is_closed_exactly_at_the_border(client, user_factory, redi
 
 def test_the_family_sees_no_parked_car_but_the_passenger_app_does(client, user_factory, redis_on):
     """За 20 минут до выезда, водитель ничего не нажимал, машина стоит у дома (пульс 45 с)."""
-    _drv, (_aigul, bota), ride, (a, b) = _trip(client, user_factory, "parked", ("Сибай", "Сибай"))
+    _drv, (aigul, bota), ride, (a, b) = _trip(client, user_factory, "parked", ("Сибай", "Сибай"))
     token = _share(client, bota, b)
     _booking_point(redis_on, a, HOME)
     st = _family(client, token)
@@ -417,13 +419,13 @@ def test_departed_on_a_dead_or_unconfirmed_booking_does_not_open_the_family_link
 
 
 def test_boarded_then_undo_closes_again_and_a_transit_cancel_counts(client, user_factory, redis_on):
-    drv, (_aigul, bota), ride, (a, b) = _trip(client, user_factory, "undo", ("Сибай", "Сибай"))
+    drv, (aigul, bota), ride, (a, b) = _trip(client, user_factory, "undo", ("Сибай", "Сибай"))
     token = _share(client, bota, b)
     _booking_point(redis_on, a, ON_ROAD)
     _ride_point(redis_on, ride["id"], ON_ROAD)      # после отмены брони Айгуль её кэш не читается
     _status(client, drv, a, "boarded")
     assert _family(client, token)["car"] is not None, "Айгуль села — машина поехала"
-    assert client.post(f"/bookings/{a}/boarded/undo", headers=drv["auth"]).status_code == 200
+    assert confirm_boarding_undo(client, drv, aigul, a).status_code == 200
     assert _family(client, token)["car"] is None, "«Отменить» посадку — признак ушёл"
     _status(client, drv, a, "boarded")
     _edit(Booking, a, status=BookingStatus.cancelled, cancelled_by=drv["id"], cancelled_at=utcnow())
@@ -445,7 +447,7 @@ def test_the_moving_car_does_not_open_a_closed_stop_window_for_the_family(client
 
 
 def test_before_boarding_the_family_loses_the_car_after_the_deadline(client, user_factory, redis_on):
-    drv, (_aigul, bota), ride, (a, b) = _trip(client, user_factory, "famdeadline", ("Сибай", "Сибай"))
+    drv, (aigul, bota), ride, (a, b) = _trip(client, user_factory, "famdeadline", ("Сибай", "Сибай"))
     token = _share(client, bota, b)
     _booking_point(redis_on, a, SIBAY)              # машина у пина
     _status(client, drv, a, "departed")

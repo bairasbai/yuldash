@@ -206,11 +206,29 @@ class TripLocationService : Service() {
                 onTerminated = {
                     watchdog.post { if (socketGeneration == generation && !destroyed) onChannelClosed() }
                 },
+                onBoardingCorrected = {
+                    watchdog.post {
+                        if (socketGeneration == generation && !destroyed) {
+                            if (isDriver && ride != null) resolve(anchor = currentBookingId)
+                            else if (!isDriver) reconnectPassenger(generation) else shutdown()
+                        }
+                    }
+                },
                 ownerSession = owner,
             ).also { it.connect() }
         }
         if (listener == null) startLocationUpdates()   // GPS-слушатель один на сервис (шлёт в текущий socket)
         TripLocationBus.rideShareActive = ride != null
+    }
+
+    /** Пассажир остаётся на экране: новая авторизация не продлевает прежние шесть часов. */
+    private fun reconnectPassenger(generation: Long) {
+        if (!sessionIsOwners() || pastDeadline()) { shutdown(); return }
+        val id = currentBookingId; val seq = ++resolveSeq
+        socket = null; TripLocationBus.peer = null
+        recheckPassengerCorrection(scope, id, owner,
+            isCurrent = { socketGeneration == generation && currentBookingId == id && stillMine(seq) && !pastDeadline() },
+            onAllowed = { connect(id) }, onRefused = { shutdown() })
     }
 
     /** Сервер закрыл канал окончательно (бронь закрыта, блок, вход отозван). */

@@ -43,7 +43,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * Посадку отмечает ВОДИТЕЛЬ (решение Александра 17.10.2026). Настоящие компоненты карточки и
  * экрана поездки, настоящий сетевой слой (BoardingApi → ApiClient), сервер — подставной.
  *
- *  • водитель: «Сел» рядом с «Не пришёл» → «Пассажир в машине» и «Отменить · 5:00»;
+ *  • водитель: «Сел» рядом с «Не пришёл» → «Пассажир в машине» и «Исправить посадку · 5:00»;
  *    «Отменить» возвращает «Сел»; отказ сервера — его словами;
  *  • «Не пришёл» (решение 18.10.2026): до срока от сервера (`no_show_at`) кнопка неактивна, под ней
  *    спокойная подпись; после — кнопка, а нажатие сперва спрашивает «Точно не пришёл?»:
@@ -65,7 +65,7 @@ class DriverBoardingControlsTest {
     private val calls = CopyOnWriteArrayList<String>()
     private lateinit var server: MockWebServer
     @Volatile private var markReply: MockResponse = json("""{"ok":true,"status":"onboard","boarding_undo_sec":300}""")
-    @Volatile private var undoReply: MockResponse = json("""{"ok":true,"status":"confirmed","boarding_undo_sec":0}""")
+    @Volatile private var undoReply: MockResponse = json("""{"ok":true,"status":"onboard","boarding_undo_sec":0,"boarding_undo_pending":true,"boarding_undo_request_id":"request-1","boarding_undo_wait_sec":120}""")
     @Volatile private var noShowReply: MockResponse = json("""{"id":42,"status":"cancelled"}""")
 
     private fun json(body: String, code: Int = 200) =
@@ -142,30 +142,30 @@ class DriverBoardingControlsTest {
         waitFor("Пассажир в машине")
         assertEquals(1, calls.count { it.startsWith("POST /bookings/42/driver-status") })
         assertTrue(calls.single().endsWith("""{"status":"boarded"}"""))
-        compose.onAllNodesWithText("Отменить ·", substring = true).assertCountEquals(1)
+        compose.onAllNodesWithText("Исправить посадку ·", substring = true).assertCountEquals(1)
         compose.onAllNodesWithText("Не пришёл").assertCountEquals(0)
         // Пока можно отменить, разбор не предлагаем.
         compose.onAllNodesWithText("Сообщить о проблеме").assertCountEquals(0)
     }
 
-    @Test fun undoWithinTheWindowBringsTheBoardingButtonBack() {
+    @Test fun undoRequestKeepsThePassengerOnboardUntilTheirAnswer() {
         card(status = "onboard", undoSec = 120)
         // Точные «м:сс» проверяет undoClockCountsServerSeconds: часы теста могут уйти на секунду.
-        compose.onNodeWithText("Отменить · ", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("Отменить · ", substring = true).performClick()
-        waitFor("Сел")
+        compose.onNodeWithText("Исправить посадку · ", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Исправить посадку · ", substring = true).performClick()
+        waitFor("Ждём подтверждения пассажира")
         assertEquals(listOf("POST /bookings/42/boarded/undo {}"), calls.toList())
-        compose.onNodeWithText("Не пришёл").assertIsDisplayed()
-        compose.onAllNodesWithText("Пассажир в машине").assertCountEquals(0)
+        compose.onAllNodesWithText("Не пришёл").assertCountEquals(0)
+        compose.onNodeWithText("Пассажир в машине").assertIsDisplayed()
     }
 
     @Test fun lateUndoShowsTheServerWordsAndOpensTheDispute() {
         undoReply = json("""{"detail":{"ru":"Отменить посадку можно в первые 5 минут.","ba":"Тәүге 5 минутта ғына."}}""", 409)
         card(status = "onboard", undoSec = 300)
-        compose.onNodeWithText("Отменить · ", substring = true).performClick()
+        compose.onNodeWithText("Исправить посадку · ", substring = true).performClick()
         waitFor("Сообщить о проблеме")
         assertEquals("Отменить посадку можно в первые 5 минут.", ShadowToast.getTextOfLatestToast())
-        compose.onAllNodesWithText("Отменить ·", substring = true).assertCountEquals(0)
+        compose.onAllNodesWithText("Исправить посадку ·", substring = true).assertCountEquals(0)
         compose.onNodeWithText("Пассажир в машине").assertIsDisplayed()
     }
 
@@ -199,7 +199,7 @@ class DriverBoardingControlsTest {
         compose.onNodeWithText("Не пришёл").performClick()
         compose.onNodeWithText("Да, не пришёл").performClick()
         waitFor("Пассажир в машине")
-        compose.onAllNodesWithText("Отменить ·", substring = true).assertCountEquals(1)
+        compose.onAllNodesWithText("Исправить посадку ·", substring = true).assertCountEquals(1)
         compose.onAllNodesWithText("Сообщить о проблеме").assertCountEquals(0)
     }
 

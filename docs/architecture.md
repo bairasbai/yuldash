@@ -1,3 +1,13 @@
+## Исправление посадки с ответом пассажира — 24.10.2026
+
+В активной брони водитель лишь запрашивает исправление: `POST /bookings/{id}/boarded/undo`.
+Ответ пассажира — `POST /bookings/{id}/boarded/undo/respond` с request_id и confirm. До согласия остаётся onboard.
+Сервер хранит nonce/время/ответ; receipt исходной посадки нужен клиентам для безопасного возврата confirmed.
+Android: PassengerBoardingUndo/BoardingUndoState, BoardingApi и TripStateDto; PWA: PassengerBoardingUndo,
+boardingUndo и версия сохранённого паспорта tripPass. Специальное закрытие старого location-канала
+`Boarding corrected` требует свежей авторизации и перевыбора допустимой несущей, а не terminal-обработки.
+Миграция: cd_boarding_undo_consent_20261024 после cc_booking_decline_reason_20261024. Проверки и статус — в реестре.
+
 ## Отмена в пути: экраны клиентов — 23.10.2026
 
 Признак сервера `cancelled_in_transit` (`/role`, `/details`, `/bookings/mine`) держит экран поездки пассажира открытым: вместо автозакрытия — «Поездку отменили в пути», SOS с бронью, «Застрял на трассе», «Сообщить о проблеме» (пока `problem_report_sec` > 0), машина и госномер (без телефона). Неизвестно / старый сервер — обычная отмена, экран закрывается, как раньше. Новый экран `Screen` не заводился: это вид `Screen.ActiveTrip` и `Screen.Booking`.

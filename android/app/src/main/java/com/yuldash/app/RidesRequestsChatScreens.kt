@@ -432,7 +432,7 @@ internal fun RidesScreen(
                             "confirmed" -> Triple(appText("Подтверждена", "Раҫланды"), CanonMint, Icons.Default.DirectionsCar)
                             "onboard" -> Triple(appText("В пути", "Юлда"), CanonMint, Icons.Default.DirectionsCar)
                             "done" -> Triple(appText("Завершена", "Тамамланды"), CanonMint, Icons.Default.CheckCircle)
-                            "cancelled" -> Triple(appText("Отменена", "Кире ҡағылды"), CanonDangerBg, Icons.Default.Close)
+                            "cancelled" -> Triple(if (b.declined) appText("Отклонена", "Кире ҡағылған") else appText("Отменена", "Кире алынды"), CanonDangerBg, Icons.Default.Close)   // отказ водителя — не отмена (приёмка PR210)
                             else -> Triple(appText("Ожидает", "Көтә"), CanonWarnBg, Icons.Default.Schedule)
                         }
                         Box(Modifier.appearIn(i)) {

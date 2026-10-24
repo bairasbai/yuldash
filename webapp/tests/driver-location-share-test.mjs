@@ -31,7 +31,7 @@ try {
 
 // ---------------------------------------------------------------- подставной браузер
 function rig({ geo = true, current = () => true } = {}) {
-  const r = { states: [], sockets: [], watches: [], cleared: [], timers: [], now: 1_000_000 };
+  const r = { states: [], ends: [], sockets: [], watches: [], cleared: [], timers: [], now: 1_000_000 };
   r.geo = geo
     ? {
         watchPosition(ok, fail, opts) {
@@ -57,6 +57,7 @@ function rig({ geo = true, current = () => true } = {}) {
     setTimer(fn, ms) { const tm = { fn, ms, done: false }; r.timers.push(tm); return tm; },
     clearTimer(tm) { if (tm) tm.done = true; },
     onState: (s) => r.states.push(s),
+    onEnd: (why) => r.ends.push(why),
     isCurrent: current,
   });
   r.fix = (lat, lng, heading = null) => r.watches.at(-1).ok({ coords: { latitude: lat, longitude: lng, heading } });
@@ -150,6 +151,39 @@ await t.test("1008 «Trip ended» — поездка закончилась: б�
   assert.deepEqual(r.cleared, [1], "слежение за местом снято");
   r.runTimers();
   assert.equal(r.sockets.length, 1, "нового соединения нет");
+});
+
+await t.test("точный сигнал исправления посадки возвращается владельцу без обычного terminal", () => {
+  const r = rig();
+  r.fix(54.7, 55.9);
+  const s = r.open();
+  s.onclose({ code: 1008, reason: "Boarding corrected" });
+  assert.deepEqual(r.ends, ["boarding-corrected"]);
+  assert.deepEqual(r.cleared, [1]);
+  r.runTimers();
+  assert.equal(r.sockets.length, 1);
+});
+
+await t.test("похожая причина закрытия не разрешает повторный показ машины", () => {
+  const r = rig();
+  r.fix(54.7, 55.9);
+  r.open().onclose({ code: 1008, reason: "Boarding corrected " });
+  assert.deepEqual(r.ends, ["trip"]);
+  r.runTimers();
+  assert.equal(r.sockets.length, 1);
+});
+
+await t.test("сигнал исправления после смены входа не переподключает другую бронь", () => {
+  let current = true;
+  const r = rig({ current: () => current });
+  r.fix(54.7, 55.9);
+  const s = r.open();
+  current = false;
+  s.onclose({ code: 1008, reason: "Boarding corrected" });
+  assert.deepEqual(r.ends, []);
+  assert.deepEqual(r.cleared, [1]);
+  r.runTimers();
+  assert.equal(r.sockets.length, 1);
 });
 
 await t.test("обрыв связи — «reconnecting» и повтор с паузой; «Trip not active» — мягкий повтор через 15 с", () => {

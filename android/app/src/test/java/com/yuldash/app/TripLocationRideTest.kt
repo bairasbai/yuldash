@@ -70,6 +70,7 @@ class TripLocationRideTest {
     @Volatile private var rows = "[]"
     @Volatile private var lookupGate: CountDownLatch? = null
     @Volatile private var failLookups = 0                                 // столько запросов списка оборвать (нет сети)
+    @Volatile private var closeBeforeReply = 0                            // канал закроется раньше ответа на шаг
 
     private val lat0 = 54.7388
     private val lng0 = 55.9721
@@ -92,6 +93,14 @@ class TripLocationRideTest {
                         }
                         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
                     })
+                }
+                if (request.method == "POST" && (path.endsWith("/driver-status") || path.endsWith("/no-show"))) {
+                    val id = Regex("^/bookings/(\\d+)/").find(path)?.groupValues?.get(1)?.toInt()
+                    if (id != null && id == closeBeforeReply) {
+                        sockets[id]?.close(1008, "Trip ended")
+                        Thread.sleep(500)
+                    }
+                    return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"ok":true,"status":"done"}""")
                 }
                 if (path == "/driver/bookings") {
                     lookups.incrementAndGet()
@@ -241,6 +250,31 @@ class TripLocationRideTest {
         assertEquals("точка ушла в канал следующей брони", 102, frameTo())
     }
 
+    @Test fun correctedBoardingCanReuseTheSameLiveBookingWithItsConfirmedDeadline() {
+        val s = rideOf101and102()
+        serve(row(101, "confirmed", wait = 120), row(102, "done"))
+        sockets.getValue(101).close(1008, "Boarding corrected")
+        expectOpened(101)
+        assertFalse("исправление посадки не закрывает живую бронь", stopped(s))
+        gps()
+        assertEquals(101, frameTo())
+        serve(row(101, "confirmed", wait = 0), row(102, "onboard"))
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(121))
+        gps(lat0 + 0.01)
+        assertTrue("исправленная confirmed не должна сохранить прежний бессрочный GPS", noFrames())
+        expectOpened(102)
+        assertFalse("второй пассажир ещё едет", stopped(s))
+    }
+
+    @Test fun correctionWithoutThisDriversRideModeStopsGpsInsteadOfLookingForPassengers() {
+        val s = start(101, driver = true)
+        expectOpened(101)
+        sockets.getValue(101).close(1008, "Boarding corrected")
+        waitUntil("водитель без режима рейса после исправления посадки не продолжает отправку", { stopped(s) })
+        assertTrue(gpsOff())
+        assertEquals(0, lookups.get())
+    }
+
     @Test fun finishOnThisPhoneSwitchesAtOnceWithoutWaitingForTheServer() {
         rideOf101and102()
         serve(row(101, "done"), row(102, "onboard"))
@@ -312,6 +346,29 @@ class TripLocationRideTest {
         assertTrue(result.isSuccess)
         expectOpened(102)
         assertFalse(stopped(s))
+    }
+
+    private fun closingStepSurvivesTheEarlyChannelClose(send: () -> Result<Unit>) {
+        val s = start(101)
+        expectOpened(101)
+        serve(row(101, "done"), row(102, "onboard"))
+        closeBeforeReply = 101
+        assertTrue(send().isSuccess)
+        expectOpened(102)
+        assertFalse("канал закрылся раньше ответа — служба погасла при живом рейсе", stopped(s))
+    }
+
+    @Test fun finishThroughApiClientSurvivesTheEarlyChannelClose() =
+        closingStepSurvivesTheEarlyChannelClose { kotlinx.coroutines.runBlocking { ApiClient.driverStatus(101, "done") } }
+
+    @Test fun noShowThroughApiClientSurvivesTheEarlyChannelClose() =
+        closingStepSurvivesTheEarlyChannelClose { kotlinx.coroutines.runBlocking { ApiClient.markNoShow(101) } }
+
+    @Test fun queuedFinishSurvivesTheEarlyChannelClose() = closingStepSurvivesTheEarlyChannelClose {
+        kotlinx.coroutines.runBlocking {
+            ApiClient.sendQueuedAction(com.yuldash.app.data.OutboxAction(1L, 101, "driver_status", "done", System.currentTimeMillis()),
+                ApiClient.queueSessionGeneration())
+        }
     }
 
     @Test fun finishRefusedAfterTheChannelClosedTurnsGpsOff() {

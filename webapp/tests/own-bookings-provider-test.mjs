@@ -28,6 +28,7 @@ const mocks = {
     export const fetchMyBookings=signal=>{const req={...h().makeDeferred(),signal,generation:h().generation,userId:h().auth.user?.id};h().requests.push(req);return req.promise;};
     export const createBooking=body=>{h().posts.push(body);return h().book(body);};
     export const cancelBooking=id=>{h().cancels.push(id);return h().cancel(id);};
+    export const respondBoardingUndo=async()=>{throw Error("unexpected boarding undo consent in own-bookings provider test")};
     export const CANCEL_REASONS=[];
     export const fetchBookingDetails=(id,signal)=>h().details(id,signal);
     export const fetchTripState=async()=>({role:h().role,status:"confirmed",driver_phase:"departed"});
@@ -43,7 +44,7 @@ const mocks = {
   map: `export default "map";`,
   status: `export const StatusPill="status";`,
   partner: `export const PartnerAdSlot="ad";`,
-  pass: `export const loadTripPass=()=>null,loadOfflineTripPass=()=>null,saveTripPass=()=>false,saveVerifiedTripPass=()=>{},dropTripPass=()=>{},clearTripPassBoardingCode=()=>{},tripPassStage=()=>'confirmed';`,
+  pass: `export const loadTripPass=()=>null,loadOfflineTripPass=()=>null,saveTripPass=()=>false,saveVerifiedTripPass=()=>{},dropTripPass=()=>{},clearTripPassBoardingCode=()=>{},restoreConfirmedTripPass=()=>false,tripPassStage=()=>'confirmed';`,
   driver: `export const setDriverStatus=async()=>({});`,
   chat: `export const openTripLocation=()=>({close(){}});`,
   safety: `export const winterCheck=async()=>({state:"ok"}),winterCheckOk=async()=>({});`,

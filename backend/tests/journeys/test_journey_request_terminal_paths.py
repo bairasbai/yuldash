@@ -180,6 +180,10 @@ def test_bound_request_finishes_original_ride_with_two_own_receipts(api, kit):
     assert api.post(f"/bookings/{bid}/boarded/undo", headers=passenger.auth).status_code == 403
     for _ in range(2):
         undo = _post(api, driver, f"/bookings/{bid}/boarded/undo")
+        if undo["boarding_undo_pending"]:
+            assert undo["status"] == "onboard"
+            undo = _post(api, passenger, f"/bookings/{bid}/boarded/undo/respond", {
+                "request_id": undo["boarding_undo_request_id"], "confirm": True})
         assert undo["status"] == "confirmed"
     assert kit.notified(passenger, "Отметку посадки отменили", ref_id=bid)
     assert kit.driver_status(driver, bid, "boarded").status_code == 200

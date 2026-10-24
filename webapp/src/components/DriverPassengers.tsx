@@ -288,6 +288,7 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
                       bookingId={b.booking_id}
                       status={st}
                       undoSec={b.boarding_undo_sec ?? 0}
+                      undoPending={b.boarding_undo_pending === true}
                       onChanged={reload}
                       onError={setNote}
                     >

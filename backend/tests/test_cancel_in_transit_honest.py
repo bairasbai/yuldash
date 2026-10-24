@@ -20,6 +20,8 @@ import subprocess
 from datetime import timedelta
 
 import pytest
+
+from boarding_helpers import confirm_boarding_undo
 from sqlalchemy import event, text
 from sqlmodel import Session, select
 
@@ -212,7 +214,7 @@ def test_отмена_до_посадки_честно_отменена_без_�
 def test_снятая_отметка_посадки_не_отмена_в_пути(client, user_factory, monkeypatch):
     driver, pax, ride, bid, token, sms, tg, pushes = _trip(client, user_factory, "снял", monkeypatch)
     _board(client, driver, bid)
-    assert client.post(f"/bookings/{bid}/boarded/undo", headers=driver["auth"]).status_code == 200
+    assert confirm_boarding_undo(client, driver, pax, bid).status_code == 200
     sms.clear()
     assert client.post(f"/bookings/{bid}/cancel", headers=driver["auth"], json={"reason": "other"}).status_code == 200
     assert _state(client, token)["outcome"] == "cancelled"

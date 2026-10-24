@@ -163,6 +163,12 @@ export function createRideShare(deps: RideShareDeps) {
 
   function onEnded(why: ShareEnd) {
     stopShare();
+    if (why === "boarding-corrected") {
+      // Исправленная посадка не закрыла бронь: заново выбираем её с confirmed-сроком или другую.
+      if (!sessionOk() || !ride || bookingId === null) return stopAll();
+      void resolve(bookingId);
+      return;
+    }
     // Вход отозван или бронь так и не стала активной — не ищем ничего. Без режима рейса — как раньше.
     if (why !== "trip" || !sessionOk()) return stopAll();
     if (!ride && pendingClose !== bookingId) return stopAll();

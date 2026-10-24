@@ -3260,7 +3260,7 @@ internal fun DriverCabinetContent(
                         PassengerRow(b)
                         AppButton(text = appText("Открыть поездку", "Сәфәрҙе асыу"), onClick = { onOpenTrip(b.bookingId) })
                         // Посадку отмечает водитель: «Сел» рядом с «Не пришёл» (срок от сервера; на поездке с остановками сначала «Подъезжаю»), «в пути» — «Отменить» 5 минут, потом разбор (RideshareBoarding.kt).
-                        DriverBoardingControls(b.bookingId, b.status, b.boardingUndoSec, passengerId = b.passengerId, passengerName = b.passengerName, noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving, arrivingOpensAt = b.arrivingOpensAt)
+                        DriverBoardingControls(b.bookingId, b.status, b.boardingUndoSec, passengerId = b.passengerId, passengerName = b.passengerName, noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving, arrivingOpensAt = b.arrivingOpensAt, boardingUndo = b.boardingUndo)
                     }
                 }
             }

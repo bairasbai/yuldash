@@ -28,6 +28,7 @@ export default function DriverBoarding({
   bookingId,
   status,
   undoSec = 0,
+  undoPending = false,
   variant = "card",
   onChanged,
   onError,
@@ -37,6 +38,7 @@ export default function DriverBoarding({
   status: BookingStatus | string;
   /** Сколько секунд ещё можно отменить отметку — из /driver/bookings или /bookings/{id}/role. */
   undoSec?: number;
+  undoPending?: boolean;
   /** «card» — карточка пассажира в кабинете («Сел»); «chip» — ряд статусов на экране поездки. */
   variant?: "card" | "chip";
   /** Отметка или отмена прошла (или сервер отказал 409) — перечитать список / состояние поездки. */
@@ -49,6 +51,8 @@ export default function DriverBoarding({
   const { appText } = useLang();
   const [busy, setBusy] = useState(false);
   const [left, setLeft] = useState(undoSec);
+  const [requested, setRequested] = useState(undoPending);
+  useEffect(() => setRequested(undoPending), [undoPending, status]);
 
   // Свежий ответ сервера сильнее локального отсчёта.
   useEffect(() => {
@@ -67,6 +71,7 @@ export default function DriverBoarding({
     setBusy(true);
     try {
       const result = await action();
+      setRequested(result.boarding_undo_pending === true);
       await onChanged(result);
     } catch (e) {
       onError(e instanceof ApiError && e.message ? e.message : appText(fail.ru, fail.ba));
@@ -102,12 +107,12 @@ export default function DriverBoarding({
       <span className={chip ? "chip chip--on" : "notice"} role="status">
         <IconCheck size={16} /> {appText("Пассажир в машине", "Пассажир машинала")}
       </span>
-      {left > 0 && (
+      {left > 0 && !requested && (
         <button
           type="button"
           className={chip ? "chip" : "btn-soft btn-soft--sm"}
           disabled={busy}
-          aria-label={appText(`Отменить отметку посадки, осталось ${clock}`, `Ултырыу билдәһен кире алырға, ${clock} ҡалды`)}
+          aria-label={appText(`Исправить посадку, осталось ${clock}`, `Ултырыуҙы төҙәтергә, ${clock} ҡалды`)}
           onClick={() =>
             void run(() => undoBoarded(bookingId), {
               ru: "Не получилось отменить. Проверь сеть.",
@@ -115,9 +120,10 @@ export default function DriverBoarding({
             })
           }
         >
-          {appText(`Отменить · ${clock}`, `Кире алырға · ${clock}`)}
+          {appText(`Исправить посадку · ${clock}`, `Ултырыуҙы төҙәтергә · ${clock}`)}
         </button>
       )}
+      {requested && <p role="status">{appText("Ждём подтверждения пассажира", "Пассажирҙың раҫлауын көтәбеҙ")}</p>}
       {left <= 0 && children}
     </>
   );

@@ -134,6 +134,44 @@ async function rideOf101and102() {
   return r;
 }
 
+await t.test("исправленная посадка сохраняет живую бронь и пересчитывает confirmed-срок", async () => {
+  const r = await rideOf101and102();
+  r.rows = [row(101, "confirmed", { no_show_wait_sec: 120 }), row(102, "done")];
+  r.last().hooks.onEnd("boarding-corrected");
+  await settle();
+  assert.equal(r.last().id, 101, "живую исправленную бронь нельзя заносить в closed");
+  assert.equal(r.last().hooks.allowSend(), true);
+  r.now += 121_000;
+  r.rows = [row(101, "confirmed", { no_show_wait_sec: 0 }), row(102, "onboard")];
+  assert.equal(r.last().hooks.allowSend(), false, "onboard-срок не должен пережить исправление");
+  r.fire(0);
+  await settle();
+  assert.equal(r.last().id, 102);
+  assert.equal(r.share.snapshot().ride, true);
+});
+
+await t.test("исправление без режима рейса не запускает поиск пассажиров", async () => {
+  const r = rig();
+  r.share.open(101);
+  r.last().hooks.onEnd("boarding-corrected");
+  await settle();
+  assert.equal(r.fetches, 0);
+  assert.equal(r.share.snapshot().bookingId, null);
+});
+
+await t.test("поздний поиск после исправления не переносит GPS в другой вход", async () => {
+  const r = await rideOf101and102();
+  let release;
+  r.gate = new Promise(resolve => { release = resolve; });
+  r.rows = [row(101, "confirmed", { no_show_wait_sec: 120 })];
+  r.last().hooks.onEnd("boarding-corrected");
+  r.session = "B";
+  release();
+  await settle();
+  assert.equal(r.starts.length, 1);
+  assert.equal(r.share.snapshot().bookingId, null);
+});
+
 // ---------------------------------------------------------------- без режима рейса — как раньше
 await t.test("первая настоящая API-отметка до первого open: кабинет держит GPS, а срок confirmed сохраняется", async () => {
   const r = await wiredRig();
@@ -546,6 +584,42 @@ await t.test("шаг водителя: «ушёл» до запроса, «пр�
     [7, true, "start"], ["request"], [7, true, "done"],
     [8, true, "start"], [8, true, "fail"],
     [9, true, "start"],
+  ]);
+});
+
+// Третья приёмка, P2: «Завершить», «Не пришёл» и «Выехал» с сайта правда идут через driverStep — сигнал «ушёл»
+// раньше запроса (иначе вернулась бы гонка второго круга: сервер закрывает канал раньше ответа).
+await t.test("api/driver и api/bookings шлют шаги водителя через driverStep: «ушёл» → запрос → «принят»", async () => {
+  const lib = await build({
+    stdin: {
+      contents: `export { setDriverStatus } from "./src/api/driver.ts"; export { markNoShow, markBoarded } from "./src/api/bookings.ts";
+        export { onDriverAction } from "./src/utils/driverActions.ts";`,
+      resolveDir: ROOT, loader: "ts",
+    },
+    bundle: true, write: false, format: "esm", platform: "node", logLevel: "silent",
+    plugins: [{ name: "client", setup(b) {
+      b.onResolve({ filter: /\/client$/ }, () => ({ path: "client", namespace: "mock" }));
+      b.onLoad({ filter: /.*/, namespace: "mock" }, () => ({ contents:
+        `export const apiPost=async(p,b)=>{globalThis.__wire.push(["request",p]);if(globalThis.__wireFail)throw Object.assign(new Error("x"),{status:globalThis.__wireFail});return {ok:true};};
+         export const apiGet=async()=>({});export const apiDelete=async()=>({});export const apiUpload=async()=>({});
+         export class ApiError extends Error{};`, loader: "js" }));
+    } }],
+  });
+  const W = await import("data:text/javascript;base64," + Buffer.from(lib.outputFiles[0].text).toString("base64"));
+  const seen = (globalThis.__wire = []);
+  const off = W.onDriverAction((id, closed, step) => seen.push([step, id, closed]));
+  await W.setDriverStatus(42, "done");
+  await W.markNoShow(43);
+  await W.setDriverStatus(44, "departed");
+  globalThis.__wireFail = 409;
+  await W.setDriverStatus(45, "done").catch(() => {});
+  globalThis.__wireFail = 0;
+  off();
+  assert.deepEqual(seen, [
+    ["start", 42, true], ["request", "/bookings/42/driver-status"], ["done", 42, true],
+    ["start", 43, true], ["request", "/bookings/43/no-show"], ["done", 43, true],
+    ["start", 44, false], ["request", "/bookings/44/driver-status"], ["done", 44, false],
+    ["start", 45, true], ["request", "/bookings/45/driver-status"], ["fail", 45, true],
   ]);
 });
 

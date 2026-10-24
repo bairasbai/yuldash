@@ -1378,7 +1378,7 @@ private fun ActiveTripContent(
     // Попутчики вышли, остался один на один с водителем (см. AlonePassengerHint).
     var aloneWithDriver by remember(bookingId) { mutableStateOf(false) }
     var peerId by remember(bookingId) { mutableIntStateOf(0) }   // вторая сторона брони: пассажиру — водитель («Сообщить о проблеме»)
-    var boardingUndoSec by remember(bookingId) { mutableIntStateOf(0) }   // водителю: сколько ещё можно отменить свою отметку «Сел»
+    val boardingGate = remember(bookingId) { BoardingUndoState() }; var boardingUndo by remember(bookingId) { mutableStateOf(com.yuldash.app.data.BoardingUndoTerms()) }; var boardingUndoSec by remember(bookingId) { mutableIntStateOf(0) }   // водителю: сколько ещё можно отменить свою отметку «Сел»
     var bookingStatus by remember(bookingId) { mutableStateOf(terminalHint?.status.orEmpty()) }
     // Связь с водителем из деталей брони (RideshareTripContacts.kt); подтвердили при открытом экране — перечитать.
     var liveContacts by remember(bookingId) { mutableStateOf<TripContacts?>(null) }
@@ -1386,9 +1386,11 @@ private fun ActiveTripContent(
     var pickupDetails by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
     val tripDetails = remember(bookingId) { ActiveTripDetailsState(bookingId, tripSession) }
     val inTransit = rememberCancelledInTransitState(bookingId, terminalHint, tripSession)   // отменили в пути: экран остаётся
-    fun acceptBookingStatus(value: String) {
+    var codeLoadRetry by remember(bookingId) { mutableStateOf(0) }
+    fun acceptBookingStatus(value: String, terms: com.yuldash.app.data.BoardingUndoTerms = boardingUndo) {
         // A delayed poll must not revive a terminal booking or interrupt cleanup/retry.
-        if (bookingStatus == "done" || bookingStatus == "cancelled") return
+        if (!boardingGate.accept(bookingStatus, value, terms)) return
+        if (bookingStatus == "onboard" && value == "confirmed") codeLoadRetry += 1
         tripDetails.statusChanged(bookingStatus, value)
         bookingStatus = value
     }
@@ -1417,12 +1419,12 @@ private fun ActiveTripContent(
             // Recheck on lifecycle resume and before every poll: this screen belongs to one login.
             while (tripSession == ApiClient.queueSessionGeneration()) {
                 val detailsFailure = tripDetails.failure
-                val stateResult = ApiClient.getTripState(id)
+                val stateResult = boardingGate.read(id)
                 if (tripSession != ApiClient.queueSessionGeneration()) return@repeatOnLifecycle
                 stateResult
                     .onSuccess { st ->
                         if (offline || Outbox.hasPending(context)) serverBack++
-                        if (st.role.isNotBlank()) role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; inTransit.accept(st); acceptBookingStatus(st.status); offline = false
+                        if (st.role.isNotBlank()) role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; boardingUndo = st.boardingUndo; inTransit.accept(st); acceptBookingStatus(st.status); offline = false
                         if (isTripChatActive()) tripDetails.serverReached(detailsFailure)
                     }
                     // Сетевой сбой (не ApiException) → уходим в офлайн-режим: поднимаем сохранённый паспорт.
@@ -1474,7 +1476,6 @@ private fun ActiveTripContent(
     val frostyNight = remember { isFrostyWinterNight() }   // F12: морозная ночь — считаем один раз (LazyListScope не @Composable)
     var boardingCode by remember(bookingId) { mutableStateOf("") }
     var codeLoadFailed by remember(bookingId) { mutableStateOf(false) }
-    var codeLoadRetry by remember(bookingId) { mutableStateOf(0) }
     var codeSaveFailed by remember(bookingId) { mutableStateOf(false) }
     var codeSaveBusy by remember(bookingId) { mutableStateOf(false) }
     var codeSaveRetry by remember(bookingId) { mutableIntStateOf(0) }
@@ -1534,7 +1535,7 @@ private fun ActiveTripContent(
         val d = tripDetails.load(::isTripChatActive, { bookingStatus }, { role }) ?: return
         // Details are authoritative too: retry can recover even while the independent role poll is offline.
         if (role.isBlank()) role = d.role
-        inTransit.accept(d); if (d.status.isNotBlank()) acceptBookingStatus(d.status)
+        inTransit.accept(d); if (d.status.isNotBlank()) acceptBookingStatus(d.status, d.boardingUndo)
         pickupDetails = d
         contactsLoaded = true
         payMethod = d.payMethod
@@ -1582,10 +1583,10 @@ private fun ActiveTripContent(
         voiceScope.launch {
             // Очередь и лента чата — у состояния чата (TripChatState.flushQueued): неотправленное остаётся на экране.
             if (!isTripChatActive() || !chat.flushQueued() || !isTripChatActive()) return@launch
-            ApiClient.getTripState(id).onSuccess { st ->
+            boardingGate.read(id).onSuccess { st ->
                 if (!isTripChatActive()) return@onSuccess
                 if (st.role.isNotBlank()) role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified
-                aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; inTransit.accept(st); acceptBookingStatus(st.status); offline = false
+                aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; boardingUndo = st.boardingUndo; inTransit.accept(st); acceptBookingStatus(st.status); offline = false
             }
         }
     }
@@ -1632,12 +1633,12 @@ private fun ActiveTripContent(
                             bookingStatus = "done"
                         } else {
                             Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
-                            ApiClient.getTripState(bid).onSuccess { s ->
+                            boardingGate.read(bid).onSuccess { s ->
                                 if (!isTripSessionCurrent()) return@onSuccess
                                 if (s.role.isNotBlank()) role = s.role
                                 driverPhase = s.driverPhase
                                 arrivalVerified = s.arrivalVerified
-                                aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec
+                                aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec; boardingUndo = s.boardingUndo
                                 inTransit.accept(s); acceptBookingStatus(s.status)
                             }
                         }
@@ -1669,12 +1670,12 @@ private fun ActiveTripContent(
                         if (!isTripSessionCurrent()) return@onSuccess
                         if (st == "done") {
                             bookingStatus = "done"
-                        } else ApiClient.getTripState(bid).onSuccess { s ->
+                        } else boardingGate.read(bid).onSuccess { s ->
                             if (!isTripSessionCurrent()) return@onSuccess
                             if (s.role.isNotBlank()) role = s.role
                             driverPhase = s.driverPhase
                             arrivalVerified = s.arrivalVerified
-                            aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec
+                            aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec; boardingUndo = s.boardingUndo
                             inTransit.accept(s); acceptBookingStatus(s.status)
                         }
                     }
@@ -1778,7 +1779,7 @@ private fun ActiveTripContent(
                     } else null,
                     onFinish = { if (isTripSessionCurrent()) showDriverFinishConfirmation = true },
                     boarding = activeTripBoardingSlot(role, bookingStatus, bookingId, peerId, if (role == "driver") "" else ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
-                        boardingUndoSec) { r -> if (isTripSessionCurrent()) { acceptBookingStatus(r.status); boardingUndoSec = r.undoSec } },
+                        boardingUndoSec, onUndone = { r -> if (isTripSessionCurrent() && boardingGate.resultIsCurrent(bookingStatus, r)) { boardingGate.actionCommitted(); acceptBookingStatus(r.status, r.undo); boardingUndoSec = r.undoSec; boardingUndo = r.undo } }, undoTerms = boardingUndo),
                 )
             }
         },

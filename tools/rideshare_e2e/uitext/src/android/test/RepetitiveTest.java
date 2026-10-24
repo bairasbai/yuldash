@@ -1,0 +1,1 @@
+package android.test; @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME) @java.lang.annotation.Target(java.lang.annotation.ElementType.METHOD) public @interface RepetitiveTest { int numIterations() default 1; }

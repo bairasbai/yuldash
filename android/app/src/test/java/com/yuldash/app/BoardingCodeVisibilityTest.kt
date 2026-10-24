@@ -42,7 +42,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  *    (паспорт создаётся там) — класть код было некуда;
  *  • после «Я сел» карточка «Код посадки / Назови код водителю» оставалась над «В пути».
  * С 17.10.2026 посадку отмечает водитель («Сел»): код уходит по его отметке (статус брони
- * с сервера) и возвращается, если он отменил её, промахнувшись карточкой.
+ * с сервера) и возвращается после подтверждения пассажиром запроса на исправление отметки.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
@@ -56,6 +56,9 @@ class BoardingCodeVisibilityTest {
     private val requests = CopyOnWriteArrayList<String>()
     @Volatile private var role = "passenger"
     @Volatile private var bookingStatus = "confirmed"
+    @Volatile private var undoConfirmedByPassenger = false
+    private val onboardEpoch = "2031-02-03T09:00:00.123456"
+    private val confirmedUndoId = "$onboardEpoch~visibility-passenger-confirmation"
     private lateinit var server: MockWebServer
 
     @Before fun setup() {
@@ -68,10 +71,10 @@ class BoardingCodeVisibilityTest {
                     requests.add("${request.method} ${request.path}")
                     if (request.method != "GET") return MockResponse().setResponseCode(405)
                     return when (request.path) {
-                        "/bookings/42/role" -> json("""{"role":"$role","status":"$bookingStatus","driver_phase":""}""")
+                        "/bookings/42/role" -> json(bookingState())
                         "/bookings/42/messages" -> json("""{"items":[]}""")
                         "/bookings/42/boarding-code" -> json("""{"code":"5678"}""")
-                        "/bookings/42/details" -> json("""{"booking_id":42,"role":"$role","status":"$bookingStatus","from_city":"Город А","to_city":"Город Б"}""")
+                        "/bookings/42/details" -> json(bookingState(details = true))
                         else -> MockResponse().setResponseCode(404).setBody("{}")
                     }
                 }
@@ -83,6 +86,17 @@ class BoardingCodeVisibilityTest {
     }
 
     private fun json(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
+
+    private fun bookingState(details: Boolean = false): String {
+        val current = bookingStatus
+        val corrected = current == "confirmed" && undoConfirmedByPassenger
+        return JSONObject().put("role", role).put("status", current).put("driver_phase", "")
+            .put("onboard_at", if (current == "onboard") onboardEpoch else JSONObject.NULL)
+            .put("boarding_undo_confirmed_id", if (corrected) confirmedUndoId else JSONObject.NULL)
+            .put("boarding_undo_onboard_at", if (corrected) onboardEpoch else JSONObject.NULL)
+            .apply { if (details) put("booking_id", 42).put("from_city", "Город А").put("to_city", "Город Б") }
+            .toString()
+    }
 
     @After fun cleanup() {
         compose.runOnIdle { mounted.value = false }
@@ -158,7 +172,10 @@ class BoardingCodeVisibilityTest {
         }
         compose.onAllNodesWithText("Код посадки").assertCountEquals(0)
         compose.onAllNodesWithText("Водитель отметит посадку").assertCountEquals(0)
-        bookingStatus = "confirmed"   // промахнулся карточкой и нажал «Отменить» — код снова нужен
+        // Водитель запросил исправление; пассажир подтвердил, что ещё не сел. Сервер вернул
+        // receipt именно исходной посадки: одно нажатие водителя статус не откатывает.
+        undoConfirmedByPassenger = true
+        bookingStatus = "confirmed"
         advance(14_000)
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()

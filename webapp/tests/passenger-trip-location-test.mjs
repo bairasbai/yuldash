@@ -43,6 +43,54 @@ function rig({ token = "tok", current = () => true, refresh, online = false } = 
   return r;
 }
 
+await t.test("исправление посадки: свежая авторизация и новые точки без перезагрузки страницы", () => {
+  let key = "before";
+  const r = rig({ token: () => key });
+  const old = r.open();
+  r.msg({ type: "loc", role: "driver", lat: 54.0, lng: 55.0 });
+  const lateMessage = old.onmessage;
+  r.drop(1008, "Boarding corrected");
+  assert.equal(r.pending().length, 1);
+  key = "current";
+  r.runTimers();
+  assert.deepEqual(r.open().sent[0], { type: "auth", token: "current" });
+  lateMessage({ data: JSON.stringify({ type: "loc", role: "driver", lat: 99, lng: 99 }) });
+  r.msg({ type: "loc", role: "driver", lat: 54.1, lng: 55.0 });
+  assert.deepEqual(r.points.map(p => p.lat), [54.0, 54.1]);
+  r.drop(1008, "Boarding corrected"); r.runTimers(); r.open();
+  r.msg({ type: "loc", role: "driver", lat: 54.2, lng: 55.0 });
+  assert.deepEqual(r.points.map(p => p.lat), [54.0, 54.1, 54.2]);
+  r.handle.stop();
+});
+
+await t.test("новая авторизация после исправления не обходит серверное окно доступа", () => {
+  const r = rig(); r.open(); r.drop(1008, "Boarding corrected"); r.runTimers(); r.open();
+  r.drop(1008, "Access ended"); r.runTimers();
+  assert.equal(r.sockets.length, 2);
+  assert.equal(r.pending().length, 0);
+});
+
+await t.test("смена входа пока ждём повтор после исправления не создаёт новый канал", () => {
+  let current = true;
+  const r = rig({ current: () => current }); r.open(); r.drop(1008, "Boarding corrected");
+  current = false; r.runTimers();
+  assert.equal(r.sockets.length, 1);
+});
+
+await t.test("уже открытый канал не доставляет точки после смены входа", () => {
+  let current = true;
+  const r = rig({ current: () => current }); r.open(); current = false;
+  r.msg({ type: "loc", role: "driver", lat: 54.7, lng: 55.9 });
+  assert.deepEqual(r.points, []);
+  assert.equal(r.sockets[0].closed, 1000);
+});
+
+await t.test("похожая причина закрытия остаётся окончательной", () => {
+  const r = rig(); r.open(); r.drop(1008, "Boarding corrected "); r.runTimers();
+  assert.equal(r.sockets.length, 1);
+  assert.equal(r.pending().length, 0);
+});
+
 await t.test("вход первым кадром, на карту — только точка водителя; свои и битые кадры не рисуем", () => {
   const r = rig();
   assert.deepEqual(r.open().sent, [{ type: "auth", token: "tok" }]);

@@ -29,3 +29,13 @@ def board(client, driver, booking_id: int, *, settled: bool = True) -> None:
     assert r.status_code == 200, r.text
     if settled:
         settle_boarding(booking_id)
+
+
+def confirm_boarding_undo(client, driver, passenger, booking_id: int):
+    """Настоящие HTTP двух сторон: просьба сама не снимает посадку, отвечает её пассажир."""
+    request = client.post(f"/bookings/{booking_id}/boarded/undo", headers=driver["auth"])
+    if request.status_code != 200 or not request.json().get("boarding_undo_pending"):
+        return request
+    assert request.json()["status"] == "onboard"
+    return client.post(f"/bookings/{booking_id}/boarded/undo/respond", headers=passenger["auth"], json={
+        "request_id": request.json()["boarding_undo_request_id"], "confirm": True})

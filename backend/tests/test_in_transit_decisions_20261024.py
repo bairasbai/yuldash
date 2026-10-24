@@ -18,6 +18,8 @@ import re
 from datetime import timedelta
 
 import pytest
+
+from boarding_helpers import confirm_boarding_undo
 from sqlmodel import Session, select
 
 from app import account, services
@@ -30,6 +32,9 @@ from app.routers import family as family_router
 from app.security import normalize_phone
 from app.timeutil import utcnow
 from app.visibility import PROBLEM_REPORT_WINDOW, cancelled_in_transit
+
+# Живые и поднятые поездки этих тестов не остаются в общей ленте (CI PR212).
+from feed_hygiene import rides_do_not_leak_into_the_feed  # noqa: F401
 
 pytestmark = pytest.mark.timeout(60)
 
@@ -183,7 +188,7 @@ def test_обычная_отмена_снятая_посадка_и_неявка
     # Водитель снял отметку «Сел», потом отменил: `onboard_at` пуст — это не отмена в пути.
     driver, pax, ride, bid = _trip(client, user_factory, "снял-посадку")
     _board(client, driver, bid)
-    assert client.post(f"/bookings/{bid}/boarded/undo", headers=driver["auth"]).status_code == 200
+    assert confirm_boarding_undo(client, driver, pax, bid).status_code == 200
     assert client.post(f"/bookings/{bid}/cancel", headers=driver["auth"], json={"reason": "other"}).status_code == 200
     assert _details(client, pax, bid)["can_rate"] is False
     assert client.post(f"/bookings/{bid}/rate", headers=pax["auth"], json={"stars": 1}).status_code == 409

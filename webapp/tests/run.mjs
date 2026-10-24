@@ -90,6 +90,7 @@ const ALL_SUITES = [
   // Посадку отмечает водитель (17.10.2026): «Сел» → «Пассажир в машине» и «Отменить · 4:59»,
   // у пассажира «Водитель отметит посадку» и «Сообщить о проблеме», «Я сел» нет.
   { test: "driver-marks-boarding-test", src: null, out: null, bundle: false },
+  { test: "boarding-undo-consent-test", src: null, out: null, bundle: false },
   // «Не вышел» — через 15 минут после выезда (срок от сервера, `no_show_at`) и с вопросом «Точно?» (18.10.2026).
   { test: "driver-noshow-wait-test", src: null, out: null, bundle: false },
   { test: "commission-label-test", src: null, out: null, bundle: false },
@@ -195,6 +196,8 @@ const ALL_SUITES = [
   { test: "driver-decline-confirm-test", src: null, out: null, bundle: false },
   // …а пассажиру пометка на экране брони — «Отклонена», не «Отменена», как текст «Водитель отклонил бронь» (приёмка PR210).
   { test: "booking-declined-pill-test", src: null, out: null, bundle: false },
+  // …и «Мои поездки»: /bookings/mine отдаёт `declined`, карточка пишет «Отклонена» (приёмка PR210).
+  { test: "my-trip-declined-test", src: null, out: null, bundle: false },
   // «Оценить водителя» в квитанции попутки — для тех, кто пропустил экран завершения (приёмка 18.10, п.7).
   { test: "receipt-rate-later-test", src: null, out: null, bundle: false },
   // Водитель звонит пассажиру после подтверждения (решение 23.10.2026).

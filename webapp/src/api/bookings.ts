@@ -63,7 +63,7 @@ export interface BookingRow {
 }
 
 /** Детали брони — экран Booking (GET /bookings/{id}/details). */
-export interface BookingDetails {
+export interface BookingDetails extends BoardingUndoTerms {
   booking_id: number;
   ride_id: number;
   pickup_stop?: string | null;
@@ -124,7 +124,16 @@ export interface BookingDetails {
 }
 
 /** Live-состояние поездки (поллинг на активном экране). */
-export interface TripState {
+export interface BoardingUndoTerms {
+  boarding_undo_pending?: boolean;
+  boarding_undo_request_id?: string | null;
+  boarding_undo_wait_sec?: number;
+  onboard_at?: string | null;
+  boarding_undo_confirmed_id?: string | null;
+  boarding_undo_onboard_at?: string | null;
+}
+
+export interface TripState extends BoardingUndoTerms {
   role: "driver" | "passenger";
   status: BookingStatus;
   driver_phase: DriverPhase;
@@ -194,6 +203,8 @@ export interface MyBooking {
   driver_verified: boolean;
   /** Отменили, когда пассажир был в машине (23.10.2026). Старый сервер — поля нет. */
   cancelled_in_transit?: boolean;
+  /** Водитель отклонил неподтверждённую бронь — «Отклонена», не «Отменена» (приёмка PR210). Старый сервер — поля нет. */
+  declined?: boolean;
 }
 
 export function createBooking(body: CreateBookingInput, signal?: AbortSignal): Promise<BookingRow> {
@@ -332,7 +343,7 @@ export function fetchReceipt(id: number, signal?: AbortSignal): Promise<TripRece
  * версия, ждавшая `{ items }`, всегда получала undefined, и блок «Ждут твоего ответа»
  * молчал бы при живых бронях.
  */
-export interface DriverBookingRow {
+export interface DriverBookingRow extends BoardingUndoTerms {
   from_city?: string;
   to_city?: string;
   pickup_stop?: string | null;
@@ -440,7 +451,7 @@ export function markArriving(id: number): Promise<ArrivingResult> {
 }
 
 /** Ответ на «Сел» и «Отменить»: итоговый статус брони и сколько секунд ещё можно отменить. */
-export interface BoardingResult {
+export interface BoardingResult extends BoardingUndoTerms {
   ok: boolean;
   status: BookingStatus;
   boarding_undo_sec: number;
@@ -461,6 +472,11 @@ export function markBoarded(id: number): Promise<BoardingResult> {
 /** «Отменить» свою отметку «Сел» — промахнулся карточкой. Только в первые 5 минут (409 позже). */
 export function undoBoarded(id: number): Promise<BoardingResult> {
   return apiPost<BoardingResult>(`/bookings/${id}/boarded/undo`);
+}
+
+/** Ответ пассажира на конкретный запрос; смена входа не переадресует действие. */
+export function respondBoardingUndo(id: number, requestId: string, confirm: boolean, generation: string): Promise<BoardingResult> {
+  return apiPost<BoardingResult>(`/bookings/${id}/boarded/undo/respond`, { request_id: requestId, confirm }, { _generation: generation });
 }
 
 /**

@@ -35,6 +35,7 @@ class LocationSocket(
     // Чья это поездка: канал живёт в сессии, в которой его открыли (как ChatSocket.ownerSession). Служба точки
     // передаёт СВОЮ сессию-владельца (Д2): канал, созданный после выхода из аккаунта, не станет «чужим своим».
     private val ownerSession: Long = ApiClient.queueSessionGeneration(),
+    private val onBoardingCorrected: () -> Unit = {},
 ) {
     data class Peer(val role: String, val lat: Double, val lng: Double, val bearing: Double?, val ts: Long)
 
@@ -133,6 +134,14 @@ class LocationSocket(
                         ws = null
                         authed = false
                         onConnected(false)
+                        // Пассажир подтвердил исправление посадки: бронь снова confirmed, но не закрыта.
+                        // Владелец пересчитает срок/несущую; старый сокет сам не переподключается.
+                        if (code == 1008 && reason == "Boarding corrected") {
+                            if (!ApiClient.isCurrentSession(ownerSession)) { terminate(); return }
+                            close()
+                            onBoardingCorrected()
+                            return
+                        }
                         // Поездка ещё не активна (бронь pending/подтверждается) — сервер закрывает 1008 "Trip not active".
                         // Это НЕ терминал: бронь станет confirmed → подключимся. Мягкий ретрай раз в 15с (сервис
                         // живёт только во время поездки → не вечный цикл). Иначе сразу после брони стрим бы не запускался.

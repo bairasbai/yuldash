@@ -26,6 +26,9 @@ from app.models import Ride, User, UserRole
 from app.routers import rides as rides_router
 from app.timeutil import utcnow
 
+# Живые и поднятые поездки этих тестов не остаются в общей ленте (CI PR212).
+from feed_hygiene import rides_do_not_leak_into_the_feed  # noqa: F401
+
 pytestmark = [
     pytest.mark.skipif(engine.dialect.name != "postgresql", reason="гонка на замках — только PostgreSQL"),
     pytest.mark.timeout(60),
