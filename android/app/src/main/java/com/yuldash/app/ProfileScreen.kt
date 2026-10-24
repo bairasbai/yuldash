@@ -2942,22 +2942,9 @@ internal fun DriverCabinetContent(
             onDismissRequest = { cancelTarget = null },
             title = { Text(appText("Снять поездку?", "Сәфәрҙе алырғамы?"), fontWeight = FontWeight.Bold) },
             text = {
-                // Сколько людей рассчитывали на эту машину. «Все брони будут отменены» —
-                // правда, но безличная: одно дело снять пустой рейс, другое — оставить
-                // на дороге троих (аудит сценариев 30.08). Мест всего минус свободные.
-                val людей = (target.seatsTotal - target.seats).coerceAtLeast(0)
-                Text(appText(
-                    "${target.from} → ${target.to}. " + when (людей) {
-                        0 -> "Пассажиров пока нет — отменяем только объявление."
-                        1 -> "Один человек уже забронировал место. Бронь снимется, ему придёт уведомление."
-                        else -> "Места забронировали $людей человек. Все брони снимутся, всем придёт уведомление."
-                    },
-                    "${target.from} → ${target.to}. " + when (людей) {
-                        0 -> "Юлаусылар әлегә юҡ — тик белдереүҙе генә кире алабыҙ."
-                        1 -> "Бер кеше урын брондаған. Брон кире алына, уға хәбәр китә."
-                        else -> "Урындарҙы $людей кеше брондаған. Бөтә брондар кире алына, барыһына ла хәбәр китә."
-                    },
-                ))
+                // Сколько людей рассчитывали на машину и кто из них уже в ней (в пути) — RideCancelWarning.kt.
+                RideCancelConfirmText(target.from, target.to, booked = (target.seatsTotal - target.seats).coerceAtLeast(0),
+                    onboard = onboardPassengers(target.id.toIntOrNull(), driverBookings))
             },
             confirmButton = {
                 Button(

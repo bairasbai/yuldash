@@ -18,6 +18,7 @@ data class BookingMineDto(
     val driverName: String,
     val driverVerified: Boolean,
     val pickupStop: String? = null, val dropoffStop: String? = null, val rideHasStops: Boolean = false,
+    val cancelledInTransit: Boolean = false,   // отменили, когда пассажир был в машине (23.10.2026); старый сервер — false
 )
 
 /** Приватные детали брони для вкладки «Детали поездки». */
@@ -58,6 +59,8 @@ data class BookingDetailsDto(
     val toLat: Double?,
     val toLng: Double?,
     val pickupStop: String? = null, val dropoffStop: String? = null, val rideHasStops: Boolean = false,
+    // Отменили, когда пассажир был в машине (23.10.2026): машина и госномер остаются, телефона нет.
+    val cancelledInTransit: Boolean = false,
 )
 
 
@@ -77,6 +80,7 @@ internal fun parseBookingMineDto(o: JSONObject): BookingMineDto {
         driverVerified = o.optBoolean("driver_verified"),
         dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
         pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"), rideHasStops = o.optBoolean("ride_has_stops"),
+        cancelledInTransit = o.optBoolean("cancelled_in_transit", false),
     )
 }
 
@@ -117,5 +121,6 @@ internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
         toLng = if (o.isNull("to_lng")) null else o.optDouble("to_lng"),
         dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
         pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"), rideHasStops = o.optBoolean("ride_has_stops"),
+        cancelledInTransit = o.optBoolean("cancelled_in_transit", false),
     )
 }

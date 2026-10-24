@@ -27,9 +27,9 @@ class FileSizeRatchetTest {
     private val ceilings = mapOf(
         "InstantOrderScreen.kt" to 8258,   // 13.10.2026: +4 — шторка «Куда едем?» не прячется, пока уходит смена адреса
         "data/ApiClient.kt" to 7853,   // 18.10.2026 (приёмка PR184): −34 — DriverBookingDto и его разбор уехали в data/DriverBookings.kt, потолок опущен до нового размера; ранее 18.10: +2 no_show_needs_arriving; +2 no_show_at в DriverBookingDto (поле и разбор; «Не пришёл» через 15 мин после выезда); 14.10.2026: +12 опции мест (поля DTO и параметры запросов; UI — SeatOptions.kt), +2 passenger_id в DriverBookingDto (разбор по брони «в пути»)
-        "ProfileScreen.kt" to 4748,   // 23.10.2026: −81 — оценка пассажира водителем уехала в DriverPassengerRow.kt (PassengerStarsRating), потолок опущен; 16.10.2026: +9 — флаг такси в кабинетах (волна 1) и «Открыть поездку» в «Едут с тобой»; 14.10.2026: +4 — опции мест (UI — SeatOptions.kt)
+        "ProfileScreen.kt" to 4735,   // 24.10.2026: −13 — текст окна «Снять поездку?» уехал в RideCancelWarning.kt, потолок опущен; 23.10.2026: −81 — оценка пассажира водителем уехала в DriverPassengerRow.kt (PassengerStarsRating), потолок опущен; 16.10.2026: +9 — флаг такси в кабинетах (волна 1) и «Открыть поездку» в «Едут с тобой»; 14.10.2026: +4 — опции мест (UI — SeatOptions.kt)
         // 13.10.2026: чат поездки уехал в TripChatState.kt / TripChatScreen.kt — потолок опущен до нового размера.
-        "BookingActiveTripScreen.kt" to 3530,   // 23.10: код посадки (#192) и выбор числа мест (#189) вынесены; 17.10: нижняя панель — в ActiveTripDecisionBar.kt, посадка — в RideshareBoarding.kt; 16.10: маршрутная карточка вынесена
+        "BookingActiveTripScreen.kt" to 3499,   // 24.10: −31 — удаление паспорта и окно его повтора уехали в CancelledInTransit.kt (ActiveTripTerminalCleanup), потолок опущен; 23.10: код посадки (#192) и выбор числа мест (#189) вынесены; 17.10: нижняя панель — в ActiveTripDecisionBar.kt, посадка — в RideshareBoarding.kt; 16.10: маршрутная карточка вынесена
         "RidesRequestsChatScreens.kt" to 3252,   // 23.10.2026: −110 — экран откликов на заявку (обёртка с границей входа) уехал в RequestResponsesScreen.kt, потолок опущен; 13.10.2026: +2 — запись после «Разрешить» (withResumed)
         "ParcelsScreen.kt" to 3044,
         "YuldashApp.kt" to 2788,

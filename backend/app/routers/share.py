@@ -28,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 from ..config import settings
 from ..db import get_session
 from ..routers.parcels import _FINAL_STATUSES as PARCEL_FINAL_STATUSES
-from ..visibility import trip_is_live, visible_rides
+from ..visibility import cancelled_in_transit, trip_is_live, visible_rides
 from ..errors import herr
 from ..livepos import livepos_get
 from ..models import (
@@ -86,6 +86,11 @@ _PHASES = {
     "to_pickup": {"ru": "Машина едет к точке посадки", "ba": "Машина ултырыу урынына килә"},
     "onboard":   {"ru": "В пути", "ba": "Юлда"},
     "finished":  {"ru": "Поездка завершена ✅", "ba": "Сәфәр тамамланды ✅"},
+    # Финал не всегда «завершена» (23.10.2026): после отмены близкий читал «Поездка завершена ✅»,
+    # даже если водитель отменил поездку, когда человек уже сидел в машине.
+    "cancelled": {"ru": "Поездка отменена", "ba": "Сәфәр кире алынды"},
+    "cancelled_onboard": {"ru": "Поездку отменили в пути — позвони и узнай, всё ли в порядке",
+                          "ba": "Сәфәр юлда кире алынды — шылтыратып, бөтәһе лә яҡшымы икәнен белеп ал"},
 }
 
 _ORDER_LIVE_CAR = (InstantOrderStatus.accepted, InstantOrderStatus.arriving, InstantOrderStatus.onboard)
@@ -139,7 +144,7 @@ def _order_state(session: Session, share: TripShare) -> dict:
         raise herr(404, "Ссылка не найдена", "Һылтанма табылманы")
     first_name = _first_name(session, order.passenger_id)
     if order.status in (InstantOrderStatus.done, InstantOrderStatus.cancelled, InstantOrderStatus.expired):
-        return _finished(first_name)
+        return _finished(first_name, outcome="done" if order.status == InstantOrderStatus.done else "cancelled")
     phase = "onboard" if order.status == InstantOrderStatus.onboard else (
         "to_pickup" if order.status in (InstantOrderStatus.accepted, InstantOrderStatus.arriving) else "search")
     car = livepos_get("order", order.id) if order.status in _ORDER_LIVE_CAR else None
@@ -155,8 +160,11 @@ def _booking_state(session: Session, share: TripShare) -> dict:
     if not booking or not ride:
         raise herr(404, "Ссылка не найдена", "Һылтанма табылманы")
     first_name = _first_name(session, booking.passenger_id)
-    if booking.status in (BookingStatus.done, BookingStatus.cancelled):
+    if booking.status == BookingStatus.done:
         return _finished(first_name)
+    if booking.status == BookingStatus.cancelled:
+        # Координат нет и здесь: где высадили — скажет сам человек (SOS, «Застрял»), не ссылка.
+        return _finished(first_name, outcome="cancelled_onboard" if cancelled_in_transit(booking) else "cancelled")
     # «Машина едет к точке посадки» — только когда поездка правда началась (`trip_is_live`):
     # за три дня до выезда мама читала «едет», а машины на карте не было и быть не могло
     # (проверка безопасности волны 1, 16.10.2026). До того — «Поездка скоро начнётся».
@@ -192,12 +200,18 @@ def _live(first_name: str, phase: str, frm: dict, to: dict, car, *,
     }
 
 
-def _finished(first_name: str, *, kind: str = "ride", phases: dict = _PHASES) -> dict:
-    """Завершена/отменена: БЕЗ координат (маршрут и позиция после поездки — не дело ссылки)."""
+def _finished(first_name: str, *, kind: str = "ride", phases: dict = _PHASES, outcome: str = "done") -> dict:
+    """Завершена/отменена: БЕЗ координат (маршрут и позиция после поездки — не дело ссылки).
+
+    `status` — всегда «finished»: по нему страница любой версии перестаёт опрашивать сервер.
+    `outcome` — чем кончилось, по нему страница ставит значок (✅ — только у настоящего завершения):
+    попутка и такси — done / cancelled / cancelled_onboard; посылка — done / returned / canceled
+    (одна «l» — как статус посылки в базе)."""
     return {
         "kind": kind,
         "status": "finished",
-        "phase_text": phases["finished"],
+        "outcome": outcome,
+        "phase_text": phases["finished" if outcome == "done" else outcome],
         "car": None,
         "passenger_first_name": first_name,
         "updated_at": utcnow().isoformat(),
@@ -222,9 +236,7 @@ def _parcel_state(session: Session, share: TripShare) -> dict:
     # места, чтобы четвёртый статус доехал сюда сам.
     if parcel.status in PARCEL_FINAL_STATUSES:
         фаза = {"returned": "returned", "canceled": "canceled"}.get(parcel.status, "finished")
-        out = _finished(name, kind="parcel", phases=_PARCEL_PHASES)
-        out["phase_text"] = _PARCEL_PHASES[фаза]
-        return out
+        return _finished(name, kind="parcel", phases=_PARCEL_PHASES, outcome="done" if фаза == "finished" else фаза)
     phase = _PARCEL_STATUS_PHASE.get(parcel.status, "searching")
     car = livepos_get("parcel", parcel.id) if parcel.status in _PARCEL_LIVE_CAR else None
     out = _live(name, phase,
@@ -336,7 +348,7 @@ _PAGE_HTML = """<!DOCTYPE html>
 </header>
 <div id="map" role="img" aria-label="Карта поездки / Сәфәр картаһы"></div>
 <div class="done" id="done">
-  <div class="check">✅</div>
+  <div class="check" id="done-icon">✅</div>
   <h1 id="done-title">Поездка завершена</h1>
   <div class="ba" id="done-ba">Сәфәр тамамланды</div>
 </div>
@@ -418,6 +430,9 @@ _PAGE_HTML = """<!DOCTYPE html>
     el("title-ba").textContent = ba;
     el("done-title").textContent = ru;
     el("done-ba").textContent = ba;
+    // ✅ — только у настоящего завершения; отмену в пути видно с первого взгляда (23.10.2026).
+    var outcome = st.outcome || "done";
+    el("done-icon").textContent = outcome === "done" ? "✅" : (outcome === "cancelled_onboard" ? "⚠️" : "ℹ️");
   }
 
   function ensureMap(st){

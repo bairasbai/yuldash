@@ -143,8 +143,9 @@ export default function BookingScreen() {
     }
   }
 
-  // Водитель по ссылке на бронь — не на пассажирскую «Бронь» с «Отменить бронь».
-  const driverPath = status === "ready" && d ? bookingLinkPath(d.role, d.status, bookingId) : null;
+  // Водитель по ссылке на бронь — не на пассажирскую «Бронь» с «Отменить бронь». Пассажир, которого
+  // высадили в пути (`cancelled_in_transit`, 23.10.2026), — на экран поездки: там SOS, «Застряли» и машина.
+  const driverPath = status === "ready" && d ? bookingLinkPath(d.role, d.status, bookingId, d.cancelled_in_transit === true) : null;
   if (driverPath) return <Navigate to={driverPath} replace />;
 
   return (

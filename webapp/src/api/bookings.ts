@@ -108,6 +108,11 @@ export interface BookingDetails {
   from_lng?: number | null;
   to_lat?: number | null;
   to_lng?: number | null;
+  /**
+   * Отменили, когда пассажир был в машине (решение 23.10.2026): машина и госномер остаются пассажиру
+   * (по ним родные и полиция ищут машину), телефона водителя нет. Старый сервер — поля нет.
+   */
+  cancelled_in_transit?: boolean;
 }
 
 /** Live-состояние поездки (поллинг на активном экране). */
@@ -133,8 +138,10 @@ export interface TripState {
   peer_id?: number;
   /** Сколько секунд водитель ещё может отменить свою отметку «Сел» (пассажиру — 0). */
   boarding_undo_sec?: number;
-  /** Сколько ещё пассажиру показывать «Сообщить о проблеме» после поездки (6 ч; водителю — 0). */
+  /** Сколько ещё пассажиру показывать «Сообщить о проблеме» после поездки и после отмены в пути (6 ч; водителю — 0). */
   problem_report_sec?: number;
+  /** Отменили, когда пассажир был в машине (23.10.2026): экран не прячет помощь — SOS, «Застряли», разбор. */
+  cancelled_in_transit?: boolean;
 }
 
 /** Квитанция завершённой поездки (GET /trips/{id}/receipt). */
@@ -177,6 +184,8 @@ export interface MyBooking {
   depart_at: string;
   driver_name: string;
   driver_verified: boolean;
+  /** Отменили, когда пассажир был в машине (23.10.2026). Старый сервер — поля нет. */
+  cancelled_in_transit?: boolean;
 }
 
 export function createBooking(body: CreateBookingInput, signal?: AbortSignal): Promise<BookingRow> {
@@ -322,6 +331,8 @@ export interface DriverBookingRow {
   dropoff_stop?: string | null;
   ride_has_stops?: boolean;
   booking_id: number;
+  /** Своя поездка брони: «Снять поездку» считает, кто из её пассажиров уже в машине. Старый сервер — нет. */
+  ride_id?: number;
   /** Вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»). Старый сервер — нет. */
   passenger_id?: number;
   passenger_name: string;

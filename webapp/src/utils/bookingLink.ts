@@ -9,7 +9,8 @@
 //  Зеркало Android BookingLinkDestination.kt (bookingLinkScreen):
 //   • водитель + бронь ждёт подтверждения (или отменена) → кабинет водителя, там «Подтвердить»;
 //   • водитель + подтверждена / в пути / завершена → экран поездки;
-//   • пассажир → «Бронь», как раньше (возвращаем null: оставайся на месте).
+//   • пассажир → «Бронь», как раньше (возвращаем null: оставайся на месте); кроме отмены в пути
+//     (`cancelled_in_transit`, 23.10.2026) — тогда экран поездки: там SOS, «Застряли», разбор и машина.
 // ================================================================
 import type { BookingStatus } from "../api/bookings";
 
@@ -25,8 +26,12 @@ export function bookingStatusAllowsActiveTrip(status: BookingStatus | string): b
 export function bookingLinkPath(
   role: "driver" | "passenger" | string,
   status: BookingStatus | string,
-  bookingId: number
+  bookingId: number,
+  cancelledInTransit = false
 ): string | null {
-  if (role !== "driver") return null;
+  if (role !== "driver") {
+    // Пуш «Поездку отменили в пути» ведёт сюда: вместо «Брони» — экран поездки с путём к помощи.
+    return role === "passenger" && status === "cancelled" && cancelledInTransit ? `/trip/${bookingId}` : null;
+  }
   return bookingStatusAllowsActiveTrip(status) ? `/trip/${bookingId}` : "/driver";
 }
