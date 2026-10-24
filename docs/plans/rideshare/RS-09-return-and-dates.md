@@ -6,7 +6,7 @@
 | Ждёт «да» Александра | да — только денежная часть (разворот цен остановок, А-S1): ждёт ответа Александра по единицам денег (вопрос от 24.10, §9). Остальное — нет |
 | Зависит от | **А:** RS-02. **Б:** RS-02, RS-05 (ключ повтора); `car_id` копируется после RS-14 |
 | Не параллельно с | RS-02, RS-05, RS-14, RS-15 (`rides.py`, `CreateRideScreen.*`, `ProfileScreen.kt`, `DriverCabinetScreen.tsx`), RS-10 (`services.py`), RS-12 (`YuldashApp.kt`) |
-| Деление на PR | **[RS-09А] «Обратно»** — нужен только RS-02, можно раньше: сервер → сайт → Android. **[RS-09Б] «Несколько дат»** — после RS-05: сервер → сайт → Android. замок — по тегу части |
+| Деление на PR | **[RS-09А] «Обратно»** — нужен только RS-02, можно раньше: сервер → сайт → Android. **[RS-09Б] «Несколько дат»** — после RS-05: сервер → сайт → Android. Замок — по тегу части |
 | Проверка `yuldash-security-privacy` | нет (шаблон — только владельцу, новых данных нет) |
 | Двигает сценарии приёмки | W1-E2E-01 (публикация), частично E2E-04 |
 | Зона файлов | сервер: `routers/rides.py`, `schemas.py`, `services.py` (только `siblings`), `tests/test_ride_series.py`. Android: `CreateRideScreen.kt`, `ProfileScreen.kt`, `YuldashApp.kt` («замок», §12), новые `RideTemplate.kt`, `RideDatesPicker.kt`, `RideSeriesResultSheet.kt`, `data/RideSeriesApi.kt`. Сайт: `CreateRideScreen.tsx`, `DriverCabinetScreen.tsx`, `api/driver.ts`, `ui.css`, новые `utils/rideTemplate.ts`, `components/DatesPicker.tsx`, `tests/*`, `run.mjs` |
