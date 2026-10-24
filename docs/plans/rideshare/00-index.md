@@ -15,20 +15,20 @@
 
 | № | Что получит человек | Этап | Статус | Ждёт «да» | Зависит от | Сценарии |
 |---|---|---|---|---|---|---|
-| [RS-01](RS-01-honest-promises.md) | Приложение не обещает того, чего нет: выключенные способы входа не видны, код посадки — честная «сверка», онлайн-оплата брони закрыта; единый вид ошибок с кодом | 1 | не начато | да: замок онлайн-оплаты брони (деньги), текст соглашения | — | E2E-05, E2E-06 |
+| [RS-01](RS-01-honest-promises.md) | Приложение не обещает того, чего нет: выключенные способы входа не видны, код посадки — честная «сверка», онлайн-оплата брони закрыта; единый вид ошибок с кодом | 1 | не начато | Г: замок онлайн-оплаты брони (деньги), текст соглашения | — | E2E-05, E2E-06 |
 | [RS-02](RS-02-segment-seats-price.md) | Место освобождается, когда пассажир вышел; цена до своей остановки | 2 | не начато | да: тарифы, миграция; **единицы цен — ждёт решения Александра** | RS-01 | E2E-01, E2E-02, E2E-03 |
 | [RS-03](RS-03-meeting-points.md) | Точное место встречи и высадки на карте, водителю видно только после подтверждения | 2 | не начато | да: миграция, ночная зачистка точек (удаление данных) | RS-01, RS-02 | E2E-01, E2E-05 |
 | [RS-04](RS-04-sms-login.md) | Все способы входа: СМС (главный), Telegram, VK, WhatsApp — каждый включает владелец на экране «Выключатели» | 2 | не начато | да: миграции, платные СМС/WhatsApp, VK ID, ключи, договоры, политика данных | RS-01 | E2E-05, E2E-07 |
 | [RS-05](RS-05-no-duplicates.md) | Повтор при плохой связи не создаёт вторую поездку или бронь | 3 | не начато | да: миграция | RS-01, RS-02 | E2E-02, E2E-03, E2E-04 |
 | [RS-06](RS-06-chat-delivered-read.md) | В чате видно «доставлено» и «прочитано» | 3 | не начато | да: миграция | RS-01 | E2E-04, E2E-05 |
 | [RS-07](RS-07-before-booking-terms.md) | До брони видно, как платить, что будет при отмене, и предупреждение о мошенниках | 4 | не начато | да: только часть Б (миграция — способы оплаты водителя) | RS-01 | E2E-01, E2E-03 |
-| [RS-08](RS-08-card-payment-switch.md) | Выключатель «оплата картой» у владельца и выбор водителя (заготовка, без банка) | 4 | не начато | да: деньги, миграция | RS-01, RS-04 (А1), RS-07 | — |
-| [RS-09](RS-09-return-and-dates.md) | Обратная поездка одной кнопкой (А) и публикация на несколько дат (Б) | 4 | не начато | только денежная часть (разворот цен остановок — по решению о единицах) | А: RS-02; Б: RS-05 | E2E-01, E2E-04 |
+| [RS-08](RS-08-card-payment-switch.md) | Выключатель «оплата картой» у владельца и выбор водителя (заготовка, без банка) | 4 | не начато | да: деньги, миграция | RS-01, RS-04 (А1), RS-07 (Б) | — |
+| [RS-09](RS-09-return-and-dates.md) | Обратная поездка одной кнопкой (А) и публикация на несколько дат (Б) | 4 | не начато | только денежная часть (разворот цен остановок — по решению о единицах) | А: RS-02; Б: RS-02, RS-05 | E2E-01, E2E-04 |
 | [RS-10](RS-10-route-watch-stops.md) | «Появилась поездка» видит остановки и повторяющиеся рейсы; кнопка «Следить» на сайте | 4 | не начато | нет | RS-02 | E2E-01 |
 | [RS-11](RS-11-search-history.md) | История поиска: повторить, удалить одну, очистить всё | 4 | не начато | нет | — | E2E-05 |
 | [RS-12](RS-12-seats-filter.md) | Фильтр «сколько мест мне нужно» (А — сейчас, Б — по участкам) | 4 | не начато | нет | Б: RS-02 | E2E-01 |
-| [RS-13](RS-13-rate-from-notification.md) | Оценка поездки прямо из уведомления (5 ★ с подтверждением или «Есть замечания») | 4 | не начато | нет | — | E2E-01, E2E-04, E2E-05 |
-| [RS-14](RS-14-several-cars.md) | Несколько машин у водителя, места и класс от выбранной машины | 4 | не начато | да: миграция, класс такси | RS-02 | E2E-01, E2E-05 |
+| [RS-13](RS-13-rate-from-notification.md) | Оценка поездки прямо из уведомления (5 ★ с подтверждением или «Есть замечания») | 4 | не начато | нет | RS-01 | E2E-01, E2E-04, E2E-05 |
+| [RS-14](RS-14-several-cars.md) | Несколько машин у водителя, места и класс от выбранной машины | 4 | не начато | да: миграция, класс такси, удаление данных (номера архивных машин) | — | E2E-01, E2E-05 |
 | [RS-15](RS-15-edit-stops.md) | Правка остановок после публикации, пока никто не забронировал | 4 | не начато | нет | RS-02; RS-10 — для шага 10 | E2E-01, E2E-03 |
 | [RS-16](RS-16-full-run.md) | Полный прогон сценариев на эмуляторе: А — стенд и пробный проход, Б — финальный прогон | 5 | не начато | нет | всё влитое в `main`; исключения — решением Александра | E2E-01…06 |
 
@@ -44,9 +44,9 @@ RS-08 — лишь выключатель-заготовка, который б�
 |---|---|---|
 | Ошибка с машинным кодом: `herr(status, ru, ba, *, code=None, **extra)`, сайт `ApiError.code`, Android `detailCode`; клиенты ветвят по `code`, не по HTTP-статусу | RS-01 | все планы |
 | «Настройки владельца с журналом»: `owner_switches.py`, таблицы `appsetting` + `appsettingchange`, экран админки «Выключатели» | RS-04 (А1) | RS-04 (способы входа), RS-08 (оплата картой) |
-| Ключ повтора `Idempotency-Key` `[A-Za-z0-9_-]{16,128}`, квитанции команд | RS-05 | RS-09 (серия: базовый ключ ≤ 115 знаков + суффикс даты), RS-13 |
+| Ключ повтора `Idempotency-Key` `[A-Za-z0-9_-]{16,128}`, квитанции команд | RS-05 | RS-09 (серия: базовый ключ ≤ 115 знаков + суффикс даты) |
 | Места по участкам `ride_seats.py` (`take`, `free_on`, `max_free`, `recompute`) | RS-02 (А) | RS-10, RS-12 (Б), RS-15 |
-| Рассылка подписчикам `notify_route_watchers(session, ride, siblings=None)` | RS-10 | RS-09 (серия), RS-15 (кто вливается вторым из RS-10/RS-15 — добавляет вызов при правке остановок) |
+| Рассылка подписчикам `notify_route_watchers(session, ride, siblings: Sequence[Ride] \| None = None)`: `None` — не передан, запасной поиск серии по 10 с; `()` — рейс один | первым из RS-09 Б / RS-10 | RS-09 (серия), RS-15 (кто вливается вторым из RS-10/RS-15 — добавляет вызов при правке остановок) |
 
 ## Порядок миграций Alembic
 
@@ -55,7 +55,8 @@ RS-08 — лишь выключатель-заготовка, который б�
 
 | Очередь | Пункт | Ревизия (суть) | Что добавляет |
 |---|---|---|---|
-| 1 | RS-02 А | `<префикс>_ride_segment_seats_<дата>` | места по участкам у `ride` (+ цены остановок — в RS-02 Б, после решения о единицах) |
+| 1 | RS-02 А | `<префикс>_ride_segment_seats_<дата>` | места по участкам у `ride` |
+| 1б | RS-02 Б | `<префикс>_ride_stop_prices_<дата>` | цены остановок — только после решения Александра о единицах; ждущий очередь не держит |
 | 2 | RS-03 А | `<префикс>_booking_meeting_points_<дата>` | точки встречи/высадки у `booking` (строго после RS-02) |
 | 3 | RS-04 А1/А2 | `<префикс>_owner_switches_<дата>` и др. | `appsetting`, `appsettingchange`; поля выдачи кодов СМС |
 | 4 | RS-04 Б, Г | `<префикс>_user_vk_id_<дата>`, `<префикс>_user_auth_time_<дата>` | `user.vk_id`; время входа / смена номера |
@@ -63,7 +64,7 @@ RS-08 — лишь выключатель-заготовка, который б�
 | 6 | RS-06 | `<префикс>_chat_read_mark_<дата>` | `chatreadmark` |
 | 7 | RS-07 Б | `<префикс>_driver_pay_settings_<дата>` | `driverpaysettings` |
 | 8 | RS-08 | `<префикс>_card_switch_<дата>` | ключ `rideshare_card_payments` в `appsetting`, `accepts_card` в `driverpaysettings` (строго после RS-04 А1 и RS-07 Б) |
-| 9 | RS-14 а | `<префикс>_driver_cars_<дата>` | `drivercar` (с полями класса машины), `ride.car_id`, `booking.car_seen_id` + перенос данных |
+| 9 | RS-14А | `<префикс>_driver_cars_<дата>` | `drivercar` (с полями класса машины), `ride.car_id`, `booking.car_seen_id` + перенос данных |
 | — | RS-01, 09–13, 15, 16 | нет | понадобилось поле — новая строка здесь и «Ждёт «да»: миграция» |
 
 Правила:
@@ -87,12 +88,12 @@ RS-08 — лишь выключатель-заготовка, который б�
 | `backend/app/errors.py` | RS-01 (первым — `herr(code=)`) |
 | `backend/app/models.py` + `alembic/versions/` | RS-02 → RS-03 → RS-04 → RS-05 → RS-06 → RS-07 Б → RS-08 → RS-14 |
 | `backend/app/schemas.py` | RS-02 → RS-07 → RS-08 → RS-09 → RS-14 |
-| `backend/app/routers/rides.py` | RS-02 → RS-05 → RS-09 → RS-12 → RS-15 → RS-14 (RS-10 не трогает) |
-| `backend/app/routers/bookings.py` (`book()` и др.) | RS-01 → RS-02 → RS-03 → RS-05 → RS-07 → RS-08 → RS-13 → RS-15 → RS-14 |
-| `backend/app/services.py` | RS-02 → RS-04 → RS-07 → RS-08 → RS-10 → RS-13 → RS-14 |
-| `routers/requests.py` · `routers/auth.py` · `config.py` | RS-01 → RS-02 → RS-14 · RS-01 → RS-03 → RS-04 → RS-14 · RS-01 → RS-03 → RS-04 → RS-08 → RS-14 |
+| `backend/app/routers/rides.py` | RS-02 → RS-05 → RS-09 → RS-12 → RS-15 → RS-14 (RS-10 — только если вливается после RS-15) |
+| `backend/app/routers/bookings.py` (`book()` и др.) | RS-02 → RS-03 → RS-05 → RS-07 → RS-08 → RS-13 → RS-15 → RS-14 |
+| `backend/app/services.py` | RS-02 → RS-04 → RS-07 → RS-08 → RS-09 Б / RS-10 (кто первым — вводит `siblings`) → RS-13 → RS-14 |
+| `routers/requests.py` · `routers/auth.py` · `config.py` | RS-01 → RS-02 → RS-14 · RS-01 → RS-03 → RS-04 → RS-14 · RS-03 → RS-04 → RS-06 → RS-08 → RS-14 |
 | `routers/wallet.py` · `security.py` | RS-01 (замок онлайн-оплаты брони) → RS-08 · RS-04 |
-| `account.py` · `cleanup.py` | RS-02 → RS-04 → RS-05 → RS-06 → RS-07 Б → RS-08 → RS-14 · RS-03 → RS-04 → RS-05 → RS-06 → RS-07 Б → RS-08 |
+| `account.py` · `cleanup.py` | RS-02 → RS-04 → RS-05 → RS-06 → RS-07 Б → RS-08 → RS-14 · RS-03 → RS-04 → RS-05 → RS-06 → RS-07 Б → RS-08 → RS-14 |
 | Android `data/ApiClient.kt` | RS-01 → RS-02 → RS-03 → RS-04 → RS-05 → RS-06 → RS-07 → RS-08 → RS-12 → RS-13 → RS-15 → RS-14 |
 | `MainActivity.kt` | RS-02 → RS-04 → RS-07 → RS-08 → RS-14 |
 | `YuldashApp.kt` | RS-02 → RS-04 → RS-05 → RS-09 → RS-12 → RS-14 (RS-02, 05, 12 — одна ветка брони) |
@@ -106,10 +107,16 @@ RS-08 — лишь выключатель-заготовка, который б�
 | Сайт `screens/CreateRideScreen.tsx` | RS-02 → RS-05 → RS-09 → RS-14 |
 | `components/RideSheet.tsx` | RS-02 → RS-03 → RS-05 → RS-07 → RS-12 |
 | `screens/ActiveTripScreen.tsx` | RS-03 → RS-05 → RS-07 → RS-13 → RS-14 |
-| `screens/HomeScreen.tsx` · `screens/RidesScreen.tsx` · `screens/ProfileScreen.tsx` | RS-10 → RS-11 → RS-12 · RS-10 → RS-11 → RS-12 · RS-04 |
-| `api/client.ts` · `api/rides.ts` · `RideEditActions.tsx` | RS-01 (`code` в `ApiError`) → RS-05 → RS-15 · RS-02 → RS-05 → RS-07 → RS-08 → RS-12 → RS-15 · RS-02 → RS-15 |
-| `DriverCabinetScreen.tsx` · `App.tsx` · `AuthProvider.tsx` · `utils/privacy.ts` | RS-02 → RS-07 → RS-08 → RS-09 · RS-04 → RS-14 · RS-11 → RS-13 · RS-07 → RS-11 |
-| `webapp/tests/run.mjs`, `docs/{tasks,decisions,architecture}.md` | только дописывание своей строки; конфликт — перебазироваться, чужое не переписывать |
+| `screens/HomeScreen.tsx` · `screens/RidesScreen.tsx` · `screens/ProfileScreen.tsx` | RS-10 → RS-12 · RS-10 → RS-11 · RS-04 |
+| `api/client.ts` · `api/rides.ts` · `RideEditActions.tsx` | RS-01 (`code` в `ApiError`) · RS-02 → RS-05 → RS-07 → RS-08 → RS-12 → RS-15 · RS-02 → RS-15 |
+| `DriverCabinetScreen.tsx` · `App.tsx` · `AuthProvider.tsx` · `utils/privacy.ts` | RS-02 → RS-07 → RS-08 → RS-09 · RS-04 → RS-14 · RS-13 · RS-07 → RS-11 |
+| Сервер: `routers/drivers.py` · `routers/family.py` · `safety_logic.py` · `main.py` | RS-07 → RS-08 → RS-14 · RS-05 → RS-13 · RS-02 → RS-14 · RS-01 → RS-14 |
+| Сервер: `routers/health.py` · `routers/__init__.py` · `ride_seats.py` · `owner_switches.py` | RS-01 → RS-04 · RS-03 → RS-04 · RS-02 → RS-15 · RS-04 → RS-08 |
+| Android: `Domain.kt` · `data/BookingDtos.kt` · `RidesRequestsChatScreens.kt` | RS-02 → RS-07 → RS-08 → RS-14 · RS-03 → RS-07 → RS-08 → RS-14 · RS-02 → RS-06 → RS-10 |
+| Android: `BookingSeatCount.kt` · `data/DriverBookings.kt` · `RideshareCompletedScreen.kt` | RS-02 → RS-07 · RS-02 → RS-03 · RS-01 → RS-08 |
+| Сайт: `components/NearbyFilters.tsx` · `api/bookings.ts` · `api/driver.ts` | RS-11 → RS-12 · RS-02 → RS-03 → RS-05 → RS-07 → RS-08 → RS-13 · RS-02 → RS-05 → RS-09 → RS-14 |
+| Сайт: `components/PayTripCard.tsx` · `screens/TripReceiptScreen.tsx` · `components/DriverPassengers.tsx` | RS-01 → RS-08 · RS-01 → RS-08 · RS-02 → RS-03 |
+| `webapp/tests/run.mjs`, `ui.css`, `docs/{tasks,decisions,architecture}.md` | только дописывание своей строки; конфликт — перебазироваться, чужое не переписывать |
 
-Можно параллельно (общих файлов нет): RS-11 ∥ RS-14 а; облачный агент на сервере одного пункта ∥ агент на компьютере
+Можно параллельно (общих файлов нет): RS-11 ∥ RS-13, RS-11 ∥ RS-14А; облачный агент на сервере одного пункта ∥ агент на компьютере
 на Android другого, если их файлы не пересекаются. Сборка Android и эмулятор — по одному на компьютер (`docs/locks.md`).
