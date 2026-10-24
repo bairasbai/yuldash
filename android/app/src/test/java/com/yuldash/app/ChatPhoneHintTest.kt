@@ -27,7 +27,8 @@ import org.robolectric.annotation.GraphicsMode
  * Подсказка «Номер телефона — на экране поездки» в списке чатов не обещает лишнего (приёмка PR210).
  *
  * Было «Открывается обоим после подтверждения брони» — для брони пассажира младше 18 это неправда:
- * водитель получает телефон взрослого, а номер ребёнка не отдаётся (решение Александра 23.10.2026).
+ * водитель получает телефон взрослого, а номер ребёнка не отдаётся (решение Александра 23.10.2026). Телефон
+ * взрослого водитель видит сразу, ещё у ждущей брони (`guardian_visible`), — подсказка говорит «сразу».
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
@@ -67,14 +68,14 @@ class ChatPhoneHintTest {
 
     @Test fun hint_saysDriverSeesAdultPhone_forMinor_ru() {
         showHint(AppLanguage.Ru, "телефон взрослого")
-        compose.onAllNodesWithText("Если едет пассажир младше 18, водитель видит телефон взрослого, а не его", substring = true)
+        compose.onAllNodesWithText("Если едет пассажир младше 18, водитель сразу видит телефон взрослого, а не его", substring = true)
             .assertCountEquals(1)
         compose.onAllNodesWithText("Так мы бережём твою безопасность", substring = true).assertCountEquals(0)
     }
 
     @Test fun hint_saysDriverSeesAdultPhone_forMinor_ba() {
         showHint(AppLanguage.Ba, "оло кешенең телефонын")
-        compose.onAllNodesWithText("18-ҙән кесе юлсы барһа, йөрөтөүсе уның түгел, оло кешенең телефонын күрә", substring = true)
+        compose.onAllNodesWithText("18-ҙән кесе юлсы барһа, йөрөтөүсе шунда уҡ уның түгел, оло кешенең телефонын күрә", substring = true)
             .assertCountEquals(1)
         compose.onAllNodesWithText("Шулай беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ", substring = true).assertCountEquals(0)
     }

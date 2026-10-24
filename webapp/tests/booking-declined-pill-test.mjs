@@ -26,7 +26,7 @@ const t = checker();
 for (const lang of ["ru", "ba"]) {
   const L = (ru, ba) => (lang === "ba" ? ba : ru);
   await t.test(`${lang}: отказ водителя — «Отклонена»`, async () => {
-    assert.equal(await pill(lang, { status: "cancelled", declined: true }), L("Отклонена", "Кире ҡағылды"));
+    assert.equal(await pill(lang, { status: "cancelled", declined: true }), L("Отклонена", "Кире ҡағылған"));
   });
   await t.test(`${lang}: обычная отмена — по-прежнему «Отменена»`, async () => {
     assert.equal(await pill(lang, { status: "cancelled" }), L("Отменена", "Кире алынды"));
@@ -40,6 +40,12 @@ for (const lang of ["ru", "ba"]) {
 await t.test("экран брони передаёт отказ в пометку", () => {
   const src = readFileSync(ROOT + "src/screens/BookingScreen.tsx", "utf8");
   assert.ok(/<StatusPill status=\{d\.status\} declined=\{d\.declined === true\} \/>/.test(src), "пометка знает об отказе");
+});
+
+await t.test("экран поездки (там ждут подтверждения) — тоже", () => {
+  // Пассажир ждёт на экране поездки, водитель отказал — пометка не должна стать «Отменена» (приёмка PR210).
+  const src = readFileSync(ROOT + "src/screens/ActiveTripScreen.tsx", "utf8");
+  assert.ok(/<StatusPill [^>]*declined=\{details\.declined === true\} \/>/.test(src), "пометка знает об отказе");
 });
 
 t.done();

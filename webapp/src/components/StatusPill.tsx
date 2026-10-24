@@ -21,7 +21,7 @@ const CLASS: Record<BookingStatus, string> = {
 };
 
 /** Отказ водителя — не «отмена» (приёмка PR210): рядом с «Водитель отклонил бронь» пометка говорит то же. */
-const DECLINED: [string, string] = ["Отклонена", "Кире ҡағылды"];
+const DECLINED: [string, string] = ["Отклонена", "Кире ҡағылған"];
 
 /** Живая фаза водителя поверх статуса (departed/arriving). */
 const PHASE: Record<Exclude<DriverPhase, "">, [string, string]> = {
