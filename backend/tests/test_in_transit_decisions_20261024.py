@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import timedelta
 
 import pytest
@@ -250,12 +251,14 @@ def test_сразу_после_отмены_в_пути_удаление_вод�
     d = r.json()["detail"]
     assert d["code"] == "transit_cancel_hold" and d["delete_after"]
     assert d["ru"] and d["ba"] and d["ru"] != d["ba"]
-    assert "не раньше" in d["ru"] and "Уфы" in d["ru"]
+    assert d["ru"].startswith("Удалить аккаунт можно будет не раньше") and "Уфы" in d["ru"], \
+        "срок — первым: на Android отказ — всплывающая строка, хвост обрезается"
+    assert d["ba"].startswith("Аккаунтты юйыу — иң иртә")
     with Session(engine) as s:
         pax_user = s.get(User, pax["id"])
         assert pax_user.phone not in d["ru"] + d["ba"] and "Айгуль" not in d["ru"] + d["ba"]
-    assert not any(ch.isdigit() for ch in d["ru"].split("не раньше")[0].replace("6 часов", "")), \
-        "в отказе нет цифр телефона"
+    without_time = re.sub(r"\d{2}\.\d{2} \d{2}:\d{2}", "", d["ru"]).replace("6 часов", "")
+    assert not any(ch.isdigit() for ch in without_time), "в отказе нет цифр, кроме срока"
     # Ничего не удалено: аккаунт, бронь, ссылка близких и SOS на месте.
     assert _alive(driver["id"])
     with Session(engine) as s:
@@ -291,8 +294,9 @@ def test_открытый_разбор_держит_удаление_до_зак
         if row is not None:
             s.add(row)
             s.commit()
-    # И после 6 ч — разбор открыт, ждём.
-    _edit_booking(bid, cancelled_at=utcnow() - PROBLEM_REPORT_WINDOW - timedelta(hours=1))
+    # И после 6 ч — разбор открыт, ждём (посадка — раньше отмены, как в жизни).
+    _edit_booking(bid, cancelled_at=utcnow() - PROBLEM_REPORT_WINDOW - timedelta(hours=1),
+                  onboard_at=utcnow() - PROBLEM_REPORT_WINDOW - timedelta(hours=2))
     if kind == "sos_without_booking":
         with Session(engine) as s:   # SOS — в окне 6 ч после отмены
             ev = s.exec(select(SosEvent).where(SosEvent.user_id == pax["id"], SosEvent.booking_id.is_(None))).first()
@@ -330,6 +334,43 @@ def test_открытый_разбор_держит_удаление_до_зак
         s.commit()
     assert _delete(client, driver).status_code == 200
     assert not _alive(driver["id"])
+
+
+def test_sos_без_брони_нажатый_ещё_в_машине_держит(client, user_factory, spies):
+    """SOS нажали в машине (экран SOS без брони), а потом водитель высадил — это разбор этой поездки."""
+    driver, pax, ride, bid = _trip(client, user_factory, "сос-в-машине")
+    _board(client, driver, bid)
+    with Session(engine) as s:
+        s.add(SosEvent(user_id=pax["id"], booking_id=None, category="threat", created_at=utcnow()))
+        s.commit()
+    assert client.post(f"/bookings/{bid}/cancel", headers=driver["auth"], json={"reason": "other"}).status_code == 200
+    _edit_booking(bid, cancelled_at=utcnow() + timedelta(seconds=1) - PROBLEM_REPORT_WINDOW - timedelta(hours=1),
+                  onboard_at=utcnow() - PROBLEM_REPORT_WINDOW - timedelta(hours=2))
+    with Session(engine) as s:   # SOS — между посадкой и отменой
+        ev = s.exec(select(SosEvent).where(SosEvent.user_id == pax["id"], SosEvent.booking_id.is_(None))).first()
+        ev.created_at = utcnow() - PROBLEM_REPORT_WINDOW - timedelta(minutes=90)
+        s.add(ev)
+        s.commit()
+    r = _delete(client, driver)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "transit_cancel_review_open", r.text
+    assert r.json()["detail"]["ru"].startswith("Удалить аккаунт можно будет, когда закроют разбор")
+
+
+def test_дежурному_номер_именно_той_брони_где_разбор(client, user_factory, spies):
+    driver, pax, ride, bid = _trip(client, user_factory, "две-брони")
+    pax2 = user_factory("Решения второй в машине")
+    bid2 = client.post("/bookings", headers=pax2["auth"], json={"ride_id": ride["id"], "seats": 1}).json()["id"]
+    assert client.post(f"/bookings/{bid2}/confirm", headers=driver["auth"]).status_code == 200
+    _board(client, driver, bid)
+    _board(client, driver, bid2)
+    assert client.post(f"/rides/{ride['id']}/cancel", headers=driver["auth"]).status_code == 200
+    with Session(engine) as s:   # спор — только по второй брони
+        s.add(Incident(booking_id=bid2, reporter_id=pax2["id"], respondent_id=driver["id"], type="unsafe",
+                       reporter_role="passenger"))
+        s.commit()
+    assert _delete(client, driver).json()["detail"]["code"] == "transit_cancel_review_open"
+    ping = spies["tg"][-1]
+    assert re.search(rf"#{bid2}\b", ping) and not re.search(rf"#{bid}\b", ping), ping
 
 
 def test_закрытый_спор_и_старый_sos_без_брони_не_держат(client, user_factory, spies):

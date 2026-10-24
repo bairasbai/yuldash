@@ -223,24 +223,26 @@ class TransitCancelHold:
     def refusal(self) -> HTTPException:
         if self.review_open:
             return HTTPException(status_code=409, detail={
-                "ru": "По поездке, которую отменили, когда пассажир был в машине, идёт разбор. Пока его "
-                      "не закроют, аккаунт удалить нельзя: данные поездки нужны, чтобы честно разобраться "
-                      "за обе стороны. Когда разбор закроют, удаление пройдёт. Вопросы — в поддержку.",
-                "ba": "Пассажир машинала саҡта кире алынған сәфәр буйынса тикшереү бара. Ул ябылмайынса "
-                      "аккаунтты юйып булмай: ике яҡ өсөн дә ғәҙел аңлашыу өсөн сәфәр мәғлүмәттәре кәрәк. "
-                      "Тикшереү ябылғас, юйып була. Һорауҙар булһа — ярҙам хеҙмәтенә яҙ.",
+                "ru": "Удалить аккаунт можно будет, когда закроют разбор: по поездке, которую отменили, когда "
+                      "пассажир был в машине, идёт разбор, и данные поездки нужны, чтобы честно разобраться "
+                      "за обе стороны. Вопросы — в поддержку.",
+                "ba": "Аккаунтты тикшереү ябылғас юйып була: пассажир машинала саҡта кире алынған сәфәр "
+                      "буйынса тикшереү бара, һәм ике яҡ өсөн дә ғәҙел аңлашыу өсөн сәфәр мәғлүмәттәре кәрәк. "
+                      "Һорауҙар булһа — ярҙам хеҙмәтенә яҙ.",
                 "code": "transit_cancel_review_open",
             })
         local = self.until + timedelta(hours=settings.local_tz_offset_hours)
         when_ru = local.strftime("%d.%m %H:%M")
         return HTTPException(status_code=409, detail={
             # «Не раньше»: за эти часы может открыться разбор — тогда ждём уже его (проверка плана 24.10).
-            "ru": "Недавно поездку отменили, когда пассажир был в машине. 6 часов после отмены он может "
-                  "сообщить о проблеме, и данные поездки нужны для разбора. Удалить аккаунт можно будет "
-                  f"не раньше {when_ru} по времени Уфы.",
-            "ba": "Яҡында пассажир машинала саҡта сәфәр кире алынды. Кире алғандан һуң 6 сәғәт эсендә ул "
-                  "проблема тураһында хәбәр итә ала, һәм сәфәр мәғлүмәттәре тикшереү өсөн кәрәк. "
-                  f"Аккаунтты юйыу — иң иртә {when_ru} (Өфө ваҡыты буйынса).",
+            # Срок — первым: Android показывает отказ всплывающей строкой, и длинный хвост там обрезается
+            # (итоговая приёмка 24.10).
+            "ru": f"Удалить аккаунт можно будет не раньше {when_ru} по времени Уфы. Недавно поездку "
+                  "отменили, когда пассажир был в машине: 6 часов после отмены он может сообщить о проблеме, "
+                  "и данные поездки нужны для разбора.",
+            "ba": f"Аккаунтты юйыу — иң иртә {when_ru} (Өфө ваҡыты буйынса). Яҡында пассажир машинала саҡта "
+                  "сәфәр кире алынды: кире алғандан һуң 6 сәғәт эсендә ул проблема тураһында хәбәр итә ала, "
+                  "һәм сәфәр мәғлүмәттәре тикшереү өсөн кәрәк.",
             "code": "transit_cancel_hold",
             "delete_after": self.until.isoformat(),
         })
@@ -257,14 +259,16 @@ def transit_cancel_hold(session: Session, my_ride_ids: list, now=None) -> Option
 
     Без момента отмены (`cancelled_at` пуст — старые записи) не держим: как в `_заброшено`, держать
     человека по пустому полю нельзя. SOS без привязки к брони — тоже разбор этой поездки, если его нажал
-    этот пассажир в окне 6 ч после отмены (экран SOS открывают и без брони)."""
+    этот пассажир от посадки до конца окна 6 ч после отмены (экран SOS открывают и без брони — и в машине,
+    и уже на трассе; итоговая приёмка 24.10). При открытом разборе `booking_ids` — брони именно с ним
+    (их номера уходят дежурному), иначе — все отменённые в пути."""
     from .safety_logic import ACTIVE_INCIDENT_STATUSES
     from .visibility import PROBLEM_REPORT_WINDOW
 
     if not my_ride_ids:
         return None
     now = now or utcnow()
-    rows = session.exec(select(Booking.id, Booking.passenger_id, Booking.cancelled_at).where(
+    rows = session.exec(select(Booking.id, Booking.passenger_id, Booking.onboard_at, Booking.cancelled_at).where(
         Booking.ride_id.in_(my_ride_ids),
         Booking.status == BookingStatus.cancelled,
         Booking.onboard_at.is_not(None),
@@ -273,23 +277,25 @@ def transit_cancel_hold(session: Session, my_ride_ids: list, now=None) -> Option
     )).all()
     if not rows:
         return None
-    ids = [bid for bid, _pid, _at in rows]
-    review = (
-        session.exec(select(Incident.id).where(
-            Incident.booking_id.in_(ids), Incident.status.in_(ACTIVE_INCIDENT_STATUSES)).limit(1)).first()
-        or session.exec(select(Report.id).where(
-            Report.booking_id.in_(ids), Report.status.in_(_OPEN_REPORT_STATUSES)).limit(1)).first()
-        or session.exec(select(SosEvent.id).where(
-            SosEvent.status == "open",
-            or_(SosEvent.booking_id.in_(ids), *[
-                and_(SosEvent.booking_id.is_(None), SosEvent.user_id == pid,
-                     SosEvent.created_at >= at, SosEvent.created_at <= at + PROBLEM_REPORT_WINDOW)
-                for _bid, pid, at in rows]),
-        ).limit(1)).first()
-    )
-    if review is not None:
-        return TransitCancelHold(review_open=True, booking_ids=ids)
-    until = max(at + PROBLEM_REPORT_WINDOW for _bid, _pid, at in rows)
+    ids = [bid for bid, _pid, _on, _at in rows]
+    reviewed = set(session.exec(select(Incident.booking_id).where(
+        Incident.booking_id.in_(ids), Incident.status.in_(ACTIVE_INCIDENT_STATUSES))).all())
+    reviewed |= set(session.exec(select(Report.booking_id).where(
+        Report.booking_id.in_(ids), Report.status.in_(_OPEN_REPORT_STATUSES))).all())
+    reviewed |= set(session.exec(select(SosEvent.booking_id).where(
+        SosEvent.status == "open", SosEvent.booking_id.in_(ids))).all())
+    # SOS без брони: чей и когда — сверяем с окном каждой брони этого пассажира.
+    loose = session.exec(select(SosEvent.user_id, SosEvent.created_at).where(
+        SosEvent.status == "open", SosEvent.booking_id.is_(None),
+        SosEvent.user_id.in_({pid for _bid, pid, _on, _at in rows}),
+    )).all()
+    for bid, pid, on, at in rows:
+        if any(uid == pid and on <= created <= at + PROBLEM_REPORT_WINDOW for uid, created in loose):
+            reviewed.add(bid)
+    reviewed.discard(None)
+    if reviewed:
+        return TransitCancelHold(review_open=True, booking_ids=sorted(reviewed, reverse=True))
+    until = max(at + PROBLEM_REPORT_WINDOW for _bid, _pid, _on, at in rows)
     if until > now:
         return TransitCancelHold(review_open=False, booking_ids=ids, until=until)
     return None

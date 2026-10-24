@@ -14,7 +14,8 @@ import { bundleComponent, button, checker, langMock, mount, text } from "./shall
 const t = checker();
 globalThis.localStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
 
-const HOLD = "Удалить аккаунт можно будет не раньше 24.10 18:40 по времени Уфы.";
+const HOLD = "Удалить аккаунт можно будет не раньше 24.10 18:40 по времени Уфы. Недавно поездку отменили, " +
+  "когда пассажир был в машине: 6 часов после отмены он может сообщить о проблеме, и данные поездки нужны для разбора.";
 
 async function openSettings(failure) {
   const Screen = await bundleComponent("src/screens/SettingsScreen.tsx", {
