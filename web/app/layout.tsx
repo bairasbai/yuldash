@@ -1,25 +1,31 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Montserrat } from "next/font/google";
+import localFont from "next/font/local";
 import Script from "next/script";
 import { SITE_URL, METRIKA_ID } from "@/components/config";
 import { StructuredData } from "@/components/StructuredData";
 import { MotionProvider } from "@/components/MotionProvider";
 import "./globals.css";
 
-// Body — Inter: латиница + кириллица + расширенная кириллица (башкирские глифы
-// ҡ ғ ҙ һ ә ө ү ң живут в cyrillic-ext, U+0460-052F).
-const inter = Inter({
-  subsets: ["latin", "cyrillic", "cyrillic-ext"],
+// Шрифты лежат в репозитории (app/fonts; лицензия SIL OFL 1.1 — OFL-*.txt рядом и запись внутри самих
+// файлов), а не скачиваются при каждой сборке: `next/font/google` в Turbopack изредка падал — CSS шрифтов
+// приходил, а шаг подстановки самих файлов шрифтов нет (CI 16.10, 17.10, 24.10: «next/font/google queries
+// have exactly one entry»; повтор того же коммита — зелёный). Файлы — из google/fonts (ofl/inter,
+// ofl/montserrat), урезаны fontTools до латиницы, кириллицы и расширенной кириллицы (башкирские
+// ҡ ғ ҙ һ ә ө ү ң — U+0460-052F) плюс «₽». Как пересобрать — app/fonts/README.md.
+
+// Body — Inter (переменный по толщине 100–900, оптический размер — 14, как отдавал Google).
+const inter = localFont({
+  src: "./fonts/Inter-latin-cyrillic.woff2",
+  weight: "100 900",
   variable: "--font-sans",
   display: "swap",
 });
 
-// Display — Montserrat: чистый геометрик с ПОЛНЫМ башкирским (cyrillic-ext
-// U+0460-052F: ҡ ғ ҙ һ ә ө ү ң). Заменил Unbounded — у того башкирские глифы
-// выглядели неровно/непривычно. Montserrat даёт аккуратные RU/BA-заголовки.
-const montserrat = Montserrat({
-  subsets: ["latin", "cyrillic", "cyrillic-ext"],
-  weight: ["700", "800", "900"], // убрал 600 (на display почти не используется) — минус вес шрифтов
+// Display — Montserrat: чистый геометрик с ПОЛНЫМ башкирским. Заменил Unbounded — у того
+// башкирские глифы выглядели неровно/непривычно. Только 700–900: 600 на display почти не используется.
+const montserrat = localFont({
+  src: "./fonts/Montserrat-700-900-latin-cyrillic.woff2",
+  weight: "700 900",
   variable: "--font-display",
   display: "swap",
 });
