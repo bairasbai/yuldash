@@ -1,0 +1,96 @@
+При didUpdateWidget меняется подписка при смене stream, а маска обновляется при отличающемся nonnull max. Новый null max локально не снимает старую маску; новое initialText само по себе не присваивается существующему контроллеру. При иной длине маски новый controller создаётся из текущего текста, затем регистрируется listener; явного amount callback после замены в теле нет. Этот порядок задаёт тест согласованности текста и amount state, а не доказанную runtime race или ошибочный перевод.
+
+Действие «Вся сумма» читает текущий viewObject, а не захваченный при построении максимум. Только ViewObjectData с CalculationData даёт max_amount; затем при наличии event controller отправляется SetTextEvent и выполняется unfocus. Прямого withdraw/API-вызова здесь нет. Data.isLoading в этом обработчике не проверяется, но доступность gesture при loading не доказана. Текущий getter не равен новому серверному расчёту и не устанавливает freshness payload.
+
+Самостоятельные предложения для Юлдаша: отдельно проверять числовой предел, формат ввода, актуальность action и финансовый результат; определить синхронизацию controller text, amount state и calculation. Непроведённые тесты: 1499/1500/1501/9999 при max1500, смена 1999→1000 и 1000→999, изменение initialText, null max, paste/IME/Unicode, loading и поздний ответ, смена подписки. Полный InputFieldSlot/EditableText, native Mint bridge, event delivery, серверная авторизация и денежный исход остаются открытыми; APK/API и переводы не запускались.
+
+## BlaBlaCar Начальная категория пассажира
+
+Ограниченный статический разбор получил независимый PASS_WITH_SCOPE_LIMITATIONS: 6 новых полных тел / 552 instruction units в com/searchform, из них 5 основных / 492 units и одно вспомогательное / 60 units. Старый denominator не меняется; прежние CTA/confirm/mapper остаются zero-credit. Исходные DEX bindings и полные байты сверены независимо, но общий decoder не является второй независимой декомпиляцией; novelty ограничена доступными ledger/REA.
+
+Details.init выбирает первую группу, содержащую category.code входного пассажира. Числовой age, birthDate и saved UUID не определяют match. Каталог сохраняет порядок и дубликаты, nullable min/max копируются без локальной коррекции. При отсутствии code match вызывается error helper без собственного fallback state или state write; его конкретное исключение и дальнейший UI-исход не установлены.
+
+В начальный state переносится исходный mapped passenger, без пересборки age/category/discounts по найденному каталогу и без проверки age по range. Main-passenger определяется отдельным входным index==0; начальная displayCta=false и state задаётся напрямую. Последующая ранее изученная mutation использует updateState с displayCta=true. Повторный прямой init не защищён локальным already-initialized guard, но реальное восстановление Android lifecycle этим не доказано.
+
+Уточнение к предыдущему age-mutation кандидату: начальная CTA=false не позволяет заключить, что некорректный возраст автоматически или немедленно подтверждается. Valid code с out-of-range age и последующая mutation остаются сценариями для проверки достижимости и повторной validation, не доказанным runtime дефектом. Catalog provenance, UI restrictions, error-helper и транзитивные generic/constructor зависимости открыты; локальный result и сохранённая identity не подтверждают persistence или server eligibility.
+
+Самостоятельные предложения для Юлдаша: определить fallback при неизвестной категории, политику duplicate codes и источник main-passenger identity; проверять соответствие возраста категории при apply отдельно от UI hints. Непроведённые тесты: empty/no-match каталог, одинаковый code в разных группах, age вне range и несогласованная birthDate, index/identity mismatch, повторный init с draft, CTA=false→mutation→confirm. APK/API/Android не запускались; серверное принятие и сохранение не проверены.
+
+## Go C91 Выбор чаевых и применение при возврате назад
+
+Ограниченный статический final report получил независимый PASS: 20 полных тел и один фрагмент, 488 новых выбранных записей. Ещё 467 raw records исключены из семантического зачёта, включая чужие ветви merged dispatcher и предварительный контекст. Это не frozen checkpoint, не число бизнес-функций и не обновление глобального ledger.
+
+В отдельном TipsSetModal toggle сначала записывает выбранный item в presenter, затем парсит и перестраивает список, после чего сохраняет preference. Это отличается от settings v2 из C90, где save происходил в изменённой Done-кнопке. При исключении промежуточного parse/render поздний save не обязан достигаться; достижимость ошибочного item обычным UI не доказана.
+
+Done и onBackPressed сходятся в один Nf: при наличии выбранного item создаётся PERCENT Tips и вызывается multi-order updater C90, при null dispatch пропускается. Back здесь не является отдельным rollback draft. Outside touch отключён, но системный Back этим не отключается. В Nf нет собственного ожидания ACK, сравнения с прежним значением или очистки выбранного item; фактический повторный dispatch требует отдельной проверки lifecycle/delivery. Внешние analytics/navigation вызовы также не дают гарантии безусловного завершения пути.
+
+Обычные варианты этой factory происходят из локального preset PERCENT 0/5/10/15, а не live server suggestions. Общая ветвь FLAT formatter и parseInt без catch не доказывают произвольный либо нечисловой ввод в данном экране. Контрастный selector v1 сохраняет и применяет настройку прямо в toggle, до отдельной Done; его gate существующего заказа сравнивает вычисленный tipsType с типом item. Эти различия клиентских экранов не устанавливают финансовое согласие или банковский результат.
+
+Самостоятельные предложения для Юлдаша: явно определить Back как отмену либо применение, показывать scope preference и trip intent, отделять enqueue от оплачено и защищать повторное подтверждение operation identity. Непроведённые тесты: открытие без toggle, toggle→Done/Back, outside touch и программный dismiss, reattach/повторные callbacks, preset и нестандартный item в тестовом boundary, различия v1/v2/TipsSet при null/PERCENT/FLAT заказе. Пользовательский текст, доставка нажатий, provider lifetime, server authorization, idempotency и capture/refund/settlement остаются открытыми. Отсутствие согласия пользователя не утверждается; APK/API и платежи не запускались.
+
+## BlaBlaCar Добавление пассажира в selector
+
+Независимая QA PASS_WITH_SCOPE_LIMITATIONS подтверждает ограниченный статический разбор: 9 новых namespace-тел / 545 units, из них 6 основных / 511 и 3 вспомогательных / 34. Один прежний constructor / 26 units остаётся zero-credit. Старый denominator не меняется; исходные DEX bindings и полные байты проверены, но общий decoder не является второй независимой декомпиляцией, novelty ограничена доступным корпусом.
+
+В выбранных add/group/age/mutation телах maxPassengers не читается. Прежний updateState вычисляет canAddPassengers по общей длине списка, не selected count, после изменения. Это различие UI-state gate и guard самой мутации, не доказательство пользовательского обхода или нарушения серверного лимита. Rendering/enabled semantics и delivery повторных событий остаются открытыми.
+
+Единственная категория группы добавляется с age=null; несколько категорий открывают age picker, пока без добавления; нулевая или неизвестная группа даёт локальный no-op. Возвращённый category code ищется первым совпадением среди всех текущих групп, не только ранее открытой группы. В проверенных callback/mutation нет повторного сравнения числового age с min/max или проверки версии исходного каталога. Ограничения picker и серверная eligibility этим не установлены.
+
+Новая запись selected=true, savedDetails=null, обычные discounts пусты, catalog options пересозданы с selected=false, displayEdit по default=true. CTA скидок зависит от непустоты списка discountGroups, не наличия элементов внутри групп. Мутация append заменяет локальный passengers и обновляет UI state; собственного save/API/validation или persistent UUID generation в теле нет. Это не создание сохранённого профиля и не принятие пассажира сервером: прежняя repository validation остаётся отдельным этапом без нового зачёта.
+
+Самостоятельные предложения для Юлдаша: проверять лимит на границе мутации, связывать ответ picker с группой/версией и различать локальную запись, saved identity и серверную validation. Непроведённые тесты: max0/1/N, total против selected count, поздний/повторный result, duplicate/unknown group и category codes, смена каталога, age вне range, null age, defaults options и cancel/non-OK. R8 dispatch, picker producer, UI availability и lifecycle открыты; runtime double-submit, server-limit violation и persistence не заявляются. APK/API/Android не запускались.
+
+## Яндекс Про Выбор способа выплаты и актуальность суммы
+
+Ограниченный статический разбор получил независимый PASS: 13 новых полных локальных тел / 1692 native bytes, 93 direct branches и 3900 механических проверок. Supporting helper, parser-срезы и прежняя withdrawal/calculation цепь имеют нулевой новый зачёт. Novelty ограничена проверенным корпусом; ELF operands и hash-bound annotations сверены, но весь динамический runtime и зависимости не исследованы.
+
+Preview producer выбирает первый existing method с is_chosen=true сначала из platform items; только если такого нет, ищет в other items. Promo не даёт выбранного метода. Уникальность выбора и is_valid этим extractor не проверяются. Это правило извлечения клиентского контекста, не разрешение перевода на недействительные реквизиты: UI disabled/gesture и downstream/server guards остаются отдельными границами.
+
+Preview Data даёт результат extractor; Loading/Error/Initial/Conflict и неизвестный тип передают null в queued update, а не синхронно очищают все зависимые состояния. Callback не Await-ит Future. Init при существующей subscription не подписывается повторно; в выбранном теле нет чтения текущего preview snapshot/startWith. Реальный порядок инициализации, scheduling, lifetime и runtime identity с потребителями не установлены заново.
+
+Ручной выбор передаёт тот же PayoutMethod в тот же updateSelectedMethod интерфейс и Await-ит возврат. В локальном handler нет is_valid/is_chosen/membership/generation gate, но возможность нажать invalid/stale метод в реальном UI этим не доказана. Следующий открытый участок — фактическая UI-доступность выбранных методов.
+
+Zero-credit уточнение прежней цепи: сумма берётся из переданного WithdrawAction, а method отдельно читается из текущего selected state; при null method вызов прекращается. Input text, AmountInputState, action amount и method snapshot не являются одним полем. В проверенных телах нет их generation/equality-сопоставления, однако это не доказывает отсутствия раннего UI gate или серверной проверки. Прежние retry params и новый token не превращаются в доказательство двойной выплаты или отсутствия серверной дедупликации.
+
+Самостоятельные предложения для Юлдаша: связать подтверждаемую action с amount, method и контекстом через явную версию либо проверенный атомарный gate; определить реакцию на несколько chosen методов. Непроведённые тесты: platform/other priority, chosen=true/valid=false отдельно от UI reachability, Data→Loading/Error→Data, init после готового preview, смена суммы/метода с задержанным ответом, null method и retry старых параметров. Runtime race, stale-permit, финансовый успех и двойной перевод не установлены; APK/API и реальные выплаты не запускались.
+
+## BlaBlaCar Оставшиеся скидки и ответ picker
+
+Ограниченная независимая QA PASS_WITH_SCOPE_LIMITATIONS: 9 новых namespace-тел / 575 units и один новый core support helper / 23 units, раздельно от старого denominator. Глобальные числа не пересчитаны; прежние consumer/validation остаются zero-credit. Сверены исходные DEX identities и полные байты; общий decoder не является второй независимой декомпиляцией, novelty ограничена доступным корпусом.
+
+Catalog entry исключается из remaining, если хотя бы одна старая скидка того же code имеет selected=true. Unselected match не исключает пункт и не останавливает поиск более позднего selected duplicate. Опустевшие группы удаляются, surviving порядок и metadata сохраняются. При этом пустой итоговый список проходит null-only guard запуска picker; отсутствие элементов не равнозначно null. В выбранных телах нет проверки exclusivity по группе или серверной допустимости скидки.
+
+Request сохраняет входные passengerIndex, ageCategoryCode, remaining groups и disclaimers. Typed selection callback возвращает index, ageCategoryCode и выбранный discountCode, но не groupCode, UUID или версию каталога. Disclaimers не означают согласие пользователя. Прежний consumer повторно ищет коды в текущем каталоге и адресует текущего пассажира по index: stale index, изменившийся каталог и одинаковые discountCode в разных группах остаются тестовыми кандидатами, не доказанными runtime ошибками.
+
+Typed apply создаёт response, RESULT_OK и finish без собственного save, price calculation или server validation. Typed cancel вызывает BackDispatcher без собственного setResult или rollback; итоговый lifecycle/result этим не гарантирован. Missing/wrong-type request обрабатывается через error helpers, не через собственный fallback. R8 dispatch, полный picker rendering, конкретная navigation/DI связь и exactly-once delivery остаются открытыми.
+
+Самостоятельные предложения для Юлдаша: определить empty-picker UX, identity/version reconciliation и уникальность discountCode либо передачу group identity; проверять цену и eligibility отдельно. Непроведённые тесты: selected/unselected duplicates, все скидки выбраны, empty groups, reorder/delete между open и result, смена каталога, одинаковые коды разных групп, malformed input, cancel и repeated apply. Наличие пункта и RESULT_OK не являются подтверждением скидки в цене, серверного принятия или rollback. APK/API/Android не запускались.
+
+## Яндекс Про Способ выплаты и блокировка жеста
+
+Ограниченный статический разбор получил независимый PASS: 13 новых полных локальных тел / 4116 native bytes, 136 direct branches и 4308 механических проверок. Generic/merged/framework контекст и прежние парсеры/withdrawal имеют нулевой новый зачёт; глобальный ledger не меняется. Независимо сверены native bytes, field operands и критические инверсии bool. Novelty ограничена зафиксированным корпусом, полный транзитивный UI-аудит не заявляется.
+
+Уточнение прежней открытой границы ручного выбора: конкретный existing-method renderer передаёт is_valid в RequisiteItemWidget, далее во внешний BNGTapAnimation как explicitDisable=!is_valid. Ранее независимо проверенная disabled-ветвь этого builder пропускает создание собственных tap/long-press recognizers и RawGestureDetector. Поэтому отсутствие is_valid guard в onSelectMethod не является доказательством доступного пользователю обхода. Это gate при построении конкретного UI, не гарантия всех способов взаимодействия.
+
+Вложенный CoreSlot хранит callback, но конкретные флаги producer отключают его собственную tap-ветвь независимо от is_valid. Одного наличия callback недостаточно для вывода о втором активном пути. Radio получает disabled-флаг; его selection callback этим producer не задаётся. Полные ProtoRadio/accessibility/keyboard semantics и произвольные descendant gestures остаются вне проверки.
+
+Source-bound callback цепь связывает переданный method с ранее проверенным onSelectMethod: один callback использует captured existing method, следующий пересылает его через текущий State.widget. Локальная повторная is_valid-проверка в callbacks отсутствует, но исследованный ручной путь расположен после build-time gate. Автоматический is_chosen extractor остаётся отдельной цепью и не наследует доказательство ручной блокировки.
+
+Самостоятельные предложения для Юлдаша: отдельно проверять server eligibility, UI availability и финансовый исход; сохранять корреляцию amount/method/calculation при подтверждении. Непроведённые тесты: is_valid×is_chosen, тап по body/icon/radio/badge, accessibility/keyboard, изменение valid во время pointer-down, rebuild/dispose и повторное открытие modal. Обновление уже открытой модали, начатый жест, lifecycle/DI identity, invalid runtime reachability и денежный результат не установлены. APK/API и реальные выплаты не запускались.
+
+## Go C92 Изменение email и границы refresh
+
+Ограниченный статический final report получил независимый PASS и финальное редакционное подтверждение: 29 полных тел и один фрагмент, 887 выбранных записей = 788 новых + 99 reused, включая одну payload-запись. Ещё 148 чужих dispatcher records исключены из семантического зачёта. Это не frozen checkpoint, не runtime-тесты и не обновление глобального покрытия.
+
+SET принимает статусы ok и confirmation_sent, после чего кэширует исходную введённую строку, не email из ответа. UNSET принимает только ok и сам напрямую cache не очищает. Поэтому command acceptance, локальная запись, подтверждение владения адресом и доставка письма различаются. UI-строка читается до B-check; B=false при нормальном прохождении чтения ведёт к dismiss без SET. Локальные SET/DELETE busy guards асимметричны, но параллельная операция или runtime race этим не доказаны.
+
+GET при ok/not_confirmed записывает response email, заменяя null пустой строкой. Прочие статусы логируются и возвращают snapshot без записи cache; refresh coroutine отдельно этот snapshot не сохраняет. Обработанный 404 очищает локальные email/status, другие пойманные ошибки логируются без очистки. Отмена перекидывается до refresh=false reset в выбранном теле без finally; это не доказательство вечного spinner или зависания waiter, поскольку внешние lifecycle/cleanup остаются открытыми.
+
+DELETE success вызывает refresh и ждёт нормального окончания ожидания, затем вызывает onSuccess без проверки, что email snapshot пуст и GET подтвердил удаление. Cache setter последовательно пишет email, status и observable snapshot; атомарность durable storage, account partition и доставка наблюдателям не установлены. Callback успеха и refresh completion не подтверждают серверное удаление, удаление аккаунта/архивов или доставку подтверждений/чеков.
+
+Самостоятельные предложения для Юлдаша: единое operation state и account generation для SET/DELETE/REFRESH; отдельные исходы accepted, confirmation requested, verified, deleted, unknown и cancelled; атомарный email/status snapshot и явный refresh outcome вместо голого boolean. Непроведённые тесты: original против normalized email, все статусы SET/UNSET/GET, 404 против offline/500, cancellation и callback exception, DELETE ok с failed refresh, повтор неподтверждённого адреса, смена аккаунта и поздний ответ. Storage delegates, UI validation/callback semantics, link confirmation, retention и серверная авторизация остаются открытыми. APK/API, изменения реального профиля и отправка писем не выполнялись.
+
+## Яндекс Про Снимок методов в открытой модали
+
+Ограниченный статический разбор получил независимый PASS: 11 новых полных локальных тел / 4840 native bytes, 176 direct branches и 4424 механические проверки. Partial credit отсутствует; старые adapters, manual selection, producer-срезы и generic helpers остаются zero-credit. Native operands и GDT bindings сверены, novelty ограничена проверенным корпусом; runtime и полный framework/EH не исследованы.
+

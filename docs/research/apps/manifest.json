@@ -1,0 +1,633 @@
+{
+  "schema_version": 2,
+  "snapshot_scope": "Requested research Pages, ordinary content only; later changes excluded.",
+  "read_method": "read_page(view=full), one complete atomic snapshot per Page; no pagination parameter exists.",
+  "verification": {
+    "all_block_hashes_match": true,
+    "all_block_ids_unique_per_page": true,
+    "all_blocks_markdown": true,
+    "chunk_concatenation_equals_full_page_markdown": true,
+    "redactions": 0
+  },
+  "pages": [
+    {
+      "name": "master",
+      "title": "Юлдаш единый план разработки попутки и общего сервера",
+      "sequence": 152,
+      "projection_sequence": 152,
+      "block_count": 2619,
+      "canonical_markdown_bytes": 1046826,
+      "canonical_content_sha256": "56f91c18418d2db3d91cfa4c5206d8a532b6072ae64a2f3bad9dc4a36b49e480",
+      "chunks": [
+        {
+          "path": "master/part-001.md",
+          "block_start_inclusive": 0,
+          "block_end_exclusive": 96,
+          "block_count": 96,
+          "bytes": 29744,
+          "sha256": "2ab76a20b5fa2afd239dcfab0307fbfba5dca5df461e87ff209acd72ca578e66"
+        },
+        {
+          "path": "master/part-002.md",
+          "block_start_inclusive": 96,
+          "block_end_exclusive": 181,
+          "block_count": 85,
+          "bytes": 29757,
+          "sha256": "14f31988a8111a2b812d05fdaba03b900846ed6e2daea13670cad3387b4e16ab"
+        },
+        {
+          "path": "master/part-003.md",
+          "block_start_inclusive": 181,
+          "block_end_exclusive": 295,
+          "block_count": 114,
+          "bytes": 29840,
+          "sha256": "41221c9ee327969f54a277dd1e4f5426dcfb7a7a1b720e39d2473f48e971584d"
+        },
+        {
+          "path": "master/part-004.md",
+          "block_start_inclusive": 295,
+          "block_end_exclusive": 408,
+          "block_count": 113,
+          "bytes": 29792,
+          "sha256": "b40513434fd53d82062d1e08e97027c19b60d637bda948206f56f6054da1c38e"
+        },
+        {
+          "path": "master/part-005.md",
+          "block_start_inclusive": 408,
+          "block_end_exclusive": 516,
+          "block_count": 108,
+          "bytes": 29613,
+          "sha256": "46074a706bf461b6653d3718d488320fd49f4100b5b250356e3b1d1b5585909f"
+        },
+        {
+          "path": "master/part-006.md",
+          "block_start_inclusive": 516,
+          "block_end_exclusive": 638,
+          "block_count": 122,
+          "bytes": 29886,
+          "sha256": "caa3c77a9fe07f62b41b414c40223dead034e96abcb11e61159a5975f7a5a96a"
+        },
+        {
+          "path": "master/part-007.md",
+          "block_start_inclusive": 638,
+          "block_end_exclusive": 764,
+          "block_count": 126,
+          "bytes": 29753,
+          "sha256": "c9db7601bd90726d0cc7e3c5b5ed2ce0cab279a6002a53bfbc94cf84b4b7afa6"
+        },
+        {
+          "path": "master/part-008.md",
+          "block_start_inclusive": 764,
+          "block_end_exclusive": 944,
+          "block_count": 180,
+          "bytes": 29724,
+          "sha256": "8140cf1cfa32be19bf27f42158ed8596141a3dafa86427757910c73e91b70e11"
+        },
+        {
+          "path": "master/part-009.md",
+          "block_start_inclusive": 944,
+          "block_end_exclusive": 998,
+          "block_count": 54,
+          "bytes": 29434,
+          "sha256": "a7af98b1a5a575652f176f3ff8d0e019a47eb4e482dea19595b2f7b5974b89f5"
+        },
+        {
+          "path": "master/part-010.md",
+          "block_start_inclusive": 998,
+          "block_end_exclusive": 1046,
+          "block_count": 48,
+          "bytes": 29244,
+          "sha256": "db1f9c16c73d4c50af90baa2b9d2652b7f4b1d795f5a799b909187211049db99"
+        },
+        {
+          "path": "master/part-011.md",
+          "block_start_inclusive": 1046,
+          "block_end_exclusive": 1096,
+          "block_count": 50,
+          "bytes": 29662,
+          "sha256": "5b70d588c68efeec2c9ab1f0729dfd77cbe9d36ec65d8d690763f8bfb19809b2"
+        },
+        {
+          "path": "master/part-012.md",
+          "block_start_inclusive": 1096,
+          "block_end_exclusive": 1150,
+          "block_count": 54,
+          "bytes": 29981,
+          "sha256": "e8ade66b0582c8e5f6ad529cebd93128145a805dc6a39bbda82922f3041fc2a6"
+        },
+        {
+          "path": "master/part-013.md",
+          "block_start_inclusive": 1150,
+          "block_end_exclusive": 1213,
+          "block_count": 63,
+          "bytes": 29809,
+          "sha256": "7c518e1c851cbbd1b9690315ad5cc3098e4d9d885f495a3ac7dc8364812392b9"
+        },
+        {
+          "path": "master/part-014.md",
+          "block_start_inclusive": 1213,
+          "block_end_exclusive": 1282,
+          "block_count": 69,
+          "bytes": 29961,
+          "sha256": "9a7409af581836605151e8f9883e2bad1614641e765f17abce9e584771e7410a"
+        },
+        {
+          "path": "master/part-015.md",
+          "block_start_inclusive": 1282,
+          "block_end_exclusive": 1344,
+          "block_count": 62,
+          "bytes": 29650,
+          "sha256": "b850f3c041571fa2302a7af84db2734a86fad04e6c41e8cc00bbc762f92e9a5f"
+        },
+        {
+          "path": "master/part-016.md",
+          "block_start_inclusive": 1344,
+          "block_end_exclusive": 1409,
+          "block_count": 65,
+          "bytes": 29675,
+          "sha256": "6be0114fde6fb651df19f588b0ad4aa223507f841d2551566f02d094ab96d2df"
+        },
+        {
+          "path": "master/part-017.md",
+          "block_start_inclusive": 1409,
+          "block_end_exclusive": 1471,
+          "block_count": 62,
+          "bytes": 29609,
+          "sha256": "7f066f6fdb0d79daaf4c96fd4ddb14f5f140e0bdf133743b673859ee7674829b"
+        },
+        {
+          "path": "master/part-018.md",
+          "block_start_inclusive": 1471,
+          "block_end_exclusive": 1540,
+          "block_count": 69,
+          "bytes": 29642,
+          "sha256": "ca81407f3739d4e18ca70bc61c461c259dd12a1b7dbbd76b055b000d8f53d294"
+        },
+        {
+          "path": "master/part-019.md",
+          "block_start_inclusive": 1540,
+          "block_end_exclusive": 1623,
+          "block_count": 83,
+          "bytes": 29975,
+          "sha256": "2d28309b5abef94d1866f7922a18de2243174785a70734d263db6a40bf7f3f52"
+        },
+        {
+          "path": "master/part-020.md",
+          "block_start_inclusive": 1623,
+          "block_end_exclusive": 1700,
+          "block_count": 77,
+          "bytes": 29960,
+          "sha256": "73d0c05051de68cfb3f9b530f6b837d932f50babb383b29f2f247998cace1674"
+        },
+        {
+          "path": "master/part-021.md",
+          "block_start_inclusive": 1700,
+          "block_end_exclusive": 1783,
+          "block_count": 83,
+          "bytes": 29581,
+          "sha256": "6bd6ca7e82c3c13953b92711571e523e935a5265ec67c4a813c0c54e2ac714ee"
+        },
+        {
+          "path": "master/part-022.md",
+          "block_start_inclusive": 1783,
+          "block_end_exclusive": 1867,
+          "block_count": 84,
+          "bytes": 29952,
+          "sha256": "de9384c1994da12843851d173d6142d68ff23c419ca413f394b8647e9be15d66"
+        },
+        {
+          "path": "master/part-023.md",
+          "block_start_inclusive": 1867,
+          "block_end_exclusive": 1952,
+          "block_count": 85,
+          "bytes": 29569,
+          "sha256": "894a90780f88485673431ce78e08ef2bb5a83dad5bb9761a5321d844fc5b5181"
+        },
+        {
+          "path": "master/part-024.md",
+          "block_start_inclusive": 1952,
+          "block_end_exclusive": 2031,
+          "block_count": 79,
+          "bytes": 29901,
+          "sha256": "8d6dac8b4de776b1e803fce77a7970e4c868298a693d628e754337e88ee89365"
+        },
+        {
+          "path": "master/part-025.md",
+          "block_start_inclusive": 2031,
+          "block_end_exclusive": 2092,
+          "block_count": 61,
+          "bytes": 29780,
+          "sha256": "6e462fc9d54d75897efd5691317f7bf973d368146629e68f92314f015b0946dd"
+        },
+        {
+          "path": "master/part-026.md",
+          "block_start_inclusive": 2092,
+          "block_end_exclusive": 2141,
+          "block_count": 49,
+          "bytes": 29933,
+          "sha256": "6e58ee1ad9a72bc480e9c87aa04880e297f9a0989caac49c5bb1b12706075cc8"
+        },
+        {
+          "path": "master/part-027.md",
+          "block_start_inclusive": 2141,
+          "block_end_exclusive": 2191,
+          "block_count": 50,
+          "bytes": 29367,
+          "sha256": "19f26b84dd8608b422113e407de13ede07bf56631b7bbc50baba13fd9305e4e4"
+        },
+        {
+          "path": "master/part-028.md",
+          "block_start_inclusive": 2191,
+          "block_end_exclusive": 2239,
+          "block_count": 48,
+          "bytes": 29769,
+          "sha256": "9c099e0d723596227cc4bd717f310f259a119e94dc90b608ddcdc69a6eb633d9"
+        },
+        {
+          "path": "master/part-029.md",
+          "block_start_inclusive": 2239,
+          "block_end_exclusive": 2287,
+          "block_count": 48,
+          "bytes": 29441,
+          "sha256": "a975df4782d3f15bba18582651cf5c592374b9f273ccf0349d4a52b6799a53e0"
+        },
+        {
+          "path": "master/part-030.md",
+          "block_start_inclusive": 2287,
+          "block_end_exclusive": 2340,
+          "block_count": 53,
+          "bytes": 29713,
+          "sha256": "ce55b7ed56dd59d4700f912d75b6c66533821bc543e7b7759314e4ffc1df20c7"
+        },
+        {
+          "path": "master/part-031.md",
+          "block_start_inclusive": 2340,
+          "block_end_exclusive": 2389,
+          "block_count": 49,
+          "bytes": 29610,
+          "sha256": "8ff35e706dbd7cfc8859af37bdd3d47b2e4fdde732a0ba26132115c2680b9c8f"
+        },
+        {
+          "path": "master/part-032.md",
+          "block_start_inclusive": 2389,
+          "block_end_exclusive": 2441,
+          "block_count": 52,
+          "bytes": 29530,
+          "sha256": "aed69e35fa56ced96e4cbee445a900c92485be98213a4fb8898ad67ecd4bb477"
+        },
+        {
+          "path": "master/part-033.md",
+          "block_start_inclusive": 2441,
+          "block_end_exclusive": 2498,
+          "block_count": 57,
+          "bytes": 29895,
+          "sha256": "3e19515b7a55cb6c94cf343325e981b9d46237370e92e587880948f6a43bf7b6"
+        },
+        {
+          "path": "master/part-034.md",
+          "block_start_inclusive": 2498,
+          "block_end_exclusive": 2554,
+          "block_count": 56,
+          "bytes": 29352,
+          "sha256": "83900fde015e761fd9a8cd748065d08b7a5d86001092110c3c083c77181e23d1"
+        },
+        {
+          "path": "master/part-035.md",
+          "block_start_inclusive": 2554,
+          "block_end_exclusive": 2607,
+          "block_count": 53,
+          "bytes": 29893,
+          "sha256": "c44afe32de4e8b0d55217b89dfc38898b0e5f6df0a693087408d3bf7197f1afe"
+        },
+        {
+          "path": "master/part-036.md",
+          "block_start_inclusive": 2607,
+          "block_end_exclusive": 2619,
+          "block_count": 12,
+          "bytes": 6829,
+          "sha256": "2c03f811fbadd4a7fd923b319932cda6f68de45e04266576b3be803f3d04bd52"
+        }
+      ]
+    },
+    {
+      "name": "continuation",
+      "title": "Исследование приложений — продолжение 2",
+      "sequence": 149,
+      "projection_sequence": 149,
+      "block_count": 1685,
+      "canonical_markdown_bytes": 1026331,
+      "canonical_content_sha256": "7700b2979265b167bed765978502fc706260679ff6055baeaf2eacbb3175a1f0",
+      "chunks": [
+        {
+          "path": "continuation/part-001.md",
+          "block_start_inclusive": 0,
+          "block_end_exclusive": 54,
+          "block_count": 54,
+          "bytes": 29667,
+          "sha256": "01a990d6616e3a4a82fe2c49879348d6612ae0412133394cc4c5004f81eb34fc"
+        },
+        {
+          "path": "continuation/part-002.md",
+          "block_start_inclusive": 54,
+          "block_end_exclusive": 106,
+          "block_count": 52,
+          "bytes": 29487,
+          "sha256": "9473e60b5bb5e1dfa08b9dc70c07d989127ca3c2f84c7c95960e5a77262420bb"
+        },
+        {
+          "path": "continuation/part-003.md",
+          "block_start_inclusive": 106,
+          "block_end_exclusive": 162,
+          "block_count": 56,
+          "bytes": 29626,
+          "sha256": "ec7f35875e57da93f1ea9f281523dda8542b99ed65009de2937b7ee3055b429c"
+        },
+        {
+          "path": "continuation/part-004.md",
+          "block_start_inclusive": 162,
+          "block_end_exclusive": 217,
+          "block_count": 55,
+          "bytes": 29529,
+          "sha256": "eea4c5fe692a5030e9e5266c405b85511b9129c3253ce8a771470962c1531b8b"
+        },
+        {
+          "path": "continuation/part-005.md",
+          "block_start_inclusive": 217,
+          "block_end_exclusive": 276,
+          "block_count": 59,
+          "bytes": 29458,
+          "sha256": "436570345e47e2273b1ed308091d8866648bd060d42fb3828b13b1466caaa024"
+        },
+        {
+          "path": "continuation/part-006.md",
+          "block_start_inclusive": 276,
+          "block_end_exclusive": 332,
+          "block_count": 56,
+          "bytes": 29658,
+          "sha256": "f08badca776adba800d24c009ece34188f62be1f1387232ed1e49cebdcbdb81f"
+        },
+        {
+          "path": "continuation/part-007.md",
+          "block_start_inclusive": 332,
+          "block_end_exclusive": 374,
+          "block_count": 42,
+          "bytes": 29260,
+          "sha256": "6b706211b6f615e5a5e01b6526b884f6152c7648149694f8cf3e227a4cd239a0"
+        },
+        {
+          "path": "continuation/part-008.md",
+          "block_start_inclusive": 374,
+          "block_end_exclusive": 410,
+          "block_count": 36,
+          "bytes": 29152,
+          "sha256": "726dde99c54105d292b2c3680dcce904ced0ac34c0de8b37a677a2974d05394a"
+        },
+        {
+          "path": "continuation/part-009.md",
+          "block_start_inclusive": 410,
+          "block_end_exclusive": 450,
+          "block_count": 40,
+          "bytes": 29871,
+          "sha256": "d3ee346ff7c063990bb9b062ca1ce63cb73834e2295655aaec662d0ac2e6f05a"
+        },
+        {
+          "path": "continuation/part-010.md",
+          "block_start_inclusive": 450,
+          "block_end_exclusive": 493,
+          "block_count": 43,
+          "bytes": 29312,
+          "sha256": "8187e2cf9f5878e301b660a4f7df20040058e67f4bab60a56fa534727db2e19d"
+        },
+        {
+          "path": "continuation/part-011.md",
+          "block_start_inclusive": 493,
+          "block_end_exclusive": 538,
+          "block_count": 45,
+          "bytes": 29594,
+          "sha256": "a3c244465461dc2faa2433e62e7fd98e24148e4b8fd6fa23289d6de4ed4e28c5"
+        },
+        {
+          "path": "continuation/part-012.md",
+          "block_start_inclusive": 538,
+          "block_end_exclusive": 591,
+          "block_count": 53,
+          "bytes": 29728,
+          "sha256": "bd415113be1a573ecde427b8dd83303d258d232d0431686327309b7eb5dd6ee3"
+        },
+        {
+          "path": "continuation/part-013.md",
+          "block_start_inclusive": 591,
+          "block_end_exclusive": 651,
+          "block_count": 60,
+          "bytes": 29598,
+          "sha256": "e55bff7a8ff4092d11453b8a6f5d2797b66018fab7491a16e771071a5f842353"
+        },
+        {
+          "path": "continuation/part-014.md",
+          "block_start_inclusive": 651,
+          "block_end_exclusive": 717,
+          "block_count": 66,
+          "bytes": 29806,
+          "sha256": "8131016e3b4a8b75e962b9dcd476d0fbf3e0e8a4cba96b49a1bd3d9c4a15d161"
+        },
+        {
+          "path": "continuation/part-015.md",
+          "block_start_inclusive": 717,
+          "block_end_exclusive": 773,
+          "block_count": 56,
+          "bytes": 29700,
+          "sha256": "d55020f66099e2419e17306dfb61c9a188a9af8d2b7b3cf184f4ef0e3d04bdb8"
+        },
+        {
+          "path": "continuation/part-016.md",
+          "block_start_inclusive": 773,
+          "block_end_exclusive": 826,
+          "block_count": 53,
+          "bytes": 29730,
+          "sha256": "058e00da7c751004e5dd7cac8c25e3a36343e5e1913724d3ef06ec413ec9f0c3"
+        },
+        {
+          "path": "continuation/part-017.md",
+          "block_start_inclusive": 826,
+          "block_end_exclusive": 879,
+          "block_count": 53,
+          "bytes": 29861,
+          "sha256": "0a651d93b8259f1385875337d22ef457d506cbfe238c6495034136c88f855953"
+        },
+        {
+          "path": "continuation/part-018.md",
+          "block_start_inclusive": 879,
+          "block_end_exclusive": 930,
+          "block_count": 51,
+          "bytes": 29385,
+          "sha256": "d684de417eb544d43088c9b34b3ff55ab1af8840ac6cd34013693421d60f4808"
+        },
+        {
+          "path": "continuation/part-019.md",
+          "block_start_inclusive": 930,
+          "block_end_exclusive": 982,
+          "block_count": 52,
+          "bytes": 29499,
+          "sha256": "7c5ba73d2689df953085186642663b368ae282615f5744115e982a6ec05d88b4"
+        },
+        {
+          "path": "continuation/part-020.md",
+          "block_start_inclusive": 982,
+          "block_end_exclusive": 1027,
+          "block_count": 45,
+          "bytes": 29487,
+          "sha256": "bd849500076739412736939462d9b83b075373d7eede9a82900dfb11d8501dd9"
+        },
+        {
+          "path": "continuation/part-021.md",
+          "block_start_inclusive": 1027,
+          "block_end_exclusive": 1073,
+          "block_count": 46,
+          "bytes": 29431,
+          "sha256": "cf58705cc68a64d3da2417ddab8590920c0a50a77c00fa0966771a807d8c6a65"
+        },
+        {
+          "path": "continuation/part-022.md",
+          "block_start_inclusive": 1073,
+          "block_end_exclusive": 1122,
+          "block_count": 49,
+          "bytes": 29657,
+          "sha256": "9e9af66101bc9c161354810c156bd8593288648598e502b1ff9936c80ff75d37"
+        },
+        {
+          "path": "continuation/part-023.md",
+          "block_start_inclusive": 1122,
+          "block_end_exclusive": 1168,
+          "block_count": 46,
+          "bytes": 29572,
+          "sha256": "ce07815bfa3c5240648e1e53f0b5693c17205eafa8a0e54b4402fc648cfceeb5"
+        },
+        {
+          "path": "continuation/part-024.md",
+          "block_start_inclusive": 1168,
+          "block_end_exclusive": 1209,
+          "block_count": 41,
+          "bytes": 29956,
+          "sha256": "7c31a591d2366742ccb1d9f92773129887860e7d7d751c7b1ca56917a032b6bb"
+        },
+        {
+          "path": "continuation/part-025.md",
+          "block_start_inclusive": 1209,
+          "block_end_exclusive": 1251,
+          "block_count": 42,
+          "bytes": 29302,
+          "sha256": "cf02b02e24f86404df0e7e12c9da907ab66e849bcfa4d4c3b49c74ecc0f3002e"
+        },
+        {
+          "path": "continuation/part-026.md",
+          "block_start_inclusive": 1251,
+          "block_end_exclusive": 1296,
+          "block_count": 45,
+          "bytes": 29543,
+          "sha256": "7bfd4e824abfe1071bf66369a6d44524465295cc0391d22c183054e311d020f9"
+        },
+        {
+          "path": "continuation/part-027.md",
+          "block_start_inclusive": 1296,
+          "block_end_exclusive": 1337,
+          "block_count": 41,
+          "bytes": 29227,
+          "sha256": "fc927a18a77590123688f646d794a598af8c9de07936549e4a3cab86f762e25f"
+        },
+        {
+          "path": "continuation/part-028.md",
+          "block_start_inclusive": 1337,
+          "block_end_exclusive": 1381,
+          "block_count": 44,
+          "bytes": 29568,
+          "sha256": "4616276b4216638c3227be867d73a0bb2e3bedc1d4bac0b42da61196562ee94e"
+        },
+        {
+          "path": "continuation/part-029.md",
+          "block_start_inclusive": 1381,
+          "block_end_exclusive": 1428,
+          "block_count": 47,
+          "bytes": 29932,
+          "sha256": "011c7c1d53ca6140dce6c14518f3e678f83ef199b0930550f78b1c180185ec53"
+        },
+        {
+          "path": "continuation/part-030.md",
+          "block_start_inclusive": 1428,
+          "block_end_exclusive": 1476,
+          "block_count": 48,
+          "bytes": 29698,
+          "sha256": "f346c86fcdb98a0c5a761929009009b66d7c4729bef907ec80490b20cb255e52"
+        },
+        {
+          "path": "continuation/part-031.md",
+          "block_start_inclusive": 1476,
+          "block_end_exclusive": 1522,
+          "block_count": 46,
+          "bytes": 29352,
+          "sha256": "5eef62081ef5283863ad74589fb987dbe33f0d0803077a25cfce75bc80f49f77"
+        },
+        {
+          "path": "continuation/part-032.md",
+          "block_start_inclusive": 1522,
+          "block_end_exclusive": 1568,
+          "block_count": 46,
+          "bytes": 29784,
+          "sha256": "5d2b032013205d28768c0c0ad740a7833bbd23b51baf0ea237ccf49152b8b513"
+        },
+        {
+          "path": "continuation/part-033.md",
+          "block_start_inclusive": 1568,
+          "block_end_exclusive": 1611,
+          "block_count": 43,
+          "bytes": 29833,
+          "sha256": "c67d1d372ed0230326c85a3f1bf0721a6758797fc39ad91807e701349f90e40c"
+        },
+        {
+          "path": "continuation/part-034.md",
+          "block_start_inclusive": 1611,
+          "block_end_exclusive": 1656,
+          "block_count": 45,
+          "bytes": 29975,
+          "sha256": "6756ebf18f62cc91815ff2529cba3c2e4cef2a0f4247c9cd24ba30fa11c20a18"
+        },
+        {
+          "path": "continuation/part-035.md",
+          "block_start_inclusive": 1656,
+          "block_end_exclusive": 1685,
+          "block_count": 29,
+          "bytes": 20093,
+          "sha256": "d1a8acf111748b8c240317600342dc85e47ddae0c9e481f8f6b84c9e8b720b90"
+        }
+      ]
+    },
+    {
+      "name": "continuation-3",
+      "title": "Исследование приложений продолжение 3",
+      "sequence": 1,
+      "projection_sequence": 1,
+      "block_count": 71,
+      "canonical_markdown_bytes": 50249,
+      "canonical_content_sha256": "77a092ff09f60165b1bf2275023df67e71b8efa74161532678280edb85171ea1",
+      "chunks": [
+        {
+          "path": "continuation-3/part-001.md",
+          "block_start_inclusive": 0,
+          "block_end_exclusive": 42,
+          "block_count": 42,
+          "bytes": 29503,
+          "sha256": "ac99f1368bc4df5f042ca7010567e853362fd4e1a8d3dae05cab4097ac700f5a"
+        },
+        {
+          "path": "continuation-3/part-002.md",
+          "block_start_inclusive": 42,
+          "block_end_exclusive": 71,
+          "block_count": 29,
+          "bytes": 20746,
+          "sha256": "8e1dde7ce5dcb5bec14c06db37a1084cb7342cb433dd2f4d011501fa1b5a8630"
+        }
+      ]
+    }
+  ],
+  "canonical_content_sha256": "e08c9eacdf5d515b8decd3f683e1a0a533331c6601d2ba4a240ec23deee4d929",
+  "canonical_fingerprint_algorithm": "SHA-256 of UTF-8 compact JSON [{name,sha256},...] in pages order; sha256 is each exact source Markdown digest."
+}

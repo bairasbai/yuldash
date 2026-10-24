@@ -1,0 +1,23 @@
+Самостоятельные предложения для Юлдаша: явно согласовать display/raw/controller/calculation и правила блокировки рекомендаций при ожидании. Непроведённые тесты: разные raw/formatted_value, locale и пробелы, initialization против calculation busy, late callback после смены списка, повторный выбор и listener/debounce counts. AOT/PP bindings проверены в статическом scope; приложение, API и реальные суммы не использовались. Выбор карточки не подтверждает финансовое разрешение или зачисление.
+
+## BlaBlaCar Отправка банковских данных в transfer method flow
+
+Ограниченная статическая проверка: одно новое полное coroutine body на 197 instruction units; 4 прежних тела на 292 units и 8 helpers на 28 units имеют нулевой повторный кредит. Независимая QA PASS_WITH_SCOPE_LIMITATIONS: исходная DEX identity и байты проверены, shared decoder не является второй независимой декомпиляцией. Namespace и глобальный знаменатель не меняются.
+
+Wrapper сохраняет форму в VM.ibanEntity, но constructor coroutine захватывает только VM. Сам объект для addIbanPending читается на label0 при начале coroutine, а не как неизменяемый snapshot аргументов wrapper. Это установленный момент чтения, не доказанная гонка или возможность повторного submit. В выбранных wrapper/coroutine нет локальной записи Loading, но pending state из других callers не исключён.
+
+Failure не ApiV3 возвращает Unit без собственной state/event записи. Для ApiV3 non-null violations, включая пустой список, проходят mapper в FormErrorState; violations=null ведёт в ErrorState. Fallback message применяется только при null, не при blank. Это не доказательство отсутствия общей обработки ошибок. Null/unknown Result и исключения resume/mapper/event не преобразуются этим телом в ErrorState; собственных try/catch regions нет.
+
+Success использует банковский объект ответа и сравнение его status с ACTIVE для SuccessEvent, а не перечитывает локальную форму; ответ здесь не записывается обратно в VM.ibanEntity. Прежний pinCheckSuccess, напротив, берёт текущую локальную форму и literal true, но сам не выполняет PIN-проверку. Actual event consumer и источник PIN-success вызова остаются открыты. ACTIVE и SuccessEvent не подтверждают владение счётом, долговечную регистрацию, PIN, перевод или выплату.
+
+Самостоятельные предложения для Юлдаша: определить ownership request snapshot и различать регистрацию способа, проверку владельца и денежный исход. Непроведённые mock-тесты: изменение поля до label0, ApiV3/non-ApiV3 с null/empty violations и null/blank message, ответ с отличающейся формой и ACTIVE/иным/null status, исключение и cancellation. UI validation, lifecycle, field rendering, server persistence и повторный submit открыты; реальные реквизиты, API и приложение не использовались.
+
+## Яндекс Go C111 Проверка выбранного общего платёжного аккаунта
+
+Узкое статическое уточнение C110: 27 новых records, из них 25 в SHARED fragment и 2 в полном getter. Независимая QA PASS; прежние C49 guards и clear/preselect tail имеют нулевой повторный кредит. Это ограниченный final report, не frozen checkpoint и не пересчёт глобального покрытия.
+
+При выполненных входных guards сохранённый SHARED ID сравнивается с ID в memberAccounts, не ownerAccounts. Достаточно первого совпадения; выбранная ветка не проверяет role, availability, revision или финансовую авторизацию. Отсутствие совпадения ведёт в прежний локальный clear/preselect tail, не к удалению аккаунта на сервере. Null reference минует scan и этот clear; пустая non-null строка сама по себе не отвергается.
+
+Совпадение пропускает первоначальный clear, но не гарантирует сохранение итогового выбора: остаются preselect с прежними возможными no-op guards и отдельный финальный guard, способный снова очистить выбор. Связь с C110 условна: результат виден только если response действительно попал в этот update path. Доставка refresh event, свежесть списка, DI identity и server revoke здесь не установлены; локальное membership не является разрешением платежа.
+
+Самостоятельные требования Юлдаша: разделять selected reference, membership, eligibility и серверную авторизацию, связывать remove/revoke с коррелированным обновлением состояния. Непроведённые тесты: ID только у owner, member match, пустой список/дубликаты, null/empty reference, preselect no-op и финальный clear, задержанный response после remove. Runtime гонка, автоматический fallback и финансовый исход не доказаны; API, реальные удаления и платежи не выполнялись.
