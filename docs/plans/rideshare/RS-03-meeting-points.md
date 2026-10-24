@@ -3,10 +3,13 @@
 | | |
 |---|---|
 | Статус | не начато |
-| Ждёт «да» Александра | да — миграция рабочей базы, ночная зачистка координат (удаление данных), выкладка |
-| Зависит от | RS-02 (общая зона брони и цепочка миграций) — строго после его слияния |
+| Ждёт «да» Александра | да — миграция рабочей базы (часть А), ночная зачистка координат (удаление данных, часть А) |
+| Зависит от | RS-01 (`herr(code=)`, `ApiError.code`), RS-02 (общая зона брони и цепочка миграций) — строго после их слияния |
+| Не параллельно с | по «Очереди по общим файлам» индекса: RS-01, RS-02, RS-04, RS-05, RS-06, RS-07, RS-08, RS-13, RS-14, RS-15 (`bookings.py`, `models.py`, `auth.py`, `config.py`, `cleanup.py`, `ApiClient.kt`, `TripPass.kt`, `BookingActiveTripScreen.kt`, `RideSheet.tsx`, `ActiveTripScreen.tsx`) |
+| Деление на PR | `[RS-03А]` точка при брони, видимость, зачистка, «Мои данные» (вся миграция — здесь); `[RS-03Б]` предложить/сменить место (три команды); `[RS-03В]` «Подъезжаю» по точке. Внутри части — сервер → сайт → Android (D4) |
+| Проверка `yuldash-security-privacy` | да — точные координаты, видимость, срок хранения, выгрузка |
 | Двигает сценарии приёмки | W1-E2E-01, W1-E2E-05 (`docs/audit-traceability/rideshare-scope.md`) |
-| Зона файлов | `backend/app/`: `models.py`, `config.py`, `meeting_points.py`*, `routers/meeting.py`*, `routers/__init__.py`, `routers/bookings.py`, `routers/auth.py`, `cleanup.py`; миграция* в `backend/alembic/versions/`; `backend/tests/test_meeting_points.py`*, `test_meeting_points_privacy.py`*, `test_cleanup.py`. `android/app/src/main/java/com/yuldash/app/`: `data/ApiClient.kt`, `data/BookingDtos.kt`, `data/DriverBookings.kt`, `data/TripPass.kt`, `PickupStopPicker.kt`, `BookingActiveTripScreen.kt`, `DriverPassengerRow.kt`, `MeetingPointPicker.kt`*; `android/app/src/test/.../MeetingPointTest.kt`*. `webapp/src/`: `api/bookings.ts`, `api/client.ts`, `components/YandexMap.tsx`, `components/RideSheet.tsx`, `components/DriverPassengers.tsx`, `components/MeetingPointPicker.tsx`*, `screens/ActiveTripScreen.tsx`; `webapp/tests/meeting-point-test.mjs`*, `webapp/tests/run.mjs`. `docs/tasks.md`, `docs/decisions.md`. (* — новый файл) |
+| Зона файлов | `backend/app/`: `models.py`, `config.py`, `meeting_points.py`*, `routers/meeting.py`*, `routers/__init__.py`, `routers/bookings.py`, `routers/auth.py`, `cleanup.py`; миграция* в `backend/alembic/versions/`; `backend/tests/test_meeting_points.py`*, `test_meeting_points_privacy.py`*, `test_cleanup.py`. `android/app/src/main/java/com/yuldash/app/`: `data/ApiClient.kt`, `data/BookingDtos.kt`, `data/DriverBookings.kt`, `data/TripPass.kt`, `PickupStopPicker.kt`, `BookingActiveTripScreen.kt`, `DriverPassengerRow.kt`, `MeetingPointPicker.kt`*; `android/app/src/test/.../MeetingPointTest.kt`*. `webapp/src/`: `api/bookings.ts`, `components/YandexMap.tsx`, `components/RideSheet.tsx`, `components/DriverPassengers.tsx`, `components/MeetingPointPicker.tsx`*, `screens/ActiveTripScreen.tsx`; `webapp/tests/meeting-point-test.mjs`*, `webapp/tests/run.mjs`. `docs/{tasks,decisions,architecture,lessons}.md`. (* — новый файл) |
 | Источник | `master/part-001.md` п. 5, п. 13; `master/part-002.md` контракты 4–6, «Места и календарь», K01–K02; решения 24.10: Q15 а, Q14 а, Q10 а |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
@@ -16,7 +19,7 @@
 
 **Стало.** По желанию Айгуль ставит булавку на карте или выбирает ориентир («у магазина») и пишет «синие ворота напротив школы»;
 так же — где выйти. До подтверждения водитель видит только «Ургаза · место указано» — чужой не узнает, где она живёт. После —
-точка, пояснение и «Маршрут» в навигатор. Передумала — «Предложить другое место»; пока водитель не согласился, действует прежнее.
+точка, пояснение и «Маршрут» в навигатор; когда поездка закончилась — снова только «место было указано». Передумала — «Предложить другое место»; пока водитель не согласился, действует прежнее.
 «Подъезжаю» сверяет машину с её точкой. Через месяц после поездки точка стирается сама, при удалении аккаунта — сразу.
 
 ## 2. Что уже есть в коде
@@ -29,7 +32,9 @@
 - `bookings.py:1826-1894` `/driver/bookings`; `livepos.py:1-13` — точка водителя только в Redis.
 - `routers/auth.py:1063-1109` `_location_summary`; `:1112-1152` `/me/data`; `:1155+` `/me/export` (`:1168-1170` «координаты не идут»).
 - `account.py:281-284,456` — удаление аккаунта удаляет брони; `cleanup.py:145-281` — правила только удаляют строки, брони с оценкой/чатом/SOS живут всегда (`:183-201`).
-- `errors.py:11-13` — `herr` без кода (код добавляет RS-02); сейчас код даёт `_pickup_refusal` (`bookings.py:302-303`).
+- `errors.py:11-13` — `herr` без кода (код добавляет RS-01); сейчас код даёт `_pickup_refusal` (`bookings.py:302-303`).
+- `antifraud.py:446-458` — `log_text_flag` (зовётся из `moderate_open_text`, `:492-493`) делает `session.commit()` сессии вызывающего.
+- `data/TripPass.kt:13-24` — офлайн-паспорт пассажира (у водителя его нет, `BoardingCodeRules.kt:26-28`); сохраняется при confirmed/onboard (`BookingActiveTripScreen.kt:368-373`), стирается при done/cancelled (`:393-405`).
 - Android: `PickupStopPicker.kt:117-151` `BookingSegmentPicker`; `BookingActiveTripScreen.kt:887-933` `BookingMeetingCard` (`geo:` `:923`); `MapScreen.kt:1961` `PickupPickerOverlay(..., hint)`; `CreateRideScreen.kt:1084` `PickupSuggestionChips`; `DriverPassengerRow.kt:54`; `data/TripPass.kt:41,65`; `data/ApiClient.kt:1078-1100`, `:5446` `detailCode`.
 - Сайт: `components/RideSheet.tsx:135-144`; `screens/ActiveTripScreen.tsx:936-939`; `components/DriverPassengers.tsx:77,249`; `components/YandexMap.tsx:110` (выбора точки нет); `api/geo.ts:84`; `api/client.ts:150-158` (`ApiError` без `code`).
 - Своей точки пассажира, команды смены и зачистки — не нашёл.
