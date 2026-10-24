@@ -13033,7 +13033,7 @@
       "path": "web/app/layout.tsx",
       "kind": "public_site_promo",
       "block": "B11",
-      "sha256": "915ce243a62f6cde9cfbf3fa6dee6380973154a406763e46a777a563cb4d688c",
+      "sha256": "a56c6ba4f834f9790e599fdf43b89842627ed12accd828b6b8939e4078f5ddfe",
       "lines": 118
     },
     {
@@ -13439,7 +13439,7 @@
       "path": "web/components/lang.tsx",
       "kind": "public_site_promo",
       "block": "B11",
-      "sha256": "99f13242007b1f97264579b128b9a0350069b0ca1907064ae7afbe872fb2df4c",
+      "sha256": "daab92e0b69a531e7d5a04452f5d14c3c47595dc31b69b8200c40446f79e71c8",
       "lines": 447
     },
     {

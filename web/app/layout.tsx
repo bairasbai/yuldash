@@ -6,12 +6,12 @@ import { StructuredData } from "@/components/StructuredData";
 import { MotionProvider } from "@/components/MotionProvider";
 import "./globals.css";
 
-// Шрифты лежат в репозитории (app/fonts, лицензия SIL OFL 1.1 — OFL-*.txt рядом), а не
-// скачиваются с Google Fonts при каждой сборке: сборка падала, когда Google не отвечал
-// (CI 16.10, 17.10, 24.10 — «next/font/google queries have exactly one entry»).
-// Файлы — из google/fonts (ofl/inter, ofl/montserrat), урезаны fontTools до латиницы, кириллицы
-// и расширенной кириллицы (башкирские ҡ ғ ҙ һ ә ө ү ң — U+0460-052F) плюс «₽». Как пересобрать —
-// app/fonts/README.md.
+// Шрифты лежат в репозитории (app/fonts; лицензия SIL OFL 1.1 — OFL-*.txt рядом и запись внутри самих
+// файлов), а не скачиваются при каждой сборке: `next/font/google` в Turbopack изредка падал — CSS шрифтов
+// приходил, а шаг подстановки самих файлов шрифтов нет (CI 16.10, 17.10, 24.10: «next/font/google queries
+// have exactly one entry»; повтор того же коммита — зелёный). Файлы — из google/fonts (ofl/inter,
+// ofl/montserrat), урезаны fontTools до латиницы, кириллицы и расширенной кириллицы (башкирские
+// ҡ ғ ҙ һ ә ө ү ң — U+0460-052F) плюс «₽». Как пересобрать — app/fonts/README.md.
 
 // Body — Inter (переменный по толщине 100–900, оптический размер — 14, как отдавал Google).
 const inter = localFont({
