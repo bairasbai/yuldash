@@ -61,10 +61,13 @@ def test_parallel_multiseat_cancellation_returns_n_once(client, user_factory, mo
     assert [r.status_code for r in replies] == [200, 200], [r.text for r in replies]
     assert all(r.json()["status"] == "cancelled" for r in replies)
     _check(ride_id, "две одновременные отмены трёх мест")
+    # Кто успел первым, тот и отменил: пассажир — «Бронь отменена», водитель по неподтверждённой
+    # брони — это отказ, «Водитель отклонил бронь». Гонка решает, какой заголовок, но уведомление
+    # об отмене обязано быть ровно одно — второй запрос не должен прислать дубль.
     with Session(engine) as session:
         notes = session.exec(select(Notification.id).where(
             Notification.ref_kind == "booking", Notification.ref_id == bid,
-            Notification.title_ru == "Бронь отменена",
+            Notification.title_ru.in_(("Бронь отменена", "Водитель отклонил бронь")),
         )).all()
         assert len(notes) == 1
 

@@ -512,7 +512,7 @@ internal fun BookingScreen(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Детали поездки", "Сәфәр тураһында"), onBack) },
         bottomBar = {
-            BookingDecisionBar(
+            if (bookingId == null && isOwnRide(displayRide)) OwnRideBar() else BookingDecisionBar(
                 primaryText = primaryLabel,
                 primaryEnabled = primaryEnabled,
                 primaryStyle = primaryStyle,
@@ -574,16 +574,7 @@ internal fun BookingScreen(
                     )
                 }
             } else if (bookingCancelled) {
-                item {
-                    InfoCard(
-                        title = appText("Бронь отменена", "Бронь кире алынды"),
-                        text = appText(
-                            "Место больше не забронировано. Найди подходящую поездку в списке.",
-                            "Урын бүтән бронләнмәгән. Исемлектән уңайлы сәфәр тап.",
-                        ),
-                        icon = Icons.Default.Close,
-                    )
-                }
+                item { BookingCancelledCard(declined = details?.declined == true) }   // RideshareDecline.kt
             }
             if (detailsLoading) {
                 item {
@@ -1335,6 +1326,7 @@ internal fun ActiveTripScreen(
     // null — без навигации (тесты, превью): вид переключается внутри экрана.
     onChatOpenChange: ((Boolean) -> Unit)? = null,
     terminalHint: ActiveTripTerminalHint? = null,
+    onTrustedContacts: () -> Unit = {},   // «Поделиться с близким» без контактов → добавить близкого (приёмка 18.10, п.8)
     // Поездка кончилась, а экран остаётся (отмена в пути): живое гео и маршрут на карте — гасить сразу.
     onTripStopped: () -> Unit = {},
 ) {
@@ -1353,7 +1345,7 @@ internal fun ActiveTripScreen(
         val hint = terminalHint?.takeIf { it.bookingId == bookingId && it.status in setOf("done", "cancelled") }
             ?: InTransitCancels.hint(bookingId, tripSession)
         ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession, chatOpen, onChatOpenChange,
-            hint, onTripStopped)
+            hint, onTripStopped, onTrustedContacts)
     }
 }
 
@@ -1365,7 +1357,7 @@ private fun ActiveTripContent(
     onSupport: () -> Unit, onOpenReceipt: (Int) -> Unit, tripSession: Long,
     chatOpen: Boolean?, onChatOpenChange: ((Boolean) -> Unit)?,
     terminalHint: ActiveTripTerminalHint?,
-    onTripStopped: () -> Unit,
+    onTripStopped: () -> Unit, onTrustedContacts: () -> Unit,
 ) {
     val context = LocalContext.current
     val voiceScope = rememberCoroutineScope()
@@ -1773,8 +1765,8 @@ private fun ActiveTripContent(
     }
 
     // Шапка чата — с кем переписка. Имя из вкладки «Чат» известно сразу; пассажиру собеседник —
-    // водитель брони; имя пассажира водительский экран не получает — тогда пишем роль.
-    val chatPeer = ride?.chatPeer?.takeIf { it.isNotBlank() } ?: if (role != "passenger") null
+    // водитель брони, водителю — пассажир из деталей брони; пока имени нет — пишем роль.
+    val chatPeer = ride?.chatPeer?.takeIf { it.isNotBlank() } ?: if (role != "passenger") pickupDetails?.passengerName?.takeIf { it.isNotBlank() }
         else ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() }.takeIf { it.isNotBlank() }
     val chatTitle = chatPeer ?: when (role) {
         "driver" -> appText("Чат с пассажиром", "Пассажир менән чат")
@@ -1849,18 +1841,23 @@ private fun ActiveTripContent(
                 }
             }
             if (terminalBooking == null && (tripDetails.loading || tripDetails.failure != null)) item(key = "trip-details-load") { ActiveTripDetailsNotice(tripDetails.loading, tripDetails.failure, tripDetails::retry) }
+            // Водителю вверху — тот, кого он везёт, а не карточка «Водитель» с ним самим (приёмка 18.10, п.14).
+            val heroRide = ride.takeIf { role != "driver" }
             item {
                 ActiveTripOptionBHero(
-                    driverName = ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
-                    avatarUrl = ride?.driverAvatar.orEmpty(),
-                    rating = ride?.rating?.takeIf { it > 0.0 }
+                    driverName = if (role == "driver") pickupDetails?.passengerName.orEmpty().ifBlank { appText("Пассажир", "Пассажир") }
+                        else heroRide?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
+                    avatarUrl = heroRide?.driverAvatar.orEmpty(),
+                    rating = heroRide?.rating?.takeIf { it > 0.0 }
                         ?.let { String.format(java.util.Locale.US, "%.1f", it).replace('.', ',') },
-                    verified = ride?.verified == true,
-                    trips = ride?.driverTrips ?: 0,
-                    since = ride?.driverSince.orEmpty(),
-                    carSummary = tripCarSummary(tripContacts, ride?.car),
-                    phoneUnlocked = !tripContacts?.phone.isNullOrBlank(),
-                    onCall = { dialDriver(context, tripContacts?.phone.orEmpty()) },
+                    verified = heroRide?.verified == true,
+                    trips = heroRide?.driverTrips ?: 0,
+                    since = heroRide?.driverSince.orEmpty(),
+                    carSummary = tripCarSummary(tripContacts, heroRide?.car),
+                    // Водителю — звонок пассажиру, пока бронь подтверждена (решение 23.10.2026; сервер сам закрывает номер).
+                    phoneUnlocked = if (role == "driver") driverCanCallPassenger(pickupDetails, bookingStatus, terminalBooking != null)
+                        else !tripContacts?.phone.isNullOrBlank(),
+                    onCall = { dialDriver(context, if (role == "driver") pickupDetails?.passengerPhone.orEmpty() else tripContacts?.phone.orEmpty()) },
                     boardingCode = boardingCode,
                     boardingCodeLoadFailed = codeLoadFailed,
                     onRetryBoardingCode = { if (isTripSessionCurrent()) codeLoadRetry++ },
@@ -2393,9 +2390,7 @@ private fun ActiveTripContent(
                     }
                 } else {
                 Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = CanonSpace.sm))
-                if (contacts.isEmpty()) {
-                    Text(appText("Сначала добавь доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтә"), color = CanonMuted)
-                }
+                if (contacts.isEmpty()) NoTrustedContactsHint { if (isShareCurrent()) { showShare = false; onTrustedContacts() } }   // RideshareTripContacts.kt
                 contacts.forEach { c ->
                     Row(
                         Modifier.fillMaxWidth().clickable(enabled = !mutationBusy) {

@@ -289,18 +289,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/**
- * Человекочитаемая роль пользователя (с сервера: passenger/driver/admin) на двух языках.
- * Пустая/неизвестная роль → «Пассажир» (роль по умолчанию на бэкенде). Города в профиле нет —
- * подписи вида «Пассажир · Баймаҡ» были захардкожены у всех, теперь показываем только настоящую роль.
- */
-@Composable
-internal fun roleLabel(role: String): String = when (role) {
-    "driver" -> appText("Водитель", "Йөрөтөүсе")
-    "admin" -> appText("Администратор", "Администратор")
-    else -> appText("Пассажир", "Пассажир")
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ProfileScreen(
@@ -349,6 +337,8 @@ internal fun ProfileScreen(
     var displayName by remember { mutableStateOf(ApiClient.cachedName() ?: (if (isBashkir) "Мин" else "Я")) }
     var avatarUrl by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("") }
+    var verifiedDriver by remember { mutableStateOf(false) }   // /me `verified`: документы водителя одобрены
+    var drives by remember { mutableStateOf(false) }; var books by remember { mutableStateOf(false) }   // /me: возил / бронировал
     var city by remember { mutableStateOf("") }   // родной город: показываем в шапке, редактируется тапом
     // Пол ("" | female | male). Спрашиваем только ради отметки «Только женщины»: сервер
     // пускает в такую поездку одних женщин, и проверять это ему больше нечем. Никому,
@@ -377,7 +367,7 @@ internal fun ProfileScreen(
                 myRating = if (o.isNull("rating")) null else o.optDouble("rating")
                 o.optString("name").takeIf { it.isNotBlank() }?.let { displayName = it }
                 o.optString("avatar_url").takeIf { it.isNotBlank() }?.let { avatarUrl = it }
-                role = o.optString("role")
+                role = o.optString("role"); verifiedDriver = o.optBoolean("verified"); drives = o.optBoolean("drives"); books = o.optBoolean("books")
                 city = o.optString("city")
                 gender = o.optString("gender")
             }
@@ -765,16 +755,8 @@ internal fun ProfileScreen(
                                         Icon(Icons.Default.Edit, contentDescription = appText("Изменить имя", "Исемде үҙгәртеү"), tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(18.dp))
                                     }
                                 }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    // Настоящая роль с сервера (пассажир/водитель/админ).
-                                    Text(roleLabel(role), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp)
-                                    myRating?.let { r ->
-                                        Spacer(Modifier.width(8.dp))
-                                        Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(14.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text(String.format(java.util.Locale.US, "%.1f", r), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
+                                // Роль по делу, «Проверен» и рейтинг — с переносом на узком экране (ProfileRole.kt).
+                                ProfileRoleLine(roleLabel(role, verifiedDriver, drives, books), verifiedDriver, myRating)
                                 // Родной город — тап открывает редактирование (48dp тач-цель).
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -3238,15 +3220,11 @@ internal fun DriverCabinetContent(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onConfirmBooking(b.bookingId) },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),   // как «Отклонить» рядом — пара одной высоты
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                             ) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                            OutlinedButton(
-                                onClick = { onRejectBooking(b.bookingId) },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(14.dp)
-                            ) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
+                            DeclineBookingButton(b.passengerName, { onRejectBooking(b.bookingId) }, Modifier.weight(1f))   // сперва «Отклонить бронь?»
                         }
                     }
                 }

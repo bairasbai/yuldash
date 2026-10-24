@@ -901,6 +901,16 @@ export default function ActiveTripScreen() {
             </span>
           </a>
         )}
+        {/* Водителю — звонок пассажиру после подтверждения (решение 23.10.2026); сервер отдаёт номер по
+            тому же окну, что телефон водителя пассажиру. */}
+        {st !== "cancelled" && details.role === "driver" && details.contact_unlocked && details.passenger_phone && (
+          <a className="info-row info-row--link" href={`tel:${details.passenger_phone}`}>
+            <span className="info-row__k">{appText("Пассажир", "Пассажир")}</span>
+            <span className="info-row__v" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <IconPhone size={16} /> {appText("Позвонить", "Шылтыратыу")}
+            </span>
+          </a>
+        )}
         {/* Едет подросток. Водителю это нужно знать ДО посадки, а не когда тот сядет
             в машину: у него другой разговор с ребёнком и другая ответственность.
             Телефон взрослого сервер отдаёт только водителю этой брони и только пока

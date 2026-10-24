@@ -107,10 +107,6 @@ internal class TripChatState(
         get() = !actionBusy && (failedDelete != null || failedVoice != null ||
             failedEdit?.let { it.first == editingId && it.second == editVersion } == true)
 
-    /** Удалённые, голос и непустой текст видимы; «пустые» технические — нет. */
-    val visibleMessages: List<MessageDto>
-        get() = messages.filter { it.deleted || it.voiceUrl != null || it.text.isNotBlank() }
-
     /**
      * Лента с сервера + свои ещё не подтверждённые сообщения («В очереди», «Не доставлено»). Раньше
      * лента заменяла список целиком, и неотправленное пропадало с экрана (приёмка 18.10.2026).
@@ -180,13 +176,8 @@ internal class TripChatState(
         } finally { if (isActive()) historyLoading = false }
     }
 
-    // ── Непрочитанные ── метка «прочитано до» этого входа и брони (TripChatSeenMark, TripChatWiring.kt).
-    private val seen = TripChatSeenMark("$tripSession:${bookingId ?: 0}")
-
-    val unread: Int get() = seen.unread(visibleMessages, myId)
-
-    /** Лента на экране и внизу — всё, что в ней есть, прочитано. До истории метку не ставим. */
-    fun markSeen() { if (!historyLoading) seen.advance(messages.maxOfOrNull { it.id } ?: 0) }
+    // ── Непрочитанные ── метка «прочитано до» этого входа и брони; unread и markSeen — в TripChatWiring.kt.
+    internal val seen = TripChatSeenMark("$tripSession:${bookingId ?: 0}")
 
     // ── Живой канал ─────────────────────────────────────────────────────────────────────────
     // Realtime — по WebSocket: входящие добавляем живьём; эхо своего сообщения заменяет оптимистичное.
@@ -282,6 +273,13 @@ internal class TripChatState(
             }
         }
         scope.coroutineContext[Job]?.invokeOnCompletion { stop() }
+        bookingId?.let { id -> persistedQueue(context, id, tripSession).forEach(::adoptQueued) }   // TripChatWiring.kt
+    }
+    private fun adoptQueued(action: OutboxAction) {
+        val id = tempSeq--
+        restAttempts[id] = action
+        queuedIds = queuedIds + id
+        messages = messages + MessageDto(id, action.payload, myId)
     }
 
     fun canWrite(): Boolean = isActive()

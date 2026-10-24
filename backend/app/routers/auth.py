@@ -1039,7 +1039,12 @@ def whatsapp_callback():
 @router.get("/me")
 def me(user: User = Depends(current_user), session: Session = Depends(get_session)):
     avg, cnt = user_rating(session, user.id)
-    return {**user.model_dump(), "rating": round(avg, 1) if cnt > 0 else None, "rating_count": cnt}
+    # Один аккаунт и возит, и ездит; роль на сервере от публикации не меняется. Подпись профиля
+    # («Водитель», «Пассажир», «Водитель и пассажир») клиенты берут из того, что человек делал.
+    drives = session.exec(select(Ride.id).where(Ride.driver_id == user.id).limit(1)).first() is not None
+    books = session.exec(select(Booking.id).where(Booking.passenger_id == user.id).limit(1)).first() is not None
+    return {**user.model_dump(), "rating": round(avg, 1) if cnt > 0 else None, "rating_count": cnt,
+            "drives": drives, "books": books}
 
 
 class MeUpdateIn(BaseModel):

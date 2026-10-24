@@ -36,6 +36,9 @@ data class BookingDetailsDto(
     val payMethod: String = "negotiate",   // договорённость об оплате (запись, не платёж): cash/sbp/negotiate
     val payAmount: Int? = null,            // сумма договорённости, ₽ (опц.)
     val driverName: String,
+    val passengerName: String = "",   // кого везёт водитель — шапка его экрана поездки (приёмка 18.10, п.14)
+    val declined: Boolean = false,    // водитель отклонил неподтверждённую бронь — «Водитель отклонил бронь» (п.6)
+    val passengerPhone: String = "",  // водителю после подтверждения (решение 23.10.2026); иначе пусто
     val driverVerified: Boolean,
     val driverPhone: String,
     val driverCar: String,
@@ -98,6 +101,8 @@ internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
         payMethod = o.optString("pay_method", "negotiate"),
         payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
         driverName = o.optString("driver_name"),
+        passengerName = o.optString("passenger_name"), declined = o.optBoolean("declined"),
+        passengerPhone = o.optString("passenger_phone"),
         driverVerified = o.optBoolean("driver_verified"),
         driverPhone = o.optString("driver_phone"),
         driverCar = o.optString("driver_car"),

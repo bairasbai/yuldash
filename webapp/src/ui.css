@@ -1982,6 +1982,7 @@ button.list-row:active {
 .profile-card__meta {
   margin-top: var(--space-xs);
   display: flex;
+  flex-wrap: wrap; /* «Йөрөтөүсе һәм пассажир» + «Тикшерелгән» + рейтинг на 360px — строкой ниже, не за край */
   align-items: center;
   gap: var(--space-sm);
   font-size: var(--font-caption);
@@ -1990,6 +1991,14 @@ button.list-row:active {
 .profile-card__role,
 .profile-card__city.is-empty {
   opacity: 0.78;
+}
+/* «Проверен» рядом с ролью — как в Android ProfileVerifiedMark: белый на зелёной шапке. */
+.profile-card__verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
 }
 .profile-card__note {
   margin-top: var(--space-sm);
@@ -2004,6 +2013,7 @@ button.list-row:active {
   font-size: var(--font-caption);
   font-weight: var(--weight-semibold);
   color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
 }
 .profile-guest {
   margin-top: 16px;
@@ -17007,6 +17017,12 @@ button.settings-row:active {
   color: var(--danger);
   font-size: var(--font-micro);
   line-height: var(--line-micro);
+}
+.rcpt-rate__hint {
+  color: var(--muted);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+  text-align: center;
 }
 .rcpt-more {
   padding-top: var(--space-xs);

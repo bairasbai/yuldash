@@ -12,6 +12,7 @@ data class TripReceiptDto(
     val counterpartyName: String = "",
     val myStars: Int = 0,
     val myRatingTags: String = "", val counterpartyId: Int = 0, val problemReportSec: Int = 0,  // «Сообщить о проблеме» пассажиру после поездки (PR174)
+    val canRate: Boolean = false,   // срок оценки ещё открыт — «Оценить водителя» в квитанции (приёмка 18.10, п.7)
     val pickupStop: String? = null, val dropoffStop: String? = null,
 )
 
@@ -32,6 +33,7 @@ internal fun parseTripReceiptDto(o: JSONObject): TripReceiptDto = TripReceiptDto
     counterpartyName = o.optString("counterparty_name"),
     myStars = o.optInt("my_stars"),
     myRatingTags = o.optString("my_rating_tags"), counterpartyId = o.optInt("counterparty_id"), problemReportSec = o.optInt("problem_report_sec"),
+    canRate = o.optBoolean("can_rate"),
     pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"),
     dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
 )

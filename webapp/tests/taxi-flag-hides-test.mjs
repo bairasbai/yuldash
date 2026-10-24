@@ -29,7 +29,8 @@ await t.test("featureRules: условие «taxi», как у остальны�
 });
 
 async function render(rel, taxi, mocks) {
-  const Screen = await bundleComponent(rel, { real: ["/featureRules"], mocks: { "/features": flags(taxi), ...mocks } });
+  // profileRole — чистая подпись роли (без браузера): собираем по-настоящему, а не пустышкой.
+  const Screen = await bundleComponent(rel, { real: ["/featureRules", "/utils/profileRole"], mocks: { "/features": flags(taxi), ...mocks } });
   const h = mount(Screen);
   h.render();
   await h.settle();

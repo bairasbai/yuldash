@@ -227,7 +227,7 @@ export interface CommunityFeed {
   week: number;
   month: number;
   year: number;
-  /** Сколько разных водителей вообще выходило на линию. */
+  /** Сколько разных водителей реально возили людей за последние 30 дней (/feed v3). */
   drivers: number;
   /** Самый частый маршрут недели. null = поездок пока мало. */
   top_route: { from_city: string; to_city: string; count: number } | null;

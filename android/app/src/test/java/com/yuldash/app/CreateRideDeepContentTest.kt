@@ -13,6 +13,7 @@ import androidx.compose.ui.test.performScrollToNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -42,6 +43,10 @@ class CreateRideDeepContentTest {
 
     @get:Rule
     val composeRule = createComposeRule()
+
+    // «Посылка»/«Груз» в форме — только пока доставка открыта (приёмка 18.10, п.16). Флаги — общий
+    // объект процесса: без явной установки тест зависел от того, какой тест шёл перед ним.
+    @Before fun openDelivery() = FeatureFlags.resetForTest()
 
     /**
      * Доскроллить внешний LazyColumn формы к узлу с текстом. Внутри есть вложенные LazyRow (чипы) →

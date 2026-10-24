@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -137,6 +138,10 @@ private fun ReceiptCard(r: TripReceiptDto, expectedGeneration: Long, canAct: () 
         if (!isDriver && current()) ApiClient.getBookingTipInfo(r.bookingId, expectedGeneration).onSuccess { if (current()) thanked = it.alreadyThanked }
     }
     val lostErr = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
+    // Оценка позже — прямо в квитанции (приёмка 18.10, п.7): ушла — строка «Твоя оценка» сразу на месте.
+    var ratedStars by remember(r.bookingId, expectedGeneration) { mutableIntStateOf(0) }
+    var rateBusy by remember(r.bookingId, expectedGeneration) { mutableStateOf(false) }
+    val rateErr = appText("Оценка не ушла. Проверь сеть и попробуй ещё раз.", "Баһа ебәрелмәне. Селтәрҙе тикшереп, тағы бер тапҡыр ҡара.")
     val payLabel = payMethodLabel(r.payMethod)
     val shareChooser = appText("Поделиться квитанцией", "Квитанция менән бүлешеү")
     // Строки для шеринга считаем ЗАРАНЕЕ (appText — @Composable, внутри buildString его звать нельзя).
@@ -152,7 +157,19 @@ private fun ReceiptCard(r: TripReceiptDto, expectedGeneration: Long, canAct: () 
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ReceiptIdentityCard(r)
+        ReceiptIdentityCard(if (ratedStars > 0) r.copy(myStars = ratedStars) else r)
+        AnimatedVisibility(!isDriver && r.canRate && r.myStars == 0 && ratedStars == 0) {
+            ReceiptRateDriver(rateBusy) { stars ->
+                if (rateBusy || !current()) return@ReceiptRateDriver
+                rateBusy = true
+                lostScope.launch {
+                    ApiClient.rateBooking(r.bookingId, stars)
+                        .onSuccess { if (current()) ratedStars = stars }
+                        .onFailure { if (current()) Toast.makeText(ctx, serverSaid(it, rateErr), Toast.LENGTH_LONG).show() }
+                    if (current()) rateBusy = false
+                }
+            }
+        }
 
         // Сумма + способ оплаты (акцент)
         AppCard {

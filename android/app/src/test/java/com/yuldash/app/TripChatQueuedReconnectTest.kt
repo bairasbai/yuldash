@@ -60,6 +60,7 @@ class TripChatQueuedReconnectTest {
     @Volatile private var postsDown = false
     /** Сервер отвечает, но запись окончательно отклоняет (например, чат брони закрыт). */
     @Volatile private var refusePosts = false
+    private val chats = CopyOnWriteArrayList<TripChatState>()
     private val text = "Жду у второго подъезда"
     private val token = "header.eyJzdWIiOiIxMSJ9.signature"
 
@@ -104,21 +105,25 @@ class TripChatQueuedReconnectTest {
         ApiClient.saveToken(token)
         TripPassStore.initStores(MemoryDiskPreferences(), null)
         Outbox.initStores(MemoryDiskPreferences(), null)
+        chat = newChat()
+    }
+
+    /** Новый экран чата той же брони: своя память, общая очередь на диске. */
+    private fun newChat(): TripChatState {
         val generation = ApiClient.queueSessionGeneration()
         val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(clock) +
             CoroutineExceptionHandler { _, error -> failures += error.stackTraceToString() })
-        chat = TripChatState(context, 42, generation, scope,
+        return TripChatState(context, 42, generation, scope,
             isActive = { ApiClient.isCurrentSession(generation) },
             isSessionCurrent = { ApiClient.isCurrentSession(generation) },
             texts = mutableStateOf(TripChatTexts("send", "fast", "queued", "disk", "send", "action", "voice")),
-        )
+        ).also { chats += it }
     }
 
     @After fun cleanup() {
         try {
-            chat.socket?.close()
-            chat.scope.cancel()
-            waitFor { chat.scope.coroutineContext[Job]?.children?.none() != false }
+            chats.forEach { it.socket?.close(); it.scope.cancel() }
+            waitFor { chats.all { it.scope.coroutineContext[Job]?.children?.none() != false } }
         } finally {
             Outbox.initStores(MemoryDiskPreferences(), null)
             TripPassStore.initStores(MemoryDiskPreferences(), null)
@@ -250,5 +255,19 @@ class TripChatQueuedReconnectTest {
         ApiClient.saveToken(token)
         assertFalse(Outbox.wasRefused(action, generation))
         assertFalse(Outbox.wasRefused(action, ApiClient.queueSessionGeneration()))
+    }
+
+    @Test fun queuedMessageSurvivesScreenRecreationAndIsSentOnce() {
+        queueWhileServerDown()
+        // Ушёл на карту или процесс убит: память экрана пропала, очередь на диске — нет.
+        chat.socket?.close(); chat.scope.cancel()
+        chat = newChat()
+        assertTrue("Сообщение из очереди видно сразу, ещё до сети", chat.messages.any { it.id < 0 && it.text == text })
+        assertEquals(1, chat.queuedIds.size)
+        serverDown = false
+        socketConnected()
+        waitFor { synchronized(ledger) { ledger.size } == 1 && Outbox.count(context, 42) == 0 && chat.queuedIds.isEmpty() }
+        waitFor { chat.messages.count { it.text == text } == 1 && chat.messages.single { it.text == text }.id > 0 }
+        assertEquals(listOf(text), synchronized(ledger) { ledger.values.toList() })
     }
 }

@@ -39,6 +39,7 @@ import type { Ride } from "../api/rides";
 import { LoadingList, ErrorState, EmptyStateCard } from "../components/States";
 import RideEditActions from "../components/RideEditActions";
 import DriverPassengers from "../components/DriverPassengers";
+import DeclineBookingButton from "../components/DeclineBookingButton";
 import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { SubHeader } from "./ConsentsScreen";
 import { useAuth } from "../auth/AuthProvider";
@@ -551,14 +552,12 @@ export default function DriverCabinetScreen() {
                     >
                       {appText("Подтвердить", "Раҫлау")}
                     </button>
-                    <button
-                      type="button"
-                      className="btn-ghost"
+                    {/* Сперва «Отклонить бронь?» — одним касанием отказ больше не уходит (приёмка 18.10, п.6). */}
+                    <DeclineBookingButton
+                      passengerName={b.passenger_name}
                       disabled={bookingBusy === b.booking_id}
-                      onClick={() => void answerBooking(b.booking_id, false)}
-                    >
-                      {appText("Отклонить", "Кире ҡағыу")}
-                    </button>
+                      onDecline={() => void answerBooking(b.booking_id, false)}
+                    />
                   </div>
                 </div>
               ))}

@@ -41,6 +41,8 @@ ACTIVE_INCIDENT_STATUSES = ("open", "awaiting_response", "under_review", "appeal
 CANCEL_REASONS: set = {
     "plans_changed", "found_other", "driver_no_response", "price",
     "driver_late", "passenger_late", "emergency", "safety", "not_going", "no_show", "other",
+    # Ставит сервер сам: водитель отменил бронь, которую ещё не подтверждал (приёмка 18.10, п.6).
+    "driver_declined",
 }
 
 
