@@ -253,6 +253,13 @@ check(
     rideCancelWords.every((s) => ak("RideCancelWarning.kt").includes(s) && web("utils/rideCancelWarning.ts").includes(s)),
   "отмена в пути: «Поездку отменили в пути» и предупреждение «Снять поездку?» одинаковы в приложении и в вебе"
 );
+// «Застрял на трассе» (приёмка PR207): кнопка помощи — одно слово в приложении и на сайте, то же,
+// что в подсказке «Поездку отменили в пути». Раньше сайт писал «Застряли» / «Юлда ҡалдыҡ».
+const stuckLabel = 'appText("Застрял на трассе", "Юлда ҡалдым")';
+check(
+  ak("BookingActiveTripScreen.kt").includes(stuckLabel) && web("components/RoadsideHelp.tsx").includes(stuckLabel),
+  "кнопка «Застрял на трассе» / «Юлда ҡалдым» одинакова в приложении и на сайте"
+);
 check(
   aCreate.includes('mutableStateOf("4")') && aCreate.includes("SeatOptionsCard(") &&
     wCreate.includes("useState(SEATS_DEFAULT)") && wCreate.includes("<SeatOptionsFields") &&

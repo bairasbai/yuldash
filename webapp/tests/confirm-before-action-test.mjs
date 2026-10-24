@@ -2,7 +2,7 @@
 //  Паритет с Android, шаг 4 (17.10.2026): подтверждение перед необратимым.
 //
 //  Было на сайте:
-//   • «Застряли на трассе» — сигнал дежурному уходил с первого касания (случайный тап в
+//   • «Застрял на трассе» — сигнал дежурному уходил с первого касания (случайный тап в
 //     кармане поднимал поддержку и близких);
 //   • «Завершить поездку» у водителя — бронь закрывалась с первого касания, вернуть нельзя.
 //  Стало как в Android: окно «Позвать помощь?» (RoadsideHelp.kt) и «Завершить поездку?»
@@ -34,9 +34,9 @@ async function roadside(lang) {
 
 for (const lang of ["ru", "ba"]) {
   const L = (ru, ba) => (lang === "ba" ? ba : ru);
-  await t.test(`${lang}: «Застряли на трассе» — сначала «Позвать помощь?», сигнал только после «Позвать помощь»`, async () => {
+  await t.test(`${lang}: «Застрял на трассе» — сначала «Позвать помощь?», сигнал только после «Позвать помощь»`, async () => {
     const h = await roadside(lang);
-    button(h.tree, L("Застряли на трассе", "Юлда ҡалдыҡ")).props.onClick();
+    button(h.tree, L("Застрял на трассе", "Юлда ҡалдым")).props.onClick();
     await h.settle();
     assert.deepEqual(globalThis.__rh.sent, [], "с первого касания сигнал не уходит");
     const dlg = ofType(h.tree, "AlertDialog")[0];
@@ -56,7 +56,7 @@ for (const lang of ["ru", "ba"]) {
     await h.settle();
     assert.equal(ofType(h.tree, "AlertDialog").length, 0, "«Отмена» закрывает окно");
     assert.deepEqual(globalThis.__rh.sent, []);
-    button(h.tree, L("Застряли на трассе", "Юлда ҡалдыҡ")).props.onClick();
+    button(h.tree, L("Застрял на трассе", "Юлда ҡалдым")).props.onClick();
     await h.settle();
     ofType(h.tree, "AlertDialog")[0].props.confirm.onClick();
     await h.settle();
