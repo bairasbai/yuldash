@@ -26,6 +26,9 @@ from app.visibility import PROBLEM_REPORT_WINDOW
 
 from test_api import _ride
 
+# Живые и поднятые поездки этих тестов не остаются в общей ленте (CI PR212).
+from feed_hygiene import rides_do_not_leak_into_the_feed  # noqa: F401
+
 pytestmark = pytest.mark.timeout(60)
 
 

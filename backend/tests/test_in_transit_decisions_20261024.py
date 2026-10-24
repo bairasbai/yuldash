@@ -31,6 +31,9 @@ from app.security import normalize_phone
 from app.timeutil import utcnow
 from app.visibility import PROBLEM_REPORT_WINDOW, cancelled_in_transit
 
+# Живые и поднятые поездки этих тестов не остаются в общей ленте (CI PR212).
+from feed_hygiene import rides_do_not_leak_into_the_feed  # noqa: F401
+
 pytestmark = pytest.mark.timeout(60)
 
 PLATE = "К777КК102"

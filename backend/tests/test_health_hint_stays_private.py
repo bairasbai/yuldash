@@ -53,11 +53,57 @@ def _hits(payload, partner_id):
     return [x for x in items if x.get("partner_id") == partner_id]
 
 
+_PAGE = 200   # больше одной страницы ленты сервер не отдаёт (`DEFAULT_FEED_LIMIT`)
+
+
+def _feed(client, query="", headers=None):
+    """Вся лента `/rides` постранично, а не первая страница.
+
+    В общей базе набора (PostgreSQL в CI — один процесс на все тесты) первую страницу — 200 поездок,
+    поднятые первыми — занимают поездки других тестов, и поездка «в больницу» через несколько часов
+    могла на неё просто не попасть (CI PR212). Тогда «аноним не видит связку» проходило бы вхолостую,
+    а «вошедший видит» — падало. Читаем ВСЕ страницы: проверка не слабее, а строже прежней.
+
+    Конец ленты — пустые страницы подряд, а не «страница короче 200»: сервер режет страницу в базе,
+    а потом убирает из неё поездки заблокированных и отстранённых — неполная страница не последняя.
+    """
+    out, empty = [], 0
+    for page_no in range(100):
+        sep = "&" if query else ""
+        r = client.get(f"/rides?{query}{sep}limit={_PAGE}&offset={page_no * _PAGE}", headers=headers)
+        assert r.status_code == 200, r.text
+        page = r.json()
+        out += page
+        empty = empty + 1 if not page else 0
+        if empty >= 3:
+            return out
+    raise AssertionError("лента длиннее 100 страниц — тест не дочитал её")
+
+
+_NEAR = "/rides/near?lat=52.591&lng=58.317&radius_km=50"
+
+
+def _near(client, headers=None):
+    """«Ближайшие» целиком: та же история, что с лентой, — страница ограничена, читаем все (`count` — всего)."""
+    out = []
+    for page_no in range(100):
+        r = client.get(f"{_NEAR}&limit={_PAGE}&offset={page_no * _PAGE}", headers=headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        out += body.get("items", [])
+        if (page_no + 1) * _PAGE >= body.get("count", 0):
+            return out
+    raise AssertionError("«Ближайшие» длиннее 100 страниц — тест не дочитал их")
+
+
 # ----------------------------- аноним не видит связку -----------------------------
 def test_лента_не_выдаёт_анониму_поездку_в_клинику(client, hospital_ride):
     r = client.get("/rides")
     assert r.status_code == 200
     assert not _hits(r.json(), hospital_ride["partner_id"]), "связка с клиникой ушла анониму"
+    feed = _feed(client)
+    assert any(x["id"] == hospital_ride["id"] for x in feed), "поездки нет в ленте — проверка вхолостую"
+    assert not _hits(feed, hospital_ride["partner_id"]), "связка с клиникой ушла анониму"
 
 
 def test_рядом_не_выдаёт_анониму_поездку_в_клинику(client, hospital_ride):
@@ -66,9 +112,12 @@ def test_рядом_не_выдаёт_анониму_поездку_в_клин�
     Именно здесь первая версия правки не сработала: фильтр применили к объектам из базы,
     а страница потом перечитывалась заново, и правка терялась.
     """
-    r = client.get("/rides/near?lat=52.591&lng=58.317&radius_km=50")
+    r = client.get(_NEAR)
     assert r.status_code == 200
     assert not _hits(r.json(), hospital_ride["partner_id"])
+    near = _near(client)
+    assert any(x["id"] == hospital_ride["id"] for x in near), "поездки нет в «Ближайших» — проверка вхолостую"
+    assert not _hits(near, hospital_ride["partner_id"])
 
 
 def test_карточка_по_ссылке_не_выдаёт_анониму_клинику(client, hospital_ride):
@@ -93,9 +142,7 @@ def test_фильтром_по_больнице_анониму_выборку_н
     assert ordinary.status_code == 200, ordinary.text
     ordinary_id = ordinary.json()["id"]
 
-    r = client.get("/rides?category=hospital")
-    assert r.status_code == 200
-    items = r.json()
+    items = _feed(client, "category=hospital")
     assert not _hits(items, hospital_ride["partner_id"])
     assert any(x["id"] == ordinary_id for x in items), "выборка сузилась до больничных"
 
@@ -133,22 +180,20 @@ def test_вошедший_видит_поездку_в_клинику_целик
     me = user_factory("Больница: пассажир")
     pid = hospital_ride["partner_id"]
 
-    feed = client.get("/rides", headers=me["auth"])
-    assert _hits(feed.json(), pid), "вошедший перестал видеть связку — функция сломана"
+    assert _hits(_feed(client, headers=me["auth"]), pid), "вошедший перестал видеть связку — функция сломана"
 
-    near = client.get("/rides/near?lat=52.591&lng=58.317&radius_km=50", headers=me["auth"])
-    assert _hits(near.json(), pid)
+    assert _hits(_near(client, headers=me["auth"]), pid)
 
-    filtered = client.get("/rides?category=hospital", headers=me["auth"])
-    assert _hits(filtered.json(), pid), "фильтр «в больницу» перестал работать для своих"
+    filtered = _feed(client, "category=hospital", headers=me["auth"])
+    assert _hits(filtered, pid), "фильтр «в больницу» перестал работать для своих"
+    assert all(x.get("category") == "hospital" for x in filtered), "для своих фильтр по категории — настоящий"
 
     at_clinic = client.get(f"/medical-partners/{pid}/rides", headers=me["auth"])
     assert at_clinic.status_code == 200 and at_clinic.json()["count"] >= 1
 
 
 def test_водитель_видит_свою_поездку_целиком(client, hospital_ride):
-    r = client.get("/rides", headers=hospital_ride["driver"]["auth"])
-    assert _hits(r.json(), hospital_ride["partner_id"])
+    assert _hits(_feed(client, headers=hospital_ride["driver"]["auth"]), hospital_ride["partner_id"])
 
 
 def test_обычные_поездки_не_задеты(client, user_factory):
@@ -160,6 +205,6 @@ def test_обычные_поездки_не_задеты(client, user_factory):
         "seats_total": 3, "price": 300, "category": "parcel"})
     assert r.status_code == 200, r.text
     rid = r.json()["id"]
-    feed = client.get("/rides").json()
+    feed = _feed(client)
     mine = [x for x in feed if x["id"] == rid]
     assert mine and mine[0]["category"] == "parcel", mine
