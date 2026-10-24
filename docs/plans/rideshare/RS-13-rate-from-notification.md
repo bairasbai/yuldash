@@ -6,7 +6,7 @@
 | Ждёт «да» Александра | нет (миграций нет; выкладка сервера и сайта — по общему правилу §8) |
 | Зависит от | — |
 | Двигает сценарии приёмки | W1-E2E-01 (две оценки); косвенно E2E-04 (очередь без сети), E2E-05 (аккаунт) |
-| Зона файлов | `backend/app/`: `rate_reminder.py`, `rating_service.py`, `routers/family.py` (`RateIn`, `rate_booking`), `routers/bookings.py` (`_rating_allowed`), `services.py` (`_send_web_push`); `android/app/src/main/`: `java/com/yuldash/app/data/{FcmService,TripPass,ApiClient}.kt` (только `showNotification`, `Outbox`, `sendQueuedAction`/`rateBooking`), `data/RateNotificationAction.kt` (новый), `AndroidManifest.xml`; `webapp/`: `public/push-sw.js`, `src/push/rateDraft.ts` (новый), `src/api/bookings.ts`, `src/screens/ActiveTripScreen.tsx` (блок оценки); новые тесты. Общие файлы — не параллелить с RS-05/06/14 |
+| Зона файлов | `backend/app/`: `rate_reminder.py`, `rating_service.py`, `routers/family.py` (`RateIn`, `rate_booking`), `routers/bookings.py` (`_rating_allowed`), `services.py` (`_send_web_push`); `android/app/src/main/`: `java/com/yuldash/app/data/{FcmService,TripPass,ApiClient}.kt` (только `showNotification`, `Outbox`, `sendQueuedAction`/`rateBooking`), `data/RateNotificationAction.kt` (новый), `AndroidManifest.xml`; `webapp/`: `public/push-sw.js`, `src/push/rateDraft.ts` (новый), `src/api/bookings.ts`, `src/screens/ActiveTripScreen.tsx` (блок оценки); новые тесты. Общие файлы (`services.py`, `bookings.py`, `ApiClient.kt`, `TripPass.kt`, `FcmService.kt`, `ActiveTripScreen.tsx`) — по очереди с RS-02, 03, 05, 06, 14 |
 | Источник | исследование `continuation/part-019.md:15,77`, `part-018.md:77` (только идея: нажатая звезда — черновик); решение Q17 |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
@@ -19,7 +19,7 @@
 - Напоминание: `backend/app/rate_reminder.py` — попутка `ключ="booking"` (`:153`), отправка `:230`; таймер раз в 30 минут (`backend/deploy/yuldash-rate-reminder.timer`); получает каждая сторона без оценки.
 - Оценка: `POST /bookings/{id}/rate`, `routers/family.py:635` (`RateIn` `:625`): участник (403), `done` (409, `:654`), окно 60 дней (`:659`, `rating_service.py:37`), пауза. `can_rate` в квитанции — `routers/bookings.py:893` (`_rating_allowed` `:836`).
 - **Повторная оценка разрешена:** `apply_rating` (`rating_service.py:125`) находит `existing` и перезаписывает звёзды (`:151`), текст снова на модерацию; гонку закрывает `_lock_rating_slot` (`:90`). Ключа повтора у ручки нет, повтор безопасен сам (одна строка на человека и бронь).
-- FCM data-only; сервер кладёт `recipient_user_id` (`services.py:483`), адрес по умолчанию `{type, id}` (`:792`), явный `data` главнее. `FcmService.kt`: проверка адресата `:33–34`, сборка `:58`, `setContentIntent(pi)` `:107`, версия для экрана блокировки `:117–131`; кнопок нет. Тап `booking_done` открывает экран поездки у обеих ролей (`BookingLinkDestination.kt`), оценка там — `BookingActiveTripScreen.kt:1961`.
+- FCM data-only; сервер кладёт `recipient_user_id` (`services.py:483`), адрес по умолчанию `{type, id}` (`:792`), явный `data` главнее. `FcmService.kt`: адресат `:33–34`, сборка `:58`, `setContentIntent(pi)` `:107`, версия для экрана блокировки `:117–131`; кнопок нет. Тап `booking_done` открывает экран поездки у обеих ролей (`BookingLinkDestination.kt`), оценка там — `BookingActiveTripScreen.kt:1961`.
 - Очередь без сети — `Outbox` (`data/TripPass.kt:267`): виды `message|trip_status|driver_status`; не-сообщения старше 6 часов выбрасываются (`:493`); неизвестный вид `sendQueuedAction` считает успехом (`ApiClient.kt:1628`); уходит, только пока приложение открыто, раз в 30 с (`OutboxAutoFlush.kt:33`).
 - Сайт: `push-sw.js` — только `title/body/tag/url`; веб-пуш — `services.py:548`, `booking_done` → `/trip/{id}` (`:520`); токен в `localStorage`, из service worker недоступен; оценка — `ActiveTripScreen.tsx:707`.
 - Не нашёл: WorkManager в зависимостях; режима «оценка уже есть» на сервере.
@@ -29,7 +29,7 @@
 1. `rating_service.py`: `rating_allowed(session, user_id, happened_at) -> bool` (тело `_rating_allowed`; в `bookings.py` — обёртка).
 2. `apply_rating`: параметр `only_if_new=False`; после `_lock_rating_slot` и чтения `existing`, если оценка есть, ничего не писать, вернуть «уже стоит» (например, `RatingAlreadySet(stars)`). Вызовы `family.py:660`, `instant.py:930` не меняются.
 3. `RateIn.keep_existing: bool = False`. Оценка уже есть — 200 `{ratee_id, rating, count, kept: true, my_stars}`, без изменений; проверки 403/409/окно/пауза прежние.
-4. `rate_reminder.py`, только `booking`: до отправки `rating_allowed` (выезд — в `_рейсы` `:70`; нельзя — не напоминать); `data={"type":"booking_done","id":<бронь>,"rate":"1","rate_role":"passenger|driver","rate_until":<выезд + 60 дней, секунды>}`. Такси, доставку и Центр уведомлений не трогать.
+4. `rate_reminder.py`, только `booking`: до отправки `rating_allowed` (выезд — в `_рейсы` `:76`; нельзя — не напоминать); `data={"type":"booking_done","id":<бронь>,"rate":"1","rate_role":"passenger|driver","rate_until":<выезд + 60 дней, секунды>}`. Такси, доставку и Центр уведомлений не трогать.
 5. `_send_web_push`: при `rate=1` добавить `actions` (три кнопки на языке получателя) и `rate:{booking_id, recipient_user_id, until}`.
 ### Android
 6. `FcmService`: при `rate=1`, `booking_done`, `id>0`, `now<rate_until` — три `NotificationCompat.Action`: «5 ★», «4 ★» (`getBroadcast`, явный компонент, `FLAG_IMMUTABLE`) и «Другая оценка» (`getActivity`, intent как у `pi`: трамплин через receiver запрещён с Android 12). Экран блокировки: `VISIBILITY_PRIVATE`, публичная версия **без кнопок**; `setAuthenticationRequired(true)`, если есть в текущей `androidx.core` (версии не менять, §10). Надписи — `appTextFor`.
@@ -44,14 +44,14 @@
 Не меняется.
 
 ## 5. Надписи
-RU — как в разделе 1, плюс «Оценка уже стоит: {N} ★», «Ставим оценку…». Готовые пары RU/BA: «Оцени поездку» (`rate_reminder.py:154`), «Эту поездку оценить уже нельзя…» (`rating_service.py:39`), «Оценка не ушла…» (`ReceiptRateDriver.tsx`). Остальной башкирский — черновик `yuldash-bashkir-linguist` в `docs/tasks.md` («Переводы на проверку»).
+RU — как в разделе 1, плюс «Оценка уже стоит: {N} ★», «Ставим оценку…». Готовые RU/BA: «Оцени поездку» (`rate_reminder.py:154`), «Эту поездку оценить уже нельзя…» (`rating_service.py:39`), «Оценка не ушла…» (`ReceiptRateDriver.tsx`). Остальной башкирский — черновик `yuldash-bashkir-linguist` в `docs/tasks.md`.
 
 ## 6. Состояния экрана
 Загрузка — «Отправляем…»; пусто — кнопок нет; ошибка, нет сети — «Сохранили…» + «Отменить» или «оценить уже нельзя»; повтор — «Изменить»; длинный башкирский не обрезается в шторке; тёмная тема; сайт — «Ставим…» / «принята» / ошибка и «Повторить».
 
 ## 7. Тесты
 - Сервер, новый `tests/test_rate_from_notification.py`: `keep_existing` без оценки пишет, с оценкой не меняет ничего (одна строка `Rating`); **гонка** 3 из приложения и 5 из уведомления — одна строка, уведомление не перезаписывает; 403 чужому, 409: не завершена / 60 дней / пауза. `test_rate_reminder.py`: ключи `rate*` у обеих ролей, нет при `rating_allowed` ложном и у `order`/`parcel`; `actions` в веб-payload. `ruff check app/ --select F`, `python -m pytest tests/ -q`.
-- Android, новый `RateNotificationActionTest.kt` (Robolectric, как `PushRecipientTest`): кнопки только при `rate=1`, свежем сроке, верном адресате; публичная версия без кнопок; выход/чужой аккаунт — ни запроса, ни записи; успех — один запрос с `keep_existing`; без сети — запись уходит ровно раз и живёт > 6 часов (как `OutboxStaleStatusTest`); 409 — запись снята. Сторожа: все `*GuardTest`; `assembleDebug`, `compileDebugAndroidTestKotlin`; эмулятор — `RateNotificationRuntimeInstrumentedTest.kt` (по образцу `FreshNotificationRuntimeInstrumentedTest`). Мутации: убрать `keep_existing` / `rating_allowed` / `rate` в фильтре очереди / сверку адресата — свой тест краснеет.
+- Android, новый `RateNotificationActionTest.kt` (Robolectric, как `PushRecipientTest`): кнопки только при `rate=1`, свежем сроке, верном адресате; публичная версия без кнопок; выход/чужой аккаунт — ни запроса, ни записи; успех — один запрос с `keep_existing`; без сети — запись уходит ровно раз и живёт > 6 часов (как `OutboxStaleStatusTest`); 409 — запись снята. Все `*GuardTest`; `assembleDebug`, `compileDebugAndroidTestKotlin`; эмулятор — `RateNotificationRuntimeInstrumentedTest.kt` (как `FreshNotificationRuntimeInstrumentedTest`). Мутации: убрать `keep_existing` / `rating_allowed` / `rate` в фильтре очереди / сверку адресата — свой тест краснеет.
 - Сайт: `npm run check`, `npm run build`; `webapp/tests/rate-draft-test.mjs` (как `web-push-session-test.mjs`): черновик читается раз; чужой пользователь, возраст > 10 минут, звёзды 1–3, адрес `?rate=5` — не отправляют.
 
 ## 8. Приёмка
@@ -65,7 +65,7 @@ RU — как в разделе 1, плюс «Оценка уже стоит: {N
 ## 9. Риски и границы
 - Не входит: такси и доставка, второе напоминание, отправка при закрытом приложении (нужен WorkManager, §10).
 - «5 ★» одним касанием — риск завышения оценок; смягчает «Изменить», пересмотреть по статистике. Два телефона на одном аккаунте: второе нажатие вернёт `kept` — штатно. Лимит `goAsync` ~10 с — отсюда таймаут 8 с. Ночью пуш не звонит (`services.py:753`).
-- Приватность: в уведомлении нет личного; адресат проверяется при показе и при нажатии.
+- Приватность: в уведомлении нет личного; адресат проверяется при показе и нажатии.
 
 ## 10. Журнал статуса
 | Дата | Статус | Кто | PR / коммит | Заметка |

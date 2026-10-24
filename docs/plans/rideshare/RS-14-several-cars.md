@@ -4,7 +4,7 @@
 |---|---|
 | Статус | не начато |
 | Ждёт «да» Александра | **да** — миграция рабочей базы (таблица, две колонки, перенос данных) и выкладка сервера; код и тесты — в ветке без «да» |
-| Зависит от | — (по очереди с RS-02, 03, 05, 09, 15: общие `rides.py`, `bookings.py`, `models.py`, форма публикации) |
+| Зависит от | — (по очереди с RS-02, 03, 05, 06, 09, 13, 15: общие `rides.py`, `bookings.py`, `models.py`, `BookingActiveTripScreen.kt`, форма публикации) |
 | Двигает сценарии приёмки | W1-E2E-01 (пассажир сверяет номер), W1-E2E-05 (номер после подтверждения) |
 | Зона файлов | `backend/app/`: `models.py`, `config.py`, `schemas.py`, `cars.py`, `routers/cars.py` (новые), `main.py`, `routers/{drivers,rides,bookings,requests,safety,auth}.py`, `services.py`, `account.py`, `safety_logic.py`, `cancel_reason_text.py`, `alembic/versions/` (новая); Android `.../com/yuldash/app/`: `MainActivity.kt`, `YuldashApp.kt`, `MyCarsScreen.kt`, `data/CarsApi.kt` (новые), `CreateRideScreen.kt`, `SosVerifyScreens.kt`, `BookingActiveTripScreen.kt`, `RideshareTripContacts.kt`, `data/{BookingDtos,TripPass}.kt`; `webapp/src/`: `App.tsx`, `api/{cars,driver}.ts`, `screens/{MyCarsScreen,CreateRideScreen,VerifyDriverScreen,ActiveTripScreen}.tsx`; `docs/architecture.md`; тесты |
 | Источник | исследование `master/part-003.md:21` (K06 «сверка автомобиля», P0); решение Q17 |
@@ -24,9 +24,9 @@
 ### Сервер (`backend/`)
 1. `models.py`: `DriverCar` (владелец, марка, модель, цвет, номер, места 1–8, `pets_allowed`, `child_seat`, `baggage`, `air_conditioner`, фото, `docs_status`, `is_default`, `archived_at`); `Ride.car_id`, `Booking.car_seen_id` (nullable). Лимит — `settings.driver_cars_max=5`.
 2. `cars.py` — **одна дверь** (создать, править, сделать основной, архивировать); после изменений основной `sync_profile_from_default()` пишет её в `DriverProfile.car_*` — зеркало для такси, курьера и старых клиентов. Прямых записей `dp.car_* =` вне двери нет (сторож как `test_gender_writes_go_through_one_door`). Основная ровно одна (блокировка).
-3. `routers/cars.py`: `GET/POST /driver/cars`, `PATCH /driver/cars/{id}`, `POST …/default|archive|verify`. Чужая машина — 404/403; фото своё (`_ensure_owned_doc_url`, `drivers.py:57`); Telegram `car:ok|no:<id>` (`car` добавить в `auth.py:752`). Марку/модель/цвет/номер нельзя менять при будущих рейсах с живыми бронями (409); смена сбрасывает проверку машины. Архив — нельзя при будущих активных рейсах и для единственной основной; фото стирается.
+3. `routers/cars.py`: `GET/POST /driver/cars`, `PATCH /driver/cars/{id}`, `POST …/default|archive|verify`. Чужая — 404/403; фото своё (`_ensure_owned_doc_url`, `drivers.py:57`); Telegram `car:ok|no:<id>` (`car` добавить в `auth.py:752`). Марку/модель/цвет/номер нельзя менять при будущих рейсах с живыми бронями (409); смена сбрасывает проверку машины. Архив — нельзя при будущих активных рейсах и для единственной основной; фото стирается.
 4. Вердикт по машине — через `set_driver_docs_verdict(…, car=…)`; `User.verified` остаётся про человека (права). Значок на рейсе = `User.verified` **и** проверенная машина рейса. Старые `/driver/profile`, `/driver/verify` работают с основной.
-5. `RideIn.car_id`: нет — основная; чужая 403, архивная 409. `seats_total ≤ car.seats`, удобства не шире машины — срезать, не падать. Ответ `RideOut`: `car_id`, `driver_car` машины рейса; лента — пачкой, без N+1.
+5. `RideIn.car_id`: нет — основная; чужая 403, архивная 409. `seats_total ≤ car.seats`, удобства не шире машины — срезать, не падать. `RideOut`: `car_id`, `driver_car` машины рейса; лента — пачкой, без N+1.
 6. `POST /rides/{id}/car {car_id}` (владелец, активный рейс): 409, если есть бронь «в пути», мест меньше занятых или нет обещанного рейсом удобства. Иначе каждому живому пассажиру срочный пуш и запись в Центре (без номера в тексте).
 7. `bookings.py`: детали берут машину рейса; поле `car_changed` (`car_seen_id ≠ Ride.car_id`); `POST /bookings/{id}/car-seen` («Понятно»); при брони `car_seen_id = Ride.car_id`. Новая причина отмены `car_changed` (`safety_logic.CANCEL_REASONS` + `cancel_reason_text.py`, сторож `test_the_driver_knows_what_is_wrong.py`); место возвращается как обычно.
 8. `safety._car_of` получает рейс — SOS и близкие видят номер **той** машины; `requests._response_out` — машину рейса отклика; экспорт и удаление аккаунта — все машины и фото.
@@ -38,7 +38,7 @@
 12. `MyCarsScreen.tsx` + роут под `RequireAuth`, `api/cars.ts`; `CreateRideScreen.tsx`, `VerifyDriverScreen.tsx` — как 9–10; баннер в `ActiveTripScreen.tsx`.
 
 ## 4. База данных
-Ревизия Alembic `cc_driver_cars_<дата>`; `down_revision` — голова на момент работы (на `0ef03f4`: `cb_sos_retry_intent_20261021`; другие RS тоже добавляют ревизии — перед слиянием `alembic heads` = одна). Создаёт `drivercar`, `ride.car_id`, `booking.car_seen_id`. **Данные:** каждому профилю с машиной — одна `DriverCar` (`is_default`, статус, фото, места из профиля); всем рейсам водителя — `car_id` основной (иначе смена основной подменит машину в прошлых рейсах); `car_seen_id = car_id`. Откат — удалить колонки и таблицу. Проверить up→down→up на SQLite и PostgreSQL, `test_migrations_match_the_models`, `test_migrations_reach_production`; перед рабочей базой — `backup-db.sh`. **На рабочую базу — только после «да» Александра.**
+Ревизия Alembic `<префикс>_driver_cars_<дата>` (префикс — следующий свободный: `cc_` берёт RS-02); `down_revision` — голова на момент работы (на `0ef03f4`: `cb_sos_retry_intent_20261021`; другие RS тоже добавляют ревизии — перед слиянием голова одна). Создаёт `drivercar`, `ride.car_id`, `booking.car_seen_id`. **Данные:** каждому профилю с машиной — одна `DriverCar` (`is_default`, статус, фото, места из профиля); всем рейсам водителя — `car_id` основной (иначе смена основной подменит машину в прошлых рейсах); `car_seen_id = car_id`. Откат — удалить колонки и таблицу. Проверить up→down→up на SQLite и PostgreSQL, `test_migrations_match_the_models`, `test_migrations_reach_production`; перед рабочей базой — `backup-db.sh`. **На рабочую базу — только после «да» Александра.**
 
 ## 5. Надписи
 RU: «Мои машины», «Добавить машину», «Основная», «В архив», «На какой машине едешь», «Машина изменилась», «Понятно», «Отменить без последствий», «Проверена / На проверке / Не проверена». Башкирский — черновик `yuldash-bashkir-linguist` в `docs/tasks.md`.
@@ -51,7 +51,7 @@ RU: «Мои машины», «Добавить машину», «Основна
 - Android: «Мои машины», зажим мест, баннер, обновление паспорта; `*GuardTest`, `assembleDebug`, `compileDebugAndroidTestKotlin`. Сайт: `npm run check`, `build`, тесты `api/cars` и баннера. Мутации: убрать зажим мест, запрет «в пути», машину рейса в SOS, возврат места — свой тест краснеет.
 
 ## 8. Приёмка
-Принимает агент другой «семьи» (Q9); по умолчанию «не принято».
+Агент другой «семьи» (Q9); по умолчанию «не принято».
 - [ ] Шаги 1–12 и миграция; `alembic heads` — одна; проверено на копии базы, **на рабочую без «да» не применялась**.
 - [ ] Эмулятор, RU и BA × светлая и тёмная, 320 dp и шрифт 1.3: «Мои машины» (загрузка, пусто, ошибка, список, архив), форма. Две машины (4 и 7 мест): публикация на каждой, места и удобства от машины; пассажир (второй клиент) видит в брони номер **выбранной** машины, до подтверждения номера нет, в ленте только марка и модель.
 - [ ] Смена машины в рейсе с бронью: пуш, запись в Центре, баннер; «Понятно» гасит, «Отменить без последствий» возвращает место; «в пути» — отказ. «Проверен» только у проверенной машины; смена основной не меняет прошлые брони; офлайн-паспорт показывает новый номер.
