@@ -75,6 +75,7 @@ internal object BoardingApi {
     suspend fun markBoarded(bookingId: Int, owner: Long = ApiClient.queueSessionGeneration()): Result<BoardingResult> =
         ApiClient.authorized("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", "boarded"), owner)
             .map(::parseBoardingResult)
+            .onSuccess { TripLocationBus.driverAction(bookingId, closed = false) }   // Д2: водитель ведёт рейс с этого телефона
 
     /** «Отменить» свою отметку — промахнулся карточкой. Только в первые 5 минут, позже сервер ответит 409. */
     suspend fun undoBoarded(bookingId: Int, owner: Long = ApiClient.queueSessionGeneration()): Result<BoardingResult> =
@@ -89,4 +90,5 @@ internal object BoardingApi {
     suspend fun markArriving(bookingId: Int, owner: Long = ApiClient.queueSessionGeneration()): Result<NoShowTerms> =
         ApiClient.authorized("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", "arriving"), owner)
             .map { parseNoShowTerms(it) }
+            .onSuccess { TripLocationBus.driverAction(bookingId, closed = false) }   // Д2
 }

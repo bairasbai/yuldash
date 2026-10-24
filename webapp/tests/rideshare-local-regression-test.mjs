@@ -57,6 +57,10 @@ const definitions = {
   openTripLocation: `(id,point)=>{const connection={id,point,closed:false};h.locationConnections.push(connection);return {close(){connection.closed=true}}}`,
   driverInTransit: `(...args)=>h.driverTransit(...args)`, wsBase: `()=>"ws://fixture"`, tripLocationUrl: `()=>"ws://fixture/location"`,
   startDriverLocationShare: `options=>{const share={stopped:false};h.locationShares.push(share);options.onState("sharing");return {stop(){share.stopped=true},retry(){}}}`,
+  // Д2: экран берёт отправку у общей на вкладку (driverRideShare.ts) — «отпустить» = stop своего отправителя.
+  rideShareOpen: `id=>{const share={stopped:false,id};h.locationShares.push(share);return ()=>{share.stopped=true}}`,
+  subscribeRideShare: `fn=>{fn({bookingId:h.bookingId,state:"sharing",ride:false});return ()=>{}}`,
+  rideShareRetry: `()=>{}`,
   winterCheckDelay: `()=>Infinity`, wasWinterCheckAsked: `()=>false`, winterCheckNeedsAnswer: `()=>false`, serverMs: `()=>NaN`,
   formatWhen: `()=>''`, priceLabel: `n=>String(n)`, payMethodLabel: `()=>''`,
   SubHeader: `'SubHeader'`, AlertDialog: `'AlertDialog'`, YandexMap: `'YandexMap'`, Link: `'a'`, PayTripCard: `'PayTripCard'`, SbpPay: `'SbpPay'`,

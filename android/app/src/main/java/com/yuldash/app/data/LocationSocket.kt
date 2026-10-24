@@ -32,6 +32,9 @@ class LocationSocket(
     // Тот же mutex и intent, что у запросов после 401; поколение — сессии-владельца канала: сменился
     // аккаунт — обновление откажет, а не выдаст ключ другого человека. Явный отказ в продлении завершает вход так же.
     private val refreshToken: suspend (String, Long) -> Result<Unit> = { token, owner -> ApiClient.tryRefresh(token, owner) },
+    // Чья это поездка: канал живёт в сессии, в которой его открыли (как ChatSocket.ownerSession). Служба точки
+    // передаёт СВОЮ сессию-владельца (Д2): канал, созданный после выхода из аккаунта, не станет «чужим своим».
+    private val ownerSession: Long = ApiClient.queueSessionGeneration(),
 ) {
     data class Peer(val role: String, val lat: Double, val lng: Double, val bearing: Double?, val ts: Long)
 
@@ -44,8 +47,6 @@ class LocationSocket(
     @Volatile private var rejectedToken: String? = null   // ключ, который сервер отверг: с ним не подключаемся
     @Volatile private var authed = false         // кадр {type:auth} ушёл — только теперь можно слать точки
     @Volatile private var authedAt = 0L
-    // Чья это поездка: канал живёт в сессии, в которой его открыли (как ChatSocket.ownerSession).
-    private val ownerSession = ApiClient.queueSessionGeneration()
 
     // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:
     // NetworkMonitor хранит слушателей через WeakReference, ссылку не даём собрать GC.

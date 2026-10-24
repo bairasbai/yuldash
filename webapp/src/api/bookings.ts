@@ -6,6 +6,7 @@
 //  оценивает завершённую поездку. Квитанция — GET /trips/{id}/receipt.
 // ================================================================
 import { apiGet, apiPost } from "./client";
+import { emitDriverAction } from "../utils/driverActions";
 
 export type BookingStatus =
   | "pending"
@@ -403,7 +404,10 @@ export function confirmBooking(id: number): Promise<BookingRow> {
  * «Точно?» перед отправкой. Поездка с остановками без «Подъезжаю» — 409 `no_show_needs_arriving`.
  */
 export function markNoShow(id: number): Promise<BookingRow> {
-  return apiPost<BookingRow>(`/bookings/${id}/no-show`);
+  return apiPost<BookingRow>(`/bookings/${id}/no-show`).then((r) => {
+    emitDriverAction(id, true); // Д2: неявка закрыла бронь — точка рейса уходит на другую живую
+    return r;
+  });
 }
 
 /** Ответ на «Подъезжаю»: фаза и новый срок «Не вышел» (те же поля, что в строке `/driver/bookings`). */
@@ -424,7 +428,10 @@ export interface ArrivingResult {
  * 30 минут до выезда — 409 `arriving_too_early` (приёмка PR184): пассажиру ничего не уходит.
  */
 export function markArriving(id: number): Promise<ArrivingResult> {
-  return apiPost<ArrivingResult>(`/bookings/${id}/driver-status`, { status: "arriving" });
+  return apiPost<ArrivingResult>(`/bookings/${id}/driver-status`, { status: "arriving" }).then((r) => {
+    emitDriverAction(id, false);
+    return r;
+  });
 }
 
 /** Ответ на «Сел» и «Отменить»: итоговый статус брони и сколько секунд ещё можно отменить. */
@@ -440,7 +447,10 @@ export interface BoardingResult {
  * раньше чем за 30 минут до выезда; повтор — тот же ответ. Та же ручка, что «Выехал/Подъезжаю».
  */
 export function markBoarded(id: number): Promise<BoardingResult> {
-  return apiPost<BoardingResult>(`/bookings/${id}/driver-status`, { status: "boarded" });
+  return apiPost<BoardingResult>(`/bookings/${id}/driver-status`, { status: "boarded" }).then((r) => {
+    emitDriverAction(id, false);
+    return r;
+  });
 }
 
 /** «Отменить» свою отметку «Сел» — промахнулся карточкой. Только в первые 5 минут (409 позже). */

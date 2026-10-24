@@ -364,7 +364,7 @@ private fun YuldashAppContent() {
         val bid = activeBookingId
         val hasLoc = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (bid != null && activeTrip != null && hasLoc) TripLocationService.start(context, bid, vm.language.value, isDriver = vm.isDriverOf(bid))
-        else TripLocationService.stop(context)
+        else TripLocationService.release(context)   // водитель, ведущий рейс, GPS не теряет (Д2); выход — stopLiveTracking
     }
     val voiceMessages = vm.voiceMessages
     // Экран после сплэша вычисляем один раз; сплэш показывается первым ~1.6с.
@@ -1438,7 +1438,8 @@ private fun YuldashAppContent() {
                 ride = selectedRide, contacts = trustedContacts, bookingId = activeBookingId,
                 terminalHint = activeTripTerminalHint,
                 chatOpen = screen.tripChatView(), onChatOpenChange = vm::showTripChat,
-                onBack = { if (screen.contentScreen() == Screen.ActiveTrip) goBack() }, onTripEnd = { activeTrip = null; openHome(HomeTab.Map) },
+                onBack = { if (screen.contentScreen() == Screen.ActiveTrip) goBack() }, onTripEnd = { vm.endTripScreen(activeBookingId) { openHome(HomeTab.Map) } },
+                onDriverFinished = { bid -> vm.driverFinishedBooking(bid) },   // остались пассажиры рейса — «Едут с тобой» (Д2)
                 // Дежурный должен узнать из сигнала, с кем и куда человек уехал (аудит 2026-08-06).
                 onSos = { openSos(bookingId = activeBookingId ?: 0) },
                 onSupport = { screen = Screen.Support },
@@ -1589,6 +1590,7 @@ private fun YuldashAppContent() {
                 onPretrip = { openProtectedScreen(Screen.PretripCheck) },
                 onMyResponses = { openProtectedScreen(Screen.DriverResponses) },
                 onOpenTrip = { bid -> vm.openDriverTrip(bid) },   // «Едут с тобой» → экран поездки водителя
+                focusRiding = vm.focusRidingSection.value, onFocusRidingDone = { vm.focusRidingSection.value = false },
                 onOpenCompletedTrip = { bid ->
                     activeTripTerminalHint = knownTerminalTripHint(bid, "done", "driver")
                     vm.applyBookingLink(bid, "driver", "done", true)

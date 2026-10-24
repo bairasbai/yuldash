@@ -1,0 +1,119 @@
+{
+  "about": "Д2, 24.10.2026: через чей канал идёт GPS водителя, когда несущая бронь закрылась. Один набор на Android (DriverRideGpsTest) и сайт (driver-ride-share-test.mjs): правило не должно разойтись.",
+  "cases": [
+    {
+      "name": "в пути важнее подтверждённых — и на остановке, и в начале маршрута",
+      "anchor": 1, "closed": [1],
+      "rows": [
+        {"booking_id": 1, "ride_id": 7, "status": "done", "pickup_stop": ""},
+        {"booking_id": 2, "ride_id": 7, "status": "confirmed", "pickup_stop": "Бурибай", "no_show_wait_sec": 0},
+        {"booking_id": 3, "ride_id": 7, "status": "confirmed", "pickup_stop": "", "no_show_wait_sec": 900},
+        {"booking_id": 4, "ride_id": 7, "status": "onboard", "pickup_stop": ""}
+      ],
+      "expect": {"ride_id": 7, "live": [2, 3, 4], "carrier": 4, "carrier_ttl_sec": null}
+    },
+    {
+      "name": "среди «в пути» — меньший номер брони",
+      "anchor": 1, "closed": [1],
+      "rows": [
+        {"booking_id": 1, "ride_id": 7, "status": "done"},
+        {"booking_id": 9, "ride_id": 7, "status": "onboard", "pickup_stop": "Акъяр"},
+        {"booking_id": 5, "ride_id": 7, "status": "onboard", "pickup_stop": ""}
+      ],
+      "expect": {"ride_id": 7, "live": [5, 9], "carrier": 5, "carrier_ttl_sec": null}
+    },
+    {
+      "name": "никто не едет: остановка (окно держит сервер) важнее начала маршрута",
+      "anchor": 1, "closed": [1],
+      "rows": [
+        {"booking_id": 1, "ride_id": 7, "status": "done"},
+        {"booking_id": 2, "ride_id": 7, "status": "confirmed", "pickup_stop": "", "no_show_wait_sec": 900},
+        {"booking_id": 3, "ride_id": 7, "status": "confirmed", "pickup_stop": "Бурибай", "no_show_wait_sec": 0}
+      ],
+      "expect": {"ride_id": 7, "live": [2, 3], "carrier": 3, "carrier_ttl_sec": null}
+    },
+    {
+      "name": "начало маршрута — только до срока «Не пришёл», со сроком",
+      "anchor": 1, "closed": [1],
+      "rows": [
+        {"booking_id": 1, "ride_id": 7, "status": "cancelled"},
+        {"booking_id": 2, "ride_id": 7, "status": "confirmed", "pickup_stop": "", "no_show_wait_sec": 300}
+      ],
+      "expect": {"ride_id": 7, "live": [2], "carrier": 2, "carrier_ttl_sec": 300}
+    },
+    {
+      "name": "срок «Не пришёл» настал — Бота, которая не вышла, машину по своему каналу не получает; в «Едут с тобой» она есть",
+      "anchor": 1, "closed": [1],
+      "rows": [
+        {"booking_id": 1, "ride_id": 7, "status": "done"},
+        {"booking_id": 2, "ride_id": 7, "status": "confirmed", "pickup_stop": "", "no_show_wait_sec": 0}
+      ],
+      "expect": {"ride_id": 7, "live": [2], "carrier": null, "carrier_ttl_sec": null}
+    },
+    {
+      "name": "до срока меньше минуты — не берём: канал закрылся бы сразу",
+      "anchor": 1, "closed": [1],
+      "rows": [
+        {"booking_id": 1, "ride_id": 7, "status": "done"},
+        {"booking_id": 2, "ride_id": 7, "status": "confirmed", "pickup_stop": null, "no_show_wait_sec": 60}
+      ],
+      "expect": {"ride_id": 7, "live": [2], "carrier": null, "carrier_ttl_sec": null}
+    },
+    {
+      "name": "место посадки не указано — как начало маршрута",
+      "anchor": 1, "closed": [1],
+      "rows": [
+        {"booking_id": 1, "ride_id": 7, "status": "done"},
+        {"booking_id": 2, "ride_id": 7, "status": "confirmed", "pickup_stop": null, "no_show_wait_sec": 0}
+      ],
+      "expect": {"ride_id": 7, "live": [2], "carrier": null, "carrier_ttl_sec": null}
+    },
+    {
+      "name": "рейс — только из строки закрытой брони: номер брони 7 = номер другого рейса, чужой рейс не берём",
+      "anchor": 7, "closed": [7],
+      "rows": [
+        {"booking_id": 7, "ride_id": 3, "status": "done"},
+        {"booking_id": 8, "ride_id": 7, "status": "onboard"},
+        {"booking_id": 11, "ride_id": 7, "status": "onboard"}
+      ],
+      "expect": {"ride_id": 3, "live": [], "carrier": null, "carrier_ttl_sec": null}
+    },
+    {
+      "name": "другой рейс того же водителя — не наш",
+      "anchor": 1, "closed": [1],
+      "rows": [
+        {"booking_id": 1, "ride_id": 7, "status": "done"},
+        {"booking_id": 2, "ride_id": 8, "status": "onboard"},
+        {"booking_id": 3, "ride_id": 7, "status": "onboard"}
+      ],
+      "expect": {"ride_id": 7, "live": [3], "carrier": 3, "carrier_ttl_sec": null}
+    },
+    {
+      "name": "закрытая, хотя сервер ещё пишет «в пути» (ответ отстал), обратно не берётся",
+      "anchor": 1, "closed": [1, 2],
+      "rows": [
+        {"booking_id": 1, "ride_id": 7, "status": "onboard"},
+        {"booking_id": 2, "ride_id": 7, "status": "onboard"},
+        {"booking_id": 3, "ride_id": 7, "status": "pending"}
+      ],
+      "expect": {"ride_id": 7, "live": [], "carrier": null, "carrier_ttl_sec": null}
+    },
+    {
+      "name": "строки закрытой брони нет — ничего не берём",
+      "anchor": 1, "closed": [1],
+      "rows": [
+        {"booking_id": 2, "ride_id": 7, "status": "onboard"}
+      ],
+      "expect": {"ride_id": 0, "live": [], "carrier": null, "carrier_ttl_sec": null}
+    },
+    {
+      "name": "старый сервер без ride_id — ничего не берём",
+      "anchor": 1, "closed": [1],
+      "rows": [
+        {"booking_id": 1, "status": "done"},
+        {"booking_id": 2, "status": "onboard"}
+      ],
+      "expect": {"ride_id": 0, "live": [], "carrier": null, "carrier_ttl_sec": null}
+    }
+  ]
+}

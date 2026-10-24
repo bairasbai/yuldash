@@ -39,6 +39,7 @@ import type { Ride } from "../api/rides";
 import { LoadingList, ErrorState, EmptyStateCard } from "../components/States";
 import RideEditActions from "../components/RideEditActions";
 import DriverPassengers from "../components/DriverPassengers";
+import RideShareNote from "../components/RideShareNote";
 import DeclineBookingButton from "../components/DeclineBookingButton";
 import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { SubHeader } from "./ConsentsScreen";
@@ -396,6 +397,8 @@ export default function DriverCabinetScreen() {
             <h2>{appText("Маршруты и проверка", "Маршруттар һәм тикшереү")}</h2>
             <p>{appText("Публикуй поездки, проходи проверку и поднимай маршрут выше.", "Сәфәр баҫтыр, тикшереү үт һәм маршрутты өҫкә күтәр.")}</p>
           </div>
+          {/* Сайт шлёт точку на весь рейс (Д2) — видно сразу, без прокрутки. */}
+          <RideShareNote />
 
           <VerifyBanner docs={driver.docs_status} />
 

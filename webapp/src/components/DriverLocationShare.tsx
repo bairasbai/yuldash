@@ -1,58 +1,34 @@
 // ================================================================
 //  «Твоя точка для пассажира» — водитель на экране поездки (ActiveTripScreen).
-//  Логика и правила приватности — utils/tripLocationShare.ts; здесь только проводка
-//  к настоящему браузеру (navigator.geolocation, WebSocket) и слова на экране.
+//  Логика и правила приватности — utils/tripLocationShare.ts и (весь рейс, Д2) utils/rideLocationShare.ts;
+//  проводка к браузеру — utils/driverRideShare.ts; здесь — слова на экране.
 //
 //  До «Выехал» — одна строка «зачем»: человек заранее знает, почему сайт спросит место.
 //  В пути — состояние: спрашиваем / отправляем / нет связи / доступ закрыт / не определяется.
 // ================================================================
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLang } from "../i18n/lang";
-import { getSessionGeneration, getToken, refreshRejectedToken } from "../api/client";
-import { wsBase } from "../api/chat";
-import {
-  startDriverLocationShare,
-  tripLocationUrl,
-  type ShareHandle,
-  type ShareState,
-  type SocketLike,
-} from "../utils/tripLocationShare";
+import type { ShareState } from "../utils/tripLocationShare";
+import { rideShareOpen, rideShareRetry } from "../utils/driverRideShare";
+import { subscribeRideShare } from "../utils/rideShareStore";
 import { IconLocate, IconWarn } from "./Icons";
 
 export default function DriverLocationShare({ bookingId, inTransit }: { bookingId: number; inTransit: boolean }) {
   const { appText } = useLang();
   const [state, setState] = useState<ShareState | null>(null);
-  const handle = useRef<ShareHandle | null>(null);
 
   useEffect(() => {
     if (!bookingId || !inTransit) {
       setState(null);
       return;
     }
-    const generation = getSessionGeneration();
-    const geo = typeof navigator !== "undefined" && navigator.geolocation ? navigator.geolocation : null;
-    const h = startDriverLocationShare({
-      geolocation: geo,
-      // Настоящий WebSocket шире SocketLike (у его обработчиков this и Event) — логике хватает подмножества.
-      openSocket: () => new WebSocket(tripLocationUrl(wsBase(), bookingId)) as unknown as SocketLike,
-      token: getToken,
-      now: Date.now,
-      setTimer: (fn, ms) => window.setTimeout(fn, ms),
-      clearTimer: (t) => window.clearTimeout(t as number),
-      onState: setState,
-      isCurrent: () => generation === getSessionGeneration(),
-      // Ключ входа истёк посреди поездки — обновить тихо и продолжить (приёмка PR155).
-      refreshToken: refreshRejectedToken,
-      subscribeOnline: (fn) => {
-        if (typeof window === "undefined") return () => {};
-        window.addEventListener("online", fn);
-        return () => window.removeEventListener("online", fn);
-      },
-    });
-    handle.current = h;
+    // Отправка одна на вкладку (driverRideShare.ts, Д2): ведёшь рейс — после «Завершить» по этому пассажиру
+    // точка идёт дальше через другую живую бронь рейса, а «Едут с тобой» держит её, пока открыт кабинет.
+    const release = rideShareOpen(bookingId);
+    const unsubscribe = subscribeRideShare((s) => setState(s.bookingId === bookingId ? s.state : null));
     return () => {
-      h.stop();
-      if (handle.current === h) handle.current = null;
+      unsubscribe?.();
+      release?.();
     };
   }, [bookingId, inTransit]);
 
@@ -111,7 +87,7 @@ export default function DriverLocationShare({ bookingId, inTransit }: { bookingI
         <span>{text}</span>
       </p>
       {(state === "denied" || state === "unavailable") && (
-        <button type="button" className="btn-ghost trip-geo__retry" onClick={() => handle.current?.retry()}>
+        <button type="button" className="btn-ghost trip-geo__retry" onClick={() => rideShareRetry()}>
           {appText("Повторить", "Ҡабатлау")}
         </button>
       )}
