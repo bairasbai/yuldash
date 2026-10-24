@@ -4,9 +4,12 @@
 |---|---|
 | Статус | не начато |
 | Ждёт «да» Александра | нет — миграции нет (версия остановок — сам текст `waypoints` в условном `UPDATE`); понадобится поле — да (миграция) |
-| Зависит от | RS-02 (`stop_prices`, `ride_seats.take/recompute`, `herr(..., code=)`; общие `rides.py`, `bookings.py`). RS-10 — для шага 10 (без него шаг пропускается) |
+| Зависит от | RS-02; RS-10 — для шага 10 (правило «кто вливается вторым»). `herr(code=)` и `ApiError.code` — из RS-01 (этап 1) |
+| Не параллельно с | RS-01, RS-02, RS-03, RS-04, RS-05, RS-06, RS-07, RS-08, RS-09, RS-10 (шаг 10), RS-12, RS-13, RS-14 — по «Очереди по общим файлам» индекса |
+| Деление на PR | `[RS-15А]` сервер (`rides.py`, `bookings.py`, тесты) → `[RS-15Б]` сайт → `[RS-15В]` Android |
+| Проверка `yuldash-security-privacy` | нет — личных данных не касается; гонки проверяет приёмка (§8) |
 | Двигает сценарии приёмки | W1-E2E-01, W1-E2E-03 (`docs/audit-traceability/rideshare-scope.md`) |
-| Зона файлов | `backend/app/routers/rides.py`, `backend/app/routers/bookings.py` (одно условие в `book()`), `backend/tests/test_edit_ride_stops.py`*. `android/app/src/main/java/com/yuldash/app/`: `ProfileScreen.kt`, `EditRideStopsSheet.kt`*, `data/ApiClient.kt`; `android/app/src/test/.../EditRideStopsTest.kt`*. `webapp/src/`: `api/rides.ts`, `api/client.ts`, `components/RideEditActions.tsx`; `webapp/tests/edit-ride-stops-test.mjs`*, `webapp/tests/run.mjs`. `docs/tasks.md`, `docs/decisions.md`. (* — новый файл) |
+| Зона файлов | `backend/app/routers/rides.py`, `backend/app/routers/bookings.py` (одно условие в `book()`), `backend/app/ride_seats.py` (RS-02, проверка остановок в `take`), `backend/tests/test_edit_ride_stops.py`*. `android/app/src/main/java/com/yuldash/app/`: `ProfileScreen.kt`, `EditRideStopsSheet.kt`*, `data/ApiClient.kt`; `android/app/src/test/.../EditRideStopsTest.kt`*. `webapp/src/`: `api/rides.ts`, `components/RideEditActions.tsx`; `webapp/tests/edit-ride-stops-test.mjs`*, `webapp/tests/run.mjs`. `docs/{tasks,decisions,architecture,lessons}.md`. (* — новый файл) |
 | Источник | `master/part-001.md` п. 13, п. 6; `master/part-002.md` контракт 5 «Изменение», «Места и календарь»; решения 24.10: Q17, Q12 (RS-02), Q10 |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
