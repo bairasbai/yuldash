@@ -191,6 +191,7 @@ export default function ActiveTripScreen() {
   const [payBusy, setPayBusy] = useState(false);
   const [payNote, setPayNote] = useState("");
   const tripRef = useRef<TripState | null>(null);
+  const boardingSnapshotRef = useRef<(BoardingUndoTerms & { status: BookingStatus }) | null>(null);
   const detailsStatusRef = useRef<BookingStatus | null>(null);
   const detailsSyncBusyRef = useRef(false);
   const [detailsSyncStatus, setDetailsSyncStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -226,7 +227,7 @@ export default function ActiveTripScreen() {
   /** The server receipt redeems only its original boarding, including a saved offline flag. */
   const acceptBoardingSnapshot = useCallback((incoming: BoardingUndoTerms & { status: BookingStatus }) => {
     if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return false;
-    const current = tripRef.current ?? rawDetailsRef.current;
+    const current = boardingSnapshotRef.current ?? tripRef.current ?? rawDetailsRef.current;
     const currentStatus = current?.status ?? detailsStatusRef.current;
     if ((isTerminalBookingStatus(currentStatus) || isTerminalBookingStatus(detailsStatusRef.current)) && incoming.status !== currentStatus) return false;
     if (isStaleBoardingAfterUndo(current, incoming)) return false;
@@ -245,6 +246,9 @@ export default function ActiveTripScreen() {
         setPass(loadOfflineTripPass(bookingId));
       }
     }
+    if (incoming.status === "onboard" && sameBoardingTimestamp(incoming.onboard_at, incoming.onboard_at) &&
+      !sameBoardingTimestamp(current?.onboard_at, incoming.onboard_at)) boardingSeqRef.current += 1;
+    boardingSnapshotRef.current = incoming;
     return true;
   }, [bookingId, sessionGeneration]);
 
@@ -343,6 +347,7 @@ export default function ActiveTripScreen() {
 
   useEffect(() => {
     tripRef.current = null;
+    boardingSnapshotRef.current = null;
     detailsStatusRef.current = null;
     inTransitRef.current = false;
     rawDetailsRef.current = null;

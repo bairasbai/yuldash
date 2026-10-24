@@ -370,6 +370,48 @@ await test('held «I am in the car» reply and its callback cannot replace a new
   assert.equal(h.undoProps.terms.onboard_at, newer); assert.ok(text(h.tree).includes('Водитель отметил посадку'));
   assert.equal(h.passStorage.tripPassStage(42, 'A'), 'onboard'); assert.equal(storedPass(42).boardingCode, '');
 });
+await test('overlapping role polls keep boarding B after a held boarding A reply, then accept the real receipt B', async () => {
+  reset({ status: 'onboard' }); Object.assign(h.details, { onboard_at: BOARDING_AT });
+  Object.assign(h.trip, { boarding_undo_pending: true, boarding_undo_request_id: 'request-A', boarding_undo_wait_sec: 120 }); await settle(Active);
+  const staleA = { ...h.trip }; let release;
+  h.tripHolds.push({ promise: new Promise(done => { release = done; }) }); const heldA = h.interval();
+  const newer = '2026-10-24T12:00:00.123457Z';
+  Object.assign(h.trip, { onboard_at: newer, boarding_undo_pending: true, boarding_undo_request_id: 'request-B', boarding_undo_wait_sec: 80, boarding_undo_sec: 0 });
+  Object.assign(h.details, { onboard_at: newer }); await h.interval(); await settle(Active);
+  assert.equal(h.undoProps.terms.onboard_at, newer); assert.equal(h.undoProps.terms.boarding_undo_request_id, 'request-B');
+  release(staleA); await heldA; await settle(Active);
+  assert.equal(h.trip.onboard_at, newer, 'server stayed on boarding B');
+  assert.equal(h.undoProps.terms.onboard_at, newer, 'late role A replaced the accepted boarding B');
+  assert.equal(h.undoProps.terms.boarding_undo_request_id, 'request-B'); assert.equal(h.undoProps.terms.boarding_undo_wait_sec, 80);
+  const receiptB = { status: 'confirmed', onboard_at: null, boarding_undo_confirmed_id: 'receipt-B', boarding_undo_onboard_at: newer, boarding_undo_pending: false, boarding_undo_request_id: null };
+  Object.assign(h.trip, receiptB); Object.assign(h.details, receiptB); await h.interval(); await settle(Active);
+  assert.ok(text(h.tree).includes('Водитель отметит посадку')); assert.equal(h.passStorage.tripPassStage(42, 'A'), 'confirmed'); assert.equal(storedPass(42).boardingCode, '4931');
+});
+for (const oldEpoch of [BOARDING_AT, undefined, 'not-a-boarding']) await test('a fresh role callback cannot replace a known newer epoch with ' + String(oldEpoch), async () => {
+  reset({ status: 'onboard' }); Object.assign(h.details, { onboard_at: BOARDING_AT }); await settle(Active);
+  const newer = '2026-10-24T12:00:00.123457Z';
+  Object.assign(h.trip, { onboard_at: newer, boarding_undo_pending: true, boarding_undo_request_id: 'request-B', boarding_undo_wait_sec: 80 }); Object.assign(h.details, { onboard_at: newer });
+  await h.interval(); await settle(Active);
+  h.tripHolds.push({ promise: Promise.resolve({ ...h.trip, onboard_at: oldEpoch, boarding_undo_pending: false, boarding_undo_request_id: 'stale-request', boarding_undo_wait_sec: 0, boarding_undo_sec: 300 }) });
+  await h.interval(); await settle(Active);
+  assert.equal(h.undoProps.terms.onboard_at, newer); assert.equal(h.undoProps.terms.boarding_undo_request_id, 'request-B');
+  assert.equal(h.undoProps.terms.boarding_undo_pending, true); assert.equal(h.undoProps.terms.boarding_undo_wait_sec, 80); assert.equal(h.passStorage.tripPassStage(42, 'A'), 'onboard');
+});
+await test('duplicate epoch B still updates its terms, while new C rejects receipt B and accepts receipt C', async () => {
+  reset({ status: 'onboard' }); Object.assign(h.details, { onboard_at: BOARDING_AT }); await settle(Active);
+  const newer = '2026-10-24T12:00:00.123457Z', newest = '2026-10-24T12:00:00.123458Z';
+  Object.assign(h.trip, { onboard_at: newer, boarding_undo_pending: true, boarding_undo_request_id: 'request-B', boarding_undo_wait_sec: 80 }); Object.assign(h.details, { onboard_at: newer });
+  await h.interval(); await settle(Active);
+  Object.assign(h.trip, { onboard_at: newer.replace('Z', '+00:00'), boarding_undo_wait_sec: 70 }); await h.interval(); await settle(Active);
+  assert.equal(h.undoProps.terms.boarding_undo_wait_sec, 70, 'same UTC epoch must still accept its fresh terms');
+  Object.assign(h.trip, { onboard_at: newest, boarding_undo_request_id: 'request-C' }); Object.assign(h.details, { onboard_at: newest }); await h.interval(); await settle(Active);
+  const receiptB = { status: 'confirmed', onboard_at: null, boarding_undo_confirmed_id: 'receipt-B', boarding_undo_onboard_at: newer, boarding_undo_pending: false };
+  h.tripHolds.push({ promise: Promise.resolve(receiptB) }); await h.interval(); await settle(Active);
+  assert.equal(h.undoProps.terms.onboard_at, newest); assert.equal(h.undoProps.terms.boarding_undo_request_id, 'request-C');
+  const receiptC = { ...receiptB, boarding_undo_confirmed_id: 'receipt-C', boarding_undo_onboard_at: newest };
+  Object.assign(h.trip, receiptC); Object.assign(h.details, receiptC); await h.interval(); await settle(Active);
+  assert.ok(text(h.tree).includes('Водитель отметит посадку')); assert.equal(h.passStorage.tripPassStage(42, 'A'), 'confirmed');
+});
 await test('done without a shared link reaches the completed booking UI', async () => {
   reset({ status: 'onboard' }); await settle(Active); assert.ok(button('Поездка завершена'));
   await button('Поездка завершена').props.onClick(); await settle(Active); assert.deepEqual(h.sent, [[42, 'done']]); assert.equal(h.trip.status, 'done'); assert.ok(!button('Поездка завершена'));

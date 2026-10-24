@@ -10,20 +10,33 @@ function normalized(value: string | null | undefined): string | null {
 
 /** Квитанция ответа пассажира разрешает откат только исходной посадки. */
 export function sameBoardingTimestamp(left: string | null | undefined, right: string | null | undefined): boolean {
-  const before = normalized(left);
-  return before !== null && before === normalized(right);
+  return compareBoardingTimestamps(left, right) === 0;
+}
+
+export function compareBoardingTimestamps(left: string | null | undefined, right: string | null | undefined): -1 | 0 | 1 | null {
+  const before = normalized(left), after = normalized(right);
+  return before === null || after === null ? null : before === after ? 0 : before < after ? -1 : 1;
 }
 
 export function isConfirmedBoardingUndo(current: BoardingUndoTerms | null | undefined, incoming: BoardingUndoTerms): boolean {
   return !!incoming.boarding_undo_confirmed_id && sameBoardingTimestamp(current?.onboard_at, incoming.boarding_undo_onboard_at);
 }
 
-/** Старый ответ о посадке не открывает уже исправленную посадку повторно. */
+/** Известную посадку нельзя заменить более старой или открыть повторно после исправления. */
 export function isStaleBoardingAfterUndo(
   current: (BoardingUndoTerms & { status?: string }) | null | undefined,
   incoming: BoardingUndoTerms & { status?: string },
 ): boolean {
-  if (current?.status !== "confirmed" || !current.boarding_undo_confirmed_id || incoming.status !== "onboard") return false;
+  if (current?.status === "confirmed" && current.boarding_undo_confirmed_id && incoming.status === "confirmed") {
+    const order = compareBoardingTimestamps(incoming.boarding_undo_onboard_at, current.boarding_undo_onboard_at);
+    return !incoming.boarding_undo_confirmed_id || order === null || order < 0;
+  }
+  if (incoming.status !== "onboard") return false;
+  if (current?.status === "onboard" && normalized(current.onboard_at) !== null) {
+    const order = compareBoardingTimestamps(incoming.onboard_at, current.onboard_at);
+    return order === null || order < 0;
+  }
+  if (current?.status !== "confirmed" || !current.boarding_undo_confirmed_id) return false;
   const consumed = normalized(current.boarding_undo_onboard_at), source = normalized(incoming.onboard_at);
   return consumed === null || source === null || source <= consumed;
 }

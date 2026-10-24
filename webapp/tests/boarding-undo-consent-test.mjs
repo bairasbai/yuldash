@@ -57,6 +57,16 @@ await t.test("запоздавшая квитанция не откатывае�
   assert.equal(same("2026-10-24T12:00:00.123456Z", "2026-10-24T12:00:00.123456+00:00"), true);
   assert.equal(same("2026-10-24T12:00:00.123456Z", "2026-10-24T12:00:00.123457Z"), false);
 });
+await t.test('порядок эпох сохраняет микросекунды, а прежняя квитанция не стирает последнюю', async () => {
+  const compare = await bundleComponent('src/utils/boardingUndo.ts', { exportName: 'compareBoardingTimestamps' });
+  const stale = await bundleComponent('src/utils/boardingUndo.ts', { exportName: 'isStaleBoardingAfterUndo' });
+  const a = '2026-10-24T12:00:00.123456Z', b = '2026-10-24T12:00:00.123457Z';
+  assert.equal(compare(a, b), -1); assert.equal(compare(b, a), 1); assert.equal(compare(a, a.replace('Z', '+00:00')), 0);
+  assert.equal(compare(null, b), null); assert.equal(compare('2026-02-30T12:00:00Z', b), null);
+  const current = { status: 'confirmed', boarding_undo_confirmed_id: 'receipt-B', boarding_undo_onboard_at: b };
+  assert.equal(stale(current, { status: 'confirmed', boarding_undo_confirmed_id: 'receipt-A', boarding_undo_onboard_at: a }), true);
+  assert.equal(stale(current, { status: 'confirmed' }), true); assert.equal(stale(current, current), false);
+});
 for (const lang of ["ru", "ba"]) await t.test(`${lang}: ошибка ответа видна, ручной повтор отвечает на тот же запрос`, async () => {
   const { h, view, seen } = await pending(lang, { error: true });
   const yes = lang === "ru" ? "Я ещё не сел" : "Мин әле ултырманым";
@@ -95,7 +105,9 @@ async function withPassStore(check) {
   } });
   try {
     const result = await build({ entryPoints: [fileURLToPath(new URL("../src/utils/tripPass.ts", import.meta.url))], bundle: true, write: false, platform: "node", format: "esm" });
-    const store = await import("data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64"));
+    const moduleUrl = "data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64");
+    const store = await import(moduleUrl); let reload = 0;
+    h.reload = () => import(moduleUrl + '#reload-' + ++reload);
     const pass = { bookingId: 42, ownerId: 7, sessionGeneration: h.generation, fromCity: "Сибай", toCity: "Акъяр", departAt: "2026-10-24T12:00:00Z", driverName: "QA", driverCar: "QA", driverPlate: "QA", driverPhone: "synthetic", boardingCode: "1234", pickup: "QA", pickupStop: "Ургаза", dropoffStop: "Бурибай", rideHasStops: true, price: 300, seats: 1 };
     store.saveTripPass(pass);
     await check(store, h, pass);
@@ -137,5 +149,35 @@ await t.test("смена входа перед квитанцией и во вр
   h.generation = owner; h.hook = () => { h.hook = null; h.generation = "owner-2"; };
   assert.equal(store.restoreConfirmedTripPass(42, owner, currentBoarding, consentReceipt, () => h.generation), false);
   assert.equal(store.loadTripPass(42).boardingCode, "");
+}));
+for (const reload of [false, true]) await t.test(`посадка B замещает пропущенную квитанцию A; квитанция B возвращает код (reload=${reload})`, async () => withPassStore(async (store, h, pass) => {
+  const newer = '2026-10-24T12:00:00.123457Z';
+  store.clearTripPassBoardingCode(42, h.generation, stamp); store.clearTripPassBoardingCode(42, h.generation, newer);
+  if (reload) store = await h.reload();
+  const receiptB = { ...consentReceipt, boarding_undo_confirmed_id: 'receipt-B', boarding_undo_onboard_at: newer };
+  assert.equal(store.restoreConfirmedTripPass(42, h.generation, reload ? null : { status: 'onboard', onboard_at: newer }, receiptB, () => h.generation), true);
+  assert.equal(store.tripPassStage(42, h.generation), 'confirmed'); store.saveTripPass({ ...pass, boardingCode: '5678' });
+  assert.equal(store.loadTripPass(42).boardingCode, '5678'); assert.equal(store.loadTripPass(42).pickupStop, 'Ургаза'); assert.equal(store.loadTripPass(42).dropoffStop, 'Бурибай');
+}));
+await t.test('дубликат B в другом UTC формате не мешает квитанции B, но новая C остаётся закрытой для B', async () => withPassStore(async (store, h) => {
+  const newer = '2026-10-24T12:00:00.123457Z', newest = '2026-10-24T12:00:00.123458Z';
+  store.clearTripPassBoardingCode(42, h.generation, stamp); store.clearTripPassBoardingCode(42, h.generation, newer); store.clearTripPassBoardingCode(42, h.generation, newer.replace('Z', '+00:00'));
+  const receiptB = { ...consentReceipt, boarding_undo_confirmed_id: 'receipt-B', boarding_undo_onboard_at: newer };
+  assert.equal(store.restoreConfirmedTripPass(42, h.generation, null, receiptB, () => h.generation), true);
+  store.clearTripPassBoardingCode(42, h.generation, newest); store = await h.reload();
+  assert.equal(store.restoreConfirmedTripPass(42, h.generation, null, receiptB, () => h.generation), false); assert.equal(store.tripPassStage(42, h.generation), 'onboard');
+  assert.equal(store.restoreConfirmedTripPass(42, h.generation, null, { ...receiptB, boarding_undo_confirmed_id: 'receipt-C', boarding_undo_onboard_at: newest }, () => h.generation), true);
+}));
+for (const invalid of [undefined, 'invalid-epoch']) await t.test('квитанция без валидной эпохи не открывает последнюю посадку: ' + String(invalid), async () => withPassStore((store, h) => {
+  store.clearTripPassBoardingCode(42, h.generation, stamp);
+  assert.equal(store.restoreConfirmedTripPass(42, h.generation, currentBoarding, { ...consentReceipt, boarding_undo_onboard_at: invalid }, () => h.generation), false);
+  assert.equal(store.tripPassStage(42, h.generation), 'onboard'); assert.equal(store.loadTripPass(42).boardingCode, '');
+}));
+for (const invalidMarker of ['unknown-epoch', '%ZZ', '']) await t.test('битый сохранённый маркер оставляет код закрытым: ' + invalidMarker, async () => withPassStore(async (store, h) => {
+  const newer = '2026-10-24T12:00:00.123457Z'; store.clearTripPassBoardingCode(42, h.generation, newer);
+  localStorage.setItem(`yuldash.tripPass.42.onboard.${h.generation}.${invalidMarker}`, '1'); store = await h.reload();
+  const receiptB = { ...consentReceipt, boarding_undo_confirmed_id: 'receipt-B', boarding_undo_onboard_at: newer };
+  assert.equal(store.restoreConfirmedTripPass(42, h.generation, null, receiptB, () => h.generation), false);
+  assert.equal(store.tripPassStage(42, h.generation), 'onboard'); assert.equal(store.loadTripPass(42).boardingCode, '');
 }));
 t.done();

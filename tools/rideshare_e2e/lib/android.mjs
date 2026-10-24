@@ -133,9 +133,10 @@ export function imeShown() { return /mInputShown=true/.test(sh("dumpsys input_me
 /** Hide the soft keyboard only if it is shown (a bare BACK would navigate away). */
 export function hideKeyboard() { if (imeShown()) { back(); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400); } }
 
-export async function swipeUp(frac = 0.5) {
+export async function swipeUp(frac = 0.5, { from = 0.68 } = {}) {
   const [w, h] = screenSize();
-  const x = Math.round(w / 2), y1 = Math.round(h * 0.75), y2 = Math.round(h * (0.75 - frac));
+  // Active-trip actions are pinned below ~75%: begin inside the scrollable content.
+  const x = Math.round(w / 2), y1 = Math.round(h * from), y2 = Math.round(h * Math.max(0.12, from - frac));
   sh(`input swipe ${x} ${y1} ${x} ${y2} 400`, { quiet: true });
   log("android.swipe", { dir: "up" });
   await sleep(600);
@@ -159,12 +160,11 @@ export async function scrollTo(want, { max = 8, index = 0 } = {}) {
   throw new Error("android: not reachable by scrolling: " + want);
 }
 export async function scrollTap(want, opts = {}) {
-  const n = await scrollTo(want, opts);
-  const [x, y] = center(n);
-  sh(`input tap ${x} ${y}`, { quiet: true });
-  log("android.tap", { want: String(want), at: [x, y], scrolled: true });
-  await sleep(500);
-  return n;
+  await scrollTo(want, opts);
+  // Compose may finish repositioning lazy items after the first accessibility snapshot.
+  // Re-read the visible control instead of tapping coordinates retained during the scroll.
+  await sleep(400);
+  return await tapText(want, opts);
 }
 let _size = null;
 export function screenSize() {

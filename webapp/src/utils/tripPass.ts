@@ -1,5 +1,5 @@
 import { storageOperation, storageFenceEnabled, storageFenced } from "./storageHealth";
-import { isConfirmedBoardingUndo, sameBoardingTimestamp } from "./boardingUndo";
+import { compareBoardingTimestamps, isConfirmedBoardingUndo, sameBoardingTimestamp } from "./boardingUndo";
 import type { BoardingUndoTerms } from "../api/bookings";
 // ================================================================
 //  Офлайн-паспорт поездки. Зеркало Android `data/TripPass.kt` (F11).
@@ -42,7 +42,7 @@ function storedBoardings(id: number, generation: string): string[] {
   for (let i = 0; i < size; i++) {
     const key = storageOperation(() => localStorage.key(i));
     if (key?.startsWith(prefix) && storageOperation(() => localStorage.getItem(key))) {
-      try { stamps.push(decodeURIComponent(key.slice(prefix.length))); } catch { /* invalid marker is not an undo receipt */ }
+      try { stamps.push(decodeURIComponent(key.slice(prefix.length))); } catch { stamps.push(""); /* broken marker keeps the code closed */ }
     }
   }
   return stamps;
@@ -57,7 +57,7 @@ function rememberStage(id: number, generation: string | undefined, stage: "onboa
   const key = `${id}:${generation}`;
   if (memoryStages.get(key) !== "terminal") memoryStages.set(key, stage);
 }
-/** Each boarding has an immutable flag; a receipt redeems only that exact flag. */
+/** Новая серверная посадка замещает историю; квитанция снимает только последнюю эпоху. */
 export function tripPassStage(id: number, generation: string): "confirmed" | "onboard" | "terminal" {
   const memory = memoryStages.get(`${id}:${generation}`);
   if (memory === "terminal") return "terminal";
@@ -67,9 +67,15 @@ export function tripPassStage(id: number, generation: string): "confirmed" | "on
     const legacyUndo = undos?.has("legacy") || storageOperation(() => localStorage.getItem(undoKey(id, generation, "legacy")));
     if (!legacyUndo && (memory === "onboard" || storageOperation(() => localStorage.getItem(STAGE_KEY(id, generation, "onboard"))))) return "onboard";
     const stamps = new Set([...storedBoardings(id, generation), ...(memoryBoardings.get(`${id}:${generation}`) ?? [])]);
+    let latest: string | null = null, latestUndone = false;
     for (const stamp of stamps) {
-      if (!undos?.has(stamp) && !storageOperation(() => localStorage.getItem(undoKey(id, generation, stamp)))) return "onboard";
+      if (!sameBoardingTimestamp(stamp, stamp)) return "onboard";
+      const order = latest === null ? 1 : compareBoardingTimestamps(stamp, latest);
+      const undone = !!(undos?.has(stamp) || storageOperation(() => localStorage.getItem(undoKey(id, generation, stamp))));
+      if (order === 1) { latest = stamp; latestUndone = undone; }
+      else if (order === 0) latestUndone ||= undone;
     }
+    if (latest !== null && !latestUndone) return "onboard";
     return "confirmed";
   } catch (error) { if (memory === "onboard") return "onboard"; throw error; }
 }
@@ -175,6 +181,10 @@ export function restoreConfirmedTripPass(bookingId: number, generation: string,
     const source = current?.onboard_at ? current : { onboard_at: receipt.boarding_undo_onboard_at };
     if (!isConfirmedBoardingUndo(source, receipt)) return false;
     const stamps = new Set([...storedBoardings(bookingId, generation), ...(memoryBoardings.get(`${bookingId}:${generation}`) ?? [])]);
+    if ([...stamps].some(stamp => {
+      const order = compareBoardingTimestamps(stamp, receipt.boarding_undo_onboard_at);
+      return order === null || order > 0;
+    })) return false;
     for (const stamp of stamps) {
       if (!sameBoardingTimestamp(stamp, receipt.boarding_undo_onboard_at)) continue;
       if (!currentOwner() || tripPassStage(bookingId, generation) === "terminal") return false;
