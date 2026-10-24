@@ -309,7 +309,7 @@ internal fun BookingScreen(
     bookingStatus: String = "",
     onBookingStatusChange: (String) -> Unit = {},   // свежий статус из деталей брони (подтвердили, пока экран открыт)
     onCancelBooking: () -> Unit = {},
-    onFindAnotherRide: () -> Unit = {}, frontSeat: Boolean = false, onFrontSeatChange: (Boolean) -> Unit = {},   // + «хочу переднее» (SeatOptions.kt)
+    onFindAnotherRide: () -> Unit = {}, onSos: () -> Unit = {}, frontSeat: Boolean = false, onFrontSeatChange: (Boolean) -> Unit = {},   // + «хочу переднее» (SeatOptions.kt); SOS — отмена в пути (CancelledInTransit.kt)
     pickupStop: String? = ride?.let(::initialPickupStop), onPickupStopChange: (String) -> Unit = {},
     dropoffStop: String? = ride?.let(::initialDropoffStop), onDropoffStopChange: (String) -> Unit = {},
     selectedSeats: Int = 1, onSeatsChange: (Int) -> Unit = {}, bookingBusy: Boolean = false,
@@ -506,6 +506,8 @@ internal fun BookingScreen(
             },
         )
     }
+    // Отменили в пути — экран помощи; детали отменённой брони ещё грузятся — загрузка (CancelledInTransit.kt).
+    if (bookingId != null && bookingCancelledOverride(details, normalizedBookingStatus, detailsLoading, onSos, onBack)) return
     Scaffold(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Детали поездки", "Сәфәр тураһында"), onBack) },
@@ -1333,6 +1335,8 @@ internal fun ActiveTripScreen(
     // null — без навигации (тесты, превью): вид переключается внутри экрана.
     onChatOpenChange: ((Boolean) -> Unit)? = null,
     terminalHint: ActiveTripTerminalHint? = null,
+    // Поездка кончилась, а экран остаётся (отмена в пути): живое гео и маршрут на карте — гасить сразу.
+    onTripStopped: () -> Unit = {},
 ) {
     val currentSession by ApiClient.sessionChanges.collectAsState()
     val tripSession = remember(bookingId) { currentSession }
@@ -1345,8 +1349,11 @@ internal fun ActiveTripScreen(
         return
     }
     key(bookingId, tripSession) {
+        // Отмену в пути этот вход уже видел (CancelledInTransit.kt): экран помощи сразу, даже без сети.
+        val hint = terminalHint?.takeIf { it.bookingId == bookingId && it.status in setOf("done", "cancelled") }
+            ?: InTransitCancels.hint(bookingId, tripSession)
         ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession, chatOpen, onChatOpenChange,
-            terminalHint?.takeIf { it.bookingId == bookingId && it.status in setOf("done", "cancelled") })
+            hint, onTripStopped)
     }
 }
 
@@ -1358,6 +1365,7 @@ private fun ActiveTripContent(
     onSupport: () -> Unit, onOpenReceipt: (Int) -> Unit, tripSession: Long,
     chatOpen: Boolean?, onChatOpenChange: ((Boolean) -> Unit)?,
     terminalHint: ActiveTripTerminalHint?,
+    onTripStopped: () -> Unit,
 ) {
     val context = LocalContext.current
     val voiceScope = rememberCoroutineScope()
@@ -1382,6 +1390,7 @@ private fun ActiveTripContent(
     var contactsLoaded by remember(bookingId) { mutableStateOf(false) }
     var pickupDetails by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
     val tripDetails = remember(bookingId) { ActiveTripDetailsState(bookingId, tripSession) }
+    val inTransit = rememberCancelledInTransitState(bookingId, terminalHint, tripSession)   // отменили в пути: экран остаётся
     fun acceptBookingStatus(value: String) {
         // A delayed poll must not revive a terminal booking or interrupt cleanup/retry.
         if (bookingStatus == "done" || bookingStatus == "cancelled") return
@@ -1392,59 +1401,14 @@ private fun ActiveTripContent(
     var tripPass by remember(bookingId) { mutableStateOf(bookingId?.let { TripPassStore.load(context, it) }) }
     fun isTripSessionCurrent() = tripSession == ApiClient.queueSessionGeneration()
     fun isTripChatActive() = voiceScope.isActive && isTripSessionCurrent() && bookingStatus != "done" && bookingStatus != "cancelled"
-    var removalFailed by remember(bookingId) { mutableStateOf(false) }
-    var removalBusy by remember(bookingId) { mutableStateOf(false) }
-    var removalRetry by remember(bookingId) { mutableStateOf(0) }
-    val finishAfterRemoval by rememberUpdatedState(onTripEnd)
     val terminalBooking = bookingStatus.takeIf { it == "done" || it == "cancelled" }
-    // Observe server completion too, not only a local finish button. Keep this above the
-    // completed-screen early return so failed durable writes can still be retried there.
-    LaunchedEffect(bookingId, terminalBooking, removalRetry) {
-        val id = bookingId ?: return@LaunchedEffect
-        if (terminalBooking == null || tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
-        tripPass = null
-        removalBusy = true
-        try {
-            val result = withContext(Dispatchers.IO) {
-                TripPassStore.requestRemoval(context, id, expectedGeneration = tripSession)
-            }
-            if (tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
-            removalFailed = result == TripPassStore.RemovalResult.NOT_SAVED
-            // DEFERRED already has a durable barrier; inaccessible storage is cleaned on init.
-            if (!removalFailed && terminalBooking == "cancelled") finishAfterRemoval()
-        } finally {
-            removalBusy = false
-        }
-    }
-    if (removalFailed) {
-        AlertDialog(
-            onDismissRequest = {},
-            containerColor = CanonSurface,
-            shape = CanonCardShape,
-            title = { Text(appText("Не удалось удалить сохранённую поездку", "Һаҡланған сәфәрҙе юйып булманы")) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(appText(
-                        "Поездка уже закрыта. Её копия может остаться на телефоне. Попробуй удалить ещё раз.",
-                        "Сәфәр ябылған инде. Уның күсермәһе телефонда ҡалырға мөмкин. Тағы юйып ҡара.",
-                    ))
-                    if (removalBusy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { removalRetry++ }, enabled = !removalBusy,
-                    modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(appText("Повторить удаление", "Тағы юйырға"), color = CanonGreen2)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = finishAfterRemoval, enabled = !removalBusy,
-                    modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(appText("Закрыть", "Ябырға"))
-                }
-            },
-        )
-    }
+    // Конец поездки: паспорт удаляется, экран закрывается сам — кроме отмены в пути (CancelledInTransit.kt).
+    ActiveTripTerminalCleanup(bookingId, terminalBooking, tripSession, role, inTransit,
+        onPassDropped = {
+            inTransit.keep(tripPass)   // машина и госномер из паспорта остаются на экране помощи, телефон — нет
+            tripPass = null
+        },
+        onFinish = onTripEnd)
     // offline = последний опрос состояния упал по СЕТИ (не по ответу сервера). Тогда показываем паспорт+плашку.
     var offline by remember(bookingId) { mutableStateOf(false) }
     var serverBack by remember(bookingId) { mutableIntStateOf(0) }   // опрос снова дошёл до сервера → разгрузить очередь
@@ -1463,7 +1427,7 @@ private fun ActiveTripContent(
                 stateResult
                     .onSuccess { st ->
                         if (offline || Outbox.hasPending(context)) serverBack++
-                        role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; acceptBookingStatus(st.status); offline = false
+                        if (st.role.isNotBlank()) role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; inTransit.accept(st); acceptBookingStatus(st.status); offline = false
                         if (isTripChatActive()) tripDetails.serverReached(detailsFailure)
                     }
                     // Сетевой сбой (не ApiException) → уходим в офлайн-режим: поднимаем сохранённый паспорт.
@@ -1574,7 +1538,7 @@ private fun ActiveTripContent(
         val d = tripDetails.load(::isTripChatActive, { bookingStatus }, { role }) ?: return
         // Details are authoritative too: retry can recover even while the independent role poll is offline.
         if (role.isBlank()) role = d.role
-        if (d.status.isNotBlank()) acceptBookingStatus(d.status)
+        inTransit.accept(d); if (d.status.isNotBlank()) acceptBookingStatus(d.status)
         pickupDetails = d
         contactsLoaded = true
         payMethod = d.payMethod
@@ -1624,8 +1588,8 @@ private fun ActiveTripContent(
             if (!isTripChatActive() || !chat.flushQueued() || !isTripChatActive()) return@launch
             ApiClient.getTripState(id).onSuccess { st ->
                 if (!isTripChatActive()) return@onSuccess
-                role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified
-                aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; acceptBookingStatus(st.status); offline = false
+                if (st.role.isNotBlank()) role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified
+                aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; inTransit.accept(st); acceptBookingStatus(st.status); offline = false
             }
         }
     }
@@ -1673,11 +1637,11 @@ private fun ActiveTripContent(
                             Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
                             ApiClient.getTripState(bid).onSuccess { s ->
                                 if (!isTripSessionCurrent()) return@onSuccess
-                                role = s.role
+                                if (s.role.isNotBlank()) role = s.role
                                 driverPhase = s.driverPhase
                                 arrivalVerified = s.arrivalVerified
                                 aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec
-                                acceptBookingStatus(s.status)
+                                inTransit.accept(s); acceptBookingStatus(s.status)
                             }
                         }
                     }
@@ -1710,11 +1674,11 @@ private fun ActiveTripContent(
                             bookingStatus = "done"
                         } else ApiClient.getTripState(bid).onSuccess { s ->
                             if (!isTripSessionCurrent()) return@onSuccess
-                            role = s.role
+                            if (s.role.isNotBlank()) role = s.role
                             driverPhase = s.driverPhase
                             arrivalVerified = s.arrivalVerified
                             aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec
-                            acceptBookingStatus(s.status)
+                            inTransit.accept(s); acceptBookingStatus(s.status)
                         }
                     }
                     .onFailure { e ->
@@ -1756,6 +1720,11 @@ private fun ActiveTripContent(
         return
     }
 
+    // Отменили, когда пассажир был в машине (23.10.2026): не закрываемся — SOS, «Застрял», разбор, машина и номер.
+    if (bookingId != null && bookingStatus == "cancelled" && inTransit.keepsScreen(role)) {
+        CancelledInTransitScreen(bookingId, inTransit, tripSession, onSos, onClose = onTripEnd, onShown = onTripStopped)
+        return
+    }
     // An unknown booking is not a confirmed ride. Keep the independent loaders and retry alive,
     // but do not expose a boarding code, contacts, map or trip actions before authoritative data.
     // A passenger's existing encrypted offline passport remains usable without the role response.

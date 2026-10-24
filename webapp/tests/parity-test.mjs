@@ -240,6 +240,26 @@ check(
   stopsRule.every((s) => ak("CreateRideStops.kt").includes(s) && wCreate.includes(s)),
   "создание поездки: правило остановок одинаково в приложении и в вебе (RU и BA)"
 );
+// Отмена в пути (23.10.2026): одни и те же слова пассажиру и водителю в обоих клиентах (RU и BA).
+const inTransitWords = ["Поездку отменили в пути", "Сәфәр юлда кире алынды",
+  "Если нужна помощь — нажми SOS или «Застрял на трассе». Машина и госномер — ниже.",
+  "Ярҙам кәрәк булһа — SOS йәки «Юлда ҡалдым» төймәһенә баҫ. Машина һәм дәүләт номеры — түбәндә."];
+const rideCancelWords = ["Если довёз — нажми «Завершить рейс». Если снимаешь — им придёт уведомление, ",
+  "а близкие, с кем они поделились поездкой, увидят по ссылке, что поездку отменили в пути.",
+  "Илтеп еткерһәң — «Рейсты тамамлау» төймәһенә баҫ. Алаһың икән — уларға хәбәр килә, ",
+  "ә улар сәфәр менән бүлешкән яҡындар һылтанма буйынса сәфәрҙең юлда кире алынғанын күрә."];
+check(
+  inTransitWords.every((s) => ak("CancelledInTransit.kt").includes(s) && web("components/CancelledInTransitCard.tsx").includes(s)) &&
+    rideCancelWords.every((s) => ak("RideCancelWarning.kt").includes(s) && web("utils/rideCancelWarning.ts").includes(s)),
+  "отмена в пути: «Поездку отменили в пути» и предупреждение «Снять поездку?» одинаковы в приложении и в вебе"
+);
+// «Застрял на трассе» (приёмка PR207): кнопка помощи — одно слово в приложении и на сайте, то же,
+// что в подсказке «Поездку отменили в пути». Раньше сайт писал «Застряли» / «Юлда ҡалдыҡ».
+const stuckLabel = 'appText("Застрял на трассе", "Юлда ҡалдым")';
+check(
+  ak("BookingActiveTripScreen.kt").includes(stuckLabel) && web("components/RoadsideHelp.tsx").includes(stuckLabel),
+  "кнопка «Застрял на трассе» / «Юлда ҡалдым» одинакова в приложении и на сайте"
+);
 check(
   aCreate.includes('mutableStateOf("4")') && aCreate.includes("SeatOptionsCard(") &&
     wCreate.includes("useState(SEATS_DEFAULT)") && wCreate.includes("<SeatOptionsFields") &&

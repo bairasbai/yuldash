@@ -19,7 +19,10 @@ import java.io.File
  */
 class SosNoSmsPromiseGuardTest {
 
-    private val files = listOf("SosVerifyScreens.kt", "RoadsideHelp.kt", "SecondaryScreens.kt", "InstantOrderScreen.kt")
+    // RideCancelWarning.kt и CancelledInTransit.kt — отмена в пути (23.10.2026): водителю и пассажиру
+    // обещаем «увидят по ссылке», а не SMS.
+    private val files = listOf("SosVerifyScreens.kt", "RoadsideHelp.kt", "SecondaryScreens.kt", "InstantOrderScreen.kt",
+        "RideCancelWarning.kt", "CancelledInTransit.kt")
 
     private val forbidden = listOf(
         "уйдёт SMS",
@@ -29,6 +32,8 @@ class SosNoSmsPromiseGuardTest {
         "Близкие получат место",   // «Правила поездок»: то же обещание SMS, найдено приёмкой PR146
         "Близкий получит SMS",   // такси, «Поделиться поездкой»: тост после выбора близкого
         "Яҡын кеше сәфәр тураһында SMS алыр",   // то же по-башкирски
+        "— SMS",   // «а близким — SMS, что поездка отменена в пути» (первый вариант окна «Снять поездку?»)
+        "SMS китә",   // то же по-башкирски
     )
 
     private fun sourceDir(): File? {
@@ -54,7 +59,7 @@ class SosNoSmsPromiseGuardTest {
     }
 
     @Test
-    fun `сторож видит все четыре файла`() {
+    fun `сторож видит все файлы`() {
         for (name in files) assertTrue("не нашёл $name — сторож ничего не проверяет", codeLines(name).isNotEmpty())
     }
 

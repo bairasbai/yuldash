@@ -270,6 +270,17 @@ def test_снять_поездку_с_пассажиром_в_машине(clien
         assert cancelled_in_transit(s.get(Booking, bid2)) is False
 
 
+def test_кабинет_знает_поездку_каждой_брони_для_предупреждения(client, user_factory, monkeypatch):
+    """«Снять поездку» в кабинете предупреждает «В машине пассажиры: N» — для этого брони
+    водителя должны знать свою поездку (раньше в /driver/bookings был только маршрут текстом:
+    две поездки Сибай → Уфа были неразличимы)."""
+    driver, pax, ride, bid, token, sms, tg, pushes = _trip(client, user_factory, "кабинет", monkeypatch)
+    _board(client, driver, bid)
+    rows = client.get("/driver/bookings", headers=driver["auth"]).json()
+    row = next(r for r in rows if r["booking_id"] == bid)
+    assert row["ride_id"] == ride["id"] and row["status"] == "onboard"
+
+
 def test_окно_разбора_считается_от_отмены(client, user_factory, monkeypatch):
     driver, pax, ride, bid, token, sms, tg, pushes = _trip(client, user_factory, "окно", monkeypatch)
     _board(client, driver, bid)

@@ -21,12 +21,15 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.BookingDetailsDto
 import kotlinx.coroutines.CancellationException
 
-/** Только статус из уже прочитанной серверной карточки, с номером её брони. */
-internal data class ActiveTripTerminalHint(val bookingId: Int, val status: String, val role: String)
+/**
+ * Только статус из уже прочитанной серверной карточки, с номером её брони. [inTransit] — сервер сказал
+ * `cancelled_in_transit` (отменили, когда пассажир был в машине): экран поездки не закрывается сам.
+ */
+internal data class ActiveTripTerminalHint(val bookingId: Int, val status: String, val role: String, val inTransit: Boolean = false)
 
-internal fun knownTerminalTripHint(bookingId: Int?, status: String, role: String): ActiveTripTerminalHint? =
+internal fun knownTerminalTripHint(bookingId: Int?, status: String, role: String, inTransit: Boolean = false): ActiveTripTerminalHint? =
     bookingId?.takeIf { it > 0 && status in setOf("done", "cancelled") && role in setOf("driver", "passenger") }
-        ?.let { ActiveTripTerminalHint(it, status, role) }
+        ?.let { ActiveTripTerminalHint(it, status, role, inTransit = inTransit && status == "cancelled") }
 
 /** Без ответа сервера и сохранённого паспорта активную поездку ещё нельзя утверждать. */
 @Composable

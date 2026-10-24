@@ -53,6 +53,7 @@ import {
   SettingsNavRow,
 } from "../components/cabinetUi";
 import { formatWhen, priceLabel } from "../utils/format";
+import { onboardPassengers, rideCancelOnboardWarning } from "../utils/rideCancelWarning";
 import {
   IconArrow,
   IconRides,
@@ -166,6 +167,8 @@ export default function DriverCabinetScreen() {
   // Брони, ждущие ответа водителя. Раньше веб их не показывал вовсе: человек бронировал
   // место и ждал молчания, а водитель с сайта не мог ни подтвердить, ни отклонить.
   const [pending, setPending] = useState<DriverBooking[]>([]);
+  // Брони «в пути» (пассажир в машине): «Снять поездку?» предупреждает, сколько их у этой поездки.
+  const [onboard, setOnboard] = useState<DriverBooking[]>([]);
   const [passengersReload, setPassengersReload] = useState(0);
   const [bookingBusy, setBookingBusy] = useState<number | null>(null);
   const [bookingNote, setBookingNote] = useState("");
@@ -235,7 +238,9 @@ export default function DriverCabinetScreen() {
         )
       : appText("Снять поездку? Её больше не будет видно в ленте.",
                 "Сәфәрҙе алырғамы? Ул таҫмала күренмәйәсәк.");
-    if (!window.confirm(вопрос)) return;
+    // Кто-то уже в машине (решение 23.10.2026): довёз — «Завершить рейс»; снимает — им и близким придёт весть.
+    const вМашине = onboardPassengers(r.id, onboard);
+    if (!window.confirm(вМашине > 0 ? `${вопрос}\n\n${rideCancelOnboardWarning(вМашине, appText)}` : вопрос)) return;
     setFinishing(r.id);
     setFinishNote("");
     try {
@@ -288,10 +293,15 @@ export default function DriverCabinetScreen() {
   // не перезагружая кабинет: выбранные, но не отправленные оценки остаются на месте.
   const loadPending = useCallback((signal?: AbortSignal) => {
     fetchDriverBookings(signal)
-      .then((rows) => { if (!signal?.aborted) setPending(rows.filter((b) => b.status === "pending")); })
+      .then((rows) => {
+        if (signal?.aborted) return;
+        setPending(rows.filter((b) => b.status === "pending"));
+        setOnboard(rows.filter((b) => b.status === "onboard"));
+      })
       .catch((e) => {
         if (signal?.aborted || e?.name === "AbortError") return;
         setPending([]);
+        // «В машине» не стираем: последнее известное предупреждение лучше, чем никакого.
       });
   }, []);
 

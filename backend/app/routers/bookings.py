@@ -1821,6 +1821,9 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             b.status != BookingStatus.done or booking_contacts_open(b, ride))
         out.append({
             "booking_id": b.id,
+            # Своя поездка этой брони: «Снять поездку» предупреждает, сколько её пассажиров уже
+            # в машине (23.10.2026). Id своей поездки водитель и так знает — новых данных нет.
+            "ride_id": b.ride_id,
             # Вторая сторона для «Сообщить о проблеме» (разбор POST /incidents ждёт respondent_id):
             # по брони «в пути» неявку не отметить, спорную посадку разбирает админ (14.10.2026).
             "passenger_id": b.passenger_id,

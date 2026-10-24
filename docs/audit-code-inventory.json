@@ -78,23 +78,23 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 196,
+    "android_main": 198,
     "backend_main": 109,
     "infra_resource_config": 406,
     "public_site_promo": 89,
-    "pwa_main": 323,
-    "test_support": 1266
+    "pwa_main": 326,
+    "test_support": 1269
   },
   "counts_by_block": {
     "B01": 159,
-    "B02": 285,
+    "B02": 288,
     "B03": 123,
     "B04": 80,
     "B05": 61,
     "B06": 101,
     "B07": 144,
     "B08": 215,
-    "B09": 725,
+    "B09": 730,
     "B10": 406,
     "B11": 90
   },
@@ -664,8 +664,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ActiveTripDetails.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "8780c353e9bf33fe111649194f85f8ee5c02226fcdf61b333218da3c029a1c61",
-      "lines": 145
+      "sha256": "88ec1279b412ec6128803142fedd5749af471131b75291257b1b35dd15f382c3",
+      "lines": 148
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AdminAdsScreen.kt",
@@ -846,8 +846,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "8681ca45f813556e80e32ee7a1c0e2db3180cc78ed46b1a6b47d4ccd6b852abc",
-      "lines": 3530
+      "sha256": "3aad65187a7f70aa1485bbee721b3dd6b81099b2650d585fef818947f1e4a5b0",
+      "lines": 3499
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingDecisionCards.kt",
@@ -860,8 +860,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingLinkDestination.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "4bf8ec8ac0218ad291a1f02a4b0fda397e45059a252d44e2051c396c2749b468",
-      "lines": 75
+      "sha256": "49c5dfd49a36ac66cef53fef0b774a37cd1e91b8f3f63a9de1818d4b802f6bd1",
+      "lines": 79
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingPendingRefresh.kt",
@@ -883,6 +883,13 @@
       "block": "B02",
       "sha256": "619753f1da283f778ed3c339b837043e32d4db7bab6065d3183a70efae1ec805",
       "lines": 26
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/CancelledInTransit.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "92a24d9f3a58ef7d795bd9ef6e1538ad95fe9c1a36d237e914297f7a844d8d40",
+      "lines": 494
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -1336,8 +1343,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "da6161ffa821d8984498220aed90e51e71ed9fafea5f6c369f226151811ad78e",
-      "lines": 4748
+      "sha256": "8d50afe6b638456323a53d2aaf0efb996238ec255cb1a08d72424506d4ab63e6",
+      "lines": 4735
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
@@ -1373,6 +1380,13 @@
       "block": "B02",
       "sha256": "800bde6f386def2a860cbcb9fabb2d166ec6c11ec25724d037a2233023b32bc2",
       "lines": 131
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/RideCancelWarning.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "0aae6bf98fc5995ed75ae95e352e23dfd97b2a068fcb45c652a9d924760ca975",
+      "lines": 76
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideDeparturePicker.kt",
@@ -1777,8 +1791,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "adcb07bc4abe533414fc3da1f00379bca4bb5b8d681cc4c24c2939b6baf1c62c",
-      "lines": 2777
+      "sha256": "743c0d02931af9edf95b4fad932d03354b443dd5095ce0122ef6651eb7f5c76e",
+      "lines": 2781
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1805,8 +1819,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "63aa125eb711f4b8ee9dc91ef38e7287a452e5a80673fe2bdd0f1c3d36f2f1e8",
-      "lines": 7818
+      "sha256": "dbb889691080c3245c5955d08311a1a5bbacb0befe7a3f5a3d7b2a67d113f8a8",
+      "lines": 7822
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -1826,8 +1840,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/BookingDtos.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "fb6c1d6e2e87405564cfa98dd5806ef10f15efebf1dd2ba18dcdef5e9e1fdcce",
-      "lines": 116
+      "sha256": "62cc9b92cca4ec20a118fbe527e966f3c429088760d9319a8b409cfc58a6c33d",
+      "lines": 121
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/ChatSocket.kt",
@@ -1861,8 +1875,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/DriverBookings.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "456410488eee564e49455283114bbacfc5bc2e4ca7b45a1bddc640a955abb92e",
-      "lines": 48
+      "sha256": "547e4104997786fa67cef8a727f907598fee1f6126ad5737bca82d9139880d28",
+      "lines": 50
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/FcmService.kt",
@@ -2589,8 +2603,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta06BookingStatusTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "3031a97d92c0a3c89de7a43b6adaa0a577e505411bf3cf3cd34a44334be3fcf6",
-      "lines": 99
+      "sha256": "2b759ceef9707cdac90a45910a07fd77ae1b3b7b67d68630db5b0663acfc705a",
+      "lines": 132
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta07DriverFinishTest.kt",
@@ -2701,8 +2715,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingLinkDestinationTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "99e7a8b61cbc666825b0a5f207aee314c28569e1379f001e4cd7573bbb9bc76f",
-      "lines": 231
+      "sha256": "b395551418e652aa60011df1692a3c95b02d2683aa89a6fda6ebbdf7f9e35ef9",
+      "lines": 234
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingLinkLoginTest.kt",
@@ -2780,6 +2794,13 @@
       "block": "B02",
       "sha256": "8a8dafdefc79bedd83acb3fcfb57b9cc0cb8cdce8bfaaa2c46fadb2fd6d6bbf7",
       "lines": 307
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/CancelledInTransitTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "594eb07b0a216b2f555a9a3785bf939c76f5b2d4f6c139768a4eb29fc0c9d406",
+      "lines": 487
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CanonScaleTest.kt",
@@ -3044,7 +3065,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/FileSizeRatchetTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "e12a18fe3f537e3d52d0b26faa6068721cfef9d6aef2dc2a99822fbff592910c",
+      "sha256": "bd2493f0722ed11285b683f941add98b9cd47a766cc73bf7b24926a2023f3ad4",
       "lines": 131
     },
     {
@@ -3853,6 +3874,13 @@
       "lines": 46
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/RideCancelOnboardWarningTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "ae2e5b5004a299beb84b165825a7ed26c2fa4fab375ddde656f241ff3c25a5c0",
+      "lines": 102
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/RideDeepLinkFailureTest.kt",
       "kind": "test_support",
       "block": "B02",
@@ -4171,8 +4199,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/SosNoSmsPromiseGuardTest.kt",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "8799d486829ec1b339e4da03f97765f4b32e8e8115dd5fc73e8faad63dd6bd51",
-      "lines": 82
+      "sha256": "f7355bd7adad52cf809c060ec303e783bef671cbdb57082190e54c6fe94b6f85",
+      "lines": 87
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/SosSubmitOwnerBoundaryTest.kt",
@@ -6950,8 +6978,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "7049b2abeb394b3b32efaa73a04eac6562014423bdff417688a54c1e182d872c",
-      "lines": 1920
+      "sha256": "96ae854e11e4beeceb716682036ffe57a34504bd23d4ee26e368e24b7344c111",
+      "lines": 1923
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -8420,8 +8448,8 @@
       "path": "backend/tests/test_cancel_in_transit_honest.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "784707c97cd269f1df96c27d157f3b205198300cc922eae73c83cb4c6b910501",
-      "lines": 551
+      "sha256": "1bba73821b1c5073e93f99aa1561d2160401d6f622fd905a5b11d6a178b6be1e",
+      "lines": 562
     },
     {
       "path": "backend/tests/test_cancel_in_transit_race_pg.py",
@@ -13621,8 +13649,8 @@
       "path": "webapp/src/api/bookings.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "83b668eedabe7b595e282ef1b633358d32ee525ed7252e0dfa80496867467c26",
-      "lines": 442
+      "sha256": "e77e5365b0cf2c65896bd37b289851a6068788dfff8306c4013fe0255c7ef9fb",
+      "lines": 453
     },
     {
       "path": "webapp/src/api/boost.ts",
@@ -13931,6 +13959,13 @@
       "block": "B09",
       "sha256": "35a6f352a8a9e626df6bd9d13cb160d964fc8788534ff93cfee2d5adbb7a74ea",
       "lines": 46
+    },
+    {
+      "path": "webapp/src/components/CancelledInTransitCard.tsx",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "ac259468440bc43dd5a2019a2d6f6b1d21f7aa0ee84507876c397456e4fc749f",
+      "lines": 141
     },
     {
       "path": "webapp/src/components/ChatPhoto.tsx",
@@ -14321,8 +14356,8 @@
       "path": "webapp/src/components/RoadsideHelp.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "35d493d21d335d53ef6c39db2acad6785aef7dc93c1248f5ec590f0b8e63c61f",
-      "lines": 212
+      "sha256": "8491b166b59ce0430dee2e8a50965af782231d7aa0c99c5ba7a974f2ef35e10e",
+      "lines": 213
     },
     {
       "path": "webapp/src/components/RouteTimeline.tsx",
@@ -14636,8 +14671,8 @@
       "path": "webapp/src/screens/ActiveTripScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "68965d0787ed93aa1b99c52fd188930fdf5b54d78a2145655c058e703002a4b3",
-      "lines": 1179
+      "sha256": "6076451d514cfa2b34ca37152d228ccf7f44d94ae4b5f6c5cfa500b6b1fadb3d",
+      "lines": 1250
     },
     {
       "path": "webapp/src/screens/AdEditorScreen.tsx",
@@ -14846,8 +14881,8 @@
       "path": "webapp/src/screens/BookingScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "bdeae7b5b1c819584ec74332e5839f8d809f8d13e251beeacdda73fe1459ff50",
-      "lines": 309
+      "sha256": "72f7961ba46c778764a08cca567cc944e79cb8954f5985f03455c47c9774f493",
+      "lines": 310
     },
     {
       "path": "webapp/src/screens/BoostScreen.tsx",
@@ -14944,8 +14979,8 @@
       "path": "webapp/src/screens/DriverCabinetScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "4d60d04186fb69113bdb75cbfe0d8ddef905e7c03d2e76f0b3d5ee6bf96eb159",
-      "lines": 985
+      "sha256": "56c15f90f829889ce2449a8657f6ce0be1dfff921e916dd574e90f7c9c76cbf6",
+      "lines": 995
     },
     {
       "path": "webapp/src/screens/DriverEarningsScreen.tsx",
@@ -15476,8 +15511,8 @@
       "path": "webapp/src/utils/bookingLink.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "08520c29b64a1b0bd4b5fb0b8d0f79067bd066ee857d3f63ba32f4af5f649e2b",
-      "lines": 32
+      "sha256": "a73b609d06f4b21090bf21e937a30d19c7310107492967dd49f4035ef5abd37b",
+      "lines": 37
     },
     {
       "path": "webapp/src/utils/commissionLabel.ts",
@@ -15555,6 +15590,13 @@
       "block": "B09",
       "sha256": "39e66fd56492129369b03daec88d7677246a39dd58d305ca011b870a53e0a1e9",
       "lines": 141
+    },
+    {
+      "path": "webapp/src/utils/inTransitCancel.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "38d7ceb176283be89aab68ef3e8f2c1c79b2abe48bf5f59fd06ec8ba7a73a976",
+      "lines": 46
     },
     {
       "path": "webapp/src/utils/introMotion.d.ts",
@@ -15679,8 +15721,15 @@
       "path": "webapp/src/utils/privacy.ts",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "4846dfb24a38caef086d1c6fa824090e746c02f595383d824d63e49d0a7973e2",
-      "lines": 86
+      "sha256": "e1ea45740247ad5491b45295700580c682ec5f9968d97a4c404111be2d889d92",
+      "lines": 88
+    },
+    {
+      "path": "webapp/src/utils/rideCancelWarning.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "00ed084829105b5dd226e9d235b5e0b30dd86e1ecf866a3207daac966c9758dd",
+      "lines": 26
     },
     {
       "path": "webapp/src/utils/seatOptions.ts",
@@ -15861,8 +15910,8 @@
       "path": "webapp/tests/active-trip-fixture.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "56711e7ff17c0fce14fbb42c917a513a01942261fc027c02c7f2d0763347cf5f",
-      "lines": 75
+      "sha256": "762f3be363bcd4d19adb6e7307b835bbb713a475036bd73ac51eef0fdcc798a3",
+      "lines": 86
     },
     {
       "path": "webapp/tests/analytics-no-double-test.mjs",
@@ -15949,6 +15998,13 @@
       "lines": 133
     },
     {
+      "path": "webapp/tests/cancelled-in-transit-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "2dcacbb8385e1491a49a66956181bb367bf78c9b0f1eaa1ebb204e9f6cf023b1",
+      "lines": 376
+    },
+    {
       "path": "webapp/tests/canon-sync-test.mjs",
       "kind": "test_support",
       "block": "B09",
@@ -16008,7 +16064,7 @@
       "path": "webapp/tests/confirm-before-action-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "d3619b2ac0acf70bcd16a9b2f94f2778e6af5b5097c45fb2a8c8374659b7b6c4",
+      "sha256": "0f713a0473f8ef3c9eeca553151e331e1de21bf5fc3601cd794434c16500ff2b",
       "lines": 98
     },
     {
@@ -16449,8 +16505,8 @@
       "path": "webapp/tests/own-bookings-provider-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "685a83e85813ab670e8f68ef8dde9460699ad06acf7923892f85f794a82bfc38",
-      "lines": 294
+      "sha256": "f7f261cab7ea99f192cfa1236f90a15e47201fc08958d0225f47e1485e1437fa",
+      "lines": 297
     },
     {
       "path": "webapp/tests/own-front-seat-test.mjs",
@@ -16477,8 +16533,8 @@
       "path": "webapp/tests/parity-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "f1969d4bc0c41fc651cc7e0c8991c04207ca8df007b9c15deacf972221a42b28",
-      "lines": 269
+      "sha256": "6128eac773675b95d55ed758ed1d7d6a1f1509437ef9398c99c4d9dbdc95e2a2",
+      "lines": 289
     },
     {
       "path": "webapp/tests/passenger-trip-location-test.mjs",
@@ -16596,8 +16652,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "c90622ff1ad8d9a8b00305e2899cc9a0817acdefcf168e46ededdb912008d442",
-      "lines": 304
+      "sha256": "02a3d00b5a7616c332c7897bcc47000237d32b317eb1575eca500a75d49d43c0",
+      "lines": 307
     },
     {
       "path": "webapp/tests/seat-options-test.mjs",
@@ -16673,8 +16729,8 @@
       "path": "webapp/tests/sos-no-sms-promise-test.mjs",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "33cb1394f6a39181e73bfd7b35dca5c220b4a904aa8be9d298a3d42d406953cf",
-      "lines": 146
+      "sha256": "8cd83835ff85861af6fbf6aefa07fddd6f23022f7f25086f2eb5ea6b558229e2",
+      "lines": 151
     },
     {
       "path": "webapp/tests/splash-navigation-test.mjs",

@@ -166,7 +166,10 @@ class BookingLinkDestinationTest {
     @Test
     fun `YuldashApp применяет ссылку брони через applyBookingLink а не напрямую`() {
         val app = src("YuldashApp.kt")
-        assertTrue("выбор экрана по роли пропал", app.contains("vm.applyBookingLink(bid, state.role, state.status, completed)"))
+        // + признак отмены в пути (23.10.2026): пассажира такой пуш ведёт на экран поездки с SOS.
+        assertTrue("выбор экрана по роли пропал", app.contains("vm.applyBookingLink(bid, state.role, state.status, completed, state.cancelledInTransit)"))
+        assertTrue("подсказка экрану поездки потеряла признак отмены в пути",
+            app.contains("knownTerminalTripHint(bid, state.status, state.role, state.cancelledInTransit)"))
         assertTrue(
             "обе роли снова идут на «Бронь» без разбора",
             !app.contains("screen = if (completed) Screen.ActiveTrip else Screen.Booking"),
