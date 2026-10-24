@@ -149,7 +149,8 @@ class CancelledInTransitTest {
 
     // Что нарисовано на самом деле (все корни, в том числе окна): без этого сбой в CI не разобрать.
     private fun screenTree(): String = runCatching {
-        compose.onAllNodes(isRoot(), useUnmergedTree = true).printToString().replace("\n", " | ").take(4000)
+        "подсказка=${InTransitCancels.hint(42, ApiClient.queueSessionGeneration())} | " +
+            compose.onAllNodes(isRoot(), useUnmergedTree = true).printToString(maxDepth = 60).replace("\n", " | ").take(6000)
     }.getOrElse { "не снять: ${it.message}" }
 
     private fun waitForText(text: String) = waitFor("нет «$text»") {

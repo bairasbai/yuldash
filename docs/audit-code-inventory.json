@@ -2400,8 +2400,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripBoardingCodeRetryBoundaryTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "686f250b9521b610563873d43e91b61aa599a56eeffc6861037afe41a6ec99eb",
-      "lines": 242
+      "sha256": "ff2c7452f8ea668e5084b85a794ff505d76c965b4ff80c61b1d90bda43eb2706",
+      "lines": 249
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripBoardingCodeSaveTest.kt",
@@ -2799,8 +2799,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CancelledInTransitTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "1efce52b30ae9e696d3ca4b0dfef51d901e1faef1ecd2824ed64c86b37d0b652",
-      "lines": 456
+      "sha256": "0feeeb88788142b748df349e008155101929c8f8099e2f60f007ace0d3eac3bb",
+      "lines": 457
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CanonScaleTest.kt",
