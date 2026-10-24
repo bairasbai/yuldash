@@ -11059,8 +11059,8 @@
       "path": "backend/tests/test_sos_reminder_is_not_a_report.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "113762a3f9a5f3679d499e34360eddc3e477f2ffd4d36b99a50cd0f59c85d5ed",
-      "lines": 300
+      "sha256": "44ab9383df7ab06b6b4b75668bc1cbf9584e3c1f851f19112cb2ea5adbd94502",
+      "lines": 302
     },
     {
       "path": "backend/tests/test_sos_retry_window.py",
@@ -11780,8 +11780,8 @@
       "path": "backend/tests/test_unanswered_sos_calls_again.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "1a9bfd0ad13bb523692e0d5f967d0d0493816c7d1324a087005ef6d3f6b57cc9",
-      "lines": 96
+      "sha256": "beceb1806725fc2dc70c5a7af153913f507efbb859c8236fc04fb92ca944834b",
+      "lines": 109
     },
     {
       "path": "backend/tests/test_villages.py",
