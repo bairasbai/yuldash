@@ -41,6 +41,11 @@ def test_share_link_shows_only_allowed_and_closes_when_trip_ends(api, kit):
     assert "no-store" in page.headers.get("cache-control", "")
     st = api.get(f"/t/{t_mom}/state.json")
     assert st.status_code == 200, st.text
+    # Водитель ещё ничего не нажал — «Поездка скоро начнётся», машины нет (приёмка PR179, P2-2).
+    assert st.json()["status"] == "wait" and st.json()["car"] is None, st.text
+    assert kit.driver_status(driver, bid, "departed").status_code == 200
+    st = api.get(f"/t/{t_mom}/state.json")
+    assert st.status_code == 200, st.text
     state = st.json()
     assert state["status"] == "to_pickup"
     assert state["passenger_first_name"] == "Гульнара"

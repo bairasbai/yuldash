@@ -28,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 from ..config import settings
 from ..db import get_session
 from ..routers.parcels import _FINAL_STATUSES as PARCEL_FINAL_STATUSES
-from ..visibility import cancelled_in_transit, trip_is_live, visible_rides
+from ..visibility import cancelled_in_transit, family_car_open, visible_rides
 from ..errors import herr
 from ..livepos import livepos_get
 from ..models import (
@@ -172,10 +172,14 @@ def _booking_state(session: Session, share: TripShare) -> dict:
     # Машина — по ЛЮБОЙ брони рейса, но по правилам ЭТОЙ брони (18.10.2026, P2-А): водитель мог открыть
     # поездку другого пассажира, и в кэше этой брони точки нет (задача #44); у брони на остановке окно
     # позже и не от «Выехал»; блокировки — как у канала (`location.driver_point_for_booking`).
-    идёт = trip_is_live(booking, ride)
+    #
+    # Близким — только когда машина правда поехала (приёмка PR179, P2-2, 24.10.2026): до посадки нужен
+    # «Выехал»/«Подъезжаю»/посадка по рейсу и не позже срока «Не пришёл» + 15 минут
+    # (`visibility.family_car_open`). Раньше стоящая у дома машина висела у мамы весь час до выезда.
+    видно = family_car_open(session, booking, ride)
     phase = "onboard" if booking.status == BookingStatus.onboard else (
-        "to_pickup" if booking.status == BookingStatus.confirmed and идёт else "wait")
-    car = driver_point_for_booking(session, booking, ride) if идёт else None
+        "to_pickup" if booking.status == BookingStatus.confirmed and видно else "wait")
+    car = driver_point_for_booking(session, booking, ride) if видно else None
     return _live(first_name, phase,
                  frm={"lat": ride.from_lat, "lng": ride.from_lng, "text": ride.from_city},
                  to={"lat": ride.to_lat, "lng": ride.to_lng, "text": ride.to_city},
