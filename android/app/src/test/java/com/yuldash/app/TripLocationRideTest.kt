@@ -69,6 +69,7 @@ class TripLocationRideTest {
     private val lookups = AtomicInteger()                                 // сколько раз спросили /driver/bookings
     @Volatile private var rows = "[]"
     @Volatile private var lookupGate: CountDownLatch? = null
+    @Volatile private var offline = false                                 // запросы списка обрываются (нет сети)
 
     private val lat0 = 54.7388
     private val lng0 = 55.9721
@@ -94,6 +95,7 @@ class TripLocationRideTest {
                 }
                 if (path == "/driver/bookings") {
                     lookups.incrementAndGet()
+                    if (offline) return MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AFTER_REQUEST)
                     lookupGate?.await(5, TimeUnit.SECONDS)
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(rows)
                 }
@@ -115,6 +117,7 @@ class TripLocationRideTest {
         TripLocationBus.bookingId = null
         TripLocationBus.peer = null
         TripLocationBus.driverActionListener = null
+        TripLocationBus.driverStepListener = null
     }
 
     // ------------------------------------------------------------------ стенд
@@ -289,6 +292,57 @@ class TripLocationRideTest {
         waitUntil("последний пассажир закрыт, экран отпустил — GPS обязан погаснуть") { stopped(s) }
         assertTrue(gpsOff())
         assertTrue(prefs.all.isEmpty())
+    }
+
+    // Вторая приёмка Д2, P1: сервер записал «done» и закрыл канал брони РАНЬШЕ, чем ответил на «Завершить»
+    // (бонус, пуш). Служба знает о шаге с момента отправки и не гаснет, а ждёт ответ.
+    @Test fun channelClosedBeforeTheFinishReplyStillHandsGpsOver() {
+        val s = start(101)
+        expectOpened(101)
+        serve(row(101, "done"), row(102, "onboard"))
+        val result = TripLocationBus.driverStep(101, closing = true) {
+            sockets.getValue(101).close(1008, "Trip ended")   // канал закрылся, ответа ещё нет
+            repeat(50) { idle(); Thread.sleep(10) }           // закрытие дошло до службы раньше ответа
+            assertFalse("служба погасла до ответа на «Завершить» — второй пассажир теряет машину", stopped(s))
+            Result.success(Unit)
+        }
+        assertTrue(result.isSuccess)
+        expectOpened(102)
+        assertFalse(stopped(s))
+    }
+
+    @Test fun finishRefusedAfterTheChannelClosedTurnsGpsOff() {
+        val s = start(101)
+        expectOpened(101)
+        TripLocationBus.driverStep(101, closing = true) {
+            sockets.getValue(101).close(1008, "Trip ended")
+            repeat(50) { idle(); Thread.sleep(10) }
+            assertFalse("ответа ещё нет — служба ждёт его, а не гаснет", stopped(s))
+            Result.failure<Unit>(com.yuldash.app.data.ApiException(409, "Поездка не активна"))
+        }
+        waitUntil("сервер отказал, канал закрыт — ждать нечего, GPS обязан погаснуть") { stopped(s) }
+        assertEquals("после отказа список не спрашивают", 0, lookups.get())
+    }
+
+    @Test fun noNetworkForTheRideListAfterFinishIsRetried() {
+        val s = start(101)
+        expectOpened(101)
+        serve(row(101, "done"), row(102, "onboard"))
+        offline = true   // запросы списка обрываются — нет сети
+        TripLocationBus.driverStep(101, closing = true) {
+            sockets.getValue(101).close(1008, "Trip ended")   // сервер закрыл канал «Завершить»
+            repeat(50) { idle(); Thread.sleep(10) }
+            Result.success(Unit)
+        }
+        waitUntil("служба не пошла за списком") { lookups.get() >= 1 }
+        repeat(200) { idle(); Thread.sleep(10) }   // повторы самого клиента тоже не дошли
+        assertFalse("нет сети на миг — и GPS погас при живом рейсе", stopped(s))
+        offline = false
+        var got: Int? = null
+        repeat(15) { if (got == null) { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3)); Thread.sleep(50); got = opened.poll() } }
+        if (got == null) waitUntil("повтор так и не открыл канал следующей брони") { got = opened.poll(); got != null }
+        assertEquals(102, got)
+        assertFalse(stopped(s))
     }
 
     @Test fun staleStartWhileSearchingDoesNotReopenTheClosedChannel() {

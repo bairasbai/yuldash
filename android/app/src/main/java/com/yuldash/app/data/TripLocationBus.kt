@@ -27,4 +27,19 @@ object TripLocationBus {
     internal fun driverAction(bookingId: Int, closed: Boolean) {
         runCatching { driverActionListener?.invoke(bookingId, closed) }
     }
+
+    /**
+     * Шаг уходит на сервер (ещё до ответа) или сервер его отверг (`failed`). Нужно закрывающему шагу
+     * («Завершить», «Не пришёл»): сервер закрывает канал брони сразу, и закрытие может прийти раньше ответа —
+     * служба, узнав о шаге заранее, не гасит GPS, а ждёт ответ (вторая приёмка Д2, P1).
+     */
+    @Volatile internal var driverStepListener: ((bookingId: Int, closing: Boolean, failed: Boolean) -> Unit)? = null
+
+    /** Отправить шаг водителя и сообщить службе: «ушёл» → «принят» / «отвергнут» (обрыв сети — не отказ). */
+    internal inline fun <T> driverStep(bookingId: Int, closing: Boolean, request: () -> Result<T>): Result<T> {
+        runCatching { driverStepListener?.invoke(bookingId, closing, false) }
+        return request()
+            .onSuccess { driverAction(bookingId, closed = closing) }
+            .onFailure { e -> if (e is ApiException) runCatching { driverStepListener?.invoke(bookingId, closing, true) } }
+    }
 }

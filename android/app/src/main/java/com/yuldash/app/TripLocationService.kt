@@ -80,6 +80,10 @@ class TripLocationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val carrierExpiry = Runnable { onCarrierExpired() }
     private val actions: (Int, Boolean) -> Unit = { id, closedNow -> watchdog.post { onDriverAction(id, closedNow) } }
+    private val steps: (Int, Boolean, Boolean) -> Unit = { id, closing, failed ->
+        watchdog.post { if (failed) onDriverStepFailed(id) else onDriverStepStarting(id, closing) }
+    }
+    private val pendingExpiry = Runnable { onPendingStepExpired() }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -87,6 +91,7 @@ class TripLocationService : Service() {
         super.onCreate()
         instance = WeakReference(this)
         TripLocationBus.driverActionListener = actions
+        TripLocationBus.driverStepListener = steps
     }
 
     private fun prefs(): SharedPreferences = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -123,6 +128,7 @@ class TripLocationService : Service() {
         actionLookup = false
         releasePending = false
         pendingClose = 0
+        watchdog.removeCallbacks(pendingExpiry)
         foreground()
         connect(bookingId)
         persist()
@@ -207,6 +213,33 @@ class TripLocationService : Service() {
     }
 
     /**
+     * Закрывающий шаг («Завершить», «Не пришёл») по несущей УШЁЛ на сервер, ответа ещё нет. Сервер закрывает
+     * канал брони сразу, и закрытие может прийти раньше ответа (бонус, пуш) — без этой отметки служба погасла бы
+     * при живых пассажирах (вторая приёмка Д2, P1). Ждём ответ не дольше [PENDING_STEP_MS].
+     */
+    private fun onDriverStepStarting(bookingId: Int, closing: Boolean) {
+        if (destroyed || !isDriver || !closing || bookingId != currentBookingId || ride != null) return
+        pendingClose = bookingId
+        watchdog.removeCallbacks(pendingExpiry)
+        watchdog.postDelayed(pendingExpiry, PENDING_STEP_MS)
+    }
+
+    /** Сервер отверг шаг (бронь не закрыта им) — ждать нечего; канал уже закрыт — гаснем, как раньше. */
+    private fun onDriverStepFailed(bookingId: Int) {
+        if (destroyed || pendingClose != bookingId || actionLookup) return
+        pendingClose = 0
+        watchdog.removeCallbacks(pendingExpiry)
+        if (socket == null || releasePending) shutdown()
+    }
+
+    /** Ответа на шаг так и не было (сеть): не ждём вечно — канал закрыт, значит гаснем. */
+    private fun onPendingStepExpired() {
+        if (destroyed || pendingClose == 0 || actionLookup) return
+        pendingClose = 0
+        if (socket == null || releasePending) shutdown()
+    }
+
+    /**
      * Шаг водителя на этом телефоне (сервер принял): включает режим рейса, если бронь — того же рейса,
      * что везёт служба; закрытая несущая — сразу на следующую, не дожидаясь, пока сервер закроет канал.
      */
@@ -223,13 +256,24 @@ class TripLocationService : Service() {
         if (closedNow) closed += bookingId   // сервер уже закрыл бронь: обратно в её канал не идём
         if (closedNow && bookingId == currentBookingId) pendingClose = bookingId
         actionLookup = true
+        watchdog.removeCallbacks(pendingExpiry)   // ответ пришёл — дальше ждём список, а не срок шага
         scope.launch {
             val rows = ApiClient.getDriverBookings(expectedGeneration = owner)
             if (!stillMine(seq)) return@launch
+            val failure = rows.exceptionOrNull()
+            if (failure != null && failure !is ApiException && closedNow && ++resolveAttempt <= MAX_RESOLVE_ATTEMPTS) {
+                // Нет сети, а бронь уже закрыта: без ответа о рейсе GPS погас бы при живых пассажирах — повторяем,
+                // как поиск следующей брони (вторая приёмка Д2, P2). Уход с экрана всё это время службу не гасит.
+                val task = Runnable { onDriverAction(bookingId, closedNow) }
+                retryTask = task
+                watchdog.postDelayed(task, minOf(30_000L, 1_000L shl minOf(resolveAttempt, 5)))
+                return@launch
+            }
             pendingClose = 0
             actionLookup = false
             // Не узнали рейс — режим не включаем, служба как раньше: канал закрыт или экран отпустил — гаснем.
             val list = rows.getOrNull() ?: run { if (socket == null || releasePending) shutdown(); return@launch }
+            resolveAttempt = 0
             val receivedAt = SystemClock.elapsedRealtime()
             val actionRide = list.firstOrNull { it.bookingId == bookingId }?.rideId ?: 0
             val carrierRide = list.firstOrNull { it.bookingId == currentBookingId }?.rideId ?: 0
@@ -422,6 +466,7 @@ class TripLocationService : Service() {
         watchdog.removeCallbacks(carrierExpiry)
         retryTask?.let(watchdog::removeCallbacks)
         retryTask = null
+        watchdog.removeCallbacks(pendingExpiry)
         pendingClose = 0
         actionLookup = false
         releasePending = false
@@ -447,6 +492,7 @@ class TripLocationService : Service() {
         scope.cancel()
         stopTracking()
         if (TripLocationBus.driverActionListener === actions) TripLocationBus.driverActionListener = null
+        if (TripLocationBus.driverStepListener === steps) TripLocationBus.driverStepListener = null
         if (instance?.get() === this) instance = null
         super.onDestroy()
     }
@@ -477,6 +523,7 @@ class TripLocationService : Service() {
         internal const val NO_HEARTBEAT_MS = Long.MAX_VALUE   // пассажир: на стоянке не шлём (см. onStartCommand)
         private const val MAX_LIFETIME_MS = DRIVER_RIDE_MAX_MS   // 6ч — заведомо дольше любой реальной поездки; страховка от зависшего сервиса
         private const val MAX_RESOLVE_ATTEMPTS = 20   // нет сети при поиске следующей брони — ≈ 9 минут повторов, потом гаснем
+        internal const val PENDING_STEP_MS = 90_000L  // ответ на «Завершить» дольше этого (3 попытки по 15+15 с) — не ждём
 
         /** Живая служба этого процесса — для команд, которые не должны её запускать (P2-2). */
         @Volatile private var instance: WeakReference<TripLocationService>? = null
@@ -517,67 +564,7 @@ class TripLocationService : Service() {
      */
     private fun holdOnRelease(): Boolean {
         if (keepsRide()) return true
-        if (!destroyed && isDriver && actionLookup && sessionIsOwners()) { releasePending = true; return true }
+        if (!destroyed && isDriver && (actionLookup || pendingClose != 0) && sessionIsOwners()) { releasePending = true; return true }
         return false
-    }
-}
-
-/**
- * Когда отправлять свою точку. Чистая логика: часы и координаты приходят снаружи — её гоняют
- * обычные JVM-тесты, без эмулятора (`TripLocationPacerTest`).
- *
- *  • Едем — как и раньше: не чаще раза в [minIntervalMs] и только если сдвинулись на [minDistanceM]
- *    от ПОСЛЕДНЕЙ ОТПРАВЛЕННОЙ точки (дрожание GPS на стоянке за езду не считаем).
- *  • Стоим — всё равно раз в [heartbeatMs] (только водитель; пассажиру — [TripLocationService.NO_HEARTBEAT_MS]).
- *    Сервер держит машину для ссылки близким и для SOS 120 с; без пульса стоящая машина пропадала
- *    через 2 минуты — ровно когда «встала в поле» и близким она нужнее всего (проверка безопасности PR170).
- *  • Отдельного таймера нет: пульс уходит вместе с точкой, которую отдал Android. Сами мы старую
- *    точку не повторяем. Но, по нашему пониманию (на телефоне не проверено), Android 12+ в глубоком
- *    сне (Doze) может сам отдавать последнюю известную точку с новым временем — при пороге 0 м
- *    именно она и держит пульс, и сервер примет её за свежую. Таймер `Handler` в глубоком сне
- *    процессора опаздывает, а доставка точки будит процесс сама.
- *  • Нет точки совсем (крытая парковка, навес АЗС, GPS не видит неба; гео выключили) — пульса нет,
- *    и через 120 с машина у близких пропадает. Это осознанно: выдумывать место мы не будем.
- *  • Ушедшей считается только точка, которую принял сокет ([sent]): не принял — следующая точка
- *    (через ~3 с) повторит попытку, а не ждёт ещё 45 с. Канал переподключился — сервис зовёт
- *    [reset], и следующая точка уходит сразу.
- */
-internal class TripLocationPacer(
-    private val minIntervalMs: Long = TripLocationService.MIN_INTERVAL_MS,
-    private val minDistanceM: Double = TripLocationService.MIN_DISTANCE_M,
-    private val heartbeatMs: Long = TripLocationService.HEARTBEAT_MS,
-) {
-    private var hasSent = false
-    private var sentAtMs = 0L
-    private var sentLat = 0.0
-    private var sentLng = 0.0
-
-    /** Пора ли отправить эту точку. Ничего не запоминает — запоминает [sent]. */
-    fun due(nowMs: Long, lat: Double, lng: Double): Boolean {
-        if (!hasSent) return true
-        val sinceMs = nowMs - sentAtMs
-        if (sinceMs < minIntervalMs) return false
-        return sinceMs >= heartbeatMs || metersBetween(sentLat, sentLng, lat, lng) >= minDistanceM
-    }
-
-    /** Точка ушла в канал — от неё считаем и паузу, и расстояние. */
-    fun sent(nowMs: Long, lat: Double, lng: Double) {
-        hasSent = true
-        sentAtMs = nowMs
-        sentLat = lat
-        sentLng = lng
-    }
-
-    /** Стоп или (пере)подключение канала: следующая точка уходит сразу. */
-    fun reset() {
-        hasSent = false
-    }
-
-    private fun metersBetween(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLng = Math.toRadians(lng2 - lng1)
-        val h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
-        return 2 * 6_371_000.0 * Math.asin(Math.min(1.0, Math.sqrt(h)))
     }
 }

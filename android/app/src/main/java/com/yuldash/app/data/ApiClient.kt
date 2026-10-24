@@ -1623,9 +1623,9 @@ object ApiClient {
                 }
             "trip_status" -> call("POST", "/bookings/${action.bookingId}/trip-status",
                 JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation).map { }
-            "driver_status" -> call("POST", "/bookings/${action.bookingId}/driver-status",
-                JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation).map { }
-                .onSuccess { TripLocationBus.driverAction(action.bookingId, closed = action.payload == "done") }   // Д2: шаг водителя дошёл
+            "driver_status" -> TripLocationBus.driverStep(action.bookingId, closing = action.payload == "done") {   // Д2
+                call("POST", "/bookings/${action.bookingId}/driver-status",
+                    JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation).map { } }
             else -> Result.success(Unit)
         }
     }
@@ -1657,8 +1657,8 @@ object ApiClient {
 
     /** Водитель отмечает «выехал»/«подъезжаю»/«Пассажир сел» → push пассажиру. status: "departed"|"arriving"|"boarded"|"done". */
     suspend fun driverStatus(bookingId: Int, status: String): Result<Unit> =
-        call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true).map { }
-            .onSuccess { TripLocationBus.driverAction(bookingId, closed = status == "done") }   // Д2: GPS ведёт весь рейс
+        TripLocationBus.driverStep(bookingId, closing = status == "done") {   // Д2: GPS ведёт весь рейс
+            call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true).map { } }
 
     /** Мой реферал: код, сколько привёл, бонусы, вводил ли чей-то код. */
     suspend fun getReferral(): Result<ReferralDto> = cachedGet("referral", TTL_PERSONAL) {
@@ -2355,8 +2355,8 @@ object ApiClient {
 
     // Водитель отмечает неявку пассажира (no-show): бронь снимается, места возвращаются.
     suspend fun markNoShow(bookingId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/no-show", JSONObject(), auth = true).map { }
-            .onSuccess { Analytics.log("booking_no_show"); TripLocationBus.driverAction(bookingId, closed = true) }
+        TripLocationBus.driverStep(bookingId, closing = true) { call("POST", "/bookings/$bookingId/no-show", JSONObject(), auth = true).map { } }
+            .onSuccess { Analytics.log("booking_no_show") }
 
     /** F2: водитель подтверждает бронь → пассажиру открываются телефон/точка сбора, приходит push. */
     suspend fun confirmBooking(bookingId: Int): Result<Unit> =

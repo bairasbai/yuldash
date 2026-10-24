@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { build } from "esbuild";
-import { ROOT, button, checker, ofType } from "./shallow-harness.mjs";
+import { ROOT, bundleComponent, button, checker, langMock, mount, ofType } from "./shallow-harness.mjs";
 import { openActiveTrip } from "./active-trip-fixture.mjs";
 
 const t = checker();
@@ -306,6 +306,96 @@ await t.test("«Завершить» первым шагом на сайте: о
   await settle();
   assert.equal(r.last().id, 102, "второй пассажир потерял машину");
   assert.equal(r.share.snapshot().ride, true);
+});
+
+// Вторая приёмка Д2, P1: сервер записал «done» и закрыл канал брони раньше, чем ответил на «Завершить».
+await t.test("канал закрылся раньше ответа на «Завершить» — точка не гаснет и уходит следующей брони", async () => {
+  const r = rig();
+  r.share.open(101);
+  r.share.step(101, true, "start"); // «Завершить» ушло, ответа ещё нет
+  r.last().hooks.onEnd("trip"); // сервер уже закрыл канал 101
+  assert.equal(r.share.snapshot().bookingId, 101, "отправка погасла до ответа — второй пассажир теряет машину");
+  r.rows = [row(101, "done"), row(102, "onboard")];
+  await r.share.action(101, true); // ответ пришёл
+  await settle();
+  assert.equal(r.last().id, 102);
+});
+
+await t.test("сервер отверг «Завершить», а канал уже закрыт — ждать нечего, отправка гаснет", async () => {
+  const r = rig();
+  r.share.open(101);
+  r.share.step(101, true, "start");
+  r.last().hooks.onEnd("trip");
+  r.share.step(101, true, "fail");
+  assert.equal(r.share.snapshot().bookingId, null);
+  assert.equal(r.fetches, 0);
+});
+
+await t.test("ответа на «Завершить» так и нет — ждём не дольше PENDING_STEP_MS", async () => {
+  const r = rig();
+  r.share.open(101);
+  r.share.step(101, true, "start");
+  r.last().hooks.onEnd("trip");
+  assert.ok(R.PENDING_STEP_MS <= 90_000);
+  r.fire(R.PENDING_STEP_MS);
+  assert.equal(r.share.snapshot().bookingId, null);
+});
+
+await t.test("нет сети для списка после «Завершить» — повтор, а не погасшая точка", async () => {
+  const r = rig();
+  r.share.open(101);
+  r.share.step(101, true, "start");
+  r.last().hooks.onEnd("trip");
+  r.fail = Object.assign(new Error("offline"), { status: 0 });
+  r.rows = [row(101, "done"), row(102, "onboard")];
+  await r.share.action(101, true);
+  assert.equal(r.share.snapshot().bookingId, 101, "сеть мигнула — и точка погасла при живом рейсе");
+  r.fail = null;
+  const retry = r.timers.find((tm) => !tm.done && tm.ms > R.HOLD_GRACE_MS && tm.ms < R.PENDING_STEP_MS);
+  assert.ok(retry, "повтор не назначен");
+  retry.done = true;
+  retry.fn();
+  await settle();
+  assert.equal(r.last().id, 102);
+});
+
+await t.test("шаг водителя: «ушёл» до запроса, «принят» после, «отвергнут» — только на отказ сервера", async () => {
+  const A = await load("src/utils/driverActions.ts");
+  const seen = [];
+  const off = A.onDriverAction((id, closed, step) => seen.push([id, closed, step]));
+  await A.driverStep(7, true, async () => { seen.push(["request"]); return 1; });
+  await A.driverStep(8, true, async () => { throw Object.assign(new Error("409"), { status: 409 }); }).catch(() => {});
+  await A.driverStep(9, true, async () => { throw Object.assign(new Error("offline"), { status: 0 }); }).catch(() => {});
+  off();
+  assert.deepEqual(seen, [
+    [7, true, "start"], ["request"], [7, true, "done"],
+    [8, true, "start"], [8, true, "fail"],
+    [9, true, "start"],
+  ]);
+});
+
+await t.test("кабинет берёт точку ещё раз, когда режим рейса включился позже (P1-Б)", async () => {
+  const View = await bundleComponent("src/components/DriverPassengers.tsx", {
+    mocks: {
+      "/i18n/lang": langMock("ru"),
+      "/api/bookings": `export const fetchDriverBookings=async()=>globalThis.__dpr.rows;export const markNoShow=async()=>({});export const markArriving=async()=>({});export const rateBooking=async()=>({});`,
+      "/api/client": `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}}`,
+      "/utils/rideShareStore": `export const rideShareKeep=()=>{const d=globalThis.__dpr;d.keeps++;return d.ride?()=>{d.released++}:null;};
+        export const subscribeRideShare=(fn)=>{globalThis.__dpr.fn=fn;fn({bookingId:101,state:null,ride:false});return ()=>{};};
+        export const takeRidingFocus=()=>false;`,
+    },
+  });
+  const d = (globalThis.__dpr = { keeps: 0, released: 0, ride: false, fn: null,
+    rows: [{ ...row(101, "onboard"), passenger_name: "Айгуль", passenger_rating: null, route: "Уфа → Сибай", my_stars: 0 }] });
+  const h = mount(View, { onOpenTrip: () => {} });
+  h.render();
+  await h.settle();
+  const before = d.keeps;
+  assert.ok(before >= 1, "кабинет ни разу не попробовал взять точку");
+  d.ride = true;
+  d.fn({ bookingId: 102, state: "sharing", ride: true }); // ответ на «Завершить» пришёл — режим рейса включился
+  await h.settle();
+  assert.ok(d.keeps > before, "режим рейса включился, а кабинет точку так и не взял");
 });
 
 await t.test("подписка сразу получает текущее состояние", async () => {
