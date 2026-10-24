@@ -34,10 +34,10 @@
 ### Сервер (`backend/`)
 **А1. Выключатели владельца (D1).**
 1. `owner_switches.py` — реестр: значения, умолчание (прод / вне прода), блокеры, правило группы. Ключи `login.sms|telegram|vk|whatsapp` (RS-08 добавит `rideshare_card_payments`). Умолчания: `telegram` — вкл.; `sms` — выкл. на проде, **вкл. вне прода** (17 тестов через `request-code`); `vk`, `whatsapp` — выкл.
-2. `appsetting` (`key` PK, `value`, `updated_at`, `updated_by` nullable SET NULL) и `appsettingchange` (`key`, `old_value`, `new_value`, `admin_id` nullable SET NULL, `created_at`, `note`); строки ключей — из миграции, `value = NULL` = «по умолчанию».
+2. `appsetting` (`key` PK, `value`, `updated_at`, `updated_by` nullable SET NULL) и `appsettingchange` (`key`, `old_value`, `new_value`, `admin_id` nullable SET NULL, `created_at`, `note`); строки ключей — из миграции, начальное значение — `NULL` = «по умолчанию из реестра».
 3. Блокеры — имена недостающих переменных: `SMS_PROVIDER=smsru` + `SMS_RU_API_ID` (или smsdar); `TELEGRAM_BOT_TOKEN` + `TELEGRAM_WEBHOOK_SECRET`; `VK_ID_CLIENT_ID`, `VK_ID_REDIRECT_URIS`; `WHATSAPP_PROVIDER` + ключи.
 4. Группа `login.*`: нельзя выключить последний действующий способ (`switch_last_login_method`) и `login.telegram` (вход админа, А2 п. 8); выключение `sms`, когда у `N > 0` аккаунтов не останется способа (нет `telegram_id`, `vk_id`, WhatsApp выкл.), — только с `confirm: true`, иначе 409 `switch_needs_confirm` + `affected`.
-5. Запись — `SELECT … FOR UPDATE` по ключам группы в порядке ключей; то же значение — 200 без строки; иначе `appsettingchange` + `admin_action`. Чтение — кеш ≤ 10 с.
+5. Запись — `SELECT … FOR UPDATE` по ключам группы в порядке ключей; то же значение — 200 без строки; иначе `appsettingchange` + `admin_action`. Чтение: `owner_switches.get(key, fresh=False)` — с кешем ≤ 10 с; при `fresh=True` — прямо из базы (нужно RS-08 для денег).
 6. `routers/admin_switches.py` (только админ): `GET /admin/switches`, `POST /admin/switches/{key}` `{value, confirm?, note?}` → `{stored, effective, blockers, updated_at, updated_by_name, history[50]}`.
 7. `available_methods()` (RS-01) = `login.*` с `effective`; видно людям ≤ 40 с.
 
@@ -49,7 +49,7 @@
 5. Ответ один для любого номера: `{"sent": true, "resend_after_sec": 60, "expires_in_sec": 300}`; тело — `{phone, lang, channel}`. СМС — на языке экрана, ≤ 70 знаков, последней строкой `@app.yulbash.ru #<код>`.
 6. Журнал: код — никогда, номер — `mask_phone`; код в лог при сбое — только `env == "dev"`.
 7. `send_text` — отдельный `SMS_NOTIFY_ENABLED` (по умолчанию `false`), им же `sms_will_reach`: вход по СМС молча не включает СМС SOS и уведомлений (Q2, Q11).
-8. **Роль админа (D8):** СМС, VK, WhatsApp → `_complete_login(promote_admin=False)`; аккаунт с ролью `admin` так не входит — 403 `admin_login_telegram_only`. Повышение — только входом через Telegram.
+8. **Роль админа (D8):** СМС, VK, WhatsApp → `_complete_login(promote_admin=False)`; аккаунт с ролью `admin` так не входит — 403 `admin_login_telegram_only`, только в `verify`, после успешной сверки и погашения кода; ответ `request-code` одинаков для любого номера (иначе можно узнать номера админов). Повышение до админа — только через Telegram: по `admin_telegram_chat_id` или по `ADMIN_PHONES`, если номер пришёл из Telegram-контакта (`contact.user_id == from.id`).
 9. **Один аккаунт:** ключ — подтверждённый номер (`auth.py:989-993`). СМС/WhatsApp → по номеру. Telegram/VK → по своему id, иначе по номеру; слот пуст — привязать; занят другим id → 409 `method_linked_other`, второго аккаунта нет (вместо застревания `auth.py:958`); по id нашли, а номер у другого → 409 `phone_taken_other_account`, слияние — поддержка. Текст `method_linked_other` — из действующих способов, нет их — «напиши в поддержку».
 10. Бот при выключенном Telegram: «Вход через Telegram сейчас выключен», без кода.
 
@@ -112,7 +112,7 @@
 ## 9. Риски и границы
 - Деньги: СМС платные, цену не знаю (тариф sms.ru); день ограничен `SMS_DAILY_CAP`.
 - Выключение СМС отрезает людей без Telegram и VK — экран показывает их число.
-- Telegram выключить нельзя, пока он — единственный вход администратора (D8): сознательное отступление от «каждый способ — переключателем».
+- Telegram выключить нельзя, пока действует D8 (`docs/plans/README.md`): сознательное отступление от «каждый способ — переключателем». Вариант «выключатель прячет Telegram от людей, а админу вход остаётся» — вопрос Александру, до ответа действует замок.
 - VK ID может требовать организацию (`LoginScreen.kt:762` — про ИНН) — проверить до Б; WhatsApp — договор и шаблон, без провайдера В не делается.
 - Политика (`legal.ts:84`, `legal-content.ts:85`) до включения должна назвать sms.ru, VK, провайдера WhatsApp — «да» Александра.
 - Аккаунт стора: без СМС — проверяющим Telegram. Не входит: слияние аккаунтов, почта.
