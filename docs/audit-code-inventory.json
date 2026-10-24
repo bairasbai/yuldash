@@ -3877,7 +3877,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/RideCancelOnboardWarningTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "e9a3ef05a3681bacb5addb97c69d1a4ac6ccac5335384ded7792481f3144ead0",
+      "sha256": "827ff4a41c70d2cd782ac38eddf805c3675a83133df6354e2df7c067ce126e55",
       "lines": 95
     },
     {
@@ -6978,8 +6978,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "5b2d5dae699fde3ebad53178b0bc86b3fddc4801d3a5a73d21e906c0e77bc383",
-      "lines": 1920
+      "sha256": "96ae854e11e4beeceb716682036ffe57a34504bd23d4ee26e368e24b7344c111",
+      "lines": 1923
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -7048,8 +7048,8 @@
       "path": "backend/app/routers/family.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "dc2891d1adcaad146a1ac5a2fa31c1b93206a747e0dcaf03489c2bd1390f2984",
-      "lines": 785
+      "sha256": "b67b3c806af58a5e95357499701d6df34b28f425000be9a629966ad56e3e4a41",
+      "lines": 786
     },
     {
       "path": "backend/app/routers/health.py",
@@ -7272,8 +7272,8 @@
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "03500fac3eb389cac743a5970fa0302dbc1a0ece2dbcf7d5466fe66b6fa0517d",
-      "lines": 2191
+      "sha256": "2543c724680c8e40aa86f9d1fb8f33108a7a28f39e904f8aa35c0683df986f9d",
+      "lines": 2198
     },
     {
       "path": "backend/app/sos_escalate.py",
@@ -8448,8 +8448,8 @@
       "path": "backend/tests/test_cancel_in_transit_honest.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "2a5e54ba4cdd602c7b87b01b175fbeef71355ad402cf02cca7bdc3caea569f9c",
-      "lines": 512
+      "sha256": "1bba73821b1c5073e93f99aa1561d2160401d6f622fd905a5b11d6a178b6be1e",
+      "lines": 562
     },
     {
       "path": "backend/tests/test_cancel_in_transit_race_pg.py",

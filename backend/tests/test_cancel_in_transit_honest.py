@@ -20,14 +20,14 @@ import subprocess
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlmodel import Session, select
 
 import app.routers.safety as safety
 from app import services, trip_wake
 from app.config import settings
 from app.db import engine
-from app.models import Booking, BookingStatus, DriverProfile, Ride, TripShare, User, UserRole
+from app.models import Booking, BookingStatus, DriverProfile, Notification, Ride, TripShare, User, UserRole
 from app.routers import family as family_router
 from app.routers.bookings import PROBLEM_REPORT_WINDOW, notify_cancelled_in_transit
 from app.routers.family import _family_step, notify_family_trip_status
@@ -510,3 +510,53 @@ def test_ссылку_отозвали_сразу_после_отправки_с
     assert revoked == [sister_id]
     assert ids == [mama_id], ids
     assert len(sent) == 2 and all("доехал" in t for _, t in sent), sent
+
+
+def test_настоящая_ошибка_базы_на_шаге_смс_не_роняет_отмену(client, user_factory, monkeypatch):
+    """Не выдуманное исключение до первого запроса, а настоящая ошибка SQL посреди шага SMS — после
+    записи шагов и расхода. На PostgreSQL такая ошибка «отравляет» транзакцию: без отката каждый
+    следующий запрос падает, и «Снять поездку» снова отвечала бы 500 (приёмка PR205, третья)."""
+    driver, pax, ride, bid, token, sms, tg, pushes = _trip(client, user_factory, "sql", monkeypatch)
+    _board(client, driver, bid)
+    other = user_factory("Отмена sql второй у дороги")
+    bid2 = client.post("/bookings", headers=other["auth"], json={"ride_id": ride["id"], "seats": 1}).json()["id"]
+    assert client.post(f"/bookings/{bid2}/confirm", headers=driver["auth"]).status_code == 200
+    pushes.clear()
+
+    def broken_lang(session, _user_id):
+        session.execute(text("SELECT * FROM zz_no_such_table"))
+
+    monkeypatch.setattr(family_router, "sms_lang_of", broken_lang)
+    r = client.post(f"/rides/{ride['id']}/cancel", headers=driver["auth"])
+
+    assert r.status_code == 200 and r.json()["status"] == "cancelled", r.text
+    assert len(tg) == 1, tg
+    titles = {}
+    for p in pushes:
+        titles.setdefault(p["user"], []).append(p["title"])
+    assert titles.get(pax["id"]) == ["Поездку отменили в пути"] and titles.get(other["id"]) == ["Поездка отменена"], titles
+
+
+def test_срочный_пуш_об_отмене_в_пути_проходит_мимо_потолка_шторма(client, user_factory, monkeypatch):
+    """Потолок «шторма» глушит девятое уведомление по одной брони за минуту. Водитель перед
+    отменой написал в чат 8 сообщений — и «Поездку отменили в пути» пропадало целиком: ни пуша,
+    ни строки в Центре уведомлений (приёмка PR205, третья). Отмена в пути бывает раз на бронь."""
+    driver, pax, ride, bid, token, sms, tg, pushes = _trip(client, user_factory, "шторм", monkeypatch)
+    _board(client, driver, bid)
+    with Session(engine) as s:
+        for i in range(8):                       # 8 сообщений водителя в чате этой брони за минуту
+            s.add(Notification(user_id=pax["id"], type="chat", title_ru=f"Сообщение {i}", title_ba=f"Хәбәр {i}",
+                               body_ru="…", body_ba="…", ref_kind="booking", ref_id=bid))
+        s.commit()
+    fcm = []
+    monkeypatch.setattr(services, "send_push", lambda session, user_id, title, body, **kw: fcm.append((user_id, title)))
+    import app.routers.bookings as bookings_router
+    monkeypatch.setattr(bookings_router, "push_notification", services.push_notification)   # настоящий, не шпион
+
+    assert client.post(f"/bookings/{bid}/cancel", headers=driver["auth"], json={"reason": "other"}).status_code == 200
+
+    with Session(engine) as s:
+        rows = s.exec(select(Notification.title_ru).where(
+            Notification.user_id == pax["id"], Notification.ref_kind == "booking", Notification.ref_id == bid)).all()
+    assert "Поездку отменили в пути" in rows, rows
+    assert (pax["id"], "Поездку отменили в пути") in fcm, fcm
