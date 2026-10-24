@@ -142,9 +142,15 @@ class CancelledInTransitTest {
             compose.waitUntil(15_000) { settle(); condition() }
         } catch (e: ComposeTimeoutException) {
             throw AssertionError("$what: запросы=${requests.toList()}, tripEnd=$tripEndCalls, " +
-                "память=[${InTransitCancels.describeForTest()}], сессия=${ApiClient.queueSessionGeneration()}", e)
+                "память=[${InTransitCancels.describeForTest()}], сессия=${ApiClient.queueSessionGeneration()}, " +
+                "экран=${screenTree()}", e)
         }
     }
+
+    // Что нарисовано на самом деле (все корни, в том числе окна): без этого сбой в CI не разобрать.
+    private fun screenTree(): String = runCatching {
+        compose.onAllNodes(isRoot(), useUnmergedTree = true).printToString().replace("\n", " | ").take(4000)
+    }.getOrElse { "не снять: ${it.message}" }
 
     private fun waitForText(text: String) = waitFor("нет «$text»") {
         compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()

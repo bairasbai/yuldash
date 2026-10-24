@@ -2799,8 +2799,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CancelledInTransitTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "febeb73c19bc6c32f8c39d7fdc4d72b5c3dbaba2967ca2b0a034f7fa0756b745",
-      "lines": 450
+      "sha256": "1efce52b30ae9e696d3ca4b0dfef51d901e1faef1ecd2824ed64c86b37d0b652",
+      "lines": 456
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CanonScaleTest.kt",
