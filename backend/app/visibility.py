@@ -24,6 +24,7 @@
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -317,6 +318,12 @@ def booking_contacts_open(booking, ride, now=None) -> bool:
     if ride is None or ride.depart_at is None:
         return True                     # времени выезда нет — закрывать не по чему
     return сейчас <= ride.depart_at + timedelta(hours=settings.chat_after_trip_hours)
+
+
+# «Сообщить о проблеме» пассажира — 6 часов (приёмка PR174; от отмены в пути — решение 23.10.2026).
+# Живёт здесь, а не в `routers/bookings.py`: этим же окном держится удаление аккаунта водителя после
+# отмены в пути (`account.guard_can_delete`, решение 24.10.2026), а модуль броней тянуть туда незачем.
+PROBLEM_REPORT_WINDOW = timedelta(hours=6)
 
 
 def cancelled_in_transit(booking) -> bool:

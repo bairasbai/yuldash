@@ -768,6 +768,9 @@ export default function ActiveTripScreen() {
           driverId={trip?.peer_id}
           driverName={details.driver_name}
           problemReportSec={trip?.problem_report_sec ?? 0}
+          /* Оценка водителя после отмены в пути (решение 24.10.2026) — из деталей брони. */
+          canRate={details.can_rate === true}
+          myStars={details.my_stars ?? 0}
         />
       </>
     );

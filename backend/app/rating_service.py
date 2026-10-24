@@ -22,6 +22,7 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
 
+from fastapi import HTTPException
 from sqlalchemy import text as sa_text, update as sa_update
 from sqlmodel import Session, select
 
@@ -87,6 +88,34 @@ def guard_rating_on_pause(session: Session, rater_id: int,
         raise herr(403, PAUSED_RU, PAUSED_BA)
 
 
+def rating_allowed_now(session: Session, user_id: int, happened_at: Optional[datetime]) -> bool:
+    """Те же проверки, что у `/rate`: срок `RATING_WINDOW_DAYS` и пауза аккаунта (ревью Opus 23.10:
+    человек на паузе видел звёзды и получал отказ). Звёзды на экране — только когда оценка правда пройдёт."""
+    try:
+        guard_rating_window(happened_at)
+        guard_rating_on_pause(session, user_id, happened_at)
+    except HTTPException:
+        return False
+    return True
+
+
+def booking_rating_open(booking, ride, user_id: int) -> bool:
+    """Можно ли по состоянию брони этому человеку оценить вторую сторону попутки.
+
+    Завершённую — обе стороны. Отменённую в пути (`visibility.cancelled_in_transit`) — только пассажир
+    (решение Александра 24.10.2026): иначе водитель уходил от плохого отзыва, отменив поездку перед
+    прибытием. Водителю после отмены в пути оценка пассажира закрыта — решение только про пассажира.
+    Остальное (обычная отмена, неявка, «посадку отменили» — `onboard_at` снят) — нельзя: оценка без
+    поездки — это накрутка. Срок и паузу проверяет `rating_allowed_now` / `guard_rating_*`."""
+    if booking is None or ride is None:
+        return False
+    from .visibility import cancelled_in_transit   # лениво: visibility тянет services
+    статус = booking.status.value if hasattr(booking.status, "value") else booking.status
+    if статус == "done":
+        return user_id in (booking.passenger_id, ride.driver_id)
+    return user_id == booking.passenger_id and cancelled_in_transit(booking)
+
+
 def _lock_rating_slot(session: Session, rater_id: int, booking_id: Optional[int],
                       order_id: Optional[int]) -> None:
     """Сериализует конкурентные попытки поставить ОДНУ оценку одного человека за одну поездку.
@@ -125,11 +154,15 @@ def _lock_rating_slot(session: Session, rater_id: int, booking_id: Optional[int]
 def apply_rating(session: Session, rater: User, ratee_id: int, *, stars: int,
                  text: str = "", tags: str = "", booking_id: Optional[int] = None,
                  order_id: Optional[int] = None, place: str = "rating",
-                 happened_at: Optional[datetime] = None) -> tuple[float, int]:
+                 happened_at: Optional[datetime] = None, advise: bool = True) -> tuple[float, int]:
     """Поставить/обновить оценку и пересчитать витрину. Возвращает (среднее, число оценок).
 
     Текст идёт на модерацию: помечаем (не режем и не рвём сохранение) и публикуем только после
     решения админа. Метки — из закрытого списка, ими не оскорбить, поэтому они видны сразу.
+
+    `advise=False` — без пуша водителю «рейтинг просел» прямо сейчас. Нужен для оценки после отмены в
+    пути (проверка плана 24.10.2026): водитель, только что высадивший человека, по такому пушу поймёт,
+    кто поставил единицу, а пассажир, возможно, ещё на трассе. Балл и лестница считаются как обычно.
     """
     guard_rating_on_pause(session, rater.id, happened_at)
     stars = max(1, min(5, int(stars)))
@@ -179,7 +212,7 @@ def apply_rating(session: Session, rater: User, ratee_id: int, *, stars: int,
             prof.rating = round(d_avg, 1)
             session.add(prof)
             session.commit()
-        if d_cnt > 0:
+        if d_cnt > 0 and advise:
             from . import quality
             quality.maybe_low_rating_advice(session, ratee_id, d_avg)
     return avg, cnt

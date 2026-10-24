@@ -28,9 +28,10 @@ import androidx.compose.ui.unit.sp
  * «Повторить маршрут» и «Квитанция», а квитанция показывала оценку, лишь когда она уже стоит.
  * Теперь здесь пять звёзд; касание сразу отправляет оценку (как в квитанции такси). Блок виден,
  * пока сервер разрешает оценку (`can_rate`: 60 дней после выезда) и своей оценки ещё нет.
+ * Тот же блок — на экране «Поездку отменили в пути» (решение 24.10.2026), со своей подписью [hint].
  */
 @Composable
-internal fun ReceiptRateDriver(busy: Boolean, onRate: (Int) -> Unit) {
+internal fun ReceiptRateDriver(busy: Boolean, hint: String? = null, onRate: (Int) -> Unit) {
     AppCard {
         Column(
             Modifier.fillMaxWidth().padding(CanonSpace.lg),
@@ -40,7 +41,7 @@ internal fun ReceiptRateDriver(busy: Boolean, onRate: (Int) -> Unit) {
             Text(appText("Оценить водителя", "Йөрөтөүсене баһалау"),
                 color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Text(
-                appText("Не успел оценить после поездки? Пара звёзд поможет другим выбрать.",
+                hint ?: appText("Не успел оценить после поездки? Пара звёзд поможет другим выбрать.",
                     "Сәфәрҙән һуң баһаларға өлгөрмәнеңме? Бер нисә йондоҙ башҡаларға һайларға ярҙам итер."),
                 color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
             )

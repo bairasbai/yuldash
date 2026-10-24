@@ -62,8 +62,9 @@ function stubFor({ def, named }) {
  * Собрать компонент. `mocks`: { "<конец пути импорта>": "код модуля" } — заменяет заглушку.
  * `real`: концы путей, которые собрать по-настоящему (чистая логика без браузера).
  * `transform(src)` — подмена исходника (контроль «старый код»/мутанты).
+ * `define` — подстановки esbuild (например, `{"import.meta.env": "{}"}` для экрана с версией сборки).
  */
-export async function bundleComponent(rel, { mocks = {}, real = [], exportName = "default" } = {}) {
+export async function bundleComponent(rel, { mocks = {}, real = [], exportName = "default", define } = {}) {
   const entry = resolve(ROOT, rel);
   const own = importsOf(entry);
   const pick = (p) => Object.keys(mocks).find((k) => p === k || p.endsWith(k));
@@ -75,6 +76,7 @@ export async function bundleComponent(rel, { mocks = {}, real = [], exportName =
     platform: "node",
     jsx: "automatic",
     logLevel: "silent",
+    ...(define ? { define } : {}),
     plugins: [
       {
         name: "shallow",

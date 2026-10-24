@@ -19,8 +19,8 @@ from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, ParcelDelivery, Ride,
     TripShare, TrustedContact, User,
 )
-from ..rating_service import apply_rating, guard_rating_window
-from ..security import current_user
+from ..rating_service import apply_rating, booking_rating_open, guard_rating_window
+from ..security import current_user, normalize_phone
 from ..services import (pick_lang, sms_lang_of,
     booking_and_ride_for_user, may_send_family_sms, push_bilingual, send_text)
 from ..timeutil import utcnow
@@ -624,6 +624,67 @@ def notify_family_trip_status(session: Session, booking_id: int, passenger: User
     return session.exec(select(TripShare).where(TripShare.id.in_(ids))).all() if ids else []
 
 
+# Имя пассажира в SMS взрослому: SMS кириллицей — 67 знаков на часть, текст держим в двух частях
+# (≤134 знаков, это деньги платформы). Имя в профиле — до 120 знаков; длинное режем, заглушки входа
+# («Пользователь», «Telegram») взрослому ничего не скажут — пишем «пассажир».
+_GUARDIAN_SMS_NAME_MAX = 20
+_PLACEHOLDER_NAMES = {"пользователь", "telegram", "проверка стора"}
+
+
+def _guardian_sms_name(passenger: User) -> str:
+    name = " ".join((passenger.name or "").split())
+    if not name or name.casefold() in _PLACEHOLDER_NAMES:
+        return "пассажир"
+    return name if len(name) <= _GUARDIAN_SMS_NAME_MAX else name[:_GUARDIAN_SMS_NAME_MAX - 1].rstrip() + "…"
+
+
+def guardian_sms_text(passenger: User, lang: str) -> str:
+    """SMS взрослому за поездку несовершеннолетнего, которую отменили в пути (решение 24.10.2026).
+    Только имя пассажира: ни его телефона, ни госномера, ни маршрута, ни координат — взрослый звонит
+    пассажиру сам. Башкирский — черновик (docs/tasks.md, «Переводы на проверку»)."""
+    who = _guardian_sms_name(passenger)
+    return pick_lang(
+        lang,
+        f"Юлдаш: {who} — поездку отменили в пути. Тебя указали взрослым за эту поездку. "
+        "Позвони и узнай, всё ли в порядке.",
+        f"Юлдаш: {who} — сәфәр юлда кире алынды. Һин был сәфәр өсөн яуаплы оло кеше. "
+        "Шылтыратып, хәлен белеш.",
+    )
+
+
+def notify_guardian_cancelled_in_transit(session: Session, booking_id: int, passenger: User) -> bool:
+    """Отменили в пути несовершеннолетнего — SMS взрослому из брони (`minor_guardian_phone`, решение
+    Александра 24.10.2026). Новое назначение этого номера — оно названо в политике конфиденциальности.
+
+    Тот же шлюз (`send_text`) и тот же суточный потолок пассажира (`may_send_family_sms`), что у SMS
+    близким при отмене в пути; на проде доходит, когда SMS включены (мок пишет только в лог, без тела).
+    Расход записан и закоммичен ДО отправки — замков на время SMS не держим. Один раз на бронь: зовёт
+    только переход брони в отмену в пути (`bookings.notify_cancelled_in_transit`), повтор отмены туда не
+    доходит. Не шлём: не несовершеннолетний, номера нет или он не похож на телефон, это номер самого
+    пассажира, или этому номеру по этой брони уже ушло SMS близким «отменили в пути» (мама — и близкий,
+    и взрослый за поездку). True — SMS отдано шлюзу."""
+    booking = session.get(Booking, booking_id)
+    if booking is None or not booking.minor_passenger:
+        return False
+    phone = normalize_phone(booking.minor_guardian_phone)
+    if not _PHONE_RE.match(phone or ""):
+        return False
+    if normalize_phone(passenger.phone) == phone:
+        return False
+    уже_знают = {normalize_phone(p) for p in session.exec(
+        select(TrustedContact.phone).join(TripShare, TripShare.contact_id == TrustedContact.id).where(
+            TripShare.booking_id == booking_id,
+            TripShare.last_status == "cancelled_onboard",
+            TrustedContact.notify_by_default == True,   # noqa: E712 — «Только SOS» статусов не получает
+        )).all()}
+    if phone in уже_знают:
+        return False
+    if not may_send_family_sms(session, passenger.id, "guardian"):
+        return False
+    send_text(phone, guardian_sms_text(passenger, sms_lang_of(session, passenger.id)))
+    return True
+
+
 class RateIn(BaseModel):
     stars: int
     text: str = Field("", max_length=500)   # текстовый отзыв (опц.) — на модерацию, ≤500
@@ -651,15 +712,22 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
     # Оценить можно только ЗАВЕРШЁННУЮ поездку — иначе можно забронировать и сразу накрутить
     # рейтинг водителю, не съездив (репутация «между своими» = продукт). Проверка ПОСЛЕ участника:
     # чужой получает 403, а участник недозавершённой — 409.
-    if b.status != BookingStatus.done:
+    # И отменённую В ПУТИ — пассажиру (решение Александра 24.10.2026): человек ехал в машине, а водитель
+    # снял поездку перед прибытием — иначе так уходили от плохого отзыва. Водителю — нет.
+    if not booking_rating_open(b, ride, user.id):
         raise herr(409, "Оценить можно только завершённую поездку",
                    "Тик тамамланған сәфәрҙе генә баһаларға була")
+    in_transit = b.status != BookingStatus.done
     # Срок на оценку. Считаем от времени выезда: у брони своего «завершено в» нет, а поездка —
-    # это про день выезда. Оценка через год говорит уже не о поездке (волна 57).
+    # это про день выезда. Оценка через год говорит уже не о поездке (волна 57). У отменённой в
+    # пути — тот же якорь и тот же срок, что у завершённой (решение 24.10.2026).
     guard_rating_window(ride.depart_at if ride else None)
     avg, cnt = apply_rating(session, user, ratee_id, stars=body.stars, text=body.text,
                             tags=body.tags, booking_id=booking_id, place="review",
-                            happened_at=(ride.depart_at if ride else None))
+                            happened_at=(ride.depart_at if ride else None),
+                            # Без пуша «рейтинг просел» водителю сразу после того, как он высадил
+                            # человека: по нему понятно, кто поставил (проверка плана 24.10.2026).
+                            advise=not in_transit)
     return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
 
 
