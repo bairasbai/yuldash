@@ -888,8 +888,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/CancelledInTransit.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "0ff2d91c9386f545f4416a11dede1bd40d61f9f955a153bc1e5a44368e5c7d7f",
-      "lines": 488
+      "sha256": "92a24d9f3a58ef7d795bd9ef6e1538ad95fe9c1a36d237e914297f7a844d8d40",
+      "lines": 494
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -2400,8 +2400,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripBoardingCodeRetryBoundaryTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "ff2c7452f8ea668e5084b85a794ff505d76c965b4ff80c61b1d90bda43eb2706",
-      "lines": 249
+      "sha256": "0ea522bb3eb17580f4dcc342de80f4fbd4e9c96514f4ad9c23007df16ce08e62",
+      "lines": 251
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripBoardingCodeSaveTest.kt",
@@ -2799,8 +2799,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CancelledInTransitTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "0feeeb88788142b748df349e008155101929c8f8099e2f60f007ace0d3eac3bb",
-      "lines": 457
+      "sha256": "3a0f3b4305208ca9c27f1d5705017a03cdcb8ac2ac5d3d8c358deb5d32252226",
+      "lines": 466
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CanonScaleTest.kt",
@@ -14671,7 +14671,7 @@
       "path": "webapp/src/screens/ActiveTripScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "333c4aee763d1d933bb6fef0583132e5ce28bbac04df687b1d1f45d6c18ff08e",
+      "sha256": "6076451d514cfa2b34ca37152d228ccf7f44d94ae4b5f6c5cfa500b6b1fadb3d",
       "lines": 1250
     },
     {
@@ -15595,8 +15595,8 @@
       "path": "webapp/src/utils/inTransitCancel.ts",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "67802d60b2624366612cc1277e3cd7033e80f2634980f9f71338ea9d5ba4a135",
-      "lines": 45
+      "sha256": "38d7ceb176283be89aab68ef3e8f2c1c79b2abe48bf5f59fd06ec8ba7a73a976",
+      "lines": 46
     },
     {
       "path": "webapp/src/utils/introMotion.d.ts",

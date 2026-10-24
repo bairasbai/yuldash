@@ -141,7 +141,7 @@ class CancelledInTransitTest {
         try {
             compose.waitUntil(15_000) { settle(); condition() }
         } catch (e: ComposeTimeoutException) {
-            throw AssertionError("$what: запросы=${requests.toList()}, tripEnd=$tripEndCalls, " +
+            throw AssertionError("$what: запросы=${requests.toList()}, tripEnd=$tripEndCalls, stopped=$stoppedCalls, " +
                 "память=[${InTransitCancels.describeForTest()}], сессия=${ApiClient.queueSessionGeneration()}, " +
                 "экран=${screenTree()}", e)
         }
@@ -213,6 +213,7 @@ class CancelledInTransitTest {
         assertEquals(1, tripEndCalls)
         assertFalse(mounted.value)
         assertFalse(secure.restarted().contains("pass_42"))
+        assertEquals("экрана помощи не было — гасить поездку отдельно незачем", 0, stoppedCalls)
     }
 
     @Test fun `водителю отмена в пути закрывает экран как раньше — он отменил сам`() {
@@ -220,6 +221,7 @@ class CancelledInTransitTest {
         openTrip()
         waitFor("экран водителя не закрылся") { tripEndCalls > 0 }
         assertEquals(1, tripEndCalls)
+        assertEquals(0, stoppedCalls)
     }
 
     @Test fun `по пушу — сразу экран помощи, Застрял на трассе и Сообщить о проблеме`() {
@@ -403,6 +405,13 @@ class CancelledInTransitTest {
         InTransitCancels.restoreInto(42, owner, state)
         assertFalse(state.cancelled)
         assertNull(state.car)
+    }
+
+    @Test fun `выход из аккаунта стирает запомненную отмену в пути`() {
+        InTransitCancels.record(42, ApiClient.queueSessionGeneration(), InTransitCar("серая Лада Веста", "М555ОР102"), "Ринат")
+        ApiClient.logout()
+        // Смотрим саму память, а не hint(): hint() со свежим входом стёр бы чужую запись и без выхода.
+        assertEquals("", InTransitCancels.describeForTest())
     }
 
     @Test fun `признак только в деталях брони — экран помощи всё равно остаётся`() {

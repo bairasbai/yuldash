@@ -150,6 +150,8 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         waitFor { trace.any { it.contains("ВЫШЛИ из вызова GET /bookings/42/details успешно") } }
         val ba = language == AppLanguage.Ba
         val error = if (ba) "Кодты йөкләп булманы" else "Не удалось загрузить код"
+        // Код посадки — отдельный запрос, не детали брони: его отказ доходит до экрана в своё время (CI PR207).
+        waitFor { compose.onAllNodesWithText(error).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(error).performScrollTo().assertIsDisplayed()
         val retry = if (ba) "Кодты яңынан йөкләргә" else "Повторить загрузку кода"
         if (rapid) compose.onNodeWithText(retry).performTouchInput { click(); advanceEventTime(50); click() }

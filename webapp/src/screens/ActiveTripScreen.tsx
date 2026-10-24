@@ -432,7 +432,7 @@ export default function ActiveTripScreen() {
     (trip?.cancelled_in_transit === true || details?.cancelled_in_transit === true || inTransitRef.current);
   const inTransitCar = details ? [details.driver_car_color, details.driver_car].filter(Boolean).join(" ") : "";
   const inTransitPlate = details?.driver_plate ?? "";
-  // Вкладка помнит эту отмену (без телефона): вернулся с SOS, перезагрузил, нет сети — помощь на месте.
+  // Вкладка помнит эту отмену (без телефона): вернулся с SOS, а сети нет — помощь на месте.
   useEffect(() => {
     if (inTransitCancel) rememberInTransitCancel(bookingId, user?.id, inTransitCar, inTransitPlate);
   }, [inTransitCancel, bookingId, user?.id, inTransitCar, inTransitPlate]);

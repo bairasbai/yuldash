@@ -138,14 +138,20 @@ internal class CancelledInTransitState(initial: Boolean) {
 
 /**
  * Отмены в пути, которые этот вход уже видел: номер брони, машина, госномер и имя водителя —
- * без телефона. Память процесса: переживает уход на SOS и обратно, поворот экрана, второй пуш —
- * а офлайн-паспорт к этому моменту уже удалён, и сети на трассе может не быть. Запись чужого
- * входа (другое поколение сессии) не видна и стирается при первом же обращении.
+ * без телефона. Память процесса: переживает уход на SOS и обратно и поворот экрана — а офлайн-паспорт
+ * к этому моменту уже удалён, и сети на трассе может не быть. Пуш без сети сюда не смотрит: переход по
+ * нему сначала спрашивает сервер (не покрыто, docs/tasks.md). Выход из аккаунта
+ * стирает всё; запись чужого входа (другое поколение сессии) не видна и стирается при первом же обращении.
  */
 internal object InTransitCancels {
     private data class Entry(val owner: Long, val car: InTransitCar?, val driverName: String)
 
     private val entries = HashMap<Int, Entry>()
+
+    init {
+        // Выход или другой аккаунт: машина и госномер уходят из памяти вместе с кешем ответов.
+        ApiClient.onSessionReset { synchronized(this) { entries.clear() } }
+    }
 
     @Synchronized
     fun record(bookingId: Int, owner: Long, car: InTransitCar?, driverName: String) {
@@ -333,7 +339,7 @@ internal fun CancelledInTransitScreen(
     }
     val shown by rememberUpdatedState(onShown)
     LaunchedEffect(bookingId) { if (isCurrent()) shown() }
-    // Запомнить на этот вход: вернулся с SOS, повернул экран, открыл пуш без сети — экран помощи на месте.
+    // Запомнить на этот вход: вернулся с SOS или повернул экран без сети — экран помощи на месте.
     // SideEffect, а не LaunchedEffect: запись — в том же кадре, что экран помощи. Корутина эффекта стартует
     // кадром позже, и SOS, нажатый сразу, уводил с экрана раньше записи (CI PR207).
     SideEffect {
