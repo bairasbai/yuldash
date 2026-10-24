@@ -11,7 +11,7 @@
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек
-**Было.** Водитель едет Сибай → Ургаза → Акъяр, 3 места. Трое соседей берут Сибай → Ургаза — и поездка «полная»: Булат из Ургазы в Акъяр её не находит, хотя после Ургазы машина пустая. И все платят полную цену до Акъяра.
+**Было.** Водитель едет Сибай → Ургаза → Акъяр, 3 места. Трое соседей берут Сибай → Ургаза — поездка «полная», и Булат из Ургазы в Акъяр её не находит, хотя после Ургазы машина пустая. И все платят до Акъяра.
 
 **Стало.**
 - Водитель пишет цену до каждой остановки: «до Ургазы — 300 ₽», весь путь — 500 ₽ (или одну цену на всё, как сейчас). Булат платит 200 ₽ (500 − 300); итог = цена участка × места.
@@ -44,26 +44,26 @@
    - `segment_price`: цен нет → `price`, иначе `cum(высадка) − cum(посадка)` (`cum(начало)=0`, `cum(конец)=price`);
    - `validate_stop_prices`: пусто → `{}`; 400 `stop_prices_need_price` (`price == 0`), `stop_prices_count` (число ≠ частям `waypoints`), `stop_prices_order` (нужно `1 ≤ p < price` и строгий рост).
 3. `errors.py`: `herr(status, ru, ba, *, code=None, **extra)`; старые вызовы не меняются.
-4. **Публикация:** `RideIn.stop_prices: Optional[list[int]]` (по частям `waypoints`) → проверка → JSON; исключить из `dump`, в серию — копия; `_recent_twin_ride` сверяет JSON отдельно (иначе дубль при повторе).
-5. **Бронь** (`BookIn.expected_price` — цена за место на экране): `free_on(span) < seats` → 400 `seats_not_enough` (+`free`); `seg ≠ expected_price` → 409 `price_changed` (+`price`); `total = seg * seats`; есть цены остановок, нет `expected_price` (старое приложение шлёт полную цену) → `pay_amount = total`; UPDATE `:610-618` → `take(..., extra_where=[~exists(живая бронь пассажира)])`, `False` → `rollback` → `_retry_after_booking_race` → 409 `seats_taken_now`. Повтор и откат переднего — как сейчас.
+4. **Публикация:** `RideIn.stop_prices: Optional[list[int]]` (по частям `waypoints`) → проверка → JSON; не в `dump`, в серию — копия; `_recent_twin_ride` сверяет JSON отдельно (иначе дубль).
+5. **Бронь** (`BookIn.expected_price` — цена за место на экране): `free_on(span) < seats` → 400 `seats_not_enough` (+`free`); `seg ≠ expected_price` → 409 `price_changed` (+`price`); `total = seg * seats`; цены остановок есть, `expected_price` нет (старое приложение шлёт полную сумму) → `pay_amount = total`; UPDATE `:610-618` → `take(..., extra_where=[~exists(живая бронь пассажира)])`, `False` → `rollback` → `_retry_after_booking_race` → 409 `seats_taken_now`. Повтор, откат переднего — прежние.
 6. **Отмена, неявка, пауза** (`:1535`, `:1756`, `safety_logic.py:491-502`) → `release(span(брони))` после смены статуса; замки Ride → Booking прежние.
 7. **Заявки:** `segment` — дешёво `max_free`, после участка — `free_on`; `_on_route_scope` — `max(seats_left, seats_free_max)`; принятие `:1318-1327` → `take(..., extra_where=[прежние условия])`, цена брони — `price_on_table × seats` (торг важнее); `:1465` → `any_free_sql(req.seats)`; в ленту заявок — `matched_segment_price`.
 8. **Выдачи:** `:529`, `:924`, `:1266`, `medical.py:64` → `any_free_sql()`; цикл `:589-602` читает ещё `seats_left, seats_free_max, leg_free`: участок однозначен → `free_on ≥ 1`, иначе `max_free ≥ 1`. Кэш → `rides:active:v3`.
-9. **`RideOut`** (без запросов): `stop_prices: [{stop, price}]`, `seats_by_leg`, `seats_on_segment`/`segment_price` рядом с `matched_*` (`rides.py:616-620`, `/rides/near`); `seats_booked` — только `/driver/rides`; `/driver/bookings` + `seats`, `price`. `leg_free`/`stop_prices_json` наружу не отдавать.
+9. **`RideOut`** (без запросов): `stop_prices: [{stop, price}]`, `seats_by_leg`, `seats_on_segment`/`segment_price` рядом с `matched_*` (`rides.py:616-620`, `/rides/near`); `seats_booked` — только `/driver/rides`; `/driver/bookings` + `seats`, `price`. Сырые `leg_free`/`stop_prices_json` не отдавать.
 10. **Правка:** `RideEditIn.stop_prices` (`None` — не трогать, `[]` — одна цена). С живыми бронями `price` не растёт **и** у каждой брони новая `segment_price` ≤ старой, иначе 409 `price_up_with_bookings`; `b.price = новая × seats`, потолок `pay_amount` как `:412-413`. Места: `booked_seats > cap` → max занятости участка; `seats_left = …` → `recompute`.
-11. **`price_hint`:** `stops` (≤ 4) → `stops: [{stop, distance_km, avg, count}]`; расстояние — свой справочник сёл, не платный Яндекс-геокодер.
-12. **Переднее** не меняем (барьер — индекс базы); «сзади двое» держится само: на участке мест ≤ `seats_total` ≤ `seat_cap`.
+11. **`price_hint`:** `stops` (≤ 4) → `stops: [{stop, distance_km, avg, count}]`; расстояние — по своему справочнику сёл, не Яндекс (платно).
+12. **Переднее** — как сейчас (барьер — индекс базы); «сзади двое» держится: на участке мест ≤ `seat_cap`.
 
 ### Android (`android/`)
-1. `Ride`: `stopPrices`, `seatsByLeg`, `seatsOnSegment`, `segmentPrice`, `seatsBooked`; разбор в `ApiClient.kt`, `toUiRide` (`MainActivity.kt:750`, общий файл).
-2. `PickupStopRules.kt`: `segmentPriceRub`, `seatsOnSegment` — формула сервера.
+1. `Ride` (`Domain.kt`) + `stopPrices`, `seatsByLeg`, `seatsOnSegment`, `segmentPrice`, `seatsBooked`; разбор в `ApiClient.kt`, `toUiRide` (`MainActivity.kt:750`).
+2. `PickupStopRules.kt`: `segmentPriceRub`, `seatsOnSegment` по формуле сервера.
 3. Шторка: участок до числа мест (поменять `:653` и `:700`); `BookingSeatCount` и сумма по умолчанию — от участка; «Итого» — `AnimatedContent` (`CanonMotion`), `kopToRub(rub * 100)`; `expectedPrice` при ценах остановок; `price_changed` → перечитать поездку.
 4. Публикация: переключатель «Цена до каждой остановки» (включён при остановке и цене > 0), поле у каждой (`CanonFieldShape`, `AnimatedVisibility`), «Поделить по расстоянию» (≥ 48dp, до 10 ₽); ошибки — до отправки.
 5. Правка (`ProfileScreen.kt:1748`) — цены остановок; кабинет: «1 место · 300 ₽» у брони, `RideLegsLoad(ride)` на активном рейсе, `:2937`/`:2946` — `seatsBooked`.
 6. Лента (`RideCard`, `RidesRequestsChatScreens.kt:880`): цена и места участка или «цена зависит от участка»; отклик (`RequestRouteUi.kt`) — `matched_segment_price`. Нового экрана нет.
 
 ### Сайт (`webapp/`)
-Типы `api/*.ts`; `utils/pickupStops.ts` — та же формула; `RideSheet.tsx` — места, «Итого», `expected_price`, `price_changed`; `CreateRideScreen.tsx` — переключатель и поля (и в черновик); `RideEditActions.tsx`; `DriverCabinetScreen.tsx` — `seats_booked`, загрузка; `DriverPassengers.tsx`, `RideCard.tsx`, `RequestsFeedScreen.tsx`.
+Те же шаги: типы `api/*.ts`; формула в `utils/pickupStops.ts`; `RideSheet.tsx` (места, «Итого», `expected_price`); `CreateRideScreen.tsx` (поля, черновик); `RideEditActions.tsx`; `DriverCabinetScreen.tsx` (`seats_booked`, загрузка); `DriverPassengers.tsx`, `RideCard.tsx`, `RequestsFeedScreen.tsx`.
 
 ## 4. База данных
 `cc_ride_segment_seats_<дата>`, `down_revision` — текущая голова (на 24.10 `cb_sos_retry_intent_20261021`; у RS-03/05/06/14 тоже миграции — не ветвить); образец `ca_booking_segments_20261018.py`.
@@ -71,38 +71,38 @@
 - **downgrade:** активным рейсам `seats_left = max(0, seats_total − Σ мест живых броней)` (`CASE` для обеих баз), затем снять столбцы; старый код — только после downgrade.
 
 ## 5. Надписи
-Русские; BA — черновик исполнителя (`yuldash-bashkir-linguist`) в `docs/tasks.md`, «Переводы на проверку»; всё через `appText(ru, ba)`.
+BA пишет исполнитель черновиком в `docs/tasks.md` («Переводы на проверку»); всё через `appText(ru, ba)`.
 - «Цена до каждой остановки» · «до {остановка}, ₽» · «Поделить по расстоянию» · «Цена зависит от участка» · «{N} ₽ за место» · «Загрузка по участкам» · «занято {x} из {y}» · «Выбери, где садишься и выходишь — от этого зависят цена и места».
 - `stop_prices_order` «Цена до каждой следующей остановки должна быть больше, а до конца маршрута — больше всех»; `stop_prices_need_price` «Сначала укажи цену до конца маршрута»; `stop_prices_count` «Цен больше или меньше, чем остановок — проверь».
 - `seats_not_enough` «На твоём участке свободно мест: {N}»; `price_changed` «Водитель изменил цену: теперь {N} ₽ за место. Проверь и забронируй ещё раз»; `price_up_with_bookings` «С бронями цену можно только снижать — у кого-то из пассажиров она бы выросла».
 
 ## 6. Состояния экрана
-Публикация: подсказка грузится — спиннер; нет сети — «Поделить» скрыта; ошибка — под полем. Шторка: участок не выбран — подсказка вместо «Итого»; мест нет — «На твоём участке мест нет» + «Посмотреть другие»; отказ — новая цена спокойным текстом; нет сети — «Повторить». Длинный BA — поле цены под названием; 320dp без прокрутки вбок; `Canon*`; тач-цели ≥ 48dp.
+Публикация: подсказка грузится — спиннер, нет сети — «Поделить» скрыта, ошибка — под полем. Шторка: участок не выбран — подсказка вместо «Итого»; мест нет — «На твоём участке мест нет» + «Посмотреть другие»; нет сети — «Повторить». Длинный BA — поле цены под названием; 320dp; `Canon*`; ≥ 48dp.
 
 ## 7. Тесты
 **Сервер** (`ruff check app/ --select F`, `pytest`):
-- `test_segment_price.py`: таблица (без цен → `price`; 300/200/500; NULL/«» = начало/конец), отказы с кодами, повтор публикации — тот же рейс, серия копирует цены.
-- `test_segment_seats.py`: трое до Ургазы → Ургаза→Акъяр бронируется, весь путь — `seats_not_enough`; отмена/неявка/пауза — только свой участок; бронь без участка и старый рейс — по-старому; лента, «Ближайшие», подбор видят частично полный рейс; `price_changed`; старый клиент с полной `pay_amount`; правка вверх/вниз; `back_max_two`; заявка своим рейсом; миграция туда-обратно (как `test_pickup_stop_booking.py:509`).
-- `test_seats_invariant.py`: `leg_free[i] = total − Σ живых на участке i`. `test_last_seat_race.py` (`_book_together`): пересекающиеся участки — одна 200, непересекающиеся — обе; `test_segment_seats_race_pg.py` (только PostgreSQL) — то же + отмена и бронь разом. `test_request_bound_accept_seats.py`: «чужая бронь» — настоящая, а не `seats_left=0`.
-- **Мутации** (каждая краснит тест): убрать `leg_free = :old` из CAS; `span` = весь рейс; `release` на все участки; `segment_price` = `price`; не сверять `expected_price`; не проверять цену броней при правке.
+- `test_segment_price.py` (новый): таблица (без цен → `price`; 300/200/500; NULL/«»), отказы с кодами, повтор публикации, серия.
+- `test_segment_seats.py` (новый): трое до Ургазы → Ургаза→Акъяр бронируется, весь путь — `seats_not_enough`; отмена/неявка/пауза — свой участок; старые бронь и рейс — по-старому; лента, «Ближайшие», подбор; `price_changed`; полная `pay_amount` старого клиента; правка; `back_max_two`; заявка; миграция туда-обратно (`test_pickup_stop_booking.py:509`).
+- `test_seats_invariant.py`: `leg_free[i] = total − Σ живых на участке i`. `test_last_seat_race.py` (`_book_together`) и `test_segment_seats_race_pg.py` (новый, только PostgreSQL): пересекающиеся участки — одна 200, непересекающиеся — обе. `test_request_bound_accept_seats.py`: «чужая бронь» — настоящая, не `seats_left=0`.
+- **Мутации** (каждая краснит тест): без `leg_free = :old` в CAS; `span` = весь рейс; `release` на все участки; `segment_price` = `price`; без сверки `expected_price` и цен броней при правке.
 
-**Android** (`:app:testDebugUnitTest`, `:app:assembleDebug`): `SegmentPriceTest.kt` (та же таблица), `BookingSeatCountTest.kt`, `CreateRideStopsTest.kt`; `MoneySourceGuardTest`, `CanonSourceGuardTest`, `ColorSourceGuardTest`, `SpacingRatchetGuardTest` зелёные. **Сайт:** `npm run check` (`pickup-stop-test.mjs` — та же таблица), `npm run build`.
+**Android** (`:app:testDebugUnitTest`, `:app:assembleDebug`): `SegmentPriceTest.kt` (новый, та же таблица), `BookingSeatCountTest.kt`, `CreateRideStopsTest.kt`; сторожа `Money/Canon/Color/SpacingRatchet…GuardTest` зелёные. **Сайт:** `npm run check` (`webapp/tests/pickup-stop-test.mjs` — та же таблица), `npm run build`.
 
 ## 8. Приёмка
 Агент другой «семьи» (Q9), по умолчанию «не принято».
 1. Вывод `ruff`, `pytest`, `npm run check`, `npm run build`, `:app:testDebugUnitTest`, `:app:assembleDebug` — зелёные, приложены; мутации из п. 7 — красные.
 2. Код: места пишет только `ride_seats.py`; в выдачах нет `seats_left > 0`; старый клиент не получает `pay_amount` выше цены участка.
 3. Эмулятор (вторая сторона — сайт, Q11), RU и BA × светлая и тёмная:
-   - публикация Сибай → Ургаза → Акъяр, 3 места, 300 / 500 ₽; «Поделить» и ошибка «цена не растёт» понятны;
+   - публикация Сибай → Ургаза → Акъяр, 3 места, 300/500 ₽; «Поделить» и ошибка цен понятны;
    - трое (сайт) берут до Ургазы по 300 ₽; поиск Ургаза → Акъяр: «200 ₽ за место», «на твоём участке 3»; 2 места → «Итого 400 ₽», квитанция 400 ₽;
-   - водитель видит загрузку, места и цену броней; отмена одного до Ургазы освобождает только первый участок;
-   - цена вверх при бронях — отказ, вниз — пуш и новая цена; поездка без цен остановок — как раньше; длинный BA не ломает узкий экран.
-4. Двигает W1-E2E-01 (остановки → участок → цена → квитанция), W1-E2E-02 (свой рейс по заявке), W1-E2E-03 (последнее место, отмена, неявка). Остаются RS-16, W1-E2E-07 (Q11), BA носителем; статус — только `docs/audit-blocks.md`.
+   - водитель видит загрузку и брони; отмена одного до Ургазы освобождает только первый участок;
+   - цена вверх при бронях — отказ, вниз — пуш; рейс без цен остановок — как раньше; длинный BA не ломает узкий экран.
+4. Двигает W1-E2E-01 (участок → цена → квитанция), -02 (свой рейс по заявке), -03 (последнее место, отмена, неявка); остаются RS-16, W1-E2E-07 (Q11), BA носителем. Статус — только `docs/audit-blocks.md`.
 
 ## 9. Риски и границы
-- **Деньги:** новый расчёт цены брони — до «да» только в ветке; онлайн-оплаты нет (Q5); единица — рубли, как `Ride.price` (перевод на копейки — отдельно).
-- **Старые приложения:** рейс с местом лишь на части пути покажут «0 мест»; бронь без участка — весь рейс по полной цене.
-- **Приватность:** `seats_by_leg` — загрузка без имён, как «осталось N мест»; пуш «Новая бронь» — без села. Запись мест мимо `ride_seats` запрещена.
+- **Деньги:** новый расчёт цены брони — до «да» только в ветке; онлайн-оплаты нет (Q5); единица — рубли, как `Ride.price`.
+- **Старые приложения:** рейс с местом на части пути покажут «0 мест»; бронь без участка — весь рейс, полная цена.
+- **Приватность:** `seats_by_leg` — загрузка без имён, как «осталось N мест»; пуш «Новая бронь» — без села.
 - **Не входит:** переднее по участкам, фильтр мест (RS-12), правка остановок (RS-15 переспрашивает цены и зовёт `recompute`), точки встречи (RS-03). Общие файлы (`models.py`, `ApiClient.kt`, `MainActivity.kt`, `YuldashApp.kt`, `ProfileScreen.kt`) — не параллельно с RS-03/05/09/12/15.
 
 ## 10. Журнал статуса

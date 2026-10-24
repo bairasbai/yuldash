@@ -28,14 +28,14 @@
 - Отмена: `bookings.py:1466` `_cancel_booking` — места назад, другой стороне пуш; «в пути» пассажиру нельзя (`:1617`); `rides.py:1095` `cancel_ride` — «посмотри другие поездки». Штрафов и возвратов нет. `safety_logic.py:385` `is_late_cancel` (позже `config.py:113` = 60 мин до выезда или водитель выехал), `:397` `reliability_for` — поздняя отмена снижает «Надёжность», ранняя — нет, неявка — только по разбору; Надёжность видят другие (`incidents.py:697`).
 - Неявка: `bookings.py:1686` — водитель, подтверждённая бронь, через `NO_SHOW_WAIT` (`:91`, 5 мин) от «выезд»/«Подъезжаю»; окно жалобы `:245`; причины `safety_logic.py:41`.
 - `incidents.py:712` `/safety/policy` — пороги с сервера (образец), окон отмены нет; читают `api/safety.ts:231`, `ApiClient.kt:5393`.
-- Мошенники: `antifraud.py:274-296` паттерны, `:406` `moderate_text`; `ChatSafety.tsx:54`, `TripChatScreen.tsx:880`; Android `RidesRequestsChatScreens.kt:2061`, `:2116`. До брони — не нашёл. `HelpScreen.tsx:44` — оплата только в «Помощи».
+- Мошенники: `antifraud.py:273-296` паттерны, `:395` `moderate_text` (фишинг — `:406`); `ChatSafety.tsx:54`, `TripChatScreen.tsx:880`; Android `RidesRequestsChatScreens.kt:2061`, `:2116`. До брони — не нашёл. `HelpScreen.tsx:44` — оплата только в «Помощи».
 - `auth.py:1039` `/me.books` — бронировал ли хоть раз. Ключи «стереть при выходе»: `utils/privacy.ts:16`, Android `data/SessionKeys.kt:24`.
 
 ## 3. Что сделать
 Части: **А** — условия и тексты; **Б** — способы оплаты водителя (миграция, ждёт «да»); **В** — предупреждение. А и В можно отдельным PR раньше Б.
 
 ### Сервер (`backend/`)
-1. **А.** `/safety/policy` (`incidents.py:712`) — добавить `late_cancel_before_min`, `no_show_wait_min`, `boarding_undo_min`, `problem_report_hours` из `settings` и `bookings.py:83/91/245` (ленивый импорт, как `bookings.py:1606`); старые ключи не трогать.
+1. **А.** `/safety/policy` (`incidents.py:712`) — добавить `late_cancel_before_min`, `no_show_wait_min`, `boarding_undo_min`, `problem_report_hours` из `settings` и `bookings.py:83/91/245` (ленивый импорт, как `bookings.py:1608`); старые ключи не трогать.
 2. **А.** `BookingDetailsOut` (`bookings.py:370`) — `late_cancel_from` (ISO UTC = выезд − окно), `late_cancel_now` = `is_late_cancel(...)`; для `pending`/`confirmed`.
 3. **А.** `_cancel_booking`, `cancel_ride`, `mark_no_show`, `reliability_for`, пуши — **не менять**; иначе стоп, «ждёт «да»».
 4. **Б.** Модель `DriverPaySettings`: `id`, `user_id` (FK, unique), `methods` (CSV `cash`/`sbp`, пусто — «не указал»), `updated_at`. Не в `DriverProfile`: у части водителей его нет (`services.py:1573`), а заводить — задеть такси-подбор. RS-08 добавит `accepts_card`.
