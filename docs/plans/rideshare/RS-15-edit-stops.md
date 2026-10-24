@@ -4,9 +4,9 @@
 |---|---|
 | Статус | не начато |
 | Ждёт «да» Александра | нет — миграции нет (версия остановок — сам текст `waypoints` в условном `UPDATE`); понадобится поле — да (миграция) |
-| Зависит от | RS-02 (цены до остановок правятся вместе; общие `rides.py`, `bookings.py`). С RS-10 — по очереди (общая `notify_route_watchers`) |
+| Зависит от | RS-02 (`stop_prices`, `ride_seats.take/recompute`, `herr(..., code=)`; общие `rides.py`, `bookings.py`). RS-10 — для шага 10 (без него шаг пропускается) |
 | Двигает сценарии приёмки | W1-E2E-01, W1-E2E-03 (`docs/audit-traceability/rideshare-scope.md`) |
-| Зона файлов | `backend/app/routers/rides.py`, `backend/app/routers/bookings.py` (одно условие в `book()`), `backend/app/services.py` (`notify_route_watchers`), `backend/tests/test_edit_ride_stops.py`*. `android/app/src/main/java/com/yuldash/app/`: `ProfileScreen.kt`, `EditRideStopsSheet.kt`*, `data/ApiClient.kt`; `android/app/src/test/.../EditRideStopsTest.kt`*. `webapp/src/`: `api/rides.ts`, `api/client.ts`, `components/RideEditActions.tsx`; `webapp/tests/edit-ride-stops-test.mjs`*, `webapp/tests/run.mjs`. `docs/tasks.md`, `docs/decisions.md`. (* — новый файл) |
+| Зона файлов | `backend/app/routers/rides.py`, `backend/app/routers/bookings.py` (одно условие в `book()`), `backend/tests/test_edit_ride_stops.py`*. `android/app/src/main/java/com/yuldash/app/`: `ProfileScreen.kt`, `EditRideStopsSheet.kt`*, `data/ApiClient.kt`; `android/app/src/test/.../EditRideStopsTest.kt`*. `webapp/src/`: `api/rides.ts`, `api/client.ts`, `components/RideEditActions.tsx`; `webapp/tests/edit-ride-stops-test.mjs`*, `webapp/tests/run.mjs`. `docs/tasks.md`, `docs/decisions.md`. (* — новый файл) |
 | Источник | `master/part-001.md` п. 13, п. 6; `master/part-002.md` контракт 5 «Изменение», «Места и календарь»; решения 24.10: Q17, Q12 (RS-02), Q10 |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
@@ -36,8 +36,8 @@
 
 ## 3. Что сделать
 ### Сервер (`backend/`)
-1. **Вход:** `RideEditIn.waypoints: Optional[str] = Field(None, max_length=500)`, `drop_offers: bool = False`; цены до остановок —
-   в формате RS-02.
+1. **Вход:** `RideEditIn.waypoints: Optional[str] = Field(None, max_length=500)`, `drop_offers: bool = False`; цены —
+   `RideEditIn.stop_prices` из RS-02 (п. 10 его плана). Ошибки — `herr(status, ru, ba, code=...)` (код в `herr` добавляет RS-02).
 2. **Разбор** (в `edit_ride` после проверок владельца и статуса `:389-392`, до остальных полей): `new = _clean_publish_stops(...)` —
    те же 400, что при публикации; `old = " | ".join(split_raw(ride.waypoints))`. `new == old` и цены те же — не правка (клиент шлёт
    форму целиком), 409 при бронях быть не должно.
