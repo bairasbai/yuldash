@@ -50,12 +50,13 @@
    конечные, не `(0,0)`; ориентир только `is_seed` (иначе 400 `meeting_landmark_unknown`); пояснение — `moderate_open_text(...,
    check_contact=False, place="meeting_note")`. Опора: остановка — `stop_point`, начало — пин рейса / `from_lat/lng`, конец — `to_lat/lng`;
    радиус по виду (село/райцентр — village, город — city), опора неизвестна — `stop_corridor_km` от прямой (`_to_segment_km`); дальше —
-   400 `meeting_point_far`. Место не выбрано — 409 `meeting_point_needs_stop`. Плюс `passenger_view`, `driver_view(open)`,
-   `gps_target`. Координаты — никогда в лог, ошибку, пуш, аналитику.
-4. **Бронь:** `BookIn.meeting`, `BookIn.alighting`; проверка после разбора места (`:528-533`), до списания мест. `_booking_retry`: другая
-   точка — 409 `meeting_point_conflict` с `booking_id`, та же — существующая бронь. В пуш — « · место встречи указано».
-5. **Команды** (`routers/meeting.py`, регистрация `routers/__init__.py:7,26`; права — `booking_and_ride_for_user`, `services.py:231`;
-   все ошибки плана — `herr(status, ru, ba, code=...)` из RS-02):
+   400 `meeting_point_far`. Место не выбрано — 409 `meeting_point_needs_stop`. Плюс `passenger_view`, `driver_view(status)`,
+   `gps_target`. Координаты — никогда в лог, ошибку, пуш, аналитику. Модерация коммитит сессию (`antifraud.py:446-458`) и
+   снимает `FOR UPDATE` — звать её до любых изменений объектов; запись дальше — только условным `UPDATE`.
+   Все ошибки плана — `herr(status, ru, ba, code=...)` из RS-01.
+4. **[А] Бронь:** `BookIn.meeting`, `BookIn.alighting`; проверка после разбора места (`:528-533`), до списания мест. `_booking_retry`:
+   другая точка — 409 `meeting_point_conflict` с `booking_id`, та же — существующая бронь. В пуш — « · место встречи указано».
+5. **[Б] Команды** (`routers/meeting.py`, регистрация `routers/__init__.py:7,26`; права — `booking_and_ride_for_user`, `services.py:231`):
    - `POST /bookings/{id}/meeting-point` — пассажир (иначе 403 `meeting_point_not_yours`): `kind` (`pickup`|`dropoff`), `point`,
      `base_version`. `pending` — применяем; `confirmed` — предложение, пуш водителю без места; `onboard` — только `dropoff`
      (409 `meeting_point_onboard`); `done`/`cancelled` — 409 `meeting_point_closed`; предел смен — 429 `meeting_point_too_many`;
@@ -63,23 +64,29 @@
    - `POST /bookings/{id}/meeting-point/answer` — водитель: `proposal_at`, `accept`; `UPDATE ... WHERE meet_proposal = :прочитанное`;
      «да» — в поля и `meet_version + 1`, «нет» — снять; пуш пассажиру. Предложения нет — 200 `already: true`.
    - `POST /bookings/{id}/meeting-point/withdraw` — пассажир отзывает, повтор — 200.
-6. **Видимость** (`/details`, `/driver/bookings`, `/bookings/mine`): пассажир — своё всегда; водитель — `meeting_point_set`,
-   `meeting_proposal_pending` всегда, точка и предложение — только при `booking_contacts_open`. Старые `pickup*` в `/details` отдают
-   точку пассажира, если она есть. Новые поля: `pickup_note`, `pickup_landmark_ru/ba`, `pickup_source`, `dropoff_lat/lng/note/landmark_ru/ba`,
-   `meeting_version`, `meeting_proposal`. Не отдавать: публичная карточка, `routers/share.py`, квитанция (`:847-880`), другие пассажиры.
-7. **«Подъезжаю»** (`:1096-1121`): есть `gps_target` — `_nearest_m(driver_points_for_ride(..., with_ride_point=True), цель)`; отказ
+6. **[А] Видимость** (`/details`, `/driver/bookings`, `/bookings/mine`): пассажир — своё всегда. Водитель — `meeting_point_set` и
+   `meeting_proposal_pending` всегда, а координаты, пояснение, ориентир и предложение — **только при статусе брони `confirmed`/`onboard`**
+   (D9; не по окну `booking_contacts_open`: после `done` — только «место было указано», `pending`/`cancelled` — то же). Старые
+   `pickup*` в `/details` отдают точку пассажира только той стороне и только в то окно, где точка видна по правилу выше; иначе — как
+   сейчас (`bookings.py:765-767`). Новые поля: `pickup_note`, `pickup_landmark_ru/ba`, `pickup_source`,
+   `dropoff_lat/lng/note/landmark_ru/ba`, `meeting_version`, `meeting_proposal`. Не отдавать: публичная карточка, `routers/share.py`,
+   квитанция (`:847-880`), другие пассажиры.
+7. **[В] «Подъезжаю»** (`:1096-1121`): есть `gps_target` — `_nearest_m(driver_points_for_ride(..., with_ride_point=True), цель)`; отказ
    только дальше `stop_refuse_km`, «подтверждено» ближе `arrival_verify_radius_m` (булавка на глаз — ложный отказ дороже, `:978-980`).
-8. **Зачистка** (`cleanup.py`): `scrub_meeting_points(now)` пачками по 2000 обнуляет `meet_*`, `alight_*`, `meet_proposal`:
-   `cancelled` без `confirmed_at` — в ближайшую ночь; `done`/`cancelled` — через `meeting_point_keep_days` от
-   `COALESCE(done_at, cancelled_at, created_at)`; кроме открытых SOS, `Incident` (`models.py:757`), `Report` (`new`/`reviewing`).
+   До части В — прежние ветки.
+8. **[А] Зачистка** (`cleanup.py`): `scrub_meeting_points(now)` пачками по 2000 обнуляет `meet_*`, `alight_*`, `meet_proposal`:
+   `cancelled` без `confirmed_at` — в ближайшую ночь; `done`/`cancelled` — когда `ride.depart_at < now − meeting_point_keep_days`
+   (D9: от выезда, через `JOIN ride`); кроме открытых SOS, `Incident` (`models.py:757`), `Report` (`new`/`reviewing`).
    Вызов в `main()` (`:893-946`), сухой прогон — только счёт.
-9. **Мои данные:** свои точки — в `route_location_points`; `/me/data` — `meeting_points_days`; `/me/export` — у своих броней ориентир,
+9. **[А] Мои данные:** свои точки — в `route_location_points`; `/me/data` — `meeting_points_days`; `/me/export` — у своих броней ориентир,
    пояснение и координаты; точки пассажиров водителю не идут; `:1168-1170` → «чужие координаты не идут».
-10. **Удаление аккаунта** — код не меняется (брони уходят целиком), только тест.
+10. **[А] Удаление аккаунта** — код не меняется (брони уходят целиком), только тест.
 
 ### Android (`android/`)
-1. DTO — новые поля null-безопасно; `ApiClient.kt` — точки в бронь и три новые команды, отказы по `detailCode`; `TripPass.kt` —
-   точка в офлайн-пропуск (в селе без сети она нужнее всего).
+1. DTO — новые поля null-безопасно; `ApiClient.kt` — точки в бронь (А) и три новые команды (Б), отказы по `detailCode` (RS-01).
+   `TripPass.kt` — **пассажирский** офлайн-паспорт: своя точка туда (в селе без сети она нужнее всего), стирается вместе с паспортом
+   при done/cancelled (`BookingActiveTripScreen.kt:393-405`). Исполнитель проверяет, что `saveTripPass` (`:370-372`) не зовётся при
+   `role == "driver"`; зовётся — добавить это условие: точка пассажира на телефоне водителя не хранится.
 2. `MeetingPointPicker.kt`: «Уточнить место (по желанию)» → шторка: `PickupSuggestionChips`, «На карте» → `PickupPickerOverlay(hint)`,
    пояснение. Без ключа MapKit — заглушка оверлея, остальное работает.
 3. `PickupStopPicker.kt` — строка под выбором посадки/высадки; `BookingMeetingCard` — своя точка, «Изменить место» / «Предложить
