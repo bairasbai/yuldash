@@ -21,8 +21,8 @@
 - Проверено 24.10: на облачной машине `git` 2.43 не знает `--no-lazy-fetch`, `check.py` выходит с кодом 2 (`rev-parse`, код 129): цепочки проверять на компьютере Александра (сначала `git --no-lazy-fetch rev-parse HEAD`). База `88d8f0bb9ed39596b360da5633cfeadb60c6e2b9` есть в чекауте, предок `HEAD`, содержит `rideshare-scope.md` и `rideshare.json`; принимающий сверяет её отдельно.
 
 ## 3. Что сделать
-### 3.1 Стенд (один агент, одна машина Александра)
-1. Замки `🔒 сборка` и `🔒 эмулятор` в `%LOCALAPPDATA%\yuldash\locks.md` (`docs/locks.md`); чужой Gradle не идёт; Android Studio закрыта (или `-x bundleDebugClassesToRuntimeJar`).
+### 3.1 Стенд (один агент на компьютере Александра; в облаке эмулятора нет)
+1. Замки «сборка» и «эмулятор» строками в `%LOCALAPPDATA%\yuldash\locks.md` (формат — `docs/locks.md`); чужой Gradle не идёт; Android Studio закрыта (или `-x bundleDebugClassesToRuntimeJar`).
 2. Код: нужные RS влиты в одну ветку, `git status` чист, SHA записан; во время прогона правки не вливать.
 3. Сервер из `backend/` этого коммита, **временная** база: `ENV=dev`, `RATE_LIMIT_ENABLED=false`, `SMS_PROVIDER=mock`, `TELEGRAM_WEBHOOK_SECRET=` пусто, `ADMIN_PHONES=<синтетический>`, `MEDIA_BASE_URL=http://127.0.0.1:<порт>`, лог в файл. Ключей Firebase/СМС/Telegram нет.
 4. Android: `:app:assembleDebug` с `YULDASH_DEBUG_API_BASE_URL=http://127.0.0.1:<порт>`, `adb reverse`, `install -r`, SHA256 APK; пояс `Asia/Yekaterinburg`, `pm clear`. Карта без ключа — заглушка (ключ не читать, §11).
