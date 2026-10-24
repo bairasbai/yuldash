@@ -6,7 +6,7 @@
 //  оценивает завершённую поездку. Квитанция — GET /trips/{id}/receipt.
 // ================================================================
 import { apiGet, apiPost } from "./client";
-import { emitDriverAction } from "../utils/driverActions";
+import { driverStep, emitDriverAction } from "../utils/driverActions";
 
 export type BookingStatus =
   | "pending"
@@ -404,10 +404,8 @@ export function confirmBooking(id: number): Promise<BookingRow> {
  * «Точно?» перед отправкой. Поездка с остановками без «Подъезжаю» — 409 `no_show_needs_arriving`.
  */
 export function markNoShow(id: number): Promise<BookingRow> {
-  return apiPost<BookingRow>(`/bookings/${id}/no-show`).then((r) => {
-    emitDriverAction(id, true); // Д2: неявка закрыла бронь — точка рейса уходит на другую живую
-    return r;
-  });
+  // Д2: неявка закрывает бронь — точка рейса уходит на другую живую (и о шаге знает ещё до ответа).
+  return driverStep(id, true, () => apiPost<BookingRow>(`/bookings/${id}/no-show`));
 }
 
 /** Ответ на «Подъезжаю»: фаза и новый срок «Не вышел» (те же поля, что в строке `/driver/bookings`). */

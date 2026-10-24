@@ -58,6 +58,8 @@ export const MAX_RESOLVE_ATTEMPTS = 20;
  * не возьмёт её; не взял — гаснем.
  */
 export const HANDOFF_MS = 20_000;
+/** Ответ на «Завершить» дольше этого не ждём (вторая приёмка Д2): канал закрыт — гаснем. */
+export const PENDING_STEP_MS = 90_000;
 
 const isLive = (r: CarrierRow) => r.status === "onboard" || r.status === "confirmed";
 
@@ -76,6 +78,8 @@ export function createRideShare(deps: RideShareDeps) {
   let retryTimer: unknown = null;
   let graceTimer: unknown = null;
   let handoff: { token: symbol; timer: unknown } | null = null; // «Завершить» → кабинет: держим, пока он не взял
+  let pendingTimer: unknown = null; // срок ожидания ответа на закрывающий шаг
+  let actionInFlight = false; // сервер принял шаг, ждём список рейса
   const holders = new Set<symbol>();
   const listeners = new Set<(s: RideShareSnapshot) => void>();
 
@@ -106,6 +110,9 @@ export function createRideShare(deps: RideShareDeps) {
     retryTimer = graceTimer = null;
     if (handoff) clearTimer(handoff.timer);
     handoff = null;
+    clearTimer(pendingTimer);
+    pendingTimer = null;
+    actionInFlight = false;
     holders.clear();
     bookingId = null;
     state = null;
@@ -166,6 +173,7 @@ export function createRideShare(deps: RideShareDeps) {
     stopShare(); // старый канал больше ни кадра (бронь закрыта / срок вышел)
     clearTimer(retryTimer);
     retryTimer = null;
+    actionInFlight = false; // поиск следующей брони заменяет ответ на шаг
     const my = ++seq;
     let rows: CarrierRow[];
     try {
@@ -213,16 +221,32 @@ export function createRideShare(deps: RideShareDeps) {
     }
     const my = ++seq;
     if (closedNow && id === bookingId) pendingClose = id;
+    if (closedNow) closed.add(id); // сервер уже закрыл бронь: обратно в её канал не идём
+    clearTimer(pendingTimer);
+    pendingTimer = null;
+    actionInFlight = true;
     let rows: CarrierRow[];
     try {
       rows = await deps.fetchRows();
-    } catch {
+    } catch (e) {
       if (my !== seq) return;
+      if (closedNow && (e as { status?: number } | null)?.status === 0 && ++attempts <= MAX_RESOLVE_ATTEMPTS) {
+        // Нет сети, а бронь уже закрыта: без ответа о рейсе точка погасла бы при живых пассажирах — повторяем,
+        // как поиск следующей брони (вторая приёмка Д2, P2).
+        retryTimer = deps.setTimer(() => {
+          retryTimer = null;
+          void action(id, closedNow);
+        }, Math.min(30_000, 1000 * 2 ** Math.min(attempts, 5)));
+        return;
+      }
+      actionInFlight = false;
       pendingClose = 0;
       if (!handle) stopAll(); // режим не включили, а канал уже закрыт — гаснем, как раньше
       return;
     }
     if (my !== seq) return;
+    actionInFlight = false;
+    attempts = 0;
     pendingClose = 0;
     if (!sessionOk()) return stopAll();
     const actionRide = rows.find((r) => r.booking_id === id)?.ride_id ?? 0;
@@ -236,6 +260,30 @@ export function createRideShare(deps: RideShareDeps) {
     if (closedNow) closed.add(id);
     if ((closedNow && id === bookingId) || !handle) apply(rows);
     else notify();
+  }
+
+  /**
+   * Шаг водителя ушёл на сервер или сервер его отверг (вторая приёмка Д2, P1). «Завершить» по несущей без режима
+   * рейса: сервер закрывает канал брони раньше, чем отвечает, — не гаснем, а ждём ответ (не дольше PENDING_STEP_MS).
+   */
+  function step(id: number, closing: boolean, kind: "start" | "fail") {
+    if (kind === "start") {
+      if (!closing || id !== bookingId || ride || !sessionOk()) return;
+      pendingClose = id;
+      clearTimer(pendingTimer);
+      pendingTimer = deps.setTimer(() => {
+        pendingTimer = null;
+        if (pendingClose === 0 || actionInFlight) return;
+        pendingClose = 0;
+        if (!handle) stopAll(); // ответа так и не было, канал закрыт — гаснем
+      }, PENDING_STEP_MS);
+      return;
+    }
+    if (pendingClose !== id || actionInFlight) return;
+    pendingClose = 0; // сервер отказал — бронь не закрыта им, ждать нечего
+    clearTimer(pendingTimer);
+    pendingTimer = null;
+    if (!handle) stopAll();
   }
 
   function hold(token: symbol) {
@@ -273,6 +321,10 @@ export function createRideShare(deps: RideShareDeps) {
         }
         carrierUntil = 0;
         seq++; // явный выбор страницы важнее ответа, который ещё в пути
+        actionInFlight = false;
+        pendingClose = 0;
+        clearTimer(pendingTimer);
+        pendingTimer = null;
         if (bookingId !== id || !handle) connect(id);
       }
       const token = Symbol("trip");
@@ -303,6 +355,7 @@ export function createRideShare(deps: RideShareDeps) {
       handoff = { token, timer: deps.setTimer(endHandoff, HANDOFF_MS) };
     },
     action,
+    step,
     retry() {
       handle?.retry();
     },

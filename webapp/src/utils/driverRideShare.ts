@@ -51,7 +51,7 @@ function rideShare(): RideShare {
     setTimer: (fn, ms) => window.setTimeout(fn, ms),
     clearTimer: (t) => window.clearTimeout(t as number),
   });
-  onDriverAction((id, closed) => void ride.action(id, closed));
+  onDriverAction((id, closed, step) => (step === "done" ? void ride.action(id, closed) : ride.step(id, closed, step)));
   installRideShare(ride);
   shared = ride;
   return ride;

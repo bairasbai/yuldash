@@ -5,7 +5,7 @@
 //  (/driver/earnings). Точные пути/поля — из этих роутеров.
 // ================================================================
 import { apiGet, apiPost, apiDelete, apiUpload } from "./client";
-import { emitDriverAction } from "../utils/driverActions";
+import { driverStep } from "../utils/driverActions";
 import type { Ride, RideCategory } from "./rides";
 
 // ----------------------------- Публикация поездки -----------------------------
@@ -131,11 +131,11 @@ export function setDriverStatus(
   bookingId: number,
   status: DriverPhase
 ): Promise<{ ok?: boolean; status?: string }> {
-  // Д2: шаг водителя дошёл — отправка точки на весь рейс узнаёт, что рейс ведут с этого устройства.
-  return apiPost<{ ok?: boolean; status?: string }>(`/bookings/${bookingId}/driver-status`, { status }).then((r) => {
-    emitDriverAction(bookingId, status === "done");
-    return r;
-  });
+  // Д2: отправка точки на весь рейс узнаёт о шаге ещё до ответа («Завершить» сервер закрывает канал раньше,
+  // чем отвечает) и после него — так она ведёт рейс с этого устройства.
+  return driverStep(bookingId, status === "done", () =>
+    apiPost<{ ok?: boolean; status?: string }>(`/bookings/${bookingId}/driver-status`, { status })
+  );
 }
 
 /** Завершить весь рейс (все брони разом) — POST /rides/{id}/complete. */
