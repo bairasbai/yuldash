@@ -94,12 +94,12 @@ RS-08 — лишь выключатель-заготовка, который б�
 | `account.py` · `cleanup.py` | RS-02 → RS-04 → RS-05 → RS-06 → RS-07 Б → RS-08 → RS-14 · RS-03 → RS-04 → RS-05 → RS-06 → RS-07 Б → RS-08 |
 | Android `data/ApiClient.kt` | RS-01 → RS-02 → RS-03 → RS-04 → RS-05 → RS-06 → RS-07 → RS-08 → RS-12 → RS-13 → RS-15 → RS-14 |
 | `MainActivity.kt` | RS-02 → RS-04 → RS-07 → RS-08 → RS-14 |
-| `YuldashApp.kt` | RS-02 → RS-04 → RS-05 → RS-08 → RS-09 → RS-12 → RS-14 (RS-02, 05, 12 — одна ветка брони) |
+| `YuldashApp.kt` | RS-02 → RS-04 → RS-05 → RS-09 → RS-12 → RS-14 (RS-02, 05, 12 — одна ветка брони) |
 | `data/TripPass.kt` (паспорт, `Outbox`) | RS-03 → RS-05 → RS-13 → RS-14 |
 | `BookingActiveTripScreen.kt` | RS-01 → RS-02 → RS-03 → RS-05 → RS-06 → RS-07 → RS-08 → RS-14 |
 | `CreateRideScreen.kt` | RS-02 → RS-05 → RS-09 → RS-14 → мелкий PR RS-11 («Очистить историю») |
 | `ProfileScreen.kt` | RS-02 → RS-04 → RS-07 → RS-08 → RS-09 → RS-15 |
-| `MapScreen.kt` · `SecondaryScreens.kt` | RS-10 → RS-11 → RS-12 · RS-01 → RS-04 → RS-08 → RS-12 |
+| `MapScreen.kt` · `SecondaryScreens.kt` | RS-10 → RS-11 → RS-12 · RS-01 → RS-04 → RS-12 |
 | `data/SessionKeys.kt` · `data/FcmService.kt` | RS-05 → RS-07 → RS-11 → RS-12 · RS-06 → RS-13 |
 | `AndroidManifest.xml`, `app/build.gradle.kts` | RS-01 → RS-04 → RS-13; ни с кем параллельно (§12) |
 | Сайт `screens/CreateRideScreen.tsx` | RS-02 → RS-05 → RS-09 → RS-14 |
@@ -107,7 +107,7 @@ RS-08 — лишь выключатель-заготовка, который б�
 | `screens/ActiveTripScreen.tsx` | RS-01 → RS-03 → RS-05 → RS-07 → RS-13 → RS-14 |
 | `screens/HomeScreen.tsx` · `screens/RidesScreen.tsx` | RS-01 → RS-10 → RS-11 → RS-12 · RS-10 → RS-11 → RS-12 |
 | `api/client.ts` · `api/rides.ts` · `RideEditActions.tsx` | RS-01 (`code` в `ApiError`) → RS-05 → RS-15 · RS-02 → RS-05 → RS-07 → RS-08 → RS-12 → RS-15 · RS-02 → RS-15 |
-| `DriverCabinetScreen.tsx` · `App.tsx` · `AuthProvider.tsx` · `utils/privacy.ts` | RS-02 → RS-07 → RS-08 → RS-09 · RS-04 → RS-08 → RS-14 · RS-11 → RS-13 · RS-07 → RS-11 |
+| `DriverCabinetScreen.tsx` · `App.tsx` · `AuthProvider.tsx` · `utils/privacy.ts` | RS-02 → RS-07 → RS-08 → RS-09 · RS-04 → RS-14 · RS-11 → RS-13 · RS-07 → RS-11 |
 | `webapp/tests/run.mjs`, `docs/{tasks,decisions,architecture}.md` | только дописывание своей строки; конфликт — перебазироваться, чужое не переписывать |
 
 Можно параллельно (общих файлов нет): RS-11 ∥ RS-14 а; облачный агент на сервере одного пункта ∥ агент на компьютере
