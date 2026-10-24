@@ -6,8 +6,8 @@
 | Ждёт «да» Александра | нет — тексты, кнопки, закрытые двери; деньги, база, выкладка не меняются |
 | Зависит от | — (RS-04 строит на этом переключатели входа) |
 | Двигает сценарии приёмки | W1-E2E-05, W1-E2E-06 (`docs/audit-traceability/rideshare-scope.md`) |
-| Зона файлов | `backend/app/`: `login_methods.py` (новый), `routers/health.py`, `routers/auth.py`, `routers/requests.py`; `backend/tests/`: `test_login_methods_honest.py` (новый), `test_auth_edges.py`. `android/app/src/main/java/com/yuldash/app/`: `LoginScreen.kt`, `LoginMethods.kt` (новый), `data/ApiClient.kt`, `RideshareBoarding.kt`, `BookingActiveTripScreen.kt`, `RideshareCompletedScreen.kt`, `PayOnlineCard.kt`, `SecondaryScreens.kt` (только `PaymentInfoScreen`), `ModeSwitchHome.kt`; `android/app/build.gradle.kts` (только флаги входа); тесты: `HonestPromisesGuardTest.kt` (новый), `BoardingCodeVisibilityTest.kt`, `BookingActiveTripContentDeepTest.kt`, `Login*Test.kt`. `webapp/src/`: `screens/LoginScreen.tsx`, `api/auth.ts`, `utils/loginFlow.js` + `.d.ts`, `screens/ActiveTripScreen.tsx`, `components/BoardingWait.tsx`, `components/PayTripCard.tsx`, `screens/TripReceiptScreen.tsx`, `components/ModeSwitch.tsx`, `screens/HomeScreen.tsx`, `api/requests.ts`, `legal.ts`; `webapp/tests/`: `honest-promises-test.mjs` (новый), `run.mjs`, `rideshare-local-regression-test.mjs`, `login-flow-test.mjs`. `web/components/legal-content.ts`. Мозг: `docs/decisions.md`, `docs/tasks.md` |
-| Источник | `master/part-001.md`: «Что нельзя считать готовым» п. 3–6, чек-лист п. 1, 18–20, 29; решения 24.10: Q5, Q13 (уточнено), Q14 |
+| Зона файлов | `backend/app/`: `login_methods.py` (новый), `routers/health.py`, `routers/auth.py`, `routers/requests.py`, `main.py` (только CORS); `backend/tests/`: `test_login_methods_honest.py` (новый), `test_auth_edges.py`. `android/app/src/main/java/com/yuldash/app/`: `LoginScreen.kt`, `LoginMethods.kt` (новый), `data/ApiClient.kt`, `RideshareBoarding.kt`, `BookingActiveTripScreen.kt`, `RideshareCompletedScreen.kt`, `PayOnlineCard.kt`, `SecondaryScreens.kt` (только `PaymentInfoScreen`), `ModeSwitchHome.kt`; `android/app/build.gradle.kts` (только флаги входа); тесты: `HonestPromisesGuardTest.kt` (новый), `BoardingCodeVisibilityTest.kt`, `BookingActiveTripContentDeepTest.kt`, `Login*Test.kt`. `webapp/src/`: `screens/LoginScreen.tsx`, `api/auth.ts`, `utils/loginFlow.js` + `.d.ts`, `screens/ActiveTripScreen.tsx`, `components/BoardingWait.tsx`, `components/PayTripCard.tsx`, `screens/TripReceiptScreen.tsx`, `components/ModeSwitch.tsx`, `screens/HomeScreen.tsx`, `api/requests.ts`, `legal.ts`; `webapp/tests/`: `honest-promises-test.mjs` (новый), `run.mjs`, `rideshare-local-regression-test.mjs`, `login-flow-test.mjs`. `web/components/legal-content.ts`. Мозг: `docs/decisions.md`, `docs/tasks.md` |
+| Источник | `master/part-001.md`: «Что нельзя считать готовым» п. 3–6, п. 1, 18–20, 29; решения 24.10: Q5, Q13 (уточнено), Q14 |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек
@@ -27,12 +27,13 @@
 - Оплата: `BookingActiveTripScreen.kt:2108-2116`, `RideshareCompletedScreen.kt:361-371` показывают `PayOnlineCard`; она видна до ответа проверки и при её сбое (`PayOnlineCard.kt:118-128`), отказ «…скоро появится. Пока рассчитайтесь…» (`:135-138`, на «вы»). Проверка — `/health` `payments` (`ApiClient.kt:2766-2768`, `health.py:83`): при `sbp_manual` карточка видна, а `wallet.py:84` отвечает 503. Сайт: `PayTripCard.tsx:118-140` — «Картой»/«СБП» без проверки, отказ «в твоём городе…» (`:74-81`), вызов — `TripReceiptScreen.tsx:324`. «Скоро: оплата картой…» — `SecondaryScreens.kt:983` (`PaymentInfoScreen`).
 - Режимы: `features.py:43-55`; `ModeSwitchHome.kt:288-300` всегда рисует три режима (такси → `TaxiComingSoonCard`, `InstantOrderScreen.kt:1799`; курьер → «Скоро», `ModeSwitchHome.kt:245`); сайт — `ModeSwitch.tsx:23-25`. Двери уже сторожат `FeatureGateWiringGuardTest.kt`, `taxi-flag-hides-test.mjs`, `test_wave_launch_switches.py`.
 - Лента: `requests.py:540-569` — `_SCAN_MAX` = 2000 (`visibility.py:285`), обрыв молча; `/requests/feed` (`:626-649`), `/match/rides` (`:1456-1484`); задача — `docs/tasks.md:234`. `/rides/near` отдаёт `total` (`rides.py:1022-1027`) — не прячет.
+
 ## 3. Что сделать
 ### Сервер (`backend/`)
 1. `app/login_methods.py`: `ORDER = ("sms", "telegram", "vk", "whatsapp")`; `available_methods()`: `telegram` — заданы `telegram_bot_token` и `telegram_webhook_secret`; `sms` — `sms_channel_live()` или (`not is_prod` и mock — эмулятор с `dev_code`); `vk`, `whatsapp` — никогда (RS-04). `refuse_disabled(method)` → `HTTPException(403, detail={"ru","ba","code":"login_method_disabled","method"})`. RS-04 добавит сюда переключатели.
 2. `routers/health.py`: `GET /config/login-methods` → `{"methods": [...]}`, `Cache-Control: public, max-age=60`, без токена. Не в `/config/features` (`test_wave_launch_switches.py:80` сверяет ответ целиком) и не под `/auth/*` (строгий лимит, `middleware.py:42`).
 3. `routers/auth.py`: `vk_callback`, `whatsapp_callback` → `refuse_disabled` вместо 501 (пути остаются отказом и после RS-04). В начале `request_code`, `verify` (после ветки аккаунта стора — не трогать), `tg_start`, `tg_verify`: метод выключен → 403, без `OtpCode` и отправки. 503 — только сбой провайдера при включённом методе.
-4. `routers/requests.py`: чанкеры отмечают упор в `_SCAN_MAX`; `requests_feed`, `match_rides` ставят `X-Yuldash-Partial: 1`. Тело не меняется.
+4. `routers/requests.py`: чанкеры отмечают упор в `_SCAN_MAX`; `requests_feed`, `match_rides` ставят `X-Yuldash-Partial: 1`, тело не меняется; сайту заголовок открыть — `expose_headers` в CORS (`main.py:127-131`).
 
 ### Android (`android/`)
 1. `ApiClient.kt`: `loginMethods()` без токена. `LoginMethods.kt`: последний ответ в своём `SharedPreferences`, незнакомые имена отбросить; нет ответа и кеша → `["telegram"]`. Обновлять при открытии входа и возврате в приложение.
@@ -71,17 +72,17 @@
 ## 6. Состояния экрана
 - Вход: список грузится — скелетон на месте кнопок; нет сети и кеша — Telegram + обычная ошибка сети; пустой список — карточка с «Повторить».
 - Код посадки: «загружается / не удалось / Повторить» (`RideshareBoarding.kt:488-502`) не трогать.
-- Квитанция и главная с одним режимом — без пустых мест; длинный башкирский переносится, крупный шрифт, 320dp, тёмная тема — `Canon*`.
+- Квитанция и главная с одним режимом — без пустых мест; башкирский переносится, крупный шрифт, 320dp, тёмная тема — `Canon*`.
 
 ## 7. Тесты
 - Сервер, `test_login_methods_honest.py`: прод + mock → `["telegram"]`; живой `smsru` → `["sms","telegram"]`; без бота — без `telegram`; `vk`/`whatsapp` не появляются; старые callback → 403 `login_method_disabled` на двух языках; выключенный метод в `request-code`/`verify`/`tg/*` → 403, `OtpCode` не создан, `send_sms` не вызван; аккаунт стора цел (`test_review_login_permissions.py`); 2001+ кандидатов → `X-Yuldash-Partial`. `test_auth_edges.py:417-418` → 403.
-- Android: `HonestPromisesGuardTest.kt` (по образцу `SosNoSmsPromiseGuardTest.kt`, только строки кода): нет «Сошлись — сажай», «Это та самая машина», «защищ», «без кода», «Онлайн-оплата скоро», «Скоро: оплата картой», «Не звоним и не шлём SMS», `SMS_LOGIN_ENABLED`, `VK_APP_ID`, `PayOnlineCard(` в экранах попутки. Unit `LoginMethods`; Compose: `LoginFormContent` с `["telegram"]`, `["sms","telegram"]`, `[]`, `ModeSwitchBar` с 1 и 3 режимами. Все `*GuardTest` зелёные.
+- Android: `HonestPromisesGuardTest.kt` (по образцу `SosNoSmsPromiseGuardTest.kt`, только строки кода): нет «Сошлись — сажай», «Это та самая машина», «Telegram скоро», «Онлайн-оплата скоро», «Скоро: оплата картой», «Не звоним и не шлём SMS», в файлах кода посадки — «защищ», «без кода не»; нет `SMS_LOGIN_ENABLED`, `VK_APP_ID`, `PayOnlineCard(` в экранах попутки. Unit `LoginMethods`; Compose: `LoginFormContent` с `["telegram"]`, `["sms","telegram"]`, `[]`, `ModeSwitchBar` с 1 и 3 режимами. Все `*GuardTest` зелёные.
 - Сайт: `honest-promises-test.mjs` — те же запреты по `webapp/src` и `legal-content.ts`, запись в `run.mjs`. `npm run check` + `build`; лендинг — `lint` + `build`.
 - Мутации: вернуть 501, «Сошлись — сажай», `PayOnlineCard(` в попутку или `SMS_LOGIN_ENABLED` на сайт — соответствующий тест краснеет.
 
 ## 8. Приёмка
 Агент другой «семьи» (Q9), по умолчанию «не принято».
-- [ ] Сторожа п. 7 зелёные (вывод приложен); запрещённых слов поиск не находит.
+- [ ] Сторожа п. 7 зелёные (вывод приложен), запрещённых слов поиск не находит.
 - [ ] Настройки прода (mock СМС, бот задан): `/config/login-methods` → только `telegram`; `/auth/vk-callback` → 403 `login_method_disabled`.
 - [ ] Эмулятор, RU/BA × светлая/тёмная: на входе одна кнопка Telegram, без «скоро» и «по номеру»; с dev-сервером (mock) — «Войти по номеру» есть, вход по `dev_code` проходит.
 - [ ] Подтверждённая бронь: водитель — «Назови пассажиру этот код…», пассажир — «Водитель назовёт код…»; о защите ни слова.
@@ -95,7 +96,7 @@
 ## 9. Риски и границы
 - Не входит: включение СМС/VK/WhatsApp и переключатели — RS-04; «оплата картой» — RS-08; серверная проверка кода посадки — нет (Q14).
 - Скрытие вкладок меняет главную, принятую 13.10 («Скоро в Юлдаше»): записать в `docs/decisions.md` (выключенное не показываем). Приглашение «стать таксистом/курьером заранее» в профиле не удалять.
-- Направление сверки (говорит водитель) — только тексты; найдёт принимающий довод против — вернуть направление, но не «Сошлись — сажай» и «Это та самая машина».
+- Направление сверки (говорит водитель) — только тексты; есть довод против — вернуть направление, но не слова «Сошлись — сажай», «Это та самая машина».
 
 ## 10. Журнал статуса
 | Дата | Статус | Кто | PR / коммит | Заметка |

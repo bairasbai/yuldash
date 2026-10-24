@@ -4,7 +4,7 @@
 |---|---|
 | Статус | не начато |
 | Ждёт «да» Александра | нет — миграций, денег, тарифов нет. Выкладка сервера — общим порядком (`AGENTS.md` §8) |
-| Зависит от | RS-02 (места по участку). Фаза A (по `seats_left`) делается и без него; фаза B — после |
+| Зависит от | RS-02 (`ride_seats.py`: `any_free_sql`, `free_on`, `max_free`; кеш `v3`). Фаза A (по `seats_left`) делается и без него; фаза B — после |
 | Двигает сценарии приёмки | W1-E2E-01 (поиск → бронь на нужное число мест) |
 | Зона файлов | сервер: `routers/rides.py` (только `search_rides`, `rides_near` — их правит и RS-02: по очереди), `tests/test_rides_seats_filter.py`. Android: `data/ApiClient.kt` (`getNearbyRidesPaged`, `NearbyPage`: ≤ 12 строк, общий), `NearbyFeedSearch.kt`, `NearbyFiltersPanel.kt`, `SecondaryScreens.kt` (`FilterPrefs`, `FiltersScreen`), `data/SessionKeys.kt`, `MapScreen.kt` (общий с RS-10, RS-11: ≤ 15 строк), `YuldashApp.kt` (одна строка `:1335`, «замок»), новый `NearbySeats.kt`. Сайт: `api/discovery.ts`, `api/rides.ts`, `nearbyFeed.ts`, `filterPrefs.ts`, `components/NearbyFilters.tsx`, `components/RideSheet.tsx`, `screens/FiltersScreen.tsx`, `screens/HomeScreen.tsx` и `RidesScreen.tsx` (общие), новый `components/NearbySeatsCard.tsx`, `tests/*`, `tests/run.mjs` |
 | Источник | решения Александра 24.10: Q12 (места по участкам), Q10, Q17; `master/part-002.md`, «# P1» (удобства поиска) |
@@ -16,19 +16,19 @@
 Если подходящего нет, приложение не молчит: «Для 3 мест поездок нет. Есть 2 поездки на 2 места — искать на 2?» и предлагает следить за маршрутом.
 
 ## 2. Что уже есть в коде
-- `rides.py:491-505` `/rides` без параметра мест; `:510-513` `no_filter` — без фильтров отдаётся общий кеш `rides:active:v2`: новый параметр обязан попасть в этот `any([...])`, иначе фильтр молча не сработает; `:529` и `:924` стоит только `seats_left > 0`; `:901-917` `/rides/near`; `:978-982` лёгкие колонки (`_NEAR_SHAPE_AT = 3`, `:898` — новую колонку класть в конец, индексы не сдвигать); `:1022-1026` `hidden_unverified` — образец «спрятал только этот фильтр»; `:862-891` `_matched`/`_dropoff` — какую посадку и высадку предвыбирает карточка.
+- `rides.py:491-505` `/rides` без параметра мест; `:510-513` `no_filter` — без фильтров отдаётся общий кеш `rides:active:v2` (после RS-02 `v3`): новый параметр обязан попасть в этот `any([...])`, иначе фильтр молча не сработает; `:529` и `:924` стоит только `seats_left > 0`; `:901-917` `/rides/near`; `:978-982` лёгкие колонки (`_NEAR_SHAPE_AT = 3`, `:898` — новую колонку класть в конец, индексы не сдвигать); `:1022-1026` `hidden_unverified` — образец «спрятал только этот фильтр»; `:862-891` `_matched`/`_dropoff` — какую посадку и высадку предвыбирает карточка.
 - Android: `ApiClient.kt:838-891` `getNearbyRides`/`getNearbyRidesPaged`, `NearbyPage` (`:6422`); `MapScreen.kt:297-330` фильтры и запрос, `:499-507` состояния ленты, `:518-549` карточки состояний; `NearbyFiltersPanel.kt:197` `NearbyConditionsChip`; `NearbyFeedSearch.kt:59` `nearbySearch`; `SecondaryScreens.kt:1129` `FilterPrefs`, `:1161` `FiltersScreen`. Бронь: `BookingSeatCount.kt` (выбранное число урезается до доступного), `YuldashApp.kt:1335` — выбранные места всегда стартуют с `1`.
 - Сайт: `api/rides.ts:80-98` `RidesQuery`/`fetchRides`; `api/discovery.ts:38-93` `NearQuery`, `nearQueryString`, `NearRidesPage`; `nearbyFeed.ts:84-137` фильтры и ключ ленты, `:154-181` `nearbyFeedState`; `filterPrefs.ts:21-98` (JSON `yuldash.filterPrefs`, чистится при выходе — `privacy.ts:21`); `HomeScreen.tsx:120,171,196`; `RideSheet.tsx:69,85,90,259-263` — `useState(1)`; `RidesScreen.tsx:66`.
 - Не нашёл: параметра «нужно мест» на сервере и в клиентах; подсказки «на меньше мест».
 
 ## 3. Что сделать
-**Фаза A** — по `seats_left`. **Фаза B** (после RS-02) — вместо `seats_left` свободные места на участке человека; контракт параметров не меняется.
+**Фаза A** — по `seats_left`. **Фаза B** (после RS-02) — свободные места на участке человека; параметры и ответ те же.
 
 ### Сервер (`backend/`)
-1. **S1.** `GET /rides/near` и `GET /rides`: `seats: Optional[int] = Query(None, ge=1, le=8)` (вне диапазона → 422; без параметра — поведение прежнее). `/rides`: добавить `seats` в `any([...])` у `no_filter` и условие `Ride.seats_left >= seats`.
+1. **S1.** `GET /rides/near` и `GET /rides`: `seats: Optional[int] = Query(None, ge=1, le=8)` (вне диапазона → 422; без параметра — поведение прежнее). `/rides`: `seats` — в `any([...])` у `no_filter`; условие `Ride.seats_left >= seats` (фаза B: `ride_seats.any_free_sql(seats)`).
 2. **S2.** `/rides/near`: в лёгкие колонки — `Ride.seats_left.label("seats_free")` в конец. В цикле (`:992`) рейс без нужных мест уходит в `short`, а не выбрасывается (проверка по рейсу, не по «виду маршрута»: места у каждого свои). К `kept` и `short` применяются одни и те же `hide_*` и `verified_only`.
 3. **S3.** В ответ — `hidden_by_seats` (сколько рейсов поиска спрятал только этот фильтр) и `max_free_seats` (больше всего свободных среди них), только при `seats > 1`. `count`/страницы считаются уже с фильтром мест. `hidden_unverified` — как прежде: рейсы, спрятанные только «проверенными» среди прошедших по местам.
-4. **S4 (фаза B).** Для рейсов-кандидатов один пакетный запрос свободных мест по перегонам из RS-02 (не запрос на рейс). Участок — тот, что предвыбирает карточка (`_matched`/`_dropoff`); не предвыбран — от самой ранней подходящей посадки до названной высадки или конца. Условие: минимум свободных по перегонам участка ≥ `seats`. Имя функции — из RS-02; бюджет +100 мс на 2 000 кандидатов (замер в тесте).
+4. **S4 (фаза B).** В цикле, где RS-02 читает `seats_left, seats_free_max, leg_free` и проверяет «≥ 1», порог заменить на `seats`: участок однозначен (его предвыбирает карточка — `_matched`/`_dropoff`) → `ride_seats.free_on(…) ≥ seats`, иначе `max_free ≥ seats`. Данные уже в строке рейса — запросов не прибавляется (`test_no_query_per_item` зелёный).
 
 ### Android (`android/`)
 1. **A1.** `ApiClient.kt`: `getNearbyRidesPaged(…, seats: Int = 1)` (`seats > 1` → `&seats=`); `NearbyPage` + `hiddenBySeats`, `maxFreeSeats`.
@@ -36,13 +36,13 @@
 3. **A3.** Запоминание как у условий: `FilterPrefs.loadSeats/saveSeats` (ключ `default_seats` в ящике `yuldash_filters`, `putInt`), строка «Сколько вас обычно едет» в `FiltersScreen`. Лента стартует с него; чип меняет только этот поиск. Ключ дописать в `SessionKeys.CLEARED_BY_FILE["yuldash_filters"]` (сторож `SessionKeysGuardTest`).
 4. **A4.** `nearbySearch(…)` и ключи `LaunchedEffect` (`MapScreen.kt:318-319`) получают `seats` — смена места сбрасывает страницу.
 5. **A5.** Пусто: `seats > 1`, `hiddenBySeats > 0`, ничего не найдено → новое состояние «seats» (`MapScreen.kt:499-507`): «Для {N} мест поездок нет. Есть {M} на {K} — искать на {K}?», кнопка «Искать на {K}» (seats = `maxFreeSeats`) и «Следить за маршрутом» (RS-10). Скрытых нет — прежнее «пусто» с кнопкой RS-10. «Сбросить фильтры» сбрасывает и места (для этого поиска). При `seats > 1` под заголовком ленты: «Показаны поездки, где свободно {N} и больше».
-6. **A6.** В бронь: `object PassengerSeats { wanted }` (`NearbySeats.kt`) обновляется при смене чипа; `YuldashApp.kt:1335` стартует с `min(wanted, ride.seats)` (не меньше 1). Остальное — как было (`BookingSeatCount` урезает при устаревании).
+6. **A6.** В бронь: `object PassengerSeats { wanted }` (`NearbySeats.kt`) обновляется при смене чипа; `YuldashApp.kt:1335` стартует с `wanted` (не больше мест рейса, не меньше 1). Дальше `BookingSeatCount` сам урежет до мест на выбранном участке (RS-02).
 
 ### Сайт (`webapp/`)
 1. **W1.** `api/discovery.ts`: `NearQuery.seats` → `seats=` при > 1; `NearRidesPage.hidden_by_seats`, `max_free_seats`. `api/rides.ts`: `RidesQuery.seats`; `RidesScreen.tsx:66` передаёт сохранённое.
 2. **W2.** `filterPrefs.ts`: `seats` (1…8, по умолчанию 1) в JSON, чтение с проверкой диапазона; `write` и `saveVerifiedOnly` не теряют `seats`; строка в `FiltersScreen.tsx`.
 3. **W3.** `nearbyFeed.ts`: `seats` в `NearbyFilters`, `nearbyQuery`, `nearbyContextKey`; состояние `"seats"` в `nearbyFeedState`; `seatsHiddenLabel(...)`. `NearbyFilters.tsx`: чип «Мест» + шторка; `HomeScreen.tsx`: состояние `seats` (старт — `loadFilters().seats`), карточка `NearbySeatsCard.tsx`, сброс в `resetFeedFilters`.
-4. **W4.** `RideSheet.tsx`: `initialSeats` из ленты (иначе из `loadFilters().seats`), стартовое `min(initialSeats, ride.seats_left)` в `useState` и в сбросе `:85`.
+4. **W4.** `RideSheet.tsx`: `initialSeats` из ленты (иначе `loadFilters().seats`) — стартовое значение в `useState` и в сбросе `:85`, не больше `seats_left`; участок дальше урежет логика RS-02.
 
 ## 4. База данных
 Не меняется: фильтр читает `seats_left` (фаза A) и данные RS-02 (фаза B).
@@ -55,7 +55,7 @@
 - Башкирский и шрифт 200% не ломают чип и карточку; тёмная тема — `Canon*`; −/+ ≥ 48dp.
 
 ## 7. Тесты
-- Сервер `test_rides_seats_filter.py`: `seats=3` показывает рейс с 3 свободными, прячет с 2; `/rides` после «прогрева» общего кеша с `seats=2` не возвращает кешированный список; `hidden_by_seats`/`max_free_seats` верны, с `verified_only` и с заблокированным водителем (его в счёте нет); `count` и `limit/offset` согласованы; `seats=0`, `9` → 422; без параметра ответ прежний. Фаза B: рейс Сибай→Акъяр, пассажир Сибай→Ургаза на 2 места из 4 — поиск Ургаза→Акъяр на 4 находит его, на Сибай→Ургаза на 3 — нет; замер 2 000 рейсов.
+- Сервер `test_rides_seats_filter.py`: `seats=3` показывает рейс с 3 свободными, прячет с 2; `/rides` после «прогрева» общего кеша с `seats=2` не возвращает кешированный список; `hidden_by_seats`/`max_free_seats` верны, с `verified_only` и с заблокированным водителем (его в счёте нет); `count` и `limit/offset` согласованы; `seats=0`, `9` → 422; без параметра ответ прежний. Фаза B: рейс Сибай→Акъяр, пассажир Сибай→Ургаза на 2 места из 4 — поиск Ургаза→Акъяр на 4 находит его, Сибай→Ургаза на 3 — нет.
 - Android: `NearbySeatsTest` (чип, границы, подпись), `NearbyConditionsServerSideTest` (параметр в адресе), `BookingSeatCountTest` (старт `min(wanted, доступно)`), `FilterPrefs`, `ApiClientMoreTest` (разбор полей), сторожа `SessionKeysGuardTest`, `BilingualSourceGuardTest`, `CanonSourceGuardTest`.
 - Сайт: `nearby-feed-test.mjs` (адрес, ключ ленты, состояние «seats»), новый `seats-filter-test.mjs` (`filterPrefs` туда-обратно, `saveVerifiedOnly` не теряет места, старт брони) → в `ALL_SUITES`.
 - Мутации: убрать `seats` из `no_filter` → красен тест кеша; считать места по виду маршрута, а не по рейсу → красен тест разных рейсов; не добавить ключ в `CLEARED_BY_FILE` → красен сторож.
@@ -73,7 +73,7 @@
 
 ## 9. Риски и границы
 - Не входит: «в двух машинах», места участка на карточке (RS-02), `/match/rides`.
-- Фаза B может замедлить `/rides/near` — пакетный запрос и замер. Общие файлы (`rides.py` с RS-02, `ApiClient.kt`, `MapScreen.kt`, `HomeScreen.tsx`, `YuldashApp.kt`, `tests/run.mjs`) — по очереди.
+- Общие файлы (`rides.py` с RS-02, `ApiClient.kt`, `MapScreen.kt`, `HomeScreen.tsx`, `YuldashApp.kt`, `tests/run.mjs`) — по очереди.
 - Запомненное «3» тихо прячет рейсы с меньшим числом — чип горит, строка «Показаны поездки…» и подсказка «на меньше» это объясняют.
 
 ## 10. Журнал статуса

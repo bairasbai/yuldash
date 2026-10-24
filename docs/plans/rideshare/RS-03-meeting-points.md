@@ -29,7 +29,7 @@
 - `bookings.py:1826-1894` `/driver/bookings`; `livepos.py:1-13` — точка водителя только в Redis.
 - `routers/auth.py:1063-1109` `_location_summary`; `:1112-1152` `/me/data`; `:1155+` `/me/export` (`:1168-1170` «координаты не идут»).
 - `account.py:281-284,456` — удаление аккаунта удаляет брони; `cleanup.py:145-281` — правила только удаляют строки, брони с оценкой/чатом/SOS живут всегда (`:183-201`).
-- `errors.py:11-13` — `herr` без кода; код даёт `_pickup_refusal` (`bookings.py:302-303`).
+- `errors.py:11-13` — `herr` без кода (код добавляет RS-02); сейчас код даёт `_pickup_refusal` (`bookings.py:302-303`).
 - Android: `PickupStopPicker.kt:117-151` `BookingSegmentPicker`; `BookingActiveTripScreen.kt:887-933` `BookingMeetingCard` (`geo:` `:923`); `MapScreen.kt:1961` `PickupPickerOverlay(..., hint)`; `CreateRideScreen.kt:1084` `PickupSuggestionChips`; `DriverPassengerRow.kt:54`; `data/TripPass.kt:41,65`; `data/ApiClient.kt:1078-1100`, `:5446` `detailCode`.
 - Сайт: `components/RideSheet.tsx:135-144`; `screens/ActiveTripScreen.tsx:936-939`; `components/DriverPassengers.tsx:77,249`; `components/YandexMap.tsx:110` (выбора точки нет); `api/geo.ts:84`; `api/client.ts:150-158` (`ApiError` без `code`).
 - Своей точки пассажира, команды смены и зачистки — не нашёл.
@@ -50,7 +50,7 @@
 4. **Бронь:** `BookIn.meeting`, `BookIn.alighting`; проверка после разбора места (`:528-533`), до списания мест. `_booking_retry`: другая
    точка — 409 `meeting_point_conflict` с `booking_id`, та же — существующая бронь. В пуш — « · место встречи указано».
 5. **Команды** (`routers/meeting.py`, регистрация `routers/__init__.py:7,26`; права — `booking_and_ride_for_user`, `services.py:231`;
-   ошибки — по образцу `_pickup_refusal`):
+   все ошибки плана — `herr(status, ru, ba, code=...)` из RS-02):
    - `POST /bookings/{id}/meeting-point` — пассажир (иначе 403 `meeting_point_not_yours`): `kind` (`pickup`|`dropoff`), `point`,
      `base_version`. `pending` — применяем; `confirmed` — предложение, пуш водителю без места; `onboard` — только `dropoff`
      (409 `meeting_point_onboard`); `done`/`cancelled` — 409 `meeting_point_closed`; предел смен — 429 `meeting_point_too_many`;
@@ -63,8 +63,7 @@
    точку пассажира, если она есть. Новые поля: `pickup_note`, `pickup_landmark_ru/ba`, `pickup_source`, `dropoff_lat/lng/note/landmark_ru/ba`,
    `meeting_version`, `meeting_proposal`. Не отдавать: публичная карточка, `routers/share.py`, квитанция (`:847-880`), другие пассажиры.
 7. **«Подъезжаю»** (`:1096-1121`): есть `gps_target` — `_nearest_m(driver_points_for_ride(..., with_ride_point=True), цель)`; отказ
-   только дальше `stop_refuse_km`, «подтверждено» ближе `arrival_verify_radius_m` (булавка на глаз, сид примерный — ложный отказ
-   дороже, `:978-980`). Без точки — как сейчас.
+   только дальше `stop_refuse_km`, «подтверждено» ближе `arrival_verify_radius_m` (булавка на глаз — ложный отказ дороже, `:978-980`).
 8. **Зачистка** (`cleanup.py`): `scrub_meeting_points(now)` пачками по 2000 обнуляет `meet_*`, `alight_*`, `meet_proposal`:
    `cancelled` без `confirmed_at` — в ближайшую ночь; `done`/`cancelled` — через `meeting_point_keep_days` от
    `COALESCE(done_at, cancelled_at, created_at)`; кроме открытых SOS, `Incident` (`models.py:757`), `Report` (`new`/`reviewing`).
@@ -74,8 +73,8 @@
 10. **Удаление аккаунта** — код не меняется (брони уходят целиком), только тест.
 
 ### Android (`android/`)
-1. DTO — новые поля null-безопасно; `ApiClient.kt` — точки в бронь, `setMeetingPoint`, `answerMeetingPoint`, `withdrawMeetingPoint`,
-   отказы по `detailCode`; `TripPass.kt` — точка в офлайн-пропуск (в селе без сети она нужнее всего).
+1. DTO — новые поля null-безопасно; `ApiClient.kt` — точки в бронь и три новые команды, отказы по `detailCode`; `TripPass.kt` —
+   точка в офлайн-пропуск (в селе без сети она нужнее всего).
 2. `MeetingPointPicker.kt`: «Уточнить место (по желанию)» → шторка: `PickupSuggestionChips`, «На карте» → `PickupPickerOverlay(hint)`,
    пояснение. Без ключа MapKit — заглушка оверлея, остальное работает.
 3. `PickupStopPicker.kt` — строка под выбором посадки/высадки; `BookingMeetingCard` — своя точка, «Изменить место» / «Предложить
@@ -86,15 +85,15 @@
 5. `appText`, `Canon*`, цели ≥48dp, плашки — `AnimatedVisibility` с `CanonMotion`. Нового экрана нет — ⭐ п. 4 не нужен.
 
 ### Сайт (`webapp/`)
-1. `api/client.ts` — `code` в `ApiError` (`:383-391`), если его нет. `api/bookings.ts` — новые поля и три функции.
-2. `YandexMap.tsx` — режим «пин в центре» + `onCenterChange`; `MeetingPointPicker.tsx`.
+1. `api/client.ts` — `code` в `ApiError` (`:383-391`), если нет; `api/bookings.ts` — поля и три функции.
+2. `YandexMap.tsx` — «пин в центре» + `onCenterChange`; `MeetingPointPicker.tsx`.
 3. `RideSheet.tsx` — «Уточнить место»; `ActiveTripScreen.tsx` — точка, предложение, ожидание; `DriverPassengers.tsx` — как Android
    п. 4, «Маршрут» — `https://yandex.ru/maps/?rtext=~<lat>,<lng>&rtt=auto` (`rel="noopener"`).
 
 ## 4. База данных
-Миграция `cc_booking_meeting_points_<дата>`: `down_revision` — голова после RS-02 (сейчас `cb_sos_retry_intent_20261021`), одна голова
-в `alembic heads`; 11 колонок из шага 1, идемпотентно (образец `ca_booking_segments_20261018.py`); старые брони — NULL, правила
-прежние; `downgrade` снимает колонки. **Ждёт «да».**
+`<следующий префикс>_booking_meeting_points_<дата>`, `down_revision` — голова после `cc_ride_segment_seats` (RS-02; не ветвить с
+RS-05/06/14). 11 колонок из шага 1, идемпотентно (образец `ca_booking_segments_20261018.py`); старые брони — NULL, правила прежние;
+`downgrade` снимает колонки. **Ждёт «да».**
 
 ## 5. Надписи
 Русские; башкирский — черновик исполнителя (`yuldash-bashkir-linguist`) в `docs/tasks.md`, «Переводы на проверку».
@@ -141,7 +140,7 @@
 - Сид примерный — карта открывается на ориентире и просит проверить булавку.
 - Своя точка в выгрузке — решение плана (данные самого человека). Срок 30 дней — новое правило хранения → `docs/decisions.md`
   и `/me/data`; на проде сначала сухой прогон.
-- Общая зона с RS-02 и RS-05 (`bookings.py`, `models.py`) — по очереди (Q10).
+- Общая зона с RS-02, RS-05, RS-07 (`bookings.py`, `models.py`) — по очереди (Q10); с RS-05 точка входит в отпечаток тела брони.
 
 ## 10. Журнал статуса
 | Дата | Статус | Кто | PR / коммит | Заметка |

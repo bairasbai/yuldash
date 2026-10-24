@@ -6,15 +6,15 @@
 | Ждёт «да» Александра | да — договоры и расходы (sms.ru, провайдер WhatsApp), регистрация VK ID, ключи провайдеров (только `.env` на сервере), миграции прод-базы, выкладка, правка политики (новые обработчики данных), включение СМС-уведомлений безопасности |
 | Зависит от | RS-01 (`login_methods.py`, `/config/login-methods`, клиенты рисуют только доступное) |
 | Двигает сценарии приёмки | W1-E2E-05 (смена входа, доступ); W1-E2E-07 (живые СМС — по Q11 пока не проходим) |
-| Зона файлов | `backend/app/`: `login_methods.py`, `routers/auth.py`, `routers/login_admin.py` (новый), `routers/__init__.py`, `models.py`, `services.py`, `config.py`, `vk_id.py`, `whatsapp_otp.py` (новые); `backend/alembic/versions/` (новые миграции); `backend/.env.example` (только имена); `backend/tests/` — новые файлы из раздела 7. `android/app/src/main/java/com/yuldash/app/`: `LoginScreen.kt`, `LoginMethods.kt`, `data/ApiClient.kt`, `AdminLoginMethodsScreen.kt`, `LoginMethodsProfileScreen.kt` (новые), `AppNavAdmin.kt`, `MainActivity.kt` (только `enum Screen`), `SecondaryScreens.kt` (только `AdminCabinetScreen`), ветка профиля в `YuldashApp.kt`/`AppNav*.kt`; `AndroidManifest.xml` (возврат из VK); тесты. `webapp/src/`: `screens/LoginScreen.tsx`, `api/auth.ts`, `utils/loginFlow.js` + `.d.ts`, `screens/AdminLoginMethodsScreen.tsx`, `screens/LoginVkReturnScreen.tsx`, `screens/LoginMethodsScreen.tsx` (новые), `screens/AdminCabinetScreen.tsx`, `App.tsx`; `webapp/tests/`. Мозг: `docs/architecture.md`, `decisions.md`, `tasks.md` |
+| Зона файлов | `backend/app/`: `login_methods.py`, `routers/auth.py`, `routers/health.py`, `routers/login_admin.py` (новый), `routers/__init__.py`, `models.py`, `services.py`, `config.py`, `vk_id.py`, `whatsapp_otp.py` (новые); `backend/alembic/versions/` (новые миграции); `backend/.env.example` (только имена); `backend/tests/` — новые файлы из раздела 7. `android/app/src/main/java/com/yuldash/app/`: `LoginScreen.kt`, `LoginMethods.kt`, `data/ApiClient.kt`, новые `AdminLoginMethodsScreen.kt` и `LoginMethodsProfileScreen.kt`, `AppNavAdmin.kt`, `MainActivity.kt` (только `enum Screen`), `SecondaryScreens.kt` (только `AdminCabinetScreen`), ветка профиля в `YuldashApp.kt`/`AppNav*.kt`; `AndroidManifest.xml` (возврат из VK); тесты. `webapp/src/`: `screens/LoginScreen.tsx`, `api/auth.ts`, `utils/loginFlow.js` + `.d.ts`, `screens/AdminLoginMethodsScreen.tsx`, `screens/LoginVkReturnScreen.tsx`, `screens/LoginMethodsScreen.tsx` (новые), `screens/AdminCabinetScreen.tsx`, `App.tsx`; `webapp/tests/`. Мозг: `docs/architecture.md`, `decisions.md`, `tasks.md` |
 | Источник | `master/part-001.md` п. 1, 26, «Что нельзя…» п. 4; решения 24.10 Q13 (уточнено), Q9, Q11; 17.10 Q2, Q11 |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек
-- **Было → стало.** Тётя Гульназ из Акъяра не пользуется Telegram — войти ей нечем. Станет: первым на экране входа — «Номер телефона». Ввела номер — пришла СМС, телефон сам подставил код, «Войти». Не пришла — через минуту «Отправить ещё раз» или «Прислать в WhatsApp». У кого Telegram или VK — кнопки ниже.
+- **Было → стало.** Тётя Гульназ из Акъяра не пользуется Telegram — войти ей нечем. Станет: первым на экране входа — «Номер телефона». Ввела номер — пришла СМС, телефон сам подставил код. Не пришла — через минуту «Отправить ещё раз» или «Прислать в WhatsApp». Telegram и VK — ниже.
 - **Один человек — один аккаунт.** Рустам вчера входил через Telegram, сегодня по СМС с тем же номером — это тот же аккаунт с поездками и отзывами, а не второй.
 - **Выключатели у Александра.** В админке четыре переключателя: СМС, Telegram, VK, WhatsApp. Без договора с sms.ru СМС не включить — переключатель серый и говорит, чего не хватает. Выключенный способ люди не видят; видно, кто и когда включал.
-- **Защита.** Код не подобрать, номер не завалить СМС, счёт не разорить.
+- **Защита.** Код не подобрать, номер не завалить СМС.
 
 ## 2. Что уже есть в коде
 - `routers/auth.py:362-430` — `POST /auth/request-code`: приведение номера, замок номера (`_lock_otp_phone`, `:132-144`), ≤ 3 кода в минуту (`:387-395`), код не сохраняется до подтверждённой отправки (`:418-426`), `dev_code` только при `env == "dev"` (`:428-429`).
@@ -27,7 +27,7 @@
 - `security.py:68-93` — `normalize_phone` пропускает иностранные номера; `:398-402` — `gen_otp` (6 цифр, `secrets`).
 - «Кто что сделал» — только строка лога (`logs.py:67-85`); образец переключателя в админке — города такси (`routers/taxi.py:891-910`). Смены номера нет: `/me/update` «Телефон не меняем» (`auth.py:1305`).
 - Журнал без ключа и кода в адресах — #187 (`9202446`), `tests/test_httpx_log_hides_query_secrets.py`.
-- Android: `LoginScreen.kt:534-564` — СМС-поток, 429/503 → общее «Не удалось проверить код», таймера нет; `LoginSmsSection` — `:871-985`, `Color.White` — `:970`; библиотек автоподстановки в `build.gradle.kts:352-388` нет.
+- Android: `LoginScreen.kt:534-564` — СМС-поток: при проверке кода 429/503 → общее «Не удалось проверить код», таймера нет; `LoginSmsSection` — `:871-985`, `Color.White` — `:970`; библиотек автоподстановки в `build.gradle.kts:352-388` нет.
 - Админка: `SecondaryScreens.kt:1526`, `AppNavAdmin.kt:23-46`, `MainActivity.kt:534-597`; сайт — `AdminCabinetScreen.tsx:98`, `App.tsx:985`.
 - VK ID, WhatsApp-код, привязку способов — не нашёл.
 
@@ -41,7 +41,7 @@
 **А4. Двери:** все ручки входа и привязки — через `refuse_disabled` (RS-01); бот при выключенном Telegram отвечает «Вход через Telegram сейчас выключен» без кода.
 **А5. СМС — защита:**
 1. Номер после `normalize_phone` — только `+79\d{9}`, иначе 422 `phone_not_supported` (иностранные платные номера — главный способ разорить счёт).
-2. Лимиты выдачи — под замком номера, по `OtpCode`, все каналы вместе: номер — раз в 60 с, ≤ 5/час, ≤ 10/сутки; IP — ≤ 10/час; устройство (`X-Device-Id`) — ≤ 5/час; весь сервис — `SMS_DAILY_CAP` в сутки (по умолчанию 300) → 503 `sms_daily_cap` + одно сообщение дежурному. Превышение → 429 `otp_rate_limited` + `retry_after_sec`.
+2. Лимиты выдачи — под замком номера, по `OtpCode`, все каналы вместе: номер — раз в 60 с, ≤ 5/час, ≤ 10/сутки; IP — ≤ 10/час; устройство (`X-Device-Id`; сайт его не шлёт — там только IP) — ≤ 5/час; весь сервис — `SMS_DAILY_CAP` в сутки (по умолчанию 300) → 503 `sms_daily_cap` + одно сообщение дежурному. Превышение → 429 `otp_rate_limited` + `retry_after_sec`.
 3. `OtpCode` + `channel`, `ip_hash`, `device_hash` (HMAC с секретом сервера); уборка — `auth.py:690-705`.
 4. Код: 6 цифр, 5 минут, попытки — как сейчас. Хранить HMAC кода, сверка `compare_digest` (живые коды при выкладке перестанут подходить — 5 минут, допустимо).
 5. Ответ один для любого номера: `{"sent": true, "resend_after_sec": 60, "expires_in_sec": 300}`.
@@ -121,7 +121,7 @@
 - WhatsApp — договор и одобренный шаблон; без провайдера часть В не делается.
 - Политика (`webapp/src/legal.ts:84`, `web/components/legal-content.ts:85`) до включения должна назвать sms.ru, VK, провайдера WhatsApp — «да» Александра.
 - Аккаунт проверки стора работает только при включённом СМС — иначе дать проверяющим Telegram.
-- Не входит: слияние аккаунтов, вход по почте, звонок с кодом.
+- Не входит: слияние аккаунтов, почта.
 
 ## 10. Журнал статуса
 | Дата | Статус | Кто | PR / коммит | Заметка |
