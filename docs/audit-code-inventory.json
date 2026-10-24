@@ -888,8 +888,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/CancelledInTransit.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "7c6e36fb3e57d280b07adbd9e2321663a5ca32e7ec157bffb0517afad472c27c",
-      "lines": 480
+      "sha256": "0ff2d91c9386f545f4416a11dede1bd40d61f9f955a153bc1e5a44368e5c7d7f",
+      "lines": 488
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CanonTokens.kt",
@@ -2799,8 +2799,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CancelledInTransitTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "e8b0767f500fce832b3ee2595719bedee87f86e0e580ffd28a0d6604d8478d9d",
-      "lines": 446
+      "sha256": "febeb73c19bc6c32f8c39d7fdc4d72b5c3dbaba2967ca2b0a034f7fa0756b745",
+      "lines": 450
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CanonScaleTest.kt",

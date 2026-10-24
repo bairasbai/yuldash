@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -170,6 +171,11 @@ internal object InTransitCancels {
     internal fun clearForTest() {
         entries.clear()
     }
+
+    /** Для сообщений тестов: что помнит процесс (номер брони, вход, есть ли госномер) — без самих данных. */
+    @Synchronized
+    internal fun describeForTest(): String =
+        entries.entries.joinToString { (id, e) -> "$id@${e.owner}:plate=${e.car?.plate?.isNotBlank() == true}" }
 }
 
 /** Состояние экрана поездки: признак из подсказки или из [InTransitCancels] — отмена уже была видна. */
@@ -328,7 +334,9 @@ internal fun CancelledInTransitScreen(
     val shown by rememberUpdatedState(onShown)
     LaunchedEffect(bookingId) { if (isCurrent()) shown() }
     // Запомнить на этот вход: вернулся с SOS, повернул экран, открыл пуш без сети — экран помощи на месте.
-    LaunchedEffect(bookingId, state.car, state.driverName) {
+    // SideEffect, а не LaunchedEffect: запись — в том же кадре, что экран помощи. Корутина эффекта стартует
+    // кадром позже, и SOS, нажатый сразу, уводил с экрана раньше записи (CI PR207).
+    SideEffect {
         if (isCurrent()) InTransitCancels.record(bookingId, ownerGeneration, state.car, state.driverName)
     }
     LaunchedEffect(state.reportSec) {

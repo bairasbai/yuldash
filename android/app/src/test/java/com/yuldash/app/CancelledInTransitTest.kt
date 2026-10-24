@@ -141,7 +141,8 @@ class CancelledInTransitTest {
         try {
             compose.waitUntil(15_000) { settle(); condition() }
         } catch (e: ComposeTimeoutException) {
-            throw AssertionError("$what: запросы=${requests.toList()}, tripEnd=$tripEndCalls", e)
+            throw AssertionError("$what: запросы=${requests.toList()}, tripEnd=$tripEndCalls, " +
+                "память=[${InTransitCancels.describeForTest()}], сессия=${ApiClient.queueSessionGeneration()}", e)
         }
     }
 
@@ -360,6 +361,9 @@ class CancelledInTransitTest {
         savePass()
         leaveOnSos = true
         openTrip()
+        // Сначала экран помощи, потом госномер на нём: госномер виден и в паспорте живой поездки,
+        // и SOS, нажатый до экрана помощи, проверял бы не то.
+        waitForText("Поездку отменили в пути")
         waitForText("М555ОР102")
         compose.onNodeWithText("SOS — нужна помощь").performScrollTo().performClick()
         waitFor("не ушли на SOS") {
