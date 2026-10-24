@@ -3,6 +3,7 @@ package com.yuldash.app
 import android.app.Application
 import android.content.Context
 import android.os.Looper
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
@@ -115,8 +116,10 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         .put("booking_id", id).put("boarding_code", code).put("price", 700)
         .put("pay_method", method).put("pay_amount", amount))
     private fun disk(id: Int = 42) = secure.restarted().getString("pass_$id", null)
+    // Каждый шаг ожидания — idle главного Looper + доставка снимков (testing.md, правило 5).
     private fun waitFor(condition: () -> Boolean) = compose.waitUntil(15000) {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
+        Snapshot.sendApplyNotifications()
         condition()
     }
     private fun observeAfterReleasedResponse() {
@@ -145,6 +148,8 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         waitFor { trace.any { it.contains("ВЫШЛИ из вызова GET /bookings/42/details успешно") } }
         val ba = language == AppLanguage.Ba
         val error = if (ba) "Кодты йөкләп булманы" else "Не удалось загрузить код"
+        // Код посадки — отдельный запрос, не детали брони: его отказ доходит до экрана в своё время (CI PR207).
+        waitFor { compose.onAllNodesWithText(error).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(error).performScrollTo().assertIsDisplayed()
         val retry = if (ba) "Кодты яңынан йөкләргә" else "Повторить загрузку кода"
         if (rapid) compose.onNodeWithText(retry).performTouchInput { click(); advanceEventTime(50); click() }
@@ -167,6 +172,8 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         val sibling = disk(99)
         release.countDown()
         waitFor { JSONObject(requireNotNull(disk())).optString("boarding_code") == "5678" }
+        // Диск и экран — разные события: ждём и сам код на экране, а не только запись на диск.
+        waitFor { compose.onAllNodesWithText("5678").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("5678").performScrollTo().assertIsDisplayed()
         val saved = JSONObject(requireNotNull(disk()))
         assertEquals("cash", saved.getString("pay_method"))
